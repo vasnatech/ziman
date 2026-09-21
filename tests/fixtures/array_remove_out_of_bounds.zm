@@ -1,0 +1,4 @@
+fn main() {
+    val a = [1, 2]
+    print(remove(a, 5))
+}
