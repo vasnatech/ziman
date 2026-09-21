@@ -381,13 +381,17 @@ a time mid-implementation:
     always-auto-imported native module (a real "prelude," Rust-style) is
     an explicit non-decision — revisit only if keeping them special-cased
     forever starts costing something concrete, not on principle alone.
-- **Generics — in progress, staged struct → enum → function.** Design
-  decided (docs/DESIGN.md's "Generics" entry): explicit type arguments
-  everywhere (no inference), no bounds/constraints, a new `TY_TYPEVAR`
-  substituted on demand rather than monomorphized (`Value` is already
-  runtime-type-erased, so there's no per-instantiation runtime
-  representation to generate — only the type checker's substitution logic
-  is new).
+- **Generics — in progress, now a five-stage plan.** Design decided
+  (docs/DESIGN.md's "Generics" entry): explicit type arguments everywhere
+  (no inference), a new `TY_TYPEVAR` substituted on demand rather than
+  monomorphized (`Value` is already runtime-type-erased, so there's no
+  per-instantiation runtime representation to generate — only the type
+  checker's substitution logic is new). The original "no bounds/
+  constraints at all" decision has been narrowed, not reversed: still no
+  general trait/interface system, but a single hardcoded `Eq` bound is
+  being added specifically because `Map`/`Set` need it (see the
+  "Collections module" entry below) — a generic function body still can't
+  do anything else with an abstract `T`.
   - ~~**Stage 1: generic structs.**~~ Implemented (docs/SYNTAX.md
     "Generics"): `struct Box<T> { value: T }`, constructed as
     `Box<int> { value: 5 }`; field access, `==`, and `with` all
@@ -399,17 +403,55 @@ a time mid-implementation:
     with a real struct/enum name is rejected at declaration time (it
     would otherwise silently shadow real references to that type inside
     the generic struct's own fields).
-  - **Stage 2: generic enums.** Not started — `enum Option<T> { Some(T)
+  - **Stage 2: bounded type parameters (`<T: Eq>`).** Not started — the
+    one hardcoded bound, meaning "supports `==`." Needed before `Map`/
+    `Set` can be written: a function like `map_get<K: Eq, V>(m, key)`
+    has to do `key == k` on an abstract `K`, which `type_supports_equality`
+    correctly refuses today since nothing proves an unbounded `TY_TYPEVAR`
+    is comparable. Two checkpoints: (a) inside a bounded generic
+    declaration's own body, `==` on that type parameter type-checks; (b)
+    at every concrete instantiation (`Map<Channel<int>, V>`), the type
+    checker verifies the actual argument really does support `==`,
+    rejecting it there if not — so the guarantee "a bounded `T` is always
+    comparable" never gets falsified in practice.
+  - **Stage 3: generic enums.** Not started — `enum Option<T> { Some(T)
     None }`, construction as `Option<int>.Some(5)`/`Option<int>.None`,
     `is_X`/`unwrap_X` substituted the same way struct fields are now.
     This is the actual `Option<T>` motivation landing.
-  - **Stage 3: generic functions.** Not started — `fn identity<T>(x: T)
+  - **Stage 4: cross-module generics.** Not started — today's generics
+    are same-module only not because of anything about generics
+    specifically, but because the qualified-reference parser
+    (`mod.Name`/`mod.Name { ... }`) was never extended to also accept
+    `<Args>`, and enum access needs a second dot on top of that
+    (`mod.Option<int>.Some(5)`, vs. today's single-dot
+    `qualifier.name`/`qualifier.Type { ... }`). This is what actually lets
+    a shared `collections` module (below) export anything generic.
+  - **Stage 5: generic functions.** Not started — `fn identity<T>(x: T)
     -> T`, called as `identity<int>(5)`. Needs the one-token lookahead
     heuristic docs/DESIGN.md's "Generics" entry describes to disambiguate
     a generic call's `<` from a real comparison, which structs didn't
     need (an uppercase struct/type name can never be a real variable, but
     a generic function's lowercase callee genuinely can appear on the
-    left of `<`).
+    left of `<`). Needed to write `map_get`/`map_set`/`set_add`/etc. once
+    instead of once per concrete instantiation.
+- **Collections module (`Box`/`Option`/`Map`/`Set`) — the concrete payoff
+  of the generics work above, not started.** A `collections` module,
+  written in ordinary Ziman (no new native/C code), exporting `Box<T>`,
+  `Option<T>`, `Map<K: Eq, V>`, and `Set<T: Eq>` (`Set` needs `Eq` too, to
+  dedupe on insert) as plain structs/enums plus free functions
+  (`map_get`/`map_set`/`map_has`/`map_remove`, `set_add`/`set_contains`/
+  `set_remove`), depending on every stage of the generics entry above.
+  **`Map.get` must be O(1), not the O(n) linear scan a naive
+  parallel-arrays-plus-`Eq`-loop implementation would give** — this needs
+  real hash-bucket storage, which means a second bound, `Hash` (parallel
+  to `Eq`), so the type checker can prove a key type supports hashing the
+  same way `Eq` proves it supports `==`. Not yet decided: whether `Hash`
+  is hardcoded to the same scalar types `Eq`/array-`==` already special-
+  case (int/string/bool/float — matching the existing "no derived
+  equality/hashing for an arbitrary struct" pattern throughout the
+  language), which would keep `Map`/`Set` keys scalar-only in v0, or
+  whether it's worth a more general per-type hash story later. Revisit
+  when Stage 5 above is done and this module actually gets built.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.

@@ -319,21 +319,29 @@ several languages rather than inheriting any one of them wholesale.
   is just a pointer copy — no use-after-free, no data race. Only the
   channel's own queue needed a
   real mutex/condvar.
-- **Generics — explicit type arguments everywhere, no inference, no
-  bounds/constraints, staged struct → enum → function.** The
-  "hardcode one more parametric type into the compiler" trick (`[T]`,
-  `Result<T, E>`, `Channel<T>`) stopped scaling once `enum` shipped and
-  made the real demand concrete (`Option<T>`, and any other
-  Result/Option-shaped type a user wants, without another one-off C
-  special case each time — see the `enum` entry above and ROADMAP.md's
-  "Generics" entry). Every instantiation spells out its type arguments —
-  `Box<int> { value: 5 }`, never `Box { value: 5 }` inferred from the
-  field — the same "explicit over implicit" instinct behind `val`/`var`
-  requiring a declared type anywhere it can't be trivially inferred from
-  the right-hand side. No bounds or `where`-style constraints on a type
-  parameter, matching "no trait system yet" (see the classes-vs-traits
-  discussion above): a generic declaration's body can do nothing with an
-  abstract `T` beyond storing and passing it around. Represented as a new
+- **Generics — explicit type arguments everywhere, no inference, staged
+  in five parts.** The "hardcode one more parametric type into the
+  compiler" trick (`[T]`, `Result<T, E>`, `Channel<T>`) stopped scaling
+  once `enum` shipped and made the real demand concrete (`Option<T>`,
+  and any other Result/Option-shaped type a user wants, without another
+  one-off C special case each time — see the `enum` entry above and
+  ROADMAP.md's "Generics" entry). Every instantiation spells out its type
+  arguments — `Box<int> { value: 5 }`, never `Box { value: 5 }` inferred
+  from the field — the same "explicit over implicit" instinct behind
+  `val`/`var` requiring a declared type anywhere it can't be trivially
+  inferred from the right-hand side. **No general bounds/`where`-style
+  constraints** — no trait system yet (see the classes-vs-traits
+  discussion above): a generic declaration's body still can't do anything
+  with an abstract `T` beyond storing and passing it around, *except* one
+  single hardcoded bound, `Eq` (`<T: Eq>`, meaning "supports `==`"),
+  added specifically because `Map<K, V>`/`Set<T>` (see ROADMAP.md's
+  "Collections module" entry) need to compare an abstract key type —
+  without it, `key == k` inside a generic `map_get` would be exactly the
+  comparison an unbounded `TY_TYPEVAR` correctly can't prove safe. This
+  is a narrow, special-cased escape hatch, not the start of a general
+  trait system — a second bound (`Hash`, for `Map`'s O(1) `get`) is the
+  only other one currently anticipated, and both are closed, compiler-
+  known concepts, not user-definable interfaces. Represented as a new
   `TY_TYPEVAR` `TypeKind` — "the Nth/named formal parameter of the
   enclosing generic declaration" — substituted on demand wherever a
   concrete instantiation's fields/variants/parameters are actually looked
@@ -355,10 +363,11 @@ several languages rather than inheriting any one of them wholesale.
   parsing type arguments only if it looks like a type-starter) — deferred
   to the generic-functions stage, since generic structs don't need it.
   Same-module only for now, like `enum` — no `qualifier.Name<...>`
-  support yet. Staged as generic structs, then generic enums
-  (`enum Option<T> { Some(T) None }`, unlocking the actual `Option<T>`
-  motivation), then generic functions, each a smaller, independently
-  useful slice rather than one large change.
+  support yet. Staged as five independently useful slices rather than one
+  large change (see ROADMAP.md's "Generics" entry for the current state
+  of each): generic structs, bounded type parameters (`Eq`), generic
+  enums (unlocking `Option<T>`), cross-module generics (unlocking a
+  shared `collections` module), then generic functions.
 
 ## Deliberately deferred (not v0)
 
