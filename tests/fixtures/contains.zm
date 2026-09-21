@@ -1,0 +1,6 @@
+fn main() {
+    print(contains("hello world", "wor"))
+    print(contains("hello world", "xyz"))
+    print(contains([1, 2, 3], 2))
+    print(contains([1, 2, 3], 9))
+}

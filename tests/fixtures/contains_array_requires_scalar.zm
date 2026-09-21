@@ -1,0 +1,8 @@
+struct Point {
+    x: int
+    y: int
+}
+fn main() {
+    val pts: [Point] = [Point{x:1,y:2}]
+    print(contains(pts, Point{x:1,y:2}))
+}

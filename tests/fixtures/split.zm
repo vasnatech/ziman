@@ -1,0 +1,5 @@
+fn main() {
+    val parts = split("a,b,,c", ",")
+    print(parts)
+    print(len(parts))
+}

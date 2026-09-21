@@ -430,7 +430,28 @@ a type error.
   it in the format string would just be a second place for it to drift
   out of sync. Literal `{`/`}` characters can't appear unescaped in a
   format string in v0 (no escape syntax yet — tracked in ROADMAP.md).
-- `len(arr) -> int` — the element count of any `[T]`.
+- `len(arr) -> int` / `len(s: string) -> int` — the element count of any
+  `[T]`, or the byte length of a `string`.
+- `substring(s: string, start: int, end: int) -> string` — the substring
+  `[start, end)`. `start`/`end` must satisfy `0 <= start <= end <=
+  len(s)`, a runtime error otherwise.
+- `split(s: string, sep: string) -> [string]` — splits `s` on every
+  occurrence of `sep`. `sep` must not be `""` (runtime error) — an empty
+  separator has no well-defined split points. Empty pieces (adjacent
+  separators, or a leading/trailing separator) are kept, so `len(result)`
+  is always `count(sep in s) + 1`.
+- `trim(s: string) -> string` — `s` with leading/trailing whitespace
+  removed.
+- `to_upper(s: string) -> string` / `to_lower(s: string) -> string` —
+  ASCII case conversion.
+- `parse_int(s: string) -> Result<int, string>` / `parse_float(s: string)
+  -> Result<float, string>` — parses all of `s` as a number; `Err` (with
+  a message) if `s` has leading/trailing junk or doesn't parse at all.
+- `contains(s: string, needle: string) -> bool` / `contains(arr: [T], x:
+  T) -> bool` — substring test, or array membership test via `==`. The
+  array form requires `T` to be a scalar (`int`/`float`/`bool`/`string`)
+  — same restriction as array `==`/`!=`, since only scalars have a
+  well-defined equality in v0.
 - `push(arr: [T], x: T) -> [T]` — a new array with `x` appended.
 - `insert(arr: [T], i: int, x: T) -> [T]` — a new array with `x` inserted
   at index `i`; `i` must be in `[0, len(arr)]`, a runtime error otherwise.

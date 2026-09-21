@@ -1,0 +1,3 @@
+fn main() {
+    print(substring("hello", 2, 10))
+}

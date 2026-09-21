@@ -1,0 +1,4 @@
+fn main() {
+    print(to_upper("Hello"))
+    print(to_lower("Hello"))
+}

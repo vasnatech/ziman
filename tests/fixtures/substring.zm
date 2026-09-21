@@ -1,0 +1,5 @@
+fn main() {
+    print(substring("hello world", 0, 5))
+    print(substring("hello world", 6, 11))
+    print(substring("hello", 0, 0))
+}

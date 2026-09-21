@@ -78,13 +78,16 @@ a time mid-implementation:
   the full design and what's still not covered by it (see also: it
   turned out *not* to force the generics question the way this entry
   originally guessed — see that entry's update).
-- **Almost no string manipulation.** `concat`/`str`/`format` exist;
-  substring, split, trim, find, replace, and parsing a string into a
-  number (the reverse of `str`) don't. A backend parses untrusted text
-  constantly (request bodies, headers, query strings). Concretely hit
-  while writing the modules example: `len` only accepts `[T]`, not
-  `string` — there's no way to ask a string its length at all right now
-  (worked around there with `!= ""`, which only covers the empty case).
+- ~~**Almost no string manipulation.**~~ `concat`/`str`/`format` plus now
+  `len` (also accepts `string`), `substring`, `split`, `trim`,
+  `to_upper`/`to_lower`, `parse_int`/`parse_float`, and `contains`
+  (string-in-string, and array membership for scalar `[T]`) — see
+  docs/SYNTAX.md "Builtins". Still missing: `replace`, and a general
+  `index_of`/`find` (deferred — see the `index_of` entry below on why it
+  needs `Option<T>` or a Result-shaped decision first). Numeric
+  (`abs`/`min`/`max`/`floor`/`ceil`/`round`) and array (`remove`, `==`/
+  `!=`) builtins are the next items in this same "complete the built-in
+  function set" pass.
 - **No concurrency story.** Serving more than one request without
   blocking everything needs at least a primitive answer (even a
   native-thread-per-request module would need its own native module for

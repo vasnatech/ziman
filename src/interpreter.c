@@ -1,5 +1,8 @@
+#define _POSIX_C_SOURCE 200809L
 #include "interpreter.h"
 
+#include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,8 +76,123 @@ static Value call_str(Value arg) {
     return value_string(value_display(arg));
 }
 
-static Value call_len(Value arr) {
-    return value_int(arr.as.arr->count);
+static Value call_len(Value v) {
+    if (v.type.kind == TY_STRING) {
+        return value_int((int64_t)strlen(v.as.s));
+    }
+    return value_int(v.as.arr->count);
+}
+
+static Value call_substring(Value s, Value start, Value end, int line, int col) {
+    const char *str = s.as.s;
+    int64_t len = (int64_t)strlen(str);
+    int64_t st = start.as.i, en = end.as.i;
+    if (st < 0 || en > len || st > en) {
+        ziman_error("runtime", line, col, "substring index out of bounds (start=%lld, end=%lld, length=%lld)",
+                    (long long)st, (long long)en, (long long)len);
+    }
+    size_t n = (size_t)(en - st);
+    char *buf = malloc(n + 1);
+    memcpy(buf, str + st, n);
+    buf[n] = '\0';
+    return value_string(buf);
+}
+
+static Value call_split(Value s, Value sep, int line, int col) {
+    const char *str = s.as.s;
+    const char *delim = sep.as.s;
+    size_t delim_len = strlen(delim);
+    if (delim_len == 0) {
+        ziman_error("runtime", line, col, "split: separator must not be empty");
+    }
+    Value *items = NULL;
+    int count = 0, cap = 0;
+    const char *cursor = str;
+    for (;;) {
+        const char *found = strstr(cursor, delim);
+        size_t piece_len = found ? (size_t)(found - cursor) : strlen(cursor);
+        char *piece = malloc(piece_len + 1);
+        memcpy(piece, cursor, piece_len);
+        piece[piece_len] = '\0';
+        if (count == cap) {
+            cap = cap == 0 ? 4 : cap * 2;
+            items = realloc(items, (size_t)cap * sizeof(Value));
+        }
+        items[count++] = value_string(piece);
+        if (!found) break;
+        cursor = found + delim_len;
+    }
+    return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, count));
+}
+
+static Value call_trim(Value s) {
+    const char *str = s.as.s;
+    size_t len = strlen(str);
+    size_t start = 0, end = len;
+    while (start < end && isspace((unsigned char)str[start])) start++;
+    while (end > start && isspace((unsigned char)str[end - 1])) end--;
+    size_t n = end - start;
+    char *buf = malloc(n + 1);
+    memcpy(buf, str + start, n);
+    buf[n] = '\0';
+    return value_string(buf);
+}
+
+static Value call_to_upper(Value s) {
+    const char *str = s.as.s;
+    size_t len = strlen(str);
+    char *buf = malloc(len + 1);
+    for (size_t i = 0; i < len; i++) buf[i] = (char)toupper((unsigned char)str[i]);
+    buf[len] = '\0';
+    return value_string(buf);
+}
+
+static Value call_to_lower(Value s) {
+    const char *str = s.as.s;
+    size_t len = strlen(str);
+    char *buf = malloc(len + 1);
+    for (size_t i = 0; i < len; i++) buf[i] = (char)tolower((unsigned char)str[i]);
+    buf[len] = '\0';
+    return value_string(buf);
+}
+
+static Value call_parse_int(Value s) {
+    Type result_type = type_result(type_scalar(TY_INT), type_scalar(TY_STRING));
+    const char *str = s.as.s;
+    char *endptr;
+    errno = 0;
+    long long v = strtoll(str, &endptr, 10);
+    if (endptr == str || *endptr != '\0' || errno == ERANGE) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "cannot parse '%s' as int", str);
+        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
+    }
+    return value_result(result_type, result_obj_new(1, value_int((int64_t)v)));
+}
+
+static Value call_parse_float(Value s) {
+    Type result_type = type_result(type_scalar(TY_FLOAT), type_scalar(TY_STRING));
+    const char *str = s.as.s;
+    char *endptr;
+    errno = 0;
+    double v = strtod(str, &endptr);
+    if (endptr == str || *endptr != '\0' || errno == ERANGE) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "cannot parse '%s' as float", str);
+        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
+    }
+    return value_result(result_type, result_obj_new(1, value_float(v)));
+}
+
+static Value call_contains(Value first, Value second) {
+    if (first.type.kind == TY_STRING) {
+        return value_bool(strstr(first.as.s, second.as.s) != NULL);
+    }
+    ArrayObj *arr = first.as.arr;
+    for (int i = 0; i < arr->count; i++) {
+        if (value_equals(arr->items[i], second)) return value_bool(1);
+    }
+    return value_bool(0);
 }
 
 /* push/insert/set never mutate their `arr` argument -- they always build a
@@ -280,6 +398,22 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_unwrap(args[0], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "unwrap_err") == 0) {
                 result = call_unwrap_err(args[0], e->line, e->col);
+            } else if (strcmp(e->as.call.callee, "substring") == 0) {
+                result = call_substring(args[0], args[1], args[2], e->line, e->col);
+            } else if (strcmp(e->as.call.callee, "split") == 0) {
+                result = call_split(args[0], args[1], e->line, e->col);
+            } else if (strcmp(e->as.call.callee, "trim") == 0) {
+                result = call_trim(args[0]);
+            } else if (strcmp(e->as.call.callee, "to_upper") == 0) {
+                result = call_to_upper(args[0]);
+            } else if (strcmp(e->as.call.callee, "to_lower") == 0) {
+                result = call_to_lower(args[0]);
+            } else if (strcmp(e->as.call.callee, "parse_int") == 0) {
+                result = call_parse_int(args[0]);
+            } else if (strcmp(e->as.call.callee, "parse_float") == 0) {
+                result = call_parse_float(args[0]);
+            } else if (strcmp(e->as.call.callee, "contains") == 0) {
+                result = call_contains(args[0], args[1]);
             } else {
                 FunctionDecl *fn = find_function(module, e->as.call.callee);
                 result = call_function(module, fn, args, argc, e->line, e->col);

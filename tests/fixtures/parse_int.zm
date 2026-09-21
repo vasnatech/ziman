@@ -1,0 +1,10 @@
+fn main() {
+    val ok_int = parse_int("42")
+    if is_ok(ok_int) {
+        print(unwrap(ok_int))
+    }
+    val bad_int = parse_int("not a number")
+    if !is_ok(bad_int) {
+        print(unwrap_err(bad_int))
+    }
+}

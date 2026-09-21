@@ -1,0 +1,10 @@
+fn main() {
+    val ok_float = parse_float("3.14")
+    if is_ok(ok_float) {
+        print(unwrap(ok_float))
+    }
+    val bad_float = parse_float("nope")
+    if !is_ok(bad_float) {
+        print(unwrap_err(bad_float))
+    }
+}
