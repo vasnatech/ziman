@@ -1,0 +1,11 @@
+enum Option<T> {
+    Some(T)
+    None
+}
+fn main() {
+    val a = Option<int>.Some(5)
+    val b = Option<int>.Some(5)
+    val c = Option<int>.None
+    print(a == b)
+    print(a == c)
+}

@@ -1,0 +1,7 @@
+enum Option<T> {
+    Some(T)
+    None
+}
+fn main() {
+    val a = Option.Some(5)
+}

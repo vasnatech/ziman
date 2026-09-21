@@ -1,0 +1,11 @@
+enum Option<T> {
+    Some(T)
+    None
+}
+struct Holder<T> {
+    value: Option<T>
+}
+fn main() {
+    val h = Holder<int> { value: Option<int>.Some(9) }
+    print(Option.unwrap_Some(h.value))
+}

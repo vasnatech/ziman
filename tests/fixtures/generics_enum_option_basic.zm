@@ -1,0 +1,18 @@
+enum Option<T> {
+    Some(T)
+    None
+}
+
+fn main() {
+    val a = Option<int>.Some(5)
+    val b = Option<int>.None
+
+    print(Option.is_Some(a))
+    print(Option.is_None(a))
+    print(Option.unwrap_Some(a))
+    print(Option.is_Some(b))
+    print(Option.is_None(b))
+
+    val s = Option<string>.Some("hi")
+    print(Option.unwrap_Some(s))
+}

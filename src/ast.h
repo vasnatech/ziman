@@ -182,7 +182,12 @@ struct Expr {
          * `Shape.Point()` (args empty, has_parens true), which is a type
          * error -- a unit variant is written bare, never with empty
          * parens, to keep one way to write it. */
-        struct { char *enum_name; char *member_name; ExprList args; int has_parens; } enum_access;
+        /* `type_args` is only ever non-empty on a *construction* access
+         * (`Option<int>.Some(5)`); a consumption call (`is_X`/`unwrap_X`)
+         * never needs them written out -- the type checker reads the
+         * concrete type straight off the argument's own already-known
+         * type instead (see check_enum_access in typecheck.c). */
+        struct { char *enum_name; char *member_name; ExprList args; int has_parens; TypeList type_args; } enum_access;
     } as;
 };
 
@@ -352,6 +357,7 @@ typedef struct {
 typedef struct {
     char *name;
     EnumVariantList variants;
+    TypeParamList type_params; /* empty for an ordinary, non-generic enum */
     int is_public;
     int line, col;
 } EnumDecl;

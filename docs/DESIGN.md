@@ -225,13 +225,14 @@ several languages rather than inheriting any one of them wholesale.
   single parametric shape directly into the compiler; a third
   (`Option<T>`) and a fourth (`Map<K, V>`) would mean the same one-off C
   work forever, in C, never in Ziman itself — the opposite of the
-  project's own goal. Fixing that needs two things together: real type
-  parameters (not yet built, deferred to its own design pass — see
-  ROADMAP.md's "Generics" entry) and a way to express "one of several
-  shapes, optionally holding data" at all, which a plain `struct` can't
-  (it's a pure product type). `enum` is the second half, shipped first,
-  as a *concrete* (non-generic) tagged union — `enum Option<T> { Some(T)
-  None }` still isn't expressible until generics land on top of this.
+  project's own goal. Fixing that needed two things together: real type
+  parameters (deferred to its own design pass at the time — see the
+  "Generics" entry below, now landed through generic enums) and a way to
+  express "one of several shapes, optionally holding data" at all, which
+  a plain `struct` can't (it's a pure product type). `enum` is the second
+  half, shipped first, as a *concrete* (non-generic) tagged union —
+  `enum Option<T> { Some(T) None }` wasn't expressible until generics
+  landed on top of this (it is now — see the "Generics" entry below).
   Considered Java's enum model as an alternative (a closed, homogeneous
   set of pre-built singleton values, e.g. `enum Color { RED, GREEN,
   BLUE }`, or `Planet(mass, radius)` constants sharing one field set) and

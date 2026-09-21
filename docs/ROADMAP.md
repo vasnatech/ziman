@@ -420,10 +420,20 @@ a time mid-implementation:
     instantiation-side enforcement now, ahead of the body-side check,
     means the guarantee "a bounded `T` is always comparable" will already
     hold by the time Stage 5 needs to rely on it.
-  - **Stage 3: generic enums.** Not started — `enum Option<T> { Some(T)
-    None }`, construction as `Option<int>.Some(5)`/`Option<int>.None`,
-    `is_X`/`unwrap_X` substituted the same way struct fields are now.
-    This is the actual `Option<T>` motivation landing.
+  - ~~**Stage 3: generic enums.**~~ Implemented (docs/SYNTAX.md
+    "Generics"): `enum Option<T> { Some(T) None }`, constructed as
+    `Option<int>.Some(5)`/`Option<int>.None` — the actual `Option<T>`
+    motivation landing. Construction spells out type arguments like a
+    generic struct; consumption (`Option.is_Some(a)`/
+    `Option.unwrap_Some(a)`) deliberately never does, since the concrete
+    instantiation is already fully known from the argument's own value —
+    the type checker reads it off the argument's resolved type instead of
+    requiring (redundant) restatement, and rejects
+    `Option<int>.is_Some(a)` as a compile-time error for writing it
+    anyway. `is_X`/`unwrap_X`/`==` all substitute through
+    `decl->type_params`/the value's own `type_args` the same way struct
+    fields do. A bound (`enum Option<T: Eq> { ... }`) works identically to
+    a struct's.
   - **Stage 4: cross-module generics.** Not started — today's generics
     are same-module only not because of anything about generics
     specifically, but because the qualified-reference parser

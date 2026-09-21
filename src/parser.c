@@ -232,22 +232,19 @@ static Expr *parse_primary(Parser *p) {
             return e;
         }
         /* An uppercase identifier immediately followed by '<' is always a
-         * generic struct literal's explicit type arguments
-         * (`Box<int> { ... }`) -- unambiguous with a comparison for the
-         * same reason struct-literal `{' is: an uppercase name can never
-         * be a real variable, so it can never be the left operand of a
-         * real '<' comparison either. Same same-module-only scope as
-         * enums (see parse_type's TOK_LT branch). */
+         * generic struct/enum's explicit type arguments (`Box<int> {
+         * ... }`, `Option<int>.Some(5)`) -- unambiguous with a comparison
+         * for the same reason struct-literal `{'/enum-access `.` already
+         * are: an uppercase name can never be a real variable, so it can
+         * never be the left operand of a real '<' comparison either.
+         * Parsed once here, then dispatched below by whichever of '{'/'.'
+         * follows. Same same-module-only scope as enums otherwise have
+         * (see parse_type's TOK_LT branch). */
+        TypeList type_args = {0};
+        int has_type_args = 0;
         if (starts_upper(name) && check(p, TOK_LT)) {
-            TypeList type_args = parse_type_args(p);
-            expect(p, TOK_LBRACE, "'{'");
-            FieldInitList fields = parse_field_inits(p, TOK_RBRACE);
-            expect(p, TOK_RBRACE, "'}'");
-            Expr *e = expr_new(EXPR_STRUCT_LIT, t->line, t->col);
-            e->as.struct_lit.type_name = name;
-            e->as.struct_lit.fields = fields;
-            e->as.struct_lit.type_args = type_args;
-            return e;
+            type_args = parse_type_args(p);
+            has_type_args = 1;
         }
         /* An uppercase identifier immediately followed by '{' is always a
          * struct literal -- in every position, including an `if`/`while`
@@ -260,7 +257,38 @@ static Expr *parse_primary(Parser *p) {
             Expr *e = expr_new(EXPR_STRUCT_LIT, t->line, t->col);
             e->as.struct_lit.type_name = name;
             e->as.struct_lit.fields = fields;
+            e->as.struct_lit.type_args = type_args;
             return e;
+        }
+        /* `EnumName[<Args>].Variant[(payload)]` (construction) or
+         * `EnumName[<Args>].function(args)` (an is_X/unwrap_X consumption
+         * call) -- both share this shape, disambiguated later by the type
+         * checker (see EXPR_ENUM_ACCESS in ast.h). Unlike the
+         * `qualifier.name` forms below, this needs no speculative
+         * backtracking: a module qualifier is always lowercase (enforced
+         * on `use ... as`), so an uppercase `name` immediately followed by
+         * '.' can only ever mean this. */
+        if (starts_upper(name) && check(p, TOK_DOT)) {
+            advance_tok(p); /* '.' */
+            Token *member_tok = expect(p, TOK_IDENT, "a variant or function name");
+            char *member = dup_token_text(member_tok);
+            ExprList args = {0};
+            int has_parens = 0;
+            if (match(p, TOK_LPAREN)) {
+                has_parens = 1;
+                args = parse_comma_separated(p, TOK_RPAREN);
+                expect(p, TOK_RPAREN, "')'");
+            }
+            Expr *e = expr_new(EXPR_ENUM_ACCESS, t->line, t->col);
+            e->as.enum_access.enum_name = name;
+            e->as.enum_access.member_name = member;
+            e->as.enum_access.args = args;
+            e->as.enum_access.has_parens = has_parens;
+            e->as.enum_access.type_args = type_args;
+            return e;
+        }
+        if (has_type_args) {
+            ziman_error("syntax", t->line, t->col, "expected '{' or '.' after type arguments");
         }
         /* `qualifier.name(args)` (a call into an imported module) or
          * `qualifier.Type { ... }` (a struct literal from one) -- but a
@@ -269,35 +297,14 @@ static Expr *parse_primary(Parser *p) {
          * There's no way to tell which one this is without looking past
          * the dot, so: tentatively consume it, and if what follows doesn't
          * match either qualified shape, back out and leave the dot for
-         * parse_postfix to treat as plain field access. */
+         * parse_postfix to treat as plain field access. `name` is
+         * guaranteed lowercase here (an uppercase `name` followed by '.'
+         * was already handled, and returned from, above). */
         if (check(p, TOK_DOT)) {
             int saved_pos = p->pos;
             advance_tok(p); /* '.' */
             if (check(p, TOK_IDENT)) {
                 Token *second = advance_tok(p);
-                /* `EnumName.Variant[(payload)]` (construction) or
-                 * `EnumName.function(args)` (an is_X/unwrap_X consumption
-                 * call) -- both share this shape, disambiguated later by
-                 * the type checker (see EXPR_ENUM_ACCESS in ast.h). A
-                 * module qualifier is always lowercase (enforced on
-                 * `use ... as`), so an uppercase `name` can only mean this,
-                 * never the module forms below. */
-                if (starts_upper(name)) {
-                    char *member = dup_token_text(second);
-                    ExprList args = {0};
-                    int has_parens = 0;
-                    if (match(p, TOK_LPAREN)) {
-                        has_parens = 1;
-                        args = parse_comma_separated(p, TOK_RPAREN);
-                        expect(p, TOK_RPAREN, "')'");
-                    }
-                    Expr *e = expr_new(EXPR_ENUM_ACCESS, t->line, t->col);
-                    e->as.enum_access.enum_name = name;
-                    e->as.enum_access.member_name = member;
-                    e->as.enum_access.args = args;
-                    e->as.enum_access.has_parens = has_parens;
-                    return e;
-                }
                 if (match(p, TOK_LPAREN)) {
                     ExprList args = parse_comma_separated(p, TOK_RPAREN);
                     expect(p, TOK_RPAREN, "')'");
@@ -803,6 +810,10 @@ static EnumDecl *parse_enum_decl(Parser *p) {
     ed->line = kw->line;
     ed->col = kw->col;
 
+    if (check(p, TOK_LT)) {
+        ed->type_params = parse_type_param_list(p);
+    }
+
     expect(p, TOK_LBRACE, "'{'");
     skip_newlines(p);
     while (!check(p, TOK_RBRACE)) {
@@ -814,6 +825,7 @@ static EnumDecl *parse_enum_decl(Parser *p) {
         variant.col = variant_tok->col;
         if (match(p, TOK_LPAREN)) {
             variant.payload_type = parse_type(p);
+            if (ed->type_params.count > 0) reclassify_type_params(&variant.payload_type, &ed->type_params);
             variant.has_payload = 1;
             expect(p, TOK_RPAREN, "')'");
         }

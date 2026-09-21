@@ -352,8 +352,9 @@ fn main() {
 
 ## Generics
 
-**Structs only so far** — generic enums and functions are not yet
-implemented (see docs/ROADMAP.md's "Generics" entry).
+**Structs and enums so far** — generic functions are not yet
+implemented, and generics are same-module only for now (see
+docs/ROADMAP.md's "Generics" entry).
 
 ```
 struct Box<T> {
@@ -405,8 +406,42 @@ fn main() {
   is rejected at the generic struct's own declaration — without this
   check, every reference to the real `Point` inside `Box`'s own fields
   would be silently shadowed by the type parameter instead.
-- **Same-module only, like `enum`** — `mod.Box<int> { ... }` isn't
-  supported yet.
+- **Same-module only** — `mod.Box<int> { ... }` isn't supported yet.
+
+**Generic enums** work the same way, with construction spelling out type
+arguments and consumption never needing to:
+
+```
+enum Option<T> {
+    Some(T)
+    None
+}
+
+fn main() {
+    val a = Option<int>.Some(5)
+    val b = Option<int>.None
+
+    print(Option.is_Some(a))       // true
+    print(Option.unwrap_Some(a))   // 5
+    print(Option.is_None(b))       // true
+}
+```
+
+- **Construction spells out type arguments, same as a generic struct**:
+  `Option<int>.Some(5)`, never bare `Option.Some(5)` (a compile-time
+  error, "requires explicit type arguments").
+- **Consumption (`is_X`/`unwrap_X`) never takes type arguments** —
+  `Option.is_Some(a)`, `Option.unwrap_Some(a)`, not
+  `Option<int>.is_Some(a)` (also a compile-time error, "takes no type
+  arguments"). The concrete type is already fully known from `a`'s own
+  value, so restating it would be pure redundancy — unlike construction,
+  where there's no existing value to read it from.
+- Two different instantiations of the same generic enum
+  (`Option<int>.Some(1)` vs `Option<string>.Some("x")`) are different
+  types: `==`/`!=` between them is rejected the same way a generic
+  struct's mismatched instantiations are.
+- A bound (`enum Option<T: Eq> { ... }`) works the same as on a struct,
+  enforced at every construction site.
 
 ## Enums
 

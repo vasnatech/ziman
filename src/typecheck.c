@@ -108,7 +108,9 @@ static int type_supports_equality(Module *module, Type t, int depth) {
             if (decl == NULL) return 0;
             for (int i = 0; i < decl->variants.count; i++) {
                 EnumVariant *v = &decl->variants.items[i];
-                if (v->has_payload && !type_supports_equality(module, v->payload_type, depth + 1)) return 0;
+                if (!v->has_payload) continue;
+                Type payload_type = substitute_type(v->payload_type, &decl->type_params, &t.type_args);
+                if (!type_supports_equality(module, payload_type, depth + 1)) return 0;
             }
             return 1;
         }
@@ -847,8 +849,18 @@ static Type check_with_expr(Module *module, Env *env, Expr *e) {
     return base_type;
 }
 
-/* `EnumName.member[(args)]` -- construction if `member` names one of the
- * enum's own variants, or a consumption call if it matches the
+/* Whether `t` is *some* instantiation of the enum `decl` names, ignoring
+ * type arguments -- used on a consumption call (`is_X`/`unwrap_X`),
+ * where the concrete instantiation is read off the argument's own
+ * already-known type rather than written at the call site (see ast.h's
+ * enum_access comment), so a full type_equals (which would also compare
+ * type_args) is the wrong check here. */
+static int is_enum_instance(Type t, EnumDecl *decl) {
+    return t.kind == TY_ENUM && strcmp(t.enum_name, decl->name) == 0;
+}
+
+/* `EnumName[<Args>].member[(args)]` -- construction if `member` names one
+ * of the enum's own variants, or a consumption call if it matches the
  * compiler-generated `is_<variant>`/`unwrap_<variant>` naming convention
  * for one of them (mirroring Result's is_ok/unwrap/unwrap_err exactly,
  * just per-enum instead of hardcoded once). A variant name always starts
@@ -861,10 +873,27 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
     if (decl == NULL) {
         ziman_error("type", e->line, e->col, "no enum named '%s'", enum_name);
     }
+    TypeList *type_args = &e->as.enum_access.type_args;
 
     for (int i = 0; i < decl->variants.count; i++) {
         EnumVariant *v = &decl->variants.items[i];
         if (strcmp(v->name, member) != 0) continue;
+        /* Construction: explicit type arguments everywhere, no
+         * inference -- same rules as a generic struct literal. */
+        if (decl->type_params.count == 0 && type_args->count > 0) {
+            ziman_error("type", e->line, e->col, "'%s' is not generic, but was given %d type argument(s)", enum_name, type_args->count);
+        }
+        if (decl->type_params.count > 0 && type_args->count == 0) {
+            ziman_error("type", e->line, e->col, "'%s' is generic and requires explicit type arguments, e.g. '%s<...>.%s'", enum_name, enum_name, member);
+        }
+        if (decl->type_params.count != type_args->count) {
+            ziman_error("type", e->line, e->col, "'%s' takes %d type argument(s), found %d", enum_name, decl->type_params.count, type_args->count);
+        }
+        for (int ai = 0; ai < type_args->count; ai++) {
+            check_type_well_formed(module, type_args->items[ai], e->line, e->col);
+        }
+        check_type_args_satisfy_bounds(module, &decl->type_params, type_args, e->line, e->col);
+
         if (v->has_payload) {
             if (!e->as.enum_access.has_parens || e->as.enum_access.args.count != 1) {
                 ziman_error("type", e->line, e->col,
@@ -874,16 +903,27 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
             Expr *arg = e->as.enum_access.args.items[0];
             Type arg_type = check_expr(module, env, arg);
             require_not_void(arg, "as a variant payload");
-            if (!type_equals(arg_type, v->payload_type)) {
+            Type payload_type = substitute_type(v->payload_type, &decl->type_params, type_args);
+            if (!type_equals(arg_type, payload_type)) {
                 ziman_error("type", arg->line, arg->col, "variant '%s.%s' expects %s, found %s",
-                            enum_name, member, type_name(v->payload_type), type_name(arg_type));
+                            enum_name, member, type_name(payload_type), type_name(arg_type));
             }
         } else if (e->as.enum_access.has_parens) {
             ziman_error("type", e->line, e->col,
                         "variant '%s.%s' takes no payload -- write '%s.%s' without parentheses",
                         enum_name, member, enum_name, member);
         }
-        return type_enum(decl->name);
+        Type result = type_enum(decl->name);
+        result.type_args = *type_args;
+        return result;
+    }
+
+    /* Consumption (is_X/unwrap_X): no type arguments at the call site --
+     * the concrete instantiation comes from the argument's own already-
+     * known type instead. */
+    if (type_args->count > 0) {
+        ziman_error("type", e->line, e->col,
+                    "'%s.%s' takes no type arguments -- they're inferred from the argument's own type", enum_name, member);
     }
 
     static const char *IS_PREFIX = "is_";
@@ -898,7 +938,7 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
             }
             Expr *arg = e->as.enum_access.args.items[0];
             Type arg_type = check_expr(module, env, arg);
-            if (!type_equals(arg_type, type_enum(decl->name))) {
+            if (!is_enum_instance(arg_type, decl)) {
                 ziman_error("type", arg->line, arg->col, "'%s.%s' expects a %s, found %s",
                             enum_name, member, decl->name, type_name(arg_type));
             }
@@ -919,11 +959,11 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
             }
             Expr *arg = e->as.enum_access.args.items[0];
             Type arg_type = check_expr(module, env, arg);
-            if (!type_equals(arg_type, type_enum(decl->name))) {
+            if (!is_enum_instance(arg_type, decl)) {
                 ziman_error("type", arg->line, arg->col, "'%s.%s' expects a %s, found %s",
                             enum_name, member, decl->name, type_name(arg_type));
             }
-            return v->payload_type;
+            return substitute_type(v->payload_type, &decl->type_params, &arg_type.type_args);
         }
     }
 
@@ -1230,9 +1270,17 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
         }
         check_type_args_satisfy_bounds(module, &decl->type_params, &t.type_args, line, col);
     } else if (t.kind == TY_ENUM) {
-        if (find_enum(module, t.enum_name) == NULL) {
+        EnumDecl *decl = find_enum(module, t.enum_name);
+        if (decl == NULL) {
             ziman_error("type", line, col, "unknown enum type '%s'", t.enum_name);
         }
+        if (t.type_args.count != decl->type_params.count) {
+            ziman_error("type", line, col, "'%s' takes %d type argument(s), found %d", t.enum_name, decl->type_params.count, t.type_args.count);
+        }
+        for (int i = 0; i < t.type_args.count; i++) {
+            check_type_well_formed(module, t.type_args.items[i], line, col);
+        }
+        check_type_args_satisfy_bounds(module, &decl->type_params, &t.type_args, line, col);
     } else if (t.kind == TY_CHANNEL) {
         check_type_well_formed(module, *t.elem, line, col);
     }
@@ -1342,6 +1390,21 @@ void typecheck(Module *module) {
                     ziman_error("type", ed->variants.items[w].line, ed->variants.items[w].col,
                                 "variant '%s' is already defined in enum '%s'", ed->variants.items[w].name, ed->name);
                 }
+            }
+        }
+        /* Same reasoning as the struct type-parameter checks above. */
+        for (int tp = 0; tp < ed->type_params.count; tp++) {
+            const char *param_name = ed->type_params.items[tp].name;
+            for (int tq = tp + 1; tq < ed->type_params.count; tq++) {
+                if (strcmp(param_name, ed->type_params.items[tq].name) == 0) {
+                    ziman_error("type", ed->line, ed->col, "type parameter '%s' is already defined in enum '%s'", param_name, ed->name);
+                }
+            }
+            if (find_struct(module, param_name) != NULL) {
+                ziman_error("type", ed->line, ed->col, "type parameter '%s' in enum '%s' collides with an existing struct name", param_name, ed->name);
+            }
+            if (find_enum(module, param_name) != NULL) {
+                ziman_error("type", ed->line, ed->col, "type parameter '%s' in enum '%s' collides with an existing enum name", param_name, ed->name);
             }
         }
     }

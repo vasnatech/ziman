@@ -1,0 +1,8 @@
+enum Option<T> {
+    Some(T)
+    None
+}
+fn main() {
+    val a = Option<int>.Some(5)
+    print(Option<int>.is_Some(a))
+}

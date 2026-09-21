@@ -1,0 +1,8 @@
+enum Option<T: Eq> {
+    Some(T)
+    None
+}
+fn main() {
+    val c: Channel<int> = channel_new()
+    val a = Option<Channel<int>>.Some(c)
+}
