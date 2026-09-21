@@ -9,11 +9,13 @@ against before adding any of them.
 The first concrete target beyond language-design exercises: get Ziman
 capable enough to build a real backend service, using the existing
 `health-record` backend as the reference for what "capable enough" means.
-Exact scope (a representative core slice — CRUD API, database, auth, a
-couple of real endpoints — vs. full parity with every integration/FHIR/
-MFA/etc. the real backend has) is still an open question to settle before
-this drives detailed prioritization, but the architecture to get there is
-decided:
+
+**Scope, decided:** a representative core slice — a CRUD API, a database,
+basic auth, a couple of real endpoints — not full parity with everything
+the real backend does (every third-party integration, FHIR, MFA, the
+terminology DB, etc.). Expand later once the slice actually works; a
+smaller, finishable target is more useful right now than an exhaustive
+one that never lands. The architecture to get there:
 
 - **A module system is the load-bearing prerequisite.** Everything below
   (files, networking, a database client) gets organized as a module, not
