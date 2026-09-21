@@ -26,14 +26,20 @@ File extension: `.zm`.
 ## Grammar (informal EBNF)
 
 ```
-program        := { function_decl | struct_decl }
+program        := { use_decl | top_level_decl }   (* use may appear anywhere
+                     at the top level, though conventionally listed first *)
+top_level_decl := [ "pub" ] ( function_decl | native_fn_decl | struct_decl )
 
+use_decl       := "use" IDENT { "/" IDENT } [ "as" IDENT ]
 function_decl  := "fn" IDENT "(" [ param_list ] ")" [ "->" type ] block
+native_fn_decl := "native" "fn" IDENT "(" [ param_list ] ")" [ "->" type ]
+                    (* no body at all -- see "Modules" *)
 struct_decl    := "struct" TYPE_IDENT "{" NEWLINE* { field NEWLINE* } "}"
 field          := IDENT ":" type                  (* same shape as param *)
 param_list     := param { "," param }
 param          := IDENT ":" type
-type           := "int" | "float" | "bool" | "string" | "[" type "]" | TYPE_IDENT
+type           := "int" | "float" | "bool" | "string" | "[" type "]"
+                 | TYPE_IDENT | IDENT "." TYPE_IDENT   (* qualifier.Type *)
 
 block          := "{" NEWLINE* { statement NEWLINE* } "}"
 
@@ -63,9 +69,12 @@ unary          := ( "!" | "-" ) unary | postfix
 call           := primary { "(" [ arg_list ] ")" }
 arg_list       := expr { "," expr }
 primary        := INT_LIT | FLOAT_LIT | STRING_LIT | "true" | "false"
-                 | IDENT | "(" expr ")" | array_lit | struct_lit | with_expr
+                 | IDENT | qualified_call | qualified_struct_lit
+                 | "(" expr ")" | array_lit | struct_lit | with_expr
 array_lit      := "[" [ expr { "," expr } ] "]"
 struct_lit     := TYPE_IDENT "{" [ field_init { "," field_init } ] "}"
+qualified_call        := IDENT "." IDENT "(" [ arg_list ] ")"
+qualified_struct_lit  := IDENT "." TYPE_IDENT "{" [ field_init { "," field_init } ] "}"
 with_expr      := "with" postfix "{" [ field_init { "," field_init } ] "}"
 field_init     := IDENT ":" expr
 
@@ -73,14 +82,22 @@ field_init     := IDENT ":" expr
    casing note under Lexical rules. A struct literal is recognized purely
    by that casing, in every position a primary expression can appear,
    including an `if`/`while` condition -- there is no restricted position
-   the way Rust needs one for its own bare struct literals. *)
+   the way Rust needs one for its own bare struct literals.
+
+   qualified_call/qualified_struct_lit look identical to plain field access
+   (IDENT "." IDENT) until you see what follows the second identifier --
+   the parser tries the qualified form and falls back to ordinary
+   `.field` access (part of `postfix` above) if it doesn't match. See
+   "Modules" for what a qualifier actually resolves to. *)
 ```
 
 Notes on things this deliberately leaves out of v0 (tracked in ROADMAP.md):
-function calls as a primary only chain off an identifier (no first-class
-function values yet), no indexed/field *assignment* (`arr[i] = x` and
-`p.x = 1` aren't valid — see "Arrays" and "Structs" below), no `for` loop
-(only `while`), and no expression-level `if`.
+function calls as a primary only chain off a plain or single-qualified
+identifier, never an arbitrary expression (no first-class function values
+yet, so there's nothing to call *except* a name), no indexed/field
+*assignment* (`arr[i] = x` and `p.x = 1` aren't valid — see "Arrays" and
+"Structs" below), no `for` loop (only `while`), and no expression-level
+`if`.
 
 ## Types
 
@@ -192,6 +209,77 @@ fn main() {
   can name a struct declared later in the file. Referencing a struct name
   that's never declared anywhere is a compile-time error at the field (or
   parameter/return type) that names it.
+
+## Modules
+
+One file is one module, identified by its filesystem path — no separate
+`module Foo` declaration to keep in sync with the filename.
+
+```
+// models/user.zm
+pub struct User {
+    id: int
+    name: string
+}
+
+pub fn greet(u: User) -> string {
+    return format("hello, {}", u.name)
+}
+
+fn validate_name(name: string) -> bool {   // no `pub` -- private to this module
+    return len(name) > 0
+}
+```
+
+```
+// main.zm
+use models/user
+
+fn main() {
+    val u = user.User { id: 1, name: "Ada" }
+    print(user.greet(u))
+}
+```
+
+- **`use path/to/mod [as alias]`** — the path is slash-separated and maps
+  directly onto the filesystem (`models/user` → `models/user.zm`),
+  resolved relative to the entry file's own directory. Slash, not dot: a
+  module path never shares a token with `.field` access, which already
+  means something else. The name a module is referenced by (`user` above)
+  is the path's last segment by default, or the explicit `as` alias if
+  one is given — either way it's casing-enforced lowercase, like every
+  other value-like name.
+- **Every cross-module reference is qualified — `user.greet(u)`,
+  `user.User { ... }`, `field: user.User` — never a bare name that
+  happens to resolve to some import.** There is no unqualified/wildcard
+  import form. A qualified call or struct literal looks identical to
+  plain field access (`p.x`) until the parser sees what follows the
+  second identifier; see the grammar note above.
+- **`pub` marks a declaration for export; the default is private to the
+  module.** A private function/struct can be called/constructed freely
+  from within its own module, but referencing it from another module is
+  a compile-time error naming both the declaration and its module
+  (`function 'x' in module 'y' is private`). A consequence: struct and
+  function names only need to be unique *within* their own module, not
+  across the whole program — two modules can each declare their own
+  `Point`, even both private, without colliding.
+- **No separate manifest file.** The app's module dependency graph is
+  just its entry file's `use` statements, followed transitively — each
+  module is loaded and parsed at most once (a diamond dependency shares
+  one instance), and a circular `use` is a compile-time error instead of
+  infinite recursion.
+- **The entry file (the one passed to `ziman`) is never itself a `use`
+  target** — nothing imports an app's own entry point — so its own
+  top-level names stay bare/unqualified exactly as in a single-file
+  program. A program with no `use` statements behaves identically to
+  before modules existed.
+- **`native fn name(params) -> type`** declares a function with no body
+  at all — its implementation is a C function registered by module path
+  + name, looked up at call time. The type checker treats its signature
+  like any other function's; calling one with nothing registered for it
+  is a runtime error ("no registered implementation"). No real native
+  module ships yet (see docs/ROADMAP.md) — this is the language
+  mechanism landing ahead of any actual C-backed module.
 
 ## Semantic rules enforced before a program runs
 

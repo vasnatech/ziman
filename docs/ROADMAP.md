@@ -17,18 +17,22 @@ terminology DB, etc.). Expand later once the slice actually works; a
 smaller, finishable target is more useful right now than an exhaustive
 one that never lands. The architecture to get there:
 
-- **A module system is the load-bearing prerequisite.** Everything below
-  (files, networking, a database client) gets organized as a module, not
-  bolted directly onto the interpreter one builtin at a time the way
-  arrays'/structs' builtins were. Design decided — see the full write-up
-  under "Larger, needs its own design pass" below (file = module,
-  slash-separated `use` paths, always-qualified calls, `pub` for exports,
-  `native fn` for the C boundary). Implementation is still ahead.
+- ~~**A module system is the load-bearing prerequisite.**~~ Implemented —
+  see the full write-up under "Larger, needs its own design pass" below
+  (file = module, slash-separated `use` paths, always-qualified calls,
+  `pub` for exports, `native fn` for the C boundary). Everything below
+  (files, networking, a database client) can now actually be organized as
+  a module instead of bolted directly onto the interpreter one builtin at
+  a time the way arrays'/structs' builtins were.
 - **Only a minimal, fixed set of "native modules" touch C** — the actual
   syscalls (raw socket read/write, raw file descriptor I/O, maybe raw
   process/env access) and nothing more. A native module still presents
   ordinary typed Ziman function signatures to its callers, who shouldn't
   need to know or care whether a given module is native or pure Ziman.
+  `native fn` (the language mechanism for this) is implemented; no actual
+  native module exists yet, and neither does the registration mechanism
+  a real one would need (calling a `native fn` today always fails with
+  "no registered implementation" — see the module design write-up).
   Today's built-ins (`print`/`concat`/`str`/`format`/`len`/`push`/
   `insert`/`set`) are conceptually the same idea already, but stay
   special-cased and unqualified for now rather than being migrated into
@@ -149,23 +153,28 @@ a time mid-implementation:
   also entangled with the module system above: an effect story and a
   native-vs-pure-Ziman module boundary are naturally related questions
   (does calling into a native module always count as an effect?).
-- ~~**Modules / multi-file programs.**~~ Design decided (implementation
-  still ahead — this is a real multi-file rearchitecture of the parse/
-  typecheck/interpret pipeline, not a small addition):
+- ~~**Modules / multi-file programs.**~~ Implemented (`src/loader.c`):
   - **One file = one module**, identified by its filesystem path — no
     separate `module Foo` declaration to keep in sync with the filename.
   - **`use path/to/mod`** (slash, not dot — a module path is filesystem-
     literal and deliberately never shares a token with `.field` access,
-    which already means something else). Resolved project-relative
-    first, then against Ziman's bundled standard library, with no prefix
-    distinguishing the two — `use io` looks identical either way, same
-    "caller shouldn't need to know or care" principle as native vs.
-    pure-Ziman modules.
+    which already means something else). Resolved **project-relative
+    only for now** — against the directory containing the entry file
+    passed to `ziman`. There's no bundled standard library to fall back
+    to yet (nothing under "everything above the native floor" below has
+    been written), so that half of the design (`use io` finding a
+    bundled module the same way it'd find a local one) isn't built —
+    only the local-project half is.
   - **Every cross-module reference is qualified — `user.greet(u)`, never
     a bare `greet(u)` that happens to resolve to some import.** Same
     "derivable from the line itself" reasoning as `concat`/`str` existing
     instead of overloading `+`. There is no unqualified/wildcard import
-    form.
+    form. Implementation note: a qualified reference looks identical to
+    plain field access (`p.x`) until the parser sees what follows the
+    second identifier, so it's parsed speculatively and backed out of
+    (restoring position) if it doesn't match either `IDENT "("` or an
+    uppercase `TYPE_IDENT "{"` — confirmed not to disturb plain field
+    access via the existing struct test suite passing unchanged.
   - **Name-collision aliasing reuses `as`** (`use admin/user as
     admin_user`) — new meaning for an existing keyword, never ambiguous
     with cast-`as` since they only appear in different grammatical
@@ -173,21 +182,34 @@ a time mid-implementation:
   - **Exports require `pub`; default is private to the module** — same
     instinct as `val`/`var`: an important property is explicit at the
     declaration, not inferred from whether something outside happens to
-    use it. Corollary: struct/function names only need to be unique
-    *within* their own module, not across the whole program, unlike
-    today's single-file rule.
+    use it. Corollary, confirmed working (regression test
+    `multifile_name_isolation`): struct/function names only need to be
+    unique *within* their own module, not across the whole program,
+    unlike today's single-file rule.
   - **No separate manifest file** (`Cargo.toml`/`package.json`-style) —
     that solves third-party package versioning, which doesn't exist yet
     (already a stated non-goal). The app's dependency graph is just the
-    entry file's `use` statements, followed transitively; a cycle is
-    rejected.
+    entry file's `use` statements, followed transitively; a module is
+    loaded and parsed at most once (a diamond dependency shares one
+    instance, confirmed via `multifile_diamond`), and a cycle is a clear
+    compile-time error (`multifile_cycle`) instead of infinite recursion.
   - **A native module is `native fn name(params) -> type` with no `{ }`
-    body at all** — the type checker treats its signature like any other
-    function; the interpreter dispatches into a registered C
-    implementation by module path + name, generalizing (and making
-    visible in real source) what `print`/`concat`/etc. already do via
-    invisible special-casing today. A native module is still a normal,
-    browsable module from the importer's side.
+    body at all** — implemented as a *language mechanism* only: the type
+    checker treats its signature like any other function's, and calling
+    one always fails with "no registered implementation," since no
+    actual registration mechanism exists yet (there's nothing to
+    register — no real native module has been written). Building that
+    mechanism is part of whatever module gets built first under
+    "everything above the native floor" below.
+  - **Implementation strategy, not a language-semantics decision:** the
+    loader rewrites every module's own top-level names, and every
+    cross-module reference, to `<module_path>::<name>` and merges
+    everything into one flat Module *before* typecheck()/interpret() ever
+    run — so neither needed to learn anything about multiple modules at
+    all, only the loader did. Known cosmetic side effect: an error
+    message or a printed struct shows the qualified name (e.g.
+    `models/user::User`) rather than the plain declared one — harmless,
+    a little ugly, not worth fixing until it actually bothers someone.
   - **Today's built-in scalar/array machinery stays implicit for now** —
     `int`/`float`/`bool`/`string`/`[T]` and their functions (`print`,
     `concat`, `str`, `format`, `len`, `push`, `insert`, `set`) remain

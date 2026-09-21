@@ -130,6 +130,26 @@ several languages rather than inheriting any one of them wholesale.
   trained-in casing convention across mainstream languages, so a model
   doesn't need a Ziman-specific keyword to recognize "this constructs a
   value" at all.
+- **Modules: one file per module, always-qualified cross-module access,
+  `pub` required to export.** The driving goal is a representative slice
+  of a real backend (see docs/ROADMAP.md's North Star), which needs
+  files/networking/a database organized as real modules rather than
+  bolted onto the interpreter one builtin at a time. Every cross-module
+  call or type reference is qualified (`user.greet(u)`, never a bare
+  `greet(u)` that happens to resolve to some import) — the same
+  "derivable from the line itself" reasoning as principle #1 everywhere
+  else, just applied across files instead of within one. `pub` mirrors
+  `val`/`var`: an important property (is this part of the module's public
+  contract) is explicit at the declaration, not inferred from whether
+  something outside happens to use it. Implementation-wise, cross-module
+  references and a module's own top-level names are rewritten to
+  `<module_path>::<name>` by a loader pass before the existing single-
+  file type checker and interpreter ever run — chosen specifically so
+  neither needed to learn about multiple modules at all, only the loader
+  did. Full design (path resolution, `native fn` for the one place C is
+  allowed to show through, why there's no manifest file) is in
+  docs/ROADMAP.md, since it was designed and recorded there before
+  implementation, not the other way around.
 
 ## Deliberately deferred (not v0)
 
