@@ -287,6 +287,47 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         ziman_error("type", first_arg->line, first_arg->col, "'contains' expects a string or array as its first argument, found %s", type_name(first_type));
     }
 
+    if (strcmp(name, "abs") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'abs' takes exactly 1 argument, found %d", e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(module, env, arg);
+        if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT) {
+            ziman_error("type", arg->line, arg->col, "'abs' expects int or float, found %s", type_name(arg_type));
+        }
+        return arg_type;
+    }
+
+    if (strcmp(name, "min") == 0 || strcmp(name, "max") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly 2 arguments, found %d", name, e->as.call.args.count);
+        }
+        Expr *a_arg = e->as.call.args.items[0];
+        Type a_type = check_expr(module, env, a_arg);
+        if (a_type.kind != TY_INT && a_type.kind != TY_FLOAT) {
+            ziman_error("type", a_arg->line, a_arg->col, "'%s' expects int or float, found %s", name, type_name(a_type));
+        }
+        Expr *b_arg = e->as.call.args.items[1];
+        Type b_type = check_expr(module, env, b_arg);
+        if (!type_equals(b_type, a_type)) {
+            ziman_error("type", b_arg->line, b_arg->col, "'%s' expects both arguments to be the same type, found %s and %s", name, type_name(a_type), type_name(b_type));
+        }
+        return a_type;
+    }
+
+    if (strcmp(name, "floor") == 0 || strcmp(name, "ceil") == 0 || strcmp(name, "round") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(module, env, arg);
+        if (arg_type.kind != TY_FLOAT) {
+            ziman_error("type", arg->line, arg->col, "'%s' expects float, found %s", name, type_name(arg_type));
+        }
+        return type_scalar(TY_INT);
+    }
+
     if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0) {
         int is_push = strcmp(name, "push") == 0;
         int expected_argc = is_push ? 2 : 3;
@@ -775,7 +816,8 @@ void typecheck(Module *module) {
     static const char *builtins[] = {"print", "concat", "str", "format", "len", "push", "insert", "set",
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err",
                                       "substring", "split", "trim", "to_upper", "to_lower",
-                                      "parse_int", "parse_float", "contains"};
+                                      "parse_int", "parse_float", "contains",
+                                      "abs", "min", "max", "floor", "ceil", "round"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

@@ -3,6 +3,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -194,6 +195,31 @@ static Value call_contains(Value first, Value second) {
     }
     return value_bool(0);
 }
+
+static Value call_abs(Value x) {
+    if (x.type.kind == TY_INT) {
+        return value_int(x.as.i < 0 ? -x.as.i : x.as.i);
+    }
+    return value_float(x.as.f < 0 ? -x.as.f : x.as.f);
+}
+
+static Value call_min(Value a, Value b) {
+    if (a.type.kind == TY_INT) {
+        return value_int(a.as.i < b.as.i ? a.as.i : b.as.i);
+    }
+    return value_float(a.as.f < b.as.f ? a.as.f : b.as.f);
+}
+
+static Value call_max(Value a, Value b) {
+    if (a.type.kind == TY_INT) {
+        return value_int(a.as.i > b.as.i ? a.as.i : b.as.i);
+    }
+    return value_float(a.as.f > b.as.f ? a.as.f : b.as.f);
+}
+
+static Value call_floor(Value x) { return value_int((int64_t)floor(x.as.f)); }
+static Value call_ceil(Value x) { return value_int((int64_t)ceil(x.as.f)); }
+static Value call_round(Value x) { return value_int((int64_t)round(x.as.f)); }
 
 /* push/insert/set never mutate their `arr` argument -- they always build a
  * brand new ArrayObj and return a Value wrapping it, per docs/DESIGN.md's
@@ -414,6 +440,18 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_parse_float(args[0]);
             } else if (strcmp(e->as.call.callee, "contains") == 0) {
                 result = call_contains(args[0], args[1]);
+            } else if (strcmp(e->as.call.callee, "abs") == 0) {
+                result = call_abs(args[0]);
+            } else if (strcmp(e->as.call.callee, "min") == 0) {
+                result = call_min(args[0], args[1]);
+            } else if (strcmp(e->as.call.callee, "max") == 0) {
+                result = call_max(args[0], args[1]);
+            } else if (strcmp(e->as.call.callee, "floor") == 0) {
+                result = call_floor(args[0]);
+            } else if (strcmp(e->as.call.callee, "ceil") == 0) {
+                result = call_ceil(args[0]);
+            } else if (strcmp(e->as.call.callee, "round") == 0) {
+                result = call_round(args[0]);
             } else {
                 FunctionDecl *fn = find_function(module, e->as.call.callee);
                 result = call_function(module, fn, args, argc, e->line, e->col);

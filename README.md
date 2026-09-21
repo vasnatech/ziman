@@ -27,8 +27,9 @@ calling into C (a real, minimal `io` module — `read_file`/`write_file`
 (`io.read_file` returns one instead of crashing on a missing file), and
 a growing set of builtins (`print`, `concat`, `str`, `format`, `len`,
 `push`, `insert`, `set`, `substring`, `split`, `trim`, `to_upper`,
-`to_lower`, `parse_int`, `parse_float`, `contains`). See
-[docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately not here yet.
+`to_lower`, `parse_int`, `parse_float`, `contains`, `abs`, `min`, `max`,
+`floor`, `ceil`, `round`). See [docs/ROADMAP.md](docs/ROADMAP.md) for
+what's deliberately not here yet.
 
 ## Example
 

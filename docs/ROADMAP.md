@@ -85,9 +85,9 @@ a time mid-implementation:
   docs/SYNTAX.md "Builtins". Still missing: `replace`, and a general
   `index_of`/`find` (deferred — see the `index_of` entry below on why it
   needs `Option<T>` or a Result-shaped decision first). Numeric
-  (`abs`/`min`/`max`/`floor`/`ceil`/`round`) and array (`remove`, `==`/
-  `!=`) builtins are the next items in this same "complete the built-in
-  function set" pass.
+  builtins now also exist: `abs`/`min`/`max`/`floor`/`ceil`/`round`. Array
+  (`remove`, `==`/`!=`) builtins are the last item in this same
+  "complete the built-in function set" pass.
 - **No concurrency story.** Serving more than one request without
   blocking everything needs at least a primitive answer (even a
   native-thread-per-request module would need its own native module for

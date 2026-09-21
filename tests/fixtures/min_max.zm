@@ -1,0 +1,6 @@
+fn main() {
+    print(min(3, 7))
+    print(max(3, 7))
+    print(min(3.5, 1.2))
+    print(max(3.5, 1.2))
+}

@@ -452,6 +452,16 @@ a type error.
   array form requires `T` to be a scalar (`int`/`float`/`bool`/`string`)
   — same restriction as array `==`/`!=`, since only scalars have a
   well-defined equality in v0.
+- `abs(x: T) -> T` — absolute value; `T` is `int` or `float`.
+- `min(a: T, b: T) -> T` / `max(a: T, b: T) -> T` — `T` is `int` or
+  `float`; both arguments must be the same `T`, no implicit `int`/`float`
+  mixing (consistent with the language's general no-implicit-coercion
+  rule).
+- `floor(x: float) -> int` / `ceil(x: float) -> int` / `round(x: float)
+  -> int` — round towards negative infinity / positive infinity /
+  nearest (ties away from zero). All three take only `float` (an `int`
+  is already rounded) and return `int`, since that's the type the result
+  actually is.
 - `push(arr: [T], x: T) -> [T]` — a new array with `x` appended.
 - `insert(arr: [T], i: int, x: T) -> [T]` — a new array with `x` inserted
   at index `i`; `i` must be in `[0, len(arr)]`, a runtime error otherwise.
