@@ -352,8 +352,8 @@ fn main() {
 
 ## Generics
 
-**Structs and enums so far, cross-module included** — generic functions
-are not yet implemented (see docs/ROADMAP.md's "Generics" entry).
+**Structs, enums, and functions, cross-module included** — see
+docs/ROADMAP.md's "Generics" entry for how this was staged.
 
 ```
 struct Box<T> {
@@ -444,6 +444,42 @@ fn main() {
   struct's mismatched instantiations are.
 - A bound (`enum Option<T: Eq> { ... }`) works the same as on a struct,
   enforced at every construction site.
+
+**Generic functions** work the same explicit-type-argument way:
+
+```
+fn identity<T>(x: T) -> T {
+    return x
+}
+
+fn are_equal<T: Eq>(a: T, b: T) -> bool {
+    return a == b
+}
+
+fn main() {
+    print(identity<int>(5))            // 5
+    print(are_equal<int>(3, 3))        // true
+    print(are_equal<string>("a", "b")) // false
+}
+```
+
+- **Call sites spell out type arguments too**: `identity<int>(5)`, never
+  bare `identity(5)` when the declaration is generic.
+- **A bound is usable inside the function's own body**, unlike a struct
+  or enum's — a struct/enum has no body to use it in. `a == b` inside
+  `are_equal<T: Eq>` type-checks specifically because `T` carries the
+  `Eq` bound; the same expression inside an unbounded `fn f<T>(a: T, b:
+  T) -> bool { return a == b }` is a compile-time error naming the
+  missing bound.
+- **A generic call is the one place `<` is genuinely ambiguous with a
+  comparison** (`identity<int>(5)` vs. `x < y`), since a function's
+  callee is always lowercase — unlike a struct/enum reference, an
+  uppercase name is never involved. Resolved with a one-token lookahead:
+  the parser peeks at what immediately follows `<` and only commits to
+  parsing type arguments if it looks like the start of a type (a
+  primitive keyword, an uppercase identifier, `[`, `Result`, or
+  `Channel`).
+- **Cross-module works too**: `mod.identity<int>(5)`.
 
 ## Enums
 

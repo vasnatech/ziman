@@ -1,0 +1,27 @@
+struct Map<K: Eq, V> {
+    keys: [K]
+    values: [V]
+}
+
+enum Option<T> {
+    Some(T)
+    None
+}
+
+fn map_get<K: Eq, V>(m: Map<K, V>, key: K) -> Option<V> {
+    for i, k in m.keys {
+        if k == key {
+            return Option<V>.Some(m.values[i])
+        }
+    }
+    return Option<V>.None
+}
+
+fn main() {
+    val m = Map<int, string> { keys: [1, 2, 3], values: ["a", "b", "c"] }
+    val found = map_get<int, string>(m, 2)
+    val missing = map_get<int, string>(m, 99)
+    print(Option.is_Some(found))
+    print(Option.unwrap_Some(found))
+    print(Option.is_None(missing))
+}

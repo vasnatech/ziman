@@ -81,6 +81,32 @@ static TypeList parse_type_args(Parser *p) {
     return args;
 }
 
+/* One-token lookahead for the one place generic-call syntax is genuinely
+ * ambiguous with a real comparison: `identity<int>(5)` vs `x < y` both
+ * start with `lowercase_ident <`. A struct/enum reference never has this
+ * problem (an uppercase name can never be a real comparison operand --
+ * see parse_type's/parse_primary's own TOK_LT branches), so this is only
+ * needed for a call. Peeks at the token immediately *after* the `<`
+ * (not yet consumed -- `p`'s current token is still the `<` itself) and
+ * says yes only if it looks like the start of a type: a primitive
+ * keyword, an uppercase identifier, `[`, `Result`, or `Channel`. A real
+ * comparison's right-hand side can still coincidentally start with one
+ * of these (`x < Point { ... }`, `x < [1, 2, 3]`), but `<`/`>` only
+ * type-check between two numeric operands, so a false positive here
+ * fails type-checking loudly rather than silently misbehaving. */
+static int next_looks_like_generic_call(Parser *p) {
+    Token *after_lt = &p->tokens.items[p->pos + 1];
+    switch (after_lt->type) {
+        case TOK_KW_INT: case TOK_KW_FLOAT: case TOK_KW_BOOL: case TOK_KW_STRING:
+        case TOK_LBRACKET: case TOK_RESULT: case TOK_CHANNEL:
+            return 1;
+        case TOK_IDENT:
+            return starts_upper(after_lt->start);
+        default:
+            return 0;
+    }
+}
+
 static Type parse_type(Parser *p) {
     if (match(p, TOK_KW_INT)) return type_scalar(TY_INT);
     if (match(p, TOK_KW_FLOAT)) return type_scalar(TY_FLOAT);
@@ -229,6 +255,21 @@ static Expr *parse_primary(Parser *p) {
     }
     if (match(p, TOK_IDENT)) {
         char *name = dup_token_text(t);
+        /* `identity<int>(5)` -- a generic function call. Unlike a
+         * struct/enum's `<`, this genuinely can't be told apart from a
+         * real comparison (`x < y`) by casing alone, since a call's
+         * callee is always lowercase -- see next_looks_like_generic_call. */
+        if (!starts_upper(name) && check(p, TOK_LT) && next_looks_like_generic_call(p)) {
+            TypeList type_args = parse_type_args(p);
+            expect(p, TOK_LPAREN, "'('");
+            ExprList args = parse_comma_separated(p, TOK_RPAREN);
+            expect(p, TOK_RPAREN, "')'");
+            Expr *e = expr_new(EXPR_CALL, t->line, t->col);
+            e->as.call.callee = name;
+            e->as.call.args = args;
+            e->as.call.type_args = type_args;
+            return e;
+        }
         if (match(p, TOK_LPAREN)) {
             ExprList args = parse_comma_separated(p, TOK_RPAREN);
             expect(p, TOK_RPAREN, "')'");
@@ -357,6 +398,27 @@ static Expr *parse_primary(Parser *p) {
                         return e;
                     }
                     ziman_error("syntax", second->line, second->col, "expected '{' or '.' after '%s'", qualified);
+                }
+                /* `qualifier.func<Type>(args)` -- a generic function call
+                 * into another module. Same ambiguity, and same one-token
+                 * lookahead fix, as the unqualified case above; `second`
+                 * is guaranteed lowercase here (an uppercase one already
+                 * returned above), so this is the only place left that
+                 * needs it. */
+                if (check(p, TOK_LT) && next_looks_like_generic_call(p)) {
+                    TypeList type_args = parse_type_args(p);
+                    expect(p, TOK_LPAREN, "'('");
+                    ExprList args = parse_comma_separated(p, TOK_RPAREN);
+                    expect(p, TOK_RPAREN, "')'");
+                    size_t len = strlen(name) + 1 + (size_t)second->length + 1;
+                    char *qualified = malloc(len);
+                    snprintf(qualified, len, "%s.%.*s", name, second->length, second->start);
+                    free(name);
+                    Expr *e = expr_new(EXPR_CALL, t->line, t->col);
+                    e->as.call.callee = qualified;
+                    e->as.call.args = args;
+                    e->as.call.type_args = type_args;
+                    return e;
                 }
                 if (match(p, TOK_LPAREN)) {
                     ExprList args = parse_comma_separated(p, TOK_RPAREN);
@@ -687,6 +749,10 @@ static ParamList parse_params(Parser *p) {
     return params;
 }
 
+static TypeParamList parse_type_param_list(Parser *p);
+static void reclassify_type_params(Type *t, TypeParamList *type_params);
+static void reclassify_type_params_in_stmt(Stmt *s, TypeParamList *type_params);
+
 static FunctionDecl *parse_function(Parser *p) {
     Token *kw = expect(p, TOK_FN, "'fn'");
     Token *name_tok = expect(p, TOK_IDENT, "a function name");
@@ -697,6 +763,10 @@ static FunctionDecl *parse_function(Parser *p) {
     fn->line = kw->line;
     fn->col = kw->col;
 
+    if (check(p, TOK_LT)) {
+        fn->type_params = parse_type_param_list(p);
+    }
+
     expect(p, TOK_LPAREN, "'('");
     fn->params = parse_params(p);
     expect(p, TOK_RPAREN, "')'");
@@ -706,7 +776,17 @@ static FunctionDecl *parse_function(Parser *p) {
         fn->return_type = parse_type(p);
     }
 
+    if (fn->type_params.count > 0) {
+        for (int i = 0; i < fn->params.count; i++) {
+            reclassify_type_params(&fn->params.items[i].type, &fn->type_params);
+        }
+        reclassify_type_params(&fn->return_type, &fn->type_params);
+    }
+
     fn->body = parse_block(p);
+    if (fn->type_params.count > 0) {
+        reclassify_type_params_in_stmt(fn->body, &fn->type_params);
+    }
     return fn;
 }
 
@@ -801,6 +881,106 @@ static void reclassify_type_params(Type *t, TypeParamList *type_params) {
      * (`Box<T>`) whose own type arguments need the same treatment. */
     for (int i = 0; i < t->type_args.count; i++) {
         reclassify_type_params(&t->type_args.items[i], type_params);
+    }
+}
+
+/* Walks every Type value embedded inside an expression (a cast's target
+ * type, or a call/struct-literal/enum-access's own explicit type
+ * arguments) and reclassifies each one the same way a field/variant/
+ * param type already is. Needed because a generic *function*'s own type
+ * parameters can be referenced from inside its body too
+ * (`Option<V>.Some(...)`, `x as V`), which parsing the body's statements
+ * and expressions doesn't otherwise touch -- unlike a struct/enum
+ * declaration, where every type-bearing spot is a field or variant
+ * payload, reclassified right where it's parsed. Mirrors loader.c's
+ * self_qualify_expr/self_qualify_stmt shape exactly (same node kinds,
+ * same recursion), just touching Type nodes instead of qualifying names. */
+static void reclassify_type_params_in_expr(Expr *e, TypeParamList *type_params) {
+    switch (e->kind) {
+        case EXPR_INT: case EXPR_FLOAT: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
+            break;
+        case EXPR_UNARY:
+            reclassify_type_params_in_expr(e->as.unary.operand, type_params);
+            break;
+        case EXPR_BINARY:
+            reclassify_type_params_in_expr(e->as.binary.left, type_params);
+            reclassify_type_params_in_expr(e->as.binary.right, type_params);
+            break;
+        case EXPR_CALL:
+            for (int i = 0; i < e->as.call.type_args.count; i++) reclassify_type_params(&e->as.call.type_args.items[i], type_params);
+            for (int i = 0; i < e->as.call.args.count; i++) reclassify_type_params_in_expr(e->as.call.args.items[i], type_params);
+            break;
+        case EXPR_CAST:
+            reclassify_type_params_in_expr(e->as.cast.operand, type_params);
+            reclassify_type_params(&e->as.cast.target_type, type_params);
+            break;
+        case EXPR_ARRAY_LIT:
+            for (int i = 0; i < e->as.array_lit.elements.count; i++) reclassify_type_params_in_expr(e->as.array_lit.elements.items[i], type_params);
+            break;
+        case EXPR_INDEX:
+            reclassify_type_params_in_expr(e->as.index.array, type_params);
+            reclassify_type_params_in_expr(e->as.index.index, type_params);
+            break;
+        case EXPR_STRUCT_LIT:
+            for (int i = 0; i < e->as.struct_lit.type_args.count; i++) reclassify_type_params(&e->as.struct_lit.type_args.items[i], type_params);
+            for (int i = 0; i < e->as.struct_lit.fields.count; i++) reclassify_type_params_in_expr(e->as.struct_lit.fields.items[i].value, type_params);
+            break;
+        case EXPR_FIELD_ACCESS:
+            reclassify_type_params_in_expr(e->as.field_access.base, type_params);
+            break;
+        case EXPR_WITH:
+            reclassify_type_params_in_expr(e->as.with_expr.base, type_params);
+            for (int i = 0; i < e->as.with_expr.overrides.count; i++) reclassify_type_params_in_expr(e->as.with_expr.overrides.items[i].value, type_params);
+            break;
+        case EXPR_ENUM_ACCESS:
+            for (int i = 0; i < e->as.enum_access.type_args.count; i++) reclassify_type_params(&e->as.enum_access.type_args.items[i], type_params);
+            for (int i = 0; i < e->as.enum_access.args.count; i++) reclassify_type_params_in_expr(e->as.enum_access.args.items[i], type_params);
+            break;
+    }
+}
+
+static void reclassify_type_params_in_stmt(Stmt *s, TypeParamList *type_params) {
+    switch (s->kind) {
+        case STMT_VAL: case STMT_VAR:
+            if (s->as.decl.has_declared_type) reclassify_type_params(&s->as.decl.declared_type, type_params);
+            reclassify_type_params_in_expr(s->as.decl.init, type_params);
+            break;
+        case STMT_ASSIGN:
+            reclassify_type_params_in_expr(s->as.assign.value, type_params);
+            break;
+        case STMT_IF:
+            reclassify_type_params_in_expr(s->as.if_stmt.cond, type_params);
+            reclassify_type_params_in_stmt(s->as.if_stmt.then_block, type_params);
+            if (s->as.if_stmt.else_block != NULL) reclassify_type_params_in_stmt(s->as.if_stmt.else_block, type_params);
+            break;
+        case STMT_WHILE:
+            reclassify_type_params_in_expr(s->as.while_stmt.cond, type_params);
+            reclassify_type_params_in_stmt(s->as.while_stmt.body, type_params);
+            break;
+        case STMT_FOR:
+            if (s->as.for_stmt.is_range) {
+                reclassify_type_params_in_expr(s->as.for_stmt.range_start, type_params);
+                reclassify_type_params_in_expr(s->as.for_stmt.range_end, type_params);
+            } else {
+                reclassify_type_params_in_expr(s->as.for_stmt.iterable, type_params);
+            }
+            reclassify_type_params_in_stmt(s->as.for_stmt.body, type_params);
+            break;
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+            break;
+        case STMT_SPAWN:
+            for (int i = 0; i < s->as.spawn_stmt.args.count; i++) reclassify_type_params_in_expr(s->as.spawn_stmt.args.items[i], type_params);
+            break;
+        case STMT_RETURN:
+            if (s->as.ret.value != NULL) reclassify_type_params_in_expr(s->as.ret.value, type_params);
+            break;
+        case STMT_EXPR:
+            reclassify_type_params_in_expr(s->as.expr_stmt.expr, type_params);
+            break;
+        case STMT_BLOCK:
+            for (int i = 0; i < s->as.block.stmts.count; i++) reclassify_type_params_in_stmt(s->as.block.stmts.items[i], type_params);
+            break;
     }
 }
 

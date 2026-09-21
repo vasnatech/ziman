@@ -401,23 +401,17 @@ a time mid-implementation:
     with a real struct/enum name is rejected at declaration time (it
     would otherwise silently shadow real references to that type inside
     the generic struct's own fields).
-  - ~~**Stage 2: bounded type parameters (`<T: Eq>`).**~~ Half
-    implemented (docs/SYNTAX.md "Generics"): the one hardcoded bound,
-    meaning "supports `==`," parses on a struct's own type parameters
-    (`struct Map<K: Eq, V> { ... }`) and is enforced at every concrete
-    instantiation — `Map<Channel<int>, V>` is a compile-time error, since
-    `Channel` doesn't support `==`, checked via the same
+  - ~~**Stage 2: bounded type parameters (`<T: Eq>`).**~~ Implemented
+    (docs/SYNTAX.md "Generics"): the one hardcoded bound, meaning
+    "supports `==`," parses on a struct/enum/function's own type
+    parameters (`struct Map<K: Eq, V> { ... }`) and is enforced at every
+    concrete instantiation — `Map<Channel<int>, V>` is a compile-time
+    error, since `Channel` doesn't support `==`, checked via the same
     `type_supports_equality` machinery arrays/structs/Result/enum already
     use. A bound name other than `Eq` (`<T: Ord>`) is also a compile-time
-    error. **Still not usable inside a generic declaration's own body**
-    (a bounded `T`'s `==` doesn't type-check anywhere yet), since nothing
-    generic has a body to test it in until generic functions exist —
-    that half necessarily lands together with Stage 5 below, where a
-    real function body (`fn map_get<K: Eq, V>(m, key) { ... key == k
-    ... }`) finally gives it somewhere to be exercised. Building the
-    instantiation-side enforcement now, ahead of the body-side check,
-    means the guarantee "a bounded `T` is always comparable" will already
-    hold by the time Stage 5 needs to rely on it.
+    error. Usable inside a generic declaration's own body since Stage 5
+    landed (`fn are_equal<T: Eq>(a: T, b: T) -> bool { return a == b }`)
+    — see that entry below for what building that half surfaced.
   - ~~**Stage 3: generic enums.**~~ Implemented (docs/SYNTAX.md
     "Generics"): `enum Option<T> { Some(T) None }`, constructed as
     `Option<int>.Some(5)`/`Option<int>.None` — the actual `Option<T>`
@@ -446,14 +440,43 @@ a time mid-implementation:
     hole where a qualified *type annotation* (`val x: mod.Shape`) only
     ever resolved against a struct, never an enum. This is what actually
     lets a shared `collections` module (below) export anything generic.
-  - **Stage 5: generic functions.** Not started — `fn identity<T>(x: T)
-    -> T`, called as `identity<int>(5)`. Needs the one-token lookahead
-    heuristic docs/DESIGN.md's "Generics" entry describes to disambiguate
-    a generic call's `<` from a real comparison, which structs didn't
-    need (an uppercase struct/type name can never be a real variable, but
-    a generic function's lowercase callee genuinely can appear on the
-    left of `<`). Needed to write `map_get`/`map_set`/`set_add`/etc. once
-    instead of once per concrete instantiation.
+  - ~~**Stage 5: generic functions.**~~ Implemented (docs/SYNTAX.md
+    "Generics"): `fn identity<T>(x: T) -> T`, called as
+    `identity<int>(5)` (cross-module too: `mod.identity<int>(5)`). Uses
+    the one-token lookahead heuristic docs/DESIGN.md's "Generics" entry
+    describes to disambiguate a generic call's `<` from a real
+    comparison, which structs/enums didn't need (an uppercase name can
+    never be a real variable, but a generic function's lowercase callee
+    genuinely can appear on the left of `<`). This is also the stage
+    where the `Eq` bound finally gets *exercised* inside a body, not just
+    enforced at instantiation (`fn are_equal<T: Eq>(a: T, b: T) -> bool
+    { return a == b }`) — surfaced two real bugs while wiring it up,
+    both fixed and covered by regression fixtures:
+    - A bounded type parameter used *as a type argument to another
+      bounded generic type* in the enclosing declaration's own signature
+      (`fn map_get<K: Eq, V>(m: Map<K, V>, ...)` -- checking `Map<K, V>`'s
+      own `K: Eq` bound against the caller's `K`, itself just a bare,
+      unsubstituted type variable at that point) needs the same "which
+      declaration's type parameters are in scope right now" context a
+      function *body* needs for `==`, but during *declaration
+      validation*, before any body is checked. Generalized the
+      body-only tracking into one shared "type parameters of whichever
+      generic declaration is currently being validated" variable, set
+      around struct fields', enum variants', and function params/return
+      types' well-formedness checks too, not just around a function's
+      own body.
+    - A generic function's own type parameter referenced *from inside its
+      body* in a position other than a param/return type
+      (`Option<V>.Some(...)`, a `val` annotation, a cast) was never
+      reclassified from a provisional struct/enum reference into a type
+      variable, since only a struct/enum *declaration*'s own field/
+      variant types went through that step before. Fixed with a new
+      parser-side walker (`reclassify_type_params_in_stmt`/`_in_expr`,
+      mirroring loader.c's self_qualify_expr/self_qualify_stmt shape)
+      that reclassifies every type-bearing spot in a generic function's
+      parsed body, run once right after the body itself is parsed.
+    Needed to write `map_get`/`map_set`/`set_add`/etc. once instead of
+    once per concrete instantiation.
 - **Collections module (`Box`/`Option`/`Map`/`Set`) — the concrete payoff
   of the generics work above, not started.** A `collections` module,
   written in ordinary Ziman (no new native/C code), exporting `Box<T>`,

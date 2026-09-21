@@ -191,6 +191,7 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
                     }
                 }
             }
+            for (int i = 0; i < e->as.call.type_args.count; i++) self_qualify_type(&e->as.call.type_args.items[i], ctx);
             for (int i = 0; i < e->as.call.args.count; i++) self_qualify_expr(e->as.call.args.items[i], ctx);
             break;
         case EXPR_CAST:
@@ -554,6 +555,7 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
             if (strchr(e->as.call.callee, '.') != NULL) {
                 e->as.call.callee = resolve_function_ref(ctx, e->as.call.callee, e->line, e->col);
             }
+            for (int i = 0; i < e->as.call.type_args.count; i++) resolve_type_refs(&e->as.call.type_args.items[i], ctx, e->line, e->col);
             for (int i = 0; i < e->as.call.args.count; i++) resolve_expr_refs(e->as.call.args.items[i], ctx);
             break;
         case EXPR_CAST:

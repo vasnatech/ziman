@@ -84,6 +84,26 @@ static int is_scalar_kind(TypeKind kind) {
  * directly or mutually self-referential struct declaration would otherwise
  * send this into unbounded recursion just from its *shape*, even though no
  * value of that shape can ever actually exist yet. */
+/* The type parameters of whichever generic declaration is currently being
+ * validated or type-checked -- a struct's own fields, an enum's own
+ * variant payloads, a function's own params/return type, or (separately)
+ * a function's own body. Needed in two different situations: (1) a
+ * bounded type parameter used *as a type argument to another bounded
+ * generic type* inside the enclosing declaration's own signature (e.g.
+ * `fn map_get<K: Eq, V>(m: Map<K, V>, ...)` -- checking `Map<K, V>`'s own
+ * `K: Eq` bound against the *caller* `K`, which is itself just a bare,
+ * unsubstituted type variable at this point, requires knowing it's
+ * `map_get`'s own bound `K`, not some unrelated, unbounded one); and
+ * (2) `==` on a bare `T` inside a generic function's own body (see
+ * check_function's comment). Set/cleared symmetrically around each
+ * declaration's own validation in typecheck() and around check_function's
+ * body-checking -- a plain variable rather than a parameter threaded
+ * through every mutually-recursive check_* function, sound because the
+ * type checker validates exactly one declaration at a time, single-
+ * threaded, with no nested declarations to re-enter this during. NULL
+ * anywhere else, where a bare type variable is never comparable. */
+static TypeParamList *current_decl_type_params = NULL;
+
 static int type_supports_equality(Module *module, Type t, int depth) {
     if (depth > 64) return 0;
     switch (t.kind) {
@@ -119,6 +139,22 @@ static int type_supports_equality(Module *module, Type t, int depth) {
              * aggregate -- "are two channels equal" doesn't have the
              * obvious structural meaning it does for an array/struct/enum,
              * so it's just not comparable at all in v0. */
+            return 0;
+        case TY_TYPEVAR:
+            /* A bare, unsubstituted type variable is comparable exactly
+             * when it's the *current function's own* type parameter and
+             * that parameter carries the `Eq` bound -- e.g. `a == b`
+             * inside `fn are_equal<T: Eq>(a: T, b: T) -> bool { ... }`.
+             * Anywhere else (a struct/enum's own declaration, or a type
+             * variable belonging to some other, unrelated declaration)
+             * this is unbounded and correctly not comparable. */
+            if (current_decl_type_params != NULL) {
+                for (int i = 0; i < current_decl_type_params->count; i++) {
+                    if (strcmp(current_decl_type_params->items[i].name, t.type_var_name) == 0) {
+                        return current_decl_type_params->items[i].bound == BOUND_EQ;
+                    }
+                }
+            }
             return 0;
         case TY_VOID:
         default:
@@ -200,6 +236,10 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
                                 type_name(lt));
                 } else if (lt.kind == TY_CHANNEL) {
                     ziman_error("type", e->line, e->col, "%s cannot be compared with '=='/'!=' in v0", type_name(lt));
+                } else if (lt.kind == TY_TYPEVAR) {
+                    ziman_error("type", e->line, e->col,
+                                "type parameter '%s' cannot be compared with '=='/'!=' because it has no 'Eq' bound (add '%s: Eq' to require one)",
+                                type_name(lt), type_name(lt));
                 } else {
                     ziman_error("type", e->line, e->col,
                                 "struct '%s' cannot be compared with '=='/'!=' because one of its fields is not a comparable type",
@@ -600,6 +640,23 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     if (fn == NULL) {
         ziman_error("type", e->line, e->col, "call to undefined function '%s'", name);
     }
+    TypeList *type_args = &e->as.call.type_args;
+    /* Explicit type arguments everywhere, no inference -- same rules as
+     * a generic struct literal or enum construction. */
+    if (fn->type_params.count == 0 && type_args->count > 0) {
+        ziman_error("type", e->line, e->col, "'%s' is not generic, but was given %d type argument(s)", name, type_args->count);
+    }
+    if (fn->type_params.count > 0 && type_args->count == 0) {
+        ziman_error("type", e->line, e->col, "'%s' is generic and requires explicit type arguments, e.g. '%s<...>(...)'", name, name);
+    }
+    if (fn->type_params.count != type_args->count) {
+        ziman_error("type", e->line, e->col, "'%s' takes %d type argument(s), found %d", name, fn->type_params.count, type_args->count);
+    }
+    for (int i = 0; i < type_args->count; i++) {
+        check_type_well_formed(module, type_args->items[i], e->line, e->col);
+    }
+    check_type_args_satisfy_bounds(module, &fn->type_params, type_args, e->line, e->col);
+
     if (e->as.call.args.count != fn->params.count) {
         ziman_error("type", e->line, e->col, "function '%s' expects %d argument(s), found %d", name, fn->params.count, e->as.call.args.count);
     }
@@ -607,14 +664,14 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Expr *arg = e->as.call.args.items[i];
         Type arg_type = check_expr(module, env, arg);
         require_not_void(arg, "as an argument");
-        Type expected = fn->params.items[i].type;
+        Type expected = substitute_type(fn->params.items[i].type, &fn->type_params, type_args);
         if (!type_equals(arg_type, expected)) {
             ziman_error("type", arg->line, arg->col,
                         "argument %d of '%s' expects %s, found %s",
                         i + 1, name, type_name(expected), type_name(arg_type));
         }
     }
-    return fn->return_type;
+    return substitute_type(fn->return_type, &fn->type_params, type_args);
 }
 
 /* `ok(x)`/`err(e)` can't fully infer their own type the way every other
@@ -1298,6 +1355,17 @@ static void check_function(Module *module, FunctionDecl *fn) {
             ziman_error("type", param->line, param->col, "duplicate parameter name '%s'", param->name);
         }
     }
+    /* Lets type_supports_equality's TY_TYPEVAR case (above) know whether a
+     * bare, unsubstituted `T` referenced inside *this* function's own body
+     * is bounded by `Eq` -- the one place a generic declaration's bound
+     * actually gets exercised, rather than just enforced at instantiation
+     * (see ROADMAP.md's "Generics" Stage 2/5). Set/cleared symmetrically
+     * around this one call: sound as a plain variable rather than a
+     * parameter threaded through every check_* function because the type
+     * checker processes exactly one function body at a time, single-
+     * threaded, with no nested function declarations to re-enter this
+     * during. */
+    current_decl_type_params = &fn->type_params;
     /* A native fn has no body to check or prove returns-on-every-path for --
      * its behavior is a contract with whatever C implementation gets
      * registered for it, not something this pass can see into. */
@@ -1309,6 +1377,7 @@ static void check_function(Module *module, FunctionDecl *fn) {
             ziman_error("type", fn->line, fn->col, "function '%s' does not return a value on every path", fn->name);
         }
     }
+    current_decl_type_params = NULL;
     env_free(env);
 }
 
@@ -1362,10 +1431,12 @@ void typecheck(Module *module) {
     }
     for (int i = 0; i < module->structs.count; i++) {
         StructDecl *sd = module->structs.items[i];
+        current_decl_type_params = &sd->type_params;
         for (int f = 0; f < sd->fields.count; f++) {
             Param *field = &sd->fields.items[f];
             check_type_well_formed(module, field->type, field->line, field->col);
         }
+        current_decl_type_params = NULL;
     }
 
     /* Enum names must be unique among themselves and distinct from struct
@@ -1414,12 +1485,14 @@ void typecheck(Module *module) {
     }
     for (int i = 0; i < module->enums.count; i++) {
         EnumDecl *ed = module->enums.items[i];
+        current_decl_type_params = &ed->type_params;
         for (int v = 0; v < ed->variants.count; v++) {
             if (ed->variants.items[v].has_payload) {
                 check_type_well_formed(module, ed->variants.items[v].payload_type,
                                         ed->variants.items[v].line, ed->variants.items[v].col);
             }
         }
+        current_decl_type_params = NULL;
     }
 
     for (int i = 0; i < module->functions.count; i++) {
@@ -1435,10 +1508,27 @@ void typecheck(Module *module) {
                             "function '%s' is already defined", fn->name);
             }
         }
+        /* Same reasoning as the struct/enum type-parameter checks above. */
+        for (int tp = 0; tp < fn->type_params.count; tp++) {
+            const char *param_name = fn->type_params.items[tp].name;
+            for (int tq = tp + 1; tq < fn->type_params.count; tq++) {
+                if (strcmp(param_name, fn->type_params.items[tq].name) == 0) {
+                    ziman_error("type", fn->line, fn->col, "type parameter '%s' is already defined in function '%s'", param_name, fn->name);
+                }
+            }
+            if (find_struct(module, param_name) != NULL) {
+                ziman_error("type", fn->line, fn->col, "type parameter '%s' in function '%s' collides with an existing struct name", param_name, fn->name);
+            }
+            if (find_enum(module, param_name) != NULL) {
+                ziman_error("type", fn->line, fn->col, "type parameter '%s' in function '%s' collides with an existing enum name", param_name, fn->name);
+            }
+        }
+        current_decl_type_params = &fn->type_params;
         for (int pi = 0; pi < fn->params.count; pi++) {
             check_type_well_formed(module, fn->params.items[pi].type, fn->params.items[pi].line, fn->params.items[pi].col);
         }
         check_type_well_formed(module, fn->return_type, fn->line, fn->col);
+        current_decl_type_params = NULL;
     }
 
     FunctionDecl *main_fn = find_function(module, "main");

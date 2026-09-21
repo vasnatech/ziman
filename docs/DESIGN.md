@@ -364,15 +364,34 @@ several languages rather than inheriting any one of them wholesale.
   parsing type arguments only if it looks like a type-starter) — deferred
   to the generic-functions stage, since generic structs don't need it.
   Cross-module works too (`mod.Box<int> { ... }`,
-  `mod.Option<int>.Some(5)`) — this also closed a pre-existing, generics-
-  independent gap where cross-module enum access didn't exist at all yet
-  (the qualified-reference parser only ever handled one dot;
-  `qualifier.EnumName.Variant` needed a second). Staged as five
-  independently useful slices rather than one large change (see
+  `mod.Option<int>.Some(5)`, `mod.identity<int>(5)`) — this also closed a
+  pre-existing, generics-independent gap where cross-module enum access
+  didn't exist at all yet (the qualified-reference parser only ever
+  handled one dot; `qualifier.EnumName.Variant` needed a second). Staged
+  as five independently useful slices rather than one large change (see
   ROADMAP.md's "Generics" entry for the current state of each): generic
   structs, bounded type parameters (`Eq`), generic enums (unlocking
   `Option<T>`), cross-module generics (unlocking a shared `collections`
-  module), then generic functions.
+  module), then generic functions — now all implemented. The function
+  stage is also where the `Eq` bound finally gets *exercised* inside a
+  body (`fn are_equal<T: Eq>(a: T, b: T) -> bool { return a == b }`), not
+  just enforced at instantiation, which surfaced two real gaps in the
+  earlier stages: a bounded type parameter used as a type argument to
+  *another* bounded generic type in a declaration's own signature
+  (`fn map_get<K: Eq, V>(m: Map<K, V>, ...)`) needed the same "which
+  declaration's type parameters are in scope" context during
+  *declaration validation* that a function body needs for `==` — fixed by
+  generalizing what had been a function-body-only tracking variable into
+  one covering every generic declaration's own well-formedness check, not
+  just a function's body; and a function's own type parameter referenced
+  from *inside its body* in any position other than a param/return type
+  (`Option<V>.Some(...)`, a `val` annotation, a cast) was never
+  reclassified from a provisional struct/enum reference into a type
+  variable, since only a struct/enum *declaration*'s field/variant types
+  ever went through that step before — fixed with a small parser-side
+  walker (mirroring loader.c's self_qualify_expr/self_qualify_stmt
+  shape) that reclassifies every type-bearing spot in a generic
+  function's parsed body, run once right after the body itself parses.
 
 ## Deliberately deferred (not v0)
 

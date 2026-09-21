@@ -1,0 +1,4 @@
+use util
+fn main() {
+    print(util.identity<int>(42))
+}

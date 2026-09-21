@@ -162,7 +162,9 @@ struct Expr {
         char *ident_name;
         struct { Op op; Expr *left; Expr *right; } binary;
         struct { Op op; Expr *operand; } unary;
-        struct { char *callee; ExprList args; } call;
+        /* `type_args` is only non-empty for `name<Args>(...)` -- a call
+         * to a generic function. Empty for an ordinary one. */
+        struct { char *callee; ExprList args; TypeList type_args; } call;
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
         struct { Expr *array; Expr *index; } index;
@@ -298,6 +300,7 @@ typedef struct {
     Stmt *body; /* STMT_BLOCK; NULL when is_native (a `native fn` has no body --
                  * its implementation is a registered C function, looked up by
                  * module path + name at call time) */
+    TypeParamList type_params; /* empty for an ordinary, non-generic function */
     int is_public;
     int is_native;
     int line, col;

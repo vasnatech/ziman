@@ -1,0 +1,2 @@
+fn plain(x: int) -> int { return x }
+fn main() { print(plain<int>(5)) }

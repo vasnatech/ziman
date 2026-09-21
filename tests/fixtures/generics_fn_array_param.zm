@@ -1,0 +1,7 @@
+fn first<T>(items: [T]) -> T {
+    return items[0]
+}
+fn main() {
+    print(first<int>([1, 2, 3]))
+    print(first<string>(["a", "b"]))
+}
