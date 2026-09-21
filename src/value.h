@@ -1,6 +1,7 @@
 #ifndef ZIMAN_VALUE_H
 #define ZIMAN_VALUE_H
 
+#include <pthread.h>
 #include <stdint.h>
 
 #include "ast.h"
@@ -44,6 +45,7 @@ struct Value {
         StructObj *st;
         struct ResultObj *res;
         struct EnumObj *en;
+        struct ChannelObj *ch;
     } as;
 };
 
@@ -71,6 +73,26 @@ typedef struct EnumObj {
     Value payload;
 } EnumObj;
 
+/* A channel's backing storage: a thread-safe, unbounded FIFO queue.
+ * Unlike ArrayObj/StructObj/EnumObj/ResultObj, this one is genuinely
+ * mutable in place -- it's the one Ziman value that's a stateful,
+ * identity-based handle rather than a plain data aggregate, which is also
+ * why it's not comparable (see type_supports_equality in typecheck.c).
+ * `send` never blocks (just enqueues); `receive` blocks on `cond` while
+ * empty. Every other Value that ever flows through a channel is safe to
+ * share across threads by plain pointer copy with no locking of its own
+ * needed: nothing in this interpreter ever frees an ArrayObj/StructObj/
+ * EnumObj/ResultObj (see docs/DESIGN.md), and nothing mutates one after
+ * construction, so there's neither a use-after-free nor a data-race
+ * hazard once a Value has crossed the channel's own lock. */
+typedef struct ChannelObj {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    Value *items;
+    int count;
+    int capacity;
+} ChannelObj;
+
 Value value_int(int64_t i);
 Value value_float(double f);
 Value value_bool(int b);
@@ -79,11 +101,15 @@ Value value_array(Type array_type, ArrayObj *arr);
 Value value_struct(Type struct_type, StructObj *st);
 Value value_result(Type result_type, ResultObj *res);
 Value value_enum(Type enum_type, EnumObj *en);
+Value value_channel(Type channel_type, ChannelObj *ch);
 
 ArrayObj *array_obj_new(Value *items, int count);
 StructObj *struct_obj_new(char **field_names, Value *fields, int count);
 ResultObj *result_obj_new(int is_ok, Value value);
 EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Value payload);
+ChannelObj *channel_obj_new(void);
+void channel_send(ChannelObj *ch, Value v);
+Value channel_receive(ChannelObj *ch);
 
 int value_equals(Value a, Value b);
 

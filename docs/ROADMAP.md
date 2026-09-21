@@ -90,10 +90,28 @@ a time mid-implementation:
   the element type is scalar (structs, Results, and nested arrays still
   aren't comparable — see docs/SYNTAX.md "Arrays"/"Structs"). This closes
   out the "complete the built-in function set" pass.
-- **No concurrency story.** Serving more than one request without
-  blocking everything needs at least a primitive answer (even a
-  native-thread-per-request module would need its own native module for
-  threads) — not designed at all yet.
+- ~~**No concurrency story.**~~ Implemented: real OS threads via `spawn`
+  and a thread-safe `Channel<T>` (docs/SYNTAX.md "Concurrency"), built on
+  a single-writer/actor pattern rather than shared memory plus locks —
+  one thread owns a piece of mutable state and is the only thing that
+  ever touches it; everyone else reaches it by sending a message and
+  waiting for a reply on a `Channel`. `Channel<T>` is a third hardcoded
+  parametric type (after `[T]`/`Result<T, E>`), but native by necessity
+  this time, not by choice — see docs/DESIGN.md's new entry for why that
+  doesn't reopen the generics question the way `Option<T>`/`Map<K, V>`
+  did. Surfaced by (and solves) the exact problem found writing
+  `health-record-backend-ziman`'s layered example: pure functional
+  state-threading works within one request's own call chain, but doesn't
+  answer how *multiple concurrent* requests reach one shared,
+  consistently-updated store. Still open, not yet decided:
+  - **Unbounded queue.** `send` never blocks in v0 — no backpressure/
+    capacity limit, a real production concern (a runaway producer could
+    exhaust memory) but not a correctness one. Revisit if a real program
+    needs bounded backpressure.
+  - **No thread-handle/join mechanism.** A spawned function must return
+    `void`; its result, if any, can only come back through a `Channel`
+    it's explicitly given. Revisit only if a concrete need for "wait for
+    this thread to finish" shows up.
 - **Generics: the "just hardcode it" strategy stopped scaling, and this
   entry's earlier prediction has flipped.** `Result<T, E>` shipped
   *without* general generics, using the same "hardcode one more
@@ -379,7 +397,18 @@ a time mid-implementation:
   has stabilized against real use, not before.
 - **First-class functions / closures.** Currently function calls only
   resolve a bare identifier at parse time; no function values, no passing
-  a function as an argument.
+  a function as an argument. Considered building this before `spawn`
+  (whose natural long-run shape would take a closure) and deliberately
+  didn't: nothing concrete forces the question yet. The more likely real
+  forcing case is `net`/`http` routing (a table of path → handler
+  function) once that module exists — and what that needs is probably
+  smaller than full closures anyway: a plain reference to an
+  already-declared function (closer to a C function pointer than a JS
+  closure, since a top-level function has no enclosing scope to capture
+  from) would likely suffice for a routing table, without the harder
+  closure questions (capture by value or reference, a new runtime
+  representation bundling code + captured environment). Worth deciding
+  that distinction first, whenever the real need arrives.
 - **String interpolation.** Once string concatenation is settled, decide
   whether interpolation is a second way to do the same thing (against
   principle #2) or genuinely a different need.

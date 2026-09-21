@@ -1,0 +1,9 @@
+use worker
+
+fn main() {
+    val inbox: Channel<int> = channel_new()
+    val reply: Channel<int> = channel_new()
+    spawn worker.run(inbox, reply)
+    send(inbox, 1)
+    print(receive(reply))
+}

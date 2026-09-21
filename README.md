@@ -32,12 +32,15 @@ variant-then-payload `==`/`!=` when both `T` and `E` are comparable),
 user-declared `enum` tagged unions (concrete/monomorphic only — see
 docs/ROADMAP.md's Generics entry — with enum-qualified construction and
 compiler-generated `is_<Variant>`/`unwrap_<Variant>` accessors, same
-shape `Result` itself uses), and a full set of builtins (`print`, `concat`, `str`, `format`, `len`,
+shape `Result` itself uses), real OS-thread concurrency via `spawn` and
+a thread-safe `Channel<T>` (a single-writer/actor pattern — one thread
+owns a piece of mutable state, everyone else reaches it by message —
+rather than shared memory and locks), and a full set of builtins (`print`, `concat`, `str`, `format`, `len`,
 `push`, `insert`, `set`, `remove`, `substring`, `split`, `trim`,
 `to_upper`, `to_lower`, `parse_int`, `parse_float`, `contains`, `abs`,
-`min`, `max`, `floor`, `ceil`, `round`, plus `==`/`!=` on scalar-element
-arrays). See [docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately
-not here yet.
+`min`, `max`, `floor`, `ceil`, `round`, `channel_new`, `send`, `receive`,
+plus `==`/`!=` on scalar-element arrays). See
+[docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately not here yet.
 
 ## Example
 

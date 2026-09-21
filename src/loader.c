@@ -139,6 +139,10 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
         self_qualify_type(t->elem_err, ctx);
         return;
     }
+    if (t->kind == TY_CHANNEL) {
+        self_qualify_type(t->elem, ctx);
+        return;
+    }
     if (t->kind != TY_STRUCT) return;
     if (strchr(t->struct_name, '.') != NULL) return; /* already dotted -- pass (b)'s job */
     for (int i = 0; i < ctx->n_structs; i++) {
@@ -259,6 +263,20 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
         case STMT_BREAK:
         case STMT_CONTINUE:
             break; /* no sub-expressions */
+        case STMT_SPAWN:
+            /* Same "dotted or not" logic EXPR_CALL's callee already gets --
+             * see that case for why this only qualifies a bare name that
+             * matches one of this module's own functions. */
+            if (strchr(s->as.spawn_stmt.callee, '.') == NULL) {
+                for (int i = 0; i < ctx->n_fns; i++) {
+                    if (strcmp(s->as.spawn_stmt.callee, ctx->orig_fn_names[i]) == 0) {
+                        s->as.spawn_stmt.callee = qualify_name(ctx->own_path, s->as.spawn_stmt.callee);
+                        break;
+                    }
+                }
+            }
+            for (int i = 0; i < s->as.spawn_stmt.args.count; i++) self_qualify_expr(s->as.spawn_stmt.args.items[i], ctx);
+            break;
         case STMT_RETURN:
             if (s->as.ret.value != NULL) self_qualify_expr(s->as.ret.value, ctx);
             break;
@@ -398,6 +416,10 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
         resolve_type_refs(t->elem_err, ctx, line, col);
         return;
     }
+    if (t->kind == TY_CHANNEL) {
+        resolve_type_refs(t->elem, ctx, line, col);
+        return;
+    }
     if (t->kind != TY_STRUCT) return;
     if (strchr(t->struct_name, '.') != NULL) {
         t->struct_name = resolve_type_ref(ctx, t->struct_name, line, col);
@@ -502,6 +524,12 @@ static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx) {
         case STMT_BREAK:
         case STMT_CONTINUE:
             break; /* no sub-expressions */
+        case STMT_SPAWN:
+            if (strchr(s->as.spawn_stmt.callee, '.') != NULL) {
+                s->as.spawn_stmt.callee = resolve_function_ref(ctx, s->as.spawn_stmt.callee, s->line, s->col);
+            }
+            for (int i = 0; i < s->as.spawn_stmt.args.count; i++) resolve_expr_refs(s->as.spawn_stmt.args.items[i], ctx);
+            break;
         case STMT_RETURN:
             if (s->as.ret.value != NULL) resolve_expr_refs(s->as.ret.value, ctx);
             break;

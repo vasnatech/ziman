@@ -1,0 +1,27 @@
+enum Msg {
+    Add(int)
+}
+fn counter_actor(inbox: Channel<Msg>, reply: Channel<int>) {
+    var total = 0
+    var i = 0
+    while i < 5 {
+        val m = receive(inbox)
+        total = total + Msg.unwrap_Add(m)
+        i = i + 1
+    }
+    send(reply, total)
+}
+fn send_one(inbox: Channel<Msg>, n: int) {
+    send(inbox, Msg.Add(n))
+}
+fn main() {
+    val inbox: Channel<Msg> = channel_new()
+    val reply: Channel<int> = channel_new()
+    spawn counter_actor(inbox, reply)
+    spawn send_one(inbox, 1)
+    spawn send_one(inbox, 2)
+    spawn send_one(inbox, 3)
+    spawn send_one(inbox, 4)
+    spawn send_one(inbox, 5)
+    print(receive(reply))
+}

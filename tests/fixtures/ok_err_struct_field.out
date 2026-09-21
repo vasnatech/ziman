@@ -1,0 +1,2 @@
+Box { r: Ok(5) }
+Box { r: Err(bad) }

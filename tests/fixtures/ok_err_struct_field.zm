@@ -1,0 +1,9 @@
+struct Box {
+    r: Result<int, string>
+}
+fn main() {
+    val b = Box { r: ok(5) }
+    print(b)
+    val b2 = Box { r: err("bad") }
+    print(b2)
+}

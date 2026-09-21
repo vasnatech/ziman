@@ -1,0 +1,6 @@
+fn worker(x: int) {
+    print(x)
+}
+fn main() {
+    spawn worker("not an int")
+}

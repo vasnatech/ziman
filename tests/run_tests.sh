@@ -23,10 +23,16 @@ check_fixture() {
     local err_file="tests/fixtures/$name.err"
 
     local stdout status stderr
-    stdout=$("$BIN" "$entry" 2>/tmp/ziman_test_stderr.$$)
+    # `timeout` guards against a genuine deadlock in a spawn/Channel fixture
+    # (a mistake in the interpreter's channel/thread handling) hanging the
+    # whole suite forever instead of just failing that one fixture.
+    stdout=$(timeout 5 "$BIN" "$entry" 2>/tmp/ziman_test_stderr.$$)
     status=$?
     stderr=$(cat /tmp/ziman_test_stderr.$$)
     rm -f /tmp/ziman_test_stderr.$$
+    if [ "$status" -eq 124 ]; then
+        stderr="$stderr"$'\n'"(timed out after 5s -- possible deadlock)"
+    fi
 
     if [ -f "$out_file" ]; then
         local expected

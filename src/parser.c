@@ -83,6 +83,12 @@ static Type parse_type(Parser *p) {
         expect(p, TOK_GT, "'>'");
         return type_result(ok_type, err_type);
     }
+    if (match(p, TOK_CHANNEL)) {
+        expect(p, TOK_LT, "'<'");
+        Type elem = parse_type(p);
+        expect(p, TOK_GT, "'>'");
+        return type_channel(elem);
+    }
     if (check(p, TOK_IDENT)) {
         Token *t = advance_tok(p);
         /* `qualifier.TypeName` (a struct from an imported module) vs. a
@@ -499,6 +505,33 @@ static Stmt *parse_return(Parser *p) {
     return s;
 }
 
+/* `spawn name(args)` or `spawn mod.name(args)` -- builds the exact same
+ * flat, possibly-dotted callee string EXPR_CALL's qualified form already
+ * does, so it flows through the loader's existing self-qualify/cross-
+ * module resolution unchanged (see loader.c's STMT_SPAWN cases). Always a
+ * statically-named function, never a first-class function value -- see
+ * ast.h's spawn_stmt comment. */
+static Stmt *parse_spawn(Parser *p) {
+    Token *kw = previous(p);
+    Token *name_tok = expect(p, TOK_IDENT, "a function name");
+    char *callee = dup_token_text(name_tok);
+    if (match(p, TOK_DOT)) {
+        Token *second = expect(p, TOK_IDENT, "a function name");
+        size_t len = strlen(callee) + 1 + (size_t)second->length + 1;
+        char *qualified = malloc(len);
+        snprintf(qualified, len, "%s.%.*s", callee, second->length, second->start);
+        free(callee);
+        callee = qualified;
+    }
+    expect(p, TOK_LPAREN, "'('");
+    ExprList args = parse_comma_separated(p, TOK_RPAREN);
+    expect(p, TOK_RPAREN, "')'");
+    Stmt *s = stmt_new(STMT_SPAWN, kw->line, kw->col);
+    s->as.spawn_stmt.callee = callee;
+    s->as.spawn_stmt.args = args;
+    return s;
+}
+
 static Stmt *parse_statement(Parser *p) {
     if (match(p, TOK_VAL)) return parse_decl(p, STMT_VAL);
     if (match(p, TOK_VAR)) return parse_decl(p, STMT_VAR);
@@ -507,6 +540,7 @@ static Stmt *parse_statement(Parser *p) {
     if (match(p, TOK_FOR)) return parse_for(p);
     if (match(p, TOK_BREAK)) { Token *kw = previous(p); return stmt_new(STMT_BREAK, kw->line, kw->col); }
     if (match(p, TOK_CONTINUE)) { Token *kw = previous(p); return stmt_new(STMT_CONTINUE, kw->line, kw->col); }
+    if (match(p, TOK_SPAWN)) return parse_spawn(p);
     if (match(p, TOK_RETURN)) return parse_return(p);
 
     /* `IDENT = expr` (assignment) vs. any other expression statement

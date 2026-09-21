@@ -74,6 +74,12 @@ static int type_supports_equality(Module *module, Type t, int depth) {
             }
             return 1;
         }
+        case TY_CHANNEL:
+            /* A channel is a stateful, identity-based handle, not a data
+             * aggregate -- "are two channels equal" doesn't have the
+             * obvious structural meaning it does for an array/struct/enum,
+             * so it's just not comparable at all in v0. */
+            return 0;
         case TY_VOID:
         default:
             return 0;
@@ -131,6 +137,8 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
                     ziman_error("type", e->line, e->col,
                                 "enum '%s' cannot be compared with '=='/'!=' because one of its variants' payload is not a comparable type",
                                 type_name(lt));
+                } else if (lt.kind == TY_CHANNEL) {
+                    ziman_error("type", e->line, e->col, "%s cannot be compared with '=='/'!=' in v0", type_name(lt));
                 } else {
                     ziman_error("type", e->line, e->col,
                                 "struct '%s' cannot be compared with '=='/'!=' because one of its fields is not a comparable type",
@@ -476,14 +484,55 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     }
 
     if (strcmp(name, "ok") == 0 || strcmp(name, "err") == 0) {
-        /* Reachable only when nothing gave check_ok_err_call() (below) an
-         * expected Result<T, E> to work with -- e.g. `print(ok(5))` or a
-         * bare `ok(5)` statement. There's no way to infer the type this
-         * would need without that context. */
+        /* Reachable only when nothing gave check_ok_err_call() (via
+         * check_expr_expecting) an expected Result<T, E> to work with --
+         * e.g. `print(ok(5))` or a bare `ok(5)` statement. There's no way
+         * to infer the type this would need without that context. */
         ziman_error("type", e->line, e->col,
                     "cannot infer the type of '%s(...)' here; only legal as a val/var initializer with an "
-                    "explicit Result<T, E> annotation, or as a function's returned value",
+                    "explicit Result<T, E> annotation, a struct literal field, a 'with' override, or a "
+                    "function's returned value",
                     name);
+    }
+
+    if (strcmp(name, "channel_new") == 0) {
+        /* Same reasoning as ok/err above, via check_channel_new_call. */
+        ziman_error("type", e->line, e->col,
+                    "cannot infer the type of 'channel_new()' here; only legal as a val/var initializer with an "
+                    "explicit Channel<T> annotation, a struct literal field, a 'with' override, or a "
+                    "function's returned value");
+    }
+
+    if (strcmp(name, "send") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'send' takes exactly 2 arguments, found %d", e->as.call.args.count);
+        }
+        Expr *chan_arg = e->as.call.args.items[0];
+        Type chan_type = check_expr(module, env, chan_arg);
+        if (chan_type.kind != TY_CHANNEL) {
+            ziman_error("type", chan_arg->line, chan_arg->col, "argument 1 of 'send' expects a Channel, found %s", type_name(chan_type));
+        }
+        Expr *val_arg = e->as.call.args.items[1];
+        Type val_type = check_expr(module, env, val_arg);
+        require_not_void(val_arg, "as a channel value");
+        if (!type_equals(val_type, *chan_type.elem)) {
+            ziman_error("type", val_arg->line, val_arg->col,
+                        "argument 2 of 'send' expects %s (the channel's element type), found %s",
+                        type_name(*chan_type.elem), type_name(val_type));
+        }
+        return type_scalar(TY_VOID);
+    }
+
+    if (strcmp(name, "receive") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'receive' takes exactly 1 argument, found %d", e->as.call.args.count);
+        }
+        Expr *chan_arg = e->as.call.args.items[0];
+        Type chan_type = check_expr(module, env, chan_arg);
+        if (chan_type.kind != TY_CHANNEL) {
+            ziman_error("type", chan_arg->line, chan_arg->col, "'receive' expects a Channel, found %s", type_name(chan_type));
+        }
+        return *chan_type.elem;
     }
 
     FunctionDecl *fn = find_function(module, name);
@@ -509,13 +558,13 @@ static Type check_call(Module *module, Env *env, Expr *e) {
 
 /* `ok(x)`/`err(e)` can't fully infer their own type the way every other
  * call can -- `ok(x)`'s argument only tells us the success type, never the
- * error type (and vice versa for `err`). The only two places an expected
- * type is available to supply the missing half are a val/var's own
- * declared type and a function's declared return type (see check_stmt's
- * STMT_VAL/STMT_VAR and STMT_RETURN, the only callers of this). Returns 1
- * and sets `e->resolved_type` if `e` is exactly `ok(...)`/`err(...)` and
- * `expected` is a Result<T, E>; returns 0 otherwise, meaning the caller
- * should fall back to plain check_expr(). */
+ * error type (and vice versa for `err`). Legal wherever an expected type
+ * is already available: a val/var's own declared type, a struct literal
+ * field or `with` override (via check_expr_expecting), or a function's
+ * declared return type (STMT_RETURN). Returns 1 and sets `e->resolved_type`
+ * if `e` is exactly `ok(...)`/`err(...)` and `expected` is a Result<T, E>;
+ * returns 0 otherwise, meaning the caller should fall back to plain
+ * check_expr(). */
 static int check_ok_err_call(Module *module, Env *env, Expr *e, Type expected) {
     if (e->kind != EXPR_CALL) return 0;
     int is_ok_call = strcmp(e->as.call.callee, "ok") == 0;
@@ -533,6 +582,23 @@ static int check_ok_err_call(Module *module, Env *env, Expr *e, Type expected) {
     Type want = is_ok_call ? *expected.elem : *expected.elem_err;
     if (!type_equals(arg_type, want)) {
         ziman_error("type", arg->line, arg->col, "'%s' expects %s, found %s", e->as.call.callee, type_name(want), type_name(arg_type));
+    }
+    e->resolved_type = expected;
+    return 1;
+}
+
+/* `channel_new()` has the same "can't infer its own type" problem `ok`/
+ * `err` and empty array literals have, for the same reason: the call
+ * itself (zero arguments) carries no information at all about what it's a
+ * channel of. Same set of legal positions as check_ok_err_call. Returns 1
+ * and sets `e->resolved_type` if `e` is exactly `channel_new()` and
+ * `expected` is a Channel<T>; returns 0 otherwise. */
+static int check_channel_new_call(Expr *e, Type expected) {
+    if (e->kind != EXPR_CALL) return 0;
+    if (strcmp(e->as.call.callee, "channel_new") != 0) return 0;
+    if (expected.kind != TY_CHANNEL) return 0;
+    if (e->as.call.args.count != 0) {
+        ziman_error("type", e->line, e->col, "'channel_new' takes no arguments, found %d", e->as.call.args.count);
     }
     e->resolved_type = expected;
     return 1;
@@ -603,20 +669,25 @@ static Param *resolve_field_init(StructDecl *decl, FieldInitList *inits, int ind
     return field;
 }
 
-/* Like check_expr, but when `e` is an empty array literal (`[]`) and
- * `expected` is itself an array type, resolves `e` against `expected`
- * directly instead of falling into check_array_literal's unconditional
- * "cannot infer the element type of an empty array literal" error. This is
- * the same "expected type from context" idea val/var declarations already
- * use (see check_stmt's STMT_VAL/STMT_VAR case) extended to the other
- * positions where the expected type is just as statically known: a struct
- * literal field, a `with` override, and a `return` value. Falls through to
- * plain check_expr for everything else, including a non-empty array
- * literal or an empty one where `expected` isn't an array -- those keep
- * getting whatever error they'd otherwise get, unchanged. */
+/* Like check_expr, but tries every "can't infer its own type" case Ziman
+ * has -- an empty array literal (`[]`), `ok(...)`/`err(...)`, and
+ * `channel_new()` -- against `expected` first, before falling back to
+ * plain check_expr for everything else (including any of those three
+ * where `expected` doesn't match what they need; those keep getting
+ * whatever error they'd otherwise get, unchanged). This is the same
+ * "expected type from context" idea val/var declarations already use (see
+ * check_stmt's STMT_VAL/STMT_VAR case) extended to the other positions
+ * where the expected type is just as statically known: a struct literal
+ * field, a `with` override, and a `return` value. */
 static Type check_expr_expecting(Module *module, Env *env, Expr *e, Type expected) {
     if (e->kind == EXPR_ARRAY_LIT && e->as.array_lit.elements.count == 0 && expected.kind == TY_ARRAY) {
         e->resolved_type = expected;
+        return expected;
+    }
+    if (check_ok_err_call(module, env, e, expected)) {
+        return expected;
+    }
+    if (check_channel_new_call(e, expected)) {
         return expected;
     }
     return check_expr(module, env, e);
@@ -886,6 +957,10 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                  * check_ok_err_call's own comment for why this needs its own
                  * path instead of going through plain check_expr. */
                 declared = s->as.decl.declared_type;
+            } else if (s->as.decl.has_declared_type && check_channel_new_call(init, s->as.decl.declared_type)) {
+                /* channel_new() resolved against the declared type -- same
+                 * reasoning as ok(...)/err(...) above. */
+                declared = s->as.decl.declared_type;
             } else {
                 Type init_type = check_expr(module, env, init);
                 require_not_void(init, "to initialize a variable");
@@ -982,15 +1057,46 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 ziman_error("type", s->line, s->col, "'%s' outside of a loop", s->kind == STMT_BREAK ? "break" : "continue");
             }
             break;
+        case STMT_SPAWN: {
+            const char *callee = s->as.spawn_stmt.callee;
+            FunctionDecl *fn = find_function(module, callee);
+            if (fn == NULL) {
+                ziman_error("type", s->line, s->col, "call to undefined function '%s'", callee);
+            }
+            if (fn->return_type.kind != TY_VOID) {
+                ziman_error("type", s->line, s->col,
+                            "'spawn' requires a function that returns nothing, found %s returning %s "
+                            "(send a result back through a Channel instead)",
+                            callee, type_name(fn->return_type));
+            }
+            if (s->as.spawn_stmt.args.count != fn->params.count) {
+                ziman_error("type", s->line, s->col, "function '%s' expects %d argument(s), found %d",
+                            callee, fn->params.count, s->as.spawn_stmt.args.count);
+            }
+            for (int i = 0; i < s->as.spawn_stmt.args.count; i++) {
+                Expr *arg = s->as.spawn_stmt.args.items[i];
+                Type arg_type = check_expr(module, env, arg);
+                require_not_void(arg, "as an argument");
+                Type expected = fn->params.items[i].type;
+                if (!type_equals(arg_type, expected)) {
+                    ziman_error("type", arg->line, arg->col,
+                                "argument %d of '%s' expects %s, found %s",
+                                i + 1, callee, type_name(expected), type_name(arg_type));
+                }
+            }
+            break;
+        }
         case STMT_RETURN: {
             if (s->as.ret.value == NULL) {
                 if (fn_return_type.kind != TY_VOID) {
                     ziman_error("type", s->line, s->col, "bare 'return' in a function declared to return %s", type_name(fn_return_type));
                 }
-            } else if (check_ok_err_call(module, env, s->as.ret.value, fn_return_type)) {
-                /* ok(...)/err(...) resolved against the function's own
-                 * declared return type -- see check_ok_err_call. */
             } else {
+                /* check_expr_expecting resolves ok(...)/err(...)/
+                 * channel_new()/an empty array literal against the
+                 * function's own declared return type when the value is
+                 * exactly one of those; falls back to plain check_expr
+                 * otherwise. */
                 Type value_type = check_expr_expecting(module, env, s->as.ret.value, fn_return_type);
                 if (fn_return_type.kind == TY_VOID) {
                     ziman_error("type", s->as.ret.value->line, s->as.ret.value->col, "cannot return a value from a function declared with no return type");
@@ -1038,6 +1144,8 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
         if (find_enum(module, t.enum_name) == NULL) {
             ziman_error("type", line, col, "unknown enum type '%s'", t.enum_name);
         }
+    } else if (t.kind == TY_CHANNEL) {
+        check_type_well_formed(module, *t.elem, line, col);
     }
 }
 
@@ -1068,7 +1176,8 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err",
                                       "substring", "split", "trim", "to_upper", "to_lower",
                                       "parse_int", "parse_float", "contains",
-                                      "abs", "min", "max", "floor", "ceil", "round", "remove"};
+                                      "abs", "min", "max", "floor", "ceil", "round", "remove",
+                                      "channel_new", "send", "receive"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

@@ -1,0 +1,4 @@
+pub fn run(inbox: Channel<int>, reply: Channel<int>) {
+    val n = receive(inbox)
+    send(reply, n + 100)
+}

@@ -18,6 +18,7 @@ const char *token_type_name(TokenType type) {
         case TOK_IN: return "'in'";
         case TOK_BREAK: return "'break'";
         case TOK_CONTINUE: return "'continue'";
+        case TOK_SPAWN: return "'spawn'";
         case TOK_RETURN: return "'return'";
         case TOK_TRUE: return "'true'";
         case TOK_FALSE: return "'false'";
@@ -29,6 +30,7 @@ const char *token_type_name(TokenType type) {
         case TOK_USE: return "'use'";
         case TOK_NATIVE: return "'native'";
         case TOK_RESULT: return "'Result'";
+        case TOK_CHANNEL: return "'Channel'";
         case TOK_KW_INT: return "'int'";
         case TOK_KW_FLOAT: return "'float'";
         case TOK_KW_BOOL: return "'bool'";

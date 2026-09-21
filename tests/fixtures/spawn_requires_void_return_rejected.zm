@@ -1,0 +1,6 @@
+fn compute(x: int) -> int {
+    return x + 1
+}
+fn main() {
+    spawn compute(5)
+}

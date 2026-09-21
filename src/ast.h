@@ -13,6 +13,7 @@ typedef enum {
     TY_STRUCT,
     TY_RESULT,
     TY_ENUM,
+    TY_CHANNEL,
 } TypeKind;
 
 /* A Type is a small value (kind + optional payload), not a heap object in
@@ -37,20 +38,29 @@ typedef enum {
  * struct name vs. an enum name (both are just PascalCase identifiers), so
  * it always provisionally builds a TY_STRUCT; the loader reclassifies it
  * to TY_ENUM once it knows which declaration the name actually matches
- * (see loader.c's self_qualify_type). */
+ * (see loader.c's self_qualify_type).
+ *
+ * `Channel<T>` (TY_CHANNEL) is a third hardcoded parametric type, same
+ * trick as `[T]`/`Result<T, E>` -- reuses `elem` for its one type
+ * parameter, same as arrays do, since a channel is a queue of `T` the
+ * same way an array is a sequence of `T`. Unlike `enum`, this one has to
+ * be hardcoded: its entire value is native, thread-safe blocking
+ * send/receive, which no amount of user-definable generics would ever let
+ * you express in pure Ziman. See docs/SYNTAX.md "Concurrency". */
 typedef struct Type {
     TypeKind kind;
-    struct Type *elem;     /* TY_ARRAY: element type. TY_RESULT: success (Ok) type. */
+    struct Type *elem;     /* TY_ARRAY: element type. TY_RESULT: success (Ok) type. TY_CHANNEL: element type. */
     struct Type *elem_err; /* only meaningful when kind == TY_RESULT: the Err type */
     char *struct_name;     /* only meaningful when kind == TY_STRUCT */
     char *enum_name;       /* only meaningful when kind == TY_ENUM */
 } Type;
 
-Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY/TY_STRUCT/TY_RESULT/TY_ENUM */
+Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY/TY_STRUCT/TY_RESULT/TY_ENUM/TY_CHANNEL */
 Type type_array(Type elem);
 Type type_struct(const char *name);
 Type type_result(Type ok_type, Type err_type);
 Type type_enum(const char *name);
+Type type_channel(Type elem);
 int type_equals(Type a, Type b);
 
 /* Heap-allocated, human-readable name ("int", "[int]", "[[string]]", ...).
@@ -149,6 +159,7 @@ typedef enum {
     STMT_FOR,
     STMT_BREAK,
     STMT_CONTINUE,
+    STMT_SPAWN,
     STMT_RETURN,
     STMT_EXPR,
     STMT_BLOCK,
@@ -187,6 +198,13 @@ struct Stmt {
             Stmt *body;
         } for_stmt;
         struct { Expr *value; } ret; /* value is NULL for a bare `return` */
+        /* `spawn name(args)` or `spawn mod.name(args)` -- `callee` is the
+         * same flat, possibly-dotted string EXPR_CALL already uses, so it
+         * flows through the exact same self-qualify/cross-module
+         * resolution the loader already has for calls. Statically resolved
+         * against an already-declared function, never a first-class
+         * function value -- see docs/SYNTAX.md "Concurrency". */
+        struct { char *callee; ExprList args; } spawn_stmt;
         struct { Expr *expr; } expr_stmt;
         struct { StmtList stmts; } block;
     } as;

@@ -22,6 +22,11 @@ pub fn distance_squared(a: Point, b: Point) -> int {
     return dx * dx + dy * dy
 }
 
+fn double_worker(inbox: Channel<int>, reply: Channel<int>) {
+    val n = receive(inbox)
+    send(reply, n * 2)
+}
+
 fn main() {
     val p1 = Point { x: 0, y: 0 }
     val p2 = Point { x: 3, y: 4 }
@@ -73,4 +78,10 @@ fn main() {
         print(Shape.unwrap_Circle(shape))
     }
     print(Shape.Origin == Shape.Origin)
+
+    val work_in: Channel<int> = channel_new()
+    val work_out: Channel<int> = channel_new()
+    spawn double_worker(work_in, work_out)
+    send(work_in, 21)
+    print(receive(work_out))
 }

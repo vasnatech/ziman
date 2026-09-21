@@ -45,6 +45,7 @@ param          := IDENT ":" type
 type           := "int" | "float" | "bool" | "string" | "[" type "]"
                  | TYPE_IDENT | IDENT "." TYPE_IDENT   (* qualifier.Type *)
                  | "Result" "<" type "," type ">"      (* Result<Ok, Err> *)
+                 | "Channel" "<" type ">"              (* Channel<T> *)
                     (* a bare TYPE_IDENT names a struct or an enum -- the
                        grammar can't tell which (both are just PascalCase
                        identifiers); it resolves to whichever one is
@@ -55,7 +56,7 @@ block          := "{" NEWLINE* { statement NEWLINE* } "}"
 
 statement      := val_decl | var_decl | assign_stmt
                  | if_stmt | while_stmt | for_stmt
-                 | break_stmt | continue_stmt | return_stmt | expr_stmt
+                 | break_stmt | continue_stmt | spawn_stmt | return_stmt | expr_stmt
 
 val_decl       := "val" IDENT [ ":" type ] "=" expr
 var_decl       := "var" IDENT [ ":" type ] "=" expr
@@ -70,6 +71,10 @@ for_stmt       := "for" IDENT [ "," IDENT ] "in" expr [ ".." expr ] block
 break_stmt     := "break"      (* only legal inside a while/for body --
                                    see "For loops" below *)
 continue_stmt  := "continue"   (* same restriction as break_stmt *)
+spawn_stmt     := "spawn" IDENT [ "." IDENT ] "(" [ arg_list ] ")"
+                    (* the named function is resolved statically, exactly
+                       like an ordinary call's callee -- never a
+                       first-class function value. See "Concurrency". *)
 return_stmt    := "return" [ expr ]
 expr_stmt      := expr
 
@@ -157,9 +162,17 @@ yet, so there's nothing to call *except* a name), no indexed/field
   payload value. Unlike `[T]`/`Result<T, E>`, this is a type *users*
   declare, not hardcoded into the compiler — but it's still concrete
   (monomorphic), not generic. See "Enums" below.
+- `Channel<T>` — a thread-safe FIFO queue of `T`, and Ziman's concurrency
+  primitive: `send`/`receive` on one, and `spawn` to start a function
+  running on a new OS thread. A third hardcoded parametric type, same
+  trick as `[T]`/`Result<T, E>` — but unlike those, hardcoding this one
+  isn't a shortcut around generics: its real value (safe blocking
+  send/receive across real threads) is inherently native, something no
+  amount of user-definable generics would ever let you express in pure
+  Ziman. See "Concurrency" below.
 - No implicit conversion between any scalar type. `x as float` / `x as
   int` are the only casts, and only between `int` and `float` (never
-  arrays, structs, enums, or Results).
+  arrays, structs, enums, Results, or Channels).
 
 ## Arrays
 
@@ -565,6 +578,83 @@ fn main() {
   `Err(division by zero)`), recursively displaying the payload the same
   way `print` already displays anything else.
 
+## Concurrency
+
+`Channel<T>` and `spawn` — a third hardcoded parametric type (after
+`[T]`/`Result<T, E>`) plus one new statement, giving Ziman real OS-thread
+concurrency built on a single-writer / actor pattern: one thread owns a
+piece of mutable state and is the only thing that ever touches it; every
+other thread reaches it only by sending a message and waiting for a
+reply.
+
+```
+enum PatientMessage {
+    Create(string)
+    GetById(int)
+}
+
+fn run_patient_actor(inbox: Channel<PatientMessage>, replies: Channel<string>) {
+    var next_id = 1
+    while true {
+        val msg = receive(inbox)
+        if PatientMessage.is_Create(msg) {
+            val name = PatientMessage.unwrap_Create(msg)
+            send(replies, format("created #{}: {}", next_id, name))
+            next_id = next_id + 1
+        } else {
+            send(replies, "lookup not shown here")
+        }
+    }
+}
+
+fn main() {
+    val inbox: Channel<PatientMessage> = channel_new()
+    val replies: Channel<string> = channel_new()
+    spawn run_patient_actor(inbox, replies)
+
+    send(inbox, PatientMessage.Create("Ada"))
+    print(receive(replies))   // created #1: Ada
+}
+```
+
+- **`Channel<T>` is a queue, thread-safe by construction, holding values
+  of one element type `T`** — unified, not split into separate
+  sender/receiver types the way Rust's `mpsc` is: any `Channel<T>` value
+  supports both `send`/`receive`, freely passed to whoever needs either
+  capability. `send(chan, value)` never blocks (the queue is unbounded in
+  v0 — no backpressure yet, tracked in ROADMAP.md); `receive(chan) -> T`
+  blocks until a value is available.
+- **`channel_new()` can't infer its own type** (the call itself, zero
+  arguments, carries no information about what it's a channel *of*) —
+  same "expected type from context" mechanism `ok(...)`/`err(...)` and
+  an empty array literal (`[]`) already use, legal in exactly the same
+  four positions: a `val`/`var` with an explicit `Channel<T>` annotation,
+  a struct literal field, a `with` override, or a function's declared
+  return type.
+- **Not comparable.** `==`/`!=` on a `Channel` is a type error — unlike
+  arrays/structs/enums, a channel is a stateful, identity-based handle,
+  not a data aggregate, so "are two channels equal" has no obvious
+  structural meaning.
+- **`spawn name(args)` starts `name` running on a new OS thread**, with
+  `args` evaluated on the *calling* thread first (ordinary call
+  semantics) and handed off to the new one. `name` must already be a
+  declared function (`spawn mod.name(args)` for one from an imported
+  module, subject to the same `pub` rule as an ordinary qualified call) —
+  never a first-class function value, since Ziman doesn't have those; see
+  docs/DESIGN.md for why that gap doesn't block this. **The spawned
+  function must return nothing (`void`).** There's no thread-handle/join
+  mechanism in v0, so a spawned function's result has no way to be
+  observed except through a `Channel` it's explicitly given — `spawn` is
+  a statement, not an expression, and requiring `void` makes that
+  discipline a compile-time rule instead of a convention.
+- **Sharing a `Value` across threads needs no locking of its own.**
+  Nothing in the interpreter ever frees an `ArrayObj`/`StructObj`/
+  `EnumObj`/`ResultObj` (see docs/DESIGN.md), and nothing mutates one
+  after construction — so a value that crosses a channel is just a
+  pointer copy: no use-after-free (nothing's ever freed) and no data
+  race (nothing mutates it after it's built). Only the channel's own
+  queue needs real synchronization.
+
 ## Semantic rules enforced before a program runs
 
 These are checked by the type checker (`src/typecheck.c`) — a program that
@@ -595,17 +685,19 @@ violates one of these never executes any code, it's rejected up front:
   A struct name and an enum name can't collide (a program can't declare
   both `struct Shape` and `enum Shape`), but two different enums may
   freely reuse the same variant name.
-- `ok(...)`/`err(...)` are only legal where an expected `Result<T, E>`
-  type is available (a `val`/`var` annotation or the enclosing
-  function's return type) — see "Result" above.
-- `Result` is a reserved name, like `int`/`bool`/etc. — you can't declare
-  your own `struct Result { ... }` or `enum Result { ... }`.
+- `ok(...)`/`err(...)`/`channel_new()` are only legal where an expected
+  `Result<T, E>`/`Channel<T>` type is available (a `val`/`var`
+  annotation, a struct literal field, a `with` override, or the
+  enclosing function's return type) — see "Result"/"Concurrency" above.
+- `Result` and `Channel` are reserved names, like `int`/`bool`/etc. — you
+  can't declare your own `struct Result { ... }` or `enum Channel { ...
+  }`.
 
 | Operator group        | Operators                  | Operand types           | Result  |
 |------------------------|-----------------------------|--------------------------|---------|
 | Arithmetic             | `+ - * / %`                 | `int,int` or `float,float`* | same type |
 | Comparison             | `< > <= >=`                 | `int,int` or `float,float` | `bool`  |
-| Equality               | `== !=`                     | any two of the same type, provided that type is "comparable": a scalar always, `[T]` only for scalar `T`, a struct only if every field is (recursively) comparable, `Result<T, E>` only if both `T` and `E` are (recursively) comparable, an `enum` only if every payload-carrying variant's payload type is (recursively) comparable | `bool`  |
+| Equality               | `== !=`                     | any two of the same type, provided that type is "comparable": a scalar always, `[T]` only for scalar `T`, a struct only if every field is (recursively) comparable, `Result<T, E>` only if both `T` and `E` are (recursively) comparable, an `enum` only if every payload-carrying variant's payload type is (recursively) comparable, never a `Channel` | `bool`  |
 | Logical                | `&& \|\|`                   | `bool, bool`             | `bool`  |
 | Unary negate           | `-`                          | `int` or `float`         | same type |
 | Unary not              | `!`                          | `bool`                   | `bool`  |
@@ -694,6 +786,13 @@ a type error.
   if `r` is `Err`.
 - `unwrap_err(r: Result<T, E>) -> E` — the error value, or a runtime
   error if `r` is `Ok`.
+- `channel_new() -> Channel<T>` — construct a `Channel`. Only legal
+  where the missing type parameter is available from context — see
+  "Concurrency" above.
+- `send(c: Channel<T>, value: T)` — enqueue `value`; never blocks (the
+  queue is unbounded in v0).
+- `receive(c: Channel<T>) -> T` — dequeue the next value, blocking until
+  one is available.
 
 None of `push`/`insert`/`set` mutate their `arr` argument — see "Arrays"
 above for why, and why that's true regardless of `val`/`var`.

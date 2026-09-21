@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,6 +63,27 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *args, int ar
     }
     env_free(env);
     return result.kind == CTRL_RETURN ? result.value : value_int(0);
+}
+
+/* `spawn`'s payload: `args` is heap-allocated by the spawning thread (it
+ * has to outlive that thread's own stack frame, unlike an ordinary call's
+ * `args`, which is freed before the call even returns -- see EXPR_CALL
+ * below) and is owned by the new thread from here on, freed once that
+ * thread is done with it. */
+typedef struct {
+    Module *module;
+    FunctionDecl *fn;
+    Value *args;
+    int argc;
+    int line, col;
+} SpawnArgs;
+
+static void *spawn_thread_entry(void *raw) {
+    SpawnArgs *sa = (SpawnArgs *)raw;
+    call_function(sa->module, sa->fn, sa->args, sa->argc, sa->line, sa->col);
+    free(sa->args);
+    free(sa);
+    return NULL;
 }
 
 static Value call_print(Value arg) {
@@ -510,6 +532,13 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_ceil(args[0]);
             } else if (strcmp(e->as.call.callee, "round") == 0) {
                 result = call_round(args[0]);
+            } else if (strcmp(e->as.call.callee, "channel_new") == 0) {
+                result = value_channel(e->resolved_type, channel_obj_new());
+            } else if (strcmp(e->as.call.callee, "send") == 0) {
+                channel_send(args[0].as.ch, args[1]);
+                result = value_int(0);
+            } else if (strcmp(e->as.call.callee, "receive") == 0) {
+                result = channel_receive(args[0].as.ch);
             } else {
                 FunctionDecl *fn = find_function(module, e->as.call.callee);
                 result = call_function(module, fn, args, argc, e->line, e->col);
@@ -700,6 +729,25 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
         case STMT_CONTINUE: {
             ExecResult r = {CTRL_CONTINUE, value_int(0)};
             return r;
+        }
+        case STMT_SPAWN: {
+            FunctionDecl *fn = find_function(module, s->as.spawn_stmt.callee);
+            int argc = s->as.spawn_stmt.args.count;
+            Value *args = argc > 0 ? malloc((size_t)argc * sizeof(Value)) : NULL;
+            for (int i = 0; i < argc; i++) {
+                args[i] = eval_expr(module, env, s->as.spawn_stmt.args.items[i]);
+            }
+            SpawnArgs *sa = malloc(sizeof(SpawnArgs));
+            sa->module = module;
+            sa->fn = fn;
+            sa->args = args;
+            sa->argc = argc;
+            sa->line = s->line;
+            sa->col = s->col;
+            pthread_t thread;
+            pthread_create(&thread, NULL, spawn_thread_entry, sa);
+            pthread_detach(thread);
+            return no_ctrl();
         }
         case STMT_RETURN: {
             ExecResult r;

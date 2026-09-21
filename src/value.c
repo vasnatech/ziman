@@ -71,6 +71,46 @@ EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Valu
     return e;
 }
 
+Value value_channel(Type channel_type, ChannelObj *ch) {
+    Value v;
+    v.type = channel_type;
+    v.as.ch = ch;
+    return v;
+}
+
+ChannelObj *channel_obj_new(void) {
+    ChannelObj *ch = malloc(sizeof(ChannelObj));
+    pthread_mutex_init(&ch->mutex, NULL);
+    pthread_cond_init(&ch->cond, NULL);
+    ch->items = NULL;
+    ch->count = 0;
+    ch->capacity = 0;
+    return ch;
+}
+
+void channel_send(ChannelObj *ch, Value v) {
+    pthread_mutex_lock(&ch->mutex);
+    if (ch->count == ch->capacity) {
+        ch->capacity = ch->capacity == 0 ? 4 : ch->capacity * 2;
+        ch->items = realloc(ch->items, (size_t)ch->capacity * sizeof(Value));
+    }
+    ch->items[ch->count++] = v;
+    pthread_cond_signal(&ch->cond);
+    pthread_mutex_unlock(&ch->mutex);
+}
+
+Value channel_receive(ChannelObj *ch) {
+    pthread_mutex_lock(&ch->mutex);
+    while (ch->count == 0) {
+        pthread_cond_wait(&ch->cond, &ch->mutex);
+    }
+    Value v = ch->items[0];
+    memmove(ch->items, ch->items + 1, (size_t)(ch->count - 1) * sizeof(Value));
+    ch->count--;
+    pthread_mutex_unlock(&ch->mutex);
+    return v;
+}
+
 int value_equals(Value a, Value b) {
     /* Callers only compare same-typed values, and only when the type checker
      * (type_supports_equality in typecheck.c) has already established that
@@ -124,6 +164,9 @@ int value_equals(Value a, Value b) {
             if (!en_a->has_payload) return 1;
             return value_equals(en_a->payload, en_b->payload);
         }
+        case TY_CHANNEL:
+            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on Channel should have been rejected by the type checker");
+            return 0;
     }
     return 0;
 }
@@ -221,6 +264,8 @@ char *value_display(Value v) {
             free(inner);
             return out;
         }
+        case TY_CHANNEL:
+            return strdup("Channel");
     }
     return strdup("");
 }

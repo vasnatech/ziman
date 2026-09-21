@@ -58,12 +58,24 @@ Type type_enum(const char *name) {
     return t;
 }
 
+Type type_channel(Type elem) {
+    Type t;
+    t.kind = TY_CHANNEL;
+    t.elem = malloc(sizeof(Type));
+    *t.elem = elem;
+    t.elem_err = NULL;
+    t.struct_name = NULL;
+    t.enum_name = NULL;
+    return t;
+}
+
 int type_equals(Type a, Type b) {
     if (a.kind != b.kind) return 0;
     if (a.kind == TY_ARRAY) return type_equals(*a.elem, *b.elem);
     if (a.kind == TY_RESULT) return type_equals(*a.elem, *b.elem) && type_equals(*a.elem_err, *b.elem_err);
     if (a.kind == TY_STRUCT) return strcmp(a.struct_name, b.struct_name) == 0;
     if (a.kind == TY_ENUM) return strcmp(a.enum_name, b.enum_name) == 0;
+    if (a.kind == TY_CHANNEL) return type_equals(*a.elem, *b.elem);
     return 1;
 }
 
@@ -92,6 +104,14 @@ char *type_name(Type type) {
             snprintf(buf, len, "Result<%s, %s>", ok, err);
             free(ok);
             free(err);
+            return buf;
+        }
+        case TY_CHANNEL: {
+            char *inner = type_name(*type.elem);
+            size_t len = strlen(inner) + 10; /* "Channel<" (8) + inner + ">" (1) + '\0' (1) */
+            char *buf = malloc(len);
+            snprintf(buf, len, "Channel<%s>", inner);
+            free(inner);
             return buf;
         }
     }

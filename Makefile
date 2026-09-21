@@ -1,5 +1,5 @@
 CC := cc
-CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -g -MMD -MP
+CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -g -MMD -MP -pthread
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
@@ -10,7 +10,7 @@ BIN := ziman
 all: $(BIN)
 
 $(BIN): $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ -lm
+	$(CC) $(CFLAGS) -o $@ $^ -lm -pthread
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<

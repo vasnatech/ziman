@@ -101,13 +101,13 @@ static const Keyword KEYWORDS[] = {
     {"fn", TOK_FN},         {"val", TOK_VAL},       {"var", TOK_VAR},
     {"if", TOK_IF},         {"else", TOK_ELSE},     {"while", TOK_WHILE},
     {"for", TOK_FOR},       {"in", TOK_IN},
-    {"break", TOK_BREAK},   {"continue", TOK_CONTINUE},
+    {"break", TOK_BREAK},   {"continue", TOK_CONTINUE}, {"spawn", TOK_SPAWN},
     {"return", TOK_RETURN}, {"true", TOK_TRUE},     {"false", TOK_FALSE},
     {"as", TOK_AS},         {"int", TOK_KW_INT},    {"float", TOK_KW_FLOAT},
     {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING},
     {"struct", TOK_STRUCT}, {"enum", TOK_ENUM}, {"with", TOK_WITH},
     {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
-    {"Result", TOK_RESULT},
+    {"Result", TOK_RESULT}, {"Channel", TOK_CHANNEL},
 };
 
 static TokenType ident_or_keyword(const char *start, int length) {

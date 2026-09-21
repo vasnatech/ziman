@@ -1,0 +1,5 @@
+fn main() {
+    val c1: Channel<int> = channel_new()
+    val c2: Channel<int> = channel_new()
+    print(c1 == c2)
+}

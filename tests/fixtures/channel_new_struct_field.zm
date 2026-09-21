@@ -1,0 +1,8 @@
+struct Worker {
+    inbox: Channel<int>
+}
+fn main() {
+    val w = Worker { inbox: channel_new() }
+    send(w.inbox, 42)
+    print(receive(w.inbox))
+}

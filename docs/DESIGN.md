@@ -264,6 +264,61 @@ several languages rather than inheriting any one of them wholesale.
   enum's own name so two enums' generated functions never collide. No
   `match`/pattern matching yet — deliberately deferred, same instinct as
   `Result` shipping without one.
+- **`Channel<T>` and `spawn` — real OS-thread concurrency, built on a
+  single-writer / actor pattern, not shared memory plus locks.** Surfaced
+  by trying to write a layered (controller/service/repository) example
+  backend: every "write" had to explicitly return a new value and the
+  caller had to rebind it, which works for one request's own call chain
+  but doesn't solve *multiple concurrent requests* needing to reach one
+  shared, consistently-updated store. Considered and rejected Java/
+  Spring's actual model — OS threads sharing memory, synchronized with
+  locks — for two reasons: a mutex held by one thread while another
+  silently blocks is exactly the "not derivable from the line itself"
+  problem principle #1 already rules out, and implementing it honestly
+  would mean reworking the whole runtime's memory model, since `Value`
+  sharing-by-pointer is only safe today because nothing else can be
+  touching the same memory concurrently. The actor model instead confines
+  the unsafe part to one visible place: one thread owns a piece of
+  mutable state and is the only thing that ever touches it; everyone else
+  sends it a message and waits for a reply. `Channel<T>` is a third
+  hardcoded parametric type (after `[T]`/`Result<T, E>`), but unlike
+  those, hardcoding it isn't a shortcut around generics — its entire
+  value (safe blocking `send`/`receive` across real threads) is native by
+  necessity; no amount of user-definable generics would ever let pure
+  Ziman express real thread synchronization, so there's no future "let
+  users define their own Channel-like things" case being foreclosed the
+  way there was for `Option<T>`/`Map<K, V>`. Unified, not split into
+  `Sender<T>`/`Receiver<T>` the way Rust's `mpsc` is — that split exists
+  to support Rust's ownership/move system, which Ziman doesn't have, so
+  it would just be extra type surface with no payoff here. Unbounded
+  queue in v0 (no backpressure) — a real production concern, not a
+  correctness one, deferred until something concretely needs it.
+  `spawn name(args)` is a new *statement*, not an ordinary call, because
+  Ziman has no first-class functions: naming the target function directly
+  and resolving it statically (exactly like an ordinary call's callee
+  already is) sidesteps that gap entirely rather than requiring it. The
+  spawned function must return `void` — there's no thread-handle/join
+  mechanism in v0, so with no first-class functions and no join, a
+  result can only come back through a `Channel` the function is
+  explicitly given; requiring `void` makes that a compile-time rule.
+  Considered building first-class functions (or closures) first, since
+  `spawn`'s natural long-run shape would take a closure; decided against
+  it because nothing *concrete* forces the question yet (no `net`/`http`
+  module exists either, which is the more likely real forcing case, via
+  needing a routing table of path → handler). A plain reference to an
+  already-declared function (closer to a C function pointer than a JS
+  closure — no captured environment, since a top-level function has
+  nothing to capture) would likely be the cheaper, sufficient answer when
+  that need actually arrives, rather than full closures.
+  Sharing a `Value` across threads needed no new machinery at all: this
+  interpreter never frees an `ArrayObj`/`StructObj`/`EnumObj`/`ResultObj`
+  once built (same "AST nodes are heap-allocated and never freed" policy
+  ast.h already documents for the AST itself — the interpreter is a
+  short-lived process, so the OS reclaims everything at exit), and
+  nothing mutates one after construction, so a value crossing a channel
+  is just a pointer copy — no use-after-free, no data race. Only the
+  channel's own queue needed a
+  real mutex/condvar.
 
 ## Deliberately deferred (not v0)
 
