@@ -29,6 +29,43 @@ static EnumDecl *find_enum(Module *module, const char *name) {
 static Type check_expr(Module *module, Env *env, Expr *e);
 static void check_type_well_formed(Module *module, Type t, int line, int col);
 
+/* Rebuilds `t` with every TY_TYPEVAR named in `params` replaced by the
+ * type argument at the same index in `args` -- the substitution-on-demand
+ * a generic struct's own declared field types need whenever they're
+ * looked at through a concrete instantiation (`Box<int>`'s `value` field
+ * is `int`, not `T`). No caching/memoization: `Value` is already
+ * runtime-type-erased (see ast.h's Type comment), so this is purely a
+ * type-checking-time convenience, never a runtime cost. A type unrelated
+ * to `params`/`args` (e.g. a plain `int` field, or a reference to some
+ * other struct's own type parameter) passes through unchanged. */
+static Type substitute_type(Type t, StringList *params, TypeList *args) {
+    switch (t.kind) {
+        case TY_TYPEVAR:
+            for (int i = 0; i < params->count; i++) {
+                if (strcmp(params->items[i], t.type_var_name) == 0) return args->items[i];
+            }
+            return t;
+        case TY_ARRAY:
+            return type_array(substitute_type(*t.elem, params, args));
+        case TY_RESULT:
+            return type_result(substitute_type(*t.elem, params, args), substitute_type(*t.elem_err, params, args));
+        case TY_CHANNEL:
+            return type_channel(substitute_type(*t.elem, params, args));
+        case TY_STRUCT:
+        case TY_ENUM: {
+            if (t.type_args.count == 0) return t;
+            Type result = t;
+            result.type_args = (TypeList){0};
+            for (int i = 0; i < t.type_args.count; i++) {
+                type_list_push(&result.type_args, substitute_type(t.type_args.items[i], params, args));
+            }
+            return result;
+        }
+        default:
+            return t;
+    }
+}
+
 static int is_scalar_kind(TypeKind kind) {
     return kind == TY_INT || kind == TY_FLOAT || kind == TY_BOOL || kind == TY_STRING;
 }
@@ -58,7 +95,8 @@ static int type_supports_equality(Module *module, Type t, int depth) {
             StructDecl *decl = find_struct(module, t.struct_name);
             if (decl == NULL) return 0;
             for (int i = 0; i < decl->fields.count; i++) {
-                if (!type_supports_equality(module, decl->fields.items[i].type, depth + 1)) return 0;
+                Type field_type = substitute_type(decl->fields.items[i].type, &decl->type_params, &t.type_args);
+                if (!type_supports_equality(module, field_type, depth + 1)) return 0;
             }
             return 1;
         }
@@ -699,16 +737,34 @@ static Type check_struct_literal(Module *module, Env *env, Expr *e) {
     if (decl == NULL) {
         ziman_error("type", e->line, e->col, "no struct named '%s'", type_name_str);
     }
+    TypeList *type_args = &e->as.struct_lit.type_args;
+    /* Explicit type arguments everywhere, no inference: a generic struct's
+     * construction must always spell out `Name<Arg, ...>`, and a
+     * non-generic one must never spell any out. */
+    if (decl->type_params.count == 0 && type_args->count > 0) {
+        ziman_error("type", e->line, e->col, "'%s' is not generic, but was given %d type argument(s)", type_name_str, type_args->count);
+    }
+    if (decl->type_params.count > 0 && type_args->count == 0) {
+        ziman_error("type", e->line, e->col, "'%s' is generic and requires explicit type arguments, e.g. '%s<...> { ... }'", type_name_str, type_name_str);
+    }
+    if (decl->type_params.count != type_args->count) {
+        ziman_error("type", e->line, e->col, "'%s' takes %d type argument(s), found %d", type_name_str, decl->type_params.count, type_args->count);
+    }
+    for (int i = 0; i < type_args->count; i++) {
+        check_type_well_formed(module, type_args->items[i], e->line, e->col);
+    }
+
     FieldInitList *inits = &e->as.struct_lit.fields;
 
     for (int i = 0; i < inits->count; i++) {
         Param *field = resolve_field_init(decl, inits, i);
-        Type value_type = check_expr_expecting(module, env, inits->items[i].value, field->type);
+        Type field_type = substitute_type(field->type, &decl->type_params, type_args);
+        Type value_type = check_expr_expecting(module, env, inits->items[i].value, field_type);
         require_not_void(inits->items[i].value, "as a field value");
-        if (!type_equals(value_type, field->type)) {
+        if (!type_equals(value_type, field_type)) {
             ziman_error("type", inits->items[i].value->line, inits->items[i].value->col,
                         "field '%s' of '%s' expects %s, found %s",
-                        field->name, type_name_str, type_name(field->type), type_name(value_type));
+                        field->name, type_name_str, type_name(field_type), type_name(value_type));
         }
     }
     /* Construction requires every field, unlike `with` -- there's no base
@@ -723,7 +779,9 @@ static Type check_struct_literal(Module *module, Env *env, Expr *e) {
             ziman_error("type", e->line, e->col, "missing field '%s' in construction of '%s'", field_name, type_name_str);
         }
     }
-    return type_struct(type_name_str);
+    Type result = type_struct(type_name_str);
+    result.type_args = *type_args;
+    return result;
 }
 
 static Type check_field_access(Module *module, Env *env, Expr *e) {
@@ -735,7 +793,7 @@ static Type check_field_access(Module *module, Env *env, Expr *e) {
     StructDecl *decl = find_struct(module, base_type.struct_name);
     for (int i = 0; i < decl->fields.count; i++) {
         if (strcmp(decl->fields.items[i].name, e->as.field_access.field_name) == 0) {
-            return decl->fields.items[i].type;
+            return substitute_type(decl->fields.items[i].type, &decl->type_params, &base_type.type_args);
         }
     }
     ziman_error("type", e->line, e->col, "no field '%s' on struct '%s'", e->as.field_access.field_name, base_type.struct_name);
@@ -753,12 +811,13 @@ static Type check_with_expr(Module *module, Env *env, Expr *e) {
 
     for (int i = 0; i < overrides->count; i++) {
         Param *field = resolve_field_init(decl, overrides, i);
-        Type value_type = check_expr_expecting(module, env, overrides->items[i].value, field->type);
+        Type field_type = substitute_type(field->type, &decl->type_params, &base_type.type_args);
+        Type value_type = check_expr_expecting(module, env, overrides->items[i].value, field_type);
         require_not_void(overrides->items[i].value, "as a field value");
-        if (!type_equals(value_type, field->type)) {
+        if (!type_equals(value_type, field_type)) {
             ziman_error("type", overrides->items[i].value->line, overrides->items[i].value->col,
                         "field '%s' of '%s' expects %s, found %s",
-                        field->name, base_type.struct_name, type_name(field->type), type_name(value_type));
+                        field->name, base_type.struct_name, type_name(field_type), type_name(value_type));
         }
     }
     /* Unlike a struct literal, fields left unmentioned aren't an error --
@@ -1137,8 +1196,15 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
         check_type_well_formed(module, *t.elem, line, col);
         check_type_well_formed(module, *t.elem_err, line, col);
     } else if (t.kind == TY_STRUCT) {
-        if (find_struct(module, t.struct_name) == NULL) {
+        StructDecl *decl = find_struct(module, t.struct_name);
+        if (decl == NULL) {
             ziman_error("type", line, col, "unknown struct or enum type '%s'", t.struct_name);
+        }
+        if (t.type_args.count != decl->type_params.count) {
+            ziman_error("type", line, col, "'%s' takes %d type argument(s), found %d", t.struct_name, decl->type_params.count, t.type_args.count);
+        }
+        for (int i = 0; i < t.type_args.count; i++) {
+            check_type_well_formed(module, t.type_args.items[i], line, col);
         }
     } else if (t.kind == TY_ENUM) {
         if (find_enum(module, t.enum_name) == NULL) {
@@ -1196,6 +1262,26 @@ void typecheck(Module *module) {
                     ziman_error("type", sd->fields.items[g].line, sd->fields.items[g].col,
                                 "field '%s' is already defined in struct '%s'", sd->fields.items[g].name, sd->name);
                 }
+            }
+        }
+        /* A type parameter name colliding with a real struct/enum name
+         * would make parse_struct_decl's reclassify_type_params silently
+         * shadow every legitimate reference to that real type inside this
+         * struct's own fields -- caught here instead of failing subtly
+         * later. Duplicate parameter names have no per-name position (see
+         * ast.h's StringList), so both point at the struct's own line. */
+        for (int tp = 0; tp < sd->type_params.count; tp++) {
+            const char *param_name = sd->type_params.items[tp];
+            for (int tq = tp + 1; tq < sd->type_params.count; tq++) {
+                if (strcmp(param_name, sd->type_params.items[tq]) == 0) {
+                    ziman_error("type", sd->line, sd->col, "type parameter '%s' is already defined in struct '%s'", param_name, sd->name);
+                }
+            }
+            if (find_struct(module, param_name) != NULL) {
+                ziman_error("type", sd->line, sd->col, "type parameter '%s' in struct '%s' collides with an existing struct name", param_name, sd->name);
+            }
+            if (find_enum(module, param_name) != NULL) {
+                ziman_error("type", sd->line, sd->col, "type parameter '%s' in struct '%s' collides with an existing enum name", param_name, sd->name);
             }
         }
     }

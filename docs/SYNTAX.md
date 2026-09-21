@@ -350,6 +350,57 @@ fn main() {
   that's never declared anywhere is a compile-time error at the field (or
   parameter/return type) that names it.
 
+## Generics
+
+**Structs only so far** — generic enums and functions are not yet
+implemented (see docs/ROADMAP.md's "Generics" entry).
+
+```
+struct Box<T> {
+    value: T
+}
+
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+fn main() {
+    val b = Box<int> { value: 5 }
+    print(b.value)              // 5
+
+    val p = Pair<int, string> { first: 1, second: "one" }
+    print(p.second)             // one
+
+    val nested = Box<[int]> { value: [1, 2, 3] }
+    print(nested.value)         // [1, 2, 3]
+}
+```
+
+- **Explicit type arguments everywhere — no inference.** A generic
+  struct's construction must always spell out `Name<Arg, ...>`; there is
+  no `Box { value: 5 }` that infers `T = int` from the field. The same
+  "explicit over implicit" instinct as `val`/`var` requiring a declared
+  type wherever it can't be trivially read off the right-hand side.
+- **No bounds or constraints on a type parameter.** `T` can be stored and
+  passed around, nothing else — there's no trait/interface system yet to
+  express "T must support X."
+- `Box<int>` and `Box<string>` are different types: a mismatched
+  instantiation is a type error at construction, and `==`/`!=` between
+  two different instantiations of the same generic struct is rejected
+  the same way comparing two unrelated structs would be.
+- `Box { value: 5 }` (a generic struct with no type arguments) and
+  `Point<int> { x: 0, y: 0 }` (type arguments on a non-generic struct)
+  are both compile-time errors, as is giving the wrong number of type
+  arguments (`Pair<int> { ... }` when `Pair` declares two).
+- A type parameter name that collides with a real struct or enum name
+  (`struct Box<Point> { value: Point }` when `Point` is already declared)
+  is rejected at the generic struct's own declaration — without this
+  check, every reference to the real `Point` inside `Box`'s own fields
+  would be silently shadowed by the type parameter instead.
+- **Same-module only, like `enum`** — `mod.Box<int> { ... }` isn't
+  supported yet.
+
 ## Enums
 
 A user-declared tagged union — unlike `[T]`/`Result<T, E>`, which are

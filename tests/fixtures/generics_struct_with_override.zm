@@ -1,0 +1,10 @@
+struct Box<T> {
+    value: T
+}
+
+fn main() {
+    val a = Box<int> { value: 1 }
+    val b = with a { value: 10 }
+    print(a.value)
+    print(b.value)
+}

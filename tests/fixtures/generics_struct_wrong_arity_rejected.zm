@@ -1,0 +1,8 @@
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+fn main() {
+    val p = Pair<int> { first: 1, second: 2 }
+}

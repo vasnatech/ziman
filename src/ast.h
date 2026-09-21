@@ -14,6 +14,7 @@ typedef enum {
     TY_RESULT,
     TY_ENUM,
     TY_CHANNEL,
+    TY_TYPEVAR,
 } TypeKind;
 
 /* A Type is a small value (kind + optional payload), not a heap object in
@@ -46,22 +47,55 @@ typedef enum {
  * same way an array is a sequence of `T`. Unlike `enum`, this one has to
  * be hardcoded: its entire value is native, thread-safe blocking
  * send/receive, which no amount of user-definable generics would ever let
- * you express in pure Ziman. See docs/SYNTAX.md "Concurrency". */
-typedef struct Type {
+ * you express in pure Ziman. See docs/SYNTAX.md "Concurrency".
+ *
+ * User-declared generics (`struct Box<T> { value: T }`) add two more
+ * things: TY_TYPEVAR, a placeholder meaning "the formal type parameter
+ * named `type_var_name`", used only *inside* a generic declaration's own
+ * field/variant/param types before any concrete type is known; and
+ * `type_args`, the concrete types a generic struct/enum reference is
+ * instantiated with (`Box<int>`'s `type_args` is `[int]`), empty for an
+ * ordinary non-generic struct/enum. There's no inference anywhere --
+ * every instantiation writes its type arguments explicitly, matching
+ * Ziman's "explicit over implicit" instinct elsewhere and sidestepping a
+ * real unification/inference implementation entirely. Substitution
+ * happens on demand (substitute_type_vars in typecheck.c) wherever a
+ * generic declaration's field/variant/param type is actually looked up
+ * against a concrete instantiation -- never by generating copies of the
+ * declaration itself, since the interpreter's `Value` representation is
+ * already uniform regardless of static type. See docs/SYNTAX.md
+ * "Generics". */
+typedef struct Type Type;
+
+/* A concrete type's type arguments (`Box<int>`'s is `[int]`) -- a plain
+ * growable list, same shape as every other *List in this file. Empty
+ * (count 0) for a non-generic struct/enum reference. */
+typedef struct {
+    Type *items;
+    int count;
+    int capacity;
+} TypeList;
+
+struct Type {
     TypeKind kind;
     struct Type *elem;     /* TY_ARRAY: element type. TY_RESULT: success (Ok) type. TY_CHANNEL: element type. */
     struct Type *elem_err; /* only meaningful when kind == TY_RESULT: the Err type */
     char *struct_name;     /* only meaningful when kind == TY_STRUCT */
     char *enum_name;       /* only meaningful when kind == TY_ENUM */
-} Type;
+    char *type_var_name;   /* only meaningful when kind == TY_TYPEVAR */
+    TypeList type_args;    /* TY_STRUCT/TY_ENUM only, when the declaration is generic */
+};
 
-Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY/TY_STRUCT/TY_RESULT/TY_ENUM/TY_CHANNEL */
+Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY/TY_STRUCT/TY_RESULT/TY_ENUM/TY_CHANNEL/TY_TYPEVAR */
 Type type_array(Type elem);
 Type type_struct(const char *name);
 Type type_result(Type ok_type, Type err_type);
 Type type_enum(const char *name);
 Type type_channel(Type elem);
+Type type_typevar(const char *name);
 int type_equals(Type a, Type b);
+
+void type_list_push(TypeList *list, Type t);
 
 /* Heap-allocated, human-readable name ("int", "[int]", "[[string]]", ...).
  * Never freed -- see the no-free policy note on the AST constructors below;
@@ -132,7 +166,9 @@ struct Expr {
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
         struct { Expr *array; Expr *index; } index;
-        struct { char *type_name; FieldInitList fields; } struct_lit;
+        /* `type_args` is only non-empty for `Name<Arg, ...> { ... }`
+         * construction of a generic struct -- empty for an ordinary one. */
+        struct { char *type_name; FieldInitList fields; TypeList type_args; } struct_lit;
         struct { Expr *base; char *field_name; } field_access;
         struct { Expr *base; FieldInitList overrides; } with_expr;
         /* `EnumName.Variant[(payload)]` (construction) or
@@ -222,6 +258,17 @@ typedef struct {
     int capacity;
 } ParamList;
 
+/* A generic declaration's own formal type parameter names (`struct
+ * Box<T>`'s is `["T"]`, `Pair<A, B>`'s is `["A", "B"]`). Empty for an
+ * ordinary, non-generic declaration. Looked up by name, not index --
+ * consistent with how everything else in Ziman (struct fields, enum
+ * variants) is looked up by name rather than position. */
+typedef struct {
+    char **items;
+    int count;
+    int capacity;
+} StringList;
+
 typedef struct {
     char *name;
     ParamList params;
@@ -241,10 +288,12 @@ typedef struct {
 } FunctionList;
 
 /* A struct's fields reuse Param -- a field is exactly "a typed name",
- * the same shape as a function parameter. */
+ * the same shape as a function parameter. `type_params` is empty for an
+ * ordinary, non-generic struct. */
 typedef struct {
     char *name;
     ParamList fields;
+    StringList type_params;
     int is_public;
     int line, col;
 } StructDecl;
@@ -334,5 +383,6 @@ void struct_list_push(StructList *list, StructDecl *s);
 void enum_variant_list_push(EnumVariantList *list, EnumVariant v);
 void enum_list_push(EnumList *list, EnumDecl *e);
 void use_list_push(UseList *list, UseDecl u);
+void string_list_push(StringList *list, char *s);
 
 #endif

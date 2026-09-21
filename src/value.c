@@ -167,6 +167,9 @@ int value_equals(Value a, Value b) {
         case TY_CHANNEL:
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on Channel should have been rejected by the type checker");
             return 0;
+        case TY_TYPEVAR:
+            ziman_error("runtime", 0, 0, "internal error: a runtime value should never have an unsubstituted type variable as its type");
+            return 0;
     }
     return 0;
 }
@@ -266,6 +269,9 @@ char *value_display(Value v) {
         }
         case TY_CHANNEL:
             return strdup("Channel");
+        case TY_TYPEVAR:
+            ziman_error("runtime", 0, 0, "internal error: a runtime value should never have an unsubstituted type variable as its type");
+            return strdup("");
     }
     return strdup("");
 }

@@ -1,0 +1,12 @@
+struct Point {
+    x: int
+    y: int
+}
+
+struct Box<Point> {
+    value: Point
+}
+
+fn main() {
+    print("unreachable")
+}

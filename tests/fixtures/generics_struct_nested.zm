@@ -1,0 +1,18 @@
+struct Box<T> {
+    value: T
+}
+
+struct Wrapper<T> {
+    inner: Box<T>
+}
+
+fn main() {
+    val w = Wrapper<int> { inner: Box<int> { value: 42 } }
+    print(w.inner.value)
+
+    val arr_box = Box<[int]> { value: [1, 2, 3] }
+    print(arr_box.value)
+
+    val arr = [Box<int> { value: 1 }, Box<int> { value: 2 }]
+    print(arr[1].value)
+}

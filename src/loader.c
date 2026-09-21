@@ -144,6 +144,13 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
         return;
     }
     if (t->kind != TY_STRUCT) return;
+    /* A generic struct reference's own type arguments (`Box<other::Foo>`)
+     * can themselves need self-qualifying, independent of whether `Box`
+     * itself does -- visited unconditionally, before any of the
+     * early-return branches below. */
+    for (int i = 0; i < t->type_args.count; i++) {
+        self_qualify_type(&t->type_args.items[i], ctx);
+    }
     if (strchr(t->struct_name, '.') != NULL) return; /* already dotted -- pass (b)'s job */
     for (int i = 0; i < ctx->n_structs; i++) {
         if (strcmp(t->struct_name, ctx->orig_struct_names[i]) == 0) {
@@ -421,6 +428,11 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
         return;
     }
     if (t->kind != TY_STRUCT) return;
+    /* Same reasoning as self_qualify_type: a generic reference's own type
+     * arguments need resolving independent of whether the base name does. */
+    for (int i = 0; i < t->type_args.count; i++) {
+        resolve_type_refs(&t->type_args.items[i], ctx, line, col);
+    }
     if (strchr(t->struct_name, '.') != NULL) {
         t->struct_name = resolve_type_ref(ctx, t->struct_name, line, col);
         return;

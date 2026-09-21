@@ -319,6 +319,46 @@ several languages rather than inheriting any one of them wholesale.
   is just a pointer copy — no use-after-free, no data race. Only the
   channel's own queue needed a
   real mutex/condvar.
+- **Generics — explicit type arguments everywhere, no inference, no
+  bounds/constraints, staged struct → enum → function.** The
+  "hardcode one more parametric type into the compiler" trick (`[T]`,
+  `Result<T, E>`, `Channel<T>`) stopped scaling once `enum` shipped and
+  made the real demand concrete (`Option<T>`, and any other
+  Result/Option-shaped type a user wants, without another one-off C
+  special case each time — see the `enum` entry above and ROADMAP.md's
+  "Generics" entry). Every instantiation spells out its type arguments —
+  `Box<int> { value: 5 }`, never `Box { value: 5 }` inferred from the
+  field — the same "explicit over implicit" instinct behind `val`/`var`
+  requiring a declared type anywhere it can't be trivially inferred from
+  the right-hand side. No bounds or `where`-style constraints on a type
+  parameter, matching "no trait system yet" (see the classes-vs-traits
+  discussion above): a generic declaration's body can do nothing with an
+  abstract `T` beyond storing and passing it around. Represented as a new
+  `TY_TYPEVAR` `TypeKind` — "the Nth/named formal parameter of the
+  enclosing generic declaration" — substituted on demand wherever a
+  concrete instantiation's fields/variants/parameters are actually looked
+  at (struct-literal field checking, field access, `with`, `==`
+  comparability), never eagerly monomorphized: `Value` is already
+  runtime-type-erased (`ArrayObj`/`StructObj` already just hold generic
+  `Value*` regardless of static field types, same fact the `Channel<T>`
+  entry above leans on for cross-thread sharing), so there's no runtime
+  representation to generate per instantiation — only the type checker's
+  substitution logic is new work. `Name<Arg, ...>` in *type* position
+  (`struct Box<T>`'s own field declarations, a `val`/param annotation) is
+  unambiguous with a comparison the same way struct-literal `{` already
+  is: a type name is always PascalCase, and casing is enforced everywhere,
+  so an uppercase identifier followed by `<` can never be the left operand
+  of a real `x < y` comparison. A generic *function* call site
+  (`identity<int>(5)`) is the one place this isn't free: a lowercase
+  callee followed by `<` is genuinely ambiguous with `x < y`, and needs a
+  one-token lookahead heuristic (peek at what follows `<`; commit to
+  parsing type arguments only if it looks like a type-starter) — deferred
+  to the generic-functions stage, since generic structs don't need it.
+  Same-module only for now, like `enum` — no `qualifier.Name<...>`
+  support yet. Staged as generic structs, then generic enums
+  (`enum Option<T> { Some(T) None }`, unlocking the actual `Option<T>`
+  motivation), then generic functions, each a smaller, independently
+  useful slice rather than one large change.
 
 ## Deliberately deferred (not v0)
 
@@ -327,7 +367,6 @@ several languages rather than inheriting any one of them wholesale.
   ROADMAP.md.
 - Structured/machine-parseable compiler diagnostics as a first-class output
   mode (`--json` errors).
-- Generics / parametric polymorphism.
 - Modules / imports beyond a single file.
 - A package manager or build system beyond a Makefile.
 

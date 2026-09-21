@@ -65,6 +65,22 @@ static void skip_newlines(Parser *p) {
     while (match(p, TOK_NEWLINE)) {}
 }
 
+static Type parse_type(Parser *p);
+
+/* `"<" type { "," type } ">"` -- a generic type's explicit type
+ * arguments (`Box<int>`, `Pair<int, string>`). No inference anywhere in
+ * Ziman's generics -- every instantiation writes these out. */
+static TypeList parse_type_args(Parser *p) {
+    TypeList args = {0};
+    expect(p, TOK_LT, "'<'");
+    type_list_push(&args, parse_type(p));
+    while (match(p, TOK_COMMA)) {
+        type_list_push(&args, parse_type(p));
+    }
+    expect(p, TOK_GT, "'>'");
+    return args;
+}
+
 static Type parse_type(Parser *p) {
     if (match(p, TOK_KW_INT)) return type_scalar(TY_INT);
     if (match(p, TOK_KW_FLOAT)) return type_scalar(TY_FLOAT);
@@ -109,6 +125,16 @@ static Type parse_type(Parser *p) {
         char *name = dup_token_text(t);
         Type ty = type_struct(name);
         free(name); /* type_struct() dups it into the Type itself */
+        /* `Name<...>` -- a user-declared generic struct/enum reference.
+         * Same-module only for now, like enums (no `qualifier.Name<...>`
+         * support yet) -- see docs/SYNTAX.md "Generics". Whether `Name`
+         * is actually a struct or an enum, and whether it's actually
+         * declared generic at all, isn't known here (the parser can't
+         * tell struct from enum, see ast.h's Type comment) -- validated
+         * later in typecheck.c. */
+        if (check(p, TOK_LT)) {
+            ty.type_args = parse_type_args(p);
+        }
         return ty;
     }
     ziman_error("syntax", cur(p)->line, cur(p)->col, "expected a type, found %s", token_type_name(cur(p)->type));
@@ -203,6 +229,24 @@ static Expr *parse_primary(Parser *p) {
             Expr *e = expr_new(EXPR_CALL, t->line, t->col);
             e->as.call.callee = name;
             e->as.call.args = args;
+            return e;
+        }
+        /* An uppercase identifier immediately followed by '<' is always a
+         * generic struct literal's explicit type arguments
+         * (`Box<int> { ... }`) -- unambiguous with a comparison for the
+         * same reason struct-literal `{' is: an uppercase name can never
+         * be a real variable, so it can never be the left operand of a
+         * real '<' comparison either. Same same-module-only scope as
+         * enums (see parse_type's TOK_LT branch). */
+        if (starts_upper(name) && check(p, TOK_LT)) {
+            TypeList type_args = parse_type_args(p);
+            expect(p, TOK_LBRACE, "'{'");
+            FieldInitList fields = parse_field_inits(p, TOK_RBRACE);
+            expect(p, TOK_RBRACE, "'}'");
+            Expr *e = expr_new(EXPR_STRUCT_LIT, t->line, t->col);
+            e->as.struct_lit.type_name = name;
+            e->as.struct_lit.fields = fields;
+            e->as.struct_lit.type_args = type_args;
             return e;
         }
         /* An uppercase identifier immediately followed by '{' is always a
@@ -649,6 +693,56 @@ static FunctionDecl *parse_native_function(Parser *p) {
     return fn;
 }
 
+/* `"<" IDENT { "," IDENT } ">"` -- a generic declaration's own formal
+ * type parameter names (`struct Box<T>`, `enum Option<T>`). Each name is
+ * TYPE_IDENT-cased, same casing rule as any other type-like name. */
+static StringList parse_type_param_list(Parser *p) {
+    StringList params = {0};
+    expect(p, TOK_LT, "'<'");
+    for (;;) {
+        Token *t = expect(p, TOK_IDENT, "a type parameter name");
+        require_upper_start(t, "a type parameter name");
+        string_list_push(&params, dup_token_text(t));
+        if (!match(p, TOK_COMMA)) break;
+    }
+    expect(p, TOK_GT, "'>'");
+    return params;
+}
+
+/* Rewrites any TY_STRUCT node in `t` (recursively, through `[T]`/
+ * `Result<T, E>`/`Channel<T>`/nested generic type arguments) that names
+ * one of `type_params` into a TY_TYPEVAR referencing it. The parser
+ * always provisionally builds TY_STRUCT for a bare TYPE_IDENT type
+ * reference (see ast.h's Type comment, same reason struct-vs-enum needs
+ * reclassifying), so a generic declaration's own field/variant/param
+ * types referencing its own type parameters need this same "reclassify
+ * once we know better" step, run right after each declaration's own
+ * type_params are known. */
+static void reclassify_type_params(Type *t, StringList *type_params) {
+    if (t->kind == TY_ARRAY) { reclassify_type_params(t->elem, type_params); return; }
+    if (t->kind == TY_RESULT) {
+        reclassify_type_params(t->elem, type_params);
+        reclassify_type_params(t->elem_err, type_params);
+        return;
+    }
+    if (t->kind == TY_CHANNEL) { reclassify_type_params(t->elem, type_params); return; }
+    if (t->kind != TY_STRUCT) return;
+    for (int i = 0; i < type_params->count; i++) {
+        if (strcmp(t->struct_name, type_params->items[i]) == 0) {
+            char *name = t->struct_name;
+            t->kind = TY_TYPEVAR;
+            t->struct_name = NULL;
+            t->type_var_name = name;
+            return;
+        }
+    }
+    /* Not itself a type parameter -- but might be a generic reference
+     * (`Box<T>`) whose own type arguments need the same treatment. */
+    for (int i = 0; i < t->type_args.count; i++) {
+        reclassify_type_params(&t->type_args.items[i], type_params);
+    }
+}
+
 static StructDecl *parse_struct_decl(Parser *p) {
     Token *kw = expect(p, TOK_STRUCT, "'struct'");
     Token *name_tok = expect(p, TOK_IDENT, "a struct name");
@@ -659,6 +753,10 @@ static StructDecl *parse_struct_decl(Parser *p) {
     sd->line = kw->line;
     sd->col = kw->col;
 
+    if (check(p, TOK_LT)) {
+        sd->type_params = parse_type_param_list(p);
+    }
+
     expect(p, TOK_LBRACE, "'{'");
     skip_newlines(p);
     while (!check(p, TOK_RBRACE)) {
@@ -666,6 +764,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
         require_lower_start(field_name, "a field name");
         expect(p, TOK_COLON, "':'");
         Type field_type = parse_type(p);
+        if (sd->type_params.count > 0) reclassify_type_params(&field_type, &sd->type_params);
         Param field = {dup_token_text(field_name), field_type, field_name->line, field_name->col};
         param_list_push(&sd->fields, field);
         skip_newlines(p);

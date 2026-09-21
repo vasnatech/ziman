@@ -127,9 +127,10 @@ a time mid-implementation:
   a user wants — be written as ordinary Ziman, not another C builtin.
   Generics themselves are the still-missing other half, tracked as its
   own design pass below (parser syntax for `<T>` on `struct`/`enum`/`fn`
-  declarations, and a monomorphization-or-erasure runtime strategy) —
-  not started yet, but no longer "maybe never," since the enum work
-  already established real user demand for it.
+  declarations, and a monomorphization-or-erasure runtime strategy) — in
+  progress, staged struct → enum → function; generic structs are done
+  (see the "Larger, needs its own design pass" entry below for the
+  current state).
 
 ## Near-term, likely next
 
@@ -380,18 +381,35 @@ a time mid-implementation:
     always-auto-imported native module (a real "prelude," Rust-style) is
     an explicit non-decision — revisit only if keeping them special-cased
     forever starts costing something concrete, not on principle alone.
-- **Generics.** No longer "maybe never" — see the North Star section's
-  updated note. User-declared `enum` (docs/SYNTAX.md "Enums") shipped as
-  the concrete/monomorphic half of what `Option<T>`-shaped types need;
-  real type parameters on `struct`/`enum`/`fn` declarations are the
-  other half, needed so a user can write `enum Option<T> { Some(T) None
-  }` themselves instead of every new parametric shape becoming another
-  hardcoded C builtin. Not started: the actual design pass (parser
-  syntax for `<T>` on a declaration, how a generic function/struct/enum
-  body type-checks against an abstract `T`, and a runtime strategy —
-  monomorphize each concrete instantiation, or type-erase to `Value`'s
-  existing uniform representation, which the interpreter's tree-walking
-  design may make cheaper than it sounds).
+- **Generics — in progress, staged struct → enum → function.** Design
+  decided (docs/DESIGN.md's "Generics" entry): explicit type arguments
+  everywhere (no inference), no bounds/constraints, a new `TY_TYPEVAR`
+  substituted on demand rather than monomorphized (`Value` is already
+  runtime-type-erased, so there's no per-instantiation runtime
+  representation to generate — only the type checker's substitution logic
+  is new).
+  - ~~**Stage 1: generic structs.**~~ Implemented (docs/SYNTAX.md
+    "Generics"): `struct Box<T> { value: T }`, constructed as
+    `Box<int> { value: 5 }`; field access, `==`, and `with` all
+    substitute correctly through nested generics (`Box<[T]>`,
+    `Wrapper<T> { inner: Box<T> }`) and arrays of a generic struct.
+    Same-module only, like `enum`. Arity/genericity mismatches
+    (`Box { ... }` with no type args, or type args on a non-generic
+    struct) are compile-time errors, and a type parameter name colliding
+    with a real struct/enum name is rejected at declaration time (it
+    would otherwise silently shadow real references to that type inside
+    the generic struct's own fields).
+  - **Stage 2: generic enums.** Not started — `enum Option<T> { Some(T)
+    None }`, construction as `Option<int>.Some(5)`/`Option<int>.None`,
+    `is_X`/`unwrap_X` substituted the same way struct fields are now.
+    This is the actual `Option<T>` motivation landing.
+  - **Stage 3: generic functions.** Not started — `fn identity<T>(x: T)
+    -> T`, called as `identity<int>(5)`. Needs the one-token lookahead
+    heuristic docs/DESIGN.md's "Generics" entry describes to disambiguate
+    a generic call's `<` from a real comparison, which structs didn't
+    need (an uppercase struct/type name can never be a real variable, but
+    a generic function's lowercase callee genuinely can appear on the
+    left of `<`).
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.
