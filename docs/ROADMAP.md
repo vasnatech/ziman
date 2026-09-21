@@ -84,10 +84,12 @@ a time mid-implementation:
   (string-in-string, and array membership for scalar `[T]`) — see
   docs/SYNTAX.md "Builtins". Still missing: `replace`, and a general
   `index_of`/`find` (deferred — see the `index_of` entry below on why it
-  needs `Option<T>` or a Result-shaped decision first). Numeric
-  builtins now also exist: `abs`/`min`/`max`/`floor`/`ceil`/`round`. Array
-  (`remove`, `==`/`!=`) builtins are the last item in this same
-  "complete the built-in function set" pass.
+  needs `Option<T>` or a Result-shaped decision first). Numeric builtins
+  now also exist: `abs`/`min`/`max`/`floor`/`ceil`/`round`. Array
+  `remove(arr, i)` exists, and `==`/`!=` on arrays is now allowed when
+  the element type is scalar (structs, Results, and nested arrays still
+  aren't comparable — see docs/SYNTAX.md "Arrays"/"Structs"). This closes
+  out the "complete the built-in function set" pass.
 - **No concurrency story.** Serving more than one request without
   blocking everything needs at least a primitive answer (even a
   native-thread-per-request module would need its own native module for
@@ -165,13 +167,15 @@ a time mid-implementation:
   that to mean anything yet. Value semantics, like everything else in the
   language (see docs/DESIGN.md's new array entry for the full reasoning
   and the ArrayObj-is-immutable implementation trick that keeps that
-  cheap). Builtins: `len`, `push`, `insert`, `set` (docs/SYNTAX.md). Still
-  open, not yet decided:
-  - **`remove`/`pop`** — symmetric with `push`/`insert`, no design
-    question blocking it, just not built yet.
-  - **`==`/`!=` on arrays** — currently a type error. Would need a
-    recursive `value_equals` for `TY_ARRAY`; not hard, just hasn't been
-    asked for yet.
+  cheap). Builtins: `len`, `push`, `insert`, `set`, `remove` (docs/SYNTAX.md).
+  ~~`remove`/`pop`~~ Implemented as `remove(arr, i)`, symmetric with
+  `insert`; no separate `pop` (indexing already covers "peek", so a
+  combined peek+remove would just be a second way to do the same thing).
+  ~~`==`/`!=` on arrays~~ Implemented for scalar-element `[T]` only
+  (`int`/`float`/`bool`/`string`) — length then elementwise
+  `value_equals`; arrays of structs/Results/nested arrays are still a
+  type error, same open gap those types have on their own. Still open,
+  not yet decided:
   - **Iterating without manual indices** — right now every array walk is
     `var i = 0; while i < len(arr) { ... }`. A `for x in arr { ... }`
     form (or extending the still-hypothetical `for` loop above to cover
@@ -192,8 +196,11 @@ a time mid-implementation:
   `..p` spread operator and a considered-and-rejected `new Point { ... }`
   construction keyword are both written up in DESIGN.md, with why they
   lost to the shipped alternatives). Still open, not yet decided:
-  - **`==`/`!=` on structs** — currently a type error, same reasoning gap
-    as arrays' still-open equality question above.
+  - **`==`/`!=` on structs** — currently a type error. Arrays got a
+    scalar-element version of this (see the Arrays entry above); a
+    struct doesn't have an equally obvious default (field-by-field
+    equality is the natural choice, but nothing's forced that decision
+    yet).
   - **Trait/interface-style polymorphism** — deliberately not attempted
     yet; revisit only once a concrete program needs it and free functions
     plus nominal typing genuinely can't express it.
