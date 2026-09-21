@@ -46,6 +46,26 @@ against before adding any of them.
     form (or extending the still-hypothetical `for` loop above to cover
     both integer ranges and arrays) would remove the manual-index
     boilerplate, but see the `for`-loop item above — neither exists yet.
+- ~~**Classes vs. data+trait vs. plain data.**~~ Decided: plain, nominal,
+  value-typed `struct`s only — no classes, no implementation inheritance,
+  no methods/`impl` blocks. Considered Java-style classes and rejected
+  them (virtual dispatch is the same "hidden control flow" problem
+  principle #1 already rules out elsewhere); considered Rust's data+trait
+  model but shipped only the "data" half, since Ziman has no generics yet
+  and trait bounds without generics aren't very useful — see
+  docs/DESIGN.md's new struct entry. Construction is named-fields-only,
+  never positional (`Point { x: 1, y: 2 }`, not `Point(1, 2)`) to kill the
+  "swapped x/y" bug class for structs with same-typed fields. Mutation
+  follows arrays' value-semantics story exactly: no field assignment,
+  `with p { x: 99 }` builds a new struct instead (a considered-and-rejected
+  `..p` spread operator and a considered-and-rejected `new Point { ... }`
+  construction keyword are both written up in DESIGN.md, with why they
+  lost to the shipped alternatives). Still open, not yet decided:
+  - **`==`/`!=` on structs** — currently a type error, same reasoning gap
+    as arrays' still-open equality question above.
+  - **Trait/interface-style polymorphism** — deliberately not attempted
+    yet; revisit only once a concrete program needs it and free functions
+    plus nominal typing genuinely can't express it.
 - **A real test harness beyond tests/run_tests.sh's stdout/substring
   matching** — fine for now, will need line/col assertions once
   diagnostics get richer.

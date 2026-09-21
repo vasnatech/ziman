@@ -26,10 +26,25 @@ ArrayObj *array_obj_new(Value *items, int count) {
     return a;
 }
 
+Value value_struct(Type struct_type, StructObj *st) {
+    Value v;
+    v.type = struct_type;
+    v.as.st = st;
+    return v;
+}
+
+StructObj *struct_obj_new(char **field_names, Value *fields, int count) {
+    StructObj *s = malloc(sizeof(StructObj));
+    s->field_names = field_names;
+    s->fields = fields;
+    s->count = count;
+    return s;
+}
+
 int value_equals(Value a, Value b) {
     /* Callers only compare same-typed values -- enforced by the type checker,
-     * which also rejects '=='/'!=' on arrays entirely (see typecheck.c), so
-     * TY_ARRAY should never reach here. */
+     * which also rejects '=='/'!=' on arrays and structs entirely (see
+     * typecheck.c), so TY_ARRAY/TY_STRUCT should never reach here. */
     switch (a.type.kind) {
         case TY_INT: return a.as.i == b.as.i;
         case TY_FLOAT: return a.as.f == b.as.f;
@@ -38,6 +53,9 @@ int value_equals(Value a, Value b) {
         case TY_VOID: return 1;
         case TY_ARRAY:
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on arrays should have been rejected by the type checker");
+            return 0;
+        case TY_STRUCT:
+            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on structs should have been rejected by the type checker");
             return 0;
     }
     return 0;
@@ -78,6 +96,42 @@ char *value_display(Value v) {
             }
             if (len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
             out[len++] = ']';
+            out[len] = '\0';
+            return out;
+        }
+        case TY_STRUCT: {
+            StructObj *st = v.as.st;
+            const char *type_display_name = v.type.struct_name;
+            size_t cap = 32, len = 0;
+            char *out = malloc(cap);
+            size_t name_len = strlen(type_display_name);
+            while (len + name_len + 3 > cap) { cap *= 2; out = realloc(out, cap); }
+            memcpy(out + len, type_display_name, name_len);
+            len += name_len;
+            out[len++] = ' ';
+            out[len++] = '{';
+            out[len++] = ' ';
+            for (int i = 0; i < st->count; i++) {
+                if (i > 0) {
+                    if (len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+                    out[len++] = ',';
+                    out[len++] = ' ';
+                }
+                const char *field_name = st->field_names[i];
+                char *piece = value_display(st->fields[i]);
+                size_t field_len = strlen(field_name), piece_len = strlen(piece);
+                while (len + field_len + piece_len + 4 > cap) { cap *= 2; out = realloc(out, cap); }
+                memcpy(out + len, field_name, field_len);
+                len += field_len;
+                out[len++] = ':';
+                out[len++] = ' ';
+                memcpy(out + len, piece, piece_len);
+                len += piece_len;
+                free(piece);
+            }
+            if (len + 3 > cap) { cap *= 2; out = realloc(out, cap); }
+            out[len++] = ' ';
+            out[len++] = '}';
             out[len] = '\0';
             return out;
         }

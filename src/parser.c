@@ -39,6 +39,26 @@ static char *dup_token_text(Token *t) {
     return s;
 }
 
+static int starts_upper(const char *name) { return name[0] >= 'A' && name[0] <= 'Z'; }
+
+/* Casing is grammar-significant, not just style: an uppercase identifier
+ * immediately followed by '{' is always parsed as a struct literal (see
+ * parse_primary), in every position including an `if`/`while` condition.
+ * That's only sound if a value/function name can never start uppercase and
+ * a struct name always does -- so both directions are enforced here, not
+ * just documented. */
+static void require_lower_start(Token *t, const char *what) {
+    if (starts_upper(t->start)) {
+        ziman_error("syntax", t->line, t->col, "%s must not start with an uppercase letter (uppercase is reserved for type names)", what);
+    }
+}
+
+static void require_upper_start(Token *t, const char *what) {
+    if (!starts_upper(t->start)) {
+        ziman_error("syntax", t->line, t->col, "%s must start with an uppercase letter", what);
+    }
+}
+
 /* Skips zero or more consecutive statement-separator newlines. */
 static void skip_newlines(Parser *p) {
     while (match(p, TOK_NEWLINE)) {}
@@ -53,6 +73,14 @@ static Type parse_type(Parser *p) {
         Type elem = parse_type(p);
         expect(p, TOK_RBRACKET, "']'");
         return type_array(elem);
+    }
+    if (check(p, TOK_IDENT)) {
+        Token *t = advance_tok(p);
+        require_upper_start(t, "a type name");
+        char *name = dup_token_text(t);
+        Type ty = type_struct(name);
+        free(name); /* type_struct() dups it into the Type itself */
+        return ty;
     }
     ziman_error("syntax", cur(p)->line, cur(p)->col, "expected a type, found %s", token_type_name(cur(p)->type));
     return type_scalar(TY_VOID); /* unreachable */
@@ -70,6 +98,29 @@ static ExprList parse_comma_separated(Parser *p, TokenType stop) {
     }
     return list;
 }
+
+/* `name: value` pairs, comma-separated -- used by both a struct literal's
+ * fields and a `with` expression's overrides. */
+static FieldInitList parse_field_inits(Parser *p, TokenType stop) {
+    FieldInitList list = {0};
+    if (!check(p, stop)) {
+        for (;;) {
+            Token *name_tok = expect(p, TOK_IDENT, "a field name");
+            expect(p, TOK_COLON, "':'");
+            Expr *value = parse_expr(p);
+            FieldInit fi;
+            fi.name = dup_token_text(name_tok);
+            fi.value = value;
+            fi.line = name_tok->line;
+            fi.col = name_tok->col;
+            field_init_list_push(&list, fi);
+            if (!match(p, TOK_COMMA)) break;
+        }
+    }
+    return list;
+}
+
+static Expr *parse_postfix(Parser *p);
 
 static Expr *parse_primary(Parser *p) {
     Token *t = cur(p);
@@ -109,6 +160,19 @@ static Expr *parse_primary(Parser *p) {
             e->as.call.args = args;
             return e;
         }
+        /* An uppercase identifier immediately followed by '{' is always a
+         * struct literal -- in every position, including an `if`/`while`
+         * condition, never just here. See require_lower_start/
+         * require_upper_start for the enforcement that makes this sound. */
+        if (check(p, TOK_LBRACE) && starts_upper(name)) {
+            advance_tok(p); /* '{' */
+            FieldInitList fields = parse_field_inits(p, TOK_RBRACE);
+            expect(p, TOK_RBRACE, "'}'");
+            Expr *e = expr_new(EXPR_STRUCT_LIT, t->line, t->col);
+            e->as.struct_lit.type_name = name;
+            e->as.struct_lit.fields = fields;
+            return e;
+        }
         Expr *e = expr_new(EXPR_IDENT, t->line, t->col);
         e->as.ident_name = name;
         return e;
@@ -125,22 +189,44 @@ static Expr *parse_primary(Parser *p) {
         e->as.array_lit.elements = elements;
         return e;
     }
+    if (match(p, TOK_WITH)) {
+        Expr *base = parse_postfix(p);
+        expect(p, TOK_LBRACE, "'{'");
+        FieldInitList overrides = parse_field_inits(p, TOK_RBRACE);
+        expect(p, TOK_RBRACE, "'}'");
+        Expr *e = expr_new(EXPR_WITH, t->line, t->col);
+        e->as.with_expr.base = base;
+        e->as.with_expr.overrides = overrides;
+        return e;
+    }
 
     ziman_error("syntax", t->line, t->col, "expected an expression, found %s", token_type_name(t->type));
     return NULL; /* unreachable */
 }
 
-/* `primary` followed by any number of `[index]` suffixes, e.g. `matrix[i][j]`. */
+/* `primary` followed by any number of `[index]`/`.field` suffixes, e.g.
+ * `matrix[i][j]` or `shapes[i].corner.x`, freely mixed. */
 static Expr *parse_postfix(Parser *p) {
     Expr *e = parse_primary(p);
-    while (check(p, TOK_LBRACKET)) {
-        Token *br = advance_tok(p);
-        Expr *idx = parse_expr(p);
-        expect(p, TOK_RBRACKET, "']'");
-        Expr *indexed = expr_new(EXPR_INDEX, br->line, br->col);
-        indexed->as.index.array = e;
-        indexed->as.index.index = idx;
-        e = indexed;
+    for (;;) {
+        if (check(p, TOK_LBRACKET)) {
+            Token *br = advance_tok(p);
+            Expr *idx = parse_expr(p);
+            expect(p, TOK_RBRACKET, "']'");
+            Expr *indexed = expr_new(EXPR_INDEX, br->line, br->col);
+            indexed->as.index.array = e;
+            indexed->as.index.index = idx;
+            e = indexed;
+        } else if (check(p, TOK_DOT)) {
+            Token *dot = advance_tok(p);
+            Token *field_tok = expect(p, TOK_IDENT, "a field name");
+            Expr *access = expr_new(EXPR_FIELD_ACCESS, dot->line, dot->col);
+            access->as.field_access.base = e;
+            access->as.field_access.field_name = dup_token_text(field_tok);
+            e = access;
+        } else {
+            break;
+        }
     }
     return e;
 }
@@ -245,6 +331,7 @@ static Stmt *parse_block(Parser *p) {
 static Stmt *parse_decl(Parser *p, StmtKind kind) {
     Token *kw = previous(p);
     Token *name_tok = expect(p, TOK_IDENT, "an identifier");
+    require_lower_start(name_tok, "a variable name");
     Stmt *s = stmt_new(kind, kw->line, kw->col);
     s->as.decl.name = dup_token_text(name_tok);
     if (match(p, TOK_COLON)) {
@@ -319,6 +406,7 @@ static Stmt *parse_statement(Parser *p) {
 static FunctionDecl *parse_function(Parser *p) {
     Token *kw = expect(p, TOK_FN, "'fn'");
     Token *name_tok = expect(p, TOK_IDENT, "a function name");
+    require_lower_start(name_tok, "a function name");
 
     FunctionDecl *fn = calloc(1, sizeof(FunctionDecl));
     fn->name = dup_token_text(name_tok);
@@ -329,6 +417,7 @@ static FunctionDecl *parse_function(Parser *p) {
     if (!check(p, TOK_RPAREN)) {
         for (;;) {
             Token *param_name = expect(p, TOK_IDENT, "a parameter name");
+            require_lower_start(param_name, "a parameter name");
             expect(p, TOK_COLON, "':'");
             Type param_type = parse_type(p);
             Param param = {dup_token_text(param_name), param_type, param_name->line, param_name->col};
@@ -347,13 +436,42 @@ static FunctionDecl *parse_function(Parser *p) {
     return fn;
 }
 
+static StructDecl *parse_struct_decl(Parser *p) {
+    Token *kw = expect(p, TOK_STRUCT, "'struct'");
+    Token *name_tok = expect(p, TOK_IDENT, "a struct name");
+    require_upper_start(name_tok, "a struct name");
+
+    StructDecl *sd = calloc(1, sizeof(StructDecl));
+    sd->name = dup_token_text(name_tok);
+    sd->line = kw->line;
+    sd->col = kw->col;
+
+    expect(p, TOK_LBRACE, "'{'");
+    skip_newlines(p);
+    while (!check(p, TOK_RBRACE)) {
+        Token *field_name = expect(p, TOK_IDENT, "a field name");
+        require_lower_start(field_name, "a field name");
+        expect(p, TOK_COLON, "':'");
+        Type field_type = parse_type(p);
+        Param field = {dup_token_text(field_name), field_type, field_name->line, field_name->col};
+        param_list_push(&sd->fields, field);
+        skip_newlines(p);
+    }
+    expect(p, TOK_RBRACE, "'}'");
+    return sd;
+}
+
 Program *parse(TokenList tokens) {
     Parser p = {tokens, 0};
     Program *program = calloc(1, sizeof(Program));
 
     skip_newlines(&p);
     while (!check(&p, TOK_EOF)) {
-        function_list_push(&program->functions, parse_function(&p));
+        if (check(&p, TOK_STRUCT)) {
+            struct_list_push(&program->structs, parse_struct_decl(&p));
+        } else {
+            function_list_push(&program->functions, parse_function(&p));
+        }
         skip_newlines(&p);
     }
 

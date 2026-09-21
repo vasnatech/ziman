@@ -22,6 +22,13 @@ static FunctionDecl *find_function(Program *program, const char *name) {
     return NULL;
 }
 
+static StructDecl *find_struct(Program *program, const char *name) {
+    for (int i = 0; i < program->structs.count; i++) {
+        if (strcmp(program->structs.items[i]->name, name) == 0) return program->structs.items[i];
+    }
+    return NULL;
+}
+
 static Value eval_expr(Program *program, Env *env, Expr *e);
 static ExecResult exec_stmt(Program *program, Env *env, Stmt *s);
 
@@ -258,6 +265,54 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
                 ziman_error("runtime", e->line, e->col, "index %lld out of bounds (array length %d)", (long long)i, arr.as.arr->count);
             }
             return arr.as.arr->items[i];
+        }
+        case EXPR_STRUCT_LIT: {
+            StructDecl *decl = find_struct(program, e->as.struct_lit.type_name);
+            int count = decl->fields.count;
+            char **names = malloc((size_t)count * sizeof(char *));
+            Value *fields = malloc((size_t)count * sizeof(Value));
+            for (int i = 0; i < count; i++) {
+                names[i] = decl->fields.items[i].name; /* borrowed from the StructDecl, never freed */
+                Expr *value_expr = NULL;
+                for (int j = 0; j < e->as.struct_lit.fields.count; j++) {
+                    if (strcmp(e->as.struct_lit.fields.items[j].name, names[i]) == 0) {
+                        value_expr = e->as.struct_lit.fields.items[j].value;
+                        break;
+                    }
+                }
+                fields[i] = eval_expr(program, env, value_expr);
+            }
+            return value_struct(e->resolved_type, struct_obj_new(names, fields, count));
+        }
+        case EXPR_FIELD_ACCESS: {
+            Value base = eval_expr(program, env, e->as.field_access.base);
+            StructObj *st = base.as.st;
+            for (int i = 0; i < st->count; i++) {
+                if (strcmp(st->field_names[i], e->as.field_access.field_name) == 0) {
+                    return st->fields[i];
+                }
+            }
+            ziman_error("runtime", e->line, e->col, "internal error: field '%s' not found at runtime", e->as.field_access.field_name);
+            return value_int(0);
+        }
+        case EXPR_WITH: {
+            Value base = eval_expr(program, env, e->as.with_expr.base);
+            StructObj *old = base.as.st;
+            int count = old->count;
+            Value *fields = malloc((size_t)count * sizeof(Value));
+            memcpy(fields, old->fields, (size_t)count * sizeof(Value));
+            for (int i = 0; i < e->as.with_expr.overrides.count; i++) {
+                FieldInit *fi = &e->as.with_expr.overrides.items[i];
+                for (int j = 0; j < count; j++) {
+                    if (strcmp(old->field_names[j], fi->name) == 0) {
+                        fields[j] = eval_expr(program, env, fi->value);
+                        break;
+                    }
+                }
+            }
+            /* Reuses old->field_names directly (same struct type, same
+             * field order) -- never mutates `old`, so sharing it is safe. */
+            return value_struct(e->resolved_type, struct_obj_new(old->field_names, fields, count));
         }
     }
     ziman_error("runtime", e->line, e->col, "internal error: unhandled expression kind");

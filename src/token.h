@@ -22,6 +22,8 @@ typedef enum {
     TOK_TRUE,
     TOK_FALSE,
     TOK_AS,
+    TOK_STRUCT,
+    TOK_WITH,
     TOK_KW_INT,
     TOK_KW_FLOAT,
     TOK_KW_BOOL,
@@ -36,6 +38,7 @@ typedef enum {
     TOK_RBRACKET,
     TOK_COMMA,
     TOK_COLON,
+    TOK_DOT,
     TOK_ARROW, /* -> */
 
     /* operators */

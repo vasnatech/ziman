@@ -9,6 +9,7 @@ Type type_scalar(TypeKind kind) {
     Type t;
     t.kind = kind;
     t.elem = NULL;
+    t.struct_name = NULL;
     return t;
 }
 
@@ -17,12 +18,22 @@ Type type_array(Type elem) {
     t.kind = TY_ARRAY;
     t.elem = malloc(sizeof(Type));
     *t.elem = elem;
+    t.struct_name = NULL;
+    return t;
+}
+
+Type type_struct(const char *name) {
+    Type t;
+    t.kind = TY_STRUCT;
+    t.elem = NULL;
+    t.struct_name = strdup(name);
     return t;
 }
 
 int type_equals(Type a, Type b) {
     if (a.kind != b.kind) return 0;
     if (a.kind == TY_ARRAY) return type_equals(*a.elem, *b.elem);
+    if (a.kind == TY_STRUCT) return strcmp(a.struct_name, b.struct_name) == 0;
     return 1;
 }
 
@@ -33,6 +44,7 @@ char *type_name(Type type) {
         case TY_FLOAT: return strdup("float");
         case TY_BOOL: return strdup("bool");
         case TY_STRING: return strdup("string");
+        case TY_STRUCT: return strdup(type.struct_name);
         case TY_ARRAY: {
             char *inner = type_name(*type.elem);
             size_t len = strlen(inner) + 3; /* '[' + inner + ']' + '\0' */
@@ -75,5 +87,7 @@ DEFINE_LIST_PUSH(expr_list_push, ExprList, Expr *, items)
 DEFINE_LIST_PUSH(stmt_list_push, StmtList, Stmt *, items)
 DEFINE_LIST_PUSH(param_list_push, ParamList, Param, items)
 DEFINE_LIST_PUSH(function_list_push, FunctionList, FunctionDecl *, items)
+DEFINE_LIST_PUSH(field_init_list_push, FieldInitList, FieldInit, items)
+DEFINE_LIST_PUSH(struct_list_push, StructList, StructDecl *, items)
 
 #undef DEFINE_LIST_PUSH

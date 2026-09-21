@@ -12,7 +12,15 @@ static FunctionDecl *find_function(Program *program, const char *name) {
     return NULL;
 }
 
+static StructDecl *find_struct(Program *program, const char *name) {
+    for (int i = 0; i < program->structs.count; i++) {
+        if (strcmp(program->structs.items[i]->name, name) == 0) return program->structs.items[i];
+    }
+    return NULL;
+}
+
 static Type check_expr(Program *program, Env *env, Expr *e);
+static void check_type_well_formed(Program *program, Type t, int line, int col);
 
 static void require_not_void(Expr *e, const char *context) {
     if (e->resolved_type.kind == TY_VOID) {
@@ -50,8 +58,8 @@ static Type check_binary(Program *program, Env *env, Expr *e) {
             return type_scalar(TY_BOOL);
         case OP_EQ:
         case OP_NEQ:
-            if (lt.kind == TY_ARRAY || rt.kind == TY_ARRAY) {
-                ziman_error("type", e->line, e->col, "arrays cannot be compared with '=='/'!=' in v0");
+            if (lt.kind == TY_ARRAY || rt.kind == TY_ARRAY || lt.kind == TY_STRUCT || rt.kind == TY_STRUCT) {
+                ziman_error("type", e->line, e->col, "arrays and structs cannot be compared with '=='/'!=' in v0");
             }
             if (!type_equals(lt, rt)) {
                 ziman_error("type", e->line, e->col, "cannot compare %s and %s for equality", type_name(lt), type_name(rt));
@@ -286,6 +294,100 @@ static Type check_index(Program *program, Env *env, Expr *e) {
     return *arr_type.elem;
 }
 
+/* Shared by struct-literal construction and `with`: does `field_name`
+ * (from a FieldInit at line:col) name a real field on `decl`, and is this
+ * the first time it's been named among `checked_so_far` entries? Returns
+ * the matching field on success; exits on an unknown or duplicate name. */
+static Param *resolve_field_init(StructDecl *decl, FieldInitList *inits, int index) {
+    FieldInit *fi = &inits->items[index];
+    Param *field = NULL;
+    for (int j = 0; j < decl->fields.count; j++) {
+        if (strcmp(decl->fields.items[j].name, fi->name) == 0) { field = &decl->fields.items[j]; break; }
+    }
+    if (field == NULL) {
+        ziman_error("type", fi->line, fi->col, "no field '%s' on struct '%s'", fi->name, decl->name);
+    }
+    for (int k = 0; k < index; k++) {
+        if (strcmp(inits->items[k].name, fi->name) == 0) {
+            ziman_error("type", fi->line, fi->col, "field '%s' specified more than once", fi->name);
+        }
+    }
+    return field;
+}
+
+static Type check_struct_literal(Program *program, Env *env, Expr *e) {
+    const char *type_name_str = e->as.struct_lit.type_name;
+    StructDecl *decl = find_struct(program, type_name_str);
+    if (decl == NULL) {
+        ziman_error("type", e->line, e->col, "no struct named '%s'", type_name_str);
+    }
+    FieldInitList *inits = &e->as.struct_lit.fields;
+
+    for (int i = 0; i < inits->count; i++) {
+        Param *field = resolve_field_init(decl, inits, i);
+        Type value_type = check_expr(program, env, inits->items[i].value);
+        require_not_void(inits->items[i].value, "as a field value");
+        if (!type_equals(value_type, field->type)) {
+            ziman_error("type", inits->items[i].value->line, inits->items[i].value->col,
+                        "field '%s' of '%s' expects %s, found %s",
+                        field->name, type_name_str, type_name(field->type), type_name(value_type));
+        }
+    }
+    /* Construction requires every field, unlike `with` -- there's no base
+     * value to fall back to for anything left unmentioned. */
+    for (int j = 0; j < decl->fields.count; j++) {
+        const char *field_name = decl->fields.items[j].name;
+        int provided = 0;
+        for (int i = 0; i < inits->count; i++) {
+            if (strcmp(inits->items[i].name, field_name) == 0) { provided = 1; break; }
+        }
+        if (!provided) {
+            ziman_error("type", e->line, e->col, "missing field '%s' in construction of '%s'", field_name, type_name_str);
+        }
+    }
+    return type_struct(type_name_str);
+}
+
+static Type check_field_access(Program *program, Env *env, Expr *e) {
+    Type base_type = check_expr(program, env, e->as.field_access.base);
+    if (base_type.kind != TY_STRUCT) {
+        ziman_error("type", e->as.field_access.base->line, e->as.field_access.base->col,
+                    "cannot access field '%s' on %s (not a struct)", e->as.field_access.field_name, type_name(base_type));
+    }
+    StructDecl *decl = find_struct(program, base_type.struct_name);
+    for (int i = 0; i < decl->fields.count; i++) {
+        if (strcmp(decl->fields.items[i].name, e->as.field_access.field_name) == 0) {
+            return decl->fields.items[i].type;
+        }
+    }
+    ziman_error("type", e->line, e->col, "no field '%s' on struct '%s'", e->as.field_access.field_name, base_type.struct_name);
+    return type_scalar(TY_VOID);
+}
+
+static Type check_with_expr(Program *program, Env *env, Expr *e) {
+    Type base_type = check_expr(program, env, e->as.with_expr.base);
+    if (base_type.kind != TY_STRUCT) {
+        ziman_error("type", e->as.with_expr.base->line, e->as.with_expr.base->col,
+                    "'with' requires a struct value, found %s", type_name(base_type));
+    }
+    StructDecl *decl = find_struct(program, base_type.struct_name);
+    FieldInitList *overrides = &e->as.with_expr.overrides;
+
+    for (int i = 0; i < overrides->count; i++) {
+        Param *field = resolve_field_init(decl, overrides, i);
+        Type value_type = check_expr(program, env, overrides->items[i].value);
+        require_not_void(overrides->items[i].value, "as a field value");
+        if (!type_equals(value_type, field->type)) {
+            ziman_error("type", overrides->items[i].value->line, overrides->items[i].value->col,
+                        "field '%s' of '%s' expects %s, found %s",
+                        field->name, base_type.struct_name, type_name(field->type), type_name(value_type));
+        }
+    }
+    /* Unlike a struct literal, fields left unmentioned aren't an error --
+     * they're kept from `base`. */
+    return base_type;
+}
+
 static Type check_expr(Program *program, Env *env, Expr *e) {
     Type t;
     switch (e->kind) {
@@ -307,6 +409,9 @@ static Type check_expr(Program *program, Env *env, Expr *e) {
         case EXPR_CAST: t = check_cast(program, env, e); break;
         case EXPR_ARRAY_LIT: t = check_array_literal(program, env, e); break;
         case EXPR_INDEX: t = check_index(program, env, e); break;
+        case EXPR_STRUCT_LIT: t = check_struct_literal(program, env, e); break;
+        case EXPR_FIELD_ACCESS: t = check_field_access(program, env, e); break;
+        case EXPR_WITH: t = check_with_expr(program, env, e); break;
         default:
             ziman_error("type", e->line, e->col, "internal error: unhandled expression kind");
             t = type_scalar(TY_VOID);
@@ -354,6 +459,9 @@ static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type)
         case STMT_VAR: {
             Expr *init = s->as.decl.init;
             Type declared;
+            if (s->as.decl.has_declared_type) {
+                check_type_well_formed(program, s->as.decl.declared_type, s->line, s->col);
+            }
             /* An empty array literal (`[]`) has no elements to infer a type
              * from -- it's only legal when a declared type gives its
              * element type explicitly, checked here rather than inside the
@@ -456,6 +564,22 @@ static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type)
     }
 }
 
+/* Recursively verifies that every struct name mentioned by `t` (including
+ * inside array element types) actually refers to a declared struct.
+ * Run over every struct field type and function param/return type before
+ * any function body is checked, so a typo in a type reference is caught
+ * at one precise location instead of cascading into confusing mismatches
+ * later (see typecheck()). */
+static void check_type_well_formed(Program *program, Type t, int line, int col) {
+    if (t.kind == TY_ARRAY) {
+        check_type_well_formed(program, *t.elem, line, col);
+    } else if (t.kind == TY_STRUCT) {
+        if (find_struct(program, t.struct_name) == NULL) {
+            ziman_error("type", line, col, "unknown struct type '%s'", t.struct_name);
+        }
+    }
+}
+
 static void check_function(Program *program, FunctionDecl *fn) {
     Env *env = env_new(NULL);
     for (int i = 0; i < fn->params.count; i++) {
@@ -476,6 +600,34 @@ static void check_function(Program *program, FunctionDecl *fn) {
 void typecheck(Program *program) {
     static const char *builtins[] = {"print", "concat", "str", "format", "len", "push", "insert", "set"};
 
+    /* Struct names and field names within a struct must be unique --
+     * checked before any field TYPE is validated, so every struct name a
+     * field could legally reference is already known. */
+    for (int i = 0; i < program->structs.count; i++) {
+        StructDecl *sd = program->structs.items[i];
+        for (int j = i + 1; j < program->structs.count; j++) {
+            if (strcmp(sd->name, program->structs.items[j]->name) == 0) {
+                ziman_error("type", program->structs.items[j]->line, program->structs.items[j]->col,
+                            "struct '%s' is already defined", sd->name);
+            }
+        }
+        for (int f = 0; f < sd->fields.count; f++) {
+            for (int g = f + 1; g < sd->fields.count; g++) {
+                if (strcmp(sd->fields.items[f].name, sd->fields.items[g].name) == 0) {
+                    ziman_error("type", sd->fields.items[g].line, sd->fields.items[g].col,
+                                "field '%s' is already defined in struct '%s'", sd->fields.items[g].name, sd->name);
+                }
+            }
+        }
+    }
+    for (int i = 0; i < program->structs.count; i++) {
+        StructDecl *sd = program->structs.items[i];
+        for (int f = 0; f < sd->fields.count; f++) {
+            Param *field = &sd->fields.items[f];
+            check_type_well_formed(program, field->type, field->line, field->col);
+        }
+    }
+
     for (int i = 0; i < program->functions.count; i++) {
         FunctionDecl *fn = program->functions.items[i];
         for (size_t b = 0; b < sizeof(builtins) / sizeof(builtins[0]); b++) {
@@ -489,6 +641,10 @@ void typecheck(Program *program) {
                             "function '%s' is already defined", fn->name);
             }
         }
+        for (int pi = 0; pi < fn->params.count; pi++) {
+            check_type_well_formed(program, fn->params.items[pi].type, fn->params.items[pi].line, fn->params.items[pi].col);
+        }
+        check_type_well_formed(program, fn->return_type, fn->line, fn->col);
     }
 
     FunctionDecl *main_fn = find_function(program, "main");

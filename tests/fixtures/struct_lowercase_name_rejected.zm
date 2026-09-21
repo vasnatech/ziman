@@ -1,0 +1,6 @@
+struct point {
+    x: int
+}
+fn main() {
+    print(0)
+}

@@ -95,6 +95,7 @@ static const Keyword KEYWORDS[] = {
     {"return", TOK_RETURN}, {"true", TOK_TRUE},     {"false", TOK_FALSE},
     {"as", TOK_AS},         {"int", TOK_KW_INT},    {"float", TOK_KW_FLOAT},
     {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING},
+    {"struct", TOK_STRUCT}, {"with", TOK_WITH},
 };
 
 static TokenType ident_or_keyword(const char *start, int length) {
@@ -237,6 +238,7 @@ TokenList lex(const char *source) {
             case ']': advance(&lx); emit(&lx, TOK_RBRACKET, start, 1, line, col); continue;
             case ',': advance(&lx); emit(&lx, TOK_COMMA, start, 1, line, col); continue;
             case ':': advance(&lx); emit(&lx, TOK_COLON, start, 1, line, col); continue;
+            case '.': advance(&lx); emit(&lx, TOK_DOT, start, 1, line, col); continue;
             case '+': advance(&lx); emit(&lx, TOK_PLUS, start, 1, line, col); continue;
             case '*': advance(&lx); emit(&lx, TOK_STAR, start, 1, line, col); continue;
             case '/': advance(&lx); emit(&lx, TOK_SLASH, start, 1, line, col); continue;

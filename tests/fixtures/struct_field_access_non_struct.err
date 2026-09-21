@@ -1,0 +1,1 @@
+cannot access field 'foo' on int (not a struct)

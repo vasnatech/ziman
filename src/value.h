@@ -19,6 +19,20 @@ typedef struct ArrayObj {
     int count;
 } ArrayObj;
 
+/* A struct's backing storage. Same immutable-once-built invariant and the
+ * same payoff as ArrayObj: a Value can share one by plain pointer copy and
+ * still get correct value semantics, since only `with` ever produces a new
+ * StructObj (it never mutates the one it started from). `field_names` is
+ * borrowed from the StructDecl (never freed, never duplicated per
+ * instance) so this module doesn't need a Program* to print or look up
+ * fields by name -- the interpreter, which does have one, resolves names
+ * to slots once at construction time. */
+typedef struct StructObj {
+    char **field_names;
+    Value *fields;
+    int count;
+} StructObj;
+
 struct Value {
     Type type;
     union {
@@ -27,6 +41,7 @@ struct Value {
         int b; /* 0 or 1 */
         char *s; /* heap, NUL-terminated */
         ArrayObj *arr;
+        StructObj *st;
     } as;
 };
 
@@ -35,8 +50,10 @@ Value value_float(double f);
 Value value_bool(int b);
 Value value_string(char *s);
 Value value_array(Type array_type, ArrayObj *arr);
+Value value_struct(Type struct_type, StructObj *st);
 
 ArrayObj *array_obj_new(Value *items, int count);
+StructObj *struct_obj_new(char **field_names, Value *fields, int count);
 
 int value_equals(Value a, Value b);
 

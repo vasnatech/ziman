@@ -68,9 +68,14 @@ several languages rather than inheriting any one of them wholesale.
   a newline can't silently change which block a statement belongs to,
   because blocks are still braced.
 - **Naming convention:** `snake_case` for values and functions, `PascalCase`
-  for types. One convention, enforced by the parser being the arbiter of
-  style is out of scope for v0 — this is documented convention only, not
-  yet a linted rule.
+  for types — and since struct types shipped, this is **enforced by the
+  parser**, not just documented. That upgrade wasn't a style preference on
+  its own: a struct literal (`Point { x: 1 }`) is recognized purely by its
+  identifier starting uppercase, in every position a primary expression
+  can appear, including inside an `if`/`while` condition. For that to be
+  sound (never misparse a variable as an attempted struct literal, or vice
+  versa), a value/function name can never start uppercase and a struct
+  name always must — enforced in both directions, not left to convention.
 - **No `return`-less last-expression returns in v0.** Every function that
   returns a value uses an explicit `return`. (Reconsider post-v0: implicit
   last-expression return is common in AI-generated functional-style code
@@ -97,6 +102,34 @@ several languages rather than inheriting any one of them wholesale.
   with the same trick for the same reason. The O(n) cost of a "copy" only
   actually happens inside `push`/`insert`/`set` themselves, building the
   one new buffer they return.
+- **Structs are plain, nominal, value-typed data — no classes, no
+  inheritance, no methods.** Considered and explicitly rejected: Java-style
+  classes with implementation inheritance. Virtual dispatch through a
+  class hierarchy is exactly the kind of thing principle #1 rules out
+  elsewhere — `obj.foo()`'s behavior depends on `obj`'s runtime type and
+  where in the hierarchy an override lives, not on anything visible at the
+  call site. Go and Rust independently reached the same conclusion.
+  Instead: a `struct` is only ever data, and functions operate on it the
+  same way they operate on any other value (`distance_squared(a, b)`, not
+  `a.distance_squared(b)`). Revisit trait/interface-style polymorphism
+  only once a concrete program needs it and free functions plus nominal
+  typing genuinely can't express it — not before.
+  Construction (`Point { x: 1, y: 2 }`) requires every field, named,
+  never positional — a positional `Point(1, 2)` is exactly the "swapped
+  x/y" bug class for any struct with two same-typed fields, silently.
+  Mutation follows the identical value-semantics story as arrays: no field
+  assignment, `with p { x: 99 }` produces a new struct with named fields
+  replaced and the rest copied from `p` — considered and rejected a `..`
+  spread-style operator for the "rest of the fields" case (Rust/JS-style)
+  in favor of a plain `with` keyword, since the goal here is easy for an
+  LLM to both read and reliably generate, and a word costs nothing extra
+  to recognize where a new punctuation token is one more symbol to learn.
+  A `new` keyword before construction (`new Point { ... }`) was also
+  considered and rejected, in favor of the casing-based disambiguation
+  documented above — the terser form leans on the single most universally
+  trained-in casing convention across mainstream languages, so a model
+  doesn't need a Ziman-specific keyword to recognize "this constructs a
+  value" at all.
 
 ## Deliberately deferred (not v0)
 

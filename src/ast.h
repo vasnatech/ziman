@@ -10,19 +10,27 @@ typedef enum {
     TY_BOOL,
     TY_STRING,
     TY_ARRAY,
+    TY_STRUCT,
 } TypeKind;
 
-/* A Type is a small value (kind + an optional pointer), not a heap object in
- * its own right -- only TY_ARRAY allocates, for its element type, so that
- * `[int]`, `[[int]]` etc. can nest. Compare types with type_equals(), never
- * `==`/`!=` (a struct comparison would be wrong once `elem` is involved). */
+/* A Type is a small value (kind + optional payload), not a heap object in
+ * its own right -- only TY_ARRAY (via `elem`) and TY_STRUCT (via
+ * `struct_name`) allocate anything, so that `[int]`, `[[int]]` etc. can
+ * nest. Compare types with type_equals(), never `==`/`!=` (a struct
+ * comparison would be wrong once `elem`/`struct_name` are involved).
+ * Struct types are nominal: two structs are the same type only if they
+ * have the same declared name (struct names are checked unique in
+ * typecheck(), so name equality *is* identity here -- no need to carry a
+ * pointer to the declaration itself). */
 typedef struct Type {
     TypeKind kind;
     struct Type *elem; /* only meaningful when kind == TY_ARRAY */
+    char *struct_name; /* only meaningful when kind == TY_STRUCT */
 } Type;
 
-Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY */
+Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY/TY_STRUCT */
 Type type_array(Type elem);
+Type type_struct(const char *name);
 int type_equals(Type a, Type b);
 
 /* Heap-allocated, human-readable name ("int", "[int]", "[[string]]", ...).
@@ -49,6 +57,9 @@ typedef enum {
     EXPR_CAST,
     EXPR_ARRAY_LIT,
     EXPR_INDEX,
+    EXPR_STRUCT_LIT,
+    EXPR_FIELD_ACCESS,
+    EXPR_WITH,
 } ExprKind;
 
 typedef struct Expr Expr;
@@ -58,6 +69,20 @@ typedef struct {
     int count;
     int capacity;
 } ExprList;
+
+/* `name: value` inside a struct literal (`Point { x: 1, y: 2 }`) or a
+ * `with` expression's override list (`with p { x: 99 }`). */
+typedef struct {
+    char *name;
+    Expr *value;
+    int line, col;
+} FieldInit;
+
+typedef struct {
+    FieldInit *items;
+    int count;
+    int capacity;
+} FieldInitList;
 
 struct Expr {
     ExprKind kind;
@@ -76,6 +101,9 @@ struct Expr {
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
         struct { Expr *array; Expr *index; } index;
+        struct { char *type_name; FieldInitList fields; } struct_lit;
+        struct { Expr *base; char *field_name; } field_access;
+        struct { Expr *base; FieldInitList overrides; } with_expr;
     } as;
 };
 
@@ -139,8 +167,23 @@ typedef struct {
     int capacity;
 } FunctionList;
 
+/* A struct's fields reuse Param -- a field is exactly "a typed name",
+ * the same shape as a function parameter. */
+typedef struct {
+    char *name;
+    ParamList fields;
+    int line, col;
+} StructDecl;
+
+typedef struct {
+    StructDecl **items;
+    int count;
+    int capacity;
+} StructList;
+
 typedef struct {
     FunctionList functions;
+    StructList structs;
 } Program;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --
@@ -152,5 +195,7 @@ void expr_list_push(ExprList *list, Expr *e);
 void stmt_list_push(StmtList *list, Stmt *s);
 void param_list_push(ParamList *list, Param p);
 void function_list_push(FunctionList *list, FunctionDecl *f);
+void field_init_list_push(FieldInitList *list, FieldInit fi);
+void struct_list_push(StructList *list, StructDecl *s);
 
 #endif

@@ -1,0 +1,4 @@
+fn main() {
+    val Foo = 5
+    print(Foo)
+}

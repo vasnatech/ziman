@@ -1,1 +1,1 @@
-arrays cannot be compared with '=='/'!=' in v0
+arrays and structs cannot be compared with '=='/'!=' in v0

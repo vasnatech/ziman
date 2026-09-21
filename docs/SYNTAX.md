@@ -5,8 +5,11 @@ File extension: `.zm`.
 ## Lexical rules
 
 - Comments: `// to end of line`. No block comments in v0.
-- Identifiers: `[A-Za-z_][A-Za-z0-9_]*`. Convention: `snake_case` for values
-  and functions, `PascalCase` for types (once user-defined types exist).
+- Identifiers: `[A-Za-z_][A-Za-z0-9_]*`. Casing is **enforced, not just
+  conventional**: a `val`/`var`/parameter/function name must not start
+  with an uppercase letter, and a `struct` name must. This isn't only
+  style — it's what makes struct-literal parsing unambiguous everywhere,
+  including inside an `if`/`while` condition; see "Structs" below.
 - Integer literals: `[0-9]+` (decimal only in v0).
 - Float literals: `[0-9]+\.[0-9]+` (a digit is required on both sides of
   the dot — `.5` and `5.` are not valid literals).
@@ -23,12 +26,14 @@ File extension: `.zm`.
 ## Grammar (informal EBNF)
 
 ```
-program        := { function_decl }
+program        := { function_decl | struct_decl }
 
 function_decl  := "fn" IDENT "(" [ param_list ] ")" [ "->" type ] block
+struct_decl    := "struct" TYPE_IDENT "{" NEWLINE* { field NEWLINE* } "}"
+field          := IDENT ":" type                  (* same shape as param *)
 param_list     := param { "," param }
 param          := IDENT ":" type
-type           := "int" | "float" | "bool" | "string" | "[" type "]"
+type           := "int" | "float" | "bool" | "string" | "[" type "]" | TYPE_IDENT
 
 block          := "{" NEWLINE* { statement NEWLINE* } "}"
 
@@ -51,20 +56,31 @@ comparison     := term { ("<" | ">" | "<=" | ">=") term }
 term           := factor { ("+" | "-") factor }
 factor         := cast { ("*" | "/" | "%") cast }
 cast           := postfix [ "as" type ]
-postfix        := primary { "[" expr "]" }        (* indexing, chains: matrix[i][j] *)
+postfix        := primary { ("[" expr "]") | ("." IDENT) }   (* indexing and
+                    field access, freely mixed and chained: matrix[i][j],
+                    shapes[i].corner.x *)
 unary          := ( "!" | "-" ) unary | postfix
 call           := primary { "(" [ arg_list ] ")" }
 arg_list       := expr { "," expr }
 primary        := INT_LIT | FLOAT_LIT | STRING_LIT | "true" | "false"
-                 | IDENT | "(" expr ")" | array_lit
+                 | IDENT | "(" expr ")" | array_lit | struct_lit | with_expr
 array_lit      := "[" [ expr { "," expr } ] "]"
+struct_lit     := TYPE_IDENT "{" [ field_init { "," field_init } ] "}"
+with_expr      := "with" postfix "{" [ field_init { "," field_init } ] "}"
+field_init     := IDENT ":" expr
+
+(* TYPE_IDENT is an IDENT that starts with an uppercase letter -- see the
+   casing note under Lexical rules. A struct literal is recognized purely
+   by that casing, in every position a primary expression can appear,
+   including an `if`/`while` condition -- there is no restricted position
+   the way Rust needs one for its own bare struct literals. *)
 ```
 
 Notes on things this deliberately leaves out of v0 (tracked in ROADMAP.md):
 function calls as a primary only chain off an identifier (no first-class
-function values yet, no method-call `.` syntax), no indexed *assignment*
-(`arr[i] = x` isn't valid — see the array mutation section below), no
-`for` loop (only `while`), and no expression-level `if`.
+function values yet), no indexed/field *assignment* (`arr[i] = x` and
+`p.x = 1` aren't valid — see "Arrays" and "Structs" below), no `for` loop
+(only `while`), and no expression-level `if`.
 
 ## Types
 
@@ -76,9 +92,14 @@ function values yet, no method-call `.` syntax), no indexed *assignment*
   (`[[int]]` is an array of arrays of `int`). Value semantics, like every
   other type in Ziman: assigning or passing an array always yields an
   independent value, never a shared reference — see "Arrays" below.
+- A `struct` name (e.g. `Point`) — a named, nominal aggregate of fields.
+  Two structs are only the same type if they have the same declared name,
+  even if their fields are identical (`Point{x,y}` and `Vector{x,y}` are
+  different, incompatible types). Value semantics, same as arrays. See
+  "Structs" below.
 - No implicit conversion between any scalar type. `x as float` / `x as
   int` are the only casts, and only between `int` and `float` (never
-  arrays).
+  arrays or structs).
 
 ## Arrays
 
@@ -119,6 +140,59 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
 
 See "Builtins" below for `len`/`push`/`insert`/`set`'s exact signatures.
 
+## Structs
+
+```
+struct Point {
+    x: int
+    y: int
+}
+
+fn distance_squared(a: Point, b: Point) -> int {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return dx * dx + dy * dy
+}
+
+fn main() {
+    val p1 = Point { x: 0, y: 0 }
+    val p2 = Point { x: 3, y: 4 }
+    print(distance_squared(p1, p2))    // 25
+
+    val p3 = with p2 { x: 99 }
+    print(p2)                           // Point { x: 3, y: 4 } -- unchanged
+    print(p3)                           // Point { x: 99, y: 4 }
+}
+```
+
+- **Declaration fields are typed exactly like function parameters**
+  (`name: type`), one per line inside `{}` — no comma separator, same
+  newline-ends-a-declaration rule as everywhere else, so a `struct` body
+  reads like a function body.
+- **Construction requires every field, named, in any order**:
+  `Point { x: 0, y: 0 }`. There is no positional construction
+  (`Point(0, 0)`) — with two same-typed fields, a positional call is
+  exactly the "swapped x and y" bug class, silently. A missing field, an
+  unknown field, or a field given twice are all type errors.
+- **No field assignment (`p.x = 1`) and no methods.** Structs are plain
+  data, value-typed like arrays — a function taking a `Point` can never
+  mutate the caller's copy. To change a field, use `with`, which produces
+  a *new* struct with the named fields replaced and everything else
+  copied from the base: `val p2 = with p { x: 99 }`. Unlike construction,
+  `with` never requires every field — anything left unmentioned is kept
+  from the base, since there's a base to fall back on.
+- **Functions operate on structs, not methods on them**
+  (`distance_squared(a, b)`, not `a.distance_squared(b)`) — no `impl`
+  blocks, no inheritance. See docs/DESIGN.md on why (the classes-vs-traits
+  discussion this project's history has).
+- **`==`/`!=` on structs is a type error in v0**, same as arrays — not
+  implemented, tracked in ROADMAP.md.
+- Field types can reference another struct (`struct Line { start: Point
+  end: Point }`) and structs can be declared in any order — a field type
+  can name a struct declared later in the file. Referencing a struct name
+  that's never declared anywhere is a compile-time error at the field (or
+  parameter/return type) that names it.
+
 ## Semantic rules enforced before a program runs
 
 These are checked by the type checker (`src/typecheck.c`) — a program that
@@ -138,12 +212,19 @@ violates one of these never executes any code, it's rejected up front:
 - `void` (the result of a function with no return type, i.e. `print(...)`)
   can't be used as a value anywhere (assigned, passed as an argument,
   used in an expression).
+- A `val`/`var`/parameter/function name must not start with an uppercase
+  letter; a `struct` name must. Enforced, not just conventional — see
+  "Structs" above.
+- Every struct field type and every function parameter/return type must
+  name a type that actually exists — an unresolved struct name is caught
+  at the declaration that names it, before any function body is checked.
+- Struct types are nominal, not structural — see "Types" above.
 
 | Operator group        | Operators                  | Operand types           | Result  |
 |------------------------|-----------------------------|--------------------------|---------|
 | Arithmetic             | `+ - * / %`                 | `int,int` or `float,float`* | same type |
 | Comparison             | `< > <= >=`                 | `int,int` or `float,float` | `bool`  |
-| Equality               | `== !=`                     | any two of the same *scalar* type (never arrays) | `bool`  |
+| Equality               | `== !=`                     | any two of the same *scalar* type (never arrays or structs) | `bool`  |
 | Logical                | `&& \|\|`                   | `bool, bool`             | `bool`  |
 | Unary negate           | `-`                          | `int` or `float`         | same type |
 | Unary not              | `!`                          | `bool`                   | `bool`  |

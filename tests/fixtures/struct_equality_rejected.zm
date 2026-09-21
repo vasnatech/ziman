@@ -1,0 +1,8 @@
+struct Point {
+    x: int
+}
+fn main() {
+    val a = Point { x: 1 }
+    val b = Point { x: 1 }
+    print(a == b)
+}
