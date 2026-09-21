@@ -382,9 +382,16 @@ fn main() {
   no `Box { value: 5 }` that infers `T = int` from the field. The same
   "explicit over implicit" instinct as `val`/`var` requiring a declared
   type wherever it can't be trivially read off the right-hand side.
-- **No bounds or constraints on a type parameter.** `T` can be stored and
-  passed around, nothing else — there's no trait/interface system yet to
-  express "T must support X."
+- **No general bounds or constraints on a type parameter** — `T` can be
+  stored and passed around, nothing else; there's no trait/interface
+  system to express "T must support X." The one exception is a single
+  hardcoded bound, `Eq` (`struct Map<K: Eq, V> { ... }`), meaning "this
+  type argument must support `==`" — enforced at every instantiation
+  (`Map<Channel<int>, string>` is a compile-time error, since `Channel`
+  isn't comparable), not a general trait, and not usable inside a
+  generic declaration's own body yet (that needs generic functions —
+  see docs/ROADMAP.md's "Generics" entry). A bound name other than `Eq`
+  (`<T: Ord>`) is a compile-time error.
 - `Box<int>` and `Box<string>` are different types: a mismatched
   instantiation is a type error at construction, and `==`/`!=` between
   two different instantiations of the same generic struct is rejected

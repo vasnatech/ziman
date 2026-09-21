@@ -1,0 +1,8 @@
+struct Box<T: Eq> {
+    value: T
+}
+
+fn main() {
+    val c: Channel<int> = channel_new()
+    val b = Box<Channel<int>> { value: c }
+}

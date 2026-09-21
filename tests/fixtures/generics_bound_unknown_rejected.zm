@@ -1,0 +1,7 @@
+struct Box<T: Ord> {
+    value: T
+}
+
+fn main() {
+    print("unreachable")
+}

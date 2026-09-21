@@ -1,0 +1,1 @@
+type argument Channel<int> does not satisfy bound 'Eq' required by type parameter 'T'

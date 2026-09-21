@@ -693,16 +693,30 @@ static FunctionDecl *parse_native_function(Parser *p) {
     return fn;
 }
 
-/* `"<" IDENT { "," IDENT } ">"` -- a generic declaration's own formal
- * type parameter names (`struct Box<T>`, `enum Option<T>`). Each name is
- * TYPE_IDENT-cased, same casing rule as any other type-like name. */
-static StringList parse_type_param_list(Parser *p) {
-    StringList params = {0};
+/* `"<" IDENT [":" bound] { "," IDENT [":" bound] } ">"` -- a generic
+ * declaration's own formal type parameters (`struct Box<T>`, `struct
+ * Map<K: Eq, V>`). Each name is TYPE_IDENT-cased, same casing rule as
+ * any other type-like name. `Eq` is currently the only recognized bound
+ * -- see ast.h's TypeParamBound comment for why this isn't the start of
+ * a general trait system. */
+static TypeParamList parse_type_param_list(Parser *p) {
+    TypeParamList params = {0};
     expect(p, TOK_LT, "'<'");
     for (;;) {
-        Token *t = expect(p, TOK_IDENT, "a type parameter name");
-        require_upper_start(t, "a type parameter name");
-        string_list_push(&params, dup_token_text(t));
+        Token *name_tok = expect(p, TOK_IDENT, "a type parameter name");
+        require_upper_start(name_tok, "a type parameter name");
+        TypeParamBound bound = BOUND_NONE;
+        if (match(p, TOK_COLON)) {
+            Token *bound_tok = expect(p, TOK_IDENT, "a bound name");
+            if (bound_tok->length == 2 && strncmp(bound_tok->start, "Eq", 2) == 0) {
+                bound = BOUND_EQ;
+            } else {
+                ziman_error("syntax", bound_tok->line, bound_tok->col,
+                            "unknown bound '%.*s' (only 'Eq' is supported)", bound_tok->length, bound_tok->start);
+            }
+        }
+        TypeParam param = {dup_token_text(name_tok), bound};
+        type_param_list_push(&params, param);
         if (!match(p, TOK_COMMA)) break;
     }
     expect(p, TOK_GT, "'>'");
@@ -718,7 +732,7 @@ static StringList parse_type_param_list(Parser *p) {
  * types referencing its own type parameters need this same "reclassify
  * once we know better" step, run right after each declaration's own
  * type_params are known. */
-static void reclassify_type_params(Type *t, StringList *type_params) {
+static void reclassify_type_params(Type *t, TypeParamList *type_params) {
     if (t->kind == TY_ARRAY) { reclassify_type_params(t->elem, type_params); return; }
     if (t->kind == TY_RESULT) {
         reclassify_type_params(t->elem, type_params);
@@ -728,7 +742,7 @@ static void reclassify_type_params(Type *t, StringList *type_params) {
     if (t->kind == TY_CHANNEL) { reclassify_type_params(t->elem, type_params); return; }
     if (t->kind != TY_STRUCT) return;
     for (int i = 0; i < type_params->count; i++) {
-        if (strcmp(t->struct_name, type_params->items[i]) == 0) {
+        if (strcmp(t->struct_name, type_params->items[i].name) == 0) {
             char *name = t->struct_name;
             t->kind = TY_TYPEVAR;
             t->struct_name = NULL;

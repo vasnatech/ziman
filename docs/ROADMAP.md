@@ -403,17 +403,23 @@ a time mid-implementation:
     with a real struct/enum name is rejected at declaration time (it
     would otherwise silently shadow real references to that type inside
     the generic struct's own fields).
-  - **Stage 2: bounded type parameters (`<T: Eq>`).** Not started — the
-    one hardcoded bound, meaning "supports `==`." Needed before `Map`/
-    `Set` can be written: a function like `map_get<K: Eq, V>(m, key)`
-    has to do `key == k` on an abstract `K`, which `type_supports_equality`
-    correctly refuses today since nothing proves an unbounded `TY_TYPEVAR`
-    is comparable. Two checkpoints: (a) inside a bounded generic
-    declaration's own body, `==` on that type parameter type-checks; (b)
-    at every concrete instantiation (`Map<Channel<int>, V>`), the type
-    checker verifies the actual argument really does support `==`,
-    rejecting it there if not — so the guarantee "a bounded `T` is always
-    comparable" never gets falsified in practice.
+  - ~~**Stage 2: bounded type parameters (`<T: Eq>`).**~~ Half
+    implemented (docs/SYNTAX.md "Generics"): the one hardcoded bound,
+    meaning "supports `==`," parses on a struct's own type parameters
+    (`struct Map<K: Eq, V> { ... }`) and is enforced at every concrete
+    instantiation — `Map<Channel<int>, V>` is a compile-time error, since
+    `Channel` doesn't support `==`, checked via the same
+    `type_supports_equality` machinery arrays/structs/Result/enum already
+    use. A bound name other than `Eq` (`<T: Ord>`) is also a compile-time
+    error. **Still not usable inside a generic declaration's own body**
+    (a bounded `T`'s `==` doesn't type-check anywhere yet), since nothing
+    generic has a body to test it in until generic functions exist —
+    that half necessarily lands together with Stage 5 below, where a
+    real function body (`fn map_get<K: Eq, V>(m, key) { ... key == k
+    ... }`) finally gives it somewhere to be exercised. Building the
+    instantiation-side enforcement now, ahead of the body-side check,
+    means the guarantee "a bounded `T` is always comparable" will already
+    hold by the time Stage 5 needs to rely on it.
   - **Stage 3: generic enums.** Not started — `enum Option<T> { Some(T)
     None }`, construction as `Option<int>.Some(5)`/`Option<int>.None`,
     `is_X`/`unwrap_X` substituted the same way struct fields are now.

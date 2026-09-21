@@ -38,11 +38,11 @@ static void check_type_well_formed(Module *module, Type t, int line, int col);
  * type-checking-time convenience, never a runtime cost. A type unrelated
  * to `params`/`args` (e.g. a plain `int` field, or a reference to some
  * other struct's own type parameter) passes through unchanged. */
-static Type substitute_type(Type t, StringList *params, TypeList *args) {
+static Type substitute_type(Type t, TypeParamList *params, TypeList *args) {
     switch (t.kind) {
         case TY_TYPEVAR:
             for (int i = 0; i < params->count; i++) {
-                if (strcmp(params->items[i], t.type_var_name) == 0) return args->items[i];
+                if (strcmp(params->items[i].name, t.type_var_name) == 0) return args->items[i];
             }
             return t;
         case TY_ARRAY:
@@ -121,6 +121,27 @@ static int type_supports_equality(Module *module, Type t, int depth) {
         case TY_VOID:
         default:
             return 0;
+    }
+}
+
+/* Enforces every bound a generic declaration's own type parameters carry
+ * (currently only `Eq`) against the concrete type arguments an
+ * instantiation actually supplies -- e.g. `Box<Channel<int>>` is
+ * rejected here if `Box` were declared `struct Box<T: Eq>`, since
+ * `Channel<int>` doesn't support `==`. This is what keeps "a bounded T
+ * is always comparable" true in practice: nothing yet lets a Ziman
+ * program actually exploit that guarantee inside a generic declaration's
+ * own body (that needs generic functions -- see ROADMAP.md's "Generics"
+ * Stage 5), but enforcing it at every instantiation now means the
+ * guarantee will already hold once that stage lands. Assumes
+ * `params->count == args->count`, already checked by the caller. */
+static void check_type_args_satisfy_bounds(Module *module, TypeParamList *params, TypeList *args, int line, int col) {
+    for (int i = 0; i < params->count; i++) {
+        if (params->items[i].bound == BOUND_EQ && !type_supports_equality(module, args->items[i], 0)) {
+            ziman_error("type", line, col,
+                        "type argument %s does not satisfy bound 'Eq' required by type parameter '%s' (it must support '==')",
+                        type_name(args->items[i]), params->items[i].name);
+        }
     }
 }
 
@@ -753,6 +774,7 @@ static Type check_struct_literal(Module *module, Env *env, Expr *e) {
     for (int i = 0; i < type_args->count; i++) {
         check_type_well_formed(module, type_args->items[i], e->line, e->col);
     }
+    check_type_args_satisfy_bounds(module, &decl->type_params, type_args, e->line, e->col);
 
     FieldInitList *inits = &e->as.struct_lit.fields;
 
@@ -1206,6 +1228,7 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
         for (int i = 0; i < t.type_args.count; i++) {
             check_type_well_formed(module, t.type_args.items[i], line, col);
         }
+        check_type_args_satisfy_bounds(module, &decl->type_params, &t.type_args, line, col);
     } else if (t.kind == TY_ENUM) {
         if (find_enum(module, t.enum_name) == NULL) {
             ziman_error("type", line, col, "unknown enum type '%s'", t.enum_name);
@@ -1269,11 +1292,11 @@ void typecheck(Module *module) {
          * shadow every legitimate reference to that real type inside this
          * struct's own fields -- caught here instead of failing subtly
          * later. Duplicate parameter names have no per-name position (see
-         * ast.h's StringList), so both point at the struct's own line. */
+         * ast.h's TypeParamList), so both point at the struct's own line. */
         for (int tp = 0; tp < sd->type_params.count; tp++) {
-            const char *param_name = sd->type_params.items[tp];
+            const char *param_name = sd->type_params.items[tp].name;
             for (int tq = tp + 1; tq < sd->type_params.count; tq++) {
-                if (strcmp(param_name, sd->type_params.items[tq]) == 0) {
+                if (strcmp(param_name, sd->type_params.items[tq].name) == 0) {
                     ziman_error("type", sd->line, sd->col, "type parameter '%s' is already defined in struct '%s'", param_name, sd->name);
                 }
             }

@@ -184,7 +184,7 @@ DEFINE_LIST_PUSH(struct_list_push, StructList, StructDecl *, items)
 DEFINE_LIST_PUSH(enum_variant_list_push, EnumVariantList, EnumVariant, items)
 DEFINE_LIST_PUSH(enum_list_push, EnumList, EnumDecl *, items)
 DEFINE_LIST_PUSH(use_list_push, UseList, UseDecl, items)
-DEFINE_LIST_PUSH(string_list_push, StringList, char *, items)
+DEFINE_LIST_PUSH(type_param_list_push, TypeParamList, TypeParam, items)
 DEFINE_LIST_PUSH(type_list_push, TypeList, Type, items)
 
 #undef DEFINE_LIST_PUSH

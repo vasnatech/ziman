@@ -258,16 +258,33 @@ typedef struct {
     int capacity;
 } ParamList;
 
-/* A generic declaration's own formal type parameter names (`struct
- * Box<T>`'s is `["T"]`, `Pair<A, B>`'s is `["A", "B"]`). Empty for an
- * ordinary, non-generic declaration. Looked up by name, not index --
- * consistent with how everything else in Ziman (struct fields, enum
- * variants) is looked up by name rather than position. */
+/* The one hardcoded bound a type parameter can carry: "supports '=='."
+ * Not a general trait/interface system (see docs/DESIGN.md's "Generics"
+ * entry) -- added specifically so a generic `Map<K, V>`/`Set<T>` can
+ * compare an abstract key type inside a generic function body; a
+ * generic declaration still can't do anything else with an unbounded
+ * type parameter beyond storing and passing it around. */
+typedef enum {
+    BOUND_NONE,
+    BOUND_EQ,
+} TypeParamBound;
+
 typedef struct {
-    char **items;
+    char *name;
+    TypeParamBound bound;
+} TypeParam;
+
+/* A generic declaration's own formal type parameters (`struct Box<T>`'s
+ * is `[{"T", BOUND_NONE}]`, `Map<K: Eq, V>`'s is `[{"K", BOUND_EQ},
+ * {"V", BOUND_NONE}]`). Empty for an ordinary, non-generic declaration.
+ * Looked up by name, not index -- consistent with how everything else in
+ * Ziman (struct fields, enum variants) is looked up by name rather than
+ * position. */
+typedef struct {
+    TypeParam *items;
     int count;
     int capacity;
-} StringList;
+} TypeParamList;
 
 typedef struct {
     char *name;
@@ -293,7 +310,7 @@ typedef struct {
 typedef struct {
     char *name;
     ParamList fields;
-    StringList type_params;
+    TypeParamList type_params;
     int is_public;
     int line, col;
 } StructDecl;
@@ -383,6 +400,6 @@ void struct_list_push(StructList *list, StructDecl *s);
 void enum_variant_list_push(EnumVariantList *list, EnumVariant v);
 void enum_list_push(EnumList *list, EnumDecl *e);
 void use_list_push(UseList *list, UseDecl u);
-void string_list_push(StringList *list, char *s);
+void type_param_list_push(TypeParamList *list, TypeParam p);
 
 #endif

@@ -1,0 +1,9 @@
+struct Box<T: Eq> {
+    value: T
+}
+
+fn main() {
+    val a = Box<int> { value: 5 }
+    val b = Box<int> { value: 5 }
+    print(a == b)
+}
