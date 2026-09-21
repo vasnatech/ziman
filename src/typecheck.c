@@ -588,11 +588,16 @@ static void check_function(Program *program, FunctionDecl *fn) {
             ziman_error("type", param->line, param->col, "duplicate parameter name '%s'", param->name);
         }
     }
-    for (int i = 0; i < fn->body->as.block.stmts.count; i++) {
-        check_stmt(program, env, fn->body->as.block.stmts.items[i], fn->return_type);
-    }
-    if (fn->return_type.kind != TY_VOID && !stmt_always_returns(fn->body)) {
-        ziman_error("type", fn->line, fn->col, "function '%s' does not return a value on every path", fn->name);
+    /* A native fn has no body to check or prove returns-on-every-path for --
+     * its behavior is a contract with whatever C implementation gets
+     * registered for it, not something this pass can see into. */
+    if (!fn->is_native) {
+        for (int i = 0; i < fn->body->as.block.stmts.count; i++) {
+            check_stmt(program, env, fn->body->as.block.stmts.items[i], fn->return_type);
+        }
+        if (fn->return_type.kind != TY_VOID && !stmt_always_returns(fn->body)) {
+            ziman_error("type", fn->line, fn->col, "function '%s' does not return a value on every path", fn->name);
+        }
     }
     env_free(env);
 }

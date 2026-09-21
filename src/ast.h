@@ -157,7 +157,11 @@ typedef struct {
     char *name;
     ParamList params;
     Type return_type;
-    Stmt *body; /* STMT_BLOCK */
+    Stmt *body; /* STMT_BLOCK; NULL when is_native (a `native fn` has no body --
+                 * its implementation is a registered C function, looked up by
+                 * module path + name at call time) */
+    int is_public;
+    int is_native;
     int line, col;
 } FunctionDecl;
 
@@ -172,6 +176,7 @@ typedef struct {
 typedef struct {
     char *name;
     ParamList fields;
+    int is_public;
     int line, col;
 } StructDecl;
 

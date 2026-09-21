@@ -1,0 +1,10 @@
+pub struct Point {
+    x: int
+    y: int
+}
+pub fn make_origin() -> Point {
+    return Point { x: 0, y: 0 }
+}
+fn main() {
+    print(make_origin())
+}

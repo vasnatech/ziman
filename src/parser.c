@@ -403,6 +403,22 @@ static Stmt *parse_statement(Parser *p) {
     return s;
 }
 
+static ParamList parse_params(Parser *p) {
+    ParamList params = {0};
+    if (!check(p, TOK_RPAREN)) {
+        for (;;) {
+            Token *param_name = expect(p, TOK_IDENT, "a parameter name");
+            require_lower_start(param_name, "a parameter name");
+            expect(p, TOK_COLON, "':'");
+            Type param_type = parse_type(p);
+            Param param = {dup_token_text(param_name), param_type, param_name->line, param_name->col};
+            param_list_push(&params, param);
+            if (!match(p, TOK_COMMA)) break;
+        }
+    }
+    return params;
+}
+
 static FunctionDecl *parse_function(Parser *p) {
     Token *kw = expect(p, TOK_FN, "'fn'");
     Token *name_tok = expect(p, TOK_IDENT, "a function name");
@@ -414,17 +430,7 @@ static FunctionDecl *parse_function(Parser *p) {
     fn->col = kw->col;
 
     expect(p, TOK_LPAREN, "'('");
-    if (!check(p, TOK_RPAREN)) {
-        for (;;) {
-            Token *param_name = expect(p, TOK_IDENT, "a parameter name");
-            require_lower_start(param_name, "a parameter name");
-            expect(p, TOK_COLON, "':'");
-            Type param_type = parse_type(p);
-            Param param = {dup_token_text(param_name), param_type, param_name->line, param_name->col};
-            param_list_push(&fn->params, param);
-            if (!match(p, TOK_COMMA)) break;
-        }
-    }
+    fn->params = parse_params(p);
     expect(p, TOK_RPAREN, "')'");
 
     fn->return_type = type_scalar(TY_VOID);
@@ -433,6 +439,36 @@ static FunctionDecl *parse_function(Parser *p) {
     }
 
     fn->body = parse_block(p);
+    return fn;
+}
+
+/* `native fn name(params) -> type`, no body at all -- its implementation is
+ * a C function registered by module path + name, looked up at call time.
+ * The type checker treats its signature exactly like any other function's
+ * (see check_function's `is_native` early-return); the interpreter reports
+ * a clear "no registered implementation" error if nothing was registered
+ * for it (see interpreter.c) -- no real native module exists to back one
+ * yet, this is the language mechanism only. */
+static FunctionDecl *parse_native_function(Parser *p) {
+    Token *kw = expect(p, TOK_NATIVE, "'native'");
+    expect(p, TOK_FN, "'fn'");
+    Token *name_tok = expect(p, TOK_IDENT, "a function name");
+    require_lower_start(name_tok, "a function name");
+
+    FunctionDecl *fn = calloc(1, sizeof(FunctionDecl));
+    fn->name = dup_token_text(name_tok);
+    fn->is_native = 1;
+    fn->line = kw->line;
+    fn->col = kw->col;
+
+    expect(p, TOK_LPAREN, "'('");
+    fn->params = parse_params(p);
+    expect(p, TOK_RPAREN, "')'");
+
+    fn->return_type = type_scalar(TY_VOID);
+    if (match(p, TOK_ARROW)) {
+        fn->return_type = parse_type(p);
+    }
     return fn;
 }
 
@@ -467,10 +503,19 @@ Program *parse(TokenList tokens) {
 
     skip_newlines(&p);
     while (!check(&p, TOK_EOF)) {
+        int is_public = match(&p, TOK_PUB);
         if (check(&p, TOK_STRUCT)) {
-            struct_list_push(&program->structs, parse_struct_decl(&p));
+            StructDecl *sd = parse_struct_decl(&p);
+            sd->is_public = is_public;
+            struct_list_push(&program->structs, sd);
+        } else if (check(&p, TOK_NATIVE)) {
+            FunctionDecl *fn = parse_native_function(&p);
+            fn->is_public = is_public;
+            function_list_push(&program->functions, fn);
         } else {
-            function_list_push(&program->functions, parse_function(&p));
+            FunctionDecl *fn = parse_function(&p);
+            fn->is_public = is_public;
+            function_list_push(&program->functions, fn);
         }
         skip_newlines(&p);
     }

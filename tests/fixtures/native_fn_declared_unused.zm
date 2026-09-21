@@ -1,0 +1,4 @@
+native fn read_file(path: string) -> string
+fn main() {
+    print(1)
+}

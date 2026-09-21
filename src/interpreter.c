@@ -33,6 +33,12 @@ static Value eval_expr(Program *program, Env *env, Expr *e);
 static ExecResult exec_stmt(Program *program, Env *env, Stmt *s);
 
 static Value call_function(Program *program, FunctionDecl *fn, Value *args, int argc) {
+    if (fn->is_native) {
+        /* No real native module exists yet to register an implementation --
+         * this is the language mechanism (parseable, typecheckable) landing
+         * ahead of any actual C-backed module. See docs/ROADMAP.md. */
+        ziman_error("runtime", fn->line, fn->col, "native function '%s' has no registered implementation", fn->name);
+    }
     Env *env = env_new(NULL);
     for (int i = 0; i < argc; i++) {
         env_define(env, fn->params.items[i].name, fn->params.items[i].type, 0, args[i]);
