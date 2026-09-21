@@ -1,3 +1,5 @@
 ziman
 src/*.o
 *.o
+src/*.d
+*.d

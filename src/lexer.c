@@ -96,6 +96,7 @@ static const Keyword KEYWORDS[] = {
     {"as", TOK_AS},         {"int", TOK_KW_INT},    {"float", TOK_KW_FLOAT},
     {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING},
     {"struct", TOK_STRUCT}, {"with", TOK_WITH},
+    {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
 };
 
 static TokenType ident_or_keyword(const char *start, int length) {

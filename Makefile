@@ -1,7 +1,8 @@
 CC := cc
-CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -g
+CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -g -MMD -MP
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)
+DEP := $(SRC:.c=.d)
 BIN := ziman
 
 .PHONY: all clean test
@@ -14,8 +15,10 @@ $(BIN): $(OBJ)
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+-include $(DEP)
+
 test: $(BIN)
 	./tests/run_tests.sh
 
 clean:
-	rm -f $(BIN) src/*.o
+	rm -f $(BIN) src/*.o src/*.d

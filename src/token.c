@@ -20,6 +20,9 @@ const char *token_type_name(TokenType type) {
         case TOK_AS: return "'as'";
         case TOK_STRUCT: return "'struct'";
         case TOK_WITH: return "'with'";
+        case TOK_PUB: return "'pub'";
+        case TOK_USE: return "'use'";
+        case TOK_NATIVE: return "'native'";
         case TOK_KW_INT: return "'int'";
         case TOK_KW_FLOAT: return "'float'";
         case TOK_KW_BOOL: return "'bool'";
