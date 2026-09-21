@@ -1,0 +1,9 @@
+struct Node {
+    next: Node
+}
+fn same(a: Node, b: Node) -> bool {
+    return a == b
+}
+fn main() {
+    print("compiled fine")
+}

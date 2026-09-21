@@ -1,0 +1,12 @@
+struct Point {
+    x: int
+    y: int
+}
+struct Path {
+    points: [Point]
+}
+fn main() {
+    val a = Path { points: [Point{x:1,y:1}] }
+    val b = Path { points: [Point{x:1,y:1}] }
+    print(a == b)
+}
