@@ -1,0 +1,9 @@
+use models/user
+
+fn main() {
+    val u = user.User { id: 1, name: "Ada" }
+    print(user.greet(u))
+
+    val renamed = user.rename(u, "Grace")
+    print(user.greet(renamed))
+}

@@ -69,7 +69,10 @@ a time mid-implementation:
 - **Almost no string manipulation.** `concat`/`str`/`format` exist;
   substring, split, trim, find, replace, and parsing a string into a
   number (the reverse of `str`) don't. A backend parses untrusted text
-  constantly (request bodies, headers, query strings).
+  constantly (request bodies, headers, query strings). Concretely hit
+  while writing the modules example: `len` only accepts `[T]`, not
+  `string` — there's no way to ask a string its length at all right now
+  (worked around there with `!= ""`, which only covers the empty case).
 - **No concurrency story.** Serving more than one request without
   blocking everything needs at least a primitive answer (even a
   native-thread-per-request module would need its own native module for
