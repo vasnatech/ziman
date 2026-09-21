@@ -17,8 +17,10 @@ v0: lexer, parser, a real type checker (static types, no implicit
 coercion, "does this function return on every path" analysis), and a
 tree-walking interpreter. Supports functions, `val`/`var` bindings,
 `if`/`else`, `while`, the four scalar types (`int`, `float`, `bool`,
-`string`), and a single builtin (`print`). See
-[docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately not here yet.
+`string`), value-semantics arrays (`[T]`, nestable), and a handful of
+builtins (`print`, `concat`, `str`, `format`, `len`, `push`, `insert`,
+`set`). See [docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately
+not here yet.
 
 ## Example
 

@@ -2,28 +2,50 @@
 #include "value.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-Value value_int(int64_t i) { Value v; v.type = TY_INT; v.as.i = i; return v; }
-Value value_float(double f) { Value v; v.type = TY_FLOAT; v.as.f = f; return v; }
-Value value_bool(int b) { Value v; v.type = TY_BOOL; v.as.b = b; return v; }
-Value value_string(char *s) { Value v; v.type = TY_STRING; v.as.s = s; return v; }
+#include "error.h"
+
+Value value_int(int64_t i) { Value v; v.type = type_scalar(TY_INT); v.as.i = i; return v; }
+Value value_float(double f) { Value v; v.type = type_scalar(TY_FLOAT); v.as.f = f; return v; }
+Value value_bool(int b) { Value v; v.type = type_scalar(TY_BOOL); v.as.b = b; return v; }
+Value value_string(char *s) { Value v; v.type = type_scalar(TY_STRING); v.as.s = s; return v; }
+
+Value value_array(Type array_type, ArrayObj *arr) {
+    Value v;
+    v.type = array_type;
+    v.as.arr = arr;
+    return v;
+}
+
+ArrayObj *array_obj_new(Value *items, int count) {
+    ArrayObj *a = malloc(sizeof(ArrayObj));
+    a->items = items;
+    a->count = count;
+    return a;
+}
 
 int value_equals(Value a, Value b) {
-    /* Callers only compare same-typed values -- enforced by the type checker. */
-    switch (a.type) {
+    /* Callers only compare same-typed values -- enforced by the type checker,
+     * which also rejects '=='/'!=' on arrays entirely (see typecheck.c), so
+     * TY_ARRAY should never reach here. */
+    switch (a.type.kind) {
         case TY_INT: return a.as.i == b.as.i;
         case TY_FLOAT: return a.as.f == b.as.f;
         case TY_BOOL: return a.as.b == b.as.b;
         case TY_STRING: return strcmp(a.as.s, b.as.s) == 0;
         case TY_VOID: return 1;
+        case TY_ARRAY:
+            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on arrays should have been rejected by the type checker");
+            return 0;
     }
     return 0;
 }
 
 char *value_display(Value v) {
     char buf[64];
-    switch (v.type) {
+    switch (v.type.kind) {
         case TY_INT:
             snprintf(buf, sizeof(buf), "%lld", (long long)v.as.i);
             return strdup(buf);
@@ -36,6 +58,29 @@ char *value_display(Value v) {
             return strdup(v.as.s);
         case TY_VOID:
             return strdup("void");
+        case TY_ARRAY: {
+            ArrayObj *arr = v.as.arr;
+            size_t cap = 32, len = 0;
+            char *out = malloc(cap);
+            out[len++] = '[';
+            for (int i = 0; i < arr->count; i++) {
+                if (i > 0) {
+                    if (len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+                    out[len++] = ',';
+                    out[len++] = ' ';
+                }
+                char *piece = value_display(arr->items[i]);
+                size_t piece_len = strlen(piece);
+                while (len + piece_len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+                memcpy(out + len, piece, piece_len);
+                len += piece_len;
+                free(piece);
+            }
+            if (len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+            out[len++] = ']';
+            out[len] = '\0';
+            return out;
+        }
     }
     return strdup("");
 }

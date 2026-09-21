@@ -1,0 +1,5 @@
+fn main() {
+    val nums: [int] = [1, 2, 3]
+    nums = push(nums, 4)
+    print(nums)
+}

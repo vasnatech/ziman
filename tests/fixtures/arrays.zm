@@ -1,0 +1,18 @@
+fn main() {
+    var nums: [int] = []
+    var i = 0
+    while i < 5 {
+        nums = push(nums, i * i)
+        i = i + 1
+    }
+
+    var j = 0
+    while j < len(nums) {
+        print(format("nums[{}] = {}", j, nums[j]))
+        j = j + 1
+    }
+
+    nums = insert(nums, 0, -1)
+    nums = set(nums, 1, 999)
+    print(nums)
+}

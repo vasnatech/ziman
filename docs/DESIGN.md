@@ -76,6 +76,27 @@ several languages rather than inheriting any one of them wholesale.
   last-expression return is common in AI-generated functional-style code
   and reads fine, but it's a second way to return a value — worth revisiting
   once the core is stable, not before.)
+- **Arrays (`[T]`) are value types, not reference types.** Assigning or
+  passing an array always yields an independent value — never an alias two
+  names can mutate through. This is the same principle #1 reasoning as
+  everywhere else: a reference-semantics collection lets a function
+  silently mutate the caller's data through a parameter, which isn't
+  derivable from the call site without reading the function's body, and
+  Ziman has no effects-in-signatures (yet) to make that visible. The
+  corollary: `push`/`insert`/`set` never mutate their `arr` argument, they
+  always return a new array — one mutation pattern (`arr = builtin(arr,
+  ...)`), no exceptions, no indexed-assignment statement. `val` on an
+  array is therefore a *stronger* guarantee than `val`/`final` on a
+  collection in most mainstream languages (Kotlin, Java): the whole value
+  is frozen, not just which object the name points to, because there's no
+  "same object, mutated in place" concept for arrays at all.
+  Implementation note, not a language-semantics one: this doesn't cost the
+  performance you'd expect from "always copies." An ArrayObj is immutable
+  once built (see `src/value.h`), so a plain Value struct copy (shared
+  pointer) is always safe — exactly like Ziman's strings, which get away
+  with the same trick for the same reason. The O(n) cost of a "copy" only
+  actually happens inside `push`/`insert`/`set` themselves, building the
+  one new buffer they return.
 
 ## Deliberately deferred (not v0)
 

@@ -1,0 +1,5 @@
+fn main() {
+    var nums: [int] = [1, 2]
+    nums = push(nums, "oops")
+    print(nums)
+}

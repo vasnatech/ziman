@@ -1,0 +1,4 @@
+fn main() {
+    val bad = [1, "two", 3]
+    print(bad)
+}

@@ -9,9 +9,26 @@ typedef enum {
     TY_FLOAT,
     TY_BOOL,
     TY_STRING,
+    TY_ARRAY,
+} TypeKind;
+
+/* A Type is a small value (kind + an optional pointer), not a heap object in
+ * its own right -- only TY_ARRAY allocates, for its element type, so that
+ * `[int]`, `[[int]]` etc. can nest. Compare types with type_equals(), never
+ * `==`/`!=` (a struct comparison would be wrong once `elem` is involved). */
+typedef struct Type {
+    TypeKind kind;
+    struct Type *elem; /* only meaningful when kind == TY_ARRAY */
 } Type;
 
-const char *type_name(Type type);
+Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY */
+Type type_array(Type elem);
+int type_equals(Type a, Type b);
+
+/* Heap-allocated, human-readable name ("int", "[int]", "[[string]]", ...).
+ * Never freed -- see the no-free policy note on the AST constructors below;
+ * every call site uses this immediately to build an error message. */
+char *type_name(Type type);
 
 typedef enum {
     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD,
@@ -30,6 +47,8 @@ typedef enum {
     EXPR_BINARY,
     EXPR_CALL,
     EXPR_CAST,
+    EXPR_ARRAY_LIT,
+    EXPR_INDEX,
 } ExprKind;
 
 typedef struct Expr Expr;
@@ -55,6 +74,8 @@ struct Expr {
         struct { Op op; Expr *operand; } unary;
         struct { char *callee; ExprList args; } call;
         struct { Expr *operand; Type target_type; } cast;
+        struct { ExprList elements; } array_lit;
+        struct { Expr *array; Expr *index; } index;
     } as;
 };
 

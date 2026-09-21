@@ -45,25 +45,30 @@ static void skip_newlines(Parser *p) {
 }
 
 static Type parse_type(Parser *p) {
-    if (match(p, TOK_KW_INT)) return TY_INT;
-    if (match(p, TOK_KW_FLOAT)) return TY_FLOAT;
-    if (match(p, TOK_KW_BOOL)) return TY_BOOL;
-    if (match(p, TOK_KW_STRING)) return TY_STRING;
+    if (match(p, TOK_KW_INT)) return type_scalar(TY_INT);
+    if (match(p, TOK_KW_FLOAT)) return type_scalar(TY_FLOAT);
+    if (match(p, TOK_KW_BOOL)) return type_scalar(TY_BOOL);
+    if (match(p, TOK_KW_STRING)) return type_scalar(TY_STRING);
+    if (match(p, TOK_LBRACKET)) {
+        Type elem = parse_type(p);
+        expect(p, TOK_RBRACKET, "']'");
+        return type_array(elem);
+    }
     ziman_error("syntax", cur(p)->line, cur(p)->col, "expected a type, found %s", token_type_name(cur(p)->type));
-    return TY_VOID; /* unreachable */
+    return type_scalar(TY_VOID); /* unreachable */
 }
 
 static Expr *parse_expr(Parser *p);
 
-static ExprList parse_arg_list(Parser *p) {
-    ExprList args = {0};
-    if (!check(p, TOK_RPAREN)) {
-        expr_list_push(&args, parse_expr(p));
+static ExprList parse_comma_separated(Parser *p, TokenType stop) {
+    ExprList list = {0};
+    if (!check(p, stop)) {
+        expr_list_push(&list, parse_expr(p));
         while (match(p, TOK_COMMA)) {
-            expr_list_push(&args, parse_expr(p));
+            expr_list_push(&list, parse_expr(p));
         }
     }
-    return args;
+    return list;
 }
 
 static Expr *parse_primary(Parser *p) {
@@ -97,7 +102,7 @@ static Expr *parse_primary(Parser *p) {
     if (match(p, TOK_IDENT)) {
         char *name = dup_token_text(t);
         if (match(p, TOK_LPAREN)) {
-            ExprList args = parse_arg_list(p);
+            ExprList args = parse_comma_separated(p, TOK_RPAREN);
             expect(p, TOK_RPAREN, "')'");
             Expr *e = expr_new(EXPR_CALL, t->line, t->col);
             e->as.call.callee = name;
@@ -113,9 +118,31 @@ static Expr *parse_primary(Parser *p) {
         expect(p, TOK_RPAREN, "')'");
         return inner;
     }
+    if (match(p, TOK_LBRACKET)) {
+        ExprList elements = parse_comma_separated(p, TOK_RBRACKET);
+        expect(p, TOK_RBRACKET, "']'");
+        Expr *e = expr_new(EXPR_ARRAY_LIT, t->line, t->col);
+        e->as.array_lit.elements = elements;
+        return e;
+    }
 
     ziman_error("syntax", t->line, t->col, "expected an expression, found %s", token_type_name(t->type));
     return NULL; /* unreachable */
+}
+
+/* `primary` followed by any number of `[index]` suffixes, e.g. `matrix[i][j]`. */
+static Expr *parse_postfix(Parser *p) {
+    Expr *e = parse_primary(p);
+    while (check(p, TOK_LBRACKET)) {
+        Token *br = advance_tok(p);
+        Expr *idx = parse_expr(p);
+        expect(p, TOK_RBRACKET, "']'");
+        Expr *indexed = expr_new(EXPR_INDEX, br->line, br->col);
+        indexed->as.index.array = e;
+        indexed->as.index.index = idx;
+        e = indexed;
+    }
+    return e;
 }
 
 static Expr *parse_unary(Parser *p) {
@@ -128,7 +155,7 @@ static Expr *parse_unary(Parser *p) {
         e->as.unary.operand = operand;
         return e;
     }
-    return parse_primary(p);
+    return parse_postfix(p);
 }
 
 static Expr *parse_cast(Parser *p) {
@@ -311,7 +338,7 @@ static FunctionDecl *parse_function(Parser *p) {
     }
     expect(p, TOK_RPAREN, "')'");
 
-    fn->return_type = TY_VOID;
+    fn->return_type = type_scalar(TY_VOID);
     if (match(p, TOK_ARROW)) {
         fn->return_type = parse_type(p);
     }

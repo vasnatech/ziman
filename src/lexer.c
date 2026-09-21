@@ -45,6 +45,7 @@ static int can_end_statement(TokenType type) {
         case TOK_RETURN: /* bare `return` with no expression */
         case TOK_RPAREN:
         case TOK_RBRACE:
+        case TOK_RBRACKET:
         case TOK_KW_INT:
         case TOK_KW_FLOAT:
         case TOK_KW_BOOL:
@@ -232,6 +233,8 @@ TokenList lex(const char *source) {
             case ')': advance(&lx); emit(&lx, TOK_RPAREN, start, 1, line, col); continue;
             case '{': advance(&lx); emit(&lx, TOK_LBRACE, start, 1, line, col); continue;
             case '}': advance(&lx); emit(&lx, TOK_RBRACE, start, 1, line, col); continue;
+            case '[': advance(&lx); emit(&lx, TOK_LBRACKET, start, 1, line, col); continue;
+            case ']': advance(&lx); emit(&lx, TOK_RBRACKET, start, 1, line, col); continue;
             case ',': advance(&lx); emit(&lx, TOK_COMMA, start, 1, line, col); continue;
             case ':': advance(&lx); emit(&lx, TOK_COLON, start, 1, line, col); continue;
             case '+': advance(&lx); emit(&lx, TOK_PLUS, start, 1, line, col); continue;

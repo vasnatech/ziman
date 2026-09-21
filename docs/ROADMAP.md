@@ -27,7 +27,25 @@ against before adding any of them.
 - **`for` loop** over integer ranges (`for i in 0..10 { ... }`) — `while`
   covers everything but is more verbose and more error-prone for the
   extremely common counted-loop case.
-- **Arrays / lists.** No collection type exists yet at all.
+- ~~**Arrays / lists.**~~ Decided and implemented: one type, `[T]`, not
+  two (see the "one collection type" discussion in this project's
+  originating conversation) — no separate fixed-size vs. growable
+  distinction, since nothing else in Ziman exposes a stack/heap split for
+  that to mean anything yet. Value semantics, like everything else in the
+  language (see docs/DESIGN.md's new array entry for the full reasoning
+  and the ArrayObj-is-immutable implementation trick that keeps that
+  cheap). Builtins: `len`, `push`, `insert`, `set` (docs/SYNTAX.md). Still
+  open, not yet decided:
+  - **`remove`/`pop`** — symmetric with `push`/`insert`, no design
+    question blocking it, just not built yet.
+  - **`==`/`!=` on arrays** — currently a type error. Would need a
+    recursive `value_equals` for `TY_ARRAY`; not hard, just hasn't been
+    asked for yet.
+  - **Iterating without manual indices** — right now every array walk is
+    `var i = 0; while i < len(arr) { ... }`. A `for x in arr { ... }`
+    form (or extending the still-hypothetical `for` loop above to cover
+    both integer ranges and arrays) would remove the manual-index
+    boilerplate, but see the `for`-loop item above — neither exists yet.
 - **A real test harness beyond tests/run_tests.sh's stdout/substring
   matching** — fine for now, will need line/col assertions once
   diagnostics get richer.

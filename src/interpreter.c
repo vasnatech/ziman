@@ -58,6 +58,50 @@ static Value call_str(Value arg) {
     return value_string(value_display(arg));
 }
 
+static Value call_len(Value arr) {
+    return value_int(arr.as.arr->count);
+}
+
+/* push/insert/set never mutate their `arr` argument -- they always build a
+ * brand new ArrayObj and return a Value wrapping it, per docs/DESIGN.md's
+ * value-semantics decision for arrays. Sharing `old->items[k]` Values by
+ * plain struct copy into the new buffer is safe precisely because ArrayObj
+ * is immutable once built (see value.h) -- there's nothing to alias into. */
+static Value call_push(Type array_type, Value arr, Value x) {
+    ArrayObj *old = arr.as.arr;
+    int new_count = old->count + 1;
+    Value *items = malloc((size_t)new_count * sizeof(Value));
+    memcpy(items, old->items, (size_t)old->count * sizeof(Value));
+    items[old->count] = x;
+    return value_array(array_type, array_obj_new(items, new_count));
+}
+
+static Value call_insert(Type array_type, Value arr, Value idx, Value x, int line, int col) {
+    ArrayObj *old = arr.as.arr;
+    int64_t i = idx.as.i;
+    if (i < 0 || i > old->count) {
+        ziman_error("runtime", line, col, "insert index %lld out of bounds (array length %d)", (long long)i, old->count);
+    }
+    int new_count = old->count + 1;
+    Value *items = malloc((size_t)new_count * sizeof(Value));
+    memcpy(items, old->items, (size_t)i * sizeof(Value));
+    items[i] = x;
+    memcpy(items + i + 1, old->items + i, (size_t)(old->count - (int)i) * sizeof(Value));
+    return value_array(array_type, array_obj_new(items, new_count));
+}
+
+static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, int col) {
+    ArrayObj *old = arr.as.arr;
+    int64_t i = idx.as.i;
+    if (i < 0 || i >= old->count) {
+        ziman_error("runtime", line, col, "set index %lld out of bounds (array length %d)", (long long)i, old->count);
+    }
+    Value *items = malloc((size_t)old->count * sizeof(Value));
+    memcpy(items, old->items, (size_t)old->count * sizeof(Value));
+    items[i] = x;
+    return value_array(array_type, array_obj_new(items, old->count));
+}
+
 /* args[0] is the format string, args[1..argc-1] are the interpolation
  * values. The type checker already verified `{}` placeholder count
  * matches argc-1 and that the format string is well-formed, so this
@@ -110,20 +154,20 @@ static Value eval_binary(Program *program, Env *env, Expr *e) {
 
     switch (e->as.binary.op) {
         case OP_ADD:
-            return l.type == TY_INT ? value_int(l.as.i + r.as.i) : value_float(l.as.f + r.as.f);
+            return l.type.kind == TY_INT ? value_int(l.as.i + r.as.i) : value_float(l.as.f + r.as.f);
         case OP_SUB:
-            return l.type == TY_INT ? value_int(l.as.i - r.as.i) : value_float(l.as.f - r.as.f);
+            return l.type.kind == TY_INT ? value_int(l.as.i - r.as.i) : value_float(l.as.f - r.as.f);
         case OP_MUL:
-            return l.type == TY_INT ? value_int(l.as.i * r.as.i) : value_float(l.as.f * r.as.f);
+            return l.type.kind == TY_INT ? value_int(l.as.i * r.as.i) : value_float(l.as.f * r.as.f);
         case OP_DIV:
-            if (l.type == TY_INT) {
+            if (l.type.kind == TY_INT) {
                 if (r.as.i == 0) ziman_error("runtime", e->line, e->col, "division by zero");
                 return value_int(l.as.i / r.as.i);
             }
             if (r.as.f == 0.0) ziman_error("runtime", e->line, e->col, "division by zero");
             return value_float(l.as.f / r.as.f);
         case OP_MOD:
-            if (l.type == TY_INT) {
+            if (l.type.kind == TY_INT) {
                 if (r.as.i == 0) ziman_error("runtime", e->line, e->col, "division by zero");
                 return value_int(l.as.i % r.as.i);
             }
@@ -131,10 +175,10 @@ static Value eval_binary(Program *program, Env *env, Expr *e) {
             return value_int(0);
         case OP_EQ: return value_bool(value_equals(l, r));
         case OP_NEQ: return value_bool(!value_equals(l, r));
-        case OP_LT: return value_bool(l.type == TY_INT ? l.as.i < r.as.i : l.as.f < r.as.f);
-        case OP_GT: return value_bool(l.type == TY_INT ? l.as.i > r.as.i : l.as.f > r.as.f);
-        case OP_LE: return value_bool(l.type == TY_INT ? l.as.i <= r.as.i : l.as.f <= r.as.f);
-        case OP_GE: return value_bool(l.type == TY_INT ? l.as.i >= r.as.i : l.as.f >= r.as.f);
+        case OP_LT: return value_bool(l.type.kind == TY_INT ? l.as.i < r.as.i : l.as.f < r.as.f);
+        case OP_GT: return value_bool(l.type.kind == TY_INT ? l.as.i > r.as.i : l.as.f > r.as.f);
+        case OP_LE: return value_bool(l.type.kind == TY_INT ? l.as.i <= r.as.i : l.as.f <= r.as.f);
+        case OP_GE: return value_bool(l.type.kind == TY_INT ? l.as.i >= r.as.i : l.as.f >= r.as.f);
         default:
             ziman_error("runtime", e->line, e->col, "internal error: unhandled binary operator");
             return value_int(0);
@@ -154,7 +198,7 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
         case EXPR_UNARY: {
             Value v = eval_expr(program, env, e->as.unary.operand);
             if (e->as.unary.op == OP_NEG) {
-                return v.type == TY_INT ? value_int(-v.as.i) : value_float(-v.as.f);
+                return v.type.kind == TY_INT ? value_int(-v.as.i) : value_float(-v.as.f);
             }
             return value_bool(!v.as.b);
         }
@@ -175,6 +219,14 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
                 result = call_str(args[0]);
             } else if (strcmp(e->as.call.callee, "format") == 0) {
                 result = call_format(args, argc);
+            } else if (strcmp(e->as.call.callee, "len") == 0) {
+                result = call_len(args[0]);
+            } else if (strcmp(e->as.call.callee, "push") == 0) {
+                result = call_push(e->resolved_type, args[0], args[1]);
+            } else if (strcmp(e->as.call.callee, "insert") == 0) {
+                result = call_insert(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
+            } else if (strcmp(e->as.call.callee, "set") == 0) {
+                result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else {
                 FunctionDecl *fn = find_function(program, e->as.call.callee);
                 result = call_function(program, fn, args, argc);
@@ -184,11 +236,28 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
         }
         case EXPR_CAST: {
             Value v = eval_expr(program, env, e->as.cast.operand);
-            if (e->as.cast.target_type == TY_FLOAT) {
-                return value_float(v.type == TY_INT ? (double)v.as.i : v.as.f);
+            if (e->as.cast.target_type.kind == TY_FLOAT) {
+                return value_float(v.type.kind == TY_INT ? (double)v.as.i : v.as.f);
             }
             /* target is TY_INT */
-            return value_int(v.type == TY_FLOAT ? (int64_t)v.as.f : v.as.i);
+            return value_int(v.type.kind == TY_FLOAT ? (int64_t)v.as.f : v.as.i);
+        }
+        case EXPR_ARRAY_LIT: {
+            int count = e->as.array_lit.elements.count;
+            Value *items = count > 0 ? malloc((size_t)count * sizeof(Value)) : NULL;
+            for (int i = 0; i < count; i++) {
+                items[i] = eval_expr(program, env, e->as.array_lit.elements.items[i]);
+            }
+            return value_array(e->resolved_type, array_obj_new(items, count));
+        }
+        case EXPR_INDEX: {
+            Value arr = eval_expr(program, env, e->as.index.array);
+            Value idx = eval_expr(program, env, e->as.index.index);
+            int64_t i = idx.as.i;
+            if (i < 0 || i >= arr.as.arr->count) {
+                ziman_error("runtime", e->line, e->col, "index %lld out of bounds (array length %d)", (long long)i, arr.as.arr->count);
+            }
+            return arr.as.arr->items[i];
         }
     }
     ziman_error("runtime", e->line, e->col, "internal error: unhandled expression kind");
