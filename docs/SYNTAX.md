@@ -274,12 +274,19 @@ fn main() {
   program. A program with no `use` statements behaves identically to
   before modules existed.
 - **`native fn name(params) -> type`** declares a function with no body
-  at all — its implementation is a C function registered by module path
-  + name, looked up at call time. The type checker treats its signature
-  like any other function's; calling one with nothing registered for it
-  is a runtime error ("no registered implementation"). No real native
-  module ships yet (see docs/ROADMAP.md) — this is the language
-  mechanism landing ahead of any actual C-backed module.
+  at all — its implementation is a C function registered under its exact
+  fully-qualified name, looked up at call time. The type checker treats
+  its signature like any other function's; calling one with nothing
+  registered for it is a runtime error ("no registered implementation").
+  A minimal real module ships today — `io`, with `read_file(path:
+  string) -> string` and `write_file(path: string, contents: string)` —
+  a small, honest proof of the mechanism, not a general file API (no
+  append mode, no directory listing yet). Both are ordinary functions
+  from the calling side; a missing file or a failed write is a fatal
+  runtime error, same as every other runtime error today (there's no
+  recoverable-error story yet — see docs/ROADMAP.md). `io.zm` isn't
+  found by any bundled-library search path yet either, so a project that
+  wants it needs its own copy alongside the entry file for now.
 
 ## Semantic rules enforced before a program runs
 

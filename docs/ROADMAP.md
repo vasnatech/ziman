@@ -24,27 +24,36 @@ one that never lands. The architecture to get there:
   (files, networking, a database client) can now actually be organized as
   a module instead of bolted directly onto the interpreter one builtin at
   a time the way arrays'/structs' builtins were.
-- **Only a minimal, fixed set of "native modules" touch C** — the actual
-  syscalls (raw socket read/write, raw file descriptor I/O, maybe raw
-  process/env access) and nothing more. A native module still presents
-  ordinary typed Ziman function signatures to its callers, who shouldn't
-  need to know or care whether a given module is native or pure Ziman.
-  `native fn` (the language mechanism for this) is implemented; no actual
-  native module exists yet, and neither does the registration mechanism
-  a real one would need (calling a `native fn` today always fails with
-  "no registered implementation" — see the module design write-up).
+- ~~**Only a minimal, fixed set of "native modules" touch C.**~~ The
+  registration mechanism is implemented (`src/native.c`), and a first,
+  minimal real module exists to prove it: `io` (`read_file`/`write_file`
+  — see the module design write-up below for the C-side design, inspired
+  by JNI's `RegisterNatives`). A native module still presents ordinary
+  typed Ziman function signatures to its callers, who shouldn't need to
+  know or care whether a given module is native or pure Ziman. Still
+  missing: the actual syscalls (raw sockets, process/env access) beyond
+  basic file I/O, and — since `io.zm`'s signature file isn't found by any
+  bundled-stdlib search path yet (see below) — every project that wants
+  it has to keep its own copy alongside its entry file for now. Also:
+  `io.read_file`/`write_file` fail with a fatal runtime error on a
+  missing file or a write failure, same as every other runtime error
+  today — recoverable error handling (see the language-gaps list above)
+  would make this a lot more pleasant to use from real code.
   Today's built-ins (`print`/`concat`/`str`/`format`/`len`/`push`/
   `insert`/`set`) are conceptually the same idea already, but stay
   special-cased and unqualified for now rather than being migrated into
   the module scheme — see the module design write-up for why that's a
   deliberate non-decision, not an oversight.
-- **Everything above the native floor is real Ziman code.** `io`/`fs` on
-  top of native file-descriptor primitives; `net` (raw sockets) and then
-  `http` (protocol parsing, serving, client) on top of native socket
-  primitives; a database module either as pure Ziman speaking a DB's wire
-  protocol directly over `net`, or as a native module wrapping an existing
-  C client library (e.g. libpq/sqlite) if hand-rolling the wire protocol
-  turns out not to be worth it. `json` (encode/decode) is flagged
+- **Everything above the native floor is real Ziman code.** A minimal
+  `io` exists now (`read_file`/`write_file`, straight `fopen`/`fread`/
+  `fwrite` underneath — no buffering story, no append mode, no directory
+  listing). Still ahead: the rest of `io`/`fs` on native file-descriptor
+  primitives, `net` (raw sockets) and then `http` (protocol parsing,
+  serving, client) on native socket primitives, and a database module
+  either as pure Ziman speaking a DB's wire protocol directly over `net`,
+  or as a native module wrapping an existing C client library (e.g.
+  libpq/sqlite) if hand-rolling the wire protocol turns out not to be
+  worth it. `json` (encode/decode) is flagged
   separately below since it hits a real language gap, not just missing
   library code.
 
@@ -196,14 +205,23 @@ a time mid-implementation:
     loaded and parsed at most once (a diamond dependency shares one
     instance, confirmed via `multifile_diamond`), and a cycle is a clear
     compile-time error (`multifile_cycle`) instead of infinite recursion.
-  - **A native module is `native fn name(params) -> type` with no `{ }`
-    body at all** — implemented as a *language mechanism* only: the type
-    checker treats its signature like any other function's, and calling
-    one always fails with "no registered implementation," since no
-    actual registration mechanism exists yet (there's nothing to
-    register — no real native module has been written). Building that
-    mechanism is part of whatever module gets built first under
-    "everything above the native floor" below.
+  - ~~**A native module is `native fn name(params) -> type` with no `{ }`
+    body at all.**~~ Fully implemented, registration mechanism included
+    (`src/native.c`, `src/native_io.c`): the type checker treats a
+    `native fn`'s signature like any other function's, and at call time
+    the interpreter looks up a C function pointer registered under the
+    function's exact fully-qualified name (`io::read_file`) and calls it
+    — falling back to the existing "no registered implementation" error
+    only if nothing was ever registered for that name. Every native
+    function is a plain C function of one fixed shape regardless of its
+    declared Ziman signature: `Value fn(Value *args, int argc, int line,
+    int col)` — see docs/DESIGN.md's new entry for why this is
+    deliberately *not* a 1:1 mirror of the Ziman signature (inspired by
+    JNI, which does the same for a harder reason — bridging C's
+    primitives to Java's object model — that Ziman's uniform `Value`
+    representation doesn't actually have). `line`/`col` let a native
+    function raise a `ziman_error` that reads exactly like any other
+    runtime error (e.g. `io.read_file` on a missing path).
   - **Implementation strategy, not a language-semantics decision:** the
     loader rewrites every module's own top-level names, and every
     cross-module reference, to `<module_path>::<name>` and merges

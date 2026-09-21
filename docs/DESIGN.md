@@ -150,6 +150,34 @@ several languages rather than inheriting any one of them wholesale.
   allowed to show through, why there's no manifest file) is in
   docs/ROADMAP.md, since it was designed and recorded there before
   implementation, not the other way around.
+- **A native function's C implementation deliberately doesn't mirror its
+  declared Ziman signature — inspired by JNI, adapted to need less.**
+  JNI's native methods get a C signature that's genuinely different from
+  the declared Java one (two extra parameters prepended — `JNIEnv*` and
+  the receiver — and opaque handle types like `jstring` in place of the
+  Java type), because C's primitives and Java's object model are
+  incompatible representations that need an explicit marshaling layer to
+  bridge. Ziman doesn't have that problem: the tree-walking interpreter
+  already represents every value — scalar, array, or struct — as one
+  uniform tagged-union `Value` (`src/value.h`), so there's no impedance to
+  bridge. The result is simpler than JNI needs to be: every native
+  function is a plain C function of one fixed shape, `Value fn(Value
+  *args, int argc, int line, int col)` (`line`/`col` standing in for
+  JNI's `JNIEnv*` — not a large callback table, just enough to raise a
+  `ziman_error` that reads like any other runtime error), registered
+  under the exact fully-qualified name the loader already produces
+  (`io::read_file`, not a separately-tracked module path + name pair).
+  JNI also offers a real lesson on *how* to bind: prefer an explicit
+  registration table (`RegisterNatives`) over deriving the C symbol name
+  by convention (name-mangling) — the mangled-name approach is JNI's
+  legacy path, explicit registration is what the ecosystem moved to
+  (Android's own NDK guidance recommends it), and it's what Ziman's
+  `native_register()` does from the start. What this does *not* solve:
+  `print`/`str`/`len`/`push`/`insert`/`set`/`format` still can't become
+  ordinary `native fn` declarations, because they need a top/"any" type,
+  a small union, or generics that don't exist yet — a C-ABI trick doesn't
+  change what the Ziman-level type checker can express. See
+  docs/ROADMAP.md.
 
 ## Deliberately deferred (not v0)
 
