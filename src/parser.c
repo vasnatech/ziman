@@ -117,19 +117,33 @@ static Type parse_type(Parser *p) {
 
 static Expr *parse_expr(Parser *p);
 
+/* Used by call arguments and array literals. Tolerates a newline after
+ * each element/before each comma and after each comma, same "the last
+ * token before it could end a statement" reasoning as parse_field_inits
+ * above -- lets a long call or array literal span multiple lines. */
 static ExprList parse_comma_separated(Parser *p, TokenType stop) {
     ExprList list = {0};
     if (!check(p, stop)) {
         expr_list_push(&list, parse_expr(p));
+        skip_newlines(p);
         while (match(p, TOK_COMMA)) {
+            skip_newlines(p);
             expr_list_push(&list, parse_expr(p));
+            skip_newlines(p);
         }
     }
     return list;
 }
 
 /* `name: value` pairs, comma-separated -- used by both a struct literal's
- * fields and a `with` expression's overrides. */
+ * fields and a `with` expression's overrides. A newline right after `{`
+ * or right after a `,` is already silently swallowed by the lexer itself
+ * (neither token can end a statement), but a newline right after a
+ * field's *value* is a real, significant NEWLINE token whenever that
+ * value's own last token can end a statement (e.g. `x: 1` followed by a
+ * line break) -- skip_newlines() here is what lets the last field before
+ * `,` or the closing brace sit on its own line, the same tolerance a
+ * struct *declaration*'s fields already have. */
 static FieldInitList parse_field_inits(Parser *p, TokenType stop) {
     FieldInitList list = {0};
     if (!check(p, stop)) {
@@ -143,7 +157,9 @@ static FieldInitList parse_field_inits(Parser *p, TokenType stop) {
             fi.line = name_tok->line;
             fi.col = name_tok->col;
             field_init_list_push(&list, fi);
+            skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
+            skip_newlines(p);
         }
     }
     return list;
@@ -572,7 +588,9 @@ static ParamList parse_params(Parser *p) {
             Type param_type = parse_type(p);
             Param param = {dup_token_text(param_name), param_type, param_name->line, param_name->col};
             param_list_push(&params, param);
+            skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
+            skip_newlines(p);
         }
     }
     return params;

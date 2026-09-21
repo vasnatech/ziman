@@ -1,0 +1,13 @@
+struct Req {
+    first_name: string
+    last_name: string
+    email: string
+}
+fn main() {
+    val r = Req {
+        first_name: "Ada",
+        last_name: "Lovelace",
+        email: "ada@example.com"
+    }
+    print(r)
+}

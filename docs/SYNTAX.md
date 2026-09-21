@@ -23,6 +23,20 @@ File extension: `.zm`.
   against the previous token only — never indentation. See `src/lexer.c`'s
   `can_end_statement` for the exact token set. In practice: write code the
   way you'd write Go, and it works.
+- **Every comma-separated list can span multiple lines** — a struct
+  literal's fields, a `with` override list, a function call's arguments,
+  an array literal's elements, and a function's declared parameter list
+  all tolerate a line break after each item and after each comma, the
+  same tolerance a `struct`/`enum` *declaration*'s fields/variants
+  already had. This needs explicit parser support (not just the lexical
+  rule above): the token right before a list's *last* item is often one
+  that *can* end a statement (an int literal, an identifier, a closing
+  `)`/`]`/`}`...), so the newline right after it is a real, significant
+  token that has to be explicitly skipped before checking for the closing
+  `)`/`]`/`}` — done in `parse_field_inits`/`parse_comma_separated`/
+  `parse_params`. A trailing comma before the close (`Point { x: 1, y: 2,
+  }`) is still a syntax error either way — this only tolerates the line
+  break, not an extra comma.
 
 ## Grammar (informal EBNF)
 

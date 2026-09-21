@@ -1,0 +1,10 @@
+fn describe(
+    first_name: string,
+    last_name: string,
+    email: string
+) -> string {
+    return concat(first_name, concat(" ", last_name))
+}
+fn main() {
+    print(describe("Ada", "Lovelace", "ada@example.com"))
+}
