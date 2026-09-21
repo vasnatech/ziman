@@ -2,6 +2,18 @@ use io
 
 fn main() {
     io.write_file("/tmp/ziman_native_io_demo.txt", "hello from ziman\n")
-    val contents = io.read_file("/tmp/ziman_native_io_demo.txt")
-    print(contents)
+
+    val r = io.read_file("/tmp/ziman_native_io_demo.txt")
+    if is_ok(r) {
+        print(unwrap(r))
+    } else {
+        print(concat("could not read file: ", unwrap_err(r)))
+    }
+
+    val missing = io.read_file("/tmp/ziman_this_file_does_not_exist.txt")
+    if is_ok(missing) {
+        print(unwrap(missing))
+    } else {
+        print(concat("could not read file: ", unwrap_err(missing)))
+    }
 }

@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "native_io.h"
 
 #include <stdio.h>
@@ -7,13 +8,21 @@
 #include "error.h"
 #include "native.h"
 
+/* A missing/unreadable file is an expected, recoverable condition (unlike
+ * a bug such as an out-of-bounds index), so it's a Result, not a fatal
+ * ziman_error -- see docs/DESIGN.md's Result<T, E> entry on that line. */
 static Value native_io_read_file(Value *args, int argc, int line, int col) {
     (void)argc;
+    (void)line;
+    (void)col;
     const char *path = args[0].as.s;
+    Type result_type = type_result(type_scalar(TY_STRING), type_scalar(TY_STRING));
 
     FILE *f = fopen(path, "rb");
     if (f == NULL) {
-        ziman_error("runtime", line, col, "io.read_file: cannot open '%s'", path);
+        char msg[512];
+        snprintf(msg, sizeof(msg), "cannot open '%s'", path);
+        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
     }
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
@@ -24,7 +33,7 @@ static Value native_io_read_file(Value *args, int argc, int line, int col) {
     buf[n] = '\0';
     fclose(f);
 
-    return value_string(buf);
+    return value_result(result_type, result_obj_new(1, value_string(buf)));
 }
 
 static Value native_io_write_file(Value *args, int argc, int line, int col) {
