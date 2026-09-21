@@ -110,7 +110,18 @@ exit code 1.
 
 ## Builtins
 
-`print(x)` — takes exactly one argument of any non-void type, writes its
-display form followed by a newline to stdout, returns nothing. It's the
-only builtin in v0 and the name is reserved (a user `fn print(...)` is a
-type error).
+Builtin names are reserved — redefining any of them as a user function is
+a type error.
+
+- `print(x)` — takes exactly one argument of any non-void type, writes its
+  display form followed by a newline to stdout, returns nothing.
+- `concat(a: string, b: string) -> string` — joins two strings. Both
+  arguments must already be `string`; there's no auto-stringify (that
+  would be the same implicit-coercion problem `+` avoids, just moved to a
+  function). Use `str` to convert first.
+- `str(x) -> string` — converts an `int`, `float`, or `bool` to its
+  display string. Rejects an argument that's already a `string` (there
+  should be exactly one way to get a string from a value, not two).
+
+`+` itself stays numeric-only in v0 — see docs/DESIGN.md principle #2 on
+why string concatenation didn't just overload it.

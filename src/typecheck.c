@@ -95,6 +95,36 @@ static Type check_call(Program *program, Env *env, Expr *e) {
         return TY_VOID;
     }
 
+    if (strcmp(name, "concat") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'concat' takes exactly 2 arguments, found %d", e->as.call.args.count);
+        }
+        for (int i = 0; i < 2; i++) {
+            Expr *arg = e->as.call.args.items[i];
+            Type arg_type = check_expr(program, env, arg);
+            if (arg_type != TY_STRING) {
+                ziman_error("type", arg->line, arg->col,
+                            "argument %d of 'concat' expects string, found %s (use 'str' to convert first)",
+                            i + 1, type_name(arg_type));
+            }
+        }
+        return TY_STRING;
+    }
+
+    if (strcmp(name, "str") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'str' takes exactly 1 argument, found %d", e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(program, env, arg);
+        if (arg_type != TY_INT && arg_type != TY_FLOAT && arg_type != TY_BOOL) {
+            ziman_error("type", arg->line, arg->col,
+                        "'str' expects an int, float, or bool, found %s (it's already a string)",
+                        type_name(arg_type));
+        }
+        return TY_STRING;
+    }
+
     FunctionDecl *fn = find_function(program, name);
     if (fn == NULL) {
         ziman_error("type", e->line, e->col, "call to undefined function '%s'", name);
@@ -296,8 +326,8 @@ static void check_function(Program *program, FunctionDecl *fn) {
 void typecheck(Program *program) {
     for (int i = 0; i < program->functions.count; i++) {
         FunctionDecl *fn = program->functions.items[i];
-        if (strcmp(fn->name, "print") == 0) {
-            ziman_error("type", fn->line, fn->col, "'print' is a builtin function and cannot be redefined");
+        if (strcmp(fn->name, "print") == 0 || strcmp(fn->name, "concat") == 0 || strcmp(fn->name, "str") == 0) {
+            ziman_error("type", fn->line, fn->col, "'%s' is a builtin function and cannot be redefined", fn->name);
         }
         for (int j = i + 1; j < program->functions.count; j++) {
             if (strcmp(fn->name, program->functions.items[j]->name) == 0) {

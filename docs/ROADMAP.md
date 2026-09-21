@@ -9,12 +9,13 @@ against before adding any of them.
 - **Structured/machine-parseable diagnostics** (`--json` error mode).
   Central to the "errors are data" principle in DESIGN.md; deferred out of
   v0 only to get a working language faster.
-- **String concatenation.** Deliberately left out of v0 because `+` on
-  strings would be operator-overloading-by-type, which DESIGN.md's
-  principle #2 argues against. Options: a `concat(a, b)` builtin, or a
-  dedicated `++` operator that's numeric-`+`'s explicit opposite (never
-  ambiguous which one a given expression means). Needs a decision, not
-  just an implementation.
+- ~~**String concatenation.**~~ Decided and implemented: a `concat(a, b)`
+  builtin (both arguments must already be `string` — no auto-stringify,
+  keeps it from becoming implicit coercion by another name), plus a
+  companion `str(x)` builtin to explicitly convert `int`/`float`/`bool`
+  into their display string (rejects an already-`string` argument, so
+  there's exactly one way to get a string from any given type). `+`
+  itself stays numeric-only, per principle #2.
 - **`for` loop** over integer ranges (`for i in 0..10 { ... }`) — `while`
   covers everything but is more verbose and more error-prone for the
   extremely common counted-loop case.

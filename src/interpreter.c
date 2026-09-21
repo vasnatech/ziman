@@ -45,6 +45,19 @@ static Value call_print(Value arg) {
     return value_int(0);
 }
 
+static Value call_concat(Value a, Value b) {
+    size_t la = strlen(a.as.s), lb = strlen(b.as.s);
+    char *buf = malloc(la + lb + 1);
+    memcpy(buf, a.as.s, la);
+    memcpy(buf + la, b.as.s, lb);
+    buf[la + lb] = '\0';
+    return value_string(buf);
+}
+
+static Value call_str(Value arg) {
+    return value_string(value_display(arg));
+}
+
 static Value eval_binary(Program *program, Env *env, Expr *e) {
     Value l = eval_expr(program, env, e->as.binary.left);
 
@@ -121,6 +134,10 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
             Value result;
             if (strcmp(e->as.call.callee, "print") == 0) {
                 result = call_print(args[0]);
+            } else if (strcmp(e->as.call.callee, "concat") == 0) {
+                result = call_concat(args[0], args[1]);
+            } else if (strcmp(e->as.call.callee, "str") == 0) {
+                result = call_str(args[0]);
             } else {
                 FunctionDecl *fn = find_function(program, e->as.call.callee);
                 result = call_function(program, fn, args, argc);
