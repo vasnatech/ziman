@@ -1,0 +1,12 @@
+fn find_first_even(arr: [int]) -> int {
+    for x in arr {
+        if x % 2 == 0 {
+            return x
+        }
+    }
+    return -1
+}
+fn main() {
+    print(find_first_even([1, 3, 5, 8, 9]))
+    print(find_first_even([1, 3, 5]))
+}

@@ -18,6 +18,8 @@ typedef enum {
     TOK_IF,
     TOK_ELSE,
     TOK_WHILE,
+    TOK_FOR,
+    TOK_IN,
     TOK_RETURN,
     TOK_TRUE,
     TOK_FALSE,
@@ -43,6 +45,7 @@ typedef enum {
     TOK_COMMA,
     TOK_COLON,
     TOK_DOT,
+    TOK_DOTDOT, /* .. -- only legal directly after 'in' in a for-loop header */
     TOK_ARROW, /* -> */
 
     /* operators */

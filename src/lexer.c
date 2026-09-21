@@ -98,6 +98,7 @@ typedef struct {
 static const Keyword KEYWORDS[] = {
     {"fn", TOK_FN},         {"val", TOK_VAL},       {"var", TOK_VAR},
     {"if", TOK_IF},         {"else", TOK_ELSE},     {"while", TOK_WHILE},
+    {"for", TOK_FOR},       {"in", TOK_IN},
     {"return", TOK_RETURN}, {"true", TOK_TRUE},     {"false", TOK_FALSE},
     {"as", TOK_AS},         {"int", TOK_KW_INT},    {"float", TOK_KW_FLOAT},
     {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING},
@@ -246,7 +247,11 @@ TokenList lex(const char *source) {
             case ']': advance(&lx); emit(&lx, TOK_RBRACKET, start, 1, line, col); continue;
             case ',': advance(&lx); emit(&lx, TOK_COMMA, start, 1, line, col); continue;
             case ':': advance(&lx); emit(&lx, TOK_COLON, start, 1, line, col); continue;
-            case '.': advance(&lx); emit(&lx, TOK_DOT, start, 1, line, col); continue;
+            case '.':
+                advance(&lx);
+                if (peek(&lx) == '.') { advance(&lx); emit(&lx, TOK_DOTDOT, start, 2, line, col); }
+                else emit(&lx, TOK_DOT, start, 1, line, col);
+                continue;
             case '+': advance(&lx); emit(&lx, TOK_PLUS, start, 1, line, col); continue;
             case '*': advance(&lx); emit(&lx, TOK_STAR, start, 1, line, col); continue;
             case '/': advance(&lx); emit(&lx, TOK_SLASH, start, 1, line, col); continue;

@@ -78,7 +78,7 @@
       "patterns": [
         {
           "name": "keyword.control.ziman",
-          "match": "\\b(if|else|while|return)\\b"
+          "match": "\\b(if|else|while|for|in|return)\\b"
         },
         {
           "name": "keyword.control.import.ziman",
@@ -114,6 +114,10 @@
         {
           "name": "keyword.operator.arrow.ziman",
           "match": "->"
+        },
+        {
+          "name": "keyword.operator.range.ziman",
+          "match": "\\.\\."
         },
         {
           "name": "keyword.operator.comparison.ziman",

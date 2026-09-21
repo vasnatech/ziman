@@ -7,9 +7,7 @@ fn fib(n: int) -> int {
 }
 
 fn main() {
-    var i = 0
-    while i < 10 {
+    for i in 0..10 {
         print(fib(i))
-        i = i + 1
     }
 }

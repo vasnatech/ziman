@@ -1,8 +1,6 @@
 fn main() {
-    var i = 0
-    while i < 5 {
+    for i in 0..5 {
         val squared = i * i
         print(format("{} squared is {}", i, squared))
-        i = i + 1
     }
 }

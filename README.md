@@ -16,7 +16,9 @@ language — Ziman itself is not modeled on C. It's a from-scratch design.
 v0: lexer, parser, a real type checker (static types, no implicit
 coercion, "does this function return on every path" analysis), and a
 tree-walking interpreter. Supports functions, `val`/`var` bindings,
-`if`/`else`, `while`, the four scalar types (`int`, `float`, `bool`,
+`if`/`else`, `while`, `for` (value/index/index+value forms over an
+array, or a range for a counted loop — `for x in arr`, `for i in 0..n`,
+`for i, x in arr`), the four scalar types (`int`, `float`, `bool`,
 `string`), value-semantics arrays (`[T]`, nestable), plain nominal
 value-semantics `struct`s (named-fields-only construction, `with` for
 non-mutating field updates, no methods/inheritance), multi-file programs
@@ -25,11 +27,12 @@ exports, project-relative resolution only so far), `native fn` for
 calling into C (a real, minimal `io` module — `read_file`/`write_file`
 — proves it end to end), `Result<T, E>` for recoverable errors
 (`io.read_file` returns one instead of crashing on a missing file), and
-a growing set of builtins (`print`, `concat`, `str`, `format`, `len`,
-`push`, `insert`, `set`, `substring`, `split`, `trim`, `to_upper`,
-`to_lower`, `parse_int`, `parse_float`, `contains`, `abs`, `min`, `max`,
-`floor`, `ceil`, `round`). See [docs/ROADMAP.md](docs/ROADMAP.md) for
-what's deliberately not here yet.
+a full set of builtins (`print`, `concat`, `str`, `format`, `len`,
+`push`, `insert`, `set`, `remove`, `substring`, `split`, `trim`,
+`to_upper`, `to_lower`, `parse_int`, `parse_float`, `contains`, `abs`,
+`min`, `max`, `floor`, `ceil`, `round`, plus `==`/`!=` on scalar-element
+arrays). See [docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately
+not here yet.
 
 ## Example
 

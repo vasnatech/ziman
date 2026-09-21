@@ -157,9 +157,22 @@ a time mid-implementation:
 - **Escaping literal `{`/`}` in format strings.** `format` has no escape
   syntax yet — a literal brace can't appear in a format string at all.
   Low priority until someone actually needs one.
-- **`for` loop** over integer ranges (`for i in 0..10 { ... }`) — `while`
-  covers everything but is more verbose and more error-prone for the
-  extremely common counted-loop case.
+- ~~**`for` loop.**~~ Implemented, three forms in one grammar production
+  (docs/SYNTAX.md "For loops"): `for x in arr` (value), `for i in a..b`
+  (index, over an exclusive-end int range), `for i, x in arr` (both,
+  index-first — matches Go's `for i, v := range` / Python's
+  `enumerate`, the one convention with overwhelming cross-language
+  precedent). `a..b` is deliberately *not* a first-class `Range` value —
+  it only parses directly after a `for`'s `in`, lowering straight to a
+  counted loop with no allocation (rejected an earlier `indices(arr) ->
+  [int]` builtin idea for exactly this reason: it would've materialized
+  a whole array just to count). Two-binder form is array-only — a range
+  has nothing to name besides the count itself, so `for i, j in 0..5` is
+  a syntax error. Both binders are `val`-immutable and scoped to the
+  loop body only, same as every other binding. Still missing:
+  `break`/`continue` — a loop currently either runs to completion or
+  exits the enclosing function via `return`; not designed yet, revisit
+  once a real program actually wants an early loop exit.
 - ~~**Arrays / lists.**~~ Decided and implemented: one type, `[T]`, not
   two (see the "one collection type" discussion in this project's
   originating conversation) — no separate fixed-size vs. growable
@@ -174,13 +187,11 @@ a time mid-implementation:
   ~~`==`/`!=` on arrays~~ Implemented for scalar-element `[T]` only
   (`int`/`float`/`bool`/`string`) — length then elementwise
   `value_equals`; arrays of structs/Results/nested arrays are still a
-  type error, same open gap those types have on their own. Still open,
-  not yet decided:
-  - **Iterating without manual indices** — right now every array walk is
-    `var i = 0; while i < len(arr) { ... }`. A `for x in arr { ... }`
-    form (or extending the still-hypothetical `for` loop above to cover
-    both integer ranges and arrays) would remove the manual-index
-    boilerplate, but see the `for`-loop item above — neither exists yet.
+  type error, same open gap those types have on their own.
+  ~~Iterating without manual indices~~ Implemented — see the `for` loop
+  entry above; `for x in arr` (or `for i, x in arr` when the index is
+  also needed) replaces the manual `var i = 0; while i < len(arr) { ...
+  }` pattern.
 - ~~**Classes vs. data+trait vs. plain data.**~~ Decided: plain, nominal,
   value-typed `struct`s only — no classes, no implementation inheritance,
   no methods/`impl` blocks. Considered Java-style classes and rejected

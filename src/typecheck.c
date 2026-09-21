@@ -58,9 +58,19 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
             return type_scalar(TY_BOOL);
         case OP_EQ:
         case OP_NEQ:
-            if (lt.kind == TY_ARRAY || rt.kind == TY_ARRAY || lt.kind == TY_STRUCT || rt.kind == TY_STRUCT ||
-                lt.kind == TY_RESULT || rt.kind == TY_RESULT) {
-                ziman_error("type", e->line, e->col, "arrays, structs, and Results cannot be compared with '=='/'!=' in v0");
+            if (lt.kind == TY_STRUCT || rt.kind == TY_STRUCT || lt.kind == TY_RESULT || rt.kind == TY_RESULT) {
+                ziman_error("type", e->line, e->col, "structs and Results cannot be compared with '=='/'!=' in v0");
+            }
+            if (lt.kind == TY_ARRAY || rt.kind == TY_ARRAY) {
+                if (!type_equals(lt, rt)) {
+                    ziman_error("type", e->line, e->col, "cannot compare %s and %s for equality", type_name(lt), type_name(rt));
+                }
+                Type elem_type = *lt.elem;
+                if (elem_type.kind != TY_INT && elem_type.kind != TY_FLOAT && elem_type.kind != TY_BOOL && elem_type.kind != TY_STRING) {
+                    ziman_error("type", e->line, e->col,
+                                "array '=='/'!=' requires an array of a comparable (scalar) type, found %s", type_name(lt));
+                }
+                return type_scalar(TY_BOOL);
             }
             if (!type_equals(lt, rt)) {
                 ziman_error("type", e->line, e->col, "cannot compare %s and %s for equality", type_name(lt), type_name(rt));
@@ -361,6 +371,23 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return arr_type;
     }
 
+    if (strcmp(name, "remove") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'remove' takes exactly 2 arguments, found %d", e->as.call.args.count);
+        }
+        Expr *arr_arg = e->as.call.args.items[0];
+        Type arr_type = check_expr(module, env, arr_arg);
+        if (arr_type.kind != TY_ARRAY) {
+            ziman_error("type", arr_arg->line, arr_arg->col, "argument 1 of 'remove' expects an array, found %s", type_name(arr_type));
+        }
+        Expr *idx_arg = e->as.call.args.items[1];
+        Type idx_type = check_expr(module, env, idx_arg);
+        if (idx_type.kind != TY_INT) {
+            ziman_error("type", idx_arg->line, idx_arg->col, "argument 2 of 'remove' expects int, found %s", type_name(idx_type));
+        }
+        return arr_type;
+    }
+
     if (strcmp(name, "is_ok") == 0) {
         if (e->as.call.args.count != 1) {
             ziman_error("type", e->line, e->col, "'is_ok' takes exactly 1 argument, found %d", e->as.call.args.count);
@@ -644,11 +671,19 @@ static int stmt_always_returns(Stmt *s) {
 
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type);
 
-static void check_block(Module *module, Env *parent, Stmt *block, Type fn_return_type) {
-    Env *scope = env_new(parent);
+/* Runs `block`'s statements directly in `scope` (no further scope nesting) --
+ * shared by check_block (which makes its own fresh scope first) and
+ * STMT_FOR (which needs its loop binder(s) defined in that same scope,
+ * ahead of the body's own statements). */
+static void check_stmts_in_scope(Module *module, Env *scope, Stmt *block, Type fn_return_type) {
     for (int i = 0; i < block->as.block.stmts.count; i++) {
         check_stmt(module, scope, block->as.block.stmts.items[i], fn_return_type);
     }
+}
+
+static void check_block(Module *module, Env *parent, Stmt *block, Type fn_return_type) {
+    Env *scope = env_new(parent);
+    check_stmts_in_scope(module, scope, block, fn_return_type);
     env_free(scope);
 }
 
@@ -741,6 +776,37 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
             check_block(module, env, s->as.while_stmt.body, fn_return_type);
             break;
         }
+        case STMT_FOR: {
+            Env *scope = env_new(env);
+            if (s->as.for_stmt.is_range) {
+                Type start_type = check_expr(module, env, s->as.for_stmt.range_start);
+                if (start_type.kind != TY_INT) {
+                    ziman_error("type", s->as.for_stmt.range_start->line, s->as.for_stmt.range_start->col,
+                                "'for' range start must be int, found %s", type_name(start_type));
+                }
+                Type end_type = check_expr(module, env, s->as.for_stmt.range_end);
+                if (end_type.kind != TY_INT) {
+                    ziman_error("type", s->as.for_stmt.range_end->line, s->as.for_stmt.range_end->col,
+                                "'for' range end must be int, found %s", type_name(end_type));
+                }
+                env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(0));
+            } else {
+                Type iter_type = check_expr(module, env, s->as.for_stmt.iterable);
+                if (iter_type.kind != TY_ARRAY) {
+                    ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
+                                "'for' can only iterate an array or a range, found %s", type_name(iter_type));
+                }
+                if (s->as.for_stmt.binder2 == NULL) {
+                    env_define(scope, s->as.for_stmt.binder1, *iter_type.elem, 0, value_int(0));
+                } else {
+                    env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(0));
+                    env_define(scope, s->as.for_stmt.binder2, *iter_type.elem, 0, value_int(0));
+                }
+            }
+            check_stmts_in_scope(module, scope, s->as.for_stmt.body, fn_return_type);
+            env_free(scope);
+            break;
+        }
         case STMT_RETURN: {
             if (s->as.ret.value == NULL) {
                 if (fn_return_type.kind != TY_VOID) {
@@ -817,7 +883,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err",
                                       "substring", "split", "trim", "to_upper", "to_lower",
                                       "parse_int", "parse_float", "contains",
-                                      "abs", "min", "max", "floor", "ceil", "round"};
+                                      "abs", "min", "max", "floor", "ceil", "round", "remove"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

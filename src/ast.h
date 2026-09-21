@@ -122,6 +122,7 @@ typedef enum {
     STMT_ASSIGN,
     STMT_IF,
     STMT_WHILE,
+    STMT_FOR,
     STMT_RETURN,
     STMT_EXPR,
     STMT_BLOCK,
@@ -144,6 +145,21 @@ struct Stmt {
         struct { char *name; Expr *value; } assign;
         struct { Expr *cond; Stmt *then_block; Stmt *else_block; } if_stmt;
         struct { Expr *cond; Stmt *body; } while_stmt;
+        /* `for binder1[, binder2] in <iterable | range_start..range_end> { body }`.
+         * is_range: `for i in a..b`, binder2 is always NULL (no second binder
+         * makes sense over a range -- there's nothing to name besides the
+         * count itself). !is_range: `for x in arr` (binder2 NULL, binder1
+         * gets each element) or `for i, x in arr` (binder1 gets the index,
+         * binder2 gets the element). See docs/SYNTAX.md "for loops". */
+        struct {
+            char *binder1;
+            char *binder2;
+            int is_range;
+            Expr *range_start;
+            Expr *range_end;
+            Expr *iterable;
+            Stmt *body;
+        } for_stmt;
         struct { Expr *value; } ret; /* value is NULL for a bare `return` */
         struct { Expr *expr; } expr_stmt;
         struct { StmtList stmts; } block;

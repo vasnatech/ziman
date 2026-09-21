@@ -45,13 +45,18 @@ type           := "int" | "float" | "bool" | "string" | "[" type "]"
 block          := "{" NEWLINE* { statement NEWLINE* } "}"
 
 statement      := val_decl | var_decl | assign_stmt
-                 | if_stmt | while_stmt | return_stmt | expr_stmt
+                 | if_stmt | while_stmt | for_stmt | return_stmt | expr_stmt
 
 val_decl       := "val" IDENT [ ":" type ] "=" expr
 var_decl       := "var" IDENT [ ":" type ] "=" expr
 assign_stmt    := IDENT "=" expr
 if_stmt        := "if" expr block [ "else" (if_stmt | block) ]
 while_stmt     := "while" expr block
+for_stmt       := "for" IDENT [ "," IDENT ] "in" expr [ ".." expr ] block
+                    (* ".." is only legal here, directly after the first
+                       expr -- not a general expression form. See "for
+                       loops" below for what each binder count/".." combo
+                       means. *)
 return_stmt    := "return" [ expr ]
 expr_stmt      := expr
 
@@ -97,8 +102,7 @@ function calls as a primary only chain off a plain or single-qualified
 identifier, never an arbitrary expression (no first-class function values
 yet, so there's nothing to call *except* a name), no indexed/field
 *assignment* (`arr[i] = x` and `p.x = 1` aren't valid — see "Arrays" and
-"Structs" below), no `for` loop (only `while`), and no expression-level
-`if`.
+"Structs" below), and no expression-level `if`.
 
 ## Types
 
@@ -133,10 +137,8 @@ yet, so there's nothing to call *except* a name), no indexed/field
 
 ```
 var nums: [int] = []
-var i = 0
-while i < 5 {
+for i in 0..5 {
     nums = push(nums, i * i)
-    i = i + 1
 }
 print(nums[0])           // 0
 print(len(nums))          // 5
@@ -163,10 +165,61 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   out of range is a runtime error, reported the same way as division by
   zero. `insert`'s valid range is `[0, len(arr)]` inclusive (`len` itself
   means "append"); `set`'s and indexing's valid range is `[0, len(arr))`.
-- **`==`/`!=` on arrays is a type error in v0** — not implemented, tracked
-  in ROADMAP.md.
+- **`==`/`!=` on arrays is allowed only when the element type is scalar**
+  (`int`/`float`/`bool`/`string`) — compares length then elements
+  pairwise. An array of structs, Results, or nested arrays is still a
+  type error, same reasoning as scalar-only `contains` below: those
+  element types don't have a well-defined equality of their own yet.
 
-See "Builtins" below for `len`/`push`/`insert`/`set`'s exact signatures.
+See "Builtins" below for `len`/`push`/`insert`/`set`/`remove`'s exact
+signatures.
+
+## For loops
+
+Three forms, chosen by binder count and whether the right-hand side of
+`in` is a range or an array:
+
+```
+for x in arr { ... }          // value only -- x: T, once per element
+for i in 0..len(arr) { ... }  // index only -- i: int, counting a range
+for i, x in arr { ... }       // index + value together
+```
+
+- **`a..b` is exclusive of `b`** (`[a, b)`), same convention as
+  `substring`'s `start`/`end`. `a`/`b` must both be `int`. If `a >= b`
+  the loop body runs zero times — not a runtime error, same as an empty
+  array iterates zero times.
+- **`a..b` is not a first-class value.** It's only legal directly after
+  `in` in a `for` header — there's no `Range` type you can store in a
+  variable, pass to a function, or print. This is deliberate, same
+  "hardcode the minimum, not general machinery" instinct behind
+  `Result<T, E>`: a real `Range` type is a bigger design (does it own
+  its own equality? can it be empty as a first-class value? does `for`
+  need to special-case it or does it become a third iterable kind
+  alongside arrays?) that nothing has asked for yet.
+- **The two-binder form only works over an array, never a range** — `for
+  i, j in 0..5` is a syntax error naming the offending second binder.
+  There's nothing to name separately from the count itself when
+  iterating a range.
+- **Both loop variables are freshly bound each iteration and are always
+  immutable** (`val`-like, not `var`) — assigning to one is the same
+  "cannot assign, declared with 'val'" error as any other `val`.
+  Reassigning a loop variable would be immediately overwritten by the
+  next iteration anyway, so allowing it would only ever be a mistake.
+- **Scoped to the loop body only** — a loop variable doesn't exist
+  before the loop or after it ends, same as any other block-scoped
+  binding.
+- **Naming convention, not enforced by the grammar:** name a
+  range-loop's single `int` binder `i`/`j`/`k` (matches the near-universal
+  counted-loop convention), and an array value-loop's binder with a
+  domain name (`user`, `item`, ...). Since `for x in expr { ... }`'s
+  single binder means "the element" or "the index" depending on
+  `expr`'s type, not its own syntax, this convention is what lets a
+  reader (human or AI) tell which case they're in at a glance instead of
+  having to check `expr`'s declared type.
+- **No `break`/`continue` yet** — a loop always either runs to
+  completion or exits the enclosing function via `return`, tracked in
+  ROADMAP.md.
 
 ## Structs
 
@@ -213,8 +266,10 @@ fn main() {
   (`distance_squared(a, b)`, not `a.distance_squared(b)`) — no `impl`
   blocks, no inheritance. See docs/DESIGN.md on why (the classes-vs-traits
   discussion this project's history has).
-- **`==`/`!=` on structs is a type error in v0**, same as arrays — not
-  implemented, tracked in ROADMAP.md.
+- **`==`/`!=` on structs is a type error in v0** — not implemented,
+  tracked in ROADMAP.md. (Arrays got a scalar-element-only version of
+  this — see "Arrays" above — but a struct has no single obvious
+  field-by-field default the way an array's uniform element type does.)
 - Field types can reference another struct (`struct Line { start: Point
   end: Point }`) and structs can be declared in any order — a field type
   can name a struct declared later in the file. Referencing a struct name
@@ -344,8 +399,8 @@ fn main() {
   isn't to avoid ever crashing, it's that crashing on failure is now a
   *choice* the caller makes explicitly, instead of something a function
   like `io.read_file` used to force unconditionally.
-- **`==`/`!=` on `Result` is a type error**, same as arrays and structs
-  — not implemented, tracked in ROADMAP.md.
+- **`==`/`!=` on `Result` is a type error**, same as structs — not
+  implemented, tracked in ROADMAP.md.
 - **`T`/`E` can be any Ziman type**, including another `Result`, an
   array, or a struct — this is what lets application code layer a
   richer error type (a struct with a `code` and a `message`, say) on top
@@ -392,7 +447,7 @@ violates one of these never executes any code, it's rejected up front:
 |------------------------|-----------------------------|--------------------------|---------|
 | Arithmetic             | `+ - * / %`                 | `int,int` or `float,float`* | same type |
 | Comparison             | `< > <= >=`                 | `int,int` or `float,float` | `bool`  |
-| Equality               | `== !=`                     | any two of the same *scalar* type (never arrays, structs, or Results) | `bool`  |
+| Equality               | `== !=`                     | any two of the same scalar type, or two `[T]` of the same *scalar* `T` (never structs, Results, or arrays of non-scalar `T`) | `bool`  |
 | Logical                | `&& \|\|`                   | `bool, bool`             | `bool`  |
 | Unary negate           | `-`                          | `int` or `float`         | same type |
 | Unary not              | `!`                          | `bool`                   | `bool`  |
@@ -468,6 +523,11 @@ a type error.
 - `set(arr: [T], i: int, x: T) -> [T]` — a new array with the element at
   `i` replaced by `x`; `i` must be in `[0, len(arr))`, a runtime error
   otherwise.
+- `remove(arr: [T], i: int) -> [T]` — a new array with the element at `i`
+  removed; `i` must be in `[0, len(arr))`, a runtime error otherwise.
+  There's no "pop" — indexing already covers peeking at an element, so a
+  separate function to do both at once would just be two ways to do the
+  same thing.
 - `ok(x: T) -> Result<T, E>` / `err(e: E) -> Result<T, E>` — construct a
   `Result`. Only legal where the missing type parameter is available
   from context — see "Result" above.

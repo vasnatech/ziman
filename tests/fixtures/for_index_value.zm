@@ -1,0 +1,7 @@
+fn main() {
+    val arr = ["a", "b", "c"]
+    for i, x in arr {
+        print(i)
+        print(x)
+    }
+}

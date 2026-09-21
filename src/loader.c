@@ -214,6 +214,15 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
             self_qualify_expr(s->as.while_stmt.cond, ctx);
             self_qualify_stmt(s->as.while_stmt.body, ctx);
             break;
+        case STMT_FOR:
+            if (s->as.for_stmt.is_range) {
+                self_qualify_expr(s->as.for_stmt.range_start, ctx);
+                self_qualify_expr(s->as.for_stmt.range_end, ctx);
+            } else {
+                self_qualify_expr(s->as.for_stmt.iterable, ctx);
+            }
+            self_qualify_stmt(s->as.for_stmt.body, ctx);
+            break;
         case STMT_RETURN:
             if (s->as.ret.value != NULL) self_qualify_expr(s->as.ret.value, ctx);
             break;
@@ -406,6 +415,15 @@ static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx) {
         case STMT_WHILE:
             resolve_expr_refs(s->as.while_stmt.cond, ctx);
             resolve_stmt_refs(s->as.while_stmt.body, ctx);
+            break;
+        case STMT_FOR:
+            if (s->as.for_stmt.is_range) {
+                resolve_expr_refs(s->as.for_stmt.range_start, ctx);
+                resolve_expr_refs(s->as.for_stmt.range_end, ctx);
+            } else {
+                resolve_expr_refs(s->as.for_stmt.iterable, ctx);
+            }
+            resolve_stmt_refs(s->as.for_stmt.body, ctx);
             break;
         case STMT_RETURN:
             if (s->as.ret.value != NULL) resolve_expr_refs(s->as.ret.value, ctx);

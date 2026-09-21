@@ -37,6 +37,17 @@ fn main() {
         print("unreachable")
     }
 
+    for n in nums {
+        print(n)
+    }
+    for idx in 0..len(nums) {
+        print(idx)
+    }
+    for idx, n in nums {
+        print(idx)
+        print(n)
+    }
+
     val pi = 3.14
     val greeting = "hello \"world\"\n"
     val flag = true

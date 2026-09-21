@@ -432,6 +432,41 @@ static Stmt *parse_while(Parser *p) {
     return s;
 }
 
+/* `for binder1[, binder2] in expr [".." expr] { body }` -- see ast.h's
+ * for_stmt comment for what each of the three resulting shapes means. */
+static Stmt *parse_for(Parser *p) {
+    Token *kw = previous(p);
+    Stmt *s = stmt_new(STMT_FOR, kw->line, kw->col);
+
+    Token *binder1_tok = expect(p, TOK_IDENT, "a loop variable name");
+    require_lower_start(binder1_tok, "a loop variable name");
+    s->as.for_stmt.binder1 = dup_token_text(binder1_tok);
+
+    if (match(p, TOK_COMMA)) {
+        Token *binder2_tok = expect(p, TOK_IDENT, "a loop variable name");
+        require_lower_start(binder2_tok, "a loop variable name");
+        s->as.for_stmt.binder2 = dup_token_text(binder2_tok);
+    }
+
+    expect(p, TOK_IN, "'in'");
+    Expr *first = parse_expr(p);
+    if (match(p, TOK_DOTDOT)) {
+        if (s->as.for_stmt.binder2 != NULL) {
+            ziman_error("syntax", kw->line, kw->col,
+                        "a range-based 'for' takes exactly one loop variable (the count), found a second one ('%s')",
+                        s->as.for_stmt.binder2);
+        }
+        s->as.for_stmt.is_range = 1;
+        s->as.for_stmt.range_start = first;
+        s->as.for_stmt.range_end = parse_expr(p);
+    } else {
+        s->as.for_stmt.iterable = first;
+    }
+
+    s->as.for_stmt.body = parse_block(p);
+    return s;
+}
+
 static Stmt *parse_return(Parser *p) {
     Token *kw = previous(p);
     Stmt *s = stmt_new(STMT_RETURN, kw->line, kw->col);
@@ -446,6 +481,7 @@ static Stmt *parse_statement(Parser *p) {
     if (match(p, TOK_VAR)) return parse_decl(p, STMT_VAR);
     if (match(p, TOK_IF)) return parse_if(p);
     if (match(p, TOK_WHILE)) return parse_while(p);
+    if (match(p, TOK_FOR)) return parse_for(p);
     if (match(p, TOK_RETURN)) return parse_return(p);
 
     /* `IDENT = expr` (assignment) vs. any other expression statement

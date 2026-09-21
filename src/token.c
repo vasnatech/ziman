@@ -14,6 +14,8 @@ const char *token_type_name(TokenType type) {
         case TOK_IF: return "'if'";
         case TOK_ELSE: return "'else'";
         case TOK_WHILE: return "'while'";
+        case TOK_FOR: return "'for'";
+        case TOK_IN: return "'in'";
         case TOK_RETURN: return "'return'";
         case TOK_TRUE: return "'true'";
         case TOK_FALSE: return "'false'";
@@ -37,6 +39,7 @@ const char *token_type_name(TokenType type) {
         case TOK_COMMA: return "','";
         case TOK_COLON: return "':'";
         case TOK_DOT: return "'.'";
+        case TOK_DOTDOT: return "'..'";
         case TOK_ARROW: return "'->'";
         case TOK_PLUS: return "'+'";
         case TOK_MINUS: return "'-'";

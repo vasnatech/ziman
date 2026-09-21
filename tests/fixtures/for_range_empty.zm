@@ -1,0 +1,9 @@
+fn main() {
+    for i in 5..2 {
+        print(i)
+    }
+    for i in 3..3 {
+        print(i)
+    }
+    print("done")
+}

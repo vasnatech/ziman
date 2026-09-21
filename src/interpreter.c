@@ -261,6 +261,19 @@ static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, 
     return value_array(array_type, array_obj_new(items, old->count));
 }
 
+static Value call_remove(Type array_type, Value arr, Value idx, int line, int col) {
+    ArrayObj *old = arr.as.arr;
+    int64_t i = idx.as.i;
+    if (i < 0 || i >= old->count) {
+        ziman_error("runtime", line, col, "remove index %lld out of bounds (array length %d)", (long long)i, old->count);
+    }
+    int new_count = old->count - 1;
+    Value *items = malloc((size_t)new_count * sizeof(Value));
+    memcpy(items, old->items, (size_t)i * sizeof(Value));
+    memcpy(items + i, old->items + i + 1, (size_t)(new_count - (int)i) * sizeof(Value));
+    return value_array(array_type, array_obj_new(items, new_count));
+}
+
 static Value call_ok(Type result_type, Value x) {
     return value_result(result_type, result_obj_new(1, x));
 }
@@ -414,6 +427,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_insert(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "set") == 0) {
                 result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
+            } else if (strcmp(e->as.call.callee, "remove") == 0) {
+                result = call_remove(e->resolved_type, args[0], args[1], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "ok") == 0) {
                 result = call_ok(e->resolved_type, args[0]);
             } else if (strcmp(e->as.call.callee, "err") == 0) {
@@ -542,12 +557,21 @@ static ExecResult no_ctrl(void) {
     return r;
 }
 
-static ExecResult exec_block(Module *module, Env *parent, Stmt *block) {
-    Env *scope = env_new(parent);
+/* Runs `block`'s statements directly in `scope` (no further scope nesting) --
+ * shared by exec_block (which makes its own fresh scope first) and STMT_FOR
+ * (which needs a fresh scope per iteration holding that iteration's loop
+ * binder(s), ahead of the body's own statements). */
+static ExecResult exec_stmts_in_scope(Module *module, Env *scope, Stmt *block) {
     ExecResult result = no_ctrl();
     for (int i = 0; i < block->as.block.stmts.count && result.kind == CTRL_NONE; i++) {
         result = exec_stmt(module, scope, block->as.block.stmts.items[i]);
     }
+    return result;
+}
+
+static ExecResult exec_block(Module *module, Env *parent, Stmt *block) {
+    Env *scope = env_new(parent);
+    ExecResult result = exec_stmts_in_scope(module, scope, block);
     env_free(scope);
     return result;
 }
@@ -584,6 +608,37 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 Value cond = eval_expr(module, env, s->as.while_stmt.cond);
                 if (!cond.as.b) break;
                 ExecResult result = exec_block(module, env, s->as.while_stmt.body);
+                if (result.kind == CTRL_RETURN) return result;
+            }
+            return no_ctrl();
+        }
+        case STMT_FOR: {
+            if (s->as.for_stmt.is_range) {
+                Value start = eval_expr(module, env, s->as.for_stmt.range_start);
+                Value end = eval_expr(module, env, s->as.for_stmt.range_end);
+                for (int64_t i = start.as.i; i < end.as.i; i++) {
+                    Env *scope = env_new(env);
+                    env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(i));
+                    ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
+                    env_free(scope);
+                    if (result.kind == CTRL_RETURN) return result;
+                }
+                return no_ctrl();
+            }
+
+            Value iterable = eval_expr(module, env, s->as.for_stmt.iterable);
+            ArrayObj *arr = iterable.as.arr;
+            Type elem_type = *iterable.type.elem;
+            for (int i = 0; i < arr->count; i++) {
+                Env *scope = env_new(env);
+                if (s->as.for_stmt.binder2 == NULL) {
+                    env_define(scope, s->as.for_stmt.binder1, elem_type, 0, arr->items[i]);
+                } else {
+                    env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(i));
+                    env_define(scope, s->as.for_stmt.binder2, elem_type, 0, arr->items[i]);
+                }
+                ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
+                env_free(scope);
                 if (result.kind == CTRL_RETURN) return result;
             }
             return no_ctrl();

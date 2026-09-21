@@ -1,0 +1,6 @@
+fn main() {
+    val n = 5
+    for x in n {
+        print(x)
+    }
+}

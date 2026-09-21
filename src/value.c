@@ -57,17 +57,24 @@ ResultObj *result_obj_new(int is_ok, Value value) {
 
 int value_equals(Value a, Value b) {
     /* Callers only compare same-typed values -- enforced by the type checker,
-     * which also rejects '=='/'!=' on arrays, structs, and Results entirely
-     * (see typecheck.c), so none of those should ever reach here. */
+     * which also rejects '=='/'!=' on structs and Results entirely, and on
+     * arrays of anything but a scalar element type (see typecheck.c), so
+     * only scalars and scalar-element arrays should ever reach here. */
     switch (a.type.kind) {
         case TY_INT: return a.as.i == b.as.i;
         case TY_FLOAT: return a.as.f == b.as.f;
         case TY_BOOL: return a.as.b == b.as.b;
         case TY_STRING: return strcmp(a.as.s, b.as.s) == 0;
         case TY_VOID: return 1;
-        case TY_ARRAY:
-            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on arrays should have been rejected by the type checker");
-            return 0;
+        case TY_ARRAY: {
+            ArrayObj *arr_a = a.as.arr;
+            ArrayObj *arr_b = b.as.arr;
+            if (arr_a->count != arr_b->count) return 0;
+            for (int i = 0; i < arr_a->count; i++) {
+                if (!value_equals(arr_a->items[i], arr_b->items[i])) return 0;
+            }
+            return 1;
+        }
         case TY_STRUCT:
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on structs should have been rejected by the type checker");
             return 0;

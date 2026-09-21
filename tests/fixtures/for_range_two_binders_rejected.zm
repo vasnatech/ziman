@@ -1,0 +1,5 @@
+fn main() {
+    for i, j in 0..5 {
+        print(i)
+    }
+}
