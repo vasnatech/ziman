@@ -1,0 +1,49 @@
+#include "token.h"
+
+const char *token_type_name(TokenType type) {
+    switch (type) {
+        case TOK_EOF: return "end of file";
+        case TOK_NEWLINE: return "newline";
+        case TOK_INT_LIT: return "integer literal";
+        case TOK_FLOAT_LIT: return "float literal";
+        case TOK_STRING_LIT: return "string literal";
+        case TOK_IDENT: return "identifier";
+        case TOK_FN: return "'fn'";
+        case TOK_VAL: return "'val'";
+        case TOK_VAR: return "'var'";
+        case TOK_IF: return "'if'";
+        case TOK_ELSE: return "'else'";
+        case TOK_WHILE: return "'while'";
+        case TOK_RETURN: return "'return'";
+        case TOK_TRUE: return "'true'";
+        case TOK_FALSE: return "'false'";
+        case TOK_AS: return "'as'";
+        case TOK_KW_INT: return "'int'";
+        case TOK_KW_FLOAT: return "'float'";
+        case TOK_KW_BOOL: return "'bool'";
+        case TOK_KW_STRING: return "'string'";
+        case TOK_LPAREN: return "'('";
+        case TOK_RPAREN: return "')'";
+        case TOK_LBRACE: return "'{'";
+        case TOK_RBRACE: return "'}'";
+        case TOK_COMMA: return "','";
+        case TOK_COLON: return "':'";
+        case TOK_ARROW: return "'->'";
+        case TOK_PLUS: return "'+'";
+        case TOK_MINUS: return "'-'";
+        case TOK_STAR: return "'*'";
+        case TOK_SLASH: return "'/'";
+        case TOK_PERCENT: return "'%'";
+        case TOK_EQ: return "'='";
+        case TOK_EQEQ: return "'=='";
+        case TOK_BANGEQ: return "'!='";
+        case TOK_LT: return "'<'";
+        case TOK_GT: return "'>'";
+        case TOK_LTEQ: return "'<='";
+        case TOK_GTEQ: return "'>='";
+        case TOK_AMPAMP: return "'&&'";
+        case TOK_PIPEPIPE: return "'||'";
+        case TOK_BANG: return "'!'";
+    }
+    return "unknown token";
+}

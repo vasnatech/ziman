@@ -1,0 +1,5 @@
+fn main() {
+    val x: int = 5
+    val y: float = 2.0
+    print(x + y)
+}
