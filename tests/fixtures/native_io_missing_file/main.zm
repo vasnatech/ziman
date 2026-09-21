@@ -1,0 +1,5 @@
+use io
+
+fn main() {
+    print(io.read_file("/tmp/ziman_test_this_file_does_not_exist.txt"))
+}

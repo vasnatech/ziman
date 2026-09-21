@@ -1,0 +1,7 @@
+use io
+
+fn main() {
+    io.write_file("/tmp/ziman_native_io_demo.txt", "hello from ziman\n")
+    val contents = io.read_file("/tmp/ziman_native_io_demo.txt")
+    print(contents)
+}

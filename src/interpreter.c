@@ -6,6 +6,7 @@
 
 #include "env.h"
 #include "error.h"
+#include "native.h"
 #include "value.h"
 
 typedef enum { CTRL_NONE, CTRL_RETURN } CtrlKind;
@@ -32,12 +33,13 @@ static StructDecl *find_struct(Module *module, const char *name) {
 static Value eval_expr(Module *module, Env *env, Expr *e);
 static ExecResult exec_stmt(Module *module, Env *env, Stmt *s);
 
-static Value call_function(Module *module, FunctionDecl *fn, Value *args, int argc) {
+static Value call_function(Module *module, FunctionDecl *fn, Value *args, int argc, int call_line, int call_col) {
     if (fn->is_native) {
-        /* No real native module exists yet to register an implementation --
-         * this is the language mechanism (parseable, typecheckable) landing
-         * ahead of any actual C-backed module. See docs/ROADMAP.md. */
-        ziman_error("runtime", fn->line, fn->col, "native function '%s' has no registered implementation", fn->name);
+        NativeFn native = native_lookup(fn->name);
+        if (native == NULL) {
+            ziman_error("runtime", call_line, call_col, "native function '%s' has no registered implementation", fn->name);
+        }
+        return native(args, argc, call_line, call_col);
     }
     Env *env = env_new(NULL);
     for (int i = 0; i < argc; i++) {
@@ -242,7 +244,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else {
                 FunctionDecl *fn = find_function(module, e->as.call.callee);
-                result = call_function(module, fn, args, argc);
+                result = call_function(module, fn, args, argc, e->line, e->col);
             }
             free(args);
             return result;
@@ -394,5 +396,5 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
 
 void interpret(Module *module) {
     FunctionDecl *main_fn = find_function(module, "main");
-    call_function(module, main_fn, NULL, 0);
+    call_function(module, main_fn, NULL, 0, main_fn->line, main_fn->col);
 }

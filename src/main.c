@@ -2,6 +2,7 @@
 
 #include "interpreter.h"
 #include "loader.h"
+#include "native_io.h"
 #include "typecheck.h"
 
 int main(int argc, char **argv) {
@@ -9,6 +10,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: ziman <file.zm>\n");
         return 1;
     }
+
+    native_io_register();
 
     Module *module = load_module_graph(argv[1]);
     typecheck(module);

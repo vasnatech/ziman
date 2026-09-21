@@ -1,0 +1,7 @@
+use io
+
+fn main() {
+    io.write_file("/tmp/ziman_test_native_io_roundtrip.txt", "round trip ok")
+    val contents = io.read_file("/tmp/ziman_test_native_io_roundtrip.txt")
+    print(contents)
+}
