@@ -77,6 +77,20 @@ static Type parse_type(Parser *p) {
     }
     if (check(p, TOK_IDENT)) {
         Token *t = advance_tok(p);
+        /* `qualifier.TypeName` (a struct from an imported module) vs. a
+         * plain `TypeName` -- the qualifier comes first and is lowercase,
+         * so casing can't disambiguate here the way it does for a struct
+         * literal; a following '.' is what marks this as qualified. */
+        if (match(p, TOK_DOT)) {
+            Token *type_tok = expect(p, TOK_IDENT, "a type name");
+            require_upper_start(type_tok, "a type name");
+            size_t len = (size_t)t->length + 1 + (size_t)type_tok->length + 1;
+            char *qualified = malloc(len);
+            snprintf(qualified, len, "%.*s.%.*s", t->length, t->start, type_tok->length, type_tok->start);
+            Type ty = type_struct(qualified);
+            free(qualified);
+            return ty;
+        }
         require_upper_start(t, "a type name");
         char *name = dup_token_text(t);
         Type ty = type_struct(name);
@@ -173,6 +187,47 @@ static Expr *parse_primary(Parser *p) {
             e->as.struct_lit.type_name = name;
             e->as.struct_lit.fields = fields;
             return e;
+        }
+        /* `qualifier.name(args)` (a call into an imported module) or
+         * `qualifier.Type { ... }` (a struct literal from one) -- but a
+         * dot after a plain identifier is *usually* ordinary field access
+         * on a local variable (`p.x`), which parse_postfix already handles.
+         * There's no way to tell which one this is without looking past
+         * the dot, so: tentatively consume it, and if what follows doesn't
+         * match either qualified shape, back out and leave the dot for
+         * parse_postfix to treat as plain field access. */
+        if (check(p, TOK_DOT)) {
+            int saved_pos = p->pos;
+            advance_tok(p); /* '.' */
+            if (check(p, TOK_IDENT)) {
+                Token *second = advance_tok(p);
+                if (match(p, TOK_LPAREN)) {
+                    ExprList args = parse_comma_separated(p, TOK_RPAREN);
+                    expect(p, TOK_RPAREN, "')'");
+                    size_t len = strlen(name) + 1 + (size_t)second->length + 1;
+                    char *qualified = malloc(len);
+                    snprintf(qualified, len, "%s.%.*s", name, second->length, second->start);
+                    free(name);
+                    Expr *e = expr_new(EXPR_CALL, t->line, t->col);
+                    e->as.call.callee = qualified;
+                    e->as.call.args = args;
+                    return e;
+                }
+                if (check(p, TOK_LBRACE) && starts_upper(second->start)) {
+                    advance_tok(p); /* '{' */
+                    FieldInitList fields = parse_field_inits(p, TOK_RBRACE);
+                    expect(p, TOK_RBRACE, "'}'");
+                    size_t len = strlen(name) + 1 + (size_t)second->length + 1;
+                    char *qualified = malloc(len);
+                    snprintf(qualified, len, "%s.%.*s", name, second->length, second->start);
+                    free(name);
+                    Expr *e = expr_new(EXPR_STRUCT_LIT, t->line, t->col);
+                    e->as.struct_lit.type_name = qualified;
+                    e->as.struct_lit.fields = fields;
+                    return e;
+                }
+            }
+            p->pos = saved_pos; /* not a qualified reference -- back out, leave '.' for parse_postfix */
         }
         Expr *e = expr_new(EXPR_IDENT, t->line, t->col);
         e->as.ident_name = name;

@@ -1,0 +1,6 @@
+fn f(u: user.User) -> int {
+    return 0
+}
+fn main() {
+    print(0)
+}
