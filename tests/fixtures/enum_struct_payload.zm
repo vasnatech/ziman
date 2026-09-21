@@ -1,0 +1,20 @@
+struct RectDims {
+    width: float
+    height: float
+}
+enum Shape {
+    Circle(float)
+    Rectangle(RectDims)
+}
+fn area(s: Shape) -> float {
+    if Shape.is_Circle(s) {
+        val r = Shape.unwrap_Circle(s)
+        return 3.14159 * r * r
+    }
+    val d = Shape.unwrap_Rectangle(s)
+    return d.width * d.height
+}
+fn main() {
+    print(area(Shape.Circle(2.0)))
+    print(area(Shape.Rectangle(RectDims{width: 3.0, height: 4.0})))
+}

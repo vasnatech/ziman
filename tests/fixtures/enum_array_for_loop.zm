@@ -1,0 +1,12 @@
+enum Color {
+    Red
+    Green
+    Blue
+}
+fn main() {
+    val colors = [Color.Red, Color.Green, Color.Blue]
+    for c in colors {
+        print(c)
+        print(Color.is_Red(c))
+    }
+}

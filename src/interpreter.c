@@ -34,6 +34,13 @@ static StructDecl *find_struct(Module *module, const char *name) {
     return NULL;
 }
 
+static EnumDecl *find_enum(Module *module, const char *name) {
+    for (int i = 0; i < module->enums.count; i++) {
+        if (strcmp(module->enums.items[i]->name, name) == 0) return module->enums.items[i];
+    }
+    return NULL;
+}
+
 static Value eval_expr(Module *module, Env *env, Expr *e);
 static ExecResult exec_stmt(Module *module, Env *env, Stmt *s);
 
@@ -385,6 +392,42 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
     }
 }
 
+/* `EnumName.member[(args)]` -- construction if `member` names one of the
+ * enum's own variants, or an is_<variant>/unwrap_<variant> consumption
+ * call otherwise. All shapes and argument counts were already validated
+ * by check_enum_access in typecheck.c; this only needs to actually do it. */
+static Value eval_enum_access(Module *module, Env *env, Expr *e) {
+    const char *enum_name = e->as.enum_access.enum_name;
+    const char *member = e->as.enum_access.member_name;
+    EnumDecl *decl = find_enum(module, enum_name);
+
+    for (int i = 0; i < decl->variants.count; i++) {
+        EnumVariant *v = &decl->variants.items[i];
+        if (strcmp(v->name, member) != 0) continue;
+        Value payload = v->has_payload ? eval_expr(module, env, e->as.enum_access.args.items[0]) : value_int(0);
+        EnumObj *obj = enum_obj_new(decl->name, v->name, v->has_payload, payload);
+        return value_enum(e->resolved_type, obj);
+    }
+
+    Value arg = eval_expr(module, env, e->as.enum_access.args.items[0]);
+    EnumObj *obj = arg.as.en;
+    static const char *IS_PREFIX = "is_";
+    static const char *UNWRAP_PREFIX = "unwrap_";
+    if (strncmp(member, IS_PREFIX, strlen(IS_PREFIX)) == 0) {
+        return value_bool(strcmp(obj->variant_name, member + strlen(IS_PREFIX)) == 0);
+    }
+    /* unwrap_<variant> -- typecheck already proved the named variant has a
+     * payload, but `obj` might currently hold a *different* variant of the
+     * same enum at runtime; same fatal-by-default contract as Result's
+     * unwrap/unwrap_err. */
+    const char *wanted = member + strlen(UNWRAP_PREFIX);
+    if (strcmp(obj->variant_name, wanted) != 0) {
+        ziman_error("runtime", e->line, e->col, "called '%s.unwrap_%s' on a '%s.%s' value",
+                    enum_name, wanted, enum_name, obj->variant_name);
+    }
+    return obj->payload;
+}
+
 static Value eval_expr(Module *module, Env *env, Expr *e) {
     switch (e->kind) {
         case EXPR_INT: return value_int(e->as.int_val);
@@ -547,6 +590,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
              * field order) -- never mutates `old`, so sharing it is safe. */
             return value_struct(e->resolved_type, struct_obj_new(old->field_names, fields, count));
         }
+        case EXPR_ENUM_ACCESS:
+            return eval_enum_access(module, env, e);
     }
     ziman_error("runtime", e->line, e->col, "internal error: unhandled expression kind");
     return value_int(0);

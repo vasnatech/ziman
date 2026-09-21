@@ -28,8 +28,11 @@ exports, project-relative resolution only so far), `native fn` for
 calling into C (a real, minimal `io` module — `read_file`/`write_file`
 — proves it end to end), `Result<T, E>` for recoverable errors
 (`io.read_file` returns one instead of crashing on a missing file,
-variant-then-payload `==`/`!=` when both `T` and `E` are comparable), and
-a full set of builtins (`print`, `concat`, `str`, `format`, `len`,
+variant-then-payload `==`/`!=` when both `T` and `E` are comparable),
+user-declared `enum` tagged unions (concrete/monomorphic only — see
+docs/ROADMAP.md's Generics entry — with enum-qualified construction and
+compiler-generated `is_<Variant>`/`unwrap_<Variant>` accessors, same
+shape `Result` itself uses), and a full set of builtins (`print`, `concat`, `str`, `format`, `len`,
 `push`, `insert`, `set`, `remove`, `substring`, `split`, `trim`,
 `to_upper`, `to_lower`, `parse_int`, `parse_float`, `contains`, `abs`,
 `min`, `max`, `floor`, `ceil`, `round`, plus `==`/`!=` on scalar-element

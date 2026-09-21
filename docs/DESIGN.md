@@ -190,8 +190,13 @@ several languages rather than inheriting any one of them wholesale.
   type-system investment for a problem that a much narrower feature
   solves just as well: `Result<T, E>` as one more opaque builtin type
   (like arrays), manipulated only through four functions
-  (`ok`/`err`/`is_ok`/`unwrap`, plus `unwrap_err`) — no `enum`, no
-  pattern matching, no user-definable sum types at all. `T` and `E` are
+  (`ok`/`err`/`is_ok`/`unwrap`, plus `unwrap_err`) — at the time, no
+  `enum`, no pattern matching, no user-definable sum types at all. (User-
+  declared `enum`s shipped later, once it became clear every *future*
+  parametric type — `Option<T>`, `Map<K, V>` — would otherwise mean
+  hand-writing another one-off C special case forever; see the `enum`
+  entry below. `match`/pattern matching is still deferred.) `T` and `E`
+  are
   fully arbitrary Ziman types (not fixed to `string`, which was the
   original, narrower proposal) since hardcoding a second type parameter
   costs barely more than hardcoding one, and it buys something a fixed
@@ -215,6 +220,50 @@ several languages rather than inheriting any one of them wholesale.
   return type, not just a `val`/`var` annotation), since `return
   ok(...)`/`return err(...)` is by far `Result`'s most common shape, not
   an edge case the way returning an empty array is for arrays.
+- **User-declared `enum` (tagged unions) — added once "hardcode one more
+  type" stopped scaling.** `[T]` then `Result<T, E>` both hardcoded a
+  single parametric shape directly into the compiler; a third
+  (`Option<T>`) and a fourth (`Map<K, V>`) would mean the same one-off C
+  work forever, in C, never in Ziman itself — the opposite of the
+  project's own goal. Fixing that needs two things together: real type
+  parameters (not yet built, deferred to its own design pass — see
+  ROADMAP.md's "Generics" entry) and a way to express "one of several
+  shapes, optionally holding data" at all, which a plain `struct` can't
+  (it's a pure product type). `enum` is the second half, shipped first,
+  as a *concrete* (non-generic) tagged union — `enum Option<T> { Some(T)
+  None }` still isn't expressible until generics land on top of this.
+  Considered Java's enum model as an alternative (a closed, homogeneous
+  set of pre-built singleton values, e.g. `enum Color { RED, GREEN,
+  BLUE }`, or `Planet(mass, radius)` constants sharing one field set) and
+  rejected it: it can't express `Option`/`Result`'s actual shape at all
+  (Java itself doesn't model `Optional<T>` as an enum for this reason —
+  it's a plain class), since `Some(T)`/`None` need *different* payload
+  shapes decided at runtime, not a fixed compile-time enumeration of
+  identical-shaped values. Ziman's `enum` is Rust/Swift-shaped instead: a
+  variant carries zero or one payload value, and a payload-less variant
+  (`Point` in `enum Shape { Circle(float) Point }`) is the degenerate
+  case of that same mechanism — exactly what Java's plain-constant case
+  reduces to, so nothing was lost by not adopting Java's model
+  separately. Never more than one payload value per variant, and never
+  an inline tuple- or struct-shaped payload: Ziman has no tuple type, and
+  `Result<T, E>`'s `Ok`/`Err` already established "one value per case,
+  wrap a `struct` for more" as the shape to match, so `enum` doesn't get
+  a second, inconsistent product-type mechanism of its own.
+  Construction and consumption are both always qualified by the enum's
+  own name (`Shape.Circle(5.0)`, `Shape.is_Circle(s)`,
+  `Shape.unwrap_Circle(s)`) — considered and rejected bare construction
+  (Rust's usual look for `Some`/`Ok`) because those read as bare only
+  because they're prelude-special-cased; an ordinary user enum in Rust
+  needs qualifying too, and two unrelated Ziman enums could easily share
+  a variant name (`None`, `Active`, `Error`), which bare construction
+  would make silently ambiguous. `is_<Variant>`/`unwrap_<Variant>` are
+  compiler-generated per enum, per variant — the same predicate-plus-
+  unwrap shape `Result`'s `is_ok`/`unwrap`/`unwrap_err` already
+  established, just generalized from a hardcoded 2-variant type to
+  however many variants a user's enum has, and namespaced under the
+  enum's own name so two enums' generated functions never collide. No
+  `match`/pattern matching yet — deliberately deferred, same instinct as
+  `Result` shipping without one.
 
 ## Deliberately deferred (not v0)
 

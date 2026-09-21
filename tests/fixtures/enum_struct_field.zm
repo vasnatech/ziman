@@ -1,0 +1,13 @@
+enum Status {
+    Active
+    Inactive
+}
+struct User {
+    name: string
+    status: Status
+}
+fn main() {
+    val u = User { name: "Ada", status: Status.Active }
+    print(u)
+    print(Status.is_Active(u.status))
+}

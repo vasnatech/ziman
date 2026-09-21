@@ -11,6 +11,7 @@ Type type_scalar(TypeKind kind) {
     t.elem = NULL;
     t.elem_err = NULL;
     t.struct_name = NULL;
+    t.enum_name = NULL;
     return t;
 }
 
@@ -21,6 +22,7 @@ Type type_array(Type elem) {
     *t.elem = elem;
     t.elem_err = NULL;
     t.struct_name = NULL;
+    t.enum_name = NULL;
     return t;
 }
 
@@ -30,6 +32,7 @@ Type type_struct(const char *name) {
     t.elem = NULL;
     t.elem_err = NULL;
     t.struct_name = strdup(name);
+    t.enum_name = NULL;
     return t;
 }
 
@@ -41,6 +44,17 @@ Type type_result(Type ok_type, Type err_type) {
     t.elem_err = malloc(sizeof(Type));
     *t.elem_err = err_type;
     t.struct_name = NULL;
+    t.enum_name = NULL;
+    return t;
+}
+
+Type type_enum(const char *name) {
+    Type t;
+    t.kind = TY_ENUM;
+    t.elem = NULL;
+    t.elem_err = NULL;
+    t.struct_name = NULL;
+    t.enum_name = strdup(name);
     return t;
 }
 
@@ -49,6 +63,7 @@ int type_equals(Type a, Type b) {
     if (a.kind == TY_ARRAY) return type_equals(*a.elem, *b.elem);
     if (a.kind == TY_RESULT) return type_equals(*a.elem, *b.elem) && type_equals(*a.elem_err, *b.elem_err);
     if (a.kind == TY_STRUCT) return strcmp(a.struct_name, b.struct_name) == 0;
+    if (a.kind == TY_ENUM) return strcmp(a.enum_name, b.enum_name) == 0;
     return 1;
 }
 
@@ -60,6 +75,7 @@ char *type_name(Type type) {
         case TY_BOOL: return strdup("bool");
         case TY_STRING: return strdup("string");
         case TY_STRUCT: return strdup(type.struct_name);
+        case TY_ENUM: return strdup(type.enum_name);
         case TY_ARRAY: {
             char *inner = type_name(*type.elem);
             size_t len = strlen(inner) + 3; /* '[' + inner + ']' + '\0' */
@@ -114,6 +130,8 @@ DEFINE_LIST_PUSH(param_list_push, ParamList, Param, items)
 DEFINE_LIST_PUSH(function_list_push, FunctionList, FunctionDecl *, items)
 DEFINE_LIST_PUSH(field_init_list_push, FieldInitList, FieldInit, items)
 DEFINE_LIST_PUSH(struct_list_push, StructList, StructDecl *, items)
+DEFINE_LIST_PUSH(enum_variant_list_push, EnumVariantList, EnumVariant, items)
+DEFINE_LIST_PUSH(enum_list_push, EnumList, EnumDecl *, items)
 DEFINE_LIST_PUSH(use_list_push, UseList, UseDecl, items)
 
 #undef DEFINE_LIST_PUSH

@@ -1,0 +1,3 @@
+struct Shape { x: int }
+enum Shape { Point }
+fn main() { print("x") }

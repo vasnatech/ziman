@@ -1,0 +1,14 @@
+enum A {
+    Some(int)
+    None
+}
+enum B {
+    Some(string)
+    None
+}
+fn main() {
+    val a = A.Some(5)
+    val b = B.Some("hi")
+    print(A.unwrap_Some(a))
+    print(B.unwrap_Some(b))
+}

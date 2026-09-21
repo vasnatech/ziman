@@ -209,6 +209,29 @@ static Expr *parse_primary(Parser *p) {
             advance_tok(p); /* '.' */
             if (check(p, TOK_IDENT)) {
                 Token *second = advance_tok(p);
+                /* `EnumName.Variant[(payload)]` (construction) or
+                 * `EnumName.function(args)` (an is_X/unwrap_X consumption
+                 * call) -- both share this shape, disambiguated later by
+                 * the type checker (see EXPR_ENUM_ACCESS in ast.h). A
+                 * module qualifier is always lowercase (enforced on
+                 * `use ... as`), so an uppercase `name` can only mean this,
+                 * never the module forms below. */
+                if (starts_upper(name)) {
+                    char *member = dup_token_text(second);
+                    ExprList args = {0};
+                    int has_parens = 0;
+                    if (match(p, TOK_LPAREN)) {
+                        has_parens = 1;
+                        args = parse_comma_separated(p, TOK_RPAREN);
+                        expect(p, TOK_RPAREN, "')'");
+                    }
+                    Expr *e = expr_new(EXPR_ENUM_ACCESS, t->line, t->col);
+                    e->as.enum_access.enum_name = name;
+                    e->as.enum_access.member_name = member;
+                    e->as.enum_access.args = args;
+                    e->as.enum_access.has_parens = has_parens;
+                    return e;
+                }
                 if (match(p, TOK_LPAREN)) {
                     ExprList args = parse_comma_separated(p, TOK_RPAREN);
                     expect(p, TOK_RPAREN, "')'");
@@ -599,6 +622,43 @@ static StructDecl *parse_struct_decl(Parser *p) {
     return sd;
 }
 
+/* `enum Name { Variant1[(type)] Variant2[(type)] ... }`. A variant name is
+ * TYPE_IDENT-cased like a struct name (it's a nested type-like identifier,
+ * always referenced qualified as `Name.Variant`); its optional payload is a
+ * single TYPE in parens, never a param list or a struct-literal-shaped
+ * block -- Ziman has no tuple type, so a variant carries at most one value,
+ * same as `Result<T, E>`'s `Ok`/`Err`. See docs/SYNTAX.md "Enums". */
+static EnumDecl *parse_enum_decl(Parser *p) {
+    Token *kw = expect(p, TOK_ENUM, "'enum'");
+    Token *name_tok = expect(p, TOK_IDENT, "an enum name");
+    require_upper_start(name_tok, "an enum name");
+
+    EnumDecl *ed = calloc(1, sizeof(EnumDecl));
+    ed->name = dup_token_text(name_tok);
+    ed->line = kw->line;
+    ed->col = kw->col;
+
+    expect(p, TOK_LBRACE, "'{'");
+    skip_newlines(p);
+    while (!check(p, TOK_RBRACE)) {
+        Token *variant_tok = expect(p, TOK_IDENT, "a variant name");
+        require_upper_start(variant_tok, "a variant name");
+        EnumVariant variant = {0};
+        variant.name = dup_token_text(variant_tok);
+        variant.line = variant_tok->line;
+        variant.col = variant_tok->col;
+        if (match(p, TOK_LPAREN)) {
+            variant.payload_type = parse_type(p);
+            variant.has_payload = 1;
+            expect(p, TOK_RPAREN, "')'");
+        }
+        enum_variant_list_push(&ed->variants, variant);
+        skip_newlines(p);
+    }
+    expect(p, TOK_RBRACE, "'}'");
+    return ed;
+}
+
 /* `use path/to/mod [as alias]`. The path is a sequence of identifiers
  * joined by '/' (reusing the existing division-operator token -- `use`'s
  * path grammar is a distinct, non-expression context, so there's no
@@ -663,6 +723,10 @@ Module *parse(TokenList tokens) {
             StructDecl *sd = parse_struct_decl(&p);
             sd->is_public = is_public;
             struct_list_push(&module->structs, sd);
+        } else if (check(&p, TOK_ENUM)) {
+            EnumDecl *ed = parse_enum_decl(&p);
+            ed->is_public = is_public;
+            enum_list_push(&module->enums, ed);
         } else if (check(&p, TOK_NATIVE)) {
             FunctionDecl *fn = parse_native_function(&p);
             fn->is_public = is_public;

@@ -105,7 +105,7 @@ static const Keyword KEYWORDS[] = {
     {"return", TOK_RETURN}, {"true", TOK_TRUE},     {"false", TOK_FALSE},
     {"as", TOK_AS},         {"int", TOK_KW_INT},    {"float", TOK_KW_FLOAT},
     {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING},
-    {"struct", TOK_STRUCT}, {"with", TOK_WITH},
+    {"struct", TOK_STRUCT}, {"enum", TOK_ENUM}, {"with", TOK_WITH},
     {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
     {"Result", TOK_RESULT},
 };

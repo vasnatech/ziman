@@ -55,12 +55,29 @@ ResultObj *result_obj_new(int is_ok, Value value) {
     return r;
 }
 
+Value value_enum(Type enum_type, EnumObj *en) {
+    Value v;
+    v.type = enum_type;
+    v.as.en = en;
+    return v;
+}
+
+EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Value payload) {
+    EnumObj *e = malloc(sizeof(EnumObj));
+    e->enum_name = enum_name;
+    e->variant_name = variant_name;
+    e->has_payload = has_payload;
+    e->payload = payload;
+    return e;
+}
+
 int value_equals(Value a, Value b) {
     /* Callers only compare same-typed values, and only when the type checker
      * (type_supports_equality in typecheck.c) has already established that
      * type is comparable: arrays only for a scalar element type, a struct
      * only when every field is (recursively), a Result only when both its
-     * Ok and Err types are (recursively). */
+     * Ok and Err types are (recursively), and a user-declared enum only
+     * when every payload-carrying variant's payload type is. */
     switch (a.type.kind) {
         case TY_INT: return a.as.i == b.as.i;
         case TY_FLOAT: return a.as.f == b.as.f;
@@ -97,6 +114,15 @@ int value_equals(Value a, Value b) {
             ResultObj *res_b = b.as.res;
             if (res_a->is_ok != res_b->is_ok) return 0;
             return value_equals(res_a->value, res_b->value);
+        }
+        case TY_ENUM: {
+            /* Same reasoning as Result: different variants are never
+             * equal regardless of payload. */
+            EnumObj *en_a = a.as.en;
+            EnumObj *en_b = b.as.en;
+            if (strcmp(en_a->variant_name, en_b->variant_name) != 0) return 0;
+            if (!en_a->has_payload) return 1;
+            return value_equals(en_a->payload, en_b->payload);
         }
     }
     return 0;
@@ -182,6 +208,16 @@ char *value_display(Value v) {
             size_t len = strlen(tag) + 1 + strlen(inner) + 1 + 1;
             char *out = malloc(len);
             snprintf(out, len, "%s(%s)", tag, inner);
+            free(inner);
+            return out;
+        }
+        case TY_ENUM: {
+            EnumObj *en = v.as.en;
+            if (!en->has_payload) return strdup(en->variant_name);
+            char *inner = value_display(en->payload);
+            size_t len = strlen(en->variant_name) + 1 + strlen(inner) + 1 + 1;
+            char *out = malloc(len);
+            snprintf(out, len, "%s(%s)", en->variant_name, inner);
             free(inner);
             return out;
         }

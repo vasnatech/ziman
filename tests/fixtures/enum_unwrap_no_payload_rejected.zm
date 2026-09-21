@@ -1,0 +1,8 @@
+enum Shape {
+    Circle(float)
+    Point
+}
+fn main() {
+    val c = Shape.Circle(5.0)
+    print(Shape.unwrap_Point(c))
+}

@@ -1,0 +1,16 @@
+enum Shape {
+    Circle(float)
+    Point
+}
+fn main() {
+    val c1 = Shape.Circle(5.0)
+    val c2 = Shape.Circle(5.0)
+    val c3 = Shape.Circle(9.0)
+    val p1 = Shape.Point
+    val p2 = Shape.Point
+    print(c1 == c2)
+    print(c1 == c3)
+    print(c1 == p1)
+    print(p1 == p2)
+    print(c1 != p1)
+}

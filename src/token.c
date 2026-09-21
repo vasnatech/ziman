@@ -23,6 +23,7 @@ const char *token_type_name(TokenType type) {
         case TOK_FALSE: return "'false'";
         case TOK_AS: return "'as'";
         case TOK_STRUCT: return "'struct'";
+        case TOK_ENUM: return "'enum'";
         case TOK_WITH: return "'with'";
         case TOK_PUB: return "'pub'";
         case TOK_USE: return "'use'";

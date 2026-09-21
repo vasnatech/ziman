@@ -118,8 +118,17 @@ typedef struct {
     int n_fns;
     char **orig_struct_names;
     int n_structs;
+    char **orig_enum_names;
+    int n_enums;
 } SelfQualifyCtx;
 
+/* parse_type() always builds a provisional TY_STRUCT for a bare TYPE_IDENT
+ * reference, since the parser can't tell a struct name from an enum name
+ * (both are just PascalCase identifiers) -- this is the point that can,
+ * since it already has both name lists to check a same-module reference
+ * against. A match against `orig_enum_names` reclassifies the Type to
+ * TY_ENUM in the same step it gets qualified, so every later pass only
+ * ever sees the correct kind. */
 static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
     if (t->kind == TY_ARRAY) {
         self_qualify_type(t->elem, ctx);
@@ -138,8 +147,17 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
             return;
         }
     }
-    /* Not one of this module's own structs -- leave it; typecheck reports
-     * "unknown struct type" if it's genuinely undefined. */
+    for (int i = 0; i < ctx->n_enums; i++) {
+        if (strcmp(t->struct_name, ctx->orig_enum_names[i]) == 0) {
+            char *qualified = qualify_name(ctx->own_path, t->struct_name);
+            t->struct_name = NULL;
+            t->enum_name = qualified;
+            t->kind = TY_ENUM;
+            return;
+        }
+    }
+    /* Not one of this module's own structs or enums -- leave it; typecheck
+     * reports "unknown struct or enum type" if it's genuinely undefined. */
 }
 
 static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
@@ -193,6 +211,21 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
             self_qualify_expr(e->as.with_expr.base, ctx);
             for (int i = 0; i < e->as.with_expr.overrides.count; i++) self_qualify_expr(e->as.with_expr.overrides.items[i].value, ctx);
             break;
+        case EXPR_ENUM_ACCESS:
+            /* `enum_name` is always this-module-local for now (no
+             * cross-module `use`-qualified enum access yet), so this
+             * always either matches one of this module's own enums or is
+             * genuinely undefined -- never something pass (b) needs to
+             * resolve. `member_name` is never touched, same as a struct
+             * field name never is. */
+            for (int i = 0; i < ctx->n_enums; i++) {
+                if (strcmp(e->as.enum_access.enum_name, ctx->orig_enum_names[i]) == 0) {
+                    e->as.enum_access.enum_name = qualify_name(ctx->own_path, e->as.enum_access.enum_name);
+                    break;
+                }
+            }
+            for (int i = 0; i < e->as.enum_access.args.count; i++) self_qualify_expr(e->as.enum_access.args.items[i], ctx);
+            break;
     }
 }
 
@@ -241,10 +274,13 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
 static void self_qualify_module(Module *mod, const char *own_path) {
     int n_fns = mod->functions.count;
     int n_structs = mod->structs.count;
+    int n_enums = mod->enums.count;
     char **orig_fn_names = n_fns > 0 ? malloc((size_t)n_fns * sizeof(char *)) : NULL;
     char **orig_struct_names = n_structs > 0 ? malloc((size_t)n_structs * sizeof(char *)) : NULL;
+    char **orig_enum_names = n_enums > 0 ? malloc((size_t)n_enums * sizeof(char *)) : NULL;
     for (int i = 0; i < n_fns; i++) orig_fn_names[i] = mod->functions.items[i]->name;
     for (int i = 0; i < n_structs; i++) orig_struct_names[i] = mod->structs.items[i]->name;
+    for (int i = 0; i < n_enums; i++) orig_enum_names[i] = mod->enums.items[i]->name;
 
     for (int i = 0; i < n_fns; i++) {
         mod->functions.items[i]->name = qualify_name(own_path, orig_fn_names[i]);
@@ -252,8 +288,11 @@ static void self_qualify_module(Module *mod, const char *own_path) {
     for (int i = 0; i < n_structs; i++) {
         mod->structs.items[i]->name = qualify_name(own_path, orig_struct_names[i]);
     }
+    for (int i = 0; i < n_enums; i++) {
+        mod->enums.items[i]->name = qualify_name(own_path, orig_enum_names[i]);
+    }
 
-    SelfQualifyCtx ctx = {own_path, orig_fn_names, n_fns, orig_struct_names, n_structs};
+    SelfQualifyCtx ctx = {own_path, orig_fn_names, n_fns, orig_struct_names, n_structs, orig_enum_names, n_enums};
     for (int i = 0; i < n_fns; i++) {
         FunctionDecl *fn = mod->functions.items[i];
         for (int pi = 0; pi < fn->params.count; pi++) self_qualify_type(&fn->params.items[pi].type, &ctx);
@@ -264,9 +303,16 @@ static void self_qualify_module(Module *mod, const char *own_path) {
         StructDecl *sd = mod->structs.items[i];
         for (int fi = 0; fi < sd->fields.count; fi++) self_qualify_type(&sd->fields.items[fi].type, &ctx);
     }
+    for (int i = 0; i < n_enums; i++) {
+        EnumDecl *ed = mod->enums.items[i];
+        for (int vi = 0; vi < ed->variants.count; vi++) {
+            if (ed->variants.items[vi].has_payload) self_qualify_type(&ed->variants.items[vi].payload_type, &ctx);
+        }
+    }
 
     free(orig_fn_names);
     free(orig_struct_names);
+    free(orig_enum_names);
 }
 
 /* ---- pass (b): resolve cross-module (dotted) references, enforcing pub ---- */
@@ -353,8 +399,27 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
         return;
     }
     if (t->kind != TY_STRUCT) return;
-    if (strchr(t->struct_name, '.') == NULL) return; /* not qualified -- pass (a)'s job, or a plain/builtin name */
-    t->struct_name = resolve_type_ref(ctx, t->struct_name, line, col);
+    if (strchr(t->struct_name, '.') != NULL) {
+        t->struct_name = resolve_type_ref(ctx, t->struct_name, line, col);
+        return;
+    }
+    /* Not dotted -- either a dependency's own struct/enum (already
+     * qualified and, if it was actually an enum, already reclassified by
+     * pass (a)'s self_qualify_type), or a same-module reference in the
+     * *entry* module, which never runs pass (a) at all (see
+     * load_module_graph: it keeps its own bare names, so there's nothing
+     * for that pass to qualify). Either way, a bare TY_STRUCT that's still
+     * unreclassified here might actually mean an enum -- the parser can't
+     * tell the two apart at parse time (see ast.h's Type comment), so this
+     * is the last point that reliably can for the entry-module case. */
+    for (int i = 0; i < ctx->mod->enums.count; i++) {
+        if (strcmp(t->struct_name, ctx->mod->enums.items[i]->name) == 0) {
+            t->enum_name = t->struct_name;
+            t->struct_name = NULL;
+            t->kind = TY_ENUM;
+            return;
+        }
+    }
 }
 
 static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
@@ -397,6 +462,12 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
         case EXPR_WITH:
             resolve_expr_refs(e->as.with_expr.base, ctx);
             for (int i = 0; i < e->as.with_expr.overrides.count; i++) resolve_expr_refs(e->as.with_expr.overrides.items[i].value, ctx);
+            break;
+        case EXPR_ENUM_ACCESS:
+            /* `enum_name` itself is never cross-module (no `use`-qualified
+             * enum access yet -- see self_qualify_expr's EXPR_ENUM_ACCESS
+             * comment), but the arguments might still contain one. */
+            for (int i = 0; i < e->as.enum_access.args.count; i++) resolve_expr_refs(e->as.enum_access.args.items[i], ctx);
             break;
     }
 }
@@ -457,6 +528,15 @@ static void resolve_cross_refs(Loader *ldr, Module *mod) {
         StructDecl *sd = mod->structs.items[i];
         for (int fi = 0; fi < sd->fields.count; fi++) {
             resolve_type_refs(&sd->fields.items[fi].type, &ctx, sd->fields.items[fi].line, sd->fields.items[fi].col);
+        }
+    }
+    for (int i = 0; i < mod->enums.count; i++) {
+        EnumDecl *ed = mod->enums.items[i];
+        for (int vi = 0; vi < ed->variants.count; vi++) {
+            if (ed->variants.items[vi].has_payload) {
+                resolve_type_refs(&ed->variants.items[vi].payload_type, &ctx,
+                                   ed->variants.items[vi].line, ed->variants.items[vi].col);
+            }
         }
     }
 }
@@ -520,10 +600,12 @@ Module *load_module_graph(const char *entry_path) {
     Module *merged = calloc(1, sizeof(Module));
     for (int i = 0; i < entry_mod->functions.count; i++) function_list_push(&merged->functions, entry_mod->functions.items[i]);
     for (int i = 0; i < entry_mod->structs.count; i++) struct_list_push(&merged->structs, entry_mod->structs.items[i]);
+    for (int i = 0; i < entry_mod->enums.count; i++) enum_list_push(&merged->enums, entry_mod->enums.items[i]);
     for (int m = 0; m < ldr.loaded_count; m++) {
         Module *dep = ldr.loaded[m].module;
         for (int i = 0; i < dep->functions.count; i++) function_list_push(&merged->functions, dep->functions.items[i]);
         for (int i = 0; i < dep->structs.count; i++) struct_list_push(&merged->structs, dep->structs.items[i]);
+        for (int i = 0; i < dep->enums.count; i++) enum_list_push(&merged->enums, dep->enums.items[i]);
     }
     return merged;
 }

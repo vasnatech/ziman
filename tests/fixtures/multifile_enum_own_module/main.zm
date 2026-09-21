@@ -1,0 +1,6 @@
+use shapes
+
+fn main() {
+    print(shapes.describe(shapes.go_south(10)))
+    print(shapes.describe(shapes.go_north()))
+}

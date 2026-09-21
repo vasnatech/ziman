@@ -1,0 +1,7 @@
+enum Shape {
+    Circle(float)
+}
+fn main() {
+    val c = Shape.Triangle(5.0)
+    print(c)
+}

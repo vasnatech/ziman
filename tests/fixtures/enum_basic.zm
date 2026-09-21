@@ -1,0 +1,18 @@
+enum Shape {
+    Circle(float)
+    Rectangle(float)
+    Point
+}
+fn main() {
+    val c = Shape.Circle(5.0)
+    val r = Shape.Rectangle(2.0)
+    val p = Shape.Point
+    print(c)
+    print(r)
+    print(p)
+    print(Shape.is_Circle(c))
+    print(Shape.is_Circle(r))
+    print(Shape.is_Point(p))
+    print(Shape.unwrap_Circle(c))
+    print(Shape.unwrap_Rectangle(r))
+}

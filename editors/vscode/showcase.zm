@@ -10,6 +10,12 @@ struct Point {
     y: int
 }
 
+enum Shape {
+    Circle(float)
+    Rectangle(Point)
+    Origin
+}
+
 pub fn distance_squared(a: Point, b: Point) -> int {
     val dx = a.x - b.x
     val dy = a.y - b.y
@@ -61,4 +67,10 @@ fn main() {
 
     val account = u.User { id: 1, name: "Ada" }
     print(u.greet(account))
+
+    val shape = Shape.Circle(2.0)
+    if Shape.is_Circle(shape) {
+        print(Shape.unwrap_Circle(shape))
+    }
+    print(Shape.Origin == Shape.Origin)
 }

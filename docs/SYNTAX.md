@@ -7,9 +7,10 @@ File extension: `.zm`.
 - Comments: `// to end of line`. No block comments in v0.
 - Identifiers: `[A-Za-z_][A-Za-z0-9_]*`. Casing is **enforced, not just
   conventional**: a `val`/`var`/parameter/function name must not start
-  with an uppercase letter, and a `struct` name must. This isn't only
-  style — it's what makes struct-literal parsing unambiguous everywhere,
-  including inside an `if`/`while` condition; see "Structs" below.
+  with an uppercase letter, and a `struct`/`enum`/enum-variant name must.
+  This isn't only style — it's what makes struct-literal and enum-access
+  parsing unambiguous everywhere, including inside an `if`/`while`
+  condition; see "Structs" and "Enums" below.
 - Integer literals: `[0-9]+` (decimal only in v0).
 - Float literals: `[0-9]+\.[0-9]+` (a digit is required on both sides of
   the dot — `.5` and `5.` are not valid literals).
@@ -28,7 +29,7 @@ File extension: `.zm`.
 ```
 program        := { use_decl | top_level_decl }   (* use may appear anywhere
                      at the top level, though conventionally listed first *)
-top_level_decl := [ "pub" ] ( function_decl | native_fn_decl | struct_decl )
+top_level_decl := [ "pub" ] ( function_decl | native_fn_decl | struct_decl | enum_decl )
 
 use_decl       := "use" IDENT { "/" IDENT } [ "as" IDENT ]
 function_decl  := "fn" IDENT "(" [ param_list ] ")" [ "->" type ] block
@@ -36,11 +37,19 @@ native_fn_decl := "native" "fn" IDENT "(" [ param_list ] ")" [ "->" type ]
                     (* no body at all -- see "Modules" *)
 struct_decl    := "struct" TYPE_IDENT "{" NEWLINE* { field NEWLINE* } "}"
 field          := IDENT ":" type                  (* same shape as param *)
+enum_decl      := "enum" TYPE_IDENT "{" NEWLINE* { variant NEWLINE* } "}"
+variant        := TYPE_IDENT [ "(" type ")" ]     (* zero or one payload;
+                    see "Enums" for why never more than one *)
 param_list     := param { "," param }
 param          := IDENT ":" type
 type           := "int" | "float" | "bool" | "string" | "[" type "]"
                  | TYPE_IDENT | IDENT "." TYPE_IDENT   (* qualifier.Type *)
                  | "Result" "<" type "," type ">"      (* Result<Ok, Err> *)
+                    (* a bare TYPE_IDENT names a struct or an enum -- the
+                       grammar can't tell which (both are just PascalCase
+                       identifiers); it resolves to whichever one is
+                       actually declared under that name. See ast.h's Type
+                       comment for how the compiler resolves this. *)
 
 block          := "{" NEWLINE* { statement NEWLINE* } "}"
 
@@ -79,12 +88,18 @@ unary          := ( "!" | "-" ) unary | postfix
 call           := primary { "(" [ arg_list ] ")" }
 arg_list       := expr { "," expr }
 primary        := INT_LIT | FLOAT_LIT | STRING_LIT | "true" | "false"
-                 | IDENT | qualified_call | qualified_struct_lit
+                 | IDENT | qualified_call | qualified_struct_lit | enum_access
                  | "(" expr ")" | array_lit | struct_lit | with_expr
 array_lit      := "[" [ expr { "," expr } ] "]"
 struct_lit     := TYPE_IDENT "{" [ field_init { "," field_init } ] "}"
 qualified_call        := IDENT "." IDENT "(" [ arg_list ] ")"
 qualified_struct_lit  := IDENT "." TYPE_IDENT "{" [ field_init { "," field_init } ] "}"
+enum_access    := TYPE_IDENT "." IDENT [ "(" [ arg_list ] ")" ]
+                    (* `Shape.Circle(5.0)`/`Shape.Point` (construction) or
+                       `Shape.is_Circle(s)`/`Shape.unwrap_Circle(s)` (a
+                       generated consumption call) -- same shape either
+                       way, disambiguated by the type checker rather than
+                       the grammar. See "Enums". *)
 with_expr      := "with" postfix "{" [ field_init { "," field_init } ] "}"
 field_init     := IDENT ":" expr
 
@@ -94,11 +109,15 @@ field_init     := IDENT ":" expr
    including an `if`/`while` condition -- there is no restricted position
    the way Rust needs one for its own bare struct literals.
 
-   qualified_call/qualified_struct_lit look identical to plain field access
-   (IDENT "." IDENT) until you see what follows the second identifier --
-   the parser tries the qualified form and falls back to ordinary
-   `.field` access (part of `postfix` above) if it doesn't match. See
-   "Modules" for what a qualifier actually resolves to. *)
+   qualified_call/qualified_struct_lit/enum_access all look identical to
+   plain field access (IDENT "." IDENT) until you see what follows the
+   second identifier and, for enum_access, the first one's casing -- the
+   parser tries the qualified forms and falls back to ordinary `.field`
+   access (part of `postfix` above) if none match. A module qualifier is
+   always lowercase (enforced on `use ... as`), so an uppercase first
+   identifier can only mean enum_access, never qualified_call/
+   qualified_struct_lit -- see "Modules" for what a lowercase qualifier
+   resolves to, and "Enums" for the uppercase case. *)
 ```
 
 Notes on things this deliberately leaves out of v0 (tracked in ROADMAP.md):
@@ -133,9 +152,14 @@ yet, so there's nothing to call *except* a name), no indexed/field
   "parameterize a builtin type" and never collides with the comparison
   operators, since a type only ever appears after `:`/`->`/`as`, never in
   expression grammar. See "Result" below.
+- An `enum` name (e.g. `Shape`) — a named, nominal tagged union: a value
+  is exactly one of the enum's declared variants, optionally carrying one
+  payload value. Unlike `[T]`/`Result<T, E>`, this is a type *users*
+  declare, not hardcoded into the compiler — but it's still concrete
+  (monomorphic), not generic. See "Enums" below.
 - No implicit conversion between any scalar type. `x as float` / `x as
   int` are the only casts, and only between `int` and `float` (never
-  arrays, structs, or Results).
+  arrays, structs, enums, or Results).
 
 ## Arrays
 
@@ -285,16 +309,112 @@ fn main() {
   short-circuiting on the first mismatch. Both sides must be the same
   declared struct type, same rule as any other `==`. This only works
   when *every* field's own type supports `==` — recursively, so a
-  struct nested inside another struct is fine as long as it's itself
-  comparable this same way, but a field that's a `Result`, or an array
-  of anything but a scalar (see "Arrays" above), makes the whole struct
-  a type error to compare, naming the struct and pointing at
-  ROADMAP.md's still-open gaps on those two types' own equality.
+  struct nested inside another struct, or containing a `Result<T, E>` or
+  an `enum`, is fine as long as that field's own type is itself
+  comparable this same way, but an array field of anything but a scalar
+  (see "Arrays" above) makes the whole struct a type error to compare,
+  naming the struct.
 - Field types can reference another struct (`struct Line { start: Point
   end: Point }`) and structs can be declared in any order — a field type
   can name a struct declared later in the file. Referencing a struct name
   that's never declared anywhere is a compile-time error at the field (or
   parameter/return type) that names it.
+
+## Enums
+
+A user-declared tagged union — unlike `[T]`/`Result<T, E>`, which are
+hardcoded into the compiler, this is the first parametric-free type
+*users* can declare that isn't a plain product type like `struct`.
+
+```
+struct RectDims {
+    width: float
+    height: float
+}
+
+enum Shape {
+    Circle(float)
+    Rectangle(RectDims)
+    Point
+}
+
+fn area(s: Shape) -> float {
+    if Shape.is_Circle(s) {
+        val r = Shape.unwrap_Circle(s)
+        return 3.14159 * r * r
+    }
+    val d = Shape.unwrap_Rectangle(s)
+    return d.width * d.height
+}
+
+fn main() {
+    print(area(Shape.Circle(2.0)))                          // 12.5664
+    print(area(Shape.Rectangle(RectDims{width:3.0,height:4.0})))  // 12
+    print(Shape.Point)                                        // Point
+}
+```
+
+- **A variant holds zero or one payload value, never an inline tuple or
+  inline struct-shaped payload.** `Circle(float)` and `Rectangle(RectDims)`
+  are the only two shapes a variant declaration can take: no payload at
+  all (`Point`), or exactly one value of a named type in parens. Ziman has
+  no tuple type, so anything needing more than one payload value declares
+  a separate `struct` and wraps it (`Rectangle(RectDims)` above) — the
+  same "one value per case" shape `Result<T, E>`'s `Ok`/`Err` already use.
+  A payload-less variant (`Point`) is the degenerate case of this same
+  mechanism, not a separate one — it's what a closed set of named
+  constants (Java's `enum Color { RED, GREEN, BLUE }` shape) reduces to
+  once nothing carries a payload.
+- **Nominal and closed, exactly like `struct`.** Variants are fixed at
+  declaration and never reopened elsewhere. Enum names live in the same
+  "type name" namespace as struct names (a program can't declare both a
+  `struct Shape` and an `enum Shape`), but variant names only need to be
+  unique *within* their own enum — two different enums may freely reuse a
+  variant name (`enum A { Some(int) }` and `enum B { Some(string) }` in
+  the same file is fine), since access is always enum-qualified.
+- **Construction is always qualified by the enum's own name** —
+  `Shape.Circle(5.0)`, `Shape.Point` — never bare. Rust/Swift-style
+  languages let `Option`/`Result`'s variants be written bare only because
+  they're special-cased into every file's prelude; an ordinary user enum
+  in those languages requires qualification too. Since two unrelated
+  enums can easily share a variant name, bare construction would make
+  that silently ambiguous (or force an implicit "first declaration wins"
+  rule) — exactly the kind of implicit behavior Ziman avoids elsewhere.
+  A unit variant is written bare (`Shape.Point`); writing it with empty
+  parens (`Shape.Point()`) is a type error, so there's exactly one way to
+  write it. A payload variant requires parens with exactly one argument.
+- **Consuming a variant uses two functions the compiler generates per
+  enum, per variant: `is_<Variant>` and `unwrap_<Variant>`** — same
+  predicate-plus-unwrap shape `Result<T, E>`'s `is_ok`/`unwrap`/
+  `unwrap_err` already use, just generalized to *n* variants instead of
+  2 and namespaced under the enum's own name so two enums' generated
+  functions never collide either. `is_<Variant>(x) -> bool` works for
+  every variant; `unwrap_<Variant>(x) -> T` only exists for a
+  payload-carrying variant and is a **runtime error if `x` currently
+  holds a different variant** — the same fatal-by-default contract
+  `unwrap` already has, and the same reasoning: crashing on a wrong
+  unwrap is a caller's explicit choice, not something forced silently.
+  The generated name embeds the variant's exact declared casing
+  (`unwrap_Circle`, not `unwrap_circle`) — simpler and unambiguous, since
+  no case-folding step is needed to look either up.
+  **There is no `match`/pattern-matching yet** — this predicate-plus-unwrap
+  style is the only way to consume a variant in v0; tracked as a
+  follow-up design pass in ROADMAP.md.
+- **`==`/`!=` on an enum compares variant, then payload** — two values of
+  *different* variants are never equal regardless of payload (an `Ok`-
+  shaped mismatch is never accidentally "equal" to a payload-less one);
+  two values of the *same* variant are equal iff their payloads are.
+  Legal only when every payload-carrying variant's payload type is
+  itself (recursively) comparable — same rule as struct fields and
+  `Result<T, E>`'s `Ok`/`Err` types.
+- **Same-module only, for now.** An enum can be constructed and consumed
+  anywhere in the file that declares it — including from a different
+  function — but there's no cross-module (`use`-qualified) enum access
+  yet, tracked in ROADMAP.md.
+- **No generics.** `enum Shape { ... }` above is a concrete, monomorphic
+  declaration — there's no `enum Option<T> { Some(T) None }` yet, since
+  that needs real type parameters on top of this, a separate, larger
+  design pass (see ROADMAP.md's "Generics" entry).
 
 ## Modules
 
@@ -458,23 +578,27 @@ violates one of these never executes any code, it's rejected up front:
   can't be used as a value anywhere (assigned, passed as an argument,
   used in an expression).
 - A `val`/`var`/parameter/function name must not start with an uppercase
-  letter; a `struct` name must. Enforced, not just conventional — see
-  "Structs" above.
-- Every struct field type and every function parameter/return type must
-  name a type that actually exists — an unresolved struct name is caught
-  at the declaration that names it, before any function body is checked.
-- Struct types are nominal, not structural — see "Types" above.
+  letter; a `struct`/`enum`/enum-variant name must. Enforced, not just
+  conventional — see "Structs" and "Enums" above.
+- Every struct field type, enum variant payload type, and function
+  parameter/return type must name a type that actually exists — an
+  unresolved struct or enum name is caught at the declaration that names
+  it, before any function body is checked.
+- Struct and enum types are nominal, not structural — see "Types" above.
+  A struct name and an enum name can't collide (a program can't declare
+  both `struct Shape` and `enum Shape`), but two different enums may
+  freely reuse the same variant name.
 - `ok(...)`/`err(...)` are only legal where an expected `Result<T, E>`
   type is available (a `val`/`var` annotation or the enclosing
   function's return type) — see "Result" above.
 - `Result` is a reserved name, like `int`/`bool`/etc. — you can't declare
-  your own `struct Result { ... }`.
+  your own `struct Result { ... }` or `enum Result { ... }`.
 
 | Operator group        | Operators                  | Operand types           | Result  |
 |------------------------|-----------------------------|--------------------------|---------|
 | Arithmetic             | `+ - * / %`                 | `int,int` or `float,float`* | same type |
 | Comparison             | `< > <= >=`                 | `int,int` or `float,float` | `bool`  |
-| Equality               | `== !=`                     | any two of the same type, provided that type is "comparable": a scalar always, `[T]` only for scalar `T`, a struct only if every field is (recursively) comparable, `Result<T, E>` only if both `T` and `E` are (recursively) comparable | `bool`  |
+| Equality               | `== !=`                     | any two of the same type, provided that type is "comparable": a scalar always, `[T]` only for scalar `T`, a struct only if every field is (recursively) comparable, `Result<T, E>` only if both `T` and `E` are (recursively) comparable, an `enum` only if every payload-carrying variant's payload type is (recursively) comparable | `bool`  |
 | Logical                | `&& \|\|`                   | `bool, bool`             | `bool`  |
 | Unary negate           | `-`                          | `int` or `float`         | same type |
 | Unary not              | `!`                          | `bool`                   | `bool`  |

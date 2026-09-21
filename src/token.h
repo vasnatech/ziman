@@ -27,6 +27,7 @@ typedef enum {
     TOK_FALSE,
     TOK_AS,
     TOK_STRUCT,
+    TOK_ENUM,
     TOK_WITH,
     TOK_PUB,
     TOK_USE,

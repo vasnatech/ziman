@@ -1,0 +1,7 @@
+enum Shape {
+    Point
+}
+fn main() {
+    val p = Shape.Point()
+    print(p)
+}

@@ -1,0 +1,20 @@
+enum Direction {
+    North
+    South(int)
+}
+
+pub fn describe(d: Direction) -> string {
+    if Direction.is_North(d) {
+        return "heading north"
+    }
+    val miles = Direction.unwrap_South(d)
+    return concat("heading south for ", str(miles))
+}
+
+pub fn go_south(miles: int) -> Direction {
+    return Direction.South(miles)
+}
+
+pub fn go_north() -> Direction {
+    return Direction.North
+}

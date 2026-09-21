@@ -1,0 +1,4 @@
+fn main() {
+    val c = Ghost.Boo
+    print(c)
+}

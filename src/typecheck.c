@@ -19,6 +19,13 @@ static StructDecl *find_struct(Module *module, const char *name) {
     return NULL;
 }
 
+static EnumDecl *find_enum(Module *module, const char *name) {
+    for (int i = 0; i < module->enums.count; i++) {
+        if (strcmp(module->enums.items[i]->name, name) == 0) return module->enums.items[i];
+    }
+    return NULL;
+}
+
 static Type check_expr(Module *module, Env *env, Expr *e);
 static void check_type_well_formed(Module *module, Type t, int line, int col);
 
@@ -30,10 +37,12 @@ static int is_scalar_kind(TypeKind kind) {
  * `[T]` only when T is itself scalar (an array's own equality, not
  * generalized to "any comparable T" -- see docs/SYNTAX.md "Arrays"),
  * a struct only when every one of its fields is (recursively) comparable,
- * and a `Result<T, E>` only when both `T` and `E` are (recursively)
+ * a `Result<T, E>` only when both `T` and `E` are (recursively)
  * comparable -- a runtime value only ever holds one of the two, but which
  * one isn't known until the value exists, so both branches have to type-check
- * as comparable for the type itself to be. `depth` guards the still-open
+ * as comparable for the type itself to be -- and a user-declared `enum`
+ * only when every variant that carries a payload has a (recursively)
+ * comparable payload type, same reasoning as Result. `depth` guards the still-open
  * "self-referential struct can't be constructed" gap (docs/ROADMAP.md) -- a
  * directly or mutually self-referential struct declaration would otherwise
  * send this into unbounded recursion just from its *shape*, even though no
@@ -56,6 +65,15 @@ static int type_supports_equality(Module *module, Type t, int depth) {
         case TY_RESULT:
             return type_supports_equality(module, *t.elem, depth + 1) &&
                    type_supports_equality(module, *t.elem_err, depth + 1);
+        case TY_ENUM: {
+            EnumDecl *decl = find_enum(module, t.enum_name);
+            if (decl == NULL) return 0;
+            for (int i = 0; i < decl->variants.count; i++) {
+                EnumVariant *v = &decl->variants.items[i];
+                if (v->has_payload && !type_supports_equality(module, v->payload_type, depth + 1)) return 0;
+            }
+            return 1;
+        }
         case TY_VOID:
         default:
             return 0;
@@ -109,6 +127,10 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
                 } else if (lt.kind == TY_ARRAY) {
                     ziman_error("type", e->line, e->col,
                                 "array '=='/'!=' requires an array of a comparable (scalar) type, found %s", type_name(lt));
+                } else if (lt.kind == TY_ENUM) {
+                    ziman_error("type", e->line, e->col,
+                                "enum '%s' cannot be compared with '=='/'!=' because one of its variants' payload is not a comparable type",
+                                type_name(lt));
                 } else {
                     ziman_error("type", e->line, e->col,
                                 "struct '%s' cannot be compared with '=='/'!=' because one of its fields is not a comparable type",
@@ -654,6 +676,90 @@ static Type check_with_expr(Module *module, Env *env, Expr *e) {
     return base_type;
 }
 
+/* `EnumName.member[(args)]` -- construction if `member` names one of the
+ * enum's own variants, or a consumption call if it matches the
+ * compiler-generated `is_<variant>`/`unwrap_<variant>` naming convention
+ * for one of them (mirroring Result's is_ok/unwrap/unwrap_err exactly,
+ * just per-enum instead of hardcoded once). A variant name always starts
+ * uppercase and these two prefixes are always lowercase, so there's no way
+ * for a real variant to collide with the generated-function convention. */
+static Type check_enum_access(Module *module, Env *env, Expr *e) {
+    const char *enum_name = e->as.enum_access.enum_name;
+    const char *member = e->as.enum_access.member_name;
+    EnumDecl *decl = find_enum(module, enum_name);
+    if (decl == NULL) {
+        ziman_error("type", e->line, e->col, "no enum named '%s'", enum_name);
+    }
+
+    for (int i = 0; i < decl->variants.count; i++) {
+        EnumVariant *v = &decl->variants.items[i];
+        if (strcmp(v->name, member) != 0) continue;
+        if (v->has_payload) {
+            if (!e->as.enum_access.has_parens || e->as.enum_access.args.count != 1) {
+                ziman_error("type", e->line, e->col,
+                            "variant '%s.%s' takes exactly one payload value, e.g. %s.%s(...)",
+                            enum_name, member, enum_name, member);
+            }
+            Expr *arg = e->as.enum_access.args.items[0];
+            Type arg_type = check_expr(module, env, arg);
+            require_not_void(arg, "as a variant payload");
+            if (!type_equals(arg_type, v->payload_type)) {
+                ziman_error("type", arg->line, arg->col, "variant '%s.%s' expects %s, found %s",
+                            enum_name, member, type_name(v->payload_type), type_name(arg_type));
+            }
+        } else if (e->as.enum_access.has_parens) {
+            ziman_error("type", e->line, e->col,
+                        "variant '%s.%s' takes no payload -- write '%s.%s' without parentheses",
+                        enum_name, member, enum_name, member);
+        }
+        return type_enum(decl->name);
+    }
+
+    static const char *IS_PREFIX = "is_";
+    static const char *UNWRAP_PREFIX = "unwrap_";
+    if (strncmp(member, IS_PREFIX, strlen(IS_PREFIX)) == 0) {
+        const char *variant_part = member + strlen(IS_PREFIX);
+        for (int i = 0; i < decl->variants.count; i++) {
+            if (strcmp(decl->variants.items[i].name, variant_part) != 0) continue;
+            if (e->as.enum_access.args.count != 1) {
+                ziman_error("type", e->line, e->col, "'%s.%s' takes exactly 1 argument, found %d",
+                            enum_name, member, e->as.enum_access.args.count);
+            }
+            Expr *arg = e->as.enum_access.args.items[0];
+            Type arg_type = check_expr(module, env, arg);
+            if (!type_equals(arg_type, type_enum(decl->name))) {
+                ziman_error("type", arg->line, arg->col, "'%s.%s' expects a %s, found %s",
+                            enum_name, member, decl->name, type_name(arg_type));
+            }
+            return type_scalar(TY_BOOL);
+        }
+    }
+    if (strncmp(member, UNWRAP_PREFIX, strlen(UNWRAP_PREFIX)) == 0) {
+        const char *variant_part = member + strlen(UNWRAP_PREFIX);
+        for (int i = 0; i < decl->variants.count; i++) {
+            EnumVariant *v = &decl->variants.items[i];
+            if (strcmp(v->name, variant_part) != 0) continue;
+            if (!v->has_payload) {
+                ziman_error("type", e->line, e->col, "variant '%s.%s' has no payload to unwrap", enum_name, v->name);
+            }
+            if (e->as.enum_access.args.count != 1) {
+                ziman_error("type", e->line, e->col, "'%s.%s' takes exactly 1 argument, found %d",
+                            enum_name, member, e->as.enum_access.args.count);
+            }
+            Expr *arg = e->as.enum_access.args.items[0];
+            Type arg_type = check_expr(module, env, arg);
+            if (!type_equals(arg_type, type_enum(decl->name))) {
+                ziman_error("type", arg->line, arg->col, "'%s.%s' expects a %s, found %s",
+                            enum_name, member, decl->name, type_name(arg_type));
+            }
+            return v->payload_type;
+        }
+    }
+
+    ziman_error("type", e->line, e->col, "enum '%s' has no variant or function '%s'", enum_name, member);
+    return type_scalar(TY_VOID);
+}
+
 static Type check_expr(Module *module, Env *env, Expr *e) {
     Type t;
     switch (e->kind) {
@@ -678,6 +784,7 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
         case EXPR_STRUCT_LIT: t = check_struct_literal(module, env, e); break;
         case EXPR_FIELD_ACCESS: t = check_field_access(module, env, e); break;
         case EXPR_WITH: t = check_with_expr(module, env, e); break;
+        case EXPR_ENUM_ACCESS: t = check_enum_access(module, env, e); break;
         default:
             ziman_error("type", e->line, e->col, "internal error: unhandled expression kind");
             t = type_scalar(TY_VOID);
@@ -886,12 +993,18 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
     }
 }
 
-/* Recursively verifies that every struct name mentioned by `t` (including
- * inside array element types) actually refers to a declared struct.
- * Run over every struct field type and function param/return type before
- * any function body is checked, so a typo in a type reference is caught
- * at one precise location instead of cascading into confusing mismatches
- * later (see typecheck()). */
+/* Recursively verifies that every struct/enum name mentioned by `t`
+ * (including inside array element types) actually refers to a declared
+ * one. Run over every struct field type, enum variant payload type, and
+ * function param/return type before any function body is checked, so a
+ * typo in a type reference is caught at one precise location instead of
+ * cascading into confusing mismatches later (see typecheck()). A TY_STRUCT
+ * here that doesn't resolve to a real struct might have actually meant an
+ * enum -- the loader already reclassifies same-module references it can
+ * tell apart (self_qualify_type), but this is still the first point that
+ * can report a *genuinely* undefined name either way. TY_ENUM itself is
+ * never produced by parse_type() directly (see ast.h's Type comment), so
+ * reaching this function with one already means the loader resolved it. */
 static void check_type_well_formed(Module *module, Type t, int line, int col) {
     if (t.kind == TY_ARRAY) {
         check_type_well_formed(module, *t.elem, line, col);
@@ -900,7 +1013,11 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
         check_type_well_formed(module, *t.elem_err, line, col);
     } else if (t.kind == TY_STRUCT) {
         if (find_struct(module, t.struct_name) == NULL) {
-            ziman_error("type", line, col, "unknown struct type '%s'", t.struct_name);
+            ziman_error("type", line, col, "unknown struct or enum type '%s'", t.struct_name);
+        }
+    } else if (t.kind == TY_ENUM) {
+        if (find_enum(module, t.enum_name) == NULL) {
+            ziman_error("type", line, col, "unknown enum type '%s'", t.enum_name);
         }
     }
 }
@@ -959,6 +1076,45 @@ void typecheck(Module *module) {
         for (int f = 0; f < sd->fields.count; f++) {
             Param *field = &sd->fields.items[f];
             check_type_well_formed(module, field->type, field->line, field->col);
+        }
+    }
+
+    /* Enum names must be unique among themselves and distinct from struct
+     * names (both live in the same "type name" namespace conceptually,
+     * even though tracked as two separate lists) -- checked before any
+     * variant payload type is validated. Variant names only need to be
+     * unique *within* their own enum, never globally: access is always
+     * enum-qualified (`Shape.Circle`, never a bare `Circle`), so two
+     * different enums may freely reuse the same variant name. */
+    for (int i = 0; i < module->enums.count; i++) {
+        EnumDecl *ed = module->enums.items[i];
+        for (int j = i + 1; j < module->enums.count; j++) {
+            if (strcmp(ed->name, module->enums.items[j]->name) == 0) {
+                ziman_error("type", module->enums.items[j]->line, module->enums.items[j]->col,
+                            "enum '%s' is already defined", ed->name);
+            }
+        }
+        for (int s = 0; s < module->structs.count; s++) {
+            if (strcmp(ed->name, module->structs.items[s]->name) == 0) {
+                ziman_error("type", ed->line, ed->col, "'%s' is already defined as a struct", ed->name);
+            }
+        }
+        for (int v = 0; v < ed->variants.count; v++) {
+            for (int w = v + 1; w < ed->variants.count; w++) {
+                if (strcmp(ed->variants.items[v].name, ed->variants.items[w].name) == 0) {
+                    ziman_error("type", ed->variants.items[w].line, ed->variants.items[w].col,
+                                "variant '%s' is already defined in enum '%s'", ed->variants.items[w].name, ed->name);
+                }
+            }
+        }
+    }
+    for (int i = 0; i < module->enums.count; i++) {
+        EnumDecl *ed = module->enums.items[i];
+        for (int v = 0; v < ed->variants.count; v++) {
+            if (ed->variants.items[v].has_payload) {
+                check_type_well_formed(module, ed->variants.items[v].payload_type,
+                                        ed->variants.items[v].line, ed->variants.items[v].col);
+            }
         }
     }
 

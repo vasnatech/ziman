@@ -71,6 +71,13 @@
             "1": { "name": "storage.type.struct.ziman" },
             "2": { "name": "entity.name.type.struct.ziman" }
           }
+        },
+        {
+          "match": "\\b(enum)\\s+([A-Z][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "storage.type.enum.ziman" },
+            "2": { "name": "entity.name.type.enum.ziman" }
+          }
         }
       ]
     },
@@ -93,9 +100,9 @@
           "match": "\\b(pub|native|val|var)\\b"
         },
         {
-          "comment": "Bare fn/struct fallback -- 'declarations' already handles the common case of a keyword immediately followed by a valid name.",
+          "comment": "Bare fn/struct/enum fallback -- 'declarations' already handles the common case of a keyword immediately followed by a valid name.",
           "name": "storage.type.ziman",
-          "match": "\\b(fn|struct)\\b"
+          "match": "\\b(fn|struct|enum)\\b"
         }
       ]
     },

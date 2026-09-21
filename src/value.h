@@ -43,6 +43,7 @@ struct Value {
         ArrayObj *arr;
         StructObj *st;
         struct ResultObj *res;
+        struct EnumObj *en;
     } as;
 };
 
@@ -56,6 +57,20 @@ typedef struct ResultObj {
     Value value; /* the Ok payload if is_ok, the Err payload otherwise */
 } ResultObj;
 
+/* A user-declared enum value's backing storage. Same immutable-once-built
+ * invariant as the others. `enum_name`/`variant_name` are borrowed from the
+ * EnumDecl (never freed, never duplicated per instance), same trick as
+ * StructObj's `field_names` -- lets this module print/compare an enum
+ * value without needing a Module* to look anything up by index. `payload`
+ * is meaningful only when `has_payload` (a unit variant like `Point` has
+ * nothing to store there). */
+typedef struct EnumObj {
+    char *enum_name;
+    char *variant_name;
+    int has_payload;
+    Value payload;
+} EnumObj;
+
 Value value_int(int64_t i);
 Value value_float(double f);
 Value value_bool(int b);
@@ -63,10 +78,12 @@ Value value_string(char *s);
 Value value_array(Type array_type, ArrayObj *arr);
 Value value_struct(Type struct_type, StructObj *st);
 Value value_result(Type result_type, ResultObj *res);
+Value value_enum(Type enum_type, EnumObj *en);
 
 ArrayObj *array_obj_new(Value *items, int count);
 StructObj *struct_obj_new(char **field_names, Value *fields, int count);
 ResultObj *result_obj_new(int is_ok, Value value);
+EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Value payload);
 
 int value_equals(Value a, Value b);
 

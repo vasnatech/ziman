@@ -1,0 +1,8 @@
+enum Shape {
+    Circle(float)
+    Rectangle(float)
+}
+fn main() {
+    val r = Shape.Rectangle(2.0)
+    print(Shape.unwrap_Circle(r))
+}

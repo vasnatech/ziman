@@ -1,0 +1,5 @@
+enum Shape {
+    Point
+    Point
+}
+fn main() { print("x") }

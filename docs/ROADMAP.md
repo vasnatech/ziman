@@ -94,17 +94,24 @@ a time mid-implementation:
   blocking everything needs at least a primitive answer (even a
   native-thread-per-request module would need its own native module for
   threads) — not designed at all yet.
-- **Generics are still an open question — but weaker than this entry
-  originally argued.** The prediction here was that `Result<T, E>` and
-  `Map<K, V>` would force the decision. `Result<T, E>` shipped (see
-  below) *without* general generics, using the same "hardcode one more
-  parametric type into the compiler" trick arrays already used — not a
-  workaround, a deliberate, cheaper alternative that turned out to solve
-  the whole problem. `Map<K, V>` would very likely take the identical
-  path. So general user-definable generics may never actually get
-  forced by anything currently on this list — revisit only if a *third*
-  case shows up that genuinely doesn't fit "just hardcode it," not
-  preemptively.
+- **Generics: the "just hardcode it" strategy stopped scaling, and this
+  entry's earlier prediction has flipped.** `Result<T, E>` shipped
+  *without* general generics, using the same "hardcode one more
+  parametric type into the compiler" trick arrays already used — a
+  deliberate, cheaper alternative that solved that one problem well.
+  But `Option<T>` and `Map<K, V>` would each mean repeating that same
+  one-off C special-casing forever, in C, never in Ziman itself — the
+  opposite of what this project is *for*. User-declared `enum` (tagged
+  unions, docs/SYNTAX.md "Enums") shipped as half the fix: it's concrete/
+  monomorphic today (`enum Shape { Circle(float) Point }`, not
+  `enum Option<T> { Some(T) None }`), but combined with real type
+  parameters it would let `Option<T>` — and anything Result/Option-shaped
+  a user wants — be written as ordinary Ziman, not another C builtin.
+  Generics themselves are the still-missing other half, tracked as its
+  own design pass below (parser syntax for `<T>` on `struct`/`enum`/`fn`
+  declarations, and a monomorphization-or-erasure runtime strategy) —
+  not started yet, but no longer "maybe never," since the enum work
+  already established real user demand for it.
 
 ## Near-term, likely next
 
@@ -240,6 +247,33 @@ a time mid-implementation:
   - **Trait/interface-style polymorphism** — deliberately not attempted
     yet; revisit only once a concrete program needs it and free functions
     plus nominal typing genuinely can't express it.
+- ~~**User-declared `enum` (tagged unions).**~~ Implemented
+  (docs/SYNTAX.md "Enums"): a variant holds zero or one payload value —
+  never an inline tuple or inline struct-shaped payload, same "wrap a
+  struct for more than one value" shape `Result<T, E>`'s `Ok`/`Err`
+  already use. Construction and consumption are both enum-qualified
+  (`Shape.Circle(5.0)`, `Shape.is_Circle(s)`, `Shape.unwrap_Circle(s)`),
+  never bare, so two different enums may freely reuse the same variant
+  name. `is_<Variant>`/`unwrap_<Variant>` are compiler-generated per
+  enum, per variant, mirroring `Result`'s `is_ok`/`unwrap`/`unwrap_err`
+  exactly. `==`/`!=` works when every payload-carrying variant's payload
+  type is (recursively) comparable, reusing the same
+  `type_supports_equality` machinery arrays/structs/Result already use.
+  Concrete (monomorphic) only — see the "Generics" entries above/below
+  for why `enum Option<T> { Some(T) None }` isn't expressible yet. Still
+  open, not yet decided:
+  - **Cross-module (`use`-qualified) enum access.** An enum can only be
+    constructed/consumed in the same file that declares it right now —
+    `mod.Shape.Circle(...)` isn't supported. Not a design gap so much as
+    scope: the parser/loader's existing qualified-reference machinery is
+    built around exactly one dot (`qualifier.name`), and this would need
+    a second one (`qualifier.EnumName.Variant`); revisit once a real
+    program actually wants to share an enum across files.
+  - **`match`/pattern matching.** The predicate-plus-unwrap style above
+    is the only way to consume a variant in v0 — same choice `Result`
+    already made. A real `match` expression (exhaustiveness checking,
+    binding syntax) is its own design pass, deliberately not attempted
+    alongside the enum type itself.
 - **A real test harness beyond tests/run_tests.sh's stdout/substring
   matching** — fine for now, will need line/col assertions once
   diagnostics get richer.
@@ -328,11 +362,18 @@ a time mid-implementation:
     always-auto-imported native module (a real "prelude," Rust-style) is
     an explicit non-decision — revisit only if keeping them special-cased
     forever starts costing something concrete, not on principle alone.
-- **Generics.** Back to "not clear yet whether Ziman wants them" — see
-  the North Star section's updated note. `Result<T, E>` shipped without
-  needing them; `Map<K, V>` would very likely take the same path. Stay
-  monomorphic-by-design until something concrete can't be solved that
-  way, not before.
+- **Generics.** No longer "maybe never" — see the North Star section's
+  updated note. User-declared `enum` (docs/SYNTAX.md "Enums") shipped as
+  the concrete/monomorphic half of what `Option<T>`-shaped types need;
+  real type parameters on `struct`/`enum`/`fn` declarations are the
+  other half, needed so a user can write `enum Option<T> { Some(T) None
+  }` themselves instead of every new parametric shape becoming another
+  hardcoded C builtin. Not started: the actual design pass (parser
+  syntax for `<T>` on a declaration, how a generic function/struct/enum
+  body type-checks against an abstract `T`, and a runtime strategy —
+  monomorphize each concrete instantiation, or type-erase to `Value`'s
+  existing uniform representation, which the interpreter's tree-walking
+  design may make cheaper than it sounds).
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.
