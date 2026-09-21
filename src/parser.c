@@ -75,6 +75,14 @@ static Type parse_type(Parser *p) {
         expect(p, TOK_RBRACKET, "']'");
         return type_array(elem);
     }
+    if (match(p, TOK_RESULT)) {
+        expect(p, TOK_LT, "'<'");
+        Type ok_type = parse_type(p);
+        expect(p, TOK_COMMA, "','");
+        Type err_type = parse_type(p);
+        expect(p, TOK_GT, "'>'");
+        return type_result(ok_type, err_type);
+    }
     if (check(p, TOK_IDENT)) {
         Token *t = advance_tok(p);
         /* `qualifier.TypeName` (a struct from an imported module) vs. a

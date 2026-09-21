@@ -1,0 +1,4 @@
+fn main() {
+    val r: Result<[int], string> = ok([1, 2, 3])
+    print(unwrap(r))
+}

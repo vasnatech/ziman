@@ -27,6 +27,7 @@ typedef enum {
     TOK_PUB,
     TOK_USE,
     TOK_NATIVE,
+    TOK_RESULT,
     TOK_KW_INT,
     TOK_KW_FLOAT,
     TOK_KW_BOOL,

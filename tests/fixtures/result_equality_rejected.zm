@@ -1,0 +1,5 @@
+fn main() {
+    val a: Result<int, string> = ok(1)
+    val b: Result<int, string> = ok(1)
+    print(a == b)
+}

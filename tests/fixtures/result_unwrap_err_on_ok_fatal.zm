@@ -1,0 +1,4 @@
+fn main() {
+    val r: Result<int, string> = ok(5)
+    print(unwrap_err(r))
+}

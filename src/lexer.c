@@ -46,6 +46,12 @@ static int can_end_statement(TokenType type) {
         case TOK_RPAREN:
         case TOK_RBRACE:
         case TOK_RBRACKET:
+        case TOK_GT: /* closes `Result<T, E>` -- a native fn or struct field
+                      * ending in one needs a newline recognized right after it.
+                      * Trade-off: a `>` comparison can no longer be broken
+                      * across a line without parens; nothing does this today
+                      * and it's discouraged style regardless ("write it like
+                      * Go"). */
         case TOK_KW_INT:
         case TOK_KW_FLOAT:
         case TOK_KW_BOOL:
@@ -97,6 +103,7 @@ static const Keyword KEYWORDS[] = {
     {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING},
     {"struct", TOK_STRUCT}, {"with", TOK_WITH},
     {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
+    {"Result", TOK_RESULT},
 };
 
 static TokenType ident_or_keyword(const char *start, int length) {

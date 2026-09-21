@@ -41,10 +41,24 @@ StructObj *struct_obj_new(char **field_names, Value *fields, int count) {
     return s;
 }
 
+Value value_result(Type result_type, ResultObj *res) {
+    Value v;
+    v.type = result_type;
+    v.as.res = res;
+    return v;
+}
+
+ResultObj *result_obj_new(int is_ok, Value value) {
+    ResultObj *r = malloc(sizeof(ResultObj));
+    r->is_ok = is_ok;
+    r->value = value;
+    return r;
+}
+
 int value_equals(Value a, Value b) {
     /* Callers only compare same-typed values -- enforced by the type checker,
-     * which also rejects '=='/'!=' on arrays and structs entirely (see
-     * typecheck.c), so TY_ARRAY/TY_STRUCT should never reach here. */
+     * which also rejects '=='/'!=' on arrays, structs, and Results entirely
+     * (see typecheck.c), so none of those should ever reach here. */
     switch (a.type.kind) {
         case TY_INT: return a.as.i == b.as.i;
         case TY_FLOAT: return a.as.f == b.as.f;
@@ -56,6 +70,9 @@ int value_equals(Value a, Value b) {
             return 0;
         case TY_STRUCT:
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on structs should have been rejected by the type checker");
+            return 0;
+        case TY_RESULT:
+            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on Results should have been rejected by the type checker");
             return 0;
     }
     return 0;
@@ -133,6 +150,15 @@ char *value_display(Value v) {
             out[len++] = ' ';
             out[len++] = '}';
             out[len] = '\0';
+            return out;
+        }
+        case TY_RESULT: {
+            const char *tag = v.as.res->is_ok ? "Ok" : "Err";
+            char *inner = value_display(v.as.res->value);
+            size_t len = strlen(tag) + 1 + strlen(inner) + 1 + 1;
+            char *out = malloc(len);
+            snprintf(out, len, "%s(%s)", tag, inner);
+            free(inner);
             return out;
         }
     }

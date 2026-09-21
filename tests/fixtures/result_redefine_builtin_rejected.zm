@@ -1,0 +1,7 @@
+fn ok() -> int {
+    return 1
+}
+
+fn main() {
+    print(0)
+}

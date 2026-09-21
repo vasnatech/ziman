@@ -1,0 +1,17 @@
+fn safe_div(a: int, b: int) -> Result<int, string> {
+    if b == 0 {
+        return err("division by zero")
+    }
+    return ok(a / b)
+}
+
+fn main() {
+    val r1 = safe_div(10, 2)
+    val r2 = safe_div(10, 0)
+    if is_ok(r1) {
+        print(unwrap(r1))
+    }
+    if !is_ok(r2) {
+        print(unwrap_err(r2))
+    }
+}

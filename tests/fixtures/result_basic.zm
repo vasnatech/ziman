@@ -1,0 +1,10 @@
+fn main() {
+    val a: Result<int, string> = ok(5)
+    val b: Result<int, string> = err("bad")
+    print(is_ok(a))
+    print(is_ok(b))
+    print(unwrap(a))
+    print(unwrap_err(b))
+    print(a)
+    print(b)
+}

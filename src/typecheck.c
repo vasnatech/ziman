@@ -58,8 +58,9 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
             return type_scalar(TY_BOOL);
         case OP_EQ:
         case OP_NEQ:
-            if (lt.kind == TY_ARRAY || rt.kind == TY_ARRAY || lt.kind == TY_STRUCT || rt.kind == TY_STRUCT) {
-                ziman_error("type", e->line, e->col, "arrays and structs cannot be compared with '=='/'!=' in v0");
+            if (lt.kind == TY_ARRAY || rt.kind == TY_ARRAY || lt.kind == TY_STRUCT || rt.kind == TY_STRUCT ||
+                lt.kind == TY_RESULT || rt.kind == TY_RESULT) {
+                ziman_error("type", e->line, e->col, "arrays, structs, and Results cannot be compared with '=='/'!=' in v0");
             }
             if (!type_equals(lt, rt)) {
                 ziman_error("type", e->line, e->col, "cannot compare %s and %s for equality", type_name(lt), type_name(rt));
@@ -229,6 +230,42 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return arr_type;
     }
 
+    if (strcmp(name, "is_ok") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'is_ok' takes exactly 1 argument, found %d", e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(module, env, arg);
+        if (arg_type.kind != TY_RESULT) {
+            ziman_error("type", arg->line, arg->col, "'is_ok' expects a Result, found %s", type_name(arg_type));
+        }
+        return type_scalar(TY_BOOL);
+    }
+
+    if (strcmp(name, "unwrap") == 0 || strcmp(name, "unwrap_err") == 0) {
+        int is_unwrap = strcmp(name, "unwrap") == 0;
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(module, env, arg);
+        if (arg_type.kind != TY_RESULT) {
+            ziman_error("type", arg->line, arg->col, "'%s' expects a Result, found %s", name, type_name(arg_type));
+        }
+        return is_unwrap ? *arg_type.elem : *arg_type.elem_err;
+    }
+
+    if (strcmp(name, "ok") == 0 || strcmp(name, "err") == 0) {
+        /* Reachable only when nothing gave check_ok_err_call() (below) an
+         * expected Result<T, E> to work with -- e.g. `print(ok(5))` or a
+         * bare `ok(5)` statement. There's no way to infer the type this
+         * would need without that context. */
+        ziman_error("type", e->line, e->col,
+                    "cannot infer the type of '%s(...)' here; only legal as a val/var initializer with an "
+                    "explicit Result<T, E> annotation, or as a function's returned value",
+                    name);
+    }
+
     FunctionDecl *fn = find_function(module, name);
     if (fn == NULL) {
         ziman_error("type", e->line, e->col, "call to undefined function '%s'", name);
@@ -248,6 +285,37 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
     }
     return fn->return_type;
+}
+
+/* `ok(x)`/`err(e)` can't fully infer their own type the way every other
+ * call can -- `ok(x)`'s argument only tells us the success type, never the
+ * error type (and vice versa for `err`). The only two places an expected
+ * type is available to supply the missing half are a val/var's own
+ * declared type and a function's declared return type (see check_stmt's
+ * STMT_VAL/STMT_VAR and STMT_RETURN, the only callers of this). Returns 1
+ * and sets `e->resolved_type` if `e` is exactly `ok(...)`/`err(...)` and
+ * `expected` is a Result<T, E>; returns 0 otherwise, meaning the caller
+ * should fall back to plain check_expr(). */
+static int check_ok_err_call(Module *module, Env *env, Expr *e, Type expected) {
+    if (e->kind != EXPR_CALL) return 0;
+    int is_ok_call = strcmp(e->as.call.callee, "ok") == 0;
+    int is_err_call = strcmp(e->as.call.callee, "err") == 0;
+    if (!is_ok_call && !is_err_call) return 0;
+    if (expected.kind != TY_RESULT) return 0;
+
+    if (e->as.call.args.count != 1) {
+        ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", e->as.call.callee, e->as.call.args.count);
+    }
+    Expr *arg = e->as.call.args.items[0];
+    Type arg_type = check_expr(module, env, arg);
+    require_not_void(arg, "as a Result value");
+
+    Type want = is_ok_call ? *expected.elem : *expected.elem_err;
+    if (!type_equals(arg_type, want)) {
+        ziman_error("type", arg->line, arg->col, "'%s' expects %s, found %s", e->as.call.callee, type_name(want), type_name(arg_type));
+    }
+    e->resolved_type = expected;
+    return 1;
 }
 
 static Type check_cast(Module *module, Env *env, Expr *e) {
@@ -478,6 +546,11 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
                 }
                 init->resolved_type = s->as.decl.declared_type;
                 declared = s->as.decl.declared_type;
+            } else if (s->as.decl.has_declared_type && check_ok_err_call(module, env, init, s->as.decl.declared_type)) {
+                /* ok(...)/err(...) resolved against the declared type -- see
+                 * check_ok_err_call's own comment for why this needs its own
+                 * path instead of going through plain check_expr. */
+                declared = s->as.decl.declared_type;
             } else {
                 Type init_type = check_expr(module, env, init);
                 require_not_void(init, "to initialize a variable");
@@ -542,6 +615,9 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
                 if (fn_return_type.kind != TY_VOID) {
                     ziman_error("type", s->line, s->col, "bare 'return' in a function declared to return %s", type_name(fn_return_type));
                 }
+            } else if (check_ok_err_call(module, env, s->as.ret.value, fn_return_type)) {
+                /* ok(...)/err(...) resolved against the function's own
+                 * declared return type -- see check_ok_err_call. */
             } else {
                 Type value_type = check_expr(module, env, s->as.ret.value);
                 if (fn_return_type.kind == TY_VOID) {
@@ -573,6 +649,9 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
 static void check_type_well_formed(Module *module, Type t, int line, int col) {
     if (t.kind == TY_ARRAY) {
         check_type_well_formed(module, *t.elem, line, col);
+    } else if (t.kind == TY_RESULT) {
+        check_type_well_formed(module, *t.elem, line, col);
+        check_type_well_formed(module, *t.elem_err, line, col);
     } else if (t.kind == TY_STRUCT) {
         if (find_struct(module, t.struct_name) == NULL) {
             ziman_error("type", line, col, "unknown struct type '%s'", t.struct_name);
@@ -603,7 +682,8 @@ static void check_function(Module *module, FunctionDecl *fn) {
 }
 
 void typecheck(Module *module) {
-    static const char *builtins[] = {"print", "concat", "str", "format", "len", "push", "insert", "set"};
+    static const char *builtins[] = {"print", "concat", "str", "format", "len", "push", "insert", "set",
+                                      "ok", "err", "is_ok", "unwrap", "unwrap_err"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

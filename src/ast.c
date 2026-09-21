@@ -9,6 +9,7 @@ Type type_scalar(TypeKind kind) {
     Type t;
     t.kind = kind;
     t.elem = NULL;
+    t.elem_err = NULL;
     t.struct_name = NULL;
     return t;
 }
@@ -18,6 +19,7 @@ Type type_array(Type elem) {
     t.kind = TY_ARRAY;
     t.elem = malloc(sizeof(Type));
     *t.elem = elem;
+    t.elem_err = NULL;
     t.struct_name = NULL;
     return t;
 }
@@ -26,13 +28,26 @@ Type type_struct(const char *name) {
     Type t;
     t.kind = TY_STRUCT;
     t.elem = NULL;
+    t.elem_err = NULL;
     t.struct_name = strdup(name);
+    return t;
+}
+
+Type type_result(Type ok_type, Type err_type) {
+    Type t;
+    t.kind = TY_RESULT;
+    t.elem = malloc(sizeof(Type));
+    *t.elem = ok_type;
+    t.elem_err = malloc(sizeof(Type));
+    *t.elem_err = err_type;
+    t.struct_name = NULL;
     return t;
 }
 
 int type_equals(Type a, Type b) {
     if (a.kind != b.kind) return 0;
     if (a.kind == TY_ARRAY) return type_equals(*a.elem, *b.elem);
+    if (a.kind == TY_RESULT) return type_equals(*a.elem, *b.elem) && type_equals(*a.elem_err, *b.elem_err);
     if (a.kind == TY_STRUCT) return strcmp(a.struct_name, b.struct_name) == 0;
     return 1;
 }
@@ -51,6 +66,16 @@ char *type_name(Type type) {
             char *buf = malloc(len);
             snprintf(buf, len, "[%s]", inner);
             free(inner);
+            return buf;
+        }
+        case TY_RESULT: {
+            char *ok = type_name(*type.elem);
+            char *err = type_name(*type.elem_err);
+            size_t len = strlen(ok) + strlen(err) + 10; /* "Result<" + ok + ", " + err + ">" + '\0' */
+            char *buf = malloc(len);
+            snprintf(buf, len, "Result<%s, %s>", ok, err);
+            free(ok);
+            free(err);
             return buf;
         }
     }

@@ -11,26 +11,35 @@ typedef enum {
     TY_STRING,
     TY_ARRAY,
     TY_STRUCT,
+    TY_RESULT,
 } TypeKind;
 
 /* A Type is a small value (kind + optional payload), not a heap object in
- * its own right -- only TY_ARRAY (via `elem`) and TY_STRUCT (via
- * `struct_name`) allocate anything, so that `[int]`, `[[int]]` etc. can
- * nest. Compare types with type_equals(), never `==`/`!=` (a struct
- * comparison would be wrong once `elem`/`struct_name` are involved).
- * Struct types are nominal: two structs are the same type only if they
- * have the same declared name (struct names are checked unique in
- * typecheck(), so name equality *is* identity here -- no need to carry a
- * pointer to the declaration itself). */
+ * its own right -- only TY_ARRAY/TY_RESULT (via `elem`/`elem_err`) and
+ * TY_STRUCT (via `struct_name`) allocate anything, so that `[int]`,
+ * `Result<[int], string>` etc. can nest. Compare types with type_equals(),
+ * never `==`/`!=` (a struct comparison would be wrong once
+ * `elem`/`struct_name` are involved). Struct types are nominal: two
+ * structs are the same type only if they have the same declared name
+ * (struct names are checked unique in typecheck(), so name equality *is*
+ * identity here -- no need to carry a pointer to the declaration itself).
+ *
+ * `Result<T, E>` is a second hardcoded parametric type, same trick as
+ * `[T]` -- not general user-definable generics (see docs/DESIGN.md).
+ * `elem` doubles as "the array's element type" (TY_ARRAY) or "the
+ * Result's success type" (TY_RESULT); `elem_err` is the Result's error
+ * type and is unused otherwise. */
 typedef struct Type {
     TypeKind kind;
-    struct Type *elem; /* only meaningful when kind == TY_ARRAY */
-    char *struct_name; /* only meaningful when kind == TY_STRUCT */
+    struct Type *elem;     /* TY_ARRAY: element type. TY_RESULT: success (Ok) type. */
+    struct Type *elem_err; /* only meaningful when kind == TY_RESULT: the Err type */
+    char *struct_name;     /* only meaningful when kind == TY_STRUCT */
 } Type;
 
-Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY/TY_STRUCT */
+Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY/TY_STRUCT/TY_RESULT */
 Type type_array(Type elem);
 Type type_struct(const char *name);
+Type type_result(Type ok_type, Type err_type);
 int type_equals(Type a, Type b);
 
 /* Heap-allocated, human-readable name ("int", "[int]", "[[string]]", ...).

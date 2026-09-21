@@ -117,6 +117,34 @@ static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, 
     return value_array(array_type, array_obj_new(items, old->count));
 }
 
+static Value call_ok(Type result_type, Value x) {
+    return value_result(result_type, result_obj_new(1, x));
+}
+
+static Value call_err(Type result_type, Value e) {
+    return value_result(result_type, result_obj_new(0, e));
+}
+
+static Value call_is_ok(Value r) {
+    return value_bool(r.as.res->is_ok);
+}
+
+static Value call_unwrap(Value r, int line, int col) {
+    if (!r.as.res->is_ok) {
+        char *msg = value_display(r.as.res->value);
+        ziman_error("runtime", line, col, "unwrap called on an Err value: %s", msg);
+    }
+    return r.as.res->value;
+}
+
+static Value call_unwrap_err(Value r, int line, int col) {
+    if (r.as.res->is_ok) {
+        char *msg = value_display(r.as.res->value);
+        ziman_error("runtime", line, col, "unwrap_err called on an Ok value: %s", msg);
+    }
+    return r.as.res->value;
+}
+
 /* args[0] is the format string, args[1..argc-1] are the interpolation
  * values. The type checker already verified `{}` placeholder count
  * matches argc-1 and that the format string is well-formed, so this
@@ -242,6 +270,16 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_insert(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "set") == 0) {
                 result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
+            } else if (strcmp(e->as.call.callee, "ok") == 0) {
+                result = call_ok(e->resolved_type, args[0]);
+            } else if (strcmp(e->as.call.callee, "err") == 0) {
+                result = call_err(e->resolved_type, args[0]);
+            } else if (strcmp(e->as.call.callee, "is_ok") == 0) {
+                result = call_is_ok(args[0]);
+            } else if (strcmp(e->as.call.callee, "unwrap") == 0) {
+                result = call_unwrap(args[0], e->line, e->col);
+            } else if (strcmp(e->as.call.callee, "unwrap_err") == 0) {
+                result = call_unwrap_err(args[0], e->line, e->col);
             } else {
                 FunctionDecl *fn = find_function(module, e->as.call.callee);
                 result = call_function(module, fn, args, argc, e->line, e->col);

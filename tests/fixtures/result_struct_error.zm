@@ -1,0 +1,15 @@
+struct ConfigError {
+    code: string
+    message: string
+}
+
+fn read_config() -> Result<string, ConfigError> {
+    return err(ConfigError { code: "not_found", message: "no such file" })
+}
+
+fn main() {
+    val cfg = read_config()
+    if !is_ok(cfg) {
+        print(unwrap_err(cfg).message)
+    }
+}

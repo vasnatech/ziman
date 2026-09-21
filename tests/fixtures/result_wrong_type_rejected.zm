@@ -1,0 +1,4 @@
+fn main() {
+    val r: Result<int, string> = ok("not an int")
+    print(r)
+}

@@ -42,8 +42,19 @@ struct Value {
         char *s; /* heap, NUL-terminated */
         ArrayObj *arr;
         StructObj *st;
+        struct ResultObj *res;
     } as;
 };
+
+/* A Result's backing storage. Same immutable-once-built invariant as
+ * ArrayObj/StructObj: nothing ever mutates one after construction, so a
+ * Value can share it by plain pointer copy safely. Embeds a real Value
+ * (not a pointer to one) since Value is now fully defined -- this struct
+ * has to come after it for that reason. */
+typedef struct ResultObj {
+    int is_ok; /* 1 = Ok, 0 = Err */
+    Value value; /* the Ok payload if is_ok, the Err payload otherwise */
+} ResultObj;
 
 Value value_int(int64_t i);
 Value value_float(double f);
@@ -51,9 +62,11 @@ Value value_bool(int b);
 Value value_string(char *s);
 Value value_array(Type array_type, ArrayObj *arr);
 Value value_struct(Type struct_type, StructObj *st);
+Value value_result(Type result_type, ResultObj *res);
 
 ArrayObj *array_obj_new(Value *items, int count);
 StructObj *struct_obj_new(char **field_names, Value *fields, int count);
+ResultObj *result_obj_new(int is_ok, Value value);
 
 int value_equals(Value a, Value b);
 

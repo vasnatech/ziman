@@ -125,6 +125,11 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
         self_qualify_type(t->elem, ctx);
         return;
     }
+    if (t->kind == TY_RESULT) {
+        self_qualify_type(t->elem, ctx);
+        self_qualify_type(t->elem_err, ctx);
+        return;
+    }
     if (t->kind != TY_STRUCT) return;
     if (strchr(t->struct_name, '.') != NULL) return; /* already dotted -- pass (b)'s job */
     for (int i = 0; i < ctx->n_structs; i++) {
@@ -328,6 +333,11 @@ static char *resolve_type_ref(CrossRefCtx *ctx, const char *dotted, int line, in
 static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
     if (t->kind == TY_ARRAY) {
         resolve_type_refs(t->elem, ctx, line, col);
+        return;
+    }
+    if (t->kind == TY_RESULT) {
+        resolve_type_refs(t->elem, ctx, line, col);
+        resolve_type_refs(t->elem_err, ctx, line, col);
         return;
     }
     if (t->kind != TY_STRUCT) return;
