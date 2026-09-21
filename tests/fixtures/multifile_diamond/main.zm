@@ -1,0 +1,7 @@
+use left
+use right
+
+fn main() {
+    print(left.left_fn())
+    print(right.right_fn())
+}

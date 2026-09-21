@@ -1,0 +1,5 @@
+use b
+
+pub fn from_a() -> int {
+    return 1
+}

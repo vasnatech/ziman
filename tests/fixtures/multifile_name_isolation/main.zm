@@ -1,0 +1,7 @@
+use a
+use b
+
+fn main() {
+    print(a.describe_a())
+    print(b.describe_b())
+}

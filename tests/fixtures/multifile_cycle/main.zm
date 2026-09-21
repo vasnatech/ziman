@@ -1,0 +1,5 @@
+use a
+
+fn main() {
+    print(a.from_a())
+}

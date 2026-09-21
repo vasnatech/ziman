@@ -1,0 +1,1 @@
+function 'secret_helper' in module 'models/user' is private

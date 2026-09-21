@@ -1,0 +1,6 @@
+use models/priv
+
+fn main() {
+    val s = priv.Secret { x: 1 }
+    print(s)
+}

@@ -1,0 +1,5 @@
+use shared
+
+pub fn right_fn() -> int {
+    return shared.shared_fn() + 2
+}
