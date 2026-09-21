@@ -1,0 +1,47 @@
+// Exercises every construct the grammar highlights -- open this file to
+// eyeball a grammar change.
+
+use models/user as u
+
+native fn read_file(path: string) -> string
+
+struct Point {
+    x: int
+    y: int
+}
+
+pub fn distance_squared(a: Point, b: Point) -> int {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return dx * dx + dy * dy
+}
+
+fn main() {
+    val p1 = Point { x: 0, y: 0 }
+    val p2 = Point { x: 3, y: 4 }
+    print(distance_squared(p1, p2))
+
+    val p3 = with p2 { x: 99 }
+    print(p3)
+
+    var i = 0
+    var nums: [int] = []
+    while i < 5 {
+        nums = push(nums, i * i)
+        i = i + 1
+    }
+
+    if len(nums) > 0 && nums[0] == 0 {
+        print("starts at zero")
+    } else if !true {
+        print("unreachable")
+    }
+
+    val pi = 3.14
+    val greeting = "hello \"world\"\n"
+    val flag = true
+    val ratio = (pi / 2.0) as int
+
+    val account = u.User { id: 1, name: "Ada" }
+    print(u.greet(account))
+}

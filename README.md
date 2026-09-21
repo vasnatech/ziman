@@ -62,3 +62,9 @@ make test
 ```
 
 Runs every fixture in `tests/fixtures/` — see `tests/run_tests.sh`.
+
+## Editor support
+
+[editors/vscode/](editors/vscode/) — a VS Code syntax-highlighting
+extension (`.zm` files). Not published to the Marketplace; see its
+README for how to load it locally.

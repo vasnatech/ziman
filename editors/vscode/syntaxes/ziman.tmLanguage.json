@@ -1,0 +1,137 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Ziman",
+  "scopeName": "source.ziman",
+  "fileTypes": ["zm"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#booleans" },
+    { "include": "#primitive-types" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#function-calls" },
+    { "include": "#type-names" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.ziman",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.ziman",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ziman",
+          "match": "\\\\[ntr\"\\\\]"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.ziman",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.ziman",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "booleans": {
+      "name": "constant.language.boolean.ziman",
+      "match": "\\b(true|false)\\b"
+    },
+    "primitive-types": {
+      "name": "support.type.primitive.ziman",
+      "match": "\\b(int|float|bool|string)\\b"
+    },
+    "declarations": {
+      "comment": "Captures the name at a fn/struct declaration site distinctly from an ordinary reference to it.",
+      "patterns": [
+        {
+          "match": "\\b(fn)\\s+([a-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "storage.type.function.ziman" },
+            "2": { "name": "entity.name.function.ziman" }
+          }
+        },
+        {
+          "match": "\\b(struct)\\s+([A-Z][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "storage.type.struct.ziman" },
+            "2": { "name": "entity.name.type.struct.ziman" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.ziman",
+          "match": "\\b(if|else|while|return)\\b"
+        },
+        {
+          "name": "keyword.control.import.ziman",
+          "match": "\\b(use|as)\\b"
+        },
+        {
+          "name": "keyword.other.ziman",
+          "match": "\\b(with)\\b"
+        },
+        {
+          "name": "storage.modifier.ziman",
+          "match": "\\b(pub|native|val|var)\\b"
+        },
+        {
+          "comment": "Bare fn/struct fallback -- 'declarations' already handles the common case of a keyword immediately followed by a valid name.",
+          "name": "storage.type.ziman",
+          "match": "\\b(fn|struct)\\b"
+        }
+      ]
+    },
+    "function-calls": {
+      "comment": "A lowercase identifier immediately before '(' -- reliable in Ziman since call syntax is always IDENT(...) or qualifier.IDENT(...), never an arbitrary expression.",
+      "match": "\\b[a-z_][A-Za-z0-9_]*(?=\\s*\\()",
+      "name": "entity.name.function.ziman"
+    },
+    "type-names": {
+      "comment": "Ziman enforces PascalCase for struct/type names (a value or function name can never start uppercase), so this is a reliable syntactic signal, not a guess.",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+      "name": "entity.name.type.ziman"
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.ziman",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.comparison.ziman",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.ziman",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.assignment.ziman",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arithmetic.ziman",
+          "match": "\\+|-|\\*|/|%"
+        }
+      ]
+    }
+  }
+}
