@@ -23,9 +23,11 @@ non-mutating field updates, no methods/inheritance), multi-file programs
 via `use path/to/mod` (always-qualified cross-module calls, `pub` for
 exports, project-relative resolution only so far), `native fn` for
 calling into C (a real, minimal `io` module — `read_file`/`write_file`
-— proves it end to end), and a handful of builtins (`print`, `concat`,
-`str`, `format`, `len`, `push`, `insert`, `set`). See
-[docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately not here yet.
+— proves it end to end), `Result<T, E>` for recoverable errors
+(`io.read_file` returns one instead of crashing on a missing file), and
+a handful of builtins (`print`, `concat`, `str`, `format`, `len`,
+`push`, `insert`, `set`). See [docs/ROADMAP.md](docs/ROADMAP.md) for
+what's deliberately not here yet.
 
 ## Example
 

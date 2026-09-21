@@ -40,6 +40,7 @@ param_list     := param { "," param }
 param          := IDENT ":" type
 type           := "int" | "float" | "bool" | "string" | "[" type "]"
                  | TYPE_IDENT | IDENT "." TYPE_IDENT   (* qualifier.Type *)
+                 | "Result" "<" type "," type ">"      (* Result<Ok, Err> *)
 
 block          := "{" NEWLINE* { statement NEWLINE* } "}"
 
@@ -114,9 +115,19 @@ yet, so there's nothing to call *except* a name), no indexed/field
   even if their fields are identical (`Point{x,y}` and `Vector{x,y}` are
   different, incompatible types). Value semantics, same as arrays. See
   "Structs" below.
+- `Result<T, E>` — a value that's either a success carrying `T` or a
+  failure carrying `E`. A second hardcoded parametric type, like `[T]` —
+  not general user-definable generics — so `T` and `E` can be any Ziman
+  type (including another `Result`, an array, or a struct), but you can't
+  declare your own `Result`-shaped type. `<>`, not `[]`: `[]` stays
+  scoped to sequences (the array type, the array literal, and indexing
+  all already share it); `<>` is the near-universal convention for
+  "parameterize a builtin type" and never collides with the comparison
+  operators, since a type only ever appears after `:`/`->`/`as`, never in
+  expression grammar. See "Result" below.
 - No implicit conversion between any scalar type. `x as float` / `x as
   int` are the only casts, and only between `int` and `float` (never
-  arrays or structs).
+  arrays, structs, or Results).
 
 ## Arrays
 
@@ -279,14 +290,71 @@ fn main() {
   its signature like any other function's; calling one with nothing
   registered for it is a runtime error ("no registered implementation").
   A minimal real module ships today — `io`, with `read_file(path:
-  string) -> string` and `write_file(path: string, contents: string)` —
-  a small, honest proof of the mechanism, not a general file API (no
-  append mode, no directory listing yet). Both are ordinary functions
-  from the calling side; a missing file or a failed write is a fatal
-  runtime error, same as every other runtime error today (there's no
-  recoverable-error story yet — see docs/ROADMAP.md). `io.zm` isn't
-  found by any bundled-library search path yet either, so a project that
+  string) -> Result<string, string>` and `write_file(path: string,
+  contents: string)` — a small, honest proof of the mechanism, not a
+  general file API (no append mode, no directory listing yet).
+  `read_file` reports a missing/unreadable file as a `Result` (see
+  "Result" below) rather than crashing the whole program, since that's
+  an expected, recoverable condition; `write_file` is still fatal on
+  failure for now (disk full, permissions), not yet migrated. `io.zm`
+  isn't found by any bundled-library search path yet, so a project that
   wants it needs its own copy alongside the entry file for now.
+
+## Result
+
+```
+fn safe_div(a: int, b: int) -> Result<int, string> {
+    if b == 0 {
+        return err("division by zero")
+    }
+    return ok(a / b)
+}
+
+fn main() {
+    val r = safe_div(10, 0)
+    if is_ok(r) {
+        print(unwrap(r))
+    } else {
+        print(concat("failed: ", unwrap_err(r)))
+    }
+}
+```
+
+- **No sum types, no `enum`, no `match`.** `Result<T, E>` is a single
+  opaque builtin type, manipulated only through five functions —
+  `ok`, `err`, `is_ok`, `unwrap`, `unwrap_err` (see "Builtins" below for
+  exact signatures). There's nothing to pattern-match on and no way to
+  define your own `Result`-shaped type.
+- **`ok(x)`/`err(e)` can't fully infer their own type** — each only
+  determines half of `Result<T, E>` (an `ok(x)` call tells you `T` from
+  `x`, but nothing about what `E` should be, and vice versa for `err`).
+  Legal in exactly two places, both of which supply the missing half: a
+  `val`/`var` with an explicit `Result<T, E>` annotation, or as the
+  value in a `return` inside a function whose declared return type is
+  `Result<T, E>` (by far the more common shape — `return ok(x)`/
+  `return err(e)` is `Result`'s primary use). Anywhere else — a bare
+  `ok(5)` statement, passing `ok(5)` as an argument — is a compile error
+  ("cannot infer the type of 'ok(...)' here"), the same restriction
+  empty array literals (`[]`) already have and for the same reason:
+  there's nothing in the call itself to infer the missing type from.
+- **`unwrap`/`unwrap_err` are the explicit, opt-in escape hatch back to
+  a fatal error.** `unwrap(r)` returns `r`'s success value, or raises a
+  runtime error if `r` is an `Err` (mirror for `unwrap_err`). This is
+  the same fatal behavior every runtime error already has — the point
+  isn't to avoid ever crashing, it's that crashing on failure is now a
+  *choice* the caller makes explicitly, instead of something a function
+  like `io.read_file` used to force unconditionally.
+- **`==`/`!=` on `Result` is a type error**, same as arrays and structs
+  — not implemented, tracked in ROADMAP.md.
+- **`T`/`E` can be any Ziman type**, including another `Result`, an
+  array, or a struct — this is what lets application code layer a
+  richer error type (a struct with a `code` and a `message`, say) on top
+  of a simpler one a native function returns (`io`'s is plain `string`),
+  converting at the boundary rather than forcing one universal error
+  shape everywhere.
+- Printing a `Result` shows `Ok(...)` or `Err(...)` (e.g. `Ok(5)`,
+  `Err(division by zero)`), recursively displaying the payload the same
+  way `print` already displays anything else.
 
 ## Semantic rules enforced before a program runs
 
@@ -314,12 +382,17 @@ violates one of these never executes any code, it's rejected up front:
   name a type that actually exists — an unresolved struct name is caught
   at the declaration that names it, before any function body is checked.
 - Struct types are nominal, not structural — see "Types" above.
+- `ok(...)`/`err(...)` are only legal where an expected `Result<T, E>`
+  type is available (a `val`/`var` annotation or the enclosing
+  function's return type) — see "Result" above.
+- `Result` is a reserved name, like `int`/`bool`/etc. — you can't declare
+  your own `struct Result { ... }`.
 
 | Operator group        | Operators                  | Operand types           | Result  |
 |------------------------|-----------------------------|--------------------------|---------|
 | Arithmetic             | `+ - * / %`                 | `int,int` or `float,float`* | same type |
 | Comparison             | `< > <= >=`                 | `int,int` or `float,float` | `bool`  |
-| Equality               | `== !=`                     | any two of the same *scalar* type (never arrays or structs) | `bool`  |
+| Equality               | `== !=`                     | any two of the same *scalar* type (never arrays, structs, or Results) | `bool`  |
 | Logical                | `&& \|\|`                   | `bool, bool`             | `bool`  |
 | Unary negate           | `-`                          | `int` or `float`         | same type |
 | Unary not              | `!`                          | `bool`                   | `bool`  |
@@ -364,6 +437,14 @@ a type error.
 - `set(arr: [T], i: int, x: T) -> [T]` — a new array with the element at
   `i` replaced by `x`; `i` must be in `[0, len(arr))`, a runtime error
   otherwise.
+- `ok(x: T) -> Result<T, E>` / `err(e: E) -> Result<T, E>` — construct a
+  `Result`. Only legal where the missing type parameter is available
+  from context — see "Result" above.
+- `is_ok(r: Result<T, E>) -> bool`
+- `unwrap(r: Result<T, E>) -> T` — the success value, or a runtime error
+  if `r` is `Err`.
+- `unwrap_err(r: Result<T, E>) -> E` — the error value, or a runtime
+  error if `r` is `Ok`.
 
 None of `push`/`insert`/`set` mutate their `arr` argument — see "Arrays"
 above for why, and why that's true regardless of `val`/`var`.

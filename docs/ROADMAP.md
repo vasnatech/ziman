@@ -34,11 +34,11 @@ one that never lands. The architecture to get there:
   missing: the actual syscalls (raw sockets, process/env access) beyond
   basic file I/O, and — since `io.zm`'s signature file isn't found by any
   bundled-stdlib search path yet (see below) — every project that wants
-  it has to keep its own copy alongside its entry file for now. Also:
-  `io.read_file`/`write_file` fail with a fatal runtime error on a
-  missing file or a write failure, same as every other runtime error
-  today — recoverable error handling (see the language-gaps list above)
-  would make this a lot more pleasant to use from real code.
+  it has to keep its own copy alongside its entry file for now.
+  `io.read_file` now returns `Result<string, string>` (a missing file is
+  recoverable, not fatal — see "Recoverable error handling" below);
+  `write_file` is not yet migrated and still fails fatally on a write
+  error.
   Today's built-ins (`print`/`concat`/`str`/`format`/`len`/`push`/
   `insert`/`set`) are conceptually the same idea already, but stay
   special-cased and unqualified for now rather than being migrated into
@@ -69,12 +69,15 @@ a time mid-implementation:
   JSON fields, and — noted back when structs shipped — for a
   self-referential struct (`struct Node { next: Node }`) to be
   constructible at all (right now it type-checks but can never actually
-  be built, since there's no base case without nullability).
-- **No recoverable error handling.** Every runtime error today is
-  `ziman_error()` → `exit(1)` — fine for a short-lived script, not for a
-  server that can't crash the whole process because one request had bad
-  input. Needs some `Result`/error-value story, which likely also forces
-  the generics question below.
+  be built, since there's no base case without nullability). Very likely
+  the same "hardcode one more parametric type" trick `Result<T, E>` used
+  (see below) would work here too, as `Option<T>` — not designed yet,
+  but the precedent now exists.
+- ~~**No recoverable error handling.**~~ `Result<T, E>` exists now — see
+  "Recoverable error handling" under "Near-term, likely next" below for
+  the full design and what's still not covered by it (see also: it
+  turned out *not* to force the generics question the way this entry
+  originally guessed — see that entry's update).
 - **Almost no string manipulation.** `concat`/`str`/`format` exist;
   substring, split, trim, find, replace, and parsing a string into a
   number (the reverse of `str`) don't. A backend parses untrusted text
@@ -86,13 +89,51 @@ a time mid-implementation:
   blocking everything needs at least a primitive answer (even a
   native-thread-per-request module would need its own native module for
   threads) — not designed at all yet.
-- **Generics are still an open question** (see below) and several of the
-  above (a real `Map<K, V>`, a `Result<T, E>`) get much more awkward
-  without them — this is likely the item that forces that decision, not
-  something to resolve independently of it.
+- **Generics are still an open question — but weaker than this entry
+  originally argued.** The prediction here was that `Result<T, E>` and
+  `Map<K, V>` would force the decision. `Result<T, E>` shipped (see
+  below) *without* general generics, using the same "hardcode one more
+  parametric type into the compiler" trick arrays already used — not a
+  workaround, a deliberate, cheaper alternative that turned out to solve
+  the whole problem. `Map<K, V>` would very likely take the identical
+  path. So general user-definable generics may never actually get
+  forced by anything currently on this list — revisit only if a *third*
+  case shows up that genuinely doesn't fit "just hardcode it," not
+  preemptively.
 
 ## Near-term, likely next
 
+- ~~**Recoverable error handling.**~~ Implemented: `Result<T, E>`, a
+  second hardcoded parametric type (same trick as `[T]`, not general
+  generics — see docs/DESIGN.md), manipulated only through `ok`/`err`/
+  `is_ok`/`unwrap`/`unwrap_err` — no sum types, no `enum`, no `match`.
+  `<>` brackets, not `[]` (`[]` stays scoped to sequences; `<>` is the
+  cross-language convention for parameterizing a builtin type, and
+  specifically matches Rust's own split between `Vec<T>` and `[T; N]`).
+  `T`/`E` are fully arbitrary Ziman types, not fixed to `string` — lets
+  a native function like `io.read_file` keep a simple `string` error
+  while application code layers a richer one on top at the boundary.
+  `ok(x)`/`err(e)` reuse the empty-array-literal "expected type from
+  context" mechanism, extended to also cover a function's own return
+  type (not just a `val`/`var` annotation), since `return ok(...)`/
+  `return err(...)` is the dominant shape, not an edge case.
+  `io.read_file` is migrated (`-> Result<string, string>`) as the
+  flagship proof — a missing file is now something a program can
+  recover from instead of crashing on unconditionally, with `unwrap`
+  as the explicit, opt-in way back to a fatal error when that's what
+  you actually want. Deliberately left out, not overlooked:
+  - **No `?`-style propagation operator.** Chaining several fallible
+    calls means repeating `if is_ok(...) { ... } else { return
+    err(...) }` at each step — real, Go-style verbosity, accepted for
+    now rather than designing a shorthand speculatively.
+  - **`io.write_file` isn't migrated** — still fatal on failure. Not a
+    design gap, just not done; the exact same treatment `read_file` got
+    would apply.
+  - **`==`/`!=` on `Result`** is a type error, same open gap arrays and
+    structs already have.
+  - **`Option<T>`** (for the still-separate optional/nullable-type gap
+    above) would very likely use this exact same trick — not designed,
+    but the precedent now exists.
 - **Structured/machine-parseable diagnostics** (`--json` error mode).
   Central to the "errors are data" principle in DESIGN.md; deferred out of
   v0 only to get a working language faster.
@@ -241,10 +282,11 @@ a time mid-implementation:
     always-auto-imported native module (a real "prelude," Rust-style) is
     an explicit non-decision — revisit only if keeping them special-cased
     forever starts costing something concrete, not on principle alone.
-- **Generics.** Was "not clear yet whether Ziman wants them"; the North
-  Star section above makes the case that a real `Map<K, V>` and a
-  `Result<T, E>` (for recoverable error handling) both want them badly
-  enough that this is likely to get forced, not chosen independently.
+- **Generics.** Back to "not clear yet whether Ziman wants them" — see
+  the North Star section's updated note. `Result<T, E>` shipped without
+  needing them; `Map<K, V>` would very likely take the same path. Stay
+  monomorphic-by-design until something concrete can't be solved that
+  way, not before.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.

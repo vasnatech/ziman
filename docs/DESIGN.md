@@ -178,6 +178,43 @@ several languages rather than inheriting any one of them wholesale.
   a small union, or generics that don't exist yet — a C-ABI trick doesn't
   change what the Ziman-level type checker can express. See
   docs/ROADMAP.md.
+- **`Result<T, E>` for recoverable errors — not exceptions, not general
+  sum types, a second hardcoded parametric type instead (same trick as
+  `[T]`).** Exceptions were ruled out on the same grounds classes and
+  inheritance were: an exception unwinding several stack frames is
+  exactly the "not derivable from the line itself" pattern principle #1
+  exists to prevent — `foo()` might throw something you don't know about
+  without reading its implementation. A fully general `Result<T, E>`
+  with real sum types, a `match` expression, and exhaustiveness checking
+  would be the "proper" Rust-shaped answer, but it's also a big, novel
+  type-system investment for a problem that a much narrower feature
+  solves just as well: `Result<T, E>` as one more opaque builtin type
+  (like arrays), manipulated only through four functions
+  (`ok`/`err`/`is_ok`/`unwrap`, plus `unwrap_err`) — no `enum`, no
+  pattern matching, no user-definable sum types at all. `T` and `E` are
+  fully arbitrary Ziman types (not fixed to `string`, which was the
+  original, narrower proposal) since hardcoding a second type parameter
+  costs barely more than hardcoding one, and it buys something a fixed
+  error type couldn't: a native function like `io.read_file` can keep
+  its own error type as plain `string`, while application code layers a
+  richer error type on top at the boundary, converting rather than
+  forcing one universal error shape everywhere.
+  `<T, E>`, not `[T, E]`: considered and rejected reusing arrays'
+  bracket convention, in favor of keeping `[]` scoped to sequences (the
+  array type, the array literal, and indexing already share it) and
+  using `<>` — the near-universal cross-language convention for
+  "parameterize a builtin type" — for everything else. This is also
+  specifically Rust's own convention, not just "common": `Vec<T>` uses
+  angle brackets; `[T; N]` (square brackets) is reserved for a
+  fixed-size array. No real parsing ambiguity with the comparison
+  operators either, since a type only ever appears after `:`/`->`/`as`,
+  never in expression grammar, where `<`/`>` mean something else.
+  `ok(x)`/`err(e)` reuse the exact mechanism empty array literals (`[]`)
+  already needed — an "expected type" available only in specific
+  contexts — extended to a second context (a function's own declared
+  return type, not just a `val`/`var` annotation), since `return
+  ok(...)`/`return err(...)` is by far `Result`'s most common shape, not
+  an edge case the way returning an empty array is for arrays.
 
 ## Deliberately deferred (not v0)
 
