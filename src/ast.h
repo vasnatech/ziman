@@ -186,9 +186,27 @@ typedef struct {
     int capacity;
 } StructList;
 
+/* `use path/to/mod [as alias]`. `path` is the slash-joined module path
+ * exactly as written (e.g. "models/user"); `qualifier` is the local name
+ * this module is referenced by in code (the path's last segment, or the
+ * `as` alias if one was given). Not resolved to anything yet at parse
+ * time -- that's the loader's job, still ahead. */
+typedef struct {
+    char *path;
+    char *qualifier;
+    int line, col;
+} UseDecl;
+
+typedef struct {
+    UseDecl *items;
+    int count;
+    int capacity;
+} UseList;
+
 typedef struct {
     FunctionList functions;
     StructList structs;
+    UseList uses;
 } Module;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --
@@ -202,5 +220,6 @@ void param_list_push(ParamList *list, Param p);
 void function_list_push(FunctionList *list, FunctionDecl *f);
 void field_init_list_push(FieldInitList *list, FieldInit fi);
 void struct_list_push(StructList *list, StructDecl *s);
+void use_list_push(UseList *list, UseDecl u);
 
 #endif

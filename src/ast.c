@@ -89,5 +89,6 @@ DEFINE_LIST_PUSH(param_list_push, ParamList, Param, items)
 DEFINE_LIST_PUSH(function_list_push, FunctionList, FunctionDecl *, items)
 DEFINE_LIST_PUSH(field_init_list_push, FieldInitList, FieldInit, items)
 DEFINE_LIST_PUSH(struct_list_push, StructList, StructDecl *, items)
+DEFINE_LIST_PUSH(use_list_push, UseList, UseDecl, items)
 
 #undef DEFINE_LIST_PUSH

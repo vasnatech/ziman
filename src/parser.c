@@ -1,5 +1,6 @@
 #include "parser.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -497,12 +498,65 @@ static StructDecl *parse_struct_decl(Parser *p) {
     return sd;
 }
 
+/* `use path/to/mod [as alias]`. The path is a sequence of identifiers
+ * joined by '/' (reusing the existing division-operator token -- `use`'s
+ * path grammar is a distinct, non-expression context, so there's no
+ * ambiguity with division). Not resolved to a real file yet -- that's the
+ * loader's job, still ahead; this just records what was written. */
+static UseDecl parse_use_decl(Parser *p) {
+    Token *kw = expect(p, TOK_USE, "'use'");
+
+    size_t cap = 64, len = 0;
+    char *path = malloc(cap);
+    path[0] = '\0';
+
+    Token *last_seg = expect(p, TOK_IDENT, "a module path segment");
+    size_t seg_len = (size_t)last_seg->length;
+    if (seg_len + 1 > cap) { cap = seg_len + 1; path = realloc(path, cap); }
+    memcpy(path, last_seg->start, seg_len);
+    len = seg_len;
+    path[len] = '\0';
+
+    while (match(p, TOK_SLASH)) {
+        last_seg = expect(p, TOK_IDENT, "a module path segment");
+        seg_len = (size_t)last_seg->length;
+        size_t needed = len + 1 + seg_len + 1;
+        if (needed > cap) { cap = needed; path = realloc(path, cap); }
+        path[len] = '/';
+        memcpy(path + len + 1, last_seg->start, seg_len);
+        len += 1 + seg_len;
+        path[len] = '\0';
+    }
+
+    char *qualifier;
+    if (match(p, TOK_AS)) {
+        Token *alias = expect(p, TOK_IDENT, "a module alias");
+        require_lower_start(alias, "a module alias");
+        qualifier = dup_token_text(alias);
+    } else {
+        require_lower_start(last_seg, "a module qualifier (the path's last segment)");
+        qualifier = dup_token_text(last_seg);
+    }
+
+    UseDecl u;
+    u.path = path;
+    u.qualifier = qualifier;
+    u.line = kw->line;
+    u.col = kw->col;
+    return u;
+}
+
 Module *parse(TokenList tokens) {
     Parser p = {tokens, 0};
     Module *module = calloc(1, sizeof(Module));
 
     skip_newlines(&p);
     while (!check(&p, TOK_EOF)) {
+        if (check(&p, TOK_USE)) {
+            use_list_push(&module->uses, parse_use_decl(&p));
+            skip_newlines(&p);
+            continue;
+        }
         int is_public = match(&p, TOK_PUB);
         if (check(&p, TOK_STRUCT)) {
             StructDecl *sd = parse_struct_decl(&p);
