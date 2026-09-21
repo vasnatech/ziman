@@ -123,6 +123,8 @@ typedef enum {
     STMT_IF,
     STMT_WHILE,
     STMT_FOR,
+    STMT_BREAK,
+    STMT_CONTINUE,
     STMT_RETURN,
     STMT_EXPR,
     STMT_BLOCK,

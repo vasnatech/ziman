@@ -169,10 +169,14 @@ a time mid-implementation:
   a whole array just to count). Two-binder form is array-only — a range
   has nothing to name besides the count itself, so `for i, j in 0..5` is
   a syntax error. Both binders are `val`-immutable and scoped to the
-  loop body only, same as every other binding. Still missing:
-  `break`/`continue` — a loop currently either runs to completion or
-  exits the enclosing function via `return`; not designed yet, revisit
-  once a real program actually wants an early loop exit.
+  loop body only, same as every other binding.
+  ~~`break`/`continue`~~ Implemented: both target the nearest enclosing
+  `while`/`for` only (no labels — small orthogonal core, revisit only if
+  a real program needs multi-level early exit often enough to justify
+  it), and using either outside a loop is a compile-time error that
+  follows lexical nesting through `if`/blocks but never crosses a
+  function boundary (a `break` inside a function called from a loop is
+  still rejected on its own, in that function).
 - ~~**Arrays / lists.**~~ Decided and implemented: one type, `[T]`, not
   two (see the "one collection type" discussion in this project's
   originating conversation) — no separate fixed-size vs. growable

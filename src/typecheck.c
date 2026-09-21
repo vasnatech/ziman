@@ -669,25 +669,28 @@ static int stmt_always_returns(Stmt *s) {
     }
 }
 
-static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type);
+static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop);
 
 /* Runs `block`'s statements directly in `scope` (no further scope nesting) --
  * shared by check_block (which makes its own fresh scope first) and
  * STMT_FOR (which needs its loop binder(s) defined in that same scope,
- * ahead of the body's own statements). */
-static void check_stmts_in_scope(Module *module, Env *scope, Stmt *block, Type fn_return_type) {
+ * ahead of the body's own statements). `in_loop` is true whenever these
+ * statements execute somewhere inside a while/for body -- threaded through
+ * so a `break`/`continue` deeper inside (e.g. under an `if`) can still be
+ * validated without re-deriving it from scratch. */
+static void check_stmts_in_scope(Module *module, Env *scope, Stmt *block, Type fn_return_type, int in_loop) {
     for (int i = 0; i < block->as.block.stmts.count; i++) {
-        check_stmt(module, scope, block->as.block.stmts.items[i], fn_return_type);
+        check_stmt(module, scope, block->as.block.stmts.items[i], fn_return_type, in_loop);
     }
 }
 
-static void check_block(Module *module, Env *parent, Stmt *block, Type fn_return_type) {
+static void check_block(Module *module, Env *parent, Stmt *block, Type fn_return_type, int in_loop) {
     Env *scope = env_new(parent);
-    check_stmts_in_scope(module, scope, block, fn_return_type);
+    check_stmts_in_scope(module, scope, block, fn_return_type, in_loop);
     env_free(scope);
 }
 
-static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
+static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
     switch (s->kind) {
         case STMT_VAL:
         case STMT_VAR: {
@@ -758,12 +761,12 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
             if (cond_type.kind != TY_BOOL) {
                 ziman_error("type", s->as.if_stmt.cond->line, s->as.if_stmt.cond->col, "'if' condition must be bool, found %s", type_name(cond_type));
             }
-            check_block(module, env, s->as.if_stmt.then_block, fn_return_type);
+            check_block(module, env, s->as.if_stmt.then_block, fn_return_type, in_loop);
             if (s->as.if_stmt.else_block != NULL) {
                 if (s->as.if_stmt.else_block->kind == STMT_IF) {
-                    check_stmt(module, env, s->as.if_stmt.else_block, fn_return_type);
+                    check_stmt(module, env, s->as.if_stmt.else_block, fn_return_type, in_loop);
                 } else {
-                    check_block(module, env, s->as.if_stmt.else_block, fn_return_type);
+                    check_block(module, env, s->as.if_stmt.else_block, fn_return_type, in_loop);
                 }
             }
             break;
@@ -773,7 +776,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
             if (cond_type.kind != TY_BOOL) {
                 ziman_error("type", s->as.while_stmt.cond->line, s->as.while_stmt.cond->col, "'while' condition must be bool, found %s", type_name(cond_type));
             }
-            check_block(module, env, s->as.while_stmt.body, fn_return_type);
+            check_block(module, env, s->as.while_stmt.body, fn_return_type, 1);
             break;
         }
         case STMT_FOR: {
@@ -803,10 +806,16 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
                     env_define(scope, s->as.for_stmt.binder2, *iter_type.elem, 0, value_int(0));
                 }
             }
-            check_stmts_in_scope(module, scope, s->as.for_stmt.body, fn_return_type);
+            check_stmts_in_scope(module, scope, s->as.for_stmt.body, fn_return_type, 1);
             env_free(scope);
             break;
         }
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+            if (!in_loop) {
+                ziman_error("type", s->line, s->col, "'%s' outside of a loop", s->kind == STMT_BREAK ? "break" : "continue");
+            }
+            break;
         case STMT_RETURN: {
             if (s->as.ret.value == NULL) {
                 if (fn_return_type.kind != TY_VOID) {
@@ -832,7 +841,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
             break;
         }
         case STMT_BLOCK:
-            check_block(module, env, s, fn_return_type);
+            check_block(module, env, s, fn_return_type, in_loop);
             break;
     }
 }
@@ -869,7 +878,7 @@ static void check_function(Module *module, FunctionDecl *fn) {
      * registered for it, not something this pass can see into. */
     if (!fn->is_native) {
         for (int i = 0; i < fn->body->as.block.stmts.count; i++) {
-            check_stmt(module, env, fn->body->as.block.stmts.items[i], fn->return_type);
+            check_stmt(module, env, fn->body->as.block.stmts.items[i], fn->return_type, 0);
         }
         if (fn->return_type.kind != TY_VOID && !stmt_always_returns(fn->body)) {
             ziman_error("type", fn->line, fn->col, "function '%s' does not return a value on every path", fn->name);

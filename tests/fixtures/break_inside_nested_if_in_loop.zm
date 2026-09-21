@@ -1,0 +1,10 @@
+fn main() {
+    for i in 0..5 {
+        if true {
+            if i == 2 {
+                break
+            }
+        }
+        print(i)
+    }
+}

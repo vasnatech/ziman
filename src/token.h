@@ -20,6 +20,8 @@ typedef enum {
     TOK_WHILE,
     TOK_FOR,
     TOK_IN,
+    TOK_BREAK,
+    TOK_CONTINUE,
     TOK_RETURN,
     TOK_TRUE,
     TOK_FALSE,

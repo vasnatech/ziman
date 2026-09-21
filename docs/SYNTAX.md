@@ -45,7 +45,8 @@ type           := "int" | "float" | "bool" | "string" | "[" type "]"
 block          := "{" NEWLINE* { statement NEWLINE* } "}"
 
 statement      := val_decl | var_decl | assign_stmt
-                 | if_stmt | while_stmt | for_stmt | return_stmt | expr_stmt
+                 | if_stmt | while_stmt | for_stmt
+                 | break_stmt | continue_stmt | return_stmt | expr_stmt
 
 val_decl       := "val" IDENT [ ":" type ] "=" expr
 var_decl       := "var" IDENT [ ":" type ] "=" expr
@@ -57,6 +58,9 @@ for_stmt       := "for" IDENT [ "," IDENT ] "in" expr [ ".." expr ] block
                        expr -- not a general expression form. See "for
                        loops" below for what each binder count/".." combo
                        means. *)
+break_stmt     := "break"      (* only legal inside a while/for body --
+                                   see "For loops" below *)
+continue_stmt  := "continue"   (* same restriction as break_stmt *)
 return_stmt    := "return" [ expr ]
 expr_stmt      := expr
 
@@ -217,9 +221,19 @@ for i, x in arr { ... }       // index + value together
   `expr`'s type, not its own syntax, this convention is what lets a
   reader (human or AI) tell which case they're in at a glance instead of
   having to check `expr`'s declared type.
-- **No `break`/`continue` yet** — a loop always either runs to
-  completion or exits the enclosing function via `return`, tracked in
-  ROADMAP.md.
+- **`break` exits the nearest enclosing loop immediately; `continue`
+  skips straight to that loop's next iteration.** Both work in `while`
+  and every `for` form. Using either outside a loop is a compile-time
+  error, including from inside an `if` — the check follows lexical
+  nesting through blocks and `if`/`else`, not just "am I directly inside
+  a loop's `{ }`". It does *not* cross a function boundary: a `break`
+  inside a function called from a loop is still an error in that
+  function, on its own — it can never reach back out to a loop in some
+  different function that happened to call it.
+- **No labels** — `break`/`continue` always target the *nearest*
+  enclosing loop; there's no way to reach an outer loop from inside a
+  nested one. Small orthogonal core for now — revisit only if a real
+  program needs multi-level early exit often enough to justify it.
 
 ## Structs
 

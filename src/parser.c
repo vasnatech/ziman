@@ -482,6 +482,8 @@ static Stmt *parse_statement(Parser *p) {
     if (match(p, TOK_IF)) return parse_if(p);
     if (match(p, TOK_WHILE)) return parse_while(p);
     if (match(p, TOK_FOR)) return parse_for(p);
+    if (match(p, TOK_BREAK)) { Token *kw = previous(p); return stmt_new(STMT_BREAK, kw->line, kw->col); }
+    if (match(p, TOK_CONTINUE)) { Token *kw = previous(p); return stmt_new(STMT_CONTINUE, kw->line, kw->col); }
     if (match(p, TOK_RETURN)) return parse_return(p);
 
     /* `IDENT = expr` (assignment) vs. any other expression statement

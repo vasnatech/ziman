@@ -44,6 +44,12 @@ fn main() {
         print(idx)
     }
     for idx, n in nums {
+        if n == 4 {
+            continue
+        }
+        if n > 10 {
+            break
+        }
         print(idx)
         print(n)
     }

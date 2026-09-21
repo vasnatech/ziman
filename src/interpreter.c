@@ -13,7 +13,7 @@
 #include "native.h"
 #include "value.h"
 
-typedef enum { CTRL_NONE, CTRL_RETURN } CtrlKind;
+typedef enum { CTRL_NONE, CTRL_RETURN, CTRL_BREAK, CTRL_CONTINUE } CtrlKind;
 
 typedef struct {
     CtrlKind kind;
@@ -609,6 +609,9 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 if (!cond.as.b) break;
                 ExecResult result = exec_block(module, env, s->as.while_stmt.body);
                 if (result.kind == CTRL_RETURN) return result;
+                if (result.kind == CTRL_BREAK) break;
+                /* CTRL_CONTINUE and CTRL_NONE both just fall through to the
+                 * next iteration's condition check. */
             }
             return no_ctrl();
         }
@@ -622,6 +625,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                     ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
                     env_free(scope);
                     if (result.kind == CTRL_RETURN) return result;
+                    if (result.kind == CTRL_BREAK) break;
                 }
                 return no_ctrl();
             }
@@ -640,8 +644,17 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
                 env_free(scope);
                 if (result.kind == CTRL_RETURN) return result;
+                if (result.kind == CTRL_BREAK) break;
             }
             return no_ctrl();
+        }
+        case STMT_BREAK: {
+            ExecResult r = {CTRL_BREAK, value_int(0)};
+            return r;
+        }
+        case STMT_CONTINUE: {
+            ExecResult r = {CTRL_CONTINUE, value_int(0)};
+            return r;
         }
         case STMT_RETURN: {
             ExecResult r;

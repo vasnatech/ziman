@@ -43,6 +43,8 @@ static int can_end_statement(TokenType type) {
         case TOK_TRUE:
         case TOK_FALSE:
         case TOK_RETURN: /* bare `return` with no expression */
+        case TOK_BREAK:
+        case TOK_CONTINUE:
         case TOK_RPAREN:
         case TOK_RBRACE:
         case TOK_RBRACKET:
@@ -99,6 +101,7 @@ static const Keyword KEYWORDS[] = {
     {"fn", TOK_FN},         {"val", TOK_VAL},       {"var", TOK_VAR},
     {"if", TOK_IF},         {"else", TOK_ELSE},     {"while", TOK_WHILE},
     {"for", TOK_FOR},       {"in", TOK_IN},
+    {"break", TOK_BREAK},   {"continue", TOK_CONTINUE},
     {"return", TOK_RETURN}, {"true", TOK_TRUE},     {"false", TOK_FALSE},
     {"as", TOK_AS},         {"int", TOK_KW_INT},    {"float", TOK_KW_FLOAT},
     {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING},

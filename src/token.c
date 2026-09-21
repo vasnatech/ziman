@@ -16,6 +16,8 @@ const char *token_type_name(TokenType type) {
         case TOK_WHILE: return "'while'";
         case TOK_FOR: return "'for'";
         case TOK_IN: return "'in'";
+        case TOK_BREAK: return "'break'";
+        case TOK_CONTINUE: return "'continue'";
         case TOK_RETURN: return "'return'";
         case TOK_TRUE: return "'true'";
         case TOK_FALSE: return "'false'";

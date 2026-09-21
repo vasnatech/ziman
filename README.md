@@ -18,7 +18,7 @@ coercion, "does this function return on every path" analysis), and a
 tree-walking interpreter. Supports functions, `val`/`var` bindings,
 `if`/`else`, `while`, `for` (value/index/index+value forms over an
 array, or a range for a counted loop — `for x in arr`, `for i in 0..n`,
-`for i, x in arr`), the four scalar types (`int`, `float`, `bool`,
+`for i, x in arr`), `break`/`continue`, the four scalar types (`int`, `float`, `bool`,
 `string`), value-semantics arrays (`[T]`, nestable), plain nominal
 value-semantics `struct`s (named-fields-only construction, `with` for
 non-mutating field updates, no methods/inheritance), multi-file programs

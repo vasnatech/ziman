@@ -223,6 +223,9 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
             }
             self_qualify_stmt(s->as.for_stmt.body, ctx);
             break;
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+            break; /* no sub-expressions */
         case STMT_RETURN:
             if (s->as.ret.value != NULL) self_qualify_expr(s->as.ret.value, ctx);
             break;
@@ -425,6 +428,9 @@ static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx) {
             }
             resolve_stmt_refs(s->as.for_stmt.body, ctx);
             break;
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+            break; /* no sub-expressions */
         case STMT_RETURN:
             if (s->as.ret.value != NULL) resolve_expr_refs(s->as.ret.value, ctx);
             break;
