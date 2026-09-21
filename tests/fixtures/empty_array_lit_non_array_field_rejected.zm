@@ -1,0 +1,7 @@
+struct Point {
+    x: int
+}
+fn main() {
+    val p = Point { x: [] }
+    print(p)
+}

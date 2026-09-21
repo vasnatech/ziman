@@ -603,6 +603,25 @@ static Param *resolve_field_init(StructDecl *decl, FieldInitList *inits, int ind
     return field;
 }
 
+/* Like check_expr, but when `e` is an empty array literal (`[]`) and
+ * `expected` is itself an array type, resolves `e` against `expected`
+ * directly instead of falling into check_array_literal's unconditional
+ * "cannot infer the element type of an empty array literal" error. This is
+ * the same "expected type from context" idea val/var declarations already
+ * use (see check_stmt's STMT_VAL/STMT_VAR case) extended to the other
+ * positions where the expected type is just as statically known: a struct
+ * literal field, a `with` override, and a `return` value. Falls through to
+ * plain check_expr for everything else, including a non-empty array
+ * literal or an empty one where `expected` isn't an array -- those keep
+ * getting whatever error they'd otherwise get, unchanged. */
+static Type check_expr_expecting(Module *module, Env *env, Expr *e, Type expected) {
+    if (e->kind == EXPR_ARRAY_LIT && e->as.array_lit.elements.count == 0 && expected.kind == TY_ARRAY) {
+        e->resolved_type = expected;
+        return expected;
+    }
+    return check_expr(module, env, e);
+}
+
 static Type check_struct_literal(Module *module, Env *env, Expr *e) {
     const char *type_name_str = e->as.struct_lit.type_name;
     StructDecl *decl = find_struct(module, type_name_str);
@@ -613,7 +632,7 @@ static Type check_struct_literal(Module *module, Env *env, Expr *e) {
 
     for (int i = 0; i < inits->count; i++) {
         Param *field = resolve_field_init(decl, inits, i);
-        Type value_type = check_expr(module, env, inits->items[i].value);
+        Type value_type = check_expr_expecting(module, env, inits->items[i].value, field->type);
         require_not_void(inits->items[i].value, "as a field value");
         if (!type_equals(value_type, field->type)) {
             ziman_error("type", inits->items[i].value->line, inits->items[i].value->col,
@@ -663,7 +682,7 @@ static Type check_with_expr(Module *module, Env *env, Expr *e) {
 
     for (int i = 0; i < overrides->count; i++) {
         Param *field = resolve_field_init(decl, overrides, i);
-        Type value_type = check_expr(module, env, overrides->items[i].value);
+        Type value_type = check_expr_expecting(module, env, overrides->items[i].value, field->type);
         require_not_void(overrides->items[i].value, "as a field value");
         if (!type_equals(value_type, field->type)) {
             ziman_error("type", overrides->items[i].value->line, overrides->items[i].value->col,
@@ -972,7 +991,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 /* ok(...)/err(...) resolved against the function's own
                  * declared return type -- see check_ok_err_call. */
             } else {
-                Type value_type = check_expr(module, env, s->as.ret.value);
+                Type value_type = check_expr_expecting(module, env, s->as.ret.value, fn_return_type);
                 if (fn_return_type.kind == TY_VOID) {
                     ziman_error("type", s->as.ret.value->line, s->as.ret.value->col, "cannot return a value from a function declared with no return type");
                 }

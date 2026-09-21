@@ -183,8 +183,11 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   whether the source binding is `val` or `var` — a value has no notion of
   mutability at all in Ziman; only a *binding* does (see docs/DESIGN.md).
 - **An empty array literal (`[]`) has no elements to infer a type from.**
-  It's only legal as the initializer of a `val`/`var` with an explicit
-  type annotation (`val x: [int] = []`); anywhere else (a function
+  It's only legal where an expected array type is already known from
+  context: a `val`/`var` with an explicit type annotation
+  (`val x: [int] = []`), a struct literal field or `with` override
+  (`Bag { items: [], label: "empty" }`), or a `return` value against the
+  enclosing function's declared return type. Anywhere else (a function
   argument, a non-empty context) it's a type error. A non-empty literal
   infers its element type from its first element and requires every
   other element to match exactly — `[1, "two"]` is a type error.
@@ -529,9 +532,13 @@ fn main() {
   `Result<T, E>` (by far the more common shape — `return ok(x)`/
   `return err(e)` is `Result`'s primary use). Anywhere else — a bare
   `ok(5)` statement, passing `ok(5)` as an argument — is a compile error
-  ("cannot infer the type of 'ok(...)' here"), the same restriction
-  empty array literals (`[]`) already have and for the same reason:
-  there's nothing in the call itself to infer the missing type from.
+  ("cannot infer the type of 'ok(...)' here"), the same kind of
+  restriction empty array literals (`[]`) already have and for the same
+  reason: there's nothing in the call itself to infer the missing type
+  from. (Empty array literals get inferred in a couple more places than
+  `ok`/`err` currently do — struct literal fields and `with` overrides,
+  see "Arrays" above — since those didn't need a second type parameter
+  disambiguated the way `Result<T, E>` does.)
 - **`unwrap`/`unwrap_err` are the explicit, opt-in escape hatch back to
   a fatal error.** `unwrap(r)` returns `r`'s success value, or raises a
   runtime error if `r` is an `Err` (mirror for `unwrap_err`). This is

@@ -1,0 +1,8 @@
+fn no_items() -> [int] {
+    return []
+}
+fn main() {
+    val arr = no_items()
+    print(arr)
+    print(len(arr))
+}

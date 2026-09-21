@@ -1,0 +1,9 @@
+struct Bag {
+    items: [int]
+    label: string
+}
+fn main() {
+    val b = Bag { items: [], label: "empty" }
+    print(b)
+    print(len(b.items))
+}
