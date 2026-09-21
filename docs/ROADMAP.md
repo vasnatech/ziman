@@ -20,20 +20,20 @@ one that never lands. The architecture to get there:
 - **A module system is the load-bearing prerequisite.** Everything below
   (files, networking, a database client) gets organized as a module, not
   bolted directly onto the interpreter one builtin at a time the way
-  arrays'/structs' builtins were. Still to design: declaration/import
-  syntax, how a module exports vs. keeps something private, how the app
-  (entry point) declares which modules it depends on, and namespacing for
-  calling into another module (`io.read_file(...)`-shaped, presumably).
+  arrays'/structs' builtins were. Design decided — see the full write-up
+  under "Larger, needs its own design pass" below (file = module,
+  slash-separated `use` paths, always-qualified calls, `pub` for exports,
+  `native fn` for the C boundary). Implementation is still ahead.
 - **Only a minimal, fixed set of "native modules" touch C** — the actual
   syscalls (raw socket read/write, raw file descriptor I/O, maybe raw
   process/env access) and nothing more. A native module still presents
   ordinary typed Ziman function signatures to its callers, who shouldn't
   need to know or care whether a given module is native or pure Ziman.
-  This isn't a new idea so much as formalizing what already exists:
-  `print`/`concat`/`str`/`format`/`len`/`push`/`insert`/`set` are already,
-  conceptually, a native module that's implicitly imported into every
-  program today — the module system should make that explicit rather than
-  special-cased in the type checker forever.
+  Today's built-ins (`print`/`concat`/`str`/`format`/`len`/`push`/
+  `insert`/`set`) are conceptually the same idea already, but stay
+  special-cased and unqualified for now rather than being migrated into
+  the module scheme — see the module design write-up for why that's a
+  deliberate non-decision, not an oversight.
 - **Everything above the native floor is real Ziman code.** `io`/`fs` on
   top of native file-descriptor primitives; `net` (raw sockets) and then
   `http` (protocol parsing, serving, client) on top of native socket
@@ -149,10 +149,55 @@ a time mid-implementation:
   also entangled with the module system above: an effect story and a
   native-vs-pure-Ziman module boundary are naturally related questions
   (does calling into a native module always count as an effect?).
-- **Modules / multi-file programs.** Promoted from "someday" to the
-  actual load-bearing next design piece — see the North Star section
-  above for the concrete plan (module system → a minimal native-module
-  boundary → io/net/http/db as pure-Ziman modules on top).
+- ~~**Modules / multi-file programs.**~~ Design decided (implementation
+  still ahead — this is a real multi-file rearchitecture of the parse/
+  typecheck/interpret pipeline, not a small addition):
+  - **One file = one module**, identified by its filesystem path — no
+    separate `module Foo` declaration to keep in sync with the filename.
+  - **`use path/to/mod`** (slash, not dot — a module path is filesystem-
+    literal and deliberately never shares a token with `.field` access,
+    which already means something else). Resolved project-relative
+    first, then against Ziman's bundled standard library, with no prefix
+    distinguishing the two — `use io` looks identical either way, same
+    "caller shouldn't need to know or care" principle as native vs.
+    pure-Ziman modules.
+  - **Every cross-module reference is qualified — `user.greet(u)`, never
+    a bare `greet(u)` that happens to resolve to some import.** Same
+    "derivable from the line itself" reasoning as `concat`/`str` existing
+    instead of overloading `+`. There is no unqualified/wildcard import
+    form.
+  - **Name-collision aliasing reuses `as`** (`use admin/user as
+    admin_user`) — new meaning for an existing keyword, never ambiguous
+    with cast-`as` since they only appear in different grammatical
+    positions.
+  - **Exports require `pub`; default is private to the module** — same
+    instinct as `val`/`var`: an important property is explicit at the
+    declaration, not inferred from whether something outside happens to
+    use it. Corollary: struct/function names only need to be unique
+    *within* their own module, not across the whole program, unlike
+    today's single-file rule.
+  - **No separate manifest file** (`Cargo.toml`/`package.json`-style) —
+    that solves third-party package versioning, which doesn't exist yet
+    (already a stated non-goal). The app's dependency graph is just the
+    entry file's `use` statements, followed transitively; a cycle is
+    rejected.
+  - **A native module is `native fn name(params) -> type` with no `{ }`
+    body at all** — the type checker treats its signature like any other
+    function; the interpreter dispatches into a registered C
+    implementation by module path + name, generalizing (and making
+    visible in real source) what `print`/`concat`/etc. already do via
+    invisible special-casing today. A native module is still a normal,
+    browsable module from the importer's side.
+  - **Today's built-in scalar/array machinery stays implicit for now** —
+    `int`/`float`/`bool`/`string`/`[T]` and their functions (`print`,
+    `concat`, `str`, `format`, `len`, `push`, `insert`, `set`) remain
+    unqualified, no `use` required, exactly as they work today. Nothing
+    else gets this treatment — `io`, `net`, `http`, `db`, and any
+    user-defined module all go through explicit `use` + qualified calls.
+    Whether to eventually formalize the builtins themselves as an
+    always-auto-imported native module (a real "prelude," Rust-style) is
+    an explicit non-decision — revisit only if keeping them special-cased
+    forever starts costing something concrete, not on principle alone.
 - **Generics.** Was "not clear yet whether Ziman wants them"; the North
   Star section above makes the case that a real `Map<K, V>` and a
   `Result<T, E>` (for recoverable error handling) both want them badly
