@@ -278,16 +278,14 @@ a time mid-implementation:
   exactly. `==`/`!=` works when every payload-carrying variant's payload
   type is (recursively) comparable, reusing the same
   `type_supports_equality` machinery arrays/structs/Result already use.
-  Concrete (monomorphic) only — see the "Generics" entries above/below
-  for why `enum Option<T> { Some(T) None }` isn't expressible yet. Still
-  open, not yet decided:
-  - **Cross-module (`use`-qualified) enum access.** An enum can only be
-    constructed/consumed in the same file that declares it right now —
-    `mod.Shape.Circle(...)` isn't supported. Not a design gap so much as
-    scope: the parser/loader's existing qualified-reference machinery is
-    built around exactly one dot (`qualifier.name`), and this would need
-    a second one (`qualifier.EnumName.Variant`); revisit once a real
-    program actually wants to share an enum across files.
+  Was concrete (monomorphic) only when this shipped — see the "Generics"
+  entry below, now landed through generic enums:
+  `enum Option<T> { Some(T) None }` is expressible today.
+  ~~**Cross-module (`use`-qualified) enum access.**~~ Implemented
+  alongside the "Generics" entry's Stage 4 below (`mod.Shape.Circle(...)`
+  works now, generic or not) — turned out not to need its own separate
+  effort once cross-module generics needed the same second dot anyway.
+  Still open, not yet decided:
   - **`match`/pattern matching.** The predicate-plus-unwrap style above
     is the only way to consume a variant in v0 — same choice `Result`
     already made. A real `match` expression (exhaustiveness checking,
@@ -434,14 +432,20 @@ a time mid-implementation:
     `decl->type_params`/the value's own `type_args` the same way struct
     fields do. A bound (`enum Option<T: Eq> { ... }`) works identically to
     a struct's.
-  - **Stage 4: cross-module generics.** Not started — today's generics
-    are same-module only not because of anything about generics
-    specifically, but because the qualified-reference parser
-    (`mod.Name`/`mod.Name { ... }`) was never extended to also accept
-    `<Args>`, and enum access needs a second dot on top of that
-    (`mod.Option<int>.Some(5)`, vs. today's single-dot
-    `qualifier.name`/`qualifier.Type { ... }`). This is what actually lets
-    a shared `collections` module (below) export anything generic.
+  - ~~**Stage 4: cross-module generics.**~~ Implemented (docs/SYNTAX.md
+    "Generics"): `collections.Box<int> { ... }`,
+    `collections.Option<int>.Some(5)`, and a qualified type annotation
+    (`val x: collections.Option<int>`) all work. This was never a
+    generics-specific gap: the qualified-reference parser
+    (`mod.Name`/`mod.Type { ... }`) just needed extending to also accept
+    `<Args>`, and enum construction/consumption needed a second dot on
+    top of that (`mod.EnumName.Variant`) that plain field access and
+    module-function calls never did — building this also happened to
+    close the pre-existing, generics-independent "cross-module enum
+    access" gap noted under the `enum` entry above, and a related latent
+    hole where a qualified *type annotation* (`val x: mod.Shape`) only
+    ever resolved against a struct, never an enum. This is what actually
+    lets a shared `collections` module (below) export anything generic.
   - **Stage 5: generic functions.** Not started — `fn identity<T>(x: T)
     -> T`, called as `identity<int>(5)`. Needs the one-token lookahead
     heuristic docs/DESIGN.md's "Generics" entry describes to disambiguate

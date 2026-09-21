@@ -918,16 +918,20 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
         return result;
     }
 
+    static const char *IS_PREFIX = "is_";
+    static const char *UNWRAP_PREFIX = "unwrap_";
     /* Consumption (is_X/unwrap_X): no type arguments at the call site --
      * the concrete instantiation comes from the argument's own already-
-     * known type instead. */
-    if (type_args->count > 0) {
+     * known type instead. Checked only once `member` actually looks like
+     * a consumption call, so a genuinely unknown member (`Option.Nope`)
+     * still falls through to the clearer "no variant or function" error
+     * below instead of this one. */
+    if (type_args->count > 0 &&
+        (strncmp(member, IS_PREFIX, strlen(IS_PREFIX)) == 0 || strncmp(member, UNWRAP_PREFIX, strlen(UNWRAP_PREFIX)) == 0)) {
         ziman_error("type", e->line, e->col,
                     "'%s.%s' takes no type arguments -- they're inferred from the argument's own type", enum_name, member);
     }
 
-    static const char *IS_PREFIX = "is_";
-    static const char *UNWRAP_PREFIX = "unwrap_";
     if (strncmp(member, IS_PREFIX, strlen(IS_PREFIX)) == 0) {
         const char *variant_part = member + strlen(IS_PREFIX);
         for (int i = 0; i < decl->variants.count; i++) {

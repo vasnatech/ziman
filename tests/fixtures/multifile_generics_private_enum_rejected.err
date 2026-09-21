@@ -1,0 +1,1 @@
+enum 'Option' in module 'priv' is private (add 'pub' to export it)

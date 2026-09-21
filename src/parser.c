@@ -119,6 +119,14 @@ static Type parse_type(Parser *p) {
             snprintf(qualified, len, "%.*s.%.*s", t->length, t->start, type_tok->length, type_tok->start);
             Type ty = type_struct(qualified);
             free(qualified);
+            /* `qualifier.Name<...>` -- a generic struct/enum reference
+             * from another module. Whether `Name` is actually a struct or
+             * an enum, and whether it's actually declared generic at all,
+             * isn't known here any more than it is for the unqualified
+             * case below -- validated later in typecheck.c. */
+            if (check(p, TOK_LT)) {
+                ty.type_args = parse_type_args(p);
+            }
             return ty;
         }
         require_upper_start(t, "a type name");
@@ -126,12 +134,10 @@ static Type parse_type(Parser *p) {
         Type ty = type_struct(name);
         free(name); /* type_struct() dups it into the Type itself */
         /* `Name<...>` -- a user-declared generic struct/enum reference.
-         * Same-module only for now, like enums (no `qualifier.Name<...>`
-         * support yet) -- see docs/SYNTAX.md "Generics". Whether `Name`
-         * is actually a struct or an enum, and whether it's actually
-         * declared generic at all, isn't known here (the parser can't
-         * tell struct from enum, see ast.h's Type comment) -- validated
-         * later in typecheck.c. */
+         * Whether `Name` is actually a struct or an enum, and whether
+         * it's actually declared generic at all, isn't known here (the
+         * parser can't tell struct from enum, see ast.h's Type comment)
+         * -- validated later in typecheck.c. */
         if (check(p, TOK_LT)) {
             ty.type_args = parse_type_args(p);
         }
@@ -238,8 +244,7 @@ static Expr *parse_primary(Parser *p) {
          * are: an uppercase name can never be a real variable, so it can
          * never be the left operand of a real '<' comparison either.
          * Parsed once here, then dispatched below by whichever of '{'/'.'
-         * follows. Same same-module-only scope as enums otherwise have
-         * (see parse_type's TOK_LT branch). */
+         * follows. */
         TypeList type_args = {0};
         int has_type_args = 0;
         if (starts_upper(name) && check(p, TOK_LT)) {
@@ -305,6 +310,54 @@ static Expr *parse_primary(Parser *p) {
             advance_tok(p); /* '.' */
             if (check(p, TOK_IDENT)) {
                 Token *second = advance_tok(p);
+                /* `qualifier.Type[<Args>] { ... }` (a struct literal from
+                 * another module) or `qualifier.EnumName[<Args>].Member
+                 * [(args)]` (enum access from another module, construction
+                 * or an is_X/unwrap_X consumption call). An uppercase
+                 * `second` can never mean anything else here -- casing
+                 * rules rule out a real field or module-function name --
+                 * so, same as the unqualified case above, this always
+                 * commits once seen, no backtracking left to do. */
+                if (starts_upper(second->start)) {
+                    TypeList type_args = {0};
+                    if (check(p, TOK_LT)) {
+                        type_args = parse_type_args(p);
+                    }
+                    size_t len = strlen(name) + 1 + (size_t)second->length + 1;
+                    char *qualified = malloc(len);
+                    snprintf(qualified, len, "%s.%.*s", name, second->length, second->start);
+                    free(name);
+                    if (check(p, TOK_LBRACE)) {
+                        advance_tok(p); /* '{' */
+                        FieldInitList fields = parse_field_inits(p, TOK_RBRACE);
+                        expect(p, TOK_RBRACE, "'}'");
+                        Expr *e = expr_new(EXPR_STRUCT_LIT, t->line, t->col);
+                        e->as.struct_lit.type_name = qualified;
+                        e->as.struct_lit.fields = fields;
+                        e->as.struct_lit.type_args = type_args;
+                        return e;
+                    }
+                    if (check(p, TOK_DOT)) {
+                        advance_tok(p); /* second '.' */
+                        Token *member_tok = expect(p, TOK_IDENT, "a variant or function name");
+                        char *member = dup_token_text(member_tok);
+                        ExprList args = {0};
+                        int has_parens = 0;
+                        if (match(p, TOK_LPAREN)) {
+                            has_parens = 1;
+                            args = parse_comma_separated(p, TOK_RPAREN);
+                            expect(p, TOK_RPAREN, "')'");
+                        }
+                        Expr *e = expr_new(EXPR_ENUM_ACCESS, t->line, t->col);
+                        e->as.enum_access.enum_name = qualified;
+                        e->as.enum_access.member_name = member;
+                        e->as.enum_access.args = args;
+                        e->as.enum_access.has_parens = has_parens;
+                        e->as.enum_access.type_args = type_args;
+                        return e;
+                    }
+                    ziman_error("syntax", second->line, second->col, "expected '{' or '.' after '%s'", qualified);
+                }
                 if (match(p, TOK_LPAREN)) {
                     ExprList args = parse_comma_separated(p, TOK_RPAREN);
                     expect(p, TOK_RPAREN, "')'");
@@ -315,19 +368,6 @@ static Expr *parse_primary(Parser *p) {
                     Expr *e = expr_new(EXPR_CALL, t->line, t->col);
                     e->as.call.callee = qualified;
                     e->as.call.args = args;
-                    return e;
-                }
-                if (check(p, TOK_LBRACE) && starts_upper(second->start)) {
-                    advance_tok(p); /* '{' */
-                    FieldInitList fields = parse_field_inits(p, TOK_RBRACE);
-                    expect(p, TOK_RBRACE, "'}'");
-                    size_t len = strlen(name) + 1 + (size_t)second->length + 1;
-                    char *qualified = malloc(len);
-                    snprintf(qualified, len, "%s.%.*s", name, second->length, second->start);
-                    free(name);
-                    Expr *e = expr_new(EXPR_STRUCT_LIT, t->line, t->col);
-                    e->as.struct_lit.type_name = qualified;
-                    e->as.struct_lit.fields = fields;
                     return e;
                 }
             }

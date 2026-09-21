@@ -1,0 +1,5 @@
+use bounded
+fn main() {
+    val c: Channel<int> = channel_new()
+    val b = bounded.Box<Channel<int>> { value: c }
+}

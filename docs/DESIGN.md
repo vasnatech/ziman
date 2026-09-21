@@ -363,12 +363,16 @@ several languages rather than inheriting any one of them wholesale.
   one-token lookahead heuristic (peek at what follows `<`; commit to
   parsing type arguments only if it looks like a type-starter) — deferred
   to the generic-functions stage, since generic structs don't need it.
-  Same-module only for now, like `enum` — no `qualifier.Name<...>`
-  support yet. Staged as five independently useful slices rather than one
-  large change (see ROADMAP.md's "Generics" entry for the current state
-  of each): generic structs, bounded type parameters (`Eq`), generic
-  enums (unlocking `Option<T>`), cross-module generics (unlocking a
-  shared `collections` module), then generic functions.
+  Cross-module works too (`mod.Box<int> { ... }`,
+  `mod.Option<int>.Some(5)`) — this also closed a pre-existing, generics-
+  independent gap where cross-module enum access didn't exist at all yet
+  (the qualified-reference parser only ever handled one dot;
+  `qualifier.EnumName.Variant` needed a second). Staged as five
+  independently useful slices rather than one large change (see
+  ROADMAP.md's "Generics" entry for the current state of each): generic
+  structs, bounded type parameters (`Eq`), generic enums (unlocking
+  `Option<T>`), cross-module generics (unlocking a shared `collections`
+  module), then generic functions.
 
 ## Deliberately deferred (not v0)
 

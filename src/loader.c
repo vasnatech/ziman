@@ -213,6 +213,7 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
                     }
                 }
             }
+            for (int i = 0; i < e->as.struct_lit.type_args.count; i++) self_qualify_type(&e->as.struct_lit.type_args.items[i], ctx);
             for (int i = 0; i < e->as.struct_lit.fields.count; i++) self_qualify_expr(e->as.struct_lit.fields.items[i].value, ctx);
             break;
         case EXPR_FIELD_ACCESS:
@@ -223,18 +224,22 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
             for (int i = 0; i < e->as.with_expr.overrides.count; i++) self_qualify_expr(e->as.with_expr.overrides.items[i].value, ctx);
             break;
         case EXPR_ENUM_ACCESS:
-            /* `enum_name` is always this-module-local for now (no
-             * cross-module `use`-qualified enum access yet), so this
-             * always either matches one of this module's own enums or is
-             * genuinely undefined -- never something pass (b) needs to
-             * resolve. `member_name` is never touched, same as a struct
-             * field name never is. */
-            for (int i = 0; i < ctx->n_enums; i++) {
-                if (strcmp(e->as.enum_access.enum_name, ctx->orig_enum_names[i]) == 0) {
-                    e->as.enum_access.enum_name = qualify_name(ctx->own_path, e->as.enum_access.enum_name);
-                    break;
+            /* An already-dotted `enum_name` (`mod.Option.Some(...)`,
+             * written by this module against one of its own `use`s) is
+             * pass (b)'s job, same as a struct literal's already-dotted
+             * `type_name`. A bare one always either matches one of this
+             * module's own enums or is genuinely undefined -- never
+             * something pass (b) needs to resolve. `member_name` is never
+             * touched, same as a struct field name never is. */
+            if (strchr(e->as.enum_access.enum_name, '.') == NULL) {
+                for (int i = 0; i < ctx->n_enums; i++) {
+                    if (strcmp(e->as.enum_access.enum_name, ctx->orig_enum_names[i]) == 0) {
+                        e->as.enum_access.enum_name = qualify_name(ctx->own_path, e->as.enum_access.enum_name);
+                        break;
+                    }
                 }
             }
+            for (int i = 0; i < e->as.enum_access.type_args.count; i++) self_qualify_type(&e->as.enum_access.type_args.items[i], ctx);
             for (int i = 0; i < e->as.enum_access.args.count; i++) self_qualify_expr(e->as.enum_access.args.items[i], ctx);
             break;
     }
@@ -413,6 +418,84 @@ static char *resolve_type_ref(CrossRefCtx *ctx, const char *dotted, int line, in
     return qualified;
 }
 
+/* Same shape as resolve_type_ref, but looking up an enum instead of a
+ * struct -- the "does the loader's qualified-reference machinery need a
+ * second dot for `qualifier.EnumName.Variant`" concern this used to raise
+ * (see ROADMAP.md's "Generics" Stage 4) was actually just this: the
+ * *parser* needed a second dot's worth of grammar (parse_primary now
+ * has it), but once `enum_name` itself is qualified to
+ * `<module_path>::EnumName` here, `check_enum_access` in typecheck.c
+ * needs nothing new -- `find_enum` already looks a name up in the one
+ * flat, fully-qualified Module every module gets merged into. */
+static char *resolve_enum_ref(CrossRefCtx *ctx, const char *dotted, int line, int col) {
+    char *qualifier, *rest;
+    split_qualified(dotted, &qualifier, &rest);
+    UseDecl *u = find_use(ctx->mod, qualifier);
+    if (u == NULL) {
+        ziman_error("module", line, col, "no module imported under the name '%s'", qualifier);
+    }
+    Module *target = find_loaded(ctx->ldr, u->path);
+    char *qualified = qualify_name(u->path, rest);
+    EnumDecl *found = NULL;
+    for (int i = 0; i < target->enums.count; i++) {
+        if (strcmp(target->enums.items[i]->name, qualified) == 0) { found = target->enums.items[i]; break; }
+    }
+    if (found == NULL) {
+        ziman_error("module", line, col, "module '%s' has no enum '%s'", u->path, rest);
+    }
+    if (!found->is_public) {
+        ziman_error("module", line, col, "enum '%s' in module '%s' is private (add 'pub' to export it)", rest, u->path);
+    }
+    free(qualifier);
+    free(rest);
+    return qualified;
+}
+
+/* Like resolve_type_ref, but for a *type-position* reference
+ * (`val x: mod.Shape`), which -- unlike a struct literal's `type_name`,
+ * always struct-shaped by construction (`Name { ... }` can only ever
+ * build a struct) -- might actually name an enum: the parser always
+ * provisionally builds TY_STRUCT for a qualified `mod.Name` the same way
+ * it does for a bare one (see ast.h's Type comment), so this is the
+ * dotted case's equivalent of the bare case's own struct-vs-enum
+ * reclassification a few lines below. Mutates `t` directly (to TY_ENUM,
+ * if that's what it turned out to be) instead of returning a name. */
+static void resolve_type_or_enum_ref(Type *t, CrossRefCtx *ctx, int line, int col) {
+    char *qualifier, *rest;
+    split_qualified(t->struct_name, &qualifier, &rest);
+    UseDecl *u = find_use(ctx->mod, qualifier);
+    if (u == NULL) {
+        ziman_error("module", line, col, "no module imported under the name '%s'", qualifier);
+    }
+    Module *target = find_loaded(ctx->ldr, u->path);
+    char *qualified = qualify_name(u->path, rest);
+    for (int i = 0; i < target->structs.count; i++) {
+        if (strcmp(target->structs.items[i]->name, qualified) == 0) {
+            if (!target->structs.items[i]->is_public) {
+                ziman_error("module", line, col, "struct '%s' in module '%s' is private (add 'pub' to export it)", rest, u->path);
+            }
+            t->struct_name = qualified;
+            free(qualifier);
+            free(rest);
+            return;
+        }
+    }
+    for (int i = 0; i < target->enums.count; i++) {
+        if (strcmp(target->enums.items[i]->name, qualified) == 0) {
+            if (!target->enums.items[i]->is_public) {
+                ziman_error("module", line, col, "enum '%s' in module '%s' is private (add 'pub' to export it)", rest, u->path);
+            }
+            t->kind = TY_ENUM;
+            t->struct_name = NULL;
+            t->enum_name = qualified;
+            free(qualifier);
+            free(rest);
+            return;
+        }
+    }
+    ziman_error("module", line, col, "module '%s' has no struct or enum '%s'", u->path, rest);
+}
+
 static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
     if (t->kind == TY_ARRAY) {
         resolve_type_refs(t->elem, ctx, line, col);
@@ -434,7 +517,7 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
         resolve_type_refs(&t->type_args.items[i], ctx, line, col);
     }
     if (strchr(t->struct_name, '.') != NULL) {
-        t->struct_name = resolve_type_ref(ctx, t->struct_name, line, col);
+        resolve_type_or_enum_ref(t, ctx, line, col);
         return;
     }
     /* Not dotted -- either a dependency's own struct/enum (already
@@ -488,6 +571,7 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
             if (strchr(e->as.struct_lit.type_name, '.') != NULL) {
                 e->as.struct_lit.type_name = resolve_type_ref(ctx, e->as.struct_lit.type_name, e->line, e->col);
             }
+            for (int i = 0; i < e->as.struct_lit.type_args.count; i++) resolve_type_refs(&e->as.struct_lit.type_args.items[i], ctx, e->line, e->col);
             for (int i = 0; i < e->as.struct_lit.fields.count; i++) resolve_expr_refs(e->as.struct_lit.fields.items[i].value, ctx);
             break;
         case EXPR_FIELD_ACCESS:
@@ -498,9 +582,10 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
             for (int i = 0; i < e->as.with_expr.overrides.count; i++) resolve_expr_refs(e->as.with_expr.overrides.items[i].value, ctx);
             break;
         case EXPR_ENUM_ACCESS:
-            /* `enum_name` itself is never cross-module (no `use`-qualified
-             * enum access yet -- see self_qualify_expr's EXPR_ENUM_ACCESS
-             * comment), but the arguments might still contain one. */
+            if (strchr(e->as.enum_access.enum_name, '.') != NULL) {
+                e->as.enum_access.enum_name = resolve_enum_ref(ctx, e->as.enum_access.enum_name, e->line, e->col);
+            }
+            for (int i = 0; i < e->as.enum_access.type_args.count; i++) resolve_type_refs(&e->as.enum_access.type_args.items[i], ctx, e->line, e->col);
             for (int i = 0; i < e->as.enum_access.args.count; i++) resolve_expr_refs(e->as.enum_access.args.items[i], ctx);
             break;
     }

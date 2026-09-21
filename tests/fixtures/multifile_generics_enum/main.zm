@@ -1,0 +1,13 @@
+use collections
+
+fn main() {
+    val a = collections.Option<int>.Some(9)
+    val n = collections.Option<int>.None
+
+    print(collections.Option.is_Some(a))
+    print(collections.Option.unwrap_Some(a))
+    print(collections.Option.is_None(n))
+
+    val x: collections.Option<string> = collections.Option<string>.Some("hi")
+    print(collections.Option.unwrap_Some(x))
+}

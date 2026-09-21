@@ -352,9 +352,8 @@ fn main() {
 
 ## Generics
 
-**Structs and enums so far** — generic functions are not yet
-implemented, and generics are same-module only for now (see
-docs/ROADMAP.md's "Generics" entry).
+**Structs and enums so far, cross-module included** — generic functions
+are not yet implemented (see docs/ROADMAP.md's "Generics" entry).
 
 ```
 struct Box<T> {
@@ -406,7 +405,10 @@ fn main() {
   is rejected at the generic struct's own declaration — without this
   check, every reference to the real `Point` inside `Box`'s own fields
   would be silently shadowed by the type parameter instead.
-- **Same-module only** — `mod.Box<int> { ... }` isn't supported yet.
+- **Cross-module works too**: `mod.Box<int> { ... }`, and a qualified
+  type annotation (`val x: mod.Box<int>`), reach a generic struct
+  declared in another module the same way a plain `mod.Type { ... }`
+  already did for a non-generic one.
 
 **Generic enums** work the same way, with construction spelling out type
 arguments and consumption never needing to:
@@ -530,10 +532,9 @@ fn main() {
   Legal only when every payload-carrying variant's payload type is
   itself (recursively) comparable — same rule as struct fields and
   `Result<T, E>`'s `Ok`/`Err` types.
-- **Same-module only, for now.** An enum can be constructed and consumed
-  anywhere in the file that declares it — including from a different
-  function — but there's no cross-module (`use`-qualified) enum access
-  yet, tracked in ROADMAP.md.
+- **Cross-module works too**: `mod.Shape.Circle(5.0)`,
+  `mod.Shape.is_Circle(s)`, `mod.Shape.unwrap_Circle(s)`, the same as a
+  bare `Shape.Circle(...)` inside the declaring file itself.
 - **No generics.** `enum Shape { ... }` above is a concrete, monomorphic
   declaration — there's no `enum Option<T> { Some(T) None }` yet, since
   that needs real type parameters on top of this, a separate, larger

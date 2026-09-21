@@ -1,0 +1,4 @@
+use coll
+fn main() {
+    val a = coll.Option<int>.Nope(5)
+}

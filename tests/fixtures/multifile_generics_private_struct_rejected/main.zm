@@ -1,0 +1,4 @@
+use priv
+fn main() {
+    val b = priv.Box<int> { value: 5 }
+}
