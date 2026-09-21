@@ -236,9 +236,42 @@ a time mid-implementation:
 - **String interpolation.** Once string concatenation is settled, decide
   whether interpolation is a second way to do the same thing (against
   principle #2) or genuinely a different need.
+- **A real package registry** (npm/crates.io-shaped, not Maven Central-
+  shaped). Worth naming the distinction: Java's JARs are *compiled*
+  artifacts, but Ziman modules are plain `.zm` source with no bytecode/
+  compiled form at all — so npm and crates.io are the closer precedents
+  regardless, since both are fundamentally source-distributing registries
+  (crates.io hosts source tarballs; cargo compiles locally, same as
+  Ziman's interpreter would just parse locally). Firmly sequenced after
+  the module system itself is proven out with a real first-party
+  standard library (nothing to register or resolve against yet) — and a
+  much bigger undertaking than anything in the language itself once it's
+  time:
+  - **A manifest file** (`ziman.toml`/`ziman.json`-shaped) declaring a
+    package's own name, version, and dependencies — exactly the thing
+    the module system's design deliberately did *without*, since there
+    was no third-party versioning to support yet. This is the point
+    where that non-decision gets revisited, not before.
+  - **A versioning + resolution scheme.** Leaning toward Cargo's model
+    (one resolved dependency graph, a lockfile pinning exact versions)
+    over npm's historical nested/duplicate-version tolerance — a single
+    unambiguous resolution per build fits "one way to do things" better
+    than allowing two versions of the same dependency to coexist.
+  - **The registry itself is a real piece of internet infrastructure**,
+    not a language feature: hosting, publish/fetch, namespacing,
+    availability — comparable in scope to the rest of this project, not
+    a small addition to it.
+  - **Supply-chain trust is a real, not theoretical, concern** — npm
+    specifically has a well-documented history of malicious/compromised
+    packages. Whatever gets built should design around this from the
+    start (lockfiles pinning exact resolved versions at minimum;
+    namespacing and any review/signing story are open questions), not
+    bolt it on after an incident.
 
 ## Explicitly out of scope for now (see DESIGN.md "Non-goals")
 
 - Tree-native/structural source of truth — Ziman's source of truth is
   text, on purpose, to keep the project bounded.
-- A package manager or build system beyond the Makefile.
+- A package manager or build system beyond the Makefile — see the "real
+  package registry" entry above for the shape this would eventually take
+  and why it's sequenced so far out.
