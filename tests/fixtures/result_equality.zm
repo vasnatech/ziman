@@ -1,0 +1,13 @@
+fn main() {
+    val ok_a: Result<int, string> = ok(1)
+    val ok_b: Result<int, string> = ok(1)
+    val ok_c: Result<int, string> = ok(2)
+    val err_a: Result<int, string> = err("bad")
+    val err_b: Result<int, string> = err("bad")
+    print(ok_a == ok_b)
+    print(ok_a != ok_b)
+    print(ok_a == ok_c)
+    print(err_a == err_b)
+    print(ok_a == err_a)
+    print(ok_a != err_a)
+}

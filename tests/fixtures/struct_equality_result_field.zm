@@ -1,0 +1,13 @@
+struct Box {
+    r: Result<int, string>
+}
+fn main() {
+    val r1: Result<int, string> = ok(1)
+    val r2: Result<int, string> = ok(1)
+    val r3: Result<int, string> = ok(2)
+    val a = Box { r: r1 }
+    val b = Box { r: r2 }
+    val c = Box { r: r3 }
+    print(a == b)
+    print(a == c)
+}

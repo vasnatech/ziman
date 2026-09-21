@@ -71,7 +71,7 @@ char *type_name(Type type) {
         case TY_RESULT: {
             char *ok = type_name(*type.elem);
             char *err = type_name(*type.elem_err);
-            size_t len = strlen(ok) + strlen(err) + 10; /* "Result<" + ok + ", " + err + ">" + '\0' */
+            size_t len = strlen(ok) + strlen(err) + 11; /* "Result<" (7) + ok + ", " (2) + err + ">" (1) + '\0' (1) */
             char *buf = malloc(len);
             snprintf(buf, len, "Result<%s, %s>", ok, err);
             free(ok);

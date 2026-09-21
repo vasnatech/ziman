@@ -1,9 +1,0 @@
-struct Box {
-    r: Result<int, string>
-}
-fn main() {
-    val r: Result<int, string> = ok(1)
-    val a = Box { r: r }
-    val b = Box { r: r }
-    print(a == b)
-}

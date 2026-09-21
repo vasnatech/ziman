@@ -22,6 +22,46 @@ static StructDecl *find_struct(Module *module, const char *name) {
 static Type check_expr(Module *module, Env *env, Expr *e);
 static void check_type_well_formed(Module *module, Type t, int line, int col);
 
+static int is_scalar_kind(TypeKind kind) {
+    return kind == TY_INT || kind == TY_FLOAT || kind == TY_BOOL || kind == TY_STRING;
+}
+
+/* Whether '=='/'!=' is legal for a value of type `t`: scalars always,
+ * `[T]` only when T is itself scalar (an array's own equality, not
+ * generalized to "any comparable T" -- see docs/SYNTAX.md "Arrays"),
+ * a struct only when every one of its fields is (recursively) comparable,
+ * and a `Result<T, E>` only when both `T` and `E` are (recursively)
+ * comparable -- a runtime value only ever holds one of the two, but which
+ * one isn't known until the value exists, so both branches have to type-check
+ * as comparable for the type itself to be. `depth` guards the still-open
+ * "self-referential struct can't be constructed" gap (docs/ROADMAP.md) -- a
+ * directly or mutually self-referential struct declaration would otherwise
+ * send this into unbounded recursion just from its *shape*, even though no
+ * value of that shape can ever actually exist yet. */
+static int type_supports_equality(Module *module, Type t, int depth) {
+    if (depth > 64) return 0;
+    switch (t.kind) {
+        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING:
+            return 1;
+        case TY_ARRAY:
+            return is_scalar_kind(t.elem->kind);
+        case TY_STRUCT: {
+            StructDecl *decl = find_struct(module, t.struct_name);
+            if (decl == NULL) return 0;
+            for (int i = 0; i < decl->fields.count; i++) {
+                if (!type_supports_equality(module, decl->fields.items[i].type, depth + 1)) return 0;
+            }
+            return 1;
+        }
+        case TY_RESULT:
+            return type_supports_equality(module, *t.elem, depth + 1) &&
+                   type_supports_equality(module, *t.elem_err, depth + 1);
+        case TY_VOID:
+        default:
+            return 0;
+    }
+}
+
 static void require_not_void(Expr *e, const char *context) {
     if (e->resolved_type.kind == TY_VOID) {
         ziman_error("type", e->line, e->col, "cannot use a void value %s", context);
@@ -58,22 +98,22 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
             return type_scalar(TY_BOOL);
         case OP_EQ:
         case OP_NEQ:
-            if (lt.kind == TY_STRUCT || rt.kind == TY_STRUCT || lt.kind == TY_RESULT || rt.kind == TY_RESULT) {
-                ziman_error("type", e->line, e->col, "structs and Results cannot be compared with '=='/'!=' in v0");
-            }
-            if (lt.kind == TY_ARRAY || rt.kind == TY_ARRAY) {
-                if (!type_equals(lt, rt)) {
-                    ziman_error("type", e->line, e->col, "cannot compare %s and %s for equality", type_name(lt), type_name(rt));
-                }
-                Type elem_type = *lt.elem;
-                if (elem_type.kind != TY_INT && elem_type.kind != TY_FLOAT && elem_type.kind != TY_BOOL && elem_type.kind != TY_STRING) {
-                    ziman_error("type", e->line, e->col,
-                                "array '=='/'!=' requires an array of a comparable (scalar) type, found %s", type_name(lt));
-                }
-                return type_scalar(TY_BOOL);
-            }
             if (!type_equals(lt, rt)) {
                 ziman_error("type", e->line, e->col, "cannot compare %s and %s for equality", type_name(lt), type_name(rt));
+            }
+            if (!type_supports_equality(module, lt, 0)) {
+                if (lt.kind == TY_RESULT) {
+                    ziman_error("type", e->line, e->col,
+                                "%s cannot be compared with '=='/'!=' because its Ok or Err type is not a comparable type",
+                                type_name(lt));
+                } else if (lt.kind == TY_ARRAY) {
+                    ziman_error("type", e->line, e->col,
+                                "array '=='/'!=' requires an array of a comparable (scalar) type, found %s", type_name(lt));
+                } else {
+                    ziman_error("type", e->line, e->col,
+                                "struct '%s' cannot be compared with '=='/'!=' because one of its fields is not a comparable type",
+                                type_name(lt));
+                }
             }
             return type_scalar(TY_BOOL);
         case OP_AND:
@@ -282,7 +322,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         if (first_type.kind == TY_ARRAY) {
             Type elem_type = *first_type.elem;
-            if (elem_type.kind != TY_INT && elem_type.kind != TY_FLOAT && elem_type.kind != TY_BOOL && elem_type.kind != TY_STRING) {
+            if (!is_scalar_kind(elem_type.kind)) {
                 ziman_error("type", first_arg->line, first_arg->col,
                             "'contains' requires an array of a comparable (scalar) type, found %s", type_name(first_type));
             }

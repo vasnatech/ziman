@@ -1,0 +1,9 @@
+struct Point {
+    x: int
+    y: int
+}
+fn main() {
+    val a: Result<[Point], string> = ok([Point{x:1,y:1}])
+    val b: Result<[Point], string> = ok([Point{x:1,y:1}])
+    print(a == b)
+}

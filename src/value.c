@@ -56,10 +56,11 @@ ResultObj *result_obj_new(int is_ok, Value value) {
 }
 
 int value_equals(Value a, Value b) {
-    /* Callers only compare same-typed values -- enforced by the type checker,
-     * which also rejects '=='/'!=' on structs and Results entirely, and on
-     * arrays of anything but a scalar element type (see typecheck.c), so
-     * only scalars and scalar-element arrays should ever reach here. */
+    /* Callers only compare same-typed values, and only when the type checker
+     * (type_supports_equality in typecheck.c) has already established that
+     * type is comparable: arrays only for a scalar element type, a struct
+     * only when every field is (recursively), a Result only when both its
+     * Ok and Err types are (recursively). */
     switch (a.type.kind) {
         case TY_INT: return a.as.i == b.as.i;
         case TY_FLOAT: return a.as.f == b.as.f;
@@ -75,12 +76,28 @@ int value_equals(Value a, Value b) {
             }
             return 1;
         }
-        case TY_STRUCT:
-            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on structs should have been rejected by the type checker");
-            return 0;
-        case TY_RESULT:
-            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on Results should have been rejected by the type checker");
-            return 0;
+        case TY_STRUCT: {
+            /* Same declared struct type on both sides (enforced by the type
+             * checker), so field count and order already match -- fields
+             * are always stored in declaration order regardless of the
+             * literal's write order (see EXPR_STRUCT_LIT in interpreter.c),
+             * making a plain positional walk safe. */
+            StructObj *st_a = a.as.st;
+            StructObj *st_b = b.as.st;
+            for (int i = 0; i < st_a->count; i++) {
+                if (!value_equals(st_a->fields[i], st_b->fields[i])) return 0;
+            }
+            return 1;
+        }
+        case TY_RESULT: {
+            /* Different variants (Ok vs Err) are never equal, regardless of
+             * payload -- same as any other sum-type-shaped equality (e.g.
+             * Rust's derived PartialEq for an enum). */
+            ResultObj *res_a = a.as.res;
+            ResultObj *res_b = b.as.res;
+            if (res_a->is_ok != res_b->is_ok) return 0;
+            return value_equals(res_a->value, res_b->value);
+        }
     }
     return 0;
 }

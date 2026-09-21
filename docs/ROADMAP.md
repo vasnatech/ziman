@@ -134,8 +134,18 @@ a time mid-implementation:
   - **`io.write_file` isn't migrated** — still fatal on failure. Not a
     design gap, just not done; the exact same treatment `read_file` got
     would apply.
-  - **`==`/`!=` on `Result`** is a type error, same open gap arrays and
-    structs already have.
+  - ~~**`==`/`!=` on `Result`**~~ Implemented: variant (`Ok`/`Err`) then
+    payload — an `Ok` and an `Err` are never equal regardless of
+    payload, matching two same-variant values are equal iff their
+    payload is (reusing `type_supports_equality`, shared with arrays'
+    and structs' own equality checks). Legal only when both `T` and `E`
+    are (recursively) comparable, since the variant isn't known
+    statically. Caught and fixed a real, previously-latent bug while
+    verifying this: `type_name()`'s `Result<T, E>` formatting
+    (ast.c) allocated one byte short and silently truncated the closing
+    `>` in any error message that printed a Result type name — nothing
+    had exercised that path before this feature's own error messages
+    did.
   - **`Option<T>`** (for the still-separate optional/nullable-type gap
     above) would very likely use this exact same trick — not designed,
     but the precedent now exists.
@@ -190,8 +200,11 @@ a time mid-implementation:
   combined peek+remove would just be a second way to do the same thing).
   ~~`==`/`!=` on arrays~~ Implemented for scalar-element `[T]` only
   (`int`/`float`/`bool`/`string`) — length then elementwise
-  `value_equals`; arrays of structs/Results/nested arrays are still a
-  type error, same open gap those types have on their own.
+  `value_equals`. Deliberately not generalized to "array of any
+  comparable `T`" even now that structs have their own equality (see
+  the Classes/structs entry below) — arrays of structs/Results/nested
+  arrays stay a type error until something actually needs that,
+  keeping today's array-equality feature scoped to what was asked for.
   ~~Iterating without manual indices~~ Implemented — see the `for` loop
   entry above; `for x in arr` (or `for i, x in arr` when the index is
   also needed) replaces the manual `var i = 0; while i < len(arr) { ...
@@ -210,12 +223,20 @@ a time mid-implementation:
   `with p { x: 99 }` builds a new struct instead (a considered-and-rejected
   `..p` spread operator and a considered-and-rejected `new Point { ... }`
   construction keyword are both written up in DESIGN.md, with why they
-  lost to the shipped alternatives). Still open, not yet decided:
-  - **`==`/`!=` on structs** — currently a type error. Arrays got a
-    scalar-element version of this (see the Arrays entry above); a
-    struct doesn't have an equally obvious default (field-by-field
-    equality is the natural choice, but nothing's forced that decision
-    yet).
+  lost to the shipped alternatives).
+  ~~`==`/`!=` on structs~~ Implemented: field-by-field, in declaration
+  order, short-circuiting on the first mismatch (docs/SYNTAX.md
+  "Structs") — legal only when every field's own type is itself
+  comparable, checked recursively, so a struct nesting only comparable
+  structs/scalars/scalar-arrays/comparable-`Result`s is fine but one
+  with, say, an array-of-struct field (or a `Result<T, E>` whose `T`/`E`
+  isn't itself comparable) is a type error naming the struct. A
+  self-referential struct declaration (still uninstantiable,
+  see the "no optional/nullable type" entry above) can't send the
+  checker into unbounded recursion either — a depth guard in
+  `type_supports_equality` (typecheck.c) treats a cycle as
+  not-comparable, which can never actually matter for real data since
+  no value of that shape exists yet. Still open, not yet decided:
   - **Trait/interface-style polymorphism** — deliberately not attempted
     yet; revisit only once a concrete program needs it and free functions
     plus nominal typing genuinely can't express it.

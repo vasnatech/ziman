@@ -280,10 +280,16 @@ fn main() {
   (`distance_squared(a, b)`, not `a.distance_squared(b)`) — no `impl`
   blocks, no inheritance. See docs/DESIGN.md on why (the classes-vs-traits
   discussion this project's history has).
-- **`==`/`!=` on structs is a type error in v0** — not implemented,
-  tracked in ROADMAP.md. (Arrays got a scalar-element-only version of
-  this — see "Arrays" above — but a struct has no single obvious
-  field-by-field default the way an array's uniform element type does.)
+- **`==`/`!=` on structs compares every field, in declaration order** —
+  `a == b` is `a.f1 == b.f1 && a.f2 == b.f2 && ...` for every field `f`,
+  short-circuiting on the first mismatch. Both sides must be the same
+  declared struct type, same rule as any other `==`. This only works
+  when *every* field's own type supports `==` — recursively, so a
+  struct nested inside another struct is fine as long as it's itself
+  comparable this same way, but a field that's a `Result`, or an array
+  of anything but a scalar (see "Arrays" above), makes the whole struct
+  a type error to compare, naming the struct and pointing at
+  ROADMAP.md's still-open gaps on those two types' own equality.
 - Field types can reference another struct (`struct Line { start: Point
   end: Point }`) and structs can be declared in any order — a field type
   can name a struct declared later in the file. Referencing a struct name
@@ -413,8 +419,15 @@ fn main() {
   isn't to avoid ever crashing, it's that crashing on failure is now a
   *choice* the caller makes explicitly, instead of something a function
   like `io.read_file` used to force unconditionally.
-- **`==`/`!=` on `Result` is a type error**, same as structs — not
-  implemented, tracked in ROADMAP.md.
+- **`==`/`!=` on `Result<T, E>` compares variant then payload** — an `Ok`
+  and an `Err` are never equal to each other regardless of payload; two
+  values of the same variant are equal iff their payloads are (`T` for
+  `Ok`, `E` for `Err`). Legal only when *both* `T` and `E` are
+  comparable — recursively, using the exact same rule structs and
+  arrays use — since a `Result`'s variant isn't known statically, so
+  both branches have to type-check as comparable for the type itself to
+  be. A struct with a `Result<T, E>` field is comparable exactly when
+  that `Result` is (see "Structs" above).
 - **`T`/`E` can be any Ziman type**, including another `Result`, an
   array, or a struct — this is what lets application code layer a
   richer error type (a struct with a `code` and a `message`, say) on top
@@ -461,7 +474,7 @@ violates one of these never executes any code, it's rejected up front:
 |------------------------|-----------------------------|--------------------------|---------|
 | Arithmetic             | `+ - * / %`                 | `int,int` or `float,float`* | same type |
 | Comparison             | `< > <= >=`                 | `int,int` or `float,float` | `bool`  |
-| Equality               | `== !=`                     | any two of the same scalar type, or two `[T]` of the same *scalar* `T` (never structs, Results, or arrays of non-scalar `T`) | `bool`  |
+| Equality               | `== !=`                     | any two of the same type, provided that type is "comparable": a scalar always, `[T]` only for scalar `T`, a struct only if every field is (recursively) comparable, `Result<T, E>` only if both `T` and `E` are (recursively) comparable | `bool`  |
 | Logical                | `&& \|\|`                   | `bool, bool`             | `bool`  |
 | Unary negate           | `-`                          | `int` or `float`         | same type |
 | Unary not              | `!`                          | `bool`                   | `bool`  |

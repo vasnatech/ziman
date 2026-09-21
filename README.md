@@ -21,12 +21,14 @@ array, or a range for a counted loop — `for x in arr`, `for i in 0..n`,
 `for i, x in arr`), `break`/`continue`, the four scalar types (`int`, `float`, `bool`,
 `string`), value-semantics arrays (`[T]`, nestable), plain nominal
 value-semantics `struct`s (named-fields-only construction, `with` for
-non-mutating field updates, no methods/inheritance), multi-file programs
+non-mutating field updates, no methods/inheritance, field-by-field
+`==`/`!=` when every field is itself comparable), multi-file programs
 via `use path/to/mod` (always-qualified cross-module calls, `pub` for
 exports, project-relative resolution only so far), `native fn` for
 calling into C (a real, minimal `io` module — `read_file`/`write_file`
 — proves it end to end), `Result<T, E>` for recoverable errors
-(`io.read_file` returns one instead of crashing on a missing file), and
+(`io.read_file` returns one instead of crashing on a missing file,
+variant-then-payload `==`/`!=` when both `T` and `E` are comparable), and
 a full set of builtins (`print`, `concat`, `str`, `format`, `len`,
 `push`, `insert`, `set`, `remove`, `substring`, `split`, `trim`,
 `to_upper`, `to_lower`, `parse_int`, `parse_float`, `contains`, `abs`,

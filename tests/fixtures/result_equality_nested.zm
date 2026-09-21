@@ -1,0 +1,10 @@
+fn main() {
+    val inner_a: Result<int, string> = ok(5)
+    val inner_b: Result<int, string> = ok(5)
+    val inner_c: Result<int, string> = ok(9)
+    val a: Result<Result<int, string>, string> = ok(inner_a)
+    val b: Result<Result<int, string>, string> = ok(inner_b)
+    val c: Result<Result<int, string>, string> = ok(inner_c)
+    print(a == b)
+    print(a == c)
+}
