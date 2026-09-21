@@ -24,7 +24,7 @@ typedef struct ArrayObj {
  * still get correct value semantics, since only `with` ever produces a new
  * StructObj (it never mutates the one it started from). `field_names` is
  * borrowed from the StructDecl (never freed, never duplicated per
- * instance) so this module doesn't need a Program* to print or look up
+ * instance) so this module doesn't need a Module* to print or look up
  * fields by name -- the interpreter, which does have one, resolves names
  * to slots once at construction time. */
 typedef struct StructObj {

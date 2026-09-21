@@ -497,9 +497,9 @@ static StructDecl *parse_struct_decl(Parser *p) {
     return sd;
 }
 
-Program *parse(TokenList tokens) {
+Module *parse(TokenList tokens) {
     Parser p = {tokens, 0};
-    Program *program = calloc(1, sizeof(Program));
+    Module *module = calloc(1, sizeof(Module));
 
     skip_newlines(&p);
     while (!check(&p, TOK_EOF)) {
@@ -507,18 +507,18 @@ Program *parse(TokenList tokens) {
         if (check(&p, TOK_STRUCT)) {
             StructDecl *sd = parse_struct_decl(&p);
             sd->is_public = is_public;
-            struct_list_push(&program->structs, sd);
+            struct_list_push(&module->structs, sd);
         } else if (check(&p, TOK_NATIVE)) {
             FunctionDecl *fn = parse_native_function(&p);
             fn->is_public = is_public;
-            function_list_push(&program->functions, fn);
+            function_list_push(&module->functions, fn);
         } else {
             FunctionDecl *fn = parse_function(&p);
             fn->is_public = is_public;
-            function_list_push(&program->functions, fn);
+            function_list_push(&module->functions, fn);
         }
         skip_newlines(&p);
     }
 
-    return program;
+    return module;
 }

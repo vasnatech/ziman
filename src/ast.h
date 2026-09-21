@@ -189,7 +189,7 @@ typedef struct {
 typedef struct {
     FunctionList functions;
     StructList structs;
-} Program;
+} Module;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --
  * the interpreter is a short-lived process (see docs/ROADMAP.md). */

@@ -31,9 +31,9 @@ int main(int argc, char **argv) {
 
     char *source = read_file(argv[1]);
     TokenList tokens = lex(source);
-    Program *program = parse(tokens);
-    typecheck(program);
-    interpret(program);
+    Module *module = parse(tokens);
+    typecheck(module);
+    interpret(module);
 
     token_list_free(&tokens);
     free(source);

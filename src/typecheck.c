@@ -5,22 +5,22 @@
 #include "env.h"
 #include "error.h"
 
-static FunctionDecl *find_function(Program *program, const char *name) {
-    for (int i = 0; i < program->functions.count; i++) {
-        if (strcmp(program->functions.items[i]->name, name) == 0) return program->functions.items[i];
+static FunctionDecl *find_function(Module *module, const char *name) {
+    for (int i = 0; i < module->functions.count; i++) {
+        if (strcmp(module->functions.items[i]->name, name) == 0) return module->functions.items[i];
     }
     return NULL;
 }
 
-static StructDecl *find_struct(Program *program, const char *name) {
-    for (int i = 0; i < program->structs.count; i++) {
-        if (strcmp(program->structs.items[i]->name, name) == 0) return program->structs.items[i];
+static StructDecl *find_struct(Module *module, const char *name) {
+    for (int i = 0; i < module->structs.count; i++) {
+        if (strcmp(module->structs.items[i]->name, name) == 0) return module->structs.items[i];
     }
     return NULL;
 }
 
-static Type check_expr(Program *program, Env *env, Expr *e);
-static void check_type_well_formed(Program *program, Type t, int line, int col);
+static Type check_expr(Module *module, Env *env, Expr *e);
+static void check_type_well_formed(Module *module, Type t, int line, int col);
 
 static void require_not_void(Expr *e, const char *context) {
     if (e->resolved_type.kind == TY_VOID) {
@@ -28,9 +28,9 @@ static void require_not_void(Expr *e, const char *context) {
     }
 }
 
-static Type check_binary(Program *program, Env *env, Expr *e) {
-    Type lt = check_expr(program, env, e->as.binary.left);
-    Type rt = check_expr(program, env, e->as.binary.right);
+static Type check_binary(Module *module, Env *env, Expr *e) {
+    Type lt = check_expr(module, env, e->as.binary.left);
+    Type rt = check_expr(module, env, e->as.binary.right);
     require_not_void(e->as.binary.left, "as an operand");
     require_not_void(e->as.binary.right, "as an operand");
 
@@ -77,8 +77,8 @@ static Type check_binary(Program *program, Env *env, Expr *e) {
     }
 }
 
-static Type check_unary(Program *program, Env *env, Expr *e) {
-    Type t = check_expr(program, env, e->as.unary.operand);
+static Type check_unary(Module *module, Env *env, Expr *e) {
+    Type t = check_expr(module, env, e->as.unary.operand);
     require_not_void(e->as.unary.operand, "as an operand");
     if (e->as.unary.op == OP_NEG) {
         if (t.kind != TY_INT && t.kind != TY_FLOAT) {
@@ -116,14 +116,14 @@ static int count_placeholders(Expr *fmt_expr) {
     return count;
 }
 
-static Type check_call(Program *program, Env *env, Expr *e) {
+static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
 
     if (strcmp(name, "print") == 0) {
         if (e->as.call.args.count != 1) {
             ziman_error("type", e->line, e->col, "'print' takes exactly 1 argument, found %d", e->as.call.args.count);
         }
-        check_expr(program, env, e->as.call.args.items[0]);
+        check_expr(module, env, e->as.call.args.items[0]);
         require_not_void(e->as.call.args.items[0], "as an argument");
         return type_scalar(TY_VOID);
     }
@@ -134,7 +134,7 @@ static Type check_call(Program *program, Env *env, Expr *e) {
         }
         for (int i = 0; i < 2; i++) {
             Expr *arg = e->as.call.args.items[i];
-            Type arg_type = check_expr(program, env, arg);
+            Type arg_type = check_expr(module, env, arg);
             if (arg_type.kind != TY_STRING) {
                 ziman_error("type", arg->line, arg->col,
                             "argument %d of 'concat' expects string, found %s (use 'str' to convert first)",
@@ -149,7 +149,7 @@ static Type check_call(Program *program, Env *env, Expr *e) {
             ziman_error("type", e->line, e->col, "'str' takes exactly 1 argument, found %d", e->as.call.args.count);
         }
         Expr *arg = e->as.call.args.items[0];
-        Type arg_type = check_expr(program, env, arg);
+        Type arg_type = check_expr(module, env, arg);
         if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT && arg_type.kind != TY_BOOL) {
             ziman_error("type", arg->line, arg->col,
                         "'str' expects an int, float, or bool, found %s (it's already a string)",
@@ -178,7 +178,7 @@ static Type check_call(Program *program, Env *env, Expr *e) {
         }
         for (int i = 1; i < e->as.call.args.count; i++) {
             Expr *arg = e->as.call.args.items[i];
-            check_expr(program, env, arg);
+            check_expr(module, env, arg);
             require_not_void(arg, "as a format argument");
         }
         return type_scalar(TY_STRING);
@@ -189,7 +189,7 @@ static Type check_call(Program *program, Env *env, Expr *e) {
             ziman_error("type", e->line, e->col, "'len' takes exactly 1 argument, found %d", e->as.call.args.count);
         }
         Expr *arg = e->as.call.args.items[0];
-        Type arg_type = check_expr(program, env, arg);
+        Type arg_type = check_expr(module, env, arg);
         if (arg_type.kind != TY_ARRAY) {
             ziman_error("type", arg->line, arg->col, "'len' expects an array, found %s", type_name(arg_type));
         }
@@ -204,7 +204,7 @@ static Type check_call(Program *program, Env *env, Expr *e) {
         }
 
         Expr *arr_arg = e->as.call.args.items[0];
-        Type arr_type = check_expr(program, env, arr_arg);
+        Type arr_type = check_expr(module, env, arr_arg);
         if (arr_type.kind != TY_ARRAY) {
             ziman_error("type", arr_arg->line, arr_arg->col, "argument 1 of '%s' expects an array, found %s", name, type_name(arr_type));
         }
@@ -212,14 +212,14 @@ static Type check_call(Program *program, Env *env, Expr *e) {
         int value_arg_index = is_push ? 1 : 2;
         if (!is_push) {
             Expr *idx_arg = e->as.call.args.items[1];
-            Type idx_type = check_expr(program, env, idx_arg);
+            Type idx_type = check_expr(module, env, idx_arg);
             if (idx_type.kind != TY_INT) {
                 ziman_error("type", idx_arg->line, idx_arg->col, "argument 2 of '%s' expects int, found %s", name, type_name(idx_type));
             }
         }
 
         Expr *value_arg = e->as.call.args.items[value_arg_index];
-        Type value_type = check_expr(program, env, value_arg);
+        Type value_type = check_expr(module, env, value_arg);
         require_not_void(value_arg, "as an array element");
         if (!type_equals(value_type, *arr_type.elem)) {
             ziman_error("type", value_arg->line, value_arg->col,
@@ -229,7 +229,7 @@ static Type check_call(Program *program, Env *env, Expr *e) {
         return arr_type;
     }
 
-    FunctionDecl *fn = find_function(program, name);
+    FunctionDecl *fn = find_function(module, name);
     if (fn == NULL) {
         ziman_error("type", e->line, e->col, "call to undefined function '%s'", name);
     }
@@ -238,7 +238,7 @@ static Type check_call(Program *program, Env *env, Expr *e) {
     }
     for (int i = 0; i < e->as.call.args.count; i++) {
         Expr *arg = e->as.call.args.items[i];
-        Type arg_type = check_expr(program, env, arg);
+        Type arg_type = check_expr(module, env, arg);
         require_not_void(arg, "as an argument");
         Type expected = fn->params.items[i].type;
         if (!type_equals(arg_type, expected)) {
@@ -250,8 +250,8 @@ static Type check_call(Program *program, Env *env, Expr *e) {
     return fn->return_type;
 }
 
-static Type check_cast(Program *program, Env *env, Expr *e) {
-    Type from = check_expr(program, env, e->as.cast.operand);
+static Type check_cast(Module *module, Env *env, Expr *e) {
+    Type from = check_expr(module, env, e->as.cast.operand);
     require_not_void(e->as.cast.operand, "as a cast operand");
     Type to = e->as.cast.target_type;
     int numeric_from = from.kind == TY_INT || from.kind == TY_FLOAT;
@@ -262,17 +262,17 @@ static Type check_cast(Program *program, Env *env, Expr *e) {
     return to;
 }
 
-static Type check_array_literal(Program *program, Env *env, Expr *e) {
+static Type check_array_literal(Module *module, Env *env, Expr *e) {
     ExprList *elements = &e->as.array_lit.elements;
     if (elements->count == 0) {
         ziman_error("type", e->line, e->col,
                     "cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])");
     }
-    Type elem_type = check_expr(program, env, elements->items[0]);
+    Type elem_type = check_expr(module, env, elements->items[0]);
     require_not_void(elements->items[0], "as an array element");
     for (int i = 1; i < elements->count; i++) {
         Expr *el = elements->items[i];
-        Type t = check_expr(program, env, el);
+        Type t = check_expr(module, env, el);
         if (!type_equals(t, elem_type)) {
             ziman_error("type", el->line, el->col,
                         "array elements must all have the same type: element 0 is %s, element %d is %s",
@@ -282,12 +282,12 @@ static Type check_array_literal(Program *program, Env *env, Expr *e) {
     return type_array(elem_type);
 }
 
-static Type check_index(Program *program, Env *env, Expr *e) {
-    Type arr_type = check_expr(program, env, e->as.index.array);
+static Type check_index(Module *module, Env *env, Expr *e) {
+    Type arr_type = check_expr(module, env, e->as.index.array);
     if (arr_type.kind != TY_ARRAY) {
         ziman_error("type", e->as.index.array->line, e->as.index.array->col, "cannot index into %s (not an array)", type_name(arr_type));
     }
-    Type idx_type = check_expr(program, env, e->as.index.index);
+    Type idx_type = check_expr(module, env, e->as.index.index);
     if (idx_type.kind != TY_INT) {
         ziman_error("type", e->as.index.index->line, e->as.index.index->col, "array index must be int, found %s", type_name(idx_type));
     }
@@ -315,9 +315,9 @@ static Param *resolve_field_init(StructDecl *decl, FieldInitList *inits, int ind
     return field;
 }
 
-static Type check_struct_literal(Program *program, Env *env, Expr *e) {
+static Type check_struct_literal(Module *module, Env *env, Expr *e) {
     const char *type_name_str = e->as.struct_lit.type_name;
-    StructDecl *decl = find_struct(program, type_name_str);
+    StructDecl *decl = find_struct(module, type_name_str);
     if (decl == NULL) {
         ziman_error("type", e->line, e->col, "no struct named '%s'", type_name_str);
     }
@@ -325,7 +325,7 @@ static Type check_struct_literal(Program *program, Env *env, Expr *e) {
 
     for (int i = 0; i < inits->count; i++) {
         Param *field = resolve_field_init(decl, inits, i);
-        Type value_type = check_expr(program, env, inits->items[i].value);
+        Type value_type = check_expr(module, env, inits->items[i].value);
         require_not_void(inits->items[i].value, "as a field value");
         if (!type_equals(value_type, field->type)) {
             ziman_error("type", inits->items[i].value->line, inits->items[i].value->col,
@@ -348,13 +348,13 @@ static Type check_struct_literal(Program *program, Env *env, Expr *e) {
     return type_struct(type_name_str);
 }
 
-static Type check_field_access(Program *program, Env *env, Expr *e) {
-    Type base_type = check_expr(program, env, e->as.field_access.base);
+static Type check_field_access(Module *module, Env *env, Expr *e) {
+    Type base_type = check_expr(module, env, e->as.field_access.base);
     if (base_type.kind != TY_STRUCT) {
         ziman_error("type", e->as.field_access.base->line, e->as.field_access.base->col,
                     "cannot access field '%s' on %s (not a struct)", e->as.field_access.field_name, type_name(base_type));
     }
-    StructDecl *decl = find_struct(program, base_type.struct_name);
+    StructDecl *decl = find_struct(module, base_type.struct_name);
     for (int i = 0; i < decl->fields.count; i++) {
         if (strcmp(decl->fields.items[i].name, e->as.field_access.field_name) == 0) {
             return decl->fields.items[i].type;
@@ -364,18 +364,18 @@ static Type check_field_access(Program *program, Env *env, Expr *e) {
     return type_scalar(TY_VOID);
 }
 
-static Type check_with_expr(Program *program, Env *env, Expr *e) {
-    Type base_type = check_expr(program, env, e->as.with_expr.base);
+static Type check_with_expr(Module *module, Env *env, Expr *e) {
+    Type base_type = check_expr(module, env, e->as.with_expr.base);
     if (base_type.kind != TY_STRUCT) {
         ziman_error("type", e->as.with_expr.base->line, e->as.with_expr.base->col,
                     "'with' requires a struct value, found %s", type_name(base_type));
     }
-    StructDecl *decl = find_struct(program, base_type.struct_name);
+    StructDecl *decl = find_struct(module, base_type.struct_name);
     FieldInitList *overrides = &e->as.with_expr.overrides;
 
     for (int i = 0; i < overrides->count; i++) {
         Param *field = resolve_field_init(decl, overrides, i);
-        Type value_type = check_expr(program, env, overrides->items[i].value);
+        Type value_type = check_expr(module, env, overrides->items[i].value);
         require_not_void(overrides->items[i].value, "as a field value");
         if (!type_equals(value_type, field->type)) {
             ziman_error("type", overrides->items[i].value->line, overrides->items[i].value->col,
@@ -388,7 +388,7 @@ static Type check_with_expr(Program *program, Env *env, Expr *e) {
     return base_type;
 }
 
-static Type check_expr(Program *program, Env *env, Expr *e) {
+static Type check_expr(Module *module, Env *env, Expr *e) {
     Type t;
     switch (e->kind) {
         case EXPR_INT: t = type_scalar(TY_INT); break;
@@ -403,15 +403,15 @@ static Type check_expr(Program *program, Env *env, Expr *e) {
             t = b->type;
             break;
         }
-        case EXPR_UNARY: t = check_unary(program, env, e); break;
-        case EXPR_BINARY: t = check_binary(program, env, e); break;
-        case EXPR_CALL: t = check_call(program, env, e); break;
-        case EXPR_CAST: t = check_cast(program, env, e); break;
-        case EXPR_ARRAY_LIT: t = check_array_literal(program, env, e); break;
-        case EXPR_INDEX: t = check_index(program, env, e); break;
-        case EXPR_STRUCT_LIT: t = check_struct_literal(program, env, e); break;
-        case EXPR_FIELD_ACCESS: t = check_field_access(program, env, e); break;
-        case EXPR_WITH: t = check_with_expr(program, env, e); break;
+        case EXPR_UNARY: t = check_unary(module, env, e); break;
+        case EXPR_BINARY: t = check_binary(module, env, e); break;
+        case EXPR_CALL: t = check_call(module, env, e); break;
+        case EXPR_CAST: t = check_cast(module, env, e); break;
+        case EXPR_ARRAY_LIT: t = check_array_literal(module, env, e); break;
+        case EXPR_INDEX: t = check_index(module, env, e); break;
+        case EXPR_STRUCT_LIT: t = check_struct_literal(module, env, e); break;
+        case EXPR_FIELD_ACCESS: t = check_field_access(module, env, e); break;
+        case EXPR_WITH: t = check_with_expr(module, env, e); break;
         default:
             ziman_error("type", e->line, e->col, "internal error: unhandled expression kind");
             t = type_scalar(TY_VOID);
@@ -443,24 +443,24 @@ static int stmt_always_returns(Stmt *s) {
     }
 }
 
-static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type);
+static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type);
 
-static void check_block(Program *program, Env *parent, Stmt *block, Type fn_return_type) {
+static void check_block(Module *module, Env *parent, Stmt *block, Type fn_return_type) {
     Env *scope = env_new(parent);
     for (int i = 0; i < block->as.block.stmts.count; i++) {
-        check_stmt(program, scope, block->as.block.stmts.items[i], fn_return_type);
+        check_stmt(module, scope, block->as.block.stmts.items[i], fn_return_type);
     }
     env_free(scope);
 }
 
-static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type) {
+static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type) {
     switch (s->kind) {
         case STMT_VAL:
         case STMT_VAR: {
             Expr *init = s->as.decl.init;
             Type declared;
             if (s->as.decl.has_declared_type) {
-                check_type_well_formed(program, s->as.decl.declared_type, s->line, s->col);
+                check_type_well_formed(module, s->as.decl.declared_type, s->line, s->col);
             }
             /* An empty array literal (`[]`) has no elements to infer a type
              * from -- it's only legal when a declared type gives its
@@ -479,7 +479,7 @@ static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type)
                 init->resolved_type = s->as.decl.declared_type;
                 declared = s->as.decl.declared_type;
             } else {
-                Type init_type = check_expr(program, env, init);
+                Type init_type = check_expr(module, env, init);
                 require_not_void(init, "to initialize a variable");
                 declared = init_type;
                 if (s->as.decl.has_declared_type) {
@@ -505,7 +505,7 @@ static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type)
             if (!b->is_mutable) {
                 ziman_error("type", s->line, s->col, "cannot assign to '%s' because it was declared with 'val' (use 'var' to make it mutable)", s->as.assign.name);
             }
-            Type value_type = check_expr(program, env, s->as.assign.value);
+            Type value_type = check_expr(module, env, s->as.assign.value);
             require_not_void(s->as.assign.value, "in an assignment");
             if (!type_equals(value_type, b->type)) {
                 ziman_error("type", s->as.assign.value->line, s->as.assign.value->col,
@@ -515,26 +515,26 @@ static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type)
             break;
         }
         case STMT_IF: {
-            Type cond_type = check_expr(program, env, s->as.if_stmt.cond);
+            Type cond_type = check_expr(module, env, s->as.if_stmt.cond);
             if (cond_type.kind != TY_BOOL) {
                 ziman_error("type", s->as.if_stmt.cond->line, s->as.if_stmt.cond->col, "'if' condition must be bool, found %s", type_name(cond_type));
             }
-            check_block(program, env, s->as.if_stmt.then_block, fn_return_type);
+            check_block(module, env, s->as.if_stmt.then_block, fn_return_type);
             if (s->as.if_stmt.else_block != NULL) {
                 if (s->as.if_stmt.else_block->kind == STMT_IF) {
-                    check_stmt(program, env, s->as.if_stmt.else_block, fn_return_type);
+                    check_stmt(module, env, s->as.if_stmt.else_block, fn_return_type);
                 } else {
-                    check_block(program, env, s->as.if_stmt.else_block, fn_return_type);
+                    check_block(module, env, s->as.if_stmt.else_block, fn_return_type);
                 }
             }
             break;
         }
         case STMT_WHILE: {
-            Type cond_type = check_expr(program, env, s->as.while_stmt.cond);
+            Type cond_type = check_expr(module, env, s->as.while_stmt.cond);
             if (cond_type.kind != TY_BOOL) {
                 ziman_error("type", s->as.while_stmt.cond->line, s->as.while_stmt.cond->col, "'while' condition must be bool, found %s", type_name(cond_type));
             }
-            check_block(program, env, s->as.while_stmt.body, fn_return_type);
+            check_block(module, env, s->as.while_stmt.body, fn_return_type);
             break;
         }
         case STMT_RETURN: {
@@ -543,7 +543,7 @@ static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type)
                     ziman_error("type", s->line, s->col, "bare 'return' in a function declared to return %s", type_name(fn_return_type));
                 }
             } else {
-                Type value_type = check_expr(program, env, s->as.ret.value);
+                Type value_type = check_expr(module, env, s->as.ret.value);
                 if (fn_return_type.kind == TY_VOID) {
                     ziman_error("type", s->as.ret.value->line, s->as.ret.value->col, "cannot return a value from a function declared with no return type");
                 }
@@ -555,11 +555,11 @@ static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type)
             break;
         }
         case STMT_EXPR: {
-            check_expr(program, env, s->as.expr_stmt.expr);
+            check_expr(module, env, s->as.expr_stmt.expr);
             break;
         }
         case STMT_BLOCK:
-            check_block(program, env, s, fn_return_type);
+            check_block(module, env, s, fn_return_type);
             break;
     }
 }
@@ -570,17 +570,17 @@ static void check_stmt(Program *program, Env *env, Stmt *s, Type fn_return_type)
  * any function body is checked, so a typo in a type reference is caught
  * at one precise location instead of cascading into confusing mismatches
  * later (see typecheck()). */
-static void check_type_well_formed(Program *program, Type t, int line, int col) {
+static void check_type_well_formed(Module *module, Type t, int line, int col) {
     if (t.kind == TY_ARRAY) {
-        check_type_well_formed(program, *t.elem, line, col);
+        check_type_well_formed(module, *t.elem, line, col);
     } else if (t.kind == TY_STRUCT) {
-        if (find_struct(program, t.struct_name) == NULL) {
+        if (find_struct(module, t.struct_name) == NULL) {
             ziman_error("type", line, col, "unknown struct type '%s'", t.struct_name);
         }
     }
 }
 
-static void check_function(Program *program, FunctionDecl *fn) {
+static void check_function(Module *module, FunctionDecl *fn) {
     Env *env = env_new(NULL);
     for (int i = 0; i < fn->params.count; i++) {
         Param *param = &fn->params.items[i];
@@ -593,7 +593,7 @@ static void check_function(Program *program, FunctionDecl *fn) {
      * registered for it, not something this pass can see into. */
     if (!fn->is_native) {
         for (int i = 0; i < fn->body->as.block.stmts.count; i++) {
-            check_stmt(program, env, fn->body->as.block.stmts.items[i], fn->return_type);
+            check_stmt(module, env, fn->body->as.block.stmts.items[i], fn->return_type);
         }
         if (fn->return_type.kind != TY_VOID && !stmt_always_returns(fn->body)) {
             ziman_error("type", fn->line, fn->col, "function '%s' does not return a value on every path", fn->name);
@@ -602,17 +602,17 @@ static void check_function(Program *program, FunctionDecl *fn) {
     env_free(env);
 }
 
-void typecheck(Program *program) {
+void typecheck(Module *module) {
     static const char *builtins[] = {"print", "concat", "str", "format", "len", "push", "insert", "set"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a
      * field could legally reference is already known. */
-    for (int i = 0; i < program->structs.count; i++) {
-        StructDecl *sd = program->structs.items[i];
-        for (int j = i + 1; j < program->structs.count; j++) {
-            if (strcmp(sd->name, program->structs.items[j]->name) == 0) {
-                ziman_error("type", program->structs.items[j]->line, program->structs.items[j]->col,
+    for (int i = 0; i < module->structs.count; i++) {
+        StructDecl *sd = module->structs.items[i];
+        for (int j = i + 1; j < module->structs.count; j++) {
+            if (strcmp(sd->name, module->structs.items[j]->name) == 0) {
+                ziman_error("type", module->structs.items[j]->line, module->structs.items[j]->col,
                             "struct '%s' is already defined", sd->name);
             }
         }
@@ -625,34 +625,34 @@ void typecheck(Program *program) {
             }
         }
     }
-    for (int i = 0; i < program->structs.count; i++) {
-        StructDecl *sd = program->structs.items[i];
+    for (int i = 0; i < module->structs.count; i++) {
+        StructDecl *sd = module->structs.items[i];
         for (int f = 0; f < sd->fields.count; f++) {
             Param *field = &sd->fields.items[f];
-            check_type_well_formed(program, field->type, field->line, field->col);
+            check_type_well_formed(module, field->type, field->line, field->col);
         }
     }
 
-    for (int i = 0; i < program->functions.count; i++) {
-        FunctionDecl *fn = program->functions.items[i];
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *fn = module->functions.items[i];
         for (size_t b = 0; b < sizeof(builtins) / sizeof(builtins[0]); b++) {
             if (strcmp(fn->name, builtins[b]) == 0) {
                 ziman_error("type", fn->line, fn->col, "'%s' is a builtin function and cannot be redefined", fn->name);
             }
         }
-        for (int j = i + 1; j < program->functions.count; j++) {
-            if (strcmp(fn->name, program->functions.items[j]->name) == 0) {
-                ziman_error("type", program->functions.items[j]->line, program->functions.items[j]->col,
+        for (int j = i + 1; j < module->functions.count; j++) {
+            if (strcmp(fn->name, module->functions.items[j]->name) == 0) {
+                ziman_error("type", module->functions.items[j]->line, module->functions.items[j]->col,
                             "function '%s' is already defined", fn->name);
             }
         }
         for (int pi = 0; pi < fn->params.count; pi++) {
-            check_type_well_formed(program, fn->params.items[pi].type, fn->params.items[pi].line, fn->params.items[pi].col);
+            check_type_well_formed(module, fn->params.items[pi].type, fn->params.items[pi].line, fn->params.items[pi].col);
         }
-        check_type_well_formed(program, fn->return_type, fn->line, fn->col);
+        check_type_well_formed(module, fn->return_type, fn->line, fn->col);
     }
 
-    FunctionDecl *main_fn = find_function(program, "main");
+    FunctionDecl *main_fn = find_function(module, "main");
     if (main_fn == NULL) {
         ziman_error("type", 0, 0, "no 'main' function found");
     }
@@ -660,7 +660,7 @@ void typecheck(Program *program) {
         ziman_error("type", main_fn->line, main_fn->col, "'main' must take no parameters and return nothing");
     }
 
-    for (int i = 0; i < program->functions.count; i++) {
-        check_function(program, program->functions.items[i]);
+    for (int i = 0; i < module->functions.count; i++) {
+        check_function(module, module->functions.items[i]);
     }
 }

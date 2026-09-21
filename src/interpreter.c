@@ -15,24 +15,24 @@ typedef struct {
     Value value;
 } ExecResult;
 
-static FunctionDecl *find_function(Program *program, const char *name) {
-    for (int i = 0; i < program->functions.count; i++) {
-        if (strcmp(program->functions.items[i]->name, name) == 0) return program->functions.items[i];
+static FunctionDecl *find_function(Module *module, const char *name) {
+    for (int i = 0; i < module->functions.count; i++) {
+        if (strcmp(module->functions.items[i]->name, name) == 0) return module->functions.items[i];
     }
     return NULL;
 }
 
-static StructDecl *find_struct(Program *program, const char *name) {
-    for (int i = 0; i < program->structs.count; i++) {
-        if (strcmp(program->structs.items[i]->name, name) == 0) return program->structs.items[i];
+static StructDecl *find_struct(Module *module, const char *name) {
+    for (int i = 0; i < module->structs.count; i++) {
+        if (strcmp(module->structs.items[i]->name, name) == 0) return module->structs.items[i];
     }
     return NULL;
 }
 
-static Value eval_expr(Program *program, Env *env, Expr *e);
-static ExecResult exec_stmt(Program *program, Env *env, Stmt *s);
+static Value eval_expr(Module *module, Env *env, Expr *e);
+static ExecResult exec_stmt(Module *module, Env *env, Stmt *s);
 
-static Value call_function(Program *program, FunctionDecl *fn, Value *args, int argc) {
+static Value call_function(Module *module, FunctionDecl *fn, Value *args, int argc) {
     if (fn->is_native) {
         /* No real native module exists yet to register an implementation --
          * this is the language mechanism (parseable, typecheckable) landing
@@ -45,7 +45,7 @@ static Value call_function(Program *program, FunctionDecl *fn, Value *args, int 
     }
     ExecResult result = {CTRL_NONE, value_int(0)};
     for (int i = 0; i < fn->body->as.block.stmts.count && result.kind == CTRL_NONE; i++) {
-        result = exec_stmt(program, env, fn->body->as.block.stmts.items[i]);
+        result = exec_stmt(module, env, fn->body->as.block.stmts.items[i]);
     }
     env_free(env);
     return result.kind == CTRL_RETURN ? result.value : value_int(0);
@@ -150,20 +150,20 @@ static Value call_format(Value *args, int argc) {
     return value_string(buf);
 }
 
-static Value eval_binary(Program *program, Env *env, Expr *e) {
-    Value l = eval_expr(program, env, e->as.binary.left);
+static Value eval_binary(Module *module, Env *env, Expr *e) {
+    Value l = eval_expr(module, env, e->as.binary.left);
 
     /* Short-circuit && / || before evaluating the right side. */
     if (e->as.binary.op == OP_AND) {
         if (!l.as.b) return value_bool(0);
-        return eval_expr(program, env, e->as.binary.right);
+        return eval_expr(module, env, e->as.binary.right);
     }
     if (e->as.binary.op == OP_OR) {
         if (l.as.b) return value_bool(1);
-        return eval_expr(program, env, e->as.binary.right);
+        return eval_expr(module, env, e->as.binary.right);
     }
 
-    Value r = eval_expr(program, env, e->as.binary.right);
+    Value r = eval_expr(module, env, e->as.binary.right);
 
     switch (e->as.binary.op) {
         case OP_ADD:
@@ -198,7 +198,7 @@ static Value eval_binary(Program *program, Env *env, Expr *e) {
     }
 }
 
-static Value eval_expr(Program *program, Env *env, Expr *e) {
+static Value eval_expr(Module *module, Env *env, Expr *e) {
     switch (e->kind) {
         case EXPR_INT: return value_int(e->as.int_val);
         case EXPR_FLOAT: return value_float(e->as.float_val);
@@ -209,19 +209,19 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
             return b->value;
         }
         case EXPR_UNARY: {
-            Value v = eval_expr(program, env, e->as.unary.operand);
+            Value v = eval_expr(module, env, e->as.unary.operand);
             if (e->as.unary.op == OP_NEG) {
                 return v.type.kind == TY_INT ? value_int(-v.as.i) : value_float(-v.as.f);
             }
             return value_bool(!v.as.b);
         }
         case EXPR_BINARY:
-            return eval_binary(program, env, e);
+            return eval_binary(module, env, e);
         case EXPR_CALL: {
             int argc = e->as.call.args.count;
             Value *args = argc > 0 ? malloc((size_t)argc * sizeof(Value)) : NULL;
             for (int i = 0; i < argc; i++) {
-                args[i] = eval_expr(program, env, e->as.call.args.items[i]);
+                args[i] = eval_expr(module, env, e->as.call.args.items[i]);
             }
             Value result;
             if (strcmp(e->as.call.callee, "print") == 0) {
@@ -241,14 +241,14 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "set") == 0) {
                 result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else {
-                FunctionDecl *fn = find_function(program, e->as.call.callee);
-                result = call_function(program, fn, args, argc);
+                FunctionDecl *fn = find_function(module, e->as.call.callee);
+                result = call_function(module, fn, args, argc);
             }
             free(args);
             return result;
         }
         case EXPR_CAST: {
-            Value v = eval_expr(program, env, e->as.cast.operand);
+            Value v = eval_expr(module, env, e->as.cast.operand);
             if (e->as.cast.target_type.kind == TY_FLOAT) {
                 return value_float(v.type.kind == TY_INT ? (double)v.as.i : v.as.f);
             }
@@ -259,13 +259,13 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
             int count = e->as.array_lit.elements.count;
             Value *items = count > 0 ? malloc((size_t)count * sizeof(Value)) : NULL;
             for (int i = 0; i < count; i++) {
-                items[i] = eval_expr(program, env, e->as.array_lit.elements.items[i]);
+                items[i] = eval_expr(module, env, e->as.array_lit.elements.items[i]);
             }
             return value_array(e->resolved_type, array_obj_new(items, count));
         }
         case EXPR_INDEX: {
-            Value arr = eval_expr(program, env, e->as.index.array);
-            Value idx = eval_expr(program, env, e->as.index.index);
+            Value arr = eval_expr(module, env, e->as.index.array);
+            Value idx = eval_expr(module, env, e->as.index.index);
             int64_t i = idx.as.i;
             if (i < 0 || i >= arr.as.arr->count) {
                 ziman_error("runtime", e->line, e->col, "index %lld out of bounds (array length %d)", (long long)i, arr.as.arr->count);
@@ -273,7 +273,7 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
             return arr.as.arr->items[i];
         }
         case EXPR_STRUCT_LIT: {
-            StructDecl *decl = find_struct(program, e->as.struct_lit.type_name);
+            StructDecl *decl = find_struct(module, e->as.struct_lit.type_name);
             int count = decl->fields.count;
             char **names = malloc((size_t)count * sizeof(char *));
             Value *fields = malloc((size_t)count * sizeof(Value));
@@ -286,12 +286,12 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
                         break;
                     }
                 }
-                fields[i] = eval_expr(program, env, value_expr);
+                fields[i] = eval_expr(module, env, value_expr);
             }
             return value_struct(e->resolved_type, struct_obj_new(names, fields, count));
         }
         case EXPR_FIELD_ACCESS: {
-            Value base = eval_expr(program, env, e->as.field_access.base);
+            Value base = eval_expr(module, env, e->as.field_access.base);
             StructObj *st = base.as.st;
             for (int i = 0; i < st->count; i++) {
                 if (strcmp(st->field_names[i], e->as.field_access.field_name) == 0) {
@@ -302,7 +302,7 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
             return value_int(0);
         }
         case EXPR_WITH: {
-            Value base = eval_expr(program, env, e->as.with_expr.base);
+            Value base = eval_expr(module, env, e->as.with_expr.base);
             StructObj *old = base.as.st;
             int count = old->count;
             Value *fields = malloc((size_t)count * sizeof(Value));
@@ -311,7 +311,7 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
                 FieldInit *fi = &e->as.with_expr.overrides.items[i];
                 for (int j = 0; j < count; j++) {
                     if (strcmp(old->field_names[j], fi->name) == 0) {
-                        fields[j] = eval_expr(program, env, fi->value);
+                        fields[j] = eval_expr(module, env, fi->value);
                         break;
                     }
                 }
@@ -330,48 +330,48 @@ static ExecResult no_ctrl(void) {
     return r;
 }
 
-static ExecResult exec_block(Program *program, Env *parent, Stmt *block) {
+static ExecResult exec_block(Module *module, Env *parent, Stmt *block) {
     Env *scope = env_new(parent);
     ExecResult result = no_ctrl();
     for (int i = 0; i < block->as.block.stmts.count && result.kind == CTRL_NONE; i++) {
-        result = exec_stmt(program, scope, block->as.block.stmts.items[i]);
+        result = exec_stmt(module, scope, block->as.block.stmts.items[i]);
     }
     env_free(scope);
     return result;
 }
 
-static ExecResult exec_stmt(Program *program, Env *env, Stmt *s) {
+static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
     switch (s->kind) {
         case STMT_VAL:
         case STMT_VAR: {
-            Value v = eval_expr(program, env, s->as.decl.init);
+            Value v = eval_expr(module, env, s->as.decl.init);
             Type t = s->as.decl.has_declared_type ? s->as.decl.declared_type : v.type;
             env_define(env, s->as.decl.name, t, s->kind == STMT_VAR, v);
             return no_ctrl();
         }
         case STMT_ASSIGN: {
             Binding *b = env_lookup(env, s->as.assign.name);
-            b->value = eval_expr(program, env, s->as.assign.value);
+            b->value = eval_expr(module, env, s->as.assign.value);
             return no_ctrl();
         }
         case STMT_IF: {
-            Value cond = eval_expr(program, env, s->as.if_stmt.cond);
+            Value cond = eval_expr(module, env, s->as.if_stmt.cond);
             if (cond.as.b) {
-                return exec_block(program, env, s->as.if_stmt.then_block);
+                return exec_block(module, env, s->as.if_stmt.then_block);
             }
             if (s->as.if_stmt.else_block != NULL) {
                 if (s->as.if_stmt.else_block->kind == STMT_IF) {
-                    return exec_stmt(program, env, s->as.if_stmt.else_block);
+                    return exec_stmt(module, env, s->as.if_stmt.else_block);
                 }
-                return exec_block(program, env, s->as.if_stmt.else_block);
+                return exec_block(module, env, s->as.if_stmt.else_block);
             }
             return no_ctrl();
         }
         case STMT_WHILE: {
             for (;;) {
-                Value cond = eval_expr(program, env, s->as.while_stmt.cond);
+                Value cond = eval_expr(module, env, s->as.while_stmt.cond);
                 if (!cond.as.b) break;
-                ExecResult result = exec_block(program, env, s->as.while_stmt.body);
+                ExecResult result = exec_block(module, env, s->as.while_stmt.body);
                 if (result.kind == CTRL_RETURN) return result;
             }
             return no_ctrl();
@@ -379,20 +379,20 @@ static ExecResult exec_stmt(Program *program, Env *env, Stmt *s) {
         case STMT_RETURN: {
             ExecResult r;
             r.kind = CTRL_RETURN;
-            r.value = s->as.ret.value != NULL ? eval_expr(program, env, s->as.ret.value) : value_int(0);
+            r.value = s->as.ret.value != NULL ? eval_expr(module, env, s->as.ret.value) : value_int(0);
             return r;
         }
         case STMT_EXPR: {
-            eval_expr(program, env, s->as.expr_stmt.expr);
+            eval_expr(module, env, s->as.expr_stmt.expr);
             return no_ctrl();
         }
         case STMT_BLOCK:
-            return exec_block(program, env, s);
+            return exec_block(module, env, s);
     }
     return no_ctrl();
 }
 
-void interpret(Program *program) {
-    FunctionDecl *main_fn = find_function(program, "main");
-    call_function(program, main_fn, NULL, 0);
+void interpret(Module *module) {
+    FunctionDecl *main_fn = find_function(module, "main");
+    call_function(module, main_fn, NULL, 0);
 }
