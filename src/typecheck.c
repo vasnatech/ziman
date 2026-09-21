@@ -82,6 +82,29 @@ static Type check_unary(Program *program, Env *env, Expr *e) {
     return TY_BOOL;
 }
 
+/* Scans a format-string literal's already-unescaped content for `{}`
+ * placeholders, exiting with a type error on a stray/unmatched brace.
+ * `fmt_expr` is only used to anchor error locations -- v0 doesn't track
+ * per-character positions inside a string literal, so mistakes are
+ * reported at the literal as a whole. */
+static int count_placeholders(Expr *fmt_expr) {
+    const char *s = fmt_expr->as.string_val;
+    int count = 0;
+    for (const char *p = s; *p; p++) {
+        if (*p == '{') {
+            if (p[1] != '}') {
+                ziman_error("type", fmt_expr->line, fmt_expr->col,
+                            "malformed placeholder in format string (expected '{}', found stray '{')");
+            }
+            count++;
+            p++; /* skip the matching '}' too */
+        } else if (*p == '}') {
+            ziman_error("type", fmt_expr->line, fmt_expr->col, "unmatched '}' in format string");
+        }
+    }
+    return count;
+}
+
 static Type check_call(Program *program, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
 
@@ -121,6 +144,32 @@ static Type check_call(Program *program, Env *env, Expr *e) {
             ziman_error("type", arg->line, arg->col,
                         "'str' expects an int, float, or bool, found %s (it's already a string)",
                         type_name(arg_type));
+        }
+        return TY_STRING;
+    }
+
+    if (strcmp(name, "format") == 0) {
+        if (e->as.call.args.count < 1) {
+            ziman_error("type", e->line, e->col, "'format' requires at least a format string argument");
+        }
+        Expr *fmt_expr = e->as.call.args.items[0];
+        if (fmt_expr->kind != EXPR_STRING) {
+            ziman_error("type", fmt_expr->line, fmt_expr->col,
+                        "'format' requires its first argument to be a string literal, not a computed value");
+        }
+        fmt_expr->resolved_type = TY_STRING;
+
+        int placeholder_count = count_placeholders(fmt_expr);
+        int provided = e->as.call.args.count - 1;
+        if (placeholder_count != provided) {
+            ziman_error("type", e->line, e->col,
+                        "format string has %d placeholder(s) but %d argument(s) were provided",
+                        placeholder_count, provided);
+        }
+        for (int i = 1; i < e->as.call.args.count; i++) {
+            Expr *arg = e->as.call.args.items[i];
+            check_expr(program, env, arg);
+            require_not_void(arg, "as a format argument");
         }
         return TY_STRING;
     }
@@ -326,7 +375,8 @@ static void check_function(Program *program, FunctionDecl *fn) {
 void typecheck(Program *program) {
     for (int i = 0; i < program->functions.count; i++) {
         FunctionDecl *fn = program->functions.items[i];
-        if (strcmp(fn->name, "print") == 0 || strcmp(fn->name, "concat") == 0 || strcmp(fn->name, "str") == 0) {
+        if (strcmp(fn->name, "print") == 0 || strcmp(fn->name, "concat") == 0 ||
+            strcmp(fn->name, "str") == 0 || strcmp(fn->name, "format") == 0) {
             ziman_error("type", fn->line, fn->col, "'%s' is a builtin function and cannot be redefined", fn->name);
         }
         for (int j = i + 1; j < program->functions.count; j++) {

@@ -1,0 +1,4 @@
+fn main() {
+    val fmt = "{}"
+    print(format(fmt, 1))
+}

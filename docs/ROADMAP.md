@@ -15,7 +15,15 @@ against before adding any of them.
   companion `str(x)` builtin to explicitly convert `int`/`float`/`bool`
   into their display string (rejects an already-`string` argument, so
   there's exactly one way to get a string from any given type). `+`
-  itself stays numeric-only, per principle #2.
+  itself stays numeric-only, per principle #2. Also added `format(fmt,
+  args...) -> string`, requiring `fmt` to be a string literal so its `{}`
+  placeholder count is checked against the argument list at compile time
+  (see docs/SYNTAX.md) — the one variable-arity builtin in the language,
+  by necessity, but still fully statically checked because the literal
+  is visible at the call site.
+- **Escaping literal `{`/`}` in format strings.** `format` has no escape
+  syntax yet — a literal brace can't appear in a format string at all.
+  Low priority until someone actually needs one.
 - **`for` loop** over integer ranges (`for i in 0..10 { ... }`) — `while`
   covers everything but is more verbose and more error-prone for the
   extremely common counted-loop case.

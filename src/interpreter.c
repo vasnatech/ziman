@@ -58,6 +58,41 @@ static Value call_str(Value arg) {
     return value_string(value_display(arg));
 }
 
+/* args[0] is the format string, args[1..argc-1] are the interpolation
+ * values. The type checker already verified `{}` placeholder count
+ * matches argc-1 and that the format string is well-formed, so this
+ * doesn't re-validate -- it trusts that pass. */
+static Value call_format(Value *args, int argc) {
+    const char *fmt = args[0].as.s;
+    size_t cap = 32, len = 0;
+    char *buf = malloc(cap);
+    int arg_i = 1;
+
+    for (const char *p = fmt; *p; p++) {
+        if (p[0] == '{' && p[1] == '}') {
+            char *piece = value_display(args[arg_i++]);
+            size_t piece_len = strlen(piece);
+            while (len + piece_len + 1 > cap) {
+                cap *= 2;
+                buf = realloc(buf, cap);
+            }
+            memcpy(buf + len, piece, piece_len);
+            len += piece_len;
+            free(piece);
+            p++; /* skip the matching '}' */
+        } else {
+            if (len + 2 > cap) {
+                cap *= 2;
+                buf = realloc(buf, cap);
+            }
+            buf[len++] = *p;
+        }
+    }
+    buf[len] = '\0';
+    (void)argc;
+    return value_string(buf);
+}
+
 static Value eval_binary(Program *program, Env *env, Expr *e) {
     Value l = eval_expr(program, env, e->as.binary.left);
 
@@ -138,6 +173,8 @@ static Value eval_expr(Program *program, Env *env, Expr *e) {
                 result = call_concat(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "str") == 0) {
                 result = call_str(args[0]);
+            } else if (strcmp(e->as.call.callee, "format") == 0) {
+                result = call_format(args, argc);
             } else {
                 FunctionDecl *fn = find_function(program, e->as.call.callee);
                 result = call_function(program, fn, args, argc);

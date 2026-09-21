@@ -122,6 +122,18 @@ a type error.
 - `str(x) -> string` — converts an `int`, `float`, or `bool` to its
   display string. Rejects an argument that's already a `string` (there
   should be exactly one way to get a string from a value, not two).
+- `format(fmt, args...) -> string` — the only variable-arity call in
+  Ziman. `fmt` **must be a string literal** (not a variable or any other
+  computed value) containing zero or more `{}` placeholders; the number
+  of placeholders must exactly match the number of remaining arguments —
+  both are checked at compile time, because the literal's content is
+  visible right there at the call site. Each argument can be any
+  non-void scalar type and is displayed the same way `print`/`str`
+  display it — placeholders are untyped (no `%d`/`%s`-style verbs),
+  since the argument's own declared type is already known and repeating
+  it in the format string would just be a second place for it to drift
+  out of sync. Literal `{`/`}` characters can't appear unescaped in a
+  format string in v0 (no escape syntax yet — tracked in ROADMAP.md).
 
 `+` itself stays numeric-only in v0 — see docs/DESIGN.md principle #2 on
 why string concatenation didn't just overload it.
