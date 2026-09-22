@@ -4,8 +4,13 @@ Ziman ("language" in Kurdish) is a small, statically-typed language whose
 syntax and semantics are designed to be cheap for an LLM to generate
 correctly and cheap for a human to read without running it. See
 [docs/DESIGN.md](docs/DESIGN.md) for the principles behind that and the
-concrete decisions they led to, and [docs/SYNTAX.md](docs/SYNTAX.md) for
-the full v0 grammar and semantic rules.
+concrete decisions they led to, [docs/SYNTAX.md](docs/SYNTAX.md) for
+the full v0 grammar and semantic rules, and
+[docs/CORELIB.md](docs/CORELIB.md) for a generated signature-only
+reference of every bundled core module (`collections`, `io`, `random`,
+`uuid`, `clock`, `time`) — every `pub struct`/`pub fn` in one place, kept
+in sync with the source by `make corelib-reference` rather than
+hand-copied.
 
 The reference interpreter (lexer → parser → type checker → tree-walking
 evaluator) is written in C, but C is only the implementation's host

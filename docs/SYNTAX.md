@@ -867,7 +867,10 @@ fn main() {
   per-name import, above, can still bind one bare on purpose). `Uuid`
   satisfies `Eq` (structural `==` on its `[byte]` field) but not `Hash`
   (hashing has no derived form for a struct), so it works as a struct
-  field compared with `==` but not yet as a `HashMap` key.
+  field compared with `==` but not yet as a `HashMap` key. See
+  docs/CORELIB.md for a generated, signature-only listing of every
+  `pub struct`/`pub fn` these six modules export — a quick lookup, not
+  a replacement for the explanations here.
 
 ## Date and time
 

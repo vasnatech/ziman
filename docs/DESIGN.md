@@ -693,6 +693,30 @@ several languages rather than inheriting any one of them wholesale.
   types — every one gets an explicit `_compare(a, b) -> int` instead,
   same "don't reopen Ord/Cmp without a forcing case" posture held
   throughout this project.
+- **`docs/CORELIB.md` — a generated reference, not a hand-written one,
+  once the core-module surface got big enough to need one.** Six
+  modules, 81 `pub` declarations, all following a strict
+  `typename_verb` naming convention specifically so an LLM that's seen
+  three functions on a type can usually guess the fourth correctly —
+  but "usually correct" isn't "don't need a lookup," and there was no
+  single place listing every signature in one pass. The obvious wrong
+  move was hand-writing that list: this project has repeatedly caught
+  (and had to fix) stale comments and docs elsewhere in this same
+  session, so a hand-copied signature list was guaranteed to drift the
+  first time a core module's function was renamed or a parameter added.
+  Instead, `tools/gen_corelib_reference.sh` extracts every `pub
+  struct`/`pub enum`/`pub fn`/`pub native fn` directly from each
+  `corelib/*.zm` file's own source (a small awk state machine — track
+  "inside a struct/enum body," print until the closing `}`; for a
+  function, print the signature line with its trailing ` {` stripped)
+  and assembles them under one hand-maintained one-line description per
+  module. Confirmed against source rather than trusted: the generated
+  file's total `pub` line count matched `grep -c '^pub ' corelib/*.zm`'s
+  count exactly (81 both ways) before this was considered done. Not run
+  as part of `make`/`make all` (it's a doc, not a build input) — a
+  separate `make corelib-reference` target, run by hand after touching
+  a core module's public API, the same "opt-in, not part of the default
+  build" treatment `test-bignum`/`test-decimal` already get.
 
 ## Deliberately deferred (not v0)
 

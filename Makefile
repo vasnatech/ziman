@@ -5,7 +5,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean test test-bignum test-decimal
+.PHONY: all clean test test-bignum test-decimal corelib-reference
 
 all: $(BIN)
 
@@ -61,6 +61,15 @@ test-bignum: src/bignum.c tests/unit/bignum_test.c
 test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	$(CC) $(CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	/tmp/ziman_decimal_test
+
+# docs/CORELIB.md is generated from corelib/*.zm's own `pub` declarations
+# (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make
+# all` since it's a doc, not a build input; run by hand after touching
+# any core module's public API. The generated file is still checked into
+# git (unlike src/*_source.h) since it's meant to be read on GitHub, not
+# just consumed by the build.
+corelib-reference:
+	./tools/gen_corelib_reference.sh > docs/CORELIB.md
 
 clean:
 	rm -f $(BIN) src/*.o src/*.d src/*_source.h

@@ -679,9 +679,25 @@ a time mid-implementation:
   scalar array, pure Ziman gives it a shape" split `random`/`uuid`
   already established. No `<`/`>` on any of the seven types — each gets
   an explicit `_compare(a, b) -> int` instead, same "don't reopen
-  Ord/Cmp without a forcing case" posture as everywhere else. Not
-  wired into `health-record-backend-ziman` yet; that's the natural next
-  step once it's wanted.
+  Ord/Cmp without a forcing case" posture as everywhere else. ~~Not
+  wired into `health-record-backend-ziman` yet~~ — done the same day:
+  `Patient.date_of_birth`/`created_at` are `time.LocalDate`/
+  `time.Instant` now, closing that project's last documented gap.
+- ~~**`docs/CORELIB.md` — a generated signature reference for the six
+  core modules, once the surface got big enough (81 `pub` declarations)
+  that hand-knowing or hand-listing them stopped being realistic.**~~
+  Implemented (`tools/gen_corelib_reference.sh`, `make
+  corelib-reference`; docs/DESIGN.md's "CORELIB.md" entry). Extracts
+  every `pub struct`/`pub enum`/`pub fn`/`pub native fn` straight from
+  `corelib/*.zm`'s own source rather than hand-copying them — this
+  project had already caught and fixed stale hand-written comments/docs
+  repeatedly by this point, so a hand-maintained signature list was
+  guaranteed to drift the same way eventually. Confirmed against source
+  before considering it done: the generated file's total `pub` line
+  count matched `grep -c '^pub ' corelib/*.zm`'s count exactly. Not part
+  of the default `make`/`make all` build (it's a doc, not a build
+  input) — an opt-in target, same treatment `test-bignum`/`test-decimal`
+  already get.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.
