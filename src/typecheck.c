@@ -340,22 +340,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return type_scalar(TY_VOID);
     }
 
-    if (strcmp(name, "concat") == 0) {
-        if (e->as.call.args.count != 2) {
-            ziman_error("type", e->line, e->col, "'concat' takes exactly 2 arguments, found %d", e->as.call.args.count);
-        }
-        for (int i = 0; i < 2; i++) {
-            Expr *arg = e->as.call.args.items[i];
-            Type arg_type = check_expr(module, env, arg);
-            if (arg_type.kind != TY_STRING) {
-                ziman_error("type", arg->line, arg->col,
-                            "argument %d of 'concat' expects string, found %s (use 'str' to convert first)",
-                            i + 1, type_name(arg_type));
-            }
-        }
-        return type_scalar(TY_STRING);
-    }
-
     if (strcmp(name, "str") == 0) {
         if (e->as.call.args.count != 1) {
             ziman_error("type", e->line, e->col, "'str' takes exactly 1 argument, found %d", e->as.call.args.count);
@@ -406,68 +390,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             ziman_error("type", arg->line, arg->col, "'len' expects an array or string, found %s", type_name(arg_type));
         }
         return type_scalar(TY_INT);
-    }
-
-    if (strcmp(name, "substring") == 0) {
-        if (e->as.call.args.count != 3) {
-            ziman_error("type", e->line, e->col, "'substring' takes exactly 3 arguments, found %d", e->as.call.args.count);
-        }
-        Expr *s_arg = e->as.call.args.items[0];
-        Type s_type = check_expr(module, env, s_arg);
-        if (s_type.kind != TY_STRING) {
-            ziman_error("type", s_arg->line, s_arg->col, "argument 1 of 'substring' expects string, found %s", type_name(s_type));
-        }
-        for (int i = 1; i < 3; i++) {
-            Expr *idx_arg = e->as.call.args.items[i];
-            Type idx_type = check_expr(module, env, idx_arg);
-            if (idx_type.kind != TY_INT) {
-                ziman_error("type", idx_arg->line, idx_arg->col, "argument %d of 'substring' expects int, found %s", i + 1, type_name(idx_type));
-            }
-        }
-        return type_scalar(TY_STRING);
-    }
-
-    if (strcmp(name, "split") == 0) {
-        if (e->as.call.args.count != 2) {
-            ziman_error("type", e->line, e->col, "'split' takes exactly 2 arguments, found %d", e->as.call.args.count);
-        }
-        for (int i = 0; i < 2; i++) {
-            Expr *arg = e->as.call.args.items[i];
-            Type arg_type = check_expr(module, env, arg);
-            if (arg_type.kind != TY_STRING) {
-                ziman_error("type", arg->line, arg->col, "argument %d of 'split' expects string, found %s", i + 1, type_name(arg_type));
-            }
-        }
-        return type_array(type_scalar(TY_STRING));
-    }
-
-    if (strcmp(name, "trim") == 0 || strcmp(name, "to_upper") == 0 || strcmp(name, "to_lower") == 0) {
-        if (e->as.call.args.count != 1) {
-            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
-        }
-        Expr *arg = e->as.call.args.items[0];
-        Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_STRING) {
-            ziman_error("type", arg->line, arg->col, "'%s' expects string, found %s", name, type_name(arg_type));
-        }
-        return type_scalar(TY_STRING);
-    }
-
-    if (strcmp(name, "parse_int") == 0 || strcmp(name, "parse_float") == 0 || strcmp(name, "parse_bigint") == 0
-        || strcmp(name, "parse_decimal") == 0) {
-        if (e->as.call.args.count != 1) {
-            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
-        }
-        Expr *arg = e->as.call.args.items[0];
-        Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_STRING) {
-            ziman_error("type", arg->line, arg->col, "'%s' expects string, found %s", name, type_name(arg_type));
-        }
-        Type ok_type = strcmp(name, "parse_int") == 0 ? type_scalar(TY_INT)
-                        : strcmp(name, "parse_float") == 0 ? type_scalar(TY_FLOAT)
-                        : strcmp(name, "parse_bigint") == 0 ? type_scalar(TY_BIGINT)
-                        : type_scalar(TY_DECIMAL);
-        return type_result(ok_type, type_scalar(TY_STRING));
     }
 
     if (strcmp(name, "contains") == 0) {
@@ -543,35 +465,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             ziman_error("type", b_arg->line, b_arg->col, "'%s' expects both arguments to be the same type, found %s and %s", name, type_name(a_type), type_name(b_type));
         }
         return a_type;
-    }
-
-    if (strcmp(name, "floor") == 0 || strcmp(name, "ceil") == 0 || strcmp(name, "round") == 0) {
-        if (e->as.call.args.count != 1) {
-            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
-        }
-        Expr *arg = e->as.call.args.items[0];
-        Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_FLOAT) {
-            ziman_error("type", arg->line, arg->col, "'%s' expects float, found %s", name, type_name(arg_type));
-        }
-        return type_scalar(TY_INT);
-    }
-
-    if (strcmp(name, "decimal_round") == 0) {
-        if (e->as.call.args.count != 2) {
-            ziman_error("type", e->line, e->col, "'decimal_round' takes exactly 2 arguments, found %d", e->as.call.args.count);
-        }
-        Expr *d_arg = e->as.call.args.items[0];
-        Type d_type = check_expr(module, env, d_arg);
-        if (d_type.kind != TY_DECIMAL) {
-            ziman_error("type", d_arg->line, d_arg->col, "argument 1 of 'decimal_round' expects decimal, found %s", type_name(d_type));
-        }
-        Expr *scale_arg = e->as.call.args.items[1];
-        Type scale_type = check_expr(module, env, scale_arg);
-        if (scale_type.kind != TY_INT) {
-            ziman_error("type", scale_arg->line, scale_arg->col, "argument 2 of 'decimal_round' expects int, found %s", type_name(scale_type));
-        }
-        return type_scalar(TY_DECIMAL);
     }
 
     if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0) {
@@ -1449,11 +1342,16 @@ static void check_function(Module *module, FunctionDecl *fn) {
 }
 
 void typecheck(Module *module) {
-    static const char *builtins[] = {"print", "concat", "str", "format", "len", "push", "insert", "set",
+    /* Doesn't include parse_int/parse_float/parse_bigint/parse_decimal,
+     * floor/ceil/round, decimal_round, concat, substring, split, trim,
+     * to_upper, to_lower -- those moved to the prelude (see prelude.h),
+     * so they're now ordinary FunctionDecls already merged into this
+     * module's own function list, and the generic duplicate-function-
+     * name check just below already rejects redefining one of those the
+     * same way it rejects redefining any other function. */
+    static const char *builtins[] = {"print", "str", "format", "len", "push", "insert", "set",
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err",
-                                      "substring", "split", "trim", "to_upper", "to_lower",
-                                      "parse_int", "parse_float", "parse_bigint", "parse_decimal", "contains",
-                                      "abs", "min", "max", "floor", "ceil", "round", "decimal_round", "remove",
+                                      "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "hash"};
 
     /* Struct names and field names within a struct must be unique --

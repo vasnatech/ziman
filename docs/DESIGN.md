@@ -457,6 +457,47 @@ several languages rather than inheriting any one of them wholesale.
   `decimal`'s equivalent of `floor`/`ceil`/`round` — Ziman has no
   argument-based overloading anywhere, so a different signature needs a
   different name, not the same name doing something else by arity.
+- **The prelude — a fixed, small native module merged bare into every
+  program, no `use` required and never qualified.** `bigint`/`decimal`
+  arriving meant new type-specific functions with no obvious home
+  (`parse_bigint`, `parse_decimal`, `decimal_round`) alongside older
+  ones that had been hardcoded `typecheck.c`/`interpreter.c` dispatch
+  since before either type existed (`parse_int`, `parse_float`,
+  `floor`/`ceil`/`round`, `concat`, `substring`, `split`, `trim`,
+  `to_upper`, `to_lower`) — both kept growing that dispatch table every
+  time a type gained a new operation. But native functions (built for
+  `io`) are qualified by design (`io.read_file`, `use io`), and these
+  functions are core, always-there operations exactly like `int`/
+  `float`/`string` themselves — requiring `use numbers`/`use strings`
+  for `parse_int`/`concat` would be a real regression, and moving only
+  *some* of a shared-name builtin's type branches to a qualified module
+  while others stayed core would be actively confusing. The fix isn't
+  new loading machinery: the prelude's source is parsed exactly like any
+  other module and merged into the flat `Module` the same way the entry
+  module's own functions already are (see the module system entry
+  below) — just unconditionally, and never self-qualified, so `parse_int`
+  stays `parse_int`, not `prelude::parse_int`. Once merged, a call to it
+  is now genuinely indistinguishable from a call to any other function
+  in the program, and everything downstream — type-checking a call,
+  calling a native function at runtime (`native_lookup`, built for `io`)
+  — already worked generically for *any* native fn, so none of that
+  needed to change either. This moved 14 functions out of hardcoded
+  dispatch with zero new type-checking or calling logic, and (verified)
+  zero breaking change to any existing program: every one of them
+  already had exactly one fixed signature, no cross-type polymorphism
+  under the name.
+  **Not every builtin can make this move, and it's a structural
+  boundary, not an oversight**: `print`/`str`/`format`/`len`/`push`/
+  `insert`/`set`/`contains`/`abs`/`min`/`max`/`hash` each need to work
+  under *one* unqualified name across *multiple* types (`abs(5)`,
+  `abs(5.0)`, `abs(5n)`, `abs(5.0d)` all share the name `abs`) — a
+  native fn is exactly one fixed signature per declared name, and Ziman
+  has no argument-based overloading anywhere, so a truly polymorphic-by-
+  name builtin has nowhere to go without either generic native fn
+  signatures (not designed) or overloading (not wanted). The operators
+  themselves were never a candidate either way, for the same "no
+  overloading" reason — `+`/`-`/`==`/etc. stay hardcoded in
+  `eval_binary`/`check_binary` regardless.
 
 ## Deliberately deferred (not v0)
 

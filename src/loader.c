@@ -8,6 +8,7 @@
 #include "error.h"
 #include "lexer.h"
 #include "parser.h"
+#include "prelude.h"
 
 /* ---- small file/path helpers ---- */
 
@@ -725,6 +726,12 @@ Module *load_module_graph(const char *entry_path) {
     resolve_cross_refs(&ldr, entry_mod);
 
     Module *merged = calloc(1, sizeof(Module));
+    /* The prelude (see prelude.h) is merged into every program the same
+     * way the entry module's own functions are -- bare names, no
+     * self-qualify pass, no `use` required. Parsed fresh each run (it's
+     * a small, fixed, native-only signature list, not worth caching). */
+    Module *prelude_mod = parse_file_contents(prelude_source());
+    for (int i = 0; i < prelude_mod->functions.count; i++) function_list_push(&merged->functions, prelude_mod->functions.items[i]);
     for (int i = 0; i < entry_mod->functions.count; i++) function_list_push(&merged->functions, entry_mod->functions.items[i]);
     for (int i = 0; i < entry_mod->structs.count; i++) struct_list_push(&merged->structs, entry_mod->structs.items[i]);
     for (int i = 0; i < entry_mod->enums.count; i++) enum_list_push(&merged->enums, entry_mod->enums.items[i]);

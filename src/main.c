@@ -3,6 +3,7 @@
 #include "interpreter.h"
 #include "loader.h"
 #include "native_io.h"
+#include "prelude.h"
 #include "typecheck.h"
 
 int main(int argc, char **argv) {
@@ -12,6 +13,7 @@ int main(int argc, char **argv) {
     }
 
     native_io_register();
+    prelude_register();
 
     Module *module = load_module_graph(argv[1]);
     typecheck(module);

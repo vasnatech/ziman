@@ -1,9 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "interpreter.h"
 
-#include <ctype.h>
-#include <errno.h>
-#include <math.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,15 +92,6 @@ static Value call_print(Value arg) {
     return value_int(0);
 }
 
-static Value call_concat(Value a, Value b) {
-    size_t la = strlen(a.as.s), lb = strlen(b.as.s);
-    char *buf = malloc(la + lb + 1);
-    memcpy(buf, a.as.s, la);
-    memcpy(buf + la, b.as.s, lb);
-    buf[la + lb] = '\0';
-    return value_string(buf);
-}
-
 static Value call_str(Value arg) {
     return value_string(value_display(arg));
 }
@@ -113,131 +101,6 @@ static Value call_len(Value v) {
         return value_int((int64_t)strlen(v.as.s));
     }
     return value_int(v.as.arr->count);
-}
-
-static Value call_substring(Value s, Value start, Value end, int line, int col) {
-    const char *str = s.as.s;
-    int64_t len = (int64_t)strlen(str);
-    int64_t st = start.as.i, en = end.as.i;
-    if (st < 0 || en > len || st > en) {
-        ziman_error("runtime", line, col, "substring index out of bounds (start=%lld, end=%lld, length=%lld)",
-                    (long long)st, (long long)en, (long long)len);
-    }
-    size_t n = (size_t)(en - st);
-    char *buf = malloc(n + 1);
-    memcpy(buf, str + st, n);
-    buf[n] = '\0';
-    return value_string(buf);
-}
-
-static Value call_split(Value s, Value sep, int line, int col) {
-    const char *str = s.as.s;
-    const char *delim = sep.as.s;
-    size_t delim_len = strlen(delim);
-    if (delim_len == 0) {
-        ziman_error("runtime", line, col, "split: separator must not be empty");
-    }
-    Value *items = NULL;
-    int count = 0, cap = 0;
-    const char *cursor = str;
-    for (;;) {
-        const char *found = strstr(cursor, delim);
-        size_t piece_len = found ? (size_t)(found - cursor) : strlen(cursor);
-        char *piece = malloc(piece_len + 1);
-        memcpy(piece, cursor, piece_len);
-        piece[piece_len] = '\0';
-        if (count == cap) {
-            cap = cap == 0 ? 4 : cap * 2;
-            items = realloc(items, (size_t)cap * sizeof(Value));
-        }
-        items[count++] = value_string(piece);
-        if (!found) break;
-        cursor = found + delim_len;
-    }
-    return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, count));
-}
-
-static Value call_trim(Value s) {
-    const char *str = s.as.s;
-    size_t len = strlen(str);
-    size_t start = 0, end = len;
-    while (start < end && isspace((unsigned char)str[start])) start++;
-    while (end > start && isspace((unsigned char)str[end - 1])) end--;
-    size_t n = end - start;
-    char *buf = malloc(n + 1);
-    memcpy(buf, str + start, n);
-    buf[n] = '\0';
-    return value_string(buf);
-}
-
-static Value call_to_upper(Value s) {
-    const char *str = s.as.s;
-    size_t len = strlen(str);
-    char *buf = malloc(len + 1);
-    for (size_t i = 0; i < len; i++) buf[i] = (char)toupper((unsigned char)str[i]);
-    buf[len] = '\0';
-    return value_string(buf);
-}
-
-static Value call_to_lower(Value s) {
-    const char *str = s.as.s;
-    size_t len = strlen(str);
-    char *buf = malloc(len + 1);
-    for (size_t i = 0; i < len; i++) buf[i] = (char)tolower((unsigned char)str[i]);
-    buf[len] = '\0';
-    return value_string(buf);
-}
-
-static Value call_parse_int(Value s) {
-    Type result_type = type_result(type_scalar(TY_INT), type_scalar(TY_STRING));
-    const char *str = s.as.s;
-    char *endptr;
-    errno = 0;
-    long long v = strtoll(str, &endptr, 10);
-    if (endptr == str || *endptr != '\0' || errno == ERANGE) {
-        char msg[256];
-        snprintf(msg, sizeof(msg), "cannot parse '%s' as int", str);
-        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
-    }
-    return value_result(result_type, result_obj_new(1, value_int((int64_t)v)));
-}
-
-static Value call_parse_float(Value s) {
-    Type result_type = type_result(type_scalar(TY_FLOAT), type_scalar(TY_STRING));
-    const char *str = s.as.s;
-    char *endptr;
-    errno = 0;
-    double v = strtod(str, &endptr);
-    if (endptr == str || *endptr != '\0' || errno == ERANGE) {
-        char msg[256];
-        snprintf(msg, sizeof(msg), "cannot parse '%s' as float", str);
-        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
-    }
-    return value_result(result_type, result_obj_new(1, value_float(v)));
-}
-
-static Value call_parse_bigint(Value s) {
-    Type result_type = type_result(type_scalar(TY_BIGINT), type_scalar(TY_STRING));
-    int ok;
-    BigNum n = bignum_from_string(s.as.s, &ok);
-    if (!ok) {
-        char msg[256];
-        snprintf(msg, sizeof(msg), "cannot parse '%s' as bigint", s.as.s);
-        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
-    }
-    return value_result(result_type, result_obj_new(1, value_bigint(n)));
-}
-
-static Value call_parse_decimal(Value s) {
-    Type result_type = type_result(type_scalar(TY_DECIMAL), type_scalar(TY_STRING));
-    int ok;
-    Decimal d = decimal_from_string(s.as.s, &ok);
-    if (!ok) {
-        char msg[256];
-        snprintf(msg, sizeof(msg), "cannot parse '%s' as decimal", s.as.s);
-        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
-    }
-    return value_result(result_type, result_obj_new(1, value_decimal(d)));
 }
 
 static Value call_contains(Value first, Value second) {
@@ -352,21 +215,6 @@ static Value call_max(Value a, Value b) {
         return decimal_compare(*a.as.dec, *b.as.dec) > 0 ? a : b;
     }
     return value_float(a.as.f > b.as.f ? a.as.f : b.as.f);
-}
-
-static Value call_floor(Value x) { return value_int((int64_t)floor(x.as.f)); }
-static Value call_ceil(Value x) { return value_int((int64_t)ceil(x.as.f)); }
-static Value call_round(Value x) { return value_int((int64_t)round(x.as.f)); }
-
-/* decimal's equivalent of float's floor/ceil/round -- except a decimal
- * is already exact, so there's nothing to fix up the way rounding a
- * binary-imprecise float does; this just picks a coarser scale to
- * represent the same value at, half-up (see decimal_round). Distinctly
- * named rather than overloading `round` -- Ziman has no argument-count-
- * or type-based overloading anywhere, every builtin name maps to
- * exactly one signature. */
-static Value call_decimal_round(Value d, Value scale) {
-    return value_decimal(decimal_round(*d.as.dec, (int)scale.as.i));
 }
 
 /* push/insert/set never mutate their `arr` argument -- they always build a
@@ -647,8 +495,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             Value result;
             if (strcmp(e->as.call.callee, "print") == 0) {
                 result = call_print(args[0]);
-            } else if (strcmp(e->as.call.callee, "concat") == 0) {
-                result = call_concat(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "str") == 0) {
                 result = call_str(args[0]);
             } else if (strcmp(e->as.call.callee, "format") == 0) {
@@ -673,24 +519,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_unwrap(args[0], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "unwrap_err") == 0) {
                 result = call_unwrap_err(args[0], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "substring") == 0) {
-                result = call_substring(args[0], args[1], args[2], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "split") == 0) {
-                result = call_split(args[0], args[1], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "trim") == 0) {
-                result = call_trim(args[0]);
-            } else if (strcmp(e->as.call.callee, "to_upper") == 0) {
-                result = call_to_upper(args[0]);
-            } else if (strcmp(e->as.call.callee, "to_lower") == 0) {
-                result = call_to_lower(args[0]);
-            } else if (strcmp(e->as.call.callee, "parse_int") == 0) {
-                result = call_parse_int(args[0]);
-            } else if (strcmp(e->as.call.callee, "parse_float") == 0) {
-                result = call_parse_float(args[0]);
-            } else if (strcmp(e->as.call.callee, "parse_bigint") == 0) {
-                result = call_parse_bigint(args[0]);
-            } else if (strcmp(e->as.call.callee, "parse_decimal") == 0) {
-                result = call_parse_decimal(args[0]);
             } else if (strcmp(e->as.call.callee, "contains") == 0) {
                 result = call_contains(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "hash") == 0) {
@@ -701,14 +529,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_min(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "max") == 0) {
                 result = call_max(args[0], args[1]);
-            } else if (strcmp(e->as.call.callee, "floor") == 0) {
-                result = call_floor(args[0]);
-            } else if (strcmp(e->as.call.callee, "ceil") == 0) {
-                result = call_ceil(args[0]);
-            } else if (strcmp(e->as.call.callee, "round") == 0) {
-                result = call_round(args[0]);
-            } else if (strcmp(e->as.call.callee, "decimal_round") == 0) {
-                result = call_decimal_round(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "channel_new") == 0) {
                 result = value_channel(e->resolved_type, channel_obj_new());
             } else if (strcmp(e->as.call.callee, "send") == 0) {

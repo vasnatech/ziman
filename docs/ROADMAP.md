@@ -369,16 +369,38 @@ a time mid-implementation:
     message or a printed struct shows the qualified name (e.g.
     `models/user::User`) rather than the plain declared one — harmless,
     a little ugly, not worth fixing until it actually bothers someone.
-  - **Today's built-in scalar/array machinery stays implicit for now** —
-    `int`/`float`/`bool`/`string`/`[T]` and their functions (`print`,
-    `concat`, `str`, `format`, `len`, `push`, `insert`, `set`) remain
-    unqualified, no `use` required, exactly as they work today. Nothing
-    else gets this treatment — `io`, `net`, `http`, `db`, and any
-    user-defined module all go through explicit `use` + qualified calls.
-    Whether to eventually formalize the builtins themselves as an
-    always-auto-imported native module (a real "prelude," Rust-style) is
-    an explicit non-decision — revisit only if keeping them special-cased
-    forever starts costing something concrete, not on principle alone.
+  - ~~**Today's built-in scalar/array machinery stays implicit for
+    now.**~~ Half-resolved: **the "always-auto-imported native module"
+    idea landed** (`src/prelude.h`/`prelude.c`) — a fixed, small native
+    module whose declarations are merged bare into every program, no
+    `use` required and never qualified, the one deliberate exception to
+    "every cross-module reference is qualified." `parse_int`/
+    `parse_float`/`parse_bigint`/`parse_decimal`/`floor`/`ceil`/`round`/
+    `decimal_round`/`concat`/`substring`/`split`/`trim`/`to_upper`/
+    `to_lower` moved there — every one of them has exactly one fixed
+    signature, so `typecheck.c`/`interpreter.c` needed zero new dispatch
+    code for them; the *existing*, fully generic native-fn machinery
+    (already built for `io`) handles type-checking and calling them with
+    no per-function special-casing at all. Verified as a genuinely
+    zero-breaking-change internal restructuring: every existing test
+    fixture calling these unqualified still passes unchanged.
+    **What's still core, and why it has to stay that way**: `print`,
+    `str`, `format`, `len`, `push`/`insert`/`set`, `contains`, `abs`,
+    `min`/`max`, `hash` — every one of these needs to work under *one*
+    unqualified name across *multiple* types (`abs(5)` and `abs(5.0)`
+    and `abs(5n)` and `abs(5.0d)` all share the name `abs`). A native fn
+    is exactly one fixed signature per declared name — Ziman has no
+    argument-based overloading anywhere — so a truly polymorphic-by-name
+    builtin can't move to the prelude without either generic native fn
+    signatures (`native fn abs<T: Numeric>(x: T) -> T`, which doesn't
+    exist and hasn't been designed) or overloading (deliberately not
+    wanted). This isn't a remaining "not gotten to it" gap the way the
+    type-specific functions were — it's the actual, structural boundary
+    of what the prelude mechanism can express. The operators themselves
+    (`+`/`-`/`==`/etc.) were never a candidate either way, for the same
+    "no operator overloading" reason (see docs/DESIGN.md's "Numbers"
+    entry) — those stay hardcoded in `eval_binary`/`check_binary`
+    regardless of what happens to function-shaped builtins.
 - **Generics — in progress, now a five-stage plan.** Design decided
   (docs/DESIGN.md's "Generics" entry): explicit type arguments everywhere
   (no inference), a new `TY_TYPEVAR` substituted on demand rather than
