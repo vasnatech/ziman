@@ -29,15 +29,17 @@ $(OBJ): $(CORELIB_HEADERS)
 # `#define <NAME>_SOURCE "..."` (module name uppercased). A #define, not
 # a `static const char *`, so it's usable as a constant initializer in
 # corelib.c's CORE_MODULES table -- a plain variable can't be (ISO C
-# requires a static initializer to itself be a constant expression).
-# Emitted as one long line rather than one string literal per source
-# line, to avoid needing backslash-newline continuations in a macro
-# definition.
+# requires a static initializer to itself be a constant expression). One
+# quoted string literal per source line, backslash-newline-continued
+# across physical lines (same shape prelude.c's hand-written
+# PRELUDE_SOURCE uses) rather than one unreadable giant line -- adjacent
+# string literals concatenate into a single one regardless of how many
+# physical lines or trailing "" the macro's definition spans.
 src/%_source.h: corelib/%.zm
 	awk -v mod="$*" -v macro="$(shell echo $* | tr a-z A-Z)_SOURCE" \
-	    'BEGIN { printf "/* Generated from corelib/%s.zm -- do not edit directly. */\n#define %s \"", mod, macro } \
-	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); printf "%s\\n", $$0 } \
-	     END { print "\"" }' $< > $@
+	    'BEGIN { printf "/* Generated from corelib/%s.zm -- do not edit directly. */\n#define %s \\\n", mod, macro } \
+	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); printf "    \"%s\\n\" \\\n", $$0 } \
+	     END { print "    \"\"" }' $< > $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
