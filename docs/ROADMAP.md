@@ -477,25 +477,25 @@ a time mid-implementation:
       parsed body, run once right after the body itself is parsed.
     Needed to write `map_get`/`map_set`/`set_add`/etc. once instead of
     once per concrete instantiation.
-- **Collections module (`Box`/`Option`/`Map`/`Set`) — the concrete payoff
-  of the generics work above, not started (the `Hash` bound it needs is
-  done).** A `collections` module, written in ordinary Ziman (no new
-  native/C code), exporting `Box<T>`, `Option<T>`, `Map<K: Eq + Hash, V>`,
-  and `Set<T: Eq + Hash>` (`Set` needs both too, for the same O(1)-bucket
-  reason as `Map`) as plain structs/enums plus free functions
-  (`map_get`/`map_set`/`map_has`/`map_remove`, `set_add`/`set_contains`/
-  `set_remove`), depending on every stage of the generics entry above.
-  ~~**`Map.get` must be O(1)...**~~ The `Hash` bound landed
-  (docs/SYNTAX.md "Builtins"/"Generics"): a second bound, parallel to
-  `Eq`, combinable with it via `+` (`<K: Eq + Hash>`), backed by a new
-  scalar-only `hash(x) -> int` builtin (FNV-1a for strings, the int/bool
-  value itself, a float's raw bit pattern) — decided hardcoded to
-  `int`/`float`/`bool`/`string` only, matching `Eq`/array-`==`'s existing
-  scalar bias, not a general per-type hash story (no struct/enum key
-  support). Still ahead: the module itself, with real bucket-array
-  storage for `Map`/`Set` (fixed bucket count in v0, no resizing/rehash
-  as entries grow — a real if simplified hash table, not attempting a
-  production-grade load-factor story yet).
+- ~~**Collections module (`Box`/`Option`/`Map`/`Set`) — the concrete
+  payoff of the generics work above.**~~ Implemented
+  (`examples/collections/collections.zm`): a `collections` module,
+  written in ordinary Ziman, no new native/C code, exporting `Box<T>`,
+  `Option<T>` (plus a small `option_unwrap_or<T>` helper), `Map<K: Eq +
+  Hash, V>`, and `Set<T: Eq + Hash>` (`Set` needs both bounds too, for
+  the same O(1)-bucket reason as `Map`) as plain structs/enums plus free
+  functions (`map_new`/`map_get`/`map_set`/`map_has`/`map_remove`,
+  `set_new`/`set_add`/`set_contains`/`set_remove`). `Map`/`Set` use real
+  bucket-array storage (separate chaining, `hash(key) % bucket_count`),
+  verified against both a small demo (`examples/collections/main.zm`,
+  also `tests/fixtures/multifile_collections`) and a 50-entry stress
+  fixture (`multifile_collections_stress`) confirming collisions within
+  a bucket chain correctly. Bucket count is fixed at creation (16, no
+  resizing/rehashing) — a real if simplified hash table, not a
+  production-grade load-factor story. `Entry`/`buckets` are
+  implementation details Ziman has no per-field privacy to actually
+  hide (a caller *can* reach `m.buckets` directly) — documented as
+  "don't," not enforced.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.

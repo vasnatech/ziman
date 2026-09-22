@@ -1,0 +1,145 @@
+// collections.zm -- Box<T>, Option<T>, Map<K, V>, Set<T>, written in
+// ordinary Ziman, no native/C code -- the concrete payoff of the
+// generics work (see ../../docs/ROADMAP.md's "Generics" and
+// "Collections module" entries).
+//
+// Map/Set use real bucket-array storage (separate chaining) so
+// get/add/contains are O(1) average case via hash(key) % bucket_count,
+// not a linear Eq-only scan. The bucket count is fixed at creation --
+// no resizing/rehashing yet, so this degrades toward O(n) if the entry
+// count grows much past the fixed bucket count. Eq + Hash together
+// restrict a Map/Set key to int/float/bool/string for now: Hash has no
+// derived form for a struct or enum (see docs/SYNTAX.md "Generics").
+//
+// `Entry`/`buckets` are implementation details, not part of the
+// intended public API -- use the functions below, not direct field
+// access, even though Ziman has no per-field privacy to enforce that.
+
+pub struct Box<T> {
+    value: T
+}
+
+pub enum Option<T> {
+    Some(T)
+    None
+}
+
+pub fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T {
+    if Option.is_Some(o) {
+        return Option.unwrap_Some(o)
+    }
+    return default_value
+}
+
+struct Entry<K, V> {
+    key: K
+    value: V
+}
+
+pub struct Map<K: Eq + Hash, V> {
+    buckets: [[Entry<K, V>]]
+}
+
+pub fn map_new<K: Eq + Hash, V>() -> Map<K, V> {
+    val empty_bucket: [Entry<K, V>] = []
+    var buckets: [[Entry<K, V>]] = []
+    for i in 0..16 {
+        buckets = push(buckets, empty_bucket)
+    }
+    return Map<K, V> { buckets: buckets }
+}
+
+pub fn map_get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V> {
+    val idx = hash(key) % len(m.buckets)
+    val bucket = m.buckets[idx]
+    for entry in bucket {
+        if entry.key == key {
+            return Option<V>.Some(entry.value)
+        }
+    }
+    return Option<V>.None
+}
+
+pub fn map_has<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool {
+    return Option.is_Some(map_get<K, V>(m, key))
+}
+
+pub fn map_set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V> {
+    val idx = hash(key) % len(m.buckets)
+    val old_bucket = m.buckets[idx]
+    var new_bucket: [Entry<K, V>] = []
+    var replaced = false
+    for entry in old_bucket {
+        if entry.key == key {
+            new_bucket = push(new_bucket, Entry<K, V> { key: key, value: value })
+            replaced = true
+        } else {
+            new_bucket = push(new_bucket, entry)
+        }
+    }
+    if !replaced {
+        new_bucket = push(new_bucket, Entry<K, V> { key: key, value: value })
+    }
+    val new_buckets = set(m.buckets, idx, new_bucket)
+    return Map<K, V> { buckets: new_buckets }
+}
+
+pub fn map_remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V> {
+    val idx = hash(key) % len(m.buckets)
+    val old_bucket = m.buckets[idx]
+    var new_bucket: [Entry<K, V>] = []
+    for entry in old_bucket {
+        if entry.key != key {
+            new_bucket = push(new_bucket, entry)
+        }
+    }
+    val new_buckets = set(m.buckets, idx, new_bucket)
+    return Map<K, V> { buckets: new_buckets }
+}
+
+pub struct Set<T: Eq + Hash> {
+    buckets: [[T]]
+}
+
+pub fn set_new<T: Eq + Hash>() -> Set<T> {
+    val empty_bucket: [T] = []
+    var buckets: [[T]] = []
+    for i in 0..16 {
+        buckets = push(buckets, empty_bucket)
+    }
+    return Set<T> { buckets: buckets }
+}
+
+pub fn set_contains<T: Eq + Hash>(s: Set<T>, item: T) -> bool {
+    val idx = hash(item) % len(s.buckets)
+    val bucket = s.buckets[idx]
+    for x in bucket {
+        if x == item {
+            return true
+        }
+    }
+    return false
+}
+
+pub fn set_add<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T> {
+    if set_contains<T>(s, item) {
+        return s
+    }
+    val idx = hash(item) % len(s.buckets)
+    val new_bucket = push(s.buckets[idx], item)
+    val new_buckets = set(s.buckets, idx, new_bucket)
+    return Set<T> { buckets: new_buckets }
+}
+
+pub fn set_remove<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T> {
+    val idx = hash(item) % len(s.buckets)
+    val old_bucket = s.buckets[idx]
+    var new_bucket: [T] = []
+    for x in old_bucket {
+        if x != item {
+            new_bucket = push(new_bucket, x)
+        }
+    }
+    val new_buckets = set(s.buckets, idx, new_bucket)
+    return Set<T> { buckets: new_buckets }
+}

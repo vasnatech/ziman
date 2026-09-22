@@ -1,0 +1,31 @@
+use collections
+
+fn main() {
+    var m = collections.map_new<int, string>()
+    for i in 0..50 {
+        m = collections.map_set<int, string>(m, i, concat("v", str(i)))
+    }
+    var ok = true
+    for i in 0..50 {
+        val v = collections.option_unwrap_or<string>(collections.map_get<int, string>(m, i), "MISSING")
+        if v != concat("v", str(i)) {
+            ok = false
+        }
+    }
+    print(ok)
+    print(collections.map_has<int, string>(m, 49))
+    print(collections.map_has<int, string>(m, 50))
+
+    var s = collections.set_new<int>()
+    for i in 0..50 {
+        s = collections.set_add<int>(s, i)
+    }
+    var all_present = true
+    for i in 0..50 {
+        if !collections.set_contains<int>(s, i) {
+            all_present = false
+        }
+    }
+    print(all_present)
+    print(collections.set_contains<int>(s, 50))
+}
