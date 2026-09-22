@@ -5,7 +5,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean test test-bignum
+.PHONY: all clean test test-bignum test-decimal
 
 all: $(BIN)
 
@@ -28,6 +28,10 @@ test: $(BIN)
 test-bignum: src/bignum.c tests/unit/bignum_test.c
 	$(CC) $(CFLAGS) -o /tmp/ziman_bignum_test src/bignum.c tests/unit/bignum_test.c
 	/tmp/ziman_bignum_test
+
+test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
+	$(CC) $(CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c
+	/tmp/ziman_decimal_test
 
 clean:
 	rm -f $(BIN) src/*.o src/*.d

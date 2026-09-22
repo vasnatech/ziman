@@ -330,3 +330,15 @@ int64_t bignum_to_i64_saturating(BigNum a) {
     if (mag == 9223372036854775808ULL) return INT64_MIN; /* exact boundary -- negating would overflow */
     return -(int64_t)mag;
 }
+
+BigNum bignum_pow10(int n) {
+    if (n == 0) return bignum_from_i64(1);
+    char *s = malloc((size_t)n + 2);
+    s[0] = '1';
+    memset(s + 1, '0', (size_t)n);
+    s[n + 1] = '\0';
+    int ok;
+    BigNum result = bignum_from_string(s, &ok);
+    free(s);
+    return result;
+}

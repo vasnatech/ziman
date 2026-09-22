@@ -55,6 +55,11 @@ void bignum_divmod(BigNum a, BigNum b, BigNum *quot, BigNum *rem);
 int bignum_compare(BigNum a, BigNum b); /* -1, 0, or 1 */
 int bignum_is_zero(BigNum a);
 
+/* 10^n as a BigNum, n >= 0 -- used by decimal.c to shift a scale's worth
+ * of digits when aligning two different scales or computing division to
+ * an explicit target scale. */
+BigNum bignum_pow10(int n);
+
 /* Clamps to INT64_MIN/INT64_MAX if `a` doesn't fit -- used by `hash()`
  * and by an explicit `as int` cast, which is itself defined as
  * saturating rather than wrapping (see docs/SYNTAX.md's cast rules). */
