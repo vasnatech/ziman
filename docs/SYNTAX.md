@@ -384,14 +384,19 @@ fn main() {
   type wherever it can't be trivially read off the right-hand side.
 - **No general bounds or constraints on a type parameter** — `T` can be
   stored and passed around, nothing else; there's no trait/interface
-  system to express "T must support X." The one exception is a single
-  hardcoded bound, `Eq` (`struct Map<K: Eq, V> { ... }`), meaning "this
-  type argument must support `==`" — enforced at every instantiation
-  (`Map<Channel<int>, string>` is a compile-time error, since `Channel`
-  isn't comparable), not a general trait, and not usable inside a
-  generic declaration's own body yet (that needs generic functions —
-  see docs/ROADMAP.md's "Generics" entry). A bound name other than `Eq`
-  (`<T: Ord>`) is a compile-time error.
+  system to express "T must support X." The two exceptions are hardcoded
+  bounds, `Eq` (meaning "supports `==`") and `Hash` (meaning "supports
+  `hash`" — see "Builtins" below), combinable with `+`
+  (`struct Map<K: Eq + Hash, V> { ... }`). Enforced at every
+  instantiation (`Map<Channel<int>, string>` is a compile-time error,
+  since `Channel` supports neither), not a general trait system, and
+  each usable inside the bounded declaration's own body (see "Generic
+  functions" below). A bound name other than `Eq`/`Hash` (`<T: Ord>`) is
+  a compile-time error. `Eq` works the same way `==` already does
+  everywhere else (recursively, for a struct/enum whose fields/payloads
+  are themselves comparable), but `Hash` is scalar-only — no struct or
+  enum has a derived/structural hash, so a `Map`/`Set` key is effectively
+  restricted to `int`/`float`/`bool`/`string` for now.
 - `Box<int>` and `Box<string>` are different types: a mismatched
   instantiation is a type error at construction, and `==`/`!=` between
   two different instantiations of the same generic struct is rejected
@@ -901,6 +906,11 @@ a type error.
   array form requires `T` to be a scalar (`int`/`float`/`bool`/`string`)
   — same restriction as array `==`/`!=`, since only scalars have a
   well-defined equality in v0.
+- `hash(x: T) -> int` — a hash of `x`; `T` is `int`, `float`, `bool`,
+  `string`, or a type parameter bounded by `Hash` (see "Generics"
+  above). Not cryptographic and not stable across a future language
+  version, so never persist a hash — only use it within a single program
+  run (e.g. `collections.Map<K, V>`'s bucket index).
 - `abs(x: T) -> T` — absolute value; `T` is `int` or `float`.
 - `min(a: T, b: T) -> T` / `max(a: T, b: T) -> T` — `T` is `int` or
   `float`; both arguments must be the same `T`, no implicit `int`/`float`

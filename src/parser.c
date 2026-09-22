@@ -820,26 +820,34 @@ static FunctionDecl *parse_native_function(Parser *p) {
     return fn;
 }
 
-/* `"<" IDENT [":" bound] { "," IDENT [":" bound] } ">"` -- a generic
- * declaration's own formal type parameters (`struct Box<T>`, `struct
- * Map<K: Eq, V>`). Each name is TYPE_IDENT-cased, same casing rule as
- * any other type-like name. `Eq` is currently the only recognized bound
- * -- see ast.h's TypeParamBound comment for why this isn't the start of
- * a general trait system. */
+/* `"<" IDENT [":" bound {"+" bound}] { "," IDENT [":" bound {"+" bound}] }
+ * ">"` -- a generic declaration's own formal type parameters
+ * (`struct Box<T>`, `struct Map<K: Eq + Hash, V>`). Each name is
+ * TYPE_IDENT-cased, same casing rule as any other type-like name. `Eq`
+ * and `Hash` are currently the only recognized bounds, combinable with
+ * `+` (reusing the arithmetic operator token -- a distinct, non-
+ * expression grammatical position, same "as"/"/" reuse pattern already
+ * used for casts and module paths) -- see ast.h's TypeParamBound comment
+ * for why this isn't the start of a general trait system. */
 static TypeParamList parse_type_param_list(Parser *p) {
     TypeParamList params = {0};
     expect(p, TOK_LT, "'<'");
     for (;;) {
         Token *name_tok = expect(p, TOK_IDENT, "a type parameter name");
         require_upper_start(name_tok, "a type parameter name");
-        TypeParamBound bound = BOUND_NONE;
+        int bound = BOUND_NONE;
         if (match(p, TOK_COLON)) {
-            Token *bound_tok = expect(p, TOK_IDENT, "a bound name");
-            if (bound_tok->length == 2 && strncmp(bound_tok->start, "Eq", 2) == 0) {
-                bound = BOUND_EQ;
-            } else {
-                ziman_error("syntax", bound_tok->line, bound_tok->col,
-                            "unknown bound '%.*s' (only 'Eq' is supported)", bound_tok->length, bound_tok->start);
+            for (;;) {
+                Token *bound_tok = expect(p, TOK_IDENT, "a bound name");
+                if (bound_tok->length == 2 && strncmp(bound_tok->start, "Eq", 2) == 0) {
+                    bound |= BOUND_EQ;
+                } else if (bound_tok->length == 4 && strncmp(bound_tok->start, "Hash", 4) == 0) {
+                    bound |= BOUND_HASH;
+                } else {
+                    ziman_error("syntax", bound_tok->line, bound_tok->col,
+                                "unknown bound '%.*s' (only 'Eq'/'Hash' are supported)", bound_tok->length, bound_tok->start);
+                }
+                if (!match(p, TOK_PLUS)) break;
             }
         }
         TypeParam param = {dup_token_text(name_tok), bound};

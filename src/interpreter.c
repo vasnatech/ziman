@@ -225,6 +225,39 @@ static Value call_contains(Value first, Value second) {
     return value_bool(0);
 }
 
+/* Scalars only (matching type_supports_hashing in typecheck.c) --
+ * FNV-1a for strings, the raw bit pattern for a float, the value itself
+ * for an int/bool. The sign bit is cleared before returning so the
+ * result is always a non-negative int, safe to use directly with '%'
+ * for bucket indexing (see the `collections` module's `Map<K, V>`). Not
+ * a cryptographic hash, and not stable across a future language version
+ * bumping this function's internals -- only ever used within a single
+ * program run, never persisted. */
+static Value call_hash(Value v) {
+    uint64_t h;
+    switch (v.type.kind) {
+        case TY_INT:
+            h = (uint64_t)v.as.i;
+            break;
+        case TY_BOOL:
+            h = v.as.b ? 1 : 0;
+            break;
+        case TY_FLOAT:
+            memcpy(&h, &v.as.f, sizeof(h));
+            break;
+        default: { /* TY_STRING -- the only other case type_supports_hashing allows */
+            const unsigned char *s = (const unsigned char *)v.as.s;
+            h = 1469598103934665603ULL; /* FNV-1a 64-bit offset basis */
+            while (*s) {
+                h ^= *s++;
+                h *= 1099511628211ULL; /* FNV-1a 64-bit prime */
+            }
+            break;
+        }
+    }
+    return value_int((int64_t)(h & 0x7FFFFFFFFFFFFFFFULL));
+}
+
 static Value call_abs(Value x) {
     if (x.type.kind == TY_INT) {
         return value_int(x.as.i < 0 ? -x.as.i : x.as.i);
@@ -520,6 +553,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_parse_float(args[0]);
             } else if (strcmp(e->as.call.callee, "contains") == 0) {
                 result = call_contains(args[0], args[1]);
+            } else if (strcmp(e->as.call.callee, "hash") == 0) {
+                result = call_hash(args[0]);
             } else if (strcmp(e->as.call.callee, "abs") == 0) {
                 result = call_abs(args[0]);
             } else if (strcmp(e->as.call.callee, "min") == 0) {

@@ -333,16 +333,27 @@ several languages rather than inheriting any one of them wholesale.
   inferred from the right-hand side. **No general bounds/`where`-style
   constraints** — no trait system yet (see the classes-vs-traits
   discussion above): a generic declaration's body still can't do anything
-  with an abstract `T` beyond storing and passing it around, *except* one
-  single hardcoded bound, `Eq` (`<T: Eq>`, meaning "supports `==`"),
-  added specifically because `Map<K, V>`/`Set<T>` (see ROADMAP.md's
+  with an abstract `T` beyond storing and passing it around, *except* two
+  hardcoded bounds: `Eq` (`<T: Eq>`, meaning "supports `==`"), added
+  specifically because `Map<K, V>`/`Set<T>` (see ROADMAP.md's
   "Collections module" entry) need to compare an abstract key type —
   without it, `key == k` inside a generic `map_get` would be exactly the
-  comparison an unbounded `TY_TYPEVAR` correctly can't prove safe. This
-  is a narrow, special-cased escape hatch, not the start of a general
-  trait system — a second bound (`Hash`, for `Map`'s O(1) `get`) is the
-  only other one currently anticipated, and both are closed, compiler-
-  known concepts, not user-definable interfaces. Represented as a new
+  comparison an unbounded `TY_TYPEVAR` correctly can't prove safe — and
+  `Hash` (`<T: Hash>`, meaning "supports the `hash` builtin"), added
+  right alongside it so `Map`/`Set` can actually be a real hash table
+  (bucket index = `hash(key) % bucket_count`) instead of a linear `Eq`-
+  only scan, which would only have moved the "just hardcode one more
+  parametric type" problem this whole generics effort exists to end into
+  a performance problem instead. Combinable on one parameter with `+`
+  (`<K: Eq + Hash>`) since `Map`/`Set` need both on the same key type at
+  once. `Hash` is scalar-only by decision (`int`/`float`/`bool`/`string`)
+  — no derived/structural hash for a struct or enum, matching the
+  existing "no derived equality for an arbitrary struct beyond field-by-
+  field `==`" pattern, so a general per-type hash story was explicitly
+  deferred rather than attempted alongside this. Both are narrow,
+  special-cased escape hatches, not the start of a general trait system,
+  and both closed, compiler-known concepts, not user-definable
+  interfaces. Represented as a new
   `TY_TYPEVAR` `TypeKind` — "the Nth/named formal parameter of the
   enclosing generic declaration" — substituted on demand wherever a
   concrete instantiation's fields/variants/parameters are actually looked

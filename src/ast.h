@@ -265,28 +265,31 @@ typedef struct {
     int capacity;
 } ParamList;
 
-/* The one hardcoded bound a type parameter can carry: "supports '=='."
- * Not a general trait/interface system (see docs/DESIGN.md's "Generics"
- * entry) -- added specifically so a generic `Map<K, V>`/`Set<T>` can
- * compare an abstract key type inside a generic function body; a
- * generic declaration still can't do anything else with an unbounded
- * type parameter beyond storing and passing it around. */
+/* The two hardcoded bounds a type parameter can carry: "supports '=='"
+ * and "supports 'hash'." Not a general trait/interface system (see
+ * docs/DESIGN.md's "Generics" entry) -- added specifically so a generic
+ * `Map<K, V>`/`Set<T>` can compare and hash an abstract key type inside a
+ * generic function body; a generic declaration still can't do anything
+ * else with an unbounded type parameter beyond storing and passing it
+ * around. A bitmask (`<K: Eq + Hash>` combines both) rather than a single
+ * value, since `Map`/`Set` need both bounds on the same parameter at once. */
 typedef enum {
-    BOUND_NONE,
-    BOUND_EQ,
+    BOUND_NONE = 0,
+    BOUND_EQ = 1 << 0,
+    BOUND_HASH = 1 << 1,
 } TypeParamBound;
 
 typedef struct {
     char *name;
-    TypeParamBound bound;
+    int bound; /* a bitmask of TypeParamBound values, e.g. BOUND_EQ | BOUND_HASH */
 } TypeParam;
 
 /* A generic declaration's own formal type parameters (`struct Box<T>`'s
- * is `[{"T", BOUND_NONE}]`, `Map<K: Eq, V>`'s is `[{"K", BOUND_EQ},
- * {"V", BOUND_NONE}]`). Empty for an ordinary, non-generic declaration.
- * Looked up by name, not index -- consistent with how everything else in
- * Ziman (struct fields, enum variants) is looked up by name rather than
- * position. */
+ * is `[{"T", BOUND_NONE}]`, `Map<K: Eq + Hash, V>`'s is
+ * `[{"K", BOUND_EQ | BOUND_HASH}, {"V", BOUND_NONE}]`). Empty for an
+ * ordinary, non-generic declaration. Looked up by name, not index --
+ * consistent with how everything else in Ziman (struct fields, enum
+ * variants) is looked up by name rather than position. */
 typedef struct {
     TypeParam *items;
     int count;

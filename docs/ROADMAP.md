@@ -478,23 +478,24 @@ a time mid-implementation:
     Needed to write `map_get`/`map_set`/`set_add`/etc. once instead of
     once per concrete instantiation.
 - **Collections module (`Box`/`Option`/`Map`/`Set`) — the concrete payoff
-  of the generics work above, not started.** A `collections` module,
-  written in ordinary Ziman (no new native/C code), exporting `Box<T>`,
-  `Option<T>`, `Map<K: Eq, V>`, and `Set<T: Eq>` (`Set` needs `Eq` too, to
-  dedupe on insert) as plain structs/enums plus free functions
+  of the generics work above, not started (the `Hash` bound it needs is
+  done).** A `collections` module, written in ordinary Ziman (no new
+  native/C code), exporting `Box<T>`, `Option<T>`, `Map<K: Eq + Hash, V>`,
+  and `Set<T: Eq + Hash>` (`Set` needs both too, for the same O(1)-bucket
+  reason as `Map`) as plain structs/enums plus free functions
   (`map_get`/`map_set`/`map_has`/`map_remove`, `set_add`/`set_contains`/
   `set_remove`), depending on every stage of the generics entry above.
-  **`Map.get` must be O(1), not the O(n) linear scan a naive
-  parallel-arrays-plus-`Eq`-loop implementation would give** — this needs
-  real hash-bucket storage, which means a second bound, `Hash` (parallel
-  to `Eq`), so the type checker can prove a key type supports hashing the
-  same way `Eq` proves it supports `==`. Not yet decided: whether `Hash`
-  is hardcoded to the same scalar types `Eq`/array-`==` already special-
-  case (int/string/bool/float — matching the existing "no derived
-  equality/hashing for an arbitrary struct" pattern throughout the
-  language), which would keep `Map`/`Set` keys scalar-only in v0, or
-  whether it's worth a more general per-type hash story later. Revisit
-  when Stage 5 above is done and this module actually gets built.
+  ~~**`Map.get` must be O(1)...**~~ The `Hash` bound landed
+  (docs/SYNTAX.md "Builtins"/"Generics"): a second bound, parallel to
+  `Eq`, combinable with it via `+` (`<K: Eq + Hash>`), backed by a new
+  scalar-only `hash(x) -> int` builtin (FNV-1a for strings, the int/bool
+  value itself, a float's raw bit pattern) — decided hardcoded to
+  `int`/`float`/`bool`/`string` only, matching `Eq`/array-`==`'s existing
+  scalar bias, not a general per-type hash story (no struct/enum key
+  support). Still ahead: the module itself, with real bucket-array
+  storage for `Map`/`Set` (fixed bucket count in v0, no resizing/rehash
+  as entries grow — a real if simplified hash table, not attempting a
+  production-grade load-factor story yet).
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.

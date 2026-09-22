@@ -1,0 +1,7 @@
+struct Box<T: Eq + Hash> {
+    value: T
+}
+fn main() {
+    val b = Box<int> { value: 5 }
+    print(hash(b.value))
+}

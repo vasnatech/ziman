@@ -1,0 +1,5 @@
+fn main() {
+    print(hash(5) == hash(5))
+    print(hash("a") == hash("b"))
+    print(hash("hello") == hash("hello"))
+}

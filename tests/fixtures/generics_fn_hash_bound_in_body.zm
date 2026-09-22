@@ -1,0 +1,7 @@
+fn hash_of<T: Hash>(x: T) -> int {
+    return hash(x)
+}
+fn main() {
+    print(hash_of<int>(42))
+    print(hash_of<string>("abc") == hash("abc"))
+}

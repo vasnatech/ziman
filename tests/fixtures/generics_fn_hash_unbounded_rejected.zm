@@ -1,0 +1,4 @@
+fn hash_of<T>(x: T) -> int {
+    return hash(x)
+}
+fn main() { print(hash_of<int>(42)) }

@@ -142,16 +142,17 @@ static int type_supports_equality(Module *module, Type t, int depth) {
             return 0;
         case TY_TYPEVAR:
             /* A bare, unsubstituted type variable is comparable exactly
-             * when it's the *current function's own* type parameter and
-             * that parameter carries the `Eq` bound -- e.g. `a == b`
-             * inside `fn are_equal<T: Eq>(a: T, b: T) -> bool { ... }`.
-             * Anywhere else (a struct/enum's own declaration, or a type
-             * variable belonging to some other, unrelated declaration)
-             * this is unbounded and correctly not comparable. */
+             * when it's the *current declaration's own* type parameter
+             * and that parameter's bound bitmask includes `Eq` -- e.g.
+             * `a == b` inside `fn are_equal<T: Eq>(a: T, b: T) -> bool
+             * { ... }`. Anywhere else (a struct/enum's own declaration,
+             * or a type variable belonging to some other, unrelated
+             * declaration) this is unbounded and correctly not
+             * comparable. */
             if (current_decl_type_params != NULL) {
                 for (int i = 0; i < current_decl_type_params->count; i++) {
                     if (strcmp(current_decl_type_params->items[i].name, t.type_var_name) == 0) {
-                        return current_decl_type_params->items[i].bound == BOUND_EQ;
+                        return (current_decl_type_params->items[i].bound & BOUND_EQ) != 0;
                     }
                 }
             }
@@ -162,22 +163,51 @@ static int type_supports_equality(Module *module, Type t, int depth) {
     }
 }
 
+/* Whether `t` supports the `hash` builtin -- scalars only (matching the
+ * "no derived equality/hashing for an arbitrary struct" pattern
+ * `type_supports_equality` and array `==` already follow), plus the same
+ * TY_TYPEVAR bound-lookup `type_supports_equality` uses, checking the
+ * `Hash` bit instead of `Eq`. Needed for `Map<K, V>`'s `get`/`set` to be
+ * O(1) (bucket index = hash(key) % bucket count) instead of a linear
+ * `Eq`-only scan -- see ROADMAP.md's "Collections module" entry. */
+static int type_supports_hashing(Type t) {
+    switch (t.kind) {
+        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING:
+            return 1;
+        case TY_TYPEVAR:
+            if (current_decl_type_params != NULL) {
+                for (int i = 0; i < current_decl_type_params->count; i++) {
+                    if (strcmp(current_decl_type_params->items[i].name, t.type_var_name) == 0) {
+                        return (current_decl_type_params->items[i].bound & BOUND_HASH) != 0;
+                    }
+                }
+            }
+            return 0;
+        default:
+            return 0;
+    }
+}
+
 /* Enforces every bound a generic declaration's own type parameters carry
- * (currently only `Eq`) against the concrete type arguments an
+ * (`Eq`/`Hash`, independently) against the concrete type arguments an
  * instantiation actually supplies -- e.g. `Box<Channel<int>>` is
  * rejected here if `Box` were declared `struct Box<T: Eq>`, since
  * `Channel<int>` doesn't support `==`. This is what keeps "a bounded T
- * is always comparable" true in practice: nothing yet lets a Ziman
- * program actually exploit that guarantee inside a generic declaration's
- * own body (that needs generic functions -- see ROADMAP.md's "Generics"
- * Stage 5), but enforcing it at every instantiation now means the
- * guarantee will already hold once that stage lands. Assumes
- * `params->count == args->count`, already checked by the caller. */
+ * is always comparable/hashable" true in practice, so a generic
+ * declaration's own body can rely on it (see ROADMAP.md's "Generics"
+ * Stage 5). Assumes `params->count == args->count`, already checked by
+ * the caller. */
 static void check_type_args_satisfy_bounds(Module *module, TypeParamList *params, TypeList *args, int line, int col) {
     for (int i = 0; i < params->count; i++) {
-        if (params->items[i].bound == BOUND_EQ && !type_supports_equality(module, args->items[i], 0)) {
+        int bound = params->items[i].bound;
+        if ((bound & BOUND_EQ) && !type_supports_equality(module, args->items[i], 0)) {
             ziman_error("type", line, col,
                         "type argument %s does not satisfy bound 'Eq' required by type parameter '%s' (it must support '==')",
+                        type_name(args->items[i]), params->items[i].name);
+        }
+        if ((bound & BOUND_HASH) && !type_supports_hashing(args->items[i])) {
+            ziman_error("type", line, col,
+                        "type argument %s does not satisfy bound 'Hash' required by type parameter '%s' (it must support 'hash')",
                         type_name(args->items[i]), params->items[i].name);
         }
     }
@@ -466,6 +496,20 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             return type_scalar(TY_BOOL);
         }
         ziman_error("type", first_arg->line, first_arg->col, "'contains' expects a string or array as its first argument, found %s", type_name(first_type));
+    }
+
+    if (strcmp(name, "hash") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'hash' takes exactly 1 argument, found %d", e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(module, env, arg);
+        if (!type_supports_hashing(arg_type)) {
+            ziman_error("type", arg->line, arg->col,
+                        "'hash' expects int, float, bool, string, or a type parameter bounded by 'Hash', found %s",
+                        type_name(arg_type));
+        }
+        return type_scalar(TY_INT);
     }
 
     if (strcmp(name, "abs") == 0) {
@@ -1387,7 +1431,7 @@ void typecheck(Module *module) {
                                       "substring", "split", "trim", "to_upper", "to_lower",
                                       "parse_int", "parse_float", "contains",
                                       "abs", "min", "max", "floor", "ceil", "round", "remove",
-                                      "channel_new", "send", "receive"};
+                                      "channel_new", "send", "receive", "hash"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a
