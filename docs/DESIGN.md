@@ -525,6 +525,44 @@ several languages rather than inheriting any one of them wholesale.
   drop-in for vendoring, not just a demo of one: every test fixture that
   used to carry its own copy of `collections.zm` had that copy deleted
   outright and needed zero other changes to keep passing.
+- **Per-name imports (`use path.Name [as alias]`) — fixes a real
+  ergonomics gap generics exposed, without touching the "always
+  qualified" rule.** Generic collection code turned out to be the worst
+  case for two of Ziman's rules compounding: `use collections` then
+  `collections.hashmap_set<int, string>(map, 30, "alice")` repeats a
+  module prefix *and* explicit type arguments on nearly every line. Two
+  candidate fixes were on the table — a per-name import for the prefix,
+  and Java-diamond-style ("`new HashMap<>()`") type-argument inference
+  for the repetition — and only the first one shipped, because they land
+  on opposite sides of what Ziman is actually for: an LLM already
+  generates `from x import y` / `use x::y` shaped code correctly by
+  habit, since it's common across languages, and this doesn't add any
+  new implicit reasoning — it just moves "where did this bare name come
+  from" from every call site to one `use` line, arguably *more* visible
+  than a repeated prefix, not less. Diamond-style inference would have
+  reopened "no inference, ever" (see the Generics entry above) in its
+  worst form: *conditional* inference that only fires for the exact
+  `val x: T = call()` shape and silently doesn't anywhere else (a
+  function argument, a struct field, a nested expression) — worse than
+  either full inference or none, since identical-looking code sometimes
+  needs type arguments and sometimes doesn't, for reasons invisible at
+  the call site itself. Left this one alone.
+  Mechanically, a per-name import is resolved and privacy-checked once,
+  at the `use` line (`resolve_named_imports` in loader.c), producing a
+  `local_name -> fully-qualified-name` table consulted by the same
+  self-qualify walk that already rewrites a module's own bare references
+  to their qualified form — an imported name is just a second table that
+  walk falls back to, not new tree-walking machinery. It introduces no
+  new *declarations*: the imported function/struct/enum still lives
+  under its one real qualified name in its own module's function/struct/
+  enum list, so nothing about typechecking a call, or the existing
+  duplicate-name/builtin-redefinition checks, needed to change either.
+  The casing-consistency rule on an `as` alias (`use collections.HashMap
+  as box2` is a compile error) is enforced at parse time, before the
+  loader even knows what `HashMap` is — it doesn't need to: an
+  uppercase-vs-lowercase mismatch would already be wrong regardless of
+  the target's kind, since Ziman's grammar depends on casing alone to
+  parse a struct literal versus a function call.
 
 ## Deliberately deferred (not v0)
 

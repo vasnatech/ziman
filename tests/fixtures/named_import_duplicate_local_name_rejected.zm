@@ -1,0 +1,6 @@
+use collections.HashMap
+use collections.Box as HashMap
+
+fn main() {
+    print(1)
+}

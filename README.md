@@ -27,8 +27,13 @@ plain nominal value-semantics `struct`s (named-fields-only
 construction, `with` for non-mutating field updates, no
 methods/inheritance, field-by-field `==`/`!=` when every field is
 itself comparable), multi-file programs via `use path/to/mod`
-(always-qualified cross-module calls, `pub` for exports,
-project-relative resolution only so far), `native fn` for calling into
+(qualified cross-module calls by default, `pub` for exports,
+project-relative resolution first, falling back to a bundled core
+module if no project file exists), or `use path/to/mod.Name [as alias]`
+to import one function/struct/enum under a bare local name instead —
+resolved and privacy-checked once at the `use` line, not a wildcard
+import (there's no `use mod.*`, and no unqualified name whose origin
+isn't spelled out somewhere in the file's own `use` list), `native fn` for calling into
 C (a real, minimal `io` module — `read_file`/`write_file` — proves it
 end to end), `Result<T, E>` for recoverable errors (`io.read_file`
 returns one instead of crashing on a missing file, variant-then-payload

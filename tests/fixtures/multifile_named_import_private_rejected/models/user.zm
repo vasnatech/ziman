@@ -1,0 +1,3 @@
+fn secret_helper() -> int {
+    return 42
+}

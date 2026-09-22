@@ -383,14 +383,23 @@ typedef struct {
     int capacity;
 } EnumList;
 
-/* `use path/to/mod [as alias]`. `path` is the slash-joined module path
- * exactly as written (e.g. "models/user"); `qualifier` is the local name
- * this module is referenced by in code (the path's last segment, or the
- * `as` alias if one was given). Not resolved to anything yet at parse
- * time -- that's the loader's job, still ahead. */
+/* Two forms. `use path/to/mod [as alias]` imports a whole module under a
+ * local qualifier -- `path` is the slash-joined module path exactly as
+ * written (e.g. "models/user"), `qualifier` is the local name this
+ * module is referenced by (the path's last segment, or the `as` alias),
+ * and every reference into it stays dotted (`qualifier.Name`).
+ * `use path/to/mod.Name [as alias]` instead imports one specific
+ * function/struct/enum (`imported_name`) and binds it to a bare local
+ * name (`local_name` -- `imported_name` itself, or the alias) with no
+ * dot required at the call site. `qualifier` is NULL for a per-name
+ * import; `imported_name`/`local_name` are NULL for a whole-module one.
+ * Not resolved to anything yet at parse time -- that's the loader's job,
+ * still ahead. */
 typedef struct {
     char *path;
     char *qualifier;
+    char *imported_name;
+    char *local_name;
     int line, col;
 } UseDecl;
 

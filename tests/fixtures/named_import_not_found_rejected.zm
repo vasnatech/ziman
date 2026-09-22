@@ -1,0 +1,5 @@
+use collections.NoSuchThing
+
+fn main() {
+    print(1)
+}

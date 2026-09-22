@@ -1,0 +1,8 @@
+use collections.hashmap_new
+
+fn hashmap_new() {
+}
+
+fn main() {
+    print(1)
+}

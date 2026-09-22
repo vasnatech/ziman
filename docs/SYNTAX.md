@@ -734,12 +734,34 @@ fn main() {
   referenced by (`user` above) is the path's last segment by default, or
   the explicit `as` alias if one is given — either way it's
   casing-enforced lowercase, like every other value-like name.
-- **Every cross-module reference is qualified — `user.greet(u)`,
-  `user.User { ... }`, `field: user.User` — never a bare name that
-  happens to resolve to some import.** There is no unqualified/wildcard
-  import form. A qualified call or struct literal looks identical to
-  plain field access (`p.x`) until the parser sees what follows the
-  second identifier; see the grammar note above.
+- **`use path/to/mod.Name [as alias]`** imports one specific
+  function/struct/enum instead of the whole module, binding it to a bare
+  local name — `use collections.HashMap` then just `HashMap<int, string>`,
+  no `collections.` prefix. One name per import, no `{A, B, C}` list
+  form. The bare name is `Name` itself, or the `as` alias if one is
+  given; either way its casing must match `Name`'s own (both uppercase
+  or both lowercase) — checked at parse time, before the loader has even
+  resolved what `Name` is, since Ziman's parser already relies on
+  casing alone to know a struct literal from a function call (see the
+  grammar note above), so this is the same invariant every other
+  binder enforces, not a new rule. A name imported this way is
+  otherwise still resolved and privacy-checked exactly like a dotted
+  reference would be (`'x' in module 'y' is private` on a non-`pub`
+  target) — just once, at the `use` line, instead of at every call site.
+  It's a compile-time error for the same local name to be imported
+  twice, or for an import to collide with something the importing
+  module declares itself.
+- **Every cross-module reference is qualified, or explicitly imported by
+  name at the top of the file — never a bare name that silently happens
+  to resolve to some import.** `user.greet(u)`, `user.User { ... }`,
+  `field: user.User` stay dotted for anything reached through a
+  whole-module `use`. There is no wildcard import form (`use models/user.*`
+  doesn't exist) — a per-name import always names the one thing it
+  binds, right there in the `use` list, so grepping a file's `use` lines
+  still tells you everywhere a bare name in its body could have come
+  from. A qualified call or struct literal looks identical to plain
+  field access (`p.x`) until the parser sees what follows the second
+  identifier; see the grammar note above.
 - **`pub` marks a declaration for export; the default is private to the
   module.** A private function/struct can be called/constructed freely
   from within its own module, but referencing it from another module is

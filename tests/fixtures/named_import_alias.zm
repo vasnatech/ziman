@@ -1,0 +1,9 @@
+use collections.HashMap
+use collections.hashmap_new as make_map
+use collections.hashmap_set as put
+
+fn main() {
+    var map: HashMap<int, string> = make_map<int, string>()
+    map = put<int, string>(map, 1, "one")
+    print(len(map.buckets))
+}

@@ -1,0 +1,12 @@
+pub struct User {
+    id: int
+    name: string
+}
+
+pub fn greet(u: User) -> string {
+    return format("hello, {}", u.name)
+}
+
+fn secret_helper() -> int {
+    return 42
+}

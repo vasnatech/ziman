@@ -538,10 +538,12 @@ a time mid-implementation:
   file of the same name always wins, so this is strictly a fallback,
   not a shadowing/override mechanism. Deliberately narrower than the
   prelude (prelude.h): a core module is only parsed when a program
-  actually `use`s it, and it stays qualified (`collections.HashMap`,
-  never a bare `HashMap`) exactly like any other module — this is a
-  stdlib, not language-level machinery, so the usual `use`/`pub`
-  boundary still applies. Every fixture that used to vendor its own
+  actually `use`s it, and a whole-module `use collections` stays
+  qualified (`collections.HashMap`, never a bare `HashMap`) exactly like
+  any other module — a bare `HashMap` only becomes possible via a
+  separate, later mechanism (per-name imports, below), never as a
+  side effect of this one — this is a stdlib, not language-level
+  machinery, so the usual `use`/`pub` boundary still applies. Every fixture that used to vendor its own
   copy of `collections.zm` (`multifile_collections`,
   `multifile_collections_stress`, `multifile_bigint_hashmap`,
   `multifile_decimal_hashmap`) had it deleted and now resolves through
@@ -553,6 +555,25 @@ a time mid-implementation:
   fixtures, all byte-identical) — not done yet since only `collections`
   was asked for, but the corelib table is a one-line addition away from
   covering it too.
+- ~~**Per-name imports (`use path.Name [as alias]`) — closes the
+  "generic collection code repeats `collections.` *and* `<K, V>` on
+  nearly every line" ergonomics gap the bundled `collections` module
+  above surfaced.**~~ Implemented (see docs/DESIGN.md's entry for the
+  full "why this and not type-argument inference" reasoning):
+  `use collections.HashMap` then plain `HashMap<int, string>`, no
+  `collections.` prefix — one name per import, no list form. Resolved
+  and privacy-checked once at the `use` line (`resolve_named_imports`,
+  loader.c), not re-resolved at every call site, and it's a compile-time
+  error to import the same local name twice or to collide with
+  something the importing module declares itself. An `as` alias's
+  casing must match the imported name's own (checked at parse time,
+  before the loader even knows what the name resolves to — `HashMap`
+  starting uppercase is already enough to know an alias for it must too,
+  since Ziman's grammar depends on that invariant regardless of what the
+  name turns out to be). Only cuts the module-prefix repetition, not the
+  explicit-type-argument one — `hashmap_new<int, string>()` still needs
+  its type arguments spelled out; that's the half of the friction this
+  was never meant to fix.
 - ~~**`bigint`/`decimal` — arbitrary-precision integer and decimal.**~~
   Implemented (docs/SYNTAX.md "Numbers", docs/DESIGN.md's "bigint"/
   "decimal" entry): a third and fourth numeric type. `bigint` is

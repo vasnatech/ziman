@@ -109,11 +109,32 @@ static void push_loading(Loader *ldr, const char *use_path) {
 
 static void pop_loading(Loader *ldr) { ldr->loading_count--; }
 
+/* ---- per-name imports (`use path.Name [as alias]`) ---- */
+
+typedef enum { IMPORT_FN, IMPORT_STRUCT, IMPORT_ENUM } ImportKind;
+
+/* One resolved `use path.Name [as alias]`: `local_name` is the bare name
+ * usable (with no dot) in the importing module's own code, already
+ * mapped to the fully-qualified name (`<path>::Name`) it actually
+ * refers to -- computed once in resolve_named_imports, not re-resolved
+ * at every reference the way a dotted `mod.Name` is. */
+typedef struct {
+    char *local_name;
+    char *qualified_name;
+    ImportKind kind;
+} NamedImport;
+
 /* ---- pass (a): self-qualify a module's own declarations ---- */
 
 /* Snapshot of a module's own top-level names, taken *before* renaming them,
  * so the body-walk that follows can still recognize "this bare name is
- * mine" after the declarations themselves have already been renamed. */
+ * mine" after the declarations themselves have already been renamed.
+ * `imports`/`n_imports` are this module's resolved per-name imports (see
+ * resolve_named_imports) -- checked as a fallback wherever a bare name
+ * doesn't match one of the module's own declarations. Empty for the
+ * entry module's own top-level names (own_fn_names etc.) when walking
+ * it, since its own bare names are never rewritten -- but its imports
+ * still are. */
 typedef struct {
     const char *own_path;
     char **orig_fn_names;
@@ -122,7 +143,16 @@ typedef struct {
     int n_structs;
     char **orig_enum_names;
     int n_enums;
+    NamedImport *imports;
+    int n_imports;
 } SelfQualifyCtx;
+
+static const NamedImport *find_named_import(SelfQualifyCtx *ctx, const char *name, ImportKind kind) {
+    for (int i = 0; i < ctx->n_imports; i++) {
+        if (ctx->imports[i].kind == kind && strcmp(ctx->imports[i].local_name, name) == 0) return &ctx->imports[i];
+    }
+    return NULL;
+}
 
 /* parse_type() always builds a provisional TY_STRUCT for a bare TYPE_IDENT
  * reference, since the parser can't tell a struct name from an enum name
@@ -169,8 +199,23 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
             return;
         }
     }
-    /* Not one of this module's own structs or enums -- leave it; typecheck
-     * reports "unknown struct or enum type" if it's genuinely undefined. */
+    {
+        const NamedImport *imp = find_named_import(ctx, t->struct_name, IMPORT_STRUCT);
+        if (imp != NULL) {
+            t->struct_name = imp->qualified_name;
+            return;
+        }
+        imp = find_named_import(ctx, t->struct_name, IMPORT_ENUM);
+        if (imp != NULL) {
+            t->struct_name = NULL;
+            t->enum_name = imp->qualified_name;
+            t->kind = TY_ENUM;
+            return;
+        }
+    }
+    /* Not one of this module's own structs/enums, nor a named import --
+     * leave it; typecheck reports "unknown struct or enum type" if it's
+     * genuinely undefined. */
 }
 
 static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
@@ -186,11 +231,17 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
             break;
         case EXPR_CALL:
             if (strchr(e->as.call.callee, '.') == NULL) {
+                int matched = 0;
                 for (int i = 0; i < ctx->n_fns; i++) {
                     if (strcmp(e->as.call.callee, ctx->orig_fn_names[i]) == 0) {
                         e->as.call.callee = qualify_name(ctx->own_path, e->as.call.callee);
+                        matched = 1;
                         break;
                     }
+                }
+                if (!matched) {
+                    const NamedImport *imp = find_named_import(ctx, e->as.call.callee, IMPORT_FN);
+                    if (imp != NULL) e->as.call.callee = imp->qualified_name;
                 }
             }
             for (int i = 0; i < e->as.call.type_args.count; i++) self_qualify_type(&e->as.call.type_args.items[i], ctx);
@@ -209,11 +260,17 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
             break;
         case EXPR_STRUCT_LIT:
             if (strchr(e->as.struct_lit.type_name, '.') == NULL) {
+                int matched = 0;
                 for (int i = 0; i < ctx->n_structs; i++) {
                     if (strcmp(e->as.struct_lit.type_name, ctx->orig_struct_names[i]) == 0) {
                         e->as.struct_lit.type_name = qualify_name(ctx->own_path, e->as.struct_lit.type_name);
+                        matched = 1;
                         break;
                     }
+                }
+                if (!matched) {
+                    const NamedImport *imp = find_named_import(ctx, e->as.struct_lit.type_name, IMPORT_STRUCT);
+                    if (imp != NULL) e->as.struct_lit.type_name = imp->qualified_name;
                 }
             }
             for (int i = 0; i < e->as.struct_lit.type_args.count; i++) self_qualify_type(&e->as.struct_lit.type_args.items[i], ctx);
@@ -231,15 +288,22 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
              * written by this module against one of its own `use`s) is
              * pass (b)'s job, same as a struct literal's already-dotted
              * `type_name`. A bare one always either matches one of this
-             * module's own enums or is genuinely undefined -- never
-             * something pass (b) needs to resolve. `member_name` is never
-             * touched, same as a struct field name never is. */
+             * module's own enums, matches a named import
+             * (`use collections.Option`), or is genuinely undefined --
+             * never something pass (b) needs to resolve. `member_name`
+             * is never touched, same as a struct field name never is. */
             if (strchr(e->as.enum_access.enum_name, '.') == NULL) {
+                int matched = 0;
                 for (int i = 0; i < ctx->n_enums; i++) {
                     if (strcmp(e->as.enum_access.enum_name, ctx->orig_enum_names[i]) == 0) {
                         e->as.enum_access.enum_name = qualify_name(ctx->own_path, e->as.enum_access.enum_name);
+                        matched = 1;
                         break;
                     }
+                }
+                if (!matched) {
+                    const NamedImport *imp = find_named_import(ctx, e->as.enum_access.enum_name, IMPORT_ENUM);
+                    if (imp != NULL) e->as.enum_access.enum_name = imp->qualified_name;
                 }
             }
             for (int i = 0; i < e->as.enum_access.type_args.count; i++) self_qualify_type(&e->as.enum_access.type_args.items[i], ctx);
@@ -280,14 +344,20 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
             break; /* no sub-expressions */
         case STMT_SPAWN:
             /* Same "dotted or not" logic EXPR_CALL's callee already gets --
-             * see that case for why this only qualifies a bare name that
-             * matches one of this module's own functions. */
+             * see that case for why this checks this module's own
+             * functions and its named imports the same way a call does. */
             if (strchr(s->as.spawn_stmt.callee, '.') == NULL) {
+                int matched = 0;
                 for (int i = 0; i < ctx->n_fns; i++) {
                     if (strcmp(s->as.spawn_stmt.callee, ctx->orig_fn_names[i]) == 0) {
                         s->as.spawn_stmt.callee = qualify_name(ctx->own_path, s->as.spawn_stmt.callee);
+                        matched = 1;
                         break;
                     }
+                }
+                if (!matched) {
+                    const NamedImport *imp = find_named_import(ctx, s->as.spawn_stmt.callee, IMPORT_FN);
+                    if (imp != NULL) s->as.spawn_stmt.callee = imp->qualified_name;
                 }
             }
             for (int i = 0; i < s->as.spawn_stmt.args.count; i++) self_qualify_expr(s->as.spawn_stmt.args.items[i], ctx);
@@ -304,7 +374,33 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
     }
 }
 
-static void self_qualify_module(Module *mod, const char *own_path) {
+/* The body-walk half of self-qualifying a module: rewrites every bare
+ * reference `ctx` recognizes (this module's own declarations, own_path
+ * non-empty; its named imports, always) to a fully-qualified name.
+ * Split out from self_qualify_module so the entry module -- which never
+ * renames its own top-level declarations, see load_module_graph -- can
+ * still run just this half, with empty own-name arrays (so only its
+ * named imports actually get rewritten). */
+static void self_qualify_walk_module(Module *mod, SelfQualifyCtx *ctx) {
+    for (int i = 0; i < mod->functions.count; i++) {
+        FunctionDecl *fn = mod->functions.items[i];
+        for (int pi = 0; pi < fn->params.count; pi++) self_qualify_type(&fn->params.items[pi].type, ctx);
+        self_qualify_type(&fn->return_type, ctx);
+        if (!fn->is_native) self_qualify_stmt(fn->body, ctx);
+    }
+    for (int i = 0; i < mod->structs.count; i++) {
+        StructDecl *sd = mod->structs.items[i];
+        for (int fi = 0; fi < sd->fields.count; fi++) self_qualify_type(&sd->fields.items[fi].type, ctx);
+    }
+    for (int i = 0; i < mod->enums.count; i++) {
+        EnumDecl *ed = mod->enums.items[i];
+        for (int vi = 0; vi < ed->variants.count; vi++) {
+            if (ed->variants.items[vi].has_payload) self_qualify_type(&ed->variants.items[vi].payload_type, ctx);
+        }
+    }
+}
+
+static void self_qualify_module(Module *mod, const char *own_path, NamedImport *imports, int n_imports) {
     int n_fns = mod->functions.count;
     int n_structs = mod->structs.count;
     int n_enums = mod->enums.count;
@@ -325,23 +421,8 @@ static void self_qualify_module(Module *mod, const char *own_path) {
         mod->enums.items[i]->name = qualify_name(own_path, orig_enum_names[i]);
     }
 
-    SelfQualifyCtx ctx = {own_path, orig_fn_names, n_fns, orig_struct_names, n_structs, orig_enum_names, n_enums};
-    for (int i = 0; i < n_fns; i++) {
-        FunctionDecl *fn = mod->functions.items[i];
-        for (int pi = 0; pi < fn->params.count; pi++) self_qualify_type(&fn->params.items[pi].type, &ctx);
-        self_qualify_type(&fn->return_type, &ctx);
-        if (!fn->is_native) self_qualify_stmt(fn->body, &ctx);
-    }
-    for (int i = 0; i < n_structs; i++) {
-        StructDecl *sd = mod->structs.items[i];
-        for (int fi = 0; fi < sd->fields.count; fi++) self_qualify_type(&sd->fields.items[fi].type, &ctx);
-    }
-    for (int i = 0; i < n_enums; i++) {
-        EnumDecl *ed = mod->enums.items[i];
-        for (int vi = 0; vi < ed->variants.count; vi++) {
-            if (ed->variants.items[vi].has_payload) self_qualify_type(&ed->variants.items[vi].payload_type, &ctx);
-        }
-    }
+    SelfQualifyCtx ctx = {own_path, orig_fn_names, n_fns, orig_struct_names, n_structs, orig_enum_names, n_enums, imports, n_imports};
+    self_qualify_walk_module(mod, &ctx);
 
     free(orig_fn_names);
     free(orig_struct_names);
@@ -357,6 +438,10 @@ typedef struct {
 
 static UseDecl *find_use(Module *mod, const char *qualifier) {
     for (int i = 0; i < mod->uses.count; i++) {
+        /* A per-name `use path.Name` has qualifier == NULL -- it was
+         * never meant to be usable as a `qualifier.thing` prefix, so it
+         * can never match here. */
+        if (mod->uses.items[i].qualifier == NULL) continue;
         if (strcmp(mod->uses.items[i].qualifier, qualifier) == 0) return &mod->uses.items[i];
     }
     return NULL;
@@ -677,6 +762,95 @@ static Module *parse_file_contents(const char *source) {
     return parse(tokens);
 }
 
+/* Resolves and validates every per-name `use path.Name [as alias]` in
+ * `mod`, once, up front -- not re-resolved at each bare reference the
+ * way a dotted `mod.Name` is. Requires every use target already loaded
+ * (true by construction: the caller loads every entry in `mod->uses`,
+ * whole-module or per-name, before calling this). Must run before
+ * `mod`'s own declarations are renamed by self_qualify_module, since
+ * the collision check below needs to see their original bare names.
+ *
+ * Known gap, not guarded here: an `as` alias colliding with a prelude
+ * function's bare name (`use foo.bar as parse_int`) would silently
+ * retarget every bare `parse_int(...)` call in this module instead of
+ * failing loudly -- narrow enough (nobody writes this by accident) that
+ * it's left as a documented limitation rather than plumbing the
+ * prelude's/builtins' name lists in here too. */
+static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, int *out_count) {
+    NamedImport *imports = NULL;
+    int count = 0, cap = 0;
+
+    for (int i = 0; i < mod->uses.count; i++) {
+        UseDecl *u = &mod->uses.items[i];
+        if (u->imported_name == NULL) continue; /* whole-module use */
+
+        for (int j = 0; j < count; j++) {
+            if (strcmp(imports[j].local_name, u->local_name) == 0) {
+                ziman_error("module", u->line, u->col, "'%s' is imported more than once under the same name", u->local_name);
+            }
+        }
+        for (int j = 0; j < mod->functions.count; j++) {
+            if (strcmp(mod->functions.items[j]->name, u->local_name) == 0) {
+                ziman_error("module", u->line, u->col, "'%s' is imported here but also declared in this module", u->local_name);
+            }
+        }
+        for (int j = 0; j < mod->structs.count; j++) {
+            if (strcmp(mod->structs.items[j]->name, u->local_name) == 0) {
+                ziman_error("module", u->line, u->col, "'%s' is imported here but also declared in this module", u->local_name);
+            }
+        }
+        for (int j = 0; j < mod->enums.count; j++) {
+            if (strcmp(mod->enums.items[j]->name, u->local_name) == 0) {
+                ziman_error("module", u->line, u->col, "'%s' is imported here but also declared in this module", u->local_name);
+            }
+        }
+
+        Module *target = find_loaded(ldr, u->path);
+        char *qualified = qualify_name(u->path, u->imported_name);
+        int found = 0, is_public = 0;
+        ImportKind kind = IMPORT_FN;
+        for (int j = 0; j < target->functions.count && !found; j++) {
+            if (strcmp(target->functions.items[j]->name, qualified) == 0) {
+                found = 1;
+                kind = IMPORT_FN;
+                is_public = target->functions.items[j]->is_public;
+            }
+        }
+        for (int j = 0; j < target->structs.count && !found; j++) {
+            if (strcmp(target->structs.items[j]->name, qualified) == 0) {
+                found = 1;
+                kind = IMPORT_STRUCT;
+                is_public = target->structs.items[j]->is_public;
+            }
+        }
+        for (int j = 0; j < target->enums.count && !found; j++) {
+            if (strcmp(target->enums.items[j]->name, qualified) == 0) {
+                found = 1;
+                kind = IMPORT_ENUM;
+                is_public = target->enums.items[j]->is_public;
+            }
+        }
+        if (!found) {
+            ziman_error("module", u->line, u->col, "module '%s' has no function, struct, or enum '%s'", u->path, u->imported_name);
+        }
+        if (!is_public) {
+            ziman_error("module", u->line, u->col, "'%s' in module '%s' is private (add 'pub' to export it)", u->imported_name, u->path);
+        }
+
+        if (count == cap) {
+            cap = cap == 0 ? 4 : cap * 2;
+            imports = realloc(imports, (size_t)cap * sizeof(NamedImport));
+        }
+        imports[count].local_name = u->local_name;
+        imports[count].qualified_name = qualified;
+        imports[count].kind = kind;
+        count++;
+    }
+
+    *out_count = count;
+    return imports;
+}
+
 static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int ref_col) {
     Module *existing = find_loaded(ldr, use_path);
     if (existing != NULL) return existing;
@@ -707,7 +881,9 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
         load_module(ldr, u->path, u->line, u->col);
     }
 
-    self_qualify_module(mod, use_path);
+    int n_imports = 0;
+    NamedImport *imports = resolve_named_imports(ldr, mod, &n_imports);
+    self_qualify_module(mod, use_path, imports, n_imports);
     resolve_cross_refs(ldr, mod);
 
     pop_loading(ldr);
@@ -730,9 +906,18 @@ Module *load_module_graph(const char *entry_path) {
         load_module(&ldr, u->path, u->line, u->col);
     }
     /* The entry module is never a `use` target, so it keeps its own bare
-     * names (no self-qualify pass) -- a program with no `use` statements
-     * behaves exactly as it always has. It still needs its own cross-
-     * module references resolved. */
+     * names (no self-qualify *rename* pass) -- a program with no `use`
+     * statements behaves exactly as it always has. Its named imports
+     * still need rewriting to their qualified form, same as any other
+     * module's (empty own-name arrays below: only the import fallback in
+     * self_qualify_type/expr/stmt can ever fire, never the own-name
+     * branch, since the entry module has no "own qualified name" to
+     * rewrite to in the first place). It still needs its own dotted
+     * cross-module references resolved too. */
+    int n_entry_imports = 0;
+    NamedImport *entry_imports = resolve_named_imports(&ldr, entry_mod, &n_entry_imports);
+    SelfQualifyCtx entry_ctx = {"", NULL, 0, NULL, 0, NULL, 0, entry_imports, n_entry_imports};
+    self_qualify_walk_module(entry_mod, &entry_ctx);
     resolve_cross_refs(&ldr, entry_mod);
 
     Module *merged = calloc(1, sizeof(Module));

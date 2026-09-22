@@ -1,0 +1,5 @@
+use collections.HashMap as box2
+
+fn main() {
+    print(1)
+}

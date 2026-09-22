@@ -1101,11 +1101,14 @@ static EnumDecl *parse_enum_decl(Parser *p) {
     return ed;
 }
 
-/* `use path/to/mod [as alias]`. The path is a sequence of identifiers
- * joined by '/' (reusing the existing division-operator token -- `use`'s
- * path grammar is a distinct, non-expression context, so there's no
- * ambiguity with division). Not resolved to a real file yet -- that's the
- * loader's job, still ahead; this just records what was written. */
+/* `use path/to/mod [as alias]`, or `use path/to/mod.Name [as alias]` to
+ * import one specific declaration instead of the whole module. The path
+ * is a sequence of identifiers joined by '/' (reusing the existing
+ * division-operator token -- `use`'s path grammar is a distinct,
+ * non-expression context, so there's no ambiguity with division). Not
+ * resolved to a real file (or a real declaration, for the per-name form)
+ * yet -- that's the loader's job, still ahead; this just records what
+ * was written. */
 static UseDecl parse_use_decl(Parser *p) {
     Token *kw = expect(p, TOK_USE, "'use'");
 
@@ -1131,20 +1134,47 @@ static UseDecl parse_use_decl(Parser *p) {
         path[len] = '\0';
     }
 
-    char *qualifier;
+    UseDecl u;
+    u.path = path;
+    u.line = kw->line;
+
+    if (match(p, TOK_DOT)) {
+        /* Per-name import: `use collections.HashMap`. Casing isn't
+         * checked against what the name actually turns out to be (the
+         * loader hasn't resolved it yet, and doesn't need to -- the
+         * target's own declaration already enforced its casing when it
+         * was declared). An `as` alias only needs to match the imported
+         * name's own casing, which is checkable right here with no
+         * resolution at all: it's the same "uppercase is always a type,
+         * lowercase never is" invariant every other binder enforces. */
+        Token *member = expect(p, TOK_IDENT, "an imported name");
+        u.qualifier = NULL;
+        u.imported_name = dup_token_text(member);
+        if (match(p, TOK_AS)) {
+            Token *alias = expect(p, TOK_IDENT, "an import alias");
+            if (starts_upper(alias->start) != starts_upper(member->start)) {
+                ziman_error("syntax", alias->line, alias->col,
+                            "an import alias must match the imported name's casing ('%.*s' vs '%.*s')",
+                            (int)alias->length, alias->start, (int)member->length, member->start);
+            }
+            u.local_name = dup_token_text(alias);
+        } else {
+            u.local_name = u.imported_name; /* shared pointer -- AST nodes are never freed */
+        }
+        u.col = kw->col;
+        return u;
+    }
+
     if (match(p, TOK_AS)) {
         Token *alias = expect(p, TOK_IDENT, "a module alias");
         require_lower_start(alias, "a module alias");
-        qualifier = dup_token_text(alias);
+        u.qualifier = dup_token_text(alias);
     } else {
         require_lower_start(last_seg, "a module qualifier (the path's last segment)");
-        qualifier = dup_token_text(last_seg);
+        u.qualifier = dup_token_text(last_seg);
     }
-
-    UseDecl u;
-    u.path = path;
-    u.qualifier = qualifier;
-    u.line = kw->line;
+    u.imported_name = NULL;
+    u.local_name = NULL;
     u.col = kw->col;
     return u;
 }

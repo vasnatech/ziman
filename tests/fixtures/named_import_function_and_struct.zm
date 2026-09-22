@@ -1,0 +1,15 @@
+use collections.HashMap
+use collections.hashmap_new
+use collections.hashmap_set
+use collections.hashmap_get
+use collections.Option
+use collections.option_unwrap_or
+
+fn main() {
+    var map: HashMap<int, string> = hashmap_new<int, string>()
+    map = hashmap_set<int, string>(map, 30, "alice")
+    val found: Option<string> = hashmap_get<int, string>(map, 30)
+    print(option_unwrap_or<string>(found, "not found"))
+    val missing = hashmap_get<int, string>(map, 99)
+    print(option_unwrap_or<string>(missing, "not found"))
+}

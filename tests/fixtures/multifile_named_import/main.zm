@@ -1,0 +1,7 @@
+use models/user.User
+use models/user.greet as say_hello
+
+fn main() {
+    val u = User { id: 1, name: "Ada" }
+    print(say_hello(u))
+}

@@ -1,0 +1,5 @@
+use models/user.secret_helper
+
+fn main() {
+    print(secret_helper())
+}
