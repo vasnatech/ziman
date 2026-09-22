@@ -1,0 +1,8 @@
+fn main() {
+    print(10d / 3d)
+    print(2d / 3d)
+    print(-2d / 3d)
+    print(10.5d % 3d)
+    print(decimal_round(1.2345d, 2))
+    print(decimal_round(1.2365d, 2))
+}

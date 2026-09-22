@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "bignum.h"
+#include "decimal.h"
 
 typedef enum {
     TY_VOID,
@@ -12,6 +13,7 @@ typedef enum {
     TY_BOOL,
     TY_STRING,
     TY_BIGINT, /* arbitrary-precision integer -- see src/bignum.h */
+    TY_DECIMAL, /* arbitrary-precision decimal -- see src/decimal.h */
     TY_ARRAY,
     TY_STRUCT,
     TY_RESULT,
@@ -118,6 +120,7 @@ typedef enum {
     EXPR_STRING,
     EXPR_BOOL,
     EXPR_BIGINT,
+    EXPR_DECIMAL,
     EXPR_IDENT,
     EXPR_UNARY,
     EXPR_BINARY,
@@ -164,6 +167,7 @@ struct Expr {
         char *string_val; /* heap, NUL-terminated */
         int bool_val;
         BigNum bigint_val; /* computed once, directly from the literal's raw digits, at parse time */
+        Decimal decimal_val; /* likewise, computed once at parse time */
         char *ident_name;
         struct { Op op; Expr *left; Expr *right; } binary;
         struct { Op op; Expr *operand; } unary;

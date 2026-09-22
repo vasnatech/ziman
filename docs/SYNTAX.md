@@ -155,6 +155,11 @@ yet, so there's nothing to call *except* a name), no indexed/field
 - `bigint` — arbitrary-precision signed integer, limited only by memory.
   A literal is written with a trailing `n` (`12345678901234567890n`) —
   never bare digits, which always mean `int`. See "Numbers" below.
+- `decimal` — arbitrary-precision exact decimal (an unscaled `bigint`
+  plus a scale, exactly Java's `BigDecimal` shape). A literal is written
+  with a trailing `d` (`19.99d`, `20d`) — never bare digits or a bare
+  fractional literal, which always mean `int`/`float`. See "Numbers"
+  below.
 - `[T]` — a growable, homogeneous, indexed array of `T`; nests freely
   (`[[int]]` is an array of arrays of `int`). Value semantics, like every
   other type in Ziman: assigning or passing an array always yields an
@@ -188,20 +193,21 @@ yet, so there's nothing to call *except* a name), no indexed/field
   amount of user-definable generics would ever let you express in pure
   Ziman. See "Concurrency" below.
 - No implicit conversion between any scalar type. `x as float` / `x as
-  int` / `x as bigint` are the only casts, and only between `int`,
-  `float`, and `bigint` (never arrays, structs, enums, Results, or
-  Channels). `bigint as float`/`int as bigint`/etc. are all lossy in the
-  same way `float as int` already is — see "Numbers" below for exactly
-  how.
+  int` / `x as bigint` / `x as decimal` are the only casts, and only
+  between `int`, `float`, `bigint`, and `decimal` (never arrays,
+  structs, enums, Results, or Channels). Every cast between two of
+  these four is lossy in at least one direction — see "Numbers" below
+  for exactly how each one is.
 
 ## Numbers
 
-`bigint` is a fourth numeric type alongside `int`/`float`, added once a
-real need for exact, unbounded-size integers showed up (arbitrary-
-precision arithmetic, e.g. `100!`) that `int`'s fixed 64 bits can't
-cover and `float` can't represent exactly. It never implicitly mixes
-with `int`/`float` — same "no implicit coercion" rule as everywhere
-else, `use 'as' to cast explicitly`.
+`bigint` and `decimal` are a third and fourth numeric type alongside
+`int`/`float`, added once a real need for exact, unbounded-size
+arithmetic showed up (`100!`; exact money/measurement math) that
+`int`'s fixed 64 bits can't cover and `float` can't represent exactly.
+Neither ever implicitly mixes with any other numeric type — same "no
+implicit coercion" rule as everywhere else, `use 'as' to cast
+explicitly`.
 
 ```
 fn factorial(n: bigint, limit: int, i: int) -> bigint {
@@ -222,7 +228,7 @@ fn main() {
   `int` today; `bigint` gives you an explicit way to say "I mean this
   exactly," not an implicit fallback). No suffix on a fractional literal
   (`19.99n` is a syntax error) — `bigint` has no fractional part, that's
-  what a future `decimal` type is for.
+  what `decimal` (below) is for.
 - **All of `int`'s operators/builtins work**: `+ - * / %`, unary `-`,
   `< > <= >= == !=`, `str`, `abs`, `min`/`max`, `hash`, and
   `parse_bigint(s: string) -> Result<bigint, string>` (the `bigint`
@@ -244,6 +250,54 @@ fn main() {
   `int`/`float`, which live directly inline) — see docs/DESIGN.md's
   "Numbers" entry for why this doesn't grow every other `Value` in the
   interpreter.
+
+`decimal` is built directly on `bigint`: an unscaled `bigint` magnitude
+plus a scale (digits after the decimal point) — exactly Java's
+`BigDecimal` shape.
+
+```
+fn main() {
+    val price: decimal = 19.99d
+    val tax_rate: decimal = 0.0825d
+    val total = price + (price * tax_rate)
+    print(total)                        // 21.639175 -- exact, no binary rounding drift
+
+    print(10d / 3d)                     // 3 -- rounds half-up to the operands' own scale
+    print(decimal_round(1.2345d, 2))    // 1.23
+}
+```
+
+- **A literal needs the `d` suffix, always** — `19.99d`, `20d` — never
+  bare `19.99`/`20`, which always mean `float`/`int`.
+- **All of `float`'s operators/builtins work**: `+ - * / %`, unary `-`,
+  `< > <= >= == !=`, `str`, `abs`, `min`/`max`, `hash`, and
+  `parse_decimal(s: string) -> Result<decimal, string>`.
+  `decimal_round(d: decimal, scale: int) -> decimal` is `decimal`'s
+  equivalent of `floor`/`ceil`/`round` — a separate name, not an
+  overload of `round`, since Ziman has no argument-based overloading
+  anywhere (every builtin name maps to exactly one signature).
+- **`+`/`-` align scales first and are always exact**: `1.5d + 0.25d` is
+  `1.75d`, never rounded. **`*` needs no alignment and is always
+  exact**: `1.5d * 0.25d` is `0.375d` (scale 3). **`/` doesn't always
+  terminate**, so it rounds half-up-away-from-zero to
+  `max(a.scale, b.scale)` — `10d / 3d` is `3` (not `3.33...`), and
+  `-2d / 3d` is `-1` (rounds away from zero, not toward it). `%` is an
+  *exact* remainder (`a - trunc(a / b, scale 0) * b`) — no rounding
+  involved, unlike `/`. Division/modulo by zero is a runtime error,
+  same as `int`/`float`/`bigint`.
+- **`==` compares numeric value, ignoring trailing-zero scale
+  differences**: `1.0d == 1.00d` is `true`, and `hash(1.0d) ==
+  hash(1.00d)` too — deliberately diverging from Java's well-known
+  `BigDecimal.equals()` gotcha, where scale participates in `equals()`
+  but not `compareTo()`.
+- **Casts are lossy going through `float` in either direction** (a
+  `float` already can't represent most decimals exactly), and
+  truncating going to `int`/`bigint` (the fractional part is dropped,
+  not rounded — same as `float as int` truncating today). `int as
+  decimal`/`bigint as decimal` are exact.
+- **Composes with everything else already built**: a `decimal` field in
+  a struct, a `decimal` array element, a generic type argument
+  (`Box<decimal>`), and a `HashMap<K, decimal>` value all work.
 
 ## Arrays
 
@@ -453,7 +507,7 @@ fn main() {
   everywhere else (recursively, for a struct/enum whose fields/payloads
   are themselves comparable), but `Hash` is scalar-only — no struct or
   enum has a derived/structural hash, so a `Map`/`Set` key is effectively
-  restricted to `int`/`float`/`bool`/`string` for now.
+  restricted to `int`/`float`/`bool`/`string`/`bigint`/`decimal` for now.
 - `Box<int>` and `Box<string>` are different types: a mismatched
   instantiation is a type error at construction, and `==`/`!=` between
   two different instantiations of the same generic struct is rejected
@@ -926,10 +980,10 @@ a type error.
   arguments must already be `string`; there's no auto-stringify (that
   would be the same implicit-coercion problem `+` avoids, just moved to a
   function). Use `str` to convert first.
-- `str(x) -> string` — converts an `int`, `float`, `bool`, or `bigint` to
-  its display string. Rejects an argument that's already a `string`
-  (there should be exactly one way to get a string from a value, not
-  two).
+- `str(x) -> string` — converts an `int`, `float`, `bool`, `bigint`, or
+  `decimal` to its display string. Rejects an argument that's already a
+  `string` (there should be exactly one way to get a string from a
+  value, not two).
 - `format(fmt, args...) -> string` — the only variable-arity call in
   Ziman. `fmt` **must be a string literal** (not a variable or any other
   computed value) containing zero or more `{}` placeholders; the number
@@ -958,29 +1012,34 @@ a type error.
   ASCII case conversion.
 - `parse_int(s: string) -> Result<int, string>` / `parse_float(s: string)
   -> Result<float, string>` / `parse_bigint(s: string) -> Result<bigint,
-  string>` — parses all of `s` as a number; `Err` (with a message) if
-  `s` has leading/trailing junk or doesn't parse at all.
+  string>` / `parse_decimal(s: string) -> Result<decimal, string>` —
+  parses all of `s` as a number; `Err` (with a message) if `s` has
+  leading/trailing junk or doesn't parse at all.
 - `contains(s: string, needle: string) -> bool` / `contains(arr: [T], x:
   T) -> bool` — substring test, or array membership test via `==`. The
   array form requires `T` to be a scalar
-  (`int`/`float`/`bool`/`string`/`bigint`) — same restriction as array
-  `==`/`!=`, since only scalars have a well-defined equality in v0.
+  (`int`/`float`/`bool`/`string`/`bigint`/`decimal`) — same restriction
+  as array `==`/`!=`, since only scalars have a well-defined equality
+  in v0.
 - `hash(x: T) -> int` — a hash of `x`; `T` is `int`, `float`, `bool`,
-  `string`, `bigint`, or a type parameter bounded by `Hash` (see
-  "Generics" above). Not cryptographic and not stable across a future
-  language version, so never persist a hash — only use it within a
-  single program run (e.g. `collections.HashMap<K, V>`'s bucket index).
-- `abs(x: T) -> T` — absolute value; `T` is `int`, `float`, or `bigint`.
+  `string`, `bigint`, `decimal`, or a type parameter bounded by `Hash`
+  (see "Generics" above). Not cryptographic and not stable across a
+  future language version, so never persist a hash — only use it within
+  a single program run (e.g. `collections.HashMap<K, V>`'s bucket
+  index).
+- `abs(x: T) -> T` — absolute value; `T` is `int`, `float`, `bigint`, or
+  `decimal`.
 - `min(a: T, b: T) -> T` / `max(a: T, b: T) -> T` — `T` is `int`,
-  `float`, or `bigint`; both arguments must be the same `T`, no implicit
-  `int`/`float`/`bigint` mixing (consistent with the language's general
-  no-implicit-coercion
-  rule).
+  `float`, `bigint`, or `decimal`; both arguments must be the same `T`,
+  no implicit mixing between any of the four (consistent with the
+  language's general no-implicit-coercion rule).
 - `floor(x: float) -> int` / `ceil(x: float) -> int` / `round(x: float)
   -> int` — round towards negative infinity / positive infinity /
   nearest (ties away from zero). All three take only `float` (an `int`
   is already rounded) and return `int`, since that's the type the result
-  actually is.
+  actually is. `decimal_round(d: decimal, scale: int) -> decimal` is
+  `decimal`'s equivalent — see "Numbers" above for why it's a separate
+  name rather than an overload of `round`.
 - `push(arr: [T], x: T) -> [T]` — a new array with `x` appended.
 - `insert(arr: [T], i: int, x: T) -> [T]` — a new array with `x` inserted
   at index `i`; `i` must be in `[0, len(arr)]`, a runtime error otherwise.

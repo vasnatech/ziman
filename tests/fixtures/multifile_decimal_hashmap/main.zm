@@ -1,0 +1,8 @@
+use collections
+fn main() {
+    var m = collections.hashmap_new<string, decimal>()
+    m = collections.hashmap_set<string, decimal>(m, "widget", 19.99d)
+    m = collections.hashmap_set<string, decimal>(m, "gadget", 49.95d)
+    print(collections.option_unwrap_or<decimal>(collections.hashmap_get<string, decimal>(m, "widget"), 0d))
+    print(collections.option_unwrap_or<decimal>(collections.hashmap_get<string, decimal>(m, "gadget"), 0d))
+}

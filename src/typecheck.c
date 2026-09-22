@@ -67,7 +67,7 @@ static Type substitute_type(Type t, TypeParamList *params, TypeList *args) {
 }
 
 static int is_scalar_kind(TypeKind kind) {
-    return kind == TY_INT || kind == TY_FLOAT || kind == TY_BOOL || kind == TY_STRING || kind == TY_BIGINT;
+    return kind == TY_INT || kind == TY_FLOAT || kind == TY_BOOL || kind == TY_STRING || kind == TY_BIGINT || kind == TY_DECIMAL;
 }
 
 /* Whether '=='/'!=' is legal for a value of type `t`: scalars always,
@@ -107,7 +107,7 @@ static TypeParamList *current_decl_type_params = NULL;
 static int type_supports_equality(Module *module, Type t, int depth) {
     if (depth > 64) return 0;
     switch (t.kind) {
-        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT:
+        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL:
             return 1;
         case TY_ARRAY:
             return is_scalar_kind(t.elem->kind);
@@ -172,7 +172,7 @@ static int type_supports_equality(Module *module, Type t, int depth) {
  * `Eq`-only scan -- see ROADMAP.md's "Collections module" entry. */
 static int type_supports_hashing(Type t) {
     switch (t.kind) {
-        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT:
+        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL:
             return 1;
         case TY_TYPEVAR:
             if (current_decl_type_params != NULL) {
@@ -231,7 +231,7 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
         case OP_MUL:
         case OP_DIV:
         case OP_MOD:
-            if (lt.kind != rt.kind || (lt.kind != TY_INT && lt.kind != TY_FLOAT && lt.kind != TY_BIGINT)) {
+            if (lt.kind != rt.kind || (lt.kind != TY_INT && lt.kind != TY_FLOAT && lt.kind != TY_BIGINT && lt.kind != TY_DECIMAL)) {
                 ziman_error("type", e->line, e->col,
                             "arithmetic operator requires two operands of the same numeric type, found %s and %s (use 'as' to cast explicitly)",
                             type_name(lt), type_name(rt));
@@ -241,7 +241,7 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
         case OP_GT:
         case OP_LE:
         case OP_GE:
-            if (lt.kind != rt.kind || (lt.kind != TY_INT && lt.kind != TY_FLOAT && lt.kind != TY_BIGINT)) {
+            if (lt.kind != rt.kind || (lt.kind != TY_INT && lt.kind != TY_FLOAT && lt.kind != TY_BIGINT && lt.kind != TY_DECIMAL)) {
                 ziman_error("type", e->line, e->col,
                             "comparison operator requires two operands of the same numeric type, found %s and %s",
                             type_name(lt), type_name(rt));
@@ -293,8 +293,8 @@ static Type check_unary(Module *module, Env *env, Expr *e) {
     Type t = check_expr(module, env, e->as.unary.operand);
     require_not_void(e->as.unary.operand, "as an operand");
     if (e->as.unary.op == OP_NEG) {
-        if (t.kind != TY_INT && t.kind != TY_FLOAT && t.kind != TY_BIGINT) {
-            ziman_error("type", e->line, e->col, "unary '-' requires an int, float, or bigint operand, found %s", type_name(t));
+        if (t.kind != TY_INT && t.kind != TY_FLOAT && t.kind != TY_BIGINT && t.kind != TY_DECIMAL) {
+            ziman_error("type", e->line, e->col, "unary '-' requires an int, float, bigint, or decimal operand, found %s", type_name(t));
         }
         return t;
     }
@@ -362,9 +362,9 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT && arg_type.kind != TY_BOOL && arg_type.kind != TY_BIGINT) {
+        if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT && arg_type.kind != TY_BOOL && arg_type.kind != TY_BIGINT && arg_type.kind != TY_DECIMAL) {
             ziman_error("type", arg->line, arg->col,
-                        "'str' expects an int, float, bool, or bigint, found %s (it's already a string)",
+                        "'str' expects an int, float, bool, bigint, or decimal, found %s (it's already a string)",
                         type_name(arg_type));
         }
         return type_scalar(TY_STRING);
@@ -453,7 +453,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return type_scalar(TY_STRING);
     }
 
-    if (strcmp(name, "parse_int") == 0 || strcmp(name, "parse_float") == 0 || strcmp(name, "parse_bigint") == 0) {
+    if (strcmp(name, "parse_int") == 0 || strcmp(name, "parse_float") == 0 || strcmp(name, "parse_bigint") == 0
+        || strcmp(name, "parse_decimal") == 0) {
         if (e->as.call.args.count != 1) {
             ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
         }
@@ -464,7 +465,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Type ok_type = strcmp(name, "parse_int") == 0 ? type_scalar(TY_INT)
                         : strcmp(name, "parse_float") == 0 ? type_scalar(TY_FLOAT)
-                        : type_scalar(TY_BIGINT);
+                        : strcmp(name, "parse_bigint") == 0 ? type_scalar(TY_BIGINT)
+                        : type_scalar(TY_DECIMAL);
         return type_result(ok_type, type_scalar(TY_STRING));
     }
 
@@ -508,7 +510,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Type arg_type = check_expr(module, env, arg);
         if (!type_supports_hashing(arg_type)) {
             ziman_error("type", arg->line, arg->col,
-                        "'hash' expects int, float, bool, string, bigint, or a type parameter bounded by 'Hash', found %s",
+                        "'hash' expects int, float, bool, string, bigint, decimal, or a type parameter bounded by 'Hash', found %s",
                         type_name(arg_type));
         }
         return type_scalar(TY_INT);
@@ -520,8 +522,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT && arg_type.kind != TY_BIGINT) {
-            ziman_error("type", arg->line, arg->col, "'abs' expects int, float, or bigint, found %s", type_name(arg_type));
+        if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT && arg_type.kind != TY_BIGINT && arg_type.kind != TY_DECIMAL) {
+            ziman_error("type", arg->line, arg->col, "'abs' expects int, float, bigint, or decimal, found %s", type_name(arg_type));
         }
         return arg_type;
     }
@@ -532,8 +534,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *a_arg = e->as.call.args.items[0];
         Type a_type = check_expr(module, env, a_arg);
-        if (a_type.kind != TY_INT && a_type.kind != TY_FLOAT && a_type.kind != TY_BIGINT) {
-            ziman_error("type", a_arg->line, a_arg->col, "'%s' expects int, float, or bigint, found %s", name, type_name(a_type));
+        if (a_type.kind != TY_INT && a_type.kind != TY_FLOAT && a_type.kind != TY_BIGINT && a_type.kind != TY_DECIMAL) {
+            ziman_error("type", a_arg->line, a_arg->col, "'%s' expects int, float, bigint, or decimal, found %s", name, type_name(a_type));
         }
         Expr *b_arg = e->as.call.args.items[1];
         Type b_type = check_expr(module, env, b_arg);
@@ -553,6 +555,23 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             ziman_error("type", arg->line, arg->col, "'%s' expects float, found %s", name, type_name(arg_type));
         }
         return type_scalar(TY_INT);
+    }
+
+    if (strcmp(name, "decimal_round") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'decimal_round' takes exactly 2 arguments, found %d", e->as.call.args.count);
+        }
+        Expr *d_arg = e->as.call.args.items[0];
+        Type d_type = check_expr(module, env, d_arg);
+        if (d_type.kind != TY_DECIMAL) {
+            ziman_error("type", d_arg->line, d_arg->col, "argument 1 of 'decimal_round' expects decimal, found %s", type_name(d_type));
+        }
+        Expr *scale_arg = e->as.call.args.items[1];
+        Type scale_type = check_expr(module, env, scale_arg);
+        if (scale_type.kind != TY_INT) {
+            ziman_error("type", scale_arg->line, scale_arg->col, "argument 2 of 'decimal_round' expects int, found %s", type_name(scale_type));
+        }
+        return type_scalar(TY_DECIMAL);
     }
 
     if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0) {
@@ -772,10 +791,10 @@ static Type check_cast(Module *module, Env *env, Expr *e) {
     Type from = check_expr(module, env, e->as.cast.operand);
     require_not_void(e->as.cast.operand, "as a cast operand");
     Type to = e->as.cast.target_type;
-    int numeric_from = from.kind == TY_INT || from.kind == TY_FLOAT || from.kind == TY_BIGINT;
-    int numeric_to = to.kind == TY_INT || to.kind == TY_FLOAT || to.kind == TY_BIGINT;
+    int numeric_from = from.kind == TY_INT || from.kind == TY_FLOAT || from.kind == TY_BIGINT || from.kind == TY_DECIMAL;
+    int numeric_to = to.kind == TY_INT || to.kind == TY_FLOAT || to.kind == TY_BIGINT || to.kind == TY_DECIMAL;
     if (!(numeric_from && numeric_to)) {
-        ziman_error("type", e->line, e->col, "cannot cast %s to %s (only casts between int/float/bigint are supported)", type_name(from), type_name(to));
+        ziman_error("type", e->line, e->col, "cannot cast %s to %s (only casts between int/float/bigint/decimal are supported)", type_name(from), type_name(to));
     }
     return to;
 }
@@ -1086,6 +1105,7 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
         case EXPR_STRING: t = type_scalar(TY_STRING); break;
         case EXPR_BOOL: t = type_scalar(TY_BOOL); break;
         case EXPR_BIGINT: t = type_scalar(TY_BIGINT); break;
+        case EXPR_DECIMAL: t = type_scalar(TY_DECIMAL); break;
         case EXPR_IDENT: {
             Binding *b = env_lookup(env, e->as.ident_name);
             if (b == NULL) {
@@ -1432,8 +1452,8 @@ void typecheck(Module *module) {
     static const char *builtins[] = {"print", "concat", "str", "format", "len", "push", "insert", "set",
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err",
                                       "substring", "split", "trim", "to_upper", "to_lower",
-                                      "parse_int", "parse_float", "parse_bigint", "contains",
-                                      "abs", "min", "max", "floor", "ceil", "round", "remove",
+                                      "parse_int", "parse_float", "parse_bigint", "parse_decimal", "contains",
+                                      "abs", "min", "max", "floor", "ceil", "round", "decimal_round", "remove",
                                       "channel_new", "send", "receive", "hash"};
 
     /* Struct names and field names within a struct must be unique --

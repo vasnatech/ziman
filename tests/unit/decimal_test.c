@@ -89,6 +89,14 @@ int main(void) {
     printf("%s (big+big)/2 == big\n", decimal_compare(halved, big) == 0 ? "PASS" : "FAIL");
     if (decimal_compare(halved, big) != 0) failures++;
 
+    /* normalize -- needed so numerically-equal decimals with different
+     * scales (1.0 vs 1.00) hash equal, since hash() can't align scales
+     * the way decimal_compare/`==` do. */
+    expect_str("normalize(1.00) strips both trailing zeros", decimal_normalize(mk("1.00")), "1");
+    expect_str("normalize(1.50) strips one trailing zero", decimal_normalize(mk("1.50")), "1.5");
+    expect_str("normalize(100) (already scale 0)", decimal_normalize(mk("100")), "100");
+    expect_str("normalize(0.00) (zero always canonical scale 0)", decimal_normalize(mk("0.00")), "0");
+
     printf("\n%d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

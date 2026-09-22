@@ -1,0 +1,12 @@
+fn main() {
+    val price: decimal = 19.99d
+    val tax_rate: decimal = 0.0825d
+    val tax = price * tax_rate
+    val total = price + tax
+    print(price)
+    print(tax_rate)
+    print(tax)
+    print(total)
+    print(price < total)
+    print(price == 19.99d)
+}

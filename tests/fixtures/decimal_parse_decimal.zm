@@ -1,0 +1,10 @@
+fn main() {
+    val r = parse_decimal("123.456")
+    if is_ok(r) {
+        print(unwrap(r))
+    }
+    val bad = parse_decimal("12x.34")
+    if !is_ok(bad) {
+        print(unwrap_err(bad))
+    }
+}

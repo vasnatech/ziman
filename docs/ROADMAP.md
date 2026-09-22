@@ -498,32 +498,37 @@ a time mid-implementation:
   implementation details Ziman has no per-field privacy to actually
   hide (a caller *can* reach `m.buckets` directly) — documented as
   "don't," not enforced.
-- ~~**`bigint` — arbitrary-precision integer.**~~ Implemented
-  (docs/SYNTAX.md "Numbers", docs/DESIGN.md's "bigint" entry): a fourth
-  numeric type, sign-magnitude, modeled on Java's `BigInteger`, backed
-  by `src/bignum.c`'s own arbitrary-precision arithmetic (add/sub/mul/
-  truncating-divmod/compare, base-1e9 limbs). Full `int` parity: `+ - *
-  / %`, unary `-`, `< > <= >= == !=`, `as` casts to/from `int`/`float`
-  (lossy, saturating/truncating, never silent), `str`/`abs`/`min`/`max`/
-  `hash`, `parse_bigint`. A literal needs an explicit `n` suffix
-  (`123n`) — bare digits still always mean `int`. Composes with
-  everything already built: a generic type argument (`Box<bigint>`), an
-  array element, and a `HashMap<bigint, V>` key (satisfies both `Eq` and
-  `Hash`) all verified working. `make test-bignum` runs the engine's own
-  correctness suite (factorials up to `100!` cross-checked against the
-  published exact value, exact and remaindered big-number division,
-  negative truncating division/modulo semantics, a multiply/divide
-  round-trip on a large non-factorial value) independent of the
-  language-level tests/fixtures harness.
-  This was built as the shared foundation for a `decimal` type
-  (unscaled `bigint` value + a scale, Java's `BigDecimal` shape) — not
-  started yet. `decimal` needs the same full `float` parity `bigint` got
-  for `int`, plus scale-alignment rules for `+`/`-`, scale-addition for
-  `*`, and an explicit target scale + rounding mode for `/` (decimal
-  division doesn't always terminate). `==` should compare numeric value
-  ignoring trailing-zero scale differences (`1.0d == 1.00d` is `true`),
+- ~~**`bigint`/`decimal` — arbitrary-precision integer and decimal.**~~
+  Implemented (docs/SYNTAX.md "Numbers", docs/DESIGN.md's "bigint"/
+  "decimal" entry): a third and fourth numeric type. `bigint` is
+  sign-magnitude, modeled on Java's `BigInteger`, backed by
+  `src/bignum.c`'s own arbitrary-precision arithmetic (add/sub/mul/
+  truncating-divmod/compare, base-1e9 limbs), with full `int` parity:
+  `+ - * / %`, unary `-`, `< > <= >= == !=`, `as` casts to/from
+  `int`/`float`/`decimal` (lossy, saturating/truncating, never silent),
+  `str`/`abs`/`min`/`max`/`hash`, `parse_bigint`. A literal needs an
+  explicit `n` suffix (`123n`) — bare digits still always mean `int`.
+  `decimal` is modeled on Java's `BigDecimal`, built directly on
+  `bigint` (`src/decimal.c`: an unscaled magnitude plus a scale), with
+  full `float` parity: `+`/`-`/compare align scales first and are exact;
+  `*` needs no alignment and is exact; `/` doesn't always terminate, so
+  it rounds half-up-away-from-zero to `max(a.scale, b.scale)`; `%` is an
+  exact remainder; `==`/`hash` compare/hash numeric value ignoring
+  trailing-zero scale differences (`1.0d == 1.00d` is `true`,
   deliberately diverging from Java's well-known `BigDecimal.equals()`
-  gotcha, where scale participates in equality but not in `compareTo`.
+  gotcha where scale participates in `equals()` but not `compareTo()`);
+  `decimal_round(d, scale)` is the `floor`/`ceil`/`round` equivalent (a
+  separate name, not an overload — Ziman has no argument-based
+  overloading). A literal needs an explicit `d` suffix (`19.99d`,
+  `20d`). Both compose with everything already built: a generic type
+  argument (`Box<bigint>`/`Box<decimal>`), an array element, and a
+  `HashMap` key/value (`bigint` satisfies both `Eq`/`Hash`) all verified
+  working. `make test-bignum`/`make test-decimal` run each engine's own
+  correctness suite (factorials up to `100!` cross-checked against the
+  published exact value for `bigint`; scale-aligned arithmetic,
+  half-up-away-from-zero division/round rounding both directions, and
+  a 30-plus-digit multiply/divide round-trip for `decimal`) independent
+  of the language-level tests/fixtures harness.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.

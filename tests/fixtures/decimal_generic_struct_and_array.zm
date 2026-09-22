@@ -1,0 +1,9 @@
+struct Box<T> {
+    value: T
+}
+fn main() {
+    val b = Box<decimal> { value: 99.95d }
+    print(b.value)
+    val arr: [decimal] = [1.1d, 2.2d, 3.3d]
+    print(arr)
+}

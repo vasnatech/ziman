@@ -403,41 +403,60 @@ several languages rather than inheriting any one of them wholesale.
   walker (mirroring loader.c's self_qualify_expr/self_qualify_stmt
   shape) that reclassifies every type-bearing spot in a generic
   function's parsed body, run once right after the body itself parses.
-- **`bigint` — arbitrary-precision integer, a fourth numeric type
-  alongside `int`/`float`/`bool`.** Added once `int`'s fixed 64 bits
-  stopped being enough for a real, concrete need (exact arbitrary-size
-  integer arithmetic, e.g. `100!`) that `float` can't cover either
-  (binary floating point can't represent most integers past 2^53
-  exactly). Modeled on Java's `BigInteger`: sign-magnitude, immutable,
-  every operation builds a new value rather than mutating (see
-  src/bignum.c) — the same "never mutate, always build fresh" pattern
-  `ArrayObj`/`StructObj` already use, so `bigint` slots into the
-  existing object model with no new memory-management concept. Backed
-  by base-1e9 limbs (not binary), a deliberate simplicity-over-speed
-  choice matching this project's own "not chasing performance" non-goal
-  below — string conversion is nearly free, and the arithmetic itself
-  (schoolbook multiply, binary-search-per-limb long division rather than
-  Knuth's faster but far fiddlier Algorithm D) stays easy to verify by
-  hand rather than fast at scale.
-  A `Value` stores a `bigint` as a heap pointer (`BigNum *`), not
+- **`bigint`/`decimal` — arbitrary-precision integer and decimal, a
+  third and fourth numeric type alongside `int`/`float`.** Added once
+  `int`'s fixed 64 bits stopped being enough for a real, concrete need
+  (exact arbitrary-size integer arithmetic, e.g. `100!`; exact
+  money/measurement math) that `float` can't cover either (binary
+  floating point can't represent most integers past 2^53, or most
+  decimal fractions at all, exactly). `bigint` is modeled on Java's
+  `BigInteger`: sign-magnitude, immutable, every operation builds a new
+  value rather than mutating (see src/bignum.c) — the same "never
+  mutate, always build fresh" pattern `ArrayObj`/`StructObj` already
+  use, so `bigint` slots into the existing object model with no new
+  memory-management concept. Backed by base-1e9 limbs (not binary), a
+  deliberate simplicity-over-speed choice matching this project's own
+  "not chasing performance" non-goal below — string conversion is
+  nearly free, and the arithmetic itself (schoolbook multiply, binary-
+  search-per-limb long division rather than Knuth's faster but far
+  fiddlier Algorithm D) stays easy to verify by hand rather than fast at
+  scale. `decimal` is modeled on Java's `BigDecimal`, built directly on
+  `bigint`: an unscaled `bigint` magnitude plus a scale (see
+  src/decimal.c), needing no new low-level arithmetic of its own —
+  `+`/`-`/compare align scales first (exact, never rounded), `*` needs
+  no alignment (multiplies magnitudes, adds scales, always exact), `/`
+  rounds half-up-away-from-zero to `max(a.scale, b.scale)` since
+  decimal division doesn't always terminate, and `%` stays exact (an
+  integer-truncated quotient needs no rounding). `==` compares numeric
+  value ignoring trailing-zero scale differences (`1.0d == 1.00d`),
+  deliberately diverging from Java's well-known `BigDecimal.equals()`
+  gotcha (scale participates in `equals()` but not `compareTo()` there)
+  — and `hash()` normalizes away trailing zeros first so it stays
+  consistent with that same equality.
+  A `Value` stores both as a heap pointer (`BigNum *`/`Decimal *`), not
   embedded inline the way `int`/`float`/`bool` are, specifically so the
   `Value` union — and therefore every `Value` in the interpreter, not
-  just `bigint` ones, since a union's size is always its largest
-  member's — doesn't grow just because one more type exists. A literal
-  needs an explicit `n` suffix (`12345678901234567890n`) rather than
-  being inferred from context or from bare digits: bare digits always
-  mean `int` (unchanged, no breaking change to any existing program),
-  and a suffix means the literal's meaning is self-evident right at the
-  point of use, the same "explicit over implicit" reasoning that also
-  shaped `Eq`/`Hash`'s bound syntax and generics' explicit type
-  arguments — no "look elsewhere to know what this means" the way a
-  purely context-inferred literal would require. Never implicitly mixes
-  with `int`/`float` in an operator (`bigint + int` is a type error,
-  `use 'as' to cast explicitly`, same rule `int`/`float` already
-  enforce with each other) — casting between all three is lossy in both
-  directions where the target can't represent the source exactly
-  (saturating toward `int`/`float`, truncating the fractional part
-  toward `bigint`), and that lossiness is never silent or implicit.
+  just these two types' — doesn't grow just because two more types
+  exist. A literal needs an explicit suffix (`n` for `bigint`, `d` for
+  `decimal`) rather than being inferred from context or from a bare
+  literal: a bare literal always means `int`/`float` (unchanged, no
+  breaking change to any existing program), and a suffix means the
+  literal's meaning is self-evident right at the point of use, the same
+  "explicit over implicit" reasoning that also shaped `Eq`/`Hash`'s
+  bound syntax and generics' explicit type arguments — no "look
+  elsewhere to know what this means" the way a purely context-inferred
+  literal would require. Neither ever implicitly mixes with any other
+  numeric type in an operator (`bigint + int` is a type error, `use
+  'as' to cast explicitly`, same rule `int`/`float` already enforce
+  with each other) — casting between any two of the four is lossy
+  wherever the target can't represent the source exactly (saturating
+  toward `int`, truncating the fractional part toward `bigint`, and
+  going through `float` in either direction since `float` itself can't
+  represent most decimals exactly), and that lossiness is never silent
+  or implicit. `decimal_round`, not an overload of `round`, is
+  `decimal`'s equivalent of `floor`/`ceil`/`round` — Ziman has no
+  argument-based overloading anywhere, so a different signature needs a
+  different name, not the same name doing something else by arity.
 
 ## Deliberately deferred (not v0)
 

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "bignum.h"
+#include "decimal.h"
 #include "error.h"
 
 Value value_int(int64_t i) { Value v; v.type = type_scalar(TY_INT); v.as.i = i; return v; }
@@ -18,6 +19,14 @@ Value value_bigint(BigNum n) {
     v.type = type_scalar(TY_BIGINT);
     v.as.bi = malloc(sizeof(BigNum));
     *v.as.bi = n;
+    return v;
+}
+
+Value value_decimal(Decimal d) {
+    Value v;
+    v.type = type_scalar(TY_DECIMAL);
+    v.as.dec = malloc(sizeof(Decimal));
+    *v.as.dec = d;
     return v;
 }
 
@@ -133,6 +142,7 @@ int value_equals(Value a, Value b) {
         case TY_BOOL: return a.as.b == b.as.b;
         case TY_STRING: return strcmp(a.as.s, b.as.s) == 0;
         case TY_BIGINT: return bignum_compare(*a.as.bi, *b.as.bi) == 0;
+        case TY_DECIMAL: return decimal_compare(*a.as.dec, *b.as.dec) == 0;
         case TY_VOID: return 1;
         case TY_ARRAY: {
             ArrayObj *arr_a = a.as.arr;
@@ -197,6 +207,8 @@ char *value_display(Value v) {
             return strdup(v.as.b ? "true" : "false");
         case TY_BIGINT:
             return bignum_to_string(*v.as.bi);
+        case TY_DECIMAL:
+            return decimal_to_string(*v.as.dec);
         case TY_STRING:
             return strdup(v.as.s);
         case TY_VOID:

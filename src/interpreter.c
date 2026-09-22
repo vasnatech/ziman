@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "bignum.h"
+#include "decimal.h"
 #include "env.h"
 #include "error.h"
 #include "native.h"
@@ -227,6 +228,18 @@ static Value call_parse_bigint(Value s) {
     return value_result(result_type, result_obj_new(1, value_bigint(n)));
 }
 
+static Value call_parse_decimal(Value s) {
+    Type result_type = type_result(type_scalar(TY_DECIMAL), type_scalar(TY_STRING));
+    int ok;
+    Decimal d = decimal_from_string(s.as.s, &ok);
+    if (!ok) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "cannot parse '%s' as decimal", s.as.s);
+        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
+    }
+    return value_result(result_type, result_obj_new(1, value_decimal(d)));
+}
+
 static Value call_contains(Value first, Value second) {
     if (first.type.kind == TY_STRING) {
         return value_bool(strstr(first.as.s, second.as.s) != NULL);
@@ -273,6 +286,22 @@ static Value call_hash(Value v) {
             }
             break;
         }
+        case TY_DECIMAL: {
+            /* Unlike BigNum, two numerically-equal Decimals aren't
+             * guaranteed identical representations (1.0 vs 1.00) --
+             * decimal_normalize first so equal values still hash equal. */
+            Decimal n = decimal_normalize(*v.as.dec);
+            h = 1469598103934665603ULL;
+            h ^= (uint64_t)(n.unscaled.sign + 1);
+            h *= 1099511628211ULL;
+            h ^= (uint64_t)n.scale;
+            h *= 1099511628211ULL;
+            for (int i = 0; i < n.unscaled.count; i++) {
+                h ^= n.unscaled.digits[i];
+                h *= 1099511628211ULL;
+            }
+            break;
+        }
         default: { /* TY_STRING -- the only other case type_supports_hashing allows */
             const unsigned char *s = (const unsigned char *)v.as.s;
             h = 1469598103934665603ULL; /* FNV-1a 64-bit offset basis */
@@ -293,6 +322,9 @@ static Value call_abs(Value x) {
     if (x.type.kind == TY_BIGINT) {
         return value_bigint(bignum_abs(*x.as.bi));
     }
+    if (x.type.kind == TY_DECIMAL) {
+        return value_decimal(decimal_abs(*x.as.dec));
+    }
     return value_float(x.as.f < 0 ? -x.as.f : x.as.f);
 }
 
@@ -302,6 +334,9 @@ static Value call_min(Value a, Value b) {
     }
     if (a.type.kind == TY_BIGINT) {
         return bignum_compare(*a.as.bi, *b.as.bi) < 0 ? a : b;
+    }
+    if (a.type.kind == TY_DECIMAL) {
+        return decimal_compare(*a.as.dec, *b.as.dec) < 0 ? a : b;
     }
     return value_float(a.as.f < b.as.f ? a.as.f : b.as.f);
 }
@@ -313,12 +348,26 @@ static Value call_max(Value a, Value b) {
     if (a.type.kind == TY_BIGINT) {
         return bignum_compare(*a.as.bi, *b.as.bi) > 0 ? a : b;
     }
+    if (a.type.kind == TY_DECIMAL) {
+        return decimal_compare(*a.as.dec, *b.as.dec) > 0 ? a : b;
+    }
     return value_float(a.as.f > b.as.f ? a.as.f : b.as.f);
 }
 
 static Value call_floor(Value x) { return value_int((int64_t)floor(x.as.f)); }
 static Value call_ceil(Value x) { return value_int((int64_t)ceil(x.as.f)); }
 static Value call_round(Value x) { return value_int((int64_t)round(x.as.f)); }
+
+/* decimal's equivalent of float's floor/ceil/round -- except a decimal
+ * is already exact, so there's nothing to fix up the way rounding a
+ * binary-imprecise float does; this just picks a coarser scale to
+ * represent the same value at, half-up (see decimal_round). Distinctly
+ * named rather than overloading `round` -- Ziman has no argument-count-
+ * or type-based overloading anywhere, every builtin name maps to
+ * exactly one signature. */
+static Value call_decimal_round(Value d, Value scale) {
+    return value_decimal(decimal_round(*d.as.dec, (int)scale.as.i));
+}
 
 /* push/insert/set never mutate their `arr` argument -- they always build a
  * brand new ArrayObj and return a Value wrapping it, per docs/DESIGN.md's
@@ -455,14 +504,17 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
         case OP_ADD:
             if (l.type.kind == TY_INT) return value_int(l.as.i + r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bigint(bignum_add(*l.as.bi, *r.as.bi));
+            if (l.type.kind == TY_DECIMAL) return value_decimal(decimal_add(*l.as.dec, *r.as.dec));
             return value_float(l.as.f + r.as.f);
         case OP_SUB:
             if (l.type.kind == TY_INT) return value_int(l.as.i - r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bigint(bignum_sub(*l.as.bi, *r.as.bi));
+            if (l.type.kind == TY_DECIMAL) return value_decimal(decimal_sub(*l.as.dec, *r.as.dec));
             return value_float(l.as.f - r.as.f);
         case OP_MUL:
             if (l.type.kind == TY_INT) return value_int(l.as.i * r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bigint(bignum_mul(*l.as.bi, *r.as.bi));
+            if (l.type.kind == TY_DECIMAL) return value_decimal(decimal_mul(*l.as.dec, *r.as.dec));
             return value_float(l.as.f * r.as.f);
         case OP_DIV:
             if (l.type.kind == TY_INT) {
@@ -474,6 +526,10 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
                 BigNum quot, rem;
                 bignum_divmod(*l.as.bi, *r.as.bi, &quot, &rem);
                 return value_bigint(quot);
+            }
+            if (l.type.kind == TY_DECIMAL) {
+                if (decimal_is_zero(*r.as.dec)) ziman_error("runtime", e->line, e->col, "division by zero");
+                return value_decimal(decimal_div(*l.as.dec, *r.as.dec));
             }
             if (r.as.f == 0.0) ziman_error("runtime", e->line, e->col, "division by zero");
             return value_float(l.as.f / r.as.f);
@@ -488,6 +544,10 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
                 bignum_divmod(*l.as.bi, *r.as.bi, &quot, &rem);
                 return value_bigint(rem);
             }
+            if (l.type.kind == TY_DECIMAL) {
+                if (decimal_is_zero(*r.as.dec)) ziman_error("runtime", e->line, e->col, "division by zero");
+                return value_decimal(decimal_mod(*l.as.dec, *r.as.dec));
+            }
             ziman_error("runtime", e->line, e->col, "internal error: '%%' on float should have been rejected by the type checker");
             return value_int(0);
         case OP_EQ: return value_bool(value_equals(l, r));
@@ -495,18 +555,22 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
         case OP_LT:
             if (l.type.kind == TY_INT) return value_bool(l.as.i < r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) < 0);
+            if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) < 0);
             return value_bool(l.as.f < r.as.f);
         case OP_GT:
             if (l.type.kind == TY_INT) return value_bool(l.as.i > r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) > 0);
+            if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) > 0);
             return value_bool(l.as.f > r.as.f);
         case OP_LE:
             if (l.type.kind == TY_INT) return value_bool(l.as.i <= r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) <= 0);
+            if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) <= 0);
             return value_bool(l.as.f <= r.as.f);
         case OP_GE:
             if (l.type.kind == TY_INT) return value_bool(l.as.i >= r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) >= 0);
+            if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) >= 0);
             return value_bool(l.as.f >= r.as.f);
         default:
             ziman_error("runtime", e->line, e->col, "internal error: unhandled binary operator");
@@ -557,6 +621,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_STRING: return value_string(e->as.string_val);
         case EXPR_BOOL: return value_bool(e->as.bool_val);
         case EXPR_BIGINT: return value_bigint(e->as.bigint_val);
+        case EXPR_DECIMAL: return value_decimal(e->as.decimal_val);
         case EXPR_IDENT: {
             Binding *b = env_lookup(env, e->as.ident_name);
             return b->value;
@@ -566,6 +631,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             if (e->as.unary.op == OP_NEG) {
                 if (v.type.kind == TY_INT) return value_int(-v.as.i);
                 if (v.type.kind == TY_BIGINT) return value_bigint(bignum_negate(*v.as.bi));
+                if (v.type.kind == TY_DECIMAL) return value_decimal(decimal_negate(*v.as.dec));
                 return value_float(-v.as.f);
             }
             return value_bool(!v.as.b);
@@ -623,6 +689,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_parse_float(args[0]);
             } else if (strcmp(e->as.call.callee, "parse_bigint") == 0) {
                 result = call_parse_bigint(args[0]);
+            } else if (strcmp(e->as.call.callee, "parse_decimal") == 0) {
+                result = call_parse_decimal(args[0]);
             } else if (strcmp(e->as.call.callee, "contains") == 0) {
                 result = call_contains(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "hash") == 0) {
@@ -639,6 +707,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_ceil(args[0]);
             } else if (strcmp(e->as.call.callee, "round") == 0) {
                 result = call_round(args[0]);
+            } else if (strcmp(e->as.call.callee, "decimal_round") == 0) {
+                result = call_decimal_round(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "channel_new") == 0) {
                 result = value_channel(e->resolved_type, channel_obj_new());
             } else if (strcmp(e->as.call.callee, "send") == 0) {
@@ -665,16 +735,25 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                      * represented exactly by a float regardless. */
                     return value_float((double)bignum_to_i64_saturating(*v.as.bi));
                 }
+                if (v.type.kind == TY_DECIMAL) return value_float(decimal_to_double(*v.as.dec));
                 return value_float(v.as.f);
             }
             if (to == TY_BIGINT) {
                 if (v.type.kind == TY_INT) return value_bigint(bignum_from_i64(v.as.i));
                 if (v.type.kind == TY_FLOAT) return value_bigint(bignum_from_i64((int64_t)v.as.f));
+                if (v.type.kind == TY_DECIMAL) return value_bigint(decimal_to_bignum_trunc(*v.as.dec));
                 return value_bigint(*v.as.bi); /* bigint as bigint: no-op */
+            }
+            if (to == TY_DECIMAL) {
+                if (v.type.kind == TY_INT) return value_decimal(decimal_from_bignum(bignum_from_i64(v.as.i)));
+                if (v.type.kind == TY_FLOAT) return value_decimal(decimal_from_double_trunc(v.as.f));
+                if (v.type.kind == TY_BIGINT) return value_decimal(decimal_from_bignum(*v.as.bi));
+                return value_decimal(*v.as.dec); /* decimal as decimal: no-op */
             }
             /* target is TY_INT */
             if (v.type.kind == TY_FLOAT) return value_int((int64_t)v.as.f);
             if (v.type.kind == TY_BIGINT) return value_int(bignum_to_i64_saturating(*v.as.bi));
+            if (v.type.kind == TY_DECIMAL) return value_int(bignum_to_i64_saturating(decimal_to_bignum_trunc(*v.as.dec)));
             return value_int(v.as.i);
         }
         case EXPR_ARRAY_LIT: {

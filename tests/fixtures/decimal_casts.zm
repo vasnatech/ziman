@@ -1,0 +1,18 @@
+fn main() {
+    val i: int = 42
+    val d1: decimal = i as decimal
+    print(d1)
+
+    val f: float = 3.14
+    val d2: decimal = f as decimal
+    print(d2)
+
+    val bi: bigint = 999999999999999999999n
+    val d3: decimal = bi as decimal
+    print(d3)
+    val bi_back: bigint = d3 as bigint
+    print(bi_back)
+
+    val truncated: int = 19.99d as int
+    print(truncated)
+}

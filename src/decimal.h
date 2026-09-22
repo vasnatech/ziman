@@ -61,6 +61,16 @@ Decimal decimal_mod(Decimal a, Decimal b);
 int decimal_compare(Decimal a, Decimal b); /* -1, 0, or 1 */
 int decimal_is_zero(Decimal a);
 
+/* Strips trailing zero digits from the unscaled value, reducing scale to
+ * the minimal representation of the same numeric value (zero always
+ * normalizes to scale 0, regardless of its original scale). Needed
+ * anywhere two numerically-equal decimals must also produce identical
+ * output from something that isn't decimal_compare/`==` itself -- e.g.
+ * `hash(1.0d)` must equal `hash(1.00d)`, which raw field comparison on
+ * `{unscaled, scale}` can't guarantee (unlike BigNum, where equal values
+ * are already guaranteed to share one normalized representation). */
+Decimal decimal_normalize(Decimal a);
+
 /* Rounds `a` to exactly `scale` decimal places, half-up. `scale >=
  * a.scale` only pads with exact zeros (no rounding needed or possible).
  * This is decimal's equivalent of float's floor/ceil/round -- except
@@ -71,5 +81,11 @@ Decimal decimal_round(Decimal a, int scale);
 
 double decimal_to_double(Decimal a);            /* used by `as float` */
 Decimal decimal_from_double_trunc(double v);    /* used by `as decimal`, fixed at 10 decimal places */
+
+/* `as bigint`/`as int` (via bignum_to_i64_saturating on the result) --
+ * truncates the fractional part, exactly like `as int` on a float
+ * already truncates rather than rounds. */
+BigNum decimal_to_bignum_trunc(Decimal a);
+Decimal decimal_from_bignum(BigNum n); /* exact -- scale 0 */
 
 #endif

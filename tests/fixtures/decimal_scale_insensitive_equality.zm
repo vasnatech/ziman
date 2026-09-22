@@ -1,0 +1,5 @@
+fn main() {
+    print(1.0d == 1.00d)
+    print(1.0d != 1.01d)
+    print(hash(1.0d) == hash(1.00d))
+}

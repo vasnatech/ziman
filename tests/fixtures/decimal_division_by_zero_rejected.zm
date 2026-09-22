@@ -1,0 +1,5 @@
+fn main() {
+    val a: decimal = 5d
+    val z: decimal = 0d
+    print(a / z)
+}

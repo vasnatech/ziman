@@ -47,6 +47,7 @@ struct Value {
                      * bigint existed, since a union's size is always its
                      * largest member's. Never mutated once built, same as
                      * every other heap object here. */
+        Decimal *dec; /* heap, same reasoning as `bi` */
         ArrayObj *arr;
         StructObj *st;
         struct ResultObj *res;
@@ -104,6 +105,7 @@ Value value_float(double f);
 Value value_bool(int b);
 Value value_string(char *s);
 Value value_bigint(BigNum n); /* copies `n` onto the heap; caller keeps owning `n`'s own digits */
+Value value_decimal(Decimal d); /* likewise, copies `d` onto the heap */
 Value value_array(Type array_type, ArrayObj *arr);
 Value value_struct(Type struct_type, StructObj *st);
 Value value_result(Type result_type, ResultObj *res);

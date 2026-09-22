@@ -7,6 +7,7 @@ const char *token_type_name(TokenType type) {
         case TOK_INT_LIT: return "integer literal";
         case TOK_FLOAT_LIT: return "float literal";
         case TOK_BIGINT_LIT: return "bigint literal";
+        case TOK_DECIMAL_LIT: return "decimal literal";
         case TOK_STRING_LIT: return "string literal";
         case TOK_IDENT: return "identifier";
         case TOK_FN: return "'fn'";
@@ -37,6 +38,7 @@ const char *token_type_name(TokenType type) {
         case TOK_KW_BOOL: return "'bool'";
         case TOK_KW_STRING: return "'string'";
         case TOK_KW_BIGINT: return "'bigint'";
+        case TOK_KW_DECIMAL: return "'decimal'";
         case TOK_LPAREN: return "'('";
         case TOK_RPAREN: return "')'";
         case TOK_LBRACE: return "'{'";

@@ -230,6 +230,25 @@ int decimal_is_zero(Decimal a) {
     return bignum_is_zero(a.unscaled);
 }
 
+Decimal decimal_normalize(Decimal a) {
+    if (bignum_is_zero(a.unscaled)) return decimal_from_i64(0);
+    if (a.scale == 0) return a;
+    BigNum ten = bignum_from_i64(10);
+    BigNum cur = a.unscaled;
+    int scale = a.scale;
+    while (scale > 0) {
+        BigNum quot, rem;
+        bignum_divmod(cur, ten, &quot, &rem);
+        if (!bignum_is_zero(rem)) break;
+        cur = quot;
+        scale--;
+    }
+    Decimal d;
+    d.unscaled = cur;
+    d.scale = scale;
+    return d;
+}
+
 Decimal decimal_round(Decimal a, int scale) {
     if (scale >= a.scale) {
         Decimal d;
@@ -254,9 +273,28 @@ double decimal_to_double(Decimal a) {
 Decimal decimal_from_double_trunc(double v) {
     /* Fixed at 10 decimal places -- %f never uses scientific notation
      * (unlike %g), so this is always a well-formed decimal_from_string
-     * input regardless of v's magnitude. */
+     * input regardless of v's magnitude. Normalized afterward so a
+     * "clean" double like 3.14 (really ~3.1400000000000001 in binary)
+     * casts to "3.14", not "3.1400000000" -- the trailing zeros are an
+     * artifact of the fixed precision this conversion goes through, not
+     * meaningful digits worth keeping. */
     char buf[512];
     snprintf(buf, sizeof(buf), "%.10f", v);
     int ok;
-    return decimal_from_string(buf, &ok);
+    return decimal_normalize(decimal_from_string(buf, &ok));
+}
+
+BigNum decimal_to_bignum_trunc(Decimal a) {
+    if (a.scale == 0) return a.unscaled;
+    BigNum divisor = bignum_pow10(a.scale);
+    BigNum quot, rem;
+    bignum_divmod(a.unscaled, divisor, &quot, &rem);
+    return quot;
+}
+
+Decimal decimal_from_bignum(BigNum n) {
+    Decimal d;
+    d.unscaled = n;
+    d.scale = 0;
+    return d;
 }
