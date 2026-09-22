@@ -367,6 +367,63 @@ a time mid-implementation:
   sharing style, and whether `Channel<T>`'s cross-thread sharing needs
   atomic increments/decrements or can stay under the channel's existing
   mutex) before implementation starts.
+- **`HashMap`/`HashSet`'s `set`/`add`/`remove` are O(bucket_count), not
+  O(1) — a genuine gap next to Java's `HashMap` (O(1) amortized `put`),
+  and a trie-shaped bucket structure could close it without touching
+  the language at all.** Surfaced comparing `collections.zm`'s
+  just-added load-factor growth (see docs/DESIGN.md's "Collections
+  module" entry on growth) against Java's `HashMap`: growth fixed
+  `get`/`has`'s degradation into a linear scan past ~16 entries, but
+  `set`/`remove` stay O(bucket_count) ≈ O(n) *every call*, growing or
+  not — the same root cause as the memory-reclamation entry above.
+  `set(m.buckets, idx, new_bucket)` must allocate and copy a whole new
+  backing array, since Ziman's arrays are immutable value types with no
+  in-place mutation anywhere in the language — Java's `HashMap` doesn't
+  pay this cost because its bucket array is mutable, so `put` just
+  links a node into one bucket's chain in place. This isn't a bug in
+  how the module was written; it's the same cost `push`/`set` already
+  have on any plain Ziman array, just newly visible because a hash
+  table does one per operation instead of one per bulk rebuild.
+  The fix doesn't need a language change, though — it needs a different
+  *data structure* for the buckets, one built for exactly this
+  constraint: a **Hash Array Mapped Trie (HAMT)**, the technique
+  Clojure's and Scala's persistent (immutable-by-default) hash maps use
+  for the identical reason. Instead of one flat array of `bucket_count`
+  slots, indexed by the full hash, a HAMT is a shallow trie of small,
+  fixed-arity nodes (32-wide is the usual choice), each level indexed by
+  one chunk of the hash's bits. Updating one entry only requires
+  allocating and copying *one small node* (O(arity) = O(1)) at each of
+  O(log₃₂ n) levels on the path to it — everywhere else in the trie is
+  untouched and safely shared by reference, since nothing is ever
+  mutated. That turns `set`/`remove` into genuine O(log n) — for any
+  realistic `n`, indistinguishable from O(1) in practice (a trie holding
+  a billion entries is only 6 levels deep at arity 32) — achieved
+  entirely within Ziman's existing "arrays are immutable, copy-on-write"
+  semantics. No new interpreter machinery, no refcounting dependency:
+  this is pure `.zm` source, the same way the current flat-bucket-array
+  version is.
+  Real cost, not a small tweak: a HAMT needs a node representation
+  (probably a small tagged struct/enum distinguishing an internal node
+  from a leaf/collision-list), a bitmap or dense-array scheme for
+  "which of the 32 slots at this node are populated" (a naive always-32-
+  wide node wastes a lot of space for a sparsely populated trie — real
+  HAMT implementations pack this with a 32-bit presence bitmap, which
+  needs bit-counting; Ziman has no bitwise operators, so this specifically
+  would need either adding them or finding an all-arithmetic substitute,
+  same open question the `byte`/`uuid`/`number` modules already hit and
+  worked around case-by-case), collision handling when two keys hash
+  into the same leaf path all the way down, and a hash-splitting scheme
+  (which chunk of `hash(key)`'s bits picks the slot at each level).
+  `hashmap_keys`/`hashmap_values`/`hashmap_size` would need reimplementing
+  against the new shape too (`size` stops being a trivial field read if
+  the trie doesn't track a running count itself, which it should).
+  Not started, not designed in detail — needs its own pass (node
+  representation, the bitwise-operator question specifically, collision
+  strategy, whether `HashSet<T>` shares the same trie implementation
+  parameterized differently or duplicates it the way `HashMap`/`HashSet`
+  already do today) before implementation starts. The current flat-
+  bucket-array version stays as the interim implementation either way —
+  this is a strict improvement to swap in later, not a correctness fix.
 - **Effects visible in function signatures** (which functions do I/O or
   mutate outside their own frame). Real value per DESIGN.md's principles,
   real design cost — needs its own doc before implementation starts. Now
