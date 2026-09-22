@@ -985,49 +985,66 @@ several languages rather than inheriting any one of them wholesale.
   map that grows large and then drains, but a narrower, lower-priority
   one than unbounded growth was, and left as a deliberate scope cut
   rather than designed around.
-- **`time` — a fixed-width, no-escaping pattern language for
-  formatting/parsing, plus a real gap closed: there was no way to parse
-  a date string back into a `LocalDate` at all.** Motivated by a
-  concrete, already-flagged gap: `health-record-backend-ziman`'s
-  `request.zm` had its own hand-rolled `parse_iso_date` (split on
-  `"-"`, three `parse_int` calls, then `localdate_of`), with a comment
-  reading *"a general ISO-date parser could live in ziman's own `time`
-  core module someday."* Every type already had a fixed `_to_string`;
-  none had the inverse.
+- **`time` — a compiled `DateTimeFormat` for formatting/parsing, plus a
+  real gap closed: there was no way to parse a date string back into a
+  `LocalDate` at all.** Motivated by a concrete, already-flagged gap:
+  `health-record-backend-ziman`'s `request.zm` had its own hand-rolled
+  `parse_iso_date` (split on `"-"`, three `parse_int` calls, then
+  `localdate_of`), with a comment reading *"a general ISO-date parser
+  could live in ziman's own `time` core module someday."* Every type
+  already had a fixed `_to_string`; none had the inverse.
   Two related but separately-scoped features, not one: (1) an ISO
   `_parse` for every type, the exact inverse of its existing
   `_to_string`, and (2) a general `_format`/`_parse_pattern` pair (on
   the three calendar-shaped types plus `Instant`) for a caller-chosen,
   non-ISO pattern — closer in shape to `number.zm`'s own
   `NumberFormat`/`parse_pattern`. Built (2) first, then implemented (1)
-  *on top of it* — `localdate_to_string`/`localdate_parse` etc. are now
+  *on top of it* — `localdate_to_string`/`localdate_parse` etc. are
   thin wrappers calling `localdate_format`/`localdate_parse_pattern`
-  with one of five `pub val iso_*_pattern` presets — one formatting/
+  with one of five `pub val iso_*_format` presets — one formatting/
   parsing engine per type, not two independently-maintained
   implementations of the same ISO shape. Verified this refactor was
   byte-for-byte behavior-preserving by running the full existing test
   suite (which checks several `_to_string` outputs for exact string
   equality) before writing a single new test.
+  `_format`/`_parse_pattern` take a `DateTimeFormat`, not a raw pattern
+  string — deliberately, after an explicit request that a pattern not
+  be re-parsed on every call. The first version of this feature *did*
+  take a bare pattern string, re-scanned character by character on
+  every single `_format`/`_parse_pattern` call; `DateTimeFormat` is a
+  *compiled representation* of a pattern instead (an array of `parts` —
+  each either a known field or a coalesced run of literal characters —
+  plus a precomputed `width`), built once by `datetime_format_of` and
+  meant to be reused for as many calls as needed, the same way Java's
+  own `DateTimeFormatter.ofPattern` compiles once and is reused. This
+  is exactly what the `iso_*_format` global vals are for: each is
+  compiled exactly once, at program start (global vals are evaluated
+  eagerly before `main` runs — see the "Global val" entry above), and
+  then reused for the process's entire lifetime — a concrete, motivating
+  use case for global vals beyond a fixed literal table, and the reason
+  `DateTimeFormat` is a struct wrapping a *compiled* array, not a
+  one-field wrapper around the pattern string itself (a trivial wrapper
+  would have to re-scan the string on every call regardless of being
+  wrapped, so it wouldn't actually solve the stated problem).
   The pattern language itself is deliberately tiny and fixed-width-only
-  in both directions — a pattern token's string length always equals
-  its own rendered length (`yyyy` → 4 chars in, 4 chars out; `MM` → 2
-  and 2; and so on) — unlike `java.time.DateTimeFormatter`, where a
-  letter's *repeat count* changes its meaning entirely (`M` is a bare
-  numeric month, `MM` is zero-padded, `MMM`/`MMMM` are short/full month
-  *names* — a completely different kind of feature, needing a name
-  table and locale awareness this module has no reason to build). This
-  fixed-width property isn't just simpler, it's *used*:
-  `instant_parse_pattern` slices an instant string into its calendar
-  part and its zone-offset suffix at exactly `len(pattern)` characters,
-  with no separator to search for, precisely because that length is
-  guaranteed to match what the pattern actually renders. No escaping
-  mechanism either — every literal character a real pattern needs
-  (`-`, `:`, `.`, `T`) already falls outside the six recognized letters
+  in both directions — a token's compiled width always equals its own
+  rendered length (`yyyy` → 4; `MM` → 2; and so on) — unlike
+  `java.time.DateTimeFormatter`, where a letter's *repeat count*
+  changes its meaning entirely (`M` is a bare numeric month, `MM` is
+  zero-padded, `MMM`/`MMMM` are short/full month *names* — a completely
+  different kind of feature, needing a name table and locale awareness
+  this module has no reason to build). This fixed-width property isn't
+  just simpler, it's *used*: `instant_parse_pattern` slices an instant
+  string into its calendar part and its zone-offset suffix at exactly
+  `fmt.width` characters, precomputed once at compile time rather than
+  summed on every call, with no separator to search for. No escaping
+  mechanism either — every literal character a real pattern needs (`-`,
+  `:`, `.`, `T`) already falls outside the six recognized letters
   (`y`/`M`/`d`/`H`/`m`/`s`/`S`), so nothing needs escaping; a
   differently-repeated run of one of those letters (three `S`s, say)
-  just doesn't match a token and passes through literally rather than
-  erroring — a documented scope cut in the same spirit as `number.zm`'s
-  pattern subset, not a validated-against trap.
+  just doesn't match a token and is folded into the surrounding literal
+  text instead — a documented scope cut in the same spirit as
+  `number.zm`'s pattern subset, not a validated-against trap.
   `Duration`/`ZoneOffset`/`ZoneId` deliberately don't get the general
   pattern pair, only the ISO `_to_string`/`_parse` one: `Duration`'s
   `"PT{seconds}[.{nanos}]S"` is a total-elapsed-time count, not a

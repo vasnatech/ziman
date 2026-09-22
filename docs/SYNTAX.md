@@ -936,14 +936,24 @@ docs/DESIGN.md's "time" entry), and every type is `{ ...: int }`-shaped
 Every type has a fixed ISO-8601-shaped `_to_string`/`_parse` pair (no
 extra arguments, and each is the other's exact inverse). The three
 calendar-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`) and
-`Instant` also get a general `_format(value, pattern) -> string` /
-`_parse_pattern(s, pattern) -> Result<Value, string>` pair, taking an
-explicit pattern string — the ISO pair is implemented *in terms of*
-these, via one of five `pub val iso_*_pattern` presets
-(`iso_date_pattern`, `iso_time_pattern`/`iso_time_nanos_pattern`,
-`iso_datetime_pattern`/`iso_datetime_nanos_pattern`), rather than as a
-second, independently-maintained implementation. The pattern language
-itself is deliberately small and fixed-width-only — nothing like
+`Instant` also get a general `_format(value, fmt: DateTimeFormat) ->
+string` / `_parse_pattern(s, fmt: DateTimeFormat) -> Result<Value,
+string>` pair — the ISO pair is implemented *in terms of* these, via
+one of five `pub val iso_*_format` presets (`iso_date_format`,
+`iso_time_format`/`iso_time_nanos_format`, `iso_datetime_format`/
+`iso_datetime_nanos_format`), rather than as a second, independently-
+maintained implementation.
+
+**`DateTimeFormat`** is a *compiled* representation of a pattern, not a
+wrapper around the pattern string: `datetime_format_of(pattern:
+string) -> DateTimeFormat` scans the pattern exactly once into an
+array of parts (each either a known field or a run of literal
+characters), so a `DateTimeFormat` is meant to be built once — the
+five `iso_*_format` vals are each compiled exactly once, at program
+start (they're global vals — see "Modules" above) — and then reused
+for as many `_format`/`_parse_pattern` calls as needed, never
+re-scanning the original pattern text. The pattern language itself is
+deliberately small and fixed-width-only — nothing like
 `java.time.DateTimeFormatter`'s "letter count changes meaning" (`M` vs
 `MM` vs `MMM` vs `MMMM` are four different things there; here there's
 exactly one recognized run length per letter):
@@ -958,13 +968,15 @@ ss         2-digit zero-padded second
 SSSSSSSSS  9-digit zero-padded nanosecond-of-second
 ```
 
-Anything else in a pattern is copied through literally, character by
-character — no escaping mechanism, since none of the separators any
-pattern here needs (`"-"`, `":"`, `"."`, `"T"`) collide with a token
-letter. A different run length of one of these letters (e.g. three
-`S`s) matches no token and is copied through literally too, rather than
-erroring — a documented scope cut, not a guarded-against trap. There's
-no month/day name support and no locale-awareness at all. `Duration`/
+Anything else in a pattern is a literal, copied through character by
+character (consecutive literal characters are coalesced into one part
+at compile time, not kept one part per character) — no escaping
+mechanism, since none of the separators any pattern here needs (`"-"`,
+`":"`, `"."`, `"T"`) collide with a token letter. A different run
+length of one of these letters (e.g. three `S`s) matches no token and
+is folded into the surrounding literal text too, rather than erroring
+— a documented scope cut, not a guarded-against trap. There's no
+month/day name support and no locale-awareness at all. `Duration`/
 `ZoneOffset`/`ZoneId` only get the fixed ISO `_to_string`/`_parse` pair
 — their shapes (`"PT...S"`, `"Z"`/`"+HH:MM"`, a bare zone name) aren't
 a calendar field breakdown, so the pattern language doesn't fit them.
@@ -993,8 +1005,8 @@ fn main() {
   `localdate_from_epoch_day` (days since 1970-01-01, negative before
   it), `localdate_is_leap_year`, `localdate_to_string` (`"YYYY-MM-DD"`)
   and its exact inverse `localdate_parse(s) -> Result<LocalDate,
-  string>`, plus `localdate_format(d, pattern)`/`localdate_parse_pattern
-  (s, pattern)` for a custom pattern (see above).
+  string>`, plus `localdate_format(d, fmt)`/`localdate_parse_pattern(s,
+  fmt)` for a compiled `DateTimeFormat` (see above).
   The epoch-day conversion is Howard Hinnant's public-domain
   days-from-civil algorithm (used in libc++'s `<chrono>`), correct for
   the whole proleptic Gregorian calendar, translated directly into
@@ -1011,7 +1023,7 @@ fn main() {
   `"HH:MM:SS.nnnnnnnnn"` when `nano != 0`) and its inverse
   `localtime_parse` (auto-detects which of those two shapes it's
   looking at), plus `localtime_format`/`localtime_parse_pattern` for a
-  custom pattern.
+  compiled `DateTimeFormat`.
 - **`LocalDateTime { date: LocalDate, time: LocalTime }`** — the two
   combined, still no zone. `localdatetime_of(date, time)`,
   `localdatetime_add_hours`/`_minutes`/`_seconds`/`_nanos` (these DO
@@ -1024,7 +1036,7 @@ fn main() {
   a zone, not a real cross-zone elapsed-time computation),
   `localdatetime_to_string` (`"YYYY-MM-DDTHH:MM:SS"`) and its inverse
   `localdatetime_parse`, plus `localdatetime_format`/
-  `localdatetime_parse_pattern` for a custom pattern.
+  `localdatetime_parse_pattern` for a compiled `DateTimeFormat`.
 - **`Duration { seconds: int, nanos: int }`** — a length of time, not a
   point. `nanos` is always kept in `[0, 999999999]`; `seconds` alone
   carries the overall sign — so `-0.5` seconds is `{seconds: -1, nanos:
@@ -1065,11 +1077,11 @@ fn main() {
   either `"Z"` or a real `"+HH:MM"`/`"-HH:MM"` offset suffix, not just
   the `"Z"` `instant_to_string` always produces — a string from a real
   external API may carry a genuine offset), plus `instant_format(i,
-  offset, pattern)`/`instant_parse_pattern(s, pattern)` for a custom
-  pattern applied to the calendar part, with the offset always handled
-  separately (formatted via `zoneoffset_to_string` and appended;
-  parsed via `zoneoffset_parse` from whatever follows the pattern's own
-  fixed rendered length).
+  offset, fmt)`/`instant_parse_pattern(s, fmt)` for a compiled
+  `DateTimeFormat` applied to the calendar part, with the offset always
+  handled separately (formatted via `zoneoffset_to_string` and
+  appended; parsed via `zoneoffset_parse` from whatever follows the
+  format's own precomputed `width`).
 - **`ZoneOffset { total_seconds: int }`** — a fixed UTC offset
   (`+05:30`), not a named zone with rules. `zoneoffset_utc()`,
   `zoneoffset_of_seconds(total_seconds) -> Result<ZoneOffset, string>`

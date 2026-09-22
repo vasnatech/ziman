@@ -35,16 +35,24 @@
 // `_to_string`/`_parse` pair (no arguments beyond the value/string
 // itself) plus, for the three calendar-shaped types (`LocalDate`,
 // `LocalTime`, `LocalDateTime`) and `Instant`, a general `_format`/
-// `_parse_pattern` pair taking an explicit pattern string -- see
-// format_fields/parse_fields below for the pattern language itself.
-// The ISO pair is implemented *in terms of* the general one (via the
-// `iso_*_pattern` global vals below), one engine rather than two
-// independently-maintained implementations of "what does an ISO date
-// look like." `Duration`/`ZoneOffset`/`ZoneId` only get the fixed ISO
-// pair -- their `_to_string` shapes ("PT...S", "Z"/"+HH:MM", a bare
-// zone name) aren't calendar patterns in the same sense, so a general
-// pattern language wouldn't fit them the way it fits a year/month/day/
-// hour/minute/second breakdown.
+// `_parse_pattern` pair taking a `DateTimeFormat`. `DateTimeFormat` is
+// a *compiled representation* of a pattern, not a wrapper around the
+// pattern string -- `datetime_format_of(pattern) -> DateTimeFormat`
+// scans the pattern exactly once, up front, into an array of
+// `DateTimePart`s (each either a known field or a literal run of
+// characters); format_fields/parse_fields below then walk that array
+// directly, never re-scanning the original pattern text. This matters
+// because a `DateTimeFormat` is meant to be built once and reused --
+// see the `iso_*_format` global vals below, each compiled exactly once
+// at program start (see docs/DESIGN.md's "Global val" entry) and reused
+// for the process's whole lifetime, and the `_to_string` pair is
+// implemented *in terms of* the general one using those, one engine
+// rather than two independently-maintained implementations of "what
+// does an ISO date look like." `Duration`/`ZoneOffset`/`ZoneId` only
+// get the fixed ISO pair -- their `_to_string` shapes ("PT...S",
+// "Z"/"+HH:MM", a bare zone name) aren't calendar patterns in the same
+// sense, so a general pattern language wouldn't fit them the way it
+// fits a year/month/day/hour/minute/second breakdown.
 
 use clock.now_raw
 
@@ -79,7 +87,7 @@ fn pad_left(n: int, width: int) -> string {
     return s
 }
 
-// The pattern language format_fields/parse_fields share -- deliberately
+// The pattern language datetime_format_of compiles -- deliberately
 // small, fixed-width-only (no Java-style "letter count changes meaning"
 // -- M vs MM vs MMM vs MMMM mean four different things there; here
 // there's exactly one recognized run length per letter and nothing
@@ -95,17 +103,18 @@ fn pad_left(n: int, width: int) -> string {
 //
 // Every token's pattern-string length equals its own rendered-output
 // length exactly (each is fixed-width in both directions) -- a
-// deliberate property, not a coincidence: instant_parse_pattern below
-// relies on `len(pattern)` alone to know exactly where the calendar
-// part of an instant string ends and its zone-offset suffix begins,
-// with no separator to search for. Anything else in a pattern is
-// copied through literally, character by character, with no escaping
-// mechanism -- none of the separators any pattern here actually needs
-// ("-", ":", ".", "T") collide with a token letter, so there's nothing
-// to escape. A pattern with a *different* run length of one of these
-// letters (e.g. three `S`s) matches no token and falls through to the
-// literal case too, rather than erroring -- a narrow, documented
-// scope cut, not a trap that's been guarded against.
+// deliberate property, not a coincidence: `DateTimeFormat.width` below
+// (and instant_parse_pattern, which uses it) relies on this to know
+// exactly where the calendar part of an instant string ends and its
+// zone-offset suffix begins, with no separator to search for. Anything
+// else in a pattern is a literal, copied through character by
+// character, with no escaping mechanism -- none of the separators any
+// pattern here actually needs ("-", ":", ".", "T") collide with a
+// token letter, so there's nothing to escape. A pattern with a
+// *different* run length of one of these letters (e.g. three `S`s)
+// matches no token and is folded into the surrounding literal text
+// too, rather than erroring -- a narrow, documented scope cut, not a
+// trap that's been guarded against.
 fn matches_token(pattern: string, i: int, token: string) -> bool {
     val tlen = len(token)
     if i + tlen > len(pattern) {
@@ -114,35 +123,144 @@ fn matches_token(pattern: string, i: int, token: string) -> bool {
     return substring(pattern, i, i + tlen) == token
 }
 
-fn format_fields(year: int, month: int, day: int, hour: int, minute: int, second: int, nano: int, pattern: string) -> string {
-    var out = ""
+// One part of a compiled `DateTimeFormat` -- either a known field or a
+// run of literal characters (consecutive literal characters are
+// coalesced into one `Literal` at compile time, in datetime_format_of,
+// rather than kept one part per character).
+enum DateTimePart {
+    Year
+    Month
+    Day
+    Hour
+    Minute
+    Second
+    Nano
+    Literal(string)
+}
+
+// A pattern, compiled once (by datetime_format_of) into a form
+// format_fields/parse_fields can walk directly, without ever re-
+// scanning the original pattern text -- the whole point of this type
+// existing separately from a bare pattern string, since a
+// `DateTimeFormat` is meant to be built once (see the `iso_*_format`
+// global vals below, or a project's own, compiled once wherever it's
+// declared) and then reused for many format/parse calls. `width` is
+// the pattern's total rendered/parsed length, precomputed at compile
+// time from `parts` (never recomputed per call) -- see the pattern-
+// language comment above for why every part's width is already fixed
+// and known. `parts`/`width` are implementation details, not part of
+// the intended public API, same as `HashMap`'s `buckets`/`count`.
+pub struct DateTimeFormat {
+    parts: [DateTimePart]
+    width: int
+}
+
+fn datetime_part_width(part: DateTimePart) -> int {
+    if DateTimePart.is_Year(part) {
+        return 4
+    }
+    if DateTimePart.is_Month(part) || DateTimePart.is_Day(part) || DateTimePart.is_Hour(part) || DateTimePart.is_Minute(part) || DateTimePart.is_Second(part) {
+        return 2
+    }
+    if DateTimePart.is_Nano(part) {
+        return 9
+    }
+    return len(DateTimePart.unwrap_Literal(part))
+}
+
+// Scans `pattern` exactly once, building the compiled parts array
+// (and its total width) that format_fields/parse_fields below then
+// work from -- the one place the pattern text itself is ever matched
+// character by character.
+pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
+    var parts: [DateTimePart] = []
+    var literal_buf = ""
     var i = 0
     val plen = len(pattern)
     while i < plen {
         if matches_token(pattern, i, "yyyy") {
-            out = concat(out, pad_left(year, 4))
+            if literal_buf != "" {
+                parts = push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            parts = push(parts, DateTimePart.Year)
             i = i + 4
         } else if matches_token(pattern, i, "MM") {
-            out = concat(out, pad_left(month, 2))
+            if literal_buf != "" {
+                parts = push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            parts = push(parts, DateTimePart.Month)
             i = i + 2
         } else if matches_token(pattern, i, "dd") {
-            out = concat(out, pad_left(day, 2))
+            if literal_buf != "" {
+                parts = push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            parts = push(parts, DateTimePart.Day)
             i = i + 2
         } else if matches_token(pattern, i, "HH") {
-            out = concat(out, pad_left(hour, 2))
+            if literal_buf != "" {
+                parts = push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            parts = push(parts, DateTimePart.Hour)
             i = i + 2
         } else if matches_token(pattern, i, "mm") {
-            out = concat(out, pad_left(minute, 2))
+            if literal_buf != "" {
+                parts = push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            parts = push(parts, DateTimePart.Minute)
             i = i + 2
         } else if matches_token(pattern, i, "ss") {
-            out = concat(out, pad_left(second, 2))
+            if literal_buf != "" {
+                parts = push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            parts = push(parts, DateTimePart.Second)
             i = i + 2
         } else if matches_token(pattern, i, "SSSSSSSSS") {
-            out = concat(out, pad_left(nano, 9))
+            if literal_buf != "" {
+                parts = push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            parts = push(parts, DateTimePart.Nano)
             i = i + 9
         } else {
-            out = concat(out, substring(pattern, i, i + 1))
+            literal_buf = concat(literal_buf, substring(pattern, i, i + 1))
             i = i + 1
+        }
+    }
+    if literal_buf != "" {
+        parts = push(parts, DateTimePart.Literal(literal_buf))
+    }
+    var width = 0
+    for part in parts {
+        width = width + datetime_part_width(part)
+    }
+    return DateTimeFormat { parts: parts, width: width }
+}
+
+fn format_fields(year: int, month: int, day: int, hour: int, minute: int, second: int, nano: int, fmt: DateTimeFormat) -> string {
+    var out = ""
+    for part in fmt.parts {
+        if DateTimePart.is_Year(part) {
+            out = concat(out, pad_left(year, 4))
+        } else if DateTimePart.is_Month(part) {
+            out = concat(out, pad_left(month, 2))
+        } else if DateTimePart.is_Day(part) {
+            out = concat(out, pad_left(day, 2))
+        } else if DateTimePart.is_Hour(part) {
+            out = concat(out, pad_left(hour, 2))
+        } else if DateTimePart.is_Minute(part) {
+            out = concat(out, pad_left(minute, 2))
+        } else if DateTimePart.is_Second(part) {
+            out = concat(out, pad_left(second, 2))
+        } else if DateTimePart.is_Nano(part) {
+            out = concat(out, pad_left(nano, 9))
+        } else {
+            out = concat(out, DateTimePart.unwrap_Literal(part))
         }
     }
     return out
@@ -165,7 +283,7 @@ fn parse_fixed_width_int(s: string, start: int, width: int) -> Result<int, strin
     return parse_int(substring(s, start, start + width))
 }
 
-fn parse_fields(s: string, pattern: string) -> Result<ParsedFields, string> {
+fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> {
     var year = 0
     var month = 0
     var day = 0
@@ -173,91 +291,86 @@ fn parse_fields(s: string, pattern: string) -> Result<ParsedFields, string> {
     var minute = 0
     var second = 0
     var nano = 0
-    var pi = 0
     var si = 0
-    val plen = len(pattern)
-    while pi < plen {
-        if matches_token(pattern, pi, "yyyy") {
+    for part in fmt.parts {
+        if DateTimePart.is_Year(part) {
             val r = parse_fixed_width_int(s, si, 4)
             if !is_ok(r) {
                 return err(format("invalid year in '{}': {}", s, unwrap_err(r)))
             }
             year = unwrap(r)
-            pi = pi + 4
             si = si + 4
-        } else if matches_token(pattern, pi, "MM") {
+        } else if DateTimePart.is_Month(part) {
             val r = parse_fixed_width_int(s, si, 2)
             if !is_ok(r) {
                 return err(format("invalid month in '{}': {}", s, unwrap_err(r)))
             }
             month = unwrap(r)
-            pi = pi + 2
             si = si + 2
-        } else if matches_token(pattern, pi, "dd") {
+        } else if DateTimePart.is_Day(part) {
             val r = parse_fixed_width_int(s, si, 2)
             if !is_ok(r) {
                 return err(format("invalid day in '{}': {}", s, unwrap_err(r)))
             }
             day = unwrap(r)
-            pi = pi + 2
             si = si + 2
-        } else if matches_token(pattern, pi, "HH") {
+        } else if DateTimePart.is_Hour(part) {
             val r = parse_fixed_width_int(s, si, 2)
             if !is_ok(r) {
                 return err(format("invalid hour in '{}': {}", s, unwrap_err(r)))
             }
             hour = unwrap(r)
-            pi = pi + 2
             si = si + 2
-        } else if matches_token(pattern, pi, "mm") {
+        } else if DateTimePart.is_Minute(part) {
             val r = parse_fixed_width_int(s, si, 2)
             if !is_ok(r) {
                 return err(format("invalid minute in '{}': {}", s, unwrap_err(r)))
             }
             minute = unwrap(r)
-            pi = pi + 2
             si = si + 2
-        } else if matches_token(pattern, pi, "ss") {
+        } else if DateTimePart.is_Second(part) {
             val r = parse_fixed_width_int(s, si, 2)
             if !is_ok(r) {
                 return err(format("invalid second in '{}': {}", s, unwrap_err(r)))
             }
             second = unwrap(r)
-            pi = pi + 2
             si = si + 2
-        } else if matches_token(pattern, pi, "SSSSSSSSS") {
+        } else if DateTimePart.is_Nano(part) {
             val r = parse_fixed_width_int(s, si, 9)
             if !is_ok(r) {
                 return err(format("invalid nanosecond fraction in '{}': {}", s, unwrap_err(r)))
             }
             nano = unwrap(r)
-            pi = pi + 9
             si = si + 9
         } else {
-            if si >= len(s) || substring(s, si, si + 1) != substring(pattern, pi, pi + 1) {
-                return err(format("'{}' does not match pattern '{}' at position {}", s, pattern, pi))
+            val lit = DateTimePart.unwrap_Literal(part)
+            val llen = len(lit)
+            if si + llen > len(s) || substring(s, si, si + llen) != lit {
+                return err(format("'{}' does not match expected literal '{}' at position {}", s, lit, si))
             }
-            pi = pi + 1
-            si = si + 1
+            si = si + llen
         }
     }
     if si != len(s) {
-        return err(format("'{}' has trailing content after matching pattern '{}'", s, pattern))
+        return err(format("'{}' has trailing content after position {}", s, si))
     }
     return ok(ParsedFields { year: year, month: month, day: day, hour: hour, minute: minute, second: second, nano: nano })
 }
 
 // The fixed shapes every existing `_to_string` produces, now also the
-// default patterns their matching `_parse`/`_format` pair uses -- one
-// engine, not two independently-maintained implementations of "what
-// does an ISO date look like." `pub` so application code can also
-// pass them straight to `_format`/`_parse_pattern` instead of writing
-// the pattern out again.
-pub val iso_date_pattern = "yyyy-MM-dd"
-pub val iso_time_pattern = "HH:mm:ss"
-pub val iso_time_nanos_pattern = "HH:mm:ss.SSSSSSSSS"
-pub val iso_datetime_pattern = "yyyy-MM-ddTHH:mm:ss"
-pub val iso_datetime_nanos_pattern = "yyyy-MM-ddTHH:mm:ss.SSSSSSSSS"
+// default `DateTimeFormat`s their matching `_parse`/`_format` pair
+// uses -- one engine, not two independently-maintained implementations
+// of "what does an ISO date look like." Compiled exactly once, at
+// program start (global vals are evaluated eagerly before `main` runs
+// -- see docs/DESIGN.md's "Global val" entry), and reused for the rest
+// of the process's lifetime; `pub` so application code can also pass
+// them straight to `_format`/`_parse_pattern` instead of compiling the
+// pattern again itself.
+pub val iso_date_format = datetime_format_of("yyyy-MM-dd")
+pub val iso_time_format = datetime_format_of("HH:mm:ss")
+pub val iso_time_nanos_format = datetime_format_of("HH:mm:ss.SSSSSSSSS")
+pub val iso_datetime_format = datetime_format_of("yyyy-MM-ddTHH:mm:ss")
+pub val iso_datetime_nanos_format = datetime_format_of("yyyy-MM-ddTHH:mm:ss.SSSSSSSSS")
 
 // Howard Hinnant's days-from-civil / civil-from-days algorithm (public
 // domain, used in libc++'s <chrono>), adapted to Ziman's truncating
@@ -373,12 +486,12 @@ pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int {
     return localdate_to_epoch_day(a) - localdate_to_epoch_day(b)
 }
 
-pub fn localdate_format(d: LocalDate, pattern: string) -> string {
-    return format_fields(d.year, d.month, d.day, 0, 0, 0, 0, pattern)
+pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string {
+    return format_fields(d.year, d.month, d.day, 0, 0, 0, 0, fmt)
 }
 
-pub fn localdate_parse_pattern(s: string, pattern: string) -> Result<LocalDate, string> {
-    val fields_r = parse_fields(s, pattern)
+pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string> {
+    val fields_r = parse_fields(s, fmt)
     if !is_ok(fields_r) {
         return err(unwrap_err(fields_r))
     }
@@ -387,11 +500,11 @@ pub fn localdate_parse_pattern(s: string, pattern: string) -> Result<LocalDate, 
 }
 
 pub fn localdate_parse(s: string) -> Result<LocalDate, string> {
-    return localdate_parse_pattern(s, iso_date_pattern)
+    return localdate_parse_pattern(s, iso_date_format)
 }
 
 pub fn localdate_to_string(d: LocalDate) -> string {
-    return localdate_format(d, iso_date_pattern)
+    return localdate_format(d, iso_date_format)
 }
 
 pub struct LocalTime {
@@ -464,12 +577,12 @@ pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int {
     return localtime_diff_nanos(a, b)
 }
 
-pub fn localtime_format(t: LocalTime, pattern: string) -> string {
-    return format_fields(0, 0, 0, t.hour, t.minute, t.second, t.nano, pattern)
+pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string {
+    return format_fields(0, 0, 0, t.hour, t.minute, t.second, t.nano, fmt)
 }
 
-pub fn localtime_parse_pattern(s: string, pattern: string) -> Result<LocalTime, string> {
-    val fields_r = parse_fields(s, pattern)
+pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string> {
+    val fields_r = parse_fields(s, fmt)
     if !is_ok(fields_r) {
         return err(unwrap_err(fields_r))
     }
@@ -484,16 +597,16 @@ pub fn localtime_parse_pattern(s: string, pattern: string) -> Result<LocalTime, 
 // otherwise.
 pub fn localtime_parse(s: string) -> Result<LocalTime, string> {
     if contains(s, ".") {
-        return localtime_parse_pattern(s, iso_time_nanos_pattern)
+        return localtime_parse_pattern(s, iso_time_nanos_format)
     }
-    return localtime_parse_pattern(s, iso_time_pattern)
+    return localtime_parse_pattern(s, iso_time_format)
 }
 
 pub fn localtime_to_string(t: LocalTime) -> string {
     if t.nano == 0 {
-        return localtime_format(t, iso_time_pattern)
+        return localtime_format(t, iso_time_format)
     }
-    return localtime_format(t, iso_time_nanos_pattern)
+    return localtime_format(t, iso_time_nanos_format)
 }
 
 pub struct Duration {
@@ -680,12 +793,12 @@ pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration {
     return normalize(day_diff * 86400, nano_diff)
 }
 
-pub fn localdatetime_format(dt: LocalDateTime, pattern: string) -> string {
-    return format_fields(dt.date.year, dt.date.month, dt.date.day, dt.time.hour, dt.time.minute, dt.time.second, dt.time.nano, pattern)
+pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string {
+    return format_fields(dt.date.year, dt.date.month, dt.date.day, dt.time.hour, dt.time.minute, dt.time.second, dt.time.nano, fmt)
 }
 
-pub fn localdatetime_parse_pattern(s: string, pattern: string) -> Result<LocalDateTime, string> {
-    val fields_r = parse_fields(s, pattern)
+pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string> {
+    val fields_r = parse_fields(s, fmt)
     if !is_ok(fields_r) {
         return err(unwrap_err(fields_r))
     }
@@ -703,16 +816,16 @@ pub fn localdatetime_parse_pattern(s: string, pattern: string) -> Result<LocalDa
 
 pub fn localdatetime_parse(s: string) -> Result<LocalDateTime, string> {
     if contains(s, ".") {
-        return localdatetime_parse_pattern(s, iso_datetime_nanos_pattern)
+        return localdatetime_parse_pattern(s, iso_datetime_nanos_format)
     }
-    return localdatetime_parse_pattern(s, iso_datetime_pattern)
+    return localdatetime_parse_pattern(s, iso_datetime_format)
 }
 
 pub fn localdatetime_to_string(dt: LocalDateTime) -> string {
     if dt.time.nano == 0 {
-        return localdatetime_format(dt, iso_datetime_pattern)
+        return localdatetime_format(dt, iso_datetime_format)
     }
-    return localdatetime_format(dt, iso_datetime_nanos_pattern)
+    return localdatetime_format(dt, iso_datetime_nanos_format)
 }
 
 pub struct ZoneOffset {
@@ -868,32 +981,31 @@ pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instan
 }
 
 // Formats `i` as wall-clock time under `offset` (via
-// instant_to_localdatetime), using `pattern` for the calendar part,
-// then always appends the offset's own string form -- the same shape
-// instant_to_string below already uses, just with `pattern` and
-// `offset` as explicit parameters instead of hardcoding
-// iso_datetime_pattern/zoneoffset_utc().
-pub fn instant_format(i: Instant, offset: ZoneOffset, pattern: string) -> string {
+// instant_to_localdatetime), using `fmt` for the calendar part, then
+// always appends the offset's own string form -- the same shape
+// instant_to_string below already uses, just with `fmt` and `offset`
+// as explicit parameters instead of hardcoding
+// iso_datetime_format/zoneoffset_utc().
+pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string {
     val dt = instant_to_localdatetime(i, offset)
-    return concat(localdatetime_format(dt, pattern), zoneoffset_to_string(offset))
+    return concat(localdatetime_format(dt, fmt), zoneoffset_to_string(offset))
 }
 
-// `pattern` covers only the calendar part; the zone-offset suffix is
+// `fmt` covers only the calendar part; the zone-offset suffix is
 // always parsed separately (via zoneoffset_parse) and used to convert
 // the parsed wall-clock time into an absolute Instant -- not something
 // a caller chooses per call, since the string's own suffix already
-// says what it is. Slicing at exactly `len(pattern)` characters works
-// because every pattern token's string length equals its rendered
-// length (see the pattern-language comment above) -- no need to search
-// for where the calendar part ends.
-pub fn instant_parse_pattern(s: string, pattern: string) -> Result<Instant, string> {
-    val plen = len(pattern)
-    if len(s) < plen {
-        return err(format("'{}' is too short to match pattern '{}'", s, pattern))
+// says what it is. Slicing at exactly `fmt.width` characters works
+// because every pattern token's width is fixed and known at compile
+// time (see the pattern-language comment above) -- no need to search
+// for where the calendar part ends, and no need to recompute it here.
+pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string> {
+    if len(s) < fmt.width {
+        return err(format("'{}' is too short to match the given format", s))
     }
-    val datetime_part = substring(s, 0, plen)
-    val offset_part = substring(s, plen, len(s))
-    val dt_r = localdatetime_parse_pattern(datetime_part, pattern)
+    val datetime_part = substring(s, 0, fmt.width)
+    val offset_part = substring(s, fmt.width, len(s))
+    val dt_r = localdatetime_parse_pattern(datetime_part, fmt)
     if !is_ok(dt_r) {
         return err(unwrap_err(dt_r))
     }
@@ -912,15 +1024,15 @@ pub fn instant_parse_pattern(s: string, pattern: string) -> Result<Instant, stri
 // accepting it.
 pub fn instant_parse(s: string) -> Result<Instant, string> {
     if contains(s, ".") {
-        return instant_parse_pattern(s, iso_datetime_nanos_pattern)
+        return instant_parse_pattern(s, iso_datetime_nanos_format)
     }
-    return instant_parse_pattern(s, iso_datetime_pattern)
+    return instant_parse_pattern(s, iso_datetime_format)
 }
 
 pub fn instant_to_string(i: Instant) -> string {
     val dt = instant_to_localdatetime(i, zoneoffset_utc())
     if dt.time.nano == 0 {
-        return instant_format(i, zoneoffset_utc(), iso_datetime_pattern)
+        return instant_format(i, zoneoffset_utc(), iso_datetime_format)
     }
-    return instant_format(i, zoneoffset_utc(), iso_datetime_nanos_pattern)
+    return instant_format(i, zoneoffset_utc(), iso_datetime_nanos_format)
 }

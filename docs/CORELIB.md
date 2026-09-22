@@ -167,18 +167,25 @@ pub native fn random_bytes(n: int) -> [byte]
 
 ## `time`
 
-Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneOffset` only -- no IANA-style `ZoneId` with DST rules. Every type has a fixed ISO-8601 `_to_string`/`_parse` pair; `LocalDate`/`LocalTime`/`LocalDateTime`/`Instant` also get a general `_format`/`_parse_pattern` pair (see the `iso_*_pattern` vals) for a custom year/month/day/hour/minute/second pattern.
+Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneOffset` only -- no IANA-style `ZoneId` with DST rules. Every type has a fixed ISO-8601 `_to_string`/`_parse` pair; `LocalDate`/`LocalTime`/`LocalDateTime`/`Instant` also get a general `_format`/`_parse_pattern` pair taking a `DateTimeFormat` -- a pattern compiled once by `datetime_format_of` (see the `iso_*_format` vals, each compiled exactly once at program start) rather than a raw pattern string re-scanned on every call.
 
 ```
-pub val iso_date_pattern = "yyyy-MM-dd"
+pub struct DateTimeFormat {
+    parts: [DateTimePart]
+    width: int
+}
 
-pub val iso_time_pattern = "HH:mm:ss"
+pub fn datetime_format_of(pattern: string) -> DateTimeFormat
 
-pub val iso_time_nanos_pattern = "HH:mm:ss.SSSSSSSSS"
+pub val iso_date_format = datetime_format_of("yyyy-MM-dd")
 
-pub val iso_datetime_pattern = "yyyy-MM-ddTHH:mm:ss"
+pub val iso_time_format = datetime_format_of("HH:mm:ss")
 
-pub val iso_datetime_nanos_pattern = "yyyy-MM-ddTHH:mm:ss.SSSSSSSSS"
+pub val iso_time_nanos_format = datetime_format_of("HH:mm:ss.SSSSSSSSS")
+
+pub val iso_datetime_format = datetime_format_of("yyyy-MM-ddTHH:mm:ss")
+
+pub val iso_datetime_nanos_format = datetime_format_of("yyyy-MM-ddTHH:mm:ss.SSSSSSSSS")
 
 pub struct LocalDate {
     year: int
@@ -204,9 +211,9 @@ pub fn localdate_diff_days(a: LocalDate, b: LocalDate) -> int
 
 pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int
 
-pub fn localdate_format(d: LocalDate, pattern: string) -> string
+pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string
 
-pub fn localdate_parse_pattern(s: string, pattern: string) -> Result<LocalDate, string>
+pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string>
 
 pub fn localdate_parse(s: string) -> Result<LocalDate, string>
 
@@ -233,9 +240,9 @@ pub fn localtime_diff_nanos(a: LocalTime, b: LocalTime) -> int
 
 pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int
 
-pub fn localtime_format(t: LocalTime, pattern: string) -> string
+pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string
 
-pub fn localtime_parse_pattern(s: string, pattern: string) -> Result<LocalTime, string>
+pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string>
 
 pub fn localtime_parse(s: string) -> Result<LocalTime, string>
 
@@ -287,9 +294,9 @@ pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int
 
 pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration
 
-pub fn localdatetime_format(dt: LocalDateTime, pattern: string) -> string
+pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
 
-pub fn localdatetime_parse_pattern(s: string, pattern: string) -> Result<LocalDateTime, string>
+pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string>
 
 pub fn localdatetime_parse(s: string) -> Result<LocalDateTime, string>
 
@@ -344,9 +351,9 @@ pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
 
 pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant
 
-pub fn instant_format(i: Instant, offset: ZoneOffset, pattern: string) -> string
+pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
 
-pub fn instant_parse_pattern(s: string, pattern: string) -> Result<Instant, string>
+pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string>
 
 pub fn instant_parse(s: string) -> Result<Instant, string>
 

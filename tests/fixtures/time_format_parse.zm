@@ -25,18 +25,21 @@ use time.Duration
 use time.duration_of_seconds
 use time.duration_parse
 use time.duration_to_string
-use time.iso_date_pattern
-use time.iso_datetime_pattern
+use time.iso_date_format
+use time.iso_datetime_format
+use time.datetime_format_of
 
 fn main() {
-    // Custom (non-ISO) pattern formatting and parsing.
+    // Custom (non-ISO) pattern formatting and parsing -- compiled once
+    // via datetime_format_of, then reused for both calls.
+    val custom_fmt = datetime_format_of("dd/MM/yyyy")
     val d = unwrap(localdate_of(2024, 1, 31))
-    print(localdate_format(d, "dd/MM/yyyy"))
-    print(unwrap(localdate_parse_pattern("31/01/2024", "dd/MM/yyyy")) == d)
+    print(localdate_format(d, custom_fmt))
+    print(unwrap(localdate_parse_pattern("31/01/2024", custom_fmt)) == d)
 
     // ISO parse/format round trip.
     print(unwrap(localdate_parse("2024-01-31")) == d)
-    print(localdate_format(d, iso_date_pattern))
+    print(localdate_format(d, iso_date_format))
 
     val t = unwrap(localtime_of(9, 5, 3, 0))
     print(unwrap(localtime_parse("09:05:03")) == t)
@@ -44,7 +47,7 @@ fn main() {
     print(unwrap(localtime_parse("09:05:03.123000000")) == t2)
 
     val dt = localdatetime_of(d, t)
-    print(localdatetime_format(dt, iso_datetime_pattern))
+    print(localdatetime_format(dt, iso_datetime_format))
     print(unwrap(localdatetime_parse("2024-01-31T09:05:03")) == dt)
 
     // Instant round trip via UTC.
@@ -54,9 +57,9 @@ fn main() {
     // Instant with a real (non-UTC) offset -- formatted, then parsed
     // back to the same absolute instant.
     val plus5 = unwrap(zoneoffset_of_hours_minutes(5, 0))
-    val formatted = instant_format(i, plus5, iso_datetime_pattern)
+    val formatted = instant_format(i, plus5, iso_datetime_format)
     print(formatted)
-    print(unwrap(instant_parse_pattern(formatted, iso_datetime_pattern)) == i)
+    print(unwrap(instant_parse_pattern(formatted, iso_datetime_format)) == i)
 
     // Duration round trip, including the negative-with-fraction
     // magnitude transform (the fiddliest inverse in this module).
