@@ -1,5 +1,5 @@
 use collections.HashMap
-use collections.Box as HashMap
+use collections.HashSet as HashMap
 
 fn main() {
     print(1)

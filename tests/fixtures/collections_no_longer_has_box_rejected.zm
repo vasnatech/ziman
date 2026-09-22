@@ -1,0 +1,6 @@
+use collections.Box
+
+fn main() {
+    val b = Box<int> { value: 5 }
+    print(b.value)
+}

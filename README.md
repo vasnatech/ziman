@@ -70,11 +70,15 @@ monomorphized. A type parameter can be bounded with `Eq` and/or `Hash`
 these are the only two bounds Ziman has — there's no general
 trait/interface system (see docs/DESIGN.md's Generics entry for why,
 and what's deliberately left undecided). A small `collections` module
-built on this (`corelib/collections.zm`) provides `Box<T>`,
-`HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (bucket-array
+built on this (`corelib/collections.zm`) provides
+`HashMap<K: Eq + Hash, V>` and `HashSet<T: Eq + Hash>` (bucket-array
 based, O(1) average-case lookup rather than a linear `Eq`-only scan).
 (`Option<T>` used to live here too — see the prelude paragraph below for
-where it moved and why.)
+where it moved and why. `Box<T>` also used to live here — removed
+outright, not moved, since nothing ever actually used it beyond being
+the first generic struct ever written; `struct Box<T> { value: T }`
+above is illustrative syntax anyone can still write, just not a
+`collections` export anymore.)
 It's also one of eight *bundled core modules* (alongside `io`, mentioned
 above, plus `random`/`uuid`/`clock`/`time`/`json`/`number` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/

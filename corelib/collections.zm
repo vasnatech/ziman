@@ -1,10 +1,15 @@
-// collections.zm -- Box<T>, HashMap<K, V>, HashSet<T>, written in
-// ordinary Ziman, no native/C code -- the concrete payoff of the
-// generics work (see ../../docs/ROADMAP.md's "Generics" and
-// "Collections module" entries). `Option<T>` used to live here too;
-// moved to corelib/prelude.zm since it's needed everywhere HashMap/
-// HashSet aren't, so it's now always available bare, no `use` needed --
-// see docs/DESIGN.md's "Prelude" entry.
+// collections.zm -- HashMap<K, V>, HashSet<T>, written in ordinary
+// Ziman, no native/C code -- the concrete payoff of the generics work
+// (see ../../docs/ROADMAP.md's "Generics" and "Collections module"
+// entries). `Option<T>` used to live here too; moved to
+// corelib/prelude.zm since it's needed everywhere HashMap/HashSet
+// aren't, so it's now always available bare, no `use` needed -- see
+// docs/DESIGN.md's "Prelude" entry. `Box<T>` also used to live here --
+// removed outright (not moved anywhere) since nothing ever actually
+// used it: it was the first generic struct ever written, kept around
+// as a minimal illustrative example rather than for any real payoff,
+// and a single-value wrapper was never really "a collection" to begin
+// with. See docs/DESIGN.md's "Bundled core modules" entry.
 //
 // HashMap/HashSet use real bucket-array storage (separate chaining) so
 // get/add/contains are O(1) average case via hash(key) % bucket_count,
@@ -17,10 +22,6 @@
 // `Entry`/`buckets` are implementation details, not part of the
 // intended public API -- use the functions below, not direct field
 // access, even though Ziman has no per-field privacy to enforce that.
-
-pub struct Box<T> {
-    value: T
-}
 
 struct Entry<K, V> {
     key: K

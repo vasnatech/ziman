@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 
 describe() {
     case "$1" in
-        collections) echo "\`Box<T>\`, \`HashMap<K, V>\`, \`HashSet<T>\` -- generic containers, written in pure Ziman on top of the language's own \`Eq\`/\`Hash\` bounds." ;;
+        collections) echo "\`HashMap<K, V>\`, \`HashSet<T>\` -- generic containers, written in pure Ziman on top of the language's own \`Eq\`/\`Hash\` bounds." ;;
         io) echo "File I/O. The first native module -- proved the \`native fn\` mechanism end to end." ;;
         random) echo "One native function reading real OS entropy (\`/dev/urandom\`) -- Ziman's first source of genuine non-determinism." ;;
         uuid) echo "RFC 4122 v4 UUIDs, written in pure Ziman on top of \`random\` -- version/variant bits set with plain integer arithmetic, since Ziman has no bitwise operators." ;;

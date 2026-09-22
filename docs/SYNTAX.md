@@ -519,7 +519,10 @@ fn main() {
 ## Generics
 
 **Structs, enums, and functions, cross-module included** — see
-docs/ROADMAP.md's "Generics" entry for how this was staged.
+docs/ROADMAP.md's "Generics" entry for how this was staged. `Box<T>`
+and `Pair<A, B>` below are plain illustrative examples, not corelib
+exports — anyone can declare a `Box`-shaped struct exactly like this;
+nothing needs to `use` anything to do it.
 
 ```
 struct Box<T> {
@@ -877,8 +880,8 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. Eight so far: `collections` (`Box<T>`,
-  `HashMap<K, V>`, `HashSet<T>` — see "Generics" above), `io`
+  name exists. Eight so far: `collections` (`HashMap<K, V>`,
+  `HashSet<T>` — see "Generics" above), `io`
   (`read_file`/`write_file`, above), `random` (`random_bytes(n: int) ->
   [byte]`, the one native function reading real OS entropy — no other
   source of non-determinism exists to build a PRNG on top of), `uuid`

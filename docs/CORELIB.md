@@ -30,13 +30,9 @@ pub native fn now_raw() -> [int]
 
 ## `collections`
 
-`Box<T>`, `HashMap<K, V>`, `HashSet<T>` -- generic containers, written in pure Ziman on top of the language's own `Eq`/`Hash` bounds.
+`HashMap<K, V>`, `HashSet<T>` -- generic containers, written in pure Ziman on top of the language's own `Eq`/`Hash` bounds.
 
 ```
-pub struct Box<T> {
-    value: T
-}
-
 pub struct HashMap<K: Eq + Hash, V> {
     buckets: [[Entry<K, V>]]
 }

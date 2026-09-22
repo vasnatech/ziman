@@ -575,10 +575,13 @@ a time mid-implementation:
   concrete payoff of the generics work above.**~~ Implemented
   (`corelib/collections.zm` — see "Bundled core modules" below for why
   it lives there and not under `examples/`): a `collections` module,
-  written in ordinary Ziman, no new native/C code, exporting `Box<T>`,
-  `Option<T>` (plus a small `option_unwrap_or<T>` helper — both later
-  moved into the prelude, see the "Prelude" entry in docs/DESIGN.md),
-  `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (`HashSet`
+  written in ordinary Ziman, no new native/C code, exporting `Box<T>`
+  (later removed outright — nothing ever used it beyond being the first
+  generic struct ever written, see docs/DESIGN.md's "Bundled core
+  modules" entry), `Option<T>` (plus a small `option_unwrap_or<T>`
+  helper — later moved into the prelude instead, see the "Prelude"
+  entry in docs/DESIGN.md), `HashMap<K: Eq + Hash, V>`, and
+  `HashSet<T: Eq + Hash>` (`HashSet`
   needs both bounds too, for the same O(1)-bucket reason as `HashMap`)
   as plain structs/enums plus free functions
   (`hashmap_new`/`hashmap_get`/`hashmap_set`/`hashmap_has`/

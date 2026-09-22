@@ -504,14 +504,15 @@ several languages rather than inheriting any one of them wholesale.
   module") describes why it was built, not everything it holds today.
 - **Bundled core modules — ordinary, qualified `.zm` modules embedded in
   the binary, distinct from the prelude.** The `collections` module
-  (`Box`/`HashMap`/`HashSet`) was, at first, something every
+  (`Box`/`HashMap`/`HashSet` at the time — `Box` was later removed
+  outright, see below) was, at first, something every
   project had to vendor a copy of — real friction, surfaced by actually
   dogfooding it in a second project (`health-record-backend-ziman`),
   which had a working, useful module it could only get by copy-pasting a
   file across repos. The prelude's fix doesn't apply here: `collections`
   needs to *stay* qualified (`collections.HashMap`, `use collections`)
   the way any module does — merging it bare like the prelude would mean
-  `Box`, `HashMap`, and `HashSet` all become reserved global
+  `HashMap` and `HashSet` becoming reserved global
   names no project could ever declare its own version of, for a module
   that's much bigger and much more likely to want an app-specific
   variant someday. So this is a second, narrower mechanism
@@ -912,6 +913,24 @@ several languages rather than inheriting any one of them wholesale.
   the same way redeclaring `parse_int` at the top level already did —
   renamed to `Maybe<T>` in each, since the fixtures never actually
   depended on the name `Option` itself, just needed *some* generic enum.
+- **`Box<T>` removed from `collections`, outright — not moved
+  anywhere, unlike `Option<T>` above.** A grep across every real
+  consumer (`corelib/*.zm`, `health-record-backend-ziman`) turned up
+  zero actual uses: `HashMap`/`HashSet` are built on their own private
+  `Entry<K, V>`, never `Box`, and nothing in the dogfooding project ever
+  referenced it either. It was the first generic struct ever written —
+  a minimal `struct Box<T> { value: T }` used to prove the mechanism
+  before `HashMap`/`Option` gave generics a real motivating payoff — and
+  it never earned a real use afterward. Worth noting as its own small
+  data point on module naming: a single-value wrapper was arguably
+  never "a collection" in the first place, so removing it makes
+  `collections` a *more* accurate name for what's left (`HashMap`,
+  `HashSet`), not a less accurate one — considered, and rejected,
+  renaming the module for this. `struct Box<T> { value: T }` remains
+  perfectly valid Ziman for anyone to declare themselves; docs/SYNTAX.md
+  and this file both still use it as the canonical minimal illustration
+  of generic-struct syntax, same as before — the only thing that
+  changed is that it's no longer a `collections` export.
 
 ## Deliberately deferred (not v0)
 

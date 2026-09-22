@@ -1,9 +1,6 @@
 use collections
 
 fn main() {
-    val b = collections.Box<int> { value: 5 }
-    print(b.value)
-
     val some = Option<int>.Some(42)
     val none = Option<int>.None
     print(Option.is_Some(some))
