@@ -8,7 +8,7 @@ concrete decisions they led to, [docs/SYNTAX.md](docs/SYNTAX.md) for
 the full v0 grammar and semantic rules, and
 [docs/CORELIB.md](docs/CORELIB.md) for a generated signature-only
 reference of every bundled core module (`collections`, `io`, `random`,
-`uuid`, `clock`, `time`, `json`) — every `pub struct`/`pub fn` in one
+`uuid`, `clock`, `time`, `json`, `number`) — every `pub struct`/`pub fn` in one
 place, kept in sync with the source by `make corelib-reference` rather
 than hand-copied.
 
@@ -38,10 +38,18 @@ itself comparable), multi-file programs via `use path/to/mod`
 (qualified cross-module calls by default, `pub` for exports,
 project-relative resolution first, falling back to a bundled core
 module if no project file exists), or `use path/to/mod.Name [as alias]`
-to import one function/struct/enum under a bare local name instead —
-resolved and privacy-checked once at the `use` line, not a wildcard
-import (there's no `use mod.*`, and no unqualified name whose origin
-isn't spelled out somewhere in the file's own `use` list), `native fn` for calling into
+to import one function/struct/enum/global val under a bare local name
+instead — resolved and privacy-checked once at the `use` line, not a
+wildcard import (there's no `use mod.*`, and no unqualified name whose
+origin isn't spelled out somewhere in the file's own `use` list),
+`[pub] val NAME[: Type] = <expr>` at module top level for a global
+value — evaluated once, before `main` runs, never per-call the way a
+same-shaped local `val` is; no global `var`, since a mutable global
+would be exactly the shared, lock-free mutable state Ziman's actor-
+style concurrency (below) already exists to avoid, and unlike a local
+`val`, a global one can never be shadowed by a same-named local (a
+compile-time error, not silent shadowing) — see docs/DESIGN.md's
+"Global val" entry for why, `native fn` for calling into
 C (a real, minimal `io` module — `read_file`/`write_file` — proves it
 end to end), `Result<T, E>` for recoverable errors (`io.read_file`
 returns one instead of crashing on a missing file, variant-then-payload
@@ -65,8 +73,8 @@ and what's deliberately left undecided). A small `collections` module
 built on this (`corelib/collections.zm`) provides `Box<T>`, `Option<T>`,
 `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (bucket-array
 based, O(1) average-case lookup rather than a linear `Eq`-only scan).
-It's also one of seven *bundled core modules* (alongside `io`, mentioned
-above, plus `random`/`uuid`/`clock`/`time`/`json` below): each one's source is
+It's also one of eight *bundled core modules* (alongside `io`, mentioned
+above, plus `random`/`uuid`/`clock`/`time`/`json`/`number` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
 `use io` work from any project with no local copy needed — a
 project-relative file of the same name still wins if one exists, but
@@ -104,7 +112,27 @@ recursive-descent parser/serializer; `json_object_get` is the one
 convenience field lookup provided beyond that — turning arbitrary JSON
 into one already-known struct (a specific request shape) is left to
 application code built on top of this module, not something it does
-itself.
+itself. `number` is shared formatting/parsing across all five numeric
+types (`int`, `float`, `bigint`, `decimal`, `byte`), also pure Ziman:
+rather than five near-duplicate implementations (Ziman has no
+argument-based overloading, so a single `format(x: T, ...)` across
+unrelated types isn't otherwise expressible), one engine
+(`format_number`/`parse_number`) operates on the *string* each type's
+own `str()` already produces, with `format_int`/`format_float`/
+`format_bigint`/`format_decimal`/`format_byte` as thin per-type
+wrappers over it. `NumberFormat` (thousands separator, decimal
+separator, optional forced decimal-place count) and a `"#,###.00"`-
+style pattern string (`parse_pattern`) are two ways to describe the
+same thing — a deliberately small subset of DecimalFormat/.NET-style
+patterns, forcing fewer decimal places always truncates rather than
+rounds. Hex conversion (`byte_to_hex`/`int_to_hex`/`bigint_to_hex` and
+their `_from_hex` inverses) covers the three genuinely integral types:
+`byte` trivially (always 2 unsigned digits), `int` as fixed-width
+64-bit two's complement (matching C/Java's own convention, computed via
+`bigint` arithmetic since a negative `int`'s unsigned equivalent
+doesn't fit in a signed `int64`), `bigint` as sign-prefixed magnitude
+(no fixed width to complement against, matching Java's own
+`BigInteger.toString(16)`).
 
 Builtins ship two ways. A small core set — `print`, `str`, `format`,
 `len`, `push`, `insert`, `set`, `remove`, `contains`, `abs`, `min`,

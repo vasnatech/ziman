@@ -662,6 +662,29 @@ static Stmt *parse_decl(Parser *p, StmtKind kind) {
     return s;
 }
 
+/* `[pub] val NAME[: Type] = <expr>` at module top level -- same grammar as
+ * parse_decl's local `val`, minus `var` (no mutable globals, see
+ * docs/DESIGN.md's "Global val" entry) and minus being wrapped in a Stmt,
+ * since a top-level declaration lives in Module.vals, not a function
+ * body's statement list. */
+static GlobalValDecl *parse_global_val_decl(Parser *p, int is_public) {
+    Token *kw = expect(p, TOK_VAL, "'val'");
+    Token *name_tok = expect(p, TOK_IDENT, "a global value name");
+    require_lower_start(name_tok, "a global value name");
+    GlobalValDecl *v = calloc(1, sizeof(GlobalValDecl));
+    v->name = dup_token_text(name_tok);
+    v->is_public = is_public;
+    v->line = kw->line;
+    v->col = kw->col;
+    if (match(p, TOK_COLON)) {
+        v->type = parse_type(p);
+        v->has_declared_type = 1;
+    }
+    expect(p, TOK_EQ, "'='");
+    v->init = parse_expr(p);
+    return v;
+}
+
 static Stmt *parse_if(Parser *p) {
     Token *kw = previous(p);
     Stmt *s = stmt_new(STMT_IF, kw->line, kw->col);
@@ -1223,6 +1246,9 @@ Module *parse(TokenList tokens) {
             FunctionDecl *fn = parse_native_function(&p);
             fn->is_public = is_public;
             function_list_push(&module->functions, fn);
+        } else if (check(&p, TOK_VAL)) {
+            GlobalValDecl *v = parse_global_val_decl(&p, is_public);
+            global_val_list_push(&module->vals, v);
         } else {
             FunctionDecl *fn = parse_function(&p);
             fn->is_public = is_public;

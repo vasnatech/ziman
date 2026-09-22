@@ -111,7 +111,7 @@ static void pop_loading(Loader *ldr) { ldr->loading_count--; }
 
 /* ---- per-name imports (`use path.Name [as alias]`) ---- */
 
-typedef enum { IMPORT_FN, IMPORT_STRUCT, IMPORT_ENUM } ImportKind;
+typedef enum { IMPORT_FN, IMPORT_STRUCT, IMPORT_ENUM, IMPORT_VAL } ImportKind;
 
 /* One resolved `use path.Name [as alias]`: `local_name` is the bare name
  * usable (with no dot) in the importing module's own code, already
@@ -143,6 +143,8 @@ typedef struct {
     int n_structs;
     char **orig_enum_names;
     int n_enums;
+    char **orig_val_names;
+    int n_vals;
     NamedImport *imports;
     int n_imports;
 } SelfQualifyCtx;
@@ -220,8 +222,38 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
 
 static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
     switch (e->kind) {
-        case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_BYTE: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
+        case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_BYTE: case EXPR_STRING: case EXPR_BOOL:
             break;
+        /* A bare identifier is a local variable/parameter *unless* it
+         * names one of this module's own global vals or a val-kind named
+         * import -- checked in that order, own-declaration first. Both
+         * cases get rewritten to the fully-qualified name every global
+         * `val` is stored under in the one flat global Env every
+         * function's own scope chains to (see typecheck.c's
+         * check_global_vals / interpreter.c's init_global_vals) -- same
+         * "always qualified, never scope-sensitive" treatment a bare
+         * function/struct/enum reference already gets elsewhere in this
+         * file. This rewrite is a blind text substitution with no scope
+         * tracking, so it would be unsound if some *local*
+         * val/var/parameter in this module happened to share a global
+         * val's name -- check_no_val_shadowing forbids exactly that
+         * (for both an own val and an imported one), so it never
+         * actually happens. */
+        case EXPR_IDENT: {
+            int matched = 0;
+            for (int i = 0; i < ctx->n_vals; i++) {
+                if (strcmp(e->as.ident_name, ctx->orig_val_names[i]) == 0) {
+                    e->as.ident_name = qualify_name(ctx->own_path, e->as.ident_name);
+                    matched = 1;
+                    break;
+                }
+            }
+            if (!matched) {
+                const NamedImport *imp = find_named_import(ctx, e->as.ident_name, IMPORT_VAL);
+                if (imp != NULL) e->as.ident_name = imp->qualified_name;
+            }
+            break;
+        }
         case EXPR_UNARY:
             self_qualify_expr(e->as.unary.operand, ctx);
             break;
@@ -398,18 +430,116 @@ static void self_qualify_walk_module(Module *mod, SelfQualifyCtx *ctx) {
             if (ed->variants.items[vi].has_payload) self_qualify_type(&ed->variants.items[vi].payload_type, ctx);
         }
     }
+    for (int i = 0; i < mod->vals.count; i++) {
+        GlobalValDecl *v = mod->vals.items[i];
+        if (v->has_declared_type) self_qualify_type(&v->type, ctx);
+        self_qualify_expr(v->init, ctx);
+    }
+}
+
+/* Reports whether `name` is either one of this module's own global val
+ * names (`val_names`/`n_val_names`, *before* self-qualify renames them)
+ * or the local name of a val-kind named import (`use mod.NAME`) -- see
+ * check_no_val_shadowing below for why both need guarding against reuse
+ * as a local name. */
+static int is_reserved_val_name(const char *name, char **val_names, int n_val_names, NamedImport *imports, int n_imports) {
+    for (int i = 0; i < n_val_names; i++) {
+        if (strcmp(val_names[i], name) == 0) return 1;
+    }
+    for (int i = 0; i < n_imports; i++) {
+        if (imports[i].kind == IMPORT_VAL && strcmp(imports[i].local_name, name) == 0) return 1;
+    }
+    return 0;
+}
+
+static void check_no_val_shadowing_stmt(Stmt *s, char **val_names, int n_val_names, NamedImport *imports, int n_imports) {
+    switch (s->kind) {
+        case STMT_VAL: case STMT_VAR:
+            if (is_reserved_val_name(s->as.decl.name, val_names, n_val_names, imports, n_imports)) {
+                ziman_error("module", s->line, s->col,
+                            "'%s' is a global val in this module, so it can't also be used as a local name (rename one)",
+                            s->as.decl.name);
+            }
+            break;
+        case STMT_FOR:
+            if (is_reserved_val_name(s->as.for_stmt.binder1, val_names, n_val_names, imports, n_imports)) {
+                ziman_error("module", s->line, s->col,
+                            "'%s' is a global val in this module, so it can't also be used as a loop variable name (rename one)",
+                            s->as.for_stmt.binder1);
+            }
+            if (s->as.for_stmt.binder2 != NULL && is_reserved_val_name(s->as.for_stmt.binder2, val_names, n_val_names, imports, n_imports)) {
+                ziman_error("module", s->line, s->col,
+                            "'%s' is a global val in this module, so it can't also be used as a loop variable name (rename one)",
+                            s->as.for_stmt.binder2);
+            }
+            check_no_val_shadowing_stmt(s->as.for_stmt.body, val_names, n_val_names, imports, n_imports);
+            break;
+        case STMT_IF:
+            check_no_val_shadowing_stmt(s->as.if_stmt.then_block, val_names, n_val_names, imports, n_imports);
+            if (s->as.if_stmt.else_block != NULL) check_no_val_shadowing_stmt(s->as.if_stmt.else_block, val_names, n_val_names, imports, n_imports);
+            break;
+        case STMT_WHILE:
+            check_no_val_shadowing_stmt(s->as.while_stmt.body, val_names, n_val_names, imports, n_imports);
+            break;
+        case STMT_BLOCK:
+            for (int i = 0; i < s->as.block.stmts.count; i++) check_no_val_shadowing_stmt(s->as.block.stmts.items[i], val_names, n_val_names, imports, n_imports);
+            break;
+        case STMT_ASSIGN: case STMT_BREAK: case STMT_CONTINUE:
+        case STMT_SPAWN: case STMT_RETURN: case STMT_EXPR:
+            break; /* declares no new name */
+    }
+}
+
+/* Every global val reference -- same-module or a val-kind named import
+ * (`use mod.NAME`) -- is rewritten to its fully-qualified form at every
+ * bare reference by self_qualify_expr's EXPR_IDENT case, the same
+ * "always qualified, never scope-sensitive" treatment a bare function/
+ * struct/enum reference already gets. That rewrite is a blind text
+ * substitution with no scope tracking, so it would silently capture an
+ * unrelated *local* val/var/parameter/loop-binder of the same name too
+ * -- forbidding a module's own global vals and its val-kind imports from
+ * being reused as any local name *anywhere* in the module (not just the
+ * one scope that would actually collide) is a coarser rule than real
+ * scope tracking would need, but it's simple, and matches the same non-
+ * scope-aware "collides with an existing declaration" checks already
+ * used elsewhere in this file. Must run on `mod`'s still-unrenamed
+ * declarations, before self_qualify_module renames its own val names. */
+static void check_no_val_shadowing(Module *mod, char **val_names, int n_val_names, NamedImport *imports, int n_imports) {
+    if (n_val_names == 0) {
+        int has_val_import = 0;
+        for (int i = 0; i < n_imports; i++) {
+            if (imports[i].kind == IMPORT_VAL) { has_val_import = 1; break; }
+        }
+        if (!has_val_import) return;
+    }
+    for (int i = 0; i < mod->functions.count; i++) {
+        FunctionDecl *fn = mod->functions.items[i];
+        for (int pi = 0; pi < fn->params.count; pi++) {
+            if (is_reserved_val_name(fn->params.items[pi].name, val_names, n_val_names, imports, n_imports)) {
+                ziman_error("module", fn->params.items[pi].line, fn->params.items[pi].col,
+                            "'%s' is a global val in this module, so it can't also be used as a parameter name (rename one)",
+                            fn->params.items[pi].name);
+            }
+        }
+        if (!fn->is_native) check_no_val_shadowing_stmt(fn->body, val_names, n_val_names, imports, n_imports);
+    }
 }
 
 static void self_qualify_module(Module *mod, const char *own_path, NamedImport *imports, int n_imports) {
     int n_fns = mod->functions.count;
     int n_structs = mod->structs.count;
     int n_enums = mod->enums.count;
+    int n_vals = mod->vals.count;
     char **orig_fn_names = n_fns > 0 ? malloc((size_t)n_fns * sizeof(char *)) : NULL;
     char **orig_struct_names = n_structs > 0 ? malloc((size_t)n_structs * sizeof(char *)) : NULL;
     char **orig_enum_names = n_enums > 0 ? malloc((size_t)n_enums * sizeof(char *)) : NULL;
+    char **orig_val_names = n_vals > 0 ? malloc((size_t)n_vals * sizeof(char *)) : NULL;
     for (int i = 0; i < n_fns; i++) orig_fn_names[i] = mod->functions.items[i]->name;
     for (int i = 0; i < n_structs; i++) orig_struct_names[i] = mod->structs.items[i]->name;
     for (int i = 0; i < n_enums; i++) orig_enum_names[i] = mod->enums.items[i]->name;
+    for (int i = 0; i < n_vals; i++) orig_val_names[i] = mod->vals.items[i]->name;
+
+    check_no_val_shadowing(mod, orig_val_names, n_vals, imports, n_imports);
 
     for (int i = 0; i < n_fns; i++) {
         mod->functions.items[i]->name = qualify_name(own_path, orig_fn_names[i]);
@@ -420,13 +550,17 @@ static void self_qualify_module(Module *mod, const char *own_path, NamedImport *
     for (int i = 0; i < n_enums; i++) {
         mod->enums.items[i]->name = qualify_name(own_path, orig_enum_names[i]);
     }
+    for (int i = 0; i < n_vals; i++) {
+        mod->vals.items[i]->name = qualify_name(own_path, orig_val_names[i]);
+    }
 
-    SelfQualifyCtx ctx = {own_path, orig_fn_names, n_fns, orig_struct_names, n_structs, orig_enum_names, n_enums, imports, n_imports};
+    SelfQualifyCtx ctx = {own_path, orig_fn_names, n_fns, orig_struct_names, n_structs, orig_enum_names, n_enums, orig_val_names, n_vals, imports, n_imports};
     self_qualify_walk_module(mod, &ctx);
 
     free(orig_fn_names);
     free(orig_struct_names);
     free(orig_enum_names);
+    free(orig_val_names);
 }
 
 /* ---- pass (b): resolve cross-module (dotted) references, enforcing pub ---- */
@@ -753,6 +887,11 @@ static void resolve_cross_refs(Loader *ldr, Module *mod) {
             }
         }
     }
+    for (int i = 0; i < mod->vals.count; i++) {
+        GlobalValDecl *v = mod->vals.items[i];
+        if (v->has_declared_type) resolve_type_refs(&v->type, &ctx, v->line, v->col);
+        resolve_expr_refs(v->init, &ctx);
+    }
 }
 
 /* ---- recursive module loading ---- */
@@ -804,6 +943,11 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, int *out_cou
                 ziman_error("module", u->line, u->col, "'%s' is imported here but also declared in this module", u->local_name);
             }
         }
+        for (int j = 0; j < mod->vals.count; j++) {
+            if (strcmp(mod->vals.items[j]->name, u->local_name) == 0) {
+                ziman_error("module", u->line, u->col, "'%s' is imported here but also declared in this module", u->local_name);
+            }
+        }
 
         Module *target = find_loaded(ldr, u->path);
         char *qualified = qualify_name(u->path, u->imported_name);
@@ -830,8 +974,15 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, int *out_cou
                 is_public = target->enums.items[j]->is_public;
             }
         }
+        for (int j = 0; j < target->vals.count && !found; j++) {
+            if (strcmp(target->vals.items[j]->name, qualified) == 0) {
+                found = 1;
+                kind = IMPORT_VAL;
+                is_public = target->vals.items[j]->is_public;
+            }
+        }
         if (!found) {
-            ziman_error("module", u->line, u->col, "module '%s' has no function, struct, or enum '%s'", u->path, u->imported_name);
+            ziman_error("module", u->line, u->col, "module '%s' has no function, struct, enum, or global val '%s'", u->path, u->imported_name);
         }
         if (!is_public) {
             ziman_error("module", u->line, u->col, "'%s' in module '%s' is private (add 'pub' to export it)", u->imported_name, u->path);
@@ -916,7 +1067,11 @@ Module *load_module_graph(const char *entry_path) {
      * cross-module references resolved too. */
     int n_entry_imports = 0;
     NamedImport *entry_imports = resolve_named_imports(&ldr, entry_mod, &n_entry_imports);
-    SelfQualifyCtx entry_ctx = {"", NULL, 0, NULL, 0, NULL, 0, entry_imports, n_entry_imports};
+    char **entry_val_names = entry_mod->vals.count > 0 ? malloc((size_t)entry_mod->vals.count * sizeof(char *)) : NULL;
+    for (int i = 0; i < entry_mod->vals.count; i++) entry_val_names[i] = entry_mod->vals.items[i]->name;
+    check_no_val_shadowing(entry_mod, entry_val_names, entry_mod->vals.count, entry_imports, n_entry_imports);
+    free(entry_val_names);
+    SelfQualifyCtx entry_ctx = {"", NULL, 0, NULL, 0, NULL, 0, NULL, 0, entry_imports, n_entry_imports};
     self_qualify_walk_module(entry_mod, &entry_ctx);
     resolve_cross_refs(&ldr, entry_mod);
 
@@ -930,6 +1085,20 @@ Module *load_module_graph(const char *entry_path) {
     for (int i = 0; i < entry_mod->functions.count; i++) function_list_push(&merged->functions, entry_mod->functions.items[i]);
     for (int i = 0; i < entry_mod->structs.count; i++) struct_list_push(&merged->structs, entry_mod->structs.items[i]);
     for (int i = 0; i < entry_mod->enums.count; i++) enum_list_push(&merged->enums, entry_mod->enums.items[i]);
+    /* `vals` merge in dependency order, unlike functions/structs/enums
+     * above (which don't need to, since they're looked up by exact name
+     * regardless of list order): a global val's initializer is evaluated
+     * eagerly, once, before `main` runs (see interpreter.c's
+     * init_global_vals), in the SAME order this list puts them in -- so a
+     * dependency's own globals must come before the entry module's,
+     * matching `ldr.loaded`'s own guarantee (a module is only ever
+     * registered as loaded after everything it `use`s already is -- see
+     * load_module) that it's already a valid dependency order. */
+    for (int m = 0; m < ldr.loaded_count; m++) {
+        Module *dep = ldr.loaded[m].module;
+        for (int i = 0; i < dep->vals.count; i++) global_val_list_push(&merged->vals, dep->vals.items[i]);
+    }
+    for (int i = 0; i < entry_mod->vals.count; i++) global_val_list_push(&merged->vals, entry_mod->vals.items[i]);
     for (int m = 0; m < ldr.loaded_count; m++) {
         Module *dep = ldr.loaded[m].module;
         for (int i = 0; i < dep->functions.count; i++) function_list_push(&merged->functions, dep->functions.items[i]);

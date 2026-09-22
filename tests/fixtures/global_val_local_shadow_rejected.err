@@ -1,0 +1,1 @@
+'greeting' is a global val in this module, so it can't also be used as a local name

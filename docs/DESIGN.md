@@ -750,6 +750,95 @@ several languages rather than inheriting any one of them wholesale.
   shaped functions) — turning arbitrary JSON into one already-known
   struct is application logic that belongs in
   `health-record-backend-ziman` itself, not language infrastructure.
+- **Global val — a module-wide constant, motivated by a real repeated-
+  rebuild cost `number.zm` hit first.** `hex_digit_char`/`hex_digit_value`
+  each rebuilt their own 16- (and 6-) element lookup table from scratch
+  on *every call*, since Ziman had no way to declare a value once at
+  module scope — the only alternative to a local `val` inside the
+  function body. Small in absolute terms, but a real, avoidable cost that
+  would only get worse the more a core module leans on a fixed table (an
+  ASCII lookup, a unit-conversion factor, a default `NumberFormat`) — and
+  a real gap for the North Star goal of an always-on backend, the same
+  category of concern as the memory-reclamation entry above, just at
+  much smaller scale here. `[pub] val NAME[: Type] = <expr>` at module
+  top level closes it: evaluated once, in file order, before `main`
+  runs, reusing a local `val`'s exact grammar and declared-vs-inferred
+  type checking (implemented as a synthetic `STMT_VAL` fed through
+  `check_stmt`/`exec_stmt` — see typecheck.c's check_global_vals /
+  interpreter.c's init_global_vals — rather than a parallel
+  reimplementation of that logic). No global `var`: Ziman's concurrency
+  story is single-writer actors passing messages over a `Channel<T>`
+  (see the Concurrency entry above), and a mutable global would be
+  exactly the shared, lock-free mutable state that model exists to avoid
+  — adding one would quietly reopen a question this project already
+  closed, for no motivating need (every real case so far wanted a fixed
+  table, never mutable shared state).
+
+  The interesting design question wasn't the grammar (a straight lift of
+  local `val`'s own), it was **how a bare reference resolves** given
+  Ziman's existing "always qualify or import by name, never a bare name
+  from nowhere" rule for functions/structs/enums (see the "Bundled core
+  modules"/"Per-name imports" entries above) — but a global val lives in
+  the *same* namespace as an ordinary local variable, unlike a function
+  or struct name, which is syntactically unambiguous (call syntax,
+  `Name { }` construction) and can never collide with a bare identifier.
+  Two designs were on the table. One: give each module its own Env,
+  storing that module's globals under their *bare* names, chained as the
+  parent of every one of that module's own function-call scopes —
+  ordinary lexical shadowing (a same-named local `val` inside a function)
+  would then work for free, via the exact scope-walking `env_lookup`
+  already does for nested blocks, with no rewriting needed for the
+  same-module case at all. Rejected because a *named import*
+  (`use mod.NAME`) still needs the imported binding reachable from a
+  totally different module's Env, which means either copying it across
+  Env objects at program-init time (real, fiddly ordering work: the
+  target module's own globals have to exist first) or falling back to a
+  qualified-name lookup anyway for that one case — two different
+  resolution mechanisms for what's supposed to be one feature. Chosen
+  instead: exactly one flat global Env, holding *every* global val from
+  *every* module under its fully-qualified name — the same "always
+  qualified, one flat namespace" treatment a function/struct/enum
+  already gets (see loader.c's self_qualify_module) — with *every* bare
+  reference (same-module or imported) rewritten to that qualified form
+  by self_qualify_expr's `EXPR_IDENT` case, the one case that previously
+  did nothing. One env, one rewrite rule, no special-casing for which
+  kind of reference it was.
+
+  The cost of that choice: the rewrite is a blind text substitution with
+  no scope tracking, so it would be unsound if some unrelated *local*
+  `val`/`var`/parameter/loop-binder in that module happened to share a
+  global val's name — self-qualify has no notion of lexical scope
+  anywhere else in this file either (it doesn't need one for functions/
+  structs/enums, which can't collide with a variable name by
+  construction), and teaching it real scope tracking just for this one
+  case felt like a lot of new machinery for a feature meant to replace a
+  handful of rebuilt-every-call literal tables. Instead: forbid it
+  outright. `loader.c`'s `check_no_val_shadowing` walks every function in
+  a module (params, and every `val`/`var`/for-binder in its body,
+  recursively through nested blocks) and rejects reusing a global val's
+  name — this module's own, or an imported one's local name — as any of
+  those, anywhere in the module, not merely in the one scope that would
+  actually collide. Coarser than real scope tracking would need, but
+  simple, and the same non-scope-aware "collides with an existing
+  declaration" shape every other collision check in this file already
+  has. Net effect: unlike a local `val`, a global one can never be
+  shadowed — caught once, at load time, as a clear "can't also be used
+  as a local name" error, not a silent semantic difference between two
+  same-named bindings.
+
+  Deliberately not built: `mod.NAME` *dotted* bare access, the way a
+  qualified function call or struct literal already works. The parser's
+  existing `qualifier.name` lookahead only ever commits to a qualified
+  form when what follows resolves unambiguously (a call's `(`, a struct
+  literal's `{`, an enum access's second `.`) — a bare trailing name with
+  none of those already, today, backs out and falls through to ordinary
+  `.field` access on a local variable (see parser.c's parse_primary), so
+  giving it a *second* meaning would reopen exactly the kind of
+  local-variable-vs-cross-module-reference ambiguity the qualified-
+  call/struct-literal forms were carefully built to avoid. A per-name
+  import (`use mod.NAME`) already does the job with the same one-line
+  cost as it does for a function or struct, so there was no forcing case
+  to take on that ambiguity for values specifically.
 
 ## Deliberately deferred (not v0)
 

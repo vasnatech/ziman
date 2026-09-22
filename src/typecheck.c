@@ -26,6 +26,14 @@ static EnumDecl *find_enum(Module *module, const char *name) {
     return NULL;
 }
 
+/* The root of every function's own scope chain (see check_function) --
+ * holds every module-level `val` (see check_global_vals), so a bare
+ * reference to one falls out of an ordinary env_lookup exactly the way a
+ * reference to an enclosing block's local already does, with no special-
+ * casing anywhere else in this file. Built once, before any function
+ * body is checked; never mutated afterward. */
+static Env *g_global_env = NULL;
+
 static Type check_expr(Module *module, Env *env, Expr *e);
 static void check_type_well_formed(Module *module, Type t, int line, int col);
 
@@ -1316,8 +1324,33 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
     }
 }
 
+/* Type-checks every module-level `val` in file order (a later one may
+ * reference an earlier one, same-module or already-`use`d, the same
+ * "must already be declared" rule an ordinary local `val` enforces
+ * within one function body -- see docs/DESIGN.md's "Global val" entry
+ * for why this is a deliberate scope cut, not an oversight), building
+ * `g_global_env` as it goes by reusing check_stmt's own STMT_VAL case
+ * wholesale (via a synthetic Stmt) rather than re-deriving its declared-
+ * vs-inferred type logic here. Must run before any check_function call,
+ * since g_global_env is what every function's own scope is rooted in. */
+static void check_global_vals(Module *module) {
+    g_global_env = env_new(NULL);
+    for (int i = 0; i < module->vals.count; i++) {
+        GlobalValDecl *v = module->vals.items[i];
+        Stmt synthetic = {0};
+        synthetic.kind = STMT_VAL;
+        synthetic.line = v->line;
+        synthetic.col = v->col;
+        synthetic.as.decl.name = v->name;
+        synthetic.as.decl.declared_type = v->type;
+        synthetic.as.decl.has_declared_type = v->has_declared_type;
+        synthetic.as.decl.init = v->init;
+        check_stmt(module, g_global_env, &synthetic, type_scalar(TY_VOID), 0);
+    }
+}
+
 static void check_function(Module *module, FunctionDecl *fn) {
-    Env *env = env_new(NULL);
+    Env *env = env_new(g_global_env);
     for (int i = 0; i < fn->params.count; i++) {
         Param *param = &fn->params.items[i];
         if (!env_define(env, param->name, param->type, 0 /* params are immutable */, value_int(0))) {
@@ -1513,6 +1546,7 @@ void typecheck(Module *module) {
         ziman_error("type", main_fn->line, main_fn->col, "'main' must take no parameters and return nothing");
     }
 
+    check_global_vals(module);
     for (int i = 0; i < module->functions.count; i++) {
         check_function(module, module->functions.items[i]);
     }

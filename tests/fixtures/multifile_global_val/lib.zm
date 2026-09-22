@@ -1,0 +1,6 @@
+pub val magic_number = 7
+val hidden_number = 99
+
+pub fn get_hidden() -> int {
+    return hidden_number
+}

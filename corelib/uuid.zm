@@ -15,6 +15,7 @@
 // `buckets`) -- documented as "don't," not enforced.
 
 use random.random_bytes
+use number.byte_to_hex
 
 pub struct Uuid {
     bytes: [byte]
@@ -27,14 +28,6 @@ pub fn uuid_new() -> Uuid {
     val variant_bits = (bytes[8] as int) % 64
     bytes = set(bytes, 8, (variant_bits + 128) as byte) // variant 1 (RFC 4122)
     return Uuid { bytes: bytes }
-}
-
-// No top-level `val` exists in Ziman -- only use/struct/enum/fn -- so
-// the digit table is rebuilt on every call rather than shared.
-fn byte_to_hex(b: byte) -> string {
-    val hex_digits: [string] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
-    val n = b as int
-    return concat(hex_digits[n / 16], hex_digits[n % 16])
 }
 
 pub fn uuid_to_string(u: Uuid) -> string {

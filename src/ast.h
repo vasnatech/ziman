@@ -415,11 +415,48 @@ typedef struct {
     int capacity;
 } UseList;
 
+/* `[pub] val NAME[: Type] = <expr>` at module top level -- a module-wide
+ * constant, evaluated once before `main` runs (see interpreter.c's
+ * init_global_vals), not per-call the way a same-shaped local `val`
+ * inside a function body is. Otherwise the exact same shape as a local
+ * `val` (reused via a synthetic STMT_VAL in both typecheck.c and
+ * interpreter.c -- see check_global_vals/init_global_vals), so it gets
+ * the same declared-vs-inferred type checking for free. Renamed to its
+ * fully-qualified form by the loader exactly like a function/struct/enum
+ * (see loader.c's self_qualify_module), and every bare reference -- a
+ * same-module one or one reached through a per-name import (`use
+ * mod.NAME`) -- is rewritten to that same qualified form too, so every
+ * global `val`, regardless of which module declared it, lives in the one
+ * flat global Env every function's own scope chains to (see
+ * check_function/call_function). That rewrite has no scope-tracking:
+ * loader.c's check_no_val_shadowing forbids reusing a global val's name
+ * (this module's own, or an imported one's local name) as any local
+ * val/var/parameter/loop-binder anywhere in the module, so it's always
+ * unambiguous -- unlike an ordinary local `val`, a global one can't be
+ * shadowed. There is deliberately no `mod.NAME` *dotted* bare access
+ * (unlike a qualified function call/struct literal) -- see
+ * docs/DESIGN.md's "Global val" entry for why. */
+typedef struct {
+    char *name;
+    Type type; /* only meaningful when has_declared_type */
+    int has_declared_type;
+    Expr *init;
+    int is_public;
+    int line, col;
+} GlobalValDecl;
+
+typedef struct {
+    GlobalValDecl **items;
+    int count;
+    int capacity;
+} GlobalValList;
+
 typedef struct {
     FunctionList functions;
     StructList structs;
     EnumList enums;
     UseList uses;
+    GlobalValList vals;
 } Module;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --
@@ -437,5 +474,6 @@ void enum_variant_list_push(EnumVariantList *list, EnumVariant v);
 void enum_list_push(EnumList *list, EnumDecl *e);
 void use_list_push(UseList *list, UseDecl u);
 void type_param_list_push(TypeParamList *list, TypeParam p);
+void global_val_list_push(GlobalValList *list, GlobalValDecl *v);
 
 #endif

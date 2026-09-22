@@ -44,6 +44,16 @@ static EnumDecl *find_enum(Module *module, const char *name) {
 static Value eval_expr(Module *module, Env *env, Expr *e);
 static ExecResult exec_stmt(Module *module, Env *env, Stmt *s);
 
+/* The root of every function call's own scope (see call_function) --
+ * holds every module-level `val`'s already-evaluated Value (see
+ * init_global_vals), so a bare reference to one falls out of an
+ * ordinary env_lookup exactly the way a reference to an enclosing
+ * block's local already does, with no special-casing anywhere else in
+ * this file. Built once, before `main` runs, from a single thread;
+ * never mutated afterward, so concurrent reads from a `spawn`ed thread
+ * are safe with no locking. */
+static Env *g_global_env = NULL;
+
 static Value call_function(Module *module, FunctionDecl *fn, Value *args, int argc, int call_line, int call_col) {
     if (fn->is_native) {
         NativeFn native = native_lookup(fn->name);
@@ -52,7 +62,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *args, int ar
         }
         return native(args, argc, call_line, call_col);
     }
-    Env *env = env_new(NULL);
+    Env *env = env_new(g_global_env);
     for (int i = 0; i < argc; i++) {
         env_define(env, fn->params.items[i].name, fn->params.items[i].type, 0, args[i]);
     }
@@ -801,7 +811,32 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
     return no_ctrl();
 }
 
+/* Evaluates every module-level `val` in file order (see typecheck.c's
+ * check_global_vals for why order matters and why that's a deliberate
+ * scope cut), building g_global_env as it goes by reusing exec_stmt's
+ * own STMT_VAL case wholesale (via a synthetic Stmt) rather than
+ * re-deriving its declared-vs-inferred type logic here. Must run before
+ * `main` -- typecheck() already proved every initializer well-typed, so
+ * nothing here can fail the way check_global_vals's synthetic check
+ * could. */
+static void init_global_vals(Module *module) {
+    g_global_env = env_new(NULL);
+    for (int i = 0; i < module->vals.count; i++) {
+        GlobalValDecl *v = module->vals.items[i];
+        Stmt synthetic = {0};
+        synthetic.kind = STMT_VAL;
+        synthetic.line = v->line;
+        synthetic.col = v->col;
+        synthetic.as.decl.name = v->name;
+        synthetic.as.decl.declared_type = v->type;
+        synthetic.as.decl.has_declared_type = v->has_declared_type;
+        synthetic.as.decl.init = v->init;
+        exec_stmt(module, g_global_env, &synthetic);
+    }
+}
+
 void interpret(Module *module) {
+    init_global_vals(module);
     FunctionDecl *main_fn = find_function(module, "main");
     call_function(module, main_fn, NULL, 0, main_fn->line, main_fn->col);
 }

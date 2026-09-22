@@ -103,6 +103,51 @@ pub fn json_object_get(j: Json, key: string) -> Option<Json>
 
 ```
 
+## `number`
+
+Shared formatting/parsing across `int`/`float`/`bigint`/`decimal`/`byte`, written in pure Ziman on top of each type's own `str()`. `NumberFormat`/`parse_pattern` cover thousands separators and forced decimal places (a small subset of DecimalFormat-style patterns); `byte_to_hex`/`int_to_hex`/`bigint_to_hex` (and their `_from_hex` inverses) cover hex for the three integral types.
+
+```
+pub fn byte_to_hex(b: byte) -> string
+
+pub fn byte_from_hex(s: string) -> Result<byte, string>
+
+pub fn bigint_to_hex(n: bigint) -> string
+
+pub fn bigint_from_hex(s: string) -> Result<bigint, string>
+
+pub fn int_to_hex(x: int) -> string
+
+pub fn int_from_hex(s: string) -> Result<int, string>
+
+pub fn parse_byte(s: string) -> Result<byte, string>
+
+pub struct NumberFormat {
+    thousands_separator: string
+    decimal_separator: string
+    decimal_places: Option<int>
+}
+
+pub fn number_format_plain() -> NumberFormat
+
+pub fn parse_pattern(pattern: string) -> NumberFormat
+
+pub fn format_number(s: string, fmt: NumberFormat) -> string
+
+pub fn parse_number(s: string, fmt: NumberFormat) -> string
+
+pub fn format_int(x: int, fmt: NumberFormat) -> string
+
+pub fn format_float(x: float, fmt: NumberFormat) -> string
+
+pub fn format_bigint(x: bigint, fmt: NumberFormat) -> string
+
+pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string
+
+pub fn format_byte(x: byte, fmt: NumberFormat) -> string
+
+```
+
 ## `random`
 
 One native function reading real OS entropy (`/dev/urandom`) -- Ziman's first source of genuine non-determinism.

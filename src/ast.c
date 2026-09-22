@@ -189,5 +189,6 @@ DEFINE_LIST_PUSH(enum_list_push, EnumList, EnumDecl *, items)
 DEFINE_LIST_PUSH(use_list_push, UseList, UseDecl, items)
 DEFINE_LIST_PUSH(type_param_list_push, TypeParamList, TypeParam, items)
 DEFINE_LIST_PUSH(type_list_push, TypeList, Type, items)
+DEFINE_LIST_PUSH(global_val_list_push, GlobalValList, GlobalValDecl *, items)
 
 #undef DEFINE_LIST_PUSH

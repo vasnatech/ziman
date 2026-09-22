@@ -1,0 +1,10 @@
+val greeting: string = "hello"
+
+fn shadows_global() -> string {
+    val greeting = "shadowed"
+    return greeting
+}
+
+fn main() {
+    print(shadows_global())
+}

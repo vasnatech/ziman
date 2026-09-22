@@ -1,0 +1,7 @@
+use lib.magic_number
+use lib.get_hidden
+
+fn main() {
+    print(magic_number)
+    print(get_hidden())
+}

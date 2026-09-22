@@ -1,0 +1,5 @@
+use lib.hidden_number
+
+fn main() {
+    print(hidden_number)
+}

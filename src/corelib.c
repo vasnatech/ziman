@@ -14,6 +14,7 @@
 #include "clock_source.h"
 #include "time_source.h"
 #include "json_source.h"
+#include "number_source.h"
 
 typedef struct {
     const char *name;
@@ -35,6 +36,7 @@ static const CoreModule CORE_MODULES[] = {
     {"clock", CLOCK_SOURCE},
     {"time", TIME_SOURCE},
     {"json", JSON_SOURCE},
+    {"number", NUMBER_SOURCE},
 };
 #pragma GCC diagnostic pop
 

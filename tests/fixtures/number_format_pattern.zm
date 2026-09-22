@@ -1,0 +1,33 @@
+use number.parse_pattern
+use number.format_number
+use number.parse_number
+use number.format_int
+use number.format_float
+use number.format_bigint
+use number.format_decimal
+use number.format_byte
+use number.number_format_plain
+use number.NumberFormat
+
+fn main() {
+    val fmt = parse_pattern("#,###.00")
+    print(format_number("1234567.891", fmt))
+    print(format_number("-1234567.891", fmt))
+    print(format_number("5", fmt))
+    print(format_number("1234567.891e+00", fmt))
+
+    print(format_int(1234567, fmt))
+    print(format_float(1234.5, fmt))
+    print(format_bigint(123456789012345678901234567890n, fmt))
+    print(format_decimal(42.5d, fmt))
+    print(format_byte(200b, fmt))
+
+    print(format_number("42", number_format_plain()))
+
+    val no_group = parse_pattern("0.0000")
+    print(format_number("3.14", no_group))
+
+    val euro: NumberFormat = NumberFormat { thousands_separator: ".", decimal_separator: ",", decimal_places: parse_pattern("#,###.00").decimal_places }
+    print(format_number("1234567.891", euro))
+    print(parse_number("1.234.567,89", euro))
+}

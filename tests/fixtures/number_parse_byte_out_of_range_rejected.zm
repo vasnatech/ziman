@@ -1,0 +1,5 @@
+use number.parse_byte
+
+fn main() {
+    print(unwrap(parse_byte("256")))
+}

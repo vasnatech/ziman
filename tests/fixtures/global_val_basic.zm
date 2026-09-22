@@ -1,0 +1,24 @@
+val greeting: string = "hello"
+val counter = 41
+val table: [string] = ["a", "b", "c"]
+
+fn add_one(x: int) -> int {
+    return x + 1
+}
+
+// Forward reference within the same file -- `derived`'s initializer
+// calls a function, and that function itself references no globals, but
+// `derived`'s own value depends on `counter`, declared above it.
+val derived = add_one(counter)
+
+fn uses_global() -> string {
+    return greeting
+}
+
+fn main() {
+    print(greeting)
+    print(counter)
+    print(derived)
+    print(table)
+    print(uses_global())
+}

@@ -1,0 +1,348 @@
+// number.zm -- shared formatting/parsing for int/float/bigint/decimal/
+// byte, written in ordinary Ziman, no native code needed.
+//
+// One engine, not five: every numeric type already normalizes to a
+// canonical string via `str()`, so `format_number`/`parse_number`
+// operate on *strings*, never on the numeric types themselves --
+// sidestepping the fact that Ziman has no argument-based overloading
+// (a single `format(x: T, ...)` across five unrelated types isn't
+// expressible any other way). `format_int`/`format_float`/
+// `format_bigint`/`format_decimal`/`format_byte` are thin one-line
+// wrappers over that one engine, for ergonomics at call sites only.
+//
+// `NumberFormat` and a pattern string (`"#,###.00"`, the familiar
+// shape from Java's DecimalFormat/.NET custom format strings/Excel)
+// are two ways to describe the same thing -- `parse_pattern` just
+// builds a `NumberFormat` from the pattern's shape. The pattern
+// support here is deliberately a small subset of what those real
+// pattern languages do: no `0`-vs-`#` distinction (both just mean "a
+// forced decimal place" here, never "trim trailing zeros"), no `%`
+// (percentage), no `E` (scientific notation), no `;`-separated
+// positive/negative subpatterns, no literal prefix/suffix text or
+// escaping, no custom (e.g. Indian-style) grouping sizes. Forcing
+// fewer decimal places than a value has truncates, never rounds --
+// rounding is `round`/`decimal_round`'s job, not a formatter's; a
+// formatter that also rounded would mean the same value could display
+// differently depending on what last touched it.
+//
+// Hex support (`byte_to_hex`/`int_to_hex`/`bigint_to_hex` and their
+// `_from_hex` inverses) covers the three genuinely integral types --
+// not `float`/`decimal`, which have no natural hex representation for
+// a non-whole value. `byte` has no sign to worry about (always
+// 0-255). `int` is fixed-width (64 bits), so the standard convention
+// (C's `printf("%x", ...)`, Java's `Long.toHexString`) is two's
+// complement: `-1` is `"ffffffffffffffff"`, not a sign-prefixed
+// `"-1"`. `bigint` has no fixed width at all, so two's complement
+// isn't even a well-defined concept for it (there's no width to
+// complement against) -- the only sensible convention is sign-prefixed
+// magnitude, matching Java's own `BigInteger.toString(16)` for the
+// same reason. Computing a negative `int`'s two's-complement hex needs
+// its *unsigned* 64-bit equivalent, which doesn't fit in a signed
+// `int64` -- handled via `bigint` (`x + 2^64`, `2^64` computed by 64
+// repeated multiplications) rather than a new native primitive, since
+// `bigint` arithmetic already does everything needed.
+
+use collections.Option
+
+// Module-level, built once -- not rebuilt on every hex_digit_char/
+// hex_digit_value call the way a same-shaped local `val` would be.
+val hex_digits: [string] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+val hex_digits_upper: [string] = ["A", "B", "C", "D", "E", "F"]
+
+fn hex_digit_char(n: int) -> string {
+    return hex_digits[n]
+}
+
+fn hex_digit_value(c: string) -> Result<int, string> {
+    for i in 0..16 {
+        if hex_digits[i] == c {
+            return ok(i)
+        }
+    }
+    for i in 0..6 {
+        if hex_digits_upper[i] == c {
+            return ok(i + 10)
+        }
+    }
+    return err(format("invalid hex digit '{}'", c))
+}
+
+pub fn byte_to_hex(b: byte) -> string {
+    val n = b as int
+    return concat(hex_digit_char(n / 16), hex_digit_char(n % 16))
+}
+
+pub fn byte_from_hex(s: string) -> Result<byte, string> {
+    if len(s) != 2 {
+        return err(format("invalid byte hex '{}': expected exactly 2 hex digits", s))
+    }
+    val hi = hex_digit_value(substring(s, 0, 1))
+    if !is_ok(hi) {
+        return err(unwrap_err(hi))
+    }
+    val lo = hex_digit_value(substring(s, 1, 2))
+    if !is_ok(lo) {
+        return err(unwrap_err(lo))
+    }
+    return ok((unwrap(hi) * 16 + unwrap(lo)) as byte)
+}
+
+// Assumes n >= 0 -- callers handle the sign themselves, the same
+// "magnitude conversion is separate from sign handling" split
+// `decimal_to_string`'s own implementation uses in the `ziman` repo.
+fn bigint_magnitude_to_hex(n: bigint) -> string {
+    if n == 0n {
+        return "0"
+    }
+    var digits = ""
+    var remaining = n
+    while remaining > 0n {
+        val digit_val = (remaining % 16n) as int
+        digits = concat(hex_digit_char(digit_val), digits)
+        remaining = remaining / 16n
+    }
+    return digits
+}
+
+pub fn bigint_to_hex(n: bigint) -> string {
+    if n < 0n {
+        return concat("-", bigint_magnitude_to_hex(-n))
+    }
+    return bigint_magnitude_to_hex(n)
+}
+
+pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
+    if len(s) == 0 {
+        return err("invalid bigint hex: empty string")
+    }
+    var negative = false
+    var start = 0
+    if substring(s, 0, 1) == "-" {
+        negative = true
+        start = 1
+    }
+    if start >= len(s) {
+        return err(format("invalid bigint hex '{}': no digits", s))
+    }
+    var result: bigint = 0n
+    var i = start
+    while i < len(s) {
+        val dv = hex_digit_value(substring(s, i, i + 1))
+        if !is_ok(dv) {
+            return err(unwrap_err(dv))
+        }
+        result = result * 16n + (unwrap(dv) as bigint)
+        i = i + 1
+    }
+    if negative {
+        return ok(-result)
+    }
+    return ok(result)
+}
+
+// 2^64, computed by repeated multiplication -- Ziman has no bitwise
+// operators and no pow() for bigint, but plain `*` already does
+// everything this needs.
+fn two_pow_64() -> bigint {
+    var p: bigint = 1n
+    var i = 0
+    while i < 64 {
+        p = p * 2n
+        i = i + 1
+    }
+    return p
+}
+
+pub fn int_to_hex(x: int) -> string {
+    if x >= 0 {
+        return bigint_magnitude_to_hex(x as bigint)
+    }
+    val unsigned_equiv = (x as bigint) + two_pow_64()
+    var padded = bigint_magnitude_to_hex(unsigned_equiv)
+    while len(padded) < 16 {
+        padded = concat("0", padded)
+    }
+    return padded
+}
+
+pub fn int_from_hex(s: string) -> Result<int, string> {
+    if len(s) == 0 {
+        return err("invalid int hex: empty string")
+    }
+    if len(s) > 16 {
+        return err(format("invalid int hex '{}': more than 16 hex digits (64 bits)", s))
+    }
+    var result: bigint = 0n
+    var i = 0
+    while i < len(s) {
+        val dv = hex_digit_value(substring(s, i, i + 1))
+        if !is_ok(dv) {
+            return err(unwrap_err(dv))
+        }
+        result = result * 16n + (unwrap(dv) as bigint)
+        i = i + 1
+    }
+    if result >= two_pow_64() / 2n {
+        result = result - two_pow_64()
+    }
+    return ok(result as int)
+}
+
+pub fn parse_byte(s: string) -> Result<byte, string> {
+    val r = parse_int(s)
+    if !is_ok(r) {
+        return err(format("cannot parse '{}' as byte", s))
+    }
+    val v = unwrap(r)
+    if v < 0 || v > 255 {
+        return err(format("cannot parse '{}' as byte: out of range (must be 0-255)", s))
+    }
+    return ok(v as byte)
+}
+
+pub struct NumberFormat {
+    thousands_separator: string
+    decimal_separator: string
+    decimal_places: Option<int>
+}
+
+pub fn number_format_plain() -> NumberFormat {
+    return NumberFormat { thousands_separator: "", decimal_separator: ".", decimal_places: Option<int>.None }
+}
+
+// "#,###.00" -- a comma anywhere in the integer part turns grouping on
+// (the exact position isn't significant, only standard group-by-3 is
+// supported), and the digit count after the dot forces that many
+// decimal places. See the header comment for what real DecimalFormat-
+// style patterns support that this deliberately doesn't.
+pub fn parse_pattern(pattern: string) -> NumberFormat {
+    val parts = split(pattern, ".")
+    val has_grouping = contains(parts[0], ",")
+    var thousands = ""
+    if has_grouping {
+        thousands = ","
+    }
+    var decimal_places = Option<int>.None
+    if len(parts) > 1 {
+        decimal_places = Option<int>.Some(len(parts[1]))
+    }
+    return NumberFormat { thousands_separator: thousands, decimal_separator: ".", decimal_places: decimal_places }
+}
+
+fn insert_thousands(int_part: string, sep: string) -> string {
+    if sep == "" {
+        return int_part
+    }
+    var sign = ""
+    var digits = int_part
+    if len(digits) > 0 && substring(digits, 0, 1) == "-" {
+        sign = "-"
+        digits = substring(digits, 1, len(digits))
+    }
+    val n = len(digits)
+    if n <= 3 {
+        return concat(sign, digits)
+    }
+    var out = ""
+    var count = 0
+    var i = n - 1
+    while i >= 0 {
+        out = concat(substring(digits, i, i + 1), out)
+        count = count + 1
+        if count % 3 == 0 && i > 0 {
+            out = concat(sep, out)
+        }
+        i = i - 1
+    }
+    return concat(sign, out)
+}
+
+fn adjust_decimal_places(frac: string, places: int) -> string {
+    var f = frac
+    while len(f) < places {
+        f = concat(f, "0")
+    }
+    if len(f) > places {
+        f = substring(f, 0, places)
+    }
+    return f
+}
+
+// The one real formatting engine -- `s` is whatever `str(x)` already
+// produced for any of int/float/bigint/decimal/byte, so this never
+// needs to know which type it came from. One real exception: `float`'s
+// own `str()` switches to scientific notation past 6 significant
+// digits ("1234567.891" becomes "1.23457e+06"), which grouping/
+// decimal-place-forcing has no sensible meaning for -- passed through
+// unchanged rather than silently mangled (naively splitting
+// "1.23457e+06" on "." and truncating its "23457e+06" half to 2 places
+// would otherwise produce the nonsense "1.23"; caught by testing, not
+// assumed away).
+pub fn format_number(s: string, fmt: NumberFormat) -> string {
+    if contains(s, "e") || contains(s, "E") {
+        return s
+    }
+    val parts = split(s, ".")
+    val int_part = parts[0]
+    var frac_part = ""
+    if len(parts) > 1 {
+        frac_part = parts[1]
+    }
+    if Option.is_Some(fmt.decimal_places) {
+        frac_part = adjust_decimal_places(frac_part, Option.unwrap_Some(fmt.decimal_places))
+    }
+    val grouped = insert_thousands(int_part, fmt.thousands_separator)
+    if frac_part == "" {
+        return grouped
+    }
+    return concat(grouped, concat(fmt.decimal_separator, frac_part))
+}
+
+fn strip_all(s: string, needle: string) -> string {
+    var out = ""
+    for piece in split(s, needle) {
+        out = concat(out, piece)
+    }
+    return out
+}
+
+// The inverse of format_number: strips thousands separators and
+// normalizes the decimal separator back to "." -- the shape
+// parse_int/parse_float/parse_bigint/parse_decimal (or parse_byte,
+// above) already expect. Returns the normalized string, not a Result
+// -- malformed input is the downstream parser's job to reject, the
+// same "this layer only normalizes, the real parser validates" split
+// health-record-backend-ziman's own request.zm already uses for dates.
+pub fn parse_number(s: string, fmt: NumberFormat) -> string {
+    var out = s
+    if fmt.thousands_separator != "" {
+        out = strip_all(out, fmt.thousands_separator)
+    }
+    if fmt.decimal_separator != "." {
+        val parts = split(out, fmt.decimal_separator)
+        if len(parts) > 1 {
+            out = concat(parts[0], concat(".", parts[1]))
+        }
+    }
+    return out
+}
+
+pub fn format_int(x: int, fmt: NumberFormat) -> string {
+    return format_number(str(x), fmt)
+}
+
+pub fn format_float(x: float, fmt: NumberFormat) -> string {
+    return format_number(str(x), fmt)
+}
+
+pub fn format_bigint(x: bigint, fmt: NumberFormat) -> string {
+    return format_number(str(x), fmt)
+}
+
+pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string {
+    return format_number(str(x), fmt)
+}
+
+pub fn format_byte(x: byte, fmt: NumberFormat) -> string {
+    return format_number(str(x), fmt)
+}

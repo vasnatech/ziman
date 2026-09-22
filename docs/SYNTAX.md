@@ -43,7 +43,11 @@ File extension: `.zm`.
 ```
 program        := { use_decl | top_level_decl }   (* use may appear anywhere
                      at the top level, though conventionally listed first *)
-top_level_decl := [ "pub" ] ( function_decl | native_fn_decl | struct_decl | enum_decl )
+top_level_decl := [ "pub" ] ( function_decl | native_fn_decl | struct_decl | enum_decl | global_val_decl )
+
+global_val_decl := "val" IDENT [ ":" type ] "=" expr
+                    (* a module-wide constant -- see "Modules" for
+                       evaluation order and why there's no global "var" *)
 
 use_decl       := "use" IDENT { "/" IDENT } [ "as" IDENT ]
 function_decl  := "fn" IDENT "(" [ param_list ] ")" [ "->" type ] block
@@ -821,6 +825,32 @@ fn main() {
   function names only need to be unique *within* their own module, not
   across the whole program — two modules can each declare their own
   `Point`, even both private, without colliding.
+- **`[pub] val NAME[: Type] = <expr>` at module top level declares a
+  global value** — a module-wide constant, evaluated once before `main`
+  runs (in file order, so a later one may reference an earlier one),
+  never per-call the way a same-shaped local `val` inside a function
+  body is. No global `var`: Ziman's concurrency model is single-writer
+  actors passing messages over a `Channel<T>` (see "Concurrency" below),
+  and a mutable global would be exactly the shared, lock-free mutable
+  state that model exists to avoid — see docs/DESIGN.md's "Global val"
+  entry for the fuller reasoning. A bare reference to one (same-module,
+  or reached through a per-name import, `use mod.NAME`) works from any
+  function in that module with no qualifier — but, unlike an ordinary
+  local `val`, a global one can never be shadowed: reusing its name as a
+  local `val`/`var`/parameter/loop-binder anywhere in the module is a
+  compile-time error, not silent shadowing. There is deliberately no
+  `mod.NAME` *dotted* bare access the way a qualified function call or
+  struct literal has — the established, already-recommended way to reach
+  one specific name from another module is still a per-name import.
+
+  ```
+  val max_retries = 3
+  pub val default_timeout_seconds: float = 30.0
+
+  fn should_retry(attempt: int) -> bool {
+      return attempt < max_retries
+  }
+  ```
 - **No separate manifest file.** The app's module dependency graph is
   just its entry file's `use` statements, followed transitively — each
   module is loaded and parsed at most once (a diamond dependency shares
@@ -848,7 +878,7 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. Seven so far: `collections` (`Box<T>`, `Option<T>`,
+  name exists. Eight so far: `collections` (`Box<T>`, `Option<T>`,
   `HashMap<K, V>`, `HashSet<T>` — see "Generics" above), `io`
   (`read_file`/`write_file`, above), `random` (`random_bytes(n: int) ->
   [byte]`, the one native function reading real OS entropy — no other
@@ -866,7 +896,9 @@ fn main() {
   string) -> Option<Json>` — `Json` is a genuinely recursive enum,
   `JArray([Json])`/`JObject([JField])`, which works today with no new
   language feature since the recursion goes through an array, not a
-  bare self-reference). Any project can `use` one of these with no
+  bare self-reference), and `number` (shared formatting/parsing across
+  `int`/`float`/`bigint`/`decimal`/`byte` — see "Number formatting and
+  parsing" below). Any project can `use` one of these with no
   local file of its own. Each is still an ordinary, qualified module in
   every other respect — `use io`, always `io.read_file`, never a bare
   unqualified name the way the prelude's functions are (though a
@@ -877,7 +909,7 @@ fn main() {
   satisfies neither — array `==`/`!=` requires a *scalar* element type
   (see "Arrays" above), and `[Json]`'s element (`Json` itself) isn't
   one. See docs/CORELIB.md for a generated, signature-only listing of
-  every `pub struct`/`pub fn` these seven modules export — a quick
+  every `pub struct`/`pub fn` these eight modules export — a quick
   lookup, not
   a replacement for the explanations here.
 
@@ -1061,6 +1093,85 @@ fn main() {
   of this module in application code — `parse_json`, then
   `json_object_get` each expected field, then validate/convert each one
   — not something this module does itself.
+
+## Number formatting and parsing
+
+The `number` core module (`use number.Name`) is shared formatting and
+parsing across all five numeric types (`int`, `float`, `bigint`,
+`decimal`, `byte`), written in pure Ziman on top of each type's own
+`str()` — no native code needed.
+
+```
+use number.parse_pattern
+use number.format_int
+use number.format_float
+
+fn main() {
+    val fmt = parse_pattern("#,###.00")
+    print(format_int(1234567, fmt))    // 1,234,567.00
+    print(format_float(1234.5, fmt))   // 1,234.50
+}
+```
+
+- **One engine, not five.** Ziman has no argument-based overloading, so
+  a single `format(x: T, ...)` across five unrelated types isn't
+  expressible directly. Instead, `format_number(s: string, fmt:
+  NumberFormat) -> string` and `parse_number(s: string, fmt:
+  NumberFormat) -> string` operate on the *string* each type already
+  produces via `str()`/expects via `parse_int` and friends, never on the
+  numeric types themselves. `format_int`/`format_float`/
+  `format_bigint`/`format_decimal`/`format_byte` are thin one-line
+  wrappers over `format_number` for ergonomics at call sites.
+- **`NumberFormat { thousands_separator: string, decimal_separator:
+  string, decimal_places: Option<int> }`** describes how to format a
+  number — an empty `thousands_separator` disables grouping,
+  `decimal_places` of `None` leaves however many decimal digits the
+  value already has. `number_format_plain() -> NumberFormat` is the
+  no-grouping, no-forced-places default (`.` as the decimal separator).
+- **`parse_pattern(pattern: string) -> NumberFormat`** builds a
+  `NumberFormat` from a `"#,###.00"`-style pattern — the familiar shape
+  from Java's `DecimalFormat`/.NET custom format strings/Excel, but a
+  deliberately small subset of what those support: a comma anywhere in
+  the integer part just turns standard group-by-3 grouping on (its
+  exact position doesn't matter), and the digit count after the `.`
+  forces that many decimal places. No `0`-vs-`#` distinction (both mean
+  "a forced decimal place" here, never "trim trailing zeros"), no `%`
+  (percentage), no `E` (scientific notation), no `;`-separated
+  positive/negative subpatterns, no literal prefix/suffix text or
+  escaping, no custom (e.g. Indian-style) grouping sizes.
+- **Forcing fewer decimal places than a value has truncates, never
+  rounds** — rounding is `round`/`decimal_round`'s job, not a
+  formatter's; a formatter that also rounded would mean the same value
+  could display differently depending on what last touched it.
+- **A value already in scientific notation is passed through
+  unchanged**, not reformatted. `float`'s own `str()` switches to
+  scientific notation past 6 significant digits (`str(1234567.891)` is
+  `"1.23457e+06"`), which grouping/decimal-place-forcing has no
+  sensible meaning for — `format_number` checks for `"e"`/`"E"` first
+  and returns the string as-is rather than mangling it (a real bug
+  found by testing: naively splitting `"1.23457e+06"` on `.` and
+  truncating its `"23457e+06"` half to 2 places produced the nonsense
+  `"1.23"`).
+- **Hex conversion covers the three genuinely integral types** —
+  `byte_to_hex(b: byte) -> string`/`byte_from_hex(s: string) ->
+  Result<byte, string>`, `int_to_hex(x: int) -> string`/`int_from_hex(s:
+  string) -> Result<int, string>`, `bigint_to_hex(n: bigint) ->
+  string`/`bigint_from_hex(s: string) -> Result<bigint, string>` — not
+  `float`/`decimal`, which have no natural hex representation for a
+  non-whole value. `byte` is trivial (always exactly 2 unsigned hex
+  digits, no sign). `int` is fixed-width (64 bits), so it uses the same
+  convention as C's `printf("%x", ...)`/Java's `Long.toHexString`: two's
+  complement, so `-1` is `"ffffffffffffffff"`, not a sign-prefixed
+  `"-1"` — computed via `bigint` arithmetic (`(x as bigint) +
+  2^64`, with `2^64` built from 64 repeated `bigint` multiplications)
+  since a negative `int`'s unsigned 64-bit equivalent doesn't fit in a
+  signed `int64`. `bigint` has no fixed width at all, so two's
+  complement isn't even well-defined for it — the only sensible
+  convention is sign-prefixed magnitude (`"-ff"`), matching Java's own
+  `BigInteger.toString(16)` for the same reason.
+- **`parse_byte(s: string) -> Result<byte, string>`** — `byte` had no
+  parser until this module; delegates to `parse_int` and range-checks
+  the result (0–255).
 
 ## Result
 
