@@ -498,6 +498,32 @@ a time mid-implementation:
   implementation details Ziman has no per-field privacy to actually
   hide (a caller *can* reach `m.buckets` directly) — documented as
   "don't," not enforced.
+- ~~**`bigint` — arbitrary-precision integer.**~~ Implemented
+  (docs/SYNTAX.md "Numbers", docs/DESIGN.md's "bigint" entry): a fourth
+  numeric type, sign-magnitude, modeled on Java's `BigInteger`, backed
+  by `src/bignum.c`'s own arbitrary-precision arithmetic (add/sub/mul/
+  truncating-divmod/compare, base-1e9 limbs). Full `int` parity: `+ - *
+  / %`, unary `-`, `< > <= >= == !=`, `as` casts to/from `int`/`float`
+  (lossy, saturating/truncating, never silent), `str`/`abs`/`min`/`max`/
+  `hash`, `parse_bigint`. A literal needs an explicit `n` suffix
+  (`123n`) — bare digits still always mean `int`. Composes with
+  everything already built: a generic type argument (`Box<bigint>`), an
+  array element, and a `HashMap<bigint, V>` key (satisfies both `Eq` and
+  `Hash`) all verified working. `make test-bignum` runs the engine's own
+  correctness suite (factorials up to `100!` cross-checked against the
+  published exact value, exact and remaindered big-number division,
+  negative truncating division/modulo semantics, a multiply/divide
+  round-trip on a large non-factorial value) independent of the
+  language-level tests/fixtures harness.
+  This was built as the shared foundation for a `decimal` type
+  (unscaled `bigint` value + a scale, Java's `BigDecimal` shape) — not
+  started yet. `decimal` needs the same full `float` parity `bigint` got
+  for `int`, plus scale-alignment rules for `+`/`-`, scale-addition for
+  `*`, and an explicit target scale + rounding mode for `/` (decimal
+  division doesn't always terminate). `==` should compare numeric value
+  ignoring trailing-zero scale differences (`1.0d == 1.00d` is `true`),
+  deliberately diverging from Java's well-known `BigDecimal.equals()`
+  gotcha, where scale participates in equality but not in `compareTo`.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.

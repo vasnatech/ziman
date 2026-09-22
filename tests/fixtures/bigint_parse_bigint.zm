@@ -1,0 +1,10 @@
+fn main() {
+    val r = parse_bigint("99999999999999999999999999999")
+    if is_ok(r) {
+        print(unwrap(r))
+    }
+    val bad = parse_bigint("12x34")
+    if !is_ok(bad) {
+        print(unwrap_err(bad))
+    }
+}

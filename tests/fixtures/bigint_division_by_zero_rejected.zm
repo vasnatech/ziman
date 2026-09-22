@@ -1,0 +1,5 @@
+fn main() {
+    val a: bigint = 5n
+    val z: bigint = 0n
+    print(a / z)
+}

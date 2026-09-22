@@ -3,12 +3,15 @@
 
 #include <stdint.h>
 
+#include "bignum.h"
+
 typedef enum {
     TY_VOID,
     TY_INT,
     TY_FLOAT,
     TY_BOOL,
     TY_STRING,
+    TY_BIGINT, /* arbitrary-precision integer -- see src/bignum.h */
     TY_ARRAY,
     TY_STRUCT,
     TY_RESULT,
@@ -114,6 +117,7 @@ typedef enum {
     EXPR_FLOAT,
     EXPR_STRING,
     EXPR_BOOL,
+    EXPR_BIGINT,
     EXPR_IDENT,
     EXPR_UNARY,
     EXPR_BINARY,
@@ -159,6 +163,7 @@ struct Expr {
         double float_val;
         char *string_val; /* heap, NUL-terminated */
         int bool_val;
+        BigNum bigint_val; /* computed once, directly from the literal's raw digits, at parse time */
         char *ident_name;
         struct { Op op; Expr *left; Expr *right; } binary;
         struct { Op op; Expr *operand; } unary;

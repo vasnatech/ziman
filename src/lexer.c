@@ -38,6 +38,7 @@ static int can_end_statement(TokenType type) {
     switch (type) {
         case TOK_INT_LIT:
         case TOK_FLOAT_LIT:
+        case TOK_BIGINT_LIT:
         case TOK_STRING_LIT:
         case TOK_IDENT:
         case TOK_TRUE:
@@ -104,7 +105,7 @@ static const Keyword KEYWORDS[] = {
     {"break", TOK_BREAK},   {"continue", TOK_CONTINUE}, {"spawn", TOK_SPAWN},
     {"return", TOK_RETURN}, {"true", TOK_TRUE},     {"false", TOK_FALSE},
     {"as", TOK_AS},         {"int", TOK_KW_INT},    {"float", TOK_KW_FLOAT},
-    {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING},
+    {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING}, {"bigint", TOK_KW_BIGINT},
     {"struct", TOK_STRUCT}, {"enum", TOK_ENUM}, {"with", TOK_WITH},
     {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
     {"Result", TOK_RESULT}, {"Channel", TOK_CHANNEL},
@@ -177,8 +178,21 @@ static void lex_number(Lexer *lx) {
         while (isdigit((unsigned char)peek(lx))) advance(lx);
     }
 
+    /* `n` suffix -- an arbitrary-precision `bigint` literal
+     * (`12345678901234567890n`), only on a whole-number-shaped literal
+     * (never `19.99n` -- bigint has no fractional part). Not consumed
+     * if another identifier character immediately follows, so this
+     * never swallows part of an unrelated identifier that happens to
+     * start with 'n' right after some digits. */
+    int is_bigint = 0;
+    if (!is_float && peek(lx) == 'n' && !(isalnum((unsigned char)peek_next(lx)) || peek_next(lx) == '_')) {
+        is_bigint = 1;
+        advance(lx); /* 'n' */
+    }
+
     int length = (int)((lx->src + lx->pos) - start);
-    emit(lx, is_float ? TOK_FLOAT_LIT : TOK_INT_LIT, start, length, line, col);
+    TokenType type = is_bigint ? TOK_BIGINT_LIT : (is_float ? TOK_FLOAT_LIT : TOK_INT_LIT);
+    emit(lx, type, start, length, line, col);
 }
 
 static void lex_ident(Lexer *lx) {

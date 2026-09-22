@@ -152,6 +152,9 @@ yet, so there's nothing to call *except* a name), no indexed/field
 - `float` — double-precision IEEE 754.
 - `bool` — `true`/`false`.
 - `string` — immutable text.
+- `bigint` — arbitrary-precision signed integer, limited only by memory.
+  A literal is written with a trailing `n` (`12345678901234567890n`) —
+  never bare digits, which always mean `int`. See "Numbers" below.
 - `[T]` — a growable, homogeneous, indexed array of `T`; nests freely
   (`[[int]]` is an array of arrays of `int`). Value semantics, like every
   other type in Ziman: assigning or passing an array always yields an
@@ -185,8 +188,62 @@ yet, so there's nothing to call *except* a name), no indexed/field
   amount of user-definable generics would ever let you express in pure
   Ziman. See "Concurrency" below.
 - No implicit conversion between any scalar type. `x as float` / `x as
-  int` are the only casts, and only between `int` and `float` (never
-  arrays, structs, enums, Results, or Channels).
+  int` / `x as bigint` are the only casts, and only between `int`,
+  `float`, and `bigint` (never arrays, structs, enums, Results, or
+  Channels). `bigint as float`/`int as bigint`/etc. are all lossy in the
+  same way `float as int` already is — see "Numbers" below for exactly
+  how.
+
+## Numbers
+
+`bigint` is a fourth numeric type alongside `int`/`float`, added once a
+real need for exact, unbounded-size integers showed up (arbitrary-
+precision arithmetic, e.g. `100!`) that `int`'s fixed 64 bits can't
+cover and `float` can't represent exactly. It never implicitly mixes
+with `int`/`float` — same "no implicit coercion" rule as everywhere
+else, `use 'as' to cast explicitly`.
+
+```
+fn factorial(n: bigint, limit: int, i: int) -> bigint {
+    if i > limit {
+        return n
+    }
+    return factorial(n * (i as bigint), limit, i + 1)
+}
+
+fn main() {
+    print(factorial(1n, 100, 1))
+    // 93326215443944152681699238856266700490715968264381621468592963895217599993229915608941463976156518286253697920827223758251185210916864000000000000000000000000
+}
+```
+
+- **A literal needs the `n` suffix, always** — `12345678901234567890n`,
+  never bare `12345678901234567890` (which would silently overflow as an
+  `int` today; `bigint` gives you an explicit way to say "I mean this
+  exactly," not an implicit fallback). No suffix on a fractional literal
+  (`19.99n` is a syntax error) — `bigint` has no fractional part, that's
+  what a future `decimal` type is for.
+- **All of `int`'s operators/builtins work**: `+ - * / %`, unary `-`,
+  `< > <= >= == !=`, `str`, `abs`, `min`/`max`, `hash`, and
+  `parse_bigint(s: string) -> Result<bigint, string>` (the `bigint`
+  equivalent of `parse_int`). `/`/`%` truncate toward zero and take the
+  dividend's sign for the remainder, exactly like `int` — not Python's
+  floor division. Division/modulo by zero is a runtime error, same as
+  `int`/`float`.
+- **Casts are lossy in both directions.** `bigint as int`/`bigint as
+  float` saturate to `INT64_MAX`/`INT64_MIN` (or the nearest `float`) if
+  the value doesn't fit — never silently wrap around. `int as
+  bigint`/`float as bigint` are exact for `int`, but `float as bigint`
+  truncates the fractional part first (a `float` may already have lost
+  precision before the cast ever runs).
+- **Composes with everything else already built**: a `bigint` field in a
+  struct, a `bigint` array element, a generic type argument
+  (`Box<bigint>`), and a `HashMap<bigint, V>` key (it satisfies both
+  `Eq` and `Hash`) all work.
+- Internally, arbitrary precision means a heap-allocated value (unlike
+  `int`/`float`, which live directly inline) — see docs/DESIGN.md's
+  "Numbers" entry for why this doesn't grow every other `Value` in the
+  interpreter.
 
 ## Arrays
 
@@ -869,9 +926,10 @@ a type error.
   arguments must already be `string`; there's no auto-stringify (that
   would be the same implicit-coercion problem `+` avoids, just moved to a
   function). Use `str` to convert first.
-- `str(x) -> string` — converts an `int`, `float`, or `bool` to its
-  display string. Rejects an argument that's already a `string` (there
-  should be exactly one way to get a string from a value, not two).
+- `str(x) -> string` — converts an `int`, `float`, `bool`, or `bigint` to
+  its display string. Rejects an argument that's already a `string`
+  (there should be exactly one way to get a string from a value, not
+  two).
 - `format(fmt, args...) -> string` — the only variable-arity call in
   Ziman. `fmt` **must be a string literal** (not a variable or any other
   computed value) containing zero or more `{}` placeholders; the number
@@ -899,22 +957,24 @@ a type error.
 - `to_upper(s: string) -> string` / `to_lower(s: string) -> string` —
   ASCII case conversion.
 - `parse_int(s: string) -> Result<int, string>` / `parse_float(s: string)
-  -> Result<float, string>` — parses all of `s` as a number; `Err` (with
-  a message) if `s` has leading/trailing junk or doesn't parse at all.
+  -> Result<float, string>` / `parse_bigint(s: string) -> Result<bigint,
+  string>` — parses all of `s` as a number; `Err` (with a message) if
+  `s` has leading/trailing junk or doesn't parse at all.
 - `contains(s: string, needle: string) -> bool` / `contains(arr: [T], x:
   T) -> bool` — substring test, or array membership test via `==`. The
-  array form requires `T` to be a scalar (`int`/`float`/`bool`/`string`)
-  — same restriction as array `==`/`!=`, since only scalars have a
-  well-defined equality in v0.
+  array form requires `T` to be a scalar
+  (`int`/`float`/`bool`/`string`/`bigint`) — same restriction as array
+  `==`/`!=`, since only scalars have a well-defined equality in v0.
 - `hash(x: T) -> int` — a hash of `x`; `T` is `int`, `float`, `bool`,
-  `string`, or a type parameter bounded by `Hash` (see "Generics"
-  above). Not cryptographic and not stable across a future language
-  version, so never persist a hash — only use it within a single program
-  run (e.g. `collections.HashMap<K, V>`'s bucket index).
-- `abs(x: T) -> T` — absolute value; `T` is `int` or `float`.
-- `min(a: T, b: T) -> T` / `max(a: T, b: T) -> T` — `T` is `int` or
-  `float`; both arguments must be the same `T`, no implicit `int`/`float`
-  mixing (consistent with the language's general no-implicit-coercion
+  `string`, `bigint`, or a type parameter bounded by `Hash` (see
+  "Generics" above). Not cryptographic and not stable across a future
+  language version, so never persist a hash — only use it within a
+  single program run (e.g. `collections.HashMap<K, V>`'s bucket index).
+- `abs(x: T) -> T` — absolute value; `T` is `int`, `float`, or `bigint`.
+- `min(a: T, b: T) -> T` / `max(a: T, b: T) -> T` — `T` is `int`,
+  `float`, or `bigint`; both arguments must be the same `T`, no implicit
+  `int`/`float`/`bigint` mixing (consistent with the language's general
+  no-implicit-coercion
   rule).
 - `floor(x: float) -> int` / `ceil(x: float) -> int` / `round(x: float)
   -> int` — round towards negative infinity / positive infinity /

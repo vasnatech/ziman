@@ -403,6 +403,41 @@ several languages rather than inheriting any one of them wholesale.
   walker (mirroring loader.c's self_qualify_expr/self_qualify_stmt
   shape) that reclassifies every type-bearing spot in a generic
   function's parsed body, run once right after the body itself parses.
+- **`bigint` — arbitrary-precision integer, a fourth numeric type
+  alongside `int`/`float`/`bool`.** Added once `int`'s fixed 64 bits
+  stopped being enough for a real, concrete need (exact arbitrary-size
+  integer arithmetic, e.g. `100!`) that `float` can't cover either
+  (binary floating point can't represent most integers past 2^53
+  exactly). Modeled on Java's `BigInteger`: sign-magnitude, immutable,
+  every operation builds a new value rather than mutating (see
+  src/bignum.c) — the same "never mutate, always build fresh" pattern
+  `ArrayObj`/`StructObj` already use, so `bigint` slots into the
+  existing object model with no new memory-management concept. Backed
+  by base-1e9 limbs (not binary), a deliberate simplicity-over-speed
+  choice matching this project's own "not chasing performance" non-goal
+  below — string conversion is nearly free, and the arithmetic itself
+  (schoolbook multiply, binary-search-per-limb long division rather than
+  Knuth's faster but far fiddlier Algorithm D) stays easy to verify by
+  hand rather than fast at scale.
+  A `Value` stores a `bigint` as a heap pointer (`BigNum *`), not
+  embedded inline the way `int`/`float`/`bool` are, specifically so the
+  `Value` union — and therefore every `Value` in the interpreter, not
+  just `bigint` ones, since a union's size is always its largest
+  member's — doesn't grow just because one more type exists. A literal
+  needs an explicit `n` suffix (`12345678901234567890n`) rather than
+  being inferred from context or from bare digits: bare digits always
+  mean `int` (unchanged, no breaking change to any existing program),
+  and a suffix means the literal's meaning is self-evident right at the
+  point of use, the same "explicit over implicit" reasoning that also
+  shaped `Eq`/`Hash`'s bound syntax and generics' explicit type
+  arguments — no "look elsewhere to know what this means" the way a
+  purely context-inferred literal would require. Never implicitly mixes
+  with `int`/`float` in an operator (`bigint + int` is a type error,
+  `use 'as' to cast explicitly`, same rule `int`/`float` already
+  enforce with each other) — casting between all three is lossy in both
+  directions where the target can't represent the source exactly
+  (saturating toward `int`/`float`, truncating the fractional part
+  toward `bigint`), and that lossiness is never silent or implicit.
 
 ## Deliberately deferred (not v0)
 

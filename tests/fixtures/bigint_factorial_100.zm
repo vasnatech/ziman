@@ -1,0 +1,9 @@
+fn factorial(n: bigint, limit: int, i: int) -> bigint {
+    if i > limit {
+        return n
+    }
+    return factorial(n * (i as bigint), limit, i + 1)
+}
+fn main() {
+    print(factorial(1n, 100, 1))
+}

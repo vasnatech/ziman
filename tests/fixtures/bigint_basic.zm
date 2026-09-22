@@ -1,0 +1,9 @@
+fn main() {
+    val a: bigint = 123456789012345678901234567890n
+    val b: bigint = 1n
+    print(a + b)
+    print(a - b)
+    print(a * b)
+    print(a == a)
+    print(a < a + b)
+}

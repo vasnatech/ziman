@@ -41,6 +41,12 @@ struct Value {
         double f;
         int b; /* 0 or 1 */
         char *s; /* heap, NUL-terminated */
+        BigNum *bi; /* heap; kept as a pointer (not embedded) so this union
+                     * -- and every Value in the interpreter, not just
+                     * bigint ones -- stays the same size as it was before
+                     * bigint existed, since a union's size is always its
+                     * largest member's. Never mutated once built, same as
+                     * every other heap object here. */
         ArrayObj *arr;
         StructObj *st;
         struct ResultObj *res;
@@ -97,6 +103,7 @@ Value value_int(int64_t i);
 Value value_float(double f);
 Value value_bool(int b);
 Value value_string(char *s);
+Value value_bigint(BigNum n); /* copies `n` onto the heap; caller keeps owning `n`'s own digits */
 Value value_array(Type array_type, ArrayObj *arr);
 Value value_struct(Type struct_type, StructObj *st);
 Value value_result(Type result_type, ResultObj *res);

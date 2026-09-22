@@ -1,0 +1,11 @@
+fn main() {
+    val a: bigint = 100n
+    val b: bigint = 7n
+    print(a / b)
+    print(a % b)
+    print(hash(a) == hash(a))
+    print(min(a, b))
+    print(max(a, b))
+    print(abs(-a))
+    print(-a)
+}

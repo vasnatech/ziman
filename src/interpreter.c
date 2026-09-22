@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bignum.h"
 #include "env.h"
 #include "error.h"
 #include "native.h"
@@ -214,6 +215,18 @@ static Value call_parse_float(Value s) {
     return value_result(result_type, result_obj_new(1, value_float(v)));
 }
 
+static Value call_parse_bigint(Value s) {
+    Type result_type = type_result(type_scalar(TY_BIGINT), type_scalar(TY_STRING));
+    int ok;
+    BigNum n = bignum_from_string(s.as.s, &ok);
+    if (!ok) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "cannot parse '%s' as bigint", s.as.s);
+        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
+    }
+    return value_result(result_type, result_obj_new(1, value_bigint(n)));
+}
+
 static Value call_contains(Value first, Value second) {
     if (first.type.kind == TY_STRING) {
         return value_bool(strstr(first.as.s, second.as.s) != NULL);
@@ -245,6 +258,21 @@ static Value call_hash(Value v) {
         case TY_FLOAT:
             memcpy(&h, &v.as.f, sizeof(h));
             break;
+        case TY_BIGINT: {
+            /* FNV-1a folded over the sign and the normalized (trimmed)
+             * digit array -- since two equal BigNums always have an
+             * identical sign + digit-array representation (bignum.c
+             * always trims leading zero limbs), equal values are
+             * guaranteed to hash equal here too. */
+            h = 1469598103934665603ULL;
+            h ^= (uint64_t)(v.as.bi->sign + 1);
+            h *= 1099511628211ULL;
+            for (int i = 0; i < v.as.bi->count; i++) {
+                h ^= v.as.bi->digits[i];
+                h *= 1099511628211ULL;
+            }
+            break;
+        }
         default: { /* TY_STRING -- the only other case type_supports_hashing allows */
             const unsigned char *s = (const unsigned char *)v.as.s;
             h = 1469598103934665603ULL; /* FNV-1a 64-bit offset basis */
@@ -262,6 +290,9 @@ static Value call_abs(Value x) {
     if (x.type.kind == TY_INT) {
         return value_int(x.as.i < 0 ? -x.as.i : x.as.i);
     }
+    if (x.type.kind == TY_BIGINT) {
+        return value_bigint(bignum_abs(*x.as.bi));
+    }
     return value_float(x.as.f < 0 ? -x.as.f : x.as.f);
 }
 
@@ -269,12 +300,18 @@ static Value call_min(Value a, Value b) {
     if (a.type.kind == TY_INT) {
         return value_int(a.as.i < b.as.i ? a.as.i : b.as.i);
     }
+    if (a.type.kind == TY_BIGINT) {
+        return bignum_compare(*a.as.bi, *b.as.bi) < 0 ? a : b;
+    }
     return value_float(a.as.f < b.as.f ? a.as.f : b.as.f);
 }
 
 static Value call_max(Value a, Value b) {
     if (a.type.kind == TY_INT) {
         return value_int(a.as.i > b.as.i ? a.as.i : b.as.i);
+    }
+    if (a.type.kind == TY_BIGINT) {
+        return bignum_compare(*a.as.bi, *b.as.bi) > 0 ? a : b;
     }
     return value_float(a.as.f > b.as.f ? a.as.f : b.as.f);
 }
@@ -416,15 +453,27 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
 
     switch (e->as.binary.op) {
         case OP_ADD:
-            return l.type.kind == TY_INT ? value_int(l.as.i + r.as.i) : value_float(l.as.f + r.as.f);
+            if (l.type.kind == TY_INT) return value_int(l.as.i + r.as.i);
+            if (l.type.kind == TY_BIGINT) return value_bigint(bignum_add(*l.as.bi, *r.as.bi));
+            return value_float(l.as.f + r.as.f);
         case OP_SUB:
-            return l.type.kind == TY_INT ? value_int(l.as.i - r.as.i) : value_float(l.as.f - r.as.f);
+            if (l.type.kind == TY_INT) return value_int(l.as.i - r.as.i);
+            if (l.type.kind == TY_BIGINT) return value_bigint(bignum_sub(*l.as.bi, *r.as.bi));
+            return value_float(l.as.f - r.as.f);
         case OP_MUL:
-            return l.type.kind == TY_INT ? value_int(l.as.i * r.as.i) : value_float(l.as.f * r.as.f);
+            if (l.type.kind == TY_INT) return value_int(l.as.i * r.as.i);
+            if (l.type.kind == TY_BIGINT) return value_bigint(bignum_mul(*l.as.bi, *r.as.bi));
+            return value_float(l.as.f * r.as.f);
         case OP_DIV:
             if (l.type.kind == TY_INT) {
                 if (r.as.i == 0) ziman_error("runtime", e->line, e->col, "division by zero");
                 return value_int(l.as.i / r.as.i);
+            }
+            if (l.type.kind == TY_BIGINT) {
+                if (bignum_is_zero(*r.as.bi)) ziman_error("runtime", e->line, e->col, "division by zero");
+                BigNum quot, rem;
+                bignum_divmod(*l.as.bi, *r.as.bi, &quot, &rem);
+                return value_bigint(quot);
             }
             if (r.as.f == 0.0) ziman_error("runtime", e->line, e->col, "division by zero");
             return value_float(l.as.f / r.as.f);
@@ -433,14 +482,32 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
                 if (r.as.i == 0) ziman_error("runtime", e->line, e->col, "division by zero");
                 return value_int(l.as.i % r.as.i);
             }
+            if (l.type.kind == TY_BIGINT) {
+                if (bignum_is_zero(*r.as.bi)) ziman_error("runtime", e->line, e->col, "division by zero");
+                BigNum quot, rem;
+                bignum_divmod(*l.as.bi, *r.as.bi, &quot, &rem);
+                return value_bigint(rem);
+            }
             ziman_error("runtime", e->line, e->col, "internal error: '%%' on float should have been rejected by the type checker");
             return value_int(0);
         case OP_EQ: return value_bool(value_equals(l, r));
         case OP_NEQ: return value_bool(!value_equals(l, r));
-        case OP_LT: return value_bool(l.type.kind == TY_INT ? l.as.i < r.as.i : l.as.f < r.as.f);
-        case OP_GT: return value_bool(l.type.kind == TY_INT ? l.as.i > r.as.i : l.as.f > r.as.f);
-        case OP_LE: return value_bool(l.type.kind == TY_INT ? l.as.i <= r.as.i : l.as.f <= r.as.f);
-        case OP_GE: return value_bool(l.type.kind == TY_INT ? l.as.i >= r.as.i : l.as.f >= r.as.f);
+        case OP_LT:
+            if (l.type.kind == TY_INT) return value_bool(l.as.i < r.as.i);
+            if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) < 0);
+            return value_bool(l.as.f < r.as.f);
+        case OP_GT:
+            if (l.type.kind == TY_INT) return value_bool(l.as.i > r.as.i);
+            if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) > 0);
+            return value_bool(l.as.f > r.as.f);
+        case OP_LE:
+            if (l.type.kind == TY_INT) return value_bool(l.as.i <= r.as.i);
+            if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) <= 0);
+            return value_bool(l.as.f <= r.as.f);
+        case OP_GE:
+            if (l.type.kind == TY_INT) return value_bool(l.as.i >= r.as.i);
+            if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) >= 0);
+            return value_bool(l.as.f >= r.as.f);
         default:
             ziman_error("runtime", e->line, e->col, "internal error: unhandled binary operator");
             return value_int(0);
@@ -489,6 +556,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_FLOAT: return value_float(e->as.float_val);
         case EXPR_STRING: return value_string(e->as.string_val);
         case EXPR_BOOL: return value_bool(e->as.bool_val);
+        case EXPR_BIGINT: return value_bigint(e->as.bigint_val);
         case EXPR_IDENT: {
             Binding *b = env_lookup(env, e->as.ident_name);
             return b->value;
@@ -496,7 +564,9 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_UNARY: {
             Value v = eval_expr(module, env, e->as.unary.operand);
             if (e->as.unary.op == OP_NEG) {
-                return v.type.kind == TY_INT ? value_int(-v.as.i) : value_float(-v.as.f);
+                if (v.type.kind == TY_INT) return value_int(-v.as.i);
+                if (v.type.kind == TY_BIGINT) return value_bigint(bignum_negate(*v.as.bi));
+                return value_float(-v.as.f);
             }
             return value_bool(!v.as.b);
         }
@@ -551,6 +621,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_parse_int(args[0]);
             } else if (strcmp(e->as.call.callee, "parse_float") == 0) {
                 result = call_parse_float(args[0]);
+            } else if (strcmp(e->as.call.callee, "parse_bigint") == 0) {
+                result = call_parse_bigint(args[0]);
             } else if (strcmp(e->as.call.callee, "contains") == 0) {
                 result = call_contains(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "hash") == 0) {
@@ -583,11 +655,27 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         }
         case EXPR_CAST: {
             Value v = eval_expr(module, env, e->as.cast.operand);
-            if (e->as.cast.target_type.kind == TY_FLOAT) {
-                return value_float(v.type.kind == TY_INT ? (double)v.as.i : v.as.f);
+            TypeKind to = e->as.cast.target_type.kind;
+            if (to == TY_FLOAT) {
+                if (v.type.kind == TY_INT) return value_float((double)v.as.i);
+                if (v.type.kind == TY_BIGINT) {
+                    /* Lossy via a saturating int64 round-trip -- the same
+                     * precision ceiling casting a very large int to float
+                     * already has; a genuinely huge bigint can't be
+                     * represented exactly by a float regardless. */
+                    return value_float((double)bignum_to_i64_saturating(*v.as.bi));
+                }
+                return value_float(v.as.f);
+            }
+            if (to == TY_BIGINT) {
+                if (v.type.kind == TY_INT) return value_bigint(bignum_from_i64(v.as.i));
+                if (v.type.kind == TY_FLOAT) return value_bigint(bignum_from_i64((int64_t)v.as.f));
+                return value_bigint(*v.as.bi); /* bigint as bigint: no-op */
             }
             /* target is TY_INT */
-            return value_int(v.type.kind == TY_FLOAT ? (int64_t)v.as.f : v.as.i);
+            if (v.type.kind == TY_FLOAT) return value_int((int64_t)v.as.f);
+            if (v.type.kind == TY_BIGINT) return value_int(bignum_to_i64_saturating(*v.as.bi));
+            return value_int(v.as.i);
         }
         case EXPR_ARRAY_LIT: {
             int count = e->as.array_lit.elements.count;

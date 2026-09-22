@@ -173,7 +173,7 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
 
 static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
     switch (e->kind) {
-        case EXPR_INT: case EXPR_FLOAT: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
+        case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
             break;
         case EXPR_UNARY:
             self_qualify_expr(e->as.unary.operand, ctx);
@@ -542,7 +542,7 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
 
 static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
     switch (e->kind) {
-        case EXPR_INT: case EXPR_FLOAT: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
+        case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
             break;
         case EXPR_UNARY:
             resolve_expr_refs(e->as.unary.operand, ctx);

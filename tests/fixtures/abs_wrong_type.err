@@ -1,1 +1,1 @@
-'abs' expects int or float, found string
+'abs' expects int, float, or bigint, found string

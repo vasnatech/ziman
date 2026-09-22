@@ -1,0 +1,9 @@
+fn main() {
+    val i: int = 42
+    val big: bigint = i as bigint
+    print(big)
+    val back: int = big as int
+    print(back)
+    val f: float = big as float
+    print(f)
+}

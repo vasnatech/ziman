@@ -89,6 +89,7 @@ char *type_name(Type type) {
         case TY_FLOAT: return strdup("float");
         case TY_BOOL: return strdup("bool");
         case TY_STRING: return strdup("string");
+        case TY_BIGINT: return strdup("bigint");
         case TY_TYPEVAR: return strdup(type.type_var_name);
         case TY_STRUCT: case TY_ENUM: {
             const char *base_name = type.kind == TY_STRUCT ? type.struct_name : type.enum_name;

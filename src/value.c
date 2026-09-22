@@ -5,12 +5,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bignum.h"
 #include "error.h"
 
 Value value_int(int64_t i) { Value v; v.type = type_scalar(TY_INT); v.as.i = i; return v; }
 Value value_float(double f) { Value v; v.type = type_scalar(TY_FLOAT); v.as.f = f; return v; }
 Value value_bool(int b) { Value v; v.type = type_scalar(TY_BOOL); v.as.b = b; return v; }
 Value value_string(char *s) { Value v; v.type = type_scalar(TY_STRING); v.as.s = s; return v; }
+
+Value value_bigint(BigNum n) {
+    Value v;
+    v.type = type_scalar(TY_BIGINT);
+    v.as.bi = malloc(sizeof(BigNum));
+    *v.as.bi = n;
+    return v;
+}
 
 Value value_array(Type array_type, ArrayObj *arr) {
     Value v;
@@ -123,6 +132,7 @@ int value_equals(Value a, Value b) {
         case TY_FLOAT: return a.as.f == b.as.f;
         case TY_BOOL: return a.as.b == b.as.b;
         case TY_STRING: return strcmp(a.as.s, b.as.s) == 0;
+        case TY_BIGINT: return bignum_compare(*a.as.bi, *b.as.bi) == 0;
         case TY_VOID: return 1;
         case TY_ARRAY: {
             ArrayObj *arr_a = a.as.arr;
@@ -185,6 +195,8 @@ char *value_display(Value v) {
             return strdup(buf);
         case TY_BOOL:
             return strdup(v.as.b ? "true" : "false");
+        case TY_BIGINT:
+            return bignum_to_string(*v.as.bi);
         case TY_STRING:
             return strdup(v.as.s);
         case TY_VOID:

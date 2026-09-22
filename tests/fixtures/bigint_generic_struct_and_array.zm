@@ -1,0 +1,11 @@
+struct Box<T> {
+    value: T
+}
+fn main() {
+    val b = Box<bigint> { value: 999999999999999999999n }
+    print(b.value)
+    val arr: [bigint] = [1n, 2n, 3n]
+    print(arr)
+    print(contains(arr, 2n))
+    print(arr == [1n, 2n, 3n])
+}

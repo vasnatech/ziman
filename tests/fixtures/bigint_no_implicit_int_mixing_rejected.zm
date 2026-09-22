@@ -1,0 +1,5 @@
+fn main() {
+    val a: bigint = 5n
+    val b: int = 3
+    print(a + b)
+}
