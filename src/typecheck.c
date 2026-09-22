@@ -67,7 +67,7 @@ static Type substitute_type(Type t, TypeParamList *params, TypeList *args) {
 }
 
 static int is_scalar_kind(TypeKind kind) {
-    return kind == TY_INT || kind == TY_FLOAT || kind == TY_BOOL || kind == TY_STRING || kind == TY_BIGINT || kind == TY_DECIMAL;
+    return kind == TY_INT || kind == TY_FLOAT || kind == TY_BOOL || kind == TY_STRING || kind == TY_BIGINT || kind == TY_DECIMAL || kind == TY_BYTE;
 }
 
 /* Whether '=='/'!=' is legal for a value of type `t`: scalars always,
@@ -107,7 +107,7 @@ static TypeParamList *current_decl_type_params = NULL;
 static int type_supports_equality(Module *module, Type t, int depth) {
     if (depth > 64) return 0;
     switch (t.kind) {
-        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL:
+        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE:
             return 1;
         case TY_ARRAY:
             return is_scalar_kind(t.elem->kind);
@@ -172,7 +172,7 @@ static int type_supports_equality(Module *module, Type t, int depth) {
  * `Eq`-only scan -- see ROADMAP.md's "Collections module" entry. */
 static int type_supports_hashing(Type t) {
     switch (t.kind) {
-        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL:
+        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE:
             return 1;
         case TY_TYPEVAR:
             if (current_decl_type_params != NULL) {
@@ -346,9 +346,9 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT && arg_type.kind != TY_BOOL && arg_type.kind != TY_BIGINT && arg_type.kind != TY_DECIMAL) {
+        if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT && arg_type.kind != TY_BOOL && arg_type.kind != TY_BIGINT && arg_type.kind != TY_DECIMAL && arg_type.kind != TY_BYTE) {
             ziman_error("type", arg->line, arg->col,
-                        "'str' expects an int, float, bool, bigint, or decimal, found %s (it's already a string)",
+                        "'str' expects an int, float, bool, bigint, decimal, or byte, found %s (it's already a string)",
                         type_name(arg_type));
         }
         return type_scalar(TY_STRING);
@@ -432,7 +432,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Type arg_type = check_expr(module, env, arg);
         if (!type_supports_hashing(arg_type)) {
             ziman_error("type", arg->line, arg->col,
-                        "'hash' expects int, float, bool, string, bigint, decimal, or a type parameter bounded by 'Hash', found %s",
+                        "'hash' expects int, float, bool, string, bigint, decimal, byte, or a type parameter bounded by 'Hash', found %s",
                         type_name(arg_type));
         }
         return type_scalar(TY_INT);
@@ -686,8 +686,16 @@ static Type check_cast(Module *module, Env *env, Expr *e) {
     Type to = e->as.cast.target_type;
     int numeric_from = from.kind == TY_INT || from.kind == TY_FLOAT || from.kind == TY_BIGINT || from.kind == TY_DECIMAL;
     int numeric_to = to.kind == TY_INT || to.kind == TY_FLOAT || to.kind == TY_BIGINT || to.kind == TY_DECIMAL;
-    if (!(numeric_from && numeric_to)) {
-        ziman_error("type", e->line, e->col, "cannot cast %s to %s (only casts between int/float/bigint/decimal are supported)", type_name(from), type_name(to));
+    /* byte only casts to/from int, kept separate from the numeric web
+     * above rather than folded into it -- byte isn't a number to compute
+     * with (see ast.h's TY_BYTE comment), so byte<->float/bigint/decimal
+     * were never asked for and would just be unused interpreter.c
+     * branches. int as byte saturates to [0, 255] rather than wrapping,
+     * matching bignum_to_i64_saturating's "clamp, don't silently wrap"
+     * precedent for narrowing a wider numeric type. */
+    int byte_int_cast = (from.kind == TY_BYTE && to.kind == TY_INT) || (from.kind == TY_INT && to.kind == TY_BYTE);
+    if (!(numeric_from && numeric_to) && !byte_int_cast) {
+        ziman_error("type", e->line, e->col, "cannot cast %s to %s (only casts between int/float/bigint/decimal, or int/byte, are supported)", type_name(from), type_name(to));
     }
     return to;
 }
@@ -999,6 +1007,7 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
         case EXPR_BOOL: t = type_scalar(TY_BOOL); break;
         case EXPR_BIGINT: t = type_scalar(TY_BIGINT); break;
         case EXPR_DECIMAL: t = type_scalar(TY_DECIMAL); break;
+        case EXPR_BYTE: t = type_scalar(TY_BYTE); break;
         case EXPR_IDENT: {
             Binding *b = env_lookup(env, e->as.ident_name);
             if (b == NULL) {

@@ -18,11 +18,14 @@ coercion, "does this function return on every path" analysis), and a
 tree-walking interpreter. Supports functions, `val`/`var` bindings,
 `if`/`else`, `while`, `for` (value/index/index+value forms over an
 array, or a range for a counted loop — `for x in arr`, `for i in 0..n`,
-`for i, x in arr`), `break`/`continue`, six scalar types (`int`,
+`for i, x in arr`), `break`/`continue`, seven scalar types (`int`,
 `float`, `bool`, `string`, plus arbitrary-precision `bigint` and
 `decimal` — `bigint` has `int`'s full operator/builtin surface,
 `decimal` has `float`'s, both modeled on Java's
-`BigInteger`/`BigDecimal`), value-semantics arrays (`[T]`, nestable),
+`BigInteger`/`BigDecimal` — and `byte`, unsigned 0-255, deliberately
+*not* a number to compute with: no arithmetic, just construction,
+`==`/`!=`, `hash`, `str`/`print`/`format`, and a saturating cast
+to/from `int`), value-semantics arrays (`[T]`, nestable),
 plain nominal value-semantics `struct`s (named-fields-only
 construction, `with` for non-mutating field updates, no
 methods/inheritance, field-by-field `==`/`!=` when every field is

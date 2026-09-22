@@ -131,6 +131,9 @@ static Value call_hash(Value v) {
         case TY_BOOL:
             h = v.as.b ? 1 : 0;
             break;
+        case TY_BYTE:
+            h = (uint64_t)v.as.by;
+            break;
         case TY_FLOAT:
             memcpy(&h, &v.as.f, sizeof(h));
             break;
@@ -470,6 +473,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_BOOL: return value_bool(e->as.bool_val);
         case EXPR_BIGINT: return value_bigint(e->as.bigint_val);
         case EXPR_DECIMAL: return value_decimal(e->as.decimal_val);
+        case EXPR_BYTE: return value_byte(e->as.byte_val);
         case EXPR_IDENT: {
             Binding *b = env_lookup(env, e->as.ident_name);
             return b->value;
@@ -570,10 +574,20 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 if (v.type.kind == TY_BIGINT) return value_decimal(decimal_from_bignum(*v.as.bi));
                 return value_decimal(*v.as.dec); /* decimal as decimal: no-op */
             }
+            if (to == TY_BYTE) {
+                /* check_cast only permits int as byte (never
+                 * float/bigint/decimal as byte), so v is always TY_INT
+                 * here. Saturates to [0, 255] rather than wrapping. */
+                int64_t iv = v.as.i;
+                if (iv < 0) iv = 0;
+                if (iv > 255) iv = 255;
+                return value_byte((int)iv);
+            }
             /* target is TY_INT */
             if (v.type.kind == TY_FLOAT) return value_int((int64_t)v.as.f);
             if (v.type.kind == TY_BIGINT) return value_int(bignum_to_i64_saturating(*v.as.bi));
             if (v.type.kind == TY_DECIMAL) return value_int(bignum_to_i64_saturating(decimal_to_bignum_trunc(*v.as.dec)));
+            if (v.type.kind == TY_BYTE) return value_int((int64_t)v.as.by);
             return value_int(v.as.i);
         }
         case EXPR_ARRAY_LIT: {

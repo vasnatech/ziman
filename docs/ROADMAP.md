@@ -611,6 +611,28 @@ a time mid-implementation:
   half-up-away-from-zero division/round rounding both directions, and
   a 30-plus-digit multiply/divide round-trip for `decimal`) independent
   of the language-level tests/fixtures harness.
+- ~~**`byte` — a fifth scalar type, motivated by wanting to represent
+  raw octets (a UUID's bytes) without overloading `[int]` for it.**~~
+  Implemented (docs/SYNTAX.md "Numbers", docs/DESIGN.md's "byte" entry):
+  unsigned, 0-255, literal suffix `b` (`200b`), range-checked at parse
+  time (`300b` is a compile-time error, not a silent wrap). Deliberately
+  *not* a sixth numeric type on the `int`/`float`/`bigint`/`decimal`
+  model: no `+ - * / %`, no unary `-`, no `< > <= >=`, no
+  `abs`/`min`/`max` — nothing that needs a `byte` needs arithmetic on
+  one, and Ziman having no operator overloading means adding those
+  would force an arbitrary wrap-vs-saturate answer to a question
+  nothing's actually asking. Supports `==`/`!=`, `hash`, `str`/`print`/
+  `format`, and a saturating cast to/from `int` only (`300 as byte` is
+  `255`, `-5 as byte` is `0`, matching `bignum_to_i64_saturating`'s
+  "clamp, don't wrap" precedent; no cast to/from `float`/`bigint`/
+  `decimal` — unused code otherwise). Composes with everything generics
+  already built at essentially zero marginal cost: `byte` satisfies both
+  `Eq` and `Hash` (just another case in the existing scalar-kind
+  checks), so `HashMap<byte, V>`, `[byte]` equality, and `contains` on a
+  `[byte]` all work with no new machinery. The actual motivating case
+  (UUID) isn't built yet — this was step one, done in isolation so it
+  could be tested (and get its own test fixtures) independent of UUID's
+  own design.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.

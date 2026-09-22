@@ -1,0 +1,5 @@
+fn main() {
+    val a: byte = 5b
+    val b: byte = 3b
+    print(a + b)
+}

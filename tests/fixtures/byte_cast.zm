@@ -1,0 +1,7 @@
+fn main() {
+    print(300 as byte)
+    print(-5 as byte)
+    print(42 as byte)
+    val b: byte = 200b
+    print(b as int)
+}

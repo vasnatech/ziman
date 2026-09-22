@@ -98,6 +98,7 @@ static int next_looks_like_generic_call(Parser *p) {
     Token *after_lt = &p->tokens.items[p->pos + 1];
     switch (after_lt->type) {
         case TOK_KW_INT: case TOK_KW_FLOAT: case TOK_KW_BOOL: case TOK_KW_STRING: case TOK_KW_BIGINT: case TOK_KW_DECIMAL:
+        case TOK_KW_BYTE:
         case TOK_LBRACKET: case TOK_RESULT: case TOK_CHANNEL:
             return 1;
         case TOK_IDENT:
@@ -114,6 +115,7 @@ static Type parse_type(Parser *p) {
     if (match(p, TOK_KW_STRING)) return type_scalar(TY_STRING);
     if (match(p, TOK_KW_BIGINT)) return type_scalar(TY_BIGINT);
     if (match(p, TOK_KW_DECIMAL)) return type_scalar(TY_DECIMAL);
+    if (match(p, TOK_KW_BYTE)) return type_scalar(TY_BYTE);
     if (match(p, TOK_LBRACKET)) {
         Type elem = parse_type(p);
         expect(p, TOK_RBRACKET, "']'");
@@ -273,6 +275,24 @@ static Expr *parse_primary(Parser *p) {
         if (!ok) {
             ziman_error("syntax", t->line, t->col, "internal error: lexer produced a malformed decimal literal");
         }
+        return e;
+    }
+    if (match(p, TOK_BYTE_LIT)) {
+        Expr *e = expr_new(EXPR_BYTE, t->line, t->col);
+        /* Same "strip the trailing suffix" reasoning as TOK_BIGINT_LIT/
+         * TOK_DECIMAL_LIT above, but byte is fixed-width -- a plain
+         * strtol plus an explicit 0-255 range check, no bignum/decimal
+         * parsing needed. */
+        int digit_len = t->length - 1;
+        char *digits = malloc((size_t)digit_len + 1);
+        memcpy(digits, t->start, (size_t)digit_len);
+        digits[digit_len] = '\0';
+        long v = strtol(digits, NULL, 10);
+        if (v < 0 || v > 255) {
+            ziman_error("syntax", t->line, t->col, "byte literal %sb is out of range (must be 0-255)", digits);
+        }
+        free(digits);
+        e->as.byte_val = (int)v;
         return e;
     }
     if (match(p, TOK_STRING_LIT)) {
@@ -942,7 +962,7 @@ static void reclassify_type_params(Type *t, TypeParamList *type_params) {
  * same recursion), just touching Type nodes instead of qualifying names. */
 static void reclassify_type_params_in_expr(Expr *e, TypeParamList *type_params) {
     switch (e->kind) {
-        case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
+        case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_BYTE: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
             break;
         case EXPR_UNARY:
             reclassify_type_params_in_expr(e->as.unary.operand, type_params);

@@ -30,6 +30,8 @@ Value value_decimal(Decimal d) {
     return v;
 }
 
+Value value_byte(int b) { Value v; v.type = type_scalar(TY_BYTE); v.as.by = b; return v; }
+
 Value value_array(Type array_type, ArrayObj *arr) {
     Value v;
     v.type = array_type;
@@ -143,6 +145,7 @@ int value_equals(Value a, Value b) {
         case TY_STRING: return strcmp(a.as.s, b.as.s) == 0;
         case TY_BIGINT: return bignum_compare(*a.as.bi, *b.as.bi) == 0;
         case TY_DECIMAL: return decimal_compare(*a.as.dec, *b.as.dec) == 0;
+        case TY_BYTE: return a.as.by == b.as.by;
         case TY_VOID: return 1;
         case TY_ARRAY: {
             ArrayObj *arr_a = a.as.arr;
@@ -209,6 +212,9 @@ char *value_display(Value v) {
             return bignum_to_string(*v.as.bi);
         case TY_DECIMAL:
             return decimal_to_string(*v.as.dec);
+        case TY_BYTE:
+            snprintf(buf, sizeof(buf), "%d", v.as.by);
+            return strdup(buf);
         case TY_STRING:
             return strdup(v.as.s);
         case TY_VOID:

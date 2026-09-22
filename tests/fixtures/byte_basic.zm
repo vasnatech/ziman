@@ -1,0 +1,10 @@
+fn main() {
+    val a: byte = 200b
+    val b: byte = 200b
+    val c: byte = 55b
+    print(a == b)
+    print(a == c)
+    print(a != c)
+    print(str(a))
+    print(a)
+}

@@ -40,6 +40,7 @@ static int can_end_statement(TokenType type) {
         case TOK_FLOAT_LIT:
         case TOK_BIGINT_LIT:
         case TOK_DECIMAL_LIT:
+        case TOK_BYTE_LIT:
         case TOK_STRING_LIT:
         case TOK_IDENT:
         case TOK_TRUE:
@@ -107,6 +108,7 @@ static const Keyword KEYWORDS[] = {
     {"return", TOK_RETURN}, {"true", TOK_TRUE},     {"false", TOK_FALSE},
     {"as", TOK_AS},         {"int", TOK_KW_INT},    {"float", TOK_KW_FLOAT},
     {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING}, {"bigint", TOK_KW_BIGINT}, {"decimal", TOK_KW_DECIMAL},
+    {"byte", TOK_KW_BYTE},
     {"struct", TOK_STRUCT}, {"enum", TOK_ENUM}, {"with", TOK_WITH},
     {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
     {"Result", TOK_RESULT}, {"Channel", TOK_CHANNEL},
@@ -179,14 +181,18 @@ static void lex_number(Lexer *lx) {
         while (isdigit((unsigned char)peek(lx))) advance(lx);
     }
 
-    /* `n`/`d` suffix -- an arbitrary-precision `bigint` literal
+    /* `n`/`d`/`b` suffix -- an arbitrary-precision `bigint` literal
      * (`12345678901234567890n`, whole-number-shaped only -- never
-     * `19.99n`, bigint has no fractional part) or `decimal` literal
-     * (`19.99d`, `20d` -- either shape). Neither is consumed if another
-     * identifier character immediately follows, so this never swallows
-     * part of an unrelated identifier that happens to start with 'n'/'d'
-     * right after some digits. */
-    int is_bigint = 0, is_decimal = 0;
+     * `19.99n`, bigint has no fractional part), a `decimal` literal
+     * (`19.99d`, `20d` -- either shape), or a `byte` literal (`200b`,
+     * whole-number-shaped only, same reasoning as bigint -- a byte has
+     * no fractional part either). Range-checked against 0-255 by the
+     * parser, not here (the lexer doesn't know the digit count in
+     * advance without parsing them anyway). None of the three is
+     * consumed if another identifier character immediately follows, so
+     * this never swallows part of an unrelated identifier that happens
+     * to start with 'n'/'d'/'b' right after some digits. */
+    int is_bigint = 0, is_decimal = 0, is_byte = 0;
     int next_is_ident_char = isalnum((unsigned char)peek_next(lx)) || peek_next(lx) == '_';
     if (!is_float && peek(lx) == 'n' && !next_is_ident_char) {
         is_bigint = 1;
@@ -194,10 +200,13 @@ static void lex_number(Lexer *lx) {
     } else if (peek(lx) == 'd' && !next_is_ident_char) {
         is_decimal = 1;
         advance(lx); /* 'd' */
+    } else if (!is_float && peek(lx) == 'b' && !next_is_ident_char) {
+        is_byte = 1;
+        advance(lx); /* 'b' */
     }
 
     int length = (int)((lx->src + lx->pos) - start);
-    TokenType type = is_bigint ? TOK_BIGINT_LIT : is_decimal ? TOK_DECIMAL_LIT : (is_float ? TOK_FLOAT_LIT : TOK_INT_LIT);
+    TokenType type = is_bigint ? TOK_BIGINT_LIT : is_decimal ? TOK_DECIMAL_LIT : is_byte ? TOK_BYTE_LIT : (is_float ? TOK_FLOAT_LIT : TOK_INT_LIT);
     emit(lx, type, start, length, line, col);
 }
 

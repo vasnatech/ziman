@@ -569,6 +569,33 @@ several languages rather than inheriting any one of them wholesale.
   uppercase-vs-lowercase mismatch would already be wrong regardless of
   the target's kind, since Ziman's grammar depends on casing alone to
   parse a struct literal versus a function call.
+- **`byte` — a fifth scalar type, but deliberately not a sixth numeric
+  one.** Motivated by wanting to represent raw octets (a UUID's bytes,
+  the output of a future `random_bytes` native function) — `[int]` would
+  work but says nothing about the 0-255 range invariant, and every
+  numeric type Ziman has added so far (`bigint`, `decimal`) required a
+  full systematic sweep (lexer suffix, parser, `Value` union, typecheck,
+  interpreter) for something whose only concrete use case right now is
+  "hold one element of a byte array" — a real cost, so the type earns
+  its keep by being unsigned (0-255, not Java's signed -128..127, a
+  well-known footgun any real octet-shaped data would immediately hit)
+  and by deliberately **not** getting `+ - * / %`, unary `-`, `< > <=
+  >=`, or `abs`/`min`/`max`. Ziman has no operator overloading, so
+  giving `byte` arithmetic would force an answer to a question nothing
+  actually needs answered yet: does `byte + byte` wrap mod 256 (silent
+  truncation, which Ziman avoids elsewhere) or saturate (arbitrary for
+  an operation nothing calls)? Leaving it unanswered by not building
+  the operators at all is the same "don't decide until a requirement
+  arises" posture as the Ord/Cmp/trait question. What *is* supported —
+  `==`/`!=`, `hash`, `str`/`print`/`format`, and a saturating cast
+  to/from `int` (`300 as byte` is `255`, matching
+  `bignum_to_i64_saturating`'s "clamp, don't wrap" precedent for every
+  other narrowing numeric cast) — is exactly what a raw-data type needs:
+  construct it, compare it, display it, move it in and out of `int`.
+  Also composes for free with everything generics already built: `byte`
+  satisfies `Eq`+`Hash`, so `HashMap<byte, V>` and `[byte]`
+  equality/`contains` work with no new code beyond adding `TY_BYTE` to
+  the existing scalar-kind checks.
 
 ## Deliberately deferred (not v0)
 

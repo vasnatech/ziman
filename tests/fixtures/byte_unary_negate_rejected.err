@@ -1,0 +1,1 @@
+unary '-' requires an int, float, bigint, or decimal operand, found byte

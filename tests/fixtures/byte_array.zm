@@ -1,0 +1,7 @@
+fn main() {
+    val arr: [byte] = [200b, 55b, 0b, 255b]
+    print(arr)
+    print(len(arr))
+    print(contains(arr, 55b))
+    print(contains(arr, 56b))
+}

@@ -1,0 +1,4 @@
+fn main() {
+    val a: byte = 5b
+    print(-a)
+}

@@ -160,6 +160,12 @@ yet, so there's nothing to call *except* a name), no indexed/field
   with a trailing `d` (`19.99d`, `20d`) — never bare digits or a bare
   fractional literal, which always mean `int`/`float`. See "Numbers"
   below.
+- `byte` — unsigned, 0-255. A literal is written with a trailing `b`
+  (`200b`) — never bare digits, which always mean `int`. Unlike the
+  other four scalar types above, not a number to compute with: no
+  arithmetic, no `abs`/`min`/`max`, just construction, `==`/`!=`,
+  `hash`, `str`/`print`/`format`, and a cast to/from `int`. See
+  "Numbers" below.
 - `[T]` — a growable, homogeneous, indexed array of `T`; nests freely
   (`[[int]]` is an array of arrays of `int`). Value semantics, like every
   other type in Ziman: assigning or passing an array always yields an
@@ -193,11 +199,13 @@ yet, so there's nothing to call *except* a name), no indexed/field
   amount of user-definable generics would ever let you express in pure
   Ziman. See "Concurrency" below.
 - No implicit conversion between any scalar type. `x as float` / `x as
-  int` / `x as bigint` / `x as decimal` are the only casts, and only
-  between `int`, `float`, `bigint`, and `decimal` (never arrays,
-  structs, enums, Results, or Channels). Every cast between two of
-  these four is lossy in at least one direction — see "Numbers" below
-  for exactly how each one is.
+  int` / `x as bigint` / `x as decimal` are the only casts among
+  `int`/`float`/`bigint`/`decimal` (never arrays, structs, enums,
+  Results, or Channels) — every cast between two of these four is lossy
+  in at least one direction, see "Numbers" below for exactly how.
+  `byte` only casts to/from `int` (`x as byte`/`x as int`), not the
+  other three — `int as byte` saturates to `[0, 255]` rather than
+  wrapping.
 
 ## Numbers
 
@@ -298,6 +306,49 @@ fn main() {
 - **Composes with everything else already built**: a `decimal` field in
   a struct, a `decimal` array element, a generic type argument
   (`Box<decimal>`), and a `HashMap<K, decimal>` value all work.
+
+`byte` is a fifth scalar type, but a deliberately different kind of one
+from the four numeric types above: unsigned, 0-255, and **not a number
+to compute with** — no arithmetic operators, no `abs`/`min`/`max`. It
+exists to represent raw octets (a UUID's bytes, cryptographically random
+bytes) where "what's the sum of these two bytes" is a meaningless
+question but "are these the same byte" and "print this byte" aren't.
+
+```
+fn main() {
+    val flag: byte = 200b
+    val arr: [byte] = [200b, 55b, 0b, 255b]
+    print(arr)              // [200, 55, 0, 255]
+    print(300 as byte)      // 255 -- saturates, doesn't wrap
+    print(-5 as byte)       // 0
+}
+```
+
+- **A literal needs the `b` suffix, always** — `200b` — never bare
+  `200`, which means `int`. No suffix on a fractional literal (`19.99b`
+  is not a byte literal at all; the lexer only recognizes `b` after a
+  whole-number-shaped literal, same as `n` for `bigint`). **Out-of-range
+  is a compile-time error**: `300b` fails to parse ("byte literal 300b
+  is out of range (must be 0-255)") rather than silently wrapping or
+  truncating — unlike a cast (below), a literal's value is already
+  fully known at parse time, so there's no ambiguity about what "out of
+  range" should do.
+- **Supports `== !=`, `str`, `hash`, and casting to/from `int` only** —
+  no `+ - * / %`, no unary `-`, no `< > <= >=`, no `abs`/`min`/`max`.
+  Ziman has no operator overloading, so a type either gets the full
+  numeric operator set or none of it; `byte` deliberately gets none of
+  it, since nothing that needs a `byte` (so far) needs arithmetic on
+  one — see docs/DESIGN.md's "byte" entry for the full reasoning.
+- **`int as byte` saturates to `[0, 255]` rather than wrapping** — `300
+  as byte` is `255`, `-5 as byte` is `0` — same "clamp, don't silently
+  wrap" precedent `bigint as int` already set. `byte as int` is always
+  exact (every byte value fits in an `int`). No cast to/from
+  `float`/`bigint`/`decimal` — nothing needs one, and adding one would
+  just be unused code.
+- **Composes with everything else already built**: a `byte` field in a
+  struct, a `[byte]` array (`==`/`contains` work, since `byte` is
+  scalar), a generic type argument (`Box<byte>`), and a
+  `HashMap<byte, V>` key (it satisfies both `Eq` and `Hash`) all work.
 
 ## Arrays
 
@@ -1015,10 +1066,10 @@ a type error.
   arguments must already be `string`; there's no auto-stringify (that
   would be the same implicit-coercion problem `+` avoids, just moved to a
   function). Use `str` to convert first.
-- `str(x) -> string` — converts an `int`, `float`, `bool`, `bigint`, or
-  `decimal` to its display string. Rejects an argument that's already a
-  `string` (there should be exactly one way to get a string from a
-  value, not two).
+- `str(x) -> string` — converts an `int`, `float`, `bool`, `bigint`,
+  `decimal`, or `byte` to its display string. Rejects an argument that's
+  already a `string` (there should be exactly one way to get a string
+  from a value, not two).
 - `format(fmt, args...) -> string` — the only variable-arity call in
   Ziman. `fmt` **must be a string literal** (not a variable or any other
   computed value) containing zero or more `{}` placeholders; the number
@@ -1053,21 +1104,22 @@ a type error.
 - `contains(s: string, needle: string) -> bool` / `contains(arr: [T], x:
   T) -> bool` — substring test, or array membership test via `==`. The
   array form requires `T` to be a scalar
-  (`int`/`float`/`bool`/`string`/`bigint`/`decimal`) — same restriction
-  as array `==`/`!=`, since only scalars have a well-defined equality
-  in v0.
+  (`int`/`float`/`bool`/`string`/`bigint`/`decimal`/`byte`) — same
+  restriction as array `==`/`!=`, since only scalars have a well-defined
+  equality in v0.
 - `hash(x: T) -> int` — a hash of `x`; `T` is `int`, `float`, `bool`,
-  `string`, `bigint`, `decimal`, or a type parameter bounded by `Hash`
-  (see "Generics" above). Not cryptographic and not stable across a
-  future language version, so never persist a hash — only use it within
-  a single program run (e.g. `collections.HashMap<K, V>`'s bucket
+  `string`, `bigint`, `decimal`, `byte`, or a type parameter bounded by
+  `Hash` (see "Generics" above). Not cryptographic and not stable across
+  a future language version, so never persist a hash — only use it
+  within a single program run (e.g. `collections.HashMap<K, V>`'s bucket
   index).
 - `abs(x: T) -> T` — absolute value; `T` is `int`, `float`, `bigint`, or
-  `decimal`.
+  `decimal`. Not `byte` — see "Numbers" above for why.
 - `min(a: T, b: T) -> T` / `max(a: T, b: T) -> T` — `T` is `int`,
   `float`, `bigint`, or `decimal`; both arguments must be the same `T`,
   no implicit mixing between any of the four (consistent with the
-  language's general no-implicit-coercion rule).
+  language's general no-implicit-coercion rule). Not `byte` — see
+  "Numbers" above.
 - `floor(x: float) -> int` / `ceil(x: float) -> int` / `round(x: float)
   -> int` — round towards negative infinity / positive infinity /
   nearest (ties away from zero). All three take only `float` (an `int`

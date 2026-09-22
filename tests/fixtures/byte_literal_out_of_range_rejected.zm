@@ -1,0 +1,4 @@
+fn main() {
+    val x: byte = 300b
+    print(x)
+}

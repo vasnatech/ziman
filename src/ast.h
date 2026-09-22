@@ -14,6 +14,10 @@ typedef enum {
     TY_STRING,
     TY_BIGINT, /* arbitrary-precision integer -- see src/bignum.h */
     TY_DECIMAL, /* arbitrary-precision decimal -- see src/decimal.h */
+    TY_BYTE, /* unsigned, 0-255 -- deliberately not a number to compute
+              * with: no arithmetic operators, no abs/min/max, just
+              * construction, ==/!=, hash, str/print/format, and a cast
+              * to/from int. See docs/DESIGN.md's "byte" entry. */
     TY_ARRAY,
     TY_STRUCT,
     TY_RESULT,
@@ -121,6 +125,7 @@ typedef enum {
     EXPR_BOOL,
     EXPR_BIGINT,
     EXPR_DECIMAL,
+    EXPR_BYTE,
     EXPR_IDENT,
     EXPR_UNARY,
     EXPR_BINARY,
@@ -168,6 +173,7 @@ struct Expr {
         int bool_val;
         BigNum bigint_val; /* computed once, directly from the literal's raw digits, at parse time */
         Decimal decimal_val; /* likewise, computed once at parse time */
+        int byte_val; /* 0-255, range-checked at parse time */
         char *ident_name;
         struct { Op op; Expr *left; Expr *right; } binary;
         struct { Op op; Expr *operand; } unary;

@@ -1,1 +1,1 @@
-'hash' expects int, float, bool, string, bigint, decimal, or a type parameter bounded by 'Hash', found T
+'hash' expects int, float, bool, string, bigint, decimal, byte, or a type parameter bounded by 'Hash', found T

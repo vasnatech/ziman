@@ -10,6 +10,7 @@ typedef enum {
     TOK_FLOAT_LIT,
     TOK_BIGINT_LIT, /* digits followed immediately by 'n', e.g. `12345678901234567890n` */
     TOK_DECIMAL_LIT, /* digits (optionally with a '.') followed immediately by 'd', e.g. `19.99d`, `20d` */
+    TOK_BYTE_LIT, /* digits followed immediately by 'b', e.g. `200b`; range-checked 0-255 by the parser */
     TOK_STRING_LIT,
     TOK_IDENT,
 
@@ -43,6 +44,7 @@ typedef enum {
     TOK_KW_STRING,
     TOK_KW_BIGINT,
     TOK_KW_DECIMAL,
+    TOK_KW_BYTE,
 
     /* punctuation */
     TOK_LPAREN,

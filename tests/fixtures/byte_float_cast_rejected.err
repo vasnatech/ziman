@@ -1,0 +1,1 @@
+cannot cast byte to float (only casts between int/float/bigint/decimal, or int/byte, are supported)

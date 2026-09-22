@@ -40,6 +40,9 @@ struct Value {
         int64_t i;
         double f;
         int b; /* 0 or 1 */
+        int by; /* 0-255, unsigned -- embedded, not heap, same reasoning
+                  * as `b`: no union growth, since `i`/`f`/every pointer
+                  * member here are already 8 bytes. */
         char *s; /* heap, NUL-terminated */
         BigNum *bi; /* heap; kept as a pointer (not embedded) so this union
                      * -- and every Value in the interpreter, not just
@@ -106,6 +109,7 @@ Value value_bool(int b);
 Value value_string(char *s);
 Value value_bigint(BigNum n); /* copies `n` onto the heap; caller keeps owning `n`'s own digits */
 Value value_decimal(Decimal d); /* likewise, copies `d` onto the heap */
+Value value_byte(int b); /* caller's responsibility to have already range-checked 0-255 */
 Value value_array(Type array_type, ArrayObj *arr);
 Value value_struct(Type struct_type, StructObj *st);
 Value value_result(Type result_type, ResultObj *res);
