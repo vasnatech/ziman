@@ -1,0 +1,5 @@
+use time.zoneoffset_parse
+
+fn main() {
+    print(unwrap(zoneoffset_parse("+05:00:00")))
+}

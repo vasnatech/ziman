@@ -16,7 +16,7 @@ describe() {
         random) echo "One native function reading real OS entropy (\`/dev/urandom\`) -- Ziman's first source of genuine non-determinism." ;;
         uuid) echo "RFC 4122 v4 UUIDs, written in pure Ziman on top of \`random\` -- version/variant bits set with plain integer arithmetic, since Ziman has no bitwise operators." ;;
         clock) echo "One native function reading the system clock (\`clock_gettime\`) -- Ziman's other source of genuine non-determinism." ;;
-        time) echo "Seven \`java.time\`-shaped types (\`LocalDate\`, \`LocalTime\`, \`LocalDateTime\`, \`Duration\`, \`Instant\`, \`ZoneOffset\`, \`ZoneId\`), written in pure Ziman on top of \`clock\`. \`ZoneOffset\` only -- no IANA-style \`ZoneId\` with DST rules." ;;
+        time) echo "Seven \`java.time\`-shaped types (\`LocalDate\`, \`LocalTime\`, \`LocalDateTime\`, \`Duration\`, \`Instant\`, \`ZoneOffset\`, \`ZoneId\`), written in pure Ziman on top of \`clock\`. \`ZoneOffset\` only -- no IANA-style \`ZoneId\` with DST rules. Every type has a fixed ISO-8601 \`_to_string\`/\`_parse\` pair; \`LocalDate\`/\`LocalTime\`/\`LocalDateTime\`/\`Instant\` also get a general \`_format\`/\`_parse_pattern\` pair (see the \`iso_*_pattern\` vals) for a custom year/month/day/hour/minute/second pattern." ;;
         json) echo "A JSON parser/serializer (\`Json\`, a genuinely recursive enum), written in pure Ziman -- no native code needed. \`\\uXXXX\` unicode escapes and \`==\`/\`!=\` on \`Json\` are the two known gaps." ;;
         number) echo "Shared formatting/parsing across \`int\`/\`float\`/\`bigint\`/\`decimal\`/\`byte\`, written in pure Ziman on top of each type's own \`str()\`. \`NumberFormat\`/\`parse_pattern\` cover thousands separators and forced decimal places (a small subset of DecimalFormat-style patterns); \`byte_to_hex\`/\`int_to_hex\`/\`bigint_to_hex\` (and their \`_from_hex\` inverses) cover hex for the three integral types." ;;
         *) echo "" ;;
@@ -29,10 +29,10 @@ cat <<'EOF'
 Auto-generated from each `corelib/*.zm` file's own `pub` declarations by
 `tools/gen_corelib_reference.sh` -- **don't hand-edit the signature
 blocks below**; regenerate with `make corelib-reference` after changing
-any core module (adding, removing, or renaming a `pub struct`/`pub fn`/
-`pub native fn`). This is a signature lookup, not an explanation --
-see docs/SYNTAX.md for full semantics and docs/DESIGN.md for why each
-module is shaped the way it is.
+any core module (adding, removing, or renaming a `pub struct`/`pub enum`/
+`pub fn`/`pub native fn`/`pub val`). This is a signature lookup, not an
+explanation -- see docs/SYNTAX.md for full semantics and docs/DESIGN.md
+for why each module is shaped the way it is.
 
 `use <module>` resolves any of these with no local file needed (see
 docs/SYNTAX.md's "Modules" -- "Bundled core module"); a per-name import
@@ -68,6 +68,7 @@ for f in corelib/*.zm; do
             print line
             print ""
         }
+        /^pub val/ { print; print "" }
     ' "$f"
     echo '```'
 done

@@ -3,10 +3,10 @@
 Auto-generated from each `corelib/*.zm` file's own `pub` declarations by
 `tools/gen_corelib_reference.sh` -- **don't hand-edit the signature
 blocks below**; regenerate with `make corelib-reference` after changing
-any core module (adding, removing, or renaming a `pub struct`/`pub fn`/
-`pub native fn`). This is a signature lookup, not an explanation --
-see docs/SYNTAX.md for full semantics and docs/DESIGN.md for why each
-module is shaped the way it is.
+any core module (adding, removing, or renaming a `pub struct`/`pub enum`/
+`pub fn`/`pub native fn`/`pub val`). This is a signature lookup, not an
+explanation -- see docs/SYNTAX.md for full semantics and docs/DESIGN.md
+for why each module is shaped the way it is.
 
 `use <module>` resolves any of these with no local file needed (see
 docs/SYNTAX.md's "Modules" -- "Bundled core module"); a per-name import
@@ -167,9 +167,19 @@ pub native fn random_bytes(n: int) -> [byte]
 
 ## `time`
 
-Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneOffset` only -- no IANA-style `ZoneId` with DST rules.
+Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneOffset` only -- no IANA-style `ZoneId` with DST rules. Every type has a fixed ISO-8601 `_to_string`/`_parse` pair; `LocalDate`/`LocalTime`/`LocalDateTime`/`Instant` also get a general `_format`/`_parse_pattern` pair (see the `iso_*_pattern` vals) for a custom year/month/day/hour/minute/second pattern.
 
 ```
+pub val iso_date_pattern = "yyyy-MM-dd"
+
+pub val iso_time_pattern = "HH:mm:ss"
+
+pub val iso_time_nanos_pattern = "HH:mm:ss.SSSSSSSSS"
+
+pub val iso_datetime_pattern = "yyyy-MM-ddTHH:mm:ss"
+
+pub val iso_datetime_nanos_pattern = "yyyy-MM-ddTHH:mm:ss.SSSSSSSSS"
+
 pub struct LocalDate {
     year: int
     month: int
@@ -194,6 +204,12 @@ pub fn localdate_diff_days(a: LocalDate, b: LocalDate) -> int
 
 pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int
 
+pub fn localdate_format(d: LocalDate, pattern: string) -> string
+
+pub fn localdate_parse_pattern(s: string, pattern: string) -> Result<LocalDate, string>
+
+pub fn localdate_parse(s: string) -> Result<LocalDate, string>
+
 pub fn localdate_to_string(d: LocalDate) -> string
 
 pub struct LocalTime {
@@ -217,6 +233,12 @@ pub fn localtime_diff_nanos(a: LocalTime, b: LocalTime) -> int
 
 pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int
 
+pub fn localtime_format(t: LocalTime, pattern: string) -> string
+
+pub fn localtime_parse_pattern(s: string, pattern: string) -> Result<LocalTime, string>
+
+pub fn localtime_parse(s: string) -> Result<LocalTime, string>
+
 pub fn localtime_to_string(t: LocalTime) -> string
 
 pub struct Duration {
@@ -237,6 +259,8 @@ pub fn duration_subtract(a: Duration, b: Duration) -> Duration
 pub fn duration_compare(a: Duration, b: Duration) -> int
 
 pub fn duration_to_string(d: Duration) -> string
+
+pub fn duration_parse(s: string) -> Result<Duration, string>
 
 pub struct LocalDateTime {
     date: LocalDate
@@ -263,6 +287,12 @@ pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int
 
 pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration
 
+pub fn localdatetime_format(dt: LocalDateTime, pattern: string) -> string
+
+pub fn localdatetime_parse_pattern(s: string, pattern: string) -> Result<LocalDateTime, string>
+
+pub fn localdatetime_parse(s: string) -> Result<LocalDateTime, string>
+
 pub fn localdatetime_to_string(dt: LocalDateTime) -> string
 
 pub struct ZoneOffset {
@@ -279,6 +309,8 @@ pub fn zoneoffset_compare(a: ZoneOffset, b: ZoneOffset) -> int
 
 pub fn zoneoffset_to_string(z: ZoneOffset) -> string
 
+pub fn zoneoffset_parse(s: string) -> Result<ZoneOffset, string>
+
 pub struct ZoneId {
     name: string
 }
@@ -288,6 +320,8 @@ pub fn zoneid_utc() -> ZoneId
 pub fn zoneid_to_offset(z: ZoneId) -> ZoneOffset
 
 pub fn zoneid_to_string(z: ZoneId) -> string
+
+pub fn zoneid_parse(s: string) -> Result<ZoneId, string>
 
 pub struct Instant {
     seconds: int
@@ -309,6 +343,12 @@ pub fn instant_compare(a: Instant, b: Instant) -> int
 pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
 
 pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant
+
+pub fn instant_format(i: Instant, offset: ZoneOffset, pattern: string) -> string
+
+pub fn instant_parse_pattern(s: string, pattern: string) -> Result<Instant, string>
+
+pub fn instant_parse(s: string) -> Result<Instant, string>
 
 pub fn instant_to_string(i: Instant) -> string
 

@@ -30,6 +30,21 @@
 // Calendar year is assumed non-negative throughout (no BCE support) --
 // undocumented territory nothing here needs, so it's not handled rather
 // than silently mishandled.
+//
+// Formatting and parsing: every type has a fixed ISO-8601-shaped
+// `_to_string`/`_parse` pair (no arguments beyond the value/string
+// itself) plus, for the three calendar-shaped types (`LocalDate`,
+// `LocalTime`, `LocalDateTime`) and `Instant`, a general `_format`/
+// `_parse_pattern` pair taking an explicit pattern string -- see
+// format_fields/parse_fields below for the pattern language itself.
+// The ISO pair is implemented *in terms of* the general one (via the
+// `iso_*_pattern` global vals below), one engine rather than two
+// independently-maintained implementations of "what does an ISO date
+// look like." `Duration`/`ZoneOffset`/`ZoneId` only get the fixed ISO
+// pair -- their `_to_string` shapes ("PT...S", "Z"/"+HH:MM", a bare
+// zone name) aren't calendar patterns in the same sense, so a general
+// pattern language wouldn't fit them the way it fits a year/month/day/
+// hour/minute/second breakdown.
 
 use clock.now_raw
 
@@ -63,6 +78,186 @@ fn pad_left(n: int, width: int) -> string {
     }
     return s
 }
+
+// The pattern language format_fields/parse_fields share -- deliberately
+// small, fixed-width-only (no Java-style "letter count changes meaning"
+// -- M vs MM vs MMM vs MMMM mean four different things there; here
+// there's exactly one recognized run length per letter and nothing
+// else), and with no month/day names or locale-awareness at all:
+//
+//   yyyy       4-digit zero-padded year
+//   MM         2-digit zero-padded month
+//   dd         2-digit zero-padded day
+//   HH         2-digit zero-padded hour (0-23)
+//   mm         2-digit zero-padded minute
+//   ss         2-digit zero-padded second
+//   SSSSSSSSS  9-digit zero-padded nanosecond-of-second
+//
+// Every token's pattern-string length equals its own rendered-output
+// length exactly (each is fixed-width in both directions) -- a
+// deliberate property, not a coincidence: instant_parse_pattern below
+// relies on `len(pattern)` alone to know exactly where the calendar
+// part of an instant string ends and its zone-offset suffix begins,
+// with no separator to search for. Anything else in a pattern is
+// copied through literally, character by character, with no escaping
+// mechanism -- none of the separators any pattern here actually needs
+// ("-", ":", ".", "T") collide with a token letter, so there's nothing
+// to escape. A pattern with a *different* run length of one of these
+// letters (e.g. three `S`s) matches no token and falls through to the
+// literal case too, rather than erroring -- a narrow, documented
+// scope cut, not a trap that's been guarded against.
+fn matches_token(pattern: string, i: int, token: string) -> bool {
+    val tlen = len(token)
+    if i + tlen > len(pattern) {
+        return false
+    }
+    return substring(pattern, i, i + tlen) == token
+}
+
+fn format_fields(year: int, month: int, day: int, hour: int, minute: int, second: int, nano: int, pattern: string) -> string {
+    var out = ""
+    var i = 0
+    val plen = len(pattern)
+    while i < plen {
+        if matches_token(pattern, i, "yyyy") {
+            out = concat(out, pad_left(year, 4))
+            i = i + 4
+        } else if matches_token(pattern, i, "MM") {
+            out = concat(out, pad_left(month, 2))
+            i = i + 2
+        } else if matches_token(pattern, i, "dd") {
+            out = concat(out, pad_left(day, 2))
+            i = i + 2
+        } else if matches_token(pattern, i, "HH") {
+            out = concat(out, pad_left(hour, 2))
+            i = i + 2
+        } else if matches_token(pattern, i, "mm") {
+            out = concat(out, pad_left(minute, 2))
+            i = i + 2
+        } else if matches_token(pattern, i, "ss") {
+            out = concat(out, pad_left(second, 2))
+            i = i + 2
+        } else if matches_token(pattern, i, "SSSSSSSSS") {
+            out = concat(out, pad_left(nano, 9))
+            i = i + 9
+        } else {
+            out = concat(out, substring(pattern, i, i + 1))
+            i = i + 1
+        }
+    }
+    return out
+}
+
+struct ParsedFields {
+    year: int
+    month: int
+    day: int
+    hour: int
+    minute: int
+    second: int
+    nano: int
+}
+
+fn parse_fixed_width_int(s: string, start: int, width: int) -> Result<int, string> {
+    if start + width > len(s) {
+        return err(format("'{}' is too short (expected {} more character(s))", s, width))
+    }
+    return parse_int(substring(s, start, start + width))
+}
+
+fn parse_fields(s: string, pattern: string) -> Result<ParsedFields, string> {
+    var year = 0
+    var month = 0
+    var day = 0
+    var hour = 0
+    var minute = 0
+    var second = 0
+    var nano = 0
+    var pi = 0
+    var si = 0
+    val plen = len(pattern)
+    while pi < plen {
+        if matches_token(pattern, pi, "yyyy") {
+            val r = parse_fixed_width_int(s, si, 4)
+            if !is_ok(r) {
+                return err(format("invalid year in '{}': {}", s, unwrap_err(r)))
+            }
+            year = unwrap(r)
+            pi = pi + 4
+            si = si + 4
+        } else if matches_token(pattern, pi, "MM") {
+            val r = parse_fixed_width_int(s, si, 2)
+            if !is_ok(r) {
+                return err(format("invalid month in '{}': {}", s, unwrap_err(r)))
+            }
+            month = unwrap(r)
+            pi = pi + 2
+            si = si + 2
+        } else if matches_token(pattern, pi, "dd") {
+            val r = parse_fixed_width_int(s, si, 2)
+            if !is_ok(r) {
+                return err(format("invalid day in '{}': {}", s, unwrap_err(r)))
+            }
+            day = unwrap(r)
+            pi = pi + 2
+            si = si + 2
+        } else if matches_token(pattern, pi, "HH") {
+            val r = parse_fixed_width_int(s, si, 2)
+            if !is_ok(r) {
+                return err(format("invalid hour in '{}': {}", s, unwrap_err(r)))
+            }
+            hour = unwrap(r)
+            pi = pi + 2
+            si = si + 2
+        } else if matches_token(pattern, pi, "mm") {
+            val r = parse_fixed_width_int(s, si, 2)
+            if !is_ok(r) {
+                return err(format("invalid minute in '{}': {}", s, unwrap_err(r)))
+            }
+            minute = unwrap(r)
+            pi = pi + 2
+            si = si + 2
+        } else if matches_token(pattern, pi, "ss") {
+            val r = parse_fixed_width_int(s, si, 2)
+            if !is_ok(r) {
+                return err(format("invalid second in '{}': {}", s, unwrap_err(r)))
+            }
+            second = unwrap(r)
+            pi = pi + 2
+            si = si + 2
+        } else if matches_token(pattern, pi, "SSSSSSSSS") {
+            val r = parse_fixed_width_int(s, si, 9)
+            if !is_ok(r) {
+                return err(format("invalid nanosecond fraction in '{}': {}", s, unwrap_err(r)))
+            }
+            nano = unwrap(r)
+            pi = pi + 9
+            si = si + 9
+        } else {
+            if si >= len(s) || substring(s, si, si + 1) != substring(pattern, pi, pi + 1) {
+                return err(format("'{}' does not match pattern '{}' at position {}", s, pattern, pi))
+            }
+            pi = pi + 1
+            si = si + 1
+        }
+    }
+    if si != len(s) {
+        return err(format("'{}' has trailing content after matching pattern '{}'", s, pattern))
+    }
+    return ok(ParsedFields { year: year, month: month, day: day, hour: hour, minute: minute, second: second, nano: nano })
+}
+
+// The fixed shapes every existing `_to_string` produces, now also the
+// default patterns their matching `_parse`/`_format` pair uses -- one
+// engine, not two independently-maintained implementations of "what
+// does an ISO date look like." `pub` so application code can also
+// pass them straight to `_format`/`_parse_pattern` instead of writing
+// the pattern out again.
+pub val iso_date_pattern = "yyyy-MM-dd"
+pub val iso_time_pattern = "HH:mm:ss"
+pub val iso_time_nanos_pattern = "HH:mm:ss.SSSSSSSSS"
+pub val iso_datetime_pattern = "yyyy-MM-ddTHH:mm:ss"
+pub val iso_datetime_nanos_pattern = "yyyy-MM-ddTHH:mm:ss.SSSSSSSSS"
 
 // Howard Hinnant's days-from-civil / civil-from-days algorithm (public
 // domain, used in libc++'s <chrono>), adapted to Ziman's truncating
@@ -178,8 +373,25 @@ pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int {
     return localdate_to_epoch_day(a) - localdate_to_epoch_day(b)
 }
 
+pub fn localdate_format(d: LocalDate, pattern: string) -> string {
+    return format_fields(d.year, d.month, d.day, 0, 0, 0, 0, pattern)
+}
+
+pub fn localdate_parse_pattern(s: string, pattern: string) -> Result<LocalDate, string> {
+    val fields_r = parse_fields(s, pattern)
+    if !is_ok(fields_r) {
+        return err(unwrap_err(fields_r))
+    }
+    val f = unwrap(fields_r)
+    return localdate_of(f.year, f.month, f.day)
+}
+
+pub fn localdate_parse(s: string) -> Result<LocalDate, string> {
+    return localdate_parse_pattern(s, iso_date_pattern)
+}
+
 pub fn localdate_to_string(d: LocalDate) -> string {
-    return format("{}-{}-{}", pad_left(d.year, 4), pad_left(d.month, 2), pad_left(d.day, 2))
+    return localdate_format(d, iso_date_pattern)
 }
 
 pub struct LocalTime {
@@ -252,11 +464,36 @@ pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int {
     return localtime_diff_nanos(a, b)
 }
 
+pub fn localtime_format(t: LocalTime, pattern: string) -> string {
+    return format_fields(0, 0, 0, t.hour, t.minute, t.second, t.nano, pattern)
+}
+
+pub fn localtime_parse_pattern(s: string, pattern: string) -> Result<LocalTime, string> {
+    val fields_r = parse_fields(s, pattern)
+    if !is_ok(fields_r) {
+        return err(unwrap_err(fields_r))
+    }
+    val f = unwrap(fields_r)
+    return localtime_of(f.hour, f.minute, f.second, f.nano)
+}
+
+// `to_string`'s own output only includes the fractional part when
+// `nano != 0` (see localtime_to_string below), so parsing has to
+// detect which of the two fixed shapes it's looking at the same way --
+// checking for "." is safe here since neither shape ever contains one
+// otherwise.
+pub fn localtime_parse(s: string) -> Result<LocalTime, string> {
+    if contains(s, ".") {
+        return localtime_parse_pattern(s, iso_time_nanos_pattern)
+    }
+    return localtime_parse_pattern(s, iso_time_pattern)
+}
+
 pub fn localtime_to_string(t: LocalTime) -> string {
     if t.nano == 0 {
-        return format("{}:{}:{}", pad_left(t.hour, 2), pad_left(t.minute, 2), pad_left(t.second, 2))
+        return localtime_format(t, iso_time_pattern)
     }
-    return format("{}:{}:{}.{}", pad_left(t.hour, 2), pad_left(t.minute, 2), pad_left(t.second, 2), pad_left(t.nano, 9))
+    return localtime_format(t, iso_time_nanos_pattern)
 }
 
 pub struct Duration {
@@ -318,7 +555,11 @@ pub fn duration_compare(a: Duration, b: Duration) -> int {
 // durations are shown by their true magnitude with a leading '-'
 // (`{seconds: -1, nanos: 500000000}`, i.e. -0.5s, prints "PT-0.5...S",
 // not the misleading "PT-1.5...S" a naive field-by-field print would
-// give), the same care java.time.Duration.toString() takes.
+// give), the same care java.time.Duration.toString() takes. No
+// pattern-based `duration_format` -- a total elapsed-seconds count
+// isn't a calendar field breakdown the way year/month/day/hour/
+// minute/second are, so the pattern language above doesn't fit it;
+// `duration_parse` below is this function's exact inverse instead.
 pub fn duration_to_string(d: Duration) -> string {
     if d.seconds >= 0 {
         if d.nanos == 0 {
@@ -332,6 +573,49 @@ pub fn duration_to_string(d: Duration) -> string {
     val mag_seconds = -d.seconds - 1
     val mag_nanos = 1000000000 - d.nanos
     return format("PT-{}.{}S", mag_seconds, pad_left(mag_nanos, 9))
+}
+
+// The exact inverse of duration_to_string, including its negative-
+// duration magnitude transform: a negative-with-fraction string stores
+// `mag_seconds = -true_seconds - 1` and `mag_nanos = 1e9 - true_nanos`,
+// so parsing has to invert that arithmetic rather than just negating
+// the parsed seconds -- verified against duration_to_string's own
+// worked example (-0.5s prints "PT-0.500000000S") before trusting it.
+pub fn duration_parse(s: string) -> Result<Duration, string> {
+    if len(s) < 3 || substring(s, 0, 2) != "PT" || substring(s, len(s) - 1, len(s)) != "S" {
+        return err(format("invalid duration '{}': expected PT<seconds>[.<nanos>]S", s))
+    }
+    val body = substring(s, 2, len(s) - 1)
+    var negative = false
+    var rest = body
+    if len(rest) > 0 && substring(rest, 0, 1) == "-" {
+        negative = true
+        rest = substring(rest, 1, len(rest))
+    }
+    val parts = split(rest, ".")
+    val mag_seconds_r = parse_int(parts[0])
+    if !is_ok(mag_seconds_r) {
+        return err(format("invalid duration '{}': bad seconds", s))
+    }
+    val mag_seconds = unwrap(mag_seconds_r)
+    if len(parts) == 1 {
+        if negative {
+            return ok(normalize(-mag_seconds, 0))
+        }
+        return ok(normalize(mag_seconds, 0))
+    }
+    if len(parts) != 2 {
+        return err(format("invalid duration '{}'", s))
+    }
+    val mag_nanos_r = parse_int(parts[1])
+    if !is_ok(mag_nanos_r) {
+        return err(format("invalid duration '{}': bad nanos", s))
+    }
+    val mag_nanos = unwrap(mag_nanos_r)
+    if negative {
+        return ok(normalize(-mag_seconds - 1, 1000000000 - mag_nanos))
+    }
+    return ok(normalize(mag_seconds, mag_nanos))
 }
 
 pub struct LocalDateTime {
@@ -396,8 +680,39 @@ pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration {
     return normalize(day_diff * 86400, nano_diff)
 }
 
+pub fn localdatetime_format(dt: LocalDateTime, pattern: string) -> string {
+    return format_fields(dt.date.year, dt.date.month, dt.date.day, dt.time.hour, dt.time.minute, dt.time.second, dt.time.nano, pattern)
+}
+
+pub fn localdatetime_parse_pattern(s: string, pattern: string) -> Result<LocalDateTime, string> {
+    val fields_r = parse_fields(s, pattern)
+    if !is_ok(fields_r) {
+        return err(unwrap_err(fields_r))
+    }
+    val f = unwrap(fields_r)
+    val date_r = localdate_of(f.year, f.month, f.day)
+    if !is_ok(date_r) {
+        return err(unwrap_err(date_r))
+    }
+    val time_r = localtime_of(f.hour, f.minute, f.second, f.nano)
+    if !is_ok(time_r) {
+        return err(unwrap_err(time_r))
+    }
+    return ok(LocalDateTime { date: unwrap(date_r), time: unwrap(time_r) })
+}
+
+pub fn localdatetime_parse(s: string) -> Result<LocalDateTime, string> {
+    if contains(s, ".") {
+        return localdatetime_parse_pattern(s, iso_datetime_nanos_pattern)
+    }
+    return localdatetime_parse_pattern(s, iso_datetime_pattern)
+}
+
 pub fn localdatetime_to_string(dt: LocalDateTime) -> string {
-    return format("{}T{}", localdate_to_string(dt.date), localtime_to_string(dt.time))
+    if dt.time.nano == 0 {
+        return localdatetime_format(dt, iso_datetime_pattern)
+    }
+    return localdatetime_format(dt, iso_datetime_nanos_pattern)
 }
 
 pub struct ZoneOffset {
@@ -439,6 +754,37 @@ pub fn zoneoffset_to_string(z: ZoneOffset) -> string {
     return format("{}{}:{}", sign, pad_left(total / 3600, 2), pad_left((total % 3600) / 60, 2))
 }
 
+// The exact inverse of zoneoffset_to_string: "Z" for UTC, otherwise
+// exactly "+HH:MM"/"-HH:MM" (6 characters, no seconds component --
+// zoneoffset_to_string never emits one either).
+pub fn zoneoffset_parse(s: string) -> Result<ZoneOffset, string> {
+    if s == "Z" {
+        return ok(zoneoffset_utc())
+    }
+    if len(s) != 6 {
+        return err(format("invalid zone offset '{}': expected 'Z' or '+HH:MM'/'-HH:MM'", s))
+    }
+    val sign_char = substring(s, 0, 1)
+    if sign_char != "+" && sign_char != "-" {
+        return err(format("invalid zone offset '{}': expected 'Z' or '+HH:MM'/'-HH:MM'", s))
+    }
+    if substring(s, 3, 4) != ":" {
+        return err(format("invalid zone offset '{}': expected 'Z' or '+HH:MM'/'-HH:MM'", s))
+    }
+    val hours_r = parse_int(substring(s, 1, 3))
+    val minutes_r = parse_int(substring(s, 4, 6))
+    if !is_ok(hours_r) || !is_ok(minutes_r) {
+        return err(format("invalid zone offset '{}': expected 'Z' or '+HH:MM'/'-HH:MM'", s))
+    }
+    var hours = unwrap(hours_r)
+    var minutes = unwrap(minutes_r)
+    if sign_char == "-" {
+        hours = -hours
+        minutes = -minutes
+    }
+    return zoneoffset_of_hours_minutes(hours, minutes)
+}
+
 // The only zone that will ever exist here -- see the header comment
 // for why a real IANA ZoneId isn't in scope. `zoneid_to_offset` always
 // returns UTC's offset regardless of `z`'s own name, since "UTC" is
@@ -457,6 +803,16 @@ pub fn zoneid_to_offset(z: ZoneId) -> ZoneOffset {
 
 pub fn zoneid_to_string(z: ZoneId) -> string {
     return z.name
+}
+
+// There being exactly one legal value ("UTC") makes this mostly a
+// formality, but every other type here has a _parse, so this does too
+// rather than being a silent exception to the pattern.
+pub fn zoneid_parse(s: string) -> Result<ZoneId, string> {
+    if s != "UTC" {
+        return err(format("invalid zone id '{}': only 'UTC' is supported", s))
+    }
+    return ok(zoneid_utc())
 }
 
 pub struct Instant {
@@ -511,7 +867,60 @@ pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instan
     return instant_of(total_seconds, dt.time.nano)
 }
 
+// Formats `i` as wall-clock time under `offset` (via
+// instant_to_localdatetime), using `pattern` for the calendar part,
+// then always appends the offset's own string form -- the same shape
+// instant_to_string below already uses, just with `pattern` and
+// `offset` as explicit parameters instead of hardcoding
+// iso_datetime_pattern/zoneoffset_utc().
+pub fn instant_format(i: Instant, offset: ZoneOffset, pattern: string) -> string {
+    val dt = instant_to_localdatetime(i, offset)
+    return concat(localdatetime_format(dt, pattern), zoneoffset_to_string(offset))
+}
+
+// `pattern` covers only the calendar part; the zone-offset suffix is
+// always parsed separately (via zoneoffset_parse) and used to convert
+// the parsed wall-clock time into an absolute Instant -- not something
+// a caller chooses per call, since the string's own suffix already
+// says what it is. Slicing at exactly `len(pattern)` characters works
+// because every pattern token's string length equals its rendered
+// length (see the pattern-language comment above) -- no need to search
+// for where the calendar part ends.
+pub fn instant_parse_pattern(s: string, pattern: string) -> Result<Instant, string> {
+    val plen = len(pattern)
+    if len(s) < plen {
+        return err(format("'{}' is too short to match pattern '{}'", s, pattern))
+    }
+    val datetime_part = substring(s, 0, plen)
+    val offset_part = substring(s, plen, len(s))
+    val dt_r = localdatetime_parse_pattern(datetime_part, pattern)
+    if !is_ok(dt_r) {
+        return err(unwrap_err(dt_r))
+    }
+    val offset_r = zoneoffset_parse(offset_part)
+    if !is_ok(offset_r) {
+        return err(unwrap_err(offset_r))
+    }
+    return ok(localdatetime_to_instant(unwrap(dt_r), unwrap(offset_r)))
+}
+
+// Accepts either offset shape zoneoffset_parse does ("Z" or a real
+// "+HH:MM"/"-HH:MM"), not just the "Z" instant_to_string always
+// produces -- a real external Instant/OffsetDateTime-shaped string
+// (from an actual API, not just round-tripping this module's own
+// output) may carry a genuine offset, and there's no extra cost to
+// accepting it.
+pub fn instant_parse(s: string) -> Result<Instant, string> {
+    if contains(s, ".") {
+        return instant_parse_pattern(s, iso_datetime_nanos_pattern)
+    }
+    return instant_parse_pattern(s, iso_datetime_pattern)
+}
+
 pub fn instant_to_string(i: Instant) -> string {
     val dt = instant_to_localdatetime(i, zoneoffset_utc())
-    return format("{}T{}Z", localdate_to_string(dt.date), localtime_to_string(dt.time))
+    if dt.time.nano == 0 {
+        return instant_format(i, zoneoffset_utc(), iso_datetime_pattern)
+    }
+    return instant_format(i, zoneoffset_utc(), iso_datetime_nanos_pattern)
 }

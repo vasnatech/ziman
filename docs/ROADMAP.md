@@ -819,6 +819,12 @@ a time mid-implementation:
   wired into `health-record-backend-ziman` yet~~ — done the same day:
   `Patient.date_of_birth`/`created_at` are `time.LocalDate`/
   `time.Instant` now, closing that project's last documented gap.
+  ~~No way to parse a date string back into a `LocalDate`~~ — resolved
+  later, once `request.zm`'s own hand-rolled `parse_iso_date` surfaced
+  it as a real, concrete need: every type got a `_parse` (the exact
+  inverse of its `_to_string`) plus, for the calendar-shaped types and
+  `Instant`, a general pattern-based `_format`/`_parse_pattern` pair —
+  see docs/DESIGN.md's "time" formatting/parsing entry.
 - ~~**`json` core module — a parser/serializer, motivated by
   `health-record-backend-ziman`'s "no JSON, no real request/response
   types" gap.**~~ Implemented (docs/SYNTAX.md "JSON", docs/DESIGN.md's

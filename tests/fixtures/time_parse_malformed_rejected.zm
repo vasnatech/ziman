@@ -1,0 +1,5 @@
+use time.localdate_parse
+
+fn main() {
+    print(unwrap(localdate_parse("not-a-date")))
+}

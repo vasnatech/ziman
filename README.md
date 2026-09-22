@@ -109,7 +109,13 @@ named zones with DST — a data-maintenance problem, not a code-volume
 one), `Instant`/`Duration` as `{seconds: int, nanos: int}` rather than
 a packed number (matching both C's `struct timespec` and `java.time`'s
 own shape), and calendar math via Howard Hinnant's public-domain
-days-from-civil algorithm. None of the nine new scalar/struct types
+days-from-civil algorithm. Every type has a fixed ISO-8601 `_to_string`/
+`_parse` pair, and the three calendar-shaped types plus `Instant` also
+get a general `_format`/`_parse_pattern` pair for a caller-chosen
+pattern (`yyyy`/`MM`/`dd`/`HH`/`mm`/`ss`/`SSSSSSSSS`, fixed-width only
+— no `java.time.DateTimeFormatter`-style "letter count changes
+meaning"); the ISO pair is implemented on top of the general one via
+`pub val iso_*_pattern` presets, one engine rather than two. None of the nine new scalar/struct types
 across `byte`/`uuid`/`time` (`byte`, `Uuid`, and the `time` module's
 seven) got `<`/`>` — every one instead gets an explicit `_compare(a, b)
 -> int`, since Ziman still has no Ord/Cmp bound and none of them were

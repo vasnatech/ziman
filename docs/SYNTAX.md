@@ -933,6 +933,42 @@ docs/DESIGN.md's "time" entry), and every type is `{ ...: int }`-shaped
 (plus `Instant`/`Duration`'s `bigint`-free `{ seconds: int, nanos: int
 }`), never a single packed number.
 
+Every type has a fixed ISO-8601-shaped `_to_string`/`_parse` pair (no
+extra arguments, and each is the other's exact inverse). The three
+calendar-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`) and
+`Instant` also get a general `_format(value, pattern) -> string` /
+`_parse_pattern(s, pattern) -> Result<Value, string>` pair, taking an
+explicit pattern string — the ISO pair is implemented *in terms of*
+these, via one of five `pub val iso_*_pattern` presets
+(`iso_date_pattern`, `iso_time_pattern`/`iso_time_nanos_pattern`,
+`iso_datetime_pattern`/`iso_datetime_nanos_pattern`), rather than as a
+second, independently-maintained implementation. The pattern language
+itself is deliberately small and fixed-width-only — nothing like
+`java.time.DateTimeFormatter`'s "letter count changes meaning" (`M` vs
+`MM` vs `MMM` vs `MMMM` are four different things there; here there's
+exactly one recognized run length per letter):
+
+```
+yyyy       4-digit zero-padded year
+MM         2-digit zero-padded month
+dd         2-digit zero-padded day
+HH         2-digit zero-padded hour (0-23)
+mm         2-digit zero-padded minute
+ss         2-digit zero-padded second
+SSSSSSSSS  9-digit zero-padded nanosecond-of-second
+```
+
+Anything else in a pattern is copied through literally, character by
+character — no escaping mechanism, since none of the separators any
+pattern here needs (`"-"`, `":"`, `"."`, `"T"`) collide with a token
+letter. A different run length of one of these letters (e.g. three
+`S`s) matches no token and is copied through literally too, rather than
+erroring — a documented scope cut, not a guarded-against trap. There's
+no month/day name support and no locale-awareness at all. `Duration`/
+`ZoneOffset`/`ZoneId` only get the fixed ISO `_to_string`/`_parse` pair
+— their shapes (`"PT...S"`, `"Z"`/`"+HH:MM"`, a bare zone name) aren't
+a calendar field breakdown, so the pattern language doesn't fit them.
+
 ```
 use time.LocalDate
 use time.localdate_of
@@ -955,7 +991,10 @@ fn main() {
   `2024-02-29`, never `2024-03-02`), `localdate_diff_days`,
   `localdate_compare` (negative/zero/positive), `localdate_to_epoch_day`/
   `localdate_from_epoch_day` (days since 1970-01-01, negative before
-  it), `localdate_is_leap_year`, `localdate_to_string` (`"YYYY-MM-DD"`).
+  it), `localdate_is_leap_year`, `localdate_to_string` (`"YYYY-MM-DD"`)
+  and its exact inverse `localdate_parse(s) -> Result<LocalDate,
+  string>`, plus `localdate_format(d, pattern)`/`localdate_parse_pattern
+  (s, pattern)` for a custom pattern (see above).
   The epoch-day conversion is Howard Hinnant's public-domain
   days-from-civil algorithm (used in libc++'s `<chrono>`), correct for
   the whole proleptic Gregorian calendar, translated directly into
@@ -969,7 +1008,10 @@ fn main() {
   `java.time.LocalTime.plusHours` — use `LocalDateTime`'s add functions
   when day rollover needs to be tracked), `localtime_diff_nanos`,
   `localtime_compare`, `localtime_to_string` (`"HH:MM:SS"`, or
-  `"HH:MM:SS.nnnnnnnnn"` when `nano != 0`).
+  `"HH:MM:SS.nnnnnnnnn"` when `nano != 0`) and its inverse
+  `localtime_parse` (auto-detects which of those two shapes it's
+  looking at), plus `localtime_format`/`localtime_parse_pattern` for a
+  custom pattern.
 - **`LocalDateTime { date: LocalDate, time: LocalTime }`** — the two
   combined, still no zone. `localdatetime_of(date, time)`,
   `localdatetime_add_hours`/`_minutes`/`_seconds`/`_nanos` (these DO
@@ -980,7 +1022,9 @@ fn main() {
   `localdatetime_diff(a, b) -> Duration` (elapsed wall-clock time
   treating both sides as the same fixed calendar — well-defined without
   a zone, not a real cross-zone elapsed-time computation),
-  `localdatetime_to_string` (`"YYYY-MM-DDTHH:MM:SS"`).
+  `localdatetime_to_string` (`"YYYY-MM-DDTHH:MM:SS"`) and its inverse
+  `localdatetime_parse`, plus `localdatetime_format`/
+  `localdatetime_parse_pattern` for a custom pattern.
 - **`Duration { seconds: int, nanos: int }`** — a length of time, not a
   point. `nanos` is always kept in `[0, 999999999]`; `seconds` alone
   carries the overall sign — so `-0.5` seconds is `{seconds: -1, nanos:
@@ -997,7 +1041,11 @@ fn main() {
   true magnitude with a leading `-`, e.g. `{seconds: -1, nanos:
   500000000}` — which *is* `-0.5`s — prints `"PT-0.5...S"`, not the
   misleading `"PT-1.5...S"` a naive field-by-field print would give,
-  the same care `java.time.Duration.toString()` takes).
+  the same care `java.time.Duration.toString()` takes), and its exact
+  inverse `duration_parse` (has to invert that same magnitude transform
+  for a negative-with-fraction duration, not just negate the parsed
+  seconds — verified against `duration_to_string`'s own worked example
+  before trusting it).
 - **`Instant { seconds: int, nanos: int }`** — a point on the UTC
   timeline. Same `{seconds, nanos}` shape and invariant as `Duration`,
   not a single `bigint` nanoseconds-since-epoch count — see
@@ -1013,7 +1061,15 @@ fn main() {
   `ZoneOffset` actually does something — shifting between a UTC instant
   and wall-clock time in some zone), `instant_to_string` (UTC ISO-8601,
   `"YYYY-MM-DDTHH:MM:SS[.nnnnnnnnn]Z"`, via `instant_to_localdatetime`
-  with `zoneoffset_utc()`).
+  with `zoneoffset_utc()`) and its inverse `instant_parse` (accepts
+  either `"Z"` or a real `"+HH:MM"`/`"-HH:MM"` offset suffix, not just
+  the `"Z"` `instant_to_string` always produces — a string from a real
+  external API may carry a genuine offset), plus `instant_format(i,
+  offset, pattern)`/`instant_parse_pattern(s, pattern)` for a custom
+  pattern applied to the calendar part, with the offset always handled
+  separately (formatted via `zoneoffset_to_string` and appended;
+  parsed via `zoneoffset_parse` from whatever follows the pattern's own
+  fixed rendered length).
 - **`ZoneOffset { total_seconds: int }`** — a fixed UTC offset
   (`+05:30`), not a named zone with rules. `zoneoffset_utc()`,
   `zoneoffset_of_seconds(total_seconds) -> Result<ZoneOffset, string>`
@@ -1023,14 +1079,17 @@ fn main() {
   `(-5, -30)` or `(-5, 0)` — the same footgun
   `java.time.ZoneOffset.ofHoursMinutes` itself guards against),
   `zoneoffset_compare`, `zoneoffset_to_string` (`"Z"` for UTC,
-  `"+HH:MM"`/`"-HH:MM"` otherwise).
+  `"+HH:MM"`/`"-HH:MM"` otherwise) and its exact inverse
+  `zoneoffset_parse`.
 - **`ZoneId { name: string }`** — a named zone, of which `"UTC"` is the
   *only* value that exists. `zoneid_utc()` is the only constructor (no
   `zoneid_of(name: string)` — there's nothing else valid to construct,
   and inventing that validation surface ahead of a real second zone
   would be speculative), `zoneid_to_offset(z) -> ZoneOffset` (always
   returns UTC's offset — the only case that can ever occur),
-  `zoneid_to_string`.
+  `zoneid_to_string`/`zoneid_parse` (the latter just validates its
+  argument is exactly `"UTC"` — a formality given there's only one
+  legal value, included anyway so every type here has the same pair).
 - **No `<`/`>` on any of these seven types.** Ziman has no Ord/Cmp
   bound, and this wasn't the forcing case to build one. Every type
   instead gets a `_compare(a, b) -> int` function (negative/zero/

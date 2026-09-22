@@ -985,6 +985,73 @@ several languages rather than inheriting any one of them wholesale.
   map that grows large and then drains, but a narrower, lower-priority
   one than unbounded growth was, and left as a deliberate scope cut
   rather than designed around.
+- **`time` — a fixed-width, no-escaping pattern language for
+  formatting/parsing, plus a real gap closed: there was no way to parse
+  a date string back into a `LocalDate` at all.** Motivated by a
+  concrete, already-flagged gap: `health-record-backend-ziman`'s
+  `request.zm` had its own hand-rolled `parse_iso_date` (split on
+  `"-"`, three `parse_int` calls, then `localdate_of`), with a comment
+  reading *"a general ISO-date parser could live in ziman's own `time`
+  core module someday."* Every type already had a fixed `_to_string`;
+  none had the inverse.
+  Two related but separately-scoped features, not one: (1) an ISO
+  `_parse` for every type, the exact inverse of its existing
+  `_to_string`, and (2) a general `_format`/`_parse_pattern` pair (on
+  the three calendar-shaped types plus `Instant`) for a caller-chosen,
+  non-ISO pattern — closer in shape to `number.zm`'s own
+  `NumberFormat`/`parse_pattern`. Built (2) first, then implemented (1)
+  *on top of it* — `localdate_to_string`/`localdate_parse` etc. are now
+  thin wrappers calling `localdate_format`/`localdate_parse_pattern`
+  with one of five `pub val iso_*_pattern` presets — one formatting/
+  parsing engine per type, not two independently-maintained
+  implementations of the same ISO shape. Verified this refactor was
+  byte-for-byte behavior-preserving by running the full existing test
+  suite (which checks several `_to_string` outputs for exact string
+  equality) before writing a single new test.
+  The pattern language itself is deliberately tiny and fixed-width-only
+  in both directions — a pattern token's string length always equals
+  its own rendered length (`yyyy` → 4 chars in, 4 chars out; `MM` → 2
+  and 2; and so on) — unlike `java.time.DateTimeFormatter`, where a
+  letter's *repeat count* changes its meaning entirely (`M` is a bare
+  numeric month, `MM` is zero-padded, `MMM`/`MMMM` are short/full month
+  *names* — a completely different kind of feature, needing a name
+  table and locale awareness this module has no reason to build). This
+  fixed-width property isn't just simpler, it's *used*:
+  `instant_parse_pattern` slices an instant string into its calendar
+  part and its zone-offset suffix at exactly `len(pattern)` characters,
+  with no separator to search for, precisely because that length is
+  guaranteed to match what the pattern actually renders. No escaping
+  mechanism either — every literal character a real pattern needs
+  (`-`, `:`, `.`, `T`) already falls outside the six recognized letters
+  (`y`/`M`/`d`/`H`/`m`/`s`/`S`), so nothing needs escaping; a
+  differently-repeated run of one of those letters (three `S`s, say)
+  just doesn't match a token and passes through literally rather than
+  erroring — a documented scope cut in the same spirit as `number.zm`'s
+  pattern subset, not a validated-against trap.
+  `Duration`/`ZoneOffset`/`ZoneId` deliberately don't get the general
+  pattern pair, only the ISO `_to_string`/`_parse` one: `Duration`'s
+  `"PT{seconds}[.{nanos}]S"` is a total-elapsed-time count, not a
+  calendar field breakdown, and `ZoneOffset`/`ZoneId`'s shapes are each
+  just one or two fixed forms — neither fits a year/month/day/hour/
+  minute/second pattern language, the same way `Duration` never got a
+  `DateTimeFormatter`-equivalent in java.time itself either.
+  `duration_parse` was the fiddliest of the new `_parse` functions to
+  get right: `duration_to_string`'s negative-duration case doesn't
+  print the true seconds/nanos, it prints a *magnitude* transform
+  (`mag_seconds = -true_seconds - 1`, `mag_nanos = 1e9 - true_nanos`,
+  so that `-0.5s` prints the honest `"PT-0.500000000S"` instead of a
+  misleading `"PT-1.5...S"`) — parsing has to invert that arithmetic
+  exactly, not just negate the parsed magnitude back, verified against
+  the `-0.5s` worked example directly before trusting it.
+  `instant_parse`/`instant_parse_pattern` accept either offset shape
+  `zoneoffset_parse` does (`"Z"` or a real `"+HH:MM"`/`"-HH:MM"`), not
+  only the `"Z"` `instant_to_string` itself always produces — a string
+  from a genuine external API (not just this module's own output round-
+  tripping) may carry a real offset, and accepting it costs nothing
+  extra given `zoneoffset_parse` already exists.
+  Applied immediately: `health-record-backend-ziman`'s `request.zm` had
+  its hand-rolled `parse_iso_date` deleted outright in favor of the new
+  `time.localdate_parse` — the exact motivating gap, closed.
 
 ## Deliberately deferred (not v0)
 
