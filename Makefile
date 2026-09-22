@@ -12,25 +12,32 @@ all: $(BIN)
 $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ -lm -pthread
 
-# Bundled core modules (see src/corelib.c): each corelib/*.zm file is
-# embedded as a C string constant, generated fresh from its .zm source
-# every build so the two never drift. Declared as a prerequisite of
-# every object file (not just corelib.o) so a from-clean build always
+# Bundled core modules (see src/corelib.c): each corelib/<name>.zm file
+# is embedded as a C string constant, generated fresh from its .zm
+# source every build so the two never drift. Declared as a prerequisite
+# of every object file (not just corelib.o) so a from-clean build always
 # generates it before anything tries to #include it -- the normal
 # -MMD/-MP header tracking only kicks in from the second build onward,
-# once a .d file already mentions it.
-$(OBJ): src/collections_source.h
+# once a .d file already mentions it. Add a new core module by adding
+# its name here and one line to corelib.c's CORE_MODULES table.
+CORELIB_MODULES := collections io
+CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 
-# A #define, not a `static const char *`, so it's usable as a constant
-# initializer in corelib.c's CORE_MODULES table -- a plain variable
-# can't be (ISO C requires a static initializer to itself be a constant
-# expression). Emitted as one long line rather than one string literal
-# per source line to avoid needing backslash-newline continuations in a
-# macro definition.
-src/collections_source.h: corelib/collections.zm
-	awk 'BEGIN { printf "/* Generated from corelib/collections.zm -- do not edit directly. */\n#define COLLECTIONS_SOURCE \"" } \
+$(OBJ): $(CORELIB_HEADERS)
+
+# corelib/<name>.zm -> src/<name>_source.h, a
+# `#define <NAME>_SOURCE "..."` (module name uppercased). A #define, not
+# a `static const char *`, so it's usable as a constant initializer in
+# corelib.c's CORE_MODULES table -- a plain variable can't be (ISO C
+# requires a static initializer to itself be a constant expression).
+# Emitted as one long line rather than one string literal per source
+# line, to avoid needing backslash-newline continuations in a macro
+# definition.
+src/%_source.h: corelib/%.zm
+	awk -v mod="$*" -v macro="$(shell echo $* | tr a-z A-Z)_SOURCE" \
+	    'BEGIN { printf "/* Generated from corelib/%s.zm -- do not edit directly. */\n#define %s \"", mod, macro } \
 	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); printf "%s\\n", $$0 } \
-	     END { print "\"" }' corelib/collections.zm > $@
+	     END { print "\"" }' $< > $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -54,4 +61,4 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	/tmp/ziman_decimal_test
 
 clean:
-	rm -f $(BIN) src/*.o src/*.d src/collections_source.h
+	rm -f $(BIN) src/*.o src/*.d src/*_source.h

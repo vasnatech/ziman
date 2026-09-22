@@ -792,19 +792,19 @@ fn main() {
   `read_file` reports a missing/unreadable file as a `Result` (see
   "Result" below) rather than crashing the whole program, since that's
   an expected, recoverable condition; `write_file` is still fatal on
-  failure for now (disk full, permissions), not yet migrated. `io.zm`
-  itself hasn't been moved onto the core-module mechanism below, so a
-  project that wants it still needs its own copy alongside the entry
-  file for now.
+  failure for now (disk full, permissions). `io.zm` is one of the
+  bundled core modules below, so a project needs no local copy of it.
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
   name exists. `collections` (`Box<T>`, `Option<T>`, `HashMap<K, V>`,
-  `HashSet<T>` — see "Generics" above) is the first one: any project can
-  `use collections` and call `collections.HashMap<K, V>` etc. with no
-  local file of its own. It's still an ordinary, qualified module in
-  every other respect — `use collections`, always `collections.Name`,
-  never a bare unqualified name the way the prelude's functions are.
+  `HashSet<T>` — see "Generics" above) and `io` (`read_file`/
+  `write_file`, above) are the two so far: any project can `use
+  collections` or `use io` with no local file of its own. Each is still
+  an ordinary, qualified module in every other respect — `use io`,
+  always `io.read_file`, never a bare unqualified name the way the
+  prelude's functions are (though a per-name import, above, can still
+  bind one bare on purpose).
 
 ## Result
 

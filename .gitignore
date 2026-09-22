@@ -3,4 +3,4 @@ src/*.o
 *.o
 src/*.d
 *.d
-src/collections_source.h
+src/*_source.h

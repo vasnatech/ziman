@@ -57,11 +57,12 @@ and what's deliberately left undecided). A small `collections` module
 built on this (`corelib/collections.zm`) provides `Box<T>`, `Option<T>`,
 `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (bucket-array
 based, O(1) average-case lookup rather than a linear `Eq`-only scan).
-It's also the first *bundled core module*: its source is embedded into
-the `ziman` binary at build time, so `use collections` works from any
-project with no local copy needed — a project-relative file of the same
-name still wins if one exists, but this is the fallback that means one
-usually doesn't have to.
+It's also one of two *bundled core modules* (alongside `io`, mentioned
+above): each one's source is embedded into the `ziman` binary at build
+time, so `use collections`/`use io` work from any project with no local
+copy needed — a project-relative file of the same name still wins if
+one exists, but this is the fallback that means one usually doesn't
+have to.
 
 Builtins ship two ways. A small core set — `print`, `str`, `format`,
 `len`, `push`, `insert`, `set`, `remove`, `contains`, `abs`, `min`,

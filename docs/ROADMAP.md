@@ -33,10 +33,9 @@ one that never lands. The architecture to get there:
   know or care whether a given module is native or pure Ziman. Still
   missing: the actual syscalls (raw sockets, process/env access) beyond
   basic file I/O. The "no bundled-stdlib search path" gap this used to
-  note is now half-closed — see "Bundled core modules" further below:
-  the mechanism exists and `collections` uses it, but `io.zm`'s
-  signature file itself hasn't been moved onto it yet, so every project
-  that wants `io` still keeps its own copy alongside its entry file.
+  note is now closed — see "Bundled core modules" further below: `io.zm`
+  is one of the two modules embedded in the `ziman` binary, so no
+  project needs its own copy of it anymore.
   `io.read_file` now returns `Result<string, string>` (a missing file is
   recoverable, not fatal — see "Recoverable error handling" below);
   `write_file` is not yet migrated and still fails fatally on a write
@@ -314,19 +313,21 @@ a time mid-implementation:
     first**, against the directory containing the entry file passed to
     `ziman`, falling back to a bundled core module (see "Bundled core
     modules" below) if no project file by that name exists — `use
-    collections` now finds one this way with zero project-local files;
-    `use io` still can't, since `io.zm` itself hasn't been moved onto
-    the same mechanism yet.
+    collections` and `use io` both find one this way now, with zero
+    project-local files.
   - **Every cross-module reference is qualified — `user.greet(u)`, never
-    a bare `greet(u)` that happens to resolve to some import.** Same
-    "derivable from the line itself" reasoning as `concat`/`str` existing
-    instead of overloading `+`. There is no unqualified/wildcard import
-    form. Implementation note: a qualified reference looks identical to
-    plain field access (`p.x`) until the parser sees what follows the
-    second identifier, so it's parsed speculatively and backed out of
-    (restoring position) if it doesn't match either `IDENT "("` or an
-    uppercase `TYPE_IDENT "{"` — confirmed not to disturb plain field
-    access via the existing struct test suite passing unchanged.
+    a bare `greet(u)` that happens to resolve to some import — unless
+    explicitly imported by name (`use models/user.greet`, see "Per-name
+    imports" below), which is still visible right there in the file's own
+    `use` list, not silent.** Same "derivable from the line itself"
+    reasoning as `concat`/`str` existing instead of overloading `+`.
+    There is no wildcard import form (`use mod.*`). Implementation note:
+    a qualified reference looks identical to plain field access (`p.x`)
+    until the parser sees what follows the second identifier, so it's
+    parsed speculatively and backed out of (restoring position) if it
+    doesn't match either `IDENT "("` or an uppercase `TYPE_IDENT "{"` —
+    confirmed not to disturb plain field access via the existing struct
+    test suite passing unchanged.
   - **Name-collision aliasing reuses `as`** (`use admin/user as
     admin_user`) — new meaning for an existing keyword, never ambiguous
     with cast-`as` since they only appear in different grammatical
@@ -543,18 +544,23 @@ a time mid-implementation:
   any other module — a bare `HashMap` only becomes possible via a
   separate, later mechanism (per-name imports, below), never as a
   side effect of this one — this is a stdlib, not language-level
-  machinery, so the usual `use`/`pub` boundary still applies. Every fixture that used to vendor its own
-  copy of `collections.zm` (`multifile_collections`,
-  `multifile_collections_stress`, `multifile_bigint_hashmap`,
-  `multifile_decimal_hashmap`) had it deleted and now resolves through
-  the fallback with no changes to the fixture's own code — the clearest
-  evidence the mechanism is a drop-in replacement for vendoring, not
-  just a demo of one. `io.zm` (the `io` native module's signature file)
-  is the other concrete case this same mechanism would resolve — still
-  vendored per-project (`examples/native_io/io.zm`, three test
-  fixtures, all byte-identical) — not done yet since only `collections`
-  was asked for, but the corelib table is a one-line addition away from
-  covering it too.
+  machinery, so the usual `use`/`pub` boundary still applies. Every
+  fixture that used to vendor its own copy of `collections.zm`
+  (`multifile_collections`, `multifile_collections_stress`,
+  `multifile_bigint_hashmap`, `multifile_decimal_hashmap`) had it
+  deleted and now resolves through the fallback with no changes to the
+  fixture's own code — the clearest evidence the mechanism is a drop-in
+  replacement for vendoring, not just a demo of one.
+  ~~`io.zm` (the `io` native module's signature file) is the other
+  concrete case this mechanism resolves.~~ Done too, the same day: moved
+  from `examples/native_io/io.zm` to `corelib/io.zm`, one line added to
+  `corelib.c`'s `CORE_MODULES` table and to the Makefile's
+  `CORELIB_MODULES` list (which now generalizes the header-generation
+  rule to a pattern rule, `src/%_source.h: corelib/%.zm`, rather than
+  one hardcoded rule per module). The three `native_io_*` test fixtures'
+  vendored `io.zm` copies (all byte-identical to the original) were
+  deleted the same way `collections.zm`'s vendored copies were, and all
+  three still pass unchanged.
 - ~~**Per-name imports (`use path.Name [as alias]`) — closes the
   "generic collection code repeats `collections.` *and* `<K, V>` on
   nearly every line" ergonomics gap the bundled `collections` module

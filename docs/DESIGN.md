@@ -524,7 +524,13 @@ several languages rather than inheriting any one of them wholesale.
   requested `use` path up in a small table. Confirmed as a genuine
   drop-in for vendoring, not just a demo of one: every test fixture that
   used to carry its own copy of `collections.zm` had that copy deleted
-  outright and needed zero other changes to keep passing.
+  outright and needed zero other changes to keep passing. `io.zm` (the
+  `io` native module's signature file, previously vendored the same way)
+  joined the same day, closing the identical gap the module system's own
+  original design write-up had flagged for it — adding a second core
+  module cost one line in the Makefile's module list, one line in
+  `corelib.c`'s table, and turned the Makefile's header-generation rule
+  from one hardcoded case into a real pattern rule.
 - **Per-name imports (`use path.Name [as alias]`) — fixes a real
   ergonomics gap generics exposed, without touching the "always
   qualified" rule.** Generic collection code turned out to be the worst
