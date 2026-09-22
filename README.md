@@ -18,28 +18,54 @@ coercion, "does this function return on every path" analysis), and a
 tree-walking interpreter. Supports functions, `val`/`var` bindings,
 `if`/`else`, `while`, `for` (value/index/index+value forms over an
 array, or a range for a counted loop — `for x in arr`, `for i in 0..n`,
-`for i, x in arr`), `break`/`continue`, the four scalar types (`int`, `float`, `bool`,
-`string`), value-semantics arrays (`[T]`, nestable), plain nominal
-value-semantics `struct`s (named-fields-only construction, `with` for
-non-mutating field updates, no methods/inheritance, field-by-field
-`==`/`!=` when every field is itself comparable), multi-file programs
-via `use path/to/mod` (always-qualified cross-module calls, `pub` for
-exports, project-relative resolution only so far), `native fn` for
-calling into C (a real, minimal `io` module — `read_file`/`write_file`
-— proves it end to end), `Result<T, E>` for recoverable errors
-(`io.read_file` returns one instead of crashing on a missing file,
-variant-then-payload `==`/`!=` when both `T` and `E` are comparable),
-user-declared `enum` tagged unions (concrete/monomorphic only — see
-docs/ROADMAP.md's Generics entry — with enum-qualified construction and
-compiler-generated `is_<Variant>`/`unwrap_<Variant>` accessors, same
-shape `Result` itself uses), real OS-thread concurrency via `spawn` and
-a thread-safe `Channel<T>` (a single-writer/actor pattern — one thread
-owns a piece of mutable state, everyone else reaches it by message —
-rather than shared memory and locks), and a full set of builtins (`print`, `concat`, `str`, `format`, `len`,
-`push`, `insert`, `set`, `remove`, `substring`, `split`, `trim`,
-`to_upper`, `to_lower`, `parse_int`, `parse_float`, `contains`, `abs`,
-`min`, `max`, `floor`, `ceil`, `round`, `channel_new`, `send`, `receive`,
-plus `==`/`!=` on scalar-element arrays). See
+`for i, x in arr`), `break`/`continue`, six scalar types (`int`,
+`float`, `bool`, `string`, plus arbitrary-precision `bigint` and
+`decimal` — `bigint` has `int`'s full operator/builtin surface,
+`decimal` has `float`'s, both modeled on Java's
+`BigInteger`/`BigDecimal`), value-semantics arrays (`[T]`, nestable),
+plain nominal value-semantics `struct`s (named-fields-only
+construction, `with` for non-mutating field updates, no
+methods/inheritance, field-by-field `==`/`!=` when every field is
+itself comparable), multi-file programs via `use path/to/mod`
+(always-qualified cross-module calls, `pub` for exports,
+project-relative resolution only so far), `native fn` for calling into
+C (a real, minimal `io` module — `read_file`/`write_file` — proves it
+end to end), `Result<T, E>` for recoverable errors (`io.read_file`
+returns one instead of crashing on a missing file, variant-then-payload
+`==`/`!=` when both `T` and `E` are comparable), user-declared `enum`
+tagged unions with enum-qualified construction and compiler-generated
+`is_<Variant>`/`unwrap_<Variant>` accessors, same shape `Result` itself
+uses, and real OS-thread concurrency via `spawn` and a thread-safe
+`Channel<T>` (a single-writer/actor pattern — one thread owns a piece
+of mutable state, everyone else reaches it by message — rather than
+shared memory and locks).
+
+`struct`, `enum`, and top-level `fn` can all take type parameters
+(`struct Box<T> { value: T }`), with explicit type arguments required
+at every use site — `Box<int>{ value: 5 }`, `identity<string>(x)` — and
+no inference, since `Value` is runtime-type-erased and nothing is ever
+monomorphized. A type parameter can be bounded with `Eq` and/or `Hash`
+(`<K: Eq + Hash>`) to use `==`/`hash()` on it inside a generic body;
+these are the only two bounds Ziman has — there's no general
+trait/interface system (see docs/DESIGN.md's Generics entry for why,
+and what's deliberately left undecided). A small `collections` module
+built on this (`examples/collections/`) provides `Box<T>`, `Option<T>`,
+`HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (bucket-array
+based, O(1) average-case lookup rather than a linear `Eq`-only scan).
+
+Builtins ship two ways. A small core set — `print`, `str`, `format`,
+`len`, `push`, `insert`, `set`, `remove`, `contains`, `abs`, `min`,
+`max`, `hash`, `channel_new`, `send`, `receive`, plus `==`/`!=` on
+scalar-element arrays — is handled directly by the type checker and
+interpreter, because each of those names needs to work unqualified
+across several types at once (no argument-based overloading exists
+anywhere else in the language). Everything else that has exactly one
+fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
+`parse_decimal`, `floor`, `ceil`, `round`, `decimal_round`, `concat`,
+`substring`, `split`, `trim`, `to_upper`, `to_lower` — instead lives in
+an auto-imported native "prelude" module (`src/prelude.c`): available
+unqualified with no `use`, but otherwise an ordinary `native fn`,
+using the same mechanism the `io` module uses to call into C. See
 [docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately not here yet.
 
 ## Example
