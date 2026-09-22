@@ -303,6 +303,68 @@ a time mid-implementation:
 
 ## Larger, needs its own design pass
 
+- **Memory is never reclaimed while a program runs — fine for a
+  short-lived script, a real problem for the North Star goal of an
+  always-on backend.** Every `Value` payload (`ArrayObj`/`StructObj`/
+  `EnumObj`/`ResultObj`, every `string` buffer) is heap-allocated and
+  never freed, on purpose — see docs/DESIGN.md's "single-writer/actor
+  pattern" entry: *"this interpreter never frees an `ArrayObj`/
+  `StructObj`/`EnumObj`/`ResultObj` once built ... the interpreter is a
+  short-lived process, so the OS reclaims everything at exit."* That's
+  also exactly why sharing a `Value` across a `Channel` needed zero new
+  machinery: nothing frees the thing being pointed to, so a value
+  crossing threads is just a safe pointer copy. The justification holds
+  for `ziman program.zm` today — a CLI invocation that runs to
+  completion and exits. It stops holding the moment a program is meant
+  to run forever, which is the entire point of "write a slice of the
+  health-record backend in Ziman."
+  Concretely, not hypothetically: `health-record-backend-ziman`'s
+  `repository.save()` calls `push(store.patients, p)`, and arrays are
+  immutable — `push` always builds a **brand new backing array**,
+  copying every existing patient's `Value` into it. The moment
+  `run_patient_actor`'s loop reassigns `store = unwrap(result)`, the
+  *previous* array becomes garbage — and is never freed. Across N
+  total creates, that's roughly `1+2+...+N` = O(N²) worth of array
+  backing buffers accumulated over the process's lifetime, on top of
+  every `format`/`concat` call building a response line and every
+  character `parse_json` appends one at a time while unescaping a
+  string. None of this is specific to any one feature (a `s[i]` string-
+  indexing operator, if added, would contribute the exact same way
+  `substring` already does) — it's a property of the whole interpreter,
+  surfaced by asking what happens once `main.zm`'s current "run a fixed
+  handful of operations, then exit" demo shape is replaced by "run
+  forever, serving requests, until killed."
+  The fix Ziman's own existing design actually points toward is
+  **reference counting, not a tracing GC** — and it fits with unusually
+  little downside for this language specifically: every `Value` is
+  immutable once built and every struct/array/enum literal is
+  constructed strictly bottom-up (all of a value's fields must already
+  exist before the value itself can be built), so **the value graph can
+  never contain a cycle**. That's precisely the situation where
+  refcounting has no meaningful weakness compared to a tracing
+  collector (no cycle-collector ever needed) — cycles are the classic
+  reason production languages avoid *pure* refcounting: Python is the
+  textbook example, using refcounting as its primary mechanism but
+  bolting on a second, generational cycle-detecting collector
+  specifically because a mutable object graph can form a cycle (`a.next
+  = b; b.prev = a` keeps both alive forever once nothing else points to
+  either). Ziman's value semantics rule that case out by construction
+  — nothing is ever mutated after being built, so nothing can ever be
+  wired into a cycle — meaning refcounting alone, with no second
+  mechanism bolted on, would actually be *sufficient* here in a way
+  it isn't for a language with mutable references. The cost is real,
+  though: every value-sharing site (`push`/`insert`/`set`, a struct
+  literal or `with` copying a field, a channel `send`, an ordinary
+  `val`/`var` binding or reassignment) needs an increment, and every
+  scope exit or rebinding needs a decrement — a genuinely large,
+  cross-cutting change, comparable in scope to the generics work, not
+  something to fold into a smaller, unrelated feature.
+  Not started, not designed in detail — needs its own pass (representation
+  of the refcount itself, where increments/decrements actually need to be
+  inserted given the interpreter's current "just copy the `Value` struct"
+  sharing style, and whether `Channel<T>`'s cross-thread sharing needs
+  atomic increments/decrements or can stay under the channel's existing
+  mutex) before implementation starts.
 - **Effects visible in function signatures** (which functions do I/O or
   mutate outside their own frame). Real value per DESIGN.md's principles,
   real design cost — needs its own doc before implementation starts. Now
