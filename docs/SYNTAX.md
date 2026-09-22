@@ -848,15 +848,19 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. Four so far: `collections` (`Box<T>`, `Option<T>`,
+  name exists. Six so far: `collections` (`Box<T>`, `Option<T>`,
   `HashMap<K, V>`, `HashSet<T>` — see "Generics" above), `io`
   (`read_file`/`write_file`, above), `random` (`random_bytes(n: int) ->
   [byte]`, the one native function reading real OS entropy — no other
-  source of non-determinism exists to build a PRNG on top of), and
-  `uuid` (`Uuid`, `uuid_new() -> Uuid`, `uuid_to_string(u: Uuid) ->
-  string` — RFC 4122 v4, written in pure Ziman on top of `random`,
-  version/variant bits set with plain integer arithmetic since Ziman has
-  no bitwise operators). Any project can `use` one of these with no
+  source of non-determinism exists to build a PRNG on top of), `uuid`
+  (`Uuid`, `uuid_new() -> Uuid`, `uuid_to_string(u: Uuid) -> string` —
+  RFC 4122 v4, written in pure Ziman on top of `random`, version/variant
+  bits set with plain integer arithmetic since Ziman has no bitwise
+  operators), `clock` (`now_raw() -> [int]`, the one native function
+  reading the system clock — `[seconds, nanos]` from a single
+  `clock_gettime` call), and `time` (`LocalDate`, `LocalTime`,
+  `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId` — see
+  "Date and time" below). Any project can `use` one of these with no
   local file of its own. Each is still an ordinary, qualified module in
   every other respect — `use io`, always `io.read_file`, never a bare
   unqualified name the way the prelude's functions are (though a
@@ -864,6 +868,123 @@ fn main() {
   satisfies `Eq` (structural `==` on its `[byte]` field) but not `Hash`
   (hashing has no derived form for a struct), so it works as a struct
   field compared with `==` but not yet as a `HashMap` key.
+
+## Date and time
+
+The `time` core module (`use time.Name`) provides seven types, modeled
+on `java.time` but scoped down in two deliberate ways: `ZoneOffset`
+only, no IANA-style `ZoneId` with historical/future DST rules (a
+different kind of problem than the rest of the module — see
+docs/DESIGN.md's "time" entry), and every type is `{ ...: int }`-shaped
+(plus `Instant`/`Duration`'s `bigint`-free `{ seconds: int, nanos: int
+}`), never a single packed number.
+
+```
+use time.LocalDate
+use time.localdate_of
+use time.localdate_add_months
+use time.localdate_to_string
+
+fn main() {
+    val d = unwrap(localdate_of(2024, 1, 31))
+    print(localdate_to_string(localdate_add_months(d, 1))) // 2024-02-29
+}
+```
+
+- **`LocalDate { year: int, month: int, day: int }`** — a calendar
+  date, no time, no zone. `localdate_of(year, month, day) ->
+  Result<LocalDate, string>` validates `month` (1–12) and `day` against
+  that month's actual length (leap years handled correctly — the
+  400/100/4 rule). `localdate_add_days`/`_months`/`_years` (the month/
+  year forms clamp the day to the target month's length, same as
+  `java.time.LocalDate.plusMonths` — `2024-01-31` plus one month is
+  `2024-02-29`, never `2024-03-02`), `localdate_diff_days`,
+  `localdate_compare` (negative/zero/positive), `localdate_to_epoch_day`/
+  `localdate_from_epoch_day` (days since 1970-01-01, negative before
+  it), `localdate_is_leap_year`, `localdate_to_string` (`"YYYY-MM-DD"`).
+  The epoch-day conversion is Howard Hinnant's public-domain
+  days-from-civil algorithm (used in libc++'s `<chrono>`), correct for
+  the whole proleptic Gregorian calendar, translated directly into
+  Ziman since it was already written against truncating (toward zero)
+  integer division — exactly what Ziman's `/`/`%` already do.
+- **`LocalTime { hour: int, minute: int, second: int, nano: int }`** —
+  a time of day, no date, no zone. `localtime_of(...) ->
+  Result<LocalTime, string>` validates each field's range (`nano` is
+  0–999999999). `localtime_add_hours`/`_minutes`/`_seconds`/`_nanos`
+  wrap at 24h and silently discard day overflow (same as
+  `java.time.LocalTime.plusHours` — use `LocalDateTime`'s add functions
+  when day rollover needs to be tracked), `localtime_diff_nanos`,
+  `localtime_compare`, `localtime_to_string` (`"HH:MM:SS"`, or
+  `"HH:MM:SS.nnnnnnnnn"` when `nano != 0`).
+- **`LocalDateTime { date: LocalDate, time: LocalTime }`** — the two
+  combined, still no zone. `localdatetime_of(date, time)`,
+  `localdatetime_add_hours`/`_minutes`/`_seconds`/`_nanos` (these DO
+  carry into the date on overflow, unlike `LocalTime`'s own — adding an
+  hour to `23:30` on New Year's Eve correctly lands on next year's
+  `Jan 1`), `localdatetime_add_days`/`_months`/`_years` (delegate to
+  `LocalDate`'s, leaving the time untouched), `localdatetime_compare`,
+  `localdatetime_diff(a, b) -> Duration` (elapsed wall-clock time
+  treating both sides as the same fixed calendar — well-defined without
+  a zone, not a real cross-zone elapsed-time computation),
+  `localdatetime_to_string` (`"YYYY-MM-DDTHH:MM:SS"`).
+- **`Duration { seconds: int, nanos: int }`** — a length of time, not a
+  point. `nanos` is always kept in `[0, 999999999]`; `seconds` alone
+  carries the overall sign — so `-0.5` seconds is `{seconds: -1, nanos:
+  500000000}`, not `{seconds: 0, nanos: -500000000}`. Every
+  constructor/arithmetic function maintains this invariant, which is
+  also exactly why plain `seconds` comparison is a correct total
+  ordering (not just a convenient shortcut) — `nanos` only ever breaks
+  a tie. `duration_of_seconds(seconds, nanos)` normalizes an
+  out-of-range or negative `nanos` rather than rejecting it (there's no
+  invalid input here, unlike `LocalDate`), `duration_zero()`,
+  `duration_add`/`_subtract`/`_negate`, `duration_compare`,
+  `duration_to_string` (`"PT{seconds}[.{nanos}]S"` — ISO-8601-*shaped*,
+  not full ISO-8601 duration support; a negative duration prints its
+  true magnitude with a leading `-`, e.g. `{seconds: -1, nanos:
+  500000000}` — which *is* `-0.5`s — prints `"PT-0.5...S"`, not the
+  misleading `"PT-1.5...S"` a naive field-by-field print would give,
+  the same care `java.time.Duration.toString()` takes).
+- **`Instant { seconds: int, nanos: int }`** — a point on the UTC
+  timeline. Same `{seconds, nanos}` shape and invariant as `Duration`,
+  not a single `bigint` nanoseconds-since-epoch count — see
+  docs/DESIGN.md's "time" entry for why `bigint` was tried first and
+  dropped. `instant_now() -> Instant` reads the real system clock (the
+  `clock` core module's one native function, `clock_gettime` under the
+  hood — Ziman's only source of genuine non-determinism besides
+  `random`), `instant_of(seconds, nanos)` (normalizing, like
+  `Duration`), `instant_add`/`_subtract` (with a `Duration`),
+  `instant_diff(a, b) -> Duration`, `instant_compare`,
+  `instant_to_localdatetime(i, offset: ZoneOffset) -> LocalDateTime` /
+  `localdatetime_to_instant(dt, offset) -> Instant` (the only place a
+  `ZoneOffset` actually does something — shifting between a UTC instant
+  and wall-clock time in some zone), `instant_to_string` (UTC ISO-8601,
+  `"YYYY-MM-DDTHH:MM:SS[.nnnnnnnnn]Z"`, via `instant_to_localdatetime`
+  with `zoneoffset_utc()`).
+- **`ZoneOffset { total_seconds: int }`** — a fixed UTC offset
+  (`+05:30`), not a named zone with rules. `zoneoffset_utc()`,
+  `zoneoffset_of_seconds(total_seconds) -> Result<ZoneOffset, string>`
+  (validated to `±18:00`, matching `java.time.ZoneOffset`'s own limit),
+  `zoneoffset_of_hours_minutes(hours, minutes) -> Result<ZoneOffset,
+  string>` (rejects mismatched signs — `(-5, 30)` is invalid, must be
+  `(-5, -30)` or `(-5, 0)` — the same footgun
+  `java.time.ZoneOffset.ofHoursMinutes` itself guards against),
+  `zoneoffset_compare`, `zoneoffset_to_string` (`"Z"` for UTC,
+  `"+HH:MM"`/`"-HH:MM"` otherwise).
+- **`ZoneId { name: string }`** — a named zone, of which `"UTC"` is the
+  *only* value that exists. `zoneid_utc()` is the only constructor (no
+  `zoneid_of(name: string)` — there's nothing else valid to construct,
+  and inventing that validation surface ahead of a real second zone
+  would be speculative), `zoneid_to_offset(z) -> ZoneOffset` (always
+  returns UTC's offset — the only case that can ever occur),
+  `zoneid_to_string`.
+- **No `<`/`>` on any of these seven types.** Ziman has no Ord/Cmp
+  bound, and this wasn't the forcing case to build one. Every type
+  instead gets a `_compare(a, b) -> int` function (negative/zero/
+  positive, the same convention as C's `strcmp`/`qsort` comparator).
+  `==`/`!=` come free from structural equality on plain `int`/struct
+  fields — no special-casing needed.
+- **Calendar year is assumed non-negative throughout** (no BCE
+  support) — undocumented territory nothing here needs.
 
 ## Result
 

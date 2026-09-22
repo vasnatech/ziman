@@ -638,8 +638,7 @@ a time mid-implementation:
   "random/uuid" entry): two new bundled core modules. `random` is one
   native function, `random_bytes(n: int) -> [byte]`, reading straight
   from `/dev/urandom` — Ziman's first source of genuine
-  non-determinism, and (still) its only one (no clock/time builtin
-  exists to seed a Ziman-side PRNG from instead). `uuid` is pure Ziman
+  non-determinism (`clock`, below, is the second). `uuid` is pure Ziman
   on top of it: a `Uuid` struct (`bytes: [byte]`), `uuid_new()`
   generating an RFC 4122 v4 UUID, `uuid_to_string` formatting the
   canonical dashed-hex string. Sets the version/variant bits with pure
@@ -654,10 +653,35 @@ a time mid-implementation:
   `Uuid` satisfies `Eq` but not `Hash` (see the `byte` entry's "no
   derived hashing for a struct" note) — usable as a struct field
   compared with `==`, e.g. a `Patient.id: Uuid` replacing the
-  `next_id: int` counter `health-record-backend-ziman` currently uses —
-  not yet usable as a `HashMap` key. Not wired into
-  `health-record-backend-ziman` yet; that's the natural next step once
-  it's wanted.
+  `next_id: int` counter `health-record-backend-ziman` used to use —
+  not yet usable as a `HashMap` key. ~~Not wired into
+  `health-record-backend-ziman` yet~~ — done the same day:
+  `Patient.id` is `uuid.Uuid` now, no more counter.
+- ~~**`time`/`clock` core modules — seven `java.time`-shaped types
+  (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`,
+  `ZoneOffset`, `ZoneId`), closing `health-record-backend-ziman`'s last
+  remaining documented gap (a real date type).**~~ Implemented
+  (docs/SYNTAX.md "Date and time", docs/DESIGN.md's "time/clock"
+  entry). `ZoneOffset` only, deliberately — no IANA-style `ZoneId` with
+  DST rules, a fundamentally different (data-maintenance, not
+  code-volume) problem, ruled out up front rather than attempted.
+  `Instant`/`Duration` are `{seconds: int, nanos: int}` (matching both
+  C's `struct timespec` and `java.time`'s own internal shape) after a
+  `bigint`-nanoseconds design was tried and dropped once nanosecond
+  precision was specifically wanted: plain `int` seconds have ~292
+  *billion* years of range with no `bigint` needed at all, `int`
+  nanoseconds-since-epoch would only have ~292. Calendar math
+  (`LocalDate`'s epoch-day conversion) is Howard Hinnant's public-domain
+  days-from-civil algorithm, translated directly into Ziman since it
+  was already written against truncating integer division. One new
+  native primitive, `clock.now_raw() -> [int]` (`[seconds, nanos]` from
+  one atomic `clock_gettime()` call), the same "native returns a small
+  scalar array, pure Ziman gives it a shape" split `random`/`uuid`
+  already established. No `<`/`>` on any of the seven types — each gets
+  an explicit `_compare(a, b) -> int` instead, same "don't reopen
+  Ord/Cmp without a forcing case" posture as everywhere else. Not
+  wired into `health-record-backend-ziman` yet; that's the natural next
+  step once it's wanted.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.

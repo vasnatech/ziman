@@ -1,0 +1,517 @@
+// time.zm -- LocalDate, LocalTime, LocalDateTime, Duration, Instant,
+// ZoneOffset, ZoneId, written in ordinary Ziman (no native code beyond
+// `clock.now_raw`, the one thing that genuinely can't be pure Ziman:
+// reading the system clock). Modeled on java.time, scoped down in two
+// deliberate ways:
+//
+// - ZoneOffset only, no IANA-style ZoneId with historical/future DST
+//   rules. A named political timezone ("America/New_York") encodes
+//   rules that change several times a year worldwide (the IANA tzdata
+//   database) -- embedding or maintaining that from scratch is a
+//   different kind of problem than the rest of this module, not just
+//   more code. `ZoneId` exists here as a thin wrapper, but "UTC" is
+//   the only zone it can ever name.
+// - Instant/Duration are `{ seconds: int, nanos: int }`, matching both
+//   C's own `struct timespec` and java.time's internal shape -- not a
+//   single bigint-nanoseconds count, which is what this project tried
+//   first: `int` (int64) nanoseconds-since-epoch only covers ~292
+//   years, the exact problem Java's own split representation avoids.
+//   `nanos` is always kept in [0, 999999999]; `seconds` carries the
+//   overall sign -- so -0.5s is `{seconds: -1, nanos: 500000000}`, not
+//   `{seconds: 0, nanos: -500000000}`. Every constructor/arithmetic
+//   function funnels through `normalize` below to maintain this.
+//
+// No `<`/`>` on any of these seven types -- Ziman has no Ord/Cmp bound,
+// and this isn't the forcing case to build one. Every type instead gets
+// a `_compare(a, b) -> int` function (negative/zero/positive, the same
+// convention as C's strcmp/qsort comparator), and `==`/`!=` come free
+// from structural equality on plain int/struct fields.
+//
+// Calendar year is assumed non-negative throughout (no BCE support) --
+// undocumented territory nothing here needs, so it's not handled rather
+// than silently mishandled.
+
+use clock.now_raw
+
+fn is_leap_year(year: int) -> bool {
+    if year % 400 == 0 {
+        return true
+    }
+    if year % 100 == 0 {
+        return false
+    }
+    return year % 4 == 0
+}
+
+fn days_in_month(year: int, month: int) -> int {
+    if month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12 {
+        return 31
+    }
+    if month == 4 || month == 6 || month == 9 || month == 11 {
+        return 30
+    }
+    if is_leap_year(year) {
+        return 29
+    }
+    return 28
+}
+
+fn pad_left(n: int, width: int) -> string {
+    var s = str(n)
+    while len(s) < width {
+        s = concat("0", s)
+    }
+    return s
+}
+
+// Howard Hinnant's days-from-civil / civil-from-days algorithm (public
+// domain, used in libc++'s <chrono>), adapted to Ziman's truncating
+// (toward zero) integer division -- exactly the semantics the original
+// C++ was written against, so the translation is direct. Correct for
+// the whole proleptic Gregorian calendar, not just dates after 1970;
+// `epoch_day` is signed (negative for dates before 1970-01-01).
+fn epoch_day_of(year: int, month: int, day: int) -> int {
+    var y = year
+    if month <= 2 {
+        y = y - 1
+    }
+    var era = y / 400
+    if y < 0 {
+        era = (y - 399) / 400
+    }
+    val yoe = y - era * 400
+    var mp = month + 9
+    if month > 2 {
+        mp = month - 3
+    }
+    val doy = (153 * mp + 2) / 5 + day - 1
+    val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+    return era * 146097 + doe - 719468
+}
+
+fn date_of_epoch_day(epoch_day: int) -> LocalDate {
+    var z = epoch_day + 719468
+    var era = z / 146097
+    if z < 0 {
+        era = (z - 146096) / 146097
+    }
+    val doe = z - era * 146097
+    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    val y = yoe + era * 400
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp = (5 * doy + 2) / 153
+    val d = doy - (153 * mp + 2) / 5 + 1
+    var m = mp - 9
+    if mp < 10 {
+        m = mp + 3
+    }
+    var year = y
+    if m <= 2 {
+        year = y + 1
+    }
+    return LocalDate { year: year, month: m, day: d }
+}
+
+pub struct LocalDate {
+    year: int
+    month: int
+    day: int
+}
+
+pub fn localdate_of(year: int, month: int, day: int) -> Result<LocalDate, string> {
+    if month < 1 || month > 12 {
+        return err(format("invalid month: {} (must be 1-12)", month))
+    }
+    val max_day = days_in_month(year, month)
+    if day < 1 || day > max_day {
+        return err(format("invalid day: {} (month {} of {} has {} days)", day, month, year, max_day))
+    }
+    return ok(LocalDate { year: year, month: month, day: day })
+}
+
+pub fn localdate_is_leap_year(year: int) -> bool {
+    return is_leap_year(year)
+}
+
+pub fn localdate_to_epoch_day(d: LocalDate) -> int {
+    return epoch_day_of(d.year, d.month, d.day)
+}
+
+pub fn localdate_from_epoch_day(epoch_day: int) -> LocalDate {
+    return date_of_epoch_day(epoch_day)
+}
+
+pub fn localdate_add_days(d: LocalDate, days: int) -> LocalDate {
+    return date_of_epoch_day(localdate_to_epoch_day(d) + days)
+}
+
+// Clamps the day to the target month's own length, same as
+// java.time.LocalDate.plusMonths -- Jan 31 + 1 month is Feb 28 (or 29),
+// never "Mar 3".
+pub fn localdate_add_months(d: LocalDate, months: int) -> LocalDate {
+    val total_months = (d.year * 12 + (d.month - 1)) + months
+    var y = total_months / 12
+    var m = total_months % 12
+    if m < 0 {
+        m = m + 12
+        y = y - 1
+    }
+    val year = y
+    val month = m + 1
+    var day = d.day
+    val max_day = days_in_month(year, month)
+    if day > max_day {
+        day = max_day
+    }
+    return LocalDate { year: year, month: month, day: day }
+}
+
+pub fn localdate_add_years(d: LocalDate, years: int) -> LocalDate {
+    return localdate_add_months(d, years * 12)
+}
+
+pub fn localdate_diff_days(a: LocalDate, b: LocalDate) -> int {
+    return localdate_to_epoch_day(a) - localdate_to_epoch_day(b)
+}
+
+pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int {
+    return localdate_to_epoch_day(a) - localdate_to_epoch_day(b)
+}
+
+pub fn localdate_to_string(d: LocalDate) -> string {
+    return format("{}-{}-{}", pad_left(d.year, 4), pad_left(d.month, 2), pad_left(d.day, 2))
+}
+
+pub struct LocalTime {
+    hour: int
+    minute: int
+    second: int
+    nano: int
+}
+
+pub fn localtime_of(hour: int, minute: int, second: int, nano: int) -> Result<LocalTime, string> {
+    if hour < 0 || hour > 23 {
+        return err(format("invalid hour: {} (must be 0-23)", hour))
+    }
+    if minute < 0 || minute > 59 {
+        return err(format("invalid minute: {} (must be 0-59)", minute))
+    }
+    if second < 0 || second > 59 {
+        return err(format("invalid second: {} (must be 0-59)", second))
+    }
+    if nano < 0 || nano > 999999999 {
+        return err(format("invalid nano: {} (must be 0-999999999)", nano))
+    }
+    return ok(LocalTime { hour: hour, minute: minute, second: second, nano: nano })
+}
+
+fn nano_of_day(t: LocalTime) -> int {
+    return (t.hour * 3600 + t.minute * 60 + t.second) * 1000000000 + t.nano
+}
+
+// 86400000000000 = nanoseconds per day, inlined everywhere it's needed
+// since Ziman has no top-level `val` to hold it as a named constant.
+fn time_of_nano_of_day(n: int) -> LocalTime {
+    var total = n % 86400000000000
+    if total < 0 {
+        total = total + 86400000000000
+    }
+    val nano = total % 1000000000
+    var secs = total / 1000000000
+    val second = secs % 60
+    secs = secs / 60
+    val minute = secs % 60
+    val hour = secs / 60
+    return LocalTime { hour: hour, minute: minute, second: second, nano: nano }
+}
+
+pub fn localtime_add_nanos(t: LocalTime, nanos: int) -> LocalTime {
+    return time_of_nano_of_day(nano_of_day(t) + nanos)
+}
+
+pub fn localtime_add_seconds(t: LocalTime, seconds: int) -> LocalTime {
+    return localtime_add_nanos(t, seconds * 1000000000)
+}
+
+pub fn localtime_add_minutes(t: LocalTime, minutes: int) -> LocalTime {
+    return localtime_add_seconds(t, minutes * 60)
+}
+
+pub fn localtime_add_hours(t: LocalTime, hours: int) -> LocalTime {
+    return localtime_add_minutes(t, hours * 60)
+}
+
+// Wraps at 24h and discards any day overflow -- same as
+// java.time.LocalTime.plusHours. Use LocalDateTime's add functions
+// instead when day rollover needs to be tracked.
+pub fn localtime_diff_nanos(a: LocalTime, b: LocalTime) -> int {
+    return nano_of_day(a) - nano_of_day(b)
+}
+
+pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int {
+    return localtime_diff_nanos(a, b)
+}
+
+pub fn localtime_to_string(t: LocalTime) -> string {
+    if t.nano == 0 {
+        return format("{}:{}:{}", pad_left(t.hour, 2), pad_left(t.minute, 2), pad_left(t.second, 2))
+    }
+    return format("{}:{}:{}.{}", pad_left(t.hour, 2), pad_left(t.minute, 2), pad_left(t.second, 2), pad_left(t.nano, 9))
+}
+
+pub struct Duration {
+    seconds: int
+    nanos: int
+}
+
+// The one place the {seconds, nanos} invariant (nanos in [0,999999999],
+// seconds carries the sign) actually gets enforced -- every public
+// Duration/Instant constructor and arithmetic function funnels through
+// this instead of building the struct literal directly.
+fn normalize(seconds: int, nanos: int) -> Duration {
+    var s = seconds
+    var n = nanos
+    val extra_seconds = n / 1000000000
+    s = s + extra_seconds
+    n = n % 1000000000
+    if n < 0 {
+        n = n + 1000000000
+        s = s - 1
+    }
+    return Duration { seconds: s, nanos: n }
+}
+
+pub fn duration_of_seconds(seconds: int, nanos: int) -> Duration {
+    return normalize(seconds, nanos)
+}
+
+pub fn duration_zero() -> Duration {
+    return Duration { seconds: 0, nanos: 0 }
+}
+
+pub fn duration_add(a: Duration, b: Duration) -> Duration {
+    return normalize(a.seconds + b.seconds, a.nanos + b.nanos)
+}
+
+pub fn duration_negate(d: Duration) -> Duration {
+    return normalize(-d.seconds, -d.nanos)
+}
+
+pub fn duration_subtract(a: Duration, b: Duration) -> Duration {
+    return duration_add(a, duration_negate(b))
+}
+
+// seconds/nanos direct comparison is sound (not just convenient)
+// specifically because of the normalize invariant: nanos is always
+// non-negative, so seconds alone is the correct primary ordering key
+// and nanos only ever needs to break a tie.
+pub fn duration_compare(a: Duration, b: Duration) -> int {
+    if a.seconds != b.seconds {
+        return a.seconds - b.seconds
+    }
+    return a.nanos - b.nanos
+}
+
+// ISO-8601-shaped (PT<seconds>[.<nanos>]S), not full ISO-8601 duration
+// support (no PnYnMnDTnHnMnS breakdown) -- nothing needs interop with
+// an external system that would require exact compliance. Negative
+// durations are shown by their true magnitude with a leading '-'
+// (`{seconds: -1, nanos: 500000000}`, i.e. -0.5s, prints "PT-0.5...S",
+// not the misleading "PT-1.5...S" a naive field-by-field print would
+// give), the same care java.time.Duration.toString() takes.
+pub fn duration_to_string(d: Duration) -> string {
+    if d.seconds >= 0 {
+        if d.nanos == 0 {
+            return format("PT{}S", d.seconds)
+        }
+        return format("PT{}.{}S", d.seconds, pad_left(d.nanos, 9))
+    }
+    if d.nanos == 0 {
+        return format("PT-{}S", -d.seconds)
+    }
+    val mag_seconds = -d.seconds - 1
+    val mag_nanos = 1000000000 - d.nanos
+    return format("PT-{}.{}S", mag_seconds, pad_left(mag_nanos, 9))
+}
+
+pub struct LocalDateTime {
+    date: LocalDate
+    time: LocalTime
+}
+
+pub fn localdatetime_of(date: LocalDate, time: LocalTime) -> LocalDateTime {
+    return LocalDateTime { date: date, time: time }
+}
+
+pub fn localdatetime_add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime {
+    val total = nano_of_day(dt.time) + nanos
+    var day_carry = total / 86400000000000
+    var rem = total % 86400000000000
+    if rem < 0 {
+        rem = rem + 86400000000000
+        day_carry = day_carry - 1
+    }
+    return LocalDateTime { date: localdate_add_days(dt.date, day_carry), time: time_of_nano_of_day(rem) }
+}
+
+pub fn localdatetime_add_seconds(dt: LocalDateTime, seconds: int) -> LocalDateTime {
+    return localdatetime_add_nanos(dt, seconds * 1000000000)
+}
+
+pub fn localdatetime_add_minutes(dt: LocalDateTime, minutes: int) -> LocalDateTime {
+    return localdatetime_add_seconds(dt, minutes * 60)
+}
+
+pub fn localdatetime_add_hours(dt: LocalDateTime, hours: int) -> LocalDateTime {
+    return localdatetime_add_minutes(dt, hours * 60)
+}
+
+pub fn localdatetime_add_days(dt: LocalDateTime, days: int) -> LocalDateTime {
+    return LocalDateTime { date: localdate_add_days(dt.date, days), time: dt.time }
+}
+
+pub fn localdatetime_add_months(dt: LocalDateTime, months: int) -> LocalDateTime {
+    return LocalDateTime { date: localdate_add_months(dt.date, months), time: dt.time }
+}
+
+pub fn localdatetime_add_years(dt: LocalDateTime, years: int) -> LocalDateTime {
+    return LocalDateTime { date: localdate_add_years(dt.date, years), time: dt.time }
+}
+
+pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int {
+    val date_cmp = localdate_compare(a.date, b.date)
+    if date_cmp != 0 {
+        return date_cmp
+    }
+    return localtime_compare(a.time, b.time)
+}
+
+// Treats both sides as wall-clock time with no zone (exactly what
+// LocalDateTime means) -- well-defined without needing a ZoneOffset,
+// since it's just "elapsed calendar time assuming a fixed calendar",
+// not a real elapsed-wall-time-across-zones computation.
+pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration {
+    val day_diff = localdate_diff_days(a.date, b.date)
+    val nano_diff = nano_of_day(a.time) - nano_of_day(b.time)
+    return normalize(day_diff * 86400, nano_diff)
+}
+
+pub fn localdatetime_to_string(dt: LocalDateTime) -> string {
+    return format("{}T{}", localdate_to_string(dt.date), localtime_to_string(dt.time))
+}
+
+pub struct ZoneOffset {
+    total_seconds: int
+}
+
+pub fn zoneoffset_utc() -> ZoneOffset {
+    return ZoneOffset { total_seconds: 0 }
+}
+
+pub fn zoneoffset_of_seconds(total_seconds: int) -> Result<ZoneOffset, string> {
+    if total_seconds < -64800 || total_seconds > 64800 {
+        return err(format("zone offset out of range: {} seconds (must be -64800 to 64800)", total_seconds))
+    }
+    return ok(ZoneOffset { total_seconds: total_seconds })
+}
+
+pub fn zoneoffset_of_hours_minutes(hours: int, minutes: int) -> Result<ZoneOffset, string> {
+    if (hours < 0 && minutes > 0) || (hours > 0 && minutes < 0) {
+        return err("hours and minutes must have the same sign")
+    }
+    return zoneoffset_of_seconds(hours * 3600 + minutes * 60)
+}
+
+pub fn zoneoffset_compare(a: ZoneOffset, b: ZoneOffset) -> int {
+    return a.total_seconds - b.total_seconds
+}
+
+pub fn zoneoffset_to_string(z: ZoneOffset) -> string {
+    if z.total_seconds == 0 {
+        return "Z"
+    }
+    var sign = "+"
+    var total = z.total_seconds
+    if total < 0 {
+        sign = "-"
+        total = -total
+    }
+    return format("{}{}:{}", sign, pad_left(total / 3600, 2), pad_left((total % 3600) / 60, 2))
+}
+
+// The only zone that will ever exist here -- see the header comment
+// for why a real IANA ZoneId isn't in scope. `zoneid_to_offset` always
+// returns UTC's offset regardless of `z`'s own name, since "UTC" is
+// the only value `zoneid_utc()` can ever produce.
+pub struct ZoneId {
+    name: string
+}
+
+pub fn zoneid_utc() -> ZoneId {
+    return ZoneId { name: "UTC" }
+}
+
+pub fn zoneid_to_offset(z: ZoneId) -> ZoneOffset {
+    return zoneoffset_utc()
+}
+
+pub fn zoneid_to_string(z: ZoneId) -> string {
+    return z.name
+}
+
+pub struct Instant {
+    seconds: int
+    nanos: int
+}
+
+pub fn instant_of(seconds: int, nanos: int) -> Instant {
+    val d = normalize(seconds, nanos)
+    return Instant { seconds: d.seconds, nanos: d.nanos }
+}
+
+pub fn instant_now() -> Instant {
+    val raw = now_raw()
+    return instant_of(raw[0], raw[1])
+}
+
+pub fn instant_add(i: Instant, d: Duration) -> Instant {
+    return instant_of(i.seconds + d.seconds, i.nanos + d.nanos)
+}
+
+pub fn instant_subtract(i: Instant, d: Duration) -> Instant {
+    return instant_add(i, duration_negate(d))
+}
+
+pub fn instant_diff(a: Instant, b: Instant) -> Duration {
+    return normalize(a.seconds - b.seconds, a.nanos - b.nanos)
+}
+
+pub fn instant_compare(a: Instant, b: Instant) -> int {
+    if a.seconds != b.seconds {
+        return a.seconds - b.seconds
+    }
+    return a.nanos - b.nanos
+}
+
+pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime {
+    val shifted = i.seconds + offset.total_seconds
+    var epoch_day = shifted / 86400
+    var sec_of_day = shifted % 86400
+    if sec_of_day < 0 {
+        sec_of_day = sec_of_day + 86400
+        epoch_day = epoch_day - 1
+    }
+    return LocalDateTime { date: date_of_epoch_day(epoch_day), time: time_of_nano_of_day(sec_of_day * 1000000000 + i.nanos) }
+}
+
+pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant {
+    val epoch_day = localdate_to_epoch_day(dt.date)
+    val sec_of_day = dt.time.hour * 3600 + dt.time.minute * 60 + dt.time.second
+    val total_seconds = epoch_day * 86400 + sec_of_day - offset.total_seconds
+    return instant_of(total_seconds, dt.time.nano)
+}
+
+pub fn instant_to_string(i: Instant) -> string {
+    val dt = instant_to_localdatetime(i, zoneoffset_utc())
+    return format("{}T{}Z", localdate_to_string(dt.date), localtime_to_string(dt.time))
+}

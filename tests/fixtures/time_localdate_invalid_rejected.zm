@@ -1,0 +1,5 @@
+use time.localdate_of
+
+fn main() {
+    print(unwrap(localdate_of(2023, 2, 29)))
+}

@@ -11,6 +11,8 @@
 #include "io_source.h"
 #include "random_source.h"
 #include "uuid_source.h"
+#include "clock_source.h"
+#include "time_source.h"
 
 typedef struct {
     const char *name;
@@ -29,6 +31,8 @@ static const CoreModule CORE_MODULES[] = {
     {"io", IO_SOURCE},
     {"random", RANDOM_SOURCE},
     {"uuid", UUID_SOURCE},
+    {"clock", CLOCK_SOURCE},
+    {"time", TIME_SOURCE},
 };
 #pragma GCC diagnostic pop
 

@@ -1,0 +1,9 @@
+// clock.zm -- a minimal native module: one function, reading the real
+// system clock in one atomic call (`clock_gettime`), since Ziman has no
+// other way to learn the current time. Returns the raw
+// [seconds, nanos] pair rather than a `time` module Instant directly,
+// so this stays a plain native fn (one fixed signature, no struct
+// construction on the C side) and `time.zm`'s pure-Ziman `instant_now`
+// does the actual wrapping -- same split as `random`/`uuid`.
+
+pub native fn now_raw() -> [int]

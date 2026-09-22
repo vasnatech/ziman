@@ -602,9 +602,11 @@ several languages rather than inheriting any one of them wholesale.
   `/dev/urandom` (not a platform syscall like `getrandom()`/
   `arc4random_buf()` — plain `fopen`/`fread`, the same shape
   `native_io.c`'s `read_file` already uses, no per-platform `#ifdef`).
-  It's the only possible source of real non-determinism in Ziman right
-  now: there's no clock/time builtin either, so there's nothing to seed
-  a Ziman-side PRNG from even if one were built instead.
+  At the time it was built, it was the only possible source of real
+  non-determinism in Ziman — no clock/time builtin existed yet either,
+  so there was nothing to seed a Ziman-side PRNG from even if one had
+  been built instead (see the `time`/`clock` entry below for how that
+  changed).
   `uuid` is pure Ziman on top of it — a `Uuid` struct wrapping
   `[byte]`, `uuid_new()` generating an RFC 4122 v4 UUID, `uuid_to_string`
   formatting the canonical dashed-hex form. The interesting part is
@@ -634,6 +636,63 @@ several languages rather than inheriting any one of them wholesale.
   a `HashMap` key. Left unresolved rather than worked around, same
   "don't decide until a requirement arises" posture as `byte`'s own
   missing arithmetic.
+- **`time`/`clock` — seven `java.time`-shaped types, one new native
+  primitive, and a representation that changed twice during design.**
+  The scope was deliberately narrowed once up front: `ZoneOffset` only,
+  no IANA-style `ZoneId` with historical/future DST rules. A named
+  political timezone encodes rules that change several times a year
+  worldwide (the IANA tzdata database) — embedding or maintaining that
+  from scratch is a different *kind* of problem than the rest of this
+  module (a one-time design-and-implement cost), not just more code, so
+  it was ruled out rather than attempted. `ZoneId` still exists as a
+  thin wrapper (`{ name: string }`), but `"UTC"` is the only value
+  `zoneid_utc()` can ever produce — `zoneid_to_offset` always returns
+  UTC's offset regardless of what `ZoneId` it's given, honestly, since
+  nothing else is possible yet.
+  `Instant`/`Duration`'s representation went through two designs before
+  landing: first a single `bigint` nanoseconds-since-epoch/nanoseconds
+  count (elegant — `bigint` already has full native `+ - * / < > <= >=
+  == !=`, so comparison and arithmetic would have been free), then
+  `{ seconds: int, nanos: int }` once nanosecond precision was
+  specifically requested and it became clear plain `int` (int64)
+  *seconds* has a completely different range story than plain `int`
+  *nanoseconds* does: milliseconds-since-epoch in `int64` covers ~292
+  *million* years, nanoseconds-since-epoch covers only ~292 (Java's own
+  reason for splitting `Instant` into seconds+nanos instead of one
+  wide integer), and **seconds alone has no practical range limit at
+  all** (~292 *billion* years) — so `{seconds: int, nanos: int}` gives
+  every advantage the `bigint` design had (no range anxiety) with a
+  simpler, non-arbitrary-precision type, once nanosecond resolution is
+  wanted. The one thing this representation costs, compared to the
+  `bigint` version: `nanos` must be kept normalized (`[0, 999999999]`,
+  sign lives entirely in `seconds`) by every constructor and arithmetic
+  function through one shared `normalize` helper — the exact
+  sign-handling subtlety that makes `java.time.Duration`/`Instant`
+  fiddly to implement correctly from scratch, and the reason `duration_
+  to_string` needs its own careful "true magnitude" formatting logic
+  rather than a naive field-by-field print (`{seconds: -1, nanos:
+  500000000}` is `-0.5`s, not `-1.5`s).
+  The calendar math (`LocalDate`'s epoch-day conversion, which
+  `Instant`'s UTC formatting also reuses) is Howard Hinnant's
+  public-domain days-from-civil algorithm from libc++'s `<chrono>`,
+  translated directly into Ziman rather than derived from scratch —
+  it was already written against truncating (toward zero) integer
+  division, exactly Ziman's own `/`/`%` semantics, so the translation
+  needed no adaptation beyond syntax. Verified against known reference
+  points (epoch day 0, a negative epoch day, the 1900/2000 century
+  leap-year rule, `Jan 31 + 1 month` clamping) rather than trusted on
+  inspection alone.
+  `instant_now()` needed exactly one new native primitive — `clock`'s
+  `now_raw() -> [int]`, a single `clock_gettime()` call returning
+  `[seconds, nanos]` as a two-element array (the same "native returns a
+  small array of scalars, pure Ziman gives it a shape" split
+  `random_bytes -> [byte]` already established), read atomically in one
+  call specifically to avoid the narrow-but-real bug of seconds and
+  nanos corresponding to two different clock reads.
+  As with `byte`/`Duration`/`Instant`, no `<`/`>` on any of the seven
+  types — every one gets an explicit `_compare(a, b) -> int` instead,
+  same "don't reopen Ord/Cmp without a forcing case" posture held
+  throughout this project.
 
 ## Deliberately deferred (not v0)
 

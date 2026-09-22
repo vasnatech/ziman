@@ -2,6 +2,7 @@
 
 #include "interpreter.h"
 #include "loader.h"
+#include "native_clock.h"
 #include "native_io.h"
 #include "native_random.h"
 #include "prelude.h"
@@ -15,6 +16,7 @@ int main(int argc, char **argv) {
 
     native_io_register();
     native_random_register();
+    native_clock_register();
     prelude_register();
 
     Module *module = load_module_graph(argv[1]);

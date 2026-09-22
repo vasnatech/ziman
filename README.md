@@ -60,21 +60,33 @@ and what's deliberately left undecided). A small `collections` module
 built on this (`corelib/collections.zm`) provides `Box<T>`, `Option<T>`,
 `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (bucket-array
 based, O(1) average-case lookup rather than a linear `Eq`-only scan).
-It's also one of four *bundled core modules* (alongside `io`, mentioned
-above, plus `random` and `uuid` below): each one's source is embedded
-into the `ziman` binary at build time, so `use collections`/`use io`
-work from any project with no local copy needed — a project-relative
-file of the same name still wins if one exists, but this is the
-fallback that means one usually doesn't have to. `random` is one
-native function, `random_bytes(n: int) -> [byte]`, reading real OS
-entropy (`/dev/urandom`) — Ziman's only source of genuine
-non-determinism. `uuid` is pure Ziman on top of it: a `Uuid` struct,
-`uuid_new()` for an RFC 4122 v4 UUID, `uuid_to_string` for the
-canonical dashed-hex form, version/variant bits set with plain integer
-arithmetic rather than bitwise operators (Ziman has none). `Uuid`
-satisfies `Eq` but not `Hash` (no derived hashing for a struct), so
-it's usable as a struct field compared with `==`, not yet as a
-`HashMap` key.
+It's also one of six *bundled core modules* (alongside `io`, mentioned
+above, plus `random`/`uuid`/`clock`/`time` below): each one's source is
+embedded into the `ziman` binary at build time, so `use collections`/
+`use io` work from any project with no local copy needed — a
+project-relative file of the same name still wins if one exists, but
+this is the fallback that means one usually doesn't have to. `random`
+is one native function, `random_bytes(n: int) -> [byte]`, reading real
+OS entropy (`/dev/urandom`). `uuid` is pure Ziman on top of it: a
+`Uuid` struct, `uuid_new()` for an RFC 4122 v4 UUID, `uuid_to_string`
+for the canonical dashed-hex form, version/variant bits set with plain
+integer arithmetic rather than bitwise operators (Ziman has none).
+`Uuid` satisfies `Eq` but not `Hash` (no derived hashing for a struct),
+so it's usable as a struct field compared with `==`, not yet as a
+`HashMap` key. `clock` is one more native function, `now_raw() ->
+[int]`, reading the system clock — Ziman's other source of genuine
+non-determinism. `time` is pure Ziman on top of it: seven `java.time`-
+shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`,
+`Instant`, `ZoneOffset`, `ZoneId`), `ZoneOffset` only (no IANA-style
+named zones with DST — a data-maintenance problem, not a code-volume
+one), `Instant`/`Duration` as `{seconds: int, nanos: int}` rather than
+a packed number (matching both C's `struct timespec` and `java.time`'s
+own shape), and calendar math via Howard Hinnant's public-domain
+days-from-civil algorithm. None of the nine new scalar/struct types
+across these four modules (`byte`, `Uuid`, and the `time` module's
+seven) got `<`/`>` — every one instead gets an explicit `_compare(a, b)
+-> int`, since Ziman still has no Ord/Cmp bound and none of them were
+the forcing case to add one.
 
 Builtins ship two ways. A small core set — `print`, `str`, `format`,
 `len`, `push`, `insert`, `set`, `remove`, `contains`, `abs`, `min`,
