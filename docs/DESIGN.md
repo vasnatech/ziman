@@ -694,29 +694,62 @@ several languages rather than inheriting any one of them wholesale.
   same "don't reopen Ord/Cmp without a forcing case" posture held
   throughout this project.
 - **`docs/CORELIB.md` — a generated reference, not a hand-written one,
-  once the core-module surface got big enough to need one.** Six
-  modules, 81 `pub` declarations, all following a strict
-  `typename_verb` naming convention specifically so an LLM that's seen
-  three functions on a type can usually guess the fourth correctly —
-  but "usually correct" isn't "don't need a lookup," and there was no
-  single place listing every signature in one pass. The obvious wrong
-  move was hand-writing that list: this project has repeatedly caught
-  (and had to fix) stale comments and docs elsewhere in this same
-  session, so a hand-copied signature list was guaranteed to drift the
-  first time a core module's function was renamed or a parameter added.
-  Instead, `tools/gen_corelib_reference.sh` extracts every `pub
-  struct`/`pub enum`/`pub fn`/`pub native fn` directly from each
-  `corelib/*.zm` file's own source (a small awk state machine — track
-  "inside a struct/enum body," print until the closing `}`; for a
+  once the core-module surface got big enough to need one.** All
+  following a strict `typename_verb` naming convention specifically so
+  an LLM that's seen three functions on a type can usually guess the
+  fourth correctly — but "usually correct" isn't "don't need a lookup,"
+  and there was no single place listing every signature in one pass.
+  The obvious wrong move was hand-writing that list: this project has
+  repeatedly caught (and had to fix) stale comments and docs elsewhere
+  in this same session, so a hand-copied signature list was guaranteed
+  to drift the first time a core module's function was renamed or a
+  parameter added. Instead, `tools/gen_corelib_reference.sh` extracts
+  every `pub struct`/`pub enum`/`pub fn`/`pub native fn` directly from
+  each `corelib/*.zm` file's own source (a small awk state machine —
+  track "inside a struct/enum body," print until the closing `}`; for a
   function, print the signature line with its trailing ` {` stripped)
   and assembles them under one hand-maintained one-line description per
-  module. Confirmed against source rather than trusted: the generated
-  file's total `pub` line count matched `grep -c '^pub ' corelib/*.zm`'s
-  count exactly (81 both ways) before this was considered done. Not run
-  as part of `make`/`make all` (it's a doc, not a build input) — a
-  separate `make corelib-reference` target, run by hand after touching
-  a core module's public API, the same "opt-in, not part of the default
-  build" treatment `test-bignum`/`test-decimal` already get.
+  module. Confirmed against source rather than trusted, both times it's
+  been touched: the generated file's total `pub` line count matched
+  `grep -c '^pub ' corelib/*.zm`'s count exactly before either was
+  considered done. Not run as part of `make`/`make all` (it's a doc,
+  not a build input) — a separate `make corelib-reference` target, run
+  by hand after touching a core module's public API, the same "opt-in,
+  not part of the default build" treatment `test-bignum`/`test-decimal`
+  already get.
+- **`json` — a parser and serializer, written in pure Ziman, and the
+  first real test of a genuinely recursive type.** Motivated directly
+  by wanting realistic HTTP-shaped request handling
+  (`health-record-backend-ziman`'s own still-open "no JSON, no real
+  request/response types" gap) — but before writing a line of it, the
+  actual open question was whether Ziman could even *represent*
+  arbitrary JSON at all: a `Json` value is a classic recursive sum type
+  (an array or object can contain more `Json` values), and this
+  project's own ROADMAP.md carried an old note that "a self-referential
+  struct can't be constructed." Verified directly rather than assumed:
+  `enum Json { JNull JBool(bool) JNumber(float) JString(string)
+  JArray([Json]) JObject([JField]) }` (with `JField { key: string,
+  value: Json }`, declared *before* `Json` even exists in the file)
+  compiles and runs correctly today, including genuinely nested values.
+  The old limitation turned out to be narrower than it sounded: it's
+  about a *direct* self-reference with no escape (`struct Node { next:
+  Node }`, which really is infinite and unbuildable), not recursion
+  through an array, which has an actual finite base case (`[]`) the
+  same way a linked list's `None` tail does. `JNumber` holds a `float`
+  (matching how virtually every JSON implementation represents
+  numbers, JavaScript's own included) rather than `decimal`/`bigint` —
+  nothing needs exact precision for a JSON *number* specifically, since
+  an ID that needs it is always transmitted as a JSON *string* instead.
+  `Json` does **not** support `==`/`!=`: array equality requires a
+  scalar element type, and `[Json]`'s element (`Json`, an enum) isn't
+  one — a real, known gap, left alone since nothing needs to compare
+  two `Json` trees yet. The module deliberately stops at the general
+  parsing engine (`parse_json`, `json_to_string`, and one convenience
+  lookup, `json_object_get`) rather than reaching further into
+  schema-specific request parsing (`parse_patient_create_request`-
+  shaped functions) — turning arbitrary JSON into one already-known
+  struct is application logic that belongs in
+  `health-record-backend-ziman` itself, not language infrastructure.
 
 ## Deliberately deferred (not v0)
 

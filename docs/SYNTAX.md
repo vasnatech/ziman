@@ -848,7 +848,7 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. Six so far: `collections` (`Box<T>`, `Option<T>`,
+  name exists. Seven so far: `collections` (`Box<T>`, `Option<T>`,
   `HashMap<K, V>`, `HashSet<T>` — see "Generics" above), `io`
   (`read_file`/`write_file`, above), `random` (`random_bytes(n: int) ->
   [byte]`, the one native function reading real OS entropy — no other
@@ -858,18 +858,27 @@ fn main() {
   bits set with plain integer arithmetic since Ziman has no bitwise
   operators), `clock` (`now_raw() -> [int]`, the one native function
   reading the system clock — `[seconds, nanos]` from a single
-  `clock_gettime` call), and `time` (`LocalDate`, `LocalTime`,
+  `clock_gettime` call), `time` (`LocalDate`, `LocalTime`,
   `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId` — see
-  "Date and time" below). Any project can `use` one of these with no
+  "Date and time" below), and `json` (a JSON parser/serializer,
+  `parse_json(s: string) -> Result<Json, string>` /
+  `json_to_string(j: Json) -> string` / `json_object_get(j: Json, key:
+  string) -> Option<Json>` — `Json` is a genuinely recursive enum,
+  `JArray([Json])`/`JObject([JField])`, which works today with no new
+  language feature since the recursion goes through an array, not a
+  bare self-reference). Any project can `use` one of these with no
   local file of its own. Each is still an ordinary, qualified module in
   every other respect — `use io`, always `io.read_file`, never a bare
   unqualified name the way the prelude's functions are (though a
   per-name import, above, can still bind one bare on purpose). `Uuid`
   satisfies `Eq` (structural `==` on its `[byte]` field) but not `Hash`
   (hashing has no derived form for a struct), so it works as a struct
-  field compared with `==` but not yet as a `HashMap` key. See
-  docs/CORELIB.md for a generated, signature-only listing of every
-  `pub struct`/`pub fn` these six modules export — a quick lookup, not
+  field compared with `==` but not yet as a `HashMap` key. `Json`
+  satisfies neither — array `==`/`!=` requires a *scalar* element type
+  (see "Arrays" above), and `[Json]`'s element (`Json` itself) isn't
+  one. See docs/CORELIB.md for a generated, signature-only listing of
+  every `pub struct`/`pub fn` these seven modules export — a quick
+  lookup, not
   a replacement for the explanations here.
 
 ## Date and time
@@ -988,6 +997,70 @@ fn main() {
   fields — no special-casing needed.
 - **Calendar year is assumed non-negative throughout** (no BCE
   support) — undocumented territory nothing here needs.
+
+## JSON
+
+The `json` core module (`use json.Name`) is a parser and serializer,
+written in pure Ziman — no native code needed, since this is plain
+string processing with nothing OS-level involved.
+
+```
+use json.parse_json
+use json.json_to_string
+use json.Json
+use json.json_object_get
+use collections.Option
+
+fn main() {
+    val j = unwrap(parse_json("{\"name\": \"Ada\", \"age\": 210}"))
+    print(json_to_string(j))                 // {"name":"Ada","age":210}
+    val name = json_object_get(j, "name")     // Option<Json>, not Result -- unwrap_Some, not unwrap
+    print(Json.unwrap_JString(Option.unwrap_Some(name)))  // Ada
+}
+```
+
+- **`Json`** is a genuinely recursive `enum` — `JNull`, `JBool(bool)`,
+  `JNumber(float)`, `JString(string)`, `JArray([Json])`,
+  `JObject([JField])` where `JField { key: string, value: Json }` —
+  and this works today with *no new language feature*, despite an old
+  ROADMAP.md note that "a self-referential struct can't be
+  constructed." That limitation is about a *direct* self-reference with
+  no escape (`struct Node { next: Node }`, genuinely infinite); `Json`'s
+  recursion goes through `[Json]` (an array), which has a natural
+  finite base case (`[]`) — confirmed by direct testing before this
+  module was written, not assumed.
+- **`JNumber` holds a `float`**, matching how virtually every other
+  JSON implementation represents JSON numbers (including JavaScript's
+  own `Number`) — JSON's grammar technically allows arbitrary
+  precision, but nothing needs exact `decimal`/`bigint` precision for a
+  JSON number specifically (an ID needing exact precision, like a
+  `Uuid`, is always transmitted as a JSON *string* in practice).
+- **`parse_json(s: string) -> Result<Json, string>`** — a real
+  recursive-descent parser (not string-searching for field names, which
+  can't handle a field's own string value containing the same text, or
+  nested braces correctly). String escape handling covers `\" \\ \/ \n
+  \t`; `\r \b \f` and `\uXXXX` unicode escapes are rejected with a
+  clear parse error rather than silently mishandled — Ziman's own
+  string literal syntax has no way to write a literal `\r`/`\b`/`\f`
+  character (see "Lexical rules" above), and `\uXXXX` needs a
+  codepoint-to-UTF-8 encoder nothing here has built.
+- **`json_to_string(j: Json) -> string`** — compact serialization (no
+  pretty-printing/indentation). Round-trips exactly through the escapes
+  `parse_json` supports.
+- **`json_object_get(j: Json, key: string) -> Option<Json>`** — the one
+  convenience lookup beyond parse/serialize, since every schema-specific
+  parser built on top of this module needs it at least once per field.
+  Not a general query language — deliberately just this one helper.
+- **No `==`/`!=` on `Json`.** Array equality requires a *scalar*
+  element type (see "Arrays" above); `[Json]`'s element (`Json` itself,
+  an enum) isn't one. A real, known limitation, left alone since nothing
+  currently needs to compare two `Json` trees for equality.
+- **This is the general parsing engine, not a schema-specific request
+  parser.** Turning arbitrary JSON into one particular already-known
+  struct (e.g. a `CreatePatientRequest`) is expected to be built on top
+  of this module in application code — `parse_json`, then
+  `json_object_get` each expected field, then validate/convert each one
+  — not something this module does itself.
 
 ## Result
 

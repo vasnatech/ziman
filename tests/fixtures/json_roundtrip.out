@@ -1,0 +1,9 @@
+true
+{"name":"Ada","age":210,"tags":["math","programmer"],"active":true,"note":null}
+true
+Ada
+false
+true
+true
+[1,2.5,-3,[true,false,null],{"a":1}]
+"line1\nline2\ttab\"quote\""

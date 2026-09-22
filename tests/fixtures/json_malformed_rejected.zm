@@ -1,0 +1,5 @@
+use json.parse_json
+
+fn main() {
+    print(unwrap(parse_json("{not valid json")))
+}

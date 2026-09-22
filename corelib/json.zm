@@ -1,0 +1,396 @@
+// json.zm -- a JSON parser and serializer, written in pure Ziman.
+// `Json` is a genuinely recursive enum (`JArray([Json])`, and
+// `JObject([JField])` where `JField { key: string, value: Json }`) --
+// this works today with no new language feature, despite an old
+// ROADMAP.md note that "a self-referential struct can't be
+// constructed": that limitation is about a *direct* self-reference
+// with no escape (`struct Node { next: Node }`, genuinely infinite),
+// not recursion through an array, which has a natural finite base case
+// (`[]`). Verified directly before this module was written.
+//
+// `JNumber` holds a `float`, matching how virtually every other JSON
+// implementation represents JSON numbers (including JavaScript's own
+// `Number`) -- JSON's grammar technically allows arbitrary precision,
+// but nothing here needs exact decimal/bigint precision for a JSON
+// number specifically (an ID that needs exact precision, like a UUID,
+// is always transmitted as a JSON string in practice, never a number).
+//
+// Deliberately narrower than a fully spec-compliant parser in one way:
+// string escape handling covers `\" \\ \/ \n \t`, not `\r \b \f` or
+// `\uXXXX` unicode escapes -- Ziman's own string literal syntax has no
+// way to write a literal `\r`/`\b`/`\f` character (its lexer only
+// supports `\n \t \" \\`, see src/lexer.c), and `\uXXXX` needs a
+// codepoint-to-UTF-8 encoder nothing here has built. An unsupported
+// string escape is a clear parse error, not silently mishandled; a
+// literal CR used as *structural* whitespace (between tokens, not
+// inside a string) is silently not recognized as whitespace for the
+// same reason -- rare in practice, since JSON producers essentially
+// always use bare `\n`.
+//
+// `Json` does NOT support `==`/`!=` -- array equality requires a
+// *scalar* element type (see docs/SYNTAX.md "Arrays"), and `[Json]`'s
+// element (`Json` itself, an enum) isn't scalar. A real, known
+// limitation, not fixed here since nothing currently needs to compare
+// two `Json` trees for equality.
+//
+// This is the general parsing *engine*; a schema-specific parser for
+// one particular request shape (e.g. a `CreatePatientRequest`) is
+// expected to be built on top of it in application code (see
+// `json_object_get` below), not inside this module -- turning
+// arbitrary JSON into a specific already-known struct is business
+// logic, not language infrastructure.
+
+use collections.Option
+
+pub struct JField {
+    key: string
+    value: Json
+}
+
+pub enum Json {
+    JNull
+    JBool(bool)
+    JNumber(float)
+    JString(string)
+    JArray([Json])
+    JObject([JField])
+}
+
+// No '\r' here -- Ziman's own string literal syntax can't write one
+// (see the header comment above), so a literal CR between JSON tokens
+// (not inside a string, where it'd be a \\r escape instead) isn't
+// treated as whitespace. Rare in practice; JSON producers essentially
+// always use bare '\n' for structural whitespace.
+fn is_ws(c: string) -> bool {
+    return c == " " || c == "\t" || c == "\n"
+}
+
+fn skip_ws(s: string, pos: int) -> int {
+    var p = pos
+    while p < len(s) && is_ws(substring(s, p, p + 1)) {
+        p = p + 1
+    }
+    return p
+}
+
+fn is_digit(c: string) -> bool {
+    return c == "0" || c == "1" || c == "2" || c == "3" || c == "4" || c == "5" || c == "6" || c == "7" || c == "8" || c == "9"
+}
+
+// Every recursive-descent helper below returns "the value it parsed,
+// plus where parsing should resume" -- Ziman has no mutable
+// out-parameters, so threading the cursor position explicitly through
+// a small return struct is the natural fit (same shape PatientStore's
+// own "return a new one, don't mutate in place" pattern uses elsewhere
+// in this project).
+struct ParseResult {
+    value: Json
+    next_pos: int
+}
+
+fn expect_literal(s: string, pos: int, lit: string) -> Result<int, string> {
+    val end = pos + len(lit)
+    if end > len(s) || substring(s, pos, end) != lit {
+        return err(format("expected '{}' at position {}", lit, pos))
+    }
+    return ok(end)
+}
+
+fn parse_null(s: string, pos: int) -> Result<ParseResult, string> {
+    val r = expect_literal(s, pos, "null")
+    if !is_ok(r) {
+        return err(unwrap_err(r))
+    }
+    return ok(ParseResult { value: Json.JNull, next_pos: unwrap(r) })
+}
+
+fn parse_bool(s: string, pos: int) -> Result<ParseResult, string> {
+    if substring(s, pos, pos + 1) == "t" {
+        val r = expect_literal(s, pos, "true")
+        if !is_ok(r) {
+            return err(unwrap_err(r))
+        }
+        return ok(ParseResult { value: Json.JBool(true), next_pos: unwrap(r) })
+    }
+    val r = expect_literal(s, pos, "false")
+    if !is_ok(r) {
+        return err(unwrap_err(r))
+    }
+    return ok(ParseResult { value: Json.JBool(false), next_pos: unwrap(r) })
+}
+
+fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
+    var p = pos
+    if p < len(s) && substring(s, p, p + 1) == "-" {
+        p = p + 1
+    }
+    val int_start = p
+    while p < len(s) && is_digit(substring(s, p, p + 1)) {
+        p = p + 1
+    }
+    if p == int_start {
+        return err(format("invalid number at position {}", pos))
+    }
+    if p < len(s) && substring(s, p, p + 1) == "." {
+        p = p + 1
+        val frac_start = p
+        while p < len(s) && is_digit(substring(s, p, p + 1)) {
+            p = p + 1
+        }
+        if p == frac_start {
+            return err(format("invalid number at position {}", pos))
+        }
+    }
+    if p < len(s) && (substring(s, p, p + 1) == "e" || substring(s, p, p + 1) == "E") {
+        p = p + 1
+        if p < len(s) && (substring(s, p, p + 1) == "+" || substring(s, p, p + 1) == "-") {
+            p = p + 1
+        }
+        val exp_start = p
+        while p < len(s) && is_digit(substring(s, p, p + 1)) {
+            p = p + 1
+        }
+        if p == exp_start {
+            return err(format("invalid number at position {}", pos))
+        }
+    }
+    val text = substring(s, pos, p)
+    val parsed = parse_float(text)
+    if !is_ok(parsed) {
+        return err(format("invalid number '{}' at position {}", text, pos))
+    }
+    return ok(ParseResult { value: Json.JNumber(unwrap(parsed)), next_pos: p })
+}
+
+// Also used for an object's key, which is just a JSON string in key
+// position -- there's no separate grammar for it.
+fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
+    var p = pos + 1 // skip opening '"'
+    var out = ""
+    while true {
+        if p >= len(s) {
+            return err("unterminated string")
+        }
+        val c = substring(s, p, p + 1)
+        if c == "\"" {
+            return ok(ParseResult { value: Json.JString(out), next_pos: p + 1 })
+        }
+        if c == "\\" {
+            if p + 1 >= len(s) {
+                return err("unterminated escape sequence")
+            }
+            val esc = substring(s, p + 1, p + 2)
+            if esc == "\"" {
+                out = concat(out, "\"")
+            } else if esc == "\\" {
+                out = concat(out, "\\")
+            } else if esc == "/" {
+                out = concat(out, "/")
+            } else if esc == "n" {
+                out = concat(out, "\n")
+            } else if esc == "t" {
+                out = concat(out, "\t")
+            } else {
+                return err(format("unsupported escape '\\{}' at position {}", esc, p))
+            }
+            p = p + 2
+        } else {
+            out = concat(out, c)
+            p = p + 1
+        }
+    }
+    return err("unreachable")
+}
+
+fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
+    var p = skip_ws(s, pos + 1) // skip '['
+    var items: [Json] = []
+    if p < len(s) && substring(s, p, p + 1) == "]" {
+        return ok(ParseResult { value: Json.JArray(items), next_pos: p + 1 })
+    }
+    while true {
+        val r = parse_value(s, p)
+        if !is_ok(r) {
+            return err(unwrap_err(r))
+        }
+        val pr = unwrap(r)
+        items = push(items, pr.value)
+        p = skip_ws(s, pr.next_pos)
+        if p >= len(s) {
+            return err("unterminated array")
+        }
+        val c = substring(s, p, p + 1)
+        if c == "," {
+            p = skip_ws(s, p + 1)
+        } else if c == "]" {
+            return ok(ParseResult { value: Json.JArray(items), next_pos: p + 1 })
+        } else {
+            return err(format("expected ',' or ']' at position {}", p))
+        }
+    }
+    return err("unreachable")
+}
+
+fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
+    var p = skip_ws(s, pos + 1) // skip '{'
+    var fields: [JField] = []
+    if p < len(s) && substring(s, p, p + 1) == "}" {
+        return ok(ParseResult { value: Json.JObject(fields), next_pos: p + 1 })
+    }
+    while true {
+        if p >= len(s) || substring(s, p, p + 1) != "\"" {
+            return err(format("expected string key at position {}", p))
+        }
+        val key_result = parse_string(s, p)
+        if !is_ok(key_result) {
+            return err(unwrap_err(key_result))
+        }
+        val key_pr = unwrap(key_result)
+        val key = Json.unwrap_JString(key_pr.value)
+        p = skip_ws(s, key_pr.next_pos)
+        if p >= len(s) || substring(s, p, p + 1) != ":" {
+            return err(format("expected ':' at position {}", p))
+        }
+        p = skip_ws(s, p + 1)
+        val val_result = parse_value(s, p)
+        if !is_ok(val_result) {
+            return err(unwrap_err(val_result))
+        }
+        val val_pr = unwrap(val_result)
+        fields = push(fields, JField { key: key, value: val_pr.value })
+        p = skip_ws(s, val_pr.next_pos)
+        if p >= len(s) {
+            return err("unterminated object")
+        }
+        val c = substring(s, p, p + 1)
+        if c == "," {
+            p = skip_ws(s, p + 1)
+        } else if c == "}" {
+            return ok(ParseResult { value: Json.JObject(fields), next_pos: p + 1 })
+        } else {
+            return err(format("expected ',' or a closing brace at position {}", p))
+        }
+    }
+    return err("unreachable")
+}
+
+fn parse_value(s: string, pos: int) -> Result<ParseResult, string> {
+    val p = skip_ws(s, pos)
+    if p >= len(s) {
+        return err("unexpected end of input")
+    }
+    val c = substring(s, p, p + 1)
+    if c == "{" {
+        return parse_object(s, p)
+    }
+    if c == "[" {
+        return parse_array(s, p)
+    }
+    if c == "\"" {
+        return parse_string(s, p)
+    }
+    if c == "t" || c == "f" {
+        return parse_bool(s, p)
+    }
+    if c == "n" {
+        return parse_null(s, p)
+    }
+    if c == "-" || is_digit(c) {
+        return parse_number(s, p)
+    }
+    return err(format("unexpected character '{}' at position {}", c, p))
+}
+
+pub fn parse_json(s: string) -> Result<Json, string> {
+    val r = parse_value(s, 0)
+    if !is_ok(r) {
+        return err(unwrap_err(r))
+    }
+    val pr = unwrap(r)
+    val end = skip_ws(s, pr.next_pos)
+    if end != len(s) {
+        return err(format("trailing content at position {}", end))
+    }
+    return ok(pr.value)
+}
+
+fn escape_json_string(s: string) -> string {
+    var out = "\""
+    var i = 0
+    while i < len(s) {
+        val c = substring(s, i, i + 1)
+        if c == "\"" {
+            out = concat(out, "\\\"")
+        } else if c == "\\" {
+            out = concat(out, "\\\\")
+        } else if c == "\n" {
+            out = concat(out, "\\n")
+        } else if c == "\t" {
+            out = concat(out, "\\t")
+        } else {
+            out = concat(out, c)
+        }
+        i = i + 1
+    }
+    return concat(out, "\"")
+}
+
+pub fn json_to_string(j: Json) -> string {
+    if Json.is_JNull(j) {
+        return "null"
+    }
+    if Json.is_JBool(j) {
+        if Json.unwrap_JBool(j) {
+            return "true"
+        }
+        return "false"
+    }
+    if Json.is_JNumber(j) {
+        return str(Json.unwrap_JNumber(j))
+    }
+    if Json.is_JString(j) {
+        return escape_json_string(Json.unwrap_JString(j))
+    }
+    if Json.is_JArray(j) {
+        val items = Json.unwrap_JArray(j)
+        var out = "["
+        var i = 0
+        while i < len(items) {
+            if i > 0 {
+                out = concat(out, ",")
+            }
+            out = concat(out, json_to_string(items[i]))
+            i = i + 1
+        }
+        return concat(out, "]")
+    }
+    val fields = Json.unwrap_JObject(j)
+    var out = "{"
+    var i = 0
+    while i < len(fields) {
+        if i > 0 {
+            out = concat(out, ",")
+        }
+        out = concat(out, escape_json_string(fields[i].key))
+        out = concat(out, ":")
+        out = concat(out, json_to_string(fields[i].value))
+        i = i + 1
+    }
+    return concat(out, "}")
+}
+
+// The one convenience lookup provided beyond parse/serialize -- looking
+// up a field by key is common enough (every schema-specific parser
+// built on this module needs it at least once per field) to be worth
+// including, without turning this into a general "Json query language."
+pub fn json_object_get(j: Json, key: string) -> Option<Json> {
+    if !Json.is_JObject(j) {
+        return Option<Json>.None
+    }
+    for f in Json.unwrap_JObject(j) {
+        if f.key == key {
+            return Option<Json>.Some(f.value)
+        }
+    }
+    return Option<Json>.None
+}

@@ -20,7 +20,7 @@ $(BIN): $(OBJ)
 # -MMD/-MP header tracking only kicks in from the second build onward,
 # once a .d file already mentions it. Add a new core module by adding
 # its name here and one line to corelib.c's CORE_MODULES table.
-CORELIB_MODULES := collections io random uuid clock time
+CORELIB_MODULES := collections io random uuid clock time json
 CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 
 $(OBJ): $(CORELIB_HEADERS)

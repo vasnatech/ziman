@@ -1,0 +1,30 @@
+use json.parse_json
+use json.json_to_string
+use json.Json
+use json.json_object_get
+use collections.Option
+use collections.option_unwrap_or
+
+fn main() {
+    val r = parse_json("{\"name\": \"Ada\", \"age\": 210, \"tags\": [\"math\", \"programmer\"], \"active\": true, \"note\": null}")
+    print(is_ok(r))
+    val j = unwrap(r)
+    print(json_to_string(j))
+
+    val name = json_object_get(j, "name")
+    print(Option.is_Some(name))
+    print(Json.unwrap_JString(option_unwrap_or<Json>(name, Json.JNull)))
+
+    val missing = json_object_get(j, "nope")
+    print(Option.is_Some(missing))
+
+    val roundtrip = parse_json(json_to_string(j))
+    print(is_ok(roundtrip))
+    print(json_to_string(unwrap(roundtrip)) == json_to_string(j))
+
+    val nested = unwrap(parse_json("[1, 2.5, -3, [true, false, null], {\"a\": 1}]"))
+    print(json_to_string(nested))
+
+    val esc = unwrap(parse_json("\"line1\\nline2\\ttab\\\"quote\\\"\""))
+    print(json_to_string(esc))
+}

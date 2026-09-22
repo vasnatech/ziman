@@ -76,6 +76,33 @@ pub native fn write_file(path: string, contents: string)
 
 ```
 
+## `json`
+
+A JSON parser/serializer (`Json`, a genuinely recursive enum), written in pure Ziman -- no native code needed. `\uXXXX` unicode escapes and `==`/`!=` on `Json` are the two known gaps.
+
+```
+pub struct JField {
+    key: string
+    value: Json
+}
+
+pub enum Json {
+    JNull
+    JBool(bool)
+    JNumber(float)
+    JString(string)
+    JArray([Json])
+    JObject([JField])
+}
+
+pub fn parse_json(s: string) -> Result<Json, string>
+
+pub fn json_to_string(j: Json) -> string
+
+pub fn json_object_get(j: Json, key: string) -> Option<Json>
+
+```
+
 ## `random`
 
 One native function reading real OS entropy (`/dev/urandom`) -- Ziman's first source of genuine non-determinism.

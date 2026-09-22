@@ -13,6 +13,7 @@
 #include "uuid_source.h"
 #include "clock_source.h"
 #include "time_source.h"
+#include "json_source.h"
 
 typedef struct {
     const char *name;
@@ -33,6 +34,7 @@ static const CoreModule CORE_MODULES[] = {
     {"uuid", UUID_SOURCE},
     {"clock", CLOCK_SOURCE},
     {"time", TIME_SOURCE},
+    {"json", JSON_SOURCE},
 };
 #pragma GCC diagnostic pop
 

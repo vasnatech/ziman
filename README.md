@@ -8,9 +8,9 @@ concrete decisions they led to, [docs/SYNTAX.md](docs/SYNTAX.md) for
 the full v0 grammar and semantic rules, and
 [docs/CORELIB.md](docs/CORELIB.md) for a generated signature-only
 reference of every bundled core module (`collections`, `io`, `random`,
-`uuid`, `clock`, `time`) — every `pub struct`/`pub fn` in one place, kept
-in sync with the source by `make corelib-reference` rather than
-hand-copied.
+`uuid`, `clock`, `time`, `json`) — every `pub struct`/`pub fn` in one
+place, kept in sync with the source by `make corelib-reference` rather
+than hand-copied.
 
 The reference interpreter (lexer → parser → type checker → tree-walking
 evaluator) is written in C, but C is only the implementation's host
@@ -65,8 +65,8 @@ and what's deliberately left undecided). A small `collections` module
 built on this (`corelib/collections.zm`) provides `Box<T>`, `Option<T>`,
 `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (bucket-array
 based, O(1) average-case lookup rather than a linear `Eq`-only scan).
-It's also one of six *bundled core modules* (alongside `io`, mentioned
-above, plus `random`/`uuid`/`clock`/`time` below): each one's source is
+It's also one of seven *bundled core modules* (alongside `io`, mentioned
+above, plus `random`/`uuid`/`clock`/`time`/`json` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
 `use io` work from any project with no local copy needed — a
 project-relative file of the same name still wins if one exists, but
@@ -88,10 +88,23 @@ one), `Instant`/`Duration` as `{seconds: int, nanos: int}` rather than
 a packed number (matching both C's `struct timespec` and `java.time`'s
 own shape), and calendar math via Howard Hinnant's public-domain
 days-from-civil algorithm. None of the nine new scalar/struct types
-across these four modules (`byte`, `Uuid`, and the `time` module's
+across `byte`/`uuid`/`time` (`byte`, `Uuid`, and the `time` module's
 seven) got `<`/`>` — every one instead gets an explicit `_compare(a, b)
 -> int`, since Ziman still has no Ord/Cmp bound and none of them were
-the forcing case to add one.
+the forcing case to add one. `json` is a JSON parser/serializer, also
+pure Ziman: `Json` is a genuinely recursive enum
+(`JArray([Json])`/`JObject([JField])`) that works with no new language
+feature, since the recursion goes through an array (a natural finite
+base case, `[]`) rather than a bare self-reference — verified directly
+before the module was written, given an old, since-resolved ROADMAP.md
+note suggesting self-referential types couldn't be constructed at all.
+`JNumber` holds a `float`, matching virtually every other JSON
+implementation. `parse_json`/`json_to_string` are a real
+recursive-descent parser/serializer; `json_object_get` is the one
+convenience field lookup provided beyond that — turning arbitrary JSON
+into one already-known struct (a specific request shape) is left to
+application code built on top of this module, not something it does
+itself.
 
 Builtins ship two ways. A small core set — `print`, `str`, `format`,
 `len`, `push`, `insert`, `set`, `remove`, `contains`, `abs`, `min`,

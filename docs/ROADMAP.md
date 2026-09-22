@@ -54,9 +54,11 @@ one that never lands. The architecture to get there:
   either as pure Ziman speaking a DB's wire protocol directly over `net`,
   or as a native module wrapping an existing C client library (e.g.
   libpq/sqlite) if hand-rolling the wire protocol turns out not to be
-  worth it. `json` (encode/decode) is flagged
-  separately below since it hits a real language gap, not just missing
-  library code.
+  worth it. ~~`json` (encode/decode) is flagged separately below since
+  it hits a real language gap, not just missing library code.~~
+  Implemented — see the `json` core module entry further below; the
+  suspected language gap (a self-referential `Json` type) turned out
+  not to be one.
 
 Building any of this will surface language gaps that don't show up in
 toy programs — worth calling out now rather than discovering them one at
@@ -66,14 +68,17 @@ a time mid-implementation:
   key-value lookups constantly (headers, query params, JSON objects,
   config). Same "one collection type" question arrays already went
   through, but for `{K: V}`-shaped data instead of a sequence.
-- **No optional/nullable type.** Needed for DB nulls, missing/optional
-  JSON fields, and — noted back when structs shipped — for a
-  self-referential struct (`struct Node { next: Node }`) to be
-  constructible at all (right now it type-checks but can never actually
-  be built, since there's no base case without nullability). Very likely
-  the same "hardcode one more parametric type" trick `Result<T, E>` used
-  (see below) would work here too, as `Option<T>` — not designed yet,
-  but the precedent now exists.
+- ~~**No optional/nullable type.**~~ `Option<T>` exists now
+  (`collections` core module, built on generics, not a hardcoded
+  parametric type like `Result<T, E>` after all — see the "Generics"
+  and "Collections module" entries). Still genuinely needed for a
+  *direct* self-referential struct with no escape (`struct Node { next:
+  Node }` is still unbuildable as-is; `struct Node { next: Option<Node>
+  }` would be) — but a struct/enum that recurses *through an array*
+  instead (`enum Json { ... JArray([Json]) ... }`, see the `json` core
+  module entry below) never needed `Option<T>` for this at all, since
+  an empty array (`[]`) is already a natural finite base case. The two
+  looked like the same problem from here; they weren't.
 - ~~**No recoverable error handling.**~~ `Result<T, E>` exists now — see
   "Recoverable error handling" under "Near-term, likely next" below for
   the full design and what's still not covered by it (see also: it
@@ -683,9 +688,34 @@ a time mid-implementation:
   wired into `health-record-backend-ziman` yet~~ — done the same day:
   `Patient.date_of_birth`/`created_at` are `time.LocalDate`/
   `time.Instant` now, closing that project's last documented gap.
-- ~~**`docs/CORELIB.md` — a generated signature reference for the six
-  core modules, once the surface got big enough (81 `pub` declarations)
-  that hand-knowing or hand-listing them stopped being realistic.**~~
+- ~~**`json` core module — a parser/serializer, motivated by
+  `health-record-backend-ziman`'s "no JSON, no real request/response
+  types" gap.**~~ Implemented (docs/SYNTAX.md "JSON", docs/DESIGN.md's
+  "json" entry). Before writing it, verified directly (not assumed)
+  that Ziman can represent arbitrary JSON at all, given an old ROADMAP
+  note that a self-referential struct can't be constructed: `enum Json
+  { JNull JBool(bool) JNumber(float) JString(string) JArray([Json])
+  JObject([JField]) }` (`JField { key: string, value: Json }`) compiles
+  and runs correctly, including genuinely nested values — the old
+  limitation is about a *direct* self-reference with no escape
+  (`struct Node { next: Node }`, truly infinite), not recursion through
+  an array, which has a finite base case (`[]`). `JNumber` holds a
+  `float` (matching virtually every other JSON implementation, not
+  `decimal`/`bigint` — nothing needs exact precision for a JSON number
+  specifically). `parse_json`/`json_to_string` are a real recursive-
+  descent parser and serializer, not string-searching; string escapes
+  cover `\" \\ \/ \n \t`, not `\r \b \f`/`\uXXXX` (Ziman's own string
+  literal syntax can't write the first three, and `\uXXXX` needs a
+  codepoint-to-UTF-8 encoder nothing here has). `json_object_get` is
+  the one convenience lookup beyond parse/serialize. `Json` does not
+  support `==`/`!=` (array equality needs a scalar element type,
+  `Json` itself isn't one) — a real, known gap, left alone. Stops at
+  the general engine — a schema-specific parser for one particular
+  request shape (`parse_patient_create_request`-style) is expected to
+  live in `health-record-backend-ziman` itself, not in this module.
+- ~~**`docs/CORELIB.md` — a generated signature reference for the core
+  modules, once the surface got big enough that hand-knowing or
+  hand-listing them stopped being realistic.**~~
   Implemented (`tools/gen_corelib_reference.sh`, `make
   corelib-reference`; docs/DESIGN.md's "CORELIB.md" entry). Extracts
   every `pub struct`/`pub enum`/`pub fn`/`pub native fn` straight from
