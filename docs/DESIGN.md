@@ -1152,6 +1152,58 @@ several languages rather than inheriting any one of them wholesale.
   defaults, `Result<T, E>` bare-value auto-wrapping) — deliberately
   built and landed on its own first, since it's fully self-contained and
   has no dependency on the rest.
+- **Named arguments at call sites — stage two of the conversation
+  above, reusing `name: value` rather than a second syntax for the same
+  idea.** Motivated by a real, already-present bug class: a call like
+  `localtime_of(hour, minute, second, nano)` has four same-typed `int`
+  parameters, so a transposed pair of arguments is a silent, no-type-
+  error mistake — at least as easy for an LLM to make as a human, maybe
+  easier, since nothing about the types stops it. Reused the exact
+  `name: value` shape a struct literal's fields already have
+  (`Point { x: 1, y: 2 }`) instead of inventing a second way to write
+  the same "this value goes with this name" idea — one shape for an AI
+  to remember, not two. **A call is entirely positional or entirely
+  named, never a mix** (`f(1, y: 2)` is a syntax error) — decided once,
+  by whether the *first* argument is followed by `:`; every remaining
+  argument in that call is then required to match. **The label must
+  match the callee's declared parameter name exactly** — no separate
+  external label the way Swift lets a call site and a declaration use
+  different names for the same parameter; whatever the signature calls
+  it is the only name a caller may use. **Named arguments may appear in
+  any order** — that's the actual payoff for the motivating bug: even
+  reordered, `localtime_of(nano: n, second: s, minute: m, hour: h)`
+  still reaches the right parameters, because the label, not position,
+  decides. **Every parameter must still be supplied exactly once** — a
+  named call is not, on its own, a way to omit an argument (that's
+  stage three, `Option<T>` parameter omission, layered on top of this
+  one, since omission is only ever going to be legal in a named call);
+  wrong count, an unknown name, or the same name given twice are all
+  compile-time errors. **Restricted to real (`fn`/`native fn`)
+  functions, not the hardcoded core builtins** (`print`, `len`, `push`,
+  `hash`, ...) — each of those has exactly one fixed, already-special-
+  cased signature with no `FunctionDecl`/`ParamList` behind it for a
+  named call to resolve against, so a named call to one of them is
+  rejected outright rather than silently accepted as if it were
+  positional.
+  Mechanically, a named call is canonicalized to positional order
+  exactly once, in `typecheck.c`'s `canonicalize_named_args` — called
+  right after the callee's `FunctionDecl` is resolved, before any of
+  the existing (unmodified) fixed/variadic argument-count and type
+  logic runs. It validates the name set against `fn->params`, reorders
+  `Expr *` pointers into declared-parameter order in place, and clears
+  the call's name array back to `NULL`. Past that point — including
+  everywhere in `interpreter.c` — a canonicalized-named call is
+  byte-for-byte indistinguishable from one that was always positional;
+  no downstream code needed to change at all, the same "resolve once,
+  simplify forever after" pattern already used for global val's
+  self-qualifying rewrite and for `resolve_type_refs`'s prelude
+  fallback.
+  A variadic parameter's named value is still exactly one expression —
+  there's no way to write several individually-labeled elements under
+  one name in a named call — so it's treated as the existing
+  single-trailing-argument case variadic calls already have: either the
+  element type or the whole array type, decided the same way `sum(nums)`
+  already is.
 
 ## Deliberately deferred (not v0)
 

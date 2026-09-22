@@ -197,6 +197,61 @@ static ExprList parse_comma_separated(Parser *p, TokenType stop) {
     return list;
 }
 
+/* Parse result for a call's argument list -- see parse_call_args.
+ * `names` is NULL for a positional call, else one entry per `args`
+ * item, same order. Handed straight into Expr.as.call's `args`/
+ * `arg_names` fields at each of this function's call sites. */
+typedef struct {
+    ExprList args;
+    char **names;
+} CallArgs;
+
+/* A call's argument list: either all-positional (`f(1, 2)`) or
+ * all-named (`f(x: 1, y: 2)`), reusing the exact `name: value` shape a
+ * struct literal's fields already have (see parse_field_inits) rather
+ * than inventing a second one. Which form a call uses is decided by its
+ * *first* argument alone -- if it starts with `IDENT ':'`, every
+ * remaining argument is required to as well; mixing the two forms in
+ * one call is a syntax error. An argument that merely starts with an
+ * identifier but isn't followed by ':' (`f(x)`, `f(x + 1)`) is always
+ * ordinary positional -- the ':' lookahead, with backtracking when it's
+ * absent, is enough to tell the two apart with no other ambiguity. */
+static CallArgs parse_call_args(Parser *p, TokenType stop) {
+    CallArgs result = {0};
+    if (check(p, stop)) {
+        return result;
+    }
+    int is_named = -1; /* -1 = undecided until the first argument */
+    for (;;) {
+        char *name = NULL;
+        if (check(p, TOK_IDENT)) {
+            int saved_pos = p->pos;
+            Token *name_tok = advance_tok(p);
+            if (match(p, TOK_COLON)) {
+                name = dup_token_text(name_tok);
+            } else {
+                p->pos = saved_pos;
+            }
+        }
+        int this_named = name != NULL;
+        if (is_named == -1) {
+            is_named = this_named;
+        } else if (is_named != this_named) {
+            ziman_error("syntax", cur(p)->line, cur(p)->col,
+                        "a call's arguments must be either all positional or all named, not a mix");
+        }
+        expr_list_push(&result.args, parse_expr(p));
+        if (is_named) {
+            result.names = realloc(result.names, (size_t)result.args.count * sizeof(char *));
+            result.names[result.args.count - 1] = name;
+        }
+        skip_newlines(p);
+        if (!match(p, TOK_COMMA)) break;
+        skip_newlines(p);
+    }
+    return result;
+}
+
 /* `name: value` pairs, comma-separated -- used by both a struct literal's
  * fields and a `with` expression's overrides. A newline right after `{`
  * or right after a `,` is already silently swallowed by the lexer itself
@@ -319,20 +374,22 @@ static Expr *parse_primary(Parser *p) {
         if (!starts_upper(name) && check(p, TOK_LT) && next_looks_like_generic_call(p)) {
             TypeList type_args = parse_type_args(p);
             expect(p, TOK_LPAREN, "'('");
-            ExprList args = parse_comma_separated(p, TOK_RPAREN);
+            CallArgs args = parse_call_args(p, TOK_RPAREN);
             expect(p, TOK_RPAREN, "')'");
             Expr *e = expr_new(EXPR_CALL, t->line, t->col);
             e->as.call.callee = name;
-            e->as.call.args = args;
+            e->as.call.args = args.args;
+            e->as.call.arg_names = args.names;
             e->as.call.type_args = type_args;
             return e;
         }
         if (match(p, TOK_LPAREN)) {
-            ExprList args = parse_comma_separated(p, TOK_RPAREN);
+            CallArgs args = parse_call_args(p, TOK_RPAREN);
             expect(p, TOK_RPAREN, "')'");
             Expr *e = expr_new(EXPR_CALL, t->line, t->col);
             e->as.call.callee = name;
-            e->as.call.args = args;
+            e->as.call.args = args.args;
+            e->as.call.arg_names = args.names;
             return e;
         }
         /* An uppercase identifier immediately followed by '<' is always a
@@ -465,7 +522,7 @@ static Expr *parse_primary(Parser *p) {
                 if (check(p, TOK_LT) && next_looks_like_generic_call(p)) {
                     TypeList type_args = parse_type_args(p);
                     expect(p, TOK_LPAREN, "'('");
-                    ExprList args = parse_comma_separated(p, TOK_RPAREN);
+                    CallArgs args = parse_call_args(p, TOK_RPAREN);
                     expect(p, TOK_RPAREN, "')'");
                     size_t len = strlen(name) + 1 + (size_t)second->length + 1;
                     char *qualified = malloc(len);
@@ -473,12 +530,13 @@ static Expr *parse_primary(Parser *p) {
                     free(name);
                     Expr *e = expr_new(EXPR_CALL, t->line, t->col);
                     e->as.call.callee = qualified;
-                    e->as.call.args = args;
+                    e->as.call.args = args.args;
+                    e->as.call.arg_names = args.names;
                     e->as.call.type_args = type_args;
                     return e;
                 }
                 if (match(p, TOK_LPAREN)) {
-                    ExprList args = parse_comma_separated(p, TOK_RPAREN);
+                    CallArgs args = parse_call_args(p, TOK_RPAREN);
                     expect(p, TOK_RPAREN, "')'");
                     size_t len = strlen(name) + 1 + (size_t)second->length + 1;
                     char *qualified = malloc(len);
@@ -486,7 +544,8 @@ static Expr *parse_primary(Parser *p) {
                     free(name);
                     Expr *e = expr_new(EXPR_CALL, t->line, t->col);
                     e->as.call.callee = qualified;
-                    e->as.call.args = args;
+                    e->as.call.args = args.args;
+                    e->as.call.arg_names = args.names;
                     return e;
                 }
             }

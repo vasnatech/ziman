@@ -1,0 +1,3 @@
+pub fn scale(value: int, factor: int) -> int {
+    return value * factor
+}

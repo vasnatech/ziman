@@ -1,0 +1,29 @@
+fn localtime_of(hour: int, minute: int, second: int, nano: int) -> string {
+    return format("{}:{}:{}.{}", hour, minute, second, nano)
+}
+
+fn greet(name: string, greeting: string) -> string {
+    return concat(greeting, concat(", ", name))
+}
+
+fn identity<T>(value: T) -> T {
+    return value
+}
+
+fn labeled_join(prefix: string, pieces: string...) -> string {
+    return concat(prefix, join(pieces))
+}
+
+fn main() {
+    print(localtime_of(hour: 1, minute: 2, second: 3, nano: 4))
+    print(localtime_of(nano: 4, second: 3, minute: 2, hour: 1))
+    print(greet(name: "world", greeting: "hello"))
+    print(greet("hello", "world"))
+    print(identity<int>(value: 42))
+
+    var arr = ["a", "b", "c"]
+    print(labeled_join(prefix: ">> ", pieces: arr))
+    print(labeled_join(pieces: arr, prefix: ">> "))
+    print(labeled_join(prefix: ">> ", pieces: "solo"))
+    print(labeled_join(">> ", "a", "b"))
+}

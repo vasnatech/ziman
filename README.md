@@ -173,7 +173,15 @@ of a *variadic parameter* — `join("a", "b")`/`join(pieces)` (an
 already-built `[string]`) both work, and it exists specifically so that
 joining many strings is a single native, O(N) buffer build instead of
 the O(N²) a pure-Ziman loop of `concat` calls would be (see
-docs/DESIGN.md's "Variadic parameters" entry). The prelude isn't native-only, though: `Option<T>` (plus
+docs/DESIGN.md's "Variadic parameters" entry). Any call — to a
+`native fn`, a plain `fn`, or a generic one — may also name its
+arguments instead of listing them positionally
+(`localtime_of(hour: 1, minute: 2, second: 3, nano: 4)`, in any order),
+reusing struct-literal `name: value` syntax; a call must be entirely
+positional or entirely named, the label must match the parameter's own
+declared name, and every parameter still has to be given exactly once
+(see docs/DESIGN.md's "Named arguments" entry — parameter omission is a
+separate, later feature). The prelude isn't native-only, though: `Option<T>` (plus
 one helper, `option_unwrap_or`) lives there too, as ordinary Ziman
 source — an enum, not a hardcoded primitive like `Result<T, E>` is —
 merged bare into every program the same way the entry file's own

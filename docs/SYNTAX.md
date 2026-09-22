@@ -575,6 +575,57 @@ fn main() {
   ambiguity with a range, since a range's `..` never appears in a
   parameter list to begin with.
 
+### Named arguments
+
+```
+fn localtime_of(hour: int, minute: int, second: int, nano: int) -> string {
+    return format("{}:{}:{}.{}", hour, minute, second, nano)
+}
+
+fn main() {
+    // Same call, two ways -- both reach localtime_of identically.
+    print(localtime_of(1, 2, 3, 4))
+    print(localtime_of(hour: 1, minute: 2, second: 3, nano: 4))
+    // Named arguments may be given in any order; the label is what
+    // resolves each one to its parameter, not position.
+    print(localtime_of(nano: 4, second: 3, minute: 2, hour: 1))
+}
+```
+
+- **A call's arguments are either all positional or all named, never a
+  mix** — `f(1, y: 2)` is a syntax error. Named arguments reuse the
+  exact `name: value` shape a struct literal's fields already have
+  (`Point { x: 1, y: 2 }`), rather than a second syntax for the same
+  idea.
+- **A named argument's label must match the callee's declared parameter
+  name exactly** — there's no separate external label the way some
+  languages let a call site and a declaration use different names for
+  the same parameter; whatever a function's signature calls a
+  parameter is the only name a caller may use for it.
+- **Named arguments may appear in any order** — the label alone decides
+  which parameter each value fills, so `f(y: 2, x: 1)` and
+  `f(x: 1, y: 2)` are the same call.
+- **Every parameter must still be given exactly once** — a named call
+  is not yet a way to omit an argument (see the `Option<T>` parameter
+  section below, once written, for the one case where omission is
+  legal); giving too few, too many, an unknown name, or the same name
+  twice is a compile-time error.
+- **Named arguments only apply to real functions** — the small set of
+  core builtins the type checker and interpreter special-case directly
+  by name (`print`, `len`, `push`, `hash`, and the rest listed in
+  README.md's "Builtins ship two ways") each have exactly one fixed,
+  unlabeled signature and don't accept a named call.
+- **A variadic parameter's named value is still a single expression**
+  — a named call has no way to list several individually-labeled
+  elements under one name, so the value given for a variadic parameter
+  in a named call is treated as the single-trailing-argument case
+  variadic calls already have: either the element type or the whole
+  array type, same as `sum(nums)` above.
+- A named call is resolved to the callee's declared parameter order
+  once, during type checking — by the time a program runs, there's no
+  remaining difference between how a positional and a named call to the
+  same function behave.
+
 ## Generics
 
 **Structs, enums, and functions, cross-module included** — see

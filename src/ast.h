@@ -178,8 +178,17 @@ struct Expr {
         struct { Op op; Expr *left; Expr *right; } binary;
         struct { Op op; Expr *operand; } unary;
         /* `type_args` is only non-empty for `name<Args>(...)` -- a call
-         * to a generic function. Empty for an ordinary one. */
-        struct { char *callee; ExprList args; TypeList type_args; } call;
+         * to a generic function. Empty for an ordinary one.
+         * `arg_names` is NULL for an ordinary positional call
+         * (`f(1, 2)`); for a named call (`f(x: 1, y: 2)`) it holds one
+         * name per entry of `args`, same order as written. A call is
+         * always entirely one or the other -- the parser rejects mixing
+         * them, so `arg_names` is either NULL or fully populated, never
+         * partial. check_call reorders `args` into the callee's declared
+         * parameter order and clears `arg_names` back to NULL once it
+         * has, so nothing past type-checking (the interpreter included)
+         * ever needs to know a call was written with names at all. */
+        struct { char *callee; ExprList args; TypeList type_args; char **arg_names; } call;
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
         struct { Expr *array; Expr *index; } index;

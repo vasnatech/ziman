@@ -1,5 +1,6 @@
 #include "typecheck.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "env.h"
@@ -336,8 +337,78 @@ static int count_placeholders(Expr *fmt_expr) {
     return count;
 }
 
+/* Hardcoded core builtins (see README.md's "Builtins ship two ways")
+ * each have exactly one fixed signature already special-cased below by
+ * name, not an ordinary declared FunctionDecl -- so there's no
+ * parameter list here for a named call to reorder against. Named
+ * arguments are for real (user or prelude) `fn`/`native fn`
+ * declarations only. */
+static const char *const BUILTINS_NO_NAMED_ARGS[] = {
+    "print", "str", "format", "len", "contains", "hash", "abs", "min", "max",
+    "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err",
+    "ok", "err", "channel_new", "send", "receive", NULL,
+};
+
+/* A named call (`f(y: 2, x: 1)`) is reordered here, once, into the same
+ * positional order the rest of check_call (and, downstream, the
+ * interpreter) already expects -- so nothing past this point ever needs
+ * to know a call was written with names at all. Requires the given
+ * names to be exactly `fn`'s declared parameter names, each appearing
+ * once; no omission yet (every parameter must still be supplied here --
+ * Option<T> parameter omission is a separate, later feature that will
+ * relax this). */
+static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
+    char **names = e->as.call.arg_names;
+    if (names == NULL) {
+        return;
+    }
+    int argc = e->as.call.args.count;
+    if (argc != fn->params.count) {
+        ziman_error("type", e->line, e->col,
+                    "function '%s' expects %d named argument(s), found %d",
+                    e->as.call.callee, fn->params.count, argc);
+    }
+    Expr **reordered = malloc((size_t)fn->params.count * sizeof(Expr *));
+    for (int i = 0; i < fn->params.count; i++) {
+        reordered[i] = NULL;
+    }
+    for (int i = 0; i < argc; i++) {
+        int param_index = -1;
+        for (int j = 0; j < fn->params.count; j++) {
+            if (strcmp(names[i], fn->params.items[j].name) == 0) {
+                param_index = j;
+                break;
+            }
+        }
+        if (param_index == -1) {
+            ziman_error("type", e->line, e->col,
+                        "function '%s' has no parameter named '%s'",
+                        e->as.call.callee, names[i]);
+        }
+        if (reordered[param_index] != NULL) {
+            ziman_error("type", e->line, e->col,
+                        "argument '%s' given more than once in this call to '%s'",
+                        names[i], e->as.call.callee);
+        }
+        reordered[param_index] = e->as.call.args.items[i];
+    }
+    for (int i = 0; i < fn->params.count; i++) {
+        e->as.call.args.items[i] = reordered[i];
+    }
+    free(reordered);
+    e->as.call.arg_names = NULL;
+}
+
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
+
+    if (e->as.call.arg_names != NULL) {
+        for (int i = 0; BUILTINS_NO_NAMED_ARGS[i] != NULL; i++) {
+            if (strcmp(name, BUILTINS_NO_NAMED_ARGS[i]) == 0) {
+                ziman_error("type", e->line, e->col, "named arguments aren't supported for '%s'", name);
+            }
+        }
+    }
 
     if (strcmp(name, "print") == 0) {
         if (e->as.call.args.count != 1) {
@@ -606,6 +677,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     if (fn == NULL) {
         ziman_error("type", e->line, e->col, "call to undefined function '%s'", name);
     }
+    canonicalize_named_args(e, fn);
     TypeList *type_args = &e->as.call.type_args;
     /* Explicit type arguments everywhere, no inference -- same rules as
      * a generic struct literal or enum construction. */

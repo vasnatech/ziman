@@ -1,0 +1,5 @@
+use util
+
+fn main() {
+    print(util.scale(factor: 3, value: 10))
+}
