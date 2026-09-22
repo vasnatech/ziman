@@ -367,6 +367,56 @@ a time mid-implementation:
   sharing style, and whether `Channel<T>`'s cross-thread sharing needs
   atomic increments/decrements or can stay under the channel's existing
   mutex) before implementation starts.
+- **A likely-better alternative to the refcounting entry above:
+  per-thread arena allocation, freed in one shot when the thread's work
+  is done — the same design Erlang/BEAM already uses for exactly this
+  problem, and a more natural fit for Ziman's concurrency model than
+  refcounting is.** The motivating shape: a real Ziman HTTP backend
+  handles each incoming request on its own thread (`spawn`), doing a
+  burst of allocation (parsed JSON, intermediate structs, formatted
+  response strings) that's entirely garbage the moment the request
+  finishes — exactly the pattern arena/region allocators exist for
+  (Apache httpd's per-request pool, nginx's memory pools, Rust's
+  `typed-arena`). Give each such thread its own arena; every allocation
+  it makes comes from that arena; when the thread's function returns,
+  free the *entire* arena in one bulk operation. No per-value
+  bookkeeping at all — no refcounts to increment/decrement, and (unlike
+  the refcounting entry above) no need to lean on the value graph being
+  acyclic either, since nothing is being freed value-by-value in the
+  first place.
+  The one place this breaks if implemented naively: Ziman's actor
+  model *is* threads passing values to each other over a `Channel`, and
+  today that's a cheap pointer copy specifically because nothing is
+  ever freed — see docs/DESIGN.md's "single-writer/actor pattern" entry
+  (*"nothing frees the thing being pointed to, so a value crossing
+  threads is just a safe pointer copy"*). A request thread that builds
+  a `CreatePatientRequest` and sends it to the long-lived actor, which
+  stores it in `store.patients` for the rest of the program's life,
+  would leave the actor holding a pointer into the request thread's
+  arena — a dangling pointer the moment that arena is freed, silent
+  memory corruption rather than a leak. Erlang solves this the same way
+  it solves the general problem: each process has its own *private*
+  heap, and `send` between processes *copies* the message from the
+  sender's heap into the receiver's, never shares a pointer across the
+  boundary. Ziman would need the same fix — `send`/`receive` deep-copy
+  the `Value` across the channel instead of copying the struct/pointer
+  — before per-thread arenas are safe to bulk-free. Given values are
+  already immutable, this copy is behaviorally invisible (no aliasing
+  to preserve), just a real runtime cost paid once per channel
+  operation rather than never.
+  Not started, not designed in detail — needs its own pass (an arena
+  allocator implementation, hooking every allocation site to it instead
+  of bare `malloc`, the deep-copy-on-send/receive mechanism and exactly
+  what "deep" means for each `Value` variant, and what owns/frees the
+  entry module's own top-level allocations, which never run inside a
+  `spawn`ed thread at all) before implementation starts. Preferred over
+  the refcounting entry above specifically because it needs no per-
+  value bookkeeping during normal execution and matches the actor model
+  already in place, rather than being a general mechanism bolted in
+  beside it — but the two aren't necessarily exclusive (a long-lived
+  actor's own heap could still eventually want its own reclamation
+  story once *it* accumulates garbage across many processed messages,
+  which per-thread arenas alone don't address).
 - **`HashMap`/`HashSet`'s `set`/`add`/`remove` are O(bucket_count), not
   O(1) — a genuine gap next to Java's `HashMap` (O(1) amortized `put`),
   and a trie-shaped bucket structure could close it without touching
