@@ -1069,6 +1069,89 @@ several languages rather than inheriting any one of them wholesale.
   Applied immediately: `health-record-backend-ziman`'s `request.zm` had
   its hand-rolled `parse_iso_date` deleted outright in favor of the new
   `time.localdate_parse` — the exact motivating gap, closed.
+- **Variadic parameters — the first new call-site grammar since generics,
+  built for one concrete native function (`join`), not speculatively.**
+  Motivated by a scan of `corelib/*.zm` for O(N²) allocation patterns:
+  several functions (`json_to_string`, `escape_json_string`,
+  `parse_string`, `hashmap_keys`/`hashmap_values`/`hashset_items`) build
+  a result by repeatedly calling `concat`/`push` in a loop, each call
+  copying the *entire* accumulated result so far — O(N²) work to produce
+  an O(N) result, an unavoidable consequence of Ziman's immutable
+  arrays/strings once written that way. Considered making `concat`
+  itself variadic first; rejected once it became clear that wouldn't
+  actually help the motivating case: a variadic *call* still requires
+  listing each argument individually in source, and `json_to_string`'s
+  loop has a runtime-sized `[Json]` array, not a fixed, source-visible
+  count. What was actually needed was a way to hand over an existing
+  array and get single-pass, native buffer-building — `join(pieces:
+  [string]) -> string` alone would have solved that with zero language
+  changes. Variadic parameters were still worth building on top of that,
+  for a narrower, genuinely ergonomic reason: they let `join("Hello, ",
+  name, "!")` read naturally for the common case (a handful of pieces
+  known at the call site) without forcing an array literal, while the
+  array form still works directly for the runtime-sized case that
+  started this — one function serves both, not two.
+  **Syntax: `pieces: string...`, suffixed onto the type, not a new
+  keyword or a prefix marker.** Considered against how other languages
+  spell this (Java/Swift suffix the type: `String... args`/`args:
+  String...`; Go suffixes the type but before the name: `nums ...int`;
+  Python/JS prefix the name: `*args`/`...args`; C#/Kotlin use a keyword:
+  `params string[] args`/`vararg args: String`) — no two of them agree,
+  so there's no external convention to defer to, only Ziman's own
+  already-fixed `name: type` order to disturb as little as possible.
+  Reasoned explicitly from an AI-generation angle here, not just a
+  human-readability one, per this project's own stated priority: a new
+  keyword (`vararg`, `params`, `variadic`) invites a subtly-wrong
+  synonym a model could plausibly generate instead (`varargs`,
+  `repeated`); `...` has no synonym to drift toward and is either
+  present or a syntax error, nothing in between — less surface area for
+  a generator to get quietly wrong. Lexed as the existing `TOK_DOTDOT`
+  (a for-loop range's `..`) immediately followed by a `TOK_DOT`, not a
+  new token — the two can never be confused, since a range's `..` never
+  appears in a parameter list.
+  **A variadic parameter's declared type is the *element* type, not the
+  array type** (`nums: int...`, never `nums: [int]...`) — inside the
+  function it behaves as an ordinary `[int]` (bound that way in
+  check_function/call_function), but the signature shows a reader what
+  a *caller* writes, which is individual `int`s, not an array.
+  **A single already-built array works as the whole variadic tail, not
+  just individually-listed elements** — `sum(nums)` where `nums: [int]`
+  passes it through directly rather than requiring `nums` to be
+  unpacked back into individual arguments first. This was flagged
+  initially as a likely source of Java-style varargs/array ambiguity,
+  then reconsidered and accepted: Java's ambiguity is specifically about
+  *overload resolution* choosing between competing method signatures
+  when a single array argument could match more than one of them —
+  Ziman has no overloading at all, so there is exactly one declared
+  `sum`, and whether a trailing argument means "the whole array" or "one
+  more element" is always decidable from that argument's own static
+  type alone (`[int]` vs `int` can never be confused, given no implicit
+  coercion exists either). No ambiguity survives in a language with
+  neither overloading nor coercion, even though the same-shaped call
+  genuinely is ambiguous in one that has both.
+  **`join(pieces: string...) -> string`** is the concrete payoff,
+  implemented natively (`src/prelude.c`'s `native_join`): two linear
+  passes over the collected array (sum lengths, then copy into one
+  `malloc`'d buffer) — genuinely O(N), the fix the motivating scan was
+  looking for, not just a relocation of the same O(N²) pattern into a
+  variadic-shaped wrapper. A pure-Ziman `join` built on top of the new
+  variadic syntax would have reintroduced the exact problem one level
+  down (accumulating via `concat` in a loop over the collected array),
+  so being able to write it natively was the actual point, not the
+  variadic syntax on its own.
+  Mechanically, the collection from "however many arguments a call site
+  wrote" down to "exactly one `Value` per declared parameter" happens
+  once, in `interpreter.c`'s `collapse_variadic_args`, called at the top
+  of `call_function` before either the native-dispatch or the ordinary
+  env-binding path — so neither path, nor any future one, needs its own
+  copy of this logic, and a variadic function's own implementation
+  (native or not) never has any way to tell a spread call from an
+  individually-listed one; it only ever sees one array.
+  This is stage one of a larger, still-in-progress design conversation
+  (named arguments at call sites, `Option<T>` parameter omission with
+  defaults, `Result<T, E>` bare-value auto-wrapping) — deliberately
+  built and landed on its own first, since it's fully self-contained and
+  has no dependency on the rest.
 
 ## Deliberately deferred (not v0)
 

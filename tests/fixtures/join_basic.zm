@@ -1,0 +1,18 @@
+fn main() {
+    print(join())
+    print(join("hello"))
+    print(join("Hello, ", "world", "!"))
+
+    val pieces: [string] = ["a", "b", "c", "d"]
+    print(join(pieces))
+
+    // Large enough to actually exercise the single-pass buffer, not
+    // just the trivial cases above.
+    var big: [string] = []
+    var i = 0
+    while i < 2000 {
+        big = push(big, str(i))
+        i = i + 1
+    }
+    print(len(join(big)))
+}

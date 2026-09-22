@@ -33,6 +33,14 @@ native fn split(s: string, sep: string) -> [string]
 native fn trim(s: string) -> string
 native fn to_upper(s: string) -> string
 native fn to_lower(s: string) -> string
+// A single-pass, O(N) join of however many strings the caller writes out
+// individually (`join("a", "b", "c")`) or hands over as one already-built
+// array (`join(pieces)`) -- see docs/DESIGN.md's "join"/variadic
+// parameters entry for why this needed to be native (a pure-Ziman version
+// accumulating via repeated `concat` would just reintroduce the same
+// O(N^2) pattern this exists to replace) and why a variadic parameter,
+// not an ordinary `[string]` one, was worth adding to the language for it.
+native fn join(pieces: string...) -> string
 
 // `Option<T>` -- moved here from collections.zm so it needs no `use
 // collections` (or a per-name import of it) anywhere it's used, the

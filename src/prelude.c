@@ -213,6 +213,35 @@ static Value native_to_lower(Value *args, int argc, int line, int col) {
     return value_string(buf);
 }
 
+/* args[0] is always the collected `[string]` array, regardless of how
+ * many pieces the call site wrote out individually vs. passed as one
+ * already-built array -- see ast.h's Param comment and interpreter.c's
+ * collapse_variadic_args, which is what guarantees this native
+ * function never has to know the difference. Two linear passes (sum
+ * the lengths, then copy), one allocation -- the whole point of this
+ * function existing natively: a pure-Ziman version accumulating via
+ * repeated `concat` would be the same O(N^2) pattern this was written
+ * to replace (see docs/DESIGN.md's "join" entry). */
+static Value native_join(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ArrayObj *pieces = args[0].as.arr;
+    size_t total = 0;
+    for (int i = 0; i < pieces->count; i++) {
+        total += strlen(pieces->items[i].as.s);
+    }
+    char *buf = malloc(total + 1);
+    size_t pos = 0;
+    for (int i = 0; i < pieces->count; i++) {
+        size_t piece_len = strlen(pieces->items[i].as.s);
+        memcpy(buf + pos, pieces->items[i].as.s, piece_len);
+        pos += piece_len;
+    }
+    buf[total] = '\0';
+    return value_string(buf);
+}
+
 void prelude_register(void) {
     native_register("parse_int", native_parse_int);
     native_register("parse_float", native_parse_float);
@@ -228,4 +257,5 @@ void prelude_register(void) {
     native_register("trim", native_trim);
     native_register("to_upper", native_to_upper);
     native_register("to_lower", native_to_lower);
+    native_register("join", native_join);
 }

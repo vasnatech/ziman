@@ -59,7 +59,10 @@ enum_decl      := "enum" TYPE_IDENT "{" NEWLINE* { variant NEWLINE* } "}"
 variant        := TYPE_IDENT [ "(" type ")" ]     (* zero or one payload;
                     see "Enums" for why never more than one *)
 param_list     := param { "," param }
-param          := IDENT ":" type
+param          := IDENT ":" type [ "..." ]
+                    (* the trailing "..." marks a variadic parameter, only
+                       legal on the last param in the list -- see
+                       "Functions" -- "Variadic parameters" below *)
 type           := "int" | "float" | "bool" | "string" | "[" type "]"
                  | TYPE_IDENT | IDENT "." TYPE_IDENT   (* qualifier.Type *)
                  | "Result" "<" type "," type ">"      (* Result<Ok, Err> *)
@@ -515,6 +518,62 @@ fn main() {
   can name a struct declared later in the file. Referencing a struct name
   that's never declared anywhere is a compile-time error at the field (or
   parameter/return type) that names it.
+
+## Functions
+
+### Variadic parameters
+
+```
+// join(pieces: string...) -> string is a real, always-available
+// prelude function (see "Modules" above) -- this is a second,
+// hand-written example to show the shape without redeclaring it.
+fn sum(nums: int...) -> int {
+    var total = 0
+    for n in nums {
+        total = total + n
+    }
+    return total
+}
+
+fn main() {
+    print(sum())              // 0
+    print(sum(5))              // 5
+    print(sum(1, 2, 3))        // 6
+    val nums: [int] = [10, 20, 30]
+    print(sum(nums))           // 60 -- an existing array works too
+}
+```
+
+- **A trailing `...` on the last parameter's type marks it variadic** —
+  a caller may then supply *zero or more* individually-listed arguments
+  of that element type, instead of exactly one. Only the last parameter
+  in a list may be variadic (a compile-time error otherwise, since a
+  variadic parameter has to "absorb" everything after it — nothing could
+  come after it unambiguously).
+- **Inside the function itself, a variadic parameter is an ordinary
+  array of its declared element type** — `nums: int...` behaves as
+  `nums: [int]` inside `sum`'s own body; the declared type in the
+  signature is the *element* type only so a reader sees at a glance what
+  a caller writes at the call site, not what the parameter becomes
+  internally.
+- **An already-built array works as the sole trailing argument too** —
+  `sum(nums)` where `nums: [int]` passes the whole array through
+  directly, without needing to unpack it back into individual arguments
+  first. Which of the two a given call means (a single element, or the
+  whole array) is decided purely by that argument's own static type —
+  `int` vs `[int]` can never be confused, so there's no ambiguity to
+  resolve at runtime the way Java's overload resolution sometimes has to
+  choose between a varargs call and an explicit array argument. This
+  only works when there's *exactly one* trailing argument; two or more
+  trailing arguments are always treated as individual elements.
+- **No syntax for spreading an array into a call that also has other
+  individually-listed trailing arguments** (`sum(1, 2, nums)` doesn't
+  merge `nums` into the list) — the "whole array" reading only applies
+  when it's the *only* argument in the variadic position.
+- Lexed as an ordinary `..` (the same token a `for x in a..b` range
+  uses) immediately followed by a `.` — no dedicated token, and no
+  ambiguity with a range, since a range's `..` never appears in a
+  parameter list to begin with.
 
 ## Generics
 

@@ -811,6 +811,15 @@ static Stmt *parse_statement(Parser *p) {
     return s;
 }
 
+/* A trailing `...` after a parameter's type marks it variadic --
+ * lexed as an ordinary `TOK_DOTDOT` (the same token a for-loop range's
+ * `..` already produces) immediately followed by a `TOK_DOT`, rather
+ * than a dedicated token: no lexer change needed, and the two can
+ * never be confused, since a range's `..` only ever appears in a
+ * `for x in start..end` header, a position this never overlaps with.
+ * Only the last parameter may be variadic -- checked here, not left
+ * for typecheck to catch later, since it's a purely syntactic rule
+ * (nothing about types or scope is involved). */
 static ParamList parse_params(Parser *p) {
     ParamList params = {0};
     if (!check(p, TOK_RPAREN)) {
@@ -819,10 +828,23 @@ static ParamList parse_params(Parser *p) {
             require_lower_start(param_name, "a parameter name");
             expect(p, TOK_COLON, "':'");
             Type param_type = parse_type(p);
-            Param param = {dup_token_text(param_name), param_type, param_name->line, param_name->col};
+            int is_variadic = 0;
+            if (check(p, TOK_DOTDOT)) {
+                int saved_pos = p->pos;
+                advance_tok(p); /* '..' */
+                if (match(p, TOK_DOT)) {
+                    is_variadic = 1;
+                } else {
+                    p->pos = saved_pos; /* not '...' after all -- leave it */
+                }
+            }
+            Param param = {dup_token_text(param_name), param_type, is_variadic, param_name->line, param_name->col};
             param_list_push(&params, param);
             skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
+            if (is_variadic) {
+                ziman_error("syntax", param.line, param.col, "a variadic parameter ('...') must be the last parameter");
+            }
             skip_newlines(p);
         }
     }
@@ -1094,7 +1116,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
         expect(p, TOK_COLON, "':'");
         Type field_type = parse_type(p);
         if (sd->type_params.count > 0) reclassify_type_params(&field_type, &sd->type_params);
-        Param field = {dup_token_text(field_name), field_type, field_name->line, field_name->col};
+        Param field = {dup_token_text(field_name), field_type, 0, field_name->line, field_name->col};
         param_list_push(&sd->fields, field);
         skip_newlines(p);
     }

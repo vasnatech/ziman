@@ -1,0 +1,11 @@
+fn sum(nums: int...) -> int {
+    var total = 0
+    for n in nums {
+        total = total + n
+    }
+    return total
+}
+
+fn main() {
+    print(sum(1, "x"))
+}

@@ -165,10 +165,15 @@ across several types at once (no argument-based overloading exists
 anywhere else in the language). Everything else that has exactly one
 fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
 `parse_decimal`, `floor`, `ceil`, `round`, `decimal_round`, `concat`,
-`substring`, `split`, `trim`, `to_upper`, `to_lower` — instead lives in
-an auto-imported "prelude" module (`corelib/prelude.zm`), each an
-ordinary `native fn` using the same mechanism the `io` module uses to
-call into C. The prelude isn't native-only, though: `Option<T>` (plus
+`substring`, `split`, `trim`, `to_upper`, `to_lower`, `join` — instead
+lives in an auto-imported "prelude" module (`corelib/prelude.zm`), each
+an ordinary `native fn` using the same mechanism the `io` module uses to
+call into C. `join(pieces: string...) -> string` is also the first use
+of a *variadic parameter* — `join("a", "b")`/`join(pieces)` (an
+already-built `[string]`) both work, and it exists specifically so that
+joining many strings is a single native, O(N) buffer build instead of
+the O(N²) a pure-Ziman loop of `concat` calls would be (see
+docs/DESIGN.md's "Variadic parameters" entry). The prelude isn't native-only, though: `Option<T>` (plus
 one helper, `option_unwrap_or`) lives there too, as ordinary Ziman
 source — an enum, not a hardcoded primitive like `Result<T, E>` is —
 merged bare into every program the same way the entry file's own

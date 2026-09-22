@@ -270,7 +270,20 @@ struct Stmt {
 
 typedef struct {
     char *name;
-    Type type;
+    Type type; /* the element type, e.g. `string` for `pieces: string...` --
+                * NOT the array type; see is_variadic below for why. */
+    /* True only for the last Param in a ParamList (enforced at parse
+     * time -- see parser.c's parse_params). `type` above stays the
+     * *element* type (`string`, not `[string]`) so ordinary code that
+     * reads a Param's type (substitute_type, reclassify_type_params,
+     * self_qualify_type, ...) needs no special case for a variadic
+     * parameter at all -- the one place that does care (binding the
+     * parameter into a call's own scope, in check_function/
+     * call_function) wraps it in `[T]` right there, and the one place
+     * that needs to know a call is *to* a variadic function
+     * (check_call/call_function) reads this flag directly off the
+     * callee's last declared Param. */
+    int is_variadic;
     int line, col;
 } Param;
 

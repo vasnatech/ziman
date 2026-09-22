@@ -1,0 +1,4 @@
+zero: count=0 sum=0
+one: count=1 sum=5
+three: count=3 sum=6
+spread: count=4 sum=100

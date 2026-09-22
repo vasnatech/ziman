@@ -1,0 +1,21 @@
+// A variadic parameter's own declared type is the *element* type
+// (`int`, not `[int]`) -- inside the function body it's an ordinary
+// array, and at the call site a caller can either list elements
+// individually (zero or more) or hand over an already-built array
+// directly (see ast.h's Param comment / typecheck.c's check_call).
+fn count_ints(prefix: string, nums: int...) -> string {
+    var total = 0
+    for n in nums {
+        total = total + n
+    }
+    return format("{}: count={} sum={}", prefix, len(nums), total)
+}
+
+fn main() {
+    print(count_ints("zero"))
+    print(count_ints("one", 5))
+    print(count_ints("three", 1, 2, 3))
+
+    val arr: [int] = [10, 20, 30, 40]
+    print(count_ints("spread", arr))
+}

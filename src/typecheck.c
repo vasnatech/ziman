@@ -623,10 +623,17 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     }
     check_type_args_satisfy_bounds(module, &fn->type_params, type_args, e->line, e->col);
 
-    if (e->as.call.args.count != fn->params.count) {
+    int is_variadic = fn->params.count > 0 && fn->params.items[fn->params.count - 1].is_variadic;
+    int fixed_count = is_variadic ? fn->params.count - 1 : fn->params.count;
+
+    if (is_variadic) {
+        if (e->as.call.args.count < fixed_count) {
+            ziman_error("type", e->line, e->col, "function '%s' expects at least %d argument(s), found %d", name, fixed_count, e->as.call.args.count);
+        }
+    } else if (e->as.call.args.count != fn->params.count) {
         ziman_error("type", e->line, e->col, "function '%s' expects %d argument(s), found %d", name, fn->params.count, e->as.call.args.count);
     }
-    for (int i = 0; i < e->as.call.args.count; i++) {
+    for (int i = 0; i < fixed_count; i++) {
         Expr *arg = e->as.call.args.items[i];
         Type arg_type = check_expr(module, env, arg);
         require_not_void(arg, "as an argument");
@@ -635,6 +642,39 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             ziman_error("type", arg->line, arg->col,
                         "argument %d of '%s' expects %s, found %s",
                         i + 1, name, type_name(expected), type_name(arg_type));
+        }
+    }
+    /* The trailing (variadic) arguments -- either zero or more individual
+     * values of the element type, collected into an array at the call
+     * site (see call_function), or, when there's exactly one trailing
+     * argument, an already-built array of that element type passed
+     * through directly. Which of the two a given call means is decided
+     * purely by that argument's own static type -- sound with no
+     * ambiguity, since Ziman has no implicit coercion and no
+     * overloading to confuse it with. */
+    if (is_variadic) {
+        Type elem_type = substitute_type(fn->params.items[fixed_count].type, &fn->type_params, type_args);
+        int tail_count = e->as.call.args.count - fixed_count;
+        if (tail_count == 1) {
+            Expr *arg = e->as.call.args.items[fixed_count];
+            Type arg_type = check_expr(module, env, arg);
+            require_not_void(arg, "as an argument");
+            if (!type_equals(arg_type, elem_type) && !type_equals(arg_type, type_array(elem_type))) {
+                ziman_error("type", arg->line, arg->col,
+                            "argument %d of '%s' expects %s or %s, found %s",
+                            fixed_count + 1, name, type_name(elem_type), type_name(type_array(elem_type)), type_name(arg_type));
+            }
+        } else {
+            for (int i = fixed_count; i < e->as.call.args.count; i++) {
+                Expr *arg = e->as.call.args.items[i];
+                Type arg_type = check_expr(module, env, arg);
+                require_not_void(arg, "as an argument");
+                if (!type_equals(arg_type, elem_type)) {
+                    ziman_error("type", arg->line, arg->col,
+                                "argument %d of '%s' expects %s, found %s",
+                                i + 1, name, type_name(elem_type), type_name(arg_type));
+                }
+            }
         }
     }
     return substitute_type(fn->return_type, &fn->type_params, type_args);
@@ -1353,7 +1393,13 @@ static void check_function(Module *module, FunctionDecl *fn) {
     Env *env = env_new(g_global_env);
     for (int i = 0; i < fn->params.count; i++) {
         Param *param = &fn->params.items[i];
-        if (!env_define(env, param->name, param->type, 0 /* params are immutable */, value_int(0))) {
+        /* A variadic parameter's own declared type is the *element*
+         * type (see ast.h's Param comment) -- inside the function's own
+         * body it behaves as an ordinary array of that type, the same
+         * value a caller's collected trailing arguments become at the
+         * call site (see check_call/call_function). */
+        Type bound_type = param->is_variadic ? type_array(param->type) : param->type;
+        if (!env_define(env, param->name, bound_type, 0 /* params are immutable */, value_int(0))) {
             ziman_error("type", param->line, param->col, "duplicate parameter name '%s'", param->name);
         }
     }

@@ -1,0 +1,7 @@
+fn bad(a: int..., b: string) -> int {
+    return 0
+}
+
+fn main() {
+    print(bad(1, "x"))
+}

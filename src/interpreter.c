@@ -54,18 +54,63 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s);
  * are safe with no locking. */
 static Env *g_global_env = NULL;
 
-static Value call_function(Module *module, FunctionDecl *fn, Value *args, int argc, int call_line, int call_col) {
+/* If `fn`'s last parameter is variadic, collapses `args`/`argc` (the raw
+ * values a call site evaluated, one per written-out argument) down to
+ * exactly `fn->params.count` values -- one per fixed parameter, plus one
+ * final array Value for the whole variadic tail -- so every other piece
+ * of call-handling code (native dispatch, ordinary env-binding below)
+ * never needs to know a variadic call happened at all; it just sees the
+ * same "one Value per declared parameter" shape it always has. Mirrors
+ * check_call's own already-verified logic (a single trailing argument
+ * whose type already matches the element array type is passed through
+ * as-is; anything else is collected fresh) -- typecheck already proved
+ * this call is well-formed, so no error-checking is needed here, only
+ * the collapse itself. Returns `args` unchanged (no allocation) for a
+ * non-variadic function, so the common case costs nothing extra. */
+static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, int *out_argc) {
+    if (fn->params.count == 0 || !fn->params.items[fn->params.count - 1].is_variadic) {
+        *out_argc = argc;
+        return args;
+    }
+    int fixed_count = fn->params.count - 1;
+    int tail_count = argc - fixed_count;
+    Value tail;
+    if (tail_count == 1 && args[fixed_count].type.kind == TY_ARRAY) {
+        tail = args[fixed_count];
+    } else {
+        Value *items = tail_count > 0 ? malloc((size_t)tail_count * sizeof(Value)) : NULL;
+        for (int i = 0; i < tail_count; i++) {
+            items[i] = args[fixed_count + i];
+        }
+        tail = value_array(type_array(fn->params.items[fixed_count].type), array_obj_new(items, tail_count));
+    }
+    Value *collapsed = malloc((size_t)fn->params.count * sizeof(Value));
+    for (int i = 0; i < fixed_count; i++) {
+        collapsed[i] = args[i];
+    }
+    collapsed[fixed_count] = tail;
+    *out_argc = fn->params.count;
+    return collapsed;
+}
+
+static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int call_line, int call_col) {
+    int argc;
+    Value *args = collapse_variadic_args(fn, raw_args, raw_argc, &argc);
     if (fn->is_native) {
         NativeFn native = native_lookup(fn->name);
         if (native == NULL) {
             ziman_error("runtime", call_line, call_col, "native function '%s' has no registered implementation", fn->name);
         }
-        return native(args, argc, call_line, call_col);
+        Value result = native(args, argc, call_line, call_col);
+        if (args != raw_args) free(args);
+        return result;
     }
     Env *env = env_new(g_global_env);
     for (int i = 0; i < argc; i++) {
-        env_define(env, fn->params.items[i].name, fn->params.items[i].type, 0, args[i]);
+        Type bound_type = fn->params.items[i].is_variadic ? type_array(fn->params.items[i].type) : fn->params.items[i].type;
+        env_define(env, fn->params.items[i].name, bound_type, 0, args[i]);
     }
+    if (args != raw_args) free(args);
     ExecResult result = {CTRL_NONE, value_int(0)};
     for (int i = 0; i < fn->body->as.block.stmts.count && result.kind == CTRL_NONE; i++) {
         result = exec_stmt(module, env, fn->body->as.block.stmts.items[i]);

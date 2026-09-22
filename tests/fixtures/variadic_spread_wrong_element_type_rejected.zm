@@ -1,0 +1,12 @@
+fn sum(nums: int...) -> int {
+    var total = 0
+    for n in nums {
+        total = total + n
+    }
+    return total
+}
+
+fn main() {
+    val wrong: [string] = ["a", "b"]
+    print(sum(wrong))
+}
