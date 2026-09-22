@@ -498,6 +498,33 @@ several languages rather than inheriting any one of them wholesale.
   themselves were never a candidate either way, for the same "no
   overloading" reason — `+`/`-`/`==`/etc. stay hardcoded in
   `eval_binary`/`check_binary` regardless.
+- **Bundled core modules — ordinary, qualified `.zm` modules embedded in
+  the binary, distinct from the prelude.** The `collections` module
+  (`Box`/`Option`/`HashMap`/`HashSet`) was, at first, something every
+  project had to vendor a copy of — real friction, surfaced by actually
+  dogfooding it in a second project (`health-record-backend-ziman`),
+  which had a working, useful module it could only get by copy-pasting a
+  file across repos. The prelude's fix doesn't apply here: `collections`
+  needs to *stay* qualified (`collections.HashMap`, `use collections`)
+  the way any module does — merging it bare like the prelude would mean
+  `Box`, `Option`, `HashMap`, and `HashSet` all become reserved global
+  names no project could ever declare its own version of, for a module
+  that's much bigger and much more likely to want an app-specific
+  variant someday. So this is a second, narrower mechanism
+  (`src/corelib.h`/`corelib.c`): `loader.c`'s `load_module` tries a
+  project-relative file first, exactly as it always has, and only
+  falls back to an embedded module's source if no such file exists — a
+  local file of the same name always wins, so a project can still
+  shadow a core module with its own. The embedding itself piggybacks on
+  the same "parse a source string, no new machinery" trick the prelude
+  established: the canonical `.zm` source lives at `corelib/*.zm`, the
+  Makefile turns each into a generated `#define X_SOURCE "..."` header
+  at build time (so the embedded copy can never drift from the source
+  file a human actually reads and edits), and `corelib.c` just looks the
+  requested `use` path up in a small table. Confirmed as a genuine
+  drop-in for vendoring, not just a demo of one: every test fixture that
+  used to carry its own copy of `collections.zm` had that copy deleted
+  outright and needed zero other changes to keep passing.
 
 ## Deliberately deferred (not v0)
 

@@ -49,9 +49,14 @@ monomorphized. A type parameter can be bounded with `Eq` and/or `Hash`
 these are the only two bounds Ziman has — there's no general
 trait/interface system (see docs/DESIGN.md's Generics entry for why,
 and what's deliberately left undecided). A small `collections` module
-built on this (`examples/collections/`) provides `Box<T>`, `Option<T>`,
+built on this (`corelib/collections.zm`) provides `Box<T>`, `Option<T>`,
 `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (bucket-array
 based, O(1) average-case lookup rather than a linear `Eq`-only scan).
+It's also the first *bundled core module*: its source is embedded into
+the `ziman` binary at build time, so `use collections` works from any
+project with no local copy needed — a project-relative file of the same
+name still wins if one exists, but this is the fallback that means one
+usually doesn't have to.
 
 Builtins ship two ways. A small core set — `print`, `str`, `format`,
 `len`, `push`, `insert`, `set`, `remove`, `contains`, `abs`, `min`,

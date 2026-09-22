@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "corelib.h"
 #include "error.h"
 #include "lexer.h"
 #include "parser.h"
@@ -688,7 +689,16 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     char *file_path = resolve_file_path(ldr->project_root, use_path);
     char *source = read_all(file_path);
     if (source == NULL) {
-        ziman_error("module", ref_line, ref_col, "cannot find module '%s' (looked for %s)", use_path, file_path);
+        /* No project-relative file by this name -- fall back to a
+         * bundled core module (see corelib.h) before giving up. A
+         * project file always wins when both exist. */
+        const char *core_source = corelib_source_for(use_path);
+        if (core_source == NULL) {
+            ziman_error("module", ref_line, ref_col,
+                        "cannot find module '%s' (looked for %s, and it's not a bundled core module)",
+                        use_path, file_path);
+        }
+        source = strdup(core_source);
     }
     Module *mod = parse_file_contents(source);
 

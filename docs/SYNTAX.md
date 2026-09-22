@@ -725,12 +725,15 @@ fn main() {
 
 - **`use path/to/mod [as alias]`** — the path is slash-separated and maps
   directly onto the filesystem (`models/user` → `models/user.zm`),
-  resolved relative to the entry file's own directory. Slash, not dot: a
-  module path never shares a token with `.field` access, which already
-  means something else. The name a module is referenced by (`user` above)
-  is the path's last segment by default, or the explicit `as` alias if
-  one is given — either way it's casing-enforced lowercase, like every
-  other value-like name.
+  resolved relative to the entry file's own directory first. If no such
+  project file exists, resolution falls back to a bundled *core module*
+  (`use collections` needs no local file — see below) before giving up;
+  a project's own file of the same name always wins if one exists.
+  Slash, not dot: a module path never shares a token with `.field`
+  access, which already means something else. The name a module is
+  referenced by (`user` above) is the path's last segment by default, or
+  the explicit `as` alias if one is given — either way it's
+  casing-enforced lowercase, like every other value-like name.
 - **Every cross-module reference is qualified — `user.greet(u)`,
   `user.User { ... }`, `field: user.User` — never a bare name that
   happens to resolve to some import.** There is no unqualified/wildcard
@@ -768,8 +771,18 @@ fn main() {
   "Result" below) rather than crashing the whole program, since that's
   an expected, recoverable condition; `write_file` is still fatal on
   failure for now (disk full, permissions), not yet migrated. `io.zm`
-  isn't found by any bundled-library search path yet, so a project that
-  wants it needs its own copy alongside the entry file for now.
+  itself hasn't been moved onto the core-module mechanism below, so a
+  project that wants it still needs its own copy alongside the entry
+  file for now.
+- **A bundled *core module* is ordinary `.zm` source embedded in the
+  `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
+  modules"), resolved by `use` when no project-relative file by that
+  name exists. `collections` (`Box<T>`, `Option<T>`, `HashMap<K, V>`,
+  `HashSet<T>` — see "Generics" above) is the first one: any project can
+  `use collections` and call `collections.HashMap<K, V>` etc. with no
+  local file of its own. It's still an ordinary, qualified module in
+  every other respect — `use collections`, always `collections.Name`,
+  never a bare unqualified name the way the prelude's functions are.
 
 ## Result
 

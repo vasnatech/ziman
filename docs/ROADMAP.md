@@ -32,9 +32,11 @@ one that never lands. The architecture to get there:
   typed Ziman function signatures to its callers, who shouldn't need to
   know or care whether a given module is native or pure Ziman. Still
   missing: the actual syscalls (raw sockets, process/env access) beyond
-  basic file I/O, and — since `io.zm`'s signature file isn't found by any
-  bundled-stdlib search path yet (see below) — every project that wants
-  it has to keep its own copy alongside its entry file for now.
+  basic file I/O. The "no bundled-stdlib search path" gap this used to
+  note is now half-closed — see "Bundled core modules" further below:
+  the mechanism exists and `collections` uses it, but `io.zm`'s
+  signature file itself hasn't been moved onto it yet, so every project
+  that wants `io` still keeps its own copy alongside its entry file.
   `io.read_file` now returns `Result<string, string>` (a missing file is
   recoverable, not fatal — see "Recoverable error handling" below);
   `write_file` is not yet migrated and still fails fatally on a write
@@ -309,12 +311,12 @@ a time mid-implementation:
   - **`use path/to/mod`** (slash, not dot — a module path is filesystem-
     literal and deliberately never shares a token with `.field` access,
     which already means something else). Resolved **project-relative
-    only for now** — against the directory containing the entry file
-    passed to `ziman`. There's no bundled standard library to fall back
-    to yet (nothing under "everything above the native floor" below has
-    been written), so that half of the design (`use io` finding a
-    bundled module the same way it'd find a local one) isn't built —
-    only the local-project half is.
+    first**, against the directory containing the entry file passed to
+    `ziman`, falling back to a bundled core module (see "Bundled core
+    modules" below) if no project file by that name exists — `use
+    collections` now finds one this way with zero project-local files;
+    `use io` still can't, since `io.zm` itself hasn't been moved onto
+    the same mechanism yet.
   - **Every cross-module reference is qualified — `user.greet(u)`, never
     a bare `greet(u)` that happens to resolve to some import.** Same
     "derivable from the line itself" reasoning as `concat`/`str` existing
@@ -501,7 +503,8 @@ a time mid-implementation:
     instead of once per concrete instantiation.
 - ~~**Collections module (`Box`/`Option`/`HashMap`/`HashSet`) — the
   concrete payoff of the generics work above.**~~ Implemented
-  (`examples/collections/collections.zm`): a `collections` module,
+  (`corelib/collections.zm` — see "Bundled core modules" below for why
+  it lives there and not under `examples/`): a `collections` module,
   written in ordinary Ziman, no new native/C code, exporting `Box<T>`,
   `Option<T>` (plus a small `option_unwrap_or<T>` helper),
   `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (`HashSet`
@@ -520,6 +523,36 @@ a time mid-implementation:
   implementation details Ziman has no per-field privacy to actually
   hide (a caller *can* reach `m.buckets` directly) — documented as
   "don't," not enforced.
+- ~~**Bundled core modules — closes the "every project keeps its own
+  copy" gap noted above under native modules.**~~ Implemented
+  (`src/corelib.h`/`corelib.c`): `collections` moved from
+  `examples/collections/collections.zm` to `corelib/collections.zm`,
+  and the Makefile now generates `src/collections_source.h` from it (a
+  `#define COLLECTIONS_SOURCE "..."`, one long escaped string literal —
+  a `#define` rather than a `static const char *` since the latter
+  isn't a constant expression and can't initialize `corelib.c`'s
+  `CORE_MODULES` table) at build time, embedding it straight into the
+  `ziman` binary. `loader.c`'s `load_module` tries a project-relative
+  file first, same as always, and only falls back to
+  `corelib_source_for(use_path)` if that file doesn't exist — a project
+  file of the same name always wins, so this is strictly a fallback,
+  not a shadowing/override mechanism. Deliberately narrower than the
+  prelude (prelude.h): a core module is only parsed when a program
+  actually `use`s it, and it stays qualified (`collections.HashMap`,
+  never a bare `HashMap`) exactly like any other module — this is a
+  stdlib, not language-level machinery, so the usual `use`/`pub`
+  boundary still applies. Every fixture that used to vendor its own
+  copy of `collections.zm` (`multifile_collections`,
+  `multifile_collections_stress`, `multifile_bigint_hashmap`,
+  `multifile_decimal_hashmap`) had it deleted and now resolves through
+  the fallback with no changes to the fixture's own code — the clearest
+  evidence the mechanism is a drop-in replacement for vendoring, not
+  just a demo of one. `io.zm` (the `io` native module's signature file)
+  is the other concrete case this same mechanism would resolve — still
+  vendored per-project (`examples/native_io/io.zm`, three test
+  fixtures, all byte-identical) — not done yet since only `collections`
+  was asked for, but the corelib table is a one-line addition away from
+  covering it too.
 - ~~**`bigint`/`decimal` — arbitrary-precision integer and decimal.**~~
   Implemented (docs/SYNTAX.md "Numbers", docs/DESIGN.md's "bigint"/
   "decimal" entry): a third and fourth numeric type. `bigint` is

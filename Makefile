@@ -12,6 +12,26 @@ all: $(BIN)
 $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ -lm -pthread
 
+# Bundled core modules (see src/corelib.c): each corelib/*.zm file is
+# embedded as a C string constant, generated fresh from its .zm source
+# every build so the two never drift. Declared as a prerequisite of
+# every object file (not just corelib.o) so a from-clean build always
+# generates it before anything tries to #include it -- the normal
+# -MMD/-MP header tracking only kicks in from the second build onward,
+# once a .d file already mentions it.
+$(OBJ): src/collections_source.h
+
+# A #define, not a `static const char *`, so it's usable as a constant
+# initializer in corelib.c's CORE_MODULES table -- a plain variable
+# can't be (ISO C requires a static initializer to itself be a constant
+# expression). Emitted as one long line rather than one string literal
+# per source line to avoid needing backslash-newline continuations in a
+# macro definition.
+src/collections_source.h: corelib/collections.zm
+	awk 'BEGIN { printf "/* Generated from corelib/collections.zm -- do not edit directly. */\n#define COLLECTIONS_SOURCE \"" } \
+	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); printf "%s\\n", $$0 } \
+	     END { print "\"" }' corelib/collections.zm > $@
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -34,4 +54,4 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	/tmp/ziman_decimal_test
 
 clean:
-	rm -f $(BIN) src/*.o src/*.d
+	rm -f $(BIN) src/*.o src/*.d src/collections_source.h
