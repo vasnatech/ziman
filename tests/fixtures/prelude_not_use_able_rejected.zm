@@ -1,0 +1,9 @@
+// The prelude (corelib/prelude.zm) is deliberately not a `use`-able
+// module -- everything it declares is already available bare, so
+// `use prelude` should fail the same way `use` of any other
+// nonexistent module name would.
+use prelude
+
+fn main() {
+    print("hi")
+}

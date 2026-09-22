@@ -1,8 +1,8 @@
-enum Option<T> {
+enum Maybe<T> {
     Some(T)
     None
 }
 fn main() {
-    val a = Option<int>.Some(5)
-    print(Option<int>.is_Some(a))
+    val a = Maybe<int>.Some(5)
+    print(Maybe<int>.is_Some(a))
 }

@@ -42,8 +42,6 @@
 // repeated multiplications) rather than a new native primitive, since
 // `bigint` arithmetic already does everything needed.
 
-use collections.Option
-
 // Module-level, built once -- not rebuilt on every hex_digit_char/
 // hex_digit_value call the way a same-shaped local `val` would be.
 val hex_digits: [string] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]

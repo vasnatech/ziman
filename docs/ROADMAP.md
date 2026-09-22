@@ -68,10 +68,12 @@ a time mid-implementation:
   key-value lookups constantly (headers, query params, JSON objects,
   config). Same "one collection type" question arrays already went
   through, but for `{K: V}`-shaped data instead of a sequence.
-- ~~**No optional/nullable type.**~~ `Option<T>` exists now
-  (`collections` core module, built on generics, not a hardcoded
-  parametric type like `Result<T, E>` after all — see the "Generics"
-  and "Collections module" entries). Still genuinely needed for a
+- ~~**No optional/nullable type.**~~ `Option<T>` exists now (built on
+  generics, not a hardcoded parametric type like `Result<T, E>` after
+  all — see the "Generics" and "Collections module" entries below for
+  how it was originally built, and the "Prelude" entry in docs/DESIGN.md
+  for why it later moved out of `collections` into the prelude, needing
+  no `use` anywhere). Still genuinely needed for a
   *direct* self-referential struct with no escape (`struct Node { next:
   Node }` is still unbuildable as-is; `struct Node { next: Option<Node>
   }` would be) — but a struct/enum that recurses *through an array*
@@ -574,7 +576,8 @@ a time mid-implementation:
   (`corelib/collections.zm` — see "Bundled core modules" below for why
   it lives there and not under `examples/`): a `collections` module,
   written in ordinary Ziman, no new native/C code, exporting `Box<T>`,
-  `Option<T>` (plus a small `option_unwrap_or<T>` helper),
+  `Option<T>` (plus a small `option_unwrap_or<T>` helper — both later
+  moved into the prelude, see the "Prelude" entry in docs/DESIGN.md),
   `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (`HashSet`
   needs both bounds too, for the same O(1)-bucket reason as `HashMap`)
   as plain structs/enums plus free functions

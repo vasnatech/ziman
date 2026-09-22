@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 
 describe() {
     case "$1" in
-        collections) echo "\`Box<T>\`, \`Option<T>\`, \`HashMap<K, V>\`, \`HashSet<T>\` -- generic containers, written in pure Ziman on top of the language's own \`Eq\`/\`Hash\` bounds." ;;
+        collections) echo "\`Box<T>\`, \`HashMap<K, V>\`, \`HashSet<T>\` -- generic containers, written in pure Ziman on top of the language's own \`Eq\`/\`Hash\` bounds." ;;
         io) echo "File I/O. The first native module -- proved the \`native fn\` mechanism end to end." ;;
         random) echo "One native function reading real OS entropy (\`/dev/urandom\`) -- Ziman's first source of genuine non-determinism." ;;
         uuid) echo "RFC 4122 v4 UUIDs, written in pure Ziman on top of \`random\` -- version/variant bits set with plain integer arithmetic, since Ziman has no bitwise operators." ;;
@@ -37,10 +37,18 @@ module is shaped the way it is.
 `use <module>` resolves any of these with no local file needed (see
 docs/SYNTAX.md's "Modules" -- "Bundled core module"); a per-name import
 (`use <module>.Name`) binds one item bare instead of qualified.
+
+One exception, not listed below: `corelib/prelude.zm` -- unlike every
+module here, it's never `use`-able at all (see its own header comment
+and docs/DESIGN.md's "Prelude" entry), since everything it declares
+(`Option<T>`, plus a handful of native functions) is already bare and
+unqualified in every program, the same way `print`/`str`/`parse_int`
+are. See docs/SYNTAX.md's "Modules" section for what it contains.
 EOF
 
 for f in corelib/*.zm; do
     name=$(basename "$f" .zm)
+    if [ "$name" = "prelude" ]; then continue; fi
     desc=$(describe "$name")
     echo
     echo "## \`$name\`"

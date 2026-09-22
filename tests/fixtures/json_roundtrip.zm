@@ -2,8 +2,6 @@ use json.parse_json
 use json.json_to_string
 use json.Json
 use json.json_object_get
-use collections.Option
-use collections.option_unwrap_or
 
 fn main() {
     val r = parse_json("{\"name\": \"Ada\", \"age\": 210, \"tags\": [\"math\", \"programmer\"], \"active\": true, \"note\": null}")

@@ -73,6 +73,13 @@ typedef struct {
     char **loading_stack;
     int loading_count;
     int loading_cap;
+    /* Parsed once, up front, in load_module_graph -- see
+     * resolve_type_refs's own comment for why every other module needs
+     * to see this: a bare type reference to a prelude enum (`Option<T>`)
+     * from *any* module, not just the entry one, needs reclassifying
+     * from its provisional TY_STRUCT the same way an entry module's own
+     * bare enum reference already does. */
+    Module *prelude_mod;
 } Loader;
 
 static Module *find_loaded(Loader *ldr, const char *use_path) {
@@ -759,6 +766,21 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
             return;
         }
     }
+    /* Or a third case the two above don't cover: a bare reference to a
+     * prelude enum (`Option<T>`) from some *other* module's own
+     * declaration -- `ctx->mod` above is that module's own (empty, in
+     * this case) enum list, never the prelude's, since the prelude isn't
+     * a dependency reached through any `use`. Checked last, after a
+     * module's own enums, so a module could in principle still shadow
+     * the name with its own same-named enum (not that any should). */
+    for (int i = 0; i < ctx->ldr->prelude_mod->enums.count; i++) {
+        if (strcmp(t->struct_name, ctx->ldr->prelude_mod->enums.items[i]->name) == 0) {
+            t->enum_name = t->struct_name;
+            t->struct_name = NULL;
+            t->kind = TY_ENUM;
+            return;
+        }
+    }
 }
 
 static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
@@ -1046,6 +1068,18 @@ Module *load_module_graph(const char *entry_path) {
     Loader ldr = {0};
     ldr.project_root = dirname_of(entry_path);
 
+    /* Parsed and resolved before anything else, and stashed on `ldr`
+     * itself (not just merged in later, see the merge site below) --
+     * every other module's own resolve_cross_refs call (inside
+     * load_module, and the entry module's own a few lines down) needs
+     * to see the prelude's declarations too, since a bare type reference
+     * to a prelude enum (`Option<T>`) can appear in *any* module, not
+     * just the entry one. See resolve_type_refs's own comment for the
+     * reclassification fallback this enables. */
+    Module *prelude_mod = parse_file_contents(prelude_source());
+    resolve_cross_refs(&ldr, prelude_mod);
+    ldr.prelude_mod = prelude_mod;
+
     char *entry_source = read_all(entry_path);
     if (entry_source == NULL) {
         fprintf(stderr, "ziman: cannot open '%s'\n", entry_path);
@@ -1076,12 +1110,20 @@ Module *load_module_graph(const char *entry_path) {
     resolve_cross_refs(&ldr, entry_mod);
 
     Module *merged = calloc(1, sizeof(Module));
-    /* The prelude (see prelude.h) is merged into every program the same
-     * way the entry module's own functions are -- bare names, no
-     * self-qualify pass, no `use` required. Parsed fresh each run (it's
-     * a small, fixed, native-only signature list, not worth caching). */
-    Module *prelude_mod = parse_file_contents(prelude_source());
+    /* The prelude (see prelude.h) -- parsed and resolved up front, above
+     * -- is merged into every program the same way the entry module's
+     * own declarations are: bare names, no self-qualify pass, no `use`
+     * required. Structs/enums/vals, not just functions, since
+     * corelib/prelude.zm carries ordinary Ziman declarations
+     * (`Option<T>`) alongside native fn signatures now, not native-only
+     * the way it used to be. Merged first, ahead of the entry module and
+     * every dependency, so a global val there (none yet, but the
+     * mechanism is general) is available to every other global val's
+     * initializer -- see the `vals` merge-order comment below for why
+     * order matters there specifically. */
     for (int i = 0; i < prelude_mod->functions.count; i++) function_list_push(&merged->functions, prelude_mod->functions.items[i]);
+    for (int i = 0; i < prelude_mod->structs.count; i++) struct_list_push(&merged->structs, prelude_mod->structs.items[i]);
+    for (int i = 0; i < prelude_mod->enums.count; i++) enum_list_push(&merged->enums, prelude_mod->enums.items[i]);
     for (int i = 0; i < entry_mod->functions.count; i++) function_list_push(&merged->functions, entry_mod->functions.items[i]);
     for (int i = 0; i < entry_mod->structs.count; i++) struct_list_push(&merged->structs, entry_mod->structs.items[i]);
     for (int i = 0; i < entry_mod->enums.count; i++) enum_list_push(&merged->enums, entry_mod->enums.items[i]);
@@ -1093,7 +1135,10 @@ Module *load_module_graph(const char *entry_path) {
      * dependency's own globals must come before the entry module's,
      * matching `ldr.loaded`'s own guarantee (a module is only ever
      * registered as loaded after everything it `use`s already is -- see
-     * load_module) that it's already a valid dependency order. */
+     * load_module) that it's already a valid dependency order. The
+     * prelude's own vals (none yet) come first of all, for the same
+     * reason. */
+    for (int i = 0; i < prelude_mod->vals.count; i++) global_val_list_push(&merged->vals, prelude_mod->vals.items[i]);
     for (int m = 0; m < ldr.loaded_count; m++) {
         Module *dep = ldr.loaded[m].module;
         for (int i = 0; i < dep->vals.count; i++) global_val_list_push(&merged->vals, dep->vals.items[i]);

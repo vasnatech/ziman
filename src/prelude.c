@@ -14,25 +14,12 @@
 #include "native.h"
 #include "value.h"
 
-/* One native fn declaration per line, no body -- exactly the shape
- * io.zm uses for a real native module, just never `pub` (irrelevant
- * here: these are merged bare into every program, never accessed
- * through a qualifier, so "exported to other modules" doesn't apply). */
-static const char *PRELUDE_SOURCE =
-    "native fn parse_int(s: string) -> Result<int, string>\n"
-    "native fn parse_float(s: string) -> Result<float, string>\n"
-    "native fn parse_bigint(s: string) -> Result<bigint, string>\n"
-    "native fn parse_decimal(s: string) -> Result<decimal, string>\n"
-    "native fn floor(x: float) -> int\n"
-    "native fn ceil(x: float) -> int\n"
-    "native fn round(x: float) -> int\n"
-    "native fn decimal_round(d: decimal, scale: int) -> decimal\n"
-    "native fn concat(a: string, b: string) -> string\n"
-    "native fn substring(s: string, start: int, end: int) -> string\n"
-    "native fn split(s: string, sep: string) -> [string]\n"
-    "native fn trim(s: string) -> string\n"
-    "native fn to_upper(s: string) -> string\n"
-    "native fn to_lower(s: string) -> string\n";
+/* Generated from corelib/prelude.zm by the same Makefile rule every
+ * other bundled module's header goes through -- real .zm source, never
+ * a hand-escaped C string literal (see corelib/prelude.zm's own header
+ * comment for why this file, uniquely among corelib's modules, is never
+ * registered in corelib.c's CORE_MODULES table). */
+#include "prelude_source.h"
 
 const char *prelude_source(void) {
     return PRELUDE_SOURCE;

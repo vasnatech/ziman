@@ -1,8 +1,8 @@
-enum Option<T: Eq> {
+enum Maybe<T: Eq> {
     Some(T)
     None
 }
 fn main() {
     val c: Channel<int> = channel_new()
-    val a = Option<Channel<int>>.Some(c)
+    val a = Maybe<Channel<int>>.Some(c)
 }

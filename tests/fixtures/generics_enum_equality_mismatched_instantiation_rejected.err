@@ -1,1 +1,1 @@
-cannot compare Option<int> and Option<string> for equality
+cannot compare Maybe<int> and Maybe<string> for equality

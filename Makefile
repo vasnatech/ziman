@@ -20,7 +20,15 @@ $(BIN): $(OBJ)
 # -MMD/-MP header tracking only kicks in from the second build onward,
 # once a .d file already mentions it. Add a new core module by adding
 # its name here and one line to corelib.c's CORE_MODULES table.
-CORELIB_MODULES := collections io random uuid clock time json number
+#
+# `prelude` is the one exception: it's listed here purely to get its
+# header generated the same readable, never-hand-escaped way every other
+# corelib/*.zm file does, but it deliberately has NO matching line in
+# corelib.c's CORE_MODULES table -- src/prelude.c reads its generated
+# header directly, and it's merged bare into every program by
+# loader.c's load_module_graph (see corelib/prelude.zm's own header
+# comment), never through a `use`. Do not add it to corelib.c's table.
+CORELIB_MODULES := collections io random uuid clock time json number prelude
 CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 
 $(OBJ): $(CORELIB_HEADERS)

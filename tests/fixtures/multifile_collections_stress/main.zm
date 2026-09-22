@@ -7,7 +7,7 @@ fn main() {
     }
     var ok = true
     for i in 0..50 {
-        val v = collections.option_unwrap_or<string>(collections.hashmap_get<int, string>(m, i), "MISSING")
+        val v = option_unwrap_or<string>(collections.hashmap_get<int, string>(m, i), "MISSING")
         if v != concat("v", str(i)) {
             ok = false
         }

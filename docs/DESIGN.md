@@ -498,16 +498,20 @@ several languages rather than inheriting any one of them wholesale.
   themselves were never a candidate either way, for the same "no
   overloading" reason — `+`/`-`/`==`/etc. stay hardcoded in
   `eval_binary`/`check_binary` regardless.
+  **Broadened later (see the "Prelude" entry near the end of this list)
+  to carry ordinary Ziman declarations too, not just native fn
+  signatures** — this entry's own framing ("a fixed, small native
+  module") describes why it was built, not everything it holds today.
 - **Bundled core modules — ordinary, qualified `.zm` modules embedded in
   the binary, distinct from the prelude.** The `collections` module
-  (`Box`/`Option`/`HashMap`/`HashSet`) was, at first, something every
+  (`Box`/`HashMap`/`HashSet`) was, at first, something every
   project had to vendor a copy of — real friction, surfaced by actually
   dogfooding it in a second project (`health-record-backend-ziman`),
   which had a working, useful module it could only get by copy-pasting a
   file across repos. The prelude's fix doesn't apply here: `collections`
   needs to *stay* qualified (`collections.HashMap`, `use collections`)
   the way any module does — merging it bare like the prelude would mean
-  `Box`, `Option`, `HashMap`, and `HashSet` all become reserved global
+  `Box`, `HashMap`, and `HashSet` all become reserved global
   names no project could ever declare its own version of, for a module
   that's much bigger and much more likely to want an app-specific
   variant someday. So this is a second, narrower mechanism
@@ -839,6 +843,75 @@ several languages rather than inheriting any one of them wholesale.
   import (`use mod.NAME`) already does the job with the same one-line
   cost as it does for a function or struct, so there was no forcing case
   to take on that ambiguity for values specifically.
+- **Prelude — broadened from "native functions only" to carry ordinary
+  Ziman declarations too, moving `Option<T>` out of `collections` and
+  into it.** Motivated by a plain observation: `Option<T>` is needed
+  far more widely than `HashMap`/`HashSet` are (any function that might
+  not have an answer wants it — a lookup, a parse, a search — while a
+  hash-based container is a narrower, opt-in data-structure choice), so
+  requiring `use collections` (or a per-name import of it) just to
+  return "maybe a value" was friction with no real payoff: nobody was
+  ever going to want an app-specific `Option` the way they might want an
+  app-specific `HashMap`. The prelude already existed for exactly this
+  shape of problem — "needed everywhere, `use` would be pure ceremony" —
+  just not yet for anything beyond native fn signatures.
+  Mechanically, the smallest change that could plausibly work: give the
+  prelude's merge step in `loader.c`'s `load_module_graph` the same
+  struct/enum/global-val flattening the entry module's own declarations
+  already get, not just functions — and put `Option<T>`'s real source
+  (moved verbatim, enum plus `option_unwrap_or`) into what
+  `prelude_source()` returns. Two real gaps surfaced doing this, both
+  fixed rather than designed around:
+  1. `parse_type()` always builds a provisional `TY_STRUCT` for a bare
+     `TYPE_IDENT` (see ast.h's `Type` comment), reclassified to `TY_ENUM`
+     by `resolve_type_refs`'s fallback — but that fallback only ever
+     checked *the current module's own* enum list, which is exactly
+     right for the entry module referencing its own bare enum, and
+     exactly wrong for `option_unwrap_or`'s own signature referencing
+     `Option<T>` inside `prelude.zm` itself (never resolved at all,
+     since prelude.zm never runs through `self_qualify_module`, the
+     pass that would otherwise have already reclassified it). Fixed by
+     running `resolve_cross_refs` on the parsed prelude module too,
+     before merging it — the exact same fallback already handles it
+     correctly once given the chance to run.
+  2. The same fallback then needed to work from *any* module, not just
+     the entry one and the prelude itself — `collections.zm`'s own
+     `hashmap_get` returns `Option<V>`, a bare reference to a type that
+     lives in neither `collections.zm`'s own enum list nor the entry
+     module's. Fixed by giving `Loader` a `prelude_mod` field, set once
+     up front (before any dependency loads), and adding it as a third,
+     final fallback in `resolve_type_refs` — checked after a module's
+     own enums, so a module could in principle still shadow the name
+     with one of its own (not that any should).
+  Both gaps existed because every previous bare-name reference case
+  (a function call, a struct literal, an enum access) is resolved by
+  the *expression* walk, which doesn't have this provisional-type
+  ambiguity at all — this was the first time a bare name needed
+  resolving from a *type position*, from outside both the referencing
+  module and the entry module. Verified by running the full test suite
+  after each fix, not assumed correct from the diff alone — the second
+  gap in particular only surfaced because `collections.zm` itself
+  (a real dependency, not the entry module) has a bare `Option`
+  reference in a type position, exactly the case nothing before this
+  had ever exercised.
+  Deliberately *not* made `use`-able under the name `prelude`, despite
+  `corelib/prelude.zm` sitting in the same directory as every module
+  that is: `corelib/%.zm` doubles as `corelib.c`'s `use`-fallback lookup
+  table, and adding `prelude` to it would let `use prelude` parse the
+  file a *second* time under a redundant qualifier (`prelude.Option`
+  alongside the already-bare `Option`) — solved by getting its header
+  generated through the same Makefile rule as everything else in
+  `corelib/` (so its source is still real, readable `.zm`, never a
+  hand-escaped C string) while never adding a matching line to
+  `corelib.c`'s `CORE_MODULES` table.
+  Nine existing test fixtures had to be updated as a direct, foreseen
+  consequence: they each declared their own throwaway
+  `enum Option<T> { Some(T) None }` at entry-module scope purely to
+  exercise generic-enum machinery in isolation, and a bare, unqualified
+  entry-level declaration collides with the prelude's own bare `Option`
+  the same way redeclaring `parse_int` at the top level already did —
+  renamed to `Maybe<T>` in each, since the fixtures never actually
+  depended on the name `Option` itself, just needed *some* generic enum.
 
 ## Deliberately deferred (not v0)
 

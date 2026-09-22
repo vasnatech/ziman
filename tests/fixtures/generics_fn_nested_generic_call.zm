@@ -2,23 +2,23 @@ struct Map<K: Eq, V> {
     keys: [K]
     values: [V]
 }
-enum Option<T> {
+enum Maybe<T> {
     Some(T)
     None
 }
-fn map_get<K: Eq, V>(m: Map<K, V>, key: K) -> Option<V> {
+fn map_get<K: Eq, V>(m: Map<K, V>, key: K) -> Maybe<V> {
     for i, k in m.keys {
         if k == key {
-            return Option<V>.Some(m.values[i])
+            return Maybe<V>.Some(m.values[i])
         }
     }
-    return Option<V>.None
+    return Maybe<V>.None
 }
-fn wrapper<K: Eq, V>(m: Map<K, V>, key: K) -> Option<V> {
+fn wrapper<K: Eq, V>(m: Map<K, V>, key: K) -> Maybe<V> {
     return map_get<K, V>(m, key)
 }
 fn main() {
     val m = Map<int, string> { keys: [1, 2], values: ["x", "y"] }
     val r = wrapper<int, string>(m, 1)
-    print(Option.unwrap_Some(r))
+    print(Maybe.unwrap_Some(r))
 }

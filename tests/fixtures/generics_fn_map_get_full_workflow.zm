@@ -3,25 +3,25 @@ struct Map<K: Eq, V> {
     values: [V]
 }
 
-enum Option<T> {
+enum Maybe<T> {
     Some(T)
     None
 }
 
-fn map_get<K: Eq, V>(m: Map<K, V>, key: K) -> Option<V> {
+fn map_get<K: Eq, V>(m: Map<K, V>, key: K) -> Maybe<V> {
     for i, k in m.keys {
         if k == key {
-            return Option<V>.Some(m.values[i])
+            return Maybe<V>.Some(m.values[i])
         }
     }
-    return Option<V>.None
+    return Maybe<V>.None
 }
 
 fn main() {
     val m = Map<int, string> { keys: [1, 2, 3], values: ["a", "b", "c"] }
     val found = map_get<int, string>(m, 2)
     val missing = map_get<int, string>(m, 99)
-    print(Option.is_Some(found))
-    print(Option.unwrap_Some(found))
-    print(Option.is_None(missing))
+    print(Maybe.is_Some(found))
+    print(Maybe.unwrap_Some(found))
+    print(Maybe.is_None(missing))
 }

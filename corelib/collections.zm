@@ -1,7 +1,10 @@
-// collections.zm -- Box<T>, Option<T>, HashMap<K, V>, HashSet<T>, written in
+// collections.zm -- Box<T>, HashMap<K, V>, HashSet<T>, written in
 // ordinary Ziman, no native/C code -- the concrete payoff of the
 // generics work (see ../../docs/ROADMAP.md's "Generics" and
-// "Collections module" entries).
+// "Collections module" entries). `Option<T>` used to live here too;
+// moved to corelib/prelude.zm since it's needed everywhere HashMap/
+// HashSet aren't, so it's now always available bare, no `use` needed --
+// see docs/DESIGN.md's "Prelude" entry.
 //
 // HashMap/HashSet use real bucket-array storage (separate chaining) so
 // get/add/contains are O(1) average case via hash(key) % bucket_count,
@@ -17,18 +20,6 @@
 
 pub struct Box<T> {
     value: T
-}
-
-pub enum Option<T> {
-    Some(T)
-    None
-}
-
-pub fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T {
-    if Option.is_Some(o) {
-        return Option.unwrap_Some(o)
-    }
-    return default_value
 }
 
 struct Entry<K, V> {

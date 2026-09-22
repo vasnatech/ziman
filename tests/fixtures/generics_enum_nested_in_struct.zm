@@ -1,11 +1,11 @@
-enum Option<T> {
+enum Maybe<T> {
     Some(T)
     None
 }
 struct Holder<T> {
-    value: Option<T>
+    value: Maybe<T>
 }
 fn main() {
-    val h = Holder<int> { value: Option<int>.Some(9) }
-    print(Option.unwrap_Some(h.value))
+    val h = Holder<int> { value: Maybe<int>.Some(9) }
+    print(Maybe.unwrap_Some(h.value))
 }

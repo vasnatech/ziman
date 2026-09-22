@@ -1,9 +1,9 @@
-enum Option<T> {
+enum Maybe<T> {
     Some(T)
     None
 }
 fn main() {
-    val a = Option<int>.Some(5)
-    val b = Option<string>.Some("x")
+    val a = Maybe<int>.Some(5)
+    val b = Maybe<string>.Some("x")
     print(a == b)
 }

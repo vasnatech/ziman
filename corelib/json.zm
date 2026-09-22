@@ -40,8 +40,6 @@
 // arbitrary JSON into a specific already-known struct is business
 // logic, not language infrastructure.
 
-use collections.Option
-
 pub struct JField {
     key: string
     value: Json

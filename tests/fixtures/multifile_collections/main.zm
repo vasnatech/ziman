@@ -4,11 +4,11 @@ fn main() {
     val b = collections.Box<int> { value: 5 }
     print(b.value)
 
-    val some = collections.Option<int>.Some(42)
-    val none = collections.Option<int>.None
-    print(collections.Option.is_Some(some))
-    print(collections.Option.unwrap_Some(some))
-    print(collections.option_unwrap_or<int>(none, -1))
+    val some = Option<int>.Some(42)
+    val none = Option<int>.None
+    print(Option.is_Some(some))
+    print(Option.unwrap_Some(some))
+    print(option_unwrap_or<int>(none, -1))
 
     var m = collections.hashmap_new<string, int>()
     m = collections.hashmap_set<string, int>(m, "alice", 30)
@@ -16,8 +16,8 @@ fn main() {
     m = collections.hashmap_set<string, int>(m, "alice", 31) // overwrite
 
     print(collections.hashmap_has<string, int>(m, "alice"))
-    print(collections.option_unwrap_or<int>(collections.hashmap_get<string, int>(m, "alice"), -1))
-    print(collections.option_unwrap_or<int>(collections.hashmap_get<string, int>(m, "bob"), -1))
+    print(option_unwrap_or<int>(collections.hashmap_get<string, int>(m, "alice"), -1))
+    print(option_unwrap_or<int>(collections.hashmap_get<string, int>(m, "bob"), -1))
     print(collections.hashmap_has<string, int>(m, "carol"))
 
     m = collections.hashmap_remove<string, int>(m, "bob")

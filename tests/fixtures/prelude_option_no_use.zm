@@ -1,0 +1,20 @@
+// No `use` statement anywhere in this file -- Option<T>/Some/None/
+// is_Some/unwrap_Some/option_unwrap_or all come from the prelude
+// (corelib/prelude.zm), bare and unqualified, the same way print/str/
+// parse_int already are.
+
+fn find_positive(x: int) -> Option<int> {
+    if x > 0 {
+        return Option<int>.Some(x)
+    }
+    return Option<int>.None
+}
+
+fn main() {
+    val a = find_positive(5)
+    val b = find_positive(-5)
+    print(Option.is_Some(a))
+    print(Option.unwrap_Some(a))
+    print(Option.is_Some(b))
+    print(option_unwrap_or<int>(b, -1))
+}

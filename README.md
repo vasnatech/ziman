@@ -70,9 +70,11 @@ monomorphized. A type parameter can be bounded with `Eq` and/or `Hash`
 these are the only two bounds Ziman has — there's no general
 trait/interface system (see docs/DESIGN.md's Generics entry for why,
 and what's deliberately left undecided). A small `collections` module
-built on this (`corelib/collections.zm`) provides `Box<T>`, `Option<T>`,
+built on this (`corelib/collections.zm`) provides `Box<T>`,
 `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (bucket-array
 based, O(1) average-case lookup rather than a linear `Eq`-only scan).
+(`Option<T>` used to live here too — see the prelude paragraph below for
+where it moved and why.)
 It's also one of eight *bundled core modules* (alongside `io`, mentioned
 above, plus `random`/`uuid`/`clock`/`time`/`json`/`number` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
@@ -144,9 +146,16 @@ anywhere else in the language). Everything else that has exactly one
 fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
 `parse_decimal`, `floor`, `ceil`, `round`, `decimal_round`, `concat`,
 `substring`, `split`, `trim`, `to_upper`, `to_lower` — instead lives in
-an auto-imported native "prelude" module (`src/prelude.c`): available
-unqualified with no `use`, but otherwise an ordinary `native fn`,
-using the same mechanism the `io` module uses to call into C. See
+an auto-imported "prelude" module (`corelib/prelude.zm`), each an
+ordinary `native fn` using the same mechanism the `io` module uses to
+call into C. The prelude isn't native-only, though: `Option<T>` (plus
+one helper, `option_unwrap_or`) lives there too, as ordinary Ziman
+source — an enum, not a hardcoded primitive like `Result<T, E>` is —
+merged bare into every program the same way the entry file's own
+top-level names are. Unlike every other bundled module (`collections`,
+`io`, ...), `corelib/prelude.zm` is never reachable through `use` at
+all — everything it declares is already unqualified everywhere, so
+there'd be nothing to gain and a redundant path to create. See
 [docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately not here yet.
 
 ## Example

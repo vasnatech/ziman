@@ -1,7 +1,7 @@
-enum Option<T> {
+enum Maybe<T> {
     Some(T)
     None
 }
 fn main() {
-    val a = Option.Some(5)
+    val a = Maybe.Some(5)
 }

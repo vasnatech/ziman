@@ -582,14 +582,12 @@ fn main() {
   already did for a non-generic one.
 
 **Generic enums** work the same way, with construction spelling out type
-arguments and consumption never needing to:
+arguments and consumption never needing to. `Option<T> { Some(T) None }`
+is the running example below -- it's not a toy for this section, it's
+the actual prelude-provided type (see "Modules" below), already
+available bare with no declaration or `use` needed:
 
 ```
-enum Option<T> {
-    Some(T)
-    None
-}
-
 fn main() {
     val a = Option<int>.Some(5)
     val b = Option<int>.None
@@ -613,7 +611,8 @@ fn main() {
   (`Option<int>.Some(1)` vs `Option<string>.Some("x")`) are different
   types: `==`/`!=` between them is rejected the same way a generic
   struct's mismatched instantiations are.
-- A bound (`enum Option<T: Eq> { ... }`) works the same as on a struct,
+- A bound (e.g. `enum Foo<T: Eq> { ... }` on a hypothetical bounded enum
+  — the real `Option<T>` has none) works the same as on a struct,
   enforced at every construction site.
 
 **Generic functions** work the same explicit-type-argument way:
@@ -742,10 +741,10 @@ fn main() {
 - **Cross-module works too**: `mod.Shape.Circle(5.0)`,
   `mod.Shape.is_Circle(s)`, `mod.Shape.unwrap_Circle(s)`, the same as a
   bare `Shape.Circle(...)` inside the declaring file itself.
-- **No generics.** `enum Shape { ... }` above is a concrete, monomorphic
-  declaration — there's no `enum Option<T> { Some(T) None }` yet, since
-  that needs real type parameters on top of this, a separate, larger
-  design pass (see ROADMAP.md's "Generics" entry).
+- **No generics in the plain shape shown above.** `enum Shape { ... }`
+  is a concrete, monomorphic declaration — a generic one (`enum
+  Option<T> { Some(T) None }`, the actual prelude-provided `Option<T>`)
+  needs real type parameters on top of this; see "Generics" above.
 
 ## Modules
 
@@ -878,7 +877,7 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. Eight so far: `collections` (`Box<T>`, `Option<T>`,
+  name exists. Eight so far: `collections` (`Box<T>`,
   `HashMap<K, V>`, `HashSet<T>` — see "Generics" above), `io`
   (`read_file`/`write_file`, above), `random` (`random_bytes(n: int) ->
   [byte]`, the one native function reading real OS entropy — no other
@@ -901,8 +900,16 @@ fn main() {
   parsing" below). Any project can `use` one of these with no
   local file of its own. Each is still an ordinary, qualified module in
   every other respect — `use io`, always `io.read_file`, never a bare
-  unqualified name the way the prelude's functions are (though a
-  per-name import, above, can still bind one bare on purpose). `Uuid`
+  unqualified name the way the prelude's declarations are (though a
+  per-name import, above, can still bind one bare on purpose). The
+  prelude (`corelib/prelude.zm`) is a deliberate exception to "every
+  module needs `use`" for exactly this reason: `Option<T>` (and its one
+  helper, `option_unwrap_or`) lives there, not in `collections`, and a
+  handful of native functions (`parse_int`, `concat`, `split`, ...) live
+  there too — merged bare into every program the same way the entry
+  file's own top-level names are, and, unlike the eight modules above,
+  never reachable through `use` at all (see docs/DESIGN.md's "Prelude"
+  entry). `Uuid`
   satisfies `Eq` (structural `==` on its `[byte]` field) but not `Hash`
   (hashing has no derived form for a struct), so it works as a struct
   field compared with `==` but not yet as a `HashMap` key. `Json`
@@ -1041,7 +1048,6 @@ use json.parse_json
 use json.json_to_string
 use json.Json
 use json.json_object_get
-use collections.Option
 
 fn main() {
     val j = unwrap(parse_json("{\"name\": \"Ada\", \"age\": 210}"))

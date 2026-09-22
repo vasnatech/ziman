@@ -12,6 +12,13 @@ module is shaped the way it is.
 docs/SYNTAX.md's "Modules" -- "Bundled core module"); a per-name import
 (`use <module>.Name`) binds one item bare instead of qualified.
 
+One exception, not listed below: `corelib/prelude.zm` -- unlike every
+module here, it's never `use`-able at all (see its own header comment
+and docs/DESIGN.md's "Prelude" entry), since everything it declares
+(`Option<T>`, plus a handful of native functions) is already bare and
+unqualified in every program, the same way `print`/`str`/`parse_int`
+are. See docs/SYNTAX.md's "Modules" section for what it contains.
+
 ## `clock`
 
 One native function reading the system clock (`clock_gettime`) -- Ziman's other source of genuine non-determinism.
@@ -23,19 +30,12 @@ pub native fn now_raw() -> [int]
 
 ## `collections`
 
-`Box<T>`, `Option<T>`, `HashMap<K, V>`, `HashSet<T>` -- generic containers, written in pure Ziman on top of the language's own `Eq`/`Hash` bounds.
+`Box<T>`, `HashMap<K, V>`, `HashSet<T>` -- generic containers, written in pure Ziman on top of the language's own `Eq`/`Hash` bounds.
 
 ```
 pub struct Box<T> {
     value: T
 }
-
-pub enum Option<T> {
-    Some(T)
-    None
-}
-
-pub fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T
 
 pub struct HashMap<K: Eq + Hash, V> {
     buckets: [[Entry<K, V>]]

@@ -1,0 +1,54 @@
+// prelude.zm -- every type/function/val declared here is merged bare,
+// unqualified, into every Ziman program, no `use` required (see
+// docs/DESIGN.md's "Prelude" entry). Deliberately *not* a `use`-able
+// core module despite living in corelib/ alongside ones that are: its
+// generated header is still produced by the ordinary corelib Makefile
+// rule (real .zm source, no hand-escaped C string, same as every other
+// bundled module), but it's never added to corelib.c's CORE_MODULES
+// table, so `use prelude` doesn't resolve to it -- there would be no
+// reason to `use` something already available everywhere, and doing so
+// would just parse this file a second time under a redundant qualifier.
+//
+// `pub` is meaningless here and never written -- privacy is enforced by
+// the loader's cross-module resolution (loader.c's resolve_named_imports/
+// resolve_cross_refs), which this file's contents never go through at
+// all (see loader.c's load_module_graph: parsed once, merged directly,
+// no self-qualify pass, same treatment the entry module's own bare
+// names get).
+//
+// One native fn declaration per line, no body -- exactly the shape
+// io.zm uses for a real native module. Their C implementations are
+// registered by prelude_register() in src/prelude.c.
+native fn parse_int(s: string) -> Result<int, string>
+native fn parse_float(s: string) -> Result<float, string>
+native fn parse_bigint(s: string) -> Result<bigint, string>
+native fn parse_decimal(s: string) -> Result<decimal, string>
+native fn floor(x: float) -> int
+native fn ceil(x: float) -> int
+native fn round(x: float) -> int
+native fn decimal_round(d: decimal, scale: int) -> decimal
+native fn concat(a: string, b: string) -> string
+native fn substring(s: string, start: int, end: int) -> string
+native fn split(s: string, sep: string) -> [string]
+native fn trim(s: string) -> string
+native fn to_upper(s: string) -> string
+native fn to_lower(s: string) -> string
+
+// `Option<T>` -- moved here from collections.zm so it needs no `use
+// collections` (or a per-name import of it) anywhere it's used, the
+// same way `Result<T, E>` needs none despite also being a two-variant
+// generic outcome type; unlike `Result`, this stays ordinary Ziman
+// source (an enum + one helper function), not a hardcoded language
+// primitive, since nothing about it needs native code or a dedicated
+// TypeKind.
+enum Option<T> {
+    Some(T)
+    None
+}
+
+fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T {
+    if Option.is_Some(o) {
+        return Option.unwrap_Some(o)
+    }
+    return default_value
+}
