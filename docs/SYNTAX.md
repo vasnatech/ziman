@@ -910,7 +910,7 @@ a type error.
   `string`, or a type parameter bounded by `Hash` (see "Generics"
   above). Not cryptographic and not stable across a future language
   version, so never persist a hash — only use it within a single program
-  run (e.g. `collections.Map<K, V>`'s bucket index).
+  run (e.g. `collections.HashMap<K, V>`'s bucket index).
 - `abs(x: T) -> T` — absolute value; `T` is `int` or `float`.
 - `min(a: T, b: T) -> T` / `max(a: T, b: T) -> T` — `T` is `int` or
   `float`; both arguments must be the same `T`, no implicit `int`/`float`

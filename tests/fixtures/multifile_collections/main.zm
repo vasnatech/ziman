@@ -10,28 +10,28 @@ fn main() {
     print(collections.Option.unwrap_Some(some))
     print(collections.option_unwrap_or<int>(none, -1))
 
-    var m = collections.map_new<string, int>()
-    m = collections.map_set<string, int>(m, "alice", 30)
-    m = collections.map_set<string, int>(m, "bob", 25)
-    m = collections.map_set<string, int>(m, "alice", 31) // overwrite
+    var m = collections.hashmap_new<string, int>()
+    m = collections.hashmap_set<string, int>(m, "alice", 30)
+    m = collections.hashmap_set<string, int>(m, "bob", 25)
+    m = collections.hashmap_set<string, int>(m, "alice", 31) // overwrite
 
-    print(collections.map_has<string, int>(m, "alice"))
-    print(collections.option_unwrap_or<int>(collections.map_get<string, int>(m, "alice"), -1))
-    print(collections.option_unwrap_or<int>(collections.map_get<string, int>(m, "bob"), -1))
-    print(collections.map_has<string, int>(m, "carol"))
+    print(collections.hashmap_has<string, int>(m, "alice"))
+    print(collections.option_unwrap_or<int>(collections.hashmap_get<string, int>(m, "alice"), -1))
+    print(collections.option_unwrap_or<int>(collections.hashmap_get<string, int>(m, "bob"), -1))
+    print(collections.hashmap_has<string, int>(m, "carol"))
 
-    m = collections.map_remove<string, int>(m, "bob")
-    print(collections.map_has<string, int>(m, "bob"))
+    m = collections.hashmap_remove<string, int>(m, "bob")
+    print(collections.hashmap_has<string, int>(m, "bob"))
 
-    var s = collections.set_new<int>()
-    s = collections.set_add<int>(s, 1)
-    s = collections.set_add<int>(s, 2)
-    s = collections.set_add<int>(s, 1) // duplicate, no-op
+    var s = collections.hashset_new<int>()
+    s = collections.hashset_add<int>(s, 1)
+    s = collections.hashset_add<int>(s, 2)
+    s = collections.hashset_add<int>(s, 1) // duplicate, no-op
 
-    print(collections.set_contains<int>(s, 1))
-    print(collections.set_contains<int>(s, 2))
-    print(collections.set_contains<int>(s, 3))
+    print(collections.hashset_contains<int>(s, 1))
+    print(collections.hashset_contains<int>(s, 2))
+    print(collections.hashset_contains<int>(s, 3))
 
-    s = collections.set_remove<int>(s, 1)
-    print(collections.set_contains<int>(s, 1))
+    s = collections.hashset_remove<int>(s, 1)
+    print(collections.hashset_contains<int>(s, 1))
 }

@@ -1,14 +1,14 @@
-// collections.zm -- Box<T>, Option<T>, Map<K, V>, Set<T>, written in
+// collections.zm -- Box<T>, Option<T>, HashMap<K, V>, HashSet<T>, written in
 // ordinary Ziman, no native/C code -- the concrete payoff of the
 // generics work (see ../../docs/ROADMAP.md's "Generics" and
 // "Collections module" entries).
 //
-// Map/Set use real bucket-array storage (separate chaining) so
+// HashMap/HashSet use real bucket-array storage (separate chaining) so
 // get/add/contains are O(1) average case via hash(key) % bucket_count,
 // not a linear Eq-only scan. The bucket count is fixed at creation --
 // no resizing/rehashing yet, so this degrades toward O(n) if the entry
 // count grows much past the fixed bucket count. Eq + Hash together
-// restrict a Map/Set key to int/float/bool/string for now: Hash has no
+// restrict a HashMap/HashSet key to int/float/bool/string for now: Hash has no
 // derived form for a struct or enum (see docs/SYNTAX.md "Generics").
 //
 // `Entry`/`buckets` are implementation details, not part of the
@@ -36,20 +36,20 @@ struct Entry<K, V> {
     value: V
 }
 
-pub struct Map<K: Eq + Hash, V> {
+pub struct HashMap<K: Eq + Hash, V> {
     buckets: [[Entry<K, V>]]
 }
 
-pub fn map_new<K: Eq + Hash, V>() -> Map<K, V> {
+pub fn hashmap_new<K: Eq + Hash, V>() -> HashMap<K, V> {
     val empty_bucket: [Entry<K, V>] = []
     var buckets: [[Entry<K, V>]] = []
     for i in 0..16 {
         buckets = push(buckets, empty_bucket)
     }
-    return Map<K, V> { buckets: buckets }
+    return HashMap<K, V> { buckets: buckets }
 }
 
-pub fn map_get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V> {
+pub fn hashmap_get<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> Option<V> {
     val idx = hash(key) % len(m.buckets)
     val bucket = m.buckets[idx]
     for entry in bucket {
@@ -60,11 +60,11 @@ pub fn map_get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V> {
     return Option<V>.None
 }
 
-pub fn map_has<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool {
-    return Option.is_Some(map_get<K, V>(m, key))
+pub fn hashmap_has<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> bool {
+    return Option.is_Some(hashmap_get<K, V>(m, key))
 }
 
-pub fn map_set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V> {
+pub fn hashmap_set<K: Eq + Hash, V>(m: HashMap<K, V>, key: K, value: V) -> HashMap<K, V> {
     val idx = hash(key) % len(m.buckets)
     val old_bucket = m.buckets[idx]
     var new_bucket: [Entry<K, V>] = []
@@ -81,10 +81,10 @@ pub fn map_set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V> {
         new_bucket = push(new_bucket, Entry<K, V> { key: key, value: value })
     }
     val new_buckets = set(m.buckets, idx, new_bucket)
-    return Map<K, V> { buckets: new_buckets }
+    return HashMap<K, V> { buckets: new_buckets }
 }
 
-pub fn map_remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V> {
+pub fn hashmap_remove<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> HashMap<K, V> {
     val idx = hash(key) % len(m.buckets)
     val old_bucket = m.buckets[idx]
     var new_bucket: [Entry<K, V>] = []
@@ -94,23 +94,23 @@ pub fn map_remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V> {
         }
     }
     val new_buckets = set(m.buckets, idx, new_bucket)
-    return Map<K, V> { buckets: new_buckets }
+    return HashMap<K, V> { buckets: new_buckets }
 }
 
-pub struct Set<T: Eq + Hash> {
+pub struct HashSet<T: Eq + Hash> {
     buckets: [[T]]
 }
 
-pub fn set_new<T: Eq + Hash>() -> Set<T> {
+pub fn hashset_new<T: Eq + Hash>() -> HashSet<T> {
     val empty_bucket: [T] = []
     var buckets: [[T]] = []
     for i in 0..16 {
         buckets = push(buckets, empty_bucket)
     }
-    return Set<T> { buckets: buckets }
+    return HashSet<T> { buckets: buckets }
 }
 
-pub fn set_contains<T: Eq + Hash>(s: Set<T>, item: T) -> bool {
+pub fn hashset_contains<T: Eq + Hash>(s: HashSet<T>, item: T) -> bool {
     val idx = hash(item) % len(s.buckets)
     val bucket = s.buckets[idx]
     for x in bucket {
@@ -121,17 +121,17 @@ pub fn set_contains<T: Eq + Hash>(s: Set<T>, item: T) -> bool {
     return false
 }
 
-pub fn set_add<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T> {
-    if set_contains<T>(s, item) {
+pub fn hashset_add<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
+    if hashset_contains<T>(s, item) {
         return s
     }
     val idx = hash(item) % len(s.buckets)
     val new_bucket = push(s.buckets[idx], item)
     val new_buckets = set(s.buckets, idx, new_bucket)
-    return Set<T> { buckets: new_buckets }
+    return HashSet<T> { buckets: new_buckets }
 }
 
-pub fn set_remove<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T> {
+pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
     val idx = hash(item) % len(s.buckets)
     val old_bucket = s.buckets[idx]
     var new_bucket: [T] = []
@@ -141,5 +141,5 @@ pub fn set_remove<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T> {
         }
     }
     val new_buckets = set(s.buckets, idx, new_bucket)
-    return Set<T> { buckets: new_buckets }
+    return HashSet<T> { buckets: new_buckets }
 }

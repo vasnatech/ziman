@@ -404,8 +404,8 @@ a time mid-implementation:
   - ~~**Stage 2: bounded type parameters (`<T: Eq>`).**~~ Implemented
     (docs/SYNTAX.md "Generics"): the one hardcoded bound, meaning
     "supports `==`," parses on a struct/enum/function's own type
-    parameters (`struct Map<K: Eq, V> { ... }`) and is enforced at every
-    concrete instantiation — `Map<Channel<int>, V>` is a compile-time
+    parameters (`struct HashMap<K: Eq, V> { ... }`) and is enforced at every
+    concrete instantiation — `HashMap<Channel<int>, V>` is a compile-time
     error, since `Channel` doesn't support `==`, checked via the same
     `type_supports_equality` machinery arrays/structs/Result/enum already
     use. A bound name other than `Eq` (`<T: Ord>`) is also a compile-time
@@ -454,8 +454,8 @@ a time mid-implementation:
     both fixed and covered by regression fixtures:
     - A bounded type parameter used *as a type argument to another
       bounded generic type* in the enclosing declaration's own signature
-      (`fn map_get<K: Eq, V>(m: Map<K, V>, ...)` -- checking `Map<K, V>`'s
-      own `K: Eq` bound against the caller's `K`, itself just a bare,
+      (`fn hashmap_get<K: Eq, V>(m: HashMap<K, V>, ...)` -- checking
+      `HashMap<K, V>`'s own `K: Eq` bound against the caller's `K`, itself just a bare,
       unsubstituted type variable at that point) needs the same "which
       declaration's type parameters are in scope right now" context a
       function *body* needs for `==`, but during *declaration
@@ -475,22 +475,24 @@ a time mid-implementation:
       mirroring loader.c's self_qualify_expr/self_qualify_stmt shape)
       that reclassifies every type-bearing spot in a generic function's
       parsed body, run once right after the body itself is parsed.
-    Needed to write `map_get`/`map_set`/`set_add`/etc. once instead of
-    once per concrete instantiation.
-- ~~**Collections module (`Box`/`Option`/`Map`/`Set`) — the concrete
-  payoff of the generics work above.**~~ Implemented
+    Needed to write `hashmap_get`/`hashmap_set`/`hashset_add`/etc. once
+    instead of once per concrete instantiation.
+- ~~**Collections module (`Box`/`Option`/`HashMap`/`HashSet`) — the
+  concrete payoff of the generics work above.**~~ Implemented
   (`examples/collections/collections.zm`): a `collections` module,
   written in ordinary Ziman, no new native/C code, exporting `Box<T>`,
-  `Option<T>` (plus a small `option_unwrap_or<T>` helper), `Map<K: Eq +
-  Hash, V>`, and `Set<T: Eq + Hash>` (`Set` needs both bounds too, for
-  the same O(1)-bucket reason as `Map`) as plain structs/enums plus free
-  functions (`map_new`/`map_get`/`map_set`/`map_has`/`map_remove`,
-  `set_new`/`set_add`/`set_contains`/`set_remove`). `Map`/`Set` use real
-  bucket-array storage (separate chaining, `hash(key) % bucket_count`),
-  verified against both a small demo (`examples/collections/main.zm`,
-  also `tests/fixtures/multifile_collections`) and a 50-entry stress
-  fixture (`multifile_collections_stress`) confirming collisions within
-  a bucket chain correctly. Bucket count is fixed at creation (16, no
+  `Option<T>` (plus a small `option_unwrap_or<T>` helper),
+  `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (`HashSet`
+  needs both bounds too, for the same O(1)-bucket reason as `HashMap`)
+  as plain structs/enums plus free functions
+  (`hashmap_new`/`hashmap_get`/`hashmap_set`/`hashmap_has`/
+  `hashmap_remove`, `hashset_new`/`hashset_add`/`hashset_contains`/
+  `hashset_remove`). `HashMap`/`HashSet` use real bucket-array storage
+  (separate chaining, `hash(key) % bucket_count`), verified against both
+  a small demo (`examples/collections/main.zm`, also
+  `tests/fixtures/multifile_collections`) and a 50-entry stress fixture
+  (`multifile_collections_stress`) confirming collisions within a
+  bucket chain correctly. Bucket count is fixed at creation (16, no
   resizing/rehashing) — a real if simplified hash table, not a
   production-grade load-factor story. `Entry`/`buckets` are
   implementation details Ziman has no per-field privacy to actually
