@@ -630,9 +630,34 @@ a time mid-implementation:
   `Eq` and `Hash` (just another case in the existing scalar-kind
   checks), so `HashMap<byte, V>`, `[byte]` equality, and `contains` on a
   `[byte]` all work with no new machinery. The actual motivating case
-  (UUID) isn't built yet — this was step one, done in isolation so it
-  could be tested (and get its own test fixtures) independent of UUID's
-  own design.
+  was UUID (below) — this was step one, done in isolation so it could
+  be tested (and get its own test fixtures) independent of UUID's own
+  design.
+- ~~**`random`/`uuid` core modules — the actual motivating case for
+  `byte`.**~~ Implemented (docs/SYNTAX.md "Modules", docs/DESIGN.md's
+  "random/uuid" entry): two new bundled core modules. `random` is one
+  native function, `random_bytes(n: int) -> [byte]`, reading straight
+  from `/dev/urandom` — Ziman's first source of genuine
+  non-determinism, and (still) its only one (no clock/time builtin
+  exists to seed a Ziman-side PRNG from instead). `uuid` is pure Ziman
+  on top of it: a `Uuid` struct (`bytes: [byte]`), `uuid_new()`
+  generating an RFC 4122 v4 UUID, `uuid_to_string` formatting the
+  canonical dashed-hex string. Sets the version/variant bits with pure
+  integer arithmetic (`(b % 16) + 64`, `(b % 64) + 128`) instead of
+  bitwise operators, which Ziman has none of (no `& | ^ << >>`) —
+  confirms `byte`'s int-cast-but-no-bitwise-ops design was actually
+  sufficient for the one thing that needed bit-level control. Also
+  confirms a core module can depend on another core module
+  (`uuid.zm`'s `use random.random_bytes`) with zero new loader logic,
+  since the corelib fallback triggers on the `use` path string alone,
+  never on where the *importing* module's own source came from.
+  `Uuid` satisfies `Eq` but not `Hash` (see the `byte` entry's "no
+  derived hashing for a struct" note) — usable as a struct field
+  compared with `==`, e.g. a `Patient.id: Uuid` replacing the
+  `next_id: int` counter `health-record-backend-ziman` currently uses —
+  not yet usable as a `HashMap` key. Not wired into
+  `health-record-backend-ziman` yet; that's the natural next step once
+  it's wanted.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.

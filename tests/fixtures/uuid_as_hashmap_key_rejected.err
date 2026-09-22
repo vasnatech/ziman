@@ -1,0 +1,1 @@
+type argument uuid::Uuid does not satisfy bound 'Hash' required by type parameter 'K'

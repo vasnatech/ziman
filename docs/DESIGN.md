@@ -571,8 +571,8 @@ several languages rather than inheriting any one of them wholesale.
   parse a struct literal versus a function call.
 - **`byte` — a fifth scalar type, but deliberately not a sixth numeric
   one.** Motivated by wanting to represent raw octets (a UUID's bytes,
-  the output of a future `random_bytes` native function) — `[int]` would
-  work but says nothing about the 0-255 range invariant, and every
+  `random_bytes`' output, see the "random/uuid" entry below) — `[int]`
+  would work but says nothing about the 0-255 range invariant, and every
   numeric type Ziman has added so far (`bigint`, `decimal`) required a
   full systematic sweep (lexer suffix, parser, `Value` union, typecheck,
   interpreter) for something whose only concrete use case right now is
@@ -596,6 +596,44 @@ several languages rather than inheriting any one of them wholesale.
   satisfies `Eq`+`Hash`, so `HashMap<byte, V>` and `[byte]`
   equality/`contains` work with no new code beyond adding `TY_BYTE` to
   the existing scalar-kind checks.
+- **`random`/`uuid` — the two new core modules `byte` was built for.**
+  `random` is as small as a native module gets: one function,
+  `random_bytes(n: int) -> [byte]`, reading straight from
+  `/dev/urandom` (not a platform syscall like `getrandom()`/
+  `arc4random_buf()` — plain `fopen`/`fread`, the same shape
+  `native_io.c`'s `read_file` already uses, no per-platform `#ifdef`).
+  It's the only possible source of real non-determinism in Ziman right
+  now: there's no clock/time builtin either, so there's nothing to seed
+  a Ziman-side PRNG from even if one were built instead.
+  `uuid` is pure Ziman on top of it — a `Uuid` struct wrapping
+  `[byte]`, `uuid_new()` generating an RFC 4122 v4 UUID, `uuid_to_string`
+  formatting the canonical dashed-hex form. The interesting part is
+  setting the version/variant bits with **no bitwise operators at
+  all** (Ziman has none — no `& | ^ << >>`): clearing or setting a
+  nibble of an unsigned byte via integer div/mod by a power of two is
+  exactly equivalent to masking it, so `(b % 16) + 64` (clear the top
+  nibble, set it to 4) does precisely what `(b & 0x0F) | 0x40` would in
+  a language with bitwise ops, and `(b % 64) + 128` does what `(b &
+  0x3F) | 0x80` would. This only works because `byte`'s cast to/from
+  `int` exists and its arithmetic doesn't need to (see the `byte` entry
+  above) — the version/variant computation happens entirely in `int`,
+  with `byte` only as the storage type going in and out.
+  Confirms two things about earlier design choices, incidentally: `byte`
+  needed no bitwise operators to be useful (a real forcing case for them
+  still hasn't shown up), and a core module can depend on another core
+  module (`uuid.zm`'s own `use random.random_bytes`) with zero new
+  loader logic — the fallback in `load_module` triggers on the `use`
+  path string alone (`"random"` matching `CORE_MODULES`), never
+  consulting the *importing* module's own origin, so it doesn't matter
+  that `uuid.zm`'s source came from the binary rather than a real file
+  on disk.
+  `Uuid` satisfies `Eq` (structural `==`/`!=` on `[byte]`, free from the
+  existing struct/array equality rules) but not `Hash` (hashing has no
+  derived form for a struct, see the collections module entry) — enough
+  to use as a struct field compared with `==`, not yet enough to use as
+  a `HashMap` key. Left unresolved rather than worked around, same
+  "don't decide until a requirement arises" posture as `byte`'s own
+  missing arithmetic.
 
 ## Deliberately deferred (not v0)
 

@@ -1,0 +1,5 @@
+use random.random_bytes
+
+fn main() {
+    print(random_bytes(-1))
+}

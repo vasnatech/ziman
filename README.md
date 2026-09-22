@@ -60,12 +60,21 @@ and what's deliberately left undecided). A small `collections` module
 built on this (`corelib/collections.zm`) provides `Box<T>`, `Option<T>`,
 `HashMap<K: Eq + Hash, V>`, and `HashSet<T: Eq + Hash>` (bucket-array
 based, O(1) average-case lookup rather than a linear `Eq`-only scan).
-It's also one of two *bundled core modules* (alongside `io`, mentioned
-above): each one's source is embedded into the `ziman` binary at build
-time, so `use collections`/`use io` work from any project with no local
-copy needed — a project-relative file of the same name still wins if
-one exists, but this is the fallback that means one usually doesn't
-have to.
+It's also one of four *bundled core modules* (alongside `io`, mentioned
+above, plus `random` and `uuid` below): each one's source is embedded
+into the `ziman` binary at build time, so `use collections`/`use io`
+work from any project with no local copy needed — a project-relative
+file of the same name still wins if one exists, but this is the
+fallback that means one usually doesn't have to. `random` is one
+native function, `random_bytes(n: int) -> [byte]`, reading real OS
+entropy (`/dev/urandom`) — Ziman's only source of genuine
+non-determinism. `uuid` is pure Ziman on top of it: a `Uuid` struct,
+`uuid_new()` for an RFC 4122 v4 UUID, `uuid_to_string` for the
+canonical dashed-hex form, version/variant bits set with plain integer
+arithmetic rather than bitwise operators (Ziman has none). `Uuid`
+satisfies `Eq` but not `Hash` (no derived hashing for a struct), so
+it's usable as a struct field compared with `==`, not yet as a
+`HashMap` key.
 
 Builtins ship two ways. A small core set — `print`, `str`, `format`,
 `len`, `push`, `insert`, `set`, `remove`, `contains`, `abs`, `min`,

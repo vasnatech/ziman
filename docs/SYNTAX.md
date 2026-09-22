@@ -848,14 +848,22 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. `collections` (`Box<T>`, `Option<T>`, `HashMap<K, V>`,
-  `HashSet<T>` — see "Generics" above) and `io` (`read_file`/
-  `write_file`, above) are the two so far: any project can `use
-  collections` or `use io` with no local file of its own. Each is still
-  an ordinary, qualified module in every other respect — `use io`,
-  always `io.read_file`, never a bare unqualified name the way the
-  prelude's functions are (though a per-name import, above, can still
-  bind one bare on purpose).
+  name exists. Four so far: `collections` (`Box<T>`, `Option<T>`,
+  `HashMap<K, V>`, `HashSet<T>` — see "Generics" above), `io`
+  (`read_file`/`write_file`, above), `random` (`random_bytes(n: int) ->
+  [byte]`, the one native function reading real OS entropy — no other
+  source of non-determinism exists to build a PRNG on top of), and
+  `uuid` (`Uuid`, `uuid_new() -> Uuid`, `uuid_to_string(u: Uuid) ->
+  string` — RFC 4122 v4, written in pure Ziman on top of `random`,
+  version/variant bits set with plain integer arithmetic since Ziman has
+  no bitwise operators). Any project can `use` one of these with no
+  local file of its own. Each is still an ordinary, qualified module in
+  every other respect — `use io`, always `io.read_file`, never a bare
+  unqualified name the way the prelude's functions are (though a
+  per-name import, above, can still bind one bare on purpose). `Uuid`
+  satisfies `Eq` (structural `==` on its `[byte]` field) but not `Hash`
+  (hashing has no derived form for a struct), so it works as a struct
+  field compared with `==` but not yet as a `HashMap` key.
 
 ## Result
 

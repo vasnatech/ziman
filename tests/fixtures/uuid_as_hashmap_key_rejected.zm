@@ -1,0 +1,8 @@
+use uuid.Uuid
+use collections.HashMap
+use collections.hashmap_new
+
+fn main() {
+    var m: HashMap<Uuid, string> = hashmap_new<Uuid, string>()
+    print(m)
+}

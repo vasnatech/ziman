@@ -1,0 +1,26 @@
+use uuid.Uuid
+use uuid.uuid_new
+use uuid.uuid_to_string
+
+fn main() {
+    val a = uuid_new()
+    val b = uuid_new()
+
+    // Structural invariants of a v4 UUID string, true no matter what the
+    // random bytes happened to be -- length, dash positions, version
+    // nibble always '4', variant nibble always one of 8/9/a/b.
+    val s = uuid_to_string(a)
+    print(len(s))
+    print(substring(s, 8, 9))
+    print(substring(s, 13, 14))
+    print(substring(s, 14, 15))
+    print(substring(s, 18, 19))
+    val variant = substring(s, 19, 20)
+    print(variant == "8" || variant == "9" || variant == "a" || variant == "b")
+    print(substring(s, 23, 24))
+
+    print(a == a)
+    // Two freshly generated UUIDs colliding is a ~2^-122 event -- safe
+    // to assert they're different in practice.
+    print(a == b)
+}

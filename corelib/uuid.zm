@@ -1,0 +1,49 @@
+// uuid.zm -- UUID v4 (RFC 4122), written in ordinary Ziman on top of
+// the `random` core module's one native function. Version/variant bits
+// are set with plain integer arithmetic (div/mod/mul/add on a byte's
+// int value), not bitwise operators -- Ziman has none -- since clearing
+// or setting a nibble of an unsigned byte via div/mod by a power of two
+// is exactly equivalent to masking it: `(b % 16) + 64` clears the top
+// nibble and sets it to 4, the same effect as `(b & 0x0F) | 0x40`.
+//
+// `Uuid` satisfies `Eq` (structural equality on `[byte]`, which works
+// since `byte` is scalar) but not `Hash` (hashing has no derived form
+// for a struct -- see docs/SYNTAX.md "Generics") -- fine for using a
+// `Uuid` as a struct field compared with `==`, not yet enough to use
+// one as a `HashMap` key. `bytes` is an implementation detail Ziman has
+// no per-field privacy to actually hide (same as `HashMap`'s own
+// `buckets`) -- documented as "don't," not enforced.
+
+use random.random_bytes
+
+pub struct Uuid {
+    bytes: [byte]
+}
+
+pub fn uuid_new() -> Uuid {
+    var bytes = random_bytes(16)
+    val version_nibble = (bytes[6] as int) % 16
+    bytes = set(bytes, 6, (version_nibble + 64) as byte) // version 4
+    val variant_bits = (bytes[8] as int) % 64
+    bytes = set(bytes, 8, (variant_bits + 128) as byte) // variant 1 (RFC 4122)
+    return Uuid { bytes: bytes }
+}
+
+// No top-level `val` exists in Ziman -- only use/struct/enum/fn -- so
+// the digit table is rebuilt on every call rather than shared.
+fn byte_to_hex(b: byte) -> string {
+    val hex_digits: [string] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+    val n = b as int
+    return concat(hex_digits[n / 16], hex_digits[n % 16])
+}
+
+pub fn uuid_to_string(u: Uuid) -> string {
+    var s = ""
+    for i in 0..16 {
+        s = concat(s, byte_to_hex(u.bytes[i]))
+        if i == 3 || i == 5 || i == 7 || i == 9 {
+            s = concat(s, "-")
+        }
+    }
+    return s
+}
