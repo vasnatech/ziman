@@ -11,16 +11,34 @@
 // and a single-value wrapper was never really "a collection" to begin
 // with. See docs/DESIGN.md's "Bundled core modules" entry.
 //
-// HashMap/HashSet use real bucket-array storage (separate chaining) so
-// get/add/contains are O(1) average case via hash(key) % bucket_count,
-// not a linear Eq-only scan. The bucket count is fixed at creation --
-// no resizing/rehashing yet, so this degrades toward O(n) if the entry
-// count grows much past the fixed bucket count. Eq + Hash together
-// restrict a HashMap/HashSet key to int/float/bool/string for now: Hash has no
-// derived form for a struct or enum (see docs/SYNTAX.md "Generics").
+// HashMap/HashSet use real bucket-array storage (separate chaining),
+// grown (doubled, load factor 0.75, matching Java's HashMap default)
+// whenever an insert would push the average chain length too high --
+// see should_grow/hashmap_grow/hashset_grow below. Eq + Hash together
+// restrict a HashMap/HashSet key to int/float/bool/string for now: Hash
+// has no derived form for a struct or enum (see docs/SYNTAX.md
+// "Generics").
 //
-// `Entry`/`buckets` are implementation details, not part of the
-// intended public API -- use the functions below, not direct field
+// Growing keeps get/has/contains genuinely O(1) average (bounded chain
+// length) regardless of how many entries are inserted -- the thing the
+// fixed-16-bucket version this replaced couldn't promise, since an
+// unbounded chain degrades a lookup into a linear scan. It does *not*
+// make set/add/remove O(1), though, and it's worth being honest about
+// why: Ziman's arrays are immutable value types (see docs/DESIGN.md),
+// so `set(m.buckets, idx, new_bucket)` always rebuilds the *entire*
+// outer bucket array, not just the one slot -- every set/add/remove
+// call is O(bucket_count) for that reason alone, growing or not. What
+// growing changes is the *shape* of that O(bucket_count) work: without
+// it, a long chain means copying a chain of full Entry<K, V> structs on
+// every write to that bucket; with it, chains stay short and the
+// dominant cost is copying `bucket_count` array references instead --
+// a real reduction in the constant factor, not a change in asymptotic
+// order. Fixing that ceiling for real needs mutable/shared array
+// storage at the language level (see docs/ROADMAP.md's memory-
+// reclamation entry), which is out of scope for this module alone.
+//
+// `Entry`/`buckets`/`count` are implementation details, not part of
+// the intended public API -- use the functions below, not direct field
 // access, even though Ziman has no per-field privacy to enforce that.
 
 struct Entry<K, V> {
@@ -28,17 +46,35 @@ struct Entry<K, V> {
     value: V
 }
 
+// Shared by hashmap_set/hashset_add -- plain int arithmetic, no type
+// parameters needed, so one function serves both instead of two
+// identical copies. `count * 4 > bucket_count * 3` is `count /
+// bucket_count > 0.75` done in integers, avoiding a float cast for
+// something this simple.
+fn should_grow(count: int, bucket_count: int) -> bool {
+    return count * 4 > bucket_count * 3
+}
+
+fn new_buckets_of_size<T>(bucket_count: int) -> [[T]] {
+    val empty_bucket: [T] = []
+    var buckets: [[T]] = []
+    for i in 0..bucket_count {
+        buckets = push(buckets, empty_bucket)
+    }
+    return buckets
+}
+
 pub struct HashMap<K: Eq + Hash, V> {
     buckets: [[Entry<K, V>]]
+    count: int
 }
 
 pub fn hashmap_new<K: Eq + Hash, V>() -> HashMap<K, V> {
-    val empty_bucket: [Entry<K, V>] = []
-    var buckets: [[Entry<K, V>]] = []
-    for i in 0..16 {
-        buckets = push(buckets, empty_bucket)
-    }
-    return HashMap<K, V> { buckets: buckets }
+    return HashMap<K, V> { buckets: new_buckets_of_size<Entry<K, V>>(16), count: 0 }
+}
+
+pub fn hashmap_size<K: Eq + Hash, V>(m: HashMap<K, V>) -> int {
+    return m.count
 }
 
 pub fn hashmap_get<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> Option<V> {
@@ -56,6 +92,49 @@ pub fn hashmap_has<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> bool {
     return Option.is_Some(hashmap_get<K, V>(m, key))
 }
 
+// All keys, in no particular (and no stable) order -- bucket order,
+// which changes across a resize. Together with hashmap_values, the way
+// to enumerate a HashMap from outside this module without reaching
+// into `buckets` directly.
+pub fn hashmap_keys<K: Eq + Hash, V>(m: HashMap<K, V>) -> [K] {
+    var keys: [K] = []
+    for bucket in m.buckets {
+        for entry in bucket {
+            keys = push(keys, entry.key)
+        }
+    }
+    return keys
+}
+
+pub fn hashmap_values<K: Eq + Hash, V>(m: HashMap<K, V>) -> [V] {
+    var values: [V] = []
+    for bucket in m.buckets {
+        for entry in bucket {
+            values = push(values, entry.value)
+        }
+    }
+    return values
+}
+
+// Rehashes every existing entry into a fresh, doubled bucket array --
+// called once from hashmap_set right after an insert crosses the load
+// factor. Reuses hashmap_set itself for each re-inserted entry rather
+// than a separate insertion path: the grown map starts well under the
+// load factor for its own (now larger) bucket count, so none of these
+// re-insertions can themselves trigger a further grow (see the module
+// header comment's complexity note for why one grow is still an
+// O(bucket_count) rebuild per entry, not free).
+fn hashmap_grow<K: Eq + Hash, V>(m: HashMap<K, V>) -> HashMap<K, V> {
+    val grown_empty = HashMap<K, V> { buckets: new_buckets_of_size<Entry<K, V>>(len(m.buckets) * 2), count: 0 }
+    var grown = grown_empty
+    for bucket in m.buckets {
+        for entry in bucket {
+            grown = hashmap_set<K, V>(grown, entry.key, entry.value)
+        }
+    }
+    return grown
+}
+
 pub fn hashmap_set<K: Eq + Hash, V>(m: HashMap<K, V>, key: K, value: V) -> HashMap<K, V> {
     val idx = hash(key) % len(m.buckets)
     val old_bucket = m.buckets[idx]
@@ -69,37 +148,50 @@ pub fn hashmap_set<K: Eq + Hash, V>(m: HashMap<K, V>, key: K, value: V) -> HashM
             new_bucket = push(new_bucket, entry)
         }
     }
+    var new_count = m.count
     if !replaced {
         new_bucket = push(new_bucket, Entry<K, V> { key: key, value: value })
+        new_count = m.count + 1
     }
     val new_buckets = set(m.buckets, idx, new_bucket)
-    return HashMap<K, V> { buckets: new_buckets }
+    val updated = HashMap<K, V> { buckets: new_buckets, count: new_count }
+    if should_grow(updated.count, len(updated.buckets)) {
+        return hashmap_grow<K, V>(updated)
+    }
+    return updated
 }
 
 pub fn hashmap_remove<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> HashMap<K, V> {
     val idx = hash(key) % len(m.buckets)
     val old_bucket = m.buckets[idx]
     var new_bucket: [Entry<K, V>] = []
+    var removed = false
     for entry in old_bucket {
-        if entry.key != key {
+        if entry.key == key {
+            removed = true
+        } else {
             new_bucket = push(new_bucket, entry)
         }
     }
     val new_buckets = set(m.buckets, idx, new_bucket)
-    return HashMap<K, V> { buckets: new_buckets }
+    var new_count = m.count
+    if removed {
+        new_count = m.count - 1
+    }
+    return HashMap<K, V> { buckets: new_buckets, count: new_count }
 }
 
 pub struct HashSet<T: Eq + Hash> {
     buckets: [[T]]
+    count: int
 }
 
 pub fn hashset_new<T: Eq + Hash>() -> HashSet<T> {
-    val empty_bucket: [T] = []
-    var buckets: [[T]] = []
-    for i in 0..16 {
-        buckets = push(buckets, empty_bucket)
-    }
-    return HashSet<T> { buckets: buckets }
+    return HashSet<T> { buckets: new_buckets_of_size<T>(16), count: 0 }
+}
+
+pub fn hashset_size<T: Eq + Hash>(s: HashSet<T>) -> int {
+    return s.count
 }
 
 pub fn hashset_contains<T: Eq + Hash>(s: HashSet<T>, item: T) -> bool {
@@ -113,6 +205,31 @@ pub fn hashset_contains<T: Eq + Hash>(s: HashSet<T>, item: T) -> bool {
     return false
 }
 
+// All items, in no particular (and no stable) order -- same caveat as
+// hashmap_keys/hashmap_values.
+pub fn hashset_items<T: Eq + Hash>(s: HashSet<T>) -> [T] {
+    var items: [T] = []
+    for bucket in s.buckets {
+        for x in bucket {
+            items = push(items, x)
+        }
+    }
+    return items
+}
+
+// Same reasoning as hashmap_grow -- reuses hashset_add per re-inserted
+// item rather than a separate path.
+fn hashset_grow<T: Eq + Hash>(s: HashSet<T>) -> HashSet<T> {
+    val grown_empty = HashSet<T> { buckets: new_buckets_of_size<T>(len(s.buckets) * 2), count: 0 }
+    var grown = grown_empty
+    for bucket in s.buckets {
+        for x in bucket {
+            grown = hashset_add<T>(grown, x)
+        }
+    }
+    return grown
+}
+
 pub fn hashset_add<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
     if hashset_contains<T>(s, item) {
         return s
@@ -120,18 +237,29 @@ pub fn hashset_add<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
     val idx = hash(item) % len(s.buckets)
     val new_bucket = push(s.buckets[idx], item)
     val new_buckets = set(s.buckets, idx, new_bucket)
-    return HashSet<T> { buckets: new_buckets }
+    val updated = HashSet<T> { buckets: new_buckets, count: s.count + 1 }
+    if should_grow(updated.count, len(updated.buckets)) {
+        return hashset_grow<T>(updated)
+    }
+    return updated
 }
 
 pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
     val idx = hash(item) % len(s.buckets)
     val old_bucket = s.buckets[idx]
     var new_bucket: [T] = []
+    var removed = false
     for x in old_bucket {
-        if x != item {
+        if x == item {
+            removed = true
+        } else {
             new_bucket = push(new_bucket, x)
         }
     }
     val new_buckets = set(s.buckets, idx, new_bucket)
-    return HashSet<T> { buckets: new_buckets }
+    var new_count = s.count
+    if removed {
+        new_count = s.count - 1
+    }
+    return HashSet<T> { buckets: new_buckets, count: new_count }
 }

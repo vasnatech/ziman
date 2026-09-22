@@ -1,0 +1,39 @@
+// Forces several resizes (load factor 0.75, starting at 16 buckets:
+// grows at 13, 25, 49, 97, ... entries) and checks that every key is
+// still reachable, with the right value, after each one -- not just
+// that the final count is right.
+use collections.HashMap
+use collections.hashmap_new
+use collections.hashmap_set
+use collections.hashmap_get
+use collections.hashmap_size
+
+fn main() {
+    var m: HashMap<int, int> = hashmap_new<int, int>()
+    for i in 0..200 {
+        m = hashmap_set<int, int>(m, i, i * i)
+    }
+    print(hashmap_size<int, int>(m))
+
+    var ok = true
+    for i in 0..200 {
+        if option_unwrap_or<int>(hashmap_get<int, int>(m, i), -1) != i * i {
+            ok = false
+        }
+    }
+    print(ok)
+
+    // Overwriting every key again must not change the count.
+    for i in 0..200 {
+        m = hashmap_set<int, int>(m, i, i)
+    }
+    print(hashmap_size<int, int>(m))
+
+    var ok2 = true
+    for i in 0..200 {
+        if option_unwrap_or<int>(hashmap_get<int, int>(m, i), -1) != i {
+            ok2 = false
+        }
+    }
+    print(ok2)
+}

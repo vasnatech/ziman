@@ -1,0 +1,33 @@
+use collections.HashSet
+use collections.hashset_new
+use collections.hashset_add
+use collections.hashset_remove
+use collections.hashset_size
+use collections.hashset_items
+
+fn sum(xs: [int]) -> int {
+    var total = 0
+    for x in xs {
+        total = total + x
+    }
+    return total
+}
+
+fn main() {
+    var s: HashSet<int> = hashset_new<int>()
+    print(hashset_size<int>(s))
+
+    s = hashset_add<int>(s, 1)
+    s = hashset_add<int>(s, 2)
+    s = hashset_add<int>(s, 3)
+    s = hashset_add<int>(s, 2) // duplicate, no-op
+    print(hashset_size<int>(s))
+    print(sum(hashset_items<int>(s)))
+
+    s = hashset_remove<int>(s, 2)
+    print(hashset_size<int>(s))
+    print(sum(hashset_items<int>(s)))
+
+    s = hashset_remove<int>(s, 99) // no-op
+    print(hashset_size<int>(s))
+}

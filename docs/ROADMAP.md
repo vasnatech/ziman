@@ -591,12 +591,18 @@ a time mid-implementation:
   a small demo (`examples/collections/main.zm`, also
   `tests/fixtures/multifile_collections`) and a 50-entry stress fixture
   (`multifile_collections_stress`) confirming collisions within a
-  bucket chain correctly. Bucket count is fixed at creation (16, no
-  resizing/rehashing) — a real if simplified hash table, not a
-  production-grade load-factor story. `Entry`/`buckets` are
-  implementation details Ziman has no per-field privacy to actually
-  hide (a caller *can* reach `m.buckets` directly) — documented as
-  "don't," not enforced.
+  bucket chain correctly. Bucket count was originally fixed at creation
+  (16, no resizing/rehashing) — later given real load-factor-triggered
+  growth instead, plus `hashmap_size`/`hashmap_keys`/`hashmap_values`
+  (`hashset_size`/`hashset_items`), once "the hashmap implementation
+  isn't great" surfaced the fixed bucket count as a real problem (chains
+  degrading lookups to O(n) past ~16 entries) rather than an acceptable
+  simplification — see docs/DESIGN.md's "Collections module" entry (the
+  one titled about growth, not this one) for the full writeup, including
+  why growing doesn't also make set/remove O(1). `Entry`/`buckets`/
+  `count` are implementation details Ziman has no per-field privacy to
+  actually hide (a caller *can* reach `m.buckets` directly) —
+  documented as "don't," not enforced.
 - ~~**Bundled core modules — closes the "every project keeps its own
   copy" gap noted above under native modules.**~~ Implemented
   (`src/corelib.h`/`corelib.c`): `collections` moved from

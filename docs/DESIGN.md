@@ -931,6 +931,60 @@ several languages rather than inheriting any one of them wholesale.
   and this file both still use it as the canonical minimal illustration
   of generic-struct syntax, same as before — the only thing that
   changed is that it's no longer a `collections` export.
+- **Collections module — HashMap/HashSet given real load-factor growth,
+  plus size/keys/values accessors, after "the hashmap implementation
+  isn't great" named the fixed 16-bucket count as a real problem, not
+  an acceptable simplification.** The original design (see the earlier
+  "Collections module" entry above) documented the fixed bucket count
+  as a known limitation and left it there; revisited once it was named
+  directly, since an unbounded chain length means `hashmap_get`/`has`
+  degrade to a linear scan past roughly 16 entries — a hash map that
+  stops being O(1) once it's actually holding a meaningful amount of
+  data isn't doing its one job. Fixed with the standard technique
+  (double the bucket count and rehash every entry once the load factor
+  — `count / bucket_count`, computed as `count * 4 > bucket_count * 3`
+  to avoid a float cast for something this simple — crosses 0.75,
+  matching Java's `HashMap` default), implemented by adding a `count`
+  field to both structs and having `hashmap_set`/`hashset_add` check
+  `should_grow` after each insert, rehashing via `hashmap_grow`/
+  `hashset_grow` when it fires. Both grow functions re-insert every
+  existing entry through the ordinary `hashmap_set`/`hashset_add` path
+  rather than a separate bulk-insert routine — deliberately, since the
+  freshly doubled bucket count keeps the grown map well under the load
+  factor for its own new size, so none of those re-insertions can
+  themselves trigger a further grow, and reusing the existing function
+  means the grow path can't drift out of sync with ordinary insertion
+  behavior.
+  **This does not make `set`/`add`/`remove` O(1), and the module's own
+  header comment says so plainly rather than overclaiming**: Ziman's
+  arrays are immutable value types (see the Arrays entry above), so
+  `set(m.buckets, idx, new_bucket)` always copies the *entire* outer
+  bucket array, growing or not — every mutating call is O(bucket_count)
+  for that reason alone, a cost this change doesn't remove. What
+  changes is the shape of that cost: without growth, a long chain means
+  copying a chain of full `Entry<K, V>` structs on every write to that
+  one bucket, and that chain length is unbounded; with growth, chains
+  stay short (bounded by the load factor) and the dominant per-call
+  cost becomes copying `bucket_count` array *references* instead — a
+  real reduction in the constant factor, not a change in asymptotic
+  order. Actually fixing the ceiling would need mutable or shared array
+  storage at the language level (see the memory-reclamation entry
+  above) — out of scope for one module to solve on its own, and not
+  attempted here.
+  `hashmap_size`/`hashmap_keys`/`hashmap_values` (and their `HashSet`
+  equivalents, `hashset_size`/`hashset_items`) were added alongside
+  growth for an unrelated but adjacent reason: there was previously no
+  way to enumerate or size a `HashMap`/`HashSet` at all without reaching
+  into `buckets` directly, which the module's own comment already said
+  not to do. Purely additive — every existing function keeps its exact
+  signature, so this doesn't affect anything already using the module
+  (there is no such consumer yet in `health-record-backend-ziman`, per
+  a grep before starting this change).
+  No shrink-on-remove: `hashmap_remove`/`hashset_remove` decrement
+  `count` but never shrink the bucket array back down. A real gap for a
+  map that grows large and then drains, but a narrower, lower-priority
+  one than unbounded growth was, and left as a deliberate scope cut
+  rather than designed around.
 
 ## Deliberately deferred (not v0)
 

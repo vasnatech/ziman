@@ -72,7 +72,15 @@ trait/interface system (see docs/DESIGN.md's Generics entry for why,
 and what's deliberately left undecided). A small `collections` module
 built on this (`corelib/collections.zm`) provides
 `HashMap<K: Eq + Hash, V>` and `HashSet<T: Eq + Hash>` (bucket-array
-based, O(1) average-case lookup rather than a linear `Eq`-only scan).
+based with separate chaining, doubled and rehashed once the load factor
+crosses 0.75 so `get`/`has`/`contains` stay O(1) average regardless of
+size — `set`/`add`/`remove` stay O(bucket_count) either way, since
+Ziman's arrays are immutable value types and every mutation copies the
+whole outer bucket array; see docs/DESIGN.md's "Collections module"
+entry on growth for why that's a real constant-factor win, not an
+asymptotic one). `hashmap_size`/`hashmap_keys`/`hashmap_values` and
+`hashset_size`/`hashset_items` enumerate one without reaching into its
+private `buckets` field.
 (`Option<T>` used to live here too — see the prelude paragraph below for
 where it moved and why. `Box<T>` also used to live here — removed
 outright, not moved, since nothing ever actually used it beyond being
