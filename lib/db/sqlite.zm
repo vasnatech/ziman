@@ -109,29 +109,35 @@ fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
     return err(DbError.Sql(concat("unknown cell tag from driver: ", tag)))
 }
 
+// An open SQLite connection: an index into the native table. Opaque to
+// callers -- use `execute`/`query`/`close`.
+pub struct Connection {
+    handle: int
+}
+
 // `path` is a SQLite filename, or `:memory:`.
-pub fn open(path: string) -> Result<int, DbError> {
+pub fn open(path: string) -> Result<Connection, DbError> {
     val opened = open_raw(path)
     if !is_ok(opened) {
         return err(error_from_raw(unwrap_err(opened)))
     }
-    return ok(unwrap(opened))
+    return Connection { handle: unwrap(opened) }
 }
 
-pub fn close(handle: int) {
-    close_raw(handle)
+pub fn close(conn: Connection) {
+    close_raw(conn.handle)
 }
 
-pub fn execute(handle: int, sql: string, params: [SqlValue]) -> Result<int, DbError> {
-    val r = execute_raw(handle, sql, encode_params(params))
+pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
+    val r = execute_raw(conn.handle, sql, encode_params(params))
     if !is_ok(r) {
         return err(error_from_raw(unwrap_err(r)))
     }
     return ok(unwrap(r))
 }
 
-pub fn query(handle: int, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
-    val r = query_raw(handle, sql, encode_params(params))
+pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+    val r = query_raw(conn.handle, sql, encode_params(params))
     if !is_ok(r) {
         return err(error_from_raw(unwrap_err(r)))
     }

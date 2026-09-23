@@ -34,19 +34,20 @@ use sql.SqlValue
 use sql.DbError
 use sql.Row
 
-// A SQLite connection is `handle` (an index into the native table) with
-// no `requests`; a Postgres one is the channel to its owner thread, with
-// `handle` unused (-1). A *pool* (see `open_pool`) is a third shape: `pool`
-// is the channel of idle connections, `pool_size` how many were opened,
-// and `handle`/`requests` are unused -- statements run on it borrow a
-// connection for that one statement, and `acquire` hands one out
-// exclusively. The type is recursive through a `Channel`, like `Json` is
-// through an array.
-pub struct Connection {
-    handle: int
-    requests: Option<Channel<pg.Request>>
-    pool: Option<Channel<Connection>>
-    pool_size: int
+// Which engine a connection talks to, or a pool of them. A pool holds
+// the channel of idle connections and how many were opened (see
+// `open_pool`); statements run on it borrow a connection for that one
+// statement, and `acquire` hands one out exclusively. The type is
+// recursive through a `Channel`, like `Json` is through an array.
+pub struct PoolState {
+    idle: Channel<Connection>
+    size: int
+}
+
+pub enum Connection {
+    Sqlite(sqlite.Connection)
+    Postgres(pg.Connection)
+    Pool(PoolState)
 }
 
 // `sqlite::memory:` (a private in-memory database, gone when the
@@ -55,12 +56,12 @@ pub struct Connection {
 // no TLS yet -- a `sslmode=require` URL is refused, not downgraded).
 pub fn open(url: string) -> Result<Connection, DbError> {
     if len(url) >= 7 && substring(url, 0, 7) == "sqlite:" {
-        val handle = sqlite.open(substring(url, 7, len(url)))?
-        return Connection { handle: handle, requests: Option<Channel<pg.Request>>.None, pool: Option<Channel<Connection>>.None, pool_size: 0 }
+        val conn = sqlite.open(substring(url, 7, len(url)))?
+        return Connection.Sqlite(conn)
     }
     if (len(url) >= 11 && substring(url, 0, 11) == "postgres://") || (len(url) >= 13 && substring(url, 0, 13) == "postgresql://") {
-        val requests = pg.connect(url)?
-        return Connection { handle: -1, requests: Option<Channel<pg.Request>>.Some(requests), pool: Option<Channel<Connection>>.None, pool_size: 0 }
+        val conn = pg.connect(url)?
+        return Connection.Postgres(conn)
     }
     return err(DbError.Connection(concat("unsupported database URL (expected sqlite: or postgres://): ", url)))
 }
@@ -70,46 +71,42 @@ pub fn open(url: string) -> Result<Connection, DbError> {
 // so a borrowed connection that was never released makes this wait
 // forever; `defer db.release(...)` is what prevents that.
 pub fn close(conn: Connection) {
-    if Option.is_Some(conn.pool) {
-        val idle = Option.unwrap_Some(conn.pool)
-        for i in 0..conn.pool_size {
-            close(receive(idle))
+    if Connection.is_Pool(conn) {
+        val pool = Connection.unwrap_Pool(conn)
+        for i in 0..pool.size {
+            close(receive(pool.idle))
         }
-        return
-    }
-    if Option.is_Some(conn.requests) {
-        pg.close(Option.unwrap_Some(conn.requests))
+    } else if Connection.is_Postgres(conn) {
+        pg.close(Connection.unwrap_Postgres(conn))
     } else {
-        sqlite.close(conn.handle)
+        sqlite.close(Connection.unwrap_Sqlite(conn))
     }
 }
 
 // Runs a statement (or, for DDL, a `;`-separated script) and returns the
 // number of rows the last statement changed.
 pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
-    if Option.is_Some(conn.pool) {
+    if Connection.is_Pool(conn) {
         val inner = acquire(conn)?
         defer release(conn, inner)
         return execute(inner, sql, params)
     }
-    if Option.is_Some(conn.requests) {
-        val result = pg.run(Option.unwrap_Some(conn.requests), sql, params)?
-        return result.affected
+    if Connection.is_Postgres(conn) {
+        return pg.execute(Connection.unwrap_Postgres(conn), sql, params)
     }
-    return sqlite.execute(conn.handle, sql, params)
+    return sqlite.execute(Connection.unwrap_Sqlite(conn), sql, params)
 }
 
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
-    if Option.is_Some(conn.pool) {
+    if Connection.is_Pool(conn) {
         val inner = acquire(conn)?
         defer release(conn, inner)
         return query(inner, sql, params)
     }
-    if Option.is_Some(conn.requests) {
-        val result = pg.run(Option.unwrap_Some(conn.requests), sql, params)?
-        return result.rows
+    if Connection.is_Postgres(conn) {
+        return pg.query(Connection.unwrap_Postgres(conn), sql, params)
     }
-    return sqlite.query(conn.handle, sql, params)
+    return sqlite.query(Connection.unwrap_Sqlite(conn), sql, params)
 }
 
 // The common lookup-by-key shape: the first row, or None.
@@ -127,7 +124,7 @@ pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Op
 // refused -- `acquire` an exclusive connection and run the transaction on
 // that.
 fn refuse_on_pool(conn: Connection) -> Result<int, DbError> {
-    if Option.is_Some(conn.pool) {
+    if Connection.is_Pool(conn) {
         return err(DbError.Sql("a transaction needs an exclusive connection: db.acquire(pool) one first"))
     }
     return 0
@@ -200,7 +197,7 @@ pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
         send(idle, unwrap(c))
         opened = opened + 1
     }
-    return Connection { handle: -1, requests: Option<Channel<pg.Request>>.None, pool: Option<Channel<Connection>>.Some(idle), pool_size: size }
+    return Connection.Pool(PoolState { idle: idle, size: size })
 }
 
 // An exclusive connection, for a unit of work that must stay on one (a
@@ -208,8 +205,8 @@ pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
 // isn't a pool it just returns that connection, and `release` does
 // nothing -- so the same code runs against either.
 pub fn acquire(conn: Connection) -> Result<Connection, DbError> {
-    if Option.is_Some(conn.pool) {
-        return receive(Option.unwrap_Some(conn.pool))
+    if Connection.is_Pool(conn) {
+        return receive(Connection.unwrap_Pool(conn).idle)
     }
     return conn
 }
@@ -219,7 +216,7 @@ pub fn acquire(conn: Connection) -> Result<Connection, DbError> {
 // still open goes back dirty -- roll it back first (`defer db.rollback`
 // registered *after* the release defer runs before it).
 pub fn release(conn: Connection, taken: Connection) {
-    if Option.is_Some(conn.pool) {
-        send(Option.unwrap_Some(conn.pool), taken)
+    if Connection.is_Pool(conn) {
+        send(Connection.unwrap_Pool(conn).idle, taken)
     }
 }

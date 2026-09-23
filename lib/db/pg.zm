@@ -671,9 +671,14 @@ fn serve(sock: Socket, requests: Channel<Request>) {
     }
 }
 
-// Connects, authenticates, and starts the thread that owns the socket;
-// the returned channel is how every later call reaches it.
-pub fn connect(url: string) -> Result<Channel<Request>, DbError> {
+// An open Postgres connection: the channel to the thread that owns its
+// socket. Opaque to callers -- use `execute`/`query`/`close`.
+pub struct Connection {
+    requests: Channel<Request>
+}
+
+// Connects, authenticates, and starts the thread that owns the socket.
+pub fn connect(url: string) -> Result<Connection, DbError> {
     val parsed = parse_url(url)?
     val sock = lift<Socket>(net.connect(parsed.host, parsed.port))?
     val ready = handshake(sock, parsed)
@@ -683,15 +688,26 @@ pub fn connect(url: string) -> Result<Channel<Request>, DbError> {
     }
     val requests: Channel<Request> = channel_new()
     spawn serve(sock, requests)
-    return requests
+    return Connection { requests: requests }
 }
 
-pub fn run(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     val reply_to: Channel<Result<QueryResult, DbError>> = channel_new()
-    send(requests, Request.Run(RunRequest { sql: sql, params: params, reply_to: reply_to }))
+    send(conn.requests, Request.Run(RunRequest { sql: sql, params: params, reply_to: reply_to }))
     return receive(reply_to)
 }
 
-pub fn close(requests: Channel<Request>) {
-    send(requests, Request.Close)
+// The number of rows the last statement changed.
+pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
+    val result = run(conn, sql, params)?
+    return result.affected
+}
+
+pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+    val result = run(conn, sql, params)?
+    return result.rows
+}
+
+pub fn close(conn: Connection) {
+    send(conn.requests, Request.Close)
 }

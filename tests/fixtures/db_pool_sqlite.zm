@@ -24,7 +24,7 @@ fn worker(pool: db.Connection, id: int, handles: Channel<int>, done: Channel<int
     }
     val tx = unwrap(db.acquire(pool))
     defer db.release(pool, tx)
-    send(handles, tx.handle)
+    send(handles, db.Connection.unwrap_Sqlite(tx).handle)
     clock.sleep_millis(20)
     send(done, 1)
 }

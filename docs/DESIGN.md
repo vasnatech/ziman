@@ -2254,9 +2254,10 @@ several languages rather than inheriting any one of them wholesale.
   including a `?` that propagates an error -- which is exactly the hazard
   that had to be solved first.
   **A pool-backed `Connection`, not a separate `Pool` type**, so repository
-  code written against `Connection` runs unchanged: `Connection` gained
-  `pool: Option<Channel<Connection>>` and `pool_size`, and
-  `execute`/`query` on a pool borrow a connection for that one statement
+  code written against `Connection` runs unchanged: `Connection` is an enum
+  (`Sqlite(sqlite.Connection) | Postgres(pg.Connection) | Pool(PoolState)`,
+  each driver's own opaque struct, `PoolState` holding the idle-connection
+  channel and size), and `execute`/`query` on a pool borrow a connection for that one statement
   (`query_one` and the rest go through those). The type is recursive
   through a `Channel`, the same way `Json` is recursive through an array,
   and the checker accepted it without change. **A unit of work spanning

@@ -697,11 +697,15 @@ pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError>
 ## `db`
 
 ```
-pub struct Connection {
-    handle: int
-    requests: Option<Channel<pg.Request>>
-    pool: Option<Channel<Connection>>
-    pool_size: int
+pub struct PoolState {
+    idle: Channel<Connection>
+    size: int
+}
+
+pub enum Connection {
+    Sqlite(sqlite.Connection)
+    Postgres(pg.Connection)
+    Pool(PoolState)
 }
 
 pub fn open(url: string) -> Result<Connection, DbError>
@@ -749,24 +753,34 @@ pub enum Request {
 
 pub native fn float_to_text(f: float) -> string
 
-pub fn connect(url: string) -> Result<Channel<Request>, DbError>
+pub struct Connection {
+    requests: Channel<Request>
+}
 
-pub fn run(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError>
+pub fn connect(url: string) -> Result<Connection, DbError>
 
-pub fn close(requests: Channel<Request>)
+pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+
+pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+
+pub fn close(conn: Connection)
 
 ```
 
 ## `sqlite`
 
 ```
-pub fn open(path: string) -> Result<int, DbError>
+pub struct Connection {
+    handle: int
+}
 
-pub fn close(handle: int)
+pub fn open(path: string) -> Result<Connection, DbError>
 
-pub fn execute(handle: int, sql: string, params: [SqlValue]) -> Result<int, DbError>
+pub fn close(conn: Connection)
 
-pub fn query(handle: int, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+
+pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
 
 ```
 
