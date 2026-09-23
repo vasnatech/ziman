@@ -197,7 +197,7 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
 // ------------------------------------------------------------- reading
 
 fn parse_header_line(line: string) -> Result<Header, HttpError> {
-    if len(line) == 0 || substring(line, 0, 1) == " " || substring(line, 0, 1) == "\t" {
+    if len(line) == 0 || starts_with(line, " ") || starts_with(line, "\t") {
         return err(HttpError.BadRequest("malformed header line"))
     }
     if !contains(line, ":") {
@@ -260,7 +260,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     if version != "HTTP/1.1" && version != "HTTP/1.0" {
         return err(HttpError.BadRequest(concat("unsupported HTTP version: ", version)))
     }
-    if method == "" || (substring(target, 0, 1) != "/" && target != "*") {
+    if method == "" || (!starts_with(target, "/") && target != "*") {
         return err(HttpError.BadRequest("malformed request target"))
     }
 
@@ -464,10 +464,10 @@ pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError> {
 pub fn path_params(pattern: string, path: string) -> Option<Params> {
     var p = pattern
     var q = path
-    if len(p) > 1 && substring(p, len(p) - 1, len(p)) == "/" {
+    if len(p) > 1 && ends_with(p, "/") {
         p = substring(p, 0, len(p) - 1)
     }
-    if len(q) > 1 && substring(q, len(q) - 1, len(q)) == "/" {
+    if len(q) > 1 && ends_with(q, "/") {
         q = substring(q, 0, len(q) - 1)
     }
     val pattern_parts = split(p, "/")
@@ -481,7 +481,7 @@ pub fn path_params(pattern: string, path: string) -> Option<Params> {
     while i < len(pattern_parts) {
         val want = pattern_parts[i]
         val got = path_parts[i]
-        if len(want) >= 3 && substring(want, 0, 1) == "{" && substring(want, len(want) - 1, len(want)) == "}" {
+        if len(want) >= 3 && starts_with(want, "{") && ends_with(want, "}") {
             if got == "" {
                 return Option<Params>.None
             }

@@ -719,13 +719,13 @@ pub fn duration_to_string(d: Duration) -> string {
 // the parsed seconds -- verified against duration_to_string's own
 // worked example (-0.5s prints "PT-0.500000000S") before trusting it.
 pub fn duration_from_string(s: string) -> Result<Duration, string> {
-    if len(s) < 3 || substring(s, 0, 2) != "PT" || substring(s, len(s) - 1, len(s)) != "S" {
+    if len(s) < 3 || !starts_with(s, "PT") || !ends_with(s, "S") {
         return err(format("invalid duration '{}': expected PT<seconds>[.<nanos>]S", s))
     }
     val body = substring(s, 2, len(s) - 1)
     var negative = false
     var rest = body
-    if len(rest) > 0 && substring(rest, 0, 1) == "-" {
+    if starts_with(rest, "-") {
         negative = true
         rest = substring(rest, 1, len(rest))
     }

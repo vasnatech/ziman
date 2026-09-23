@@ -55,11 +55,11 @@ pub enum Connection {
 // `postgres://user:password@host:port/database` (`postgresql://` too;
 // no TLS yet -- a `sslmode=require` URL is refused, not downgraded).
 pub fn open(url: string) -> Result<Connection, DbError> {
-    if len(url) >= 7 && substring(url, 0, 7) == "sqlite:" {
+    if starts_with(url, "sqlite:") {
         val conn = sqlite.open(substring(url, 7, len(url)))?
         return Connection.Sqlite(conn)
     }
-    if (len(url) >= 11 && substring(url, 0, 11) == "postgres://") || (len(url) >= 13 && substring(url, 0, 13) == "postgresql://") {
+    if starts_with(url, "postgres://") || starts_with(url, "postgresql://") {
         val conn = pg.connect(url)?
         return Connection.Postgres(conn)
     }
@@ -179,7 +179,7 @@ pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
     if size < 1 {
         return err(DbError.Sql("a pool needs at least one connection"))
     }
-    if len(url) >= 14 && substring(url, 0, 14) == "sqlite::memory" {
+    if starts_with(url, "sqlite::memory") {
         return open(url)
     }
     val idle: Channel<Connection> = channel_new()

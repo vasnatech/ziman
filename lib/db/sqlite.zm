@@ -22,16 +22,17 @@ native fn float_to_text(f: float) -> string
 
 // A native error arrives as "category|message".
 fn error_from_raw(raw: string) -> DbError {
-    val parts = split(raw, "|")
-    val rest = ab_new<string>()
-    for i in 1..len(parts) {
-        ab_append<string>(rest, parts[i])
+    val bar = index_of(raw, "|", 0)
+    var category = raw
+    var message = ""
+    if bar >= 0 {
+        category = substring(raw, 0, bar)
+        message = substring(raw, bar + 1, len(raw))
     }
-    val message = join(separator: "|", pieces: ab_to_array<string>(rest))
-    if parts[0] == "constraint" {
+    if category == "constraint" {
         return DbError.Constraint(message)
     }
-    if parts[0] == "connection" {
+    if category == "connection" {
         return DbError.Connection(message)
     }
     return DbError.Sql(message)

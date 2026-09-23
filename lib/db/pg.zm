@@ -215,9 +215,9 @@ fn join_from(parts: [string], start: int, sep: string) -> string {
 // postgres://user[:password]@host[:port]/database[?sslmode=...]
 fn parse_url(url: string) -> Result<PgUrl, DbError> {
     var rest = ""
-    if len(url) >= 11 && substring(url, 0, 11) == "postgres://" {
+    if starts_with(url, "postgres://") {
         rest = substring(url, 11, len(url))
-    } else if len(url) >= 13 && substring(url, 0, 13) == "postgresql://" {
+    } else if starts_with(url, "postgresql://") {
         rest = substring(url, 13, len(url))
     } else {
         return err(conn_err(concat("not a postgres URL: ", url)))
@@ -237,9 +237,9 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
         val q = split(path_and_query, "?")
         database = q[0]
         for pair in split(join_from(q, 1, "?"), "&") {
-            if len(pair) >= 8 && substring(pair, 0, 8) == "sslmode=" {
+            if starts_with(pair, "sslmode=") {
                 sslmode = substring(pair, 8, len(pair))
-            } else if len(pair) >= 12 && substring(pair, 0, 12) == "sslrootcert=" {
+            } else if starts_with(pair, "sslrootcert=") {
                 val decoded = percent_decode(substring(pair, 12, len(pair)))?
                 sslrootcert = decoded
             }
@@ -295,8 +295,8 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
 // Extracts `key=value` out of a comma-separated SCRAM attribute list.
 fn scram_attr(message: string, key: string) -> Option<string> {
     for part in split(message, ",") {
-        if len(part) >= 2 && substring(part, 0, 2) == concat(key, "=") {
-            return Option<string>.Some(substring(part, 2, len(part)))
+        if starts_with(part, concat(key, "=")) {
+            return Option<string>.Some(substring(part, len(key) + 1, len(part)))
         }
     }
     return Option<string>.None
@@ -331,7 +331,7 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
         return err(conn_err("malformed SCRAM server-first-message"))
     }
     val combined_nonce = Option.unwrap_Some(server_nonce)
-    if len(combined_nonce) < len(nonce) || substring(combined_nonce, 0, len(nonce)) != nonce {
+    if !starts_with(combined_nonce, nonce) {
         return err(conn_err("SCRAM server nonce does not extend the client nonce"))
     }
     val salt = base64_decode(Option.unwrap_Some(salt_b64))
@@ -490,7 +490,7 @@ fn parse_row_description(body: [byte]) -> RowDesc {
 fn decode_value(oid: int, raw: [byte]) -> Result<SqlValue, DbError> {
     if oid == 17 {
         val hex = text_of(raw, 0, len(raw))
-        if len(hex) < 2 || substring(hex, 0, 2) != "\\x" {
+        if !starts_with(hex, "\\x") {
             return err(DbError.Sql("bytea value is not in hex format"))
         }
         val out = ab_new<byte>()

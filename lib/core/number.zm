@@ -134,7 +134,7 @@ pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
     }
     var negative = false
     var start = 0
-    if substring(s, 0, 1) == "-" {
+    if starts_with(s, "-") {
         negative = true
         start = 1
     }
@@ -261,7 +261,7 @@ fn insert_thousands(int_part: string, sep: string) -> string {
     }
     var sign = ""
     var digits = int_part
-    if len(digits) > 0 && substring(digits, 0, 1) == "-" {
+    if starts_with(digits, "-") {
         sign = "-"
         digits = substring(digits, 1, len(digits))
     }
@@ -326,13 +326,8 @@ pub fn format_number(s: string, fmt: NumberFormat) -> string {
     return concat(grouped, concat(fmt.decimal_separator, frac_part))
 }
 
-// Removing every occurrence of `needle` is exactly what splitting on it
-// and rejoining with nothing between the pieces already means -- no
-// loop needed at all, and one native O(N) pass via `join` in place of
-// what used to be a `concat`-in-a-loop over however many pieces a long
-// string with many separators split into.
 fn strip_all(s: string, needle: string) -> string {
-    return join(pieces: split(s, needle))
+    return replace(s, needle, "")
 }
 
 // The inverse of format_number: strips thousands separators and

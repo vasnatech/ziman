@@ -99,27 +99,26 @@ pub fn net_error_message(e: NetError) -> string {
 
 // A native error arrives as "category|message".
 fn net_error_from_raw(raw: string) -> NetError {
-    val parts = split(raw, "|")
-    val rest = ab_new<string>()
-    var i = 1
-    while i < len(parts) {
-        ab_append<string>(rest, parts[i])
-        i = i + 1
+    val bar = index_of(raw, "|", 0)
+    var category = raw
+    var message = ""
+    if bar >= 0 {
+        category = substring(raw, 0, bar)
+        message = substring(raw, bar + 1, len(raw))
     }
-    val message = join(separator: "|", pieces: ab_to_array<string>(rest))
-    if parts[0] == "refused" {
+    if category == "refused" {
         return NetError.ConnectionRefused(message)
     }
-    if parts[0] == "notfound" {
+    if category == "notfound" {
         return NetError.HostNotFound(message)
     }
-    if parts[0] == "timeout" {
+    if category == "timeout" {
         return NetError.Timeout(message)
     }
-    if parts[0] == "closed" {
+    if category == "closed" {
         return NetError.Closed(message)
     }
-    if parts[0] == "tls" {
+    if category == "tls" {
         return NetError.Tls(message)
     }
     return NetError.Io(message)
