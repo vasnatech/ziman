@@ -1,7 +1,7 @@
 // prelude.zm -- every type/function/val declared here is merged bare,
 // unqualified, into every Ziman program, no `use` required (see
 // docs/DESIGN.md's "Prelude" entry). Deliberately *not* a `use`-able
-// core module despite living in corelib/ alongside ones that are: its
+// core module despite living in lib/core/ alongside ones that are: its
 // generated header is still produced by the ordinary corelib Makefile
 // rule (real .zm source, no hand-escaped C string, same as every other
 // bundled module), but it's never added to corelib.c's CORE_MODULES

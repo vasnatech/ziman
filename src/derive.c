@@ -73,11 +73,11 @@ static char *fmt_str(const char *fmt, ...) {
  * "Uuid" -> "uuid". A fresh, standard, multi-word-aware convention for
  * the names this pass itself generates (<Type>_to_json/_from_json) --
  * deliberately its own convention, distinct from the older, simpler
- * "lowercase with no inserted underscores" shortcut corelib/time.zm's
+ * "lowercase with no inserted underscores" shortcut lib/core/time.zm's
  * hand-written _to_string/_from_string pairs already use for their own
  * compound names (localdate_to_string, not local_date_to_string). Those
  * corelib types get their own hand-written _to_json/_from_json wrappers
- * (see corelib/time.zm, corelib/uuid.zm) named to match *this*
+ * (see lib/core/time.zm, lib/core/uuid.zm) named to match *this*
  * convention, so a struct field of type LocalDate correctly resolves to
  * `local_date_to_json`. See docs/DESIGN.md's "Attributes and derive"
  * entry. */
@@ -417,15 +417,15 @@ static char *generate_enum_from_json(EnumDecl *ed) {
 
 /* ---------------------------------------------------------------------
  * Row derive: <name>_from_row / <name>_to_params, for mapping a struct to
- * and from one SQL result row (corelib/sql.zm's Row/SqlValue).
+ * and from one SQL result row (lib/core/sql.zm's Row/SqlValue).
  *
  * Column names are the struct's own field names, as written -- already
  * snake_case, which is also how SQL columns are conventionally named, so
  * unlike Json's camelCase keys there is no transform here. Field
  * conversion: int/float/bool/string map to the matching SqlValue; a
  * struct/enum-kind field dispatches by naming convention to
- * <name>_to_sql/<name>_from_sql (hand-written -- corelib/uuid.zm and
- * corelib/time.zm provide them for their domain types, all carried as
+ * <name>_to_sql/<name>_from_sql (hand-written -- lib/core/uuid.zm and
+ * lib/core/time.zm provide them for their domain types, all carried as
  * Text); Option<U> is NULL-or-value. Arrays, nested tables and the
  * remaining scalar kinds are compile-time errors, not silently wrong.
  * --------------------------------------------------------------------- */
@@ -553,7 +553,7 @@ static char *generate_struct_to_params(StructDecl *sd) {
 
 /* ---------------------------------------------------------------------
  * Properties derive: <name>_from_properties / <name>_keys, binding a
- * struct to the keys under a prefix in a corelib/properties.zm
+ * struct to the keys under a prefix in a lib/core/properties.zm
  * Properties (field `idle_timeout_ms` <-> key `<prefix>.idle-timeout-ms`).
  * The generated code calls qualified `properties.*`, so the consumer
  * needs only `use properties`. Option<T> fields are optional keys;

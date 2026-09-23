@@ -12,7 +12,7 @@ all: $(BIN)
 $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ -lm -lsqlite3 -lssl -lcrypto -pthread
 
-# Bundled core modules (see src/corelib.c): each corelib/<name>.zm file
+# Bundled core modules (see src/corelib.c): each lib/core/<name>.zm file
 # is embedded as a C string constant, generated fresh from its .zm
 # source every build so the two never drift. Declared as a prerequisite
 # of every object file (not just corelib.o) so a from-clean build always
@@ -23,17 +23,17 @@ $(BIN): $(OBJ)
 #
 # `prelude` is the one exception: it's listed here purely to get its
 # header generated the same readable, never-hand-escaped way every other
-# corelib/*.zm file does, but it deliberately has NO matching line in
+# lib/core/*.zm file does, but it deliberately has NO matching line in
 # corelib.c's CORE_MODULES table -- src/prelude.c reads its generated
 # header directly, and it's merged bare into every program by
-# loader.c's load_module_graph (see corelib/prelude.zm's own header
+# loader.c's load_module_graph (see lib/core/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
 CORELIB_MODULES := collections io random uuid clock time json number sql sqlite db bytes net crypto pg http os properties prelude
 CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 
 $(OBJ): $(CORELIB_HEADERS)
 
-# corelib/<name>.zm -> src/<name>_source.h, a
+# lib/core/<name>.zm -> src/<name>_source.h, a
 # `#define <NAME>_SOURCE "..."` (module name uppercased). A #define, not
 # a `static const char *`, so it's usable as a constant initializer in
 # corelib.c's CORE_MODULES table -- a plain variable can't be (ISO C
@@ -43,9 +43,9 @@ $(OBJ): $(CORELIB_HEADERS)
 # PRELUDE_SOURCE uses) rather than one unreadable giant line -- adjacent
 # string literals concatenate into a single one regardless of how many
 # physical lines or trailing "" the macro's definition spans.
-src/%_source.h: corelib/%.zm
+src/%_source.h: lib/core/%.zm
 	awk -v mod="$*" -v macro="$(shell echo $* | tr a-z A-Z)_SOURCE" \
-	    'BEGIN { printf "/* Generated from corelib/%s.zm -- do not edit directly. */\n#define %s \\\n", mod, macro } \
+	    'BEGIN { printf "/* Generated from lib/core/%s.zm -- do not edit directly. */\n#define %s \\\n", mod, macro } \
 	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); printf "    \"%s\\n\" \\\n", $$0 } \
 	     END { print "    \"\"" }' $< > $@
 
@@ -79,7 +79,7 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	$(CC) $(CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	/tmp/ziman_decimal_test
 
-# docs/CORELIB.md is generated from corelib/*.zm's own `pub` declarations
+# docs/CORELIB.md is generated from lib/core/*.zm's own `pub` declarations
 # (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make
 # all` since it's a doc, not a build input; run by hand after touching
 # any core module's public API. The generated file is still checked into

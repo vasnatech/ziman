@@ -20,7 +20,7 @@
 #include "error.h"
 #include "native.h"
 
-/* Blocking TCP behind corelib/net.zm. A connection or listener is an int
+/* Blocking TCP behind lib/core/net.zm. A connection or listener is an int
  * handle into a table of file descriptors (same pattern as StringBuilder
  * and the db driver) rather than the raw fd itself, so a Ziman program
  * can't pass an arbitrary number to close(2). Errors reach Ziman as

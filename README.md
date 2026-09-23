@@ -70,7 +70,7 @@ monomorphized. A type parameter can be bounded with `Eq` and/or `Hash`
 these are the only two bounds Ziman has — there's no general
 trait/interface system (see docs/DESIGN.md's Generics entry for why,
 and what's deliberately left undecided). A small `collections` module
-built on this (`corelib/collections.zm`) provides
+built on this (`lib/core/collections.zm`) provides
 `HashMap<K: Eq + Hash, V>` and `HashSet<T: Eq + Hash>` (bucket-array
 based with separate chaining, doubled and rehashed once the load factor
 crosses 0.75 so `get`/`has`/`contains` stay O(1) average regardless of
@@ -200,7 +200,7 @@ anywhere else in the language). Everything else that has exactly one
 fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
 `parse_decimal`, `floor`, `ceil`, `round`, `decimal_round`, `concat`,
 `substring`, `split`, `trim`, `to_upper`, `to_lower`, `join` — instead
-lives in an auto-imported "prelude" module (`corelib/prelude.zm`), each
+lives in an auto-imported "prelude" module (`lib/core/prelude.zm`), each
 an ordinary `native fn` using the same mechanism the `io` module uses to
 call into C. `join(prefix: Option<string>, suffix: Option<string>,
 separator: Option<string>, pieces: string...) -> string` is also the
@@ -276,7 +276,7 @@ missing capability first: `native fn` couldn't take type parameters at
 all before this (a parser gap, not a deliberate restriction — the type
 checker's own generic-instantiation logic never special-cased native
 functions once the syntax was accepted). Unlike every other bundled
-module (`collections`, `io`, ...), `corelib/prelude.zm` is never
+module (`collections`, `io`, ...), `lib/core/prelude.zm` is never
 reachable through `use` at all — everything it declares is already
 unqualified everywhere, so
 there'd be nothing to gain and a redundant path to create. See

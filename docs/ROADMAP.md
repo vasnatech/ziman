@@ -680,7 +680,7 @@ a time mid-implementation:
     instead of once per concrete instantiation.
 - ~~**Collections module (`Box`/`Option`/`HashMap`/`HashSet`) — the
   concrete payoff of the generics work above.**~~ Implemented
-  (`corelib/collections.zm` — see "Bundled core modules" below for why
+  (`lib/core/collections.zm` — see "Bundled core modules" below for why
   it lives there and not under `examples/`): a `collections` module,
   written in ordinary Ziman, no new native/C code, exporting `Box<T>`
   (later removed outright — nothing ever used it beyond being the first
@@ -713,7 +713,7 @@ a time mid-implementation:
 - ~~**Bundled core modules — closes the "every project keeps its own
   copy" gap noted above under native modules.**~~ Implemented
   (`src/corelib.h`/`corelib.c`): `collections` moved from
-  `examples/collections/collections.zm` to `corelib/collections.zm`,
+  `examples/collections/collections.zm` to `lib/core/collections.zm`,
   and the Makefile now generates `src/collections_source.h` from it (a
   `#define COLLECTIONS_SOURCE "..."`, one long escaped string literal —
   a `#define` rather than a `static const char *` since the latter
@@ -739,10 +739,10 @@ a time mid-implementation:
   replacement for vendoring, not just a demo of one.
   ~~`io.zm` (the `io` native module's signature file) is the other
   concrete case this mechanism resolves.~~ Done too, the same day: moved
-  from `examples/native_io/io.zm` to `corelib/io.zm`, one line added to
+  from `examples/native_io/io.zm` to `lib/core/io.zm`, one line added to
   `corelib.c`'s `CORE_MODULES` table and to the Makefile's
   `CORELIB_MODULES` list (which now generalizes the header-generation
-  rule to a pattern rule, `src/%_source.h: corelib/%.zm`, rather than
+  rule to a pattern rule, `src/%_source.h: lib/core/%.zm`, rather than
   one hardcoded rule per module). The three `native_io_*` test fixtures'
   vendored `io.zm` copies (all byte-identical to the original) were
   deleted the same way `collections.zm`'s vendored copies were, and all
@@ -906,12 +906,12 @@ a time mid-implementation:
   Implemented (`tools/gen_corelib_reference.sh`, `make
   corelib-reference`; docs/DESIGN.md's "CORELIB.md" entry). Extracts
   every `pub struct`/`pub enum`/`pub fn`/`pub native fn` straight from
-  `corelib/*.zm`'s own source rather than hand-copying them — this
+  `lib/core/*.zm`'s own source rather than hand-copying them — this
   project had already caught and fixed stale hand-written comments/docs
   repeatedly by this point, so a hand-maintained signature list was
   guaranteed to drift the same way eventually. Confirmed against source
   before considering it done: the generated file's total `pub` line
-  count matched `grep -c '^pub ' corelib/*.zm`'s count exactly. Not part
+  count matched `grep -c '^pub ' lib/core/*.zm`'s count exactly. Not part
   of the default `make`/`make all` build (it's a doc, not a build
   input) — an opt-in target, same treatment `test-bignum`/`test-decimal`
   already get.

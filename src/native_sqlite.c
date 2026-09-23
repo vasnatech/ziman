@@ -10,7 +10,7 @@
 #include "error.h"
 #include "native.h"
 
-/* The SQLite driver behind corelib/sqlite.zm. Everything crossing the native
+/* The SQLite driver behind lib/core/sqlite.zm. Everything crossing the native
  * boundary is a primitive: a connection is an int handle (an index into
  * a table of individually heap-allocated DbConn structs, same pattern
  * StringBuilder uses in prelude.c), SQL is a string, and both bound
@@ -24,7 +24,7 @@
  *   B<hex>       blob
  *   b0 / b1      bool (parameters only; bound as integer 0/1)
  *
- * corelib/sqlite.zm encodes/decodes SqlValue to and from exactly this shape.
+ * lib/core/sqlite.zm encodes/decodes SqlValue to and from exactly this shape.
  * Deliberately not the typed interpreter Values directly: constructing a
  * user-declared enum (SqlValue) from C would need to know the loader's
  * qualified name for it, which a native function has no business

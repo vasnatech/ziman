@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Generates docs/CORELIB.md from corelib/*.zm's own `pub` declarations --
+# Generates docs/CORELIB.md from lib/core/*.zm's own `pub` declarations --
 # every struct and function signature is extracted straight from source
 # (see the awk block below), so the reference can't silently drift from
 # the actual API the way a hand-copied list would. Only the one-line
 # per-module description in `describe()` is hand-maintained; add one
 # there when adding a new core module. Regenerate with
-# `make corelib-reference` after touching any corelib/*.zm file.
+# `make corelib-reference` after touching any lib/core/*.zm file.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -26,7 +26,7 @@ describe() {
 cat <<'EOF'
 # Ziman core module reference
 
-Auto-generated from each `corelib/*.zm` file's own `pub` declarations by
+Auto-generated from each `lib/core/*.zm` file's own `pub` declarations by
 `tools/gen_corelib_reference.sh` -- **don't hand-edit the signature
 blocks below**; regenerate with `make corelib-reference` after changing
 any core module (adding, removing, or renaming a `pub struct`/`pub enum`/
@@ -38,7 +38,7 @@ for why each module is shaped the way it is.
 docs/SYNTAX.md's "Modules" -- "Bundled core module"); a per-name import
 (`use <module>.Name`) binds one item bare instead of qualified.
 
-One exception, not listed below: `corelib/prelude.zm` -- unlike every
+One exception, not listed below: `lib/core/prelude.zm` -- unlike every
 module here, it's never `use`-able at all (see its own header comment
 and docs/DESIGN.md's "Prelude" entry), since everything it declares
 (`Option<T>`, plus a handful of native functions) is already bare and
@@ -46,7 +46,7 @@ unqualified in every program, the same way `print`/`str`/`parse_int`
 are. See docs/SYNTAX.md's "Modules" section for what it contains.
 EOF
 
-for f in corelib/*.zm; do
+for f in lib/core/*.zm; do
     name=$(basename "$f" .zm)
     if [ "$name" = "prelude" ]; then continue; fi
     desc=$(describe "$name")

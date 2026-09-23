@@ -522,7 +522,7 @@ several languages rather than inheriting any one of them wholesale.
   local file of the same name always wins, so a project can still
   shadow a core module with its own. The embedding itself piggybacks on
   the same "parse a source string, no new machinery" trick the prelude
-  established: the canonical `.zm` source lives at `corelib/*.zm`, the
+  established: the canonical `.zm` source lives at `lib/core/*.zm`, the
   Makefile turns each into a generated `#define X_SOURCE "..."` header
   at build time (so the embedded copy can never drift from the source
   file a human actually reads and edits), and `corelib.c` just looks the
@@ -710,13 +710,13 @@ several languages rather than inheriting any one of them wholesale.
   to drift the first time a core module's function was renamed or a
   parameter added. Instead, `tools/gen_corelib_reference.sh` extracts
   every `pub struct`/`pub enum`/`pub fn`/`pub native fn` directly from
-  each `corelib/*.zm` file's own source (a small awk state machine —
+  each `lib/core/*.zm` file's own source (a small awk state machine —
   track "inside a struct/enum body," print until the closing `}`; for a
   function, print the signature line with its trailing ` {` stripped)
   and assembles them under one hand-maintained one-line description per
   module. Confirmed against source rather than trusted, both times it's
   been touched: the generated file's total `pub` line count matched
-  `grep -c '^pub ' corelib/*.zm`'s count exactly before either was
+  `grep -c '^pub ' lib/core/*.zm`'s count exactly before either was
   considered done. Not run as part of `make`/`make all` (it's a doc,
   not a build input) — a separate `make corelib-reference` target, run
   by hand after touching a core module's public API, the same "opt-in,
@@ -896,13 +896,13 @@ several languages rather than inheriting any one of them wholesale.
   reference in a type position, exactly the case nothing before this
   had ever exercised.
   Deliberately *not* made `use`-able under the name `prelude`, despite
-  `corelib/prelude.zm` sitting in the same directory as every module
-  that is: `corelib/%.zm` doubles as `corelib.c`'s `use`-fallback lookup
+  `lib/core/prelude.zm` sitting in the same directory as every module
+  that is: `lib/core/%.zm` doubles as `corelib.c`'s `use`-fallback lookup
   table, and adding `prelude` to it would let `use prelude` parse the
   file a *second* time under a redundant qualifier (`prelude.Option`
   alongside the already-bare `Option`) — solved by getting its header
   generated through the same Makefile rule as everything else in
-  `corelib/` (so its source is still real, readable `.zm`, never a
+  `lib/core/` (so its source is still real, readable `.zm`, never a
   hand-escaped C string) while never adding a matching line to
   `corelib.c`'s `CORE_MODULES` table.
   Nine existing test fixtures had to be updated as a direct, foreseen
@@ -915,7 +915,7 @@ several languages rather than inheriting any one of them wholesale.
   depended on the name `Option` itself, just needed *some* generic enum.
 - **`Box<T>` removed from `collections`, outright — not moved
   anywhere, unlike `Option<T>` above.** A grep across every real
-  consumer (`corelib/*.zm`, `health-record-backend-ziman`) turned up
+  consumer (`lib/core/*.zm`, `health-record-backend-ziman`) turned up
   zero actual uses: `HashMap`/`HashSet` are built on their own private
   `Entry<K, V>`, never `Box`, and nothing in the dogfooding project ever
   referenced it either. It was the first generic struct ever written —
@@ -1071,7 +1071,7 @@ several languages rather than inheriting any one of them wholesale.
   `time.localdate_from_string` — the exact motivating gap, closed.
 - **Variadic parameters — the first new call-site grammar since generics,
   built for one concrete native function (`join`), not speculatively.**
-  Motivated by a scan of `corelib/*.zm` for O(N²) allocation patterns:
+  Motivated by a scan of `lib/core/*.zm` for O(N²) allocation patterns:
   several functions (`json_to_string`, `escape_json_string`,
   `parse_string`, `hashmap_keys`/`hashmap_values`/`hashset_items`) build
   a result by repeatedly calling `concat`/`push` in a loop, each call
@@ -1474,7 +1474,7 @@ several languages rather than inheriting any one of them wholesale.
   identical problem one level up.** `push` copies the *entire* existing
   array on every call, for exactly the reason `concat` copies the
   entire existing string: Ziman's arrays are immutable value types.
-  `hashmap_keys`/`hashmap_values`/`hashset_items` (`corelib/
+  `hashmap_keys`/`hashmap_values`/`hashset_items` (`lib/core/
   collections.zm`) were still doing this -- the array-shaped half of the
   original corelib memory-leak scan that motivated `join`/`StringBuilder`
   in the first place, never itself fixed. Same shape as `StringBuilder`
@@ -1887,12 +1887,12 @@ several languages rather than inheriting any one of them wholesale.
   in derive.c) -- `ValidationError` -> `validation_error`, `Patient` ->
   `patient`. Deliberately its *own*, fresh convention, distinct from the
   older, simpler "lowercase with no inserted underscores" shortcut
-  `corelib/time.zm`'s hand-written `_to_string`/`_from_string` pairs
+  `lib/core/time.zm`'s hand-written `_to_string`/`_from_string` pairs
   already use for their own compound names (`localdate_to_string`, not
   `local_date_to_string`) -- a cosmetic inconsistency between the two
   naming families, not a functional one. Every domain type in `uuid`/
   `time` got a hand-written `<type>_to_json`/`<type>_from_json` pair
-  added (`corelib/uuid.zm`, `corelib/time.zm`) as a thin wrapper around
+  added (`lib/core/uuid.zm`, `lib/core/time.zm`) as a thin wrapper around
   its own existing `_to_string`/`_from_string`, named to match *this*
   new convention (`local_date_to_json`, `zone_offset_from_json`, ...) --
   this is what makes tier 2 of the priority order ("does the type have a
