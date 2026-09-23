@@ -109,6 +109,10 @@ pub fn json_to_string(j: Json) -> string
 
 pub fn json_object_get(j: Json, key: string) -> Option<Json>
 
+pub fn json_require_field(j: Json, key: string) -> Result<Json, string>
+
+pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
+
 ```
 
 ## `number`

@@ -402,7 +402,7 @@ pub fn json_to_string(j: Json) -> string {
     return sb_to_string(out)
 }
 
-// The one convenience lookup provided beyond parse/serialize -- looking
+// The core convenience lookup provided beyond parse/serialize -- looking
 // up a field by key is common enough (every schema-specific parser
 // built on this module needs it at least once per field) to be worth
 // including, without turning this into a general "Json query language."
@@ -416,4 +416,31 @@ pub fn json_object_get(j: Json, key: string) -> Option<Json> {
         }
     }
     return Option<Json>.None
+}
+
+// json_object_get, treating a missing field as an error instead of
+// None -- pulled out of two near-identical copies that grew
+// independently in health-record-backend-ziman's own request/response
+// mapping layers before moving here. The common case for a *required*
+// field in a request/response shape, where "not present" is always a
+// failure worth a clear message, not an Option every caller has to
+// unwrap into one anyway.
+pub fn json_require_field(j: Json, key: string) -> Result<Json, string> {
+    val found = json_object_get(j, key)
+    if !Option.is_Some(found) {
+        return err(format("missing field '{}'", key))
+    }
+    return Option.unwrap_Some(found)
+}
+
+// json_require_field, further requiring the value be a JSON string --
+// the single most common required-field shape (an id, a name, a
+// status), so a request/response mapping layer doesn't have to spell
+// out the is_JString check every time.
+pub fn json_require_string_field(j: Json, key: string) -> Result<string, string> {
+    val v = json_require_field(j, key)?
+    if !Json.is_JString(v) {
+        return err(format("field '{}' must be a string", key))
+    }
+    return Json.unwrap_JString(v)
 }

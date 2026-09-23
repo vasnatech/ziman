@@ -133,9 +133,15 @@ before the module was written, given an old, since-resolved ROADMAP.md
 note suggesting self-referential types couldn't be constructed at all.
 `JNumber` holds a `float`, matching virtually every other JSON
 implementation. `parse_json`/`json_to_string` are a real
-recursive-descent parser/serializer; `json_object_get` is the one
-convenience field lookup provided beyond that — turning arbitrary JSON
-into one already-known struct (a specific request shape) is left to
+recursive-descent parser/serializer; `json_object_get` (an `Option<Json>`
+lookup) and `json_require_field`/`json_require_string_field` (the same
+lookup, but treating a missing field as a `Result` error instead of
+`None`, string-field extraction included as the single most common
+required-field shape) are the convenience field lookups provided beyond
+that — pulled together from two near-identical copies that grew
+independently in `health-record-backend-ziman`'s own request/response
+mapping layers before moving here. Turning arbitrary JSON into one
+already-known struct (a specific request shape) is still left to
 application code built on top of this module, not something it does
 itself. `number` is shared formatting/parsing across all five numeric
 types (`int`, `float`, `bigint`, `decimal`, `byte`), also pure Ziman:

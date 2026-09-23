@@ -1,0 +1,17 @@
+use json.parse_json
+use json.json_require_field
+use json.json_require_string_field
+use json.Json
+
+fn main() {
+    val j = unwrap(parse_json("{\"name\": \"Ada\", \"age\": 42}"))
+
+    print(unwrap(json_require_string_field(j, "name")))
+    print(is_ok(json_require_string_field(j, "missing")))
+    print(unwrap_err(json_require_string_field(j, "missing")))
+    print(is_ok(json_require_string_field(j, "age")))
+    print(unwrap_err(json_require_string_field(j, "age")))
+
+    val age_json = unwrap(json_require_field(j, "age"))
+    print(Json.is_JNumber(age_json))
+}
