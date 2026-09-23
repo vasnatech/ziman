@@ -2258,6 +2258,13 @@ a type error.
   separator has no well-defined split points. Empty pieces (adjacent
   separators, or a leading/trailing separator) are kept, so `len(result)`
   is always `count(sep in s) + 1`.
+- `index_of(s: string, needle: string, from: int) -> int` — the byte index
+  of the first `needle` at or after `from` (`0 <= from <= len(s)`, a
+  runtime error otherwise), or `-1`; an empty `needle` matches at `from`.
+  `starts_with(s, prefix) -> bool` / `ends_with(s, suffix) -> bool`.
+  `replace(s, old, new) -> string` swaps every non-overlapping `old`
+  (must not be empty). None of these build intermediate strings, unlike
+  the `substring(s, i, i + n) == x` idiom they replace.
 - `trim(s: string) -> string` — `s` with leading/trailing whitespace
   removed.
 - `to_upper(s: string) -> string` / `to_lower(s: string) -> string` —

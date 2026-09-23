@@ -1,0 +1,3 @@
+fn main() {
+    print(index_of("abc", "b", 4))
+}

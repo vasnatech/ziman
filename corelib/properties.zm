@@ -41,29 +41,9 @@ pub struct Properties {
     profile: string
 }
 
-fn index_of(s: string, needle: string, from: int) -> int {
-    var i = from
-    while i + len(needle) <= len(s) {
-        if substring(s, i, i + len(needle)) == needle {
-            return i
-        }
-        i = i + 1
-    }
-    return -1
-}
-
 // server.idle-timeout-ms -> SERVER_IDLE_TIMEOUT_MS
 fn env_name(key: string) -> string {
-    val sb = sb_new()
-    for i in 0..len(key) {
-        val c = substring(key, i, i + 1)
-        if c == "." || c == "-" {
-            sb_append(sb, "_")
-        } else {
-            sb_append(sb, to_upper(c))
-        }
-    }
-    return sb_to_string(sb)
+    return to_upper(replace(replace(key, ".", "_"), "-", "_"))
 }
 
 fn find_file_entry(entries: [Entry], key: string) -> Option<Entry> {
@@ -147,7 +127,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
     for i in 0..len(lines) {
         val line = trim(lines[i])
         val where = format("{}:{}", source, i + 1)
-        if len(line) == 0 || substring(line, 0, 1) == "#" {
+        if len(line) == 0 || starts_with(line, "#") {
             continue
         }
         val eq = index_of(line, "=", 0)

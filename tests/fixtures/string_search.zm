@@ -1,0 +1,18 @@
+fn main() {
+    print(index_of("hello world", "o", 0))
+    print(index_of("hello world", "o", 5))
+    print(index_of("hello world", "xyz", 0))
+    print(index_of("hello", "", 3))
+    print(index_of("hello", "lo", 5))
+    print(starts_with("hello", "he"))
+    print(starts_with("hello", ""))
+    print(starts_with("he", "hello"))
+    print(ends_with("hello", "llo"))
+    print(ends_with("hello", ""))
+    print(ends_with("lo", "hello"))
+    print(replace("a.b-c.d", ".", "_"))
+    print(replace("aaa", "a", "bb"))
+    print(replace("abc", "abc", ""))
+    print(replace("abc", "x", "y"))
+    print(replace("", "x", "y"))
+}

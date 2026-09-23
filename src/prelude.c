@@ -156,6 +156,53 @@ static Value native_substring(Value *args, int argc, int line, int col) {
     return value_string(buf);
 }
 
+static Value native_index_of(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const char *str = args[0].as.s;
+    const char *needle = args[1].as.s;
+    int64_t len = (int64_t)strlen(str), from = args[2].as.i;
+    if (from < 0 || from > len) {
+        ziman_error("runtime", line, col, "index_of start out of bounds (from=%lld, length=%lld)", (long long)from, (long long)len);
+    }
+    const char *found = strstr(str + from, needle);
+    return value_int(found ? (int64_t)(found - str) : -1);
+}
+
+static Value native_starts_with(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *str = args[0].as.s, *prefix = args[1].as.s;
+    return value_bool(strncmp(str, prefix, strlen(prefix)) == 0);
+}
+
+static Value native_ends_with(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *str = args[0].as.s, *suffix = args[1].as.s;
+    size_t ls = strlen(str), lx = strlen(suffix);
+    return value_bool(lx <= ls && memcmp(str + ls - lx, suffix, lx) == 0);
+}
+
+static Value native_replace(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const char *str = args[0].as.s, *from = args[1].as.s, *to = args[2].as.s;
+    size_t lf = strlen(from), lt = strlen(to);
+    if (lf == 0) {
+        ziman_error("runtime", line, col, "replace: the text to replace must not be empty");
+    }
+    size_t hits = 0;
+    for (const char *p = str; (p = strstr(p, from)) != NULL; p += lf) hits++;
+    char *buf = malloc(strlen(str) + hits * (lt > lf ? lt - lf : 0) + 1);
+    char *out = buf;
+    const char *cursor = str;
+    for (const char *p; (p = strstr(cursor, from)) != NULL; cursor = p + lf) {
+        memcpy(out, cursor, (size_t)(p - cursor));
+        out += p - cursor;
+        memcpy(out, to, lt);
+        out += lt;
+    }
+    strcpy(out, cursor);
+    return value_string(buf);
+}
+
 static Value native_split(Value *args, int argc, int line, int col) {
     (void)argc;
     const char *str = args[0].as.s;
@@ -593,6 +640,10 @@ void prelude_register(void) {
     native_register("concat", native_concat);
     native_register("substring", native_substring);
     native_register("split", native_split);
+    native_register("index_of", native_index_of);
+    native_register("starts_with", native_starts_with);
+    native_register("ends_with", native_ends_with);
+    native_register("replace", native_replace);
     native_register("trim", native_trim);
     native_register("to_upper", native_to_upper);
     native_register("to_lower", native_to_lower);

@@ -31,6 +31,14 @@ native fn concat(a: string, b: string) -> string
 native fn substring(s: string, start: int, end: int) -> string
 native fn split(s: string, sep: string) -> [string]
 native fn trim(s: string) -> string
+// index_of returns the byte index of the first `needle` at or after `from`
+// (0 <= from <= len(s), else a runtime error), or -1; an empty needle
+// matches at `from`. replace swaps every non-overlapping `old` for `new`
+// (`old` must not be empty). None of them build intermediate strings.
+native fn index_of(s: string, needle: string, from: int) -> int
+native fn starts_with(s: string, prefix: string) -> bool
+native fn ends_with(s: string, suffix: string) -> bool
+native fn replace(s: string, old: string, new: string) -> string
 native fn to_upper(s: string) -> string
 native fn to_lower(s: string) -> string
 // A single-pass, O(N) join of however many strings the caller writes out
