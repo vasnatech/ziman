@@ -865,7 +865,9 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             Expr *arg = e->as.call.args.items[fixed_count];
             Type arg_type = check_expr(module, env, arg);
             require_not_void(arg, "as an argument");
-            if (!type_equals(arg_type, elem_type) && !type_equals(arg_type, type_array(elem_type))) {
+            if (type_equals(arg_type, type_array(elem_type))) {
+                e->as.call.variadic_tail_is_array_spread = 1;
+            } else if (!type_equals(arg_type, elem_type)) {
                 ziman_error("type", arg->line, arg->col,
                             "argument %d of '%s' expects %s or %s, found %s",
                             fixed_count + 1, name, type_name(elem_type), type_name(type_array(elem_type)), type_name(arg_type));

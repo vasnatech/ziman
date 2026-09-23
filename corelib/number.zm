@@ -88,18 +88,37 @@ pub fn byte_from_hex(s: string) -> Result<byte, string> {
 // Assumes n >= 0 -- callers handle the sign themselves, the same
 // "magnitude conversion is separate from sign handling" split
 // `decimal_to_string`'s own implementation uses in the `ziman` repo.
+//
+// Collects digits least-significant-first (the order they naturally
+// fall out of repeated division), into an ArrayBuilder<string> rather
+// than prepending onto a string in a loop -- an arbitrary-precision
+// bigint can have arbitrarily many hex digits, so the original
+// `concat(new_digit, digits)` pattern meant one leaked, ever-growing
+// string per digit (see docs/DESIGN.md's "StringBuilder"/"ArrayBuilder"
+// entries). Prepending isn't something either builder supports
+// directly (both only ever append), so the digits are collected in
+// their natural (reversed) order first, then read back out
+// highest-index-first into a StringBuilder to produce the correct
+// most-significant-first result.
 fn bigint_magnitude_to_hex(n: bigint) -> string {
     if n == 0n {
         return "0"
     }
-    var digits = ""
+    val digits = ab_new<string>()
     var remaining = n
     while remaining > 0n {
         val digit_val = (remaining % 16n) as int
-        digits = concat(hex_digit_char(digit_val), digits)
+        ab_append<string>(digits, hex_digit_char(digit_val))
         remaining = remaining / 16n
     }
-    return digits
+    val reversed = ab_to_array<string>(digits)
+    val out = sb_new()
+    var i = len(reversed) - 1
+    while i >= 0 {
+        sb_append(out, reversed[i])
+        i = i - 1
+    }
+    return sb_to_string(out)
 }
 
 pub fn bigint_to_hex(n: bigint) -> string {
@@ -227,6 +246,15 @@ pub fn parse_pattern(pattern: string) -> NumberFormat {
     return NumberFormat { thousands_separator: thousands, decimal_separator: ".", decimal_places: decimal_places }
 }
 
+// Builds left-to-right (most-significant digit first) directly, rather
+// than the original right-to-left prepend loop -- a separator goes
+// before digit `i` exactly when the digits from `i` to the end,
+// inclusive, form a full group of 3 (`(n - i) % 3 == 0`), the same
+// grouping the original counted up to from the right; restructuring the
+// direction is what lets this append into a StringBuilder instead of
+// prepending onto a string every iteration (an arbitrarily long
+// int/bigint/decimal, once grouped, is an arbitrary-length loop -- see
+// docs/DESIGN.md's "StringBuilder" entry).
 fn insert_thousands(int_part: string, sep: string) -> string {
     if sep == "" {
         return int_part
@@ -241,29 +269,31 @@ fn insert_thousands(int_part: string, sep: string) -> string {
     if n <= 3 {
         return concat(sign, digits)
     }
-    var out = ""
-    var count = 0
-    var i = n - 1
-    while i >= 0 {
-        out = concat(substring(digits, i, i + 1), out)
-        count = count + 1
-        if count % 3 == 0 && i > 0 {
-            out = concat(sep, out)
+    val out = sb_new()
+    sb_append(out, sign)
+    var i = 0
+    while i < n {
+        if i > 0 && (n - i) % 3 == 0 {
+            sb_append(out, sep)
         }
-        i = i - 1
+        sb_append(out, substring(digits, i, i + 1))
+        i = i + 1
     }
-    return concat(sign, out)
+    return sb_to_string(out)
 }
 
 fn adjust_decimal_places(frac: string, places: int) -> string {
-    var f = frac
-    while len(f) < places {
-        f = concat(f, "0")
+    if len(frac) >= places {
+        return substring(frac, 0, places)
     }
-    if len(f) > places {
-        f = substring(f, 0, places)
+    val out = sb_new()
+    sb_append(out, frac)
+    var i = len(frac)
+    while i < places {
+        sb_append(out, "0")
+        i = i + 1
     }
-    return f
+    return sb_to_string(out)
 }
 
 // The one real formatting engine -- `s` is whatever `str(x)` already
@@ -296,12 +326,13 @@ pub fn format_number(s: string, fmt: NumberFormat) -> string {
     return concat(grouped, concat(fmt.decimal_separator, frac_part))
 }
 
+// Removing every occurrence of `needle` is exactly what splitting on it
+// and rejoining with nothing between the pieces already means -- no
+// loop needed at all, and one native O(N) pass via `join` in place of
+// what used to be a `concat`-in-a-loop over however many pieces a long
+// string with many separators split into.
 fn strip_all(s: string, needle: string) -> string {
-    var out = ""
-    for piece in split(s, needle) {
-        out = concat(out, piece)
-    }
-    return out
+    return join(pieces: split(s, needle))
 }
 
 // The inverse of format_number: strips thousands separators and

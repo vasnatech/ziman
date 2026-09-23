@@ -61,13 +61,25 @@ static Env *g_global_env = NULL;
  * of call-handling code (native dispatch, ordinary env-binding below)
  * never needs to know a variadic call happened at all; it just sees the
  * same "one Value per declared parameter" shape it always has. Mirrors
- * check_call's own already-verified logic (a single trailing argument
- * whose type already matches the element array type is passed through
- * as-is; anything else is collected fresh) -- typecheck already proved
+ * check_call's own already-verified logic -- typecheck already proved
  * this call is well-formed, so no error-checking is needed here, only
  * the collapse itself. Returns `args` unchanged (no allocation) for a
- * non-variadic function, so the common case costs nothing extra. */
-static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, int *out_argc) {
+ * non-variadic function, so the common case costs nothing extra.
+ * `tail_is_array_spread` is check_call's own recorded verdict for the
+ * one genuinely ambiguous shape (exactly one trailing argument) --
+ * NOT re-derived here from `args[fixed_count].type.kind == TY_ARRAY`,
+ * which used to be this function's own check and is wrong whenever the
+ * variadic element type is itself an array (`ArrayBuilder<[T]>`'s
+ * `ab_append<[T]>`, for instance: a single element of type `[T]` also
+ * satisfies "is an array", so that heuristic silently treated one
+ * legitimate element as if it were the whole tail, discarding
+ * everything else appended before or after it in the same call -- the
+ * bug that surfaced this). Meaningless (and ignored) for a fixed-arity
+ * call, or when `tail_count != 1`, so callers with no `Expr` of their
+ * own to read it from (spawn, `main`) just pass 0 -- neither can ever
+ * reach a variadic call in the first place (spawn requires exact
+ * positional argument counts, see typecheck.c's STMT_SPAWN case). */
+static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, int tail_is_array_spread, int *out_argc) {
     if (fn->params.count == 0 || !fn->params.items[fn->params.count - 1].is_variadic) {
         *out_argc = argc;
         return args;
@@ -75,7 +87,7 @@ static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, in
     int fixed_count = fn->params.count - 1;
     int tail_count = argc - fixed_count;
     Value tail;
-    if (tail_count == 1 && args[fixed_count].type.kind == TY_ARRAY) {
+    if (tail_count == 1 && tail_is_array_spread) {
         tail = args[fixed_count];
     } else {
         Value *items = tail_count > 0 ? malloc((size_t)tail_count * sizeof(Value)) : NULL;
@@ -93,9 +105,9 @@ static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, in
     return collapsed;
 }
 
-static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int call_line, int call_col) {
+static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
     int argc;
-    Value *args = collapse_variadic_args(fn, raw_args, raw_argc, &argc);
+    Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);
     if (fn->is_native) {
         NativeFn native = native_lookup(fn->name);
         if (native == NULL) {
@@ -134,7 +146,7 @@ typedef struct {
 
 static void *spawn_thread_entry(void *raw) {
     SpawnArgs *sa = (SpawnArgs *)raw;
-    call_function(sa->module, sa->fn, sa->args, sa->argc, sa->line, sa->col);
+    call_function(sa->module, sa->fn, sa->args, sa->argc, 0, sa->line, sa->col);
     free(sa->args);
     free(sa);
     return NULL;
@@ -597,7 +609,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = channel_receive(args[0].as.ch);
             } else {
                 FunctionDecl *fn = find_function(module, e->as.call.callee);
-                result = call_function(module, fn, args, argc, e->line, e->col);
+                result = call_function(module, fn, args, argc, e->as.call.variadic_tail_is_array_spread, e->line, e->col);
                 /* A generic native fn's own C implementation has no way
                  * to know which concrete type(s) a given call
                  * instantiated it with -- NativeFn's signature carries
@@ -883,14 +895,18 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
 
 /* Evaluates every module-level `val` in file order (see typecheck.c's
  * check_global_vals for why order matters and why that's a deliberate
- * scope cut), building g_global_env as it goes by reusing exec_stmt's
+ * scope cut), adding to g_global_env (already created by `interpret`,
+ * shared with init_param_defaults) as it goes by reusing exec_stmt's
  * own STMT_VAL case wholesale (via a synthetic Stmt) rather than
  * re-deriving its declared-vs-inferred type logic here. Must run before
  * `main` -- typecheck() already proved every initializer well-typed, so
  * nothing here can fail the way check_global_vals's synthetic check
- * could. */
+ * could. Runs after init_param_defaults (see that function's own
+ * comment for why) -- a global val's own initializer calling a function
+ * that relies on one of its own omitted, defaulted parameters
+ * (`datetime_format_of` calling `ab_new<T>()`, say) needs that default
+ * to already exist; not the other way around. */
 static void init_global_vals(Module *module) {
-    g_global_env = env_new(NULL);
     for (int i = 0; i < module->vals.count; i++) {
         GlobalValDecl *v = module->vals.items[i];
         Stmt synthetic = {0};
@@ -911,14 +927,23 @@ static void init_global_vals(Module *module) {
  * default can't reference this function's other parameters, only
  * things already in scope at program start, so re-evaluating it fresh
  * on every omitted call would produce the exact same value every time
- * anyway, just wastefully. Must run after init_global_vals (so
- * g_global_env already holds every ordinary global val a default
- * expression might itself reference) and before any call that could
- * omit one of these parameters, i.e. before `main` starts.
- * check_function (typecheck.c) already rewrote a bare-T default into
- * `Some(T)` in place wherever one was written -- this only ever
- * evaluates `default_expr` as-is, exactly like any other expression, no
- * wrapping left to do here. */
+ * anyway, just wastefully.
+ *
+ * Runs *before* init_global_vals, not after -- a real crash (a NULL
+ * env_lookup, dereferenced) surfaced the instant a global val's own
+ * initializer called a function relying on one of its own omitted
+ * parameter defaults: `pub val iso_date_format =
+ * datetime_format_of("yyyy-MM-dd")` calls `ab_new<T>()` internally with
+ * both parameters omitted, and if init_global_vals ran first, that
+ * default_key wouldn't exist in g_global_env yet when this exact call
+ * needed it. A default expression could, in principle, also reference
+ * an actual global val -- the reverse dependency, unaddressed either
+ * way, and not yet hit by anything real in this codebase (every
+ * existing default is a self-contained literal, `20`, `2.0`, ...). This
+ * ordering fixes the case that actually happened; a genuine dependency
+ * cycle between the two would need a real fix (evaluating both lazily,
+ * on first reference, rather than two fixed eager passes) if one is
+ * ever hit. */
 static void init_param_defaults(Module *module) {
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *fn = module->functions.items[i];
@@ -934,8 +959,9 @@ static void init_param_defaults(Module *module) {
 }
 
 void interpret(Module *module) {
-    init_global_vals(module);
+    g_global_env = env_new(NULL);
     init_param_defaults(module);
+    init_global_vals(module);
     FunctionDecl *main_fn = find_function(module, "main");
-    call_function(module, main_fn, NULL, 0, main_fn->line, main_fn->col);
+    call_function(module, main_fn, NULL, 0, 0, main_fn->line, main_fn->col);
 }

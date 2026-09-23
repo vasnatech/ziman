@@ -55,13 +55,21 @@ fn should_grow(count: int, bucket_count: int) -> bool {
     return count * 4 > bucket_count * 3
 }
 
+// Built on ArrayBuilder<[T]> rather than `push` in a loop -- called on
+// every grow (bucket_count doubles each time), so for a large map this
+// used to mean one leaked, ever-growing outer bucket array per bucket
+// initialized (see docs/DESIGN.md's "ArrayBuilder" entry). Unlike
+// hashmap_set/hashmap_remove's own per-bucket `push` loops (deliberately
+// left alone -- bounded by one chain's length, kept short by the same
+// load-factor growth this function is part of), `bucket_count` itself
+// has no such bound.
 fn new_buckets_of_size<T>(bucket_count: int) -> [[T]] {
     val empty_bucket: [T] = []
-    var buckets: [[T]] = []
+    val buckets = ab_new<[T]>()
     for i in 0..bucket_count {
-        buckets = push(buckets, empty_bucket)
+        ab_append<[T]>(buckets, empty_bucket)
     }
-    return buckets
+    return ab_to_array<[T]>(buckets)
 }
 
 pub struct HashMap<K: Eq + Hash, V> {

@@ -172,60 +172,70 @@ fn datetime_part_width(part: DateTimePart) -> int {
 // (and its total width) that format_fields/parse_fields below then
 // work from -- the one place the pattern text itself is ever matched
 // character by character.
+// `parts` is built via ArrayBuilder<DateTimePart> rather than `push` in
+// a loop -- an arbitrarily long/verbose pattern used to mean one
+// leaked, ever-growing array per recognized token (see docs/DESIGN.md's
+// "ArrayBuilder" entry). `literal_buf`, in contrast, is left as plain
+// `concat` on purpose: it only ever accumulates the handful of literal
+// characters *between* two tokens in a pattern (a "-", a ":", at most a
+// few characters in any realistic pattern), reset back to "" the
+// instant a token flushes it -- a fixed, small bound with nothing to
+// gain from a builder, the same reasoning `pad_left` above and
+// `int_to_hex`'s zero-padding loop are exempted from converting too.
 pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
-    var parts: [DateTimePart] = []
+    val parts = ab_new<DateTimePart>()
     var literal_buf = ""
     var i = 0
     val plen = len(pattern)
     while i < plen {
         if matches_token(pattern, i, "yyyy") {
             if literal_buf != "" {
-                parts = push(parts, DateTimePart.Literal(literal_buf))
+                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            parts = push(parts, DateTimePart.Year)
+            ab_append<DateTimePart>(parts, DateTimePart.Year)
             i = i + 4
         } else if matches_token(pattern, i, "MM") {
             if literal_buf != "" {
-                parts = push(parts, DateTimePart.Literal(literal_buf))
+                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            parts = push(parts, DateTimePart.Month)
+            ab_append<DateTimePart>(parts, DateTimePart.Month)
             i = i + 2
         } else if matches_token(pattern, i, "dd") {
             if literal_buf != "" {
-                parts = push(parts, DateTimePart.Literal(literal_buf))
+                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            parts = push(parts, DateTimePart.Day)
+            ab_append<DateTimePart>(parts, DateTimePart.Day)
             i = i + 2
         } else if matches_token(pattern, i, "HH") {
             if literal_buf != "" {
-                parts = push(parts, DateTimePart.Literal(literal_buf))
+                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            parts = push(parts, DateTimePart.Hour)
+            ab_append<DateTimePart>(parts, DateTimePart.Hour)
             i = i + 2
         } else if matches_token(pattern, i, "mm") {
             if literal_buf != "" {
-                parts = push(parts, DateTimePart.Literal(literal_buf))
+                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            parts = push(parts, DateTimePart.Minute)
+            ab_append<DateTimePart>(parts, DateTimePart.Minute)
             i = i + 2
         } else if matches_token(pattern, i, "ss") {
             if literal_buf != "" {
-                parts = push(parts, DateTimePart.Literal(literal_buf))
+                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            parts = push(parts, DateTimePart.Second)
+            ab_append<DateTimePart>(parts, DateTimePart.Second)
             i = i + 2
         } else if matches_token(pattern, i, "SSSSSSSSS") {
             if literal_buf != "" {
-                parts = push(parts, DateTimePart.Literal(literal_buf))
+                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            parts = push(parts, DateTimePart.Nano)
+            ab_append<DateTimePart>(parts, DateTimePart.Nano)
             i = i + 9
         } else {
             literal_buf = concat(literal_buf, substring(pattern, i, i + 1))
@@ -233,37 +243,43 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
         }
     }
     if literal_buf != "" {
-        parts = push(parts, DateTimePart.Literal(literal_buf))
+        ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
     }
+    val parts_array = ab_to_array<DateTimePart>(parts)
     var width = 0
-    for part in parts {
+    for part in parts_array {
         width = width + datetime_part_width(part)
     }
-    return DateTimeFormat { parts: parts, width: width }
+    return DateTimeFormat { parts: parts_array, width: width }
 }
 
+// Built on StringBuilder rather than the concat-in-a-loop this
+// originally was -- unlike datetime_format_of (compiled once per
+// distinct pattern and reused), this runs once per *formatted value*,
+// so it's the hotter of the two -- every field in every formatted
+// date/time used to mean one more leaked, ever-growing string.
 fn format_fields(year: int, month: int, day: int, hour: int, minute: int, second: int, nano: int, fmt: DateTimeFormat) -> string {
-    var out = ""
+    val out = sb_new()
     for part in fmt.parts {
         if DateTimePart.is_Year(part) {
-            out = concat(out, pad_left(year, 4))
+            sb_append(out, pad_left(year, 4))
         } else if DateTimePart.is_Month(part) {
-            out = concat(out, pad_left(month, 2))
+            sb_append(out, pad_left(month, 2))
         } else if DateTimePart.is_Day(part) {
-            out = concat(out, pad_left(day, 2))
+            sb_append(out, pad_left(day, 2))
         } else if DateTimePart.is_Hour(part) {
-            out = concat(out, pad_left(hour, 2))
+            sb_append(out, pad_left(hour, 2))
         } else if DateTimePart.is_Minute(part) {
-            out = concat(out, pad_left(minute, 2))
+            sb_append(out, pad_left(minute, 2))
         } else if DateTimePart.is_Second(part) {
-            out = concat(out, pad_left(second, 2))
+            sb_append(out, pad_left(second, 2))
         } else if DateTimePart.is_Nano(part) {
-            out = concat(out, pad_left(nano, 9))
+            sb_append(out, pad_left(nano, 9))
         } else {
-            out = concat(out, DateTimePart.unwrap_Literal(part))
+            sb_append(out, DateTimePart.unwrap_Literal(part))
         }
     }
-    return out
+    return sb_to_string(out)
 }
 
 struct ParsedFields {

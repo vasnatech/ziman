@@ -162,16 +162,22 @@ fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
 
 // Also used for an object's key, which is just a JSON string in key
 // position -- there's no separate grammar for it.
+//
+// Built on the prelude's StringBuilder rather than the concat-in-a-loop
+// this originally was -- an arbitrary-length JSON string used to mean
+// one leaked, ever-growing string per character (see docs/DESIGN.md's
+// "StringBuilder" entry, and this function's own original mention as
+// one of the motivating cases).
 fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
     var p = pos + 1 // skip opening '"'
-    var out = ""
+    val out = sb_new()
     while true {
         if p >= len(s) {
             return err("unterminated string")
         }
         val c = substring(s, p, p + 1)
         if c == "\"" {
-            return ok(ParseResult { value: Json.JString(out), next_pos: p + 1 })
+            return ok(ParseResult { value: Json.JString(sb_to_string(out)), next_pos: p + 1 })
         }
         if c == "\\" {
             if p + 1 >= len(s) {
@@ -179,32 +185,35 @@ fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
             }
             val esc = substring(s, p + 1, p + 2)
             if esc == "\"" {
-                out = concat(out, "\"")
+                sb_append(out, "\"")
             } else if esc == "\\" {
-                out = concat(out, "\\")
+                sb_append(out, "\\")
             } else if esc == "/" {
-                out = concat(out, "/")
+                sb_append(out, "/")
             } else if esc == "n" {
-                out = concat(out, "\n")
+                sb_append(out, "\n")
             } else if esc == "t" {
-                out = concat(out, "\t")
+                sb_append(out, "\t")
             } else {
                 return err(format("unsupported escape '\\{}' at position {}", esc, p))
             }
             p = p + 2
         } else {
-            out = concat(out, c)
+            sb_append(out, c)
             p = p + 1
         }
     }
     return err("unreachable")
 }
 
+// Built on ArrayBuilder<Json> rather than `push` in a loop -- same
+// reasoning as parse_string above, one level up: an arbitrary-length
+// JSON array used to mean one leaked, ever-growing array per element.
 fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
     var p = skip_ws(s, pos + 1) // skip '['
-    var items: [Json] = []
+    val items = ab_new<Json>()
     if p < len(s) && substring(s, p, p + 1) == "]" {
-        return ok(ParseResult { value: Json.JArray(items), next_pos: p + 1 })
+        return ok(ParseResult { value: Json.JArray(ab_to_array<Json>(items)), next_pos: p + 1 })
     }
     while true {
         val r = parse_value(s, p)
@@ -212,7 +221,7 @@ fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
             return err(unwrap_err(r))
         }
         val pr = unwrap(r)
-        items = push(items, pr.value)
+        ab_append<Json>(items, pr.value)
         p = skip_ws(s, pr.next_pos)
         if p >= len(s) {
             return err("unterminated array")
@@ -221,7 +230,7 @@ fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
         if c == "," {
             p = skip_ws(s, p + 1)
         } else if c == "]" {
-            return ok(ParseResult { value: Json.JArray(items), next_pos: p + 1 })
+            return ok(ParseResult { value: Json.JArray(ab_to_array<Json>(items)), next_pos: p + 1 })
         } else {
             return err(format("expected ',' or ']' at position {}", p))
         }
@@ -229,11 +238,12 @@ fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
     return err("unreachable")
 }
 
+// Same ArrayBuilder<JField> fix as parse_array, for an object's fields.
 fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
     var p = skip_ws(s, pos + 1) // skip '{'
-    var fields: [JField] = []
+    val fields = ab_new<JField>()
     if p < len(s) && substring(s, p, p + 1) == "}" {
-        return ok(ParseResult { value: Json.JObject(fields), next_pos: p + 1 })
+        return ok(ParseResult { value: Json.JObject(ab_to_array<JField>(fields)), next_pos: p + 1 })
     }
     while true {
         if p >= len(s) || substring(s, p, p + 1) != "\"" {
@@ -255,7 +265,7 @@ fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
             return err(unwrap_err(val_result))
         }
         val val_pr = unwrap(val_result)
-        fields = push(fields, JField { key: key, value: val_pr.value })
+        ab_append<JField>(fields, JField { key: key, value: val_pr.value })
         p = skip_ws(s, val_pr.next_pos)
         if p >= len(s) {
             return err("unterminated object")
@@ -264,7 +274,7 @@ fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
         if c == "," {
             p = skip_ws(s, p + 1)
         } else if c == "}" {
-            return ok(ParseResult { value: Json.JObject(fields), next_pos: p + 1 })
+            return ok(ParseResult { value: Json.JObject(ab_to_array<JField>(fields)), next_pos: p + 1 })
         } else {
             return err(format("expected ',' or a closing brace at position {}", p))
         }
@@ -312,27 +322,38 @@ pub fn parse_json(s: string) -> Result<Json, string> {
     return ok(pr.value)
 }
 
+// Built on StringBuilder rather than the concat-in-a-loop this
+// originally was -- see parse_string's own comment above; an
+// arbitrary-length string used to mean one leaked, ever-growing string
+// per character escaped.
 fn escape_json_string(s: string) -> string {
-    var out = "\""
+    val out = sb_new()
+    sb_append(out, "\"")
     var i = 0
     while i < len(s) {
         val c = substring(s, i, i + 1)
         if c == "\"" {
-            out = concat(out, "\\\"")
+            sb_append(out, "\\\"")
         } else if c == "\\" {
-            out = concat(out, "\\\\")
+            sb_append(out, "\\\\")
         } else if c == "\n" {
-            out = concat(out, "\\n")
+            sb_append(out, "\\n")
         } else if c == "\t" {
-            out = concat(out, "\\t")
+            sb_append(out, "\\t")
         } else {
-            out = concat(out, c)
+            sb_append(out, c)
         }
         i = i + 1
     }
-    return concat(out, "\"")
+    sb_append(out, "\"")
+    return sb_to_string(out)
 }
 
+// Built on StringBuilder rather than the concat-in-a-loop this
+// originally was -- see parse_string's own comment above; an
+// arbitrary-size array or object used to mean one leaked, ever-growing
+// string per element serialized, on top of whatever each element's own
+// recursive json_to_string call already allocated.
 pub fn json_to_string(j: Json) -> string {
     if Json.is_JNull(j) {
         return "null"
@@ -351,30 +372,34 @@ pub fn json_to_string(j: Json) -> string {
     }
     if Json.is_JArray(j) {
         val items = Json.unwrap_JArray(j)
-        var out = "["
+        val out = sb_new()
+        sb_append(out, "[")
         var i = 0
         while i < len(items) {
             if i > 0 {
-                out = concat(out, ",")
+                sb_append(out, ",")
             }
-            out = concat(out, json_to_string(items[i]))
+            sb_append(out, json_to_string(items[i]))
             i = i + 1
         }
-        return concat(out, "]")
+        sb_append(out, "]")
+        return sb_to_string(out)
     }
     val fields = Json.unwrap_JObject(j)
-    var out = "{"
+    val out = sb_new()
+    sb_append(out, "{")
     var i = 0
     while i < len(fields) {
         if i > 0 {
-            out = concat(out, ",")
+            sb_append(out, ",")
         }
-        out = concat(out, escape_json_string(fields[i].key))
-        out = concat(out, ":")
-        out = concat(out, json_to_string(fields[i].value))
+        sb_append(out, escape_json_string(fields[i].key))
+        sb_append(out, ":")
+        sb_append(out, json_to_string(fields[i].value))
         i = i + 1
     }
-    return concat(out, "}")
+    sb_append(out, "}")
+    return sb_to_string(out)
 }
 
 // The one convenience lookup provided beyond parse/serialize -- looking

@@ -1533,6 +1533,114 @@ several languages rather than inheriting any one of them wholesale.
   of this the same day, closing the loop on the other half of the
   original memory-leak scan (`uuid_to_string`, the string half, was
   already closed by `StringBuilder` itself).
+- **Two real interpreter bugs, both found by using `StringBuilder`/
+  `ArrayBuilder` for real across every corelib module, not by
+  inspection.** Neither was specific to any one call site -- both are
+  now permanent regression fixtures, not just fixed inline.
+  1. *`init_global_vals` ran before `init_param_defaults`, and a global
+     val's own initializer calling a function that relies on one of its
+     own omitted, defaulted parameters crashed (a `NULL` `env_lookup`,
+     dereferenced).* Surfaced by `time.zm`'s `pub val iso_date_format =
+     datetime_format_of("yyyy-MM-dd")`, once `datetime_format_of` itself
+     started calling `ab_new<T>()` with both parameters omitted --
+     `ab_new`'s default-value keys aren't defined in `g_global_env`
+     until `init_param_defaults` runs, and that hadn't happened yet.
+     Fixed by swapping the order in `interpret()` (moving `g_global_env
+     = env_new(NULL)` out of `init_global_vals` and into `interpret`
+     itself, once, since both functions now add to the same env rather
+     than one of them creating it). The reverse dependency (a parameter
+     default's own expression referencing an actual global val) is
+     unaddressed either way and hasn't been hit by anything real in this
+     codebase -- every existing default is a self-contained literal.
+     A genuine cycle between the two would need evaluating both lazily,
+     on first reference, rather than two fixed eager passes; not
+     attempted, since nothing has needed it yet.
+  2. *A variadic parameter whose element type is itself an array type
+     was misinterpreted at runtime.* `collapse_variadic_args`'s own
+     disambiguation for the one genuinely ambiguous shape (exactly one
+     trailing argument) used to be `args[fixed_count].type.kind ==
+     TY_ARRAY` -- correct only because, until now, nothing had ever
+     combined a variadic parameter with an element type that's itself an
+     array. `ArrayBuilder<[T]>` (exactly what `collections.zm`'s
+     `new_buckets_of_size` builds: `ab_append<[T]>(buckets,
+     empty_bucket)`, one `[T]` element per call) broke this immediately
+     -- a single element of type `[T]` also satisfies "is an array", so
+     the heuristic silently treated one legitimate element as if it were
+     the *entire* tail, discarding whatever else had been appended in
+     the same call. The real, unambiguous answer was already being
+     computed correctly, just one layer up and then thrown away:
+     `check_call` (typecheck.c) already decides this definitively, from
+     the trailing argument's own static type, with no ambiguity possible
+     (an element type can never equal its own array-wrapped form).
+     Fixed by recording that decision directly on the call expression
+     (`Expr.as.call.variadic_tail_is_array_spread`, ast.h) instead of
+     re-deriving a weaker approximation of it at runtime -- the same
+     "resolve once during type-checking, the interpreter just trusts it"
+     pattern used throughout this session's other features. Threaded
+     through `call_function`/`collapse_variadic_args` as an explicit
+     parameter rather than inferred; `spawn`/`main`'s own call sites,
+     which can never reach a variadic call in the first place (spawn's
+     own typecheck path requires an exact positional argument count, no
+     collapsing at all), just pass `0`.
+- **A full corelib sweep for the `concat`/`push`-in-a-loop pattern,
+  after `StringBuilder`/`ArrayBuilder` existed to fix it generally.**
+  Went through every bundled module looking for genuine, unbounded
+  accumulation, not just any `concat`/`push` call -- most are already
+  fine (a small, fixed number of calls, never inside a loop whose
+  iteration count scales with real input, the same reasoning `uuid_new`
+  itself was left alone under). Converted where the loop count is
+  genuinely unbounded in practice:
+  - `json.zm`: `parse_string` (`StringBuilder`, char-by-char),
+    `parse_array`/`parse_object` (`ArrayBuilder`, element/field-by-
+    field), `escape_json_string` and `json_to_string`
+    (`StringBuilder`) -- these three were the exact functions the
+    *original* corelib memory-leak scan named as the string-shaped
+    offenders, alongside `hashmap_keys`/`hashmap_values`/`hashset_items`
+    (already fixed) as the array-shaped ones; never actually applied
+    back to `json.zm` itself until now.
+  - `number.zm`: `bigint_magnitude_to_hex` (arbitrary-precision bigints
+    can have arbitrarily many hex digits), `insert_thousands`
+    (arbitrary-length grouped numbers), `adjust_decimal_places`. Two
+    of these originally *prepended* onto a string in a loop
+    (`concat(new_char, existing)`) -- neither builder supports
+    prepending, only appending, so both were restructured to produce
+    their output in the correct left-to-right order directly:
+    `bigint_magnitude_to_hex` collects digits into an
+    `ArrayBuilder<string>` in the (reversed) order repeated division
+    naturally produces them, then reads that array back out highest-
+    index-first into a `StringBuilder`; `insert_thousands` changed
+    which *direction* it iterates the digit string (right-to-left,
+    prepending → left-to-right, appending), inserting a separator
+    before digit `i` exactly when `(n - i) % 3 == 0` -- the same
+    grouping boundary, restated so it can be computed while moving
+    forward instead of backward. `strip_all` needed no builder at
+    all: removing every occurrence of a substring is exactly what
+    `join(pieces: split(s, needle))` already means, a native O(N) pass
+    in one line, replacing what used to be `concat` in a loop over
+    `split`'s own pieces.
+  - `time.zm`: `datetime_format_of`'s `parts` array (`ArrayBuilder`,
+    an arbitrarily long/verbose pattern), `format_fields` (`StringBuilder`,
+    runs once per *formatted value*, not once per pattern like
+    `datetime_format_of` -- the hotter of the two). `pad_left` and
+    `datetime_format_of`'s own `literal_buf` (the handful of literal
+    characters between two tokens in a pattern) were deliberately left
+    as plain `concat` -- both are bounded to a small, fixed size
+    regardless of any real input, nothing to gain from a builder.
+  - `collections.zm`: `new_buckets_of_size` (`ArrayBuilder`, called on
+    every grow, `bucket_count` doubles each time and has no bound).
+    `hashmap_set`/`hashmap_remove`/`hashset_remove`'s own `push` loops
+    were deliberately left alone -- each is bounded by one bucket's
+    chain length, kept short by design (the same load-factor growth
+    `new_buckets_of_size` is part of), not a genuine unbounded
+    accumulation the way `bucket_count` itself is.
+  - `clock.zm`/`io.zm`/`random.zm`: single native-fn declarations, no
+    Ziman-level logic to sweep at all.
+  Two real bugs (above) were found and fixed purely as a byproduct of
+  doing this sweep for real rather than only reasoning about it --
+  neither would have been caught by inspection alone, since both only
+  manifest at runtime, under specific combinations (a global val's
+  initializer reaching a defaulted parameter; a variadic element type
+  that's itself an array) nothing had previously exercised.
 
 ## Deliberately deferred (not v0)
 

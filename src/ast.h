@@ -187,8 +187,20 @@ struct Expr {
          * partial. check_call reorders `args` into the callee's declared
          * parameter order and clears `arg_names` back to NULL once it
          * has, so nothing past type-checking (the interpreter included)
-         * ever needs to know a call was written with names at all. */
-        struct { char *callee; ExprList args; TypeList type_args; char **arg_names; } call;
+         * ever needs to know a call was written with names at all.
+         * `variadic_tail_is_array_spread` is only meaningful when the
+         * callee's last parameter is variadic and exactly one trailing
+         * argument was written -- the "did the caller pass one element,
+         * or a whole already-built array" ambiguity check_call alone can
+         * resolve, decisively, from that argument's own static type
+         * (see check_call's variadic-tail comment). Recorded here rather
+         * than re-derived at runtime because runtime has no reliable way
+         * to: comparing a value's own `.type.kind == TY_ARRAY` silently
+         * gives the wrong answer whenever the variadic element type is
+         * itself an array (`ArrayBuilder<[T]>`'s `ab_append<[T]>`, for
+         * instance) -- a single element of type `[T]` also happens to
+         * satisfy "is an array", the exact case that exposed this. */
+        struct { char *callee; ExprList args; TypeList type_args; char **arg_names; int variadic_tail_is_array_spread; } call;
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
         struct { Expr *array; Expr *index; } index;

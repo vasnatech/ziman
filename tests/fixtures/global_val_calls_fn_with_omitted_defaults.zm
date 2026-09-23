@@ -1,0 +1,15 @@
+// Regression test: a global val's own initializer calling a function
+// that relies on one of its own omitted, defaulted parameters used to
+// crash (NULL env_lookup) -- init_global_vals ran before
+// init_param_defaults, so the default wasn't in g_global_env yet at the
+// exact moment this needed it. See interpreter.c's init_param_defaults
+// comment.
+fn make_greeting(prefix: Option<string> = "Hello") -> string {
+    return concat(Option.unwrap_Some(prefix), ", world!")
+}
+
+val greeting = make_greeting()
+
+fn main() {
+    print(greeting)
+}

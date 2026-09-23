@@ -1,0 +1,16 @@
+// Regression test: ArrayBuilder<T> where T is itself an array type
+// (exactly what collections.zm's new_buckets_of_size builds) -- each
+// individual ab_append call passes exactly one [int] element, the
+// genuinely ambiguous single-trailing-argument shape (see
+// variadic_array_element_type.zm).
+fn main() {
+    val ab = ab_new<[int]>()
+    val empty: [int] = []
+    var i = 0
+    while i < 5 {
+        ab_append<[int]>(ab, empty)
+        i = i + 1
+    }
+    print(ab_len<[int]>(ab))
+    print(len(ab_to_array<[int]>(ab)))
+}
