@@ -17,6 +17,12 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /* Line-buffered stdout even when redirected to a file or a pipe (C's
+     * default there is fully buffered). A long-running program -- a
+     * server logging each request -- needs its output to appear as it
+     * happens, not when 4 KiB have accumulated or the process exits. */
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
     native_io_register();
     native_random_register();
     native_clock_register();

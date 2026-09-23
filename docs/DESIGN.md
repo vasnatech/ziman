@@ -2359,6 +2359,14 @@ several languages rather than inheriting any one of them wholesale.
   clients -- stable across 10 runs; `http_routing` covers the matcher's
   edge cases. **Not yet**: TLS (`listen_tls`), chunked request bodies,
   HTTP/2, multipart, compression, `Date`/`Server` headers.
+  **A side fix found by running a real server: stdout is now
+  line-buffered** (`setvbuf(stdout, NULL, _IOLBF, 0)` at startup). C's
+  default when stdout is a file or a pipe is *fully* buffered, so a server
+  logging each request showed nothing until 4 KiB had accumulated or the
+  process exited -- invisible while developing, and fatal for anything
+  watching a log. Line buffering costs a little on a print-heavy program
+  writing to a file, and is the right trade for a language whose main
+  showcase is now a long-running server.
 
 ## Deliberately deferred (not v0)
 
