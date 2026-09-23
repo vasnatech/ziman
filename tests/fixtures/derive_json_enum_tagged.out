@@ -1,0 +1,7 @@
+{"type":"Circle","value":2.5}
+{"type":"Square","value":3}
+{"type":"Point"}
+true
+true
+false
+unknown variant tag for Shape: Triangle

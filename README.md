@@ -143,7 +143,17 @@ independently in `health-record-backend-ziman`'s own request/response
 mapping layers before moving here. Turning arbitrary JSON into one
 already-known struct (a specific request shape) is still left to
 application code built on top of this module, not something it does
-itself. `number` is shared formatting/parsing across all five numeric
+itself. `#[derive(Json)]` on a `struct`/`enum` closes that gap for the
+common case: writing `#[derive(Json)]` above a declaration generates
+`<name>_to_json`/`<name>_from_json` for it, with a priority-ordered
+per-field conversion rule (a field's own `_to_json`/`_from_json`, then
+its `_to_string`/`_from_string` pair, then a plain scalar, then
+`Option<U>`/`[U]` recursion), lenient deserialization, and an
+externally-tagged shape for enums (`{"type": "<Variant>", "value":
+...}`) — the first consumer of a general, reusable `#[...]` attribute
+mechanism, built by generating the two functions as ordinary Ziman
+source text and feeding it back through the same lexer/parser, rather
+than hand-constructing AST nodes. `number` is shared formatting/parsing across all five numeric
 types (`int`, `float`, `bigint`, `decimal`, `byte`), also pure Ziman:
 rather than five near-duplicate implementations (Ziman has no
 argument-based overloading, so a single `format(x: T, ...)` across

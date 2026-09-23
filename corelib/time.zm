@@ -58,6 +58,7 @@
 // fits a year/month/day/hour/minute/second breakdown.
 
 use clock.now_raw
+use json.Json
 
 fn is_leap_year(year: int) -> bool {
     if year % 400 == 0 {
@@ -1054,4 +1055,87 @@ pub fn instant_to_string(i: Instant) -> string {
         return instant_format(i, zoneoffset_utc(), iso_datetime_format)
     }
     return instant_format(i, zoneoffset_utc(), iso_datetime_nanos_format)
+}
+
+// Thin wrappers over each type's own _to_string/_from_string pair,
+// named to match #[derive(Json)]'s own <type>_to_json/<type>_from_json
+// naming convention (src/derive.c's pascal_to_snake -- "local_date",
+// not this file's own older "localdate" shortcut) -- so a struct field
+// of one of these types resolves here automatically. See
+// docs/DESIGN.md's "Attributes and derive" entry.
+pub fn local_date_to_json(d: LocalDate) -> Json {
+    return Json.JString(localdate_to_string(d))
+}
+
+pub fn local_date_from_json(j: Json) -> Result<LocalDate, string> {
+    if !Json.is_JString(j) {
+        return err("expected a JSON string for LocalDate")
+    }
+    return localdate_from_string(Json.unwrap_JString(j))
+}
+
+pub fn local_time_to_json(t: LocalTime) -> Json {
+    return Json.JString(localtime_to_string(t))
+}
+
+pub fn local_time_from_json(j: Json) -> Result<LocalTime, string> {
+    if !Json.is_JString(j) {
+        return err("expected a JSON string for LocalTime")
+    }
+    return localtime_from_string(Json.unwrap_JString(j))
+}
+
+pub fn duration_to_json(d: Duration) -> Json {
+    return Json.JString(duration_to_string(d))
+}
+
+pub fn duration_from_json(j: Json) -> Result<Duration, string> {
+    if !Json.is_JString(j) {
+        return err("expected a JSON string for Duration")
+    }
+    return duration_from_string(Json.unwrap_JString(j))
+}
+
+pub fn local_date_time_to_json(dt: LocalDateTime) -> Json {
+    return Json.JString(localdatetime_to_string(dt))
+}
+
+pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string> {
+    if !Json.is_JString(j) {
+        return err("expected a JSON string for LocalDateTime")
+    }
+    return localdatetime_from_string(Json.unwrap_JString(j))
+}
+
+pub fn zone_offset_to_json(z: ZoneOffset) -> Json {
+    return Json.JString(zoneoffset_to_string(z))
+}
+
+pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string> {
+    if !Json.is_JString(j) {
+        return err("expected a JSON string for ZoneOffset")
+    }
+    return zoneoffset_from_string(Json.unwrap_JString(j))
+}
+
+pub fn zone_id_to_json(z: ZoneId) -> Json {
+    return Json.JString(zoneid_to_string(z))
+}
+
+pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string> {
+    if !Json.is_JString(j) {
+        return err("expected a JSON string for ZoneId")
+    }
+    return zoneid_from_string(Json.unwrap_JString(j))
+}
+
+pub fn instant_to_json(i: Instant) -> Json {
+    return Json.JString(instant_to_string(i))
+}
+
+pub fn instant_from_json(j: Json) -> Result<Instant, string> {
+    if !Json.is_JString(j) {
+        return err("expected a JSON string for Instant")
+    }
+    return instant_from_string(Json.unwrap_JString(j))
 }

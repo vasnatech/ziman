@@ -1,0 +1,8 @@
+#[derive(Frobnicate)]
+pub struct Widget {
+    x: int
+}
+
+fn main() {
+    print("unreachable")
+}

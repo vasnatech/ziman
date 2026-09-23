@@ -1,0 +1,28 @@
+use json.Json
+use json.JField
+use json.json_to_string
+use json.json_require_field
+use json.json_require_string_field
+
+#[derive(Json)]
+pub enum Shape {
+    Circle(float)
+    Square(float)
+    Point
+}
+
+fn main() {
+    val c = Shape.Circle(2.5)
+    val sq = Shape.Square(3.0)
+    val pt = Shape.Point
+    print(json_to_string(shape_to_json(c)))
+    print(json_to_string(shape_to_json(sq)))
+    print(json_to_string(shape_to_json(pt)))
+
+    print(Shape.is_Circle(unwrap(shape_from_json(shape_to_json(c)))))
+    print(Shape.is_Point(unwrap(shape_from_json(shape_to_json(pt)))))
+
+    val bad_tag = shape_from_json(Json.JObject([JField { key: "type", value: Json.JString("Triangle") }]))
+    print(is_ok(bad_tag))
+    print(unwrap_err(bad_tag))
+}

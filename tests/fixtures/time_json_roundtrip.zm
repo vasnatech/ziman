@@ -1,0 +1,13 @@
+use time.localdate_from_string
+use time.local_date_to_json
+use time.local_date_from_json
+use json.Json
+use json.json_to_string
+
+fn main() {
+    val d = unwrap(localdate_from_string("2020-01-15"))
+    val j = local_date_to_json(d)
+    print(json_to_string(j))
+    print(unwrap(local_date_from_json(j)) == d)
+    print(is_ok(local_date_from_json(Json.JBool(true))))
+}

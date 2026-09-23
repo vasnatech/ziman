@@ -1828,6 +1828,104 @@ several languages rather than inheriting any one of them wholesale.
   `if` inside a `while`), not just directly inside a function's top-level
   body, before trusting it.
 
+- **Attributes (`#[...]`) and `#[derive(Json)]`.** Built exactly to the
+  design recorded in an earlier ROADMAP.md entry (removed now that it's
+  done) -- see that entry's own reasoning for *why* (rejecting true
+  reflection, the priority-ordered per-field conversion rules, lenient
+  deserialization, fixed snake_case-to-camelCase field mapping as a
+  documented shortcoming, and the externally-tagged enum shape). This
+  entry covers *how* it was actually built, including a few
+  implementation-level decisions the design discussion left open.
+  **`#[...]` grammar**: general on purpose (`parse_attributes` in
+  parser.c parses any `IDENT` or `IDENT(IDENT, ...)` item inside
+  `#[...]`), but only `derive(...)`'s items are actually collected (onto
+  the new `StructDecl.derives`/`EnumDecl.derives` string arrays); any
+  other attribute name parses fine and is silently a no-op, so the
+  grammar doesn't need to change when a second attribute shows up later.
+  Only legal directly before a `struct`/`enum` declaration -- attached to
+  anything else, it's a syntax error.
+  **Codegen strategy: generate Ziman source text, not AST nodes.** A new
+  `src/derive.c` (`generate_derived_functions`, called once from
+  `parse()` right before it returns) walks a freshly parsed module's own
+  structs/enums, and for each `#[derive(Json)]` target, builds the
+  `<name>_to_json`/`<name>_from_json` function bodies as a *string* of
+  ordinary Ziman source (via a small growable `CodeBuf`), then feeds that
+  string straight back through `lex()`/`parse()` (the exact same
+  functions this pass is itself called from) and splices the resulting
+  `FunctionDecl`s into the module's own `functions` list. Chosen over
+  hand-constructing `Expr`/`Stmt` nodes directly: far less code, and
+  trivially debuggable (the generated source can just be printed and
+  read like any other Ziman program) for something with as much shape as
+  a full function body with loops and branches. This works cleanly
+  because it runs *immediately after parsing a single file*, before the
+  loader's struct-vs-enum reclassification pass -- at that point a bare
+  `Option<T>` type reference is still `TY_STRUCT`-shaped (see ast.h's
+  `Type` comment), which turns out not to matter: the only thing this
+  pass needs to tell apart is "is this specifically `Option<T>`"
+  (checked by name, `struct_name`/`enum_name == "Option"`, which works
+  identically before or after reclassification) versus "some other
+  struct or enum" (dispatched by naming convention regardless of which
+  it actually turns out to be) -- so no pipeline reordering was needed
+  anywhere else. A spliced-in function is otherwise indistinguishable
+  from a hand-written one to everything downstream (self-qualify,
+  cross-module resolution, typecheck, the interpreter) -- zero special
+  cases needed in any of those.
+  **No auto-injected `use` statements.** The generated code calls
+  `Json`/`JField`/`json_require_field`/`json_object_get`/etc. by their
+  bare names, exactly as hand-written code in the same module would --
+  which means the module declaring the struct/enum must `use` whatever
+  the derived functions end up needing, the same as it would for any
+  hand-written code doing the same job. Deliberately not auto-injected:
+  auto-injecting a `use` would mean this pass runs before the dependency
+  graph a `use` establishes is even known, a real ordering problem, and
+  more importantly cuts against Ziman's explicit-over-implicit instinct
+  elsewhere. A missing `use` just surfaces as an ordinary "undefined
+  function" type error at the normal point in the pipeline.
+  **Naming convention for generated names**: `<Type>_to_json`/
+  `<Type>_from_json`, where `<Type>` is converted with a real
+  multi-word-aware PascalCase-to-snake_case transform (`pascal_to_snake`
+  in derive.c) -- `ValidationError` -> `validation_error`, `Patient` ->
+  `patient`. Deliberately its *own*, fresh convention, distinct from the
+  older, simpler "lowercase with no inserted underscores" shortcut
+  `corelib/time.zm`'s hand-written `_to_string`/`_from_string` pairs
+  already use for their own compound names (`localdate_to_string`, not
+  `local_date_to_string`) -- a cosmetic inconsistency between the two
+  naming families, not a functional one. Every domain type in `uuid`/
+  `time` got a hand-written `<type>_to_json`/`<type>_from_json` pair
+  added (`corelib/uuid.zm`, `corelib/time.zm`) as a thin wrapper around
+  its own existing `_to_string`/`_from_string`, named to match *this*
+  new convention (`local_date_to_json`, `zone_offset_from_json`, ...) --
+  this is what makes tier 2 of the priority order ("does the type have a
+  `_to_string`/`_from_string` pair") actually work in practice: tier 1
+  ("does the type have its own `_to_json`/`_from_json`") is the *only*
+  rule the codegen itself implements for any struct/enum-kind field,
+  and tier 2 types satisfy it one level of indirection out, via these
+  hand-written wrappers, rather than needing a second, separate code
+  path in derive.c.
+  **Option<T> field decoding is tolerant of absence, not just null.** A
+  struct field's own generated `from_json` uses `json_object_get`
+  (returns `Option<Json>`) for an `Option<U>`-typed field, treating
+  *both* a missing key and an explicit JSON `null` as `None` -- mirroring
+  the exact hand-written pattern `health-record-backend-ziman`'s own
+  `request.zm` already used for `middleName` before this mechanism
+  existed. Every other field type uses `json_require_field(...)?`
+  instead (hard error if the key is missing) -- only `Option<U>` gets
+  the tolerant treatment, since it's the only field type where "absent"
+  has an unambiguous, correct meaning.
+  **Not supported in v1** (each a clear compile-time error, not a silent
+  wrong answer): a generic struct/enum (`derive` rejects
+  `type_params.count > 0` outright); a field of type `bigint`/`decimal`/
+  `byte`/`Result<T, E>`/`Channel<T>` (falls through `emit_to_json`/
+  `emit_from_json`'s default case with "derive(Json) does not support
+  field type '...' yet" -- no current caller needed these, and adding
+  them later is a localized addition to those two functions, not a
+  redesign). Verified against real, non-generic structs and enums
+  including a `Uuid`/`LocalDate`/`Instant`-bearing struct shaped exactly
+  like `health-record-backend-ziman`'s own `Patient`, and a
+  `service.ValidationError`-shaped enum mixing unit and payload variants
+  -- see `tests/fixtures/derive_json_*`, `uuid_json_roundtrip`,
+  `time_json_roundtrip`.
+
 ## Deliberately deferred (not v0)
 
 - Effects visible in function signatures (which functions do I/O or mutate

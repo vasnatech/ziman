@@ -17,6 +17,7 @@
 use random.random_bytes
 use number.byte_to_hex
 use number.byte_from_hex
+use json.Json
 
 pub struct Uuid {
     bytes: [byte]
@@ -78,4 +79,24 @@ pub fn uuid_from_string(s: string) -> Result<Uuid, string> {
         }
     }
     return Uuid { bytes: ab_to_array<byte>(bytes) }
+}
+
+// Thin wrappers over uuid_to_string/uuid_from_string, named to match
+// #[derive(Json)]'s own <type>_to_json/<type>_from_json naming
+// convention (src/derive.c's pascal_to_snake) -- so a struct field of
+// type Uuid resolves here automatically, the same as it would for a
+// hand-written or derived struct/enum field. See docs/DESIGN.md's
+// "Attributes and derive" entry for the full priority order this
+// implements (a domain type's own _to_string/_from_string pair, wrapped
+// in a JSON string, one level of indirection under the same _to_json/
+// _from_json name every other field type is looked up by).
+pub fn uuid_to_json(u: Uuid) -> Json {
+    return Json.JString(uuid_to_string(u))
+}
+
+pub fn uuid_from_json(j: Json) -> Result<Uuid, string> {
+    if !Json.is_JString(j) {
+        return err("expected a JSON string for Uuid")
+    }
+    return uuid_from_string(Json.unwrap_JString(j))
 }

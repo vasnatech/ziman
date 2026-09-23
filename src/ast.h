@@ -417,6 +417,11 @@ typedef struct {
     ParamList fields;
     TypeParamList type_params;
     int is_public;
+    /* `#[derive(Json, ...)]` written directly above the declaration --
+     * each entry is one derive target name (e.g. "Json"). Empty for a
+     * struct with no attribute at all. See src/derive.c. */
+    char **derives;
+    int derive_count;
     int line, col;
 } StructDecl;
 
@@ -459,6 +464,9 @@ typedef struct {
     EnumVariantList variants;
     TypeParamList type_params; /* empty for an ordinary, non-generic enum */
     int is_public;
+    /* Same `#[derive(...)]` mechanism as StructDecl -- see src/derive.c. */
+    char **derives;
+    int derive_count;
     int line, col;
 } EnumDecl;
 

@@ -363,6 +363,34 @@ pub fn instant_from_string(s: string) -> Result<Instant, string>
 
 pub fn instant_to_string(i: Instant) -> string
 
+pub fn local_date_to_json(d: LocalDate) -> Json
+
+pub fn local_date_from_json(j: Json) -> Result<LocalDate, string>
+
+pub fn local_time_to_json(t: LocalTime) -> Json
+
+pub fn local_time_from_json(j: Json) -> Result<LocalTime, string>
+
+pub fn duration_to_json(d: Duration) -> Json
+
+pub fn duration_from_json(j: Json) -> Result<Duration, string>
+
+pub fn local_date_time_to_json(dt: LocalDateTime) -> Json
+
+pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string>
+
+pub fn zone_offset_to_json(z: ZoneOffset) -> Json
+
+pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string>
+
+pub fn zone_id_to_json(z: ZoneId) -> Json
+
+pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string>
+
+pub fn instant_to_json(i: Instant) -> Json
+
+pub fn instant_from_json(j: Json) -> Result<Instant, string>
+
 ```
 
 ## `uuid`
@@ -379,5 +407,9 @@ pub fn uuid_new() -> Uuid
 pub fn uuid_to_string(u: Uuid) -> string
 
 pub fn uuid_from_string(s: string) -> Result<Uuid, string>
+
+pub fn uuid_to_json(u: Uuid) -> Json
+
+pub fn uuid_from_json(j: Json) -> Result<Uuid, string>
 
 ```

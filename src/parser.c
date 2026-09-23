@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "derive.h"
 #include "error.h"
 
 typedef struct {
@@ -1373,6 +1374,52 @@ static UseDecl parse_use_decl(Parser *p) {
     return u;
 }
 
+/* `#[ item { , item } ]`, one or more bracketed groups, each written on
+ * its own line directly above the struct/enum it applies to -- e.g.
+ * `#[derive(Json)]`, `#[derive(Json, Hash)]`. `item` is `IDENT` alone
+ * (a bare flag, unused by anything yet) or `IDENT ( IDENT { , IDENT } )`
+ * (`derive(...)`'s own shape). This is a general, reusable mechanism --
+ * only the `derive` item name is actually interpreted right now (by
+ * src/derive.c, which reads `StructDecl.derives`/`EnumDecl.derives|);
+ * any other item name is parsed (so the grammar doesn't need to change
+ * later) but silently has no effect yet. See docs/DESIGN.md's
+ * "Attributes and derive" entry. */
+typedef struct {
+    char **names;
+    int count;
+    int capacity;
+} DeriveList;
+
+static void derive_list_push(DeriveList *list, char *name) {
+    if (list->count == list->capacity) {
+        list->capacity = list->capacity == 0 ? 4 : list->capacity * 2;
+        list->names = realloc(list->names, sizeof(char *) * (size_t)list->capacity);
+    }
+    list->names[list->count++] = name;
+}
+
+static DeriveList parse_attributes(Parser *p) {
+    DeriveList derives = {0};
+    while (check(p, TOK_HASH)) {
+        expect(p, TOK_HASH, "'#'");
+        expect(p, TOK_LBRACKET, "'['");
+        do {
+            Token *item_name = expect(p, TOK_IDENT, "an attribute name");
+            int is_derive = item_name->length == 6 && strncmp(item_name->start, "derive", 6) == 0;
+            if (match(p, TOK_LPAREN)) {
+                do {
+                    Token *arg = expect(p, TOK_IDENT, "an attribute argument");
+                    if (is_derive) derive_list_push(&derives, dup_token_text(arg));
+                } while (match(p, TOK_COMMA));
+                expect(p, TOK_RPAREN, "')'");
+            }
+        } while (match(p, TOK_COMMA));
+        expect(p, TOK_RBRACKET, "']'");
+        skip_newlines(p);
+    }
+    return derives;
+}
+
 Module *parse(TokenList tokens) {
     Parser p = {tokens, 0};
     Module *module = calloc(1, sizeof(Module));
@@ -1384,15 +1431,26 @@ Module *parse(TokenList tokens) {
             skip_newlines(&p);
             continue;
         }
+        DeriveList derives = {0};
+        if (check(&p, TOK_HASH)) {
+            derives = parse_attributes(&p);
+        }
         int is_public = match(&p, TOK_PUB);
         if (check(&p, TOK_STRUCT)) {
             StructDecl *sd = parse_struct_decl(&p);
             sd->is_public = is_public;
+            sd->derives = derives.names;
+            sd->derive_count = derives.count;
             struct_list_push(&module->structs, sd);
         } else if (check(&p, TOK_ENUM)) {
             EnumDecl *ed = parse_enum_decl(&p);
             ed->is_public = is_public;
+            ed->derives = derives.names;
+            ed->derive_count = derives.count;
             enum_list_push(&module->enums, ed);
+        } else if (derives.count > 0) {
+            ziman_error("syntax", cur(&p)->line, cur(&p)->col,
+                        "an attribute must be followed by a struct or enum declaration");
         } else if (check(&p, TOK_NATIVE)) {
             FunctionDecl *fn = parse_native_function(&p);
             fn->is_public = is_public;
@@ -1407,6 +1465,8 @@ Module *parse(TokenList tokens) {
         }
         skip_newlines(&p);
     }
+
+    generate_derived_functions(module);
 
     return module;
 }

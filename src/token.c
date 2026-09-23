@@ -53,6 +53,7 @@ const char *token_type_name(TokenType type) {
         case TOK_DOTDOT: return "'..'";
         case TOK_ARROW: return "'->'";
         case TOK_QUESTION: return "'?'";
+        case TOK_HASH: return "'#'";
         case TOK_PLUS: return "'+'";
         case TOK_MINUS: return "'-'";
         case TOK_STAR: return "'*'";

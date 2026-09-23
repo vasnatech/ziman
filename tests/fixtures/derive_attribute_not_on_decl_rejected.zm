@@ -1,0 +1,8 @@
+#[derive(Json)]
+fn foo() -> int {
+    return 1
+}
+
+fn main() {
+    print("unreachable")
+}

@@ -1,0 +1,27 @@
+use json.Json
+use json.JField
+use json.json_to_string
+use json.json_require_field
+use json.json_object_get
+
+#[derive(Json)]
+pub struct Point {
+    x: int
+    label: Option<string>
+}
+
+fn main() {
+    val p = Point { x: 42, label: Option<string>.Some("hi") }
+    print(json_to_string(point_to_json(p)))
+
+    val p2 = Point { x: 7, label: Option<string>.None }
+    print(json_to_string(point_to_json(p2)))
+
+    val back = point_from_json(point_to_json(p))
+    val q = unwrap(back)
+    print(q.x)
+    print(Option.is_Some(q.label))
+
+    val bad = point_from_json(Json.JString("nope"))
+    print(is_ok(bad))
+}

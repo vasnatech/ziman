@@ -1,0 +1,8 @@
+#[derive(Json)]
+pub struct Box<T> {
+    value: T
+}
+
+fn main() {
+    print("unreachable")
+}

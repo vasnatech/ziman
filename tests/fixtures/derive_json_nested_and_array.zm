@@ -1,0 +1,30 @@
+use json.Json
+use json.JField
+use json.json_to_string
+use json.json_require_field
+use json.json_object_get
+
+#[derive(Json)]
+pub struct Address {
+    city: string
+    zip: string
+}
+
+#[derive(Json)]
+pub struct Person {
+    name: string
+    address: Address
+    tags: [string]
+}
+
+fn main() {
+    val a = Address { city: "Vancouver", zip: "V6B" }
+    val p = Person { name: "Ada", address: a, tags: ["x", "y", "z"] }
+    print(json_to_string(person_to_json(p)))
+
+    val back = unwrap(person_from_json(person_to_json(p)))
+    print(back.name)
+    print(back.address.city)
+    print(len(back.tags))
+    print(back.tags[1])
+}
