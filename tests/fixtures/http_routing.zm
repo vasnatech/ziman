@@ -1,0 +1,70 @@
+use http
+
+fn req(method: string, target: string) -> http.Request {
+    var path = target
+    var query = ""
+    if contains(target, "?") {
+        val tq = split(target, "?")
+        path = tq[0]
+        query = tq[1]
+    }
+    return http.Request { method: method, target: target, path: path, query: query, version: "HTTP/1.1", headers: [http.Header { name: "X-Thing", value: "v" }], body: "" }
+}
+
+fn show(m: Option<http.Params>, name: string) -> string {
+    if !Option.is_Some(m) {
+        return "no match"
+    }
+    return http.param(Option.unwrap_Some(m), name)
+}
+
+fn main() {
+    print(show(http.path_params("/patients/{id}", "/patients/42"), "id"))
+    // trailing slash ignored on either side
+    print(show(http.path_params("/patients/{id}", "/patients/42/"), "id"))
+    print(show(http.path_params("/patients/{id}/", "/patients/42"), "id"))
+    // a capture must be non-empty, and segment counts must agree
+    print(show(http.path_params("/patients/{id}", "/patients/"), "id"))
+    print(show(http.path_params("/patients/{id}", "/patients/1/extra"), "id"))
+    print(show(http.path_params("/patients", "/patients/1"), "id"))
+    // literals must be equal
+    print(show(http.path_params("/patients/{id}", "/people/42"), "id"))
+    // percent-decoded captures; a bad escape simply doesn't match
+    print(show(http.path_params("/n/{name}", "/n/a%2Fb%20c"), "name"))
+    print(show(http.path_params("/n/{name}", "/n/%zz"), "name"))
+    // several captures
+    val m = http.path_params("/a/{x}/b/{y}", "/a/1/b/2")
+    print(format("{},{}", http.param(Option.unwrap_Some(m), "x"), http.param(Option.unwrap_Some(m), "y")))
+    // the root
+    print(Option.is_Some(http.path_params("/", "/")))
+    // method must match too
+    print(Option.is_Some(http.route(req("GET", "/x"), "GET", "/x")))
+    print(Option.is_Some(http.route(req("POST", "/x"), "GET", "/x")))
+
+    // 404 vs 405
+    val routes = ["GET /patients", "POST /patients", "GET /patients/{id}"]
+    print(http.not_found_or_method_not_allowed(req("GET", "/nope"), routes).status)
+    val r = http.not_found_or_method_not_allowed(req("DELETE", "/patients"), routes)
+    print(r.status)
+    print(r.headers[len(r.headers) - 1].value)
+    print(http.not_found_or_method_not_allowed(req("PUT", "/patients/9"), routes).status)
+
+    // query parameters: decoded, "+" is a space, first wins, bare key is ""
+    val q = req("GET", "/s?a=1&q=x+y%21&q=second&flag&e=")
+    print(Option.unwrap_Some(http.query_param(q, "q")))
+    print(Option.unwrap_Some(http.query_param(q, "a")))
+    print(Option.unwrap_Some(http.query_param(q, "flag")) == "")
+    print(Option.unwrap_Some(http.query_param(q, "e")) == "")
+    print(Option.is_Some(http.query_param(q, "missing")))
+    print(Option.is_Some(http.query_param(req("GET", "/s"), "q")))
+
+    // header lookup ignores case
+    print(Option.unwrap_Some(http.header(q, "x-thing")))
+    print(Option.is_Some(http.header(q, "X-Other")))
+
+    // percent_decode directly
+    print(unwrap(http.percent_decode("a%20b+c", false)))
+    print(unwrap(http.percent_decode("a%20b+c", true)))
+    print(is_ok(http.percent_decode("%4", false)))
+    print(is_ok(http.percent_decode("%00", false)))
+}

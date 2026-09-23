@@ -16,16 +16,14 @@
 // is always transmitted as a JSON string in practice, never a number).
 //
 // Deliberately narrower than a fully spec-compliant parser in one way:
-// string escape handling covers `\" \\ \/ \n \t`, not `\r \b \f` or
+// string escape handling covers `\" \\ \/ \n \t \r`, not `\b \f` or
 // `\uXXXX` unicode escapes -- Ziman's own string literal syntax has no
-// way to write a literal `\r`/`\b`/`\f` character (its lexer only
-// supports `\n \t \" \\`, see src/lexer.c), and `\uXXXX` needs a
+// way to write a literal `\b`/`\f` character (its lexer supports
+// `\n \t \r \" \\`, see src/lexer.c), and `\uXXXX` needs a
 // codepoint-to-UTF-8 encoder nothing here has built. An unsupported
-// string escape is a clear parse error, not silently mishandled; a
-// literal CR used as *structural* whitespace (between tokens, not
-// inside a string) is silently not recognized as whitespace for the
-// same reason -- rare in practice, since JSON producers essentially
-// always use bare `\n`.
+// string escape is a clear parse error, not silently mishandled. A CR
+// counts as structural whitespace between tokens, so a body with CRLF
+// line endings (what a Windows tool or an HTTP client may send) parses.
 //
 // `Json` does NOT support `==`/`!=` -- array equality requires a
 // *scalar* element type (see docs/SYNTAX.md "Arrays"), and `[Json]`'s
@@ -54,13 +52,8 @@ pub enum Json {
     JObject([JField])
 }
 
-// No '\r' here -- Ziman's own string literal syntax can't write one
-// (see the header comment above), so a literal CR between JSON tokens
-// (not inside a string, where it'd be a \\r escape instead) isn't
-// treated as whitespace. Rare in practice; JSON producers essentially
-// always use bare '\n' for structural whitespace.
 fn is_ws(c: string) -> bool {
-    return c == " " || c == "\t" || c == "\n"
+    return c == " " || c == "\t" || c == "\n" || c == "\r"
 }
 
 fn skip_ws(s: string, pos: int) -> int {
@@ -194,6 +187,8 @@ fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
                 sb_append(out, "\n")
             } else if esc == "t" {
                 sb_append(out, "\t")
+            } else if esc == "r" {
+                sb_append(out, "\r")
             } else {
                 return err(format("unsupported escape '\\{}' at position {}", esc, p))
             }
@@ -340,6 +335,8 @@ fn escape_json_string(s: string) -> string {
             sb_append(out, "\\n")
         } else if c == "\t" {
             sb_append(out, "\\t")
+        } else if c == "\r" {
+            sb_append(out, "\\r")
         } else {
             sb_append(out, c)
         }

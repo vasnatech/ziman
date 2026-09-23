@@ -2306,6 +2306,60 @@ several languages rather than inheriting any one of them wholesale.
   PIDs, per-statement borrows from many threads, and 80/80 increments
   under `SELECT ... FOR UPDATE`).
 
+- **`http`: an HTTP/1.1 server toolkit, and the `\r` string escape.**
+  **A toolkit, because there are no function values.** A framework's
+  central move is `serve(listener, handler)` -- a library taking your
+  code as an argument -- and Ziman can't express that: no closures, no
+  first-class functions. So the application owns the two things that need
+  its code (the accept loop and a `route` function), and `http` owns
+  everything they call. This is the same constraint that shaped the
+  router: **a hand-written `route` with one-line matchers (`http.route(req,
+  "GET", "/patients/{id}")` returning `Option<Params>`), not a route table**
+  -- a table can't hold the handler either, so it would only save the
+  matching while forcing a stringly-typed name-based dispatch and a second
+  place that has to agree with the first. When first-class functions
+  arrive, a real table can be built on the same matcher without breaking
+  it.
+  **Reading is pure Ziman on `net`**: `read_request` accumulates chunks
+  until CRLF CRLF, parses the request line and headers, then the
+  `Content-Length` body -- and because values are immutable it returns an
+  `Exchange` carrying the *updated `Session`*, whose buffer holds any
+  bytes read past this request, which is what makes pipelining and
+  keep-alive correct rather than lucky. `Expect: 100-continue` is answered
+  before the body is read. **Deliberately bounded**: 16 KiB of headers, 1
+  MiB of body, so an untrusted client can't grow a handler's memory
+  without limit, and a read timeout (set on the socket by the
+  application) turns a stalled client into a 408. **Refused rather than
+  guessed at**: chunked request bodies (501), HTTP versions other than
+  1.0/1.1, a NUL byte in the request (bodies are `string`s), a missing or
+  non-numeric `Content-Length`.
+  **`write_error` exists because an unreadable request has no `Request`**
+  to hand `write_response` for its keep-alive decision; it always says
+  `Connection: close`. `write_response` frames the response itself
+  (`Content-Length`, `Connection`) and reports whether the connection
+  stays open, so the connection loop is a handful of lines. `HEAD` gets
+  the headers, with the length the body would have had. Case-insensitive
+  header lookup is `http.header`.
+  **Path parameters are strings on purpose**: converting `{id}` to a
+  `Uuid` and answering 400 on a bad one is the application's job -- the
+  same layering `request.zm` already has for JSON bodies. `param` on a name
+  the pattern lacks is fatal, since that is a bug in the route function.
+  **The `\r` escape** was added first because HTTP is CRLF: string literals
+  can now write `"\r\n"`, where before the framing had to be built from
+  bytes (the TLS tests still do, being older). It also let `json` accept
+  CRLF line endings between tokens and round-trip `\r`, which a server
+  taking JSON from arbitrary clients needs.
+  **Tested end to end over real sockets** (`tests/fixtures/http_server`, a
+  server written the way an application would write it, driven by a
+  raw-socket client so the wire format itself is what's asserted): framing,
+  keep-alive, pipelining, POST bodies, percent-decoded params, query
+  strings, 404/405+`Allow`, `HEAD`, `Connection: close`, HTTP/1.0,
+  `100-continue`, malformed requests (400), chunked (501), oversized body
+  (413) and headers (431), a stalled request (408), and six concurrent
+  clients -- stable across 10 runs; `http_routing` covers the matcher's
+  edge cases. **Not yet**: TLS (`listen_tls`), chunked request bodies,
+  HTTP/2, multipart, compression, `Date`/`Server` headers.
+
 ## Deliberately deferred (not v0)
 
 - Effects visible in function signatures (which functions do I/O or mutate

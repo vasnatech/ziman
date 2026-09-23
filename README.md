@@ -8,7 +8,7 @@ concrete decisions they led to, [docs/SYNTAX.md](docs/SYNTAX.md) for
 the full v0 grammar and semantic rules, and
 [docs/CORELIB.md](docs/CORELIB.md) for a generated signature-only
 reference of every bundled core module (`collections`, `io`, `random`,
-`uuid`, `clock`, `time`, `json`, `number`, `sql`, `db`, `bytes`, `net`, `crypto`, `pg`) — every `pub struct`/`pub fn` in one
+`uuid`, `clock`, `time`, `json`, `number`, `sql`, `db`, `bytes`, `net`, `crypto`, `pg`, `http`) — every `pub struct`/`pub fn` in one
 place, kept in sync with the source by `make corelib-reference` rather
 than hand-copied.
 
@@ -87,8 +87,8 @@ outright, not moved, since nothing ever actually used it beyond being
 the first generic struct ever written; `struct Box<T> { value: T }`
 above is illustrative syntax anyone can still write, just not a
 `collections` export anymore.)
-It's also one of fourteen *bundled core modules* (alongside `io`, mentioned
-above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db`/`bytes`/`net`/`crypto`/`pg` below): each one's source is
+It's also one of fifteen *bundled core modules* (alongside `io`, mentioned
+above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db`/`bytes`/`net`/`crypto`/`pg`/`http` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
 `use io` work from any project with no local copy needed — a
 project-relative file of the same name still wins if one exists, but
@@ -157,7 +157,7 @@ than hand-constructing AST nodes. `net` is blocking TCP over POSIX sockets (`con
 `write`, timeouts, a clean peer close reported as `Err(Closed)` rather than an
 empty read) — blocking on purpose, since `spawn` gives every connection its own
 OS thread — and `bytes` is the `[byte]` helpers that go with it (string
-conversion, big-endian integers). `defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `?`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer db.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error. `net` also does client-side TLS on the system OpenSSL (`net.connect_tls`/`net.start_tls`, upgrading a socket in place so everything built on `Socket` works over it), with certificate and host-name verification on by default and an explicit `TlsVerify` (`Full`/`Chain`/`Off`) plus optional CA file when relaxing it. `db.open_pool(url, size)` returns a pool-backed `Connection` (same type, so repository code is unchanged): statements borrow a connection for one call, and `db.acquire`/`db.release` (with `defer`) hand out an exclusive connection for a transaction — the pool is just a channel of idle connections. v1: no reconnect or health checks, no acquire timeout. `crypto` is just enough cryptography for SCRAM-SHA-256 (SHA-256, HMAC, PBKDF2, base64 — native, self-contained,
+conversion, big-endian integers). `defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `?`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer db.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error. `http` is an HTTP/1.1 server toolkit on `net` (request parsing with keep-alive and pipelining, bounded headers and bodies, response framing, and route matching with path parameters) — a toolkit rather than a framework because Ziman has no function values, so the application writes its own accept loop and `route` function; strings now have a `\r` escape. `net` also does client-side TLS on the system OpenSSL (`net.connect_tls`/`net.start_tls`, upgrading a socket in place so everything built on `Socket` works over it), with certificate and host-name verification on by default and an explicit `TlsVerify` (`Full`/`Chain`/`Off`) plus optional CA file when relaxing it. `db.open_pool(url, size)` returns a pool-backed `Connection` (same type, so repository code is unchanged): statements borrow a connection for one call, and `db.acquire`/`db.release` (with `defer`) hand out an exclusive connection for a transaction — the pool is just a channel of idle connections. v1: no reconnect or health checks, no acquire timeout. `crypto` is just enough cryptography for SCRAM-SHA-256 (SHA-256, HMAC, PBKDF2, base64 — native, self-contained,
 checked against the RFC vectors; not a general-purpose library), and `pg` is a PostgreSQL client written in Ziman on top of
 `net`/`bytes`/`crypto`: trust, cleartext and SCRAM-SHA-256 authentication (the server's signature is verified too),
 the simple and extended query protocols, tested against a real Postgres server by `make test-pg`.

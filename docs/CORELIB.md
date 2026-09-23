@@ -149,6 +149,95 @@ pub fn release(conn: Connection, taken: Connection)
 
 ```
 
+## `http`
+
+```
+pub struct Header {
+    name: string
+    value: string
+}
+
+pub struct Request {
+    method: string
+    target: string
+    path: string
+    query: string
+    version: string
+    headers: [Header]
+    body: string
+}
+
+pub struct Response {
+    status: int
+    headers: [Header]
+    body: string
+}
+
+pub struct Params {
+    names: [string]
+    values: [string]
+}
+
+pub enum HttpError {
+    BadRequest(string)
+    BodyTooLarge
+    HeadersTooLarge
+    NotImplemented(string)
+    Timeout
+    Closed
+    Io(string)
+}
+
+pub struct Session {
+    sock: Socket
+    buffer: [byte]
+}
+
+pub struct Exchange {
+    request: Request
+    session: Session
+}
+
+pub fn open_session(sock: Socket) -> Session
+
+pub fn header(req: Request, name: string) -> Option<string>
+
+pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string>
+
+pub fn read_request(session: Session) -> Result<Exchange, HttpError>
+
+pub fn response(status: int, body: string) -> Response
+
+pub fn with_header(r: Response, name: string, value: string) -> Response
+
+pub fn json_response(status: int, body: string) -> Response
+
+pub fn text_response(status: int, body: string) -> Response
+
+pub fn bad_request(message: string) -> Response
+
+pub fn not_found() -> Response
+
+pub fn method_not_allowed(allowed: [string]) -> Response
+
+pub fn error_response(e: HttpError) -> Response
+
+pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool, HttpError>
+
+pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError>
+
+pub fn path_params(pattern: string, path: string) -> Option<Params>
+
+pub fn route(req: Request, method: string, pattern: string) -> Option<Params>
+
+pub fn param(p: Params, name: string) -> string
+
+pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Response
+
+pub fn query_param(req: Request, name: string) -> Option<string>
+
+```
+
 ## `io`
 
 File I/O. The first native module -- proved the `native fn` mechanism end to end.

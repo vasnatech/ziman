@@ -14,7 +14,7 @@ File extension: `.zm`.
 - Integer literals: `[0-9]+` (decimal only in v0).
 - Float literals: `[0-9]+\.[0-9]+` (a digit is required on both sides of
   the dot — `.5` and `5.` are not valid literals).
-- String literals: `"..."` with escapes `\n`, `\t`, `\"`, `\\`. No
+- String literals: `"..."` with escapes `\n`, `\t`, `\r`, `\"`, `\\`. No
   multi-line strings, no interpolation in v0.
 - Booleans: `true`, `false`.
 - Statement termination: a newline ends a statement, **unless** the token
@@ -1451,9 +1451,9 @@ fn main() {
   recursive-descent parser (not string-searching for field names, which
   can't handle a field's own string value containing the same text, or
   nested braces correctly). String escape handling covers `\" \\ \/ \n
-  \t`; `\r \b \f` and `\uXXXX` unicode escapes are rejected with a
+  \t \r`; `\b \f` and `\uXXXX` unicode escapes are rejected with a
   clear parse error rather than silently mishandled — Ziman's own
-  string literal syntax has no way to write a literal `\r`/`\b`/`\f`
+  string literal syntax has no way to write a literal `\b`/`\f`
   character (see "Lexical rules" above), and `\uXXXX` needs a
   codepoint-to-UTF-8 encoder nothing here has built.
 - **`json_to_string(j: Json) -> string`** — compact serialization (no
@@ -1741,6 +1741,95 @@ fn main() {
   Unix-domain sockets, UDP, and a packed byte-buffer type (`[byte]` is an
   array of interpreter values -- fine for protocol messages, wasteful for
   bulk data).
+
+## HTTP
+
+The `http` core module is an HTTP/1.1 **server toolkit** on `net`: parse a
+request off a socket, route it, write a response. It is a toolkit rather
+than a framework because Ziman has **no function values**, so a library
+can't be handed "your handler" -- there is no `http.serve(listener,
+handler)`. The application writes its own accept loop and its own `route`
+function (both short), and `http` supplies what they call.
+
+```
+use net
+use http
+
+fn route(conn: db.Connection, req: http.Request) -> http.Response {
+    val create = http.route(req, "POST", "/patients")
+    if Option.is_Some(create) {
+        return http.json_response(201, req.body)
+    }
+    val one = http.route(req, "GET", "/patients/{id}")
+    if Option.is_Some(one) {
+        val id = http.param(Option.unwrap_Some(one), "id")     // percent-decoded string
+        return http.json_response(200, lookup(conn, id))
+    }
+    return http.not_found_or_method_not_allowed(req, ["POST /patients", "GET /patients/{id}"])
+}
+
+fn serve_connection(conn: db.Connection, sock: net.Socket) {
+    defer net.close(sock)                       // closed on every way out
+    unwrap(net.set_timeout(sock, 30000))        // an idle client can't hold the thread forever
+    var session = http.open_session(sock)
+    var open = true
+    while open {
+        val next = http.read_request(session)
+        if !is_ok(next) {
+            http.write_error(sock, unwrap_err(next))   // 400/408/413/431/501, or nothing if the peer is gone
+            open = false
+        } else {
+            val ex = unwrap(next)
+            session = ex.session                       // carries any bytes read past this request
+            val keep = http.write_response(sock, ex.request, route(conn, ex.request))
+            if !is_ok(keep) || !unwrap(keep) {
+                open = false
+            }
+        }
+    }
+}
+
+fn main() {
+    val l = unwrap(net.listen("0.0.0.0", 8080))
+    while true {
+        spawn serve_connection(conn, unwrap(net.accept(l)))    // thread per connection
+    }
+}
+```
+
+- **Reading.** `read_request(session)` returns an `Exchange` (the
+  `Request` plus the updated `Session`) or an `HttpError`. A `Request` has
+  `method`, `target`, `path`, `query`, `version`, `headers` and `body`;
+  `http.header(req, "Name")` ignores case. `Err(Closed)` is the normal end
+  of a keep-alive connection. Keep-alive works across requests, including
+  pipelined ones already in the buffer, and `Expect: 100-continue` is
+  answered. A request line, headers and a `Content-Length` body are
+  supported; **chunked request bodies are refused (501)**, and `HEAD` gets
+  headers with the `Content-Length` and no body.
+- **Bounded.** Headers may total 16 KiB and a body 1 MiB
+  (`HeadersTooLarge`/`BodyTooLarge`, answered 431/413), so a client can't
+  make a handler buffer without limit. Set `net.set_timeout` on the
+  socket; a stalled read is `Timeout` (408). Bodies are `string`s, so a
+  request carrying a 0 byte gets a 400.
+- **Responses.** `http.response(status, body)`, `json_response`,
+  `text_response`, `bad_request`, `not_found`, `method_not_allowed`, and
+  `with_header`. `write_response(sock, req, resp)` adds `Content-Length`
+  and `Connection`, and returns whether the connection stays open
+  (HTTP/1.1 keeps alive unless either side said `close`; HTTP/1.0 closes
+  unless asked to keep).
+- **Routing.** `http.route(req, method, pattern)` is `Some(params)` when
+  the method matches and the path matches the pattern, else `None`.
+  `{name}` captures one non-empty, percent-decoded segment; a trailing
+  slash is ignored; `http.param(params, "name")` reads it (asking for a
+  name the pattern doesn't have is a fatal error -- it is a bug in your
+  route function, not a value to check). `not_found_or_method_not_allowed`
+  is 405 with an `Allow` header if the path matches some route under a
+  different method, else 404. `http.query_param(req, "q")` reads the query
+  string (percent-decoded, `+` is a space). A route in a `{id}` position is
+  still a *string*: converting it (a `Uuid`, an `int`) and answering 400 on
+  a bad one stays in the application.
+- **Not yet:** TLS (a plain `net.Socket` only), chunked request bodies,
+  HTTP/2, multipart, compression, trailers, and `Date`/`Server` headers.
 
 ## Cryptography
 

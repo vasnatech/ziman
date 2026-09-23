@@ -21,6 +21,7 @@
 #include "net_source.h"
 #include "crypto_source.h"
 #include "pg_source.h"
+#include "http_source.h"
 
 typedef struct {
     const char *name;
@@ -49,6 +50,7 @@ static const CoreModule CORE_MODULES[] = {
     {"net", NET_SOURCE},
     {"crypto", CRYPTO_SOURCE},
     {"pg", PG_SOURCE},
+    {"http", HTTP_SOURCE},
 };
 #pragma GCC diagnostic pop
 

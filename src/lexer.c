@@ -148,6 +148,7 @@ static void lex_string(Lexer *lx) {
             switch (esc) {
                 case 'n': out = '\n'; break;
                 case 't': out = '\t'; break;
+                case 'r': out = '\r'; break;
                 case '"': out = '"'; break;
                 case '\\': out = '\\'; break;
                 default:

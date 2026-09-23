@@ -1,0 +1,563 @@
+// http.zm -- an HTTP/1.1 *server* toolkit, written in Ziman on top of
+// `net`: parse a request off a socket, route it, write a response.
+// Deliberately a toolkit, not a framework, and the reason is a language
+// fact: Ziman has no function values, so a library can't take "your
+// handler" as an argument. There is therefore no `http.serve(listener,
+// handler)`. The application writes its own accept loop and its own
+// `route` function (a few lines; see docs/SYNTAX.md's "HTTP" section) and
+// this module supplies everything they call: `read_request`,
+// `write_response`, the response builders, and route matching that
+// extracts path parameters (`route`, `param`).
+//
+// What it speaks: HTTP/1.1 and 1.0 requests with a request line, headers
+// and an optional `Content-Length` body; keep-alive across requests on one
+// connection (including pipelined requests already in the buffer);
+// `Expect: 100-continue`; `HEAD` (headers only). What it does not:
+// chunked *request* bodies (answered 501), TLS (a plain `net.Socket`
+// only, for now), HTTP/2, multipart bodies, compression, and request
+// trailers. Request and response bodies are `string`, so they can't carry
+// a 0 byte (a request that tries gets a 400).
+//
+// Bounded by design: headers may total at most 16 KiB and a body at most
+// 1 MiB, so a client can't make a handler thread buffer without limit;
+// exceeding them is `HeadersTooLarge`/`BodyTooLarge` (431/413). Set a read
+// timeout on the socket (`net.set_timeout`) so an idle or stalled client
+// can't hold a thread forever: a timed-out read is `Err(Timeout)`.
+
+use net
+use net.Socket
+use net.NetError
+use net.net_error_message
+use bytes.string_to_bytes
+use bytes.bytes_to_string
+use bytes.bytes_concat
+use bytes.bytes_slice
+use number.byte_from_hex
+use json.Json
+use json.JField
+use json.json_to_string
+
+pub struct Header {
+    name: string
+    value: string
+}
+
+// `target` is the raw request target ("/patients/7?x=1"); `path` and
+// `query` are its two halves, still percent-encoded (`route` and
+// `query_param` decode what they hand back). `headers` keep their
+// original case; look one up with `header`, which ignores case.
+pub struct Request {
+    method: string
+    target: string
+    path: string
+    query: string
+    version: string
+    headers: [Header]
+    body: string
+}
+
+pub struct Response {
+    status: int
+    headers: [Header]
+    body: string
+}
+
+// The `{name}` captures of a matched route, by position.
+pub struct Params {
+    names: [string]
+    values: [string]
+}
+
+pub enum HttpError {
+    BadRequest(string)
+    BodyTooLarge
+    HeadersTooLarge
+    NotImplemented(string)
+    Timeout
+    Closed
+    Io(string)
+}
+
+// One client connection's read state: the socket, plus any bytes already
+// read past the end of the last request (the start of the next, when a
+// client pipelines). Values are immutable, so `read_request` returns the
+// updated session rather than changing this one.
+pub struct Session {
+    sock: Socket
+    buffer: [byte]
+}
+
+pub struct Exchange {
+    request: Request
+    session: Session
+}
+
+val max_header_bytes = 16384
+val max_body_bytes = 1048576
+
+// ------------------------------------------------------------ helpers
+
+fn lift<T>(r: Result<T, NetError>) -> Result<T, HttpError> {
+    if !is_ok(r) {
+        val e = unwrap_err(r)
+        if NetError.is_Timeout(e) {
+            return err(HttpError.Timeout)
+        }
+        if NetError.is_Closed(e) {
+            return err(HttpError.Closed)
+        }
+        return err(HttpError.Io(net_error_message(e)))
+    }
+    return unwrap(r)
+}
+
+fn text_of(b: [byte], start: int, end: int) -> Result<string, HttpError> {
+    val s = bytes_to_string(bytes_slice(b, start, end))
+    if !is_ok(s) {
+        return err(HttpError.BadRequest("request contains a NUL byte"))
+    }
+    return unwrap(s)
+}
+
+// Index just past the first CRLF CRLF, or -1.
+fn find_head_end(buf: [byte]) -> int {
+    var i = 0
+    while i + 3 < len(buf) {
+        if buf[i] == 13b && buf[i + 1] == 10b && buf[i + 2] == 13b && buf[i + 3] == 10b {
+            return i + 4
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn no_bytes() -> [byte] {
+    return bytes_slice([0b], 0, 0)
+}
+
+pub fn open_session(sock: Socket) -> Session {
+    return Session { sock: sock, buffer: no_bytes() }
+}
+
+// Case-insensitive header lookup.
+pub fn header(req: Request, name: string) -> Option<string> {
+    val wanted = to_lower(name)
+    for h in req.headers {
+        if to_lower(h.name) == wanted {
+            return Option<string>.Some(h.value)
+        }
+    }
+    return Option<string>.None
+}
+
+fn join_from(parts: [string], start: int, sep: string) -> string {
+    val rest = ab_new<string>()
+    var i = start
+    while i < len(parts) {
+        ab_append<string>(rest, parts[i])
+        i = i + 1
+    }
+    return join(separator: sep, pieces: ab_to_array<string>(rest))
+}
+
+// %XX escapes; `plus_is_space` is for query strings ("a+b" is "a b"
+// there, but a literal plus in a path).
+pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> {
+    val out = ab_new<byte>()
+    var i = 0
+    while i < len(s) {
+        val c = substring(s, i, i + 1)
+        if c == "%" {
+            if i + 3 > len(s) {
+                return err("truncated %-escape")
+            }
+            val b = byte_from_hex(substring(s, i + 1, i + 3))
+            if !is_ok(b) {
+                return err("bad %-escape")
+            }
+            ab_append<byte>(out, unwrap(b))
+            i = i + 3
+        } else if c == "+" && plus_is_space {
+            ab_append<byte>(out, 32b)
+            i = i + 1
+        } else {
+            for b in string_to_bytes(c) {
+                ab_append<byte>(out, b)
+            }
+            i = i + 1
+        }
+    }
+    val text = bytes_to_string(ab_to_array<byte>(out))
+    if !is_ok(text) {
+        return err("decodes to text containing a NUL byte")
+    }
+    return unwrap(text)
+}
+
+// ------------------------------------------------------------- reading
+
+fn parse_header_line(line: string) -> Result<Header, HttpError> {
+    if len(line) == 0 || substring(line, 0, 1) == " " || substring(line, 0, 1) == "\t" {
+        return err(HttpError.BadRequest("malformed header line"))
+    }
+    if !contains(line, ":") {
+        return err(HttpError.BadRequest(concat("header line has no ':': ", line)))
+    }
+    val parts = split(line, ":")
+    val name = parts[0]
+    if len(name) == 0 || contains(name, " ") {
+        return err(HttpError.BadRequest("malformed header name"))
+    }
+    return Header { name: name, value: trim(join_from(parts, 1, ":")) }
+}
+
+fn header_value(headers: [Header], name: string) -> Option<string> {
+    val wanted = to_lower(name)
+    for h in headers {
+        if to_lower(h.name) == wanted {
+            return Option<string>.Some(h.value)
+        }
+    }
+    return Option<string>.None
+}
+
+// Reads the next request off the session. `Err(Closed)` when the client
+// closed the connection between requests (the normal way a keep-alive
+// connection ends); other errors mean the request itself was unusable --
+// `error_response` maps one to the HTTP response to send before closing.
+pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
+    val sock = session.sock
+    var buf = session.buffer
+    var head_end = find_head_end(buf)
+    while head_end < 0 {
+        if len(buf) > max_header_bytes {
+            return err(HttpError.HeadersTooLarge)
+        }
+        val chunk = lift<[byte]>(net.read(sock, 4096))?
+        buf = bytes_concat(buf, chunk)
+        head_end = find_head_end(buf)
+    }
+    if head_end > max_header_bytes {
+        return err(HttpError.HeadersTooLarge)
+    }
+
+    val head_text = text_of(buf, 0, head_end - 4)?
+    val lines = split(head_text, "\r\n")
+    var first = 0
+    while first < len(lines) && lines[first] == "" {
+        first = first + 1
+    }
+    if first >= len(lines) {
+        return err(HttpError.BadRequest("empty request"))
+    }
+    val request_line = split(lines[first], " ")
+    if len(request_line) != 3 {
+        return err(HttpError.BadRequest("malformed request line"))
+    }
+    val method = request_line[0]
+    val target = request_line[1]
+    val version = request_line[2]
+    if version != "HTTP/1.1" && version != "HTTP/1.0" {
+        return err(HttpError.BadRequest(concat("unsupported HTTP version: ", version)))
+    }
+    if method == "" || (substring(target, 0, 1) != "/" && target != "*") {
+        return err(HttpError.BadRequest("malformed request target"))
+    }
+
+    val headers = ab_new<Header>()
+    var i = first + 1
+    while i < len(lines) {
+        val h = parse_header_line(lines[i])?
+        ab_append<Header>(headers, h)
+        i = i + 1
+    }
+    val header_list = ab_to_array<Header>(headers)
+
+    var path = target
+    var query = ""
+    if contains(target, "?") {
+        val tq = split(target, "?")
+        path = tq[0]
+        query = join_from(tq, 1, "?")
+    }
+
+    if Option.is_Some(header_value(header_list, "Transfer-Encoding")) {
+        return err(HttpError.NotImplemented("chunked request bodies are not supported"))
+    }
+    var content_length = 0
+    val cl = header_value(header_list, "Content-Length")
+    if Option.is_Some(cl) {
+        val parsed = parse_int(trim(Option.unwrap_Some(cl)))
+        if !is_ok(parsed) || unwrap(parsed) < 0 {
+            return err(HttpError.BadRequest("invalid Content-Length"))
+        }
+        content_length = unwrap(parsed)
+    }
+    if content_length > max_body_bytes {
+        return err(HttpError.BodyTooLarge)
+    }
+
+    var rest = bytes_slice(buf, head_end, len(buf))
+    if content_length > len(rest) {
+        val expect = header_value(header_list, "Expect")
+        if Option.is_Some(expect) && to_lower(Option.unwrap_Some(expect)) == "100-continue" {
+            lift<int>(net.write_text(sock, "HTTP/1.1 100 Continue\r\n\r\n"))?
+        }
+        val more = lift<[byte]>(net.read_exact(sock, content_length - len(rest)))?
+        rest = bytes_concat(rest, more)
+    }
+    val body = text_of(rest, 0, content_length)?
+    val leftover = bytes_slice(rest, content_length, len(rest))
+
+    val request = Request { method: method, target: target, path: path, query: query, version: version, headers: header_list, body: body }
+    return Exchange { request: request, session: Session { sock: sock, buffer: leftover } }
+}
+
+// ------------------------------------------------------------ responses
+
+fn reason(status: int) -> string {
+    if status == 100 { return "Continue" }
+    if status == 200 { return "OK" }
+    if status == 201 { return "Created" }
+    if status == 202 { return "Accepted" }
+    if status == 204 { return "No Content" }
+    if status == 301 { return "Moved Permanently" }
+    if status == 302 { return "Found" }
+    if status == 304 { return "Not Modified" }
+    if status == 400 { return "Bad Request" }
+    if status == 401 { return "Unauthorized" }
+    if status == 403 { return "Forbidden" }
+    if status == 404 { return "Not Found" }
+    if status == 405 { return "Method Not Allowed" }
+    if status == 408 { return "Request Timeout" }
+    if status == 409 { return "Conflict" }
+    if status == 413 { return "Payload Too Large" }
+    if status == 422 { return "Unprocessable Entity" }
+    if status == 431 { return "Request Header Fields Too Large" }
+    if status == 500 { return "Internal Server Error" }
+    if status == 501 { return "Not Implemented" }
+    if status == 503 { return "Service Unavailable" }
+    return "Status"
+}
+
+pub fn response(status: int, body: string) -> Response {
+    return Response { status: status, headers: [], body: body }
+}
+
+pub fn with_header(r: Response, name: string, value: string) -> Response {
+    return Response { status: r.status, headers: push(r.headers, Header { name: name, value: value }), body: r.body }
+}
+
+pub fn json_response(status: int, body: string) -> Response {
+    return with_header(response(status, body), "Content-Type", "application/json")
+}
+
+pub fn text_response(status: int, body: string) -> Response {
+    return with_header(response(status, body), "Content-Type", "text/plain; charset=utf-8")
+}
+
+fn error_body(status: int, message: string) -> string {
+    return json_to_string(Json.JObject([
+        JField { key: "status", value: Json.JNumber(status as float) },
+        JField { key: "error", value: Json.JString(message) }
+    ]))
+}
+
+pub fn bad_request(message: string) -> Response {
+    return json_response(400, error_body(400, message))
+}
+
+pub fn not_found() -> Response {
+    return json_response(404, error_body(404, "not found"))
+}
+
+pub fn method_not_allowed(allowed: [string]) -> Response {
+    return with_header(json_response(405, error_body(405, "method not allowed")), "Allow", join(separator: ", ", pieces: allowed))
+}
+
+// The response to send for a request that couldn't be read. (`Closed` and
+// `Io` mean there is nobody to answer; the caller just closes.)
+pub fn error_response(e: HttpError) -> Response {
+    if HttpError.is_BadRequest(e) {
+        return bad_request(HttpError.unwrap_BadRequest(e))
+    }
+    if HttpError.is_BodyTooLarge(e) {
+        return json_response(413, error_body(413, "request body too large"))
+    }
+    if HttpError.is_HeadersTooLarge(e) {
+        return json_response(431, error_body(431, "request headers too large"))
+    }
+    if HttpError.is_NotImplemented(e) {
+        return json_response(501, error_body(501, HttpError.unwrap_NotImplemented(e)))
+    }
+    if HttpError.is_Timeout(e) {
+        return json_response(408, error_body(408, "request timed out"))
+    }
+    return json_response(500, error_body(500, "internal error"))
+}
+
+fn connection_close_requested(req: Request) -> bool {
+    val c = header(req, "Connection")
+    if Option.is_Some(c) {
+        val v = to_lower(Option.unwrap_Some(c))
+        if contains(v, "close") {
+            return true
+        }
+        if contains(v, "keep-alive") {
+            return false
+        }
+    }
+    return req.version == "HTTP/1.0"
+}
+
+// Serialises and sends `resp` (adding Content-Length and Connection), and
+// says whether the connection stays open for another request: HTTP/1.1
+// keeps alive unless either side asked to close, HTTP/1.0 only if the
+// client asked to keep it. A `HEAD` request gets the headers, with the
+// Content-Length the body would have had, and no body.
+pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool, HttpError> {
+    var keep = !connection_close_requested(req)
+    for h in resp.headers {
+        if to_lower(h.name) == "connection" && contains(to_lower(h.value), "close") {
+            keep = false
+        }
+    }
+    val sb = sb_new()
+    sb_append(sb, format("HTTP/1.1 {} {}\r\n", resp.status, reason(resp.status)))
+    for h in resp.headers {
+        val lname = to_lower(h.name)
+        if lname != "content-length" && lname != "connection" {
+            sb_append(sb, h.name, ": ", h.value, "\r\n")
+        }
+    }
+    sb_append(sb, format("Content-Length: {}\r\n", len(resp.body)))
+    if keep {
+        sb_append(sb, "Connection: keep-alive\r\n")
+    } else {
+        sb_append(sb, "Connection: close\r\n")
+    }
+    sb_append(sb, "\r\n")
+    if req.method != "HEAD" {
+        sb_append(sb, resp.body)
+    }
+    lift<int>(net.write_text(sock, sb_to_string(sb)))?
+    return keep
+}
+
+// Sends the response for a request that couldn't be read (see
+// `error_response`) and closes the exchange: there is no parsed Request to
+// consult, so it always says `Connection: close`. Nothing to send for
+// `Closed`/`Io` -- the peer is gone -- so it succeeds without writing.
+pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError> {
+    if HttpError.is_Closed(e) || HttpError.is_Io(e) {
+        return false
+    }
+    val stub = Request { method: "GET", target: "/", path: "/", query: "", version: "HTTP/1.0", headers: [], body: "" }
+    return write_response(sock, stub, error_response(e))
+}
+
+// -------------------------------------------------------------- routing
+
+// Matches `path` against `pattern`: literal segments must be equal, and a
+// `{name}` segment captures any non-empty segment (percent-decoded). A
+// trailing slash is ignored on both sides. `None` if it doesn't match.
+pub fn path_params(pattern: string, path: string) -> Option<Params> {
+    var p = pattern
+    var q = path
+    if len(p) > 1 && substring(p, len(p) - 1, len(p)) == "/" {
+        p = substring(p, 0, len(p) - 1)
+    }
+    if len(q) > 1 && substring(q, len(q) - 1, len(q)) == "/" {
+        q = substring(q, 0, len(q) - 1)
+    }
+    val pattern_parts = split(p, "/")
+    val path_parts = split(q, "/")
+    if len(pattern_parts) != len(path_parts) {
+        return Option<Params>.None
+    }
+    val names = ab_new<string>()
+    val values = ab_new<string>()
+    var i = 0
+    while i < len(pattern_parts) {
+        val want = pattern_parts[i]
+        val got = path_parts[i]
+        if len(want) >= 3 && substring(want, 0, 1) == "{" && substring(want, len(want) - 1, len(want)) == "}" {
+            if got == "" {
+                return Option<Params>.None
+            }
+            val decoded = percent_decode(got, false)
+            if !is_ok(decoded) {
+                return Option<Params>.None
+            }
+            ab_append<string>(names, substring(want, 1, len(want) - 1))
+            ab_append<string>(values, unwrap(decoded))
+        } else if want != got {
+            return Option<Params>.None
+        }
+        i = i + 1
+    }
+    return Option<Params>.Some(Params { names: ab_to_array<string>(names), values: ab_to_array<string>(values) })
+}
+
+// `Some(params)` if the request's method is `method` and its path matches
+// `pattern`, else `None` -- the one-line test a route function is built
+// from: `val m = http.route(req, "GET", "/patients/{id}")`.
+pub fn route(req: Request, method: string, pattern: string) -> Option<Params> {
+    if req.method != method {
+        return Option<Params>.None
+    }
+    return path_params(pattern, req.path)
+}
+
+// A captured parameter by name. Asking for a name the pattern doesn't
+// have is a bug in the route function, so it is a fatal error rather than
+// a value to check.
+pub fn param(p: Params, name: string) -> string {
+    var i = 0
+    while i < len(p.names) {
+        if p.names[i] == name {
+            return p.values[i]
+        }
+        i = i + 1
+    }
+    val missing: Result<string, string> = err(concat("no route parameter named ", name))
+    return unwrap(missing)
+}
+
+// What to answer when no route matched. `routes` lists every route as
+// "METHOD /pattern": if the path matches some route under a *different*
+// method the answer is 405 with an Allow header, otherwise 404.
+pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Response {
+    val allowed = ab_new<string>()
+    for r in routes {
+        val parts = split(r, " ")
+        if len(parts) == 2 && Option.is_Some(path_params(parts[1], req.path)) {
+            ab_append<string>(allowed, parts[0])
+        }
+    }
+    val methods = ab_to_array<string>(allowed)
+    if len(methods) > 0 {
+        return method_not_allowed(methods)
+    }
+    return not_found()
+}
+
+// A query-string value by name, percent-decoded ("+" is a space); the
+// first one if it is repeated. `None` if absent.
+pub fn query_param(req: Request, name: string) -> Option<string> {
+    for pair in split(req.query, "&") {
+        if contains(pair, "=") {
+            val kv = split(pair, "=")
+            val key = percent_decode(kv[0], true)
+            if is_ok(key) && unwrap(key) == name {
+                val value = percent_decode(join_from(kv, 1, "="), true)
+                if is_ok(value) {
+                    return Option<string>.Some(unwrap(value))
+                }
+            }
+        } else if pair == name {
+            return Option<string>.Some("")
+        }
+    }
+    return Option<string>.None
+}

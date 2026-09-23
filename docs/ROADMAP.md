@@ -1019,8 +1019,12 @@ a time mid-implementation:
 - **`net` follow-ups.** A packed byte-buffer type (`[byte]` is an array
   of interpreter values -- wasteful for bulk data), Unix-domain sockets
   (local Postgres often uses one), UDP, and a connect timeout beyond the
-  OS default. An **`http` module** (server first, pure Ziman on `net`) is
-  the natural next consumer after the Postgres driver.
+  OS default. ~~An `http` module (server first, pure Ziman on `net`)~~
+  **done as a toolkit** (docs/DESIGN.md's `http` entry); still open there:
+  TLS (`listen_tls`), chunked request bodies, HTTP/2, multipart,
+  compression, `Date`/`Server` headers, and -- once Ziman has function
+  values -- a real `serve(listener, handler)` and route table on top of
+  the same matcher.
 
 ## Explicitly out of scope for now (see DESIGN.md "Non-goals")
 
