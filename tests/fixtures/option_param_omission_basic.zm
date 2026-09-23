@@ -1,0 +1,43 @@
+fn describe(name: string, nickname: Option<string>, priority: Option<int> = 3) -> string {
+    var nick_part = ""
+    if Option.is_Some(nickname) {
+        nick_part = concat(" (", concat(Option.unwrap_Some(nickname), ")"))
+    } else {
+        nick_part = " (no nickname)"
+    }
+    return concat(name, concat(nick_part, concat(" priority=", str(Option.unwrap_Some(priority)))))
+}
+
+fn wrap_or<T>(value: T, fallback: Option<T>) -> T {
+    if Option.is_Some(fallback) {
+        return Option.unwrap_Some(fallback)
+    }
+    return value
+}
+
+fn main() {
+    // Fully positional, nothing omitted -- must still behave exactly as
+    // it always has.
+    print(describe("Ada", Option<string>.Some("Countess"), 5))
+
+    // Named, everything supplied explicitly.
+    print(describe(name: "Grace", nickname: Option<string>.Some("Amazing Grace"), priority: 1))
+
+    // Named, nickname omitted (no declared default) -- falls back to None.
+    print(describe(name: "Alan", priority: 9))
+
+    // Named, priority omitted (declared default 3) -- falls back to 3.
+    print(describe(name: "Katherine", nickname: Option<string>.None))
+
+    // Named, both Option<T> parameters omitted at once.
+    print(describe(name: "Margaret"))
+
+    // Bare-value auto-wrap: a raw string where Option<string> is expected.
+    print(describe(name: "Hedy", nickname: "Hedley"))
+
+    // A generic function's Option<T> parameter, both concrete-type-arg
+    // named and positional calls.
+    print(wrap_or<int>(value: 0, fallback: 42))
+    print(wrap_or<int>(value: 0, fallback: Option<int>.None))
+    print(wrap_or<int>(0, 42))
+}

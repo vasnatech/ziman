@@ -1,0 +1,7 @@
+fn foo(a: Option<int> = "wrong") -> int {
+    return 1
+}
+
+fn main() {
+    print(foo())
+}

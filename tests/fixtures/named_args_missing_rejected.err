@@ -1,1 +1,1 @@
-function 'add' expects 2 named argument(s), found 1
+function 'add' is missing required argument 'b'

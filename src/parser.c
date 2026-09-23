@@ -870,6 +870,24 @@ static Stmt *parse_statement(Parser *p) {
     return s;
 }
 
+/* Builds a fresh, globally unique global-env key for a parameter's
+ * default value (see ast.h's Param.default_key) -- `$` can never appear
+ * in a real Ziman identifier (see the lexer's identifier rule), so
+ * appending it guarantees this can never collide with any name a
+ * program could actually write, without needing the key to be
+ * human-meaningful at all. A single process-lifetime counter, not one
+ * scoped to this Parser instance, since a multi-file program parses
+ * each file through its own fresh Parser and every file's keys still
+ * have to be unique against each other once merged into one flat
+ * g_global_env. */
+static int g_param_default_counter = 0;
+
+static char *param_default_key(const char *param_name, int name_len) {
+    char *key = malloc((size_t)name_len + 32);
+    sprintf(key, "%.*s$default$%d", name_len, param_name, g_param_default_counter++);
+    return key;
+}
+
 /* A trailing `...` after a parameter's type marks it variadic --
  * lexed as an ordinary `TOK_DOTDOT` (the same token a for-loop range's
  * `..` already produces) immediately followed by a `TOK_DOT`, rather
@@ -878,7 +896,12 @@ static Stmt *parse_statement(Parser *p) {
  * `for x in start..end` header, a position this never overlaps with.
  * Only the last parameter may be variadic -- checked here, not left
  * for typecheck to catch later, since it's a purely syntactic rule
- * (nothing about types or scope is involved). */
+ * (nothing about types or scope is involved). A trailing `= expr`
+ * instead marks a default value -- legal on any parameter syntactically
+ * (typecheck.c's check_function is what restricts it to Option<T>
+ * parameters, since that's a type-level rule, not a syntactic one),
+ * except a variadic parameter, rejected right here since the two can
+ * never combine meaningfully. */
 static ParamList parse_params(Parser *p) {
     ParamList params = {0};
     if (!check(p, TOK_RPAREN)) {
@@ -897,7 +920,16 @@ static ParamList parse_params(Parser *p) {
                     p->pos = saved_pos; /* not '...' after all -- leave it */
                 }
             }
-            Param param = {dup_token_text(param_name), param_type, is_variadic, param_name->line, param_name->col};
+            Expr *default_expr = NULL;
+            char *default_key = NULL;
+            if (match(p, TOK_EQ)) {
+                if (is_variadic) {
+                    ziman_error("syntax", param_name->line, param_name->col, "a variadic parameter cannot have a default value");
+                }
+                default_expr = parse_expr(p);
+                default_key = param_default_key(param_name->start, param_name->length);
+            }
+            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col};
             param_list_push(&params, param);
             skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
@@ -1175,7 +1207,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
         expect(p, TOK_COLON, "':'");
         Type field_type = parse_type(p);
         if (sd->type_params.count > 0) reclassify_type_params(&field_type, &sd->type_params);
-        Param field = {dup_token_text(field_name), field_type, 0, field_name->line, field_name->col};
+        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col};
         param_list_push(&sd->fields, field);
         skip_newlines(p);
     }

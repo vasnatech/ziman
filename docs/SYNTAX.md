@@ -626,6 +626,67 @@ fn main() {
   remaining difference between how a positional and a named call to the
   same function behave.
 
+### Option\<T\> parameter omission and defaults
+
+```
+fn describe(name: string, nickname: Option<string>, priority: Option<int> = 3) -> string {
+    if Option.is_Some(nickname) {
+        return format("{} ({}), priority {}", name, Option.unwrap_Some(nickname), Option.unwrap_Some(priority))
+    }
+    return format("{}, priority {}", name, Option.unwrap_Some(priority))
+}
+
+fn main() {
+    // Every argument given, exactly as any other function call works.
+    print(describe("Ada", Option<string>.Some("Countess"), 5))
+
+    // A named call may leave an Option<T> parameter out entirely.
+    // nickname has no declared default, so it becomes None; priority
+    // has one (`= 3`), so it becomes that instead.
+    print(describe(name: "Alan"))
+
+    // A bare value works too, wherever an Option<T> was expected --
+    // auto-wrapped to Some(...) -- both for a supplied argument and for
+    // a parameter's own default (`= 3` above, not `= Option<int>.Some(3)`).
+    print(describe(name: "Hedy", nickname: "Hedley"))
+}
+```
+
+- **Only an `Option<T>`-typed parameter may ever be omitted from a
+  call, and only in a named one** — a positional call is exactly as
+  strict as it always was (every parameter, in order, no exceptions);
+  a required (non-`Option<T>`) parameter can never be left out of
+  *any* call, named or positional.
+- **An omitted parameter with no declared default becomes `None`** —
+  the same value writing `Option<T>.None` there by hand would produce.
+- **`= expr` after a parameter's type gives it a default other than
+  `None`**, used whenever that parameter is omitted
+  (`priority: Option<int> = 3`). Only legal on an `Option<T>`
+  parameter — a required parameter has no "omitted" state a default
+  could ever apply to. Don't write `= Option<T>.None` explicitly: that
+  is already the default with no `=` at all.
+- **The default expression is evaluated exactly once, before `main`
+  runs** — the same timing a global val's own initializer gets, not
+  freshly on every call that happens to omit it. Behaviorally
+  identical either way, since Ziman's values are immutable (nothing
+  about a once-computed default could ever go stale across calls), and
+  strictly cheaper computed once. Like a global val's own initializer,
+  it can't reference this function's other parameters — only whatever
+  is already in scope at program start.
+- **Wherever an `Option<T>` value is expected — a supplied argument or
+  a default expression — a bare `T` works too**, auto-wrapped to
+  `Some(T)`. An already-`Option<T>` value (or `None`) is also legal and
+  passed through unchanged. This is a deliberate, narrow exception to
+  "no implicit coercion," modeled on Rust's own `impl<T> From<T> for
+  Option<T>`: wrapping a single, statically-known type is never lossy
+  or ambiguous, unlike numeric coercion.
+- **A generic function's `Option<T>` parameter can't have a default
+  when `T` is that function's own, still-unbound type parameter** —
+  a default is evaluated once, at program start, long before any call
+  instantiates `T` with a concrete type, so there's no type left to
+  evaluate it against. Giving `Option<int>`, or any other already-
+  concrete `Option<...>`, its own default works exactly as shown above.
+
 ## Generics
 
 **Structs, enums, and functions, cross-module included** — see

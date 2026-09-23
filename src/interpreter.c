@@ -880,8 +880,37 @@ static void init_global_vals(Module *module) {
     }
 }
 
+/* Evaluates every parameter's own default expression exactly once,
+ * before `main` runs -- the same timing a global val's own initializer
+ * gets, and for the same reason (see ast.h's Param.default_key): a
+ * default can't reference this function's other parameters, only
+ * things already in scope at program start, so re-evaluating it fresh
+ * on every omitted call would produce the exact same value every time
+ * anyway, just wastefully. Must run after init_global_vals (so
+ * g_global_env already holds every ordinary global val a default
+ * expression might itself reference) and before any call that could
+ * omit one of these parameters, i.e. before `main` starts.
+ * check_function (typecheck.c) already rewrote a bare-T default into
+ * `Some(T)` in place wherever one was written -- this only ever
+ * evaluates `default_expr` as-is, exactly like any other expression, no
+ * wrapping left to do here. */
+static void init_param_defaults(Module *module) {
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *fn = module->functions.items[i];
+        for (int j = 0; j < fn->params.count; j++) {
+            Param *param = &fn->params.items[j];
+            if (param->default_expr == NULL) {
+                continue;
+            }
+            Value default_value = eval_expr(module, g_global_env, param->default_expr);
+            env_define(g_global_env, param->default_key, param->type, 0, default_value);
+        }
+    }
+}
+
 void interpret(Module *module) {
     init_global_vals(module);
+    init_param_defaults(module);
     FunctionDecl *main_fn = find_function(module, "main");
     call_function(module, main_fn, NULL, 0, main_fn->line, main_fn->col);
 }

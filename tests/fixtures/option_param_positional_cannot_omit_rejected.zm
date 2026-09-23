@@ -1,0 +1,7 @@
+fn foo(a: int, b: Option<int> = 5) -> int {
+    return a
+}
+
+fn main() {
+    print(foo(1))
+}

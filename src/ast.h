@@ -293,6 +293,30 @@ typedef struct {
      * (check_call/call_function) reads this flag directly off the
      * callee's last declared Param. */
     int is_variadic;
+    /* `= expr` after the type -- NULL for every parameter without one.
+     * Only legal on an Option<T> parameter (check_function enforces
+     * this; a struct's own fields, which also use Param, never carry
+     * one -- parse_struct_decl always leaves this NULL). Omitting an
+     * Option<T> parameter is only ever legal in a *named* call (see
+     * check_call's canonicalize_named_args), where it's filled in with
+     * either this default (auto-wrapped to Some(T) once, up front, if
+     * it was written as a bare T rather than an Option<T> already) or,
+     * when no default was written at all, `None`. */
+    Expr *default_expr;
+    /* Set at parse time whenever `default_expr` is (NULL otherwise) --
+     * a synthetic, unforgeable (contains '$', which no real Ziman
+     * identifier can) global-env key. init_param_defaults evaluates
+     * `default_expr` exactly once, before `main` runs (the same timing
+     * a global val's own initializer gets, and for the same reason:
+     * Ziman values are immutable, so evaluating once up front and
+     * evaluating fresh on every omitted call are behaviorally
+     * identical, and once is strictly cheaper), storing the result in
+     * `g_global_env` under this key; canonicalize_named_args, when it
+     * fills in an omitted argument that has a default, builds a
+     * synthetic EXPR_IDENT referencing this same key -- reusing
+     * ordinary bare-name lookup instead of inventing a way to embed an
+     * already-evaluated Value straight into the AST. */
+    char *default_key;
     int line, col;
 } Param;
 

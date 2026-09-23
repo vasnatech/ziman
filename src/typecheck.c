@@ -337,6 +337,106 @@ static int count_placeholders(Expr *fmt_expr) {
     return count;
 }
 
+/* True for `Option<T>` specifically (the prelude's own enum), never a
+ * user-declared one of some other name -- the only enum type Ziman ever
+ * lets a parameter be omitted for, or a bare unwrapped value be
+ * auto-wrapped into. */
+static int is_option_type(Type t) {
+    return t.kind == TY_ENUM && strcmp(t.enum_name, "Option") == 0;
+}
+
+/* `Option<T>`'s own `T` -- only meaningful when is_option_type(t). */
+static Type option_elem_type(Type t) {
+    return t.type_args.items[0];
+}
+
+/* Rewrites `value` (already type-checked, of type option_elem_type
+ * (option_type)) into a synthetic `Option<T>.Some(value)` node, the
+ * auto-wrap sugar an Option<T> parameter gives a bare T argument or
+ * default value (see docs/DESIGN.md's "Option<T> parameter omission and
+ * defaults" entry). Reuses ordinary enum construction (EXPR_ENUM_ACCESS)
+ * wholesale -- eval_enum_access in interpreter.c needs no changes at all
+ * to evaluate this exactly like a `Some(...)` a person wrote by hand. */
+static Expr *wrap_bare_in_some(Expr *value, Type option_type) {
+    Expr *e = expr_new(EXPR_ENUM_ACCESS, value->line, value->col);
+    e->as.enum_access.enum_name = "Option";
+    e->as.enum_access.member_name = "Some";
+    expr_list_push(&e->as.enum_access.args, value);
+    e->as.enum_access.has_parens = 1;
+    e->as.enum_access.type_args = option_type.type_args;
+    e->resolved_type = option_type;
+    return e;
+}
+
+/* The implicit default an omitted Option<T> parameter gets when its
+ * declaration gave no `= expr` of its own -- a synthetic
+ * `Option<T>.None`, again reusing ordinary enum construction as-is. */
+static Expr *make_none_expr(Type option_type, int line, int col) {
+    Expr *e = expr_new(EXPR_ENUM_ACCESS, line, col);
+    e->as.enum_access.enum_name = "Option";
+    e->as.enum_access.member_name = "None";
+    e->as.enum_access.type_args = option_type.type_args;
+    e->resolved_type = option_type;
+    return e;
+}
+
+/* The implicit value an omitted Option<T> parameter gets when its
+ * declaration *did* give a `= expr` default -- a synthetic reference to
+ * the global-env slot init_param_defaults (interpreter.c) will have
+ * already filled in, once, before `main` runs, under this exact key
+ * (see ast.h's Param.default_key). Reuses ordinary bare-name lookup
+ * (EXPR_IDENT) wholesale: nothing in check_call's own env can ever
+ * define a same-named local (the key contains '$', unforgeable by any
+ * real Ziman identifier), so it always falls through to g_global_env,
+ * exactly the way a bare reference to a real global val already does. */
+static Expr *make_default_ref_expr(Param *param, int line, int col) {
+    Expr *e = expr_new(EXPR_IDENT, line, col);
+    e->as.ident_name = param->default_key;
+    e->resolved_type = param->type;
+    return e;
+}
+
+/* Checks `*arg_slot` against `param_type`; when `param_type` is
+ * `Option<T>`, a bare `T` value is legal too and gets rewritten in place
+ * into `Some(T)` (see wrap_bare_in_some) -- the "either T or Option<T>,
+ * both work" rule agreed for Option<T> parameters, needed by both an
+ * explicitly supplied argument and a parameter's own default expression
+ * (this function's two callers). Every other parameter type keeps
+ * check_call's always-exact-match behavior, unchanged. Returns 1 and
+ * leaves `*out_arg_type` untouched on success; returns 0 and sets
+ * `*out_arg_type` to the value's actual type so the caller (which knows
+ * whether it's reporting a bad argument or a bad default) can build its
+ * own error message. */
+static int check_value_against_param_type(Module *module, Env *env, Expr **arg_slot, Type param_type, Type *out_arg_type) {
+    Expr *arg = *arg_slot;
+    Type arg_type;
+    /* A fresh (never-checked) Expr's resolved_type is always TY_VOID
+     * (see expr_new) until check_expr fills it in -- the one exception
+     * is a synthetic node canonicalize_named_args built for an omitted
+     * Option<T> parameter (make_none_expr/make_default_ref_expr), which
+     * sets resolved_type up front, to exactly this parameter's own
+     * type, at construction time. Re-running check_expr on one would,
+     * at best, redo work for nothing; for a default-value reference in
+     * particular it would actively fail, since the global-env slot it
+     * names isn't defined until interpretation starts (init_param_defaults),
+     * long after type-checking is done. */
+    if (arg->resolved_type.kind != TY_VOID) {
+        arg_type = arg->resolved_type;
+    } else {
+        arg_type = check_expr(module, env, arg);
+        require_not_void(arg, "as an argument");
+    }
+    if (type_equals(arg_type, param_type)) {
+        return 1;
+    }
+    if (is_option_type(param_type) && type_equals(arg_type, option_elem_type(param_type))) {
+        *arg_slot = wrap_bare_in_some(arg, param_type);
+        return 1;
+    }
+    *out_arg_type = arg_type;
+    return 0;
+}
+
 /* Hardcoded core builtins (see README.md's "Builtins ship two ways")
  * each have exactly one fixed signature already special-cased below by
  * name, not an ordinary declared FunctionDecl -- so there's no
@@ -354,20 +454,22 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * interpreter) already expects -- so nothing past this point ever needs
  * to know a call was written with names at all. Requires the given
  * names to be exactly `fn`'s declared parameter names, each appearing
- * once; no omission yet (every parameter must still be supplied here --
- * Option<T> parameter omission is a separate, later feature that will
- * relax this). */
+ * at most once (a duplicate is always rejected, even for an Option<T>
+ * parameter -- there's no reading of `f(x: 1, x: 2)` that isn't a
+ * mistake). An Option<T> parameter may be left out entirely (never a
+ * non-Option one, which has no "absent" state to fall back to) -- a
+ * missing one is filled in with a synthetic reference to its own
+ * default (make_default_ref_expr) when its declaration gave one, or a
+ * synthetic `None` (make_none_expr) when it didn't, so this function's
+ * one remaining job -- filling `e->as.call.args` to exactly
+ * `fn->params.count`, in order -- always finishes the same way whether
+ * or not any parameter was actually omitted. */
 static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
     char **names = e->as.call.arg_names;
     if (names == NULL) {
         return;
     }
     int argc = e->as.call.args.count;
-    if (argc != fn->params.count) {
-        ziman_error("type", e->line, e->col,
-                    "function '%s' expects %d named argument(s), found %d",
-                    e->as.call.callee, fn->params.count, argc);
-    }
     Expr **reordered = malloc((size_t)fn->params.count * sizeof(Expr *));
     for (int i = 0; i < fn->params.count; i++) {
         reordered[i] = NULL;
@@ -393,9 +495,22 @@ static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
         reordered[param_index] = e->as.call.args.items[i];
     }
     for (int i = 0; i < fn->params.count; i++) {
-        e->as.call.args.items[i] = reordered[i];
+        if (reordered[i] != NULL) {
+            continue;
+        }
+        Param *param = &fn->params.items[i];
+        if (!is_option_type(param->type)) {
+            ziman_error("type", e->line, e->col,
+                        "function '%s' is missing required argument '%s'",
+                        e->as.call.callee, param->name);
+        }
+        reordered[i] = param->default_expr != NULL
+                           ? make_default_ref_expr(param, e->line, e->col)
+                           : make_none_expr(param->type, e->line, e->col);
     }
-    free(reordered);
+    e->as.call.args.items = reordered;
+    e->as.call.args.count = fn->params.count;
+    e->as.call.args.capacity = fn->params.count;
     e->as.call.arg_names = NULL;
 }
 
@@ -706,11 +821,15 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         ziman_error("type", e->line, e->col, "function '%s' expects %d argument(s), found %d", name, fn->params.count, e->as.call.args.count);
     }
     for (int i = 0; i < fixed_count; i++) {
-        Expr *arg = e->as.call.args.items[i];
-        Type arg_type = check_expr(module, env, arg);
-        require_not_void(arg, "as an argument");
         Type expected = substitute_type(fn->params.items[i].type, &fn->type_params, type_args);
-        if (!type_equals(arg_type, expected)) {
+        Type arg_type;
+        if (!check_value_against_param_type(module, env, &e->as.call.args.items[i], expected, &arg_type)) {
+            Expr *arg = e->as.call.args.items[i];
+            if (is_option_type(expected)) {
+                ziman_error("type", arg->line, arg->col,
+                            "argument %d of '%s' expects %s or %s, found %s",
+                            i + 1, name, type_name(expected), type_name(option_elem_type(expected)), type_name(arg_type));
+            }
             ziman_error("type", arg->line, arg->col,
                         "argument %d of '%s' expects %s, found %s",
                         i + 1, name, type_name(expected), type_name(arg_type));
@@ -1473,6 +1592,33 @@ static void check_function(Module *module, FunctionDecl *fn) {
         Type bound_type = param->is_variadic ? type_array(param->type) : param->type;
         if (!env_define(env, param->name, bound_type, 0 /* params are immutable */, value_int(0))) {
             ziman_error("type", param->line, param->col, "duplicate parameter name '%s'", param->name);
+        }
+        /* A default value is only legal on an Option<T> parameter -- a
+         * plain required parameter has no "absent" state a default
+         * could ever stand in for, since it can never be omitted from a
+         * call at all. Checked against g_global_env, not this
+         * function's own `env` above: same restriction a global val's
+         * own initializer already has (see docs/DESIGN.md's "Global
+         * val" entry), since a default is sugar for one, evaluated once
+         * before `main` runs -- long before any particular call, or any
+         * of this function's *other* parameters, exist to reference. */
+        if (param->default_expr != NULL) {
+            if (!is_option_type(param->type)) {
+                ziman_error("type", param->default_expr->line, param->default_expr->col,
+                            "a default value is only legal for an Option<T> parameter (parameter '%s' is %s)",
+                            param->name, type_name(param->type));
+            }
+            if (option_elem_type(param->type).kind == TY_TYPEVAR) {
+                ziman_error("type", param->default_expr->line, param->default_expr->col,
+                            "parameter '%s' can't have a default value -- its Option<T> isn't a concrete type yet here (T is this function's own generic type parameter, not known until a call instantiates it)",
+                            param->name);
+            }
+            Type arg_type;
+            if (!check_value_against_param_type(module, g_global_env, &param->default_expr, param->type, &arg_type)) {
+                ziman_error("type", param->default_expr->line, param->default_expr->col,
+                            "default value for parameter '%s' expects %s or %s, found %s",
+                            param->name, type_name(param->type), type_name(option_elem_type(param->type)), type_name(arg_type));
+            }
         }
     }
     /* Lets type_supports_equality's TY_TYPEVAR case (above) know whether a

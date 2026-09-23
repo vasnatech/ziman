@@ -178,10 +178,18 @@ docs/DESIGN.md's "Variadic parameters" entry). Any call — to a
 arguments instead of listing them positionally
 (`localtime_of(hour: 1, minute: 2, second: 3, nano: 4)`, in any order),
 reusing struct-literal `name: value` syntax; a call must be entirely
-positional or entirely named, the label must match the parameter's own
-declared name, and every parameter still has to be given exactly once
-(see docs/DESIGN.md's "Named arguments" entry — parameter omission is a
-separate, later feature). The prelude isn't native-only, though: `Option<T>` (plus
+positional or entirely named, and the label must match the parameter's
+own declared name (see docs/DESIGN.md's "Named arguments" entry). A
+named call may also leave out an `Option<T>`-typed parameter entirely
+(never a required one, and never in a positional call) — it becomes
+`None`, or whatever the declaration's own `= expr` default says instead
+(`priority: Option<int> = 3`), evaluated once, before `main` runs, the
+same timing a global val's own initializer gets. Wherever an
+`Option<T>` value is expected, a bare `T` works too, auto-wrapped to
+`Some(T)` — a deliberate, narrow exception to "no implicit coercion,"
+modeled on Rust's own `impl<T> From<T> for Option<T>` (see
+docs/DESIGN.md's "Option\<T\> parameter omission and defaults" entry).
+The prelude isn't native-only, though: `Option<T>` (plus
 one helper, `option_unwrap_or`) lives there too, as ordinary Ziman
 source — an enum, not a hardcoded primitive like `Result<T, E>` is —
 merged bare into every program the same way the entry file's own

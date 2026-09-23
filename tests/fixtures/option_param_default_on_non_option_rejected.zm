@@ -1,0 +1,7 @@
+fn foo(a: int = 5) -> int {
+    return a
+}
+
+fn main() {
+    print(foo(a: 1))
+}

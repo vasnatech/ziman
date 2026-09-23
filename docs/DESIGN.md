@@ -1204,6 +1204,91 @@ several languages rather than inheriting any one of them wholesale.
   single-trailing-argument case variadic calls already have: either the
   element type or the whole array type, decided the same way `sum(nums)`
   already is.
+- **`Option<T>` parameter omission and defaults — stage three, and the
+  first of the four stages that lets a call leave an argument out.**
+  Legal only for an `Option<T>`-typed parameter, and only in a named
+  call — a positional call stays exactly as strict as it always was
+  (every parameter, in order, no exceptions), since there's no label to
+  hang the omission on otherwise, and a required parameter never gets
+  an "absent" state to fall back to no matter how it's called.
+  **An omitted parameter with no declared default becomes `None`; a
+  declared `= expr` default is used instead when there is one**
+  (`priority: Option<int> = 3`) — explicitly *not* `= Option<int>.None`
+  for the no-override case, since that's already what an omitted
+  parameter becomes with no `=` written at all; spelling it out would
+  just be a longer way to say nothing new.
+  **The default is evaluated exactly once, before `main` runs — sugar
+  for a hidden global val, reusing that timing rather than its actual
+  machinery.** Once-vs-per-omitted-call is behaviorally identical here
+  specifically because Ziman's values are immutable (there's no
+  Python-style "mutable default" trap where a single shared instance
+  could accumulate state across calls), so once is strictly cheaper
+  with nothing given up; like a global val's own initializer, a default
+  expression can't reference this function's other parameters, only
+  whatever's already in scope at program start.
+  **Wherever an `Option<T>` value is expected — a supplied argument or
+  a default expression — a bare `T` is legal too, auto-wrapped to
+  `Some(T)`.** Modeled directly on Rust's own `impl<T> From<T> for
+  Option<T>` / `Into<Option<T>>`-bounded parameters: despite being at
+  least as strict about implicit coercion as Ziman is everywhere else,
+  Rust carves out exactly this one exception, because wrapping a
+  single, statically-known type is never lossy or ambiguous the way
+  numeric coercion (`int` silently becoming `float`, say) would be —
+  the same reasoning applies here unchanged. An already-`Option<T>`
+  value keeps working too, so nothing that used to type-check stops.
+  Mechanically, this reuses two patterns already established by the
+  first two stages rather than adding new ones. First, the
+  "resolve once, rewrite the AST, the interpreter never finds out"
+  pattern named arguments already use: a bare `T` argument or default
+  is rewritten in place, during type-checking, into a synthetic
+  `Option<T>.Some(...)` node (`wrap_bare_in_some`) that reuses ordinary
+  enum construction (`EXPR_ENUM_ACCESS`) wholesale — `eval_enum_access`
+  in `interpreter.c` needed zero changes to evaluate it exactly like a
+  `Some(...)` a person wrote by hand, and the same trick builds the
+  synthetic `None` an omitted-with-no-default parameter gets
+  (`make_none_expr`). Second, a genuinely new problem needed a genuinely
+  new (but still small) piece: a default has to be evaluated once, at
+  program start, then handed to however many later calls omit that
+  parameter, which means smuggling an already-computed runtime `Value`
+  into the AST somehow, without giving `ast.h` (which `value.h` itself
+  depends on) any way to know what a `Value` even is. Solved by giving
+  each `Param` with a default a synthesized, globally-unique,
+  unforgeable key (`default_key` — unforgeable because it contains `$`,
+  a character no real Ziman identifier can ever contain), evaluating
+  its default into `g_global_env` under that key exactly once, in a new
+  `init_param_defaults` (interpreter.c, run right after
+  `init_global_vals`, before `main`) — and then, when a call omits that
+  parameter, building a synthetic `EXPR_IDENT` node referencing the same
+  key (`make_default_ref_expr`) rather than inventing a new "embedded
+  value" AST node kind. Ordinary bare-name lookup (`env_lookup`'s
+  parent-chain walk, already used by every real global val reference)
+  does the rest with no interpreter changes at all.
+  One sequencing wrinkle the first version of this got wrong: a
+  synthetic node is built already fully resolved (`resolved_type` set
+  directly, at construction), specifically so nothing re-typechecks it
+  later, since a default-reference node's key isn't even defined in
+  `g_global_env` until *interpretation* starts — re-running `check_expr`
+  on it during type-checking would look it up in the wrong environment
+  entirely and fail. Fixed by having the shared argument-checking
+  helper (`check_value_against_param_type`) treat a non-`TY_VOID`
+  `resolved_type` at the time it *first* sees an argument slot as proof
+  it's looking at one of these synthetic nodes already-resolved by
+  construction (an ordinary freshly-parsed argument is always `TY_VOID`
+  until `check_expr` fills it in — see `ast.h`'s `Expr.resolved_type`
+  comment) — reusing an existing convention as an implicit "already
+  checked" marker rather than adding an explicit flag for it.
+  A generic function's `Option<T>` parameter can't have a default when
+  its `T` is that function's own still-unbound type parameter (checked
+  via the element type's `TY_TYPEVAR` kind) — a default is evaluated
+  once, at program start, long before any call supplies a concrete type
+  argument, so there's no concrete type yet to evaluate the default
+  against. A variadic parameter can't have a default at all (rejected
+  at parse time) — the two features don't combine into anything
+  meaningful, and "omitted" already has an existing, unrelated meaning
+  for a variadic parameter (zero trailing arguments, legal today,
+  nothing to do with `Option<T>`).
+  `Result<T, E>` bare-value auto-wrapping is the fourth and last stage
+  of this conversation, still to come.
 
 ## Deliberately deferred (not v0)
 

@@ -1,0 +1,7 @@
+fn wrap_or<T>(value: T, fallback: Option<T> = 0) -> T {
+    return value
+}
+
+fn main() {
+    print(wrap_or<int>(1))
+}
