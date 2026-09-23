@@ -1,0 +1,35 @@
+// crypto.zm -- just enough cryptography to speak SCRAM-SHA-256 (the
+// authentication Postgres uses by default): SHA-256, HMAC-SHA-256,
+// PBKDF2-HMAC-SHA-256, base64, and a byte-wise XOR (Ziman has no bitwise
+// operators). All native, self-contained (no libcrypto), and checked
+// against the published RFC test vectors -- see tests/fixtures/crypto_*.
+//
+// This is deliberately not a general-purpose crypto library: it is not
+// constant-time, offers no randomness (use `random.random_bytes`), and
+// has no ciphers or public-key operations. It exists so a database
+// driver can authenticate, and grows only when a real consumer needs
+// more. PBKDF2 is native because a few thousand iterations is tens of
+// thousands of compression-function calls -- hopeless in a tree-walking
+// interpreter, and needed on every connection.
+
+use number.byte_to_hex
+
+pub native fn sha256(data: [byte]) -> [byte]
+pub native fn hmac_sha256(key: [byte], data: [byte]) -> [byte]
+pub native fn pbkdf2_hmac_sha256(password: [byte], salt: [byte], iterations: int, length: int) -> [byte]
+
+// Byte-wise XOR of two equal-length arrays (a runtime error if the
+// lengths differ).
+pub native fn bytes_xor(a: [byte], b: [byte]) -> [byte]
+
+pub native fn base64_encode(data: [byte]) -> string
+pub native fn base64_decode(s: string) -> Result<[byte], string>
+
+// Lowercase hex, two digits per byte.
+pub fn bytes_to_hex(data: [byte]) -> string {
+    val sb = sb_new()
+    for b in data {
+        sb_append(sb, byte_to_hex(b))
+    }
+    return sb_to_string(sb)
+}

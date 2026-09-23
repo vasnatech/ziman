@@ -1,0 +1,4 @@
+trust_user
+clear_user
+database connection error: password authentication failed for user "clear_user"
+ziman

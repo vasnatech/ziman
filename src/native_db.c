@@ -372,6 +372,7 @@ static Value native_db_float_to_text(Value *args, int argc, int line, int col) {
 
 void native_db_register(void) {
     native_register("db::float_to_text", native_db_float_to_text);
+    native_register("pg::float_to_text", native_db_float_to_text);
     native_register("db::open_raw", native_db_open_raw);
     native_register("db::close_raw", native_db_close_raw);
     native_register("db::execute_raw", native_db_execute_raw);

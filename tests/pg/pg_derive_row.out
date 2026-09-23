@@ -1,0 +1,12 @@
+true
+Ada
+A
+true
+false
+true
+0.1
+true
+false
+30
+false
+constraint violation: duplicate key value violates unique constraint "people_pkey"

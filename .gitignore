@@ -4,3 +4,4 @@ src/*.o
 src/*.d
 *.d
 src/*_source.h
+tests/pg/.url

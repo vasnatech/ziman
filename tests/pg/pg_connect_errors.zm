@@ -1,0 +1,31 @@
+use io
+use db
+use sql.DbError
+use sql.db_error_message
+
+fn show(r: Result<db.Connection, DbError>) {
+    print(is_ok(r))
+    print(db_error_message(unwrap_err(r)))
+}
+
+fn main() {
+    val url = trim(unwrap(io.read_file("tests/pg/.url")))
+    // wrong password (SQLSTATE 28P01)
+    show(db.open("postgres://ziman:wrong@127.0.0.1:55432/zimandb"))
+    // unknown user, unknown database
+    show(db.open("postgres://nobody:secret@127.0.0.1:55432/zimandb"))
+    show(db.open("postgres://ziman:secret@127.0.0.1:55432/no_such_db"))
+    // nothing listening
+    show(db.open("postgres://ziman:secret@127.0.0.1:1/zimandb"))
+    // TLS is refused rather than silently downgraded
+    show(db.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=require"))
+    // malformed URLs
+    show(db.open("postgres://@127.0.0.1/db"))
+    show(db.open("postgres://u:p@127.0.0.1:notaport/db"))
+    // percent-encoded credentials decode ("s%65cret" == "secret")
+    val ok = db.open("postgres://ziman:s%65cret@127.0.0.1:55432/zimandb?sslmode=disable")
+    print(is_ok(ok))
+    if is_ok(ok) {
+        db.close(unwrap(ok))
+    }
+}

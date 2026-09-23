@@ -1,0 +1,15 @@
+false
+database connection error: password authentication failed for user "ziman"
+false
+database connection error: password authentication failed for user "nobody"
+false
+database connection error: database "no_such_db" does not exist
+false
+database connection error: connection refused: Connection refused
+false
+database connection error: TLS is not supported yet (sslmode=require/verify-*); use sslmode=disable
+false
+database connection error: database URL has no user name
+false
+database connection error: bad port in database URL: notaport
+true

@@ -1,0 +1,17 @@
+use crypto
+use bytes
+
+fn h(s: string) -> string {
+    return crypto.bytes_to_hex(crypto.sha256(bytes.string_to_bytes(s)))
+}
+
+fn main() {
+    // FIPS 180-4 / NIST vectors
+    print(h(""))
+    print(h("abc"))
+    print(h("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))
+    // multi-block boundary (55, 56, 64 bytes)
+    print(h("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+    print(h("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+    print(h("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+}

@@ -992,24 +992,26 @@ a time mid-implementation:
   JSON key, or a future `#[derive(Validate)]`-style per-field
   constraint).
 
-- **Database access beyond SQLite.** `db`/`sql`, `#[derive(Row)]` and now
-  `net` (blocking TCP) exist; SQLite is the one `db` backend (docs/
-  DESIGN.md's "`db`/`sql`" and "`net`" entries). Still open: (1) a
-  **`crypto` module** (SHA-256, HMAC, PBKDF2; MD5 for older servers) --
-  Postgres's default SCRAM-SHA-256 authentication needs it; (2) a
-  **Postgres driver written in Ziman** behind the same `db.open` -- the
-  wire protocol (startup, the extended query protocol for bound
-  parameters, result decoding), on `net` + `bytes`; (3) **TLS**, if a
-  hosted database ever needs it (a `tls` module wrapping a `Socket`,
-  linking a TLS library); (4) **scoped cleanup** -- something like `defer
-  close(s)`: no destructors means a `?` returning early leaks a socket
-  or leaves a transaction open, and no closures means no
-  `with_transaction(fn)`; one design would fix both `net` and `db`; (5) a
-  **connection pool**, since one connection serializes every call; (6)
+- **Database access follow-ups.** `db`/`sql`, `#[derive(Row)]`, `net`,
+  `crypto` and a Postgres driver (`pg`) exist (docs/DESIGN.md's `db`/`sql`,
+  `net` and `crypto`/`pg` entries); SQLite and Postgres are the two
+  backends. Still open: (1) **TLS** -- a `sslmode=require` URL is
+  refused today; hosted Postgres needs it (a `tls` module wrapping a
+  `Socket`, linking a TLS library); (2) **scoped cleanup** -- something
+  like `defer close(s)`: no destructors means a `?` returning early leaks
+  a socket or leaves a transaction open, and no closures means no
+  `with_transaction(fn)`; one design would fix both `net` and `db`; (3) a
+  **connection pool**, since one connection serialises every call; (4)
   **schema management/migrations**, currently a plain `create_schema`
-  script per repository; (7) per-field `#[derive(Row)]` annotations
+  script per repository; (5) per-field `#[derive(Row)]` annotations
   (column-name override, primary key, generated columns) -- the same
-  deferred per-field-annotation gap `#[derive(Json)]` documents.
+  deferred per-field-annotation gap `#[derive(Json)]` documents; (6)
+  Postgres gaps: MD5 authentication, prepared-statement reuse, COPY,
+  LISTEN/NOTIFY, IPv6 literals in the URL, SASLprep, and decoding native
+  `timestamptz`/`date`/`uuid`/`numeric` columns into their Ziman types
+  rather than through `Text`; (7) **performance** on big result sets --
+  `[byte]` is an array of interpreter values, so a packed byte-buffer
+  type would help the driver as much as `net`.
 - **`net` follow-ups.** A packed byte-buffer type (`[byte]` is an array
   of interpreter values -- wasteful for bulk data), Unix-domain sockets
   (local Postgres often uses one), UDP, and a connect timeout beyond the

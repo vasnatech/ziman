@@ -1,0 +1,74 @@
+use io
+use db
+use sql.SqlValue
+use sql.DbError
+use sql.Row
+use sql.row_get
+use sql.sql_as_text
+use sql.sql_as_int
+use sql.sql_as_bool
+use sql.sql_as_float
+use sql.db_error_message
+
+fn field(row: Row, name: string) -> SqlValue {
+    return unwrap(row_get(row, name))
+}
+
+fn main() {
+    val url = trim(unwrap(io.read_file("tests/pg/.url")))
+    val conn = unwrap(db.open(url))
+
+    // ---- DDL script (several statements, no params) and every value kind
+    unwrap(db.execute(conn, "DROP TABLE IF EXISTS pg_t; DROP TABLE IF EXISTS pg_u", []))
+    unwrap(db.execute(conn, "CREATE TABLE pg_t (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, score DOUBLE PRECISION, ok BOOLEAN, flag INTEGER, note TEXT, blob BYTEA); CREATE TABLE pg_u (id INTEGER PRIMARY KEY, t_id INTEGER NOT NULL REFERENCES pg_t(id))", []))
+    print(unwrap(db.execute(conn, "INSERT INTO pg_t (id, name, score, ok, flag, note, blob) VALUES ($1, $2, $3, $4, $5, $6, $7)", [SqlValue.Int(1), SqlValue.Text("Ada | 'x' \"q\" \\ line\nbreak"), SqlValue.Float(0.1), SqlValue.Bool(true), SqlValue.Bool(false), SqlValue.Null, SqlValue.Bytes([0b, 1b, 255b, 16b])])))
+    print(unwrap(db.execute(conn, "INSERT INTO pg_t (id, name) VALUES ($1, $2)", [SqlValue.Int(2), SqlValue.Text("héllo wörld ✓")])))
+
+    val rows = unwrap(db.query(conn, "SELECT * FROM pg_t ORDER BY id", []))
+    print(len(rows))
+    val a = rows[0]
+    print(unwrap(sql_as_text(field(a, "name"))))
+    print(unwrap(sql_as_float(field(a, "score"))))
+    print(unwrap(sql_as_bool(field(a, "ok"))))
+    print(unwrap(sql_as_bool(field(a, "flag"))))
+    print(SqlValue.is_Null(field(a, "note")))
+    print(len(SqlValue.unwrap_Bytes(field(a, "blob"))))
+    print(SqlValue.unwrap_Bytes(field(a, "blob")) == [0b, 1b, 255b, 16b])
+    print(SqlValue.is_Null(field(rows[1], "score")))
+    print(unwrap(sql_as_text(field(rows[1], "name"))))
+    print(unwrap(sql_as_int(field(a, "id"))))
+
+    // ---- parameters bind by number, out of order
+    val ordered = unwrap(db.query(conn, "SELECT name FROM pg_t WHERE id = $2 AND name <> $1", [SqlValue.Text("nobody"), SqlValue.Int(2)]))
+    print(len(ordered))
+    print(len(unwrap(db.query(conn, "SELECT * FROM pg_t WHERE id = $1", [SqlValue.Int(99)]))))
+
+    // ---- error classification
+    print(db_error_message(unwrap_err(db.execute(conn, "INSERT INTO pg_t (id, name) VALUES (3, $1)", [SqlValue.Text("héllo wörld ✓")]))))
+    print(DbError.is_Constraint(unwrap_err(db.execute(conn, "INSERT INTO pg_u (id, t_id) VALUES (1, 99)", []))))
+    print(DbError.is_Constraint(unwrap_err(db.execute(conn, "INSERT INTO pg_t (id, name) VALUES ($1, NULL)", [SqlValue.Int(5)]))))
+    print(DbError.is_Sql(unwrap_err(db.query(conn, "SELEKT 1", []))))
+    print(DbError.is_Sql(unwrap_err(db.query(conn, "SELECT * FROM pg_t WHERE id = $1", []))))
+    // the connection is still in step after every one of those errors
+    print(len(unwrap(db.query(conn, "SELECT 1 AS n", []))))
+
+    // ---- transactions
+    unwrap(db.begin(conn))
+    unwrap(db.execute(conn, "DELETE FROM pg_t WHERE id = $1", [SqlValue.Int(2)]))
+    unwrap(db.rollback(conn))
+    print(len(unwrap(db.query(conn, "SELECT * FROM pg_t", []))))
+    unwrap(db.begin(conn))
+    print(is_ok(db.execute(conn, "INSERT INTO pg_t (id, name) VALUES (1, 'dup')", [])))
+    // a failed statement aborts the transaction; rollback recovers it
+    print(is_ok(db.query(conn, "SELECT 1", [])))
+    unwrap(db.rollback(conn))
+    print(is_ok(db.query(conn, "SELECT 1", [])))
+
+    // ---- a larger result set
+    unwrap(db.execute(conn, "INSERT INTO pg_t (id, name) SELECT g, 'row' || g FROM generate_series(100, 299) AS g", []))
+    print(len(unwrap(db.query(conn, "SELECT * FROM pg_t WHERE id >= 100", []))))
+    print(unwrap(db.execute(conn, "DELETE FROM pg_t WHERE id >= 100", [])))
+
+    unwrap(db.execute(conn, "DROP TABLE pg_u; DROP TABLE pg_t", []))
+    db.close(conn)
+}

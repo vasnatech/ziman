@@ -1,0 +1,648 @@
+// pg.zm -- a PostgreSQL client, the second backend behind the `db`
+// module (`db.open("postgres://user:password@host:port/database")`).
+// Written in Ziman on top of `net` (TCP), `bytes` (message framing) and
+// `crypto` (SCRAM-SHA-256); nothing here is native but the exact float
+// formatting. It speaks protocol version 3.0.
+//
+// What it supports: trust, cleartext-password and SCRAM-SHA-256
+// authentication (the default since Postgres 14); the simple query
+// protocol for parameterless statements (which also lets `execute` take a
+// `;`-separated DDL script) and the extended protocol (Parse/Bind/
+// Describe/Execute/Sync) for statements with bound `$1, $2, ...`
+// parameters -- values always travel as parameters, never spliced into the
+// SQL. Everything is exchanged in text format, so a value's meaning comes
+// from the result column's type OID: integers, floats, booleans and bytea
+// become the matching `SqlValue`, and everything else (text, uuid, dates
+// and timestamps, numeric, json, ...) arrives as `Text` and is converted
+// by the mapping layer, exactly as it is for SQLite.
+//
+// What it does not: TLS (a `sslmode=require` URL is refused rather than
+// silently downgraded), MD5 authentication (deprecated; removed as the
+// default in Postgres 14), Kerberos/GSS, IPv6 literals in the URL, the
+// COPY protocol, LISTEN/NOTIFY, prepared-statement reuse (every
+// parameterised statement is parsed afresh), or SASLprep normalisation of
+// a non-ASCII password. `[byte]` is an array of interpreter values, so
+// very large result sets are slow -- see docs/ROADMAP.md.
+//
+// One connection is owned by one spawned thread and driven through a
+// channel of requests -- Ziman has no mutex, and the protocol is strictly
+// request/response, so a lone owner thread is what serialises concurrent
+// callers (each blocks on its own reply channel). That also means there
+// is no lock a `?` returning early can leave held. A *transaction* is
+// still per-connection state on the server: statements from other
+// threads interleave inside it, as documented for `db`.
+
+use net
+use net.Socket
+use net.net_error_message
+use bytes.string_to_bytes
+use bytes.bytes_to_string
+use bytes.bytes_concat
+use bytes.bytes_slice
+use bytes.u16_to_bytes
+use bytes.u32_to_bytes
+use bytes.u16_from_bytes
+use bytes.u32_from_bytes
+use crypto.sha256
+use crypto.hmac_sha256
+use crypto.pbkdf2_hmac_sha256
+use crypto.bytes_xor
+use crypto.base64_encode
+use crypto.base64_decode
+use crypto.bytes_to_hex
+use random.random_bytes
+use number.byte_from_hex
+use sql.SqlValue
+use sql.DbError
+use sql.Row
+
+pub struct QueryResult {
+    rows: [Row]
+    affected: int
+}
+
+pub struct RunRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<QueryResult, DbError>>
+}
+
+pub enum Request {
+    Run(RunRequest)
+    Close
+}
+
+struct Message {
+    kind: string
+    body: [byte]
+}
+
+struct PgUrl {
+    user: string
+    password: string
+    host: string
+    port: int
+    database: string
+}
+
+pub native fn float_to_text(f: float) -> string
+
+// ---------------------------------------------------------------- helpers
+
+fn lift<T>(r: Result<T, net.NetError>) -> Result<T, DbError> {
+    if !is_ok(r) {
+        return err(DbError.Connection(net_error_message(unwrap_err(r))))
+    }
+    return unwrap(r)
+}
+
+fn conn_err(message: string) -> DbError {
+    return DbError.Connection(message)
+}
+
+fn cstring(s: string) -> [byte] {
+    return bytes_concat(string_to_bytes(s), [0b])
+}
+
+fn text_of(b: [byte], start: int, end: int) -> string {
+    return unwrap(bytes_to_string(bytes_slice(b, start, end)))
+}
+
+// Index of the 0 byte at or after `start`.
+fn cstring_end(b: [byte], start: int) -> int {
+    var i = start
+    while i < len(b) && b[i] != 0b {
+        i = i + 1
+    }
+    return i
+}
+
+fn send_message(sock: Socket, kind: string, body: [byte]) -> Result<int, DbError> {
+    return lift<int>(net.write(sock, bytes_concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)))
+}
+
+fn read_message(sock: Socket) -> Result<Message, DbError> {
+    val header = lift<[byte]>(net.read_exact(sock, 5))?
+    val length = u32_from_bytes(header, 1)
+    val body = lift<[byte]>(net.read_exact(sock, length - 4))?
+    return Message { kind: text_of(header, 0, 1), body: body }
+}
+
+// An ErrorResponse: fields of (code byte, cstring) until a 0. 'C' is the
+// five-character SQLSTATE, 'M' the human-readable message. SQLSTATE
+// class 23 is an integrity-constraint violation (unique, foreign key,
+// not null, check); class 08 is a connection exception.
+fn parse_error(body: [byte]) -> DbError {
+    var code = ""
+    var message = "unknown error"
+    var pos = 0
+    while pos < len(body) && body[pos] != 0b {
+        val field = text_of(body, pos, pos + 1)
+        val end = cstring_end(body, pos + 1)
+        val value = text_of(body, pos + 1, end)
+        if field == "C" {
+            code = value
+        } else if field == "M" {
+            message = value
+        }
+        pos = end + 1
+    }
+    val class = substring(concat(code, "00"), 0, 2)
+    if class == "23" {
+        return DbError.Constraint(message)
+    }
+    if class == "08" || class == "28" || class == "3D" {
+        return DbError.Connection(message)
+    }
+    return DbError.Sql(message)
+}
+
+// ------------------------------------------------------------ URL parsing
+
+fn percent_decode(s: string) -> Result<string, DbError> {
+    val out = ab_new<byte>()
+    var i = 0
+    while i < len(s) {
+        val c = substring(s, i, i + 1)
+        if c == "%" && i + 3 <= len(s) {
+            val b = byte_from_hex(substring(s, i + 1, i + 3))
+            if !is_ok(b) {
+                return err(conn_err(concat("bad %-escape in database URL: ", s)))
+            }
+            ab_append<byte>(out, unwrap(b))
+            i = i + 3
+        } else {
+            for b in string_to_bytes(c) {
+                ab_append<byte>(out, b)
+            }
+            i = i + 1
+        }
+    }
+    val text = bytes_to_string(ab_to_array<byte>(out))
+    if !is_ok(text) {
+        return err(conn_err("database URL decodes to text containing a NUL byte"))
+    }
+    return unwrap(text)
+}
+
+fn join_from(parts: [string], start: int, sep: string) -> string {
+    val rest = ab_new<string>()
+    var i = start
+    while i < len(parts) {
+        ab_append<string>(rest, parts[i])
+        i = i + 1
+    }
+    return join(separator: sep, pieces: ab_to_array<string>(rest))
+}
+
+// postgres://user[:password]@host[:port]/database[?sslmode=...]
+fn parse_url(url: string) -> Result<PgUrl, DbError> {
+    var rest = ""
+    if len(url) >= 11 && substring(url, 0, 11) == "postgres://" {
+        rest = substring(url, 11, len(url))
+    } else if len(url) >= 13 && substring(url, 0, 13) == "postgresql://" {
+        rest = substring(url, 13, len(url))
+    } else {
+        return err(conn_err(concat("not a postgres URL: ", url)))
+    }
+
+    var path_and_query = ""
+    var authority = rest
+    val slash = split(rest, "/")
+    if len(slash) > 1 {
+        authority = slash[0]
+        path_and_query = join_from(slash, 1, "/")
+    }
+    var database = path_and_query
+    if contains(path_and_query, "?") {
+        val q = split(path_and_query, "?")
+        database = q[0]
+        val query = join_from(q, 1, "?")
+        if contains(query, "sslmode=require") || contains(query, "sslmode=verify") {
+            return err(conn_err("TLS is not supported yet (sslmode=require/verify-*); use sslmode=disable"))
+        }
+    }
+
+    val at = split(authority, "@")
+    var userinfo = ""
+    var hostport = authority
+    if len(at) > 1 {
+        userinfo = at[0]
+        hostport = at[len(at) - 1]
+    }
+    var user = userinfo
+    var password = ""
+    if contains(userinfo, ":") {
+        val up = split(userinfo, ":")
+        user = up[0]
+        password = join_from(up, 1, ":")
+    }
+    var host = hostport
+    var port = 5432
+    if contains(hostport, ":") {
+        val hp = split(hostport, ":")
+        host = hp[0]
+        val parsed_port = parse_int(hp[1])
+        if !is_ok(parsed_port) {
+            return err(conn_err(concat("bad port in database URL: ", hp[1])))
+        }
+        port = unwrap(parsed_port)
+    }
+    val user_decoded = percent_decode(user)?
+    val password_decoded = percent_decode(password)?
+    val database_decoded = percent_decode(database)?
+    if user_decoded == "" {
+        return err(conn_err("database URL has no user name"))
+    }
+    if host == "" {
+        return err(conn_err("database URL has no host"))
+    }
+    var db_name = database_decoded
+    if db_name == "" {
+        db_name = user_decoded
+    }
+    return PgUrl { user: user_decoded, password: password_decoded, host: host, port: port, database: db_name }
+}
+
+// ---------------------------------------------------------------- SCRAM
+
+// Extracts `key=value` out of a comma-separated SCRAM attribute list.
+fn scram_attr(message: string, key: string) -> Option<string> {
+    for part in split(message, ",") {
+        if len(part) >= 2 && substring(part, 0, 2) == concat(key, "=") {
+            return Option<string>.Some(substring(part, 2, len(part)))
+        }
+    }
+    return Option<string>.None
+}
+
+fn expect_auth(sock: Socket, code: int) -> Result<Message, DbError> {
+    val m = read_message(sock)?
+    if m.kind == "E" {
+        return err(parse_error(m.body))
+    }
+    if m.kind != "R" || u32_from_bytes(m.body, 0) != code {
+        return err(conn_err(format("unexpected message '{}' during authentication", m.kind)))
+    }
+    return m
+}
+
+// RFC 5802 / RFC 7677, as Postgres implements it: channel binding off
+// ("n,,"), the username left empty in the client-first-message (the
+// server takes it from the startup packet).
+fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
+    val nonce = base64_encode(random_bytes(18))
+    val client_first_bare = concat("n=,r=", nonce)
+    val client_first = concat("n,,", client_first_bare)
+    send_message(sock, "p", bytes_concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), string_to_bytes(client_first)))?
+
+    val first = expect_auth(sock, 11)?
+    val server_first = text_of(first.body, 4, len(first.body))
+    val server_nonce = scram_attr(server_first, "r")
+    val salt_b64 = scram_attr(server_first, "s")
+    val iterations_text = scram_attr(server_first, "i")
+    if !Option.is_Some(server_nonce) || !Option.is_Some(salt_b64) || !Option.is_Some(iterations_text) {
+        return err(conn_err("malformed SCRAM server-first-message"))
+    }
+    val combined_nonce = Option.unwrap_Some(server_nonce)
+    if len(combined_nonce) < len(nonce) || substring(combined_nonce, 0, len(nonce)) != nonce {
+        return err(conn_err("SCRAM server nonce does not extend the client nonce"))
+    }
+    val salt = base64_decode(Option.unwrap_Some(salt_b64))
+    val iterations = parse_int(Option.unwrap_Some(iterations_text))
+    if !is_ok(salt) || !is_ok(iterations) {
+        return err(conn_err("malformed SCRAM salt or iteration count"))
+    }
+
+    val salted = pbkdf2_hmac_sha256(string_to_bytes(password), unwrap(salt), unwrap(iterations), 32)
+    val client_key = hmac_sha256(salted, string_to_bytes("Client Key"))
+    val stored_key = sha256(client_key)
+    val client_final_without_proof = concat("c=biws,r=", combined_nonce)
+    val auth_message = string_to_bytes(join(separator: ",", pieces: [client_first_bare, server_first, client_final_without_proof]))
+    val client_signature = hmac_sha256(stored_key, auth_message)
+    val proof = bytes_xor(client_key, client_signature)
+    val client_final = concat(client_final_without_proof, concat(",p=", base64_encode(proof)))
+    send_message(sock, "p", string_to_bytes(client_final))?
+
+    val final = expect_auth(sock, 12)?
+    val server_final = text_of(final.body, 4, len(final.body))
+    val verifier = scram_attr(server_final, "v")
+    if !Option.is_Some(verifier) {
+        return err(conn_err("malformed SCRAM server-final-message"))
+    }
+    val server_key = hmac_sha256(salted, string_to_bytes("Server Key"))
+    val expected = base64_encode(hmac_sha256(server_key, auth_message))
+    if Option.unwrap_Some(verifier) != expected {
+        return err(conn_err("SCRAM server signature mismatch -- the server did not prove it knows the password"))
+    }
+    return 0
+}
+
+// ------------------------------------------------------------- handshake
+
+fn startup_message(url: PgUrl) -> [byte] {
+    val params = bytes_concat(cstring("user"), cstring(url.user), cstring("database"), cstring(url.database), cstring("client_encoding"), cstring("UTF8"), [0b])
+    return bytes_concat(u32_to_bytes(len(params) + 8), u32_to_bytes(196608), params)
+}
+
+// Everything after authentication succeeds, up to ReadyForQuery:
+// ParameterStatus ('S'), BackendKeyData ('K') and notices ('N') are
+// ignored.
+fn await_ready(sock: Socket) -> Result<int, DbError> {
+    while true {
+        val m = read_message(sock)?
+        if m.kind == "Z" {
+            return 0
+        }
+        if m.kind == "E" {
+            return err(parse_error(m.body))
+        }
+    }
+    return 0
+}
+
+// AuthenticationSASL's body is a code, then a list of mechanism names,
+// each a cstring, ended by an empty one.
+fn sasl_offers(body: [byte], mechanism: string) -> bool {
+    var pos = 4
+    while pos < len(body) && body[pos] != 0b {
+        val end = cstring_end(body, pos)
+        if text_of(body, pos, end) == mechanism {
+            return true
+        }
+        pos = end + 1
+    }
+    return false
+}
+
+fn handshake(sock: Socket, url: PgUrl) -> Result<int, DbError> {
+    lift<int>(net.write(sock, startup_message(url)))?
+    val first = read_message(sock)?
+    if first.kind == "E" {
+        return err(parse_error(first.body))
+    }
+    if first.kind != "R" {
+        return err(conn_err(format("unexpected message '{}' at startup", first.kind)))
+    }
+    val code = u32_from_bytes(first.body, 0)
+    if code == 3 {
+        send_message(sock, "p", cstring(url.password))?
+        expect_auth(sock, 0)?
+    } else if code == 10 {
+        if !sasl_offers(first.body, "SCRAM-SHA-256") {
+            return err(conn_err("server offers no SASL mechanism this driver supports (only SCRAM-SHA-256)"))
+        }
+        scram_sha256(sock, url.password)?
+        expect_auth(sock, 0)?
+    } else if code == 5 {
+        return err(conn_err("server requires MD5 password authentication, which this driver does not support"))
+    } else if code != 0 {
+        return err(conn_err(format("unsupported authentication method (code {})", code)))
+    }
+    return await_ready(sock)
+}
+
+// -------------------------------------------------------------- results
+
+struct RowDesc {
+    names: [string]
+    oids: [int]
+}
+
+fn parse_row_description(body: [byte]) -> RowDesc {
+    val count = u16_from_bytes(body, 0)
+    val names = ab_new<string>()
+    val oids = ab_new<int>()
+    var pos = 2
+    var i = 0
+    while i < count {
+        val end = cstring_end(body, pos)
+        ab_append<string>(names, text_of(body, pos, end))
+        ab_append<int>(oids, u32_from_bytes(body, end + 1 + 6))
+        pos = end + 1 + 18
+        i = i + 1
+    }
+    return RowDesc { names: ab_to_array<string>(names), oids: ab_to_array<int>(oids) }
+}
+
+// Text-format values, interpreted by the column's type OID: 16 bool,
+// 17 bytea, 20/21/23 int8/int2/int4, 700/701 float4/float8. Everything
+// else stays Text for the mapping layer.
+fn decode_value(oid: int, raw: [byte]) -> Result<SqlValue, DbError> {
+    if oid == 17 {
+        val hex = text_of(raw, 0, len(raw))
+        if len(hex) < 2 || substring(hex, 0, 2) != "\\x" {
+            return err(DbError.Sql("bytea value is not in hex format"))
+        }
+        val out = ab_new<byte>()
+        var i = 2
+        while i + 2 <= len(hex) {
+            val b = byte_from_hex(substring(hex, i, i + 2))
+            if !is_ok(b) {
+                return err(DbError.Sql("bad bytea hex digits"))
+            }
+            ab_append<byte>(out, unwrap(b))
+            i = i + 2
+        }
+        return SqlValue.Bytes(ab_to_array<byte>(out))
+    }
+    val text = text_of(raw, 0, len(raw))
+    if oid == 16 {
+        return SqlValue.Bool(text == "t")
+    }
+    if oid == 20 || oid == 21 || oid == 23 {
+        val n = parse_int(text)
+        if !is_ok(n) {
+            return err(DbError.Sql(concat("bad integer from server: ", text)))
+        }
+        return SqlValue.Int(unwrap(n))
+    }
+    if oid == 700 || oid == 701 {
+        val f = parse_float(text)
+        if is_ok(f) {
+            return SqlValue.Float(unwrap(f))
+        }
+    }
+    return SqlValue.Text(text)
+}
+
+fn parse_data_row(body: [byte], oids: [int]) -> Result<[SqlValue], DbError> {
+    val count = u16_from_bytes(body, 0)
+    val values = ab_new<SqlValue>()
+    var pos = 2
+    var i = 0
+    while i < count {
+        val length = u32_from_bytes(body, pos)
+        pos = pos + 4
+        if length == 4294967295 {
+            ab_append<SqlValue>(values, SqlValue.Null)
+        } else {
+            val v = decode_value(oids[i], bytes_slice(body, pos, pos + length))?
+            ab_append<SqlValue>(values, v)
+            pos = pos + length
+        }
+        i = i + 1
+    }
+    return ab_to_array<SqlValue>(values)
+}
+
+// "INSERT 0 5" / "UPDATE 3" / "SELECT 2" -> the trailing count; 0 for a
+// tag with none ("CREATE TABLE", "BEGIN").
+fn affected_rows(tag: string) -> int {
+    val words = split(tag, " ")
+    val n = parse_int(words[len(words) - 1])
+    if is_ok(n) {
+        return unwrap(n)
+    }
+    return 0
+}
+
+// Reads server messages until ReadyForQuery. An ErrorResponse doesn't
+// stop the read -- the server always finishes with 'Z' -- so the
+// connection stays in step for the next request.
+fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
+    val rows = ab_new<Row>()
+    var names = ab_to_array<string>(ab_new<string>())
+    var oids = ab_to_array<int>(ab_new<int>())
+    var affected = 0
+    var failure = Option<DbError>.None
+    var done = false
+    while !done {
+        val m = read_message(sock)?
+        if m.kind == "Z" {
+            done = true
+        } else if m.kind == "T" {
+            val desc = parse_row_description(m.body)
+            names = desc.names
+            oids = desc.oids
+        } else if m.kind == "D" {
+            val values = parse_data_row(m.body, oids)
+            if is_ok(values) {
+                ab_append<Row>(rows, Row { columns: names, values: unwrap(values) })
+            } else if !Option.is_Some(failure) {
+                failure = Option<DbError>.Some(unwrap_err(values))
+            }
+        } else if m.kind == "C" {
+            affected = affected_rows(text_of(m.body, 0, cstring_end(m.body, 0)))
+        } else if m.kind == "E" {
+            if !Option.is_Some(failure) {
+                failure = Option<DbError>.Some(parse_error(m.body))
+            }
+        }
+    }
+    if Option.is_Some(failure) {
+        return err(Option.unwrap_Some(failure))
+    }
+    return QueryResult { rows: ab_to_array<Row>(rows), affected: affected }
+}
+
+// ---------------------------------------------------------------- queries
+
+// A parameter on the wire (length-prefixed; -1 means NULL). Booleans go
+// as 1/0, which Postgres accepts for both BOOLEAN and INTEGER columns --
+// the same repository SQL and schema then work on SQLite too.
+fn encode_param(v: SqlValue) -> [byte] {
+    if SqlValue.is_Null(v) {
+        return u32_to_bytes(4294967295)
+    }
+    var text = ""
+    if SqlValue.is_Int(v) {
+        text = str(SqlValue.unwrap_Int(v))
+    } else if SqlValue.is_Float(v) {
+        text = float_to_text(SqlValue.unwrap_Float(v))
+    } else if SqlValue.is_Text(v) {
+        text = SqlValue.unwrap_Text(v)
+    } else if SqlValue.is_Bool(v) {
+        if SqlValue.unwrap_Bool(v) {
+            text = "1"
+        } else {
+            text = "0"
+        }
+    } else {
+        text = concat("\\x", bytes_to_hex(SqlValue.unwrap_Bytes(v)))
+    }
+    val payload = string_to_bytes(text)
+    return bytes_concat(u32_to_bytes(len(payload)), payload)
+}
+
+fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+    val encoded = ab_new<[byte]>()
+    for p in params {
+        ab_append<[byte]>(encoded, encode_param(p))
+    }
+    val bind_body = bytes_concat(cstring(""), cstring(""), u16_to_bytes(0), u16_to_bytes(len(params)), bytes_concat_all(ab_to_array<[byte]>(encoded)), u16_to_bytes(0))
+    val describe_body = bytes_concat(string_to_bytes("P"), cstring(""))
+    val execute_body = bytes_concat(cstring(""), u32_to_bytes(0))
+    val batch = bytes_concat(
+        frame("P", bytes_concat([0b], cstring(sql), u16_to_bytes(0))),
+        frame("B", bind_body),
+        frame("D", describe_body),
+        frame("E", execute_body),
+        frame("S", ab_to_array<byte>(ab_new<byte>())))
+    lift<int>(net.write(sock, batch))?
+    return collect_result(sock)
+}
+
+fn frame(kind: string, body: [byte]) -> [byte] {
+    return bytes_concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)
+}
+
+fn bytes_concat_all(parts: [[byte]]) -> [byte] {
+    val out = ab_new<byte>()
+    for part in parts {
+        for b in part {
+            ab_append<byte>(out, b)
+        }
+    }
+    return ab_to_array<byte>(out)
+}
+
+fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+    if len(params) == 0 {
+        send_message(sock, "Q", cstring(sql))?
+        return collect_result(sock)
+    }
+    return extended_query(sock, sql, params)
+}
+
+// -------------------------------------------------------- owner thread API
+
+fn serve(sock: Socket, requests: Channel<Request>) {
+    var open = true
+    while open {
+        val req = receive(requests)
+        if Request.is_Run(req) {
+            val r = Request.unwrap_Run(req)
+            send(r.reply_to, run_query(sock, r.sql, r.params))
+        } else {
+            send_message(sock, "X", ab_to_array<byte>(ab_new<byte>()))
+            net.close(sock)
+            open = false
+        }
+    }
+}
+
+// Connects, authenticates, and starts the thread that owns the socket;
+// the returned channel is how every later call reaches it.
+pub fn connect(url: string) -> Result<Channel<Request>, DbError> {
+    val parsed = parse_url(url)?
+    val sock = lift<Socket>(net.connect(parsed.host, parsed.port))?
+    val ready = handshake(sock, parsed)
+    if !is_ok(ready) {
+        net.close(sock)
+        return err(unwrap_err(ready))
+    }
+    val requests: Channel<Request> = channel_new()
+    spawn serve(sock, requests)
+    return requests
+}
+
+pub fn run(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+    val reply_to: Channel<Result<QueryResult, DbError>> = channel_new()
+    send(requests, Request.Run(RunRequest { sql: sql, params: params, reply_to: reply_to }))
+    return receive(reply_to)
+}
+
+pub fn close(requests: Channel<Request>) {
+    send(requests, Request.Close)
+}

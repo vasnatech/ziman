@@ -3,6 +3,7 @@
 #include "interpreter.h"
 #include "loader.h"
 #include "native_clock.h"
+#include "native_crypto.h"
 #include "native_db.h"
 #include "native_io.h"
 #include "native_net.h"
@@ -21,6 +22,7 @@ int main(int argc, char **argv) {
     native_clock_register();
     native_db_register();
     native_net_register();
+    native_crypto_register();
     prelude_register();
 
     Module *module = load_module_graph(argv[1]);

@@ -2073,6 +2073,66 @@ several languages rather than inheriting any one of them wholesale.
   port 0, then five concurrent clients against a thread-per-connection
   accept loop: see `tests/fixtures/net_*`.
 
+- **`crypto` and `pg`: SCRAM-SHA-256 and a PostgreSQL client in Ziman.**
+  The second backend behind `db.open`, chosen by the same URL-scheme
+  dispatch as SQLite. **`crypto` is native and deliberately small**:
+  SHA-256, HMAC, PBKDF2, base64 and a byte-wise XOR (no bitwise operators
+  in Ziman), self-contained rather than linking libcrypto, verified
+  against `sha256sum`/`hashlib` and the RFC vectors. Native because
+  PBKDF2 at 4096 iterations is ~33k compression-function calls -- hopeless
+  in a tree-walking interpreter, and needed on every connection. It is
+  explicitly not a general crypto library (not constant-time, no
+  randomness, no ciphers).
+  **`pg` is pure Ziman** on `net`+`bytes`+`crypto` (only exact float
+  formatting is native), speaking protocol 3.0: startup, trust/cleartext/
+  SCRAM-SHA-256 authentication, the simple query protocol for
+  parameterless statements -- which is what lets `db.execute` run a
+  multi-statement DDL script -- and the extended protocol (Parse/Bind/
+  Describe/Execute/Sync, pipelined into one write) for bound `$N`
+  parameters. **SCRAM is checked both ways**: the client verifies the
+  server's signature, so a server that doesn't know the password is
+  rejected, not just the reverse. Channel binding is off, the username
+  is left to the startup packet, and a non-ASCII password isn't
+  SASLprep-normalised (documented).
+  **Text format throughout, decoded by the result column's type OID.**
+  Integers (`int2/4/8`), floats, `bool` and `bytea` become the matching
+  `SqlValue`; everything else -- text, `uuid`, dates and timestamps,
+  `numeric`, `json` -- arrives as `Text` and the mapping layer converts,
+  exactly as for SQLite. That is what makes the *same* repository SQL,
+  schema and `#[derive(Row)]` code run unchanged on both backends. Two
+  details exist for that reason: a `Bool` parameter is sent as `1`/`0`
+  (accepted for `BOOLEAN` and `INTEGER` columns alike, where `t`/`f` would
+  break the latter), and a boolean column read back is `Bool` under
+  Postgres and an integer under SQLite, so `sql_as_bool` accepts both. A
+  native `timestamptz` column would arrive in Postgres's own text form
+  (`2026-09-23 18:20:06.886+00`), not ISO `T...Z`, so timestamps are
+  stored as TEXT (as for SQLite) until a real need says otherwise.
+  **One connection, one owner thread, a channel of requests.** Ziman has no
+  mutex, and the protocol is strictly request/response, so the connection
+  is owned by a spawned thread and callers send a `RunRequest` carrying a
+  reply channel and block on it. That serialises concurrent callers with
+  no lock -- so there is none for a `?` returning early to leave held --
+  and it is the actor pattern, now living inside the driver rather than
+  the application. `db.Connection` gained an `Option<Channel<pg.Request>>`
+  field (SQLite leaves it `None`); `execute`/`query`/`close` branch on it.
+  A *transaction* is still server-side per-connection state, so other
+  threads' statements interleave inside it, as already documented for
+  `db`. After a failed statement the read continues to ReadyForQuery, so
+  the connection stays in step for the next request; SQLSTATE class 23
+  maps to `Constraint`, 08/28/3D to `Connection`, the rest to `Sql`.
+  **Refused rather than degraded**: a `sslmode=require` URL is an error --
+  silently dropping to plaintext would be the worse failure. Also not
+  supported: MD5 authentication (deprecated), GSS/Kerberos, IPv6 literals in
+  the URL, COPY, LISTEN/NOTIFY, and prepared-statement reuse (every
+  parameterised statement is parsed afresh). `[byte]` is an array of
+  interpreter values, so very large result sets are slow.
+  **Tested against a real server**, not a mock: `make test-pg` (see
+  `tests/run_pg_tests.sh`) starts a throwaway `postgres:17` container on
+  `127.0.0.1:55432`, configures a role per authentication method
+  (SCRAM, trust, cleartext), runs `tests/pg/*.zm` and removes the
+  container; it is not part of `make test` so the ordinary suite stays
+  hermetic.
+
 ## Deliberately deferred (not v0)
 
 - Effects visible in function signatures (which functions do I/O or mutate

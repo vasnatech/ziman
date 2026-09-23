@@ -5,7 +5,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean test test-bignum test-decimal corelib-reference
+.PHONY: all clean test test-pg test-bignum test-decimal corelib-reference
 
 all: $(BIN)
 
@@ -28,7 +28,7 @@ $(BIN): $(OBJ)
 # header directly, and it's merged bare into every program by
 # loader.c's load_module_graph (see corelib/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
-CORELIB_MODULES := collections io random uuid clock time json number sql db bytes net prelude
+CORELIB_MODULES := collections io random uuid clock time json number sql db bytes net crypto pg prelude
 CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 
 $(OBJ): $(CORELIB_HEADERS)
@@ -56,6 +56,11 @@ src/%_source.h: corelib/%.zm
 
 test: $(BIN)
 	./tests/run_tests.sh
+
+# The Postgres driver tests: need docker/podman and a postgres:17 image
+# (see tests/run_pg_tests.sh), so they are not part of `make test`.
+test-pg: $(BIN)
+	./tests/run_pg_tests.sh
 
 # Unit tests for internal C modules that don't fit the language-level
 # tests/fixtures harness (e.g. bignum.c's own arithmetic correctness,

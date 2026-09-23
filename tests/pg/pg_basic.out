@@ -1,0 +1,28 @@
+1
+1
+2
+Ada | 'x' "q" \ line
+break
+0.1
+true
+false
+true
+4
+true
+true
+héllo wörld ✓
+1
+1
+0
+constraint violation: duplicate key value violates unique constraint "pg_t_name_key"
+true
+true
+true
+true
+1
+2
+false
+false
+true
+200
+200

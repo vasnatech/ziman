@@ -94,11 +94,31 @@ pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T>
 
 ```
 
+## `crypto`
+
+```
+pub native fn sha256(data: [byte]) -> [byte]
+
+pub native fn hmac_sha256(key: [byte], data: [byte]) -> [byte]
+
+pub native fn pbkdf2_hmac_sha256(password: [byte], salt: [byte], iterations: int, length: int) -> [byte]
+
+pub native fn bytes_xor(a: [byte], b: [byte]) -> [byte]
+
+pub native fn base64_encode(data: [byte]) -> string
+
+pub native fn base64_decode(s: string) -> Result<[byte], string>
+
+pub fn bytes_to_hex(data: [byte]) -> string
+
+```
+
 ## `db`
 
 ```
 pub struct Connection {
     handle: int
+    requests: Option<Channel<pg.Request>>
 }
 
 pub fn open(url: string) -> Result<Connection, DbError>
@@ -254,6 +274,35 @@ pub fn format_bigint(x: bigint, fmt: NumberFormat) -> string
 pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string
 
 pub fn format_byte(x: byte, fmt: NumberFormat) -> string
+
+```
+
+## `pg`
+
+```
+pub struct QueryResult {
+    rows: [Row]
+    affected: int
+}
+
+pub struct RunRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<QueryResult, DbError>>
+}
+
+pub enum Request {
+    Run(RunRequest)
+    Close
+}
+
+pub native fn float_to_text(f: float) -> string
+
+pub fn connect(url: string) -> Result<Channel<Request>, DbError>
+
+pub fn run(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError>
+
+pub fn close(requests: Channel<Request>)
 
 ```
 

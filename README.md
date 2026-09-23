@@ -8,7 +8,7 @@ concrete decisions they led to, [docs/SYNTAX.md](docs/SYNTAX.md) for
 the full v0 grammar and semantic rules, and
 [docs/CORELIB.md](docs/CORELIB.md) for a generated signature-only
 reference of every bundled core module (`collections`, `io`, `random`,
-`uuid`, `clock`, `time`, `json`, `number`, `sql`, `db`, `bytes`, `net`) — every `pub struct`/`pub fn` in one
+`uuid`, `clock`, `time`, `json`, `number`, `sql`, `db`, `bytes`, `net`, `crypto`, `pg`) — every `pub struct`/`pub fn` in one
 place, kept in sync with the source by `make corelib-reference` rather
 than hand-copied.
 
@@ -87,8 +87,8 @@ outright, not moved, since nothing ever actually used it beyond being
 the first generic struct ever written; `struct Box<T> { value: T }`
 above is illustrative syntax anyone can still write, just not a
 `collections` export anymore.)
-It's also one of twelve *bundled core modules* (alongside `io`, mentioned
-above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db`/`bytes`/`net` below): each one's source is
+It's also one of fourteen *bundled core modules* (alongside `io`, mentioned
+above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db`/`bytes`/`net`/`crypto`/`pg` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
 `use io` work from any project with no local copy needed — a
 project-relative file of the same name still wins if one exists, but
@@ -157,14 +157,18 @@ than hand-constructing AST nodes. `net` is blocking TCP over POSIX sockets (`con
 `write`, timeouts, a clean peer close reported as `Err(Closed)` rather than an
 empty read) — blocking on purpose, since `spawn` gives every connection its own
 OS thread — and `bytes` is the `[byte]` helpers that go with it (string
-conversion, big-endian integers). `sql` and `db` are a JDBC-shaped database layer: `db.open("sqlite::memory:")`
+conversion, big-endian integers). `crypto` is just enough cryptography for SCRAM-SHA-256 (SHA-256, HMAC, PBKDF2, base64 — native, self-contained,
+checked against the RFC vectors; not a general-purpose library), and `pg` is a PostgreSQL client written in Ziman on top of
+`net`/`bytes`/`crypto`: trust, cleartext and SCRAM-SHA-256 authentication (the server's signature is verified too),
+the simple and extended query protocols, tested against a real Postgres server by `make test-pg`.
+`db.open("postgres://user:password@host:port/database")` selects it, so the same repository SQL and
+`#[derive(Row)]` code run on SQLite and Postgres unchanged; TLS is refused rather than silently skipped. `sql` and `db` are a JDBC-shaped database layer: `db.open("sqlite::memory:")`
 returns a `Connection`, `db.execute`/`db.query` take SQL text with `$1, $2`
 bound parameters (never spliced in) as `[SqlValue]`, and rows come back as
 `sql.Row`; `#[derive(Row)]` generates the row-to-struct mapping, and
 `Uuid`/`time` types map through `Text` columns. SQLite (system
-`libsqlite3`, linked with `-lsqlite3`) is the first backend, chosen by URL
-scheme, so a Postgres driver over the future `net` module can sit behind
-the same API. `number` is shared formatting/parsing across all five numeric
+`libsqlite3`, linked with `-lsqlite3`) and Postgres are the two backends, chosen by URL
+scheme behind the same API. `number` is shared formatting/parsing across all five numeric
 types (`int`, `float`, `bigint`, `decimal`, `byte`), also pure Ziman:
 rather than five near-duplicate implementations (Ziman has no
 argument-based overloading, so a single `format(x: T, ...)` across

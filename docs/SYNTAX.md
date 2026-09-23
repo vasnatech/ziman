@@ -1539,8 +1539,8 @@ fn main() {
 Two core modules: `sql` (the shared vocabulary -- `SqlValue`, `Row`,
 `DbError`, and the `sql_as_*` readers) and `db` (the driver: connections,
 `execute`, `query`, transactions). SQLite (`sqlite::memory:` or
-`sqlite:<path>`) is the first backend; the API is shaped so a Postgres
-driver over the future `net` module slots in behind the same calls.
+`sqlite:<path>`) and PostgreSQL (`postgres://user:password@host:port/database`)
+are the two backends, chosen by URL scheme behind the same calls.
 
 ```
 use db
@@ -1572,6 +1572,24 @@ fn main() {
   `NotFound` is never raised by the driver -- a repository whose lookup
   came back empty returns it, so one error type covers the whole
   data-access layer. `db_error_message(e)` renders any of them.
+- **Postgres** is written in Ziman (module `pg`, on `net`, `bytes` and
+  `crypto`) and speaks protocol 3.0: trust, cleartext-password and
+  **SCRAM-SHA-256** authentication (Postgres's default), the simple query
+  protocol for parameterless statements (so `execute` takes a `;`-separated
+  DDL script) and the extended protocol for `$1, $2, ...` parameters.
+  Values travel in text format and are interpreted by the result column's
+  type: integers, floats, booleans and bytea become the matching
+  `SqlValue`, and everything else (text, uuid, dates, timestamps, numeric,
+  json, ...) arrives as `Text` for the mapping layer -- so the same
+  repository SQL, schema and `#[derive(Row)]` code run on both backends.
+  A `Bool` parameter is sent as `1`/`0`, which Postgres accepts for both
+  `BOOLEAN` and `INTEGER` columns. Percent-escapes work in the URL's
+  user, password and database. One connection is owned by one thread that
+  serialises requests, so sharing it across threads is safe statement by
+  statement. **Not supported:** TLS (a `sslmode=require` URL is *refused*,
+  not downgraded), MD5 authentication, Kerberos/GSS, IPv6 literals in the
+  URL, COPY, LISTEN/NOTIFY, prepared-statement reuse, and SASLprep of a
+  non-ASCII password.
 - **`db.query`** returns `[Row]`; `db.query_one` returns `Option<Row>`;
   `db.execute` returns the row count of the last statement, and takes a
   `;`-separated script when there are no parameters (for DDL).
@@ -1654,6 +1672,17 @@ fn main() {
 - **Not yet:** TLS, Unix-domain sockets, UDP, a packed byte-buffer type
   (`[byte]` is an array of interpreter values -- fine for protocol
   messages, wasteful for bulk data).
+
+## Cryptography
+
+The `crypto` core module is just enough to speak SCRAM-SHA-256:
+`sha256`, `hmac_sha256`, `pbkdf2_hmac_sha256(password, salt, iterations,
+length)`, `base64_encode`/`base64_decode`, `bytes_xor` (Ziman has no
+bitwise operators) and `bytes_to_hex`. All native and self-contained (no
+libcrypto), checked against the published test vectors. **It is not a
+general-purpose crypto library**: not constant-time, no randomness (use
+`random.random_bytes`), no ciphers or public-key operations -- it grows
+only when a real consumer needs more.
 
 ## Number formatting and parsing
 
