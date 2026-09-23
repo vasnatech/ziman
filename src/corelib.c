@@ -17,6 +17,8 @@
 #include "number_source.h"
 #include "sql_source.h"
 #include "db_source.h"
+#include "bytes_source.h"
+#include "net_source.h"
 
 typedef struct {
     const char *name;
@@ -41,6 +43,8 @@ static const CoreModule CORE_MODULES[] = {
     {"number", NUMBER_SOURCE},
     {"sql", SQL_SOURCE},
     {"db", DB_SOURCE},
+    {"bytes", BYTES_SOURCE},
+    {"net", NET_SOURCE},
 };
 #pragma GCC diagnostic pop
 

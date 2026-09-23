@@ -1,0 +1,8 @@
+use net
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    net.close_listener(l)
+    print("closed")
+    net.listener_port(l)
+}

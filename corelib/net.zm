@@ -1,0 +1,191 @@
+// net.zm -- blocking TCP: connect, listen/accept, read, write, close.
+// Blocking is deliberate. Ziman has real OS threads (`spawn`), so a
+// blocked read only blocks its own thread -- thread-per-connection is
+// the natural model here, with no event loop or async needed, and it is
+// exactly what the `db` module's Postgres driver will want (blocking
+// reads inside a wire protocol).
+//
+// A `Socket`/`Listener` is an int handle into a native-side table, same
+// pattern as `db.Connection`. There are no destructors, so closing is
+// explicit -- and a `?` that returns early between `connect` and
+// `close` leaks the socket, the same hazard `db` documents for an open
+// transaction. Both point at a missing "scoped cleanup" language
+// feature, deliberately left as its own later design rather than bolted
+// on here (see docs/ROADMAP.md). Close a socket from the thread that
+// owns it: closing one another thread is blocked reading wakes that
+// read with an error, but the descriptor number is then free for the OS
+// to reuse.
+//
+// Data is `[byte]` (see `bytes` for conversions and big-endian ints),
+// plus `read_text`/`write_text` for text protocols like HTTP. A clean
+// close by the peer is `Err(Closed)`, never an empty array, so an EOF
+// can't be silently forgotten -- the one place it is legitimate (a body
+// that ends when the connection does) matches on `Closed` explicitly.
+//
+// Not yet: TLS (a later `tls` module wrapping a Socket), Unix-domain
+// sockets, UDP, and a connect timeout beyond the OS default.
+
+pub enum NetError {
+    ConnectionRefused(string)
+    HostNotFound(string)
+    Timeout(string)
+    Closed(string)
+    Io(string)
+}
+
+pub struct Socket {
+    handle: int
+}
+
+pub struct Listener {
+    handle: int
+}
+
+native fn connect_raw(host: string, port: int) -> Result<int, string>
+native fn listen_raw(host: string, port: int) -> Result<int, string>
+native fn listener_port_raw(handle: int) -> int
+native fn accept_raw(handle: int) -> Result<int, string>
+native fn read_raw(handle: int, max: int) -> Result<[byte], string>
+native fn read_exact_raw(handle: int, count: int) -> Result<[byte], string>
+native fn write_raw(handle: int, data: [byte]) -> Result<int, string>
+native fn read_text_raw(handle: int, max: int) -> Result<string, string>
+native fn write_text_raw(handle: int, text: string) -> Result<int, string>
+native fn set_timeout_raw(handle: int, millis: int) -> Result<int, string>
+native fn close_raw(handle: int)
+
+pub fn net_error_message(e: NetError) -> string {
+    if NetError.is_ConnectionRefused(e) {
+        return concat("connection refused: ", NetError.unwrap_ConnectionRefused(e))
+    }
+    if NetError.is_HostNotFound(e) {
+        return concat("host not found: ", NetError.unwrap_HostNotFound(e))
+    }
+    if NetError.is_Timeout(e) {
+        return concat("timed out: ", NetError.unwrap_Timeout(e))
+    }
+    if NetError.is_Closed(e) {
+        return concat("connection closed: ", NetError.unwrap_Closed(e))
+    }
+    return concat("network error: ", NetError.unwrap_Io(e))
+}
+
+// A native error arrives as "category|message".
+fn net_error_from_raw(raw: string) -> NetError {
+    val parts = split(raw, "|")
+    val rest = ab_new<string>()
+    var i = 1
+    while i < len(parts) {
+        ab_append<string>(rest, parts[i])
+        i = i + 1
+    }
+    val message = join(separator: "|", pieces: ab_to_array<string>(rest))
+    if parts[0] == "refused" {
+        return NetError.ConnectionRefused(message)
+    }
+    if parts[0] == "notfound" {
+        return NetError.HostNotFound(message)
+    }
+    if parts[0] == "timeout" {
+        return NetError.Timeout(message)
+    }
+    if parts[0] == "closed" {
+        return NetError.Closed(message)
+    }
+    return NetError.Io(message)
+}
+
+// `host` is a name or an address (IPv4 or IPv6).
+pub fn connect(host: string, port: int) -> Result<Socket, NetError> {
+    val r = connect_raw(host, port)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return Socket { handle: unwrap(r) }
+}
+
+// Port 0 asks the OS for a free port; `listener_port` says which.
+pub fn listen(host: string, port: int) -> Result<Listener, NetError> {
+    val r = listen_raw(host, port)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return Listener { handle: unwrap(r) }
+}
+
+pub fn listener_port(l: Listener) -> int {
+    return listener_port_raw(l.handle)
+}
+
+// Blocks until a client connects.
+pub fn accept(l: Listener) -> Result<Socket, NetError> {
+    val r = accept_raw(l.handle)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return Socket { handle: unwrap(r) }
+}
+
+// Blocks until at least one byte is available, then returns whatever
+// has arrived, up to `max` bytes.
+pub fn read(s: Socket, max: int) -> Result<[byte], NetError> {
+    val r = read_raw(s.handle, max)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return unwrap(r)
+}
+
+// Exactly `count` bytes, or an error (`Closed` if the peer went away
+// first) -- the shape a length-prefixed protocol wants.
+pub fn read_exact(s: Socket, count: int) -> Result<[byte], NetError> {
+    val r = read_exact_raw(s.handle, count)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return unwrap(r)
+}
+
+// Writes every byte before returning, and reports how many.
+pub fn write(s: Socket, data: [byte]) -> Result<int, NetError> {
+    val r = write_raw(s.handle, data)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return unwrap(r)
+}
+
+// Text mode, for text protocols. A string cannot carry a 0 byte, so a
+// read that receives one is an error rather than a silent truncation.
+pub fn read_text(s: Socket, max: int) -> Result<string, NetError> {
+    val r = read_text_raw(s.handle, max)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return unwrap(r)
+}
+
+pub fn write_text(s: Socket, text: string) -> Result<int, NetError> {
+    val r = write_text_raw(s.handle, text)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return unwrap(r)
+}
+
+// Applies to reads and writes on this socket; a call that waits longer
+// fails with `Timeout`. Without one, a read on a dead peer waits forever.
+pub fn set_timeout(s: Socket, millis: int) -> Result<int, NetError> {
+    val r = set_timeout_raw(s.handle, millis)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return unwrap(r)
+}
+
+pub fn close(s: Socket) {
+    close_raw(s.handle)
+}
+
+pub fn close_listener(l: Listener) {
+    close_raw(l.handle)
+}

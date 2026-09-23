@@ -1,0 +1,73 @@
+use net
+use bytes
+use net.NetError
+use net.net_error_message
+
+// Echo server: accepts one client, echoes every chunk until the client closes.
+fn serve(l: net.Listener, done: Channel<string>) {
+    val client = unwrap(net.accept(l))
+    var running = true
+    while running {
+        val r = net.read(client, 1024)
+        if !is_ok(r) {
+            running = false
+        } else {
+            unwrap(net.write(client, unwrap(r)))
+        }
+    }
+    net.close(client)
+    send(done, "server done")
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    print(port > 0)
+    val done: Channel<string> = channel_new()
+    spawn serve(l, done)
+
+    val s = unwrap(net.connect("127.0.0.1", port))
+    // text mode
+    unwrap(net.write_text(s, "hello net"))
+    print(unwrap(net.read_text(s, 100)))
+    // binary mode, including a 0 byte and 255
+    val sent = bytes.bytes_concat([0b, 1b, 255b], bytes.u32_to_bytes(305419896), bytes.u16_to_bytes(258))
+    unwrap(net.write(s, sent))
+    val got = unwrap(net.read_exact(s, len(sent)))
+    print(got == sent)
+    print(bytes.u32_from_bytes(got, 3))
+    print(bytes.u16_from_bytes(got, 7))
+    print(len(bytes.bytes_slice(got, 3, 7)))
+    print(unwrap(bytes.bytes_to_string(bytes.string_to_bytes("round trip"))))
+    print(is_ok(bytes.bytes_to_string([65b, 0b])))
+    // a large-ish message arrives whole via read_exact even if TCP splits it
+    val big = bytes.string_to_bytes(join(separator: "", pieces: [format("{}", 12345), "-", format("{}", 67890)]))
+    unwrap(net.write(s, big))
+    print(len(unwrap(net.read_exact(s, len(big)))))
+
+    net.close(s)
+    print(receive(done))
+    net.close_listener(l)
+
+    // errors
+    val refused = net.connect("127.0.0.1", port)
+    print(net_error_message(unwrap_err(refused)))
+    val nohost = net.connect("no-such-host.invalid", 80)
+    print(NetError.is_HostNotFound(unwrap_err(nohost)))
+
+    // closed vs timeout
+    val l2 = unwrap(net.listen("127.0.0.1", 0))
+    val p2 = net.listener_port(l2)
+    val c2 = unwrap(net.connect("127.0.0.1", p2))
+    val server_side = unwrap(net.accept(l2))
+    unwrap(net.set_timeout(c2, 100))
+    val slow = net.read(c2, 10)
+    print(NetError.is_Timeout(unwrap_err(slow)))
+    net.close(server_side)
+    val eof = net.read(c2, 10)
+    print(NetError.is_Closed(unwrap_err(eof)))
+    val short = net.read_exact(c2, 5)
+    print(NetError.is_Closed(unwrap_err(short)))
+    net.close(c2)
+    net.close_listener(l2)
+}

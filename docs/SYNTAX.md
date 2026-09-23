@@ -1595,6 +1595,66 @@ fn main() {
   (`sql.SqlValue`, `sql.DbError`, `sql.Row`, `sql.row_get`, the
   `sql_as_*` readers, and each domain type's `_to_sql`/`_from_sql`).
 
+## Networking
+
+The `net` core module is blocking TCP; `bytes` is the `[byte]` helpers
+that go with it.
+
+```
+use net
+use bytes
+
+fn serve(l: net.Listener) {
+    val client = unwrap(net.accept(l))
+    val msg = unwrap(net.read_text(client, 1024))
+    unwrap(net.write_text(client, concat("echo:", msg)))
+    net.close(client)
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))        // port 0: the OS picks one
+    spawn serve(l)
+    val s = unwrap(net.connect("127.0.0.1", net.listener_port(l)))
+    unwrap(net.write_text(s, "hi"))
+    print(unwrap(net.read_text(s, 100)))               // echo:hi
+    net.close(s)
+    net.close_listener(l)
+}
+```
+
+- **Blocking, thread-per-connection.** A blocked `accept`/`read` blocks
+  only its own thread; `spawn` a handler per connection. There is no
+  event loop and no async.
+- **Handles.** `Socket` and `Listener` are `{ handle: int }` structs over
+  a native table, like `db.Connection`. Closing is explicit (`net.close`,
+  `net.close_listener`); there are no destructors, so a `?` that returns
+  early between `connect` and `close` leaks the socket. Close a socket
+  from the thread that owns it.
+- **Reading.** `read(s, max)` blocks until at least one byte is there and
+  returns what has arrived, up to `max`. `read_exact(s, n)` returns
+  exactly `n` bytes or an error -- the shape a length-prefixed protocol
+  wants. `read_text`/`write_text` are for text protocols; a string can't
+  carry a 0 byte, so `read_text` reports one instead of truncating. `write`
+  sends every byte before returning.
+- **EOF is an error.** A peer closing cleanly makes a read return
+  `Err(Closed)`, never an empty array, so it can't be silently
+  forgotten; a protocol where end-of-stream is legitimate matches
+  `NetError.is_Closed` explicitly.
+- **`NetError`** is `ConnectionRefused | HostNotFound | Timeout | Closed
+  | Io`, each carrying a message; `net_error_message(e)` renders one.
+- **Timeouts.** `net.set_timeout(s, millis)` applies to that socket's
+  reads and writes; a call that waits longer fails with `Timeout`.
+  Without one a read on a dead peer waits forever. There is no connect
+  timeout beyond the OS default.
+- **`bytes`**: `string_to_bytes`/`bytes_to_string` (the latter a `Result`
+  -- a string can't hold a 0 byte), `bytes_concat(parts...)`,
+  `bytes_slice(b, start, end)`, and the big-endian `u16_to_bytes`/
+  `u32_to_bytes`/`u16_from_bytes`/`u32_from_bytes` network protocols are
+  built from.
+- **Not yet:** TLS, Unix-domain sockets, UDP, a packed byte-buffer type
+  (`[byte]` is an array of interpreter values -- fine for protocol
+  messages, wasteful for bulk data).
+
 ## Number formatting and parsing
 
 The `number` core module (`use number.Name`) is shared formatting and

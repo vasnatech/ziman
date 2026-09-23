@@ -19,6 +19,27 @@ and docs/DESIGN.md's "Prelude" entry), since everything it declares
 unqualified in every program, the same way `print`/`str`/`parse_int`
 are. See docs/SYNTAX.md's "Modules" section for what it contains.
 
+## `bytes`
+
+```
+pub native fn string_to_bytes(s: string) -> [byte]
+
+pub native fn bytes_to_string(b: [byte]) -> Result<string, string>
+
+pub fn bytes_concat(parts: [byte]...) -> [byte]
+
+pub fn u32_to_bytes(n: int) -> [byte]
+
+pub fn u16_to_bytes(n: int) -> [byte]
+
+pub fn u32_from_bytes(b: [byte], offset: int) -> int
+
+pub fn u16_from_bytes(b: [byte], offset: int) -> int
+
+pub fn bytes_slice(b: [byte], start: int, end: int) -> [byte]
+
+```
+
 ## `clock`
 
 One native function reading the system clock (`clock_gettime`) -- Ziman's other source of genuine non-determinism.
@@ -141,6 +162,53 @@ pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
 pub fn json_to_json(j: Json) -> Json
 
 pub fn json_from_json(j: Json) -> Result<Json, string>
+
+```
+
+## `net`
+
+```
+pub enum NetError {
+    ConnectionRefused(string)
+    HostNotFound(string)
+    Timeout(string)
+    Closed(string)
+    Io(string)
+}
+
+pub struct Socket {
+    handle: int
+}
+
+pub struct Listener {
+    handle: int
+}
+
+pub fn net_error_message(e: NetError) -> string
+
+pub fn connect(host: string, port: int) -> Result<Socket, NetError>
+
+pub fn listen(host: string, port: int) -> Result<Listener, NetError>
+
+pub fn listener_port(l: Listener) -> int
+
+pub fn accept(l: Listener) -> Result<Socket, NetError>
+
+pub fn read(s: Socket, max: int) -> Result<[byte], NetError>
+
+pub fn read_exact(s: Socket, count: int) -> Result<[byte], NetError>
+
+pub fn write(s: Socket, data: [byte]) -> Result<int, NetError>
+
+pub fn read_text(s: Socket, max: int) -> Result<string, NetError>
+
+pub fn write_text(s: Socket, text: string) -> Result<int, NetError>
+
+pub fn set_timeout(s: Socket, millis: int) -> Result<int, NetError>
+
+pub fn close(s: Socket)
+
+pub fn close_listener(l: Listener)
 
 ```
 

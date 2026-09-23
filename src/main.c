@@ -5,6 +5,7 @@
 #include "native_clock.h"
 #include "native_db.h"
 #include "native_io.h"
+#include "native_net.h"
 #include "native_random.h"
 #include "prelude.h"
 #include "typecheck.h"
@@ -19,6 +20,7 @@ int main(int argc, char **argv) {
     native_random_register();
     native_clock_register();
     native_db_register();
+    native_net_register();
     prelude_register();
 
     Module *module = load_module_graph(argv[1]);

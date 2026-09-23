@@ -1,0 +1,52 @@
+// bytes.zm -- helpers for working with `[byte]`, the data type `net`
+// reads and writes: converting to and from strings, and the big-endian
+// integer encodings binary network protocols (Postgres's wire protocol
+// first among them) are made of. Two natives, the rest pure Ziman.
+//
+// `[byte]` is an array of interpreter values, several times the memory
+// of raw bytes -- fine for protocol messages and HTTP headers, not
+// something to move megabytes through. A packed buffer type is left for
+// when something real needs one (see docs/ROADMAP.md).
+
+pub native fn string_to_bytes(s: string) -> [byte]
+pub native fn bytes_to_string(b: [byte]) -> Result<string, string>
+
+// Concatenates any number of byte arrays into one, in one pass.
+pub fn bytes_concat(parts: [byte]...) -> [byte] {
+    val out = ab_new<byte>()
+    for part in parts {
+        for b in part {
+            ab_append<byte>(out, b)
+        }
+    }
+    return ab_to_array<byte>(out)
+}
+
+// `n` (0..=4294967295) as 4 big-endian bytes, network byte order.
+pub fn u32_to_bytes(n: int) -> [byte] {
+    return [(n / 16777216 % 256) as byte, (n / 65536 % 256) as byte, (n / 256 % 256) as byte, (n % 256) as byte]
+}
+
+pub fn u16_to_bytes(n: int) -> [byte] {
+    return [(n / 256 % 256) as byte, (n % 256) as byte]
+}
+
+// Reads a big-endian unsigned integer starting at `offset` in `b`.
+pub fn u32_from_bytes(b: [byte], offset: int) -> int {
+    return (b[offset] as int) * 16777216 + (b[offset + 1] as int) * 65536 + (b[offset + 2] as int) * 256 + (b[offset + 3] as int)
+}
+
+pub fn u16_from_bytes(b: [byte], offset: int) -> int {
+    return (b[offset] as int) * 256 + (b[offset + 1] as int)
+}
+
+// The bytes of `b` from `start` up to (not including) `end`.
+pub fn bytes_slice(b: [byte], start: int, end: int) -> [byte] {
+    val out = ab_new<byte>()
+    var i = start
+    while i < end {
+        ab_append<byte>(out, b[i])
+        i = i + 1
+    }
+    return ab_to_array<byte>(out)
+}

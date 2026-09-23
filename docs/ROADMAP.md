@@ -992,22 +992,29 @@ a time mid-implementation:
   JSON key, or a future `#[derive(Validate)]`-style per-field
   constraint).
 
-- **Database access beyond SQLite.** `db`/`sql` and `#[derive(Row)]` exist
-  with SQLite as the one backend (docs/DESIGN.md's "`db`/`sql`" entry).
-  Still open: (1) a **`net` module** (sockets) and, on top of it, a
-  **Postgres driver written in Ziman** behind the same `db.open` --
-  the wire protocol (startup, the extended query protocol for bound
-  parameters, result decoding), SCRAM-SHA-256 authentication (needs a
-  `crypto` module: SHA-256, HMAC, PBKDF2; MD5 for older servers), and TLS
-  if a hosted database ever needs it; (2) **transactions**: no
-  `with_transaction(fn)` without closures, and a `?` returning early
-  inside one leaves it open -- needs a language-level answer once the
-  pain is real; (3) a **connection pool**, since one connection
-  serializes every call; (4) **schema management/migrations**, currently
-  a plain `create_schema` script per repository; (5) per-field
-  `#[derive(Row)]` annotations (column-name override, primary key,
-  generated columns) -- the same deferred per-field-annotation gap
-  `#[derive(Json)]` already documents.
+- **Database access beyond SQLite.** `db`/`sql`, `#[derive(Row)]` and now
+  `net` (blocking TCP) exist; SQLite is the one `db` backend (docs/
+  DESIGN.md's "`db`/`sql`" and "`net`" entries). Still open: (1) a
+  **`crypto` module** (SHA-256, HMAC, PBKDF2; MD5 for older servers) --
+  Postgres's default SCRAM-SHA-256 authentication needs it; (2) a
+  **Postgres driver written in Ziman** behind the same `db.open` -- the
+  wire protocol (startup, the extended query protocol for bound
+  parameters, result decoding), on `net` + `bytes`; (3) **TLS**, if a
+  hosted database ever needs it (a `tls` module wrapping a `Socket`,
+  linking a TLS library); (4) **scoped cleanup** -- something like `defer
+  close(s)`: no destructors means a `?` returning early leaks a socket
+  or leaves a transaction open, and no closures means no
+  `with_transaction(fn)`; one design would fix both `net` and `db`; (5) a
+  **connection pool**, since one connection serializes every call; (6)
+  **schema management/migrations**, currently a plain `create_schema`
+  script per repository; (7) per-field `#[derive(Row)]` annotations
+  (column-name override, primary key, generated columns) -- the same
+  deferred per-field-annotation gap `#[derive(Json)]` documents.
+- **`net` follow-ups.** A packed byte-buffer type (`[byte]` is an array
+  of interpreter values -- wasteful for bulk data), Unix-domain sockets
+  (local Postgres often uses one), UDP, and a connect timeout beyond the
+  OS default. An **`http` module** (server first, pure Ziman on `net`) is
+  the natural next consumer after the Postgres driver.
 
 ## Explicitly out of scope for now (see DESIGN.md "Non-goals")
 

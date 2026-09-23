@@ -1,0 +1,52 @@
+use net
+
+// Thread-per-connection: the accept loop hands each client to its own
+// spawned handler. Several clients talk to it concurrently.
+fn handle(client: net.Socket) {
+    val msg = unwrap(net.read_text(client, 100))
+    unwrap(net.write_text(client, concat("echo:", msg)))
+    net.close(client)
+}
+
+fn accept_loop(l: net.Listener, remaining: int) {
+    var n = remaining
+    while n > 0 {
+        val client = unwrap(net.accept(l))
+        spawn handle(client)
+        n = n - 1
+    }
+}
+
+fn client(port: int, name: string, results: Channel<string>) {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.write_text(s, name))
+    val reply = unwrap(net.read_text(s, 100))
+    net.close(s)
+    if reply == concat("echo:", name) {
+        send(results, "ok")
+    } else {
+        send(results, concat("BAD: ", reply))
+    }
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn accept_loop(l, 5)
+    val results: Channel<string> = channel_new()
+    spawn client(port, "alpha", results)
+    spawn client(port, "beta", results)
+    spawn client(port, "gamma", results)
+    spawn client(port, "delta", results)
+    spawn client(port, "epsilon", results)
+    var ok = 0
+    var i = 0
+    while i < 5 {
+        if receive(results) == "ok" {
+            ok = ok + 1
+        }
+        i = i + 1
+    }
+    print(ok)
+    net.close_listener(l)
+}

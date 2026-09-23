@@ -2026,6 +2026,53 @@ several languages rather than inheriting any one of them wholesale.
   every parameterless query needed a separately annotated `val`.
   See `tests/fixtures/db_*`, `derive_row_*`, `empty_array_call_arg`.
 
+- **`net` and `bytes` core modules: blocking TCP.** Built as the
+  prerequisite for a Postgres driver (the `db` module's second backend),
+  and the base an HTTP server would sit on. **Blocking, thread-per-
+  connection, on purpose**: Ziman has real OS threads and `spawn`, so a
+  blocked `accept`/`read` blocks only its own thread and no event loop or
+  async machinery is needed -- which is also exactly what a wire-protocol
+  client wants (blocking reads inside message parsing). **Same handle
+  pattern as `db` and `StringBuilder`**: `Socket`/`Listener` are `{
+  handle: int }` structs over a native-side table of descriptors, so a
+  program can't hand an arbitrary number to `close(2)`; errors cross the
+  native boundary as `"category|message"` strings and become a `NetError`
+  enum in `net.zm` (`ConnectionRefused|HostNotFound|Timeout|Closed|Io`).
+  **A clean close by the peer is `Err(Closed)`, never an empty array**, so
+  an EOF cannot be silently forgotten; the one legitimate case (a body
+  that ends when the connection does) matches `Closed` explicitly.
+  `read_exact` exists because length-prefixed protocols need exactly `n`
+  bytes however TCP splits them. **Data is `[byte]`**, with
+  `read_text`/`write_text` for text protocols: `[byte]` is an array of
+  interpreter values, several times the size of raw bytes, which is fine
+  for protocol messages and HTTP headers and wrong for bulk data -- a
+  packed buffer type is deferred until something real needs one, not
+  designed speculatively. Text mode can't carry a 0 byte (Ziman strings
+  are NUL-terminated), so `read_text` reports one rather than silently
+  truncating. `bytes` holds the string/`[byte]` conversions and the
+  big-endian integer encodings binary protocols are built from; only the
+  two conversions are native. **Timeouts are minimal but present**
+  (`SO_RCVTIMEO`/`SO_SNDTIMEO` via `set_timeout`, `EAGAIN` becomes
+  `Timeout`): a database driver without them hangs forever on a dead
+  peer. `SIGPIPE` is ignored and writes use `MSG_NOSIGNAL`, so a write to
+  a closed peer is a `Closed` error rather than killing the process.
+  **Deliberately not here yet**: TLS (a later `tls` module wrapping a
+  `Socket` -- hosted Postgres will want it, and it means linking a TLS
+  library), Unix-domain sockets, UDP, a connect timeout, and IPv6-only
+  concerns beyond `getaddrinfo` handling both families.
+  **The recurring hazard, stated once.** Closing is explicit and there are
+  no destructors, so a `?` that returns early between `connect` and
+  `close` leaks the socket -- the same problem `db` has with an open
+  transaction. Both point at a missing scoped-cleanup feature (something
+  like `defer close(s)`), deliberately left as its own later design
+  rather than bolted onto `net`. Closing a socket another thread is
+  blocked reading wakes that read with an error (`shutdown` first), but
+  the descriptor number is then free for the OS to reuse, so close only
+  from the owning thread.
+  Tested entirely on loopback -- an echo server in a `spawn`ed thread on
+  port 0, then five concurrent clients against a thread-per-connection
+  accept loop: see `tests/fixtures/net_*`.
+
 ## Deliberately deferred (not v0)
 
 - Effects visible in function signatures (which functions do I/O or mutate
