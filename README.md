@@ -168,12 +168,21 @@ fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
 `substring`, `split`, `trim`, `to_upper`, `to_lower`, `join` — instead
 lives in an auto-imported "prelude" module (`corelib/prelude.zm`), each
 an ordinary `native fn` using the same mechanism the `io` module uses to
-call into C. `join(pieces: string...) -> string` is also the first use
-of a *variadic parameter* — `join("a", "b")`/`join(pieces)` (an
-already-built `[string]`) both work, and it exists specifically so that
-joining many strings is a single native, O(N) buffer build instead of
-the O(N²) a pure-Ziman loop of `concat` calls would be (see
-docs/DESIGN.md's "Variadic parameters" entry). Any call — to a
+call into C. `join(prefix: Option<string>, suffix: Option<string>,
+separator: Option<string>, pieces: string...) -> string` is also the
+first use of a *variadic parameter* — `join(pieces: "a", "b")`/
+`join(pieces: arr)` (an already-built `[string]`) both work for the
+trailing pieces, and it exists specifically so that joining many
+strings is a single native, O(N) buffer build instead of the O(N²) a
+pure-Ziman loop of `concat` calls would be (see docs/DESIGN.md's
+"Variadic parameters" entry). Its own leading three parameters are the
+first real caller of `Option<T>` parameter omission (below): the common
+case, `join(pieces: arr)`, leaves all three out, each falling back to
+its own do-nothing default (no prefix, no suffix, plain concatenation
+with nothing between pieces) — give any of them, bare or wrapped, to
+build a delimited, bracketed, or otherwise decorated string in the same
+single native pass (`join(prefix: "[", suffix: "]", separator: ", ",
+pieces: arr)`). Any call — to a
 `native fn`, a plain `fn`, or a generic one — may also name its
 arguments instead of listing them positionally
 (`localtime_of(hour: 1, minute: 2, second: 3, nano: 4)`, in any order),

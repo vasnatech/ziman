@@ -213,30 +213,73 @@ static Value native_to_lower(Value *args, int argc, int line, int col) {
     return value_string(buf);
 }
 
-/* args[0] is always the collected `[string]` array, regardless of how
+/* An Option<string> argument's own payload, or NULL for None -- typecheck
+ * already proved `opt` is genuinely an Option (see check_value_against_
+ * param_type in typecheck.c), so this only ever has to look at which
+ * variant it turned out to be at runtime, the same way unwrap_Some
+ * itself would. */
+static const char *option_string_or_null(Value opt) {
+    EnumObj *obj = opt.as.en;
+    if (strcmp(obj->variant_name, "Some") == 0) {
+        return obj->payload.as.s;
+    }
+    return NULL;
+}
+
+/* args[3] is always the collected `[string]` array, regardless of how
  * many pieces the call site wrote out individually vs. passed as one
  * already-built array -- see ast.h's Param comment and interpreter.c's
  * collapse_variadic_args, which is what guarantees this native
- * function never has to know the difference. Two linear passes (sum
- * the lengths, then copy), one allocation -- the whole point of this
- * function existing natively: a pure-Ziman version accumulating via
- * repeated `concat` would be the same O(N^2) pattern this was written
- * to replace (see docs/DESIGN.md's "join" entry). */
+ * function never has to know the difference. args[0..2] are
+ * prefix/suffix/separator, each already resolved to a concrete
+ * Option<string> by the time this runs -- an omitted one (only legal in
+ * a named call) already became None, and a bare string became
+ * Some(...), before this native function was ever reached (see
+ * typecheck.c's canonicalize_named_args and check_value_against_param_type).
+ * Still two linear passes overall (sum the lengths, then copy), one
+ * allocation -- the whole point of this function existing natively: a
+ * pure-Ziman version accumulating via repeated `concat` would be the
+ * same O(N^2) pattern this was written to replace (see docs/DESIGN.md's
+ * "join" entry). */
 static Value native_join(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    ArrayObj *pieces = args[0].as.arr;
-    size_t total = 0;
+    const char *prefix = option_string_or_null(args[0]);
+    const char *suffix = option_string_or_null(args[1]);
+    const char *separator = option_string_or_null(args[2]);
+    ArrayObj *pieces = args[3].as.arr;
+
+    size_t prefix_len = prefix != NULL ? strlen(prefix) : 0;
+    size_t suffix_len = suffix != NULL ? strlen(suffix) : 0;
+    size_t separator_len = separator != NULL ? strlen(separator) : 0;
+
+    size_t total = prefix_len + suffix_len;
     for (int i = 0; i < pieces->count; i++) {
         total += strlen(pieces->items[i].as.s);
     }
+    if (pieces->count > 1) {
+        total += separator_len * (size_t)(pieces->count - 1);
+    }
+
     char *buf = malloc(total + 1);
     size_t pos = 0;
+    if (prefix != NULL) {
+        memcpy(buf + pos, prefix, prefix_len);
+        pos += prefix_len;
+    }
     for (int i = 0; i < pieces->count; i++) {
+        if (i > 0 && separator != NULL) {
+            memcpy(buf + pos, separator, separator_len);
+            pos += separator_len;
+        }
         size_t piece_len = strlen(pieces->items[i].as.s);
         memcpy(buf + pos, pieces->items[i].as.s, piece_len);
         pos += piece_len;
+    }
+    if (suffix != NULL) {
+        memcpy(buf + pos, suffix, suffix_len);
+        pos += suffix_len;
     }
     buf[total] = '\0';
     return value_string(buf);

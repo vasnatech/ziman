@@ -1,18 +1,33 @@
 fn main() {
-    print(join())
-    print(join("hello"))
-    print(join("Hello, ", "world", "!"))
+    // Everything omitted (prefix/suffix/separator all default to None)
+    // -- the same plain-concatenation behavior join always had.
+    val empty: [string] = []
+    print(join(pieces: empty))
+    print(join(pieces: ["hello"]))
+    print(join(pieces: ["Hello, ", "world", "!"]))
 
     val pieces: [string] = ["a", "b", "c", "d"]
-    print(join(pieces))
+    print(join(pieces: pieces))
+
+    // Individual elements, not an array -- a named call's variadic slot
+    // only ever accepts one value, so this needs a fully positional
+    // call (every Option<string> spelled out) instead.
+    print(join(Option<string>.None, Option<string>.None, Option<string>.None, "Hello, ", "world", "!"))
+
+    // separator alone, then prefix+suffix+separator together, both as
+    // bare strings (auto-wrapped to Some(...)).
+    print(join(separator: ", ", pieces: pieces))
+    print(join(prefix: "[", suffix: "]", separator: ", ", pieces: pieces))
 
     // Large enough to actually exercise the single-pass buffer, not
-    // just the trivial cases above.
+    // just the trivial cases above -- with and without prefix/suffix/
+    // separator, since both paths sum lengths differently.
     var big: [string] = []
     var i = 0
     while i < 2000 {
         big = push(big, str(i))
         i = i + 1
     }
-    print(len(join(big)))
+    print(len(join(pieces: big)))
+    print(len(join(prefix: "[", suffix: "]", separator: ",", pieces: big)))
 }

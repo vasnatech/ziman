@@ -1289,6 +1289,47 @@ several languages rather than inheriting any one of them wholesale.
   nothing to do with `Option<T>`).
   `Result<T, E>` bare-value auto-wrapping is the fourth and last stage
   of this conversation, still to come.
+- **`join` grew `prefix`/`suffix`/`separator`, its first real caller
+  outside the language's own test suite.** The original single-purpose
+  `join(pieces: string...) -> string` (see "Variadic parameters" above)
+  only ever concatenated its pieces directly -- no way to put a
+  separator between them or wrap the result, short of a second
+  `concat` pass around the result, which reintroduces exactly the extra
+  allocation `join` existing natively was meant to avoid. Extending the
+  signature to `join(prefix: Option<string>, suffix: Option<string>,
+  separator: Option<string>, pieces: string...) -> string` folds all
+  three into the same single native pass instead. Each is `Option<string>`
+  specifically so the common case -- none of them -- costs nothing extra
+  at the call site: `join(pieces: arr)` leaves all three out, each
+  falling back to its own do-nothing default (`None`, meaning "don't
+  apply this one"), the exact behavior plain `join` always had. This is
+  possible with zero changes to the call resolution machinery: named
+  arguments and Option<T> parameter omission (both above) already
+  handle it, and native functions were never a special case for either
+  -- `check_function`'s param-default validation and
+  `canonicalize_named_args`'s omission-filling run identically whether
+  `fn->is_native` or not, since neither one touches (or needs to touch)
+  a function's body.
+  `native_join` (`src/prelude.c`) unwraps each `Option<string>` argument
+  itself, via a small `option_string_or_null` helper reading the
+  argument's own `EnumObj.variant_name` at runtime -- by the time a
+  native function ever sees one of these arguments, typecheck has
+  already resolved it to a genuine `Option<string>` (auto-wrapping a
+  bare string into `Some(...)` if that's what was written), so there is
+  nothing left to validate, only to branch on. Still one allocation,
+  two linear passes overall: the first sums `prefix`/`suffix`/each
+  piece's length plus `separator`'s length times one fewer than the
+  piece count, the second copies everything (prefix, then each piece
+  with a separator between consecutive ones, then suffix) into that one
+  buffer -- genuinely O(N) regardless of how many of the three optional
+  parameters were actually given.
+  One call site broke from the signature change and needed fixing:
+  `join(pieces)`, a plain single positional argument valid under the
+  old 1-parameter signature, is no longer legal on its own now that
+  `pieces` is the fourth parameter -- becomes `join(pieces: pieces)`, a
+  named call, which is also the form every other real call site outside
+  this codebase's own tests will need to use for the simple case, now
+  that `join` takes more than one parameter.
 
 ## Deliberately deferred (not v0)
 

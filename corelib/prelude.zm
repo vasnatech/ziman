@@ -34,13 +34,25 @@ native fn trim(s: string) -> string
 native fn to_upper(s: string) -> string
 native fn to_lower(s: string) -> string
 // A single-pass, O(N) join of however many strings the caller writes out
-// individually (`join("a", "b", "c")`) or hands over as one already-built
-// array (`join(pieces)`) -- see docs/DESIGN.md's "join"/variadic
-// parameters entry for why this needed to be native (a pure-Ziman version
-// accumulating via repeated `concat` would just reintroduce the same
-// O(N^2) pattern this exists to replace) and why a variadic parameter,
-// not an ordinary `[string]` one, was worth adding to the language for it.
-native fn join(pieces: string...) -> string
+// individually (`join(pieces: "a", "b", "c")`) or hands over as one
+// already-built array (`join(pieces: arr)`) -- see docs/DESIGN.md's
+// "join"/variadic parameters entry for why this needed to be native (a
+// pure-Ziman version accumulating via repeated `concat` would just
+// reintroduce the same O(N^2) pattern this exists to replace) and why a
+// variadic parameter, not an ordinary `[string]` one, was worth adding
+// to the language for it. `prefix`/`suffix`/`separator` are each
+// Option<string> specifically so the common case -- none of them --
+// can be left out of a named call entirely (`join(pieces: arr)`) rather
+// than spelled out as `Option<string>.None` three times; give any of
+// them to wrap the whole thing (`join(prefix: Option<string>.Some("["),
+// suffix: Option<string>.Some("]"), separator: Option<string>.Some(", "),
+// pieces: arr)` -- or the equivalent, shorter bare-string form,
+// `join(prefix: "[", suffix: "]", separator: ", ", pieces: arr)`,
+// auto-wrapped to Some(...) the same way any other Option<T> argument
+// is). A positional call still works too, with every one of the four
+// parameters given explicitly and in order, exactly like calling any
+// other function positionally always has.
+native fn join(prefix: Option<string>, suffix: Option<string>, separator: Option<string>, pieces: string...) -> string
 
 // `Option<T>` -- moved here from collections.zm so it needs no `use
 // collections` (or a per-name import of it) anywhere it's used, the

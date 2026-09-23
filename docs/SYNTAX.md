@@ -524,9 +524,12 @@ fn main() {
 ### Variadic parameters
 
 ```
-// join(pieces: string...) -> string is a real, always-available
-// prelude function (see "Modules" above) -- this is a second,
-// hand-written example to show the shape without redeclaring it.
+// join(prefix: Option<string>, suffix: Option<string>,
+// separator: Option<string>, pieces: string...) -> string is a real,
+// always-available prelude function (see "Modules" above and the
+// Option<T> parameter section below) -- this is a second, hand-written
+// example to show the variadic-parameter shape on its own, without
+// redeclaring it.
 fn sum(nums: int...) -> int {
     var total = 0
     for n in nums {
