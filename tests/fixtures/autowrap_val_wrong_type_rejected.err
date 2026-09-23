@@ -1,0 +1,1 @@
+cannot initialize 'r' of declared type Result<int, string> with a value of type float

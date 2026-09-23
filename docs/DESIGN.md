@@ -1689,6 +1689,67 @@ several languages rather than inheriting any one of them wholesale.
   as designed; a wrong-type argument produces a clear three-way message
   (`"expects Result<T, E>, T, or E, found ..."`, or the two-way
   `"expects Result<T, E> or T, found ..."` when `T == E`).
+- **Extended the Option<T>/Result<T, E> bare-value auto-wrap from
+  function-call arguments to the other three positions where a type is
+  already known from context.** Prompted by a follow-up idea for a
+  `throw` keyword (sugar for an early `return err(...)`) -- rejected
+  `throw` itself (see below), but the discussion surfaced a real,
+  narrower gap worth fixing on its own: `return 1` for a function
+  declared to return `Result<int, string>` didn't actually work, since
+  the auto-wrap built for stage 3/4 only ever touched
+  `check_call`'s argument-checking, never `return`. Checked directly
+  before assuming otherwise -- confirmed the gap, then generalized
+  rather than special-casing just `return`: `check_expr_expecting`
+  already gives `ok(...)`/`err(...)`/`channel_new()`/an empty array
+  literal this same "resolve against the expected type" treatment in
+  exactly four positions (a `val`/`var`'s own declared type, a struct
+  literal field, a `with` override, and a function's returned value),
+  so leaving three of them exact-match-only while only `return` gained
+  the new sugar would have just relocated the inconsistency rather than
+  removed it -- the same reasoning that already justified extending the
+  original design from `Option<T>` alone to `Result<T, E>` alongside
+  it. **Explicitly framed as an AI-generation concern, not just a
+  human-readability one, when the user asked directly**: a rule that
+  applies at one syntactically-identical position but not
+  another is exactly the kind of partial-pattern-application a model
+  is prone to getting wrong -- it has one uniform rule to apply
+  everywhere now ("wherever a `Result<T, E>`/`Option<T>` value is
+  expected, a bare value auto-wraps"), not a rule scoped to an
+  arbitrary subset of the positions that idea could apply to.
+  Implemented by changing `check_expr_expecting`'s signature from
+  `Expr *e` to `Expr **e_slot` (needed so the auto-wrap case can replace
+  the expression in place, the same reason `check_value_against_param_type`
+  itself already takes one) and trying that same helper as one more
+  case before its existing plain-`check_expr` fallback. Deliberately
+  does *not* raise its own richer error on a mismatch the way
+  `check_call`'s own copy does (`"expects X, Y, or Z"`) -- each of the
+  four call sites keeps raising its own pre-existing, position-specific
+  message ("field 'x' of 'Y' expects...", "returned X but function is
+  declared to return Y", ...) for a genuine type mismatch, just without
+  the extra "or T"/"or T, E" wording; teaching four different messages
+  that wording wasn't worth it for a case that already had a perfectly
+  serviceable error. `STMT_VAL`/`STMT_VAR`'s own declared-type checking
+  doesn't go through `check_expr_expecting` at all (a pre-existing,
+  unrelated split -- see that code's own comment for why) and got the
+  identical treatment added as its own parallel branch instead, calling
+  `check_value_against_param_type` directly against `&s->as.decl.init`
+  (not the function's own local `init` copy, so a successful wrap
+  persists into the AST the interpreter actually evaluates).
+  **`throw`, rejected**: proposed as sugar for `return err(x)`.
+  Once bare-value `return` auto-wrap exists on its own, `throw "x"` and
+  `return "x"` do exactly the same thing -- no unwinding, nothing
+  catchable up the call stack, exits only the immediate function --
+  so `throw` would add a name with zero functional benefit over plain
+  `return`. Worse, `throw` is borrowed from languages (Java, Python,
+  JS, C++) where it *does* unwind arbitrarily far and *is* catchable;
+  reusing that name for something that only returns from the current
+  function risks teaching both human readers and an LLM generating
+  Ziman code the wrong mental model, directly against this project's
+  own "cheap for an LLM to generate correctly" goal. If the underlying
+  itch is reducing `Result`-propagation boilerplate (`if is_err(r) {
+  return err_of(r) }` after every fallible call), a Rust-style `?`
+  operator would be the honest, valuable version of that idea -- a
+  separate, larger design, not attempted here.
 
 ## Deliberately deferred (not v0)
 

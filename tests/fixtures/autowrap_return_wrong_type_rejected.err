@@ -1,0 +1,1 @@
+returned float but function is declared to return Result<int, string>

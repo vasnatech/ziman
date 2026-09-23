@@ -194,13 +194,16 @@ named call may also leave out an `Option<T>`-typed parameter entirely
 `None`, or whatever the declaration's own `= expr` default says instead
 (`priority: Option<int> = 3`), evaluated once, before `main` runs, the
 same timing a global val's own initializer gets. Wherever an
-`Option<T>` value is expected, a bare `T` works too, auto-wrapped to
-`Some(T)` — a deliberate, narrow exception to "no implicit coercion,"
-modeled on Rust's own `impl<T> From<T> for Option<T>` (see
-docs/DESIGN.md's "Option\<T\> parameter omission and defaults" entry).
-`Result<T, E>` gets the same bare-value auto-wrap, wherever one is
-expected: a bare `T` becomes `Ok(T)`, a bare `E` becomes `Err(E)`, and
-when `T == E` a bare value always becomes `Ok` (write `err(value)`
+`Option<T>` value is expected — a supplied argument, a default
+expression, a `val`/`var`'s own declared type, a struct literal field,
+a `with` override, or a function's returned value — a bare `T` works
+too, auto-wrapped to `Some(T)` — a deliberate, narrow exception to "no
+implicit coercion," modeled on Rust's own `impl<T> From<T> for
+Option<T>` (see docs/DESIGN.md's "Option\<T\> parameter omission and
+defaults" entry). `Result<T, E>` gets the same bare-value auto-wrap, in
+all of those same positions except a default (`Result<T, E>` can't have
+one): a bare `T` becomes `Ok(T)`, a bare `E` becomes `Err(E)`, and when
+`T == E` a bare value always becomes `Ok` (write `err(value)`
 explicitly for that one case). Unlike `Option<T>`, a `Result<T, E>`
 parameter can never be omitted — there's no natural "absent" state an
 outcome type could fall back to — so this sugar is only ever about

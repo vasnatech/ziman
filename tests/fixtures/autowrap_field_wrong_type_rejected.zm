@@ -1,0 +1,7 @@
+struct W {
+    r: Result<int, string>
+}
+
+fn main() {
+    val w = W { r: 3.14 }
+}

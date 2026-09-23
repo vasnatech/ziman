@@ -1061,16 +1061,34 @@ static Param *resolve_field_init(StructDecl *decl, FieldInitList *inits, int ind
 }
 
 /* Like check_expr, but tries every "can't infer its own type" case Ziman
- * has -- an empty array literal (`[]`), `ok(...)`/`err(...)`, and
- * `channel_new()` -- against `expected` first, before falling back to
- * plain check_expr for everything else (including any of those three
- * where `expected` doesn't match what they need; those keep getting
- * whatever error they'd otherwise get, unchanged). This is the same
- * "expected type from context" idea val/var declarations already use (see
- * check_stmt's STMT_VAL/STMT_VAR case) extended to the other positions
- * where the expected type is just as statically known: a struct literal
- * field, a `with` override, and a `return` value. */
-static Type check_expr_expecting(Module *module, Env *env, Expr *e, Type expected) {
+ * has -- an empty array literal (`[]`), `ok(...)`/`err(...)`,
+ * `channel_new()`, and the Option<T>/Result<T, E> bare-value auto-wrap
+ * -- against `expected` first, before falling back to plain check_expr
+ * for everything else (including any of those where `expected` doesn't
+ * match what they need; those keep getting whatever error they'd
+ * otherwise get, unchanged -- the auto-wrap case is the one exception,
+ * see below). This is the same "expected type from context" idea
+ * val/var declarations already use (see check_stmt's STMT_VAL/STMT_VAR
+ * case) extended to the other positions where the expected type is just
+ * as statically known: a struct literal field, a `with` override, and a
+ * `return` value.
+ *
+ * Takes `Expr **e_slot` rather than `Expr *e`, unlike every other
+ * check_* function, specifically so the auto-wrap case can replace the
+ * expression in place (the same reason check_value_against_param_type
+ * itself takes one) -- every other branch here only ever reads through
+ * it, never reassigns it. On an auto-wrap mismatch, this deliberately
+ * does NOT raise its own error the way check_value_against_param_type's
+ * other caller (check_call) does: it returns the value's own actual
+ * type instead, so each of *this* function's four callers keeps raising
+ * its own already-existing, position-specific message ("field 'x' of
+ * 'Y' expects...", "returned X but function is declared to return
+ * Y", ...) exactly as it did before auto-wrap existed, just without the
+ * richer "or T"/"or T, E" wording check_call's own version gives --
+ * simpler than teaching four different messages that wording, and no
+ * worse than what the mismatch case already said. */
+static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type expected) {
+    Expr *e = *e_slot;
     if (e->kind == EXPR_ARRAY_LIT && e->as.array_lit.elements.count == 0 && expected.kind == TY_ARRAY) {
         e->resolved_type = expected;
         return expected;
@@ -1081,7 +1099,14 @@ static Type check_expr_expecting(Module *module, Env *env, Expr *e, Type expecte
     if (check_channel_new_call(e, expected)) {
         return expected;
     }
-    return check_expr(module, env, e);
+    if (is_option_type(expected) || expected.kind == TY_RESULT) {
+        Type arg_type;
+        if (check_value_against_param_type(module, env, e_slot, expected, &arg_type)) {
+            return expected;
+        }
+        return arg_type;
+    }
+    return check_expr(module, env, *e_slot);
 }
 
 static Type check_struct_literal(Module *module, Env *env, Expr *e) {
@@ -1113,7 +1138,7 @@ static Type check_struct_literal(Module *module, Env *env, Expr *e) {
     for (int i = 0; i < inits->count; i++) {
         Param *field = resolve_field_init(decl, inits, i);
         Type field_type = substitute_type(field->type, &decl->type_params, type_args);
-        Type value_type = check_expr_expecting(module, env, inits->items[i].value, field_type);
+        Type value_type = check_expr_expecting(module, env, &inits->items[i].value, field_type);
         require_not_void(inits->items[i].value, "as a field value");
         if (!type_equals(value_type, field_type)) {
             ziman_error("type", inits->items[i].value->line, inits->items[i].value->col,
@@ -1166,7 +1191,7 @@ static Type check_with_expr(Module *module, Env *env, Expr *e) {
     for (int i = 0; i < overrides->count; i++) {
         Param *field = resolve_field_init(decl, overrides, i);
         Type field_type = substitute_type(field->type, &decl->type_params, &base_type.type_args);
-        Type value_type = check_expr_expecting(module, env, overrides->items[i].value, field_type);
+        Type value_type = check_expr_expecting(module, env, &overrides->items[i].value, field_type);
         require_not_void(overrides->items[i].value, "as a field value");
         if (!type_equals(value_type, field_type)) {
             ziman_error("type", overrides->items[i].value->line, overrides->items[i].value->col,
@@ -1419,6 +1444,21 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 /* channel_new() resolved against the declared type -- same
                  * reasoning as ok(...)/err(...) above. */
                 declared = s->as.decl.declared_type;
+            } else if (s->as.decl.has_declared_type && (is_option_type(s->as.decl.declared_type) || s->as.decl.declared_type.kind == TY_RESULT)) {
+                /* A bare Option<T>/Result<T, E> auto-wrap against the
+                 * declared type -- same reasoning as ok(...)/err(...)
+                 * above, via check_value_against_param_type directly
+                 * (passing &s->as.decl.init, not the local `init` copy,
+                 * so a successful wrap persists into the AST the
+                 * interpreter later evaluates). */
+                Type arg_type;
+                if (check_value_against_param_type(module, env, &s->as.decl.init, s->as.decl.declared_type, &arg_type)) {
+                    declared = s->as.decl.declared_type;
+                } else {
+                    ziman_error("type", init->line, init->col,
+                                "cannot initialize '%s' of declared type %s with a value of type %s",
+                                s->as.decl.name, type_name(s->as.decl.declared_type), type_name(arg_type));
+                }
             } else {
                 Type init_type = check_expr(module, env, init);
                 require_not_void(init, "to initialize a variable");
@@ -1551,11 +1591,11 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 }
             } else {
                 /* check_expr_expecting resolves ok(...)/err(...)/
-                 * channel_new()/an empty array literal against the
-                 * function's own declared return type when the value is
-                 * exactly one of those; falls back to plain check_expr
-                 * otherwise. */
-                Type value_type = check_expr_expecting(module, env, s->as.ret.value, fn_return_type);
+                 * channel_new()/an empty array literal/a bare Option<T>
+                 * or Result<T, E> value against the function's own
+                 * declared return type when the value is exactly one of
+                 * those; falls back to plain check_expr otherwise. */
+                Type value_type = check_expr_expecting(module, env, &s->as.ret.value, fn_return_type);
                 if (fn_return_type.kind == TY_VOID) {
                     ziman_error("type", s->as.ret.value->line, s->as.ret.value->col, "cannot return a value from a function declared with no return type");
                 }

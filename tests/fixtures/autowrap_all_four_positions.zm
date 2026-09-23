@@ -1,0 +1,53 @@
+// Option<T>/Result<T, E> bare-value auto-wrap, in every position where
+// the expected type is statically known from context: a val/var's own
+// declared type, a struct literal field, a `with` override, and a
+// function's return value.
+struct Wrapper {
+    r: Result<int, string>
+    o: Option<int>
+}
+
+fn make_result(ok_path: bool) -> Result<int, string> {
+    if ok_path {
+        return 1
+    } else {
+        return "failed operation"
+    }
+}
+
+fn make_option(has_value: bool) -> Option<int> {
+    if has_value {
+        return 5
+    }
+    return Option<int>.None
+}
+
+fn main() {
+    // 1. val/var with an explicit declared type.
+    val r1: Result<int, string> = 5
+    val r2: Result<int, string> = "bad"
+    val o1: Option<int> = 7
+    print(is_ok(r1))
+    print(is_ok(r2))
+    print(Option.is_Some(o1))
+
+    // 2. struct literal field.
+    val w1 = Wrapper { r: 10, o: 20 }
+    val w2 = Wrapper { r: "oops", o: Option<int>.None }
+    print(is_ok(w1.r))
+    print(Option.is_Some(w1.o))
+    print(is_ok(w2.r))
+    print(Option.is_Some(w2.o))
+
+    // 3. `with` override.
+    val w3 = with w1 { r: "changed" }
+    print(is_ok(w3.r))
+
+    // 4. return statement -- the case that started this conversation.
+    print(is_ok(make_result(true)))
+    print(unwrap(make_result(true)))
+    print(is_ok(make_result(false)))
+    print(unwrap_err(make_result(false)))
+    print(Option.is_Some(make_option(true)))
+    print(Option.is_Some(make_option(false)))
+}

@@ -676,13 +676,15 @@ fn main() {
   strictly cheaper computed once. Like a global val's own initializer,
   it can't reference this function's other parameters — only whatever
   is already in scope at program start.
-- **Wherever an `Option<T>` value is expected — a supplied argument or
-  a default expression — a bare `T` works too**, auto-wrapped to
-  `Some(T)`. An already-`Option<T>` value (or `None`) is also legal and
-  passed through unchanged. This is a deliberate, narrow exception to
-  "no implicit coercion," modeled on Rust's own `impl<T> From<T> for
-  Option<T>`: wrapping a single, statically-known type is never lossy
-  or ambiguous, unlike numeric coercion.
+- **Wherever an `Option<T>` value is expected — a supplied argument, a
+  default expression, a `val`/`var`'s own declared type, a struct
+  literal field, a `with` override, or a function's returned value — a
+  bare `T` works too**, auto-wrapped to `Some(T)`. An already-`Option<T>`
+  value (or `None`) is also legal and passed through unchanged. This is
+  a deliberate, narrow exception to "no implicit coercion," modeled on
+  Rust's own `impl<T> From<T> for Option<T>`: wrapping a single,
+  statically-known type is never lossy or ambiguous, unlike numeric
+  coercion.
 - **A generic function's `Option<T>` parameter can't have a default
   when `T` is that function's own, still-unbound type parameter** —
   a default is evaluated once, at program start, long before any call
@@ -700,6 +702,14 @@ fn require_positive(r: Result<int, string>) -> string {
     return concat("rejected: ", unwrap_err(r))
 }
 
+fn as_result(ok_path: bool) -> Result<int, string> {
+    if ok_path {
+        return 1              // a bare T return value -- becomes Ok(1)
+    } else {
+        return "bad input"    // a bare E return value -- becomes Err("bad input")
+    }
+}
+
 fn main() {
     // A bare value of the Ok type or the Err type both auto-wrap.
     print(require_positive(5))       // "got 5" -- Ok(5)
@@ -708,10 +718,15 @@ fn main() {
     // An already-Result<T, E> value still works too.
     val explicit: Result<int, string> = err("nope")
     print(require_positive(explicit))
+
+    print(is_ok(as_result(true)))    // true
+    print(is_ok(as_result(false)))   // false
 }
 ```
 
-- **Wherever a `Result<T, E>` value is expected, a bare value of
+- **Wherever a `Result<T, E>` value is expected — a supplied function
+  argument, a `val`/`var`'s own declared type, a struct literal field,
+  a `with` override, or a function's returned value — a bare value of
   either the `T` (Ok) or `E` (Err) type auto-wraps** — a bare `T`
   becomes `Ok(T)`; a bare `E` becomes `Err(E)`. An already-`Result<T,
   E>` value passes through unchanged. Same deliberate, narrow exception
