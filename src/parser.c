@@ -983,13 +983,23 @@ static FunctionDecl *parse_function(Parser *p) {
     return fn;
 }
 
-/* `native fn name(params) -> type`, no body at all -- its implementation is
- * a C function registered by module path + name, looked up at call time.
- * The type checker treats its signature exactly like any other function's
- * (see check_function's `is_native` early-return); the interpreter reports
- * a clear "no registered implementation" error if nothing was registered
- * for it (see interpreter.c) -- no real native module exists to back one
- * yet, this is the language mechanism only. */
+/* `native fn name[<TypeParams>](params) -> type`, no body at all -- its
+ * implementation is a C function registered by module path + name,
+ * looked up at call time. The type checker treats its signature exactly
+ * like any other function's (see check_function's `is_native` early-
+ * return); the interpreter reports a clear "no registered
+ * implementation" error if nothing was registered for it (see
+ * interpreter.c) -- no real native module exists to back one yet, this
+ * is the language mechanism only. Optional type parameters mirror
+ * parse_function's own handling exactly (`<T>`, `reclassify_type_params`
+ * over params/return_type so a bare `T` inside either one is recognized
+ * as this declaration's own type parameter, not an unrelated type name)
+ * -- minus the body-specific step, since a native fn has none to walk. A
+ * generic native fn's C implementation never needs to know which
+ * concrete type a call instantiated it with to do its own job: Value is
+ * already runtime-type-erased regardless (see docs/DESIGN.md's
+ * "Generics" entry), the same reason ordinary generic structs/enums
+ * need no monomorphization either. */
 static FunctionDecl *parse_native_function(Parser *p) {
     Token *kw = expect(p, TOK_NATIVE, "'native'");
     expect(p, TOK_FN, "'fn'");
@@ -1002,6 +1012,10 @@ static FunctionDecl *parse_native_function(Parser *p) {
     fn->line = kw->line;
     fn->col = kw->col;
 
+    if (check(p, TOK_LT)) {
+        fn->type_params = parse_type_param_list(p);
+    }
+
     expect(p, TOK_LPAREN, "'('");
     fn->params = parse_params(p);
     expect(p, TOK_RPAREN, "')'");
@@ -1009,6 +1023,13 @@ static FunctionDecl *parse_native_function(Parser *p) {
     fn->return_type = type_scalar(TY_VOID);
     if (match(p, TOK_ARROW)) {
         fn->return_type = parse_type(p);
+    }
+
+    if (fn->type_params.count > 0) {
+        for (int i = 0; i < fn->params.count; i++) {
+            reclassify_type_params(&fn->params.items[i].type, &fn->type_params);
+        }
+        reclassify_type_params(&fn->return_type, &fn->type_params);
     }
     return fn;
 }

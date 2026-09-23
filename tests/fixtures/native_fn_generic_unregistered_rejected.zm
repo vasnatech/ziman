@@ -1,0 +1,11 @@
+// Proves the type checker's generic-instantiation machinery (explicit
+// type arguments, substitution, argument-type checking) runs exactly
+// the same for a `native fn` as for an ordinary one -- this call is
+// fully well-typed and correctly reaches native dispatch, only failing
+// because no C implementation was ever registered for it (there's
+// nothing for a throwaway generic native fn declared here to run).
+native fn identity_native<T>(x: T) -> T
+
+fn main() {
+    print(identity_native<int>(5))
+}

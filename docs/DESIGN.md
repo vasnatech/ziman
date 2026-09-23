@@ -1444,6 +1444,32 @@ several languages rather than inheriting any one of them wholesale.
   old generic count-mismatch wording for this case). A *partial*
   positional call (`f(1)` when `f` needs two) is untouched by this and
   stays exactly as strict as it always has been.
+- **Generic native fns — a narrow, pre-existing gap closed to unblock
+  `ArrayBuilder` (below), not a project of its own.** `native fn
+  foo<T>(...)` simply didn't parse before this: `parse_native_function`
+  never grew the `<TypeParams>` handling `parse_function` (an ordinary
+  `fn`) already had, an arbitrary asymmetry rather than a deliberate
+  design choice -- confirmed directly (`native fn identity_native<T>(x:
+  T) -> T` failed with a plain syntax error) before assuming it needed
+  new machinery at all. Fixed by mirroring `parse_function`'s existing
+  `<T>` handling in `parse_native_function` verbatim, minus the
+  body-specific `reclassify_type_params_in_stmt` step (a native fn has
+  no body to walk). Once the parser accepted the syntax, everything else
+  already worked with zero further changes: `check_call`'s generic-
+  instantiation logic (explicit type arguments required at every call,
+  substitution, per-argument type checking) never special-cased
+  `is_native` anywhere -- only `check_function`'s *body*-checking skips
+  native fns, which was never in the way here -- verified directly with
+  a throwaway `identity_native<T>(x: T) -> T`: missing type arguments,
+  a wrong type-argument count, and a wrong argument type each produced
+  the exact same errors a generic ordinary `fn` already gives, and a
+  fully well-typed call correctly reached native dispatch, only failing
+  on "no registered implementation" (expected, since nothing was ever
+  registered for a throwaway test function). A generic native fn's own
+  C implementation never needs to know which concrete type a given call
+  instantiated it with to do its job, for the same reason ordinary
+  generic structs/enums need no monomorphization: `Value` is already
+  runtime-type-erased regardless of Ziman's static types.
 
 ## Deliberately deferred (not v0)
 

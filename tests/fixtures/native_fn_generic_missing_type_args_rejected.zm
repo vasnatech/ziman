@@ -1,0 +1,5 @@
+native fn identity_native<T>(x: T) -> T
+
+fn main() {
+    print(identity_native(5))
+}

@@ -1037,11 +1037,18 @@ fn main() {
   top-level names stay bare/unqualified exactly as in a single-file
   program. A program with no `use` statements behaves identically to
   before modules existed.
-- **`native fn name(params) -> type`** declares a function with no body
-  at all — its implementation is a C function registered under its exact
-  fully-qualified name, looked up at call time. The type checker treats
-  its signature like any other function's; calling one with nothing
-  registered for it is a runtime error ("no registered implementation").
+- **`native fn name[<TypeParams>](params) -> type`** declares a function
+  with no body at all — its implementation is a C function registered
+  under its exact fully-qualified name, looked up at call time. The type
+  checker treats its signature like any other function's — including,
+  like a plain `fn`, optionally taking type parameters (explicit type
+  arguments required at every call, no inference, same as everywhere
+  else generics appear) — and calling one with nothing registered for it
+  is a runtime error ("no registered implementation"). A generic native
+  fn's own C implementation never needs to know which concrete type a
+  given call instantiated it with to do its job, since `Value` is
+  already runtime-type-erased regardless of the language's static types
+  (see "Generics" below).
   A minimal real module ships today — `io`, with `read_file(path:
   string) -> Result<string, string>` and `write_file(path: string,
   contents: string)` — a small, honest proof of the mechanism, not a
