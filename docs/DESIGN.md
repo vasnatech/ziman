@@ -1925,6 +1925,28 @@ several languages rather than inheriting any one of them wholesale.
   `service.ValidationError`-shaped enum mixing unit and payload variants
   -- see `tests/fixtures/derive_json_*`, `uuid_json_roundtrip`,
   `time_json_roundtrip`.
+  **Follow-up fix: a real parser bug, not a derive one, surfaced by a
+  field whose type lives in another module.** Deriving `Json` for a
+  struct with an array field of a *cross-module* type (e.g.
+  `things: [other_module.Thing]`) generates `ab_new<other_module.Thing>()`
+  -- a generic call whose explicit type argument is qualified. This
+  failed to parse: `next_looks_like_generic_call` (parser.c), the
+  one-token lookahead disambiguating `identity<int>(5)` from `x < y`,
+  only recognized an uppercase identifier or a primitive keyword right
+  after `<`; `other_module` is lowercase, so it fell through to treating
+  `<` as a comparison operator, producing a confusing downstream syntax
+  error nowhere near the real cause. Fixed by looking two tokens further
+  when the one right after `<` is a lowercase identifier: `'.'` then an
+  uppercase identifier means a qualified type reference
+  (`ab_new<repository.Patient>()`), unambiguously -- a struct field name
+  can never start uppercase and a qualified type's second segment can
+  never start lowercase (both already enforced elsewhere), so this
+  isn't another heuristic, it's a precise test. Nothing before
+  `#[derive(Json)]` had ever written a generic call with a qualified
+  type argument, which is why this had gone unnoticed. See
+  `tests/fixtures/multifile_generic_call_qualified_type_arg` (the parser
+  fix in isolation) and `multifile_derive_json_cross_module_field` (the
+  original derive scenario that found it).
 
 ## Deliberately deferred (not v0)
 

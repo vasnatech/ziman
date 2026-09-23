@@ -1,0 +1,31 @@
+use inner
+use json.Json
+use json.JField
+use json.json_to_string
+use json.json_require_field
+
+// A struct field type from another module -- both a plain reference
+// (thing) and an array of it (things, the case that needs
+// ab_new<inner.Inner>() and exposed the generic-call qualified-type-arg
+// parser bug -- see multifile_generic_call_qualified_type_arg).
+#[derive(Json)]
+pub struct Outer {
+    status: int
+    thing: inner.Inner
+    things: [inner.Inner]
+}
+
+fn main() {
+    val o = Outer {
+        status: 200,
+        thing: inner.Inner { x: 1 },
+        things: [inner.Inner { x: 2 }, inner.Inner { x: 3 }]
+    }
+    val j = outer_to_json(o)
+    print(json_to_string(j))
+    val back = unwrap(outer_from_json(j))
+    print(back.status)
+    print(back.thing.x)
+    print(len(back.things))
+    print(back.things[1].x)
+}

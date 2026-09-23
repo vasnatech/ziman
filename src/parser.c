@@ -94,7 +94,22 @@ static TypeList parse_type_args(Parser *p) {
  * comparison's right-hand side can still coincidentally start with one
  * of these (`x < Point { ... }`, `x < [1, 2, 3]`), but `<`/`>` only
  * type-check between two numeric operands, so a false positive here
- * fails type-checking loudly rather than silently misbehaving. */
+ * fails type-checking loudly rather than silently misbehaving.
+ *
+ * A lowercase identifier right after `<` needs one more look before
+ * giving up on it: `qualifier.TypeName` (a cross-module type reference,
+ * e.g. `ab_new<repository.Patient>()`) also starts with a lowercase
+ * ident. Unlike a bare lowercase ident, this is *not* genuinely
+ * ambiguous with a real comparison -- `x < y.z` is only ever a real
+ * field access (`z` lowercase) since a struct field name can never
+ * start uppercase, while a qualified type's second segment can never
+ * start lowercase (both enforced at parse time elsewhere), so checking
+ * for '.' then an uppercase ident two tokens further is a safe,
+ * unambiguous test, not another heuristic. Found missing when
+ * `#[derive(Json)]`-generated code first needed
+ * `ab_new<some_module.SomeType>()` for a struct field whose element
+ * type lives in another module -- nothing before that had ever written
+ * a generic call with a qualified type argument. */
 static int next_looks_like_generic_call(Parser *p) {
     Token *after_lt = &p->tokens.items[p->pos + 1];
     switch (after_lt->type) {
@@ -103,7 +118,13 @@ static int next_looks_like_generic_call(Parser *p) {
         case TOK_LBRACKET: case TOK_RESULT: case TOK_CHANNEL:
             return 1;
         case TOK_IDENT:
-            return starts_upper(after_lt->start);
+            if (starts_upper(after_lt->start)) return 1;
+            if (p->pos + 3 < p->tokens.count) {
+                Token *dot = &p->tokens.items[p->pos + 2];
+                Token *type_name = &p->tokens.items[p->pos + 3];
+                return dot->type == TOK_DOT && type_name->type == TOK_IDENT && starts_upper(type_name->start);
+            }
+            return 0;
         default:
             return 0;
     }

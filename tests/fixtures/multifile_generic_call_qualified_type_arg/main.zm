@@ -1,0 +1,28 @@
+use models
+
+// Regression test: `ab_new<models.Point>()` -- a generic call whose
+// explicit type argument is a *qualified* (cross-module) type
+// reference -- used to be misparsed, since next_looks_like_generic_call
+// only recognized an uppercase identifier or a primitive keyword right
+// after `<`, not `lowercase_qualifier.Type`. Found via
+// #[derive(Json)]-generated code needing exactly this shape for an
+// array field whose element type lives in another module.
+fn main() {
+    val ab = ab_new<models.Point>()
+    ab_append<models.Point>(ab, models.Point { x: 1 })
+    ab_append<models.Point>(ab, models.Point { x: 2 })
+    val arr = ab_to_array<models.Point>(ab)
+    print(len(arr))
+    print(arr[0].x)
+    print(arr[1].x)
+
+    // The genuinely ambiguous case this fix must not disturb: a bare
+    // `lowercase_ident < lowercase_ident` real comparison, with no dot
+    // at all -- still resolved as `<`, never mistaken for a generic
+    // call's opening bracket.
+    val a = 1
+    val b = 2
+    if a < b {
+        print("less")
+    }
+}
