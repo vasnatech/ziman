@@ -1026,13 +1026,26 @@ a time mid-implementation:
     Deliberately not designed yet -- noted so the attribute syntax
     chosen for the struct-level case doesn't accidentally foreclose
     extending to fields later.
-  **Still being designed, not decided yet:** how `#[derive(Json)]`
-  applies to an `enum` (a struct-shaped set of field-walking rules
-  doesn't obviously extend to a tagged union) -- the natural first guess
-  is a `{"type": "<Variant>", "value": ...}` shape, but this hasn't been
-  worked through against Ziman's own enum shapes (unit variants with no
-  payload, at most one payload value per variant, no struct-like
-  multi-field variants) yet.
+  **Enum support, decided:** externally tagged, `{"type": "<Variant>"}`
+  for a unit variant, `{"type": "<Variant>", "value": ...}` for a
+  payload one -- the same default shape Rust's own serde derive
+  produces, reusing a well-known convention again rather than inventing
+  one. Uniform across both variant shapes Ziman actually has (a unit
+  variant just omits `"value"`), unambiguous (nothing ever has to guess
+  a variant from its payload's shape), and a payload's own conversion
+  reuses the *same* priority-ordered per-field rules above, applied to
+  the variant's payload type instead of a struct field's type -- so
+  composition (an enum used as a field inside a derived struct, or an
+  enum whose own payload is another derived struct) falls out for free,
+  no extra rule needed. Worked through against `service.ValidationError`
+  (a real enum in this codebase mixing unit and payload variants)
+  before calling it settled. Two things this deliberately does *not* do:
+  `Option<T>` never goes through this tagging at all -- it already has
+  its own, different special-cased handling in the per-field rules
+  above (`None` -> JSON `null`, `Some(v)` -> `v` itself, unwrapped, no
+  `{"type": ...}` envelope) -- and a variant's name is used exactly as
+  declared (`"InvalidEmail"`, not case-converted), unlike a struct
+  field's own name.
 
 ## Explicitly out of scope for now (see DESIGN.md "Non-goals")
 
