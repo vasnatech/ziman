@@ -71,7 +71,7 @@ static DbConn *conn_get(int64_t handle, int line, int col) {
     return c;
 }
 
-/* db.open_raw(path) -> Result<int, string>. `path` is a SQLite filename
+/* sqlite.open_raw(path) -> Result<int, string>. `path` is a SQLite filename
  * or ":memory:". Foreign keys are switched on for every connection --
  * SQLite leaves them off by default, unlike Postgres, and a repository
  * written against one should get the same referential integrity from
