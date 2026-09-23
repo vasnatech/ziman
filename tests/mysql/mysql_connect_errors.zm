@@ -1,0 +1,46 @@
+use io
+use db
+use sql.DbError
+use sql.db_error_message
+
+fn show(r: Result<db.Connection, DbError>) {
+    print(is_ok(r))
+    print(db_error_message(unwrap_err(r)))
+}
+
+// For a user MySQL has never heard of, the server picks a plugin to
+// challenge with deterministically from the username (so a client can't
+// tell a wrong password from a nonexistent user by timing), and that pick
+// isn't stable across server restarts. Depending on it lands on either an
+// immediate "access denied" or (if the picked plugin isn't one this driver
+// supports) a plugin-rejection message first -- both are real, correct
+// rejections of the same login, so this test only checks that one happens.
+fn show_unknown_user(r: Result<db.Connection, DbError>) {
+    print(is_ok(r))
+    val message = db_error_message(unwrap_err(r))
+    if contains(message, "Access denied") || contains(message, "authentication plugin") {
+        print("database connection error: login rejected")
+    } else {
+        print(message)
+    }
+}
+
+fn main() {
+    val hp = trim(unwrap(io.read_file("tests/mysql/.hostport")))
+    // unknown user, unknown database
+    show_unknown_user(db.open(format("mysql://nobody:secret@{}/zimandb", hp)))
+    show(db.open(format("mysql://nat_user:natpw@{}/no_such_db", hp)))
+    // nothing listening
+    show(db.open("mysql://root:secret@127.0.0.1:1/zimandb"))
+    // unsupported sslmode values are refused, not guessed at
+    show(db.open(format("mysql://nat_user:natpw@{}/zimandb?sslmode=allow", hp)))
+    // malformed URLs
+    show(db.open("mysql://@127.0.0.1/db"))
+    show(db.open("mysql://u:p@127.0.0.1:notaport/db"))
+    // percent-encoded credentials decode ("nat%70w" == "natpw")
+    val ok = db.open(format("mysql://nat_user:nat%70w@{}/zimandb", hp))
+    print(is_ok(ok))
+    if is_ok(ok) {
+        db.close(unwrap(ok))
+    }
+}

@@ -1,0 +1,44 @@
+1
+1
+2
+Ada | 'x' "q" \ line
+break $1 -- not a placeholder
+0.1
+true
+false
+true
+true
+-9000000000
+12.50
+2024-03-05 06:07:08
+2024-03-05
+-12:34:56
+true
+héllo wörld ✓
+0.1
+-9000000000
+2024-03-05 06:07:08
+true
+true
+[Int(1), Text(2.5), Float(1.5), Text(x), Null, Int(7), Int(-3)]
+[Int(-7), Float(2.25), Text(é), Float(1.5), Int(-6)]
+1
+2
+0
+constraint violation: Duplicate entry 'héllo wörld ✓' for key 'my_t.name'
+true
+true
+true
+true
+1
+1
+2
+1
+200
+200
+200
+2
+7
+it's $1 not a placeholder
+5
+6

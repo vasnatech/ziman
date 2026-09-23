@@ -1,0 +1,13 @@
+false
+database connection error: login rejected
+false
+database connection error: Access denied for user 'nat_user'@'%' to database 'no_such_db'
+false
+database connection error: connection refused: Connection refused
+false
+database connection error: unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): allow
+false
+database connection error: database URL has no user name
+false
+database connection error: bad port in database URL: notaport
+true

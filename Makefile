@@ -5,7 +5,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean test test-pg test-tls test-bignum test-decimal corelib-reference
+.PHONY: all clean test test-pg test-mysql test-tls test-bignum test-decimal corelib-reference
 
 all: $(BIN)
 
@@ -28,7 +28,7 @@ $(BIN): $(OBJ)
 # header directly, and it's merged bare into every program by
 # loader.c's load_module_graph (see lib/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
-CORELIB_MODULES := collections io random uuid clock time json number sql dburl sqlite db bytes net crypto pg http os properties prelude
+CORELIB_MODULES := collections io random uuid clock time json number sql dburl sqlite mysql db bytes net crypto pg http os properties prelude
 # Bundled modules live in lib/core (general-purpose) and lib/db (SQL
 # drivers); `use` names are flat either way.
 vpath %.zm lib lib/core lib/db
@@ -65,6 +65,11 @@ test: $(BIN)
 # (see tests/run_pg_tests.sh), so they are not part of `make test`.
 test-pg: $(BIN)
 	./tests/run_pg_tests.sh
+
+# The MySQL driver tests: need docker/podman and a mysql:8.0 image
+# (see tests/run_mysql_tests.sh).
+test-mysql: $(BIN)
+	./tests/run_mysql_tests.sh
 
 # The TLS client tests: need the openssl binary (see tests/run_tls_tests.sh).
 test-tls: $(BIN)

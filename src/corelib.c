@@ -25,6 +25,7 @@
 #include "os_source.h"
 #include "sqlite_source.h"
 #include "dburl_source.h"
+#include "mysql_source.h"
 #include "properties_source.h"
 
 typedef struct {
@@ -58,6 +59,7 @@ static const CoreModule CORE_MODULES[] = {
     {"os", OS_SOURCE},
     {"sqlite", SQLITE_SOURCE},
     {"dburl", DBURL_SOURCE},
+    {"mysql", MYSQL_SOURCE},
     {"properties", PROPERTIES_SOURCE},
 };
 #pragma GCC diagnostic pop

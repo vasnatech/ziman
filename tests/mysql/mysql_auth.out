@@ -1,0 +1,8 @@
+nat_user
+database connection error: access denied
+database connection error: caching_sha2_password needs the full authentication exchange for this login, which requires TLS; connect with sslmode=require (or set it up once over TLS so the server caches the login)
+sha2_user
+sha2_user
+database connection error: access denied
+root
+false

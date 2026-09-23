@@ -26,6 +26,12 @@ pub native fn string_to_bytes(s: string) -> [byte]
 
 pub native fn bytes_to_string(b: [byte]) -> Result<string, string>
 
+pub native fn f64_from_bytes(b: [byte], offset: int) -> float
+
+pub native fn f32_from_bytes(b: [byte], offset: int) -> float
+
+pub native fn f64_to_bytes(f: float) -> [byte]
+
 pub fn bytes_concat(parts: [byte]...) -> [byte]
 
 pub fn u32_to_bytes(n: int) -> [byte]
@@ -100,6 +106,8 @@ pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T>
 
 ```
 pub native fn sha256(data: [byte]) -> [byte]
+
+pub native fn sha1(data: [byte]) -> [byte]
 
 pub native fn hmac_sha256(key: [byte], data: [byte]) -> [byte]
 
@@ -694,6 +702,31 @@ pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError>
 
 ```
 
+## `dburl`
+
+```
+pub struct UrlParam {
+    name: string
+    value: string
+}
+
+pub struct DbUrl {
+    user: string
+    password: string
+    host: string
+    port: int
+    database: string
+    params: [UrlParam]
+}
+
+pub fn percent_decode(s: string) -> Result<string, DbError>
+
+pub fn param(u: DbUrl, name: string) -> Option<string>
+
+pub fn parse(url: string, prefixes: [string], default_port: int) -> Result<DbUrl, DbError>
+
+```
+
 ## `db`
 
 ```
@@ -705,6 +738,7 @@ pub struct PoolState {
 pub enum Connection {
     Sqlite(sqlite.Connection)
     Postgres(pg.Connection)
+    Mysql(mysql.Connection)
     Pool(PoolState)
 }
 
@@ -729,6 +763,39 @@ pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
 pub fn acquire(conn: Connection) -> Result<Connection, DbError>
 
 pub fn release(conn: Connection, taken: Connection)
+
+```
+
+## `mysql`
+
+```
+pub struct QueryResult {
+    rows: [Row]
+    affected: int
+}
+
+pub struct RunRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<QueryResult, DbError>>
+}
+
+pub enum Request {
+    Run(RunRequest)
+    Close
+}
+
+pub struct Connection {
+    requests: Channel<Request>
+}
+
+pub fn connect(url: string) -> Result<Connection, DbError>
+
+pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+
+pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+
+pub fn close(conn: Connection)
 
 ```
 

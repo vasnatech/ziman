@@ -4,12 +4,14 @@
 // begin/commit/rollback, and rows handed back as `sql.Row`. Which
 // engine sits behind a handle is chosen by the URL given to `open`:
 // `sqlite::memory:`, `sqlite:<path>` or
-// `postgres://user:password@host:port/database` -- the API above doesn't
+// `postgres://user:password@host:port/database` or
+// `mysql://user:password@host:port/database` -- the API above doesn't
 // change, so repositories written against it don't either. There are no
 // interfaces in Ziman to abstract over drivers with; dispatching by URL
 // scheme inside this module is the substitute. Each engine has its own
-// driver module: `sqlite` (a thin layer over the C library) and `pg`
-// (written in Ziman, on top of `net`).
+// driver module: `sqlite` (a thin layer over the C library), `pg` and
+// `mysql` (both written in Ziman, on top of `net`), sharing URL parsing
+// through `dburl`.
 //
 // Concurrency: sharing one `Connection` between threads is safe
 // statement by statement -- SQLite takes the connection's own lock, and a
@@ -29,6 +31,7 @@
 // transaction leaves it open.
 
 use pg
+use mysql
 use sqlite
 use sql.SqlValue
 use sql.DbError
@@ -47,6 +50,7 @@ pub struct PoolState {
 pub enum Connection {
     Sqlite(sqlite.Connection)
     Postgres(pg.Connection)
+    Mysql(mysql.Connection)
     Pool(PoolState)
 }
 
@@ -63,7 +67,11 @@ pub fn open(url: string) -> Result<Connection, DbError> {
         val conn = pg.connect(url)?
         return Connection.Postgres(conn)
     }
-    return err(DbError.Connection(concat("unsupported database URL (expected sqlite: or postgres://): ", url)))
+    if starts_with(url, "mysql://") {
+        val conn = mysql.connect(url)?
+        return Connection.Mysql(conn)
+    }
+    return err(DbError.Connection(concat("unsupported database URL (expected sqlite:, postgres:// or mysql://): ", url)))
 }
 
 // Closes a connection. For a pool, waits until every connection has been
@@ -78,6 +86,8 @@ pub fn close(conn: Connection) {
         }
     } else if Connection.is_Postgres(conn) {
         pg.close(Connection.unwrap_Postgres(conn))
+    } else if Connection.is_Mysql(conn) {
+        mysql.close(Connection.unwrap_Mysql(conn))
     } else {
         sqlite.close(Connection.unwrap_Sqlite(conn))
     }
@@ -94,6 +104,9 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
     if Connection.is_Postgres(conn) {
         return pg.execute(Connection.unwrap_Postgres(conn), sql, params)
     }
+    if Connection.is_Mysql(conn) {
+        return mysql.execute(Connection.unwrap_Mysql(conn), sql, params)
+    }
     return sqlite.execute(Connection.unwrap_Sqlite(conn), sql, params)
 }
 
@@ -105,6 +118,9 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
     }
     if Connection.is_Postgres(conn) {
         return pg.query(Connection.unwrap_Postgres(conn), sql, params)
+    }
+    if Connection.is_Mysql(conn) {
+        return mysql.query(Connection.unwrap_Mysql(conn), sql, params)
     }
     return sqlite.query(Connection.unwrap_Sqlite(conn), sql, params)
 }

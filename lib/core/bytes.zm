@@ -10,6 +10,11 @@
 
 pub native fn string_to_bytes(s: string) -> [byte]
 pub native fn bytes_to_string(b: [byte]) -> Result<string, string>
+// The little-endian IEEE-754 double / float at `offset`.
+pub native fn f64_from_bytes(b: [byte], offset: int) -> float
+pub native fn f32_from_bytes(b: [byte], offset: int) -> float
+// A double as 8 little-endian IEEE-754 bytes.
+pub native fn f64_to_bytes(f: float) -> [byte]
 
 // Concatenates any number of byte arrays into one, in one pass.
 pub fn bytes_concat(parts: [byte]...) -> [byte] {

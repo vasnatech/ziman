@@ -2,7 +2,7 @@ use db
 use sql.db_error_message
 
 fn main() {
-    val r = db.open("mysql://nope")
+    val r = db.open("oracle://nope")
     print(is_ok(r))
     print(db_error_message(unwrap_err(r)))
     unwrap(r)

@@ -87,7 +87,7 @@ outright, not moved, since nothing ever actually used it beyond being
 the first generic struct ever written; `struct Box<T> { value: T }`
 above is illustrative syntax anyone can still write, just not a
 `collections` export anymore.)
-It's also one of eighteen *bundled core modules* (alongside `io`, mentioned
+It's also one of twenty *bundled core modules* (alongside `io`, mentioned
 above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db`/`bytes`/`net`/`crypto`/`pg`/`http` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
 `use io` work from any project with no local copy needed — a

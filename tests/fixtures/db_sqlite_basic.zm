@@ -38,5 +38,5 @@ fn main() {
     print(is_ok(db.execute(conn, "INSERT INTO b VALUES ($1)", [SqlValue.Bytes([1b, 255b])])))
     val br = unwrap(db.query(conn, "SELECT x FROM b", []))
     print(len(SqlValue.unwrap_Bytes(unwrap(row_get(br[0], "x")))))
-    print(db_error_message(unwrap_err(db.open("mysql://x"))))
+    print(db_error_message(unwrap_err(db.open("oracle://x"))))
 }

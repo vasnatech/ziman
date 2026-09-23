@@ -993,9 +993,9 @@ a time mid-implementation:
   constraint).
 
 - **Database access follow-ups.** `db`/`sql`, `#[derive(Row)]`, `net`,
-  `crypto` and a Postgres driver (`pg`) exist (docs/DESIGN.md's `db`/`sql`,
-  `net` and `crypto`/`pg` entries); SQLite and Postgres are the two
-  backends. Still open: (1) ~~TLS~~ **done for clients** (docs/DESIGN.md's TLS entry) -- still
+  `crypto`, a shared `dburl`, and Postgres/MySQL drivers (`pg`/`mysql`)
+  exist (docs/DESIGN.md's `db`/`sql`, `net`, `crypto`/`pg` and `mysql`
+  entries); SQLite, Postgres and MySQL are the three backends. Still open: (1) ~~TLS~~ **done for clients** (docs/DESIGN.md's TLS entry) -- still
   open: server-side TLS (`listen_tls`, for an HTTPS server), client
   certificates, ALPN; (2) ~~scoped cleanup~~ **done as `defer`** (docs/DESIGN.md's `defer` entry).
   What remains of it: a block form (`defer { ... }`), the deferred call's
@@ -1015,7 +1015,12 @@ a time mid-implementation:
   `timestamptz`/`date`/`uuid`/`numeric` columns into their Ziman types
   rather than through `Text`; (7) **performance** on big result sets --
   `[byte]` is an array of interpreter values, so a packed byte-buffer
-  type would help the driver as much as `net`.
+  type would help the driver as much as `net`; (8) MySQL gaps: the RSA
+  public-key exchange (so caching_sha2's first login works without TLS),
+  the compressed protocol, LOCAL INFILE, client certificates, IPv6
+  literals, multiple result sets (only the last is kept), prepared-
+  statement reuse, and decoding DECIMAL/DATE/DATETIME/TIME/JSON columns
+  into their Ziman types rather than through `Text`.
 - **`net` follow-ups.** A packed byte-buffer type (`[byte]` is an array
   of interpreter values -- wasteful for bulk data), Unix-domain sockets
   (local Postgres often uses one), UDP, and a connect timeout beyond the

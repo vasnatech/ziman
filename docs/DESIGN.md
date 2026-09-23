@@ -2113,8 +2113,10 @@ several languages rather than inheriting any one of them wholesale.
   reply channel and block on it. That serialises concurrent callers with
   no lock -- so there is none for a `?` returning early to leave held --
   and it is the actor pattern, now living inside the driver rather than
-  the application. `db.Connection` gained an `Option<Channel<pg.Request>>`
-  field (SQLite leaves it `None`); `execute`/`query`/`close` branch on it.
+  the application. `pg.Connection` wraps the channel opaquely; `db.Connection`
+  is an enum (`Sqlite(sqlite.Connection) | Postgres(pg.Connection) |
+  Mysql(mysql.Connection) | Pool(PoolState)`, see the pool entry below) and
+  `execute`/`query`/`close` branch on the variant.
   A *transaction* is still server-side per-connection state, so other
   threads' statements interleave inside it, as already documented for
   `db`. After a failed statement the read continues to ReadyForQuery, so
@@ -2132,6 +2134,48 @@ several languages rather than inheriting any one of them wholesale.
   (SCRAM, trust, cleartext), runs `tests/pg/*.zm` and removes the
   container; it is not part of `make test` so the ordinary suite stays
   hermetic.
+
+- **`mysql`: a MySQL/MariaDB client, the third backend behind `db.open`.**
+  Pure Ziman on `net`+`bytes`+`crypto`, sharing URL parsing with `pg` via a
+  new `dburl` module (`scheme://user:password@host:port/database?k=v`,
+  percent-decoded, last `@` splits userinfo from host so a password may
+  contain one). **Two authentication plugins**: `mysql_native_password`
+  (SHA-1-based) and `caching_sha2_password` (MySQL 8's default, SHA-256-based).
+  caching_sha2's "full authentication" -- the first login of a user, before
+  the server has cached its hash -- sends the password in clear, so the
+  driver refuses it without TLS rather than add an RSA public-key exchange;
+  once the server has cached the login a plain connection takes the fast
+  path. **Native additions**: `crypto::sha1` (only for the native-password
+  scramble, not for anything needing collision resistance) and
+  `bytes::f64_from_bytes`/`f32_from_bytes`/`f64_to_bytes` for the binary
+  protocol's little-endian IEEE-754 columns and parameters.
+  **Two protocols, like `pg`'s simple/extended split**: a parameterless
+  statement goes through the text protocol (COM_QUERY, which is what lets
+  `db.execute` run a multi-statement script and return the last result);
+  a statement with `$N` parameters is rewritten to MySQL's positional `?`
+  (skipping quoted strings, backtick identifiers and comments) and goes
+  through prepare/execute/close, freshly for every call. **Result decoding**
+  mirrors the value/error contract SQLite and `pg` already established:
+  integers and floats become `Int`/`Float` (a BIGINT UNSIGNED above 2^63 is
+  an error, since it doesn't fit a signed `int`), character columns `Text`,
+  binary columns (BLOB/VARBINARY/BIT) `Bytes`, everything else (DECIMAL,
+  dates, times, JSON, ENUM, SET) `Text` for the mapping layer -- MySQL has
+  no boolean type, so a `BOOLEAN` column (really `TINYINT(1)`) reads back
+  as `Int` 0/1, same shape as SQLite. Integrity violations (duplicate key,
+  foreign key, NOT NULL, CHECK) are `Constraint`; access-denied/unknown-
+  host/unknown-database are `Connection`; the rest `Sql`.
+  **TLS negotiated the MySQL way** (a capability flag in the login packet
+  requests it, then the connection upgrades in place before the rest of
+  the handshake), with the same `sslmode`/`sslrootcert` meanings as `pg`.
+  Not supported: the compressed protocol, LOCAL INFILE, the RSA exchange,
+  client certificates, IPv6 literals, multiple result sets (only the last
+  is kept), prepared-statement reuse, and a packet of 16 MiB or more.
+  **Tested against a real server**: `make test-mysql` (`tests/run_mysql_tests.sh`)
+  starts a throwaway `mysql:8.0` container on `127.0.0.1:55434`, creates a
+  `mysql_native_password` and a `caching_sha2_password` user, runs
+  `tests/mysql/*.zm` (in an order that exercises the sha2 user's
+  first-login-then-cached path) and removes the container; not part of
+  `make test`.
 
 - **`defer`: scoped cleanup.** The language answer to a gap `net` and
   `db` both surfaced: with no destructors, a `?` (or `return`) that leaves

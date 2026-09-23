@@ -1,0 +1,1053 @@
+// mysql.zm -- a MySQL / MariaDB client, the third engine behind the `db`
+// module (`db.open("mysql://user:password@host:port/database")`). Written
+// in Ziman on top of `net` (TCP + TLS), `bytes` (packet framing) and
+// `crypto` (SHA-1 / SHA-256 for the login scramble); nothing here is
+// native at all.
+//
+// What it supports:
+//   * Authentication: `mysql_native_password` and `caching_sha2_password`
+//     (the MySQL 8 default), including the server's request to switch
+//     plugin. caching_sha2's "full authentication" (the first login of a
+//     user, before the server has cached its hash) sends the password in
+//     clear, which is only done over TLS -- without TLS the driver refuses
+//     with a message saying so, rather than fall back to RSA (there is no
+//     public-key crypto here). Use `sslmode=require` for that first login.
+//   * TLS, negotiated the MySQL way (an SSLRequest packet, then the same
+//     connection is upgraded in place). The URL's `sslmode` and
+//     `sslrootcert` mean what they do for Postgres (see `pg`): `disable`
+//     (the default), `prefer`, `require` (encrypted, certificate not
+//     verified), `verify-ca`, `verify-full`.
+//   * Statements without parameters go through the text protocol
+//     (COM_QUERY), which also runs a `;`-separated DDL script. Statements
+//     with `$1, $2, ...` parameters go through the binary protocol
+//     (prepare / execute / close) -- values always travel as parameters,
+//     never spliced into the SQL. Ziman's `$N` placeholders are rewritten
+//     to MySQL's positional `?`, repeating or reordering the values as the
+//     SQL uses them; quoted strings, backtick names and comments are
+//     skipped when looking for `$N`.
+//   * Result values: integers (any width; a BIGINT UNSIGNED above 2^63 is
+//     an error), floats and doubles become `Int`/`Float`; character
+//     columns `Text`; binary columns (BLOB, VARBINARY, BIT) `Bytes`;
+//     DECIMAL, dates, times, JSON, ENUM and SET arrive as `Text`, for the
+//     mapping layer to convert, exactly as for the other engines. MySQL has
+//     no boolean type: a BOOLEAN column is a TINYINT and reads back as
+//     `Int` 0/1.
+//   * Errors: integrity violations (duplicate key, foreign key, NOT NULL,
+//     CHECK) are `Constraint`; failing to connect or log in is
+//     `Connection`; everything else is `Sql`.
+//
+// What it does not: MySQL's compressed protocol, LOCAL INFILE, the RSA
+// public-key exchange, client certificates, IPv6 literals in the URL,
+// stored-procedure OUT parameters, prepared-statement reuse (each
+// parameterised statement is prepared afresh), multiple result sets
+// (only the last one is returned) and sending a packet of 16 MiB or more.
+// `[byte]` is an array of interpreter values, so very large result sets
+// are slow -- see docs/ROADMAP.md.
+//
+// One connection is owned by one spawned thread and driven through a
+// channel of requests, exactly as in `pg`: the protocol is strictly
+// request/response, so a lone owner thread serialises concurrent callers.
+
+use net
+use net.Socket
+use net.net_error_message
+use bytes.string_to_bytes
+use bytes.bytes_to_string
+use bytes.bytes_concat
+use bytes.bytes_slice
+use bytes.f64_from_bytes
+use bytes.f32_from_bytes
+use bytes.f64_to_bytes
+use crypto.sha1
+use crypto.sha256
+use crypto.bytes_xor
+use dburl
+use sql.SqlValue
+use sql.DbError
+use sql.Row
+
+pub struct QueryResult {
+    rows: [Row]
+    affected: int
+}
+
+pub struct RunRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<QueryResult, DbError>>
+}
+
+pub enum Request {
+    Run(RunRequest)
+    Close
+}
+
+struct Packet {
+    seq: int
+    body: [byte]
+}
+
+struct LenEnc {
+    value: int
+    next: int
+    is_null: bool
+}
+
+struct Column {
+    name: string
+    type_code: int
+    flags: int
+    charset: int
+}
+
+struct ResultSet {
+    columns: [Column]
+    rows: [[byte]]
+    affected: int
+    more: bool
+}
+
+struct Hello {
+    caps: int
+    salt: [byte]
+    plugin: string
+}
+
+struct Rewritten {
+    sql: string
+    params: [SqlValue]
+}
+
+struct MyUrl {
+    user: string
+    password: string
+    host: string
+    port: int
+    database: string
+    sslmode: string
+    sslrootcert: string
+}
+
+// ---------------------------------------------------------------- helpers
+
+fn lift<T>(r: Result<T, net.NetError>) -> Result<T, DbError> {
+    if !is_ok(r) {
+        return err(DbError.Connection(net_error_message(unwrap_err(r))))
+    }
+    return unwrap(r)
+}
+
+fn conn_err(message: string) -> DbError {
+    return DbError.Connection(message)
+}
+
+fn cstring(s: string) -> [byte] {
+    return bytes_concat(string_to_bytes(s), [0b])
+}
+
+fn text_of(b: [byte], start: int, end: int) -> string {
+    return unwrap(bytes_to_string(bytes_slice(b, start, end)))
+}
+
+fn cstring_end(b: [byte], start: int) -> int {
+    var i = start
+    while i < len(b) && b[i] != 0b {
+        i = i + 1
+    }
+    return i
+}
+
+fn zeros(n: int) -> [byte] {
+    val out = ab_new<byte>()
+    for i in 0..n {
+        ab_append<byte>(out, 0b)
+    }
+    return ab_to_array<byte>(out)
+}
+
+// `v` (>= 0) as `n` little-endian bytes.
+fn le(v: int, n: int) -> [byte] {
+    val out = ab_new<byte>()
+    var x = v
+    for i in 0..n {
+        ab_append<byte>(out, (x % 256) as byte)
+        x = x / 256
+    }
+    return ab_to_array<byte>(out)
+}
+
+// An unsigned little-endian integer of `n` (<= 7 to stay in an int) bytes.
+fn read_le(b: [byte], pos: int, n: int) -> int {
+    var v = 0
+    var i = n - 1
+    while i >= 0 {
+        v = v * 256 + (b[pos + i] as int)
+        i = i - 1
+    }
+    return v
+}
+
+fn bit_set(value: int, bit: int) -> bool {
+    var x = value
+    for i in 0..bit {
+        x = x / 2
+    }
+    return x % 2 == 1
+}
+
+fn read_lenenc(b: [byte], pos: int) -> LenEnc {
+    val first = b[pos] as int
+    if first < 251 {
+        return LenEnc { value: first, next: pos + 1, is_null: false }
+    }
+    if first == 251 {
+        return LenEnc { value: 0, next: pos + 1, is_null: true }
+    }
+    if first == 252 {
+        return LenEnc { value: read_le(b, pos + 1, 2), next: pos + 3, is_null: false }
+    }
+    if first == 253 {
+        return LenEnc { value: read_le(b, pos + 1, 3), next: pos + 4, is_null: false }
+    }
+    return LenEnc { value: read_le(b, pos + 1, 7), next: pos + 9, is_null: false }
+}
+
+fn write_lenenc(v: int) -> [byte] {
+    if v < 251 {
+        return [v as byte]
+    }
+    if v < 65536 {
+        return bytes_concat([252b], le(v, 2))
+    }
+    if v < 16777216 {
+        return bytes_concat([253b], le(v, 3))
+    }
+    return bytes_concat([254b], le(v, 8))
+}
+
+// The position just after a length-encoded string starting at `pos`.
+fn skip_lenenc_string(b: [byte], pos: int) -> int {
+    val l = read_lenenc(b, pos)
+    return l.next + l.value
+}
+
+// --------------------------------------------------------------- packets
+
+fn send_packet(sock: Socket, seq: int, body: [byte]) -> Result<int, DbError> {
+    if len(body) >= 16777215 {
+        return err(DbError.Sql("statement or parameters too large for one MySQL packet (16 MiB limit)"))
+    }
+    return lift<int>(net.write(sock, bytes_concat(le(len(body), 3), [seq as byte], body)))
+}
+
+// One logical packet; a payload of exactly 16 MiB - 1 continues in the next.
+fn read_packet(sock: Socket) -> Result<Packet, DbError> {
+    val parts = ab_new<[byte]>()
+    var seq = 0
+    var more = true
+    while more {
+        val header = lift<[byte]>(net.read_exact(sock, 4))?
+        val length = read_le(header, 0, 3)
+        seq = header[3] as int
+        if length > 0 {
+            val body = lift<[byte]>(net.read_exact(sock, length))?
+            ab_append<[byte]>(parts, body)
+        }
+        more = length == 16777215
+    }
+    return Packet { seq: seq, body: concat_arrays<byte>(parts: ab_to_array<[byte]>(parts)) }
+}
+
+fn is_err_packet(body: [byte]) -> bool {
+    return len(body) > 0 && body[0] == 255b
+}
+
+fn is_eof_packet(body: [byte]) -> bool {
+    return len(body) > 0 && len(body) < 9 && body[0] == 254b
+}
+
+// An ERR packet: 0xff, code (2), then `#` + a 5-character SQLSTATE and the
+// message. SQLSTATE class 23 is an integrity violation; 28 (access
+// denied) and 08 are connection problems. A few constraint failures carry
+// a generic state, so they are recognised by error code too.
+fn parse_error(body: [byte]) -> DbError {
+    val code = read_le(body, 1, 2)
+    var state = ""
+    var start = 3
+    if len(body) > 9 && body[3] == 35b {
+        state = text_of(body, 4, 9)
+        start = 9
+    }
+    val message = text_of(body, start, len(body))
+    val class = substring(concat(state, "00"), 0, 2)
+    if class == "23" || code == 1364 || code == 3819 || code == 4025 {
+        return DbError.Constraint(message)
+    }
+    if class == "28" || class == "08" || code == 1049 || code == 1044 {
+        return DbError.Connection(message)
+    }
+    return DbError.Sql(message)
+}
+
+fn expect_ok(sock: Socket) -> Result<int, DbError> {
+    val p = read_packet(sock)?
+    if is_err_packet(p.body) {
+        return err(parse_error(p.body))
+    }
+    return 0
+}
+
+// ------------------------------------------------------------ URL parsing
+
+// mysql://user[:password]@host[:port]/database[?sslmode=...&sslrootcert=...]
+fn parse_url(url: string) -> Result<MyUrl, DbError> {
+    val u = dburl.parse(url, ["mysql://"], 3306)?
+    var sslmode = "disable"
+    var sslrootcert = ""
+    val mode = dburl.param(u, "sslmode")
+    if Option.is_Some(mode) {
+        sslmode = Option.unwrap_Some(mode)
+    }
+    val root = dburl.param(u, "sslrootcert")
+    if Option.is_Some(root) {
+        sslrootcert = Option.unwrap_Some(root)
+    }
+    if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
+        return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ", sslmode)))
+    }
+    return MyUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database, sslmode: sslmode, sslrootcert: sslrootcert }
+}
+
+// ------------------------------------------------------------- handshake
+
+// The server's first packet (protocol version 10): its version string,
+// capability flags, the 20-byte scramble salt and the default auth plugin.
+fn parse_hello(b: [byte]) -> Result<Hello, DbError> {
+    if is_err_packet(b) {
+        return err(parse_error(b))
+    }
+    if b[0] != 10b {
+        return err(conn_err(format("unsupported MySQL protocol version {}", b[0] as int)))
+    }
+    var pos = cstring_end(b, 1) + 1 + 4
+    val salt1 = bytes_slice(b, pos, pos + 8)
+    pos = pos + 9
+    val caps_low = read_le(b, pos, 2)
+    pos = pos + 2 + 1 + 2
+    val caps_high = read_le(b, pos, 2)
+    pos = pos + 2
+    val auth_len = b[pos] as int
+    pos = pos + 1 + 10
+    var part2_len = auth_len - 8
+    if part2_len < 13 {
+        part2_len = 13
+    }
+    val salt2 = bytes_slice(b, pos, pos + part2_len - 1)
+    pos = pos + part2_len
+    val plugin = text_of(b, pos, cstring_end(b, pos))
+    return Hello { caps: caps_low + caps_high * 65536, salt: bytes_concat(salt1, salt2), plugin: plugin }
+}
+
+// The login scramble for an auth plugin (empty for an empty password).
+fn scramble(plugin: string, password: string, salt: [byte]) -> Result<[byte], DbError> {
+    val empty: [byte] = []
+    if password == "" {
+        return empty
+    }
+    val pw = string_to_bytes(password)
+    if plugin == "mysql_native_password" {
+        val h1 = sha1(pw)
+        val h2 = sha1(h1)
+        return bytes_xor(h1, sha1(bytes_concat(salt, h2)))
+    }
+    if plugin == "caching_sha2_password" {
+        val p1 = sha256(pw)
+        return bytes_xor(p1, sha256(bytes_concat(sha256(p1), salt)))
+    }
+    return err(conn_err(format("server asks for the '{}' authentication plugin, which this driver does not support (mysql_native_password and caching_sha2_password only)", plugin)))
+}
+
+fn client_caps(with_ssl: bool) -> int {
+    // LONG_PASSWORD | LONG_FLAG | CONNECT_WITH_DB | PROTOCOL_41 | TRANSACTIONS |
+    // SECURE_CONNECTION | MULTI_STATEMENTS | MULTI_RESULTS | PLUGIN_AUTH |
+    // PLUGIN_AUTH_LENENC_CLIENT_DATA
+    var caps = 1 + 4 + 8 + 512 + 8192 + 32768 + 65536 + 131072 + 524288 + 2097152
+    if with_ssl {
+        caps = caps + 2048
+    }
+    return caps
+}
+
+// The 32 bytes both the SSLRequest and the start of the login packet share.
+fn login_prefix(caps: int) -> [byte] {
+    return bytes_concat(le(caps, 4), le(16777216, 4), [45b], zeros(23))
+}
+
+// After the login packet: OK, an error, a request to switch plugin, or
+// caching_sha2's more-data packets (fast-auth success, or "send the
+// password" which is only acceptable over TLS).
+fn finish_auth(sock: Socket, start_seq: int, plugin_in: string, salt_in: [byte], password: string, tls: bool) -> Result<int, DbError> {
+    var plugin = plugin_in
+    var salt = salt_in
+    var seq = start_seq
+    while true {
+        val p = read_packet(sock)?
+        seq = p.seq + 1
+        val first = p.body[0] as int
+        if first == 0 {
+            return 0
+        }
+        if first == 255 {
+            return err(conn_err(text_of(p.body, 9, len(p.body))))
+        }
+        if first == 254 {
+            plugin = text_of(p.body, 1, cstring_end(p.body, 1))
+            var data_start = cstring_end(p.body, 1) + 1
+            var data_end = len(p.body)
+            if data_end > data_start && p.body[data_end - 1] == 0b {
+                data_end = data_end - 1
+            }
+            salt = bytes_slice(p.body, data_start, data_end)
+            val reply = scramble(plugin, password, salt)?
+            send_packet(sock, seq, reply)?
+        } else if first == 1 {
+            val sub = p.body[1] as int
+            if sub == 4 {
+                if !tls {
+                    return err(conn_err("caching_sha2_password needs the full authentication exchange for this login, which requires TLS; connect with sslmode=require (or set it up once over TLS so the server caches the login)"))
+                }
+                send_packet(sock, seq, cstring(password))?
+            }
+        } else {
+            return err(conn_err(format("unexpected packet {} during authentication", first)))
+        }
+    }
+    return 0
+}
+
+fn tls_verify(sslmode: string) -> net.TlsVerify {
+    if sslmode == "verify-ca" {
+        return net.TlsVerify.Chain
+    }
+    if sslmode == "verify-full" {
+        return net.TlsVerify.Full
+    }
+    return net.TlsVerify.Off
+}
+
+fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
+    val first = read_packet(sock)?
+    val hello = parse_hello(first.body)?
+    var seq = first.seq + 1
+    var tls = false
+    if url.sslmode != "disable" {
+        if bit_set(hello.caps, 11) {
+            send_packet(sock, seq, login_prefix(client_caps(true)))?
+            seq = seq + 1
+            var root = Option<string>.None
+            if url.sslrootcert != "" {
+                root = Option<string>.Some(url.sslrootcert)
+            }
+            lift<int>(net.start_tls_with(sock, url.host, tls_verify(url.sslmode), root))?
+            tls = true
+        } else if url.sslmode != "prefer" {
+            return err(conn_err(format("the server does not support TLS (sslmode={})", url.sslmode)))
+        }
+    }
+    val reply = scramble(hello.plugin, url.password, hello.salt)?
+    val login = bytes_concat(login_prefix(client_caps(tls)), cstring(url.user), write_lenenc(len(reply)), reply, cstring(url.database), cstring(hello.plugin))
+    send_packet(sock, seq, login)?
+    return finish_auth(sock, seq + 1, hello.plugin, hello.salt, url.password, tls)
+}
+
+// --------------------------------------------------------------- results
+
+// Column definition: six length-encoded strings (catalog, schema, table,
+// original table, name, original name), then a fixed block: 0x0c, charset
+// (2), column length (4), type (1), flags (2), decimals (1), filler (2).
+fn parse_column(b: [byte]) -> Column {
+    var pos = 0
+    var name = ""
+    for i in 0..6 {
+        val l = read_lenenc(b, pos)
+        if i == 4 {
+            name = text_of(b, l.next, l.next + l.value)
+        }
+        pos = l.next + l.value
+    }
+    pos = pos + 1
+    val charset = read_le(b, pos, 2)
+    val type_code = b[pos + 6] as int
+    val flags = read_le(b, pos + 7, 2)
+    return Column { name: name, type_code: type_code, flags: flags, charset: charset }
+}
+
+fn read_columns(sock: Socket, count: int) -> Result<[Column], DbError> {
+    val columns = ab_new<Column>()
+    for i in 0..count {
+        val p = read_packet(sock)?
+        if is_err_packet(p.body) {
+            return err(parse_error(p.body))
+        }
+        ab_append<Column>(columns, parse_column(p.body))
+    }
+    if count > 0 {
+        val eof = read_packet(sock)?
+        if is_err_packet(eof.body) {
+            return err(parse_error(eof.body))
+        }
+    }
+    return ab_to_array<Column>(columns)
+}
+
+// SERVER_MORE_RESULTS_EXISTS is bit 3 of the status flags.
+fn more_results(status: int) -> bool {
+    return bit_set(status, 3)
+}
+
+// One result: an OK packet (no rows), an error, or a column count followed
+// by column definitions, rows and an EOF. Rows are kept as raw payloads and
+// decoded once the whole result has been read, so a value that can't be
+// decoded never leaves unread packets on the wire.
+fn read_result(sock: Socket) -> Result<ResultSet, DbError> {
+    val first = read_packet(sock)?
+    val b = first.body
+    val no_columns: [Column] = []
+    val no_rows: [[byte]] = []
+    if is_err_packet(b) {
+        return err(parse_error(b))
+    }
+    if b[0] == 0b {
+        val affected = read_lenenc(b, 1)
+        val insert_id = read_lenenc(b, affected.next)
+        val status = read_le(b, insert_id.next, 2)
+        return ResultSet { columns: no_columns, rows: no_rows, affected: affected.value, more: more_results(status) }
+    }
+    if b[0] == 251b {
+        return err(DbError.Sql("LOCAL INFILE is not supported"))
+    }
+    val count = read_lenenc(b, 0).value
+    val columns = read_columns(sock, count)?
+    val rows = ab_new<[byte]>()
+    var more = false
+    var done = false
+    while !done {
+        val p = read_packet(sock)?
+        if is_err_packet(p.body) {
+            return err(parse_error(p.body))
+        }
+        if is_eof_packet(p.body) {
+            more = more_results(read_le(p.body, 3, 2))
+            done = true
+        } else {
+            ab_append<[byte]>(rows, p.body)
+        }
+    }
+    return ResultSet { columns: columns, rows: ab_to_array<[byte]>(rows), affected: 0, more: more }
+}
+
+// A `;`-separated script yields several results; the last one is returned.
+fn read_all_results(sock: Socket) -> Result<ResultSet, DbError> {
+    var current = read_result(sock)?
+    while current.more {
+        val next = read_result(sock)?
+        current = next
+    }
+    return current
+}
+
+fn is_int_type(t: int) -> bool {
+    return t == 1 || t == 2 || t == 3 || t == 8 || t == 9 || t == 13
+}
+
+fn is_binary_column(c: Column) -> bool {
+    val stringish = c.type_code == 15 || c.type_code == 249 || c.type_code == 250 || c.type_code == 251 || c.type_code == 252 || c.type_code == 253 || c.type_code == 254
+    return c.type_code == 16 || c.type_code == 255 || (stringish && c.charset == 63)
+}
+
+fn text_or_bytes(raw: [byte]) -> SqlValue {
+    val text = bytes_to_string(raw)
+    if is_ok(text) {
+        return SqlValue.Text(unwrap(text))
+    }
+    return SqlValue.Bytes(raw)
+}
+
+// A text-protocol cell: every value arrives as characters.
+fn decode_text_value(c: Column, raw: [byte]) -> SqlValue {
+    if is_binary_column(c) {
+        return SqlValue.Bytes(raw)
+    }
+    val text = bytes_to_string(raw)
+    if !is_ok(text) {
+        return SqlValue.Bytes(raw)
+    }
+    if is_int_type(c.type_code) {
+        val n = parse_int(unwrap(text))
+        if is_ok(n) {
+            return SqlValue.Int(unwrap(n))
+        }
+    }
+    if c.type_code == 4 || c.type_code == 5 {
+        val f = parse_float(unwrap(text))
+        if is_ok(f) {
+            return SqlValue.Float(unwrap(f))
+        }
+    }
+    return SqlValue.Text(unwrap(text))
+}
+
+fn decode_text_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbError> {
+    val values = ab_new<SqlValue>()
+    var pos = 0
+    for c in columns {
+        val l = read_lenenc(body, pos)
+        if l.is_null {
+            ab_append<SqlValue>(values, SqlValue.Null)
+        } else {
+            ab_append<SqlValue>(values, decode_text_value(c, bytes_slice(body, l.next, l.next + l.value)))
+        }
+        pos = l.next + l.value
+    }
+    return ab_to_array<SqlValue>(values)
+}
+
+fn pad(n: int, width: int) -> string {
+    var s = str(n)
+    while len(s) < width {
+        s = concat("0", s)
+    }
+    return s
+}
+
+// A signed or unsigned integer of `n` bytes at `pos`. An 8-byte one is
+// assembled from two halves so the sign is handled without overflowing.
+fn read_int(b: [byte], pos: int, n: int, unsigned: bool) -> Result<int, DbError> {
+    if n == 8 {
+        val low = read_le(b, pos, 4)
+        val high = read_le(b, pos + 4, 4)
+        if high >= 2147483648 {
+            if unsigned {
+                return err(DbError.Sql("BIGINT UNSIGNED value above 2^63 does not fit an int"))
+            }
+            return (high - 4294967296) * 4294967296 + low
+        }
+        return high * 4294967296 + low
+    }
+    val v = read_le(b, pos, n)
+    var limit = 128
+    var span = 256
+    if n == 2 {
+        limit = 32768
+        span = 65536
+    } else if n == 4 {
+        limit = 2147483648
+        span = 4294967296
+    }
+    if !unsigned && v >= limit {
+        return v - span
+    }
+    return v
+}
+
+// DATE / DATETIME / TIMESTAMP in the binary protocol: a length byte (0, 4,
+// 7 or 11) then year (2), month, day, hour, minute, second, microseconds (4).
+fn decode_datetime(b: [byte], pos: int, date_only: bool) -> string {
+    val n = b[pos] as int
+    if n == 0 {
+        if date_only {
+            return "0000-00-00"
+        }
+        return "0000-00-00 00:00:00"
+    }
+    val start = pos + 1
+    var out = format("{}-{}-{}", pad(read_le(b, start, 2), 4), pad(b[start + 2] as int, 2), pad(b[start + 3] as int, 2))
+    if date_only {
+        return out
+    }
+    if n >= 7 {
+        out = format("{} {}:{}:{}", out, pad(b[start + 4] as int, 2), pad(b[start + 5] as int, 2), pad(b[start + 6] as int, 2))
+    } else {
+        out = concat(out, " 00:00:00")
+    }
+    if n == 11 {
+        out = format("{}.{}", out, pad(read_le(b, start + 7, 4), 6))
+    }
+    return out
+}
+
+// TIME: a length byte (0, 8 or 12), sign, days (4), hours, minutes,
+// seconds, microseconds (4). Days fold into the hours: '[-]HH:MM:SS[.ffffff]'.
+fn decode_time(b: [byte], pos: int) -> string {
+    val n = b[pos] as int
+    if n == 0 {
+        return "00:00:00"
+    }
+    val start = pos + 1
+    var sign = ""
+    if b[start] == 1b {
+        sign = "-"
+    }
+    val hours = read_le(b, start + 1, 4) * 24 + (b[start + 5] as int)
+    var out = format("{}{}:{}:{}", sign, pad(hours, 2), pad(b[start + 6] as int, 2), pad(b[start + 7] as int, 2))
+    if n == 12 {
+        out = format("{}.{}", out, pad(read_le(b, start + 8, 4), 6))
+    }
+    return out
+}
+
+// The number of bytes a binary-protocol value occupies at `pos`.
+fn binary_value_size(c: Column, b: [byte], pos: int) -> int {
+    val t = c.type_code
+    if t == 1 {
+        return 1
+    }
+    if t == 2 || t == 13 {
+        return 2
+    }
+    if t == 3 || t == 9 || t == 4 {
+        return 4
+    }
+    if t == 8 || t == 5 {
+        return 8
+    }
+    if t == 10 || t == 12 || t == 7 || t == 11 {
+        return 1 + (b[pos] as int)
+    }
+    val l = read_lenenc(b, pos)
+    return l.next - pos + l.value
+}
+
+fn decode_binary_value(c: Column, b: [byte], pos: int) -> Result<SqlValue, DbError> {
+    val t = c.type_code
+    val unsigned = bit_set(c.flags, 5)
+    if t == 1 {
+        val v = read_int(b, pos, 1, unsigned)?
+        return SqlValue.Int(v)
+    }
+    if t == 2 || t == 13 {
+        val v = read_int(b, pos, 2, unsigned)?
+        return SqlValue.Int(v)
+    }
+    if t == 3 || t == 9 {
+        val v = read_int(b, pos, 4, unsigned)?
+        return SqlValue.Int(v)
+    }
+    if t == 8 {
+        val v = read_int(b, pos, 8, unsigned)?
+        return SqlValue.Int(v)
+    }
+    if t == 4 {
+        return SqlValue.Float(f32_from_bytes(b, pos))
+    }
+    if t == 5 {
+        return SqlValue.Float(f64_from_bytes(b, pos))
+    }
+    if t == 10 {
+        return SqlValue.Text(decode_datetime(b, pos, true))
+    }
+    if t == 12 || t == 7 {
+        return SqlValue.Text(decode_datetime(b, pos, false))
+    }
+    if t == 11 {
+        return SqlValue.Text(decode_time(b, pos))
+    }
+    val l = read_lenenc(b, pos)
+    val raw = bytes_slice(b, l.next, l.next + l.value)
+    if is_binary_column(c) {
+        return SqlValue.Bytes(raw)
+    }
+    return text_or_bytes(raw)
+}
+
+// A binary-protocol row: 0x00, a NULL bitmap (bit i+2 for column i), then
+// the non-NULL values back to back.
+fn decode_binary_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbError> {
+    val values = ab_new<SqlValue>()
+    val bitmap_len = (len(columns) + 9) / 8
+    var pos = 1 + bitmap_len
+    for i in 0..len(columns) {
+        val flag_byte = body[1 + (i + 2) / 8] as int
+        if bit_set(flag_byte, (i + 2) % 8) {
+            ab_append<SqlValue>(values, SqlValue.Null)
+        } else {
+            val v = decode_binary_value(columns[i], body, pos)?
+            ab_append<SqlValue>(values, v)
+            pos = pos + binary_value_size(columns[i], body, pos)
+        }
+    }
+    return ab_to_array<SqlValue>(values)
+}
+
+fn to_result(rs: ResultSet, binary: bool) -> Result<QueryResult, DbError> {
+    val names = ab_new<string>()
+    for c in rs.columns {
+        ab_append<string>(names, c.name)
+    }
+    val column_names = ab_to_array<string>(names)
+    val rows = ab_new<Row>()
+    for body in rs.rows {
+        if binary {
+            val values = decode_binary_row(body, rs.columns)?
+            ab_append<Row>(rows, Row { columns: column_names, values: values })
+        } else {
+            val values = decode_text_row(body, rs.columns)?
+            ab_append<Row>(rows, Row { columns: column_names, values: values })
+        }
+    }
+    return QueryResult { rows: ab_to_array<Row>(rows), affected: rs.affected }
+}
+
+// ------------------------------------------------------------ parameters
+
+fn is_digit_char(c: string) -> bool {
+    return contains("0123456789", c)
+}
+
+// Ziman's `$N` -> MySQL's `?`, with the values reordered/repeated to match.
+fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, DbError> {
+    val out = sb_new()
+    val ordered = ab_new<SqlValue>()
+    val n = len(sql)
+    var i = 0
+    while i < n {
+        if is_char_at(sql, i, "'") || is_char_at(sql, i, "\"") || is_char_at(sql, i, "`") {
+            val c = char_at(sql, i)
+            sb_append(out, c)
+            i = i + 1
+            var closed = false
+            while i < n && !closed {
+                if is_char_at(sql, i, "\\") && c != "`" && i + 1 < n {
+                    sb_append(out, substring(sql, i, i + 2))
+                    i = i + 2
+                } else if is_char_at(sql, i, c) {
+                    if is_char_at(sql, i + 1, c) {
+                        sb_append(out, concat(c, c))
+                        i = i + 2
+                    } else {
+                        sb_append(out, c)
+                        i = i + 1
+                        closed = true
+                    }
+                } else {
+                    sb_append(out, char_at(sql, i))
+                    i = i + 1
+                }
+            }
+        } else if is_char_at(sql, i, "#") || (is_char_at(sql, i, "-") && is_char_at(sql, i + 1, "-")) {
+            var end = index_of(sql, "\n", i)
+            if end < 0 {
+                end = n
+            }
+            sb_append(out, substring(sql, i, end))
+            i = end
+        } else if is_char_at(sql, i, "/") && is_char_at(sql, i + 1, "*") {
+            var end = index_of(sql, "*/", i + 2)
+            if end < 0 {
+                end = n
+            } else {
+                end = end + 2
+            }
+            sb_append(out, substring(sql, i, end))
+            i = end
+        } else if is_char_at(sql, i, "$") && i + 1 < n && is_digit_char(char_at(sql, i + 1)) {
+            var j = i + 1
+            while j < n && is_digit_char(char_at(sql, j)) {
+                j = j + 1
+            }
+            val index = unwrap(parse_int(substring(sql, i + 1, j)))
+            if index < 1 || index > len(params) {
+                return err(DbError.Sql(format("placeholder ${} has no matching parameter ({} given)", index, len(params))))
+            }
+            sb_append(out, "?")
+            ab_append<SqlValue>(ordered, params[index - 1])
+            i = j
+        } else {
+            sb_append(out, char_at(sql, i))
+            i = i + 1
+        }
+    }
+    return Rewritten { sql: sb_to_string(out), params: ab_to_array<SqlValue>(ordered) }
+}
+
+// A signed 64-bit integer as 8 little-endian two's-complement bytes.
+fn le_int64(v: int) -> [byte] {
+    if v >= 0 {
+        return le(v, 8)
+    }
+    val magnitude = le(-(v + 1), 8)
+    val out = ab_new<byte>()
+    for b in magnitude {
+        ab_append<byte>(out, (255 - (b as int)) as byte)
+    }
+    return ab_to_array<byte>(out)
+}
+
+fn lenenc_bytes(raw: [byte]) -> [byte] {
+    return bytes_concat(write_lenenc(len(raw)), raw)
+}
+
+// The type code (and unsigned flag) sent for a parameter.
+fn param_type(v: SqlValue) -> [byte] {
+    if SqlValue.is_Null(v) {
+        return [6b, 0b]
+    }
+    if SqlValue.is_Int(v) {
+        return [8b, 0b]
+    }
+    if SqlValue.is_Bool(v) {
+        return [1b, 0b]
+    }
+    if SqlValue.is_Bytes(v) {
+        return [252b, 0b]
+    }
+    if SqlValue.is_Float(v) {
+        return [5b, 0b]
+    }
+    return [253b, 0b]
+}
+
+// The value bytes; NULL is only the bitmap bit.
+fn param_value(v: SqlValue) -> [byte] {
+    if SqlValue.is_Int(v) {
+        return le_int64(SqlValue.unwrap_Int(v))
+    }
+    if SqlValue.is_Bool(v) {
+        if SqlValue.unwrap_Bool(v) {
+            return [1b]
+        }
+        return [0b]
+    }
+    if SqlValue.is_Float(v) {
+        return f64_to_bytes(SqlValue.unwrap_Float(v))
+    }
+    if SqlValue.is_Text(v) {
+        return lenenc_bytes(string_to_bytes(SqlValue.unwrap_Text(v)))
+    }
+    if SqlValue.is_Bytes(v) {
+        return lenenc_bytes(SqlValue.unwrap_Bytes(v))
+    }
+    val none: [byte] = []
+    return none
+}
+
+fn execute_body(stmt_id: int, params: [SqlValue]) -> [byte] {
+    val head = bytes_concat([23b], le(stmt_id, 4), [0b], le(1, 4))
+    if len(params) == 0 {
+        return head
+    }
+    val bitmap = ab_new<byte>()
+    for i in 0..(len(params) + 7) / 8 {
+        var flags = 0
+        var weight = 1
+        for bit in 0..8 {
+            val index = i * 8 + bit
+            if index < len(params) && SqlValue.is_Null(params[index]) {
+                flags = flags + weight
+            }
+            weight = weight * 2
+        }
+        ab_append<byte>(bitmap, flags as byte)
+    }
+    val types = ab_new<[byte]>()
+    val values = ab_new<[byte]>()
+    for p in params {
+        ab_append<[byte]>(types, param_type(p))
+        ab_append<[byte]>(values, param_value(p))
+    }
+    return bytes_concat(head, ab_to_array<byte>(bitmap), [1b], concat_arrays<byte>(parts: ab_to_array<[byte]>(types)), concat_arrays<byte>(parts: ab_to_array<[byte]>(values)))
+}
+
+// --------------------------------------------------------------- queries
+
+fn close_statement(sock: Socket, stmt_id: int) {
+    send_packet(sock, 0, bytes_concat([25b], le(stmt_id, 4)))
+}
+
+fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+    val rewritten = rewrite_placeholders(sql, params)?
+    send_packet(sock, 0, bytes_concat([22b], string_to_bytes(rewritten.sql)))?
+    val reply = read_packet(sock)?
+    if is_err_packet(reply.body) {
+        return err(parse_error(reply.body))
+    }
+    val stmt_id = read_le(reply.body, 1, 4)
+    defer close_statement(sock, stmt_id)
+    val column_count = read_le(reply.body, 5, 2)
+    val param_count = read_le(reply.body, 7, 2)
+    read_columns(sock, param_count)?
+    read_columns(sock, column_count)?
+    if param_count != len(rewritten.params) {
+        return err(DbError.Sql(format("statement takes {} parameters, {} given", param_count, len(rewritten.params))))
+    }
+    send_packet(sock, 0, execute_body(stmt_id, rewritten.params))?
+    val rs = read_all_results(sock)?
+    return to_result(rs, true)
+}
+
+fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+    if len(params) == 0 {
+        send_packet(sock, 0, bytes_concat([3b], string_to_bytes(sql)))?
+        val rs = read_all_results(sock)?
+        return to_result(rs, false)
+    }
+    return prepared_query(sock, sql, params)
+}
+
+// -------------------------------------------------------- owner thread API
+
+fn serve(sock: Socket, requests: Channel<Request>) {
+    var open = true
+    while open {
+        val req = receive(requests)
+        if Request.is_Run(req) {
+            val r = Request.unwrap_Run(req)
+            send(r.reply_to, run_query(sock, r.sql, r.params))
+        } else {
+            send_packet(sock, 0, [1b])
+            net.close(sock)
+            open = false
+        }
+    }
+}
+
+// An open MySQL connection: the channel to the thread that owns its
+// socket. Opaque to callers -- use `execute`/`query`/`close`.
+pub struct Connection {
+    requests: Channel<Request>
+}
+
+// Connects, authenticates, and starts the thread that owns the socket.
+pub fn connect(url: string) -> Result<Connection, DbError> {
+    val parsed = parse_url(url)?
+    val sock = lift<Socket>(net.connect(parsed.host, parsed.port))?
+    val ready = handshake(sock, parsed)
+    if !is_ok(ready) {
+        net.close(sock)
+        return err(unwrap_err(ready))
+    }
+    val requests: Channel<Request> = channel_new()
+    spawn serve(sock, requests)
+    return Connection { requests: requests }
+}
+
+fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+    val reply_to: Channel<Result<QueryResult, DbError>> = channel_new()
+    send(conn.requests, Request.Run(RunRequest { sql: sql, params: params, reply_to: reply_to }))
+    return receive(reply_to)
+}
+
+// The number of rows the last statement changed.
+pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
+    val result = run(conn, sql, params)?
+    return result.affected
+}
+
+pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+    val result = run(conn, sql, params)?
+    return result.rows
+}
+
+pub fn close(conn: Connection) {
+    send(conn.requests, Request.Close)
+}

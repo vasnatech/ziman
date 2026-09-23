@@ -145,6 +145,92 @@ static Value value_of_bytes(const unsigned char *buf, size_t n) {
     return value_array(byte_array_type(), array_obj_new(items, (int)n));
 }
 
+/* SHA-1 (FIPS 180-4), one shot. Only here because MySQL's
+ * mysql_native_password scramble is defined in terms of it -- not for
+ * anything that needs collision resistance. */
+static void sha1(const unsigned char *data, size_t n, unsigned char out[20]) {
+    uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+    size_t padded = ((n + 8) / 64 + 1) * 64;
+    unsigned char *m = calloc(padded, 1);
+    memcpy(m, data, n);
+    m[n] = 0x80;
+    uint64_t bits = (uint64_t)n * 8;
+    for (int i = 0; i < 8; i++) m[padded - 1 - i] = (unsigned char)(bits >> (8 * i));
+    for (size_t off = 0; off < padded; off += 64) {
+        uint32_t w[80];
+        for (int i = 0; i < 16; i++)
+            w[i] = ((uint32_t)m[off + 4 * i] << 24) | ((uint32_t)m[off + 4 * i + 1] << 16) | ((uint32_t)m[off + 4 * i + 2] << 8) | m[off + 4 * i + 3];
+        for (int i = 16; i < 80; i++) {
+            uint32_t x = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16];
+            w[i] = (x << 1) | (x >> 31);
+        }
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+        for (int i = 0; i < 80; i++) {
+            uint32_t f, k;
+            if (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
+            else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
+            else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
+            else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+            uint32_t t = ((a << 5) | (a >> 27)) + f + e + k + w[i];
+            e = d; d = c; c = (b << 30) | (b >> 2); b = a; a = t;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+    }
+    free(m);
+    for (int i = 0; i < 5; i++) {
+        out[4 * i] = (unsigned char)(h[i] >> 24);
+        out[4 * i + 1] = (unsigned char)(h[i] >> 16);
+        out[4 * i + 2] = (unsigned char)(h[i] >> 8);
+        out[4 * i + 3] = (unsigned char)h[i];
+    }
+}
+
+static Value native_sha1(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    unsigned char *in = bytes_of(args[0].as.arr);
+    unsigned char out[20];
+    sha1(in, (size_t)args[0].as.arr->count, out);
+    free(in);
+    return value_of_bytes(out, 20);
+}
+
+/* bytes.f64_from_bytes(b, offset) / f32_from_bytes: the little-endian
+ * IEEE-754 double / float at `offset` (MySQL's binary protocol sends
+ * DOUBLE and FLOAT columns that way). */
+static Value native_f64_from_bytes(Value *args, int argc, int line, int col) {
+    (void)argc;
+    ArrayObj *arr = args[0].as.arr;
+    int64_t off = args[1].as.i;
+    if (off < 0 || off + 8 > arr->count) ziman_error("runtime", line, col, "f64_from_bytes: offset %lld out of range", (long long)off);
+    uint64_t bits = 0;
+    for (int i = 7; i >= 0; i--) bits = (bits << 8) | arr->items[off + i].as.by;
+    double d;
+    memcpy(&d, &bits, sizeof d);
+    return value_float(d);
+}
+
+static Value native_f64_to_bytes(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    double d = args[0].as.f;
+    uint64_t bits;
+    memcpy(&bits, &d, sizeof bits);
+    unsigned char out[8];
+    for (int i = 0; i < 8; i++) out[i] = (unsigned char)(bits >> (8 * i));
+    return value_of_bytes(out, 8);
+}
+
+static Value native_f32_from_bytes(Value *args, int argc, int line, int col) {
+    (void)argc;
+    ArrayObj *arr = args[0].as.arr;
+    int64_t off = args[1].as.i;
+    if (off < 0 || off + 4 > arr->count) ziman_error("runtime", line, col, "f32_from_bytes: offset %lld out of range", (long long)off);
+    uint32_t bits = 0;
+    for (int i = 3; i >= 0; i--) bits = (bits << 8) | arr->items[off + i].as.by;
+    float f;
+    memcpy(&f, &bits, sizeof f);
+    return value_float((double)f);
+}
+
 static Value native_sha256(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     unsigned char *in = bytes_of(args[0].as.arr);
@@ -276,6 +362,10 @@ static Value native_base64_decode(Value *args, int argc, int line, int col) {
 
 void native_crypto_register(void) {
     native_register("crypto::sha256", native_sha256);
+    native_register("crypto::sha1", native_sha1);
+    native_register("bytes::f64_from_bytes", native_f64_from_bytes);
+    native_register("bytes::f32_from_bytes", native_f32_from_bytes);
+    native_register("bytes::f64_to_bytes", native_f64_to_bytes);
     native_register("crypto::hmac_sha256", native_hmac_sha256);
     native_register("crypto::pbkdf2_hmac_sha256", native_pbkdf2);
     native_register("crypto::bytes_xor", native_bytes_xor);
