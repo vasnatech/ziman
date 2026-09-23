@@ -2258,6 +2258,10 @@ a type error.
   separator has no well-defined split points. Empty pieces (adjacent
   separators, or a leading/trailing separator) are kept, so `len(result)`
   is always `count(sep in s) + 1`.
+- `concat_arrays<T>(parts: [T]...) -> [T]` — one array from many, in a
+  single allocation: `concat_arrays<int>(a, b)` or
+  `concat_arrays<int>(parts: arrays)`. (The empty-`[]` literal can't be
+  inferred as a variadic argument; pass a typed `val`.)
 - `index_of(s: string, needle: string, from: int) -> int` — the byte index
   of the first `needle` at or after `from` (`0 <= from <= len(s)`, a
   runtime error otherwise), or `-1`; an empty `needle` matches at `from`.

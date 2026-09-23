@@ -143,6 +143,10 @@ struct ArrayBuilder<T> {
 }
 
 // Same capacity/grow_factor defaults, same reasoning, as sb_new.
+// One array from many, in a single allocation: `concat_arrays<int>(a, b, c)`
+// or `concat_arrays<int>(parts: arrays)`. The array counterpart of `join`
+// (`concat` is the two-string function).
+native fn concat_arrays<T>(parts: [T]...) -> [T]
 native fn ab_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> ArrayBuilder<T>
 // Appends however many pieces the call site writes out individually or
 // hands over as one already-built array -- same variadic shape as

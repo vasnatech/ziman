@@ -13,13 +13,7 @@ pub native fn bytes_to_string(b: [byte]) -> Result<string, string>
 
 // Concatenates any number of byte arrays into one, in one pass.
 pub fn bytes_concat(parts: [byte]...) -> [byte] {
-    val out = ab_new<byte>()
-    for part in parts {
-        for b in part {
-            ab_append<byte>(out, b)
-        }
-    }
-    return ab_to_array<byte>(out)
+    return concat_arrays<byte>(parts: parts)
 }
 
 // `n` (0..=4294967295) as 4 big-endian bytes, network byte order.

@@ -608,6 +608,20 @@ static Value native_ab_append(Value *args, int argc, int line, int col) {
     return value_int(0); /* void return -- the caller never uses this */
 }
 
+static Value native_concat_arrays(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    ArrayObj *parts = args[0].as.arr;
+    int total = 0;
+    for (int i = 0; i < parts->count; i++) total += parts->items[i].as.arr->count;
+    Value *items = total > 0 ? malloc((size_t)total * sizeof(Value)) : NULL;
+    int pos = 0;
+    for (int i = 0; i < parts->count; i++) {
+        ArrayObj *part = parts->items[i].as.arr;
+        for (int j = 0; j < part->count; j++) items[pos++] = part->items[j];
+    }
+    return value_array(type_scalar(TY_VOID), array_obj_new(items, total));
+}
+
 static Value native_ab_to_array(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -648,6 +662,7 @@ void prelude_register(void) {
     native_register("to_upper", native_to_upper);
     native_register("to_lower", native_to_lower);
     native_register("join", native_join);
+    native_register("concat_arrays", native_concat_arrays);
     native_register("sb_new", native_sb_new);
     native_register("sb_append", native_sb_append);
     native_register("sb_to_string", native_sb_to_string);

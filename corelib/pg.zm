@@ -629,7 +629,7 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
     for p in params {
         ab_append<[byte]>(encoded, encode_param(p))
     }
-    val bind_body = bytes_concat(cstring(""), cstring(""), u16_to_bytes(0), u16_to_bytes(len(params)), bytes_concat_all(ab_to_array<[byte]>(encoded)), u16_to_bytes(0))
+    val bind_body = bytes_concat(cstring(""), cstring(""), u16_to_bytes(0), u16_to_bytes(len(params)), concat_arrays<byte>(parts: ab_to_array<[byte]>(encoded)), u16_to_bytes(0))
     val describe_body = bytes_concat(string_to_bytes("P"), cstring(""))
     val execute_body = bytes_concat(cstring(""), u32_to_bytes(0))
     val batch = bytes_concat(
@@ -644,16 +644,6 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
 
 fn frame(kind: string, body: [byte]) -> [byte] {
     return bytes_concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)
-}
-
-fn bytes_concat_all(parts: [[byte]]) -> [byte] {
-    val out = ab_new<byte>()
-    for part in parts {
-        for b in part {
-            ab_append<byte>(out, b)
-        }
-    }
-    return ab_to_array<byte>(out)
 }
 
 fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
