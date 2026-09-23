@@ -156,8 +156,7 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
     val out = ab_new<byte>()
     var i = 0
     while i < len(s) {
-        val c = char_at(s, i)
-        if c == "%" {
+        if is_char_at(s, i, "%") {
             if i + 3 > len(s) {
                 return err("truncated %-escape")
             }
@@ -167,11 +166,11 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
             }
             ab_append<byte>(out, unwrap(b))
             i = i + 3
-        } else if c == "+" && plus_is_space {
+        } else if plus_is_space && is_char_at(s, i, "+") {
             ab_append<byte>(out, 32b)
             i = i + 1
         } else {
-            for b in string_to_bytes(c) {
+            for b in string_to_bytes(char_at(s, i)) {
                 ab_append<byte>(out, b)
             }
             i = i + 1

@@ -284,7 +284,7 @@ fn distance(a: string, b: string) -> int {
         var cur: [int] = [i + 1]
         for j in 0..len(b) {
             var cost = 1
-            if char_at(a, i) == char_at(b, j) {
+            if is_char_at(a, i, char_at(b, j)) {
                 cost = 0
             }
             cur = push(cur, min(min(cur[j] + 1, prev[j + 1] + 1), prev[j] + cost))

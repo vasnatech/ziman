@@ -32,8 +32,7 @@ pub fn percent_decode(s: string) -> Result<string, DbError> {
     val out = ab_new<byte>()
     var i = 0
     while i < len(s) {
-        val c = char_at(s, i)
-        if c == "%" && i + 3 <= len(s) {
+        if is_char_at(s, i, "%") && i + 3 <= len(s) {
             val b = byte_from_hex(substring(s, i + 1, i + 3))
             if !is_ok(b) {
                 return err(bad(concat("bad %-escape in database URL: ", s)))
@@ -41,7 +40,7 @@ pub fn percent_decode(s: string) -> Result<string, DbError> {
             ab_append<byte>(out, unwrap(b))
             i = i + 3
         } else {
-            for b in string_to_bytes(c) {
+            for b in string_to_bytes(char_at(s, i)) {
                 ab_append<byte>(out, b)
             }
             i = i + 1
