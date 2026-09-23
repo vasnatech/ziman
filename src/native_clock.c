@@ -25,6 +25,20 @@ static Value native_clock_now_raw(Value *args, int argc, int line, int col) {
     return value_array(type_array(type_scalar(TY_INT)), array_obj_new(items, 2));
 }
 
+/* clock.sleep_millis(ms): blocks the calling thread only. Retried on
+ * EINTR so an interrupting signal can't cut it short. */
+static Value native_clock_sleep_millis(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    int64_t ms = args[0].as.i;
+    if (ms > 0) {
+        struct timespec req = {(time_t)(ms / 1000), (long)((ms % 1000) * 1000000L)};
+        struct timespec rem;
+        while (nanosleep(&req, &rem) != 0) req = rem;
+    }
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
 void native_clock_register(void) {
+    native_register("clock::sleep_millis", native_clock_sleep_millis);
     native_register("clock::now_raw", native_clock_now_raw);
 }

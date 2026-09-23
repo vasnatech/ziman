@@ -2242,6 +2242,70 @@ several languages rather than inheriting any one of them wholesale.
   **Not yet**: server-side TLS (`listen_tls` -- an HTTPS server will need
   it), client certificates, ALPN, and session resumption.
 
+- **Connection pool (`db.open_pool`, `acquire`, `release`).** Built so a
+  program isn't limited to one connection serialising every statement,
+  and so a transaction can finally be safe.
+  **The mechanism is a channel of idle connections**: borrowing is
+  `receive` (which blocks while every connection is busy -- backpressure
+  for free), returning is `send`. No mutex, no new primitive, and it works
+  for both backends because a "connection" is already just a value.
+  `defer` is what makes it usable rather than a leak waiting to happen:
+  `defer db.release(pool, tx)` returns the connection on every way out,
+  including a `?` that propagates an error -- which is exactly the hazard
+  that had to be solved first.
+  **A pool-backed `Connection`, not a separate `Pool` type**, so repository
+  code written against `Connection` runs unchanged: `Connection` gained
+  `pool: Option<Channel<Connection>>` and `pool_size`, and
+  `execute`/`query` on a pool borrow a connection for that one statement
+  (`query_one` and the rest go through those). The type is recursive
+  through a `Channel`, the same way `Json` is recursive through an array,
+  and the checker accepted it without change. **A unit of work spanning
+  several statements borrows exclusively with `acquire`**, which returns an
+  *ordinary non-pool* `Connection`: repositories called with it use it
+  directly and never borrow again, so a small pool can't deadlock on
+  nested borrows, and on a plain connection `acquire` is the identity and
+  `release` a no-op, so code written for a pool runs against either.
+  **`begin`/`commit`/`rollback` on the pool itself are refused**: each
+  would borrow a *different* connection and silently do the wrong thing,
+  so it is an error that tells you to `acquire`. This is the property
+  the design exists for: an exclusively borrowed connection can't be
+  interleaved by another thread, which is what a shared single connection
+  could never promise.
+  **Deliberately v1, with better implementations wanted later:** a
+  connection that dies (server restart, dropped network) is *not*
+  replaced -- there is no health check and no reconnect, so it keeps
+  failing until the pool is rebuilt; validating with `SELECT 1` on every
+  borrow would cost a round trip per statement, and doing this properly
+  (discard on a connection-class error, reconnect lazily, optionally
+  validate only after idleness) deserves its own step. There is no acquire
+  timeout (channel `receive` has none, so a leaked borrow blocks other
+  callers forever -- `defer release` is the guard), no min/max sizing or
+  idle timeout, connections open eagerly and fail fast, `db.close(pool)`
+  waits for every borrow to come back before closing, and a connection
+  released mid-transaction goes back dirty (roll it back first; a `defer
+  db.rollback` registered after the release defer runs before it).
+  **A pool over `sqlite::memory:` is a single connection** whatever size is
+  asked for, because every in-memory SQLite connection is its own private
+  database -- N of them would be N different databases. (A shared-cache
+  URI would allow real pooling; that is a follow-up.) For a SQLite *file*
+  the native open now sets a five-second busy timeout, since several
+  connections contend for SQLite's single writer lock and would otherwise
+  fail at once with `SQLITE_BUSY`; a read-modify-write transaction there
+  should start with `BEGIN IMMEDIATE`, as a deferred `BEGIN` that reads
+  then writes can deadlock two connections against each other.
+  **A `clock.sleep_millis` came along** because the tests needed connections
+  held long enough to overlap, and it is useful in its own right (retry
+  backoff); it blocks only the calling thread.
+  **Tested**: `tests/fixtures/db_pool_sqlite` (hermetic, against a SQLite
+  file: ten workers on three connections with the distinct-connection
+  count bounded, 8 threads x 10 read-modify-write transactions losing no
+  updates, early-return release on a pool of one, refusal of a transaction
+  on the pool, `acquire` on a plain connection, the `:memory:` pool, bad
+  sizes -- stable across 15 runs) and `tests/pg/pg_pool` (against real
+  Postgres: 12 workers on 4 connections served by 2-4 distinct backend
+  PIDs, per-statement borrows from many threads, and 80/80 increments
+  under `SELECT ... FOR UPDATE`).
+
 ## Deliberately deferred (not v0)
 
 - Effects visible in function signatures (which functions do I/O or mutate

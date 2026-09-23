@@ -41,10 +41,17 @@ use number.byte_from_hex
 
 // A SQLite connection is `handle` (an index into the native table) with
 // no `requests`; a Postgres one is the channel to its owner thread, with
-// `handle` unused (-1).
+// `handle` unused (-1). A *pool* (see `open_pool`) is a third shape: `pool`
+// is the channel of idle connections, `pool_size` how many were opened,
+// and `handle`/`requests` are unused -- statements run on it borrow a
+// connection for that one statement, and `acquire` hands one out
+// exclusively. The type is recursive through a `Channel`, like `Json` is
+// through an array.
 pub struct Connection {
     handle: int
     requests: Option<Channel<pg.Request>>
+    pool: Option<Channel<Connection>>
+    pool_size: int
 }
 
 native fn open_raw(path: string) -> Result<int, string>
@@ -156,16 +163,27 @@ pub fn open(url: string) -> Result<Connection, DbError> {
         if !is_ok(opened) {
             return err(db_error_from_raw(unwrap_err(opened)))
         }
-        return Connection { handle: unwrap(opened), requests: Option<Channel<pg.Request>>.None }
+        return Connection { handle: unwrap(opened), requests: Option<Channel<pg.Request>>.None, pool: Option<Channel<Connection>>.None, pool_size: 0 }
     }
     if (len(url) >= 11 && substring(url, 0, 11) == "postgres://") || (len(url) >= 13 && substring(url, 0, 13) == "postgresql://") {
         val requests = pg.connect(url)?
-        return Connection { handle: -1, requests: Option<Channel<pg.Request>>.Some(requests) }
+        return Connection { handle: -1, requests: Option<Channel<pg.Request>>.Some(requests), pool: Option<Channel<Connection>>.None, pool_size: 0 }
     }
     return err(DbError.Connection(concat("unsupported database URL (expected sqlite: or postgres://): ", url)))
 }
 
+// Closes a connection. For a pool, waits until every connection has been
+// released (`receive` blocks until each is back), then closes them all --
+// so a borrowed connection that was never released makes this wait
+// forever; `defer db.release(...)` is what prevents that.
 pub fn close(conn: Connection) {
+    if Option.is_Some(conn.pool) {
+        val idle = Option.unwrap_Some(conn.pool)
+        for i in 0..conn.pool_size {
+            close(receive(idle))
+        }
+        return
+    }
     if Option.is_Some(conn.requests) {
         pg.close(Option.unwrap_Some(conn.requests))
     } else {
@@ -176,6 +194,11 @@ pub fn close(conn: Connection) {
 // Runs a statement (or, for DDL, a `;`-separated script) and returns the
 // number of rows the last statement changed.
 pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
+    if Option.is_Some(conn.pool) {
+        val inner = acquire(conn)?
+        defer release(conn, inner)
+        return execute(inner, sql, params)
+    }
     if Option.is_Some(conn.requests) {
         val result = pg.run(Option.unwrap_Some(conn.requests), sql, params)?
         return result.affected
@@ -188,6 +211,11 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
 }
 
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+    if Option.is_Some(conn.pool) {
+        val inner = acquire(conn)?
+        defer release(conn, inner)
+        return query(inner, sql, params)
+    }
     if Option.is_Some(conn.requests) {
         val result = pg.run(Option.unwrap_Some(conn.requests), sql, params)?
         return result.rows
@@ -230,14 +258,105 @@ pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Op
     return Option<Row>.Some(rows[0])
 }
 
+// A transaction spans several statements, so it must run on ONE
+// connection: on a pool, `begin`/`commit`/`rollback` would each borrow a
+// different connection and silently do the wrong thing, so they are
+// refused -- `acquire` an exclusive connection and run the transaction on
+// that.
+fn refuse_on_pool(conn: Connection) -> Result<int, DbError> {
+    if Option.is_Some(conn.pool) {
+        return err(DbError.Sql("a transaction needs an exclusive connection: db.acquire(pool) one first"))
+    }
+    return 0
+}
+
 pub fn begin(conn: Connection) -> Result<int, DbError> {
+    refuse_on_pool(conn)?
     return execute(conn, "BEGIN", [])
 }
 
 pub fn commit(conn: Connection) -> Result<int, DbError> {
+    refuse_on_pool(conn)?
     return execute(conn, "COMMIT", [])
 }
 
 pub fn rollback(conn: Connection) -> Result<int, DbError> {
+    refuse_on_pool(conn)?
     return execute(conn, "ROLLBACK", [])
+}
+
+// ---------------------------------------------------------------- pooling
+
+// Opens `size` connections to `url` up front (failing fast if any can't
+// connect) and returns a pool-backed `Connection`: the same type as
+// `open` returns, so repository code written against a `Connection` works
+// unchanged. Statements run on it (`execute`/`query`) each borrow a
+// connection for that one statement and give it back; a unit of work that
+// spans several statements -- a transaction above all -- borrows one
+// exclusively with `acquire`:
+//
+//     val tx = db.acquire(conn)?
+//     defer db.release(conn, tx)
+//     db.begin(tx)?
+//     defer db.rollback(tx)
+//     ...
+//     db.commit(tx)?
+//
+// The pool is a channel of idle connections, so a borrow blocks while
+// every connection is in use -- natural backpressure, no extra locking.
+// `tx` is an ordinary, non-pool `Connection`, so a repository called with
+// it uses it directly and never borrows again (borrowing while holding one
+// could deadlock a small pool).
+//
+// v1 limits, deliberate: a connection that dies (server restart, dropped
+// network) is NOT replaced -- it keeps failing until the pool is rebuilt;
+// there is no health check and no reconnect. There is no acquire timeout
+// (a leaked borrow blocks other callers forever -- `defer release` is the
+// guard). A pool over `sqlite::memory:` is a single connection whatever
+// `size` says: every in-memory connection is its own private database, so
+// N of them would be N different databases.
+pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
+    if size < 1 {
+        return err(DbError.Sql("a pool needs at least one connection"))
+    }
+    if len(url) >= 14 && substring(url, 0, 14) == "sqlite::memory" {
+        return open(url)
+    }
+    val idle: Channel<Connection> = channel_new()
+    var opened = 0
+    while opened < size {
+        val c = open(url)
+        if !is_ok(c) {
+            var i = 0
+            while i < opened {
+                close(receive(idle))
+                i = i + 1
+            }
+            return err(unwrap_err(c))
+        }
+        send(idle, unwrap(c))
+        opened = opened + 1
+    }
+    return Connection { handle: -1, requests: Option<Channel<pg.Request>>.None, pool: Option<Channel<Connection>>.Some(idle), pool_size: size }
+}
+
+// An exclusive connection, for a unit of work that must stay on one (a
+// transaction). Blocks while the pool is exhausted. On a connection that
+// isn't a pool it just returns that connection, and `release` does
+// nothing -- so the same code runs against either.
+pub fn acquire(conn: Connection) -> Result<Connection, DbError> {
+    if Option.is_Some(conn.pool) {
+        return receive(Option.unwrap_Some(conn.pool))
+    }
+    return conn
+}
+
+// Gives back a connection taken with `acquire`. Pair every `acquire` with
+// a `defer db.release(...)`. A connection released while a transaction is
+// still open goes back dirty -- roll it back first (`defer db.rollback`
+// registered *after* the release defer runs before it).
+pub fn release(conn: Connection, taken: Connection) {
+    if Option.is_Some(conn.pool) {
+        send(Option.unwrap_Some(conn.pool), taken)
+    }
 }

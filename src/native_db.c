@@ -86,6 +86,10 @@ static Value native_db_open_raw(Value *args, int argc, int line, int col) {
         if (db != NULL) sqlite3_close(db);
         return r;
     }
+    /* Several connections to one database file (a pool) contend for the
+     * single writer lock; wait up to five seconds for it instead of
+     * failing at once with SQLITE_BUSY. */
+    sqlite3_busy_timeout(db, 5000);
     char *errmsg = NULL;
     if (sqlite3_exec(db, "PRAGMA foreign_keys = ON", NULL, NULL, &errmsg) != SQLITE_OK) {
         Value r = err_result(int_type, "connection", errmsg != NULL ? errmsg : "cannot enable foreign keys");

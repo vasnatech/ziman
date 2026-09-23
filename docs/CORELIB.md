@@ -47,6 +47,8 @@ One native function reading the system clock (`clock_gettime`) -- Ziman's other 
 ```
 pub native fn now_raw() -> [int]
 
+pub native fn sleep_millis(ms: int)
+
 ```
 
 ## `collections`
@@ -119,6 +121,8 @@ pub fn bytes_to_hex(data: [byte]) -> string
 pub struct Connection {
     handle: int
     requests: Option<Channel<pg.Request>>
+    pool: Option<Channel<Connection>>
+    pool_size: int
 }
 
 pub fn open(url: string) -> Result<Connection, DbError>
@@ -136,6 +140,12 @@ pub fn begin(conn: Connection) -> Result<int, DbError>
 pub fn commit(conn: Connection) -> Result<int, DbError>
 
 pub fn rollback(conn: Connection) -> Result<int, DbError>
+
+pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
+
+pub fn acquire(conn: Connection) -> Result<Connection, DbError>
+
+pub fn release(conn: Connection, taken: Connection)
 
 ```
 

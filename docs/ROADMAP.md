@@ -1000,8 +1000,12 @@ a time mid-implementation:
   certificates, ALPN; (2) ~~scoped cleanup~~ **done as `defer`** (docs/DESIGN.md's `defer` entry).
   What remains of it: a block form (`defer { ... }`), the deferred call's
   discarded `Result` (a failing cleanup is invisible), fatal errors
-  skipping defers, and no true `with_transaction(fn)` (no closures); (3) a
-  **connection pool**, since one connection serialises every call; (4)
+  skipping defers, and no true `with_transaction(fn)` (no closures); (3) ~~connection pool~~ **done as v1**
+  (docs/DESIGN.md's pool entry) -- still wanted, and deliberately left for
+  a better implementation: health checks and reconnect (a dead pooled
+  connection is never replaced), an acquire timeout, min/max sizing and
+  idle timeouts, resetting a connection on release, and real pooling over
+  in-memory SQLite (shared-cache); (4)
   **schema management/migrations**, currently a plain `create_schema`
   script per repository; (5) per-field `#[derive(Row)]` annotations
   (column-name override, primary key, generated columns) -- the same

@@ -1,0 +1,13 @@
+50
+true
+true
+80
+false
+false
+50
+database error: a transaction needs an exclusive connection: db.acquire(pool) one first
+1
+1
+1
+false
+database error: a pool needs at least one connection

@@ -1,0 +1,146 @@
+use db
+use clock
+use sql.SqlValue
+use sql.DbError
+use sql.row_get
+use sql.sql_as_int
+use sql.db_error_message
+
+// A pool over a SQLite *file* (several real connections to it), driven by
+// more threads than connections.
+
+fn count(conn: db.Connection, table: string) -> int {
+    val rows = unwrap(db.query(conn, concat("SELECT count(*) AS n FROM ", table), []))
+    return unwrap(sql_as_int(unwrap(row_get(rows[0], "n"))))
+}
+
+// Per-statement borrows, then one exclusive borrow held long enough for
+// the other workers to overlap with it.
+fn worker(pool: db.Connection, id: int, handles: Channel<int>, done: Channel<int>) {
+    var i = 0
+    while i < 5 {
+        unwrap(db.execute(pool, "INSERT INTO events (worker, n) VALUES ($1, $2)", [SqlValue.Int(id), SqlValue.Int(i)]))
+        i = i + 1
+    }
+    val tx = unwrap(db.acquire(pool))
+    defer db.release(pool, tx)
+    send(handles, tx.handle)
+    clock.sleep_millis(20)
+    send(done, 1)
+}
+
+// A read-modify-write transaction on a shared counter. BEGIN IMMEDIATE
+// takes SQLite's write lock up front (a deferred BEGIN that reads then
+// writes can deadlock two connections against each other).
+fn incrementer(pool: db.Connection, done: Channel<int>) {
+    var i = 0
+    while i < 10 {
+        val tx = unwrap(db.acquire(pool))
+        defer db.release(pool, tx)
+        unwrap(db.execute(tx, "BEGIN IMMEDIATE", []))
+        defer db.rollback(tx)
+        val rows = unwrap(db.query(tx, "SELECT n FROM counter", []))
+        val n = unwrap(sql_as_int(unwrap(row_get(rows[0], "n"))))
+        unwrap(db.execute(tx, "UPDATE counter SET n = $1", [SqlValue.Int(n + 1)]))
+        unwrap(db.commit(tx))
+        i = i + 1
+    }
+    send(done, 1)
+}
+
+// Bails out early with `?`; the deferred release must still give the
+// connection back, or the next acquire on a pool of one would hang.
+fn fails_early(pool: db.Connection) -> Result<int, DbError> {
+    val tx = db.acquire(pool)?
+    defer db.release(pool, tx)
+    db.execute(tx, "SELEKT 1", [])?
+    return 0
+}
+
+fn insert_from_thread(pool: db.Connection, done: Channel<int>) {
+    unwrap(db.execute(pool, "INSERT INTO shared (v) VALUES (42)", []))
+    send(done, 1)
+}
+
+fn main() {
+    val url = "sqlite:/tmp/ziman_pool_test.db"
+    val setup = unwrap(db.open(url))
+    unwrap(db.execute(setup, "DROP TABLE IF EXISTS events; DROP TABLE IF EXISTS counter", []))
+    unwrap(db.execute(setup, "CREATE TABLE events (worker INTEGER, n INTEGER); CREATE TABLE counter (n INTEGER); INSERT INTO counter VALUES (0)", []))
+    db.close(setup)
+
+    val pool = unwrap(db.open_pool(url, 3))
+    val handles: Channel<int> = channel_new()
+    val done: Channel<int> = channel_new()
+    var w = 0
+    while w < 10 {
+        spawn worker(pool, w, handles, done)
+        w = w + 1
+    }
+    var i = 0
+    var seen: [int] = []
+    while i < 10 {
+        receive(done)
+        seen = push(seen, receive(handles))
+        i = i + 1
+    }
+    print(count(pool, "events"))
+    var distinct = 0
+    for h in 0..64 {
+        if contains(seen, h) {
+            distinct = distinct + 1
+        }
+    }
+    print(distinct <= 3)
+    print(distinct >= 2)
+
+    // no lost updates: 8 threads x 10 increments
+    val finished: Channel<int> = channel_new()
+    var t = 0
+    while t < 8 {
+        spawn incrementer(pool, finished)
+        t = t + 1
+    }
+    var f = 0
+    while f < 8 {
+        receive(finished)
+        f = f + 1
+    }
+    val rows = unwrap(db.query(pool, "SELECT n FROM counter", []))
+    print(unwrap(sql_as_int(unwrap(row_get(rows[0], "n")))))
+    db.close(pool)
+
+    // a pool of ONE: an early return still releases, so this doesn't hang
+    val one = unwrap(db.open_pool(url, 1))
+    print(is_ok(fails_early(one)))
+    print(is_ok(fails_early(one)))
+    print(count(one, "events"))
+    db.close(one)
+
+    // transactions on the pool itself are refused (each statement would
+    // borrow a different connection); the pool stays usable
+    val p2 = unwrap(db.open_pool(url, 2))
+    print(db_error_message(unwrap_err(db.begin(p2))))
+    print(count(p2, "counter"))
+    db.close(p2)
+
+    // on a plain connection, acquire returns it and release is a no-op
+    val plain = unwrap(db.open(url))
+    val same = unwrap(db.acquire(plain))
+    db.release(plain, same)
+    print(count(same, "counter"))
+    db.close(plain)
+
+    // a pool over :memory: is a single connection (every in-memory
+    // connection is a private database), so all threads share one database
+    val mem = unwrap(db.open_pool("sqlite::memory:", 5))
+    unwrap(db.execute(mem, "CREATE TABLE shared (v INTEGER)", []))
+    val d2: Channel<int> = channel_new()
+    spawn insert_from_thread(mem, d2)
+    receive(d2)
+    print(count(mem, "shared"))
+    db.close(mem)
+
+    print(is_ok(db.open_pool(url, 0)))
+    print(db_error_message(unwrap_err(db.open_pool(url, 0))))
+}

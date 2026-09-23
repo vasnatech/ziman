@@ -7,3 +7,7 @@
 // does the actual wrapping -- same split as `random`/`uuid`.
 
 pub native fn now_raw() -> [int]
+
+// Blocks the calling thread (only) for at least `ms` milliseconds; other
+// threads keep running. A non-positive `ms` returns immediately.
+pub native fn sleep_millis(ms: int)

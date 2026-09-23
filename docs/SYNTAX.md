@@ -1406,6 +1406,11 @@ fn main() {
 - **Calendar year is assumed non-negative throughout** (no BCE
   support) — undocumented territory nothing here needs.
 
+`clock.sleep_millis(ms)` (`use clock`) blocks the calling thread -- only
+that thread -- for at least `ms` milliseconds; a non-positive value
+returns at once. It exists for retry backoff and for tests that need
+overlapping work.
+
 ## JSON
 
 The `json` core module (`use json.Name`) is a parser and serializer,
@@ -1603,6 +1608,43 @@ fn main() {
 - **`db.query`** returns `[Row]`; `db.query_one` returns `Option<Row>`;
   `db.execute` returns the row count of the last statement, and takes a
   `;`-separated script when there are no parameters (for DDL).
+- **Connection pools.** `db.open_pool(url, size)` opens `size` connections
+  up front (failing fast, and closing any it opened, if one can't connect)
+  and returns a pool-backed **`Connection` -- the same type `open`
+  returns**, so repository code written against a `Connection` works
+  unchanged. Statements run on it (`execute`/`query`/`query_one`) each
+  borrow a connection for that one statement and give it back. A unit of
+  work spanning several statements -- a transaction above all -- borrows
+  one *exclusively*:
+
+  ```
+  val tx = db.acquire(conn)?
+  defer db.release(conn, tx)      // returned on every path out
+  db.begin(tx)?
+  defer db.rollback(tx)           // runs before the release
+  ...
+  db.commit(tx)?
+  ```
+
+  The pool is a channel of idle connections, so a borrow blocks while
+  every connection is busy (natural backpressure). `tx` is an ordinary
+  non-pool `Connection`, so a repository called with it uses it directly
+  and never borrows again -- borrowing while holding a connection could
+  otherwise deadlock a small pool. `begin`/`commit`/`rollback` on the pool
+  itself are **refused** (each statement would borrow a different
+  connection and silently do the wrong thing). On a plain `Connection`,
+  `acquire` returns it and `release` does nothing, so the same code runs
+  against either. `db.close(pool)` waits for every connection to be
+  released, then closes them all -- a borrow that was never released makes
+  it wait forever, which is what `defer db.release` prevents. **v1
+  limits:** a connection that dies is *not* replaced (no health check, no
+  reconnect -- it keeps failing until the pool is rebuilt); there is no
+  acquire timeout; a released connection isn't reset (release one with a
+  transaction open and it goes back dirty); and a pool over
+  `sqlite::memory:` is a **single** connection whatever `size` says, since
+  every in-memory connection is its own private database. SQLite
+  connections wait up to five seconds for the writer lock instead of
+  failing at once, which is what makes a pool over a file usable.
 - **Transactions** are plain `db.begin`/`db.commit`/`db.rollback` on the
   connection. Every call takes the connection's own lock, so sharing one
   `Connection` across threads is safe *statement by statement*, but a
