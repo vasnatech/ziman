@@ -1641,6 +1641,54 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **`Result<T, E>` bare-value auto-wrap -- the fourth and final stage
+  of the named-arguments/Option-omission/auto-wrap conversation, and
+  the smallest of the four.** Agreed rule (the user's own, resolving
+  the one ambiguity -- what happens when `T == E` -- I'd raised earlier
+  in the conversation): a bare value of type `T` becomes `Ok(T)`; a
+  bare value of type `E` becomes `Err(E)`; when `T == E`, a bare value
+  always becomes `Ok` -- deliberately not clever about the degenerate
+  same-type case, since there's no principled way for the sugar itself
+  to guess which was meant; `err(value)` remains the explicit escape
+  hatch for that one case. An already-`Result<T, E>` value passes
+  through unchanged, symmetric with `Option<T>`.
+  **No omission, and so no default-value syntax either** -- unlike
+  `Option<T>`, `Result<T, E>` has no natural "absent" state an omitted
+  argument could stand in for (an outcome has to be *something*), so
+  this stage is purely about what a *supplied* value looks like. This
+  kept the change entirely inside `check_value_against_param_type` (the
+  same shared helper Option<T>'s own auto-wrap already uses) -- no
+  changes needed to `canonicalize_named_args`'s omission-filling at all,
+  since a `Result<T, E>` parameter already correctly fell through to
+  "missing required argument" there (only `is_option_type` params were
+  ever treated as omittable), and no changes needed to `check_function`'s
+  default-value validation either, since it already rejects `= expr` on
+  any non-`Option<T>` parameter, `Result<T, E>` included.
+  **Mechanically different from `Option<T>`'s own wrap in one way**:
+  `Result<T, E>` is a hardcoded primitive with no enum declaration
+  behind it, unlike `Option<T>` (plain Ziman source, an ordinary enum).
+  `Option<T>`'s auto-wrap reuses enum construction (`EXPR_ENUM_ACCESS`)
+  wholesale; `Result<T, E>`'s reuses the *other* existing machinery
+  instead -- `ok`/`err` are themselves hardcoded core builtins (see
+  `check_call`'s and `interpreter.c`'s own `strcmp(callee, "ok")`
+  branches) -- so `wrap_bare_in_result` builds a synthetic `EXPR_CALL`
+  to `"ok"`/`"err"` rather than an enum-construction node. Either way,
+  the underlying idea is identical: reuse an execution path that already
+  works, so nothing downstream of type-checking needs to change at all.
+  Verified directly: a bare `T` and a bare `E` argument both auto-wrap
+  correctly; an already-`Result<T, E>` value (via `ok(...)`/`err(...)`
+  assigned to a typed `val` first, since a bare `ok(...)`/`err(...)`
+  call was never itself a legal call-argument position -- a pre-existing
+  restriction, unrelated to this feature) passes through unchanged; the
+  `T == E` case always resolves to `Ok` for a bare value, with an
+  explicit `err(...)`-constructed value still reaching the `Err` branch
+  correctly; a generic function's own `Result<T, E>` parameter
+  auto-wraps correctly using the call's substituted `T`/`E`; named and
+  positional calls both work; a `Result<T, E>` parameter rejects a
+  positional or named omission and rejects a declared default, exactly
+  as designed; a wrong-type argument produces a clear three-way message
+  (`"expects Result<T, E>, T, or E, found ..."`, or the two-way
+  `"expects Result<T, E> or T, found ..."` when `T == E`).
 
 ## Deliberately deferred (not v0)
 

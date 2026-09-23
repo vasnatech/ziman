@@ -380,6 +380,26 @@ static Expr *make_none_expr(Type option_type, int line, int col) {
     return e;
 }
 
+/* Rewrites `value` (already type-checked, of type `*result_type.elem`
+ * when `is_ok`, `*result_type.elem_err` otherwise) into a synthetic
+ * `ok(value)`/`err(value)` call -- the auto-wrap sugar a Result<T, E>
+ * parameter gives a bare T-or-E argument (see docs/DESIGN.md's
+ * "Result<T, E> bare-value auto-wrap" entry). Unlike Option<T>'s own
+ * wrap (an ordinary enum, reusing EXPR_ENUM_ACCESS), Result<T, E> is a
+ * hardcoded primitive with no enum declaration behind it at all --
+ * `ok`/`err` are themselves hardcoded core builtins (see check_call's
+ * and interpreter.c's own `strcmp(callee, "ok")` branches), so this
+ * reuses THAT machinery instead: a synthetic EXPR_CALL to "ok"/"err"
+ * needs zero changes anywhere it's evaluated, exactly like Option<T>'s
+ * own wrap needed zero changes to eval_enum_access. */
+static Expr *wrap_bare_in_result(Expr *value, Type result_type, int is_ok) {
+    Expr *e = expr_new(EXPR_CALL, value->line, value->col);
+    e->as.call.callee = is_ok ? "ok" : "err";
+    expr_list_push(&e->as.call.args, value);
+    e->resolved_type = result_type;
+    return e;
+}
+
 /* The implicit value an omitted Option<T> parameter gets when its
  * declaration *did* give a `= expr` default -- a synthetic reference to
  * the global-env slot init_param_defaults (interpreter.c) will have
@@ -396,17 +416,24 @@ static Expr *make_default_ref_expr(Param *param, int line, int col) {
     return e;
 }
 
-/* Checks `*arg_slot` against `param_type`; when `param_type` is
- * `Option<T>`, a bare `T` value is legal too and gets rewritten in place
- * into `Some(T)` (see wrap_bare_in_some) -- the "either T or Option<T>,
- * both work" rule agreed for Option<T> parameters, needed by both an
- * explicitly supplied argument and a parameter's own default expression
- * (this function's two callers). Every other parameter type keeps
- * check_call's always-exact-match behavior, unchanged. Returns 1 and
- * leaves `*out_arg_type` untouched on success; returns 0 and sets
- * `*out_arg_type` to the value's actual type so the caller (which knows
- * whether it's reporting a bad argument or a bad default) can build its
- * own error message. */
+/* Checks `*arg_slot` against `param_type`. Two auto-wrap exceptions to
+ * check_call's usual always-exact-match rule, both narrow and both
+ * driven entirely by `param_type`'s own shape:
+ *   - `Option<T>`: a bare `T` value is legal too, rewritten in place
+ *     into `Some(T)` (see wrap_bare_in_some) -- needed by both an
+ *     explicitly supplied argument and a parameter's own default
+ *     expression (two of this function's callers).
+ *   - `Result<T, E>`: a bare `T` value becomes `Ok(T)`; a bare `E`
+ *     value becomes `Err(E)`; when `T == E`, always `Ok` (see
+ *     wrap_bare_in_result and docs/DESIGN.md's "Result<T, E> bare-value
+ *     auto-wrap" entry) -- `Result<T, E>` parameters are never
+ *     omittable, so this only ever applies to a supplied argument, not
+ *     a default (Result<T, E> can't have one).
+ * Every other parameter type keeps check_call's always-exact-match
+ * behavior, unchanged. Returns 1 and leaves `*out_arg_type` untouched
+ * on success; returns 0 and sets `*out_arg_type` to the value's actual
+ * type so the caller (which knows whether it's reporting a bad argument
+ * or a bad default) can build its own error message. */
 static int check_value_against_param_type(Module *module, Env *env, Expr **arg_slot, Type param_type, Type *out_arg_type) {
     Expr *arg = *arg_slot;
     Type arg_type;
@@ -432,6 +459,18 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
     if (is_option_type(param_type) && type_equals(arg_type, option_elem_type(param_type))) {
         *arg_slot = wrap_bare_in_some(arg, param_type);
         return 1;
+    }
+    if (param_type.kind == TY_RESULT) {
+        Type ok_type = *param_type.elem;
+        Type err_type = *param_type.elem_err;
+        if (type_equals(arg_type, ok_type)) {
+            *arg_slot = wrap_bare_in_result(arg, param_type, 1);
+            return 1;
+        }
+        if (!type_equals(ok_type, err_type) && type_equals(arg_type, err_type)) {
+            *arg_slot = wrap_bare_in_result(arg, param_type, 0);
+            return 1;
+        }
     }
     *out_arg_type = arg_type;
     return 0;
@@ -844,6 +883,18 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                 ziman_error("type", arg->line, arg->col,
                             "argument %d of '%s' expects %s or %s, found %s",
                             i + 1, name, type_name(expected), type_name(option_elem_type(expected)), type_name(arg_type));
+            }
+            if (expected.kind == TY_RESULT) {
+                Type ok_type = *expected.elem;
+                Type err_type = *expected.elem_err;
+                if (type_equals(ok_type, err_type)) {
+                    ziman_error("type", arg->line, arg->col,
+                                "argument %d of '%s' expects %s or %s, found %s",
+                                i + 1, name, type_name(expected), type_name(ok_type), type_name(arg_type));
+                }
+                ziman_error("type", arg->line, arg->col,
+                            "argument %d of '%s' expects %s, %s, or %s, found %s",
+                            i + 1, name, type_name(expected), type_name(ok_type), type_name(err_type), type_name(arg_type));
             }
             ziman_error("type", arg->line, arg->col,
                         "argument %d of '%s' expects %s, found %s",

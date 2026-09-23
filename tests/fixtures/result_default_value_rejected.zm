@@ -1,0 +1,7 @@
+fn describe(r: Result<int, string> = 5) -> string {
+    return "n/a"
+}
+
+fn main() {
+    print(describe(1))
+}

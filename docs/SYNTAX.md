@@ -690,6 +690,46 @@ fn main() {
   evaluate it against. Giving `Option<int>`, or any other already-
   concrete `Option<...>`, its own default works exactly as shown above.
 
+### Result\<T, E\> bare-value auto-wrap
+
+```
+fn require_positive(r: Result<int, string>) -> string {
+    if is_ok(r) {
+        return concat("got ", str(unwrap(r)))
+    }
+    return concat("rejected: ", unwrap_err(r))
+}
+
+fn main() {
+    // A bare value of the Ok type or the Err type both auto-wrap.
+    print(require_positive(5))       // "got 5" -- Ok(5)
+    print(require_positive("no!"))   // "rejected: no!" -- Err("no!")
+
+    // An already-Result<T, E> value still works too.
+    val explicit: Result<int, string> = err("nope")
+    print(require_positive(explicit))
+}
+```
+
+- **Wherever a `Result<T, E>` value is expected, a bare value of
+  either the `T` (Ok) or `E` (Err) type auto-wraps** — a bare `T`
+  becomes `Ok(T)`; a bare `E` becomes `Err(E)`. An already-`Result<T,
+  E>` value passes through unchanged. Same deliberate, narrow exception
+  to "no implicit coercion" as `Option<T>`'s own auto-wrap, and for the
+  same reason: wrapping a statically-known type is never lossy or
+  ambiguous.
+- **When `T == E`, a bare value always becomes `Ok`** — there's no way
+  for the sugar itself to tell which one was meant in the degenerate
+  same-type case, so it doesn't guess; write `err(value)` explicitly
+  for that one case where you need `Err`.
+- **`Result<T, E>` parameters can never be omitted, in any call** —
+  unlike `Option<T>`, there's no natural "absent" state an outcome type
+  could fall back to, so this sugar is only ever about *what a supplied
+  value looks like*, never about leaving one out. A `Result<T, E>`
+  parameter also can't have a declared default (`= expr`) for the same
+  reason — defaults exist to fill in for an omission, and this
+  parameter is never omittable to begin with.
+
 ## Generics
 
 **Structs, enums, and functions, cross-module included** — see

@@ -1,0 +1,45 @@
+fn describe(r: Result<int, string>) -> string {
+    if is_ok(r) {
+        return concat("ok: ", str(unwrap(r)))
+    }
+    return concat("err: ", unwrap_err(r))
+}
+
+fn same_type(r: Result<int, int>) -> string {
+    if is_ok(r) {
+        return concat("ok: ", str(unwrap(r)))
+    }
+    return concat("err: ", str(unwrap_err(r)))
+}
+
+fn wrap_or_default<T, E>(r: Result<T, E>, default_value: T) -> T {
+    if is_ok(r) {
+        return unwrap(r)
+    }
+    return default_value
+}
+
+fn main() {
+    // Bare T auto-wraps to Ok.
+    print(describe(5))
+    // Bare E auto-wraps to Err.
+    print(describe("boom"))
+
+    // An already-Result<T, E> value passes through unchanged.
+    val good: Result<int, string> = ok(10)
+    val bad: Result<int, string> = err("nope")
+    print(describe(good))
+    print(describe(bad))
+
+    // T == E: a bare value always becomes Ok via the sugar -- an
+    // explicit err(...) is still the only way to get an Err then.
+    print(same_type(7))
+    val explicit_err: Result<int, int> = err(99)
+    print(same_type(explicit_err))
+
+    // Named calls, either order, and a generic function's Result<T, E>
+    // parameter -- both positional and named.
+    print(wrap_or_default<int, string>(r: 5, default_value: 0))
+    print(wrap_or_default<int, string>(r: "err", default_value: -1))
+    print(wrap_or_default<int, string>(5, 0))
+}

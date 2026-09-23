@@ -198,7 +198,15 @@ same timing a global val's own initializer gets. Wherever an
 `Some(T)` — a deliberate, narrow exception to "no implicit coercion,"
 modeled on Rust's own `impl<T> From<T> for Option<T>` (see
 docs/DESIGN.md's "Option\<T\> parameter omission and defaults" entry).
-The prelude isn't native-only, though: `Option<T>` (plus
+`Result<T, E>` gets the same bare-value auto-wrap, wherever one is
+expected: a bare `T` becomes `Ok(T)`, a bare `E` becomes `Err(E)`, and
+when `T == E` a bare value always becomes `Ok` (write `err(value)`
+explicitly for that one case). Unlike `Option<T>`, a `Result<T, E>`
+parameter can never be omitted — there's no natural "absent" state an
+outcome type could fall back to — so this sugar is only ever about
+what a supplied value looks like, never about leaving one out (see
+docs/DESIGN.md's "Result\<T, E\> bare-value auto-wrap" entry). The
+prelude isn't native-only, though: `Option<T>` (plus
 one helper, `option_unwrap_or`) lives there too, as ordinary Ziman
 source — an enum, not a hardcoded primitive like `Result<T, E>` is —
 merged bare into every program the same way the entry file's own

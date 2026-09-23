@@ -1,0 +1,9 @@
+ok: 5
+err: boom
+ok: 10
+err: nope
+ok: 7
+err: 99
+5
+-1
+5

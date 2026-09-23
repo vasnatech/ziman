@@ -1,0 +1,7 @@
+fn same_type(r: Result<int, int>) -> string {
+    return "n/a"
+}
+
+fn main() {
+    print(same_type("wrong"))
+}
