@@ -23,12 +23,16 @@ $(BIN): $(OBJ)
 #
 # `prelude` is the one exception: it's listed here purely to get its
 # header generated the same readable, never-hand-escaped way every other
-# lib/core/*.zm file does, but it deliberately has NO matching line in
+# lib/core or lib/db module does, but it deliberately has NO matching line in
 # corelib.c's CORE_MODULES table -- src/prelude.c reads its generated
 # header directly, and it's merged bare into every program by
 # loader.c's load_module_graph (see lib/core/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
 CORELIB_MODULES := collections io random uuid clock time json number sql sqlite db bytes net crypto pg http os properties prelude
+# Bundled modules live in lib/core (general-purpose) and lib/db (SQL
+# drivers); `use` names are flat either way.
+vpath %.zm lib/core lib/db
+
 CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 
 $(OBJ): $(CORELIB_HEADERS)
@@ -43,9 +47,9 @@ $(OBJ): $(CORELIB_HEADERS)
 # PRELUDE_SOURCE uses) rather than one unreadable giant line -- adjacent
 # string literals concatenate into a single one regardless of how many
 # physical lines or trailing "" the macro's definition spans.
-src/%_source.h: lib/core/%.zm
-	awk -v mod="$*" -v macro="$(shell echo $* | tr a-z A-Z)_SOURCE" \
-	    'BEGIN { printf "/* Generated from lib/core/%s.zm -- do not edit directly. */\n#define %s \\\n", mod, macro } \
+src/%_source.h: %.zm
+	awk -v src="$<" -v macro="$(shell echo $* | tr a-z A-Z)_SOURCE" \
+	    'BEGIN { printf "/* Generated from %s -- do not edit directly. */\n#define %s \\\n", src, macro } \
 	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); printf "    \"%s\\n\" \\\n", $$0 } \
 	     END { print "    \"\"" }' $< > $@
 
@@ -79,7 +83,7 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	$(CC) $(CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	/tmp/ziman_decimal_test
 
-# docs/CORELIB.md is generated from lib/core/*.zm's own `pub` declarations
+# docs/CORELIB.md is generated from the lib/core and lib/db modules' own `pub` declarations
 # (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make
 # all` since it's a doc, not a build input; run by hand after touching
 # any core module's public API. The generated file is still checked into

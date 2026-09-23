@@ -417,7 +417,7 @@ static char *generate_enum_from_json(EnumDecl *ed) {
 
 /* ---------------------------------------------------------------------
  * Row derive: <name>_from_row / <name>_to_params, for mapping a struct to
- * and from one SQL result row (lib/core/sql.zm's Row/SqlValue).
+ * and from one SQL result row (lib/db/sql.zm's Row/SqlValue).
  *
  * Column names are the struct's own field names, as written -- already
  * snake_case, which is also how SQL columns are conventionally named, so

@@ -1,6 +1,6 @@
 # Ziman core module reference
 
-Auto-generated from each `lib/core/*.zm` file's own `pub` declarations by
+Auto-generated from each `lib/core/*.zm` or `lib/db/*.zm` file's own `pub` declarations by
 `tools/gen_corelib_reference.sh` -- **don't hand-edit the signature
 blocks below**; regenerate with `make corelib-reference` after changing
 any core module (adding, removing, or renaming a `pub struct`/`pub enum`/
@@ -112,40 +112,6 @@ pub native fn base64_encode(data: [byte]) -> string
 pub native fn base64_decode(s: string) -> Result<[byte], string>
 
 pub fn bytes_to_hex(data: [byte]) -> string
-
-```
-
-## `db`
-
-```
-pub struct Connection {
-    handle: int
-    requests: Option<Channel<pg.Request>>
-    pool: Option<Channel<Connection>>
-    pool_size: int
-}
-
-pub fn open(url: string) -> Result<Connection, DbError>
-
-pub fn close(conn: Connection)
-
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
-
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
-
-pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError>
-
-pub fn begin(conn: Connection) -> Result<int, DbError>
-
-pub fn commit(conn: Connection) -> Result<int, DbError>
-
-pub fn rollback(conn: Connection) -> Result<int, DbError>
-
-pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
-
-pub fn acquire(conn: Connection) -> Result<Connection, DbError>
-
-pub fn release(conn: Connection, taken: Connection)
 
 ```
 
@@ -398,35 +364,6 @@ pub fn getenv(name: string) -> Option<string>
 
 ```
 
-## `pg`
-
-```
-pub struct QueryResult {
-    rows: [Row]
-    affected: int
-}
-
-pub struct RunRequest {
-    sql: string
-    params: [SqlValue]
-    reply_to: Channel<Result<QueryResult, DbError>>
-}
-
-pub enum Request {
-    Run(RunRequest)
-    Close
-}
-
-pub native fn float_to_text(f: float) -> string
-
-pub fn connect(url: string) -> Result<Channel<Request>, DbError>
-
-pub fn run(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError>
-
-pub fn close(requests: Channel<Request>)
-
-```
-
 ## `properties`
 
 ```
@@ -477,59 +414,6 @@ One native function reading real OS entropy (`/dev/urandom`) -- Ziman's first so
 
 ```
 pub native fn random_bytes(n: int) -> [byte]
-
-```
-
-## `sqlite`
-
-```
-pub fn open(path: string) -> Result<int, DbError>
-
-pub fn close(handle: int)
-
-pub fn execute(handle: int, sql: string, params: [SqlValue]) -> Result<int, DbError>
-
-pub fn query(handle: int, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
-
-```
-
-## `sql`
-
-```
-pub enum SqlValue {
-    Null
-    Int(int)
-    Float(float)
-    Text(string)
-    Bool(bool)
-    Bytes([byte])
-}
-
-pub enum DbError {
-    NotFound(string)
-    Constraint(string)
-    Connection(string)
-    Sql(string)
-}
-
-pub struct Row {
-    columns: [string]
-    values: [SqlValue]
-}
-
-pub fn db_error_message(e: DbError) -> string
-
-pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError>
-
-pub fn sql_as_text(v: SqlValue) -> Result<string, DbError>
-
-pub fn sql_as_int(v: SqlValue) -> Result<int, DbError>
-
-pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError>
-
-pub fn sql_as_float(v: SqlValue) -> Result<float, DbError>
-
-pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError>
 
 ```
 
@@ -807,5 +691,121 @@ pub fn uuid_from_json(j: Json) -> Result<Uuid, string>
 pub fn uuid_to_sql(u: Uuid) -> SqlValue
 
 pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError>
+
+```
+
+## `db`
+
+```
+pub struct Connection {
+    handle: int
+    requests: Option<Channel<pg.Request>>
+    pool: Option<Channel<Connection>>
+    pool_size: int
+}
+
+pub fn open(url: string) -> Result<Connection, DbError>
+
+pub fn close(conn: Connection)
+
+pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+
+pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+
+pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError>
+
+pub fn begin(conn: Connection) -> Result<int, DbError>
+
+pub fn commit(conn: Connection) -> Result<int, DbError>
+
+pub fn rollback(conn: Connection) -> Result<int, DbError>
+
+pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
+
+pub fn acquire(conn: Connection) -> Result<Connection, DbError>
+
+pub fn release(conn: Connection, taken: Connection)
+
+```
+
+## `pg`
+
+```
+pub struct QueryResult {
+    rows: [Row]
+    affected: int
+}
+
+pub struct RunRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<QueryResult, DbError>>
+}
+
+pub enum Request {
+    Run(RunRequest)
+    Close
+}
+
+pub native fn float_to_text(f: float) -> string
+
+pub fn connect(url: string) -> Result<Channel<Request>, DbError>
+
+pub fn run(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError>
+
+pub fn close(requests: Channel<Request>)
+
+```
+
+## `sqlite`
+
+```
+pub fn open(path: string) -> Result<int, DbError>
+
+pub fn close(handle: int)
+
+pub fn execute(handle: int, sql: string, params: [SqlValue]) -> Result<int, DbError>
+
+pub fn query(handle: int, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+
+```
+
+## `sql`
+
+```
+pub enum SqlValue {
+    Null
+    Int(int)
+    Float(float)
+    Text(string)
+    Bool(bool)
+    Bytes([byte])
+}
+
+pub enum DbError {
+    NotFound(string)
+    Constraint(string)
+    Connection(string)
+    Sql(string)
+}
+
+pub struct Row {
+    columns: [string]
+    values: [SqlValue]
+}
+
+pub fn db_error_message(e: DbError) -> string
+
+pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError>
+
+pub fn sql_as_text(v: SqlValue) -> Result<string, DbError>
+
+pub fn sql_as_int(v: SqlValue) -> Result<int, DbError>
+
+pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError>
+
+pub fn sql_as_float(v: SqlValue) -> Result<float, DbError>
+
+pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError>
 
 ```
