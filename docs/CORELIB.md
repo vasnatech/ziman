@@ -73,6 +73,31 @@ pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T>
 
 ```
 
+## `db`
+
+```
+pub struct Connection {
+    handle: int
+}
+
+pub fn open(url: string) -> Result<Connection, DbError>
+
+pub fn close(conn: Connection)
+
+pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+
+pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+
+pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError>
+
+pub fn begin(conn: Connection) -> Result<int, DbError>
+
+pub fn commit(conn: Connection) -> Result<int, DbError>
+
+pub fn rollback(conn: Connection) -> Result<int, DbError>
+
+```
+
 ## `io`
 
 File I/O. The first native module -- proved the `native fn` mechanism end to end.
@@ -170,6 +195,46 @@ One native function reading real OS entropy (`/dev/urandom`) -- Ziman's first so
 
 ```
 pub native fn random_bytes(n: int) -> [byte]
+
+```
+
+## `sql`
+
+```
+pub enum SqlValue {
+    Null
+    Int(int)
+    Float(float)
+    Text(string)
+    Bool(bool)
+    Bytes([byte])
+}
+
+pub enum DbError {
+    NotFound(string)
+    Constraint(string)
+    Connection(string)
+    Sql(string)
+}
+
+pub struct Row {
+    columns: [string]
+    values: [SqlValue]
+}
+
+pub fn db_error_message(e: DbError) -> string
+
+pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError>
+
+pub fn sql_as_text(v: SqlValue) -> Result<string, DbError>
+
+pub fn sql_as_int(v: SqlValue) -> Result<int, DbError>
+
+pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError>
+
+pub fn sql_as_float(v: SqlValue) -> Result<float, DbError>
+
+pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError>
 
 ```
 
@@ -395,6 +460,34 @@ pub fn instant_to_json(i: Instant) -> Json
 
 pub fn instant_from_json(j: Json) -> Result<Instant, string>
 
+pub fn local_date_to_sql(v: LocalDate) -> SqlValue
+
+pub fn local_date_from_sql(v: SqlValue) -> Result<LocalDate, DbError>
+
+pub fn local_time_to_sql(v: LocalTime) -> SqlValue
+
+pub fn local_time_from_sql(v: SqlValue) -> Result<LocalTime, DbError>
+
+pub fn duration_to_sql(v: Duration) -> SqlValue
+
+pub fn duration_from_sql(v: SqlValue) -> Result<Duration, DbError>
+
+pub fn local_date_time_to_sql(v: LocalDateTime) -> SqlValue
+
+pub fn local_date_time_from_sql(v: SqlValue) -> Result<LocalDateTime, DbError>
+
+pub fn zone_offset_to_sql(v: ZoneOffset) -> SqlValue
+
+pub fn zone_offset_from_sql(v: SqlValue) -> Result<ZoneOffset, DbError>
+
+pub fn zone_id_to_sql(v: ZoneId) -> SqlValue
+
+pub fn zone_id_from_sql(v: SqlValue) -> Result<ZoneId, DbError>
+
+pub fn instant_to_sql(v: Instant) -> SqlValue
+
+pub fn instant_from_sql(v: SqlValue) -> Result<Instant, DbError>
+
 ```
 
 ## `uuid`
@@ -415,5 +508,9 @@ pub fn uuid_from_string(s: string) -> Result<Uuid, string>
 pub fn uuid_to_json(u: Uuid) -> Json
 
 pub fn uuid_from_json(j: Json) -> Result<Uuid, string>
+
+pub fn uuid_to_sql(u: Uuid) -> SqlValue
+
+pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError>
 
 ```

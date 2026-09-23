@@ -1,0 +1,13 @@
+true
+Ada
+A
+true
+false
+true
+0.1
+true
+false
+30
+false
+constraint violation: UNIQUE constraint failed: people.id
+database error: invalid Uuid value: invalid UUID 'x': expected 36 characters, found 1

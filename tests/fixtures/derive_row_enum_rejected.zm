@@ -1,0 +1,14 @@
+use sql.SqlValue
+use sql.DbError
+use sql.Row
+use sql.row_get
+
+#[derive(Row)]
+pub enum Shape {
+    Circle(float)
+    Point
+}
+
+fn main() {
+    print("unreachable")
+}

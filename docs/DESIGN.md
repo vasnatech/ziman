@@ -1965,6 +1965,67 @@ several languages rather than inheriting any one of them wholesale.
   function is no different from `Uuid`/`LocalDate` satisfying it via a
   real conversion. See `tests/fixtures/derive_json_bare_json_field`.
 
+- **`db`/`sql` core modules, `#[derive(Row)]`, and SQLite as the first
+  backend.** Designed as a JDBC-shaped driver layer, not a document store:
+  an earlier sketch (untyped `Json` rows keyed by table and id,
+  equality-only queries, a hand-written in-memory actor) was dropped the
+  moment the requirement became "relational databases that use SQL" --
+  tables, columns, SQL text, bound parameters, result sets and
+  transactions are the vocabulary, so that's what the API speaks.
+  **No interfaces, so dispatch is by URL.** Ziman has no traits, so
+  "pluggable backend" can't be an interface; `db.open(url)` picks the
+  driver by scheme (`sqlite:` today, `postgres:` later over the `net`
+  module) and returns the same `Connection` handle regardless, exactly the
+  `handle: int` into a native-side table pattern `StringBuilder` already
+  uses. **The in-memory backend is real SQLite (`:memory:`), not a
+  hand-rolled emulation** -- emulating SQL means writing a SQL engine,
+  whose semantics would then drift from Postgres; linking the system
+  `libsqlite3` (`-lsqlite3`) means repository SQL is exercised against a
+  real relational engine from day one. **Only primitives cross the native
+  boundary**: `SqlValue` is `Null|Int|Float|Text|Bool|Bytes`, and
+  parameters and result cells travel between `db.zm` and `native_db.c` as
+  *tagged strings* (`N`, `I<int>`, `F<%.17g>`, `T<text>`, `B<hex>`, `b0/b1`)
+  -- constructing a user-declared enum from C would mean knowing the
+  loader's qualified name for it, which a native has no business knowing.
+  `Uuid`/`LocalDate`/`Instant`/`decimal`/`bigint` are all `Text`, converted
+  in the Ziman mapping layer, which sidesteps every dialect difference in
+  how SQLite and Postgres type them (SQLite has no UUID or timestamp
+  type). A native `db::float_to_text` exists purely because `str(float)` is
+  `%g` (six digits) and would silently lose precision on a bound value.
+  **Placeholders** are Postgres-style `$1, $2`; the SQLite driver rewrites
+  them to `?N` (skipping string literals and quoted identifiers), because
+  SQLite reads `$name` as a *named* parameter numbered by first appearance,
+  so `WHERE a = $2 AND b = $1` would otherwise bind backwards. SQLite
+  connections turn `PRAGMA foreign_keys` on -- off by default, unlike
+  Postgres -- so referential integrity behaves the same on both.
+  **`DbError`** is `NotFound|Constraint|Connection|Sql`: the driver raises
+  the last three (native errors arrive as `"category|message"`, split in
+  `db.zm`); `NotFound` is for a repository whose lookup came back empty,
+  kept in the one type so it covers the whole data-access layer.
+  **Concurrency and transactions, stated honestly.** Each connection has
+  its own mutex taken around every native call, so a shared `Connection`
+  is safe statement by statement. A *transaction* is not safe to share
+  (another thread's statements interleave inside it), and with no closures
+  or destructors there is no `with_transaction(fn)` and a `?` returning
+  early from inside one leaves it open. Accepted for now, not solved: it
+  deserves its own design once the pain is real.
+  **`#[derive(Row)]`** reuses the attribute/derive machinery unchanged:
+  `<name>_from_row`/`<name>_to_params` are generated as source text like
+  the Json pair, with the same per-field priority order (a struct/enum
+  field dispatches by naming convention to `<name>_to_sql`/`_from_sql`,
+  which `uuid.zm` and `time.zm` provide as thin `Text` wrappers; scalars
+  map directly; `Option<U>` is NULL-or-value) but no camelCase transform --
+  field names are already `snake_case`, which is how columns are named.
+  Arrays, enums, generics and the remaining scalar kinds are compile-time
+  errors. Repository SQL is hand-written, deliberately: derive only maps
+  rows to structs and back, it doesn't generate queries.
+  **A small type-checker fix came out of it:** an empty array literal
+  passed straight to a call (`db.execute(conn, sql, [])`) now takes its
+  type from the parameter, the same "expected type from context" trick a
+  `val` annotation, struct field or `return` already had -- without it
+  every parameterless query needed a separately annotated `val`.
+  See `tests/fixtures/db_*`, `derive_row_*`, `empty_array_call_arg`.
+
 ## Deliberately deferred (not v0)
 
 - Effects visible in function signatures (which functions do I/O or mutate

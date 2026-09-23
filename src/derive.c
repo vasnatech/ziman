@@ -416,6 +416,142 @@ static char *generate_enum_from_json(EnumDecl *ed) {
 }
 
 /* ---------------------------------------------------------------------
+ * Row derive: <name>_from_row / <name>_to_params, for mapping a struct to
+ * and from one SQL result row (corelib/sql.zm's Row/SqlValue).
+ *
+ * Column names are the struct's own field names, as written -- already
+ * snake_case, which is also how SQL columns are conventionally named, so
+ * unlike Json's camelCase keys there is no transform here. Field
+ * conversion: int/float/bool/string map to the matching SqlValue; a
+ * struct/enum-kind field dispatches by naming convention to
+ * <name>_to_sql/<name>_from_sql (hand-written -- corelib/uuid.zm and
+ * corelib/time.zm provide them for their domain types, all carried as
+ * Text); Option<U> is NULL-or-value. Arrays, nested tables and the
+ * remaining scalar kinds are compile-time errors, not silently wrong.
+ * --------------------------------------------------------------------- */
+
+static void emit_to_sql(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
+    switch (t.kind) {
+        case TY_INT:
+            cb_appendf(cb, "    val %s = SqlValue.Int(%s)\n", dst_var, src_expr);
+            return;
+        case TY_FLOAT:
+            cb_appendf(cb, "    val %s = SqlValue.Float(%s)\n", dst_var, src_expr);
+            return;
+        case TY_BOOL:
+            cb_appendf(cb, "    val %s = SqlValue.Bool(%s)\n", dst_var, src_expr);
+            return;
+        case TY_STRING:
+            cb_appendf(cb, "    val %s = SqlValue.Text(%s)\n", dst_var, src_expr);
+            return;
+        case TY_STRUCT:
+        case TY_ENUM:
+            if (is_option_type_here(t)) {
+                Type elem = t.type_args.items[0];
+                char *inner = gen_tmp(tmp, "opt_inner");
+                char *unwrap_expr = fmt_str("Option.unwrap_Some(%s)", src_expr);
+                cb_appendf(cb, "    var %s = SqlValue.Null\n", dst_var);
+                cb_appendf(cb, "    if Option.is_Some(%s) {\n", src_expr);
+                emit_to_sql(elem, unwrap_expr, inner, cb, tmp, line, col);
+                cb_appendf(cb, "    %s = %s\n", dst_var, inner);
+                cb_appendf(cb, "    }\n");
+                return;
+            } else {
+                const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
+                char *fn = pascal_to_snake(name);
+                cb_appendf(cb, "    val %s = %s_to_sql(%s)\n", dst_var, fn, src_expr);
+                return;
+            }
+        default:
+            ziman_error("syntax", line, col, "derive(Row) does not support field type '%s'", type_name(t));
+    }
+}
+
+static void emit_from_sql(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
+    switch (t.kind) {
+        case TY_INT:
+            cb_appendf(cb, "    val %s = sql_as_int(%s)?\n", dst_var, src_expr);
+            return;
+        case TY_FLOAT:
+            cb_appendf(cb, "    val %s = sql_as_float(%s)?\n", dst_var, src_expr);
+            return;
+        case TY_BOOL:
+            cb_appendf(cb, "    val %s = sql_as_bool(%s)?\n", dst_var, src_expr);
+            return;
+        case TY_STRING:
+            cb_appendf(cb, "    val %s = sql_as_text(%s)?\n", dst_var, src_expr);
+            return;
+        case TY_STRUCT:
+        case TY_ENUM:
+            if (is_option_type_here(t)) {
+                Type elem = t.type_args.items[0];
+                char *elem_type_name = type_name(elem);
+                char *inner = gen_tmp(tmp, "opt_inner");
+                cb_appendf(cb, "    var %s = Option<%s>.None\n", dst_var, elem_type_name);
+                cb_appendf(cb, "    if !SqlValue.is_Null(%s) {\n", src_expr);
+                emit_from_sql(elem, src_expr, inner, cb, tmp, line, col);
+                cb_appendf(cb, "    %s = Option<%s>.Some(%s)\n", dst_var, elem_type_name, inner);
+                cb_appendf(cb, "    }\n");
+                return;
+            } else {
+                const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
+                char *fn = pascal_to_snake(name);
+                cb_appendf(cb, "    val %s = %s_from_sql(%s)?\n", dst_var, fn, src_expr);
+                return;
+            }
+        default:
+            ziman_error("syntax", line, col, "derive(Row) does not support field type '%s'", type_name(t));
+    }
+}
+
+static char *generate_struct_from_row(StructDecl *sd) {
+    CodeBuf cb;
+    cb_init(&cb);
+    char *fn_name = pascal_to_snake(sd->name);
+    cb_appendf(&cb, "pub fn %s_from_row(row: Row) -> Result<%s, DbError> {\n", fn_name, sd->name);
+    int tmp = 0;
+    char **field_vars = malloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        char *raw = fmt_str("field_%s_raw", f->name);
+        char *dst = fmt_str("field_%s", f->name);
+        cb_appendf(&cb, "    val %s = row_get(row, \"%s\")?\n", raw, f->name);
+        emit_from_sql(f->type, raw, dst, &cb, &tmp, f->line, f->col);
+        field_vars[i] = dst;
+    }
+    cb_appendf(&cb, "    return %s {\n", sd->name);
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        cb_appendf(&cb, "        %s: %s%s\n", f->name, field_vars[i], i + 1 < sd->fields.count ? "," : "");
+    }
+    cb_appendf(&cb, "    }\n");
+    cb_appendf(&cb, "}\n\n");
+    return cb.data;
+}
+
+/* The parameters come back in field declaration order -- the order a
+ * hand-written `INSERT INTO t (col1, col2, ...) VALUES ($1, $2, ...)`
+ * lists its columns in, since repository SQL is written by hand. */
+static char *generate_struct_to_params(StructDecl *sd) {
+    CodeBuf cb;
+    cb_init(&cb);
+    char *fn_name = pascal_to_snake(sd->name);
+    cb_appendf(&cb, "pub fn %s_to_params(v: %s) -> [SqlValue] {\n", fn_name, sd->name);
+    cb_appendf(&cb, "    val __derive_params = ab_new<SqlValue>()\n");
+    int tmp = 0;
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        char *src = fmt_str("v.%s", f->name);
+        char *dst = fmt_str("field_%s_sql", f->name);
+        emit_to_sql(f->type, src, dst, &cb, &tmp, f->line, f->col);
+        cb_appendf(&cb, "    ab_append<SqlValue>(__derive_params, %s)\n", dst);
+    }
+    cb_appendf(&cb, "    return ab_to_array<SqlValue>(__derive_params)\n");
+    cb_appendf(&cb, "}\n\n");
+    return cb.data;
+}
+
+/* ---------------------------------------------------------------------
  * Driver: lex+parse the generated snippet and splice its functions in.
  * --------------------------------------------------------------------- */
 
@@ -437,19 +573,29 @@ void generate_derived_functions(Module *module) {
     for (int i = 0; i < module->structs.count; i++) {
         StructDecl *sd = module->structs.items[i];
         for (int d = 0; d < sd->derive_count; d++) {
-            if (strcmp(sd->derives[d], "Json") != 0) {
+            int is_json = strcmp(sd->derives[d], "Json") == 0;
+            int is_row = strcmp(sd->derives[d], "Row") == 0;
+            if (!is_json && !is_row) {
                 ziman_error("syntax", sd->line, sd->col, "unknown derive target '%s' on struct '%s'", sd->derives[d], sd->name);
             }
             if (sd->type_params.count > 0) {
-                ziman_error("syntax", sd->line, sd->col, "derive(Json) does not support a generic struct yet ('%s')", sd->name);
+                ziman_error("syntax", sd->line, sd->col, "derive(%s) does not support a generic struct yet ('%s')", sd->derives[d], sd->name);
             }
-            parse_and_splice(module, generate_struct_to_json(sd));
-            parse_and_splice(module, generate_struct_from_json(sd));
+            if (is_json) {
+                parse_and_splice(module, generate_struct_to_json(sd));
+                parse_and_splice(module, generate_struct_from_json(sd));
+            } else {
+                parse_and_splice(module, generate_struct_from_row(sd));
+                parse_and_splice(module, generate_struct_to_params(sd));
+            }
         }
     }
     for (int i = 0; i < module->enums.count; i++) {
         EnumDecl *ed = module->enums.items[i];
         for (int d = 0; d < ed->derive_count; d++) {
+            if (strcmp(ed->derives[d], "Row") == 0) {
+                ziman_error("syntax", ed->line, ed->col, "derive(Row) does not support an enum ('%s') -- a SQL row is a struct", ed->name);
+            }
             if (strcmp(ed->derives[d], "Json") != 0) {
                 ziman_error("syntax", ed->line, ed->col, "unknown derive target '%s' on enum '%s'", ed->derives[d], ed->name);
             }

@@ -1534,6 +1534,67 @@ fn main() {
   `_from_string`) — exactly as hand-written code doing the same job
   would need to. Nothing is auto-imported.
 
+## Databases
+
+Two core modules: `sql` (the shared vocabulary -- `SqlValue`, `Row`,
+`DbError`, and the `sql_as_*` readers) and `db` (the driver: connections,
+`execute`, `query`, transactions). SQLite (`sqlite::memory:` or
+`sqlite:<path>`) is the first backend; the API is shaped so a Postgres
+driver over the future `net` module slots in behind the same calls.
+
+```
+use db
+use sql.SqlValue
+use sql.row_get
+use sql.sql_as_text
+
+fn main() {
+    val conn = unwrap(db.open("sqlite::memory:"))
+    unwrap(db.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)", []))
+    unwrap(db.execute(conn, "INSERT INTO t (id, name) VALUES ($1, $2)", [SqlValue.Int(1), SqlValue.Text("Ada")]))
+    val rows = unwrap(db.query(conn, "SELECT name FROM t WHERE id = $1", [SqlValue.Int(1)]))
+    print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))   // Ada
+}
+```
+
+- **Bound parameters only.** SQL text carries `$1, $2, ...` placeholders
+  (Postgres-style; the SQLite driver rewrites them to its own `?N`,
+  leaving string literals alone) and values go in the `[SqlValue]`
+  argument -- nothing is ever spliced into the SQL string.
+- **`SqlValue`** is `Null | Int(int) | Float(float) | Text(string) |
+  Bool(bool) | Bytes([byte])`. Nothing dialect-specific crosses the
+  driver: `Uuid`, `LocalDate`, `Instant`, `decimal` and `bigint` all
+  travel as `Text` and are converted by the mapping layer. A `bool` column
+  reads back as an integer under SQLite; `sql_as_bool` accepts either.
+- **`DbError`** is `NotFound | Constraint | Connection | Sql`.
+  `Constraint` is a unique/foreign-key/not-null/check violation (SQLite
+  connections turn foreign keys on, as Postgres always has them).
+  `NotFound` is never raised by the driver -- a repository whose lookup
+  came back empty returns it, so one error type covers the whole
+  data-access layer. `db_error_message(e)` renders any of them.
+- **`db.query`** returns `[Row]`; `db.query_one` returns `Option<Row>`;
+  `db.execute` returns the row count of the last statement, and takes a
+  `;`-separated script when there are no parameters (for DDL).
+- **Transactions** are plain `db.begin`/`db.commit`/`db.rollback` on the
+  connection. Every call takes the connection's own lock, so sharing one
+  `Connection` across threads is safe *statement by statement*, but a
+  transaction is not safe to share -- another thread's statements can
+  interleave inside it. A `?` that returns early from inside a
+  transaction leaves it open (no destructors, no closures, so no
+  `with_transaction(fn)`). Accepted for now; see docs/DESIGN.md.
+- **`#[derive(Row)]`** on a struct generates `<name>_from_row(row: Row)
+  -> Result<Name, DbError>` and `<name>_to_params(v: Name) ->
+  [SqlValue]` (field declaration order, the order a hand-written
+  `INSERT ... VALUES ($1, $2, ...)` lists its columns in). Column names
+  are the field names as written (already `snake_case`, no transform).
+  `int`/`float`/`bool`/`string` map directly; a struct/enum field
+  dispatches to `<name>_to_sql`/`<name>_from_sql` (provided for `Uuid` and
+  every `time` type); `Option<U>` is NULL-or-value. An enum, a generic
+  struct, an array field, or `bigint`/`decimal`/`byte` is a compile-time
+  error. The consuming module must `use` what the generated code calls
+  (`sql.SqlValue`, `sql.DbError`, `sql.Row`, `sql.row_get`, the
+  `sql_as_*` readers, and each domain type's `_to_sql`/`_from_sql`).
+
 ## Number formatting and parsing
 
 The `number` core module (`use number.Name`) is shared formatting and

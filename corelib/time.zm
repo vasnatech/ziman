@@ -59,6 +59,10 @@
 
 use clock.now_raw
 use json.Json
+use sql.SqlValue
+use sql.DbError
+use sql.sql_as_text
+use sql.sql_lift
 
 fn is_leap_year(year: int) -> bool {
     if year % 400 == 0 {
@@ -1138,4 +1142,73 @@ pub fn instant_from_json(j: Json) -> Result<Instant, string> {
         return err("expected a JSON string for Instant")
     }
     return instant_from_string(Json.unwrap_JString(j))
+}
+
+// SQL mapping, for #[derive(Row)] (see src/derive.c): every type here
+// is a TEXT column in its own ISO _to_string form, the same way it
+// already travels in JSON. (A native database timestamp type would be
+// nicer to query against, but SQLite has none, and the two dialects
+// disagree on the rest -- text is the one representation both handle.)
+
+pub fn local_date_to_sql(v: LocalDate) -> SqlValue {
+    return SqlValue.Text(localdate_to_string(v))
+}
+
+pub fn local_date_from_sql(v: SqlValue) -> Result<LocalDate, DbError> {
+    val text = sql_as_text(v)?
+    return sql_lift<LocalDate>(localdate_from_string(text), "LocalDate")
+}
+
+pub fn local_time_to_sql(v: LocalTime) -> SqlValue {
+    return SqlValue.Text(localtime_to_string(v))
+}
+
+pub fn local_time_from_sql(v: SqlValue) -> Result<LocalTime, DbError> {
+    val text = sql_as_text(v)?
+    return sql_lift<LocalTime>(localtime_from_string(text), "LocalTime")
+}
+
+pub fn duration_to_sql(v: Duration) -> SqlValue {
+    return SqlValue.Text(duration_to_string(v))
+}
+
+pub fn duration_from_sql(v: SqlValue) -> Result<Duration, DbError> {
+    val text = sql_as_text(v)?
+    return sql_lift<Duration>(duration_from_string(text), "Duration")
+}
+
+pub fn local_date_time_to_sql(v: LocalDateTime) -> SqlValue {
+    return SqlValue.Text(localdatetime_to_string(v))
+}
+
+pub fn local_date_time_from_sql(v: SqlValue) -> Result<LocalDateTime, DbError> {
+    val text = sql_as_text(v)?
+    return sql_lift<LocalDateTime>(localdatetime_from_string(text), "LocalDateTime")
+}
+
+pub fn zone_offset_to_sql(v: ZoneOffset) -> SqlValue {
+    return SqlValue.Text(zoneoffset_to_string(v))
+}
+
+pub fn zone_offset_from_sql(v: SqlValue) -> Result<ZoneOffset, DbError> {
+    val text = sql_as_text(v)?
+    return sql_lift<ZoneOffset>(zoneoffset_from_string(text), "ZoneOffset")
+}
+
+pub fn zone_id_to_sql(v: ZoneId) -> SqlValue {
+    return SqlValue.Text(zoneid_to_string(v))
+}
+
+pub fn zone_id_from_sql(v: SqlValue) -> Result<ZoneId, DbError> {
+    val text = sql_as_text(v)?
+    return sql_lift<ZoneId>(zoneid_from_string(text), "ZoneId")
+}
+
+pub fn instant_to_sql(v: Instant) -> SqlValue {
+    return SqlValue.Text(instant_to_string(v))
+}
+
+pub fn instant_from_sql(v: SqlValue) -> Result<Instant, DbError> {
+    val text = sql_as_text(v)?
+    return sql_lift<Instant>(instant_from_string(text), "Instant")
 }

@@ -437,6 +437,17 @@ static Expr *make_default_ref_expr(Param *param, int line, int col) {
 static int check_value_against_param_type(Module *module, Env *env, Expr **arg_slot, Type param_type, Type *out_arg_type) {
     Expr *arg = *arg_slot;
     Type arg_type;
+    /* An empty array literal (`[]`) has no elements to infer a type
+     * from, but the parameter it's passed to says exactly what it must
+     * be -- the same "expected type from context" trick a `val`
+     * annotation, struct field, or `return` already gets (see
+     * check_expr_expecting). Without this, a call like
+     * `execute(conn, sql, [])` needed a separately annotated `val` just
+     * to spell "no parameters". */
+    if (arg->kind == EXPR_ARRAY_LIT && arg->as.array_lit.elements.count == 0 && param_type.kind == TY_ARRAY) {
+        arg->resolved_type = param_type;
+        return 1;
+    }
     /* A fresh (never-checked) Expr's resolved_type is always TY_VOID
      * (see expr_new) until check_expr fills it in -- the one exception
      * is a synthetic node canonicalize_named_args built for an omitted

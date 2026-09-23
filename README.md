@@ -8,7 +8,7 @@ concrete decisions they led to, [docs/SYNTAX.md](docs/SYNTAX.md) for
 the full v0 grammar and semantic rules, and
 [docs/CORELIB.md](docs/CORELIB.md) for a generated signature-only
 reference of every bundled core module (`collections`, `io`, `random`,
-`uuid`, `clock`, `time`, `json`, `number`) — every `pub struct`/`pub fn` in one
+`uuid`, `clock`, `time`, `json`, `number`, `sql`, `db`) — every `pub struct`/`pub fn` in one
 place, kept in sync with the source by `make corelib-reference` rather
 than hand-copied.
 
@@ -87,8 +87,8 @@ outright, not moved, since nothing ever actually used it beyond being
 the first generic struct ever written; `struct Box<T> { value: T }`
 above is illustrative syntax anyone can still write, just not a
 `collections` export anymore.)
-It's also one of eight *bundled core modules* (alongside `io`, mentioned
-above, plus `random`/`uuid`/`clock`/`time`/`json`/`number` below): each one's source is
+It's also one of ten *bundled core modules* (alongside `io`, mentioned
+above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
 `use io` work from any project with no local copy needed — a
 project-relative file of the same name still wins if one exists, but
@@ -153,7 +153,14 @@ externally-tagged shape for enums (`{"type": "<Variant>", "value":
 ...}`) — the first consumer of a general, reusable `#[...]` attribute
 mechanism, built by generating the two functions as ordinary Ziman
 source text and feeding it back through the same lexer/parser, rather
-than hand-constructing AST nodes. `number` is shared formatting/parsing across all five numeric
+than hand-constructing AST nodes. `sql` and `db` are a JDBC-shaped database layer: `db.open("sqlite::memory:")`
+returns a `Connection`, `db.execute`/`db.query` take SQL text with `$1, $2`
+bound parameters (never spliced in) as `[SqlValue]`, and rows come back as
+`sql.Row`; `#[derive(Row)]` generates the row-to-struct mapping, and
+`Uuid`/`time` types map through `Text` columns. SQLite (system
+`libsqlite3`, linked with `-lsqlite3`) is the first backend, chosen by URL
+scheme, so a Postgres driver over the future `net` module can sit behind
+the same API. `number` is shared formatting/parsing across all five numeric
 types (`int`, `float`, `bigint`, `decimal`, `byte`), also pure Ziman:
 rather than five near-duplicate implementations (Ziman has no
 argument-based overloading, so a single `format(x: T, ...)` across

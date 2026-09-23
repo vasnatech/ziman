@@ -10,7 +10,7 @@ BIN := ziman
 all: $(BIN)
 
 $(BIN): $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ -lm -pthread
+	$(CC) $(CFLAGS) -o $@ $^ -lm -lsqlite3 -pthread
 
 # Bundled core modules (see src/corelib.c): each corelib/<name>.zm file
 # is embedded as a C string constant, generated fresh from its .zm
@@ -28,7 +28,7 @@ $(BIN): $(OBJ)
 # header directly, and it's merged bare into every program by
 # loader.c's load_module_graph (see corelib/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
-CORELIB_MODULES := collections io random uuid clock time json number prelude
+CORELIB_MODULES := collections io random uuid clock time json number sql db prelude
 CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 
 $(OBJ): $(CORELIB_HEADERS)

@@ -1,0 +1,9 @@
+use db
+use sql.db_error_message
+
+fn main() {
+    val r = db.open("mysql://nope")
+    print(is_ok(r))
+    print(db_error_message(unwrap_err(r)))
+    unwrap(r)
+}

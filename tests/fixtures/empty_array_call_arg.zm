@@ -1,0 +1,10 @@
+// An empty array literal passed straight to a call takes its type from
+// the parameter -- no separately annotated `val` needed.
+fn count(items: [int]) -> int {
+    return len(items)
+}
+
+fn main() {
+    print(count([]))
+    print(count([1, 2]))
+}

@@ -1,0 +1,139 @@
+// sql.zm -- the value/row/error vocabulary shared by the `db` driver
+// module and by anything that maps its own types to and from SQL (uuid,
+// time, and `#[derive(Row)]`-generated code). Pure Ziman, no natives.
+// Split out of `db` so a type like Uuid can provide its own
+// uuid_to_sql/uuid_from_sql without dragging in a whole database driver.
+//
+// Only primitives cross the driver boundary: NULL, integer, float, text,
+// bool, and bytes. Uuid, LocalDate, Instant, decimal and bigint all
+// travel as `Text` and are converted by the mapping layer -- that
+// sidesteps every dialect difference in how SQLite and Postgres type
+// those (SQLite has no UUID or timestamp type at all).
+
+pub enum SqlValue {
+    Null
+    Int(int)
+    Float(float)
+    Text(string)
+    Bool(bool)
+    Bytes([byte])
+}
+
+// What a database call can fail with. `NotFound` isn't something a
+// driver raises -- it's for a repository whose lookup came back empty,
+// kept here so one error type covers the whole data-access layer.
+// `Constraint` is a unique/foreign-key/not-null/check violation (the
+// caller did something the schema forbids); `Connection` is failing to
+// reach or open the database at all; `Sql` is everything else (bad
+// syntax, wrong parameter count, a value of the wrong SQL type).
+pub enum DbError {
+    NotFound(string)
+    Constraint(string)
+    Connection(string)
+    Sql(string)
+}
+
+// One result row: `values[i]` belongs to column `columns[i]`.
+pub struct Row {
+    columns: [string]
+    values: [SqlValue]
+}
+
+pub fn db_error_message(e: DbError) -> string {
+    if DbError.is_NotFound(e) {
+        return DbError.unwrap_NotFound(e)
+    }
+    if DbError.is_Constraint(e) {
+        return concat("constraint violation: ", DbError.unwrap_Constraint(e))
+    }
+    if DbError.is_Connection(e) {
+        return concat("database connection error: ", DbError.unwrap_Connection(e))
+    }
+    return concat("database error: ", DbError.unwrap_Sql(e))
+}
+
+pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError> {
+    var i = 0
+    while i < len(row.columns) {
+        if row.columns[i] == column {
+            return row.values[i]
+        }
+        i = i + 1
+    }
+    return err(DbError.Sql(concat("no such column in result row: ", column)))
+}
+
+fn sql_type_name(v: SqlValue) -> string {
+    if SqlValue.is_Null(v) {
+        return "NULL"
+    }
+    if SqlValue.is_Int(v) {
+        return "INTEGER"
+    }
+    if SqlValue.is_Float(v) {
+        return "FLOAT"
+    }
+    if SqlValue.is_Text(v) {
+        return "TEXT"
+    }
+    if SqlValue.is_Bool(v) {
+        return "BOOL"
+    }
+    return "BYTES"
+}
+
+fn sql_mismatch(expected: string, v: SqlValue) -> DbError {
+    return DbError.Sql(format("expected {}, found {}", expected, sql_type_name(v)))
+}
+
+pub fn sql_as_text(v: SqlValue) -> Result<string, DbError> {
+    if !SqlValue.is_Text(v) {
+        return err(sql_mismatch("TEXT", v))
+    }
+    return SqlValue.unwrap_Text(v)
+}
+
+pub fn sql_as_int(v: SqlValue) -> Result<int, DbError> {
+    if !SqlValue.is_Int(v) {
+        return err(sql_mismatch("INTEGER", v))
+    }
+    return SqlValue.unwrap_Int(v)
+}
+
+// SQLite hands an integer column back for a value stored as 0/1 where
+// Postgres would say Bool -- accept an integer that's exactly 0 or 1 too.
+pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError> {
+    if SqlValue.is_Bool(v) {
+        return SqlValue.unwrap_Bool(v)
+    }
+    if SqlValue.is_Int(v) {
+        val n = SqlValue.unwrap_Int(v)
+        if n == 0 {
+            return false
+        }
+        if n == 1 {
+            return true
+        }
+    }
+    return err(sql_mismatch("BOOL", v))
+}
+
+// A whole-number column read as a float, or a float column as itself.
+pub fn sql_as_float(v: SqlValue) -> Result<float, DbError> {
+    if SqlValue.is_Float(v) {
+        return SqlValue.unwrap_Float(v)
+    }
+    if SqlValue.is_Int(v) {
+        return SqlValue.unwrap_Int(v) as float
+    }
+    return err(sql_mismatch("FLOAT", v))
+}
+
+// Lifts a domain type's own parse result (Result<T, string>, e.g.
+// uuid_from_string) into the DbError error type a from_sql needs.
+pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError> {
+    if !is_ok(r) {
+        return err(DbError.Sql(format("invalid {} value: {}", what, unwrap_err(r))))
+    }
+    return unwrap(r)
+}

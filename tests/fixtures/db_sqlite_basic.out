@@ -1,0 +1,21 @@
+0
+true
+true
+2
+Ada | 'x'
+0.1
+true
+true
+true
+constraint violation: UNIQUE constraint failed: t.id
+constraint violation: FOREIGN KEY constraint failed
+database error: near "SELEKT": syntax error
+database error: statement expects a different number of parameters than the 0 given
+0
+true
+true
+true
+2
+true
+2
+database connection error: unsupported database URL (only sqlite: is available so far): postgres://x

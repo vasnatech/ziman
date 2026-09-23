@@ -1,0 +1,13 @@
+use sql.SqlValue
+use sql.DbError
+use sql.Row
+use sql.row_get
+
+#[derive(Row)]
+pub struct Bad {
+    tags: [string]
+}
+
+fn main() {
+    print("unreachable")
+}

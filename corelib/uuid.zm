@@ -18,6 +18,10 @@ use random.random_bytes
 use number.byte_to_hex
 use number.byte_from_hex
 use json.Json
+use sql.SqlValue
+use sql.DbError
+use sql.sql_as_text
+use sql.sql_lift
 
 pub struct Uuid {
     bytes: [byte]
@@ -99,4 +103,16 @@ pub fn uuid_from_json(j: Json) -> Result<Uuid, string> {
         return err("expected a JSON string for Uuid")
     }
     return uuid_from_string(Json.unwrap_JString(j))
+}
+
+// SQL mapping, for #[derive(Row)] (see src/derive.c): a Uuid is a TEXT
+// column, in the canonical dashed form -- SQLite has no UUID type and
+// Postgres's `uuid` column reads and writes the same text.
+pub fn uuid_to_sql(u: Uuid) -> SqlValue {
+    return SqlValue.Text(uuid_to_string(u))
+}
+
+pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError> {
+    val text = sql_as_text(v)?
+    return sql_lift<Uuid>(uuid_from_string(text), "Uuid")
 }

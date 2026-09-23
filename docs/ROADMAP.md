@@ -992,6 +992,23 @@ a time mid-implementation:
   JSON key, or a future `#[derive(Validate)]`-style per-field
   constraint).
 
+- **Database access beyond SQLite.** `db`/`sql` and `#[derive(Row)]` exist
+  with SQLite as the one backend (docs/DESIGN.md's "`db`/`sql`" entry).
+  Still open: (1) a **`net` module** (sockets) and, on top of it, a
+  **Postgres driver written in Ziman** behind the same `db.open` --
+  the wire protocol (startup, the extended query protocol for bound
+  parameters, result decoding), SCRAM-SHA-256 authentication (needs a
+  `crypto` module: SHA-256, HMAC, PBKDF2; MD5 for older servers), and TLS
+  if a hosted database ever needs it; (2) **transactions**: no
+  `with_transaction(fn)` without closures, and a `?` returning early
+  inside one leaves it open -- needs a language-level answer once the
+  pain is real; (3) a **connection pool**, since one connection
+  serializes every call; (4) **schema management/migrations**, currently
+  a plain `create_schema` script per repository; (5) per-field
+  `#[derive(Row)]` annotations (column-name override, primary key,
+  generated columns) -- the same deferred per-field-annotation gap
+  `#[derive(Json)]` already documents.
+
 ## Explicitly out of scope for now (see DESIGN.md "Non-goals")
 
 - Tree-native/structural source of truth — Ziman's source of truth is
