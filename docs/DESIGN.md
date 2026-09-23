@@ -1947,6 +1947,23 @@ several languages rather than inheriting any one of them wholesale.
   `tests/fixtures/multifile_generic_call_qualified_type_arg` (the parser
   fix in isolation) and `multifile_derive_json_cross_module_field` (the
   original derive scenario that found it).
+  **Second follow-up: `json_to_json`/`json_from_json`, identity
+  wrappers letting a bare `Json`-typed field compose with derive at
+  all.** Motivated by `health-record-backend-ziman`'s
+  `ValidationErrorResponse`: a response envelope shared across several
+  resources, each with its own distinct `ValidationError` enum for the
+  `error` field -- a shape `#[derive(Json)]` can't unify across modules
+  (that needs a generic struct, and deriving a generic struct/enum is
+  explicitly unsupported). Declaring the field plain `Json` instead
+  sidesteps needing generics at all: each caller converts its own enum
+  to `Json` before constructing the shared struct (`<enum>_to_json`,
+  already generated for it) and decodes it back out with its own
+  `<enum>_from_json` after reading the shared struct. This only works
+  because tier 1 of the per-field priority order ("does the field's
+  type have its own `_to_json`/`_from_json`") doesn't care what the
+  type actually *is* -- `Json` satisfying it via a two-line identity
+  function is no different from `Uuid`/`LocalDate` satisfying it via a
+  real conversion. See `tests/fixtures/derive_json_bare_json_field`.
 
 ## Deliberately deferred (not v0)
 

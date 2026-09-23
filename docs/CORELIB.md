@@ -113,6 +113,10 @@ pub fn json_require_field(j: Json, key: string) -> Result<Json, string>
 
 pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
 
+pub fn json_to_json(j: Json) -> Json
+
+pub fn json_from_json(j: Json) -> Result<Json, string>
+
 ```
 
 ## `number`

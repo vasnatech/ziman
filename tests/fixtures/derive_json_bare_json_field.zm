@@ -1,0 +1,32 @@
+use json.Json
+use json.JField
+use json.json_to_string
+use json.json_require_field
+use json.json_to_json
+use json.json_from_json
+
+// A struct field declared plain `Json` composes with #[derive(Json)]
+// via the new json_to_json/json_from_json identity wrappers -- the
+// escape hatch for a shared envelope whose payload's *concrete* type
+// differs per caller (see health-record-backend-ziman's
+// ValidationErrorResponse, the real case that motivated this).
+#[derive(Json)]
+pub struct Envelope {
+    status: int
+    payload: Json
+}
+
+fn main() {
+    val e = Envelope { status: 200, payload: Json.JString("hello") }
+    val j = envelope_to_json(e)
+    print(json_to_string(j))
+
+    val back = unwrap(envelope_from_json(j))
+    print(back.status)
+    print(Json.unwrap_JString(back.payload))
+
+    // The payload can be any Json shape at all, including an object --
+    // it round-trips opaquely, exactly as written.
+    val e2 = Envelope { status: 400, payload: Json.JObject([JField { key: "type", value: Json.JString("Bad") }]) }
+    print(json_to_string(envelope_to_json(e2)))
+}

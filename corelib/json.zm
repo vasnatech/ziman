@@ -444,3 +444,24 @@ pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
     }
     return Json.unwrap_JString(v)
 }
+
+// Identity wrappers, named to match #[derive(Json)]'s own <type>_to_json/
+// <type>_from_json convention -- so a struct field declared plain `Json`
+// composes with derive like any other field type (tier 1 of its
+// priority order: does the field's type have its own _to_json/
+// _from_json), instead of derive having no way to handle a bare `Json`
+// field at all. The escape hatch this is for: a struct shared across
+// several callers where one field's *concrete* type genuinely differs
+// per caller (e.g. one response envelope shared by several resources,
+// each embedding its own distinct error enum) -- that field is declared
+// `Json` instead of the type that can't be unified, each caller
+// converts its own value to `Json` before constructing the struct, and
+// decodes it back with its own from_json after reading the shared
+// struct back out.
+pub fn json_to_json(j: Json) -> Json {
+    return j
+}
+
+pub fn json_from_json(j: Json) -> Result<Json, string> {
+    return j
+}
