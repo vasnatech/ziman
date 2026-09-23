@@ -67,6 +67,7 @@ use crypto.base64_decode
 use crypto.bytes_to_hex
 use random.random_bytes
 use number.byte_from_hex
+use dburl
 use sql.SqlValue
 use sql.DbError
 use sql.Row
@@ -176,109 +177,23 @@ fn parse_error(body: [byte]) -> DbError {
 
 // ------------------------------------------------------------ URL parsing
 
-fn percent_decode(s: string) -> Result<string, DbError> {
-    val out = ab_new<byte>()
-    var i = 0
-    while i < len(s) {
-        val c = char_at(s, i)
-        if c == "%" && i + 3 <= len(s) {
-            val b = byte_from_hex(substring(s, i + 1, i + 3))
-            if !is_ok(b) {
-                return err(conn_err(concat("bad %-escape in database URL: ", s)))
-            }
-            ab_append<byte>(out, unwrap(b))
-            i = i + 3
-        } else {
-            for b in string_to_bytes(c) {
-                ab_append<byte>(out, b)
-            }
-            i = i + 1
-        }
-    }
-    val text = bytes_to_string(ab_to_array<byte>(out))
-    if !is_ok(text) {
-        return err(conn_err("database URL decodes to text containing a NUL byte"))
-    }
-    return unwrap(text)
-}
-
-// postgres://user[:password]@host[:port]/database[?sslmode=...]
+// postgres://user[:password]@host[:port]/database[?sslmode=...&sslrootcert=...]
 fn parse_url(url: string) -> Result<PgUrl, DbError> {
-    var rest = ""
-    if starts_with(url, "postgres://") {
-        rest = substring(url, 11, len(url))
-    } else if starts_with(url, "postgresql://") {
-        rest = substring(url, 13, len(url))
-    } else {
-        return err(conn_err(concat("not a postgres URL: ", url)))
-    }
-
-    var path_and_query = ""
-    var authority = rest
-    val slash = split_once(rest, "/")
-    if Option.is_Some(slash) {
-        authority = Option.unwrap_Some(slash)[0]
-        path_and_query = Option.unwrap_Some(slash)[1]
-    }
-    var database = path_and_query
+    val u = dburl.parse(url, ["postgres://", "postgresql://"], 5432)?
     var sslmode = "disable"
     var sslrootcert = ""
-    val q = split_once(path_and_query, "?")
-    if Option.is_Some(q) {
-        database = Option.unwrap_Some(q)[0]
-        for pair in split(Option.unwrap_Some(q)[1], "&") {
-            if starts_with(pair, "sslmode=") {
-                sslmode = substring(pair, 8, len(pair))
-            } else if starts_with(pair, "sslrootcert=") {
-                val decoded = percent_decode(substring(pair, 12, len(pair)))?
-                sslrootcert = decoded
-            }
-        }
+    val mode = dburl.param(u, "sslmode")
+    if Option.is_Some(mode) {
+        sslmode = Option.unwrap_Some(mode)
+    }
+    val root = dburl.param(u, "sslrootcert")
+    if Option.is_Some(root) {
+        sslrootcert = Option.unwrap_Some(root)
     }
     if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
         return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ", sslmode)))
     }
-
-    // The last '@' separates userinfo from host, so a password may contain '@'.
-    val at = last_index_of(authority, "@")
-    var userinfo = ""
-    var hostport = authority
-    if at >= 0 {
-        userinfo = substring(authority, 0, at)
-        hostport = substring(authority, at + 1, len(authority))
-    }
-    var user = userinfo
-    var password = ""
-    val up = split_once(userinfo, ":")
-    if Option.is_Some(up) {
-        user = Option.unwrap_Some(up)[0]
-        password = Option.unwrap_Some(up)[1]
-    }
-    var host = hostport
-    var port = 5432
-    if contains(hostport, ":") {
-        val hp = split(hostport, ":")
-        host = hp[0]
-        val parsed_port = parse_int(hp[1])
-        if !is_ok(parsed_port) {
-            return err(conn_err(concat("bad port in database URL: ", hp[1])))
-        }
-        port = unwrap(parsed_port)
-    }
-    val user_decoded = percent_decode(user)?
-    val password_decoded = percent_decode(password)?
-    val database_decoded = percent_decode(database)?
-    if user_decoded == "" {
-        return err(conn_err("database URL has no user name"))
-    }
-    if host == "" {
-        return err(conn_err("database URL has no host"))
-    }
-    var db_name = database_decoded
-    if db_name == "" {
-        db_name = user_decoded
-    }
-    return PgUrl { user: user_decoded, password: password_decoded, host: host, port: port, database: db_name, sslmode: sslmode, sslrootcert: sslrootcert }
+    return PgUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database, sslmode: sslmode, sslrootcert: sslrootcert }
 }
 
 // ---------------------------------------------------------------- SCRAM
