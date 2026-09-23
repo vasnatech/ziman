@@ -374,4 +374,6 @@ pub fn uuid_new() -> Uuid
 
 pub fn uuid_to_string(u: Uuid) -> string
 
+pub fn uuid_from_string(s: string) -> Result<Uuid, string>
+
 ```

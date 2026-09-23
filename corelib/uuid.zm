@@ -16,6 +16,7 @@
 
 use random.random_bytes
 use number.byte_to_hex
+use number.byte_from_hex
 
 pub struct Uuid {
     bytes: [byte]
@@ -46,4 +47,35 @@ pub fn uuid_to_string(u: Uuid) -> string {
         }
     }
     return sb_to_string(sb)
+}
+
+// The inverse of uuid_to_string -- needed the moment any real caller
+// gets a UUID back as a string (a JSON response field, a URL path
+// segment) and has to turn it back into a usable Uuid for a follow-up
+// call, exactly the "parse an id out of a response, then look it up"
+// round trip health-record-backend-ziman's own response side needed.
+// Requires the canonical, lowercase, dashed form uuid_to_string itself
+// always produces (8-4-4-4-12 hex digits) -- not a general parser for
+// every UUID variant's textual quirks (braces, uppercase, no dashes),
+// none of which anything in this codebase ever produces or needs to
+// accept.
+pub fn uuid_from_string(s: string) -> Result<Uuid, string> {
+    if len(s) != 36 {
+        return err(format("invalid UUID '{}': expected 36 characters, found {}", s, len(s)))
+    }
+    if substring(s, 8, 9) != "-" || substring(s, 13, 14) != "-" || substring(s, 18, 19) != "-" || substring(s, 23, 24) != "-" {
+        return err(format("invalid UUID '{}': expected '-' at positions 8, 13, 18, 23", s))
+    }
+    val bytes = ab_new<byte>()
+    var i = 0
+    while i < 36 {
+        if i == 8 || i == 13 || i == 18 || i == 23 {
+            i = i + 1
+        } else {
+            val b = byte_from_hex(substring(s, i, i + 2))?
+            ab_append<byte>(bytes, b)
+            i = i + 2
+        }
+    }
+    return Uuid { bytes: ab_to_array<byte>(bytes) }
 }

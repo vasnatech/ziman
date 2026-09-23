@@ -1,0 +1,7 @@
+true
+true
+false
+invalid UUID 'too-short': expected 36 characters, found 9
+false
+invalid hex digit 'g'
+false

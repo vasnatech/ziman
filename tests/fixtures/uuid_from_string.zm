@@ -1,0 +1,23 @@
+use uuid.Uuid
+use uuid.uuid_new
+use uuid.uuid_to_string
+use uuid.uuid_from_string
+
+fn main() {
+    val u = uuid_new()
+    val s = uuid_to_string(u)
+    print(unwrap(uuid_from_string(s)) == u)
+
+    // uuid_to_string's own output is lowercase, but parsing accepts
+    // uppercase too.
+    print(unwrap(uuid_from_string(to_upper(s))) == u)
+
+    print(is_ok(uuid_from_string("too-short")))
+    print(unwrap_err(uuid_from_string("too-short")))
+
+    print(is_ok(uuid_from_string("gggggggg-gggg-gggg-gggg-gggggggggggg")))
+    print(unwrap_err(uuid_from_string("gggggggg-gggg-gggg-gggg-gggggggggggg")))
+
+    // Right length, wrong dash positions.
+    print(is_ok(uuid_from_string("aaaaaaaaXbbbbXccccXddddXeeeeeeeeeeee")))
+}

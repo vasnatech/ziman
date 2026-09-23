@@ -96,7 +96,10 @@ this is the fallback that means one usually doesn't have to. `random`
 is one native function, `random_bytes(n: int) -> [byte]`, reading real
 OS entropy (`/dev/urandom`). `uuid` is pure Ziman on top of it: a
 `Uuid` struct, `uuid_new()` for an RFC 4122 v4 UUID, `uuid_to_string`
-for the canonical dashed-hex form, version/variant bits set with plain
+for the canonical dashed-hex form and `uuid_from_string` for its
+inverse (accepting either case, the form any real caller getting a
+UUID back as a string — a JSON field, a URL path segment — actually
+has to parse), version/variant bits set with plain
 integer arithmetic rather than bitwise operators (Ziman has none).
 `Uuid` satisfies `Eq` but not `Hash` (no derived hashing for a struct),
 so it's usable as a struct field compared with `==`, not yet as a
