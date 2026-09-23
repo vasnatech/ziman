@@ -598,6 +598,31 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else {
                 FunctionDecl *fn = find_function(module, e->as.call.callee);
                 result = call_function(module, fn, args, argc, e->line, e->col);
+                /* A generic native fn's own C implementation has no way
+                 * to know which concrete type(s) a given call
+                 * instantiated it with -- NativeFn's signature carries
+                 * only the already-evaluated argument Values, never the
+                 * call's type arguments -- so a native function whose
+                 * *return* type mentions one of its own type parameters
+                 * (ArrayBuilder<T>'s ab_new<T>() -> ArrayBuilder<T>, for
+                 * instance) can only ever build a Value tagged with some
+                 * placeholder type for the part that depends on T. Fixed
+                 * up here instead, the same way channel_new()'s own
+                 * (non-generic, but call-site-dependent) result already
+                 * gets its type from e->resolved_type rather than
+                 * whatever a builtin's own C code could know in
+                 * isolation -- typecheck already computed the fully
+                 * substituted, concrete return type for this exact call
+                 * (e->resolved_type), so simply trusting that over
+                 * whatever the native function happened to construct is
+                 * both correct and cheap. Scoped to generic natives only
+                 * -- e->resolved_type and a non-generic native's own
+                 * hand-built .type already agree by construction, so
+                 * this is a genuine no-op for the other ~20 native
+                 * functions that existed before this. */
+                if (fn->is_native && fn->type_params.count > 0) {
+                    result.type = e->resolved_type;
+                }
             }
             free(args);
             return result;

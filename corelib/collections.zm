@@ -96,24 +96,30 @@ pub fn hashmap_has<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> bool {
 // which changes across a resize. Together with hashmap_values, the way
 // to enumerate a HashMap from outside this module without reaching
 // into `buckets` directly.
+//
+// Built on ArrayBuilder<T> rather than `push` in a loop -- `push`
+// copies the *entire* accumulated array on every call, since Ziman's
+// arrays are immutable value types, so a map with many entries used to
+// mean one leaked, ever-growing array per iteration (see
+// docs/DESIGN.md's "ArrayBuilder" entry).
 pub fn hashmap_keys<K: Eq + Hash, V>(m: HashMap<K, V>) -> [K] {
-    var keys: [K] = []
+    val keys = ab_new<K>()
     for bucket in m.buckets {
         for entry in bucket {
-            keys = push(keys, entry.key)
+            ab_append<K>(keys, entry.key)
         }
     }
-    return keys
+    return ab_to_array<K>(keys)
 }
 
 pub fn hashmap_values<K: Eq + Hash, V>(m: HashMap<K, V>) -> [V] {
-    var values: [V] = []
+    val values = ab_new<V>()
     for bucket in m.buckets {
         for entry in bucket {
-            values = push(values, entry.value)
+            ab_append<V>(values, entry.value)
         }
     }
-    return values
+    return ab_to_array<V>(values)
 }
 
 // Rehashes every existing entry into a fresh, doubled bucket array --
@@ -206,15 +212,15 @@ pub fn hashset_contains<T: Eq + Hash>(s: HashSet<T>, item: T) -> bool {
 }
 
 // All items, in no particular (and no stable) order -- same caveat as
-// hashmap_keys/hashmap_values.
+// hashmap_keys/hashmap_values, built the same ArrayBuilder<T> way.
 pub fn hashset_items<T: Eq + Hash>(s: HashSet<T>) -> [T] {
-    var items: [T] = []
+    val items = ab_new<T>()
     for bucket in s.buckets {
         for x in bucket {
-            items = push(items, x)
+            ab_append<T>(items, x)
         }
     }
-    return items
+    return ab_to_array<T>(items)
 }
 
 // Same reasoning as hashmap_grow -- reuses hashset_add per re-inserted

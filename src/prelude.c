@@ -458,6 +458,129 @@ static Value native_sb_len(Value *args, int argc, int line, int col) {
     return value_int((int64_t)buf->length);
 }
 
+/* --- ArrayBuilder<T> -------------------------------------------------
+ * Identical shape to StringBuilder's own table/handle machinery above,
+ * just storing `Value` per slot instead of `char` -- since an ordinary
+ * Ziman ArrayObj is already exactly this (a generic, type-erased `Value
+ * *items` buffer), the native side needs no per-T dispatch at all: a
+ * `Value` copies by plain assignment regardless of what type it holds.
+ * The one thing a native function genuinely can't do on its own is
+ * stamp the *concrete* T onto a result's own `.type` (ArrayBuilder<T>
+ * carries no argument that would reveal it, and NativeFn's signature
+ * carries no type-argument information at all) -- every `.type` built
+ * below is a placeholder for exactly this reason, immediately
+ * overwritten with the call's own already-substituted e->resolved_type
+ * right after each of these returns (see eval_expr's EXPR_CALL case). */
+typedef struct {
+    Value *items;
+    size_t length;
+    size_t capacity;
+    double grow_factor;
+} ArrayBuilderBuf;
+
+static ArrayBuilderBuf **g_ab_table = NULL;
+static int g_ab_count = 0;
+static int g_ab_capacity = 0;
+static pthread_mutex_t g_ab_table_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int ab_table_register(ArrayBuilderBuf *buf) {
+    pthread_mutex_lock(&g_ab_table_mutex);
+    if (g_ab_count == g_ab_capacity) {
+        g_ab_capacity = g_ab_capacity == 0 ? 16 : g_ab_capacity * 2;
+        g_ab_table = realloc(g_ab_table, (size_t)g_ab_capacity * sizeof(ArrayBuilderBuf *));
+    }
+    int handle = g_ab_count++;
+    g_ab_table[handle] = buf;
+    pthread_mutex_unlock(&g_ab_table_mutex);
+    return handle;
+}
+
+static ArrayBuilderBuf *ab_table_get(int handle) {
+    pthread_mutex_lock(&g_ab_table_mutex);
+    ArrayBuilderBuf *buf = g_ab_table[handle];
+    pthread_mutex_unlock(&g_ab_table_mutex);
+    return buf;
+}
+
+static char *ARRAYBUILDER_FIELD_NAMES[] = {"handle"};
+
+static int ab_handle_of(Value ab) {
+    return (int)ab.as.st->fields[0].as.i;
+}
+
+static void ab_ensure_capacity(ArrayBuilderBuf *buf, size_t additional) {
+    size_t needed = buf->length + additional;
+    if (needed <= buf->capacity) {
+        return;
+    }
+    size_t new_capacity = buf->capacity > 0 ? buf->capacity : 1;
+    while (new_capacity < needed) {
+        new_capacity = (size_t)((double)new_capacity * buf->grow_factor) + 1;
+    }
+    buf->items = realloc(buf->items, new_capacity * sizeof(Value));
+    buf->capacity = new_capacity;
+}
+
+static Value native_ab_new(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    int64_t capacity = option_int_or(args[0], 20);
+    double grow_factor = option_float_or(args[1], 2.0);
+    if (capacity < 0) {
+        capacity = 0;
+    }
+    if (grow_factor <= 1.0) {
+        grow_factor = 2.0;
+    }
+
+    ArrayBuilderBuf *buf = malloc(sizeof(ArrayBuilderBuf));
+    buf->capacity = (size_t)capacity;
+    buf->length = 0;
+    buf->grow_factor = grow_factor;
+    buf->items = buf->capacity > 0 ? malloc(buf->capacity * sizeof(Value)) : NULL;
+
+    int handle = ab_table_register(buf);
+
+    Value *fields = malloc(sizeof(Value));
+    fields[0] = value_int(handle);
+    return value_struct(type_struct("ArrayBuilder"), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
+}
+
+static Value native_ab_append(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    ArrayObj *pieces = args[1].as.arr;
+    ab_ensure_capacity(buf, (size_t)pieces->count);
+    for (int i = 0; i < pieces->count; i++) {
+        buf->items[buf->length] = pieces->items[i];
+        buf->length++;
+    }
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
+static Value native_ab_to_array(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    Value *items = buf->length > 0 ? malloc(buf->length * sizeof(Value)) : NULL;
+    for (size_t i = 0; i < buf->length; i++) {
+        items[i] = buf->items[i];
+    }
+    return value_array(type_scalar(TY_VOID), array_obj_new(items, (int)buf->length));
+}
+
+static Value native_ab_len(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    return value_int((int64_t)buf->length);
+}
+
 void prelude_register(void) {
     native_register("parse_int", native_parse_int);
     native_register("parse_float", native_parse_float);
@@ -478,4 +601,8 @@ void prelude_register(void) {
     native_register("sb_append", native_sb_append);
     native_register("sb_to_string", native_sb_to_string);
     native_register("sb_len", native_sb_len);
+    native_register("ab_new", native_ab_new);
+    native_register("ab_append", native_ab_append);
+    native_register("ab_to_array", native_ab_to_array);
+    native_register("ab_len", native_ab_len);
 }

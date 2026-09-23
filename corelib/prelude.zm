@@ -117,3 +117,32 @@ native fn sb_to_string(sb: StringBuilder) -> string
 // The number of bytes appended so far (always >= 0), without needing to
 // materialize the string itself via sb_to_string first.
 native fn sb_len(sb: StringBuilder) -> int
+
+// StringBuilder's generic counterpart -- the same fix for `push` in a
+// loop (hashmap_keys/values, hashset_items still do exactly this) that
+// StringBuilder is for `concat` in a loop: `push` copies the *entire*
+// existing array on every call, since Ziman's arrays are immutable
+// value types, so an accumulate-via-push loop is the same O(N^2)-
+// allocation, O(N)-leaked-garbage pattern StringBuilder already fixed
+// for strings. Needed `native fn` to accept type parameters first (see
+// docs/DESIGN.md's "Generic native fns" entry) -- ArrayBuilder<T> is
+// its first real use. Same "plain struct wrapping an opaque handle, not
+// a new TypeKind" shape as StringBuilder, for the same reason: no
+// thread-safe queue semantics needed, just in-place mutation, so
+// Channel<T>'s own heavier integration buys nothing here either.
+struct ArrayBuilder<T> {
+    handle: int
+}
+
+// Same capacity/grow_factor defaults, same reasoning, as sb_new.
+native fn ab_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> ArrayBuilder<T>
+// Appends however many pieces the call site writes out individually or
+// hands over as one already-built array -- same variadic shape as
+// sb_append/join, same void return (ab mutates in place) as sb_append.
+native fn ab_append<T>(ab: ArrayBuilder<T>, pieces: T...)
+// Snapshots whatever has been appended so far into an ordinary,
+// immutable Ziman array -- safe to call more than once, and to keep
+// appending afterward, same as sb_to_string.
+native fn ab_to_array<T>(ab: ArrayBuilder<T>) -> [T]
+// The number of elements appended so far (always >= 0).
+native fn ab_len<T>(ab: ArrayBuilder<T>) -> int

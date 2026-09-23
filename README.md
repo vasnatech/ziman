@@ -213,7 +213,17 @@ into a native-side table of real, growable buffers (`sb_new`/
 everything accumulated so far the way `concat` or `push` in a loop
 does. `sb_new(capacity: Option<int> = 20, grow_factor: Option<float> =
 2.0)` leans on `Option<T>` parameter omission for its own ergonomics:
-the common case, `sb_new()`, tunes neither. Unlike every other bundled
+the common case, `sb_new()`, tunes neither. `ArrayBuilder<T>` is the
+same fix for `push` in a loop (`hashmap_keys`/`hashmap_values`/
+`hashset_items` all used to be exactly this, and now aren't) — `push`
+copies the whole existing array on every call for the same reason
+`concat` copies the whole string, so it's the identical
+`ab_new`/`ab_append`/`ab_to_array`/`ab_len` shape, generic this time
+(`struct ArrayBuilder<T> { handle: int }`). Needed one small, genuinely
+missing capability first: `native fn` couldn't take type parameters at
+all before this (a parser gap, not a deliberate restriction — the type
+checker's own generic-instantiation logic never special-cased native
+functions once the syntax was accepted). Unlike every other bundled
 module (`collections`, `io`, ...), `corelib/prelude.zm` is never
 reachable through `use` at all — everything it declares is already
 unqualified everywhere, so

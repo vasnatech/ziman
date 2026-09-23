@@ -1470,6 +1470,69 @@ several languages rather than inheriting any one of them wholesale.
   instantiated it with to do its job, for the same reason ordinary
   generic structs/enums need no monomorphization: `Value` is already
   runtime-type-erased regardless of Ziman's static types.
+- **`ArrayBuilder<T>` -- StringBuilder's generic counterpart, fixing the
+  identical problem one level up.** `push` copies the *entire* existing
+  array on every call, for exactly the reason `concat` copies the
+  entire existing string: Ziman's arrays are immutable value types.
+  `hashmap_keys`/`hashmap_values`/`hashset_items` (`corelib/
+  collections.zm`) were still doing this -- the array-shaped half of the
+  original corelib memory-leak scan that motivated `join`/`StringBuilder`
+  in the first place, never itself fixed. Same shape as `StringBuilder`
+  throughout: `struct ArrayBuilder<T> { handle: int }`, not a new
+  `TypeKind` (still no thread-safe queue semantics needed, `Channel<T>`'s
+  own reason for existing as one); `ab_new<T>(capacity: Option<int> =
+  20, grow_factor: Option<float> = 2.0)`, `ab_append<T>(ab:
+  ArrayBuilder<T>, pieces: T...)` (void, mutates in place),
+  `ab_to_array<T>(ab: ArrayBuilder<T>) -> [T]` (a repeatable snapshot),
+  `ab_len<T>(ab: ArrayBuilder<T>) -> int`.
+  Unlike `StringBuilder`, this genuinely needed `T` as a real type
+  parameter -- a plain buffer only ever holds bytes destined to become
+  one `string`, but a builder for arbitrary array contents has to be
+  generic over what it holds, both so `ab_append`'s own element type is
+  checked at all and so two different `ArrayBuilder<K>`/`ArrayBuilder<V>`
+  values (as `hashmap_keys`/`hashmap_values` both need, from the same
+  `HashMap<K, V>`) don't collide as the same type. That's what the
+  "Generic native fns" entry above exists to unblock: this is its first
+  real use.
+  **The native buffer itself needed no per-`T` dispatch at all** --
+  `src/prelude.c`'s `ArrayBuilderBuf` is just `Value *items` (identical
+  table/handle machinery to `StringBuilderBuf`, just `Value`-sized slots
+  instead of byte-sized ones), since an ordinary Ziman `ArrayObj` is
+  already exactly this: a generic, type-erased buffer of `Value`s. A
+  `Value` copies by plain assignment regardless of what type it holds,
+  so `native_ab_append`/`native_ab_to_array` never need to know `T`'s
+  identity to do their own job correctly.
+  **One thing they *can't* get right without help: the concrete `T` on
+  their own *result*'s `.type` field.** `ab_new<T>() -> ArrayBuilder<T>`
+  and `ab_to_array<T>(ab) -> [T]` both return a value whose static type
+  depends on `T`, but `NativeFn`'s signature (`Value *args, int argc,
+  int line, int col`) carries no type-argument information at all --
+  there's no argument of type `T` a native `ab_new<T>()` could even
+  read `T` back off of. Solved without touching that signature (and
+  without touching any of the ~20 existing, non-generic native
+  functions that would otherwise all need an unused parameter added):
+  `eval_expr`'s `EXPR_CALL` case now overwrites a generic native call's
+  result `.type` with `e->resolved_type` immediately after the native
+  function returns, the same way `channel_new()`'s own result already
+  gets its type from `e->resolved_type` rather than anything a builtin
+  could know in isolation -- typecheck already computed the fully
+  substituted, concrete return type for this exact call, so trusting
+  that over whatever placeholder the native function built internally
+  is both correct and free. Scoped to `fn->is_native && fn->type_params.count
+  > 0` specifically, so it's a genuine no-op for every native function
+  that existed before this (a non-generic native's own hand-built
+  `.type` and `e->resolved_type` already agree by construction).
+  Verified this actually mattered, not just in theory: `for x in arr`
+  (`STMT_FOR` in `interpreter.c`) reads `iterable.type.elem` at runtime
+  to bind the loop variable's type, so an `ArrayBuilder<int>`'s
+  `ab_to_array<int>(ab)` result needed a *correctly* `int`-tagged
+  `.type.elem`, not just a plausible-looking placeholder, for iterating
+  the resulting array to work at all -- confirmed directly by summing
+  over one before trusting the fix.
+  `hashmap_keys`/`hashmap_values`/`hashset_items` were rewritten on top
+  of this the same day, closing the loop on the other half of the
+  original memory-leak scan (`uuid_to_string`, the string half, was
+  already closed by `StringBuilder` itself).
 
 ## Deliberately deferred (not v0)
 

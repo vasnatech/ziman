@@ -1,0 +1,4 @@
+fn main() {
+    val ab = ab_new<int>()
+    ab_append<int>(ab, "wrong")
+}

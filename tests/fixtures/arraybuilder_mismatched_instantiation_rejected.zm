@@ -1,0 +1,5 @@
+fn main() {
+    val ab = ab_new<int>()
+    val arr = ab_to_array<string>(ab)
+    print(arr)
+}
