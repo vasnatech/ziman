@@ -1,0 +1,20 @@
+fn describe(nickname: Option<string>, priority: Option<int> = 3) -> string {
+    var nick = "none"
+    if Option.is_Some(nickname) {
+        nick = Option.unwrap_Some(nickname)
+    }
+    return concat(nick, concat(" priority=", str(Option.unwrap_Some(priority))))
+}
+
+fn no_params() -> string {
+    return "no params"
+}
+
+fn main() {
+    // Every parameter is Option<T> -- calling with completely empty
+    // parens omits both, falling back to None and the declared default.
+    print(describe())
+
+    // A zero-parameter function called with empty parens is unaffected.
+    print(no_params())
+}

@@ -772,13 +772,23 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
      * this case) enum list, never the prelude's, since the prelude isn't
      * a dependency reached through any `use`. Checked last, after a
      * module's own enums, so a module could in principle still shadow
-     * the name with its own same-named enum (not that any should). */
-    for (int i = 0; i < ctx->ldr->prelude_mod->enums.count; i++) {
-        if (strcmp(t->struct_name, ctx->ldr->prelude_mod->enums.items[i]->name) == 0) {
-            t->enum_name = t->struct_name;
-            t->struct_name = NULL;
-            t->kind = TY_ENUM;
-            return;
+     * the name with its own same-named enum (not that any should).
+     * `ldr->prelude_mod` is only NULL while the prelude module is
+     * resolving *its own* cross-references (load_module_graph calls
+     * resolve_cross_refs on it before assigning this field, since it's
+     * what that very call is in the middle of producing) -- correctly a
+     * no-op then, since a bare struct reference inside the prelude that
+     * wasn't already found among the prelude's own enums above (`ctx->mod`
+     * there being the prelude module itself, in that case) genuinely is a
+     * struct (`StringBuilder`), not a second, redundant place to look. */
+    if (ctx->ldr->prelude_mod != NULL) {
+        for (int i = 0; i < ctx->ldr->prelude_mod->enums.count; i++) {
+            if (strcmp(t->struct_name, ctx->ldr->prelude_mod->enums.items[i]->name) == 0) {
+                t->enum_name = t->struct_name;
+                t->struct_name = NULL;
+                t->kind = TY_ENUM;
+                return;
+            }
         }
     }
 }

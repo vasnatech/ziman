@@ -463,10 +463,25 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * synthetic `None` (make_none_expr) when it didn't, so this function's
  * one remaining job -- filling `e->as.call.args` to exactly
  * `fn->params.count`, in order -- always finishes the same way whether
- * or not any parameter was actually omitted. */
+ * or not any parameter was actually omitted.
+ *
+ * `f()` -- literally empty parentheses -- is also routed through here,
+ * even though the parser calls that a positional call (`arg_names ==
+ * NULL`): with zero arguments given, there's no `name:` for the parser
+ * to have seen either way, so a completely empty call is genuinely
+ * ambiguous between "positional, zero given" and "named, zero given,
+ * everything omitted" from its syntax alone -- and unlike a *partial*
+ * positional call (`f(1)` when `f` needs two, which must stay exactly
+ * as strict as ever), there's nothing here that omission could get
+ * wrong. Treating it as the latter is what makes `sb_new()` -- a
+ * function whose every parameter is Option<T> -- callable at all; it's
+ * a no-op for a function with zero parameters (the fill loop below
+ * never runs) and still correctly rejects any non-Option parameter
+ * (the same "missing required argument" error a partially-omitted named
+ * call already gives). */
 static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
     char **names = e->as.call.arg_names;
-    if (names == NULL) {
+    if (names == NULL && (e->as.call.args.count > 0 || fn->params.count == 0)) {
         return;
     }
     int argc = e->as.call.args.count;

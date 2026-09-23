@@ -30,13 +30,20 @@ pub fn uuid_new() -> Uuid {
     return Uuid { bytes: bytes }
 }
 
+// Built on the prelude's StringBuilder rather than the concat-in-a-loop
+// this originally was -- that accumulated a brand new string on every
+// one of ~20 concat calls per Uuid stringified, each one immediately
+// abandoned (Ziman never frees a Value -- see docs/DESIGN.md's memory-
+// reclamation entry), a real, repeated cost given Uuid is Patient's own
+// id in health-record-backend-ziman. One shared, amortized-growth native
+// buffer plus one final snapshot copy replaces all of that.
 pub fn uuid_to_string(u: Uuid) -> string {
-    var s = ""
+    val sb = sb_new()
     for i in 0..16 {
-        s = concat(s, byte_to_hex(u.bytes[i]))
+        sb_append(sb, byte_to_hex(u.bytes[i]))
         if i == 3 || i == 5 || i == 7 || i == 9 {
-            s = concat(s, "-")
+            sb_append(sb, "-")
         }
     }
-    return s
+    return sb_to_string(sb)
 }

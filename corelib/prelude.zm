@@ -72,3 +72,48 @@ fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T {
     }
     return default_value
 }
+
+// A mutable string-accumulation handle -- the general-purpose fix for
+// the O(N^2)-allocation, O(N)-leaked-garbage pattern every prior
+// accumulate-via-concat/push loop in this codebase's own corelib hit
+// (uuid_to_string, json_to_string, hashmap_keys/values, hashset_items;
+// see docs/DESIGN.md's "StringBuilder" entry), built once so no future
+// occurrence needs its own bespoke native function. `handle` is an
+// opaque index into a native-side table of real, growable C buffers
+// (src/prelude.c) -- not a new built-in type or TypeKind the way
+// `Channel<T>` is, since StringBuilder needs no generic type parameter
+// or thread-safe queue semantics, just in-place mutation, so an
+// ordinary struct wrapping an int is enough. Like `Uuid.bytes`, `handle`
+// has no enforced privacy: don't construct or edit it directly, only
+// through sb_new/the sb_* functions below. Not documented as safe to
+// share across threads -- each StringBuilder is meant to be built up by
+// one thread at a time, same as Java's own (unsynchronized) StringBuilder.
+struct StringBuilder {
+    handle: int
+}
+
+// `capacity` (bytes to pre-allocate) and `grow_factor` (the multiplier
+// applied to capacity, geometrically, whenever an append would overflow
+// it) both have ordinary, rarely-overridden defaults -- the whole reason
+// they're Option<T> rather than plain required parameters is so the
+// common case, `sb_new()`, doesn't have to spell out either one.
+native fn sb_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> StringBuilder
+// Appends however many pieces the call site writes out individually or
+// hands over as one already-built array -- the same variadic shape
+// `join` itself uses, for the same reason (see ast.h's Param comment).
+// No return value: `sb` mutates in place (the same handle, not a new
+// one), so there is nothing new to hand back -- mirrors `send`'s own
+// void return on `Channel<T>`, Ziman's only other mutable, identity-
+// based value.
+native fn sb_append(sb: StringBuilder, pieces: string...)
+// Snapshots whatever has been appended so far into an ordinary,
+// immutable Ziman string -- `str(sb)` can't do this itself (it would
+// just print the struct's own literal fields, `StringBuilder { handle:
+// N }`, since Ziman has no per-type custom-formatting hook), so this is
+// the only way to read a StringBuilder's contents. Safe to call more
+// than once, and to keep appending afterward -- each call is an
+// independent copy, not a one-time "finish".
+native fn sb_to_string(sb: StringBuilder) -> string
+// The number of bytes appended so far (always >= 0), without needing to
+// materialize the string itself via sb_to_string first.
+native fn sb_len(sb: StringBuilder) -> int

@@ -1330,6 +1330,120 @@ several languages rather than inheriting any one of them wholesale.
   named call, which is also the form every other real call site outside
   this codebase's own tests will need to use for the simple case, now
   that `join` takes more than one parameter.
+- **`StringBuilder` -- a general, write-once fix for the whole class of
+  problem `join`'s own motivation (see "Variadic parameters" above) was
+  only ever a partial answer to.** Prompted directly by
+  `uuid_to_string`: still a concat-in-a-loop (~20 calls per UUID, each
+  abandoning its own intermediate string -- see the memory-reclamation
+  entry on why that never gets reclaimed), a real, repeated cost given
+  `Uuid` is `Patient`'s own id in `health-record-backend-ziman`. Fixing
+  that one call site natively, the way `join` itself was fixed, would
+  have worked -- but would need repeating, by hand, in native C, for
+  every future accumulate-via-concat/push function this codebase (or
+  any Ziman program) ever writes, including ones that don't exist yet.
+  `StringBuilder` is the fix that only needs writing once: a native,
+  mutable, amortized-growth buffer, exposed as ordinary Ziman so every
+  future accumulator becomes a plain loop appending to one shared
+  builder, with no new native code required no matter how many more of
+  these show up later.
+  **A plain struct wrapping an opaque `handle: int`, not a new built-in
+  type.** `Channel<T>` is Ziman's only other mutable, identity-based
+  value, and it needed to become a genuine new `TypeKind` (its own
+  runtime `Obj`, wired into `type_equals`, the interpreter's `Value`
+  union, thread-safe queue semantics) specifically because it's
+  *generic* -- `Channel<T>` for arbitrary `T`, with `send`/`receive`
+  needing to type-check against that `T`. `StringBuilder` never holds
+  anything but bytes destined to become one `string`, no type parameter
+  involved, so none of that integration is needed: `handle` indexes into
+  a native-side table of real, growable C buffers (`src/prelude.c`),
+  invisible to Ziman code, which just sees an ordinary, if unusually
+  cheap-to-copy, struct. Same accepted tradeoff `Uuid.bytes` already
+  has: no per-field privacy exists in Ziman to actually stop a caller
+  from reading or fabricating a `handle` -- documented as "don't,"
+  not enforced.
+  **API, decided across a short back-and-forth**: `sb_new(capacity:
+  Option<int> = 20, grow_factor: Option<float> = 2.0) -> StringBuilder`
+  -- both `Option<T>` specifically so the common case, `sb_new()`, tunes
+  neither; `sb_append(sb: StringBuilder, pieces: string...)` -- void,
+  not `-> StringBuilder`, since `sb` mutates in place (the same handle,
+  never a new one) and Ziman has no `.method()` chaining syntax for
+  returning it to enable anyway, mirroring `send`'s own void return on
+  `Channel<T>`; `sb_to_string(sb: StringBuilder) -> string` -- a
+  snapshot, safe to call more than once and to keep appending
+  afterward, and genuinely necessary rather than relying on `str(sb)`,
+  since Ziman has no per-type custom-formatting hook (`str()` on a
+  struct just prints its literal fields, `StringBuilder { handle: N }`,
+  which would be actively wrong here); `sb_len(sb: StringBuilder) ->
+  int` for reading the accumulated length without materializing the
+  string. The variadic `pieces: string...` on `sb_append` reuses the
+  exact shape `join` itself already has, for the same ergonomic reason.
+  Rejected "grow the buffer preemptively, HashMap-style, once it crosses
+  a *load factor*" in favor of an ordinary growth *factor* (multiply
+  capacity when actually full, standard C++ `std::vector`/Java
+  `ArrayList` doubling behavior) -- a load factor is about avoiding long
+  hash-collision chains, which a plain byte buffer has no equivalent of;
+  there's nothing here to trigger early on.
+  **Native implementation** (`src/prelude.c`): `g_sb_table`, an array of
+  *pointers* to individually heap-allocated `StringBuilderBuf` objects
+  (never an array of the structs themselves) -- so growing the table
+  (`realloc`-ing the array of pointers) never invalidates a buffer some
+  other code already holds a pointer to, only the pointers move, never
+  the buffers. `g_sb_table_mutex` guards every read or write of the
+  table itself (registering a new handle, or looking one up), since
+  reading a pointer variable another thread might concurrently be
+  reallocating is undefined behavior in C regardless of whether the
+  bytes involved would turn out identical. Appending to an already-
+  fetched `StringBuilderBuf` happens outside that lock, entirely
+  unsynchronized between callers -- matching Java's own (non-thread-
+  safe) `StringBuilder`: meant to be built up by one thread at a time,
+  not shared, not a design gap specific to this implementation.
+  `option_int_or`/`option_float_or` unwrap `capacity`/`grow_factor`
+  (already-resolved `Option<T>` values by the time a native function
+  ever sees them, per `join`'s own precedent) -- deliberately checking
+  `variant_name` first rather than ever reading a `None`'s payload
+  field directly, since `eval_enum_access` happens to store a harmless
+  `value_int(0)` there for every no-payload variant construction
+  regardless of the variant's *declared* payload type -- reading that
+  as a `float` for a `None` `Option<float>` would silently reinterpret
+  the wrong union member. `uuid_to_string` was rewritten on top of this
+  the same day, closing the loop on the function that started the
+  conversation -- one shared buffer and one final snapshot copy in place
+  of ~20 leaked intermediate strings per call.
+  **One real, pre-existing bug found and fixed along the way**, in
+  `loader.c`'s `resolve_type_refs`: a bare struct-type reference that
+  isn't also a same-module enum falls through to check whether it's
+  actually a *prelude* enum instead (the same disambiguation `Option<T>`
+  needs from every other module) -- but while the prelude module is
+  resolving *its own* cross-references, `ldr->prelude_mod` is still
+  `NULL` (load_module_graph assigns it only after that call returns),
+  so this fallback crashed instead of correctly concluding "not an enum
+  after all, must be a real struct" the instant the prelude itself
+  contained a genuine bare struct reference for the first time --
+  `StringBuilder` was that first case (`Uuid` is a struct too, but lives
+  in a separate module reached through `use`, never bare inside the
+  prelude). Fixed with a `NULL` guard; a completely inert one while
+  resolving any *other* module, where `prelude_mod` is always already
+  set by the time this runs.
+  **A second, independent gap found the same way**: `sb_new()` --
+  literally empty parentheses -- didn't work at all before this,
+  because omission-detection was keyed off seeing at least one `name:`-
+  prefixed argument, and a call with *zero* arguments has none to key
+  off regardless of whether it was meant as "positional, zero given" or
+  "named, zero given, everything omitted." `sb_new` was the first
+  function ever declared where literally every parameter is `Option<T>`
+  and the common call omits all of them, exposing that this case had no
+  legal syntax at all. Fixed by treating a syntactically-positional,
+  genuinely empty call (`argc == 0`) as an all-omitted named call
+  instead, in `canonicalize_named_args` -- sound because there is
+  nothing an empty argument list could mean *other* than "give me
+  everything the declaration already allows me to leave out," and inert
+  for a function that takes no parameters at all (the fill loop never
+  runs) or has any non-`Option<T>` parameter (still correctly rejected,
+  now with the same specific "missing required argument" message a
+  partially-omitted named call already gives, an improvement over the
+  old generic count-mismatch wording for this case). A *partial*
+  positional call (`f(1)` when `f` needs two) is untouched by this and
+  stays exactly as strict as it always has been.
 
 ## Deliberately deferred (not v0)
 

@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,9 +22,19 @@
  * registered in corelib.c's CORE_MODULES table). */
 #include "prelude_source.h"
 
+/* PRELUDE_SOURCE is one long string literal, now that the prelude has
+ * grown enough (StringBuilder among the latest additions) to exceed the
+ * C99-mandated minimum translation limit of 4095 characters -- harmless
+ * on every compiler this project targets. Silenced narrowly here, right
+ * where the macro is actually expanded, the same way corelib.c already
+ * does for COLLECTIONS_SOURCE and friends, rather than loosening
+ * -Wpedantic project-wide. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverlength-strings"
 const char *prelude_source(void) {
     return PRELUDE_SOURCE;
 }
+#pragma GCC diagnostic pop
 
 static Value native_parse_int(Value *args, int argc, int line, int col) {
     (void)argc;
@@ -285,6 +296,168 @@ static Value native_join(Value *args, int argc, int line, int col) {
     return value_string(buf);
 }
 
+/* --- StringBuilder -------------------------------------------------
+ * A mutable string-accumulation handle, backed entirely here, native-
+ * side -- Ziman code never sees anything but an opaque `handle: int`
+ * (see corelib/prelude.zm's StringBuilder struct). Each handle indexes
+ * into `g_sb_table`, an array of *pointers* to individually heap-
+ * allocated StringBuilderBuf objects: growing the table (realloc'ing
+ * the array of pointers) never invalidates a StringBuilderBuf a caller
+ * already holds a pointer to, since only the pointers move, never the
+ * buffers themselves. `g_sb_table_mutex` guards every read or write of
+ * the table itself (registering a new handle, or looking one up) --
+ * necessary because reading a pointer variable that another thread
+ * might concurrently be reallocating is undefined behavior in C even if
+ * the bytes involved would turn out identical. Appending to one
+ * already-fetched StringBuilderBuf happens outside that lock, entirely
+ * unsynchronized between callers -- same as Java's own (non-thread-
+ * safe) StringBuilder: one is meant to be built up by a single thread
+ * at a time, not shared. */
+typedef struct {
+    char *data;
+    size_t length;
+    size_t capacity;
+    double grow_factor;
+} StringBuilderBuf;
+
+static StringBuilderBuf **g_sb_table = NULL;
+static int g_sb_count = 0;
+static int g_sb_capacity = 0;
+static pthread_mutex_t g_sb_table_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int sb_table_register(StringBuilderBuf *buf) {
+    pthread_mutex_lock(&g_sb_table_mutex);
+    if (g_sb_count == g_sb_capacity) {
+        g_sb_capacity = g_sb_capacity == 0 ? 16 : g_sb_capacity * 2;
+        g_sb_table = realloc(g_sb_table, (size_t)g_sb_capacity * sizeof(StringBuilderBuf *));
+    }
+    int handle = g_sb_count++;
+    g_sb_table[handle] = buf;
+    pthread_mutex_unlock(&g_sb_table_mutex);
+    return handle;
+}
+
+static StringBuilderBuf *sb_table_get(int handle) {
+    pthread_mutex_lock(&g_sb_table_mutex);
+    StringBuilderBuf *buf = g_sb_table[handle];
+    pthread_mutex_unlock(&g_sb_table_mutex);
+    return buf;
+}
+
+/* An Option<int>/Option<float> argument's own payload, or `fallback` for
+ * None -- deliberately never reads a None's payload field even though
+ * eval_enum_access happens to store a harmless `value_int(0)` there for
+ * every no-payload variant construction: that placeholder is always an
+ * *int*, so blindly reading it as a float here (for grow_factor) would
+ * silently reinterpret the wrong union member. Checking variant_name
+ * first avoids relying on that unrelated implementation detail at all. */
+static int64_t option_int_or(Value opt, int64_t fallback) {
+    EnumObj *obj = opt.as.en;
+    if (strcmp(obj->variant_name, "Some") == 0) {
+        return obj->payload.as.i;
+    }
+    return fallback;
+}
+
+static double option_float_or(Value opt, double fallback) {
+    EnumObj *obj = opt.as.en;
+    if (strcmp(obj->variant_name, "Some") == 0) {
+        return obj->payload.as.f;
+    }
+    return fallback;
+}
+
+/* Every StringBuilder value shares this same one-field shape, so unlike
+ * a struct built from real .zm source (whose field_names array is
+ * borrowed from its StructDecl -- see value.h's StructObj comment),
+ * this is just a small static array: a native function has no Module*
+ * to look a StructDecl up in at all, and the content is identical for
+ * every instance regardless. */
+static char *STRINGBUILDER_FIELD_NAMES[] = {"handle"};
+
+static int sb_handle_of(Value sb) {
+    return (int)sb.as.st->fields[0].as.i;
+}
+
+static void sb_ensure_capacity(StringBuilderBuf *buf, size_t additional) {
+    size_t needed = buf->length + additional;
+    if (needed <= buf->capacity) {
+        return;
+    }
+    size_t new_capacity = buf->capacity > 0 ? buf->capacity : 1;
+    while (new_capacity < needed) {
+        new_capacity = (size_t)((double)new_capacity * buf->grow_factor) + 1;
+    }
+    buf->data = realloc(buf->data, new_capacity);
+    buf->capacity = new_capacity;
+}
+
+static Value native_sb_new(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    int64_t capacity = option_int_or(args[0], 20);
+    double grow_factor = option_float_or(args[1], 2.0);
+    if (capacity < 0) {
+        capacity = 0;
+    }
+    if (grow_factor <= 1.0) {
+        /* A factor at or below 1.0 would never actually grow the buffer
+         * -- sb_ensure_capacity's while loop would spin forever. Falls
+         * back to the same default sb_new's own signature declares,
+         * rather than erroring, since a StringBuilder is otherwise
+         * perfectly usable with this one parameter simply ignored. */
+        grow_factor = 2.0;
+    }
+
+    StringBuilderBuf *buf = malloc(sizeof(StringBuilderBuf));
+    buf->capacity = (size_t)capacity;
+    buf->length = 0;
+    buf->grow_factor = grow_factor;
+    buf->data = buf->capacity > 0 ? malloc(buf->capacity) : NULL;
+
+    int handle = sb_table_register(buf);
+
+    Value *fields = malloc(sizeof(Value));
+    fields[0] = value_int(handle);
+    return value_struct(type_struct("StringBuilder"), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
+}
+
+static Value native_sb_append(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    ArrayObj *pieces = args[1].as.arr;
+    for (int i = 0; i < pieces->count; i++) {
+        const char *s = pieces->items[i].as.s;
+        size_t len = strlen(s);
+        sb_ensure_capacity(buf, len);
+        memcpy(buf->data + buf->length, s, len);
+        buf->length += len;
+    }
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
+static Value native_sb_to_string(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    char *out = malloc(buf->length + 1);
+    memcpy(out, buf->data, buf->length);
+    out[buf->length] = '\0';
+    return value_string(out);
+}
+
+static Value native_sb_len(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    return value_int((int64_t)buf->length);
+}
+
 void prelude_register(void) {
     native_register("parse_int", native_parse_int);
     native_register("parse_float", native_parse_float);
@@ -301,4 +474,8 @@ void prelude_register(void) {
     native_register("to_upper", native_to_upper);
     native_register("to_lower", native_to_lower);
     native_register("join", native_join);
+    native_register("sb_new", native_sb_new);
+    native_register("sb_append", native_sb_append);
+    native_register("sb_to_string", native_sb_to_string);
+    native_register("sb_len", native_sb_len);
 }

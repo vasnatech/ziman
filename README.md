@@ -202,9 +202,21 @@ The prelude isn't native-only, though: `Option<T>` (plus
 one helper, `option_unwrap_or`) lives there too, as ordinary Ziman
 source — an enum, not a hardcoded primitive like `Result<T, E>` is —
 merged bare into every program the same way the entry file's own
-top-level names are. Unlike every other bundled module (`collections`,
-`io`, ...), `corelib/prelude.zm` is never reachable through `use` at
-all — everything it declares is already unqualified everywhere, so
+top-level names are. So does `StringBuilder` — a general fix for the
+O(N²)-allocation, O(N)-leaked-garbage pattern of building a string via
+repeated `concat` in a loop (`uuid_to_string` used to be exactly this,
+and now isn't — see docs/DESIGN.md's "StringBuilder" entry). It's a
+plain, one-field struct (`StringBuilder { handle: int }`), not a new
+built-in type the way `Channel<T>` is: the `handle` is an opaque index
+into a native-side table of real, growable buffers (`sb_new`/
+`sb_append`/`sb_to_string`/`sb_len`), so appending never copies
+everything accumulated so far the way `concat` or `push` in a loop
+does. `sb_new(capacity: Option<int> = 20, grow_factor: Option<float> =
+2.0)` leans on `Option<T>` parameter omission for its own ergonomics:
+the common case, `sb_new()`, tunes neither. Unlike every other bundled
+module (`collections`, `io`, ...), `corelib/prelude.zm` is never
+reachable through `use` at all — everything it declares is already
+unqualified everywhere, so
 there'd be nothing to gain and a redundant path to create. See
 [docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately not here yet.
 
