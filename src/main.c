@@ -7,6 +7,7 @@
 #include "native_db.h"
 #include "native_io.h"
 #include "native_net.h"
+#include "native_os.h"
 #include "native_random.h"
 #include "prelude.h"
 #include "typecheck.h"
@@ -28,6 +29,7 @@ int main(int argc, char **argv) {
     native_clock_register();
     native_db_register();
     native_net_register();
+    native_os_register();
     native_crypto_register();
     prelude_register();
 

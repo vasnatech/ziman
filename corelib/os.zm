@@ -1,0 +1,18 @@
+// os.zm -- the operating-system environment, so far just environment
+// variables. A program that reads its configuration from the environment
+// (the `properties` module does, to let `SERVER_PORT` override
+// `server.port`) needs this; before it existed Ziman had no way to see
+// the environment at all, which is why an earlier backend kept its
+// settings in ad hoc files.
+
+native fn getenv_raw(name: string) -> Result<string, string>
+
+// The value of the environment variable `name`, or None if it isn't set.
+// A variable that is set but empty is Some("") -- not the same as unset.
+pub fn getenv(name: string) -> Option<string> {
+    val r = getenv_raw(name)
+    if !is_ok(r) {
+        return Option<string>.None
+    }
+    return Option<string>.Some(unwrap(r))
+}

@@ -1,0 +1,11 @@
+1234
+true
+postgres://u:p@h/x
+4
+active profile: dev
+server.port=1234 (env SERVER_PORT)
+server.extra=yes (tests/fixtures/props_conf/application-dev.properties:2)
+datasource.url=postgres://u:****@h/x (tests/fixtures/props_conf/application.properties:4)
+datasource.pool-size=4 (tests/fixtures/props_conf/application.properties:5)
+
+Err(cannot read tests/fixtures/props_conf/missing.properties: cannot open 'tests/fixtures/props_conf/missing.properties')

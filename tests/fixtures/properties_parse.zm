@@ -1,0 +1,45 @@
+use properties
+
+fn show<T>(r: Result<T, string>) {
+    if is_ok(r) {
+        print(unwrap(r))
+    } else {
+        print(concat("ERR ", unwrap_err(r)))
+    }
+}
+
+fn main() {
+    val text = "# comment\n\nserver.port = 8080\r\nserver.name=my app\nflag=TRUE\nratio=0.5\nbad-int=80x\nurl=${server.name}:${server.port}\nfallback=${nope:a:b}\nempty=\n"
+    val props = unwrap(properties.parse(text, "t.properties"))
+    show<int>(properties.get_int(props, "server.port"))
+    show<string>(properties.get_string(props, "server.name"))
+    show<bool>(properties.get_bool(props, "flag"))
+    show<float>(properties.get_float(props, "ratio"))
+    show<string>(properties.get_string(props, "url"))
+    show<string>(properties.get_string(props, "fallback"))
+    show<string>(properties.get_string(props, "empty"))
+    show<int>(properties.get_int(props, "bad-int"))
+    show<bool>(properties.get_bool(props, "bad-int"))
+    show<int>(properties.get_int(props, "absent.key"))
+    show<Option<int>>(properties.get_int_opt(props, "absent.key"))
+    show<Option<string>>(properties.get_string_opt(props, "server.name"))
+
+    show<properties.Properties>(properties.parse("a=1\nb=2\na=3\n", "d.properties"))
+    show<properties.Properties>(properties.parse("Server.Port=1\n", "u.properties"))
+    show<properties.Properties>(properties.parse("just words\n", "w.properties"))
+    show<properties.Properties>(properties.parse("=1\n", "e.properties"))
+
+    val cyc = unwrap(properties.parse("a=${b}\nb=${a}\nc=${missing}\nd=${x\n", "c.properties"))
+    show<string>(properties.get_string(cyc, "a"))
+    show<string>(properties.get_string(cyc, "c"))
+    show<string>(properties.get_string(cyc, "d"))
+
+    show<bool>(properties.check_unknown(props, ["server.port", "server.name", "flag", "ratio", "bad-int", "url", "fallback", "empty"]))
+    show<bool>(properties.check_unknown(props, ["server.prot", "server.name", "flag", "ratio", "bad-int", "url", "fallback", "empty"]))
+    print(properties.env_name("server.idle-timeout-ms"))
+    print(properties.key("", "port"))
+    print(properties.key("server", "port"))
+
+    val secrets = unwrap(properties.parse("datasource.url=postgres://me:hunter2@host/db?sslmode=require&password=abc\nauth.api-token=xyz\nserver.port=1\n", "s.properties"))
+    print(properties.report(secrets, ["datasource.url", "auth.api-token", "server.port", "nothing"]))
+}

@@ -6,6 +6,8 @@
 #   - if name.err exists, the program must exit non-zero and that file's content
 #     must appear as a substring somewhere in stderr.
 #
+# Either kind may have a sibling name.env (KEY=VALUE lines) exported for its run.
+#
 # Multi-file fixtures: a directory tests/fixtures/name/ with an entry point at
 # name/main.zm (and whatever other .zm files it `use`s underneath it) is run
 # the same way, checked against sibling name.out / name.err files (outside
@@ -22,11 +24,24 @@ check_fixture() {
     local out_file="tests/fixtures/$name.out"
     local err_file="tests/fixtures/$name.err"
 
+    # An optional tests/fixtures/<name>.env holds KEY=VALUE lines (blank lines and
+    # #-comments ignored) exported for just this fixture's run -- how a fixture
+    # exercises os.getenv / environment-variable overrides, since a Ziman program
+    # can't set its own environment.
+    local env_args=()
+    local env_file="tests/fixtures/$name.env"
+    if [ -f "$env_file" ]; then
+        while IFS= read -r line; do
+            case "$line" in ""|\#*) continue ;; esac
+            env_args+=("$line")
+        done < "$env_file"
+    fi
+
     local stdout status stderr
     # `timeout` guards against a genuine deadlock in a spawn/Channel fixture
     # (a mistake in the interpreter's channel/thread handling) hanging the
     # whole suite forever instead of just failing that one fixture.
-    stdout=$(timeout 5 "$BIN" "$entry" 2>/tmp/ziman_test_stderr.$$)
+    stdout=$(env "${env_args[@]}" timeout 5 "$BIN" "$entry" 2>/tmp/ziman_test_stderr.$$)
     status=$?
     stderr=$(cat /tmp/ziman_test_stderr.$$)
     rm -f /tmp/ziman_test_stderr.$$

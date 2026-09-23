@@ -28,7 +28,7 @@ $(BIN): $(OBJ)
 # header directly, and it's merged bare into every program by
 # loader.c's load_module_graph (see corelib/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
-CORELIB_MODULES := collections io random uuid clock time json number sql db bytes net crypto pg http prelude
+CORELIB_MODULES := collections io random uuid clock time json number sql db bytes net crypto pg http os properties prelude
 CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 
 $(OBJ): $(CORELIB_HEADERS)
