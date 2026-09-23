@@ -20,9 +20,17 @@
 // Postgres connection is owned by one thread that serialises requests. A
 // transaction is NOT safe to share -- another thread's statements can
 // interleave inside it -- so run a transaction from one thread. With no
-// closures and no destructors there is no `with_transaction(fn)`, and a
-// `?` that returns early from inside a transaction leaves it open; see
-// docs/DESIGN.md's "db" entry for why this is accepted for now.
+// closures there is no `with_transaction(fn)`; use `defer` instead:
+//
+//     db.begin(conn)?
+//     defer db.rollback(conn)
+//     db.execute(conn, ...)?     // an early return rolls back
+//     db.commit(conn)?           // after a commit the deferred rollback
+//                                // finds nothing to undo (its error
+//                                // result is discarded, as `defer` does)
+//
+// Without the `defer`, a `?` that returns early from inside a
+// transaction leaves it open.
 
 use pg
 use sql.SqlValue

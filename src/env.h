@@ -3,6 +3,8 @@
 
 #include "value.h"
 
+struct Expr;
+
 /* A generic scope chain of (name -> slot) bindings, reused by both the
  * type checker (slot holds a Type only) and the interpreter (slot holds a
  * Value). Templated by hand since C has no generics -- see docs/DESIGN.md
@@ -20,6 +22,12 @@ typedef struct Env {
     int count;
     int capacity;
     struct Env *parent;
+    /* The interpreter's pending `defer`red calls for this scope (a scope
+     * is exactly one block), in the order they were registered; run
+     * last-in first-out when the block exits. Unused by the type checker. */
+    struct Expr **defers;
+    int defer_count;
+    int defer_capacity;
 } Env;
 
 Env *env_new(Env *parent);

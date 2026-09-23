@@ -410,6 +410,9 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
         case STMT_EXPR:
             self_qualify_expr(s->as.expr_stmt.expr, ctx);
             break;
+        case STMT_DEFER:
+            self_qualify_expr(s->as.defer_stmt.call, ctx);
+            break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) self_qualify_stmt(s->as.block.stmts.items[i], ctx);
             break;
@@ -495,7 +498,7 @@ static void check_no_val_shadowing_stmt(Stmt *s, char **val_names, int n_val_nam
             for (int i = 0; i < s->as.block.stmts.count; i++) check_no_val_shadowing_stmt(s->as.block.stmts.items[i], val_names, n_val_names, imports, n_imports);
             break;
         case STMT_ASSIGN: case STMT_BREAK: case STMT_CONTINUE:
-        case STMT_SPAWN: case STMT_RETURN: case STMT_EXPR:
+        case STMT_SPAWN: case STMT_RETURN: case STMT_EXPR: case STMT_DEFER:
             break; /* declares no new name */
     }
 }
@@ -893,6 +896,9 @@ static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx) {
             break;
         case STMT_EXPR:
             resolve_expr_refs(s->as.expr_stmt.expr, ctx);
+            break;
+        case STMT_DEFER:
+            resolve_expr_refs(s->as.defer_stmt.call, ctx);
             break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) resolve_stmt_refs(s->as.block.stmts.items[i], ctx);

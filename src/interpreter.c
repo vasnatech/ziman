@@ -105,6 +105,21 @@ static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, in
     return collapsed;
 }
 
+/* Runs `env`'s pending deferred calls, last registered first, then
+ * clears them. Called from the only two places a block's statements
+ * finish running -- exec_stmts_in_scope (every `{ ... }` and every `for`
+ * iteration) and call_function (a function body) -- so falling off the
+ * end, `return`, a propagating `?`, `break` and `continue` all pass
+ * through it, and nothing else needs to know defer exists. A deferred
+ * call's result is discarded. A fatal runtime error exits the process
+ * instead of unwinding, so it never gets here (documented shortcoming). */
+static void run_defers(Module *module, Env *env) {
+    while (env->defer_count > 0) {
+        Expr *call = env->defers[--env->defer_count];
+        eval_expr(module, env, call);
+    }
+}
+
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
     int argc;
     Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);
@@ -127,6 +142,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
     for (int i = 0; i < fn->body->as.block.stmts.count && result.kind == CTRL_NONE; i++) {
         result = exec_stmt(module, env, fn->body->as.block.stmts.items[i]);
     }
+    run_defers(module, env);
     env_free(env);
     return result.kind == CTRL_RETURN ? result.value : value_int(0);
 }
@@ -815,6 +831,7 @@ static ExecResult exec_stmts_in_scope(Module *module, Env *scope, Stmt *block) {
     for (int i = 0; i < block->as.block.stmts.count && result.kind == CTRL_NONE; i++) {
         result = exec_stmt(module, scope, block->as.block.stmts.items[i]);
     }
+    run_defers(module, scope);
     return result;
 }
 
@@ -950,6 +967,21 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 return no_ctrl();
             }
             eval_expr(module, env, s->as.expr_stmt.expr);
+            return no_ctrl();
+        }
+        case STMT_DEFER: {
+            /* Evaluate the arguments now, into the hidden variables the
+             * replay call reads, then register the replay for block exit. */
+            Expr *call = s->as.defer_stmt.call;
+            for (int i = 0; i < s->as.defer_stmt.hidden_count; i++) {
+                Expr *arg = call->as.call.args.items[i];
+                env_define(env, s->as.defer_stmt.hidden[i], arg->resolved_type, 0, eval_expr(module, env, arg));
+            }
+            if (env->defer_count == env->defer_capacity) {
+                env->defer_capacity = env->defer_capacity == 0 ? 4 : env->defer_capacity * 2;
+                env->defers = realloc(env->defers, sizeof(Expr *) * (size_t)env->defer_capacity);
+            }
+            env->defers[env->defer_count++] = s->as.defer_stmt.replay;
             return no_ctrl();
         }
         case STMT_BLOCK:

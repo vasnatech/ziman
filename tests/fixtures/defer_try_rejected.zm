@@ -1,0 +1,7 @@
+fn parse(s: string) -> Result<int, string> {
+    return parse_int(s)
+}
+
+fn main() {
+    defer parse("1")?
+}

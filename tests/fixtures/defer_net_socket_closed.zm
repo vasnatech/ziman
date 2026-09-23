@@ -1,0 +1,35 @@
+use net
+
+// The other motivating case: a client function that connects, defers the
+// close, then bails out early with `?`. The server side observes the
+// close (a read returns Err(Closed)), proving the socket was not leaked.
+fn talk(port: int) -> Result<int, string> {
+    val s = net.connect("127.0.0.1", port)
+    if !is_ok(s) {
+        return err("connect failed")
+    }
+    val sock = unwrap(s)
+    defer net.close(sock)
+    val bad = parse_int("not a number")?
+    return bad
+}
+
+fn server(l: net.Listener, done: Channel<string>) {
+    val client = unwrap(net.accept(l))
+    val r = net.read(client, 10)
+    if !is_ok(r) && net.NetError.is_Closed(unwrap_err(r)) {
+        send(done, "server saw the client close")
+    } else {
+        send(done, "server did not see a close")
+    }
+    net.close(client)
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val done: Channel<string> = channel_new()
+    spawn server(l, done)
+    print(is_ok(talk(net.listener_port(l))))
+    print(receive(done))
+    net.close_listener(l)
+}

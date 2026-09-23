@@ -12,6 +12,7 @@ Env *env_new(Env *parent) {
 
 void env_free(Env *env) {
     free(env->items);
+    free(env->defers);
     free(env);
 }
 

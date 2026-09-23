@@ -1,0 +1,119 @@
+fn say(s: string) {
+    print(s)
+}
+
+fn tag(a: string, b: int) {
+    print(format("{} {}", a, b))
+}
+
+// LIFO order, and defers run after the body finishes
+fn lifo() {
+    defer say("first registered, last run")
+    defer say("second registered, first run")
+    print("body")
+}
+
+// return: the value is computed *before* the deferred call runs
+fn make(x: int) -> int {
+    defer say("cleanup after computing return value")
+    return x * 2
+}
+
+// `?` propagation still runs defers
+fn fails() -> Result<int, string> {
+    defer say("cleanup on ? exit")
+    val n = parse_int("not a number")?
+    return n
+}
+
+fn succeeds() -> Result<int, string> {
+    defer say("cleanup on normal exit")
+    val n = parse_int("42")?
+    return n
+}
+
+// arguments are evaluated when `defer` runs, not at exit
+fn args_at_defer_time() {
+    var n = 1
+    defer tag("n was", n)
+    n = 2
+    n = 3
+    print(n)
+}
+
+// block scope: a defer in a loop body runs every iteration, at the end of it
+fn loop_scope() {
+    for i in 0..3 {
+        defer tag("end of iteration", i)
+        print(i)
+    }
+}
+
+// break and continue leave the block, so they run defers too
+fn loop_exits() {
+    var i = 0
+    while i < 4 {
+        i = i + 1
+        defer tag("cleanup", i)
+        if i == 2 {
+            continue
+        }
+        if i == 3 {
+            break
+        }
+        print("body")
+    }
+}
+
+// a defer in an inner block runs when *that* block ends, not the function
+fn inner_block() {
+    defer say("function-level, runs last")
+    if true {
+        defer say("inner block, runs at inner end")
+        print("in inner")
+    }
+    print("after inner")
+}
+
+// defer on a call that returns a Result: discarded
+fn parse_and_discard(s: string) -> Result<int, string> {
+    print("parsing")
+    return parse_int(s)
+}
+
+fn result_discarded() {
+    defer parse_and_discard("nope")
+    print("body")
+}
+
+// named args and default handling go through the normal call path
+fn labelled(name: string, count: int) {
+    print(format("{}={}", name, count))
+}
+
+fn named() {
+    defer labelled(count: 7, name: "seven")
+    print("named body")
+}
+
+// a spawned thread's function gets defers too
+fn worker(done: Channel<string>) {
+    defer send(done, "worker cleanup ran")
+    print("worker body")
+}
+
+fn main() {
+    lifo()
+    print(make(21))
+    print(is_ok(fails()))
+    print(is_ok(succeeds()))
+    args_at_defer_time()
+    loop_scope()
+    loop_exits()
+    inner_block()
+    result_discarded()
+    named()
+    val done: Channel<string> = channel_new()
+    spawn worker(done)
+    print(receive(done))
+}

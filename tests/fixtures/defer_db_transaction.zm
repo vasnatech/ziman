@@ -1,0 +1,38 @@
+use db
+use sql.SqlValue
+use sql.DbError
+use sql.row_get
+use sql.sql_as_int
+
+// The motivating case: begin a transaction, `defer` the rollback, and
+// every way out of the function -- an error propagated by `?`, or
+// success -- leaves the connection with no transaction open. After a
+// successful commit the deferred rollback finds nothing to roll back;
+// its error result is discarded, which is the point of the shape.
+fn insert_two(conn: db.Connection, a: int, b: int) -> Result<int, DbError> {
+    db.begin(conn)?
+    defer db.rollback(conn)
+    db.execute(conn, "INSERT INTO t (id) VALUES ($1)", [SqlValue.Int(a)])?
+    db.execute(conn, "INSERT INTO t (id) VALUES ($1)", [SqlValue.Int(b)])?
+    db.commit(conn)?
+    return 0
+}
+
+fn count(conn: db.Connection) -> int {
+    val rows = unwrap(db.query(conn, "SELECT count(*) AS n FROM t", []))
+    return unwrap(sql_as_int(unwrap(row_get(rows[0], "n"))))
+}
+
+fn main() {
+    val conn = unwrap(db.open("sqlite::memory:"))
+    unwrap(db.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY)", []))
+    print(is_ok(insert_two(conn, 1, 2)))
+    print(count(conn))
+    // the second insert violates the primary key: `?` returns early, the
+    // deferred rollback undoes the first insert too
+    print(is_ok(insert_two(conn, 3, 3)))
+    print(count(conn))
+    // and the connection is not left inside a transaction: a fresh one begins fine
+    print(is_ok(insert_two(conn, 4, 5)))
+    print(count(conn))
+}

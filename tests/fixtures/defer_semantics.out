@@ -1,0 +1,31 @@
+body
+second registered, first run
+first registered, last run
+cleanup after computing return value
+42
+cleanup on ? exit
+false
+cleanup on normal exit
+true
+3
+n was 1
+0
+end of iteration 0
+1
+end of iteration 1
+2
+end of iteration 2
+body
+cleanup 1
+cleanup 2
+cleanup 3
+in inner
+inner block, runs at inner end
+after inner
+function-level, runs last
+body
+parsing
+named body
+seven=7
+worker body
+worker cleanup ran

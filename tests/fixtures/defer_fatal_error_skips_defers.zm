@@ -1,0 +1,11 @@
+// A fatal runtime error (unwrap on an Err) exits the process rather than
+// unwinding, so deferred calls do NOT run -- a documented shortcoming.
+fn cleanup() {
+    print("cleanup (never printed)")
+}
+
+fn main() {
+    defer cleanup()
+    val r: Result<int, string> = err("boom")
+    unwrap(r)
+}

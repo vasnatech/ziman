@@ -2133,6 +2133,64 @@ several languages rather than inheriting any one of them wholesale.
   container; it is not part of `make test` so the ordinary suite stays
   hermetic.
 
+- **`defer`: scoped cleanup.** The language answer to a gap `net` and
+  `db` both surfaced: with no destructors, a `?` (or `return`) that leaves
+  a function between acquiring a resource and releasing it leaks a socket
+  or leaves a transaction open. `defer f(args)` runs a call when the
+  enclosing block exits, by any path.
+  **Why this shape.** The alternatives were RAII/destructors (needs types
+  with a drop hook -- a whole mechanism, and Ziman has no interfaces to
+  hang one on), and a scoped `using`/`with` construct (needs a closeable
+  protocol -- traits again, or closures for `with_transaction(fn)`, which
+  Ziman lacks). `defer` needs neither: it is one statement, and it maps
+  onto the interpreter's existing structure. **Block-scoped, not
+  function-scoped**, deliberately unlike Go, where a `defer` inside a loop
+  accumulates until the function returns -- a well-known trap; here a
+  loop-body `defer` runs each iteration. **Arguments are evaluated when
+  the `defer` statement runs** (Go's rule), so `defer close(s)` means what
+  it says even if a `var` changes later; only the call is postponed.
+  **A single call, and only a call**, not a block: a block would read
+  variables at *exit* time, contradicting the argument rule, and would
+  need the two to be reconciled; a helper function you defer a call to
+  covers cleanup that needs logic, and a block form can be added later
+  without breaking anything.
+  **Mechanics -- almost nothing new at runtime.** Every way out of a
+  block already funnels through two places: `call_function`'s body loop
+  and `exec_stmts_in_scope` (every `{}` and every `for` iteration), and a
+  scope's `Env` is exactly one block. So `Env` gained a list of pending
+  calls, `STMT_DEFER` appends to it, and those two places run it last-in
+  first-out before the scope is freed. `return`, `?`, `break` and
+  `continue` all already unwind through them as ordinary control results,
+  so none needed touching. **Arguments are captured by desugaring in the
+  type checker**: `check_defer` type-checks the call like any expression
+  statement (so named arguments, Option/Result auto-wrap, generics and
+  variadics all work), then builds a *replay* call -- a copy whose
+  arguments are references to hidden `$defer<N>$<i>` variables. At
+  `defer` time the interpreter evaluates the real arguments into those
+  variables and registers the replay; at exit it just evaluates the
+  replay. That reuses `eval_expr`'s whole call path (builtin dispatch,
+  natives, generics fixups, variadic collapsing) instead of duplicating
+  or splitting it into "evaluate arguments" and "invoke" halves. The
+  four builtins that inspect their argument *expressions* rather than
+  values (`format` wants a literal template; `ok`/`err`/`channel_new` take
+  their type from context) can't be replayed and are rejected.
+  **The return value is computed before the defers run**, and a deferred
+  call's result is **discarded, a `Result` included** -- the one place Ziman
+  silently drops one. A deferred `net.close`/`db.rollback` has nowhere to
+  report failure, and it is what makes `defer db.rollback(conn)` harmless
+  after a successful `commit` (SQLite errors on a rollback with no
+  transaction open; the discarded result swallows that). The cost is real:
+  a failing cleanup call is invisible. **Fatal runtime errors skip defers**:
+  `unwrap` on an `Err` or an out-of-bounds index exits the process rather
+  than unwinding, so nothing deferred runs -- the OS closes the sockets and
+  a database server rolls back an abandoned transaction, but it is a
+  documented limit, not a guarantee. **What it does not fix**: a
+  transaction on a *shared* connection can still be interleaved by another
+  thread; `defer` fixes the early-return leak, not concurrency.
+  See `tests/fixtures/defer_*` -- ordering, every exit path, argument
+  timing, loop scope, threads, the transaction-rollback case against
+  SQLite and the socket-closed case observed from the peer.
+
 ## Deliberately deferred (not v0)
 
 - Effects visible in function signatures (which functions do I/O or mutate

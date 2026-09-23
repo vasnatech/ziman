@@ -7,11 +7,11 @@
 //
 // A `Socket`/`Listener` is an int handle into a native-side table, same
 // pattern as `db.Connection`. There are no destructors, so closing is
-// explicit -- and a `?` that returns early between `connect` and
-// `close` leaks the socket, the same hazard `db` documents for an open
-// transaction. Both point at a missing "scoped cleanup" language
-// feature, deliberately left as its own later design rather than bolted
-// on here (see docs/ROADMAP.md). Close a socket from the thread that
+// explicit -- but `defer` makes it safe: write
+// `val s = net.connect(host, port)?` then `defer net.close(s)`, and the
+// socket is closed on every way out of the block (a `?` that returns
+// early, a `return`, falling off the end). Without the `defer`, an
+// early return leaks the socket. Close a socket from the thread that
 // owns it: closing one another thread is blocked reading wakes that
 // read with an error, but the descriptor number is then free for the OS
 // to reuse.

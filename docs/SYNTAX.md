@@ -1830,6 +1830,60 @@ fn main() {
   `Err(division by zero)`), recursively displaying the payload the same
   way `print` already displays anything else.
 
+## Defer
+
+`defer f(args)` runs a call when the enclosing *block* exits, by any path:
+falling off the end, `return`, a `?` that propagates an error, `break`, or
+`continue`. It is how a resource is released without destructors.
+
+```
+fn talk(port: int) -> Result<int, string> {
+    val sock = unwrap(net.connect("127.0.0.1", port))
+    defer net.close(sock)              // closed on every path out of talk
+    val reply = parse_int(read_reply(sock))?   // an early return still closes it
+    return reply
+}
+
+fn transfer(conn: db.Connection) -> Result<int, DbError> {
+    db.begin(conn)?
+    defer db.rollback(conn)            // undone unless we reach the commit
+    db.execute(conn, "...", [])?
+    db.commit(conn)?
+    return 0
+}
+```
+
+- **Block-scoped.** A `defer` runs when its own block ends -- an `if` or
+  loop body, not just the function. A `defer` inside a loop body therefore
+  runs at the end of *every iteration* (unlike Go, where defers pile up
+  until the function returns).
+- **Last in, first out.** Several defers in one block run in reverse order
+  of registration.
+- **Arguments are evaluated when the `defer` statement runs**, not when it
+  fires: `var n = 1; defer show(n); n = 2` shows `1`. Only the call itself
+  is postponed.
+- **The return value is computed first.** `return x * 2` evaluates `x * 2`,
+  then runs the defers, then returns -- so a deferred call can't change what
+  the function returns, and a `?` propagates the same way.
+- **A single call only** -- not a block, and not `f()?`. Cleanup that needs
+  logic goes in a helper function you defer a call to. (A block form could
+  be added later without breaking anything; it would need a second rule for
+  when variables are read, which is why it isn't here yet.) The hardcoded
+  builtins that read their argument *expressions* rather than values --
+  `format`, `ok`, `err`, `channel_new` -- can't be deferred.
+- **The result is discarded, including a `Result`.** A deferred
+  `net.close` or `db.rollback` has nowhere to report failure, and this is
+  the one place Ziman silently drops a `Result`. That is a real cost: an
+  error from the cleanup call is invisible. It is deliberate, and it is
+  what lets `defer db.rollback(conn)` be harmless after a successful
+  commit.
+- **A fatal runtime error skips defers.** `unwrap` on an `Err`, an
+  out-of-bounds index and the like exit the process instead of unwinding,
+  so nothing deferred runs. The operating system closes the sockets, and a
+  database server rolls back a dropped connection's open transaction, but
+  a program relying on a deferred call for anything else should know.
+- **Threads:** a function run by `spawn` gets its defers like any other.
+
 ## Concurrency
 
 `Channel<T>` and `spawn` — a third hardcoded parametric type (after

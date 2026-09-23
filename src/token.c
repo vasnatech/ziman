@@ -22,6 +22,7 @@ const char *token_type_name(TokenType type) {
         case TOK_BREAK: return "'break'";
         case TOK_CONTINUE: return "'continue'";
         case TOK_SPAWN: return "'spawn'";
+        case TOK_DEFER: return "'defer'";
         case TOK_RETURN: return "'return'";
         case TOK_TRUE: return "'true'";
         case TOK_FALSE: return "'false'";

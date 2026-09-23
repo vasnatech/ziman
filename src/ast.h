@@ -260,6 +260,7 @@ typedef enum {
     STMT_BREAK,
     STMT_CONTINUE,
     STMT_SPAWN,
+    STMT_DEFER,
     STMT_RETURN,
     STMT_EXPR,
     STMT_BLOCK,
@@ -306,6 +307,19 @@ struct Stmt {
          * function value -- see docs/SYNTAX.md "Concurrency". */
         struct { char *callee; ExprList args; } spawn_stmt;
         struct { Expr *expr; } expr_stmt;
+        /* `defer f(args)` -- runs the call when the enclosing *block* exits,
+         * by any path (falling off the end, return, `?`, break, continue),
+         * last-in first-out; see docs/DESIGN.md's "defer" entry. `call` is
+         * the call as written. Its arguments are evaluated when the
+         * `defer` statement itself runs, into the hidden variables named
+         * `hidden` (one per argument, `$`-containing so no source
+         * identifier can collide), and `replay` -- built once by
+         * type-checking, after check_call has finalised the argument
+         * list -- is the same call with each argument replaced by a
+         * reference to its hidden variable. That is what actually runs
+         * at block exit, so arguments read the values they had at
+         * `defer` time, not whatever a `var` holds by then. */
+        struct { Expr *call; Expr *replay; char **hidden; int hidden_count; } defer_stmt;
         struct { StmtList stmts; } block;
     } as;
 };

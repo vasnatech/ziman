@@ -997,10 +997,10 @@ a time mid-implementation:
   `net` and `crypto`/`pg` entries); SQLite and Postgres are the two
   backends. Still open: (1) **TLS** -- a `sslmode=require` URL is
   refused today; hosted Postgres needs it (a `tls` module wrapping a
-  `Socket`, linking a TLS library); (2) **scoped cleanup** -- something
-  like `defer close(s)`: no destructors means a `?` returning early leaks
-  a socket or leaves a transaction open, and no closures means no
-  `with_transaction(fn)`; one design would fix both `net` and `db`; (3) a
+  `Socket`, linking a TLS library); (2) ~~scoped cleanup~~ **done as `defer`** (docs/DESIGN.md's `defer` entry).
+  What remains of it: a block form (`defer { ... }`), the deferred call's
+  discarded `Result` (a failing cleanup is invisible), fatal errors
+  skipping defers, and no true `with_transaction(fn)` (no closures); (3) a
   **connection pool**, since one connection serialises every call; (4)
   **schema management/migrations**, currently a plain `create_schema`
   script per repository; (5) per-field `#[derive(Row)]` annotations

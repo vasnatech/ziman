@@ -876,6 +876,20 @@ static Stmt *parse_spawn(Parser *p) {
     return s;
 }
 
+/* `defer <call>` -- a single function call, its result (if any) thrown
+ * away. Only a plain call is accepted: not `x?`, not a block. See
+ * docs/DESIGN.md's "defer" entry for why the form is this narrow. */
+static Stmt *parse_defer(Parser *p) {
+    Token *kw = previous(p);
+    Expr *call = parse_expr(p);
+    if (call->kind != EXPR_CALL) {
+        ziman_error("syntax", kw->line, kw->col, "'defer' takes a single function call, e.g. `defer close(conn)`");
+    }
+    Stmt *s = stmt_new(STMT_DEFER, kw->line, kw->col);
+    s->as.defer_stmt.call = call;
+    return s;
+}
+
 static Stmt *parse_statement(Parser *p) {
     if (match(p, TOK_VAL)) return parse_decl(p, STMT_VAL);
     if (match(p, TOK_VAR)) return parse_decl(p, STMT_VAR);
@@ -885,6 +899,7 @@ static Stmt *parse_statement(Parser *p) {
     if (match(p, TOK_BREAK)) { Token *kw = previous(p); return stmt_new(STMT_BREAK, kw->line, kw->col); }
     if (match(p, TOK_CONTINUE)) { Token *kw = previous(p); return stmt_new(STMT_CONTINUE, kw->line, kw->col); }
     if (match(p, TOK_SPAWN)) return parse_spawn(p);
+    if (match(p, TOK_DEFER)) return parse_defer(p);
     if (match(p, TOK_RETURN)) return parse_return(p);
 
     /* `IDENT = expr` (assignment) vs. any other expression statement
@@ -1238,6 +1253,9 @@ static void reclassify_type_params_in_stmt(Stmt *s, TypeParamList *type_params) 
             break;
         case STMT_EXPR:
             reclassify_type_params_in_expr(s->as.expr_stmt.expr, type_params);
+            break;
+        case STMT_DEFER:
+            reclassify_type_params_in_expr(s->as.defer_stmt.call, type_params);
             break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) reclassify_type_params_in_stmt(s->as.block.stmts.items[i], type_params);

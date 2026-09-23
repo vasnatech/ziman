@@ -1,5 +1,7 @@
+#define _POSIX_C_SOURCE 200809L
 #include "typecheck.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1409,6 +1411,60 @@ static int stmt_always_returns(Stmt *s) {
     }
 }
 
+/* `defer f(args)`: type-checks the call exactly like an expression
+ * statement (so named args, Option/Result auto-wrap, generics and
+ * variadics all work), discards its result -- any type, a Result
+ * included, which is the documented cost of a deferred cleanup call
+ * having nowhere to report failure -- and builds the "replay" call the
+ * interpreter runs at block exit.
+ *
+ * check_call has by now finalised the argument list (reordered named
+ * arguments, inserted auto-wraps and defaults for omitted parameters),
+ * so `call`'s argument nodes are the real ones. The interpreter
+ * evaluates each into a hidden `$defer<N>$<i>` variable when the `defer`
+ * statement runs; the replay call is a copy of `call` whose arguments
+ * are just references to those variables -- which is why arguments
+ * carry their `defer`-time values rather than whatever a `var` holds
+ * later.
+ *
+ * A few hardcoded builtins can't be replayed this way because they look
+ * at their argument *expressions* rather than just values: `format`
+ * needs a string-literal template, `ok`/`err`/`channel_new` take their
+ * type from context. They make no sense as a deferred cleanup anyway. */
+static int g_defer_counter = 0;
+
+static void check_defer(Module *module, Env *env, Stmt *s) {
+    Expr *call = s->as.defer_stmt.call;
+    static const char *const UNDEFERRABLE[] = {"format", "ok", "err", "channel_new"};
+    for (size_t i = 0; i < sizeof(UNDEFERRABLE) / sizeof(UNDEFERRABLE[0]); i++) {
+        if (strcmp(call->as.call.callee, UNDEFERRABLE[i]) == 0) {
+            ziman_error("type", s->line, s->col, "'%s' cannot be deferred", UNDEFERRABLE[i]);
+        }
+    }
+    check_expr(module, env, call);
+
+    int n = call->as.call.args.count;
+    int id = g_defer_counter++;
+    Expr *replay = expr_new(EXPR_CALL, call->line, call->col);
+    *replay = *call;
+    replay->as.call.args.items = NULL;
+    replay->as.call.args.count = 0;
+    replay->as.call.args.capacity = 0;
+    char **hidden = malloc(sizeof(char *) * (size_t)(n > 0 ? n : 1));
+    for (int i = 0; i < n; i++) {
+        char name[48];
+        snprintf(name, sizeof(name), "$defer%d$%d", id, i);
+        hidden[i] = strdup(name);
+        Expr *ref = expr_new(EXPR_IDENT, call->line, call->col);
+        ref->as.ident_name = hidden[i];
+        ref->resolved_type = call->as.call.args.items[i]->resolved_type;
+        expr_list_push(&replay->as.call.args, ref);
+    }
+    s->as.defer_stmt.replay = replay;
+    s->as.defer_stmt.hidden = hidden;
+    s->as.defer_stmt.hidden_count = n;
+}
+
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop);
 
 /* Type-checks `e` (always exactly an EXPR_TRY_UNWRAP node -- `inner?`)
@@ -1710,6 +1766,9 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             }
             break;
         }
+        case STMT_DEFER:
+            check_defer(module, env, s);
+            break;
         case STMT_BLOCK:
             check_block(module, env, s, fn_return_type, in_loop);
             break;
