@@ -590,7 +590,11 @@ static char *generate_struct_properties(StructDecl *sd) {
         char *kebab = snake_to_kebab(f->name);
         if (is_option_type_here(f->type)) {
             const char *g = properties_getter_suffix(f->type.type_args.items[0], f->line, f->col);
-            cb_appendf(&cb, "    val field_%s = properties.get_%s_opt(props, properties.key(prefix, \"%s\"))?\n", f->name, g, kebab);
+            cb_appendf(&cb, "    var field_%s = Option<%s>.None\n", f->name, g);
+            cb_appendf(&cb, "    val found_%s = properties.lookup(props, properties.key(prefix, \"%s\"))\n", f->name, kebab);
+            cb_appendf(&cb, "    if Option.is_Some(found_%s) {\n", f->name);
+            cb_appendf(&cb, "        val value_%s = properties.entry_%s(Option.unwrap_Some(found_%s))?\n", f->name, g, f->name);
+            cb_appendf(&cb, "        field_%s = Option<%s>.Some(value_%s)\n    }\n", f->name, g, f->name);
         } else {
             const char *g = properties_getter_suffix(f->type, f->line, f->col);
             cb_appendf(&cb, "    val field_%s = properties.get_%s(props, properties.key(prefix, \"%s\"))?\n", f->name, g, kebab);

@@ -23,6 +23,9 @@
 // `${name:default}`, resolved against properties, then the environment
 // (exact name), then the default; an unresolvable placeholder or a
 // cycle is an error. The default may itself contain `:`.
+//
+// Placeholders are resolved once, when the properties are built, so a bad
+// one fails startup and every lookup afterwards is a plain array scan.
 
 use io
 use os
@@ -50,7 +53,7 @@ fn index_of(s: string, needle: string, from: int) -> int {
 }
 
 // server.idle-timeout-ms -> SERVER_IDLE_TIMEOUT_MS
-pub fn env_name(key: string) -> string {
+fn env_name(key: string) -> string {
     val sb = sb_new()
     for i in 0..len(key) {
         val c = substring(key, i, i + 1)
@@ -72,8 +75,9 @@ fn find_file_entry(entries: [Entry], key: string) -> Option<Entry> {
     return Option<Entry>.None
 }
 
-// Environment first, then the files.
-fn find_entry(props: Properties, key: string) -> Option<Entry> {
+// The entry for `key`: its environment variable if set (taken literally),
+// else the file entry.
+pub fn lookup(props: Properties, key: string) -> Option<Entry> {
     val name = env_name(key)
     val e = os.getenv(name)
     if Option.is_Some(e) {
@@ -82,110 +86,8 @@ fn find_entry(props: Properties, key: string) -> Option<Entry> {
     return find_file_entry(props.entries, key)
 }
 
-pub fn parse(text: string, source: string) -> Result<Properties, string> {
-    val lines = split(text, "\n")
-    var entries: [Entry] = []
-    for i in 0..len(lines) {
-        val line = trim(lines[i])
-        val where = format("{}:{}", source, i + 1)
-        if len(line) == 0 || substring(line, 0, 1) == "#" {
-            continue
-        }
-        val eq = index_of(line, "=", 0)
-        if eq < 0 {
-            return err(format("{}: expected key=value or a # comment, got '{}'", where, line))
-        }
-        val key = trim(substring(line, 0, eq))
-        val value = trim(substring(line, eq + 1, len(line)))
-        if len(key) == 0 {
-            return err(format("{}: empty key", where))
-        }
-        if to_lower(key) != key {
-            return err(format("{}: key '{}' must be lowercase (use dotted kebab-case, e.g. server.idle-timeout-ms)", where, key))
-        }
-        if contains(key, " ") || contains(key, "\t") {
-            return err(format("{}: key '{}' contains whitespace", where, key))
-        }
-        val dup = find_file_entry(entries, key)
-        if Option.is_Some(dup) {
-            return err(format("{}: duplicate key '{}' (first defined at {})", where, key, Option.unwrap_Some(dup).source))
-        }
-        entries = push(entries, Entry { key: key, value: value, source: where })
-    }
-    return ok(Properties { entries: entries, profile: "" })
-}
-
-fn read_source(file: string) -> Result<string, string> {
-    val r = io.read_file(file)
-    if !is_ok(r) {
-        return err(format("cannot read {}: {}", file, unwrap_err(r)))
-    }
-    return ok(unwrap(r))
-}
-
-// `over` wins on a key present in both.
-pub fn merge(base: Properties, over: Properties) -> Properties {
-    var entries = over.entries
-    for i in 0..len(base.entries) {
-        val e = base.entries[i]
-        if !Option.is_Some(find_file_entry(over.entries, e.key)) {
-            entries = push(entries, e)
-        }
-    }
-    return Properties { entries: entries, profile: over.profile }
-}
-
-pub fn load(name: string) -> Result<Properties, string> {
-    val base_file = concat(name, ".properties")
-    val text = read_source(base_file)?
-    val base = parse(text, base_file)?
-    var profile = ""
-    val from_env = os.getenv("PROFILE_ACTIVE")
-    if Option.is_Some(from_env) {
-        profile = trim(Option.unwrap_Some(from_env))
-    } else {
-        val declared = find_file_entry(base.entries, "profile.active")
-        if Option.is_Some(declared) {
-            profile = Option.unwrap_Some(declared).value
-        }
-    }
-    if len(profile) == 0 {
-        return ok(base)
-    }
-    val profile_file = format("{}-{}.properties", name, profile)
-    val profile_text = read_source(profile_file)?
-    val over = parse(profile_text, profile_file)?
-    return ok(Properties { entries: merge(base, over).entries, profile: profile })
-}
-
-fn resolve_name(props: Properties, inner: string, source: string, seen: [string]) -> Result<string, string> {
-    val colon = index_of(inner, ":", 0)
-    var name = inner
-    var fallback = ""
-    var has_default = false
-    if colon >= 0 {
-        name = substring(inner, 0, colon)
-        fallback = substring(inner, colon + 1, len(inner))
-        has_default = true
-    }
-    if contains(seen, name) {
-        return err(format("{}: placeholder cycle through '{}'", source, name))
-    }
-    val file_entry = find_file_entry(props.entries, name)
-    if Option.is_Some(file_entry) {
-        val e = Option.unwrap_Some(file_entry)
-        return resolve(props, e.value, e.source, push(seen, name))
-    }
-    val env = os.getenv(name)
-    if Option.is_Some(env) {
-        return ok(Option.unwrap_Some(env))
-    }
-    if has_default {
-        return ok(fallback)
-    }
-    return err(format("{}: placeholder '{}' is neither a property nor an environment variable and has no default", source, name))
-}
-
+// Resolves `${name}` / `${name:default}` in `value`; `seen` holds the
+// names being expanded, to catch cycles.
 fn resolve(props: Properties, value: string, source: string, seen: [string]) -> Result<string, string> {
     val sb = sb_new()
     var p = 0
@@ -201,38 +103,142 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
                 return err(format("{}: unterminated placeholder in '{}'", source, value))
             }
             sb_append(sb, substring(value, p, start))
-            val piece = resolve_name(props, substring(value, start + 2, end), source, seen)?
-            sb_append(sb, piece)
+            val inner = substring(value, start + 2, end)
+            val colon = index_of(inner, ":", 0)
+            var name = inner
+            if colon >= 0 {
+                name = substring(inner, 0, colon)
+            }
+            if contains(seen, name) {
+                return err(format("{}: placeholder cycle through '{}'", source, name))
+            }
+            val referenced = find_file_entry(props.entries, name)
+            val env = os.getenv(name)
+            if Option.is_Some(referenced) {
+                val r = Option.unwrap_Some(referenced)
+                val expanded = resolve(props, r.value, r.source, push(seen, name))?
+                sb_append(sb, expanded)
+            } else if Option.is_Some(env) {
+                sb_append(sb, Option.unwrap_Some(env))
+            } else if colon >= 0 {
+                sb_append(sb, substring(inner, colon + 1, len(inner)))
+            } else {
+                return err(format("{}: placeholder '{}' is neither a property nor an environment variable and has no default", source, name))
+            }
             p = end + 1
         }
     }
     return ok(sb_to_string(sb))
 }
 
-// The entry for `key` (env over files) with placeholders resolved.
-// Environment values are taken literally.
-fn resolved(props: Properties, key: string) -> Result<Option<Entry>, string> {
-    val found = find_entry(props, key)
-    if !Option.is_Some(found) {
-        return Option<Entry>.None
+fn resolve_all(props: Properties) -> Result<Properties, string> {
+    val out = ab_new<Entry>()
+    for i in 0..len(props.entries) {
+        val e = props.entries[i]
+        val value = resolve(props, e.value, e.source, [e.key])?
+        ab_append<Entry>(out, Entry { key: e.key, value: value, source: e.source })
     }
-    val e = Option.unwrap_Some(found)
-    if index_of(e.source, "env ", 0) == 0 {
-        return Option<Entry>.Some(e)
+    return ok(Properties { entries: ab_to_array<Entry>(out), profile: props.profile })
+}
+
+fn parse_raw(text: string, source: string) -> Result<Properties, string> {
+    val lines = split(text, "\n")
+    val found = ab_new<Entry>()
+    for i in 0..len(lines) {
+        val line = trim(lines[i])
+        val where = format("{}:{}", source, i + 1)
+        if len(line) == 0 || substring(line, 0, 1) == "#" {
+            continue
+        }
+        val eq = index_of(line, "=", 0)
+        if eq < 0 {
+            return err(format("{}: expected key=value or a # comment, got '{}'", where, line))
+        }
+        val key = trim(substring(line, 0, eq))
+        if len(key) == 0 {
+            return err(format("{}: empty key", where))
+        }
+        if to_lower(key) != key {
+            return err(format("{}: key '{}' must be lowercase (use dotted kebab-case, e.g. server.idle-timeout-ms)", where, key))
+        }
+        if contains(key, " ") || contains(key, "\t") {
+            return err(format("{}: key '{}' contains whitespace", where, key))
+        }
+        ab_append<Entry>(found, Entry { key: key, value: trim(substring(line, eq + 1, len(line))), source: where })
     }
-    val value = resolve(props, e.value, e.source, [key])?
-    return Option<Entry>.Some(Entry { key: key, value: value, source: e.source })
+    val entries = ab_to_array<Entry>(found)
+    for i in 0..len(entries) {
+        for j in 0..i {
+            if entries[j].key == entries[i].key {
+                return err(format("{}: duplicate key '{}' (first defined at {})", entries[i].source, entries[i].key, entries[j].source))
+            }
+        }
+    }
+    return ok(Properties { entries: entries, profile: "" })
+}
+
+// Parses one properties text, resolving placeholders within it.
+pub fn parse(text: string, source: string) -> Result<Properties, string> {
+    val raw = parse_raw(text, source)?
+    return resolve_all(raw)
+}
+
+fn read_source(file: string) -> Result<string, string> {
+    val r = io.read_file(file)
+    if !is_ok(r) {
+        return err(format("cannot read {}: {}", file, unwrap_err(r)))
+    }
+    return ok(unwrap(r))
+}
+
+// `over` wins on a key present in both.
+fn merge(base: Properties, over: Properties, profile: string) -> Properties {
+    val out = ab_new<Entry>()
+    for i in 0..len(over.entries) {
+        ab_append<Entry>(out, over.entries[i])
+    }
+    for i in 0..len(base.entries) {
+        if !Option.is_Some(find_file_entry(over.entries, base.entries[i].key)) {
+            ab_append<Entry>(out, base.entries[i])
+        }
+    }
+    return Properties { entries: ab_to_array<Entry>(out), profile: profile }
+}
+
+pub fn load(name: string) -> Result<Properties, string> {
+    val base_file = concat(name, ".properties")
+    val text = read_source(base_file)?
+    val base = parse_raw(text, base_file)?
+    var profile = ""
+    val from_env = os.getenv("PROFILE_ACTIVE")
+    val declared = find_file_entry(base.entries, "profile.active")
+    if Option.is_Some(from_env) {
+        profile = trim(Option.unwrap_Some(from_env))
+    } else if Option.is_Some(declared) {
+        profile = Option.unwrap_Some(declared).value
+    }
+    if len(profile) == 0 {
+        return resolve_all(base)
+    }
+    val profile_file = format("{}-{}.properties", name, profile)
+    val profile_text = read_source(profile_file)?
+    val over = parse_raw(profile_text, profile_file)?
+    return resolve_all(merge(base, over, profile))
 }
 
 fn require(props: Properties, key: string) -> Result<Entry, string> {
-    val found = resolved(props, key)?
+    val found = lookup(props, key)
     if !Option.is_Some(found) {
         return err(format("missing required property '{}' (set it in a .properties file or the {} environment variable)", key, env_name(key)))
     }
     return ok(Option.unwrap_Some(found))
 }
 
-fn entry_int(e: Entry) -> Result<int, string> {
+pub fn entry_string(e: Entry) -> Result<string, string> {
+    return ok(e.value)
+}
+
+pub fn entry_int(e: Entry) -> Result<int, string> {
     val n = parse_int(e.value)
     if !is_ok(n) {
         return err(format("{}: '{}' is not an integer ({})", e.key, e.value, e.source))
@@ -240,7 +246,7 @@ fn entry_int(e: Entry) -> Result<int, string> {
     return ok(unwrap(n))
 }
 
-fn entry_float(e: Entry) -> Result<float, string> {
+pub fn entry_float(e: Entry) -> Result<float, string> {
     val n = parse_float(e.value)
     if !is_ok(n) {
         return err(format("{}: '{}' is not a number ({})", e.key, e.value, e.source))
@@ -248,7 +254,7 @@ fn entry_float(e: Entry) -> Result<float, string> {
     return ok(unwrap(n))
 }
 
-fn entry_bool(e: Entry) -> Result<bool, string> {
+pub fn entry_bool(e: Entry) -> Result<bool, string> {
     val v = to_lower(e.value)
     if v == "true" {
         return ok(true)
@@ -259,9 +265,11 @@ fn entry_bool(e: Entry) -> Result<bool, string> {
     return err(format("{}: '{}' is not true or false ({})", e.key, e.value, e.source))
 }
 
+// Required typed getters. An optional key is `lookup` plus `entry_*`
+// (what #[derive(Properties)] generates for an Option<T> field).
 pub fn get_string(props: Properties, key: string) -> Result<string, string> {
     val e = require(props, key)?
-    return ok(e.value)
+    return entry_string(e)
 }
 
 pub fn get_int(props: Properties, key: string) -> Result<int, string> {
@@ -277,41 +285,6 @@ pub fn get_float(props: Properties, key: string) -> Result<float, string> {
 pub fn get_bool(props: Properties, key: string) -> Result<bool, string> {
     val e = require(props, key)?
     return entry_bool(e)
-}
-
-pub fn get_string_opt(props: Properties, key: string) -> Result<Option<string>, string> {
-    val found = resolved(props, key)?
-    if !Option.is_Some(found) {
-        return Option<string>.None
-    }
-    return Option<string>.Some(Option.unwrap_Some(found).value)
-}
-
-pub fn get_int_opt(props: Properties, key: string) -> Result<Option<int>, string> {
-    val found = resolved(props, key)?
-    if !Option.is_Some(found) {
-        return Option<int>.None
-    }
-    val n = entry_int(Option.unwrap_Some(found))?
-    return Option<int>.Some(n)
-}
-
-pub fn get_float_opt(props: Properties, key: string) -> Result<Option<float>, string> {
-    val found = resolved(props, key)?
-    if !Option.is_Some(found) {
-        return Option<float>.None
-    }
-    val n = entry_float(Option.unwrap_Some(found))?
-    return Option<float>.Some(n)
-}
-
-pub fn get_bool_opt(props: Properties, key: string) -> Result<Option<bool>, string> {
-    val found = resolved(props, key)?
-    if !Option.is_Some(found) {
-        return Option<bool>.None
-    }
-    val b = entry_bool(Option.unwrap_Some(found))?
-    return Option<bool>.Some(b)
 }
 
 // "server" + "port" -> "server.port"; an empty prefix leaves the name alone.
@@ -410,17 +383,14 @@ pub fn report(props: Properties, keys: [string]) -> string {
         sb_append(sb, format("active profile: {}\n", props.profile))
     }
     for i in 0..len(keys) {
-        val r = resolved(props, keys[i])
-        if is_ok(r) {
-            val found = unwrap(r)
-            if Option.is_Some(found) {
-                val e = Option.unwrap_Some(found)
-                var shown = mask_value(e.value)
-                if is_secret_key(e.key) {
-                    shown = "****"
-                }
-                sb_append(sb, format("{}={} ({})\n", e.key, shown, e.source))
+        val found = lookup(props, keys[i])
+        if Option.is_Some(found) {
+            val e = Option.unwrap_Some(found)
+            var shown = mask_value(e.value)
+            if is_secret_key(e.key) {
+                shown = "****"
             }
+            sb_append(sb, format("{}={} ({})\n", e.key, shown, e.source))
         }
     }
     return sb_to_string(sb)

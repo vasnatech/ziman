@@ -8,18 +8,17 @@ a:b
 ERR bad-int: '80x' is not an integer (t.properties:7)
 ERR bad-int: '80x' is not true or false (t.properties:7)
 ERR missing required property 'absent.key' (set it in a .properties file or the ABSENT_KEY environment variable)
-None
-Some(my app)
+false
+t.properties:4
 ERR d.properties:3: duplicate key 'a' (first defined at d.properties:1)
 ERR u.properties:1: key 'Server.Port' must be lowercase (use dotted kebab-case, e.g. server.idle-timeout-ms)
 ERR w.properties:1: expected key=value or a # comment, got 'just words'
 ERR e.properties:1: empty key
 ERR c.properties:2: placeholder cycle through 'a'
-ERR c.properties:3: placeholder 'missing' is neither a property nor an environment variable and has no default
-ERR c.properties:4: unterminated placeholder in '${x'
+ERR c.properties:1: placeholder 'missing' is neither a property nor an environment variable and has no default
+ERR c.properties:1: unterminated placeholder in '${x'
 true
 ERR unknown property 'server.port' (t.properties:3) -- did you mean 'server.prot'?
-SERVER_IDLE_TIMEOUT_MS
 port
 server.port
 active profile: (none)

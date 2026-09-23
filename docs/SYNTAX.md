@@ -1873,11 +1873,10 @@ val cfg = server_config_from_properties(props, "server")?
   profile file is an error. `parse(text, source)` is the pure form.
 - **Precedence.** environment (`server.port` -> `SERVER_PORT`) > profile
   file > base file.
-- **Placeholders.** `${name}` / `${name:default}` resolve against
+- **Placeholders.** (resolved once at load/parse, so a bad one fails startup) `${name}` / `${name:default}` resolve against
   properties, then the environment (exact name), then the default (which
   may contain `:`); unresolved or cyclic is an error.
-- **Getters.** `get_string/int/float/bool` (required) and `*_opt`
-  (`Result<Option<T>, string>`); errors name the key and its source, e.g.
+- **Getters.** `get_string/int/float/bool` (required); an optional key is `lookup(props, key)` (an `Option<Entry>`) plus `entry_int/float/bool/string`; errors name the key and its source, e.g.
   `server.port: '80x' is not an integer (application.properties:3)`.
 - **`check_unknown(props, known_keys)`** fails on keys not in the list,
   suggesting the closest known key; `profile.active` is always allowed.

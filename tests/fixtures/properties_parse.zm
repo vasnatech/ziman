@@ -21,22 +21,20 @@ fn main() {
     show<int>(properties.get_int(props, "bad-int"))
     show<bool>(properties.get_bool(props, "bad-int"))
     show<int>(properties.get_int(props, "absent.key"))
-    show<Option<int>>(properties.get_int_opt(props, "absent.key"))
-    show<Option<string>>(properties.get_string_opt(props, "server.name"))
+    print(Option.is_Some(properties.lookup(props, "absent.key")))
+    print(Option.unwrap_Some(properties.lookup(props, "server.name")).source)
 
     show<properties.Properties>(properties.parse("a=1\nb=2\na=3\n", "d.properties"))
     show<properties.Properties>(properties.parse("Server.Port=1\n", "u.properties"))
     show<properties.Properties>(properties.parse("just words\n", "w.properties"))
     show<properties.Properties>(properties.parse("=1\n", "e.properties"))
 
-    val cyc = unwrap(properties.parse("a=${b}\nb=${a}\nc=${missing}\nd=${x\n", "c.properties"))
-    show<string>(properties.get_string(cyc, "a"))
-    show<string>(properties.get_string(cyc, "c"))
-    show<string>(properties.get_string(cyc, "d"))
+    show<properties.Properties>(properties.parse("a=${b}\nb=${a}\n", "c.properties"))
+    show<properties.Properties>(properties.parse("c=${missing}\n", "c.properties"))
+    show<properties.Properties>(properties.parse("d=${x\n", "c.properties"))
 
     show<bool>(properties.check_unknown(props, ["server.port", "server.name", "flag", "ratio", "bad-int", "url", "fallback", "empty"]))
     show<bool>(properties.check_unknown(props, ["server.prot", "server.name", "flag", "ratio", "bad-int", "url", "fallback", "empty"]))
-    print(properties.env_name("server.idle-timeout-ms"))
     print(properties.key("", "port"))
     print(properties.key("server", "port"))
 
