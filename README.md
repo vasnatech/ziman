@@ -302,13 +302,12 @@ fn main() {
 }
 ```
 
-More in [examples/](examples/).
-
 ## Building and running
 
 ```sh
 make
-./ziman examples/hello.zm
+echo 'fn main() { print("hello, ziman") }' > hello.zm
+./ziman hello.zm
 ```
 
 ## Testing

@@ -1,6 +1,0 @@
-fn main() {
-    for i in 0..5 {
-        val squared = i * i
-        print(format("{} squared is {}", i, squared))
-    }
-}
