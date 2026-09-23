@@ -1,0 +1,18 @@
+fn main() {
+    print(last_index_of("a.b.c", "."))
+    print(last_index_of("a.b.c", "b"))
+    print(last_index_of("abc", "x"))
+    print(last_index_of("abc", ""))
+    print(last_index_of("ab", "abc"))
+    print(last_index_of("", "a"))
+    print(last_index_of("aaa", "aa"))
+    print(is_char_at("hello", 0, "h"))
+    print(is_char_at("hello", 1, "h"))
+    print(is_char_at("hello", 4, "o"))
+    print(is_char_at("hello", 5, "o"))
+    print(is_char_at("hello", -1, "h"))
+    print(is_char_at("hello", 2, "llo"))
+    print(is_char_at("hello", 3, "llo"))
+    print(is_char_at("hello", 5, ""))
+    print(is_char_at("", 0, "a"))
+}

@@ -2268,7 +2268,14 @@ a type error.
   `split_once(s, sep) -> Option<[string]>` — `Some([before, after])` split
   at the *first* `sep`, `None` if it is absent; for `key=value`-shaped text
   whose value may itself contain the separator (`split` would cut it up).
-- `index_of(s: string, needle: string, from: int) -> int` — the byte index
+- `last_index_of(s: string, needle: string) -> int` — the byte index of the
+  last `needle` (`len(s)` for an empty one), or `-1`.
+  `is_char_at(s: string, i: int, c: string) -> bool` — whether `c` appears
+  in `s` starting at `i`; `false` (never an error) when `i` is out of range
+  or `c` doesn't fit, so it replaces the guarded `p < len(s) &&
+  char_at(s, p) == "x"`. `c` is normally one character, but any text works
+  (a literal matched at a position).
+, needle: string, from: int) -> int` — the byte index
   of the first `needle` at or after `from` (`0 <= from <= len(s)`, a
   runtime error otherwise), or `-1`; an empty `needle` matches at `from`.
   `starts_with(s, prefix) -> bool` / `ends_with(s, suffix) -> bool`.

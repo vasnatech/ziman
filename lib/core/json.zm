@@ -81,7 +81,7 @@ struct ParseResult {
 
 fn expect_literal(s: string, pos: int, lit: string) -> Result<int, string> {
     val end = pos + len(lit)
-    if end > len(s) || substring(s, pos, end) != lit {
+    if !is_char_at(s, pos, lit) {
         return err(format("expected '{}' at position {}", lit, pos))
     }
     return ok(end)
@@ -96,7 +96,7 @@ fn parse_null(s: string, pos: int) -> Result<ParseResult, string> {
 }
 
 fn parse_bool(s: string, pos: int) -> Result<ParseResult, string> {
-    if char_at(s, pos) == "t" {
+    if is_char_at(s, pos, "t") {
         val r = expect_literal(s, pos, "true")
         if !is_ok(r) {
             return err(unwrap_err(r))
@@ -112,7 +112,7 @@ fn parse_bool(s: string, pos: int) -> Result<ParseResult, string> {
 
 fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
     var p = pos
-    if p < len(s) && char_at(s, p) == "-" {
+    if is_char_at(s, p, "-") {
         p = p + 1
     }
     val int_start = p
@@ -122,7 +122,7 @@ fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
     if p == int_start {
         return err(format("invalid number at position {}", pos))
     }
-    if p < len(s) && char_at(s, p) == "." {
+    if is_char_at(s, p, ".") {
         p = p + 1
         val frac_start = p
         while p < len(s) && is_digit(char_at(s, p)) {
@@ -132,9 +132,9 @@ fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
             return err(format("invalid number at position {}", pos))
         }
     }
-    if p < len(s) && (char_at(s, p) == "e" || char_at(s, p) == "E") {
+    if is_char_at(s, p, "e") || is_char_at(s, p, "E") {
         p = p + 1
-        if p < len(s) && (char_at(s, p) == "+" || char_at(s, p) == "-") {
+        if is_char_at(s, p, "+") || is_char_at(s, p, "-") {
             p = p + 1
         }
         val exp_start = p
@@ -207,7 +207,7 @@ fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
 fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
     var p = skip_ws(s, pos + 1) // skip '['
     val items = ab_new<Json>()
-    if p < len(s) && char_at(s, p) == "]" {
+    if is_char_at(s, p, "]") {
         return ok(ParseResult { value: Json.JArray(ab_to_array<Json>(items)), next_pos: p + 1 })
     }
     while true {
@@ -237,11 +237,11 @@ fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
 fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
     var p = skip_ws(s, pos + 1) // skip '{'
     val fields = ab_new<JField>()
-    if p < len(s) && char_at(s, p) == "}" {
+    if is_char_at(s, p, "}") {
         return ok(ParseResult { value: Json.JObject(ab_to_array<JField>(fields)), next_pos: p + 1 })
     }
     while true {
-        if p >= len(s) || char_at(s, p) != "\"" {
+        if !is_char_at(s, p, "\"") {
             return err(format("expected string key at position {}", p))
         }
         val key_result = parse_string(s, p)
@@ -251,7 +251,7 @@ fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
         val key_pr = unwrap(key_result)
         val key = Json.unwrap_JString(key_pr.value)
         p = skip_ws(s, key_pr.next_pos)
-        if p >= len(s) || char_at(s, p) != ":" {
+        if !is_char_at(s, p, ":") {
             return err(format("expected ':' at position {}", p))
         }
         p = skip_ws(s, p + 1)

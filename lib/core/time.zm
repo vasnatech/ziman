@@ -124,11 +124,7 @@ fn pad_left(n: int, width: int) -> string {
 // too, rather than erroring -- a narrow, documented scope cut, not a
 // trap that's been guarded against.
 fn matches_token(pattern: string, i: int, token: string) -> bool {
-    val tlen = len(token)
-    if i + tlen > len(pattern) {
-        return false
-    }
-    return substring(pattern, i, i + tlen) == token
+    return is_char_at(pattern, i, token)
 }
 
 // One part of a compiled `DateTimeFormat` -- either a known field or a
@@ -369,7 +365,7 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
         } else {
             val lit = DateTimePart.unwrap_Literal(part)
             val llen = len(lit)
-            if si + llen > len(s) || substring(s, si, si + llen) != lit {
+            if !is_char_at(s, si, lit) {
                 return err(format("'{}' does not match expected literal '{}' at position {}", s, lit, si))
             }
             si = si + llen

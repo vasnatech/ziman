@@ -239,12 +239,13 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
         return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ", sslmode)))
     }
 
-    val at = split(authority, "@")
+    // The last '@' separates userinfo from host, so a password may contain '@'.
+    val at = last_index_of(authority, "@")
     var userinfo = ""
     var hostport = authority
-    if len(at) > 1 {
-        userinfo = at[0]
-        hostport = at[len(at) - 1]
+    if at >= 0 {
+        userinfo = substring(authority, 0, at)
+        hostport = substring(authority, at + 1, len(authority))
     }
     var user = userinfo
     var password = ""

@@ -181,6 +181,26 @@ static Value native_index_of(Value *args, int argc, int line, int col) {
     return value_int(found ? (int64_t)(found - str) : -1);
 }
 
+static Value native_last_index_of(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *str = args[0].as.s, *needle = args[1].as.s;
+    size_t ls = strlen(str), ln = strlen(needle);
+    if (ln > ls) return value_int(-1);
+    for (size_t i = ls - ln + 1; i-- > 0; ) {
+        if (memcmp(str + i, needle, ln) == 0) return value_int((int64_t)i);
+    }
+    return value_int(-1);
+}
+
+static Value native_is_char_at(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *str = args[0].as.s, *c = args[2].as.s;
+    int64_t len = (int64_t)strlen(str), i = args[1].as.i;
+    size_t lc = strlen(c);
+    if (i < 0 || i > len || (size_t)(len - i) < lc) return value_bool(0);
+    return value_bool(memcmp(str + i, c, lc) == 0);
+}
+
 static Value native_starts_with(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     const char *str = args[0].as.s, *prefix = args[1].as.s;
@@ -668,6 +688,8 @@ void prelude_register(void) {
     native_register("substring", native_substring);
     native_register("split", native_split);
     native_register("index_of", native_index_of);
+    native_register("last_index_of", native_last_index_of);
+    native_register("is_char_at", native_is_char_at);
     native_register("char_at", native_char_at);
     native_register("starts_with", native_starts_with);
     native_register("ends_with", native_ends_with);
