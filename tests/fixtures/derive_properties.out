@@ -1,0 +1,11 @@
+80
+0.0.0.0
+30000
+true
+1.5
+false
+4
+[srv.port, srv.address, srv.idle-timeout-ms, srv.log-requests, srv.ratio, srv.banner, srv.workers]
+Err(unknown property 'srv.port' (d.properties:1))
+Err(srv.port: '80x' is not an integer (b.properties:1))
+Err(missing required property 'srv.address' (set it in a .properties file or the SRV_ADDRESS environment variable))

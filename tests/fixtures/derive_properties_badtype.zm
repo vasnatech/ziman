@@ -1,0 +1,10 @@
+use properties
+
+#[derive(Properties)]
+struct Bad {
+    tags: [string]
+}
+
+fn main() {
+    print(1)
+}

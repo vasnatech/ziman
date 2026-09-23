@@ -391,6 +391,13 @@ pub fn format_byte(x: byte, fmt: NumberFormat) -> string
 
 ```
 
+## `os`
+
+```
+pub fn getenv(name: string) -> Option<string>
+
+```
+
 ## `pg`
 
 ```
@@ -417,6 +424,52 @@ pub fn connect(url: string) -> Result<Channel<Request>, DbError>
 pub fn run(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError>
 
 pub fn close(requests: Channel<Request>)
+
+```
+
+## `properties`
+
+```
+pub struct Entry {
+    key: string
+    value: string
+    source: string
+}
+
+pub struct Properties {
+    entries: [Entry]
+    profile: string
+}
+
+pub fn env_name(key: string) -> string
+
+pub fn parse(text: string, source: string) -> Result<Properties, string>
+
+pub fn merge(base: Properties, over: Properties) -> Properties
+
+pub fn load(name: string) -> Result<Properties, string>
+
+pub fn get_string(props: Properties, key: string) -> Result<string, string>
+
+pub fn get_int(props: Properties, key: string) -> Result<int, string>
+
+pub fn get_float(props: Properties, key: string) -> Result<float, string>
+
+pub fn get_bool(props: Properties, key: string) -> Result<bool, string>
+
+pub fn get_string_opt(props: Properties, key: string) -> Result<Option<string>, string>
+
+pub fn get_int_opt(props: Properties, key: string) -> Result<Option<int>, string>
+
+pub fn get_float_opt(props: Properties, key: string) -> Result<Option<float>, string>
+
+pub fn get_bool_opt(props: Properties, key: string) -> Result<Option<bool>, string>
+
+pub fn key(prefix: string, name: string) -> string
+
+pub fn check_unknown(props: Properties, known: [string]) -> Result<bool, string>
+
+pub fn report(props: Properties, keys: [string]) -> string
 
 ```
 

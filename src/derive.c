@@ -552,6 +552,66 @@ static char *generate_struct_to_params(StructDecl *sd) {
 }
 
 /* ---------------------------------------------------------------------
+ * Properties derive: <name>_from_properties / <name>_keys, binding a
+ * struct to the keys under a prefix in a corelib/properties.zm
+ * Properties (field `idle_timeout_ms` <-> key `<prefix>.idle-timeout-ms`).
+ * The generated code calls qualified `properties.*`, so the consumer
+ * needs only `use properties`. Option<T> fields are optional keys;
+ * every other field is required.
+ * --------------------------------------------------------------------- */
+
+static char *snake_to_kebab(const char *name) {
+    size_t n = strlen(name);
+    char *out = malloc(n + 1);
+    memcpy(out, name, n + 1);
+    for (char *c = out; *c; c++) if (*c == '_') *c = '-';
+    return out;
+}
+
+static const char *properties_getter_suffix(Type t, int line, int col) {
+    switch (t.kind) {
+        case TY_INT: return "int";
+        case TY_FLOAT: return "float";
+        case TY_BOOL: return "bool";
+        case TY_STRING: return "string";
+        default:
+            ziman_error("syntax", line, col, "derive(Properties) supports only int, float, bool, string and Option of those, not '%s'", type_name(t));
+    }
+    return NULL;
+}
+
+static char *generate_struct_properties(StructDecl *sd) {
+    CodeBuf cb;
+    cb_init(&cb);
+    char *fn_name = pascal_to_snake(sd->name);
+    cb_appendf(&cb, "pub fn %s_from_properties(props: properties.Properties, prefix: string) -> Result<%s, string> {\n", fn_name, sd->name);
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        char *kebab = snake_to_kebab(f->name);
+        if (is_option_type_here(f->type)) {
+            const char *g = properties_getter_suffix(f->type.type_args.items[0], f->line, f->col);
+            cb_appendf(&cb, "    val field_%s = properties.get_%s_opt(props, properties.key(prefix, \"%s\"))?\n", f->name, g, kebab);
+        } else {
+            const char *g = properties_getter_suffix(f->type, f->line, f->col);
+            cb_appendf(&cb, "    val field_%s = properties.get_%s(props, properties.key(prefix, \"%s\"))?\n", f->name, g, kebab);
+        }
+    }
+    cb_appendf(&cb, "    return %s {\n", sd->name);
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        cb_appendf(&cb, "        %s: field_%s%s\n", f->name, f->name, i + 1 < sd->fields.count ? "," : "");
+    }
+    cb_appendf(&cb, "    }\n}\n\n");
+    cb_appendf(&cb, "pub fn %s_keys(prefix: string) -> [string] {\n    return [", fn_name);
+    for (int i = 0; i < sd->fields.count; i++) {
+        char *kebab = snake_to_kebab(sd->fields.items[i].name);
+        cb_appendf(&cb, "%sproperties.key(prefix, \"%s\")", i ? ", " : "", kebab);
+    }
+    cb_appendf(&cb, "]\n}\n\n");
+    return cb.data;
+}
+
+/* ---------------------------------------------------------------------
  * Driver: lex+parse the generated snippet and splice its functions in.
  * --------------------------------------------------------------------- */
 
@@ -575,13 +635,16 @@ void generate_derived_functions(Module *module) {
         for (int d = 0; d < sd->derive_count; d++) {
             int is_json = strcmp(sd->derives[d], "Json") == 0;
             int is_row = strcmp(sd->derives[d], "Row") == 0;
-            if (!is_json && !is_row) {
+            int is_props = strcmp(sd->derives[d], "Properties") == 0;
+            if (!is_json && !is_row && !is_props) {
                 ziman_error("syntax", sd->line, sd->col, "unknown derive target '%s' on struct '%s'", sd->derives[d], sd->name);
             }
             if (sd->type_params.count > 0) {
                 ziman_error("syntax", sd->line, sd->col, "derive(%s) does not support a generic struct yet ('%s')", sd->derives[d], sd->name);
             }
-            if (is_json) {
+            if (is_props) {
+                parse_and_splice(module, generate_struct_properties(sd));
+            } else if (is_json) {
                 parse_and_splice(module, generate_struct_to_json(sd));
                 parse_and_splice(module, generate_struct_from_json(sd));
             } else {
@@ -595,6 +658,9 @@ void generate_derived_functions(Module *module) {
         for (int d = 0; d < ed->derive_count; d++) {
             if (strcmp(ed->derives[d], "Row") == 0) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Row) does not support an enum ('%s') -- a SQL row is a struct", ed->name);
+            }
+            if (strcmp(ed->derives[d], "Properties") == 0) {
+                ziman_error("syntax", ed->line, ed->col, "derive(Properties) does not support an enum ('%s') -- configuration binds to a struct", ed->name);
             }
             if (strcmp(ed->derives[d], "Json") != 0) {
                 ziman_error("syntax", ed->line, ed->col, "unknown derive target '%s' on enum '%s'", ed->derives[d], ed->name);

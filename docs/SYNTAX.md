@@ -1842,6 +1842,55 @@ general-purpose crypto library**: not constant-time, no randomness (use
 `random.random_bytes`), no ciphers or public-key operations -- it grows
 only when a real consumer needs more.
 
+## Configuration (`properties`, `os`)
+
+`os.getenv(name) -> Option<string>` reads an environment variable
+(`Some("")` for set-but-empty, `None` for unset). The `properties` module
+builds Spring-Boot-style configuration on it.
+
+```
+use properties
+
+#[derive(Properties)]
+struct ServerConfig {
+    port: int
+    idle_timeout_ms: int
+    banner: Option<string>
+}
+
+val props = properties.load("application")?          // application.properties (+ -<profile>)
+val cfg = server_config_from_properties(props, "server")?
+```
+
+- **Format.** `key=value` lines, `#` comments only at line start, lowercase
+  dotted kebab-case keys, trimmed values, no quoting/escapes/inline
+  comments. A duplicate key, an uppercase key, or a line that is neither
+  blank, comment nor `key=value` is an error naming `file:line`.
+- **Loading.** `load("application")` reads `application.properties`
+  (required) from the working directory, then
+  `application-<profile>.properties` if a profile is active: env
+  `PROFILE_ACTIVE`, else `profile.active` in the base file. A missing
+  profile file is an error. `parse(text, source)` is the pure form.
+- **Precedence.** environment (`server.port` -> `SERVER_PORT`) > profile
+  file > base file.
+- **Placeholders.** `${name}` / `${name:default}` resolve against
+  properties, then the environment (exact name), then the default (which
+  may contain `:`); unresolved or cyclic is an error.
+- **Getters.** `get_string/int/float/bool` (required) and `*_opt`
+  (`Result<Option<T>, string>`); errors name the key and its source, e.g.
+  `server.port: '80x' is not an integer (application.properties:3)`.
+- **`check_unknown(props, known_keys)`** fails on keys not in the list,
+  suggesting the closest known key; `profile.active` is always allowed.
+- **`report(props, keys)`** returns the effective values with their
+  sources for a startup log; secrets (keys containing `password`,
+  `secret`, `token`, `key`, and credentials inside URLs) are masked.
+- **`#[derive(Properties)]`** on a struct of `int`/`float`/`bool`/`string`
+  (or `Option` of those) generates `<snake>_from_properties(props,
+  prefix) -> Result<T, string>` and `<snake>_keys(prefix) -> [string]`.
+  Field `idle_timeout_ms` binds to `<prefix>.idle-timeout-ms`; `Option<T>`
+  fields are optional keys, all others required. The consumer needs only
+  `use properties`.
+
 ## Number formatting and parsing
 
 The `number` core module (`use number.Name`) is shared formatting and

@@ -1,0 +1,31 @@
+use properties
+
+#[derive(Properties)]
+struct ServerConfig {
+    port: int
+    address: string
+    idle_timeout_ms: int
+    log_requests: bool
+    ratio: float
+    banner: Option<string>
+    workers: Option<int>
+}
+
+fn main() {
+    val props = unwrap(properties.parse("srv.port=80\nsrv.address=0.0.0.0\nsrv.idle-timeout-ms=30000\nsrv.log-requests=true\nsrv.ratio=1.5\nsrv.workers=4\nother.port=9\n", "d.properties"))
+    val cfg = unwrap(server_config_from_properties(props, "srv"))
+    print(cfg.port)
+    print(cfg.address)
+    print(cfg.idle_timeout_ms)
+    print(cfg.log_requests)
+    print(cfg.ratio)
+    print(Option.is_Some(cfg.banner))
+    print(Option.unwrap_Some(cfg.workers))
+    print(server_config_keys("srv"))
+    print(properties.check_unknown(props, ["other.port"]))
+
+    val bad = unwrap(properties.parse("srv.port=80x\n", "b.properties"))
+    print(server_config_from_properties(bad, "srv"))
+    val missing = unwrap(properties.parse("srv.port=80\n", "m.properties"))
+    print(server_config_from_properties(missing, "srv"))
+}
