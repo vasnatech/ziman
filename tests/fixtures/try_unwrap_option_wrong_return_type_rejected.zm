@@ -1,0 +1,8 @@
+fn foo(o: Option<int>) -> int {
+    val x = o?
+    return x
+}
+
+fn main() {
+    print(foo(Option<int>.Some(5)))
+}

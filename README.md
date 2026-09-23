@@ -208,8 +208,15 @@ explicitly for that one case). Unlike `Option<T>`, a `Result<T, E>`
 parameter can never be omitted — there's no natural "absent" state an
 outcome type could fall back to — so this sugar is only ever about
 what a supplied value looks like, never about leaving one out (see
-docs/DESIGN.md's "Result\<T, E\> bare-value auto-wrap" entry). The
-prelude isn't native-only, though: `Option<T>` (plus
+docs/DESIGN.md's "Result\<T, E\> bare-value auto-wrap" entry). A
+postfix `expr?` unwraps a `Result<T, E>`/`Option<T>` success value and
+keeps going, or immediately returns the failure from the enclosing
+function (`Ok`/`Some` → the value; `Err`/`None` → an early `return`) —
+only legal as a `val`/`var`'s entire initializer or as its own bare
+statement, never nested inside a larger expression, a deliberate v0
+scope cut that avoids needing the interpreter to unwind out of an
+arbitrary expression tree (see docs/DESIGN.md's "? operator" entry).
+The prelude isn't native-only, though: `Option<T>` (plus
 one helper, `option_unwrap_or`) lives there too, as ordinary Ziman
 source — an enum, not a hardcoded primitive like `Result<T, E>` is —
 merged bare into every program the same way the entry file's own

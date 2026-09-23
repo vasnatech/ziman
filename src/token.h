@@ -58,6 +58,7 @@ typedef enum {
     TOK_DOT,
     TOK_DOTDOT, /* .. -- only legal directly after 'in' in a for-loop header */
     TOK_ARROW, /* -> */
+    TOK_QUESTION, /* ? -- postfix Option<T>/Result<T, E> unwrap-or-propagate */
 
     /* operators */
     TOK_PLUS,

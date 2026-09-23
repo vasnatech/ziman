@@ -745,6 +745,65 @@ fn main() {
   reason — defaults exist to fill in for an omission, and this
   parameter is never omittable to begin with.
 
+### `?` — Option\<T\>/Result\<T, E\> unwrap-or-propagate
+
+```
+fn parse_two_numbers(a: string, b: string) -> Result<int, string> {
+    val x = parse_int(a)?
+    val y = parse_int(b)?
+    return x + y
+}
+
+fn first_positive_index(items: [int]) -> Option<int> {
+    var i = 0
+    while i < len(items) {
+        if items[i] > 0 {
+            return i
+        }
+        i = i + 1
+    }
+    return Option<int>.None
+}
+
+fn first_positive_doubled(items: [int]) -> Option<int> {
+    val idx = first_positive_index(items)?
+    return items[idx] * 2
+}
+```
+
+- **`expr?`, where `expr: Result<T, E>` or `expr: Option<T>`, unwraps
+  the success value and keeps going, or immediately returns the
+  failure from the *enclosing function* — no boilerplate `if is_err(r)
+  { return err_of(r) }`/`if Option.is_None(o) { return None }` needed.**
+  `Ok(v)`/`Some(v)` → the whole `expr?` evaluates to `v`; `Err(e)` →
+  immediately `return e` (auto-wrapped to `Err(e)` by the enclosing
+  function's own bare-value auto-wrap); `None` → immediately returns a
+  fresh `None`, of the *enclosing function's* own `Option<T2>` type.
+- **Only legal as the entire initializer of a `val`/`var` declaration,
+  or as its own bare statement** — never nested inside a larger
+  expression (`return str(foo()?)`, `bar(foo()?, baz()?)` are both
+  syntax errors). This is a deliberate v0 scope cut: full nesting would
+  need the interpreter to unwind out of an arbitrary expression tree,
+  not just a statement; restricting `?` to these two positions covers
+  the common case (unwrap once, keep using the value) with no new
+  interpreter control-flow mechanism.
+- **`Result<T, E>`'s `?` requires the enclosing function to return
+  `Result<T2, E>` with the *same* `E`** — propagating `Err(e)` means
+  handing the caller a real value, so the error type has to match
+  exactly; there's no `From`-based conversion the way Rust's `?` has
+  (Ziman has no trait/conversion system at all). `Option<T>`'s `?` only
+  requires the enclosing function to return `Option<T2>` for *any*
+  `T2` — `None` carries nothing to propagate, so the inner `T` and the
+  enclosing `T2` never need any relationship (`first_positive_doubled`
+  above works despite `first_positive_index` and it having unrelated
+  return types in general — here they're both `Option<int>`, but a
+  `Option<string>`-returning helper feeding an `Option<int>`-returning
+  caller would work exactly the same way).
+- **A bare `expr?` statement (no `val`/`var`) still fully checks and
+  propagates**, discarding the unwrapped value on success — useful for
+  a fallible step whose success value isn't needed, only whether it
+  succeeded.
+
 ## Generics
 
 **Structs, enums, and functions, cross-module included** — see

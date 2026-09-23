@@ -1750,6 +1750,83 @@ several languages rather than inheriting any one of them wholesale.
   return err_of(r) }` after every fallible call), a Rust-style `?`
   operator would be the honest, valuable version of that idea -- a
   separate, larger design, not attempted here.
+- **`?` -- the Rust-style propagation operator floated (and deferred)
+  right above, picked back up and actually built.** Confirmed `?`
+  itself was free to claim (grepped the lexer -- unused for anything
+  today), then worked through two real design questions before writing
+  any code.
+  **`?` over `try`.** Considered Zig's prefix `try expr` as the
+  syntactic alternative, since Zig's error unions need exactly the same
+  constraint Ziman's `?` would (no `From`-style conversion, the error
+  type has to already match) -- a stronger semantic fit than Rust's
+  `?`, which auto-converts via `From<E1> for E2` and would set the
+  wrong expectation. Went with `?` anyway once the user chose it
+  explicitly: it's the one both Option<T> and Result<T, E> can share
+  under a single glyph, matching the existing "punctuation over a new
+  keyword" preference (see "Variadic parameters" above) more closely
+  than a prefix keyword would. The false-friend risk (a model assuming
+  Rust's auto-conversion) is handled by the error message itself
+  spelling out the required `E` exactly, not by avoiding the symbol.
+  **Both `Result<T, E>` and `Option<T>`, from the start, not
+  Result-only with Option added later** -- the same "don't let the two
+  drift apart" reasoning that already drove extending bare-value
+  auto-wrap to all four context positions. `Option<T>`'s own version
+  needed no `E`-matching constraint at all, since `None` carries no
+  value to propagate: `opt?` only requires the enclosing function to
+  return `Option<T2>` for *any* `T2`, independent of the inner `T`.
+  **Nesting inside a larger expression (`return str(foo()?)`,
+  `bar(foo()?, baz()?)`) -- deliberately not supported, a real
+  architectural fork put to the user rather than picked silently.**
+  Ziman's tree-walking `eval_expr` always returns a plain `Value`; there
+  was no existing way for something buried inside an expression to
+  signal "abort, return early from the enclosing function" the way
+  `return`/`break`/`continue` already can, but only at the *statement*
+  level (`ExecResult`'s `CTRL_RETURN`, checked after each statement, not
+  after each sub-expression). Three ways to get full nesting were
+  weighed: (1) a C-level non-local jump (`setjmp`/`longjmp`) giving
+  `call_function` a real escape point, matching how some other
+  tree-walking interpreters implement error propagation, but a wholly
+  new category of control flow nothing else in this interpreter uses;
+  (2) threading an early-return signal through `eval_expr`'s own return
+  type and updating every call site (binary ops, call arguments, array
+  literals, struct fields, index expressions -- dozens of places), a
+  much larger and more error-prone surface for the same result; (3)
+  restricting `?` to statement top-level, avoiding both. Recommended
+  and chosen: (3). It gives up real expressiveness (an unwrap-then-
+  transform-then-return in one line needs two statements instead), but
+  needs no new interpreter control-flow primitive at all -- the
+  restriction is exactly what makes the desugaring below possible with
+  no changes to `eval_expr`'s signature or any of its many call sites.
+  **Mechanically**: `?` parses as an ordinary postfix operator (`parse_postfix`,
+  alongside `[index]`/`.field`), producing an `EXPR_TRY_UNWRAP` node
+  with no restriction on where it may appear syntactically -- legality
+  is enforced entirely in typecheck.c instead. `check_expr`'s own
+  `EXPR_TRY_UNWRAP` case always raises "'?' can only be used as a
+  val/var's entire initializer or as its own statement, not nested
+  inside another expression" -- reachable only when a `?` *wasn't*
+  already intercepted by one of the two legal statement forms, which
+  both check `init->kind == EXPR_TRY_UNWRAP` / `expr_stmt.expr->kind ==
+  EXPR_TRY_UNWRAP` themselves, before ever calling ordinary `check_expr`
+  on it. `check_try_unwrap` does the real work: checks `inner`'s type is
+  genuinely `Option<T>` or `Result<T, E>`, validates the enclosing
+  function's own `fn_return_type` against it (both constraints above),
+  and caches the *full, concrete* `fn_return_type` itself on the node
+  (`e->as.try_unwrap.propagated_type`) -- the interpreter has no other
+  way to learn the enclosing function's own return type at the point it
+  needs to build a propagated `None`/`Err` value, so type-checking hands
+  it over once, up front, the same "resolve once, the interpreter just
+  trusts it" pattern used everywhere else this session. At runtime,
+  `eval_try_unwrap` (interpreter.c) evaluates `inner` once, re-derives
+  which of the two it turned out to be from the value's own runtime
+  shape (a `ResultObj`'s `is_ok` vs. an `EnumObj`'s `variant_name`,
+  exactly like `is_ok`/`Option.is_Some` already do), and either returns
+  the unwrapped value or builds an `ExecResult` with `CTRL_RETURN` --
+  the *exact* mechanism an ordinary `return` already produces, reused
+  as-is, requiring zero changes to how a block/loop/if already
+  recognizes and propagates an early return once it's produced. Verified
+  this propagates correctly through nested control flow (a `?` inside an
+  `if` inside a `while`), not just directly inside a function's top-level
+  body, before trusting it.
 
 ## Deliberately deferred (not v0)
 

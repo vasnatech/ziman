@@ -1,0 +1,7 @@
+fn foo(a: string) -> Result<int, string> {
+    return parse_int(a)? + 1
+}
+
+fn main() {
+    print(foo("5"))
+}

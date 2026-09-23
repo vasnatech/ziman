@@ -348,6 +348,9 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
             for (int i = 0; i < e->as.enum_access.type_args.count; i++) self_qualify_type(&e->as.enum_access.type_args.items[i], ctx);
             for (int i = 0; i < e->as.enum_access.args.count; i++) self_qualify_expr(e->as.enum_access.args.items[i], ctx);
             break;
+        case EXPR_TRY_UNWRAP:
+            self_qualify_expr(e->as.try_unwrap.inner, ctx);
+            break;
     }
 }
 
@@ -842,6 +845,9 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
             }
             for (int i = 0; i < e->as.enum_access.type_args.count; i++) resolve_type_refs(&e->as.enum_access.type_args.items[i], ctx, e->line, e->col);
             for (int i = 0; i < e->as.enum_access.args.count; i++) resolve_expr_refs(e->as.enum_access.args.items[i], ctx);
+            break;
+        case EXPR_TRY_UNWRAP:
+            resolve_expr_refs(e->as.try_unwrap.inner, ctx);
             break;
     }
 }

@@ -749,6 +749,14 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         }
         case EXPR_ENUM_ACCESS:
             return eval_enum_access(module, env, e);
+        case EXPR_TRY_UNWRAP:
+            /* Unreachable in a well-typed program: check_expr's own
+             * EXPR_TRY_UNWRAP case (typecheck.c) already rejects any
+             * `?` found outside the two statement forms that intercept
+             * it directly, before ever calling eval_expr on it (see
+             * exec_stmt's own STMT_VAL/STMT_VAR/STMT_EXPR cases below). */
+            ziman_error("runtime", e->line, e->col, "internal error: '?' reached eval_expr directly");
+            return value_int(0);
     }
     ziman_error("runtime", e->line, e->col, "internal error: unhandled expression kind");
     return value_int(0);
@@ -757,6 +765,45 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
 static ExecResult no_ctrl(void) {
     ExecResult r = {CTRL_NONE, value_int(0)};
     return r;
+}
+
+/* Evaluates a `?`-suffixed expression's own operand exactly once,
+ * deciding between "continue with the unwrapped value" and "propagate
+ * an early return" -- shared by STMT_VAL/STMT_VAR (which bind the
+ * unwrapped value to a name) and STMT_EXPR (a bare `expr?`, which
+ * discards it). `e` is always exactly an EXPR_TRY_UNWRAP node;
+ * check_try_unwrap (typecheck.c) already proved `e->as.try_unwrap.inner`'s
+ * type is genuinely Option<T> or Result<T, E>, and that the enclosing
+ * function's own return type is compatible, so no re-validation happens
+ * here -- only re-deriving, cheaply, which of the two `inner` turned out
+ * to be from the runtime value itself (a Result's ResultObj vs. an
+ * Option's EnumObj), the same way is_ok/Option.is_Some already do.
+ * Returns 1 and sets `*unwrapped` on the continue path (`Ok`/`Some`);
+ * returns 0 and sets `*propagated` (always CTRL_RETURN, built fresh
+ * from `e->as.try_unwrap.propagated_type` -- the enclosing function's
+ * own concrete return type, cached at type-check time since nothing
+ * here has any other way to learn it) on the propagate path
+ * (`Err`/`None`). */
+static int eval_try_unwrap(Module *module, Env *env, Expr *e, Value *unwrapped, ExecResult *propagated) {
+    Value v = eval_expr(module, env, e->as.try_unwrap.inner);
+    Type propagated_type = e->as.try_unwrap.propagated_type;
+    if (v.type.kind == TY_RESULT) {
+        if (v.as.res->is_ok) {
+            *unwrapped = v.as.res->value;
+            return 1;
+        }
+        propagated->kind = CTRL_RETURN;
+        propagated->value = value_result(propagated_type, result_obj_new(0, v.as.res->value));
+        return 0;
+    }
+    /* Option<T> -- the only other type check_try_unwrap ever allows. */
+    if (strcmp(v.as.en->variant_name, "Some") == 0) {
+        *unwrapped = v.as.en->payload;
+        return 1;
+    }
+    propagated->kind = CTRL_RETURN;
+    propagated->value = value_enum(propagated_type, enum_obj_new("Option", "None", 0, value_int(0)));
+    return 0;
 }
 
 /* Runs `block`'s statements directly in `scope` (no further scope nesting) --
@@ -782,6 +829,16 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
     switch (s->kind) {
         case STMT_VAL:
         case STMT_VAR: {
+            if (s->as.decl.init->kind == EXPR_TRY_UNWRAP) {
+                Value unwrapped;
+                ExecResult propagated;
+                if (!eval_try_unwrap(module, env, s->as.decl.init, &unwrapped, &propagated)) {
+                    return propagated;
+                }
+                Type t = s->as.decl.has_declared_type ? s->as.decl.declared_type : unwrapped.type;
+                env_define(env, s->as.decl.name, t, s->kind == STMT_VAR, unwrapped);
+                return no_ctrl();
+            }
             Value v = eval_expr(module, env, s->as.decl.init);
             Type t = s->as.decl.has_declared_type ? s->as.decl.declared_type : v.type;
             env_define(env, s->as.decl.name, t, s->kind == STMT_VAR, v);
@@ -884,6 +941,14 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             return r;
         }
         case STMT_EXPR: {
+            if (s->as.expr_stmt.expr->kind == EXPR_TRY_UNWRAP) {
+                Value unwrapped;
+                ExecResult propagated;
+                if (!eval_try_unwrap(module, env, s->as.expr_stmt.expr, &unwrapped, &propagated)) {
+                    return propagated;
+                }
+                return no_ctrl();
+            }
             eval_expr(module, env, s->as.expr_stmt.expr);
             return no_ctrl();
         }

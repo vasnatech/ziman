@@ -1,0 +1,70 @@
+// Postfix `?` on Result<T, E> and Option<T> -- restricted to appearing
+// only as a val/var's entire initializer or as its own bare statement.
+fn parse_two_numbers(a: string, b: string) -> Result<int, string> {
+    val x = parse_int(a)?
+    val y = parse_int(b)?
+    return x + y
+}
+
+fn first_positive_index(items: [int]) -> Option<int> {
+    var i = 0
+    while i < len(items) {
+        if items[i] > 0 {
+            return i
+        }
+        i = i + 1
+    }
+    return Option<int>.None
+}
+
+fn first_positive_doubled(items: [int]) -> Option<int> {
+    val idx = first_positive_index(items)?
+    return items[idx] * 2
+}
+
+// A generic function's Option<T> return type -- T of the operand (here
+// string) doesn't need to match T2 (here int), since None carries no
+// payload to propagate.
+fn maybe_name(present: bool) -> Option<string> {
+    if present {
+        return "Ada"
+    }
+    return Option<string>.None
+}
+
+fn name_length(present: bool) -> Option<int> {
+    val name = maybe_name(present)?
+    return len(name)
+}
+
+// A bare `expr?` statement -- propagates on failure, discards the
+// unwrapped value on success and keeps going.
+fn step1(ok: bool) -> Result<int, string> {
+    if ok {
+        return 1
+    }
+    return "step1 failed"
+}
+
+fn run(ok: bool) -> Result<int, string> {
+    step1(ok)?
+    return 99
+}
+
+fn main() {
+    print(unwrap(parse_two_numbers("3", "4")))
+    print(is_ok(parse_two_numbers("3", "x")))
+    print(unwrap_err(parse_two_numbers("3", "x")))
+    // Short-circuits on the *first* failing `?`.
+    print(is_ok(parse_two_numbers("x", "4")))
+
+    print(Option.unwrap_Some(first_positive_doubled([-3, -1, 4, 5])))
+    print(Option.is_Some(first_positive_doubled([-3, -1, -4])))
+
+    print(Option.unwrap_Some(name_length(true)))
+    print(Option.is_Some(name_length(false)))
+
+    print(unwrap(run(true)))
+    print(is_ok(run(false)))
+    print(unwrap_err(run(false)))
+}

@@ -1358,6 +1358,15 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
         case EXPR_FIELD_ACCESS: t = check_field_access(module, env, e); break;
         case EXPR_WITH: t = check_with_expr(module, env, e); break;
         case EXPR_ENUM_ACCESS: t = check_enum_access(module, env, e); break;
+        case EXPR_TRY_UNWRAP:
+            /* Reachable only when a `?` wasn't already intercepted by
+             * one of the two statement forms it's legal in (a val/var's
+             * entire initializer, or its own bare statement) -- see
+             * check_try_unwrap and its two callers. */
+            ziman_error("type", e->line, e->col,
+                        "'?' can only be used as a val/var's entire initializer or as its own statement, not nested inside another expression");
+            t = type_scalar(TY_VOID);
+            break;
         default:
             ziman_error("type", e->line, e->col, "internal error: unhandled expression kind");
             t = type_scalar(TY_VOID);
@@ -1391,6 +1400,59 @@ static int stmt_always_returns(Stmt *s) {
 
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop);
 
+/* Type-checks `e` (always exactly an EXPR_TRY_UNWRAP node -- `inner?`)
+ * against the enclosing function's own `fn_return_type`. The only two
+ * legal call sites are STMT_VAL/STMT_VAR (binding the unwrapped value
+ * to a name) and STMT_EXPR (a bare `expr?`, discarding it); any other
+ * position instead reaches check_expr's own EXPR_TRY_UNWRAP case,
+ * which always errors -- this function is never reached from there.
+ *
+ * `inner`'s type must be exactly `Option<T>` or `Result<T, E>`.
+ *   - Option<T>: `fn_return_type` must be `Option<T2>` for *any* T2 --
+ *     `None` carries no value to propagate, so T and T2 need no
+ *     relationship at all.
+ *   - Result<T, E>: `fn_return_type` must be `Result<T2, E>` with the
+ *     *same* E -- `Err(e)` carries a real value that has to match.
+ *
+ * Returns the unwrapped type (T) -- what a val/var binds to, or the
+ * (discarded) type of a bare `expr?` statement. Also fills in
+ * `e->as.try_unwrap.propagated_type` with `fn_return_type` itself,
+ * cached here because the interpreter needs the full, concrete
+ * propagated type to build the runtime None/Err value and has no other
+ * way to learn it (NativeFn-style context-passing doesn't apply to an
+ * ordinary AST node) -- see ast.h's own comment on that field. */
+static Type check_try_unwrap(Module *module, Env *env, Expr *e, Type fn_return_type) {
+    Expr *inner = e->as.try_unwrap.inner;
+    Type inner_type = check_expr(module, env, inner);
+    require_not_void(inner, "with '?'");
+
+    if (is_option_type(inner_type)) {
+        if (!is_option_type(fn_return_type)) {
+            ziman_error("type", e->line, e->col,
+                        "'?' on an Option<T> value requires the enclosing function to return Option<...>, found %s",
+                        type_name(fn_return_type));
+        }
+        e->as.try_unwrap.propagated_type = fn_return_type;
+        Type t = option_elem_type(inner_type);
+        e->resolved_type = t;
+        return t;
+    }
+    if (inner_type.kind == TY_RESULT) {
+        if (fn_return_type.kind != TY_RESULT || !type_equals(*inner_type.elem_err, *fn_return_type.elem_err)) {
+            ziman_error("type", e->line, e->col,
+                        "'?' on a Result<T, E> value requires the enclosing function to return Result<..., %s>, found %s",
+                        type_name(*inner_type.elem_err), type_name(fn_return_type));
+        }
+        e->as.try_unwrap.propagated_type = fn_return_type;
+        Type t = *inner_type.elem;
+        e->resolved_type = t;
+        return t;
+    }
+    ziman_error("type", inner->line, inner->col,
+                "'?' can only be used on an Option<T> or Result<T, E> value, found %s", type_name(inner_type));
+    return type_scalar(TY_VOID); /* unreachable */
+}
+
 /* Runs `block`'s statements directly in `scope` (no further scope nesting) --
  * shared by check_block (which makes its own fresh scope first) and
  * STMT_FOR (which needs its loop binder(s) defined in that same scope,
@@ -1419,11 +1481,31 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             if (s->as.decl.has_declared_type) {
                 check_type_well_formed(module, s->as.decl.declared_type, s->line, s->col);
             }
-            /* An empty array literal (`[]`) has no elements to infer a type
-             * from -- it's only legal when a declared type gives its
-             * element type explicitly, checked here rather than inside the
-             * generic check_expr, which has no such context to work from. */
-            if (init->kind == EXPR_ARRAY_LIT && init->as.array_lit.elements.count == 0) {
+            /* `val|var NAME = inner?` -- checked directly against
+             * `fn_return_type`, not the declared type (there usually
+             * isn't one; the unwrapped type is already fully determined
+             * by `inner`'s own Option<T>/Result<T, E> type, with
+             * nothing left to infer or disambiguate). A declared type
+             * annotation is still allowed, and still checked against
+             * the unwrapped type, exactly like the plain fallback below
+             * already does for an ordinary initializer. */
+            if (init->kind == EXPR_TRY_UNWRAP) {
+                Type unwrapped = check_try_unwrap(module, env, init, fn_return_type);
+                declared = unwrapped;
+                if (s->as.decl.has_declared_type) {
+                    declared = s->as.decl.declared_type;
+                    if (!type_equals(declared, unwrapped)) {
+                        ziman_error("type", init->line, init->col,
+                                    "cannot initialize '%s' of declared type %s with a value of type %s",
+                                    s->as.decl.name, type_name(declared), type_name(unwrapped));
+                    }
+                }
+            } else if (init->kind == EXPR_ARRAY_LIT && init->as.array_lit.elements.count == 0) {
+                /* An empty array literal (`[]`) has no elements to infer
+                 * a type from -- it's only legal when a declared type
+                 * gives its element type explicitly, checked here
+                 * rather than inside the generic check_expr, which has
+                 * no such context to work from. */
                 if (!s->as.decl.has_declared_type) {
                     ziman_error("type", init->line, init->col,
                                 "cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])");
@@ -1607,7 +1689,14 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             break;
         }
         case STMT_EXPR: {
-            check_expr(module, env, s->as.expr_stmt.expr);
+            /* A bare `inner?` statement -- checked the same way as
+             * val/var's own `= inner?` form, just with the unwrapped
+             * value discarded rather than bound to a name. */
+            if (s->as.expr_stmt.expr->kind == EXPR_TRY_UNWRAP) {
+                check_try_unwrap(module, env, s->as.expr_stmt.expr, fn_return_type);
+            } else {
+                check_expr(module, env, s->as.expr_stmt.expr);
+            }
             break;
         }
         case STMT_BLOCK:

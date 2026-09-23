@@ -1,0 +1,8 @@
+fn foo(a: int) -> Result<int, string> {
+    val x = a?
+    return x
+}
+
+fn main() {
+    print(foo(5))
+}

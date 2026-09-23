@@ -602,6 +602,20 @@ static Expr *parse_postfix(Parser *p) {
             access->as.field_access.base = e;
             access->as.field_access.field_name = dup_token_text(field_tok);
             e = access;
+        } else if (check(p, TOK_QUESTION)) {
+            /* `inner?` -- parsed here, as an ordinary postfix operator,
+             * with no restriction on where it may appear syntactically.
+             * Legality (only as a val/var's entire initializer or as
+             * its own bare statement) is enforced in typecheck.c
+             * instead -- check_expr's own EXPR_TRY_UNWRAP case raises a
+             * clear, dedicated error for any other position, once
+             * type-checking actually reaches this node (which only
+             * happens when it *wasn't* already intercepted by one of
+             * those two statement forms). */
+            Token *q = advance_tok(p);
+            Expr *try_unwrap = expr_new(EXPR_TRY_UNWRAP, q->line, q->col);
+            try_unwrap->as.try_unwrap.inner = e;
+            e = try_unwrap;
         } else {
             break;
         }
@@ -1157,6 +1171,9 @@ static void reclassify_type_params_in_expr(Expr *e, TypeParamList *type_params) 
         case EXPR_ENUM_ACCESS:
             for (int i = 0; i < e->as.enum_access.type_args.count; i++) reclassify_type_params(&e->as.enum_access.type_args.items[i], type_params);
             for (int i = 0; i < e->as.enum_access.args.count; i++) reclassify_type_params_in_expr(e->as.enum_access.args.items[i], type_params);
+            break;
+        case EXPR_TRY_UNWRAP:
+            reclassify_type_params_in_expr(e->as.try_unwrap.inner, type_params);
             break;
     }
 }

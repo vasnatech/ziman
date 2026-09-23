@@ -1,0 +1,8 @@
+fn foo(a: string) -> Result<int, int> {
+    val x = parse_int(a)?
+    return x
+}
+
+fn main() {
+    print(foo("5"))
+}

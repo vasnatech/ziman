@@ -1,0 +1,23 @@
+// `?`'s early return propagates through nested control flow (while/if)
+// exactly like an ordinary `return` already does -- both use the same
+// CTRL_RETURN mechanism (see interpreter.c's eval_try_unwrap).
+fn parse_all(strs: [string]) -> Result<int, string> {
+    var total = 0
+    var i = 0
+    while i < len(strs) {
+        if i == 2 {
+            val bad = parse_int(strs[i])?
+            total = total + bad
+        } else {
+            total = total + unwrap(parse_int(strs[i]))
+        }
+        i = i + 1
+    }
+    return total
+}
+
+fn main() {
+    print(unwrap(parse_all(["1", "2", "3"])))
+    print(is_ok(parse_all(["1", "2", "x"])))
+    print(unwrap_err(parse_all(["1", "2", "x"])))
+}

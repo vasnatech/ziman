@@ -279,6 +279,7 @@ TokenList lex(const char *source) {
             case ']': advance(&lx); emit(&lx, TOK_RBRACKET, start, 1, line, col); continue;
             case ',': advance(&lx); emit(&lx, TOK_COMMA, start, 1, line, col); continue;
             case ':': advance(&lx); emit(&lx, TOK_COLON, start, 1, line, col); continue;
+            case '?': advance(&lx); emit(&lx, TOK_QUESTION, start, 1, line, col); continue;
             case '.':
                 advance(&lx);
                 if (peek(&lx) == '.') { advance(&lx); emit(&lx, TOK_DOTDOT, start, 2, line, col); }

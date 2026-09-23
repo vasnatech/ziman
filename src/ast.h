@@ -137,6 +137,7 @@ typedef enum {
     EXPR_FIELD_ACCESS,
     EXPR_WITH,
     EXPR_ENUM_ACCESS,
+    EXPR_TRY_UNWRAP,
 } ExprKind;
 
 typedef struct Expr Expr;
@@ -226,6 +227,26 @@ struct Expr {
          * concrete type straight off the argument's own already-known
          * type instead (see check_enum_access in typecheck.c). */
         struct { char *enum_name; char *member_name; ExprList args; int has_parens; TypeList type_args; } enum_access;
+        /* `inner?` -- postfix Option<T>/Result<T, E> unwrap-or-propagate
+         * (see docs/DESIGN.md's "? operator" entry). `inner`'s own type
+         * decides which of the two this is at type-check time; nothing
+         * here records that choice, since the interpreter re-derives it
+         * cheaply from the runtime value itself (an Option's EnumObj vs.
+         * a Result's ResultObj, exactly like is_ok/Option.is_Some
+         * already do). `propagated_type` is check_try_unwrap's one real
+         * output beyond `inner`'s own checking: the *enclosing
+         * function's* full, concrete Option<T2>/Result<T2, E> return
+         * type, filled in once at type-check time and reused verbatim
+         * to build the propagated None/Err value at runtime -- since
+         * NativeFn-style plumbing to hand the interpreter that context
+         * some other way doesn't exist, and doesn't need to: it's
+         * already known, and already static, right here. Only ever
+         * legal as the entire initializer of a `val`/`var` or as its
+         * own bare statement, never nested inside another expression --
+         * enforced by check_expr's own EXPR_TRY_UNWRAP case, which is
+         * only ever reached when it wasn't already intercepted by one
+         * of those two statement forms. */
+        struct { Expr *inner; Type propagated_type; } try_unwrap;
     } as;
 };
 
