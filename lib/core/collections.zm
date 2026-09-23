@@ -2,7 +2,7 @@
 // Ziman, no native/C code -- the concrete payoff of the generics work
 // (see ../../docs/ROADMAP.md's "Generics" and "Collections module"
 // entries). `Option<T>` used to live here too; moved to
-// lib/core/prelude.zm since it's needed everywhere HashMap/HashSet
+// lib/prelude.zm since it's needed everywhere HashMap/HashSet
 // aren't, so it's now always available bare, no `use` needed -- see
 // docs/DESIGN.md's "Prelude" entry. `Box<T>` also used to live here --
 // removed outright (not moved anywhere) since nothing ever actually

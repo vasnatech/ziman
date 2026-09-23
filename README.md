@@ -200,7 +200,7 @@ anywhere else in the language). Everything else that has exactly one
 fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
 `parse_decimal`, `floor`, `ceil`, `round`, `decimal_round`, `concat`,
 `substring`, `split`, `trim`, `to_upper`, `to_lower`, `join` — instead
-lives in an auto-imported "prelude" module (`lib/core/prelude.zm`), each
+lives in an auto-imported "prelude" module (`lib/prelude.zm`), each
 an ordinary `native fn` using the same mechanism the `io` module uses to
 call into C. `join(prefix: Option<string>, suffix: Option<string>,
 separator: Option<string>, pieces: string...) -> string` is also the
@@ -276,7 +276,7 @@ missing capability first: `native fn` couldn't take type parameters at
 all before this (a parser gap, not a deliberate restriction — the type
 checker's own generic-instantiation logic never special-cased native
 functions once the syntax was accepted). Unlike every other bundled
-module (`collections`, `io`, ...), `lib/core/prelude.zm` is never
+module (`collections`, `io`, ...), `lib/prelude.zm` is never
 reachable through `use` at all — everything it declares is already
 unqualified everywhere, so
 there'd be nothing to gain and a redundant path to create. See

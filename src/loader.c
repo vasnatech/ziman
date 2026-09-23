@@ -1136,7 +1136,7 @@ Module *load_module_graph(const char *entry_path) {
      * -- is merged into every program the same way the entry module's
      * own declarations are: bare names, no self-qualify pass, no `use`
      * required. Structs/enums/vals, not just functions, since
-     * lib/core/prelude.zm carries ordinary Ziman declarations
+     * lib/prelude.zm carries ordinary Ziman declarations
      * (`Option<T>`) alongside native fn signatures now, not native-only
      * the way it used to be. Merged first, ahead of the entry module and
      * every dependency, so a global val there (none yet, but the

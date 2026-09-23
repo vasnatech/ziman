@@ -1,6 +1,6 @@
 // No `use` statement anywhere in this file -- Option<T>/Some/None/
 // is_Some/unwrap_Some/option_unwrap_or all come from the prelude
-// (lib/core/prelude.zm), bare and unqualified, the same way print/str/
+// (lib/prelude.zm), bare and unqualified, the same way print/str/
 // parse_int already are.
 
 fn find_positive(x: int) -> Option<int> {

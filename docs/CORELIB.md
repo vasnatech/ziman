@@ -12,7 +12,7 @@ for why each module is shaped the way it is.
 docs/SYNTAX.md's "Modules" -- "Bundled core module"); a per-name import
 (`use <module>.Name`) binds one item bare instead of qualified.
 
-One exception, not listed below: `lib/core/prelude.zm` -- unlike every
+One exception, not listed below: `lib/prelude.zm` -- unlike every
 module here, it's never `use`-able at all (see its own header comment
 and docs/DESIGN.md's "Prelude" entry), since everything it declares
 (`Option<T>`, plus a handful of native functions) is already bare and

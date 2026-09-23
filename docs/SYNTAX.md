@@ -1200,7 +1200,7 @@ fn main() {
   every other respect — `use io`, always `io.read_file`, never a bare
   unqualified name the way the prelude's declarations are (though a
   per-name import, above, can still bind one bare on purpose). The
-  prelude (`lib/core/prelude.zm`) is a deliberate exception to "every
+  prelude (`lib/prelude.zm`) is a deliberate exception to "every
   module needs `use`" for exactly this reason: `Option<T>` (and its one
   helper, `option_unwrap_or`) lives there, not in `collections`, and a
   handful of native functions (`parse_int`, `concat`, `split`, ...) live

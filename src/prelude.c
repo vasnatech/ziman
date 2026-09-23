@@ -15,9 +15,9 @@
 #include "native.h"
 #include "value.h"
 
-/* Generated from lib/core/prelude.zm by the same Makefile rule every
+/* Generated from lib/prelude.zm by the same Makefile rule every
  * other bundled module's header goes through -- real .zm source, never
- * a hand-escaped C string literal (see lib/core/prelude.zm's own header
+ * a hand-escaped C string literal (see lib/prelude.zm's own header
  * comment for why this file, uniquely among corelib's modules, is never
  * registered in corelib.c's CORE_MODULES table). */
 #include "prelude_source.h"
@@ -346,7 +346,7 @@ static Value native_join(Value *args, int argc, int line, int col) {
 /* --- StringBuilder -------------------------------------------------
  * A mutable string-accumulation handle, backed entirely here, native-
  * side -- Ziman code never sees anything but an opaque `handle: int`
- * (see lib/core/prelude.zm's StringBuilder struct). Each handle indexes
+ * (see lib/prelude.zm's StringBuilder struct). Each handle indexes
  * into `g_sb_table`, an array of *pointers* to individually heap-
  * allocated StringBuilderBuf objects: growing the table (realloc'ing
  * the array of pointers) never invalidates a StringBuilderBuf a caller

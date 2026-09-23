@@ -26,12 +26,12 @@ $(BIN): $(OBJ)
 # lib/core or lib/db module does, but it deliberately has NO matching line in
 # corelib.c's CORE_MODULES table -- src/prelude.c reads its generated
 # header directly, and it's merged bare into every program by
-# loader.c's load_module_graph (see lib/core/prelude.zm's own header
+# loader.c's load_module_graph (see lib/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
 CORELIB_MODULES := collections io random uuid clock time json number sql sqlite db bytes net crypto pg http os properties prelude
 # Bundled modules live in lib/core (general-purpose) and lib/db (SQL
 # drivers); `use` names are flat either way.
-vpath %.zm lib/core lib/db
+vpath %.zm lib lib/core lib/db
 
 CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 

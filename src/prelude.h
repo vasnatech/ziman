@@ -1,7 +1,7 @@
 #ifndef ZIMAN_PRELUDE_H
 #define ZIMAN_PRELUDE_H
 
-/* Ziman's prelude: everything declared in lib/core/prelude.zm -- native
+/* Ziman's prelude: everything declared in lib/prelude.zm -- native
  * functions, but also ordinary Ziman types/functions/vals -- is always
  * available, bare and unqualified, in every program, no `use` needed,
  * unlike every other module (`io`, which needs `use io` and
@@ -17,7 +17,7 @@
  * every time a new scalar type shows up. `Option<T>` lives here for the
  * same "always needed, never worth a `use`" reason, despite being
  * ordinary Ziman source (an enum + one helper function) rather than
- * native code -- see lib/core/prelude.zm's own header comment for why
+ * native code -- see lib/prelude.zm's own header comment for why
  * this is the one file in corelib that's never `use`-able, and
  * docs/DESIGN.md's "Prelude" entry for the fuller reasoning.
  *

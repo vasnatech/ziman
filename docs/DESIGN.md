@@ -896,7 +896,7 @@ several languages rather than inheriting any one of them wholesale.
   reference in a type position, exactly the case nothing before this
   had ever exercised.
   Deliberately *not* made `use`-able under the name `prelude`, despite
-  `lib/core/prelude.zm` sitting in the same directory as every module
+  `lib/prelude.zm` sitting in the same directory as every module
   that is: `lib/core/%.zm` doubles as `corelib.c`'s `use`-fallback lookup
   table, and adding `prelude` to it would let `use prelude` parse the
   file a *second* time under a redundant qualifier (`prelude.Option`
