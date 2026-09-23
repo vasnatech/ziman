@@ -219,7 +219,7 @@ pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string
 
 pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string>
 
-pub fn localdate_parse(s: string) -> Result<LocalDate, string>
+pub fn localdate_from_string(s: string) -> Result<LocalDate, string>
 
 pub fn localdate_to_string(d: LocalDate) -> string
 
@@ -248,7 +248,7 @@ pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string
 
 pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string>
 
-pub fn localtime_parse(s: string) -> Result<LocalTime, string>
+pub fn localtime_from_string(s: string) -> Result<LocalTime, string>
 
 pub fn localtime_to_string(t: LocalTime) -> string
 
@@ -271,7 +271,7 @@ pub fn duration_compare(a: Duration, b: Duration) -> int
 
 pub fn duration_to_string(d: Duration) -> string
 
-pub fn duration_parse(s: string) -> Result<Duration, string>
+pub fn duration_from_string(s: string) -> Result<Duration, string>
 
 pub struct LocalDateTime {
     date: LocalDate
@@ -302,7 +302,7 @@ pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
 
 pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string>
 
-pub fn localdatetime_parse(s: string) -> Result<LocalDateTime, string>
+pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string>
 
 pub fn localdatetime_to_string(dt: LocalDateTime) -> string
 
@@ -320,7 +320,7 @@ pub fn zoneoffset_compare(a: ZoneOffset, b: ZoneOffset) -> int
 
 pub fn zoneoffset_to_string(z: ZoneOffset) -> string
 
-pub fn zoneoffset_parse(s: string) -> Result<ZoneOffset, string>
+pub fn zoneoffset_from_string(s: string) -> Result<ZoneOffset, string>
 
 pub struct ZoneId {
     name: string
@@ -332,7 +332,7 @@ pub fn zoneid_to_offset(z: ZoneId) -> ZoneOffset
 
 pub fn zoneid_to_string(z: ZoneId) -> string
 
-pub fn zoneid_parse(s: string) -> Result<ZoneId, string>
+pub fn zoneid_from_string(s: string) -> Result<ZoneId, string>
 
 pub struct Instant {
     seconds: int
@@ -359,7 +359,7 @@ pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> st
 
 pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string>
 
-pub fn instant_parse(s: string) -> Result<Instant, string>
+pub fn instant_from_string(s: string) -> Result<Instant, string>
 
 pub fn instant_to_string(i: Instant) -> string
 

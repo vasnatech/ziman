@@ -994,12 +994,12 @@ several languages rather than inheriting any one of them wholesale.
   could live in ziman's own `time` core module someday."* Every type
   already had a fixed `_to_string`; none had the inverse.
   Two related but separately-scoped features, not one: (1) an ISO
-  `_parse` for every type, the exact inverse of its existing
+  `_from_string` for every type, the exact inverse of its existing
   `_to_string`, and (2) a general `_format`/`_parse_pattern` pair (on
   the three calendar-shaped types plus `Instant`) for a caller-chosen,
   non-ISO pattern — closer in shape to `number.zm`'s own
   `NumberFormat`/`parse_pattern`. Built (2) first, then implemented (1)
-  *on top of it* — `localdate_to_string`/`localdate_parse` etc. are
+  *on top of it* — `localdate_to_string`/`localdate_from_string` etc. are
   thin wrappers calling `localdate_format`/`localdate_parse_pattern`
   with one of five `pub val iso_*_format` presets — one formatting/
   parsing engine per type, not two independently-maintained
@@ -1046,13 +1046,13 @@ several languages rather than inheriting any one of them wholesale.
   text instead — a documented scope cut in the same spirit as
   `number.zm`'s pattern subset, not a validated-against trap.
   `Duration`/`ZoneOffset`/`ZoneId` deliberately don't get the general
-  pattern pair, only the ISO `_to_string`/`_parse` one: `Duration`'s
+  pattern pair, only the ISO `_to_string`/`_from_string` one: `Duration`'s
   `"PT{seconds}[.{nanos}]S"` is a total-elapsed-time count, not a
   calendar field breakdown, and `ZoneOffset`/`ZoneId`'s shapes are each
   just one or two fixed forms — neither fits a year/month/day/hour/
   minute/second pattern language, the same way `Duration` never got a
   `DateTimeFormatter`-equivalent in java.time itself either.
-  `duration_parse` was the fiddliest of the new `_parse` functions to
+  `duration_from_string` was the fiddliest of the new `_from_string` functions to
   get right: `duration_to_string`'s negative-duration case doesn't
   print the true seconds/nanos, it prints a *magnitude* transform
   (`mag_seconds = -true_seconds - 1`, `mag_nanos = 1e9 - true_nanos`,
@@ -1060,15 +1060,15 @@ several languages rather than inheriting any one of them wholesale.
   misleading `"PT-1.5...S"`) — parsing has to invert that arithmetic
   exactly, not just negate the parsed magnitude back, verified against
   the `-0.5s` worked example directly before trusting it.
-  `instant_parse`/`instant_parse_pattern` accept either offset shape
-  `zoneoffset_parse` does (`"Z"` or a real `"+HH:MM"`/`"-HH:MM"`), not
+  `instant_from_string`/`instant_parse_pattern` accept either offset shape
+  `zoneoffset_from_string` does (`"Z"` or a real `"+HH:MM"`/`"-HH:MM"`), not
   only the `"Z"` `instant_to_string` itself always produces — a string
   from a genuine external API (not just this module's own output round-
   tripping) may carry a real offset, and accepting it costs nothing
-  extra given `zoneoffset_parse` already exists.
+  extra given `zoneoffset_from_string` already exists.
   Applied immediately: `health-record-backend-ziman`'s `request.zm` had
   its hand-rolled `parse_iso_date` deleted outright in favor of the new
-  `time.localdate_parse` — the exact motivating gap, closed.
+  `time.localdate_from_string` — the exact motivating gap, closed.
 - **Variadic parameters — the first new call-site grammar since generics,
   built for one concrete native function (`join`), not speculatively.**
   Motivated by a scan of `corelib/*.zm` for O(N²) allocation patterns:

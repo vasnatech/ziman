@@ -1228,7 +1228,7 @@ docs/DESIGN.md's "time" entry), and every type is `{ ...: int }`-shaped
 (plus `Instant`/`Duration`'s `bigint`-free `{ seconds: int, nanos: int
 }`), never a single packed number.
 
-Every type has a fixed ISO-8601-shaped `_to_string`/`_parse` pair (no
+Every type has a fixed ISO-8601-shaped `_to_string`/`_from_string` pair (no
 extra arguments, and each is the other's exact inverse). The three
 calendar-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`) and
 `Instant` also get a general `_format(value, fmt: DateTimeFormat) ->
@@ -1272,7 +1272,7 @@ length of one of these letters (e.g. three `S`s) matches no token and
 is folded into the surrounding literal text too, rather than erroring
 — a documented scope cut, not a guarded-against trap. There's no
 month/day name support and no locale-awareness at all. `Duration`/
-`ZoneOffset`/`ZoneId` only get the fixed ISO `_to_string`/`_parse` pair
+`ZoneOffset`/`ZoneId` only get the fixed ISO `_to_string`/`_from_string` pair
 — their shapes (`"PT...S"`, `"Z"`/`"+HH:MM"`, a bare zone name) aren't
 a calendar field breakdown, so the pattern language doesn't fit them.
 
@@ -1299,7 +1299,7 @@ fn main() {
   `localdate_compare` (negative/zero/positive), `localdate_to_epoch_day`/
   `localdate_from_epoch_day` (days since 1970-01-01, negative before
   it), `localdate_is_leap_year`, `localdate_to_string` (`"YYYY-MM-DD"`)
-  and its exact inverse `localdate_parse(s) -> Result<LocalDate,
+  and its exact inverse `localdate_from_string(s) -> Result<LocalDate,
   string>`, plus `localdate_format(d, fmt)`/`localdate_parse_pattern(s,
   fmt)` for a compiled `DateTimeFormat` (see above).
   The epoch-day conversion is Howard Hinnant's public-domain
@@ -1316,7 +1316,7 @@ fn main() {
   when day rollover needs to be tracked), `localtime_diff_nanos`,
   `localtime_compare`, `localtime_to_string` (`"HH:MM:SS"`, or
   `"HH:MM:SS.nnnnnnnnn"` when `nano != 0`) and its inverse
-  `localtime_parse` (auto-detects which of those two shapes it's
+  `localtime_from_string` (auto-detects which of those two shapes it's
   looking at), plus `localtime_format`/`localtime_parse_pattern` for a
   compiled `DateTimeFormat`.
 - **`LocalDateTime { date: LocalDate, time: LocalTime }`** — the two
@@ -1330,7 +1330,7 @@ fn main() {
   treating both sides as the same fixed calendar — well-defined without
   a zone, not a real cross-zone elapsed-time computation),
   `localdatetime_to_string` (`"YYYY-MM-DDTHH:MM:SS"`) and its inverse
-  `localdatetime_parse`, plus `localdatetime_format`/
+  `localdatetime_from_string`, plus `localdatetime_format`/
   `localdatetime_parse_pattern` for a compiled `DateTimeFormat`.
 - **`Duration { seconds: int, nanos: int }`** — a length of time, not a
   point. `nanos` is always kept in `[0, 999999999]`; `seconds` alone
@@ -1349,7 +1349,7 @@ fn main() {
   500000000}` — which *is* `-0.5`s — prints `"PT-0.5...S"`, not the
   misleading `"PT-1.5...S"` a naive field-by-field print would give,
   the same care `java.time.Duration.toString()` takes), and its exact
-  inverse `duration_parse` (has to invert that same magnitude transform
+  inverse `duration_from_string` (has to invert that same magnitude transform
   for a negative-with-fraction duration, not just negate the parsed
   seconds — verified against `duration_to_string`'s own worked example
   before trusting it).
@@ -1368,14 +1368,14 @@ fn main() {
   `ZoneOffset` actually does something — shifting between a UTC instant
   and wall-clock time in some zone), `instant_to_string` (UTC ISO-8601,
   `"YYYY-MM-DDTHH:MM:SS[.nnnnnnnnn]Z"`, via `instant_to_localdatetime`
-  with `zoneoffset_utc()`) and its inverse `instant_parse` (accepts
+  with `zoneoffset_utc()`) and its inverse `instant_from_string` (accepts
   either `"Z"` or a real `"+HH:MM"`/`"-HH:MM"` offset suffix, not just
   the `"Z"` `instant_to_string` always produces — a string from a real
   external API may carry a genuine offset), plus `instant_format(i,
   offset, fmt)`/`instant_parse_pattern(s, fmt)` for a compiled
   `DateTimeFormat` applied to the calendar part, with the offset always
   handled separately (formatted via `zoneoffset_to_string` and
-  appended; parsed via `zoneoffset_parse` from whatever follows the
+  appended; parsed via `zoneoffset_from_string` from whatever follows the
   format's own precomputed `width`).
 - **`ZoneOffset { total_seconds: int }`** — a fixed UTC offset
   (`+05:30`), not a named zone with rules. `zoneoffset_utc()`,
@@ -1387,14 +1387,14 @@ fn main() {
   `java.time.ZoneOffset.ofHoursMinutes` itself guards against),
   `zoneoffset_compare`, `zoneoffset_to_string` (`"Z"` for UTC,
   `"+HH:MM"`/`"-HH:MM"` otherwise) and its exact inverse
-  `zoneoffset_parse`.
+  `zoneoffset_from_string`.
 - **`ZoneId { name: string }`** — a named zone, of which `"UTC"` is the
   *only* value that exists. `zoneid_utc()` is the only constructor (no
   `zoneid_of(name: string)` — there's nothing else valid to construct,
   and inventing that validation surface ahead of a real second zone
   would be speculative), `zoneid_to_offset(z) -> ZoneOffset` (always
   returns UTC's offset — the only case that can ever occur),
-  `zoneid_to_string`/`zoneid_parse` (the latter just validates its
+  `zoneid_to_string`/`zoneid_from_string` (the latter just validates its
   argument is exactly `"UTC"` — a formality given there's only one
   legal value, included anyway so every type here has the same pair).
 - **No `<`/`>` on any of these seven types.** Ziman has no Ord/Cmp

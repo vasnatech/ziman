@@ -1,29 +1,29 @@
 use time.LocalDate
 use time.localdate_of
 use time.localdate_format
-use time.localdate_parse
+use time.localdate_from_string
 use time.localdate_parse_pattern
 use time.LocalTime
 use time.localtime_of
 use time.localtime_format
-use time.localtime_parse
+use time.localtime_from_string
 use time.LocalDateTime
 use time.localdatetime_of
 use time.localdatetime_format
-use time.localdatetime_parse
+use time.localdatetime_from_string
 use time.Instant
 use time.instant_of
 use time.instant_format
-use time.instant_parse
+use time.instant_from_string
 use time.instant_parse_pattern
 use time.zoneoffset_utc
 use time.zoneoffset_of_hours_minutes
-use time.zoneoffset_parse
+use time.zoneoffset_from_string
 use time.zoneoffset_to_string
-use time.zoneid_parse
+use time.zoneid_from_string
 use time.Duration
 use time.duration_of_seconds
-use time.duration_parse
+use time.duration_from_string
 use time.duration_to_string
 use time.iso_date_format
 use time.iso_datetime_format
@@ -38,21 +38,21 @@ fn main() {
     print(unwrap(localdate_parse_pattern("31/01/2024", custom_fmt)) == d)
 
     // ISO parse/format round trip.
-    print(unwrap(localdate_parse("2024-01-31")) == d)
+    print(unwrap(localdate_from_string("2024-01-31")) == d)
     print(localdate_format(d, iso_date_format))
 
     val t = unwrap(localtime_of(9, 5, 3, 0))
-    print(unwrap(localtime_parse("09:05:03")) == t)
+    print(unwrap(localtime_from_string("09:05:03")) == t)
     val t2 = unwrap(localtime_of(9, 5, 3, 123000000))
-    print(unwrap(localtime_parse("09:05:03.123000000")) == t2)
+    print(unwrap(localtime_from_string("09:05:03.123000000")) == t2)
 
     val dt = localdatetime_of(d, t)
     print(localdatetime_format(dt, iso_datetime_format))
-    print(unwrap(localdatetime_parse("2024-01-31T09:05:03")) == dt)
+    print(unwrap(localdatetime_from_string("2024-01-31T09:05:03")) == dt)
 
     // Instant round trip via UTC.
     val i = instant_of(0, 0)
-    print(unwrap(instant_parse("1970-01-01T00:00:00Z")) == i)
+    print(unwrap(instant_from_string("1970-01-01T00:00:00Z")) == i)
 
     // Instant with a real (non-UTC) offset -- formatted, then parsed
     // back to the same absolute instant.
@@ -65,13 +65,13 @@ fn main() {
     // magnitude transform (the fiddliest inverse in this module).
     val neg = duration_of_seconds(0, -500000000)
     print(duration_to_string(neg))
-    print(unwrap(duration_parse(duration_to_string(neg))) == neg)
+    print(unwrap(duration_from_string(duration_to_string(neg))) == neg)
     val pos = duration_of_seconds(90061, 500000000)
-    print(unwrap(duration_parse(duration_to_string(pos))) == pos)
+    print(unwrap(duration_from_string(duration_to_string(pos))) == pos)
 
     // ZoneOffset/ZoneId round trip.
-    print(unwrap(zoneoffset_parse("Z")) == zoneoffset_utc())
-    print(unwrap(zoneoffset_parse(zoneoffset_to_string(plus5))) == plus5)
-    print(is_ok(zoneid_parse("UTC")))
-    print(is_ok(zoneid_parse("America/New_York")))
+    print(unwrap(zoneoffset_from_string("Z")) == zoneoffset_utc())
+    print(unwrap(zoneoffset_from_string(zoneoffset_to_string(plus5))) == plus5)
+    print(is_ok(zoneid_from_string("UTC")))
+    print(is_ok(zoneid_from_string("America/New_York")))
 }

@@ -32,8 +32,11 @@
 // than silently mishandled.
 //
 // Formatting and parsing: every type has a fixed ISO-8601-shaped
-// `_to_string`/`_parse` pair (no arguments beyond the value/string
-// itself) plus, for the three calendar-shaped types (`LocalDate`,
+// `_to_string`/`_from_string` pair (no arguments beyond the value/string
+// itself -- named to match `uuid_to_string`/`uuid_from_string`, not the
+// original `_parse`, once a proposed compile-time JSON-derive mechanism
+// wanted one canonical suffix across every corelib type to look for)
+// plus, for the three calendar-shaped types (`LocalDate`,
 // `LocalTime`, `LocalDateTime`) and `Instant`, a general `_format`/
 // `_parse_pattern` pair taking a `DateTimeFormat`. `DateTimeFormat` is
 // a *compiled representation* of a pattern, not a wrapper around the
@@ -515,7 +518,7 @@ pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDa
     return localdate_of(f.year, f.month, f.day)
 }
 
-pub fn localdate_parse(s: string) -> Result<LocalDate, string> {
+pub fn localdate_from_string(s: string) -> Result<LocalDate, string> {
     return localdate_parse_pattern(s, iso_date_format)
 }
 
@@ -611,7 +614,7 @@ pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTi
 // detect which of the two fixed shapes it's looking at the same way --
 // checking for "." is safe here since neither shape ever contains one
 // otherwise.
-pub fn localtime_parse(s: string) -> Result<LocalTime, string> {
+pub fn localtime_from_string(s: string) -> Result<LocalTime, string> {
     if contains(s, ".") {
         return localtime_parse_pattern(s, iso_time_nanos_format)
     }
@@ -688,7 +691,7 @@ pub fn duration_compare(a: Duration, b: Duration) -> int {
 // pattern-based `duration_format` -- a total elapsed-seconds count
 // isn't a calendar field breakdown the way year/month/day/hour/
 // minute/second are, so the pattern language above doesn't fit it;
-// `duration_parse` below is this function's exact inverse instead.
+// `duration_from_string` below is this function's exact inverse instead.
 pub fn duration_to_string(d: Duration) -> string {
     if d.seconds >= 0 {
         if d.nanos == 0 {
@@ -710,7 +713,7 @@ pub fn duration_to_string(d: Duration) -> string {
 // so parsing has to invert that arithmetic rather than just negating
 // the parsed seconds -- verified against duration_to_string's own
 // worked example (-0.5s prints "PT-0.500000000S") before trusting it.
-pub fn duration_parse(s: string) -> Result<Duration, string> {
+pub fn duration_from_string(s: string) -> Result<Duration, string> {
     if len(s) < 3 || substring(s, 0, 2) != "PT" || substring(s, len(s) - 1, len(s)) != "S" {
         return err(format("invalid duration '{}': expected PT<seconds>[.<nanos>]S", s))
     }
@@ -830,7 +833,7 @@ pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Loc
     return ok(LocalDateTime { date: unwrap(date_r), time: unwrap(time_r) })
 }
 
-pub fn localdatetime_parse(s: string) -> Result<LocalDateTime, string> {
+pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string> {
     if contains(s, ".") {
         return localdatetime_parse_pattern(s, iso_datetime_nanos_format)
     }
@@ -886,7 +889,7 @@ pub fn zoneoffset_to_string(z: ZoneOffset) -> string {
 // The exact inverse of zoneoffset_to_string: "Z" for UTC, otherwise
 // exactly "+HH:MM"/"-HH:MM" (6 characters, no seconds component --
 // zoneoffset_to_string never emits one either).
-pub fn zoneoffset_parse(s: string) -> Result<ZoneOffset, string> {
+pub fn zoneoffset_from_string(s: string) -> Result<ZoneOffset, string> {
     if s == "Z" {
         return ok(zoneoffset_utc())
     }
@@ -937,7 +940,7 @@ pub fn zoneid_to_string(z: ZoneId) -> string {
 // There being exactly one legal value ("UTC") makes this mostly a
 // formality, but every other type here has a _parse, so this does too
 // rather than being a silent exception to the pattern.
-pub fn zoneid_parse(s: string) -> Result<ZoneId, string> {
+pub fn zoneid_from_string(s: string) -> Result<ZoneId, string> {
     if s != "UTC" {
         return err(format("invalid zone id '{}': only 'UTC' is supported", s))
     }
@@ -1008,7 +1011,7 @@ pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> st
 }
 
 // `fmt` covers only the calendar part; the zone-offset suffix is
-// always parsed separately (via zoneoffset_parse) and used to convert
+// always parsed separately (via zoneoffset_from_string) and used to convert
 // the parsed wall-clock time into an absolute Instant -- not something
 // a caller chooses per call, since the string's own suffix already
 // says what it is. Slicing at exactly `fmt.width` characters works
@@ -1025,20 +1028,20 @@ pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, 
     if !is_ok(dt_r) {
         return err(unwrap_err(dt_r))
     }
-    val offset_r = zoneoffset_parse(offset_part)
+    val offset_r = zoneoffset_from_string(offset_part)
     if !is_ok(offset_r) {
         return err(unwrap_err(offset_r))
     }
     return ok(localdatetime_to_instant(unwrap(dt_r), unwrap(offset_r)))
 }
 
-// Accepts either offset shape zoneoffset_parse does ("Z" or a real
+// Accepts either offset shape zoneoffset_from_string does ("Z" or a real
 // "+HH:MM"/"-HH:MM"), not just the "Z" instant_to_string always
 // produces -- a real external Instant/OffsetDateTime-shaped string
 // (from an actual API, not just round-tripping this module's own
 // output) may carry a genuine offset, and there's no extra cost to
 // accepting it.
-pub fn instant_parse(s: string) -> Result<Instant, string> {
+pub fn instant_from_string(s: string) -> Result<Instant, string> {
     if contains(s, ".") {
         return instant_parse_pattern(s, iso_datetime_nanos_format)
     }
