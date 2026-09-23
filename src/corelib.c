@@ -23,6 +23,7 @@
 #include "pg_source.h"
 #include "http_source.h"
 #include "os_source.h"
+#include "sqlite_source.h"
 #include "properties_source.h"
 
 typedef struct {
@@ -54,6 +55,7 @@ static const CoreModule CORE_MODULES[] = {
     {"pg", PG_SOURCE},
     {"http", HTTP_SOURCE},
     {"os", OS_SOURCE},
+    {"sqlite", SQLITE_SOURCE},
     {"properties", PROPERTIES_SOURCE},
 };
 #pragma GCC diagnostic pop

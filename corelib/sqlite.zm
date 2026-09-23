@@ -1,0 +1,157 @@
+// sqlite.zm -- the SQLite driver behind `db`. A connection is an integer
+// handle into a native table (src/native_sqlite.c, linked against
+// libsqlite3); this module encodes `SqlValue` parameters into that
+// native's primitive-only shape and decodes result cells back. Use it
+// through `db.open("sqlite:...")`; `pg` is the Postgres counterpart.
+//
+// The natives only ever exchange primitives (ints, strings, arrays of
+// *tagged strings* -- one tag character then a payload: N null,
+// I<int>, F<float>, T<text>, B<hex>, b0/b1 bool).
+
+use sql.SqlValue
+use sql.DbError
+use sql.Row
+use number.byte_to_hex
+use number.byte_from_hex
+
+native fn open_raw(path: string) -> Result<int, string>
+native fn close_raw(handle: int)
+native fn execute_raw(handle: int, sql: string, params: [string]) -> Result<int, string>
+native fn query_raw(handle: int, sql: string, params: [string]) -> Result<[string], string>
+native fn float_to_text(f: float) -> string
+
+// A native error arrives as "category|message".
+fn error_from_raw(raw: string) -> DbError {
+    val parts = split(raw, "|")
+    val rest = ab_new<string>()
+    for i in 1..len(parts) {
+        ab_append<string>(rest, parts[i])
+    }
+    val message = join(separator: "|", pieces: ab_to_array<string>(rest))
+    if parts[0] == "constraint" {
+        return DbError.Constraint(message)
+    }
+    if parts[0] == "connection" {
+        return DbError.Connection(message)
+    }
+    return DbError.Sql(message)
+}
+
+fn encode_param(v: SqlValue) -> string {
+    if SqlValue.is_Null(v) {
+        return "N"
+    }
+    if SqlValue.is_Int(v) {
+        return concat("I", str(SqlValue.unwrap_Int(v)))
+    }
+    if SqlValue.is_Float(v) {
+        return concat("F", float_to_text(SqlValue.unwrap_Float(v)))
+    }
+    if SqlValue.is_Text(v) {
+        return concat("T", SqlValue.unwrap_Text(v))
+    }
+    if SqlValue.is_Bool(v) {
+        if SqlValue.unwrap_Bool(v) {
+            return "b1"
+        }
+        return "b0"
+    }
+    val hex = sb_new()
+    sb_append(hex, "B")
+    for b in SqlValue.unwrap_Bytes(v) {
+        sb_append(hex, byte_to_hex(b))
+    }
+    return sb_to_string(hex)
+}
+
+fn encode_params(params: [SqlValue]) -> [string] {
+    val out = ab_new<string>()
+    for p in params {
+        ab_append<string>(out, encode_param(p))
+    }
+    return ab_to_array<string>(out)
+}
+
+fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
+    val tag = substring(cell, 0, 1)
+    val payload = substring(cell, 1, len(cell))
+    if tag == "N" {
+        return SqlValue.Null
+    }
+    if tag == "T" {
+        return SqlValue.Text(payload)
+    }
+    if tag == "I" {
+        val n = parse_int(payload)
+        if !is_ok(n) {
+            return err(DbError.Sql(concat("bad integer from driver: ", payload)))
+        }
+        return SqlValue.Int(unwrap(n))
+    }
+    if tag == "F" {
+        val f = parse_float(payload)
+        if !is_ok(f) {
+            return err(DbError.Sql(concat("bad float from driver: ", payload)))
+        }
+        return SqlValue.Float(unwrap(f))
+    }
+    if tag == "B" {
+        val bytes = ab_new<byte>()
+        for i in 0..len(payload) / 2 {
+            val b = byte_from_hex(substring(payload, 2 * i, 2 * i + 2))
+            if !is_ok(b) {
+                return err(DbError.Sql(concat("bad blob from driver: ", payload)))
+            }
+            ab_append<byte>(bytes, unwrap(b))
+        }
+        return SqlValue.Bytes(ab_to_array<byte>(bytes))
+    }
+    return err(DbError.Sql(concat("unknown cell tag from driver: ", tag)))
+}
+
+// `path` is a SQLite filename, or `:memory:`.
+pub fn open(path: string) -> Result<int, DbError> {
+    val opened = open_raw(path)
+    if !is_ok(opened) {
+        return err(error_from_raw(unwrap_err(opened)))
+    }
+    return ok(unwrap(opened))
+}
+
+pub fn close(handle: int) {
+    close_raw(handle)
+}
+
+pub fn execute(handle: int, sql: string, params: [SqlValue]) -> Result<int, DbError> {
+    val r = execute_raw(handle, sql, encode_params(params))
+    if !is_ok(r) {
+        return err(error_from_raw(unwrap_err(r)))
+    }
+    return ok(unwrap(r))
+}
+
+pub fn query(handle: int, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+    val r = query_raw(handle, sql, encode_params(params))
+    if !is_ok(r) {
+        return err(error_from_raw(unwrap_err(r)))
+    }
+    val flat = unwrap(r)
+    val ncols = unwrap(parse_int(flat[0]))
+    val columns = ab_new<string>()
+    for c in 0..ncols {
+        ab_append<string>(columns, flat[1 + c])
+    }
+    val names = ab_to_array<string>(columns)
+    val rows = ab_new<Row>()
+    var pos = 1 + ncols
+    while pos < len(flat) {
+        val values = ab_new<SqlValue>()
+        for k in 0..ncols {
+            val cell = decode_cell(flat[pos + k])?
+            ab_append<SqlValue>(values, cell)
+        }
+        ab_append<Row>(rows, Row { columns: names, values: ab_to_array<SqlValue>(values) })
+        pos = pos + ncols
+    }
+    return ab_to_array<Row>(rows)
+}

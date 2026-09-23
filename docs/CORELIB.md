@@ -480,6 +480,19 @@ pub native fn random_bytes(n: int) -> [byte]
 
 ```
 
+## `sqlite`
+
+```
+pub fn open(path: string) -> Result<int, DbError>
+
+pub fn close(handle: int)
+
+pub fn execute(handle: int, sql: string, params: [SqlValue]) -> Result<int, DbError>
+
+pub fn query(handle: int, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+
+```
+
 ## `sql`
 
 ```

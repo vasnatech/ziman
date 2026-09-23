@@ -1983,14 +1983,14 @@ several languages rather than inheriting any one of them wholesale.
   `libsqlite3` (`-lsqlite3`) means repository SQL is exercised against a
   real relational engine from day one. **Only primitives cross the native
   boundary**: `SqlValue` is `Null|Int|Float|Text|Bool|Bytes`, and
-  parameters and result cells travel between `db.zm` and `native_db.c` as
+  parameters and result cells travel between `sqlite.zm` and `native_sqlite.c` as
   *tagged strings* (`N`, `I<int>`, `F<%.17g>`, `T<text>`, `B<hex>`, `b0/b1`)
   -- constructing a user-declared enum from C would mean knowing the
   loader's qualified name for it, which a native has no business knowing.
   `Uuid`/`LocalDate`/`Instant`/`decimal`/`bigint` are all `Text`, converted
   in the Ziman mapping layer, which sidesteps every dialect difference in
   how SQLite and Postgres type them (SQLite has no UUID or timestamp
-  type). A native `db::float_to_text` exists purely because `str(float)` is
+  type). A native `sqlite::float_to_text` exists purely because `str(float)` is
   `%g` (six digits) and would silently lose precision on a bound value.
   **Placeholders** are Postgres-style `$1, $2`; the SQLite driver rewrites
   them to `?N` (skipping string literals and quoted identifiers), because

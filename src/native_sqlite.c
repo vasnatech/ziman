@@ -1,5 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
-#include "native_db.h"
+#include "native_sqlite.h"
 
 #include <pthread.h>
 #include <sqlite3.h>
@@ -10,7 +10,7 @@
 #include "error.h"
 #include "native.h"
 
-/* The SQLite driver behind corelib/db.zm. Everything crossing the native
+/* The SQLite driver behind corelib/sqlite.zm. Everything crossing the native
  * boundary is a primitive: a connection is an int handle (an index into
  * a table of individually heap-allocated DbConn structs, same pattern
  * StringBuilder uses in prelude.c), SQL is a string, and both bound
@@ -24,7 +24,7 @@
  *   B<hex>       blob
  *   b0 / b1      bool (parameters only; bound as integer 0/1)
  *
- * corelib/db.zm encodes/decodes SqlValue to and from exactly this shape.
+ * corelib/sqlite.zm encodes/decodes SqlValue to and from exactly this shape.
  * Deliberately not the typed interpreter Values directly: constructing a
  * user-declared enum (SqlValue) from C would need to know the loader's
  * qualified name for it, which a native function has no business
@@ -76,7 +76,7 @@ static DbConn *conn_get(int64_t handle, int line, int col) {
  * SQLite leaves them off by default, unlike Postgres, and a repository
  * written against one should get the same referential integrity from
  * the other. */
-static Value native_db_open_raw(Value *args, int argc, int line, int col) {
+static Value native_sqlite_open_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type int_type = type_scalar(TY_INT);
     sqlite3 *db = NULL;
@@ -113,7 +113,7 @@ static Value native_db_open_raw(Value *args, int argc, int line, int col) {
     return ok_result(int_type, value_int(handle));
 }
 
-static Value native_db_close_raw(Value *args, int argc, int line, int col) {
+static Value native_sqlite_close_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     DbConn *c = conn_get(args[0].as.i, line, col);
     pthread_mutex_lock(&c->mu);
@@ -134,7 +134,7 @@ static int hexval(char ch) {
 }
 
 /* Binds one tagged-string parameter (1-based index). Returns SQLite's rc,
- * or -1 for a malformed tag/payload (a bug in db.zm's own encoder, not a
+ * or -1 for a malformed tag/payload (a bug in sqlite.zm's own encoder, not a
  * user-facing condition). */
 static int bind_param(sqlite3_stmt *stmt, int index, const char *p) {
     switch (p[0]) {
@@ -215,7 +215,7 @@ static char *rewrite_placeholders(const char *sql) {
  * statement in `sql` (a DDL script may hold several), returning the row
  * count SQLite reports for the last one. Parameters bind to the first
  * statement only, and are rejected alongside a multi-statement script. */
-static Value native_db_execute_raw(Value *args, int argc, int line, int col) {
+static Value native_sqlite_execute_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     Type int_type = type_scalar(TY_INT);
     DbConn *c = conn_get(args[0].as.i, line, col);
@@ -320,8 +320,8 @@ static char *encode_cell(sqlite3_stmt *stmt, int i) {
 
 /* db.query_raw(handle, sql, params) -> Result<[string], string>. The
  * result is one flat array: [column_count, name_0 .. name_{n-1}, then
- * row-major tagged cells]. db.zm splits it back into Rows. */
-static Value native_db_query_raw(Value *args, int argc, int line, int col) {
+ * row-major tagged cells]. sqlite.zm splits it back into Rows. */
+static Value native_sqlite_query_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     Type arr_type = type_array(string_type());
     DbConn *c = conn_get(args[0].as.i, line, col);
@@ -367,18 +367,18 @@ done:
  * encoding a bound parameter. Ziman's own str(float) uses %g (six
  * significant digits), which would silently lose precision on a value
  * headed for a database. */
-static Value native_db_float_to_text(Value *args, int argc, int line, int col) {
+static Value native_sqlite_float_to_text(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     char buf[40];
     snprintf(buf, sizeof(buf), "%.17g", args[0].as.f);
     return value_string(strdup(buf));
 }
 
-void native_db_register(void) {
-    native_register("db::float_to_text", native_db_float_to_text);
-    native_register("pg::float_to_text", native_db_float_to_text);
-    native_register("db::open_raw", native_db_open_raw);
-    native_register("db::close_raw", native_db_close_raw);
-    native_register("db::execute_raw", native_db_execute_raw);
-    native_register("db::query_raw", native_db_query_raw);
+void native_sqlite_register(void) {
+    native_register("sqlite::float_to_text", native_sqlite_float_to_text);
+    native_register("pg::float_to_text", native_sqlite_float_to_text);
+    native_register("sqlite::open_raw", native_sqlite_open_raw);
+    native_register("sqlite::close_raw", native_sqlite_close_raw);
+    native_register("sqlite::execute_raw", native_sqlite_execute_raw);
+    native_register("sqlite::query_raw", native_sqlite_query_raw);
 }

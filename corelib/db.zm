@@ -7,13 +7,9 @@
 // `postgres://user:password@host:port/database` -- the API above doesn't
 // change, so repositories written against it don't either. There are no
 // interfaces in Ziman to abstract over drivers with; dispatching by URL
-// scheme inside this module is the substitute. SQLite is a native
-// driver; Postgres is written in Ziman (see `pg`, on top of `net`).
-//
-// The natives only ever exchange primitives (ints, strings, arrays of
-// *tagged strings* -- one tag character then a payload: N null,
-// I<int>, F<float>, T<text>, B<hex>, b0/b1 bool); this file encodes a
-// SqlValue into that shape and decodes it back. See src/native_db.c.
+// scheme inside this module is the substitute. Each engine has its own
+// driver module: `sqlite` (a thin layer over the C library) and `pg`
+// (written in Ziman, on top of `net`).
 //
 // Concurrency: sharing one `Connection` between threads is safe
 // statement by statement -- SQLite takes the connection's own lock, and a
@@ -33,11 +29,10 @@
 // transaction leaves it open.
 
 use pg
+use sqlite
 use sql.SqlValue
 use sql.DbError
 use sql.Row
-use number.byte_to_hex
-use number.byte_from_hex
 
 // A SQLite connection is `handle` (an index into the native table) with
 // no `requests`; a Postgres one is the channel to its owner thread, with
@@ -54,116 +49,14 @@ pub struct Connection {
     pool_size: int
 }
 
-native fn open_raw(path: string) -> Result<int, string>
-native fn close_raw(handle: int)
-native fn execute_raw(handle: int, sql: string, params: [string]) -> Result<int, string>
-native fn query_raw(handle: int, sql: string, params: [string]) -> Result<[string], string>
-native fn float_to_text(f: float) -> string
-
-// A native error arrives as "category|message".
-fn db_error_from_raw(raw: string) -> DbError {
-    val parts = split(raw, "|")
-    val rest = ab_new<string>()
-    var i = 1
-    while i < len(parts) {
-        ab_append<string>(rest, parts[i])
-        i = i + 1
-    }
-    val message = join(separator: "|", pieces: ab_to_array<string>(rest))
-    if parts[0] == "constraint" {
-        return DbError.Constraint(message)
-    }
-    if parts[0] == "connection" {
-        return DbError.Connection(message)
-    }
-    return DbError.Sql(message)
-}
-
-fn encode_param(v: SqlValue) -> string {
-    if SqlValue.is_Null(v) {
-        return "N"
-    }
-    if SqlValue.is_Int(v) {
-        return concat("I", str(SqlValue.unwrap_Int(v)))
-    }
-    if SqlValue.is_Float(v) {
-        return concat("F", float_to_text(SqlValue.unwrap_Float(v)))
-    }
-    if SqlValue.is_Text(v) {
-        return concat("T", SqlValue.unwrap_Text(v))
-    }
-    if SqlValue.is_Bool(v) {
-        if SqlValue.unwrap_Bool(v) {
-            return "b1"
-        }
-        return "b0"
-    }
-    val hex = sb_new()
-    sb_append(hex, "B")
-    for b in SqlValue.unwrap_Bytes(v) {
-        sb_append(hex, byte_to_hex(b))
-    }
-    return sb_to_string(hex)
-}
-
-fn encode_params(params: [SqlValue]) -> [string] {
-    val out = ab_new<string>()
-    for p in params {
-        ab_append<string>(out, encode_param(p))
-    }
-    return ab_to_array<string>(out)
-}
-
-fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
-    val tag = substring(cell, 0, 1)
-    val payload = substring(cell, 1, len(cell))
-    if tag == "N" {
-        return SqlValue.Null
-    }
-    if tag == "T" {
-        return SqlValue.Text(payload)
-    }
-    if tag == "I" {
-        val n = parse_int(payload)
-        if !is_ok(n) {
-            return err(DbError.Sql(concat("bad integer from driver: ", payload)))
-        }
-        return SqlValue.Int(unwrap(n))
-    }
-    if tag == "F" {
-        val f = parse_float(payload)
-        if !is_ok(f) {
-            return err(DbError.Sql(concat("bad float from driver: ", payload)))
-        }
-        return SqlValue.Float(unwrap(f))
-    }
-    if tag == "B" {
-        val bytes = ab_new<byte>()
-        var i = 0
-        while i < len(payload) {
-            val b = byte_from_hex(substring(payload, i, i + 2))
-            if !is_ok(b) {
-                return err(DbError.Sql(concat("bad blob from driver: ", payload)))
-            }
-            ab_append<byte>(bytes, unwrap(b))
-            i = i + 2
-        }
-        return SqlValue.Bytes(ab_to_array<byte>(bytes))
-    }
-    return err(DbError.Sql(concat("unknown cell tag from driver: ", tag)))
-}
-
 // `sqlite::memory:` (a private in-memory database, gone when the
 // process exits), `sqlite:<path>` (a file, created if missing), or
 // `postgres://user:password@host:port/database` (`postgresql://` too;
 // no TLS yet -- a `sslmode=require` URL is refused, not downgraded).
 pub fn open(url: string) -> Result<Connection, DbError> {
     if len(url) >= 7 && substring(url, 0, 7) == "sqlite:" {
-        val opened = open_raw(substring(url, 7, len(url)))
-        if !is_ok(opened) {
-            return err(db_error_from_raw(unwrap_err(opened)))
-        }
-        return Connection { handle: unwrap(opened), requests: Option<Channel<pg.Request>>.None, pool: Option<Channel<Connection>>.None, pool_size: 0 }
+        val handle = sqlite.open(substring(url, 7, len(url)))?
+        return Connection { handle: handle, requests: Option<Channel<pg.Request>>.None, pool: Option<Channel<Connection>>.None, pool_size: 0 }
     }
     if (len(url) >= 11 && substring(url, 0, 11) == "postgres://") || (len(url) >= 13 && substring(url, 0, 13) == "postgresql://") {
         val requests = pg.connect(url)?
@@ -187,7 +80,7 @@ pub fn close(conn: Connection) {
     if Option.is_Some(conn.requests) {
         pg.close(Option.unwrap_Some(conn.requests))
     } else {
-        close_raw(conn.handle)
+        sqlite.close(conn.handle)
     }
 }
 
@@ -203,11 +96,7 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
         val result = pg.run(Option.unwrap_Some(conn.requests), sql, params)?
         return result.affected
     }
-    val r = execute_raw(conn.handle, sql, encode_params(params))
-    if !is_ok(r) {
-        return err(db_error_from_raw(unwrap_err(r)))
-    }
-    return unwrap(r)
+    return sqlite.execute(conn.handle, sql, params)
 }
 
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
@@ -220,33 +109,7 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
         val result = pg.run(Option.unwrap_Some(conn.requests), sql, params)?
         return result.rows
     }
-    val r = query_raw(conn.handle, sql, encode_params(params))
-    if !is_ok(r) {
-        return err(db_error_from_raw(unwrap_err(r)))
-    }
-    val flat = unwrap(r)
-    val ncols = unwrap(parse_int(flat[0]))
-    val columns = ab_new<string>()
-    var c = 0
-    while c < ncols {
-        ab_append<string>(columns, flat[1 + c])
-        c = c + 1
-    }
-    val names = ab_to_array<string>(columns)
-    val rows = ab_new<Row>()
-    var pos = 1 + ncols
-    while pos < len(flat) {
-        val values = ab_new<SqlValue>()
-        var k = 0
-        while k < ncols {
-            val cell = decode_cell(flat[pos + k])?
-            ab_append<SqlValue>(values, cell)
-            k = k + 1
-        }
-        ab_append<Row>(rows, Row { columns: names, values: ab_to_array<SqlValue>(values) })
-        pos = pos + ncols
-    }
-    return ab_to_array<Row>(rows)
+    return sqlite.query(conn.handle, sql, params)
 }
 
 // The common lookup-by-key shape: the first row, or None.
