@@ -22,8 +22,22 @@
 // can't be silently forgotten -- the one place it is legitimate (a body
 // that ends when the connection does) matches on `Closed` explicitly.
 //
-// Not yet: TLS (a later `tls` module wrapping a Socket), Unix-domain
-// sockets, UDP, and a connect timeout beyond the OS default.
+// TLS (client side) upgrades a connected socket *in place*: after
+// `start_tls`, the same `read`/`read_exact`/`write`/`read_text`/
+// `set_timeout`/`close` work over the encrypted connection, so nothing
+// built on `Socket` (the `pg` driver, a future HTTP layer) needs to know
+// which it has. Verification is ON by default -- the certificate chain
+// against the system CA store, and that it is valid for the host name
+// (or IP address) you connected to. Turn it down only deliberately, with
+// `start_tls_with`: `TlsVerify.Chain` skips the host-name check,
+// `TlsVerify.Off` skips verification entirely (encryption only, open to a
+// man in the middle). Minimum protocol is TLS 1.2. A TLS socket must not
+// be read and written from two threads at once without care -- each
+// operation is serialised by a lock, so it is safe but a blocked read
+// delays a write.
+//
+// Not yet: server-side TLS (`listen_tls`), client certificates, ALPN,
+// Unix-domain sockets, UDP, and a connect timeout beyond the OS default.
 
 pub enum NetError {
     ConnectionRefused(string)
@@ -31,6 +45,16 @@ pub enum NetError {
     Timeout(string)
     Closed(string)
     Io(string)
+    Tls(string)
+}
+
+// How much of a server's certificate to check. `Full` (the default) is
+// the chain against the trusted CAs *and* that it is valid for the host;
+// `Chain` is the chain only; `Off` checks nothing.
+pub enum TlsVerify {
+    Off
+    Chain
+    Full
 }
 
 pub struct Socket {
@@ -51,6 +75,7 @@ native fn write_raw(handle: int, data: [byte]) -> Result<int, string>
 native fn read_text_raw(handle: int, max: int) -> Result<string, string>
 native fn write_text_raw(handle: int, text: string) -> Result<int, string>
 native fn set_timeout_raw(handle: int, millis: int) -> Result<int, string>
+native fn start_tls_raw(handle: int, host: string, verify: int, ca_file: string) -> Result<int, string>
 native fn close_raw(handle: int)
 
 pub fn net_error_message(e: NetError) -> string {
@@ -65,6 +90,9 @@ pub fn net_error_message(e: NetError) -> string {
     }
     if NetError.is_Closed(e) {
         return concat("connection closed: ", NetError.unwrap_Closed(e))
+    }
+    if NetError.is_Tls(e) {
+        return concat("TLS error: ", NetError.unwrap_Tls(e))
     }
     return concat("network error: ", NetError.unwrap_Io(e))
 }
@@ -90,6 +118,9 @@ fn net_error_from_raw(raw: string) -> NetError {
     }
     if parts[0] == "closed" {
         return NetError.Closed(message)
+    }
+    if parts[0] == "tls" {
+        return NetError.Tls(message)
     }
     return NetError.Io(message)
 }
@@ -180,6 +211,53 @@ pub fn set_timeout(s: Socket, millis: int) -> Result<int, NetError> {
         return err(net_error_from_raw(unwrap_err(r)))
     }
     return unwrap(r)
+}
+
+fn tls_verify_level(v: TlsVerify) -> int {
+    if TlsVerify.is_Off(v) {
+        return 0
+    }
+    if TlsVerify.is_Chain(v) {
+        return 1
+    }
+    return 2
+}
+
+// Upgrades a connected socket to TLS, verifying the server's certificate
+// fully (chain against the system CA store, and that it names `host`).
+pub fn start_tls(s: Socket, host: string) -> Result<int, NetError> {
+    return start_tls_with(s, host, TlsVerify.Full, Option<string>.None)
+}
+
+// The same, choosing how much to verify and optionally a PEM file of
+// trusted CAs to use instead of the system store (e.g. a private CA, or a
+// self-signed test certificate).
+pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<int, NetError> {
+    var ca = ""
+    if Option.is_Some(ca_file) {
+        ca = Option.unwrap_Some(ca_file)
+    }
+    val r = start_tls_raw(s.handle, host, tls_verify_level(verify), ca)
+    if !is_ok(r) {
+        return err(net_error_from_raw(unwrap_err(r)))
+    }
+    return unwrap(r)
+}
+
+// connect + start_tls. The socket is closed if the handshake fails, so a
+// failed call leaks nothing.
+pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError> {
+    return connect_tls_with(host, port, TlsVerify.Full, Option<string>.None)
+}
+
+pub fn connect_tls_with(host: string, port: int, verify: TlsVerify, ca_file: Option<string>) -> Result<Socket, NetError> {
+    val s = connect(host, port)?
+    val upgraded = start_tls_with(s, host, verify, ca_file)
+    if !is_ok(upgraded) {
+        close(s)
+        return err(unwrap_err(upgraded))
+    }
+    return s
 }
 
 pub fn close(s: Socket) {

@@ -17,8 +17,9 @@ fn main() {
     show(db.open("postgres://ziman:secret@127.0.0.1:55432/no_such_db"))
     // nothing listening
     show(db.open("postgres://ziman:secret@127.0.0.1:1/zimandb"))
-    // TLS is refused rather than silently downgraded
-    show(db.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=require"))
+    // unsupported sslmode values are refused, not guessed at
+    show(db.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=allow"))
+    show(db.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=bogus"))
     // malformed URLs
     show(db.open("postgres://@127.0.0.1/db"))
     show(db.open("postgres://u:p@127.0.0.1:notaport/db"))

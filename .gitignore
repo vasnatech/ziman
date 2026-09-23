@@ -5,3 +5,5 @@ src/*.d
 *.d
 src/*_source.h
 tests/pg/.url
+tests/tls/.certs/
+tests/pg/.certs/

@@ -1,0 +1,9 @@
+full, right CA, IP SAN: ok (HTTP/1.0 200 ok)
+full, right CA, DNS SAN: ok (HTTP/1.0 200 ok)
+full, system CAs: FAIL untrusted certificate
+full, wrong CA: FAIL untrusted certificate
+full, host mismatch: FAIL host name mismatch
+chain, host mismatch: ok (HTTP/1.0 200 ok)
+off, no CA: ok (HTTP/1.0 200 ok)
+bad CA file: FAIL bad CA file
+false

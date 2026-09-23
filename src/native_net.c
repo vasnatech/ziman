@@ -2,7 +2,11 @@
 #include "native_net.h"
 
 #include <errno.h>
+#include <arpa/inet.h>
 #include <netdb.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -30,8 +34,17 @@
  * error), but the fd number is then free for the OS to reuse, so a
  * program should only close a socket from the thread that owns it. */
 
+/* `ssl` is non-NULL once start_tls has upgraded the connection; every
+ * read/write/close then goes through it (see io_read/io_write below), so
+ * read/read_exact/write/read_text/set_timeout work over TLS without the
+ * callers -- or pg, or a future HTTP layer -- knowing. OpenSSL forbids
+ * two threads touching one SSL object at once, so a TLS handle has a
+ * lock taken around each operation (a plain socket doesn't need one:
+ * the OS lets one thread read while another writes). */
 typedef struct {
     int fd;
+    SSL *ssl;
+    pthread_mutex_t tls_mu;
 } NetHandle;
 
 static NetHandle **g_handles = NULL;
@@ -63,8 +76,9 @@ static Value errno_result(Type ok_type, int e) {
 }
 
 static int handle_register(int fd) {
-    NetHandle *h = malloc(sizeof(NetHandle));
+    NetHandle *h = calloc(1, sizeof(NetHandle));
     h->fd = fd;
+    pthread_mutex_init(&h->tls_mu, NULL);
     pthread_mutex_lock(&g_handle_mu);
     if (g_handle_count == g_handle_capacity) {
         g_handle_capacity = g_handle_capacity == 0 ? 16 : g_handle_capacity * 2;
@@ -76,19 +90,115 @@ static int handle_register(int fd) {
     return id;
 }
 
-/* Returns the fd, or -1 for an unknown/closed handle (a Ziman-level bug
- * the caller turns into a fatal runtime error). */
-static int handle_fd(int64_t id) {
+/* The handle for `id`, or NULL if it is unknown or closed. */
+static NetHandle *handle_get(int64_t id) {
     pthread_mutex_lock(&g_handle_mu);
-    int fd = (id >= 0 && id < g_handle_count && g_handles[id] != NULL) ? g_handles[id]->fd : -1;
+    NetHandle *h = (id >= 0 && id < g_handle_count) ? g_handles[id] : NULL;
     pthread_mutex_unlock(&g_handle_mu);
-    return fd;
+    return h;
+}
+
+static NetHandle *require_handle(int64_t id, const char *what, int line, int col) {
+    NetHandle *h = handle_get(id);
+    if (h == NULL) ziman_error("runtime", line, col, "net.%s: invalid or closed handle %lld", what, (long long)id);
+    return h;
 }
 
 static int require_fd(int64_t id, const char *what, int line, int col) {
-    int fd = handle_fd(id);
-    if (fd < 0) ziman_error("runtime", line, col, "net.%s: invalid or closed handle %lld", what, (long long)id);
-    return fd;
+    return require_handle(id, what, line, col)->fd;
+}
+
+/* ---- I/O over a plain socket or, after start_tls, over TLS ---- */
+
+typedef struct {
+    int errno_val;   /* set for a plain-socket failure */
+    int is_tls;      /* set for a TLS-level failure (bad record, alert, ...) */
+    char message[256];
+} IoErr;
+
+static void tls_error_message(IoErr *e, SSL *ssl) {
+    unsigned long code = ERR_get_error();
+    char buf[200];
+    if (code != 0) ERR_error_string_n(code, buf, sizeof(buf));
+    else snprintf(buf, sizeof(buf), "TLS protocol error");
+    long verify = ssl != NULL ? SSL_get_verify_result(ssl) : X509_V_OK;
+    if (verify != X509_V_OK) {
+        snprintf(e->message, sizeof(e->message), "%s (%s)", buf, X509_verify_cert_error_string(verify));
+    } else {
+        snprintf(e->message, sizeof(e->message), "%s", buf);
+    }
+    e->is_tls = 1;
+}
+
+/* Reads up to n bytes. Returns the count (> 0), 0 if the peer closed the
+ * connection cleanly, or -1 with *e filled in. */
+static ssize_t io_read(NetHandle *h, void *buf, size_t n, IoErr *e) {
+    memset(e, 0, sizeof(*e));
+    if (h->ssl == NULL) {
+        ssize_t r;
+        do { r = recv(h->fd, buf, n, 0); } while (r < 0 && errno == EINTR);
+        if (r < 0) e->errno_val = errno;
+        return r;
+    }
+    pthread_mutex_lock(&h->tls_mu);
+    ERR_clear_error();
+    int r = SSL_read(h->ssl, buf, (int)n);
+    if (r > 0) { pthread_mutex_unlock(&h->tls_mu); return r; }
+    int code = SSL_get_error(h->ssl, r);
+    ssize_t out = -1;
+    if (code == SSL_ERROR_ZERO_RETURN) {
+        out = 0;
+    } else if (code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) {
+        e->errno_val = EAGAIN; /* a receive timeout on the underlying socket */
+    } else if (code == SSL_ERROR_SYSCALL) {
+        if (errno == 0 || ERR_peek_error() == 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) e->errno_val = EAGAIN;
+            else if (errno == 0) out = 0; /* peer closed without a close_notify */
+            else e->errno_val = errno;
+        } else {
+            tls_error_message(e, h->ssl);
+        }
+    } else {
+        tls_error_message(e, h->ssl);
+    }
+    pthread_mutex_unlock(&h->tls_mu);
+    return out;
+}
+
+/* Writes all n bytes. Returns n, or -1 with *e filled in. */
+static ssize_t io_write(NetHandle *h, const unsigned char *data, size_t n, IoErr *e) {
+    memset(e, 0, sizeof(*e));
+    size_t sent = 0;
+    while (sent < n) {
+        if (h->ssl == NULL) {
+            ssize_t w;
+            do { w = send(h->fd, data + sent, n - sent, MSG_NOSIGNAL); } while (w < 0 && errno == EINTR);
+            if (w < 0) { e->errno_val = errno; return -1; }
+            sent += (size_t)w;
+        } else {
+            pthread_mutex_lock(&h->tls_mu);
+            ERR_clear_error();
+            int w = SSL_write(h->ssl, data + sent, (int)(n - sent));
+            if (w > 0) {
+                pthread_mutex_unlock(&h->tls_mu);
+                sent += (size_t)w;
+                continue;
+            }
+            int code = SSL_get_error(h->ssl, w);
+            if (code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) e->errno_val = EAGAIN;
+            else if (code == SSL_ERROR_SYSCALL && ERR_peek_error() == 0) e->errno_val = errno != 0 ? errno : EPIPE;
+            else if (code == SSL_ERROR_ZERO_RETURN) e->errno_val = EPIPE;
+            else tls_error_message(e, h->ssl);
+            pthread_mutex_unlock(&h->tls_mu);
+            return -1;
+        }
+    }
+    return (ssize_t)n;
+}
+
+static Value io_error_result(Type ok_type, const IoErr *e) {
+    if (e->is_tls) return err_result(ok_type, "tls", e->message);
+    return errno_result(ok_type, e->errno_val != 0 ? e->errno_val : EIO);
 }
 
 /* Resolves host:port and returns a socket that either connected
@@ -163,19 +273,19 @@ static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
 }
 
 /* Reads up to `max` bytes (at least one -- blocks until something is
- * available). 0 bytes from recv means the peer closed cleanly, reported
- * as the "closed" category rather than an empty array, so a caller can't
- * forget to check for EOF. */
+ * available). 0 bytes means the peer closed cleanly, reported as the
+ * "closed" category rather than an empty array, so a caller can't forget
+ * to check for EOF. */
 static Value native_net_read_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     Type arr_type = byte_array_type();
-    int fd = require_fd(args[0].as.i, "read", line, col);
+    NetHandle *h = require_handle(args[0].as.i, "read", line, col);
     int64_t max = args[1].as.i;
     if (max <= 0) return err_result(arr_type, "io", "read: max must be positive");
     unsigned char *buf = malloc((size_t)max);
-    ssize_t n;
-    do { n = recv(fd, buf, (size_t)max, 0); } while (n < 0 && errno == EINTR);
-    if (n < 0) { int e = errno; free(buf); return errno_result(arr_type, e); }
+    IoErr e;
+    ssize_t n = io_read(h, buf, (size_t)max, &e);
+    if (n < 0) { free(buf); return io_error_result(arr_type, &e); }
     if (n == 0) { free(buf); return err_result(arr_type, "closed", "connection closed by peer"); }
     Value *items = malloc(sizeof(Value) * (size_t)n);
     for (ssize_t i = 0; i < n; i++) items[i] = value_byte(buf[i]);
@@ -186,15 +296,15 @@ static Value native_net_read_raw(Value *args, int argc, int line, int col) {
 static Value native_net_read_exact_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     Type arr_type = byte_array_type();
-    int fd = require_fd(args[0].as.i, "read_exact", line, col);
+    NetHandle *h = require_handle(args[0].as.i, "read_exact", line, col);
     int64_t want = args[1].as.i;
     if (want < 0) return err_result(arr_type, "io", "read_exact: count must not be negative");
     unsigned char *buf = malloc((size_t)want + 1);
     int64_t got = 0;
     while (got < want) {
-        ssize_t n;
-        do { n = recv(fd, buf + got, (size_t)(want - got), 0); } while (n < 0 && errno == EINTR);
-        if (n < 0) { int e = errno; free(buf); return errno_result(arr_type, e); }
+        IoErr e;
+        ssize_t n = io_read(h, buf + got, (size_t)(want - got), &e);
+        if (n < 0) { free(buf); return io_error_result(arr_type, &e); }
         if (n == 0) { free(buf); return err_result(arr_type, "closed", "connection closed before the requested bytes arrived"); }
         got += n;
     }
@@ -204,25 +314,20 @@ static Value native_net_read_exact_raw(Value *args, int argc, int line, int col)
     return ok_result(arr_type, value_array(arr_type, array_obj_new(items, (int)want)));
 }
 
-static Value send_all(int fd, const unsigned char *data, size_t n) {
+static Value send_all(NetHandle *h, const unsigned char *data, size_t n) {
     Type int_type = type_scalar(TY_INT);
-    size_t sent = 0;
-    while (sent < n) {
-        ssize_t w;
-        do { w = send(fd, data + sent, n - sent, MSG_NOSIGNAL); } while (w < 0 && errno == EINTR);
-        if (w < 0) return errno_result(int_type, errno);
-        sent += (size_t)w;
-    }
+    IoErr e;
+    if (io_write(h, data, n, &e) < 0) return io_error_result(int_type, &e);
     return ok_result(int_type, value_int((int64_t)n));
 }
 
 static Value native_net_write_raw(Value *args, int argc, int line, int col) {
     (void)argc;
-    int fd = require_fd(args[0].as.i, "write", line, col);
+    NetHandle *h = require_handle(args[0].as.i, "write", line, col);
     ArrayObj *arr = args[1].as.arr;
     unsigned char *buf = malloc((size_t)(arr->count > 0 ? arr->count : 1));
     for (int i = 0; i < arr->count; i++) buf[i] = (unsigned char)arr->items[i].as.by;
-    Value r = send_all(fd, buf, (size_t)arr->count);
+    Value r = send_all(h, buf, (size_t)arr->count);
     free(buf);
     return r;
 }
@@ -232,23 +337,23 @@ static Value native_net_write_raw(Value *args, int argc, int line, int col) {
  * silently truncating; use read/write ([byte]) for binary data. */
 static Value native_net_write_text_raw(Value *args, int argc, int line, int col) {
     (void)argc;
-    int fd = require_fd(args[0].as.i, "write_text", line, col);
-    return send_all(fd, (const unsigned char *)args[1].as.s, strlen(args[1].as.s));
+    NetHandle *h = require_handle(args[0].as.i, "write_text", line, col);
+    return send_all(h, (const unsigned char *)args[1].as.s, strlen(args[1].as.s));
 }
 
 static Value native_net_read_text_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     Type str_type = string_type();
-    int fd = require_fd(args[0].as.i, "read_text", line, col);
+    NetHandle *h = require_handle(args[0].as.i, "read_text", line, col);
     int64_t max = args[1].as.i;
     if (max <= 0) return err_result(str_type, "io", "read_text: max must be positive");
     char *buf = malloc((size_t)max + 1);
-    ssize_t n;
-    do { n = recv(fd, buf, (size_t)max, 0); } while (n < 0 && errno == EINTR);
-    if (n < 0) { int e = errno; free(buf); return errno_result(str_type, e); }
+    IoErr e;
+    ssize_t n = io_read(h, buf, (size_t)max, &e);
+    if (n < 0) { free(buf); return io_error_result(str_type, &e); }
     if (n == 0) { free(buf); return err_result(str_type, "closed", "connection closed by peer"); }
     buf[n] = '\0';
-    if (memchr(buf, '\0', (size_t)n) != NULL && strlen(buf) != (size_t)n) {
+    if (strlen(buf) != (size_t)n) {
         free(buf);
         return err_result(str_type, "io", "read_text: received a NUL byte; use read for binary data");
     }
@@ -270,6 +375,75 @@ static Value native_net_set_timeout_raw(Value *args, int argc, int line, int col
     return ok_result(int_type, value_int(0));
 }
 
+/* net.start_tls_raw(handle, host, verify, ca_file) -> Result<int, string>:
+ * upgrades an already-connected socket to TLS in place (a client
+ * handshake). `verify`: 0 = do not verify the certificate at all
+ * (encryption only -- open to a man in the middle), 1 = verify the chain
+ * against the trusted CAs, 2 = the chain *and* that the certificate is
+ * valid for `host` (a DNS name, or an IP address literal). `ca_file`, if
+ * non-empty, names a PEM file of trusted CAs used instead of the system
+ * store. Minimum protocol version is TLS 1.2; the server name is sent
+ * for SNI unless `host` is an IP literal. */
+static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Type int_type = type_scalar(TY_INT);
+    NetHandle *h = require_handle(args[0].as.i, "start_tls", line, col);
+    const char *host = args[1].as.s;
+    int64_t verify = args[2].as.i;
+    const char *ca_file = args[3].as.s;
+    if (h->ssl != NULL) return err_result(int_type, "tls", "connection is already using TLS");
+
+    unsigned char addr[sizeof(struct in6_addr)];
+    int host_is_ip = inet_pton(AF_INET, host, addr) == 1 || inet_pton(AF_INET6, host, addr) == 1;
+
+    ERR_clear_error();
+    SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+    if (ctx == NULL) { IoErr e; tls_error_message(&e, NULL); return err_result(int_type, "tls", e.message); }
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    if (verify > 0) {
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+        int ok = ca_file[0] != '\0' ? SSL_CTX_load_verify_locations(ctx, ca_file, NULL) : SSL_CTX_set_default_verify_paths(ctx);
+        if (!ok) {
+            IoErr e;
+            tls_error_message(&e, NULL);
+            char msg[300];
+            snprintf(msg, sizeof(msg), "cannot load trusted certificates%s%s: %s", ca_file[0] != '\0' ? " from " : "", ca_file, e.message);
+            SSL_CTX_free(ctx);
+            return err_result(int_type, "tls", msg);
+        }
+    } else {
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+    }
+    SSL *ssl = SSL_new(ctx);
+    SSL_CTX_free(ctx); /* the SSL holds its own reference */
+    if (ssl == NULL) { IoErr e; tls_error_message(&e, NULL); return err_result(int_type, "tls", e.message); }
+    SSL_set_fd(ssl, h->fd);
+    if (!host_is_ip) SSL_set_tlsext_host_name(ssl, host);
+    if (verify >= 2) {
+        int ok = host_is_ip ? X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(ssl), host) : SSL_set1_host(ssl, host);
+        if (!ok) { SSL_free(ssl); return err_result(int_type, "tls", "cannot set the expected host name"); }
+    }
+
+    int r = SSL_connect(ssl);
+    if (r != 1) {
+        IoErr e;
+        int code = SSL_get_error(ssl, r);
+        if ((code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) || (code == SSL_ERROR_SYSCALL && (errno == EAGAIN || errno == EWOULDBLOCK))) {
+            SSL_free(ssl);
+            return err_result(int_type, "timeout", "TLS handshake timed out");
+        }
+        if (code == SSL_ERROR_SYSCALL && ERR_peek_error() == 0) {
+            SSL_free(ssl);
+            return err_result(int_type, "closed", "connection closed during the TLS handshake");
+        }
+        tls_error_message(&e, ssl);
+        SSL_free(ssl);
+        return err_result(int_type, "tls", e.message);
+    }
+    h->ssl = ssl;
+    return ok_result(int_type, value_int(0));
+}
+
 static Value native_net_close_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     int64_t id = args[0].as.i;
@@ -278,6 +452,10 @@ static Value native_net_close_raw(Value *args, int argc, int line, int col) {
     if (h != NULL) g_handles[id] = NULL;
     pthread_mutex_unlock(&g_handle_mu);
     if (h != NULL) {
+        if (h->ssl != NULL) {
+            SSL_shutdown(h->ssl); /* sends close_notify; the peer's reply isn't awaited */
+            SSL_free(h->ssl);
+        }
         shutdown(h->fd, SHUT_RDWR); /* wakes a thread blocked reading this socket */
         close(h->fd);
         free(h);
@@ -326,6 +504,7 @@ void native_net_register(void) {
     native_register("net::read_text_raw", native_net_read_text_raw);
     native_register("net::write_text_raw", native_net_write_text_raw);
     native_register("net::set_timeout_raw", native_net_set_timeout_raw);
+    native_register("net::start_tls_raw", native_net_start_tls_raw);
     native_register("net::close_raw", native_net_close_raw);
     native_register("bytes::string_to_bytes", native_bytes_string_to_bytes);
     native_register("bytes::bytes_to_string", native_bytes_bytes_to_string);

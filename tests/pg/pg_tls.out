@@ -1,0 +1,11 @@
+default (disable): ssl=false
+sslmode=prefer: ssl=true
+sslmode=require: ssl=true
+verify-ca + root cert: ssl=true
+verify-full + root cert: ssl=true
+verify-full, system CAs: FAIL untrusted certificate
+verify-ca, missing root cert file: FAIL bad CA file
+300
+300
+database connection error: the server does not support TLS (sslmode=require)
+database connection error: plaintext startup reached

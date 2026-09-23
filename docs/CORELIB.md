@@ -194,6 +194,13 @@ pub enum NetError {
     Timeout(string)
     Closed(string)
     Io(string)
+    Tls(string)
+}
+
+pub enum TlsVerify {
+    Off
+    Chain
+    Full
 }
 
 pub struct Socket {
@@ -225,6 +232,14 @@ pub fn read_text(s: Socket, max: int) -> Result<string, NetError>
 pub fn write_text(s: Socket, text: string) -> Result<int, NetError>
 
 pub fn set_timeout(s: Socket, millis: int) -> Result<int, NetError>
+
+pub fn start_tls(s: Socket, host: string) -> Result<int, NetError>
+
+pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<int, NetError>
+
+pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
+
+pub fn connect_tls_with(host: string, port: int, verify: TlsVerify, ca_file: Option<string>) -> Result<Socket, NetError>
 
 pub fn close(s: Socket)
 

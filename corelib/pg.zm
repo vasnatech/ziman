@@ -16,12 +16,27 @@
 // and timestamps, numeric, json, ...) arrives as `Text` and is converted
 // by the mapping layer, exactly as it is for SQLite.
 //
-// What it does not: TLS (a `sslmode=require` URL is refused rather than
-// silently downgraded), MD5 authentication (deprecated; removed as the
-// default in Postgres 14), Kerberos/GSS, IPv6 literals in the URL, the
-// COPY protocol, LISTEN/NOTIFY, prepared-statement reuse (every
-// parameterised statement is parsed afresh), or SASLprep normalisation of
-// a non-ASCII password. `[byte]` is an array of interpreter values, so
+// TLS is negotiated the way Postgres does it: an SSLRequest packet, the
+// server's one-byte answer ('S' to proceed, 'N' if it has no TLS), then
+// the same connection is upgraded in place (`net.start_tls_with`) before
+// the startup message. The URL's `sslmode` follows libpq's meanings:
+// `disable` (no TLS -- the default here, unlike libpq's `prefer`),
+// `prefer` (use TLS if the server offers it, else plaintext; no
+// verification), `require` (TLS or fail, but the certificate is NOT
+// verified -- encrypted, yet open to a man in the middle, exactly as in
+// libpq), `verify-ca` (also verify the certificate chain) and
+// `verify-full` (also that the certificate is valid for the host you
+// asked for -- the one to use for a hosted database). `sslrootcert=<path>`
+// names a PEM file of trusted CAs; without it the system CA store is
+// used (libpq reads ~/.postgresql/root.crt instead). `allow` is not
+// supported, and if a `prefer` handshake fails there is no retry over a
+// fresh plaintext connection.
+//
+// What it does not: MD5 authentication (deprecated; removed as the
+// default in Postgres 14), Kerberos/GSS, client certificates, IPv6
+// literals in the URL, the COPY protocol, LISTEN/NOTIFY,
+// prepared-statement reuse (every parameterised statement is parsed
+// afresh), or SASLprep normalisation of a non-ASCII password. `[byte]` is an array of interpreter values, so
 // very large result sets are slow -- see docs/ROADMAP.md.
 //
 // One connection is owned by one spawned thread and driven through a
@@ -83,6 +98,8 @@ struct PgUrl {
     host: string
     port: int
     database: string
+    sslmode: string
+    sslrootcert: string
 }
 
 pub native fn float_to_text(f: float) -> string
@@ -214,13 +231,22 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
         path_and_query = join_from(slash, 1, "/")
     }
     var database = path_and_query
+    var sslmode = "disable"
+    var sslrootcert = ""
     if contains(path_and_query, "?") {
         val q = split(path_and_query, "?")
         database = q[0]
-        val query = join_from(q, 1, "?")
-        if contains(query, "sslmode=require") || contains(query, "sslmode=verify") {
-            return err(conn_err("TLS is not supported yet (sslmode=require/verify-*); use sslmode=disable"))
+        for pair in split(join_from(q, 1, "?"), "&") {
+            if len(pair) >= 8 && substring(pair, 0, 8) == "sslmode=" {
+                sslmode = substring(pair, 8, len(pair))
+            } else if len(pair) >= 12 && substring(pair, 0, 12) == "sslrootcert=" {
+                val decoded = percent_decode(substring(pair, 12, len(pair)))?
+                sslrootcert = decoded
+            }
         }
+    }
+    if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
+        return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ", sslmode)))
     }
 
     val at = split(authority, "@")
@@ -261,7 +287,7 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
     if db_name == "" {
         db_name = user_decoded
     }
-    return PgUrl { user: user_decoded, password: password_decoded, host: host, port: port, database: db_name }
+    return PgUrl { user: user_decoded, password: password_decoded, host: host, port: port, database: db_name, sslmode: sslmode, sslrootcert: sslrootcert }
 }
 
 // ---------------------------------------------------------------- SCRAM
@@ -375,7 +401,40 @@ fn sasl_offers(body: [byte], mechanism: string) -> bool {
     return false
 }
 
+// SSLRequest (length 8, code 80877103) and the server's one-byte answer:
+// 'S' means go ahead with a TLS handshake on this same connection, 'N'
+// that the server has no TLS (fine for `prefer`, an error otherwise).
+fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<int, DbError> {
+    if url.sslmode == "disable" {
+        return 0
+    }
+    lift<int>(net.write(sock, bytes_concat(u32_to_bytes(8), u32_to_bytes(80877103))))?
+    val reply = lift<[byte]>(net.read_exact(sock, 1))?
+    val answer = text_of(reply, 0, 1)
+    if answer == "N" {
+        if url.sslmode == "prefer" {
+            return 0
+        }
+        return err(conn_err(format("the server does not support TLS (sslmode={})", url.sslmode)))
+    }
+    if answer != "S" {
+        return err(conn_err(format("unexpected reply '{}' to the TLS request", answer)))
+    }
+    var verify = net.TlsVerify.Off
+    if url.sslmode == "verify-ca" {
+        verify = net.TlsVerify.Chain
+    } else if url.sslmode == "verify-full" {
+        verify = net.TlsVerify.Full
+    }
+    var root = Option<string>.None
+    if url.sslrootcert != "" {
+        root = Option<string>.Some(url.sslrootcert)
+    }
+    return lift<int>(net.start_tls_with(sock, url.host, verify, root))
+}
+
 fn handshake(sock: Socket, url: PgUrl) -> Result<int, DbError> {
+    negotiate_tls(sock, url)?
     lift<int>(net.write(sock, startup_message(url)))?
     val first = read_message(sock)?
     if first.kind == "E" {

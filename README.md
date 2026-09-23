@@ -157,12 +157,12 @@ than hand-constructing AST nodes. `net` is blocking TCP over POSIX sockets (`con
 `write`, timeouts, a clean peer close reported as `Err(Closed)` rather than an
 empty read) — blocking on purpose, since `spawn` gives every connection its own
 OS thread — and `bytes` is the `[byte]` helpers that go with it (string
-conversion, big-endian integers). `defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `?`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer db.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error. `crypto` is just enough cryptography for SCRAM-SHA-256 (SHA-256, HMAC, PBKDF2, base64 — native, self-contained,
+conversion, big-endian integers). `defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `?`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer db.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error. `net` also does client-side TLS on the system OpenSSL (`net.connect_tls`/`net.start_tls`, upgrading a socket in place so everything built on `Socket` works over it), with certificate and host-name verification on by default and an explicit `TlsVerify` (`Full`/`Chain`/`Off`) plus optional CA file when relaxing it. `crypto` is just enough cryptography for SCRAM-SHA-256 (SHA-256, HMAC, PBKDF2, base64 — native, self-contained,
 checked against the RFC vectors; not a general-purpose library), and `pg` is a PostgreSQL client written in Ziman on top of
 `net`/`bytes`/`crypto`: trust, cleartext and SCRAM-SHA-256 authentication (the server's signature is verified too),
 the simple and extended query protocols, tested against a real Postgres server by `make test-pg`.
 `db.open("postgres://user:password@host:port/database")` selects it, so the same repository SQL and
-`#[derive(Row)]` code run on SQLite and Postgres unchanged; TLS is refused rather than silently skipped. `sql` and `db` are a JDBC-shaped database layer: `db.open("sqlite::memory:")`
+`#[derive(Row)]` code run on SQLite and Postgres unchanged; `sslmode` follows libpq (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`, `sslrootcert`), verified against a real TLS-enabled server. `sql` and `db` are a JDBC-shaped database layer: `db.open("sqlite::memory:")`
 returns a `Connection`, `db.execute`/`db.query` take SQL text with `$1, $2`
 bound parameters (never spliced in) as `[SqlValue]`, and rows come back as
 `sql.Row`; `#[derive(Row)]` generates the row-to-struct mapping, and

@@ -1586,10 +1586,20 @@ fn main() {
   `BOOLEAN` and `INTEGER` columns. Percent-escapes work in the URL's
   user, password and database. One connection is owned by one thread that
   serialises requests, so sharing it across threads is safe statement by
-  statement. **Not supported:** TLS (a `sslmode=require` URL is *refused*,
-  not downgraded), MD5 authentication, Kerberos/GSS, IPv6 literals in the
-  URL, COPY, LISTEN/NOTIFY, prepared-statement reuse, and SASLprep of a
-  non-ASCII password.
+  statement. **TLS** is negotiated the way Postgres does it (an
+  `SSLRequest`, then an in-place upgrade) and chosen by the URL's
+  `sslmode`, with libpq's meanings: `disable` (the default here -- libpq
+  defaults to `prefer`), `prefer` (TLS if offered, no verification),
+  `require` (TLS or fail, but the certificate is **not** verified --
+  encrypted yet open to a man in the middle, exactly as in libpq),
+  `verify-ca` (also the certificate chain) and `verify-full` (also that it
+  is valid for the host -- the one to use for a hosted database).
+  `sslrootcert=<path>` names a PEM file of trusted CAs, else the system
+  store is used. `allow` is unsupported, and a failed `prefer` handshake
+  isn't retried over plaintext. **Not supported:** MD5 authentication,
+  Kerberos/GSS, client certificates, IPv6 literals in the URL, COPY,
+  LISTEN/NOTIFY, prepared-statement reuse, and SASLprep of a non-ASCII
+  password.
 - **`db.query`** returns `[Row]`; `db.query_one` returns `Option<Row>`;
   `db.execute` returns the row count of the last statement, and takes a
   `;`-separated script when there are no parameters (for DDL).
@@ -1669,9 +1679,26 @@ fn main() {
   `bytes_slice(b, start, end)`, and the big-endian `u16_to_bytes`/
   `u32_to_bytes`/`u16_from_bytes`/`u32_from_bytes` network protocols are
   built from.
-- **Not yet:** TLS, Unix-domain sockets, UDP, a packed byte-buffer type
-  (`[byte]` is an array of interpreter values -- fine for protocol
-  messages, wasteful for bulk data).
+- **TLS (client side).** `net.connect_tls(host, port)` is `connect` plus
+  `net.start_tls(sock, host)`, which upgrades a connected socket **in
+  place** -- afterwards the same `read`/`read_exact`/`write`/`read_text`/
+  `set_timeout`/`close` work over the encrypted connection, so code built
+  on `Socket` (the `pg` driver, a future HTTP layer) doesn't care which it
+  has. **Verification is on by default**: the certificate chain against
+  the system CA store *and* that it is valid for the host name (or IP
+  address) you connected to; TLS 1.2 minimum; SNI is sent. The `_with`
+  forms (`start_tls_with`, `connect_tls_with`) take a `TlsVerify` --
+  `Full`, `Chain` (skip the host-name check) or `Off` (encryption only,
+  open to a man in the middle) -- and an optional PEM file of trusted CAs
+  to use instead of the system store (a private CA, a self-signed test
+  certificate). A handshake or verification failure is
+  `NetError.Tls(message)` with OpenSSL's reason, and `connect_tls` closes
+  its socket if the handshake fails. A receive timeout still surfaces as
+  `Timeout`, and a peer's close as `Closed`, over TLS.
+- **Not yet:** server-side TLS (`listen_tls`), client certificates, ALPN,
+  Unix-domain sockets, UDP, and a packed byte-buffer type (`[byte]` is an
+  array of interpreter values -- fine for protocol messages, wasteful for
+  bulk data).
 
 ## Cryptography
 

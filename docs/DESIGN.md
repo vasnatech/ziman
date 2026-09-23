@@ -2056,10 +2056,10 @@ several languages rather than inheriting any one of them wholesale.
   `Timeout`): a database driver without them hangs forever on a dead
   peer. `SIGPIPE` is ignored and writes use `MSG_NOSIGNAL`, so a write to
   a closed peer is a `Closed` error rather than killing the process.
-  **Deliberately not here yet**: TLS (a later `tls` module wrapping a
-  `Socket` -- hosted Postgres will want it, and it means linking a TLS
-  library), Unix-domain sockets, UDP, a connect timeout, and IPv6-only
-  concerns beyond `getaddrinfo` handling both families.
+  **Deliberately not here yet**: server-side TLS, Unix-domain sockets,
+  UDP, a connect timeout, and IPv6-only concerns beyond `getaddrinfo`
+  handling both families. (Client TLS was added afterwards -- see the TLS
+  entry below.)
   **The recurring hazard, stated once.** Closing is explicit and there are
   no destructors, so a `?` that returns early between `connect` and
   `close` leaks the socket -- the same problem `db` has with an open
@@ -2190,6 +2190,57 @@ several languages rather than inheriting any one of them wholesale.
   See `tests/fixtures/defer_*` -- ordering, every exit path, argument
   timing, loop scope, threads, the transaction-rollback case against
   SQLite and the socket-closed case observed from the peer.
+
+- **TLS (client side), in `net`, on the system OpenSSL.** Built so
+  hosted Postgres -- and, later, an HTTPS client -- can be reached.
+  **Library**: linking the system `libssl`/`libcrypto` (`-lssl -lcrypto`),
+  the same trade as SQLite (a system dependency, the same portability
+  caveat) -- implementing TLS ourselves would be huge and unsafe, which is
+  the opposite of what a security feature should be. Ziman's own `crypto`
+  module stays as it is: small, and only needs to be correct for SCRAM.
+  **In-place upgrade, not a new handle type.** A native handle table entry
+  gained an optional `SSL *`; `read`/`read_exact`/`write`/`read_text`/
+  `close` all go through one `io_read`/`io_write` layer that uses it when
+  present, so `set_timeout`, `read_exact` across record boundaries, `Closed`
+  on a peer's close and `Timeout` all keep working over TLS and nothing
+  built on `Socket` -- `pg`, an HTTP layer -- changes. In-place is also
+  exactly what Postgres needs (`SSLRequest`, a one-byte answer, then
+  upgrade the same connection), as do STARTTLS-style protocols generally;
+  `connect_tls` is just `connect` + `start_tls`, closing the socket if
+  the handshake fails. **Verification defaults to on** -- chain against the
+  system store *and* host name (an IP literal is matched against IP SANs),
+  TLS 1.2 minimum, SNI sent -- and turning it down is a deliberate call to
+  the `_with` forms with a `TlsVerify` (`Full`/`Chain`/`Off`) and an
+  optional CA file, never a silent default. **Errors**: `NetError` gained
+  `Tls(message)` carrying OpenSSL's reason plus the verify result ("self-
+  signed certificate", "IP address mismatch"); a receive timeout is
+  distinguished from a TLS error (OpenSSL reports it as WANT_READ /
+  SYSCALL+EAGAIN), and a peer that closes without a `close_notify` is
+  `Closed`. A TLS handle has a lock around each operation, because OpenSSL
+  forbids two threads using one `SSL` at once -- safe, at the cost that a
+  blocked read delays a write on the same socket.
+  **Postgres `sslmode` follows libpq**, on purpose, so anyone who knows
+  one knows the other: `disable`, `prefer`, `require` (encrypted but the
+  certificate is **not verified** -- documented as open to a man in the
+  middle, exactly libpq's behaviour, not quietly made stricter), `verify-ca`
+  and `verify-full`, plus `sslrootcert=<path>`. Two deliberate differences:
+  the default is `disable` (libpq's is `prefer`) so existing plaintext
+  URLs keep working and a downgrade-prone default isn't introduced, and
+  with no `sslrootcert` the system CA store is used rather than
+  `~/.postgresql/root.crt`. `allow` is refused, and a `prefer` handshake
+  that fails is an error, not a retry over plaintext.
+  **Tested for real**: `make test-tls` runs the client against two local
+  `openssl s_server` instances with freshly generated self-signed
+  certificates (its own CA each) -- full verification by IP and by name, an
+  unknown CA, the wrong CA, a host-name mismatch, chain-only, off, a bad CA
+  file, a page read to EOF, `read_exact` across records, a timeout, double
+  upgrade, and a handshake against a non-TLS server; `make test-pg` now
+  runs the Postgres container with TLS enabled and has the *server* confirm
+  encryption via `pg_stat_ssl` for each `sslmode`, plus a fake server that
+  answers `N` to prove `require` refuses and `prefer` falls back to
+  plaintext. Neither is part of `make test`, which stays hermetic.
+  **Not yet**: server-side TLS (`listen_tls` -- an HTTPS server will need
+  it), client certificates, ALPN, and session resumption.
 
 ## Deliberately deferred (not v0)
 

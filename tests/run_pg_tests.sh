@@ -8,7 +8,9 @@
 # 127.0.0.1:55432, and is removed on exit -- it never touches any other
 # Postgres. Roles: `ziman` (SCRAM-SHA-256, the default), `trust_user`
 # (trust) and `clear_user` (cleartext password), so every authentication
-# method the driver supports is exercised.
+# method the driver supports is exercised, and the server has TLS enabled
+# with a freshly generated self-signed certificate (valid for localhost and
+# 127.0.0.1) so every `sslmode` is too. Needs the `openssl` binary.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -25,7 +27,7 @@ if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
     exit 1
 fi
 
-cleanup() { "$RUNTIME" rm -f "$NAME" >/dev/null 2>&1; rm -f tests/pg/.url; }
+cleanup() { "$RUNTIME" rm -f "$NAME" >/dev/null 2>&1; rm -rf tests/pg/.url tests/pg/.certs; }
 trap cleanup EXIT
 
 "$RUNTIME" run -d --name "$NAME" -e POSTGRES_USER=ziman -e POSTGRES_PASSWORD=secret \
@@ -40,6 +42,18 @@ psqlx -c "CREATE ROLE trust_user LOGIN;" -c "CREATE ROLE clear_user LOGIN PASSWO
       -c "GRANT ALL ON SCHEMA public TO trust_user, clear_user;"
 "$RUNTIME" exec "$NAME" bash -c "sed -i '1i host zimandb trust_user all trust\nhost zimandb clear_user all password' /var/lib/postgresql/data/pg_hba.conf"
 psqlx -c "SELECT pg_reload_conf();" >/dev/null
+
+# TLS: a self-signed server certificate (its own CA), enabled with a config reload.
+command -v openssl >/dev/null || { echo "openssl is required for the TLS tests" >&2; exit 1; }
+mkdir -p tests/pg/.certs
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj "/CN=localhost" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -keyout tests/pg/.certs/server.key -out tests/pg/.certs/server.crt 2>/dev/null
+"$RUNTIME" cp tests/pg/.certs/server.crt "$NAME:/tmp/server.crt"
+"$RUNTIME" cp tests/pg/.certs/server.key "$NAME:/tmp/server.key"
+"$RUNTIME" exec -u root "$NAME" bash -c "install -o postgres -g postgres -m 644 /tmp/server.crt /var/lib/postgresql/ssl.crt && install -o postgres -g postgres -m 600 /tmp/server.key /var/lib/postgresql/ssl.key"
+psqlx -c "ALTER SYSTEM SET ssl = on;" -c "ALTER SYSTEM SET ssl_cert_file = '/var/lib/postgresql/ssl.crt';" \
+      -c "ALTER SYSTEM SET ssl_key_file = '/var/lib/postgresql/ssl.key';" -c "SELECT pg_reload_conf();" >/dev/null
+sleep 1
 
 echo "postgres://ziman:secret@127.0.0.1:$PORT/zimandb" > tests/pg/.url
 

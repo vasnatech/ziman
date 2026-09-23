@@ -5,12 +5,12 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean test test-pg test-bignum test-decimal corelib-reference
+.PHONY: all clean test test-pg test-tls test-bignum test-decimal corelib-reference
 
 all: $(BIN)
 
 $(BIN): $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ -lm -lsqlite3 -pthread
+	$(CC) $(CFLAGS) -o $@ $^ -lm -lsqlite3 -lssl -lcrypto -pthread
 
 # Bundled core modules (see src/corelib.c): each corelib/<name>.zm file
 # is embedded as a C string constant, generated fresh from its .zm
@@ -61,6 +61,10 @@ test: $(BIN)
 # (see tests/run_pg_tests.sh), so they are not part of `make test`.
 test-pg: $(BIN)
 	./tests/run_pg_tests.sh
+
+# The TLS client tests: need the openssl binary (see tests/run_tls_tests.sh).
+test-tls: $(BIN)
+	./tests/run_tls_tests.sh
 
 # Unit tests for internal C modules that don't fit the language-level
 # tests/fixtures harness (e.g. bignum.c's own arithmetic correctness,

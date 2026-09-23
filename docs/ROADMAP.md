@@ -995,9 +995,9 @@ a time mid-implementation:
 - **Database access follow-ups.** `db`/`sql`, `#[derive(Row)]`, `net`,
   `crypto` and a Postgres driver (`pg`) exist (docs/DESIGN.md's `db`/`sql`,
   `net` and `crypto`/`pg` entries); SQLite and Postgres are the two
-  backends. Still open: (1) **TLS** -- a `sslmode=require` URL is
-  refused today; hosted Postgres needs it (a `tls` module wrapping a
-  `Socket`, linking a TLS library); (2) ~~scoped cleanup~~ **done as `defer`** (docs/DESIGN.md's `defer` entry).
+  backends. Still open: (1) ~~TLS~~ **done for clients** (docs/DESIGN.md's TLS entry) -- still
+  open: server-side TLS (`listen_tls`, for an HTTPS server), client
+  certificates, ALPN; (2) ~~scoped cleanup~~ **done as `defer`** (docs/DESIGN.md's `defer` entry).
   What remains of it: a block form (`defer { ... }`), the deferred call's
   discarded `Result` (a failing cleanup is invisible), fatal errors
   skipping defers, and no true `with_transaction(fn)` (no closures); (3) a
