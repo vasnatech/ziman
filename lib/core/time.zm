@@ -246,7 +246,7 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
             ab_append<DateTimePart>(parts, DateTimePart.Nano)
             i = i + 9
         } else {
-            literal_buf = concat(literal_buf, substring(pattern, i, i + 1))
+            literal_buf = concat(literal_buf, char_at(pattern, i))
             i = i + 1
         }
     }

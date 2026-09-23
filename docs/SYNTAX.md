@@ -2262,6 +2262,12 @@ a type error.
   single allocation: `concat_arrays<int>(a, b)` or
   `concat_arrays<int>(parts: arrays)`. (The empty-`[]` literal can't be
   inferred as a variadic argument; pass a typed `val`.)
+- `char_at(s: string, i: int) -> string` — the one-byte string at index
+  `i` (`0 <= i < len(s)`, a runtime error otherwise); `char_at(s, i) ==
+  "x"` replaces `substring(s, i, i + 1) == "x"`.
+  `split_once(s, sep) -> Option<[string]>` — `Some([before, after])` split
+  at the *first* `sep`, `None` if it is absent; for `key=value`-shaped text
+  whose value may itself contain the separator (`split` would cut it up).
 - `index_of(s: string, needle: string, from: int) -> int` — the byte index
   of the first `needle` at or after `from` (`0 <= from <= len(s)`, a
   runtime error otherwise), or `-1`; an empty `needle` matches at `from`.

@@ -150,23 +150,13 @@ pub fn header(req: Request, name: string) -> Option<string> {
     return Option<string>.None
 }
 
-fn join_from(parts: [string], start: int, sep: string) -> string {
-    val rest = ab_new<string>()
-    var i = start
-    while i < len(parts) {
-        ab_append<string>(rest, parts[i])
-        i = i + 1
-    }
-    return join(separator: sep, pieces: ab_to_array<string>(rest))
-}
-
 // %XX escapes; `plus_is_space` is for query strings ("a+b" is "a b"
 // there, but a literal plus in a path).
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> {
     val out = ab_new<byte>()
     var i = 0
     while i < len(s) {
-        val c = substring(s, i, i + 1)
+        val c = char_at(s, i)
         if c == "%" {
             if i + 3 > len(s) {
                 return err("truncated %-escape")
@@ -200,15 +190,16 @@ fn parse_header_line(line: string) -> Result<Header, HttpError> {
     if len(line) == 0 || starts_with(line, " ") || starts_with(line, "\t") {
         return err(HttpError.BadRequest("malformed header line"))
     }
-    if !contains(line, ":") {
+    val split_line = split_once(line, ":")
+    if !Option.is_Some(split_line) {
         return err(HttpError.BadRequest(concat("header line has no ':': ", line)))
     }
-    val parts = split(line, ":")
+    val parts = Option.unwrap_Some(split_line)
     val name = parts[0]
     if len(name) == 0 || contains(name, " ") {
         return err(HttpError.BadRequest("malformed header name"))
     }
-    return Header { name: name, value: trim(join_from(parts, 1, ":")) }
+    return Header { name: name, value: trim(parts[1]) }
 }
 
 fn header_value(headers: [Header], name: string) -> Option<string> {
@@ -275,10 +266,10 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
 
     var path = target
     var query = ""
-    if contains(target, "?") {
-        val tq = split(target, "?")
-        path = tq[0]
-        query = join_from(tq, 1, "?")
+    val tq = split_once(target, "?")
+    if Option.is_Some(tq) {
+        path = Option.unwrap_Some(tq)[0]
+        query = Option.unwrap_Some(tq)[1]
     }
 
     if Option.is_Some(header_value(header_list, "Transfer-Encoding")) {
@@ -546,11 +537,12 @@ pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Respon
 // first one if it is repeated. `None` if absent.
 pub fn query_param(req: Request, name: string) -> Option<string> {
     for pair in split(req.query, "&") {
-        if contains(pair, "=") {
-            val kv = split(pair, "=")
-            val key = percent_decode(kv[0], true)
+        val kv = split_once(pair, "=")
+        if Option.is_Some(kv) {
+            val parts = Option.unwrap_Some(kv)
+            val key = percent_decode(parts[0], true)
             if is_ok(key) && unwrap(key) == name {
-                val value = percent_decode(join_from(kv, 1, "="), true)
+                val value = percent_decode(parts[1], true)
                 if is_ok(value) {
                     return Option<string>.Some(unwrap(value))
                 }

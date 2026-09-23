@@ -1,0 +1,19 @@
+fn show(p: Option<[string]>) {
+    if Option.is_Some(p) {
+        val parts = Option.unwrap_Some(p)
+        print(format("[{}] [{}]", parts[0], parts[1]))
+    } else {
+        print("none")
+    }
+}
+
+fn main() {
+    print(char_at("hello", 0))
+    print(char_at("hello", 4))
+    show(split_once("key=a=b", "="))
+    show(split_once("=x", "="))
+    show(split_once("x=", "="))
+    show(split_once("novalue", "="))
+    show(split_once("a::b::c", "::"))
+    show(split_once("", ":"))
+}

@@ -156,6 +156,19 @@ static Value native_substring(Value *args, int argc, int line, int col) {
     return value_string(buf);
 }
 
+static Value native_char_at(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const char *str = args[0].as.s;
+    int64_t len = (int64_t)strlen(str), i = args[1].as.i;
+    if (i < 0 || i >= len) {
+        ziman_error("runtime", line, col, "char_at index out of bounds (index=%lld, length=%lld)", (long long)i, (long long)len);
+    }
+    char *buf = malloc(2);
+    buf[0] = str[i];
+    buf[1] = '\0';
+    return value_string(buf);
+}
+
 static Value native_index_of(Value *args, int argc, int line, int col) {
     (void)argc;
     const char *str = args[0].as.s;
@@ -655,6 +668,7 @@ void prelude_register(void) {
     native_register("substring", native_substring);
     native_register("split", native_split);
     native_register("index_of", native_index_of);
+    native_register("char_at", native_char_at);
     native_register("starts_with", native_starts_with);
     native_register("ends_with", native_ends_with);
     native_register("replace", native_replace);

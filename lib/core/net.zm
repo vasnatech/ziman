@@ -99,12 +99,12 @@ pub fn net_error_message(e: NetError) -> string {
 
 // A native error arrives as "category|message".
 fn net_error_from_raw(raw: string) -> NetError {
-    val bar = index_of(raw, "|", 0)
     var category = raw
     var message = ""
-    if bar >= 0 {
-        category = substring(raw, 0, bar)
-        message = substring(raw, bar + 1, len(raw))
+    val split_raw = split_once(raw, "|")
+    if Option.is_Some(split_raw) {
+        category = Option.unwrap_Some(split_raw)[0]
+        message = Option.unwrap_Some(split_raw)[1]
     }
     if category == "refused" {
         return NetError.ConnectionRefused(message)

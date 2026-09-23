@@ -180,7 +180,7 @@ fn percent_decode(s: string) -> Result<string, DbError> {
     val out = ab_new<byte>()
     var i = 0
     while i < len(s) {
-        val c = substring(s, i, i + 1)
+        val c = char_at(s, i)
         if c == "%" && i + 3 <= len(s) {
             val b = byte_from_hex(substring(s, i + 1, i + 3))
             if !is_ok(b) {
@@ -202,16 +202,6 @@ fn percent_decode(s: string) -> Result<string, DbError> {
     return unwrap(text)
 }
 
-fn join_from(parts: [string], start: int, sep: string) -> string {
-    val rest = ab_new<string>()
-    var i = start
-    while i < len(parts) {
-        ab_append<string>(rest, parts[i])
-        i = i + 1
-    }
-    return join(separator: sep, pieces: ab_to_array<string>(rest))
-}
-
 // postgres://user[:password]@host[:port]/database[?sslmode=...]
 fn parse_url(url: string) -> Result<PgUrl, DbError> {
     var rest = ""
@@ -225,18 +215,18 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
 
     var path_and_query = ""
     var authority = rest
-    val slash = split(rest, "/")
-    if len(slash) > 1 {
-        authority = slash[0]
-        path_and_query = join_from(slash, 1, "/")
+    val slash = split_once(rest, "/")
+    if Option.is_Some(slash) {
+        authority = Option.unwrap_Some(slash)[0]
+        path_and_query = Option.unwrap_Some(slash)[1]
     }
     var database = path_and_query
     var sslmode = "disable"
     var sslrootcert = ""
-    if contains(path_and_query, "?") {
-        val q = split(path_and_query, "?")
-        database = q[0]
-        for pair in split(join_from(q, 1, "?"), "&") {
+    val q = split_once(path_and_query, "?")
+    if Option.is_Some(q) {
+        database = Option.unwrap_Some(q)[0]
+        for pair in split(Option.unwrap_Some(q)[1], "&") {
             if starts_with(pair, "sslmode=") {
                 sslmode = substring(pair, 8, len(pair))
             } else if starts_with(pair, "sslrootcert=") {
@@ -258,10 +248,10 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
     }
     var user = userinfo
     var password = ""
-    if contains(userinfo, ":") {
-        val up = split(userinfo, ":")
-        user = up[0]
-        password = join_from(up, 1, ":")
+    val up = split_once(userinfo, ":")
+    if Option.is_Some(up) {
+        user = Option.unwrap_Some(up)[0]
+        password = Option.unwrap_Some(up)[1]
     }
     var host = hostport
     var port = 5432

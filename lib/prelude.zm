@@ -35,6 +35,10 @@ native fn trim(s: string) -> string
 // (0 <= from <= len(s), else a runtime error), or -1; an empty needle
 // matches at `from`. replace swaps every non-overlapping `old` for `new`
 // (`old` must not be empty). None of them build intermediate strings.
+// char_at is the one-byte string at index i (0 <= i < len(s), else a
+// runtime error) -- `char_at(s, i) == "x"` instead of
+// `substring(s, i, i + 1) == "x"`.
+native fn char_at(s: string, i: int) -> string
 native fn index_of(s: string, needle: string, from: int) -> int
 native fn starts_with(s: string, prefix: string) -> bool
 native fn ends_with(s: string, suffix: string) -> bool
@@ -72,6 +76,18 @@ native fn join(prefix: Option<string>, suffix: Option<string>, separator: Option
 enum Option<T> {
     Some(T)
     None
+}
+
+// Splits at the FIRST `sep`: Some([before, after]), or None if `sep` isn't
+// in `s`. The right tool for `key=value`, `host:port`, `category|message`
+// where the value may itself contain the separator (`split` would cut it
+// apart). `sep` must not be empty.
+fn split_once(s: string, sep: string) -> Option<[string]> {
+    val at = index_of(s, sep, 0)
+    if at < 0 {
+        return Option<[string]>.None
+    }
+    return Option<[string]>.Some([substring(s, 0, at), substring(s, at + len(sep), len(s))])
 }
 
 fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T {

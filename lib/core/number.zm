@@ -144,7 +144,7 @@ pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
     var result: bigint = 0n
     var i = start
     while i < len(s) {
-        val dv = hex_digit_value(substring(s, i, i + 1))
+        val dv = hex_digit_value(char_at(s, i))
         if !is_ok(dv) {
             return err(unwrap_err(dv))
         }
@@ -192,7 +192,7 @@ pub fn int_from_hex(s: string) -> Result<int, string> {
     var result: bigint = 0n
     var i = 0
     while i < len(s) {
-        val dv = hex_digit_value(substring(s, i, i + 1))
+        val dv = hex_digit_value(char_at(s, i))
         if !is_ok(dv) {
             return err(unwrap_err(dv))
         }
@@ -276,7 +276,7 @@ fn insert_thousands(int_part: string, sep: string) -> string {
         if i > 0 && (n - i) % 3 == 0 {
             sb_append(out, sep)
         }
-        sb_append(out, substring(digits, i, i + 1))
+        sb_append(out, char_at(digits, i))
         i = i + 1
     }
     return sb_to_string(out)
