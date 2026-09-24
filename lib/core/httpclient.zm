@@ -209,9 +209,8 @@ fn text_of(b: [byte]) -> Result<string, ClientError> {
 }
 
 fn header_value(headers: [Header], name: string) -> Option<string> {
-    val wanted = to_lower(name)
     for h in headers {
-        if to_lower(h.name) == wanted {
+        if equals_ignore_case(h.name, name) {
             return Option<string>.Some(h.value)
         }
     }

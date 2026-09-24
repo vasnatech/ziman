@@ -180,9 +180,8 @@ pub fn open_session(sock: Socket) -> Session {
 
 // Case-insensitive header lookup.
 pub fn header(req: Request, name: string) -> Option<string> {
-    val wanted = to_lower(name)
     for h in req.headers {
-        if to_lower(h.name) == wanted {
+        if equals_ignore_case(h.name, name) {
             return Option<string>.Some(h.value)
         }
     }
@@ -241,9 +240,8 @@ fn parse_header_line(line: string) -> Result<Header, HttpError> {
 }
 
 fn header_value(headers: [Header], name: string) -> Option<string> {
-    val wanted = to_lower(name)
     for h in headers {
-        if to_lower(h.name) == wanted {
+        if equals_ignore_case(h.name, name) {
             return Option<string>.Some(h.value)
         }
     }
@@ -329,7 +327,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     var rest = bytes_slice(buf, head_end, len(buf))
     if content_length > len(rest) {
         val expect = header_value(header_list, "Expect")
-        if Option.is_Some(expect) && to_lower(Option.unwrap_Some(expect)) == "100-continue" {
+        if Option.is_Some(expect) && equals_ignore_case(Option.unwrap_Some(expect), "100-continue") {
             lift<int>(net.write_text(sock, "HTTP/1.1 100 Continue\r\n\r\n"))?
         }
         val more = lift<[byte]>(net.read_exact(sock, content_length - len(rest)))?
@@ -447,7 +445,7 @@ fn connection_close_requested(req: Request) -> bool {
 pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool, HttpError> {
     var keep = !connection_close_requested(req)
     for h in resp.headers {
-        if to_lower(h.name) == "connection" && contains(to_lower(h.value), "close") {
+        if equals_ignore_case(h.name, "connection") && contains(to_lower(h.value), "close") {
             keep = false
         }
     }

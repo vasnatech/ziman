@@ -47,6 +47,10 @@ native fn char_at(s: string, i: int) -> string
 // but any text works (a literal matched at a position).
 native fn last_index_of(s: string, needle: string) -> int
 native fn is_char_at(s: string, i: int, c: string) -> bool
+// equals_ignore_case(a, b): whether a and b are equal when the ASCII letters
+// A-Z are treated as a-z (other bytes, including non-ASCII, compare exactly).
+// No intermediate strings, unlike `to_lower(a) == to_lower(b)`.
+native fn equals_ignore_case(a: string, b: string) -> bool
 native fn index_of(s: string, needle: string, from: int) -> int
 native fn starts_with(s: string, prefix: string) -> bool
 native fn ends_with(s: string, suffix: string) -> bool

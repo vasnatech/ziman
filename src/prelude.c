@@ -200,6 +200,21 @@ static Value native_is_char_at(Value *args, int argc, int line, int col) {
     return value_bool(memcmp(SPTR(args[0]) + i, SPTR(args[2]), lc) == 0);
 }
 
+static Value native_equals_ignore_case(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    size_t n = SLEN(args[0]);
+    if (n != SLEN(args[1])) return value_bool(0);
+    const unsigned char *a = (const unsigned char *)SPTR(args[0]);
+    const unsigned char *b = (const unsigned char *)SPTR(args[1]);
+    for (size_t i = 0; i < n; i++) {
+        unsigned char x = a[i], y = b[i];
+        if (x >= 'A' && x <= 'Z') x = (unsigned char)(x + 32);
+        if (y >= 'A' && y <= 'Z') y = (unsigned char)(y + 32);
+        if (x != y) return value_bool(0);
+    }
+    return value_bool(1);
+}
+
 static Value native_starts_with(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     size_t ls = SLEN(args[0]), lp = SLEN(args[1]);
@@ -658,6 +673,7 @@ void prelude_register(void) {
     native_register("index_of", native_index_of);
     native_register("last_index_of", native_last_index_of);
     native_register("is_char_at", native_is_char_at);
+    native_register("equals_ignore_case", native_equals_ignore_case);
     native_register("char_at", native_char_at);
     native_register("starts_with", native_starts_with);
     native_register("ends_with", native_ends_with);

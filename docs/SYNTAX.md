@@ -2557,6 +2557,9 @@ a type error.
   whose value may itself contain the separator (`split` would cut it up).
 - `last_index_of(s: string, needle: string) -> int` — the byte index of the
   last `needle` (`len(s)` for an empty one), or `-1`.
+  `equals_ignore_case(a: string, b: string) -> bool` — equality with ASCII
+  letters compared case-insensitively (non-ASCII bytes compare exactly);
+  allocates nothing, unlike `to_lower(a) == to_lower(b)`.
   `is_char_at(s: string, i: int, c: string) -> bool` — whether `c` appears
   in `s` starting at `i`; `false` (never an error) when `i` is out of range
   or `c` doesn't fit, so it replaces the guarded `p < len(s) &&

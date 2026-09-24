@@ -1,0 +1,10 @@
+fn main() {
+    print(equals_ignore_case("Content-Type", "content-type"))
+    print(equals_ignore_case("ABC", "abd"))
+    print(equals_ignore_case("abc", "abcd"))
+    print(equals_ignore_case("", ""))
+    print(equals_ignore_case("straße", "STRAßE"))
+    print(equals_ignore_case("é", "É"))
+    print(equals_ignore_case("a1-_", "A1-_"))
+    print(equals_ignore_case(substring("xxAbCxx", 2, 5), "aBc"))
+}
