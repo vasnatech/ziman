@@ -1,0 +1,51 @@
+use net
+use models/user.User as U
+#[derive(Json)]
+pub struct Point {
+    x: int
+    y: int
+}
+enum Shape { Circle(int) Square(int)
+    Empty }
+fn add(a: int, b: int) -> int {
+    return a + b * 2 - 1
+}
+
+// a comment before a function
+fn main() {
+    val x = add(1, 2)   // trailing
+    val y = -x + (3 * 4)
+    val neg = [-1, -2, -3]
+    val ok = !(x == y) && x != 2 || y <= 3
+    if x>3 { print("big") } else {
+        print("small")   // small
+    }
+
+    // own-line comment inside a block
+
+    for i in 0..len(neg) {
+        print(neg[i])
+    }
+    val m = Point { x: 1, y: 2 }
+    val f = fn(n: int) -> int { return n * 2 }
+    val r = foo(1,
+        2)
+    val t = if x > 1 {
+        10
+    } else {
+        20
+    }
+    val q = x as int
+    val z = arr[0].name
+    val e = Empty {}
+    val g: Result<int, string> = ok(1)
+    val v = parse_int(s)?
+    switch s {
+        Circle(r) { print(r) }
+        Empty {
+            print("none")
+            // nothing else
+        }
+    }
+    collections.map<int, string>(xs, f)
+}

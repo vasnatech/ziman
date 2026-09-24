@@ -332,12 +332,12 @@ against)**
 
 **F. Tooling and documentation**
 
-- [~] **R17. A formatter (or at least a lint) that makes `val` and `var`
+- [x] **R17. A formatter (or at least a lint) that makes `val` and `var`
   visually distinct** -- DESIGN.md already calls the one-character
   difference a silent-mutability typo hazard. *Lint done: `ziman --lint`
   flags a `var` that is never reassigned, in user code only (bundled modules
   and derived code are skipped); running it over the bundled library found
-  three. A real formatter is still open.*
+  three. `ziman --fmt` is the formatter (a text formatter: it keeps comments and line breaks, see DESIGN.md "The formatter"); `make fmt-check` keeps the library, backend and extra tests formatted.*
 - [x] **R18. Split README.md into sections.** *Done: README.md is now ~900 words (a taste, the language at a glance, a module table, tooling); the old wall of prose lives in docs/FEATURE-NOTES.md under ten headings.* It is ~3,000 words in
   essentially one paragraph, and it is the document most likely to be
   pasted into a model's context as "the language".

@@ -1,7 +1,9 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "derive.h"
+#include "format.h"
 #include "error.h"
 #include "interpreter.h"
 #include "loader.h"
@@ -28,26 +30,81 @@ static void usage(FILE *out) {
           "                   (with --check, print {\"ok\":true} on success)\n"
           "  --lint           report style findings (a `var` never reassigned) in your own\n"
           "                   code instead of running it; exit 1 if there are any\n"
+          "  --fmt            print the source formatted (several files allowed);\n"
+          "                   with --write rewrite the files in place, with --check\n"
+          "                   print the files that would change and exit 1 if any\n"
           "  --emit-derived   print the code each #[derive] generates, then continue\n"
           "  --version        print the version and exit\n"
           "  --help           print this help and exit\n", out);
 }
 
+static char *read_whole(const char *path, size_t *len) {
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return NULL;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *buf = malloc((size_t)size + 1);
+    size_t n = fread(buf, 1, (size_t)size, f);
+    fclose(f);
+    buf[n] = '\0';
+    *len = n;
+    return buf;
+}
+
+/* `ziman --fmt [--write | --check] files...` */
+static int run_format(char **files, int n_files, int write, int check) {
+    int changed = 0, failed = 0;
+    for (int i = 0; i < n_files; i++) {
+        size_t len;
+        char *src = read_whole(files[i], &len);
+        if (src == NULL) { fprintf(stderr, "ziman: cannot open '%s'\n", files[i]); failed = 1; continue; }
+        char err[256];
+        char *out = format_source(src, len, err, sizeof err);
+        if (out == NULL) { fprintf(stderr, "%s: %s\n", files[i], err); failed = 1; free(src); continue; }
+        int differs = strlen(out) != len || memcmp(out, src, len) != 0;
+        if (differs) changed++;
+        if (check) {
+            if (differs) printf("%s\n", files[i]);
+        } else if (write) {
+            if (differs) {
+                FILE *f = fopen(files[i], "wb");
+                if (f == NULL) { fprintf(stderr, "ziman: cannot write '%s'\n", files[i]); failed = 1; }
+                else { fwrite(out, 1, strlen(out), f); fclose(f); }
+            }
+        } else {
+            fputs(out, stdout);
+        }
+        free(out);
+        free(src);
+    }
+    if (failed) return 2;
+    return check && changed > 0 ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
-    int check_only = 0, json = 0, lint = 0;
+    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0;
     const char *file = NULL;
+    char **files = malloc((size_t)argc * sizeof(char *));
+    int n_files = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         if (strcmp(a, "--check") == 0) check_only = 1;
         else if (strcmp(a, "--json") == 0) json = 1;
         else if (strcmp(a, "--lint") == 0) lint = 1;
+        else if (strcmp(a, "--fmt") == 0) fmt = 1;
+        else if (strcmp(a, "--write") == 0) fmt_write = 1;
         else if (strcmp(a, "--emit-derived") == 0) g_emit_derived = 1;
         else if (strcmp(a, "--version") == 0 || strcmp(a, "-V") == 0) { printf("ziman %s\n", ZIMAN_VERSION); return 0; }
         else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) { usage(stdout); return 0; }
         else if (a[0] == '-' && a[1] == '-') { fprintf(stderr, "ziman: unknown option '%s'\n", a); usage(stderr); return 2; }
-        else if (file == NULL) file = a;
-        else { fprintf(stderr, "ziman: more than one file given ('%s' and '%s')\n", file, a); usage(stderr); return 2; }
+        else { files[n_files++] = (char *)a; if (file == NULL) file = a; }
     }
+    if (fmt) {
+        if (n_files == 0) { usage(stderr); return 2; }
+        return run_format(files, n_files, fmt_write, check_only);
+    }
+    if (n_files > 1) { fprintf(stderr, "ziman: more than one file given ('%s' and '%s')\n", files[0], files[1]); usage(stderr); return 2; }
     if (file == NULL) {
         usage(stderr);
         return 1;

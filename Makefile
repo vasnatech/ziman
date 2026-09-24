@@ -9,7 +9,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean test test-gc gc test-pg test-mysql test-tls test-bignum test-decimal corelib-reference
+.PHONY: all clean fmt-check test test-gc gc test-pg test-mysql test-tls test-bignum test-decimal corelib-reference
 
 all: $(BIN)
 
@@ -96,6 +96,12 @@ test-mysql: $(BIN)
 	./tests/run_mysql_tests.sh
 
 # The TLS client tests: need the openssl binary (see tests/run_tls_tests.sh).
+# The bundled library, the extra test programs and the sample backend are kept
+# formatted by `ziman --fmt` (tests/fixtures is not: fixtures that test error
+# positions depend on their exact layout).
+fmt-check: $(BIN)
+	./$(BIN) --fmt --check $$(find lib tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm') ../health-record/health-record-backend-ziman/*.zm ../health-record/health-record-backend-ziman/*/*.zm
+
 test-tls: $(BIN)
 	./tests/run_tls_tests.sh
 

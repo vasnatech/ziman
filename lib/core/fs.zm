@@ -4,7 +4,6 @@
 // a full disk is something a program handles, not a crash. Actions that have no
 // value to report return Ok(0), the same shape `net` uses.
 
-
 // The whole file as a string (an error if it contains a NUL byte).
 pub native fn read_text(path: string) -> Result<string, string>
 

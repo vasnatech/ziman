@@ -505,5 +505,5 @@ pub fn get(url: string) -> Result<Response, ClientError> {
 // POST with a JSON body: sets `Content-Type: application/json`.
 pub fn post_json(url: string, body: string) -> Result<Response, ClientError> {
     return request(method: HttpMethod.Post, url: url, body: body,
-                   headers: [Header { name: "Content-Type", value: "application/json" }])
+        headers: [Header { name: "Content-Type", value: "application/json" }])
 }

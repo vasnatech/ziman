@@ -3140,3 +3140,40 @@ properties need tables Ziman does not carry.
 lookaround, backreferences, and a compiled-pattern cache; a `regex` literal
 syntax was considered and rejected (a string plus `compile` keeps one way to do
 it, and a bad pattern is a `Result`, not a compile error).
+
+## The formatter (`ziman --fmt`, R17)
+
+**A text formatter, not a tree printer.** The parser drops comments and layout,
+so printing the AST back would delete every comment. `src/format.c` instead
+scans the source into items (words, numbers, strings, punctuation, comments)
+with the whitespace and newlines between them, and re-emits them under a fixed
+set of rules: indentation from bracket nesting (4 spaces per level; a bracket
+opened on the same line as another adds no extra level, so `f(x, fn() {` ... `})`
+indents once), one space around binary operators and after commas and colons,
+none inside brackets or before a call's `(`, `Foo { a: 1 }` and `{ return x }`
+spaced inside braces, `{}` empty, at most one blank line in a row and none just
+inside a block, trailing whitespace removed, comments re-indented (a trailing
+comment keeps its distance from the code so aligned comments survive), a final
+newline. It never moves a line break and does not reflow long lines: where you
+broke a line is where it stays, and a line ending in an operator indents its
+continuation one level. It needs only lexable text (an unterminated string
+literal is the one error), so it works on a file the compiler rejects.
+
+**What it cannot decide without parsing.** `<` and `>` are a comparison or a
+generic bracket (`a < b` versus `List<int>`); those keep the spacing the source
+had, collapsed to at most one space. That is a deliberate limit rather than a
+bug: resolving it needs a real parse, which a text formatter avoids so that it
+stays trivial to trust. Everything else it decides from the neighbouring tokens
+(a `-` is unary unless it follows an operand; `use a/b` paths keep their `/`;
+`i++` stays `i++`; `string...` keeps its dots).
+
+**Safety.** After formatting, the output is scanned again and must contain
+exactly the same sequence of code tokens and comments as the input; if not,
+nothing is printed or written (an internal error). Formatting is idempotent, and
+`--fmt` over the 588 `.zm` files in the repository was checked for it. Only the
+library, the sample backend and the extra test programs are formatted
+(`make fmt-check`): fixtures that test error positions depend on their exact
+layout, so `tests/fixtures` is left as written.
+
+**Not done.** Line wrapping; alignment of consecutive trailing comments; sorting
+`use` lines; an editor integration (`--fmt` reads files, not stdin).

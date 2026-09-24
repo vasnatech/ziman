@@ -121,7 +121,9 @@ run prints `{"ok":true}`); `--emit-derived` prints the code each
 instead of running it (today: a `var` that is never reassigned -- `var` and
 `val` differ by one letter, so it is the typo that silently makes something
 mutable) as `file:line:col: warning: ...`, or JSON with `"severity":"warning"`,
-and exits 1 if there are any; `--version`; `--help`.
+and exits 1 if there are any; `--fmt file.zm...` prints the source formatted
+(`--fmt --write` rewrites the files, `--fmt --check` lists the ones that would
+change and exits 1); `--version`; `--help`.
 
 `make gc` builds `./ziman-gc`, the same interpreter with a tracing garbage
 collector (Boehm, built from a pinned source tree by `tools/build_bdwgc.sh`
