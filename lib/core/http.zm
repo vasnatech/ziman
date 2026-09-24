@@ -134,12 +134,8 @@ fn find_head_end(buf: [byte]) -> int {
     return -1
 }
 
-fn no_bytes() -> [byte] {
-    return bytes_slice([0b], 0, 0)
-}
-
 pub fn open_session(sock: Socket) -> Session {
-    return Session { sock: sock, buffer: no_bytes() }
+    return Session { sock: sock, buffer: [] }
 }
 
 // Case-insensitive header lookup.

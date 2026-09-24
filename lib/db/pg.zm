@@ -467,8 +467,8 @@ fn affected_rows(tag: string) -> int {
 // connection stays in step for the next request.
 fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
     val rows = ab_new<Row>()
-    var names = ab_to_array<string>(ab_new<string>())
-    var oids = ab_to_array<int>(ab_new<int>())
+    var names: [string] = []
+    var oids: [int] = []
     var affected = 0
     var failure = Option<DbError>.None
     var done = false
@@ -543,7 +543,7 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
         frame("B", bind_body),
         frame("D", describe_body),
         frame("E", execute_body),
-        frame("S", ab_to_array<byte>(ab_new<byte>())))
+        frame("S", []))
     lift<int>(net.write(sock, batch))?
     return collect_result(sock)
 }
@@ -570,7 +570,7 @@ fn serve(sock: Socket, requests: Channel<Request>) {
             val r = Request.unwrap_Run(req)
             send(r.reply_to, run_query(sock, r.sql, r.params))
         } else {
-            send_message(sock, "X", ab_to_array<byte>(ab_new<byte>()))
+            send_message(sock, "X", [])
             net.close(sock)
             open = false
         }

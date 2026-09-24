@@ -225,7 +225,7 @@ fn more(sock: Socket, buf: [byte]) -> Result<[byte], ClientError> {
 // The body of a chunked response; `buf` holds what was already read past the head.
 fn read_chunked(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
     var buf = start
-    var body = bytes_slice([0b], 0, 0)
+    var body: [byte] = []
     while true {
         var eol = find_from(buf, 13b, 10b, 0)
         while eol < 0 {
@@ -284,7 +284,7 @@ fn read_to_close(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
 }
 
 fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientError> {
-    var buf = bytes_slice([0b], 0, 0)
+    var buf: [byte] = []
     var head_end = find_head_end(buf)
     while head_end < 0 {
         if len(buf) > max_header_bytes {
@@ -320,7 +320,7 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
 
     val no_body = head_only || status < 200 || status == 204 || status == 304
     if no_body {
-        return BytesResponse { status: status, headers: header_list, body: bytes_slice([0b], 0, 0) }
+        return BytesResponse { status: status, headers: header_list, body: [] }
     }
     var body_bytes = rest
     val te = header_value(header_list, "Transfer-Encoding")
@@ -478,7 +478,7 @@ pub fn request_bytes(method: string, url: string, headers: Option<[Header]>, bod
     var current = unwrap(parsed)
     var m = method
     var b = body
-    val hs = option_unwrap_or<[Header]>(headers, no_headers())
+    val hs = option_unwrap_or<[Header]>(headers, [])
     val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
     val limit = option_unwrap_or<int>(max_redirects, 5)
     var hops = 0
@@ -504,10 +504,6 @@ pub fn request_bytes(method: string, url: string, headers: Option<[Header]>, bod
         hops = hops + 1
     }
     return err(ClientError.TooManyRedirects)
-}
-
-fn no_headers() -> [Header] {
-    return ab_to_array<Header>(ab_new<Header>())
 }
 
 pub fn get(url: string) -> Result<Response, ClientError> {
