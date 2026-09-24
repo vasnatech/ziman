@@ -2318,7 +2318,12 @@ a type error.
   `[T]`, or the byte length of a `string`.
 - `substring(s: string, start: int, end: int) -> string` — the substring
   `[start, end)`. `start`/`end` must satisfy `0 <= start <= end <=
-  len(s)`, a runtime error otherwise.
+  len(s)`, a runtime error otherwise. **It does not copy:** a string is a
+  pointer plus a length over immutable bytes, so `substring`, `trim`,
+  `char_at` and the pieces `split` returns are views into the original --
+  free to make, and `len` is O(1). (Nothing observable changes: strings are
+  immutable and compare by content. What a slice does keep alive is its
+  whole parent buffer, which matters once memory is reclaimed.)
 - `split(s: string, sep: string) -> [string]` — splits `s` on every
   occurrence of `sep`. `sep` must not be `""` (runtime error) — an empty
   separator has no well-defined split points. Empty pieces (adjacent

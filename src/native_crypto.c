@@ -334,8 +334,8 @@ static int b64_val(char c) {
 static Value native_base64_decode(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type result_type = type_result(byte_array_type(), type_scalar(TY_STRING));
-    const char *s = args[0].as.s;
-    size_t n = strlen(s);
+    const char *s = args[0].as.str.ptr;
+    size_t n = args[0].as.str.len;
     if (n % 4 != 0) return value_result(result_type, result_obj_new(0, value_string(strdup("invalid base64: length is not a multiple of 4"))));
     unsigned char *out = malloc(n / 4 * 3 + 1);
     size_t o = 0;

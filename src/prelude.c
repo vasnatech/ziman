@@ -41,11 +41,11 @@ static Value native_parse_int(Value *args, int argc, int line, int col) {
     (void)line;
     (void)col;
     Type result_type = type_result(type_scalar(TY_INT), type_scalar(TY_STRING));
-    const char *str = args[0].as.s;
+    const char *str = value_cstr(args[0]);
     char *endptr;
     errno = 0;
     long long v = strtoll(str, &endptr, 10);
-    if (endptr == str || *endptr != '\0' || errno == ERANGE) {
+    if (endptr == str || *endptr != '\0' || errno == ERANGE || strlen(str) != args[0].as.str.len) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as int", str);
         return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
@@ -58,11 +58,11 @@ static Value native_parse_float(Value *args, int argc, int line, int col) {
     (void)line;
     (void)col;
     Type result_type = type_result(type_scalar(TY_FLOAT), type_scalar(TY_STRING));
-    const char *str = args[0].as.s;
+    const char *str = value_cstr(args[0]);
     char *endptr;
     errno = 0;
     double v = strtod(str, &endptr);
-    if (endptr == str || *endptr != '\0' || errno == ERANGE) {
+    if (endptr == str || *endptr != '\0' || errno == ERANGE || strlen(str) != args[0].as.str.len) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as float", str);
         return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
@@ -76,10 +76,11 @@ static Value native_parse_bigint(Value *args, int argc, int line, int col) {
     (void)col;
     Type result_type = type_result(type_scalar(TY_BIGINT), type_scalar(TY_STRING));
     int ok;
-    BigNum n = bignum_from_string(args[0].as.s, &ok);
+    const char *big_text = value_cstr(args[0]);
+    BigNum n = bignum_from_string(big_text, &ok);
     if (!ok) {
         char msg[256];
-        snprintf(msg, sizeof(msg), "cannot parse '%s' as bigint", args[0].as.s);
+        snprintf(msg, sizeof(msg), "cannot parse '%s' as bigint", big_text);
         return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
     }
     return value_result(result_type, result_obj_new(1, value_bigint(n)));
@@ -91,10 +92,11 @@ static Value native_parse_decimal(Value *args, int argc, int line, int col) {
     (void)col;
     Type result_type = type_result(type_scalar(TY_DECIMAL), type_scalar(TY_STRING));
     int ok;
-    Decimal d = decimal_from_string(args[0].as.s, &ok);
+    const char *dec_text = value_cstr(args[0]);
+    Decimal d = decimal_from_string(dec_text, &ok);
     if (!ok) {
         char msg[256];
-        snprintf(msg, sizeof(msg), "cannot parse '%s' as decimal", args[0].as.s);
+        snprintf(msg, sizeof(msg), "cannot parse '%s' as decimal", dec_text);
         return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
     }
     return value_result(result_type, result_obj_new(1, value_decimal(d)));
@@ -128,138 +130,133 @@ static Value native_decimal_round(Value *args, int argc, int line, int col) {
     return value_decimal(decimal_round(*args[0].as.dec, (int)args[1].as.i));
 }
 
+#define SPTR(v) ((v).as.str.ptr)
+#define SLEN(v) ((size_t)(v).as.str.len)
+
+/* A slice of `parent` (which must be a string value): `len` bytes starting
+ * `start` bytes in. No copy -- the result points into the parent's buffer,
+ * and is NUL-terminated only if it runs to the end of a terminated parent. */
+static Value string_slice(Value parent, size_t start, size_t len) {
+    int term = parent.as.str.term && start + len == SLEN(parent);
+    return value_string_view(SPTR(parent) + start, len, term);
+}
+
 static Value native_concat(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    size_t la = strlen(args[0].as.s), lb = strlen(args[1].as.s);
+    size_t la = SLEN(args[0]), lb = SLEN(args[1]);
     char *buf = malloc(la + lb + 1);
-    memcpy(buf, args[0].as.s, la);
-    memcpy(buf + la, args[1].as.s, lb);
+    memcpy(buf, SPTR(args[0]), la);
+    memcpy(buf + la, SPTR(args[1]), lb);
     buf[la + lb] = '\0';
-    return value_string(buf);
+    return value_string_view(buf, la + lb, 1);
 }
 
 static Value native_substring(Value *args, int argc, int line, int col) {
     (void)argc;
-    const char *str = args[0].as.s;
-    int64_t len = (int64_t)strlen(str);
+    int64_t len = (int64_t)SLEN(args[0]);
     int64_t st = args[1].as.i, en = args[2].as.i;
     if (st < 0 || en > len || st > en) {
         ziman_error("runtime", line, col, "substring index out of bounds (start=%lld, end=%lld, length=%lld)",
                     (long long)st, (long long)en, (long long)len);
     }
-    size_t n = (size_t)(en - st);
-    char *buf = malloc(n + 1);
-    memcpy(buf, str + st, n);
-    buf[n] = '\0';
-    return value_string(buf);
+    return string_slice(args[0], (size_t)st, (size_t)(en - st));
 }
 
 static Value native_char_at(Value *args, int argc, int line, int col) {
     (void)argc;
-    const char *str = args[0].as.s;
-    int64_t len = (int64_t)strlen(str), i = args[1].as.i;
+    int64_t len = (int64_t)SLEN(args[0]), i = args[1].as.i;
     if (i < 0 || i >= len) {
         ziman_error("runtime", line, col, "char_at index out of bounds (index=%lld, length=%lld)", (long long)i, (long long)len);
     }
-    char *buf = malloc(2);
-    buf[0] = str[i];
-    buf[1] = '\0';
-    return value_string(buf);
+    return string_slice(args[0], (size_t)i, 1);
 }
 
 static Value native_index_of(Value *args, int argc, int line, int col) {
     (void)argc;
-    const char *str = args[0].as.s;
-    const char *needle = args[1].as.s;
-    int64_t len = (int64_t)strlen(str), from = args[2].as.i;
+    int64_t len = (int64_t)SLEN(args[0]), from = args[2].as.i;
     if (from < 0 || from > len) {
         ziman_error("runtime", line, col, "index_of start out of bounds (from=%lld, length=%lld)", (long long)from, (long long)len);
     }
-    const char *found = strstr(str + from, needle);
-    return value_int(found ? (int64_t)(found - str) : -1);
+    return value_int(value_str_find(SPTR(args[0]), SLEN(args[0]), SPTR(args[1]), SLEN(args[1]), (size_t)from));
 }
 
 static Value native_last_index_of(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    const char *str = args[0].as.s, *needle = args[1].as.s;
-    size_t ls = strlen(str), ln = strlen(needle);
+    size_t ls = SLEN(args[0]), ln = SLEN(args[1]);
     if (ln > ls) return value_int(-1);
     for (size_t i = ls - ln + 1; i-- > 0; ) {
-        if (memcmp(str + i, needle, ln) == 0) return value_int((int64_t)i);
+        if (memcmp(SPTR(args[0]) + i, SPTR(args[1]), ln) == 0) return value_int((int64_t)i);
     }
     return value_int(-1);
 }
 
 static Value native_is_char_at(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    const char *str = args[0].as.s, *c = args[2].as.s;
-    int64_t len = (int64_t)strlen(str), i = args[1].as.i;
-    size_t lc = strlen(c);
+    int64_t len = (int64_t)SLEN(args[0]), i = args[1].as.i;
+    size_t lc = SLEN(args[2]);
     if (i < 0 || i > len || (size_t)(len - i) < lc) return value_bool(0);
-    return value_bool(memcmp(str + i, c, lc) == 0);
+    return value_bool(memcmp(SPTR(args[0]) + i, SPTR(args[2]), lc) == 0);
 }
 
 static Value native_starts_with(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    const char *str = args[0].as.s, *prefix = args[1].as.s;
-    return value_bool(strncmp(str, prefix, strlen(prefix)) == 0);
+    size_t ls = SLEN(args[0]), lp = SLEN(args[1]);
+    return value_bool(lp <= ls && memcmp(SPTR(args[0]), SPTR(args[1]), lp) == 0);
 }
 
 static Value native_ends_with(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    const char *str = args[0].as.s, *suffix = args[1].as.s;
-    size_t ls = strlen(str), lx = strlen(suffix);
-    return value_bool(lx <= ls && memcmp(str + ls - lx, suffix, lx) == 0);
+    size_t ls = SLEN(args[0]), lx = SLEN(args[1]);
+    return value_bool(lx <= ls && memcmp(SPTR(args[0]) + ls - lx, SPTR(args[1]), lx) == 0);
 }
 
 static Value native_replace(Value *args, int argc, int line, int col) {
     (void)argc;
-    const char *str = args[0].as.s, *from = args[1].as.s, *to = args[2].as.s;
-    size_t lf = strlen(from), lt = strlen(to);
+    const char *str = SPTR(args[0]);
+    size_t ls = SLEN(args[0]), lf = SLEN(args[1]), lt = SLEN(args[2]);
     if (lf == 0) {
         ziman_error("runtime", line, col, "replace: the text to replace must not be empty");
     }
     size_t hits = 0;
-    for (const char *p = str; (p = strstr(p, from)) != NULL; p += lf) hits++;
-    char *buf = malloc(strlen(str) + hits * (lt > lf ? lt - lf : 0) + 1);
-    char *out = buf;
-    const char *cursor = str;
-    for (const char *p; (p = strstr(cursor, from)) != NULL; cursor = p + lf) {
-        memcpy(out, cursor, (size_t)(p - cursor));
-        out += p - cursor;
-        memcpy(out, to, lt);
+    for (long at = value_str_find(str, ls, SPTR(args[1]), lf, 0); at >= 0; at = value_str_find(str, ls, SPTR(args[1]), lf, (size_t)at + lf)) hits++;
+    size_t total = ls + hits * lt - hits * lf;
+    char *buf = malloc(total + 1);
+    size_t out = 0, cursor = 0;
+    for (long at = value_str_find(str, ls, SPTR(args[1]), lf, 0); at >= 0; at = value_str_find(str, ls, SPTR(args[1]), lf, cursor)) {
+        memcpy(buf + out, str + cursor, (size_t)at - cursor);
+        out += (size_t)at - cursor;
+        memcpy(buf + out, SPTR(args[2]), lt);
         out += lt;
+        cursor = (size_t)at + lf;
     }
-    strcpy(out, cursor);
-    return value_string(buf);
+    memcpy(buf + out, str + cursor, ls - cursor);
+    out += ls - cursor;
+    buf[out] = '\0';
+    return value_string_view(buf, out, 1);
 }
 
+/* The pieces are slices of the input, not copies. */
 static Value native_split(Value *args, int argc, int line, int col) {
     (void)argc;
-    const char *str = args[0].as.s;
-    const char *delim = args[1].as.s;
-    size_t delim_len = strlen(delim);
-    if (delim_len == 0) {
+    size_t ls = SLEN(args[0]), ld = SLEN(args[1]);
+    if (ld == 0) {
         ziman_error("runtime", line, col, "split: separator must not be empty");
     }
     Value *items = NULL;
     int count = 0, cap = 0;
-    const char *cursor = str;
+    size_t cursor = 0;
     for (;;) {
-        const char *found = strstr(cursor, delim);
-        size_t piece_len = found ? (size_t)(found - cursor) : strlen(cursor);
-        char *piece = malloc(piece_len + 1);
-        memcpy(piece, cursor, piece_len);
-        piece[piece_len] = '\0';
+        long found = value_str_find(SPTR(args[0]), ls, SPTR(args[1]), ld, cursor);
+        size_t piece_len = found >= 0 ? (size_t)found - cursor : ls - cursor;
         if (count == cap) {
             cap = cap == 0 ? 4 : cap * 2;
             items = realloc(items, (size_t)cap * sizeof(Value));
         }
-        items[count++] = value_string(piece);
-        if (!found) break;
-        cursor = found + delim_len;
+        items[count++] = string_slice(args[0], cursor, piece_len);
+        if (found < 0) break;
+        cursor = (size_t)found + ld;
     }
     return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, count));
 }
@@ -268,40 +265,36 @@ static Value native_trim(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    const char *str = args[0].as.s;
-    size_t len = strlen(str);
+    const char *str = SPTR(args[0]);
+    size_t len = SLEN(args[0]);
     size_t start = 0, end = len;
     while (start < end && isspace((unsigned char)str[start])) start++;
     while (end > start && isspace((unsigned char)str[end - 1])) end--;
-    size_t n = end - start;
-    char *buf = malloc(n + 1);
-    memcpy(buf, str + start, n);
-    buf[n] = '\0';
-    return value_string(buf);
+    return string_slice(args[0], start, end - start);
 }
 
 static Value native_to_upper(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    const char *str = args[0].as.s;
-    size_t len = strlen(str);
+    const char *str = SPTR(args[0]);
+    size_t len = SLEN(args[0]);
     char *buf = malloc(len + 1);
     for (size_t i = 0; i < len; i++) buf[i] = (char)toupper((unsigned char)str[i]);
     buf[len] = '\0';
-    return value_string(buf);
+    return value_string_view(buf, len, 1);
 }
 
 static Value native_to_lower(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    const char *str = args[0].as.s;
-    size_t len = strlen(str);
+    const char *str = SPTR(args[0]);
+    size_t len = SLEN(args[0]);
     char *buf = malloc(len + 1);
     for (size_t i = 0; i < len; i++) buf[i] = (char)tolower((unsigned char)str[i]);
     buf[len] = '\0';
-    return value_string(buf);
+    return value_string_view(buf, len, 1);
 }
 
 /* An Option<string> argument's own payload, or NULL for None -- typecheck
@@ -309,12 +302,13 @@ static Value native_to_lower(Value *args, int argc, int line, int col) {
  * param_type in typecheck.c), so this only ever has to look at which
  * variant it turned out to be at runtime, the same way unwrap_Some
  * itself would. */
-static const char *option_string_or_null(Value opt) {
+static int option_string_value(Value opt, Value *out) {
     EnumObj *obj = opt.as.en;
     if (strcmp(obj->variant_name, "Some") == 0) {
-        return obj->payload.as.s;
+        *out = obj->payload;
+        return 1;
     }
-    return NULL;
+    return 0;
 }
 
 /* args[3] is always the collected `[string]` array, regardless of how
@@ -336,18 +330,22 @@ static Value native_join(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    const char *prefix = option_string_or_null(args[0]);
-    const char *suffix = option_string_or_null(args[1]);
-    const char *separator = option_string_or_null(args[2]);
+    Value pv, sv, dv;
+    memset(&pv, 0, sizeof pv);
+    memset(&sv, 0, sizeof sv);
+    memset(&dv, 0, sizeof dv);
+    int has_prefix = option_string_value(args[0], &pv);
+    int has_suffix = option_string_value(args[1], &sv);
+    int has_sep = option_string_value(args[2], &dv);
     ArrayObj *pieces = args[3].as.arr;
 
-    size_t prefix_len = prefix != NULL ? strlen(prefix) : 0;
-    size_t suffix_len = suffix != NULL ? strlen(suffix) : 0;
-    size_t separator_len = separator != NULL ? strlen(separator) : 0;
+    size_t prefix_len = has_prefix ? SLEN(pv) : 0;
+    size_t suffix_len = has_suffix ? SLEN(sv) : 0;
+    size_t separator_len = has_sep ? SLEN(dv) : 0;
 
     size_t total = prefix_len + suffix_len;
     for (int i = 0; i < pieces->count; i++) {
-        total += strlen(pieces->items[i].as.s);
+        total += SLEN(pieces->items[i]);
     }
     if (pieces->count > 1) {
         total += separator_len * (size_t)(pieces->count - 1);
@@ -355,25 +353,25 @@ static Value native_join(Value *args, int argc, int line, int col) {
 
     char *buf = malloc(total + 1);
     size_t pos = 0;
-    if (prefix != NULL) {
-        memcpy(buf + pos, prefix, prefix_len);
+    if (has_prefix) {
+        memcpy(buf + pos, SPTR(pv), prefix_len);
         pos += prefix_len;
     }
     for (int i = 0; i < pieces->count; i++) {
-        if (i > 0 && separator != NULL) {
-            memcpy(buf + pos, separator, separator_len);
+        if (i > 0 && has_sep) {
+            memcpy(buf + pos, SPTR(dv), separator_len);
             pos += separator_len;
         }
-        size_t piece_len = strlen(pieces->items[i].as.s);
-        memcpy(buf + pos, pieces->items[i].as.s, piece_len);
+        size_t piece_len = SLEN(pieces->items[i]);
+        memcpy(buf + pos, SPTR(pieces->items[i]), piece_len);
         pos += piece_len;
     }
-    if (suffix != NULL) {
-        memcpy(buf + pos, suffix, suffix_len);
+    if (has_suffix) {
+        memcpy(buf + pos, SPTR(sv), suffix_len);
         pos += suffix_len;
     }
     buf[total] = '\0';
-    return value_string(buf);
+    return value_string_view(buf, total, 1);
 }
 
 /* --- StringBuilder -------------------------------------------------
@@ -510,8 +508,8 @@ static Value native_sb_append(Value *args, int argc, int line, int col) {
     StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
     ArrayObj *pieces = args[1].as.arr;
     for (int i = 0; i < pieces->count; i++) {
-        const char *s = pieces->items[i].as.s;
-        size_t len = strlen(s);
+        const char *s = SPTR(pieces->items[i]);
+        size_t len = SLEN(pieces->items[i]);
         sb_ensure_capacity(buf, len);
         memcpy(buf->data + buf->length, s, len);
         buf->length += len;

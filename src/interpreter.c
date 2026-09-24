@@ -189,14 +189,14 @@ static Value call_str(Value arg) {
 
 static Value call_len(Value v) {
     if (v.type.kind == TY_STRING) {
-        return value_int((int64_t)strlen(v.as.s));
+        return value_int((int64_t)v.as.str.len);
     }
     return value_int(v.as.arr->count);
 }
 
 static Value call_contains(Value first, Value second) {
     if (first.type.kind == TY_STRING) {
-        return value_bool(strstr(first.as.s, second.as.s) != NULL);
+        return value_bool(value_str_find(first.as.str.ptr, first.as.str.len, second.as.str.ptr, second.as.str.len, 0) >= 0);
     }
     ArrayObj *arr = first.as.arr;
     for (int i = 0; i < arr->count; i++) {
@@ -260,10 +260,10 @@ static Value call_hash(Value v) {
             break;
         }
         default: { /* TY_STRING -- the only other case type_supports_hashing allows */
-            const unsigned char *s = (const unsigned char *)v.as.s;
+            const unsigned char *s = (const unsigned char *)v.as.str.ptr;
             h = 1469598103934665603ULL; /* FNV-1a 64-bit offset basis */
-            while (*s) {
-                h ^= *s++;
+            for (uint32_t k = 0; k < v.as.str.len; k++) {
+                h ^= s[k];
                 h *= 1099511628211ULL; /* FNV-1a 64-bit prime */
             }
             break;
@@ -398,13 +398,14 @@ static Value call_unwrap_err(Value r, int line, int col) {
  * matches argc-1 and that the format string is well-formed, so this
  * doesn't re-validate -- it trusts that pass. */
 static Value call_format(Value *args, int argc) {
-    const char *fmt = args[0].as.s;
+    const char *fmt = args[0].as.str.ptr;
+    size_t fmt_len = args[0].as.str.len;
     size_t cap = 32, len = 0;
     char *buf = malloc(cap);
     int arg_i = 1;
 
-    for (const char *p = fmt; *p; p++) {
-        if (p[0] == '{' && p[1] == '}') {
+    for (const char *p = fmt; p < fmt + fmt_len; p++) {
+        if (p[0] == '{' && p + 1 < fmt + fmt_len && p[1] == '}') {
             char *piece = value_display(args[arg_i++]);
             size_t piece_len = strlen(piece);
             while (len + piece_len + 1 > cap) {

@@ -12,7 +12,42 @@
 Value value_int(int64_t i) { Value v; v.type = type_scalar(TY_INT); v.as.i = i; return v; }
 Value value_float(double f) { Value v; v.type = type_scalar(TY_FLOAT); v.as.f = f; return v; }
 Value value_bool(int b) { Value v; v.type = type_scalar(TY_BOOL); v.as.b = b; return v; }
-Value value_string(char *s) { Value v; v.type = type_scalar(TY_STRING); v.as.s = s; return v; }
+Value value_string_view(const char *ptr, size_t len, int term) {
+    if (len > 0xffffffffu) ziman_error("runtime", 0, 0, "string too long (limit is 4 GiB)");
+    Value v;
+    v.type = type_scalar(TY_STRING);
+    v.as.str.ptr = ptr;
+    v.as.str.len = (uint32_t)len;
+    v.as.str.term = term ? 1 : 0;
+    return v;
+}
+
+Value value_string(char *s) { return value_string_view(s, strlen(s), 1); }
+
+Value value_string_copy(const char *ptr, size_t len) {
+    char *buf = malloc(len + 1);
+    memcpy(buf, ptr, len);
+    buf[len] = '\0';
+    return value_string_view(buf, len, 1);
+}
+
+long value_str_find(const char *hay, size_t hay_len, const char *needle, size_t needle_len, size_t from) {
+    if (from > hay_len) from = hay_len;
+    if (needle_len == 0) return (long)from;
+    if (needle_len > hay_len) return -1;
+    for (size_t i = from; i + needle_len <= hay_len; i++) {
+        if (hay[i] == needle[0] && memcmp(hay + i, needle, needle_len) == 0) return (long)i;
+    }
+    return -1;
+}
+
+const char *value_cstr(Value v) {
+    if (v.as.str.term) return v.as.str.ptr;
+    char *buf = malloc((size_t)v.as.str.len + 1);
+    memcpy(buf, v.as.str.ptr, v.as.str.len);
+    buf[v.as.str.len] = '\0';
+    return buf;
+}
 
 Value value_bigint(BigNum n) {
     Value v;
@@ -142,7 +177,7 @@ int value_equals(Value a, Value b) {
         case TY_INT: return a.as.i == b.as.i;
         case TY_FLOAT: return a.as.f == b.as.f;
         case TY_BOOL: return a.as.b == b.as.b;
-        case TY_STRING: return strcmp(a.as.s, b.as.s) == 0;
+        case TY_STRING: return a.as.str.len == b.as.str.len && memcmp(a.as.str.ptr, b.as.str.ptr, a.as.str.len) == 0;
         case TY_BIGINT: return bignum_compare(*a.as.bi, *b.as.bi) == 0;
         case TY_DECIMAL: return decimal_compare(*a.as.dec, *b.as.dec) == 0;
         case TY_BYTE: return a.as.by == b.as.by;
@@ -216,7 +251,12 @@ char *value_display(Value v) {
             snprintf(buf, sizeof(buf), "%d", v.as.by);
             return strdup(buf);
         case TY_STRING:
-            return strdup(v.as.s);
+            {
+                char *copy = malloc((size_t)v.as.str.len + 1);
+                memcpy(copy, v.as.str.ptr, v.as.str.len);
+                copy[v.as.str.len] = '\0';
+                return copy;
+            }
         case TY_VOID:
             return strdup("void");
         case TY_ARRAY: {

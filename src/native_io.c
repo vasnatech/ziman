@@ -15,7 +15,7 @@ static Value native_io_read_file(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    const char *path = args[0].as.s;
+    const char *path = value_cstr(args[0]);
     Type result_type = type_result(type_scalar(TY_STRING), type_scalar(TY_STRING));
 
     FILE *f = fopen(path, "rb");
@@ -38,8 +38,8 @@ static Value native_io_read_file(Value *args, int argc, int line, int col) {
 
 static Value native_io_write_file(Value *args, int argc, int line, int col) {
     (void)argc;
-    const char *path = args[0].as.s;
-    const char *contents = args[1].as.s;
+    const char *path = value_cstr(args[0]);
+    const char *contents = value_cstr(args[1]);
 
     FILE *f = fopen(path, "wb");
     if (f == NULL) {

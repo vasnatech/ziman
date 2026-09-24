@@ -16,7 +16,7 @@ static Value native_os_getenv_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type str = type_scalar(TY_STRING);
     Type result_type = type_result(str, str);
-    const char *v = getenv(args[0].as.s);
+    const char *v = getenv(value_cstr(args[0]));
     if (v == NULL) return value_result(result_type, result_obj_new(0, value_string(strdup(""))));
     return value_result(result_type, result_obj_new(1, value_string(strdup(v))));
 }

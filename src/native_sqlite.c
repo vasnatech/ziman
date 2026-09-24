@@ -80,7 +80,7 @@ static Value native_sqlite_open_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type int_type = type_scalar(TY_INT);
     sqlite3 *db = NULL;
-    int rc = sqlite3_open_v2(args[0].as.s, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL);
+    int rc = sqlite3_open_v2(value_cstr(args[0]), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL);
     if (rc != SQLITE_OK) {
         Value r = err_result(int_type, "connection", db != NULL ? sqlite3_errmsg(db) : sqlite3_errstr(rc));
         if (db != NULL) sqlite3_close(db);
@@ -165,7 +165,7 @@ static int bind_all(sqlite3_stmt *stmt, ArrayObj *params) {
     int expected = sqlite3_bind_parameter_count(stmt);
     if (expected != params->count) return -2;
     for (int i = 0; i < params->count; i++) {
-        int rc = bind_param(stmt, i + 1, params->items[i].as.s);
+        int rc = bind_param(stmt, i + 1, value_cstr(params->items[i]));
         if (rc != SQLITE_OK) return rc == -1 ? -1 : rc;
     }
     return SQLITE_OK;
@@ -219,7 +219,7 @@ static Value native_sqlite_execute_raw(Value *args, int argc, int line, int col)
     (void)argc;
     Type int_type = type_scalar(TY_INT);
     DbConn *c = conn_get(args[0].as.i, line, col);
-    const char *sql = rewrite_placeholders(args[1].as.s);
+    const char *sql = rewrite_placeholders(value_cstr(args[1]));
     ArrayObj *params = args[2].as.arr;
 
     pthread_mutex_lock(&c->mu);
@@ -330,7 +330,7 @@ static Value native_sqlite_query_raw(Value *args, int argc, int line, int col) {
     pthread_mutex_lock(&c->mu);
     Value result;
     sqlite3_stmt *stmt = NULL;
-    char *sql = rewrite_placeholders(args[1].as.s);
+    char *sql = rewrite_placeholders(value_cstr(args[1]));
     if (sqlite3_prepare_v2(c->db, sql, -1, &stmt, NULL) != SQLITE_OK || stmt == NULL) {
         result = err_result(arr_type, category_for(c->db), stmt == NULL && sqlite3_errcode(c->db) == SQLITE_OK ? "empty statement" : sqlite3_errmsg(c->db));
         goto done;

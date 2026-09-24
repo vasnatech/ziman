@@ -243,12 +243,12 @@ static Value open_socket(const char *host, int64_t port, int listener) {
 
 static Value native_net_connect_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    return open_socket(args[0].as.s, args[1].as.i, 0);
+    return open_socket(value_cstr(args[0]), args[1].as.i, 0);
 }
 
 static Value native_net_listen_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    return open_socket(args[0].as.s, args[1].as.i, 1);
+    return open_socket(value_cstr(args[0]), args[1].as.i, 1);
 }
 
 static Value native_net_listener_port_raw(Value *args, int argc, int line, int col) {
@@ -338,7 +338,7 @@ static Value native_net_write_raw(Value *args, int argc, int line, int col) {
 static Value native_net_write_text_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     NetHandle *h = require_handle(args[0].as.i, "write_text", line, col);
-    return send_all(h, (const unsigned char *)args[1].as.s, strlen(args[1].as.s));
+    return send_all(h, (const unsigned char *)args[1].as.str.ptr, args[1].as.str.len);
 }
 
 static Value native_net_read_text_raw(Value *args, int argc, int line, int col) {
@@ -388,9 +388,9 @@ static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) 
     (void)argc;
     Type int_type = type_scalar(TY_INT);
     NetHandle *h = require_handle(args[0].as.i, "start_tls", line, col);
-    const char *host = args[1].as.s;
+    const char *host = value_cstr(args[1]);
     int64_t verify = args[2].as.i;
-    const char *ca_file = args[3].as.s;
+    const char *ca_file = value_cstr(args[3]);
     if (h->ssl != NULL) return err_result(int_type, "tls", "connection is already using TLS");
 
     unsigned char addr[sizeof(struct in6_addr)];
@@ -468,8 +468,8 @@ static Value native_net_close_raw(Value *args, int argc, int line, int col) {
 static Value native_bytes_string_to_bytes(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type arr_type = byte_array_type();
-    const char *s = args[0].as.s;
-    size_t n = strlen(s);
+    const char *s = args[0].as.str.ptr;
+    size_t n = args[0].as.str.len;
     Value *items = malloc(sizeof(Value) * (n > 0 ? n : 1));
     for (size_t i = 0; i < n; i++) items[i] = value_byte((unsigned char)s[i]);
     return value_array(arr_type, array_obj_new(items, (int)n));

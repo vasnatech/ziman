@@ -1642,6 +1642,32 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **Strings are `{ptr, len}` views, so slicing is free (2026-09-23).**
+  A `string` was a NUL-terminated `char *`, so every `substring`, `trim`,
+  `char_at` and `split` piece allocated and copied -- and, since nothing is
+  freed, leaked -- and `len` was a `strlen`. The parsers (`json`, `http`,
+  `pg`, `properties`) cut strings constantly, so this was a large share of
+  the garbage behind the memory problem (R9) and most of their time. A
+  string value is now `{ptr, len, term}`: a whole buffer or a slice of one,
+  and the two are the same representation, not two forms with two code
+  paths in every builtin. `substring`, `trim`, `char_at`, `split` and
+  `split_once` return slices; `concat`, `replace`, `join`, `to_upper` and
+  friends still build fresh buffers. **`term`** records that `ptr[len]` is a
+  NUL -- true for a fresh buffer and for a slice that runs to the end of a
+  terminated one -- which is what lets a native hand the bytes to a C API
+  (`fopen`, SQLite, `getenv`) with no copy; otherwise `value_cstr` makes a
+  terminated copy. Costs: a `Value` grew from 72 to 80 bytes (the union's
+  string member is 16 bytes), a string is limited to 4 GiB, every native
+  that read a string had to move to `ptr`/`len` (about 50 sites -- the
+  compiler found each, because the old `as.s` member was removed), and a
+  small slice keeps its whole parent alive, which becomes a retention
+  question once memory is reclaimed. Measured on a synthetic JSON-parse +
+  split/trim workload: 4.6 s -> 1.5 s, peak RSS 348 MB -> 327 MB -- the time
+  win is large, the memory win small, because most of what a JSON parse
+  allocates is `Json` nodes and parse-result structs, not string bytes.
+  Not changed: strings still may not contain a 0 byte (`bytes_to_string`
+  still rejects one); the representation could now allow it, but that is a
+  language decision, not a side effect.
 - **`--check` and `--json`: the compiler as a tool an agent can call
   (external review, roadmap R8, 2026-09-23).** The CLI took exactly one
   argument, and principle #5 ("errors are data") had been promised since

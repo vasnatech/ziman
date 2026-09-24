@@ -43,7 +43,13 @@ struct Value {
         int by; /* 0-255, unsigned -- embedded, not heap, same reasoning
                   * as `b`: no union growth, since `i`/`f`/every pointer
                   * member here are already 8 bytes. */
-        char *s; /* heap, NUL-terminated */
+        /* A string is a view: `len` bytes at `ptr`, immutable. It may be a
+         * whole buffer or a slice of one (substring/trim/split share their
+         * parent's bytes instead of copying). `term` says ptr[len] is a NUL,
+         * which is what a native needs to hand the bytes to a C API without
+         * copying -- see value_cstr. 16 bytes, so a Value grows from 72 to
+         * 80; a string is limited to 4 GiB. */
+        struct { const char *ptr; uint32_t len; uint32_t term; } str;
         BigNum *bi; /* heap; kept as a pointer (not embedded) so this union
                      * -- and every Value in the interpreter, not just
                      * bigint ones -- stays the same size as it was before
@@ -106,7 +112,20 @@ typedef struct ChannelObj {
 Value value_int(int64_t i);
 Value value_float(double f);
 Value value_bool(int b);
+/* Takes ownership of a NUL-terminated heap buffer. */
 Value value_string(char *s);
+/* A view of `len` bytes at `ptr` -- no copy. `term` is 1 only if ptr[len] is
+ * a NUL. */
+Value value_string_view(const char *ptr, size_t len, int term);
+/* A fresh, NUL-terminated copy of `len` bytes at `ptr`. */
+Value value_string_copy(const char *ptr, size_t len);
+/* The string's bytes as a NUL-terminated C string: the view itself when it
+ * is already terminated, else a fresh copy. Bytes after an embedded NUL are
+ * invisible to the C side. */
+const char *value_cstr(Value v);
+/* Byte offset of the first `needle` at or after `from` in the haystack, or
+ * -1. An empty needle matches at `from` (clamped to the length). */
+long value_str_find(const char *hay, size_t hay_len, const char *needle, size_t needle_len, size_t from);
 Value value_bigint(BigNum n); /* copies `n` onto the heap; caller keeps owning `n`'s own digits */
 Value value_decimal(Decimal d); /* likewise, copies `d` onto the heap */
 Value value_byte(int b); /* caller's responsibility to have already range-checked 0-255 */
