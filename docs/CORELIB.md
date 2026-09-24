@@ -217,9 +217,9 @@ pub struct Url {
 
 pub fn parse_url(url: string) -> Result<Url, string>
 
-pub fn request(method: string, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError>
+pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError>
 
-pub fn request_bytes(method: string, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<BytesResponse, ClientError>
+pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<BytesResponse, ClientError>
 
 pub fn get(url: string) -> Result<Response, ClientError>
 
@@ -230,13 +230,28 @@ pub fn post_json(url: string, body: string) -> Result<Response, ClientError>
 ## `http`
 
 ```
+pub enum HttpMethod {
+    Get
+    Head
+    Post
+    Put
+    Patch
+    Delete
+    Options
+    Other(string)
+}
+
+pub fn method_parse(name: string) -> HttpMethod
+
+pub fn method_name(m: HttpMethod) -> string
+
 pub struct Header {
     name: string
     value: string
 }
 
 pub struct Request {
-    method: string
+    method: HttpMethod
     target: string
     path: string
     query: string
@@ -306,7 +321,7 @@ pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError>
 
 pub fn path_params(pattern: string, path: string) -> Option<Params>
 
-pub fn route(req: Request, method: string, pattern: string) -> Option<Params>
+pub fn route(req: Request, method: HttpMethod, pattern: string) -> Option<Params>
 
 pub fn param(p: Params, name: string) -> string
 

@@ -1947,11 +1947,11 @@ use net
 use http
 
 fn route(conn: db.Connection, req: http.Request) -> http.Response {
-    val create = http.route(req, "POST", "/patients")
+    val create = http.route(req, HttpMethod.Post, "/patients")
     if Option.is_Some(create) {
         return http.json_response(201, req.body)
     }
-    val one = http.route(req, "GET", "/patients/{id}")
+    val one = http.route(req, HttpMethod.Get, "/patients/{id}")
     if Option.is_Some(one) {
         val id = http.param(Option.unwrap_Some(one), "id")     // percent-decoded string
         return http.json_response(200, lookup(conn, id))
@@ -2008,6 +2008,12 @@ fn main() {
   and `Connection`, and returns whether the connection stays open
   (HTTP/1.1 keeps alive unless either side said `close`; HTTP/1.0 closes
   unless asked to keep).
+- **Methods.** `Request.method` is an `http.HttpMethod` -- `Get`, `Head`,
+  `Post`, `Put`, `Patch`, `Delete`, `Options`, or `Other(name)` for anything
+  else (method names are case-sensitive, so `get` is `Other("get")`).
+  `http.method_parse(text)` and `http.method_name(method)` convert; a route
+  or a `switch` over the method is checked by the compiler. `httpclient`
+  takes the same type: `httpclient.request(method: HttpMethod.Post, ...)`.
 - **Routing.** `http.route(req, method, pattern)` is `Some(params)` when
   the method matches and the path matches the pattern, else `None`.
   `{name}` captures one non-empty, percent-decoded segment; a trailing

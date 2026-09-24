@@ -3,6 +3,7 @@ use clock
 use http
 use http.Header
 use httpclient
+use http.HttpMethod
 
 // A raw-socket server with canned answers, so the client is tested against exact wire formats.
 
@@ -92,13 +93,13 @@ fn main() {
     show(httpclient.get(concat(base, "/close")))
     show(httpclient.get(concat(base, "/missing")))
     show(httpclient.get(concat(base, "/redir")))
-    show(httpclient.request(method: "GET", url: concat(base, "/redir"), max_redirects: 0))
+    show(httpclient.request(method: HttpMethod.Get, url: concat(base, "/redir"), max_redirects: 0))
     show(httpclient.get(concat(base, "/loop")))
-    show(httpclient.request(method: "HEAD", url: concat(base, "/head")))
+    show(httpclient.request(method: HttpMethod.Head, url: concat(base, "/head")))
     show(httpclient.post_json(concat(base, "/echo"), "{\"a\":1}"))
-    show(httpclient.request(method: "POST", url: concat(base, "/redir-post"), body: "x"))
+    show(httpclient.request(method: HttpMethod.Post, url: concat(base, "/redir-post"), body: "x"))
     show(httpclient.get(concat(base, "/garbage")))
-    show(httpclient.request(method: "GET", url: concat(base, "/hang"), timeout_ms: 300))
+    show(httpclient.request(method: HttpMethod.Get, url: concat(base, "/hang"), timeout_ms: 300))
     show(httpclient.get("ftp://nope"))
     show(httpclient.get("http://127.0.0.1:1/"))
 

@@ -2,7 +2,7 @@
 // Ziman program can call another service (the server side is `http`).
 //
 //   val r = httpclient.get("https://example.com/api/items?limit=5")
-//   val resp = httpclient.request(method: "POST", url: u, body: "{\"a\":1}",
+//   val resp = httpclient.request(method: HttpMethod.Post, url: u, body: "{\"a\":1}",
 //                                 headers: [http.Header { name: "Content-Type", value: "application/json" }])
 //
 // `http://` and `https://` URLs (TLS with full certificate verification, via
@@ -34,6 +34,8 @@ use bytes.bytes_slice
 use number.int_from_hex
 use http.Header
 use http.Response
+use http.HttpMethod
+use http.method_name
 
 // Like `http.Response`, but the body is raw bytes.
 pub struct BytesResponse {
@@ -371,7 +373,7 @@ fn open_socket(u: Url, ca_file: Option<string>) -> Result<Socket, NetError> {
     return net.connect(u.host, u.port)
 }
 
-fn send_once(method: string, u: Url, headers: [Header], body: Option<[byte]>, timeout_ms: int, ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
+fn send_once(method: HttpMethod, u: Url, headers: [Header], body: Option<[byte]>, timeout_ms: int, ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
     val sock = open_socket(u, ca_file)
     if !is_ok(sock) {
         val e = unwrap_err(sock)
@@ -385,7 +387,7 @@ fn send_once(method: string, u: Url, headers: [Header], body: Option<[byte]>, ti
     lift<int>(net.set_timeout(s, timeout_ms))?
 
     val out = ab_new<string>()
-    ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method, u.target))
+    ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method_name(method), u.target))
     var has_ua = false
     var has_accept = false
     for h in headers {
@@ -411,7 +413,7 @@ fn send_once(method: string, u: Url, headers: [Header], body: Option<[byte]>, ti
     if Option.is_Some(body) {
         ab_append<string>(out, format("Content-Length: {}\r\n", len(Option.unwrap_Some(body))))
     } else {
-        if method == "POST" || method == "PUT" || method == "PATCH" {
+        if method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch {
             ab_append<string>(out, "Content-Length: 0\r\n")
         }
     }
@@ -420,7 +422,7 @@ fn send_once(method: string, u: Url, headers: [Header], body: Option<[byte]>, ti
     if Option.is_Some(body) && len(Option.unwrap_Some(body)) > 0 {
         lift<int>(net.write(s, Option.unwrap_Some(body)))?
     }
-    return read_response(s, method == "HEAD")
+    return read_response(s, method == HttpMethod.Head)
 }
 
 fn location_of(r: BytesResponse) -> Option<string> {
@@ -450,7 +452,7 @@ fn resolve_location(base: Url, location: string) -> Result<Url, string> {
 }
 
 // Sends one request and returns the (final) response.
-//   method        "GET", "POST", ... (upper case)
+//   method        an `http.HttpMethod` (`HttpMethod.Get`, `HttpMethod.Post`, ...)
 //   headers       extra request headers; Host, Content-Length and Connection are
 //                 always set by the client
 //   body          the request body, if any
@@ -458,7 +460,7 @@ fn resolve_location(base: Url, location: string) -> Result<Url, string> {
 //   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
 //   ca_file       a PEM file of trusted CAs for https, instead of the system store
 //                 (a private CA, a test certificate); the certificate is always verified
-pub fn request(method: string, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError> {
+pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError> {
     var bytes_body = Option<[byte]>.None
     if Option.is_Some(body) {
         bytes_body = Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
@@ -470,7 +472,7 @@ pub fn request(method: string, url: string, headers: Option<[Header]>, body: Opt
 
 // Sends one request and returns the (final) response, body as bytes -- the
 // general function; `request` is this with text bodies. Arguments as for `request`.
-pub fn request_bytes(method: string, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
+pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
     val parsed = parse_url(url)
     if !is_ok(parsed) {
         return err(ClientError.BadUrl(unwrap_err(parsed)))
@@ -497,8 +499,8 @@ pub fn request_bytes(method: string, url: string, headers: Option<[Header]>, bod
             return err(ClientError.BadResponse(concat("bad redirect location: ", unwrap_err(next))))
         }
         current = unwrap(next)
-        if s == 303 || ((s == 301 || s == 302) && m == "POST") {
-            m = "GET"
+        if s == 303 || ((s == 301 || s == 302) && m == HttpMethod.Post) {
+            m = HttpMethod.Get
             b = Option<[byte]>.None
         }
         hops = hops + 1
@@ -507,11 +509,11 @@ pub fn request_bytes(method: string, url: string, headers: Option<[Header]>, bod
 }
 
 pub fn get(url: string) -> Result<Response, ClientError> {
-    return request(method: "GET", url: url)
+    return request(method: HttpMethod.Get, url: url)
 }
 
 // POST with a JSON body: sets `Content-Type: application/json`.
 pub fn post_json(url: string, body: string) -> Result<Response, ClientError> {
-    return request(method: "POST", url: url, body: body,
+    return request(method: HttpMethod.Post, url: url, body: body,
                    headers: [Header { name: "Content-Type", value: "application/json" }])
 }

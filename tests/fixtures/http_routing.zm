@@ -8,7 +8,7 @@ fn req(method: string, target: string) -> http.Request {
         path = tq[0]
         query = tq[1]
     }
-    return http.Request { method: method, target: target, path: path, query: query, version: "HTTP/1.1", headers: [http.Header { name: "X-Thing", value: "v" }], body: "" }
+    return http.Request { method: http.method_parse(method), target: target, path: path, query: query, version: "HTTP/1.1", headers: [http.Header { name: "X-Thing", value: "v" }], body: "" }
 }
 
 fn show(m: Option<http.Params>, name: string) -> string {
@@ -38,8 +38,8 @@ fn main() {
     // the root
     print(Option.is_Some(http.path_params("/", "/")))
     // method must match too
-    print(Option.is_Some(http.route(req("GET", "/x"), "GET", "/x")))
-    print(Option.is_Some(http.route(req("POST", "/x"), "GET", "/x")))
+    print(Option.is_Some(http.route(req("GET", "/x"), http.HttpMethod.Get, "/x")))
+    print(Option.is_Some(http.route(req("POST", "/x"), http.HttpMethod.Get, "/x")))
 
     // 404 vs 405
     val routes = ["GET /patients", "POST /patients", "GET /patients/{id}"]

@@ -1,9 +1,10 @@
 use httpclient
+use http.HttpMethod
 use http
 
 // `openssl s_server -www` on 127.0.0.1:55443 answers GET with an HTTP/1.0 status page and closes.
 fn main() {
-    val ok = httpclient.request(method: "GET", url: "https://127.0.0.1:55443/", ca_file: "tests/tls/.certs/a.pem")
+    val ok = httpclient.request(method: HttpMethod.Get, url: "https://127.0.0.1:55443/", ca_file: "tests/tls/.certs/a.pem")
     if is_ok(ok) {
         print(unwrap(ok).status)
         print(contains(unwrap(ok).body, "s_server"))
@@ -15,6 +16,6 @@ fn main() {
     print(is_ok(untrusted))
     print(contains(httpclient.client_error_message(unwrap_err(untrusted)), "TLS error"))
 
-    val mismatch = httpclient.request(method: "GET", url: "https://127.0.0.1:55444/", ca_file: "tests/tls/.certs/b.pem")
+    val mismatch = httpclient.request(method: HttpMethod.Get, url: "https://127.0.0.1:55444/", ca_file: "tests/tls/.certs/b.pem")
     print(is_ok(mismatch))
 }

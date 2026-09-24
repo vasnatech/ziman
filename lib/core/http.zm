@@ -40,6 +40,46 @@ use json.Json
 use json.JField
 use json.json_to_string
 
+// A request method. The common ones are variants (so a route's method is
+// checked by the compiler and a `switch` over it is exhaustive); anything else
+// a client sends (PROPFIND, TRACE, a made-up verb) is `Other` with the text as
+// received. Method names are case-sensitive: "get" is `Other("get")`.
+pub enum HttpMethod {
+    Get
+    Head
+    Post
+    Put
+    Patch
+    Delete
+    Options
+    Other(string)
+}
+
+pub fn method_parse(name: string) -> HttpMethod {
+    if name == "GET" { return HttpMethod.Get }
+    if name == "HEAD" { return HttpMethod.Head }
+    if name == "POST" { return HttpMethod.Post }
+    if name == "PUT" { return HttpMethod.Put }
+    if name == "PATCH" { return HttpMethod.Patch }
+    if name == "DELETE" { return HttpMethod.Delete }
+    if name == "OPTIONS" { return HttpMethod.Options }
+    return HttpMethod.Other(name)
+}
+
+// The text that goes on the request line ("GET", "POST", ...).
+pub fn method_name(m: HttpMethod) -> string {
+    switch m {
+        Get { return "GET" }
+        Head { return "HEAD" }
+        Post { return "POST" }
+        Put { return "PUT" }
+        Patch { return "PATCH" }
+        Delete { return "DELETE" }
+        Options { return "OPTIONS" }
+        Other(name) { return name }
+    }
+}
+
 pub struct Header {
     name: string
     value: string
@@ -50,7 +90,7 @@ pub struct Header {
 // `query_param` decode what they hand back). `headers` keep their
 // original case; look one up with `header`, which ignores case.
 pub struct Request {
-    method: string
+    method: HttpMethod
     target: string
     path: string
     query: string
@@ -243,13 +283,13 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     if len(request_line) != 3 {
         return err(HttpError.BadRequest("malformed request line"))
     }
-    val method = request_line[0]
+    val method_text = request_line[0]
     val target = request_line[1]
     val version = request_line[2]
     if version != "HTTP/1.1" && version != "HTTP/1.0" {
         return err(HttpError.BadRequest(concat("unsupported HTTP version: ", version)))
     }
-    if method == "" || (!starts_with(target, "/") && target != "*") {
+    if method_text == "" || (!starts_with(target, "/") && target != "*") {
         return err(HttpError.BadRequest("malformed request target"))
     }
 
@@ -298,7 +338,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     val body = text_of(rest, 0, content_length)?
     val leftover = bytes_slice(rest, content_length, len(rest))
 
-    val request = Request { method: method, target: target, path: path, query: query, version: version, headers: header_list, body: body }
+    val request = Request { method: method_parse(method_text), target: target, path: path, query: query, version: version, headers: header_list, body: body }
     return Exchange { request: request, session: Session { sock: sock, buffer: leftover } }
 }
 
@@ -426,7 +466,7 @@ pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool
         sb_append(sb, "Connection: close\r\n")
     }
     sb_append(sb, "\r\n")
-    if req.method != "HEAD" {
+    if !HttpMethod.is_Head(req.method) {
         sb_append(sb, resp.body)
     }
     lift<int>(net.write_text(sock, sb_to_string(sb)))?
@@ -441,7 +481,7 @@ pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError> {
     if HttpError.is_Closed(e) || HttpError.is_Io(e) {
         return false
     }
-    val stub = Request { method: "GET", target: "/", path: "/", query: "", version: "HTTP/1.0", headers: [], body: "" }
+    val stub = Request { method: HttpMethod.Get, target: "/", path: "/", query: "", version: "HTTP/1.0", headers: [], body: "" }
     return write_response(sock, stub, error_response(e))
 }
 
@@ -490,8 +530,8 @@ pub fn path_params(pattern: string, path: string) -> Option<Params> {
 
 // `Some(params)` if the request's method is `method` and its path matches
 // `pattern`, else `None` -- the one-line test a route function is built
-// from: `val m = http.route(req, "GET", "/patients/{id}")`.
-pub fn route(req: Request, method: string, pattern: string) -> Option<Params> {
+// from: `val m = http.route(req, HttpMethod.Get, "/patients/{id}")`.
+pub fn route(req: Request, method: HttpMethod, pattern: string) -> Option<Params> {
     if req.method != method {
         return Option<Params>.None
     }
@@ -594,7 +634,7 @@ fn serve_connection<C>(ctx: C, sock: Socket, handler: fn(C, Request) -> Response
             session = exchange.session                 // carries any bytes read past this request
             val response = handler(ctx, exchange.request)
             if log_requests {
-                print(format("{} {} -> {}", exchange.request.method, exchange.request.target, response.status))
+                print(format("{} {} -> {}", method_name(exchange.request.method), exchange.request.target, response.status))
             }
             val keep = write_response(sock, exchange.request, response)
             if !is_ok(keep) || !unwrap(keep) {

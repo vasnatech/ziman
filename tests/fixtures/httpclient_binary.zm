@@ -1,6 +1,7 @@
 use net
 use bytes
 use httpclient
+use http.HttpMethod
 
 // An echo server that works on raw bytes, so a body may hold 0 bytes.
 fn find_head_end(buf: [byte]) -> int {
@@ -57,20 +58,20 @@ fn main() {
     spawn accept_loop(l)
 
     val payload = [1b, 0b, 255b, 10b, 0b]
-    val r = httpclient.request_bytes(method: "POST", url: url, body: payload)
+    val r = httpclient.request_bytes(method: HttpMethod.Post, url: url, body: payload)
     val resp = unwrap(r)
     print(resp.status)
     print(resp.body == payload)
     print(len(resp.body))
 
-    val empty = unwrap(httpclient.request_bytes(method: "GET", url: url))
+    val empty = unwrap(httpclient.request_bytes(method: HttpMethod.Get, url: url))
     print(len(empty.body))
 
-    val text = httpclient.request(method: "POST", url: url, body: "plain text")
+    val text = httpclient.request(method: HttpMethod.Post, url: url, body: "plain text")
     print(unwrap(text).body)
 
     val bin_url = format("{}bin", url)
-    print(unwrap(httpclient.request_bytes(method: "GET", url: bin_url)).body == [104b, 0b, 105b])
+    print(unwrap(httpclient.request_bytes(method: HttpMethod.Get, url: bin_url)).body == [104b, 0b, 105b])
     val as_text = httpclient.get(bin_url)
     print(is_ok(as_text))
     print(httpclient.client_error_message(unwrap_err(as_text)))

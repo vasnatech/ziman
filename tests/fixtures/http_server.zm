@@ -1,6 +1,7 @@
 use net
 use bytes
 use http
+use http.HttpMethod
 use http.HttpError
 
 // The server half is written the way an application writes it: its own
@@ -8,23 +9,23 @@ use http.HttpError
 // a handler (no function values).
 
 fn route(req: http.Request) -> http.Response {
-    val health = http.route(req, "GET", "/health")
+    val health = http.route(req, HttpMethod.Get, "/health")
     if Option.is_Some(health) {
         return http.text_response(200, "ok")
     }
-    val head = http.route(req, "HEAD", "/health")
+    val head = http.route(req, HttpMethod.Head, "/health")
     if Option.is_Some(head) {
         return http.text_response(200, "ok")
     }
-    val item = http.route(req, "GET", "/items/{id}")
+    val item = http.route(req, HttpMethod.Get, "/items/{id}")
     if Option.is_Some(item) {
         return http.text_response(200, concat("item=", http.param(Option.unwrap_Some(item), "id")))
     }
-    val echo = http.route(req, "POST", "/echo")
+    val echo = http.route(req, HttpMethod.Post, "/echo")
     if Option.is_Some(echo) {
         return http.json_response(201, req.body)
     }
-    val search = http.route(req, "GET", "/search")
+    val search = http.route(req, HttpMethod.Get, "/search")
     if Option.is_Some(search) {
         val q = http.query_param(req, "q")
         if Option.is_Some(q) {

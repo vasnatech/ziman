@@ -6,7 +6,7 @@ use http
 // named function, and SIGTERM stops it cleanly.
 fn handle(greeting: string, req: http.Request) -> http.Response {
     if req.path == "/hello" {
-        return http.text_response(200, format("{} {}", greeting, req.method))
+        return http.text_response(200, format("{} {}", greeting, http.method_name(req.method)))
     }
     return http.not_found()
 }
