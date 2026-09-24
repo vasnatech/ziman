@@ -167,7 +167,7 @@ language's own principles)**
   `None` into `Some(None)`. Also correct SYNTAX.md's claim that this
   mirrors Rust's `From` (Rust has no such implicit conversion; this is
   closer to a C++ converting constructor).
-- [ ] **R2. Integer overflow is silent, and is undefined behaviour in C.**
+- [x] **R2. Integer overflow is silent, and is undefined behaviour in C.** *Done 2026-09-23: traps with a runtime error; `-fwrapv` and `-O2` added.*
   `9223372036854775807 + 1` wraps quietly, while `bigint as int` and
   `int as byte` saturate "so nothing silently wraps" -- the language
   contradicts itself. Immediate floor: add `-fwrapv` to the Makefile (and

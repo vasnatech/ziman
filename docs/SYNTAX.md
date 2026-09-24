@@ -155,7 +155,11 @@ yet, so there's nothing to call *except* a name), no indexed/field
 
 ## Types
 
-- `int` — 64-bit signed integer.
+- `int` — 64-bit signed integer. **It never wraps: `+`, `-`, `*`, unary
+  `-`, `/` (`MIN / -1`) and `abs(MIN)` that overflow are a runtime error
+  ("integer overflow in '+'"), consistent with `bigint as int` and `int as
+  byte` clamping instead of wrapping silently. Use `bigint` when a value
+  can outgrow 64 bits.**
 - `float` — double-precision IEEE 754.
 - `bool` — `true`/`false`.
 - `string` — immutable text.

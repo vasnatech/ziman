@@ -2,6 +2,7 @@
 #include "interpreter.h"
 
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,13 @@ static EnumDecl *find_enum(Module *module, const char *name) {
 }
 
 static Value eval_expr(Module *module, Env *env, Expr *e);
+
+/* `int` is 64-bit and never wraps: overflow is a runtime error, the same
+ * spirit as `bigint as int` / `int as byte` clamping rather than wrapping
+ * silently. Use `bigint` when a value can outgrow 64 bits. */
+static void int_overflow(int line, int col, const char *op) {
+    ziman_error("runtime", line, col, "integer overflow in '%s' (int is 64-bit; use bigint for larger values)", op);
+}
 static ExecResult exec_stmt(Module *module, Env *env, Stmt *s);
 
 /* The root of every function call's own scope (see call_function) --
@@ -264,8 +272,9 @@ static Value call_hash(Value v) {
     return value_int((int64_t)(h & 0x7FFFFFFFFFFFFFFFULL));
 }
 
-static Value call_abs(Value x) {
+static Value call_abs(Value x, int line, int col) {
     if (x.type.kind == TY_INT) {
+        if (x.as.i == INT64_MIN) int_overflow(line, col, "abs");
         return value_int(x.as.i < 0 ? -x.as.i : x.as.i);
     }
     if (x.type.kind == TY_BIGINT) {
@@ -436,23 +445,36 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
 
     switch (e->as.binary.op) {
         case OP_ADD:
-            if (l.type.kind == TY_INT) return value_int(l.as.i + r.as.i);
+            if (l.type.kind == TY_INT) {
+                int64_t sum;
+                if (__builtin_add_overflow(l.as.i, r.as.i, &sum)) int_overflow(e->line, e->col, "+");
+                return value_int(sum);
+            }
             if (l.type.kind == TY_BIGINT) return value_bigint(bignum_add(*l.as.bi, *r.as.bi));
             if (l.type.kind == TY_DECIMAL) return value_decimal(decimal_add(*l.as.dec, *r.as.dec));
             return value_float(l.as.f + r.as.f);
         case OP_SUB:
-            if (l.type.kind == TY_INT) return value_int(l.as.i - r.as.i);
+            if (l.type.kind == TY_INT) {
+                int64_t diff;
+                if (__builtin_sub_overflow(l.as.i, r.as.i, &diff)) int_overflow(e->line, e->col, "-");
+                return value_int(diff);
+            }
             if (l.type.kind == TY_BIGINT) return value_bigint(bignum_sub(*l.as.bi, *r.as.bi));
             if (l.type.kind == TY_DECIMAL) return value_decimal(decimal_sub(*l.as.dec, *r.as.dec));
             return value_float(l.as.f - r.as.f);
         case OP_MUL:
-            if (l.type.kind == TY_INT) return value_int(l.as.i * r.as.i);
+            if (l.type.kind == TY_INT) {
+                int64_t product;
+                if (__builtin_mul_overflow(l.as.i, r.as.i, &product)) int_overflow(e->line, e->col, "*");
+                return value_int(product);
+            }
             if (l.type.kind == TY_BIGINT) return value_bigint(bignum_mul(*l.as.bi, *r.as.bi));
             if (l.type.kind == TY_DECIMAL) return value_decimal(decimal_mul(*l.as.dec, *r.as.dec));
             return value_float(l.as.f * r.as.f);
         case OP_DIV:
             if (l.type.kind == TY_INT) {
                 if (r.as.i == 0) ziman_error("runtime", e->line, e->col, "division by zero");
+                if (l.as.i == INT64_MIN && r.as.i == -1) int_overflow(e->line, e->col, "/");
                 return value_int(l.as.i / r.as.i);
             }
             if (l.type.kind == TY_BIGINT) {
@@ -470,6 +492,7 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
         case OP_MOD:
             if (l.type.kind == TY_INT) {
                 if (r.as.i == 0) ziman_error("runtime", e->line, e->col, "division by zero");
+                if (r.as.i == -1) return value_int(0);
                 return value_int(l.as.i % r.as.i);
             }
             if (l.type.kind == TY_BIGINT) {
@@ -564,7 +587,10 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_UNARY: {
             Value v = eval_expr(module, env, e->as.unary.operand);
             if (e->as.unary.op == OP_NEG) {
-                if (v.type.kind == TY_INT) return value_int(-v.as.i);
+                if (v.type.kind == TY_INT) {
+                    if (v.as.i == INT64_MIN) int_overflow(e->line, e->col, "-");
+                    return value_int(-v.as.i);
+                }
                 if (v.type.kind == TY_BIGINT) return value_bigint(bignum_negate(*v.as.bi));
                 if (v.type.kind == TY_DECIMAL) return value_decimal(decimal_negate(*v.as.dec));
                 return value_float(-v.as.f);
@@ -611,7 +637,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "hash") == 0) {
                 result = call_hash(args[0]);
             } else if (strcmp(e->as.call.callee, "abs") == 0) {
-                result = call_abs(args[0]);
+                result = call_abs(args[0], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "min") == 0) {
                 result = call_min(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "max") == 0) {

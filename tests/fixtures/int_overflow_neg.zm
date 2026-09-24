@@ -1,0 +1,5 @@
+fn main() {
+    val max = 9223372036854775807
+    val min = -max - 1
+    print(-min)
+}

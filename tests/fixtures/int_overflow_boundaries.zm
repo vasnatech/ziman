@@ -1,0 +1,16 @@
+fn main() {
+    val max = 9223372036854775807
+    val min = -max - 1
+    print(max)
+    print(min)
+    print(max - 1 + 1)
+    print(min + 1 - 1)
+    print(max * 1)
+    print(max / -1)
+    print(min % -1)
+    print(5 % -1)
+    print(-(max))
+    print(abs(min + 1))
+    print(4611686018427387904 * 1)
+    print(3037000499 * 3037000499)
+}

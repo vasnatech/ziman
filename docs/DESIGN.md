@@ -1641,6 +1641,21 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **`int` overflow is a runtime error, not a silent wrap (external review,
+  roadmap R2, 2026-09-23).** `9223372036854775807 + 1` used to print
+  `-9223372036854775808`, contradicting the language's own rule that casts
+  clamp ("nothing silently wraps") and, worse, being undefined behaviour in
+  the C implementation (signed overflow, no `-fwrapv`). Chosen rule: trap
+  on `+ - *`, unary `-`, `MIN / -1` and `abs(MIN)` with an explicit
+  message; `MIN % -1` is `0` (mathematically right, and the C operation
+  traps). Trap over saturate because a saturated wrong answer is still a
+  silent wrong answer, and over documented wrap because the language has
+  `bigint` for values that outgrow 64 bits. The build also gains `-fwrapv`
+  (so the interpreter's own arithmetic is well defined) and `-O2`. Cost:
+  one overflow-checked builtin per operation; the measured effect of the
+  checks plus `-O2` on a recursive-`fib` benchmark was a ~18% speedup over
+  the old `-O0` build, not the 2-3x the review guessed, since a tree-walking
+  interpreter is dominated by allocation and dispatch.
 - **`Result<T, E>` bare-value auto-wrap -- the fourth and final stage
   of the named-arguments/Option-omission/auto-wrap conversation, and
   the smallest of the four.** Agreed rule (the user's own, resolving
