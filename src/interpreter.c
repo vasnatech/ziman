@@ -273,7 +273,9 @@ static Value call_hash(Value v) {
     return value_int((int64_t)(h & 0x7FFFFFFFFFFFFFFFULL));
 }
 
-/* Three-way comparison behind `compare` and `sort`: -1, 0 or 1. Scalars
+/* Three-way comparison behind `compare` and `sort`: negative, zero or
+ * positive (this implementation happens to return -1/0/1, but the language
+ * only promises the sign, and a user `_compare` may return any int). Scalars
  * compare natively (a string bytewise, then by length; a float with NaN
  * sorting after every other value and equal to itself, so the order is
  * total). A struct or enum calls its `<type>_compare` function -- written by

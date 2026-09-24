@@ -1,0 +1,20 @@
+a10
+d10
+b30
+c50
+c50
+b30
+a10
+d10
+true
+Some(2)
+true
+true
+true
+aa
+az
+cb
+None
+Some(Grade { letter: a })
+Some(Grade { letter: z })
+true

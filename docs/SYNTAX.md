@@ -1549,7 +1549,14 @@ val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
 - **`<`, `>`, `<=`, `>=` work on `int`, `float`, `bigint`, `decimal`, `byte`
   and `string`** (a string compares byte by byte, then by length). They stay
   non-overloadable: a struct or enum is compared with `compare(a, b)`.
-- **`compare<T: Ord>(a, b) -> int`** (`-1`/`0`/`1`). `Ord` is satisfied by
+- **`compare<T: Ord>(a, b) -> int`**: negative if `a` is smaller, zero if
+  they are equal, positive if `a` is bigger -- **only the sign is meaningful,
+  not the magnitude**, so a hand-written `_compare` may return any `int` (for
+  example `a.score - b.score`) and the builtin's own `-1`/`0`/`1` is not
+  something to rely on. Everything here (`sort`, `is_sorted`,
+  `binary_search`, the derived functions, `compare` on a nested type) looks
+  only at whether the result is `< 0`, `0` or `> 0`. (A subtraction can
+  overflow, which is an error like any other `int` overflow.) `Ord` is satisfied by
   those scalars, by a struct or enum with a function
   `<snake_case_type>_compare(a: T, b: T) -> int` (`Person` looks for
   `person_compare`; a type from another module looks in its own module; the
@@ -2435,7 +2442,8 @@ a type error.
   (`int`/`float`/`bool`/`string`/`bigint`/`decimal`/`byte`) — same
   restriction as array `==`/`!=`, since only scalars have a well-defined
   equality in v0.
-- `compare(a: T, b: T) -> int` — `-1`, `0` or `1`; `T` is any type with a
+- `compare(a: T, b: T) -> int` — negative, zero or positive (only the sign
+  means anything); `T` is any type with a
   total order (see "Ordering" below). The way to order a struct or enum;
   `<`, `>`, `<=`, `>=` are for numbers, strings and bytes only.
 - `hash(x: T) -> int` — a hash of `x`; `T` is `int`, `float`, `bool`,

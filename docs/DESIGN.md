@@ -1659,7 +1659,10 @@ several languages rather than inheriting any one of them wholesale.
   `compare` call, and the runtime `compare` builtin finds and calls it. Both
   spellings are accepted (`local_date_compare` and `localdate_compare`),
   because the bundled `time` types were written before this convention was
-  named. A builtin `compare<T: Ord>(a, b) -> int` does the work, and `<`, `>`,
+  named. A builtin `compare<T: Ord>(a, b) -> int` does the work -- and its
+  contract, like Java's `Comparator` and C's `strcmp`, is negative/zero/positive:
+  only the sign means anything, so a hand-written `_compare` may return any
+  `int` and nothing here depends on it being `-1`/`0`/`1`, and `<`, `>`,
   `<=`, `>=` gained `string` and `byte` (the common gap) but stay
   non-overloadable, so a user type never redefines an operator (principle #2):
   it goes through `compare`. A `float` order is made total by putting NaN after
