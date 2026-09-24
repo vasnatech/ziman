@@ -289,8 +289,18 @@ pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
 
 // The positions of `keys` in ascending order: a stable bottom-up merge sort,
 // O(n log n) comparisons. `sort` and `sort_by_keys` are both "gather by this
-// permutation".
+// permutation". Descending is the same merge with the comparison flipped, and
+// is stable too: equal keys keep their input order (it is NOT the ascending
+// result reversed, which would flip ties).
 pub fn sort_indices<K: Ord>(keys: [K]) -> [int] {
+    return merge_sort_indices<K>(keys, false)
+}
+
+pub fn sort_indices_desc<K: Ord>(keys: [K]) -> [int] {
+    return merge_sort_indices<K>(keys, true)
+}
+
+fn merge_sort_indices<K: Ord>(keys: [K], descending: bool) -> [int] {
     val n = len(keys)
     val start = ab_new<int>()
     for i in 0..n {
@@ -307,7 +317,11 @@ pub fn sort_indices<K: Ord>(keys: [K]) -> [int] {
             var i = lo
             var j = mid
             while i < mid && j < hi {
-                if compare(keys[order[j]], keys[order[i]]) < 0 {
+                var take_right = compare(keys[order[j]], keys[order[i]]) < 0
+                if descending {
+                    take_right = compare(keys[order[j]], keys[order[i]]) > 0
+                }
+                if take_right {
                     ab_append<int>(merged, order[j])
                     j = j + 1
                 } else {
@@ -344,6 +358,11 @@ pub fn sort<T: Ord>(items: [T]) -> [T] {
     return gather<T>(items, sort_indices<T>(items))
 }
 
+// `items` in descending order of their own `compare` (stable).
+pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
+    return gather<T>(items, sort_indices_desc<T>(items))
+}
+
 // `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a
 // caller sorts by a field or a computed value without a comparator function.
 // An Err if the two arrays differ in length.
@@ -352,6 +371,14 @@ pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string> {
         return err(format("sort_by_keys: {} items but {} keys", len(items), len(keys)))
     }
     return ok(gather<T>(items, sort_indices<K>(keys)))
+}
+
+// The descending form of `sort_by_keys`.
+pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string> {
+    if len(items) != len(keys) {
+        return err(format("sort_by_keys_desc: {} items but {} keys", len(items), len(keys)))
+    }
+    return ok(gather<T>(items, sort_indices_desc<K>(keys)))
 }
 
 pub fn is_sorted<T: Ord>(items: [T]) -> bool {

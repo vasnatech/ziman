@@ -217,14 +217,23 @@ static FunctionDecl *find_compare_function(Module *module, Type t) {
 
 /* Whether `t` has a total order: the scalars that order naturally (int, float,
  * bigint, decimal, byte, string -- bytewise), a struct or enum with a
- * `<type>_compare(a, b) -> int` function, or a type parameter bounded by
- * `Ord`. Arrays, Results, Options, channels and bool don't. */
+ * `<type>_compare(a, b) -> int` function, a type parameter bounded by `Ord`,
+ * and -- recursively -- an array, an Option or a Result whose element/payload
+ * types are ordered. Channels and bool don't. */
 static int type_supports_ordering(Module *module, Type t) {
     switch (t.kind) {
         case TY_INT: case TY_FLOAT: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE:
             return 1;
-        case TY_STRUCT:
+        case TY_ARRAY:
+            return type_supports_ordering(module, *t.elem);
+        case TY_RESULT:
+            return type_supports_ordering(module, *t.elem) && type_supports_ordering(module, *t.elem_err);
         case TY_ENUM:
+            if (t.enum_name != NULL && strcmp(t.enum_name, "Option") == 0 && t.type_args.count == 1) {
+                return type_supports_ordering(module, t.type_args.items[0]);
+            }
+            return find_compare_function(module, t) != NULL;
+        case TY_STRUCT:
             return find_compare_function(module, t) != NULL;
         case TY_TYPEVAR:
             if (current_decl_type_params != NULL) {
@@ -774,8 +783,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         if (!type_supports_ordering(module, first_type)) {
             ziman_error("type", first->line, first->col,
-                        "'compare' expects int, float, bigint, decimal, byte, string, a struct/enum with a '<type>_compare' function "
-                        "('#[derive(Ord)]' writes one), or a type parameter bounded by 'Ord', found %s",
+                        "'compare' expects int, float, bigint, decimal, byte, string, an array/Option/Result of those, a struct/enum with a "
+                        "'<type>_compare' function ('#[derive(Ord)]' writes one), or a type parameter bounded by 'Ord', found %s",
                         type_name(first_type));
         }
         return type_scalar(TY_INT);

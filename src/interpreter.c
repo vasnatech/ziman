@@ -294,6 +294,14 @@ static int cmp_float_values(double x, double y) {
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col);
 
 static int value_compare(Module *module, Value a, Value b, int line, int col) {
+    /* Option<T>: None before every Some, Somes by payload. */
+    if (a.type.kind == TY_ENUM && a.type.enum_name != NULL && strcmp(a.type.enum_name, "Option") == 0) {
+        int a_some = strcmp(a.as.en->variant_name, "Some") == 0;
+        int b_some = strcmp(b.as.en->variant_name, "Some") == 0;
+        if (a_some != b_some) return a_some ? 1 : -1;
+        if (!a_some) return 0;
+        return value_compare(module, a.as.en->payload, b.as.en->payload, line, col);
+    }
     switch (a.type.kind) {
         case TY_INT: return a.as.i < b.as.i ? -1 : (a.as.i > b.as.i ? 1 : 0);
         case TY_FLOAT: return cmp_float_values(a.as.f, b.as.f);
@@ -301,8 +309,22 @@ static int value_compare(Module *module, Value a, Value b, int line, int col) {
         case TY_BYTE: return a.as.by < b.as.by ? -1 : (a.as.by > b.as.by ? 1 : 0);
         case TY_BIGINT: { int c = bignum_compare(*a.as.bi, *b.as.bi); return c < 0 ? -1 : (c > 0 ? 1 : 0); }
         case TY_DECIMAL: { int c = decimal_compare(*a.as.dec, *b.as.dec); return c < 0 ? -1 : (c > 0 ? 1 : 0); }
-        case TY_STRUCT:
-        case TY_ENUM: {
+        case TY_ARRAY: {
+            ArrayObj *x = a.as.arr, *y = b.as.arr;
+            int n = x->count < y->count ? x->count : y->count;
+            for (int i = 0; i < n; i++) {
+                int c = value_compare(module, x->items[i], y->items[i], line, col);
+                if (c != 0) return c;
+            }
+            return x->count < y->count ? -1 : (x->count > y->count ? 1 : 0);
+        }
+        case TY_RESULT: {
+            ResultObj *x = a.as.res, *y = b.as.res;
+            if (x->is_ok != y->is_ok) return x->is_ok ? -1 : 1;
+            return value_compare(module, x->value, y->value, line, col);
+        }
+        case TY_ENUM:
+        case TY_STRUCT: {
             const char *type_name_str = a.type.kind == TY_STRUCT ? a.type.struct_name : a.type.enum_name;
             char *fn_name = ziman_compare_function_name(type_name_str);
             FunctionDecl *fn = find_function(module, fn_name);

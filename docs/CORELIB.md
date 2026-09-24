@@ -102,9 +102,15 @@ pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T>
 
 pub fn sort_indices<K: Ord>(keys: [K]) -> [int]
 
+pub fn sort_indices_desc<K: Ord>(keys: [K]) -> [int]
+
 pub fn sort<T: Ord>(items: [T]) -> [T]
 
+pub fn sort_desc<T: Ord>(items: [T]) -> [T]
+
 pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string>
+
+pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string>
 
 pub fn is_sorted<T: Ord>(items: [T]) -> bool
 

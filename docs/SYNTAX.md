@@ -1555,9 +1555,12 @@ val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
   `person_compare`; a type from another module looks in its own module; the
   spelling without inserted underscores, `localdate_compare`, is also
   accepted, which is what the bundled `time` types use), and by a type
-  parameter bounded with `Ord`. `bool`, arrays, `Option` and `Result` have no
-  order. A `float` order is total: NaN sorts after every other value and
-  equals itself.
+  parameter bounded with `Ord`. It also holds, recursively, for **arrays**
+  (lexicographic, a shorter prefix first), **`Option<T>`** (`None` before every
+  `Some`, then by payload) and **`Result<T, E>`** (every `Ok` before every
+  `Err`, then by payload) whose element/payload types are `Ord` -- so
+  `[Option<Result<int, string>>]` sorts. `bool` and channels have no order. A
+  `float` order is total: NaN sorts after every other value and equals itself.
 - **`#[derive(Ord)]`** writes `<type>_compare`: a struct compares its fields
   in declaration order (the first difference decides); an enum compares by
   variant position, then by payload when both are the same variant. Every
@@ -1568,9 +1571,11 @@ val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
   argument, since Ziman has no function values: to sort by anything other than
   the type's own order, compute a key per item and use
   **`collections.sort_by_keys<T, K: Ord>(items, keys) -> Result<[T], string>`**
-  (an `Err` if the lengths differ). Also `sort_indices`, `is_sorted`,
-  `binary_search` (first match, `Option<int>`) and `reverse`, which with `sort`
-  gives a descending sort. `Uuid`, `LocalDate`, `LocalTime`, `LocalDateTime`,
+  (an `Err` if the lengths differ). Descending: **`sort_desc`** and
+  **`sort_by_keys_desc`** (also `sort_indices_desc`) -- stable too, so equal
+  keys keep their input order; that is not the same as reversing the ascending
+  result, which would flip ties. Also `sort_indices`, `is_sorted`,
+  `binary_search` (first match, `Option<int>`) and `reverse`. `Uuid`, `LocalDate`, `LocalTime`, `LocalDateTime`,
   `Instant`, `Duration` and `ZoneOffset` are all `Ord`.
 
 ## Attributes and derive

@@ -1,0 +1,53 @@
+use collections
+
+#[derive(Ord)]
+struct Rec {
+    id: Option<int>
+    tags: [string]
+}
+
+struct P {
+    name: string
+    age: int
+}
+
+fn main() {
+    val n = Option<int>.None
+    print(compare(n, Option<int>.Some(0)))
+    print(compare(Option<int>.Some(2), Option<int>.Some(1)))
+    print(compare(n, n))
+    val ok1: Result<int, string> = 1
+    val ok2: Result<int, string> = 2
+    val e1: Result<int, string> = err("a")
+    val e2: Result<int, string> = err("b")
+    print(compare(ok2, e1))
+    print(compare(e1, ok2))
+    print(compare(ok1, ok2))
+    print(compare(e2, e1))
+    print(compare([1, 2, 3], [1, 2]))
+    print(compare([1, 2], [1, 3]))
+    print(compare([1, 2], [1, 2]))
+    val empty: [int] = []
+    print(compare(empty, [0]))
+    print(collections.sort<Option<int>>([Option<int>.Some(3), Option<int>.None, Option<int>.Some(1)]))
+    print(collections.sort<[int]>([[2], [1, 5], [1], empty]))
+    print(collections.sort<Result<int, string>>([e2, ok2, e1, ok1]))
+    print(collections.sort<Option<Result<int, string>>>([Option<Result<int, string>>.Some(e1), Option<Result<int, string>>.None, Option<Result<int, string>>.Some(ok1)]))
+    val r1 = Rec { id: Option<int>.Some(2), tags: ["b"] }
+    val r2 = Rec { id: Option<int>.Some(2), tags: ["a", "z"] }
+    val r3 = Rec { id: Option<int>.None, tags: ["zzz"] }
+    for r in collections.sort<Rec>([r1, r2, r3]) {
+        print(r.tags)
+    }
+    print(collections.sort_desc<int>([3, 1, 2, 3]))
+    print(collections.sort_desc<string>(["b", "c", "a"]))
+    val people = [P { name: "a", age: 30 }, P { name: "b", age: 71 }, P { name: "c", age: 30 }, P { name: "d", age: 5 }]
+    var ages: [int] = []
+    for p in people {
+        ages = push(ages, p.age)
+    }
+    for p in unwrap(collections.sort_by_keys_desc<P, int>(people, ages)) {
+        print(concat(p.name, str(p.age)))
+    }
+    print(is_ok(collections.sort_by_keys_desc<P, int>(people, [1])))
+}

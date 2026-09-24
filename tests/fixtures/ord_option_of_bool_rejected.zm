@@ -1,0 +1,6 @@
+use collections
+
+fn main() {
+    val xs = [Option<bool>.None]
+    print(len(collections.sort<Option<bool>>(xs)))
+}

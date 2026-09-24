@@ -1674,7 +1674,13 @@ several languages rather than inheriting any one of them wholesale.
   field) and enums (variant position, then payload). **Cost and limits:** a
   pure-Ziman merge sort sorts 20,000 ints in about 0.3 s; a native fast path
   for scalar arrays is an easy later win. A type has exactly one order (its
-  `_compare`); anything else goes through `sort_by_keys`. A generic type can't
+  `_compare`); anything else goes through `sort_by_keys`. **Added right after:**
+  the order extends recursively to arrays (lexicographic), `Option<T>` (`None`
+  first, the same choice Rust makes) and `Result<T, E>` (every `Ok` before
+  every `Err`), each `Ord` when its element/payload types are -- so nested
+  shapes sort and `#[derive(Ord)]` accepts fields of those types.
+  `sort_desc`/`sort_by_keys_desc` merge with the comparison flipped rather than
+  reversing the ascending result, so ties keep their input order. A generic type can't
   derive `Ord` yet. Bounded type parameters are still checked only at the use
   site, as with `Eq`/`Hash`.
 - **Server hygiene: exit status, bounded concurrency, graceful shutdown

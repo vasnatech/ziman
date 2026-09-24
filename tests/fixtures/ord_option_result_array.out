@@ -1,0 +1,25 @@
+-1
+1
+0
+-1
+1
+-1
+1
+1
+-1
+0
+-1
+[None, Some(1), Some(3)]
+[[], [1], [1, 5], [2]]
+[Ok(1), Ok(2), Err(a), Err(b)]
+[None, Some(Ok(1)), Some(Err(a))]
+[zzz]
+[a, z]
+[b]
+[3, 3, 2, 1]
+[c, b, a]
+b71
+a30
+c30
+d5
+false
