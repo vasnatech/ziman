@@ -605,6 +605,7 @@ pub struct Regex {
     handle: int
     groups: int
     pattern: string
+    names: [string]
 }
 
 pub struct Match {
@@ -612,6 +613,7 @@ pub struct Match {
     end: int
     text: string
     groups: [Option<string>]
+    names: [string]
 }
 
 pub fn compile(pattern: string) -> Result<Regex, string>
@@ -625,6 +627,8 @@ pub fn find(re: Regex, text: string) -> Option<Match>
 pub fn find_all(re: Regex, text: string) -> [Match]
 
 pub fn group(m: Match, n: int) -> Option<string>
+
+pub fn group_named(m: Match, name: string) -> Option<string>
 
 pub fn replace(re: Regex, text: string, replacement: string) -> string
 

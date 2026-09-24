@@ -1,0 +1,47 @@
+use regex
+
+fn main() {
+    // named groups
+    val date = unwrap(regex.compile("(?P<year>\\d{4})-(?P<month>\\d{2})-(?<day>\\d{2})"))
+    val m = Option.unwrap_Some(regex.find(date, "released 2026-09-24!"))
+    print(m.text)
+    print(regex.group_named(m, "year"))
+    print(regex.group_named(m, "day"))
+    print(regex.group_named(m, "nope"))
+    print(regex.group(m, 2))
+    print(regex.replace(date, "on 2026-09-24", "${day}/${month}/${year}"))
+    print(regex.replace(date, "on 2026-09-24", "$day.$month.$year"))
+    print(regex.replace(date, "on 2026-09-24", "$3-$2-$1 ${nope}|"))
+    val opt = unwrap(regex.compile("(?P<a>x)|(?P<b>y)"))
+    val ym = Option.unwrap_Some(regex.find(opt, "y"))
+    print(regex.group_named(ym, "a"))
+    print(regex.group_named(ym, "b"))
+
+    // POSIX classes
+    val alpha = unwrap(regex.compile("[[:alpha:]]+"))
+    print(regex.find_all(alpha, "12abc34def")[1].text)
+    print(regex.find_all(unwrap(regex.compile("[[:^digit:]]+")), "12abc34def")[0].text)
+    print(regex.find_all(unwrap(regex.compile("[[:digit:][:upper:]_]+")), "abC1D2_e")[0].text)
+    print(len(regex.find_all(unwrap(regex.compile("[[:punct:]]")), "a,b.c!")))
+
+    // Unicode categories and scripts
+    val letters = unwrap(regex.compile("\\p{L}+"))
+    print(regex.find_all(letters, "12héllo3 wörld")[1].text)
+    print(len(regex.find_all(unwrap(regex.compile("\\p{Lu}")), "abÉCd")))
+    print(regex.find_all(unwrap(regex.compile("\\P{L}+")), "ab12cd")[0].text)
+    print(regex.find(unwrap(regex.compile("\\pN+")), "ab٣٤٥cd"))
+    print(regex.find_all(unwrap(regex.compile("[\\p{L}\\d]+")), "-a1é-b2-")[0].text)
+    print(regex.find_all(unwrap(regex.compile("\\p{Greek}+")), "abαβγ δ")[1].text)
+    print(regex.find_all(unwrap(regex.compile("\\p{Han}+")), "ab日本語x")[0].text)
+    print(len(regex.find_all(unwrap(regex.compile("\\p{Sc}")), "cost €5 $6")))
+    print(len(regex.find_all(unwrap(regex.compile("\\p{Cyrillic}+")), "привет world мир")))
+    print(regex.split(unwrap(regex.compile("[^\\p{L}]+")), "one, two;three"))
+
+    // errors
+    print(regex.compile("(?P<a>x)(?P<a>y)"))
+    print(regex.compile("(?P<1a>x)"))
+    print(regex.compile("(?<=a)b"))
+    print(regex.compile("[[:nope:]]"))
+    print(regex.compile("\\p{Nope}"))
+    print(regex.compile("\\p{L"))
+}

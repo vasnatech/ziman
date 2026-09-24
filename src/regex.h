@@ -17,6 +17,10 @@ Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size
 /* Number of capture groups, not counting the whole match. */
 int regex_group_count(const Regex *re);
 
+/* The name of capture group `group` (1-based) if it was written `(?P<name>...)`
+ * or `(?<name>...)`, else NULL. */
+const char *regex_group_name(const Regex *re, int group);
+
 /* Searches `text` from byte offset `from` (>= 0, <= len). On a match returns 1
  * and fills `caps` with 2 * (groups + 1) byte offsets: [start, end) of the whole
  * match, then of each group, -1 for a group that did not take part. */

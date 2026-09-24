@@ -2159,8 +2159,8 @@ regex.replace_all(re, "bob@site.com", "$2: $1")             // "site: bob"
 
 `compile(pattern)` returns `Err` with a message naming the position of the
 problem. A `Regex` is immutable: compile once, share it between threads.
-`is_match`, `find`, `find_from`, `find_all`, `group`, `replace`, `replace_all`,
-`split` and `escape` do the rest. A `Match` has `start`/`end` (byte offsets, like
+`is_match`, `find`, `find_from`, `find_all`, `group`, `group_named`, `replace`,
+`replace_all`, `split` and `escape` do the rest. A `Match` has `start`/`end` (byte offsets, like
 `substring`), `text` and `groups` (`[Option<string>]`, groups 1..n).
 Replacements expand `$0`, `$1`..`$9`, `${12}` and `$$`.
 
@@ -2169,10 +2169,23 @@ purpose: matching then runs in time proportional to text length times pattern
 size, so a pattern taken from a request cannot make a program hang (`(a+)+$`
 against a long run of `a`s answers immediately). Supported: literals, `.`,
 classes `[a-z]` `[^...]` (with `\d \w \s` inside), `\d \D \w \W \s \S` (ASCII),
-`\b \B`, `^ $`, groups `( )` and `(?: )`, `|`, and `* + ? {n} {n,} {n,m}`
-(greedy, or lazy with a trailing `?`). Flags go first: `(?i)` ignore ASCII case,
+`\b \B`, `^ $`, groups `( )`, `(?: )` and named `(?P<year>...)` /
+`(?<year>...)`, `|`, and `* + ? {n} {n,} {n,m}` (greedy, or lazy with a trailing
+`?`). Inside a bracket class (or as an atom) `[[:alpha:]]`-style POSIX classes
+(`alpha digit alnum upper lower space blank punct xdigit word cntrl print graph`,
+ASCII, `[:^alpha:]` negates) and Unicode properties: `\p{L}` letters, `\p{Lu}`
+`\p{Ll}` case, `\p{N}` `\p{Nd}` numbers, `\p{P}` punctuation, `\p{S}`
+`\p{Sc}` symbols, `\p{Z}` separators, `\p{M}` marks and the rest of the general
+categories (Unicode 16, generated from the character database), plus the scripts
+`Latin Greek Cyrillic Armenian Hebrew Arabic Devanagari Thai Hiragana Katakana
+Hangul Han`, which are their main Unicode blocks rather than exact script data.
+`\P{L}` and `\p{^L}` negate; `\pL` is `\p{L}`. Lookaround and backreferences
+remain unsupported and say so. A named group is read with
+`regex.group_named(m, "year")`, and a replacement may use `${year}` or `$year`
+(`$year_x` reads the whole name, so use `${year}_x`). Flags go first: `(?i)` ignore ASCII case,
 `(?s)` `.` matches newline, `(?m)` `^`/`$` match at line breaks. Patterns and
-text are UTF-8 and `.`/classes match a whole character. `$` matches only at the
+text are UTF-8 and `.`/classes match a whole character; `\d \w \s` and `(?i)`
+stay ASCII-only, so write `\p{L}`/`\p{Nd}` for Unicode letters and digits. `$` matches only at the
 very end (unless `(?m)`), so use `^...$` to require the whole text. A repetition
 count is limited to 1000 and a compiled pattern to 20,000 instructions.
 `find_all` steps one character past an empty match, and `split` ignores empty

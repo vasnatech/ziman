@@ -1,0 +1,30 @@
+2026-09-24
+Some(2026)
+Some(24)
+None
+Some(09)
+on 24/09/2026
+on 24.09.2026
+on 24-09-2026 |
+None
+Some(y)
+def
+abc
+C1D2_
+3
+wörld
+2
+12
+Some(regex::Match { start: 2, end: 8, text: ٣٤٥, groups: [], names: [] })
+a1é
+δ
+日本語
+2
+2
+[one, two, three]
+Err(duplicate group name at position 9)
+Err(bad group name (letters, digits and _, not starting with a digit, then '>') at position 1)
+Err(lookaround is not supported at position 1)
+Err(unknown POSIX class (alpha, digit, alnum, upper, lower, space, blank, punct, xdigit, word, cntrl, print, graph) at position 1)
+Err(unknown Unicode property (categories such as L, Lu, N, Nd, P, S, Z, or Latin, Greek, Cyrillic, Han, ...) at position 8)
+Err(unterminated \p{...} at position 2)

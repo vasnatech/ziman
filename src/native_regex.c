@@ -100,7 +100,21 @@ static Value native_regex_search_all_raw(Value *args, int argc, int line, int co
     return result;
 }
 
+/* group_names_raw(handle) -> [string]: the name of each group 1..n, "" for an unnamed one. */
+static Value native_regex_group_names_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    RegexHandle *h = handle_of(args[0], line, col);
+    int n = regex_group_count(h->re);
+    Value *items = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    for (int g = 1; g <= n; g++) {
+        const char *name = regex_group_name(h->re, g);
+        items[g - 1] = value_string(strdup(name != NULL ? name : ""));
+    }
+    return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, n));
+}
+
 void native_regex_register(void) {
+    native_register("regex::group_names_raw", native_regex_group_names_raw);
     native_register("regex::compile_raw", native_regex_compile_raw);
     native_register("regex::group_count_raw", native_regex_group_count_raw);
     native_register("regex::search_raw", native_regex_search_raw);

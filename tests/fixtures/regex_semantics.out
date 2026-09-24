@@ -44,5 +44,5 @@ a) -> ERROR unmatched closing parenthesis at position 1
 [a -> ERROR unterminated character class at position 2
 \1 -> ERROR backreferences are not supported at position 2
 a{2,1} -> ERROR repetition maximum is below the minimum at position 6
-(?=a) -> ERROR unsupported group syntax (only (?:...) and leading (?i)(?s)(?m) flags) at position 1
+(?=a) -> ERROR lookaround is not supported at position 1
 \q -> ERROR unknown escape at position 2

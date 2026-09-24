@@ -9,8 +9,10 @@
 // a pattern that comes from outside can never make a program hang. Text and
 // patterns are UTF-8; every offset is a *byte* offset, like `substring`.
 //
-// Supported: literals, `.`, `[a-z]` `[^...]` classes (with `\d \w \s` inside),
-// `\d \D \w \W \s \S` (ASCII), `\b \B`, `^ $`, groups `( )` and `(?: )`,
+// Supported: literals, `.`, `[a-z]` `[^...]` classes (with `\d \w \s`, POSIX
+// `[:alpha:]` and `\p{...}` inside), `\d \D \w \W \s \S` (ASCII), `\p{L}` /
+// `\P{L}` Unicode categories and scripts, `\b \B`, `^ $`, groups `( )`,
+// `(?: )` and named `(?P<name>...)` / `(?<name>...)`,
 // alternation `|`, and the quantifiers `* + ? {n} {n,} {n,m}` (greedy, or lazy
 // with a trailing `?`). Escapes: `\n \r \t \f \v \0 \xHH` and `\` before any
 // punctuation. Flags go first: `(?i)` ignore ASCII case, `(?s)` `.` matches
@@ -21,6 +23,7 @@
 
 native fn compile_raw(pattern: string) -> Result<int, string>
 native fn group_count_raw(handle: int) -> int
+native fn group_names_raw(handle: int) -> [string]
 native fn search_raw(handle: int, text: string, from: int) -> [int]
 native fn search_all_raw(handle: int, text: string) -> [int]
 
@@ -29,6 +32,7 @@ pub struct Regex {
     handle: int
     groups: int
     pattern: string
+    names: [string]
 }
 
 // One match: where it is (byte offsets, `end` exclusive), its text, and the
@@ -38,12 +42,13 @@ pub struct Match {
     end: int
     text: string
     groups: [Option<string>]
+    names: [string]
 }
 
 // The error message names the position of the problem.
 pub fn compile(pattern: string) -> Result<Regex, string> {
     val handle = compile_raw(pattern)?
-    return ok(Regex { handle: handle, groups: group_count_raw(handle), pattern: pattern })
+    return ok(Regex { handle: handle, groups: group_count_raw(handle), pattern: pattern, names: group_names_raw(handle) })
 }
 
 fn match_of(re: Regex, text: string, caps: [int], at: int) -> Match {
@@ -60,7 +65,8 @@ fn match_of(re: Regex, text: string, caps: [int], at: int) -> Match {
         start: caps[at],
         end: caps[at + 1],
         text: substring(text, caps[at], caps[at + 1]),
-        groups: ab_to_array<Option<string>>(groups)
+        groups: ab_to_array<Option<string>>(groups),
+        names: re.names
     }
 }
 
@@ -107,8 +113,27 @@ pub fn group(m: Match, n: int) -> Option<string> {
     return m.groups[n - 1]
 }
 
+// The text of the group written `(?P<name>...)` or `(?<name>...)`. `None` if it
+// did not take part or no group has that name.
+pub fn group_named(m: Match, name: string) -> Option<string> {
+    for i in 0..len(m.names) {
+        if m.names[i] == name {
+            return m.groups[i]
+        }
+    }
+    return Option<string>.None
+}
+
 fn group_text(m: Match, n: int) -> string {
     return option_unwrap_or<string>(group(m, n), "")
+}
+
+fn named_text(m: Match, name: string) -> string {
+    return option_unwrap_or<string>(group_named(m, name), "")
+}
+
+fn is_name_char(c: string) -> bool {
+    return is_digit_char(c) || (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
 }
 
 // `replacement` with `$0` (whole match), `$1`..`$9`, `${12}` (any group number)
@@ -136,13 +161,14 @@ fn expand(replacement: string, m: Match) -> string {
                 if close < 0 {
                     sb_append(out, "$")
                 } else {
-                    val number = parse_int(substring(replacement, i + 1, close))
+                    val inside = substring(replacement, i + 1, close)
+                    val number = parse_int(inside)
                     if is_ok(number) {
                         sb_append(out, group_text(m, unwrap(number)))
-                        i = close + 1
                     } else {
-                        sb_append(out, "$")
+                        sb_append(out, named_text(m, inside))
                     }
+                    i = close + 1
                 }
             } else {
                 var j = i
@@ -150,7 +176,16 @@ fn expand(replacement: string, m: Match) -> string {
                     j = j + 1
                 }
                 if j == i {
-                    sb_append(out, "$")
+                    var k = i
+                    while k < len(replacement) && is_name_char(char_at(replacement, k)) {
+                        k = k + 1
+                    }
+                    if k == i {
+                        sb_append(out, "$")
+                    } else {
+                        sb_append(out, named_text(m, substring(replacement, i, k)))
+                        i = k
+                    }
                 } else {
                     sb_append(out, group_text(m, unwrap(parse_int(substring(replacement, i, j)))))
                     i = j

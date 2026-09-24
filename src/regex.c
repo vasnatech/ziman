@@ -1,6 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include "regex.h"
+#include "regex_unicode.h"
 
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,6 +46,7 @@ struct Regex {
     CharClass *classes;
     int n_classes;
     int n_groups;
+    char **group_names; /* [0..n_groups]; NULL for a group without a name */
     int icase, dotall, multiline;
 };
 
@@ -114,22 +117,82 @@ static void class_add_perl(CharClass *c, char kind) {
     }
 }
 
-static int class_matches(const CharClass *c, uint32_t cp, int icase) {
-    int hit = 0;
-    for (int i = 0; i < c->count && !hit; i++) {
-        if (cp >= c->ranges[i].lo && cp <= c->ranges[i].hi) hit = 1;
+/* `c->ranges` is sorted and merged by class_finalize, so this is a binary search
+ * (a \p{L} class has hundreds of ranges). */
+static int in_ranges(const CharClass *c, uint32_t cp) {
+    int lo = 0, hi = c->count - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (cp < c->ranges[mid].lo) hi = mid - 1;
+        else if (cp > c->ranges[mid].hi) lo = mid + 1;
+        else return 1;
     }
+    return 0;
+}
+
+static int class_matches(const CharClass *c, uint32_t cp, int icase) {
+    int hit = in_ranges(c, cp);
     if (!hit && icase) {
         uint32_t other = cp;
         if (cp >= 'a' && cp <= 'z') other = cp - 32;
         else if (cp >= 'A' && cp <= 'Z') other = cp + 32;
-        if (other != cp) {
-            for (int i = 0; i < c->count && !hit; i++) {
-                if (other >= c->ranges[i].lo && other <= c->ranges[i].hi) hit = 1;
-            }
-        }
+        if (other != cp) hit = in_ranges(c, other);
     }
     return c->negate ? !hit : hit;
+}
+
+static int range_cmp(const void *a, const void *b) {
+    const Range *x = a, *y = b;
+    return x->lo < y->lo ? -1 : (x->lo > y->lo ? 1 : 0);
+}
+
+static void class_finalize(CharClass *c) {
+    if (c->count < 2) return;
+    qsort(c->ranges, (size_t)c->count, sizeof(Range), range_cmp);
+    int out = 0;
+    for (int i = 1; i < c->count; i++) {
+        if (c->ranges[i].lo <= c->ranges[out].hi + 1 && c->ranges[out].hi != 0xFFFFFFFFu) {
+            if (c->ranges[i].hi > c->ranges[out].hi) c->ranges[out].hi = c->ranges[i].hi;
+        } else {
+            c->ranges[++out] = c->ranges[i];
+        }
+    }
+    c->count = out + 1;
+}
+
+/* Adds the complement of the (sorted, disjoint) ranges `rs` over 0..MAX_CODEPOINT. */
+static void class_add_complement(CharClass *c, const uint32_t (*rs)[2], int n) {
+    uint32_t next = 0;
+    for (int i = 0; i < n; i++) {
+        if (rs[i][0] > next) class_add(c, next, rs[i][0] - 1);
+        next = rs[i][1] + 1;
+    }
+    if (next <= MAX_CODEPOINT) class_add(c, next, MAX_CODEPOINT);
+}
+
+/* POSIX classes, ASCII only. */
+typedef struct { const char *name; uint32_t r[6][2]; int n; } PosixClass;
+static const PosixClass POSIX_CLASSES[] = {
+    {"alpha", {{'A', 'Z'}, {'a', 'z'}}, 2},
+    {"digit", {{'0', '9'}}, 1},
+    {"alnum", {{'0', '9'}, {'A', 'Z'}, {'a', 'z'}}, 3},
+    {"upper", {{'A', 'Z'}}, 1},
+    {"lower", {{'a', 'z'}}, 1},
+    {"space", {{9, 13}, {32, 32}}, 2},
+    {"blank", {{9, 9}, {32, 32}}, 2},
+    {"punct", {{33, 47}, {58, 64}, {91, 96}, {123, 126}}, 4},
+    {"xdigit", {{'0', '9'}, {'A', 'F'}, {'a', 'f'}}, 3},
+    {"word", {{'0', '9'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'}}, 4},
+    {"cntrl", {{0, 31}, {127, 127}}, 2},
+    {"print", {{32, 126}}, 1},
+    {"graph", {{33, 126}}, 1},
+};
+
+static const UnicodeSet *find_unicode_set(const char *name, size_t len) {
+    for (int i = 0; i < UNICODE_SET_COUNT; i++) {
+        if (strlen(UNICODE_SETS[i].name) == len && memcmp(UNICODE_SETS[i].name, name, len) == 0) return &UNICODE_SETS[i];
+    }
+    return NULL;
 }
 
 /* ---------------------------------------------------------------- parser */
@@ -179,6 +242,62 @@ static int parse_escape_char(Parser *ps, uint32_t *cp) {
     }
 }
 
+/* After `\p` or `\P` (already consumed): `{Name}`, `{^Name}` or a one-letter
+ * name (`\pL`). Adds the set (or its complement) to class `idx`. */
+static int parse_property(Parser *ps, int idx, int negated) {
+    const char *name;
+    size_t len;
+    if (peek(ps) == '{') {
+        size_t start = ps->pos + 1;
+        size_t end = start;
+        while (end < ps->len && ps->p[end] != '}') end++;
+        if (end >= ps->len) { fail(ps, "unterminated \\p{...}"); return 0; }
+        name = (const char *)ps->p + start;
+        len = end - start;
+        ps->pos = end + 1;
+    } else if (peek(ps) >= 0) {
+        name = (const char *)ps->p + ps->pos;
+        len = 1;
+        ps->pos++;
+    } else {
+        fail(ps, "\\p needs a property name");
+        return 0;
+    }
+    if (len > 0 && name[0] == '^') { negated = !negated; name++; len--; }
+    const UnicodeSet *set = find_unicode_set(name, len);
+    if (set == NULL) { fail(ps, "unknown Unicode property (categories such as L, Lu, N, Nd, P, S, Z, or Latin, Greek, Cyrillic, Han, ...)"); return 0; }
+    CharClass *c = &ps->re->classes[idx];
+    if (negated) {
+        class_add_complement(c, set->ranges, set->count);
+    } else {
+        for (int i = 0; i < set->count; i++) class_add(c, set->ranges[i][0], set->ranges[i][1]);
+    }
+    return 1;
+}
+
+/* `[:name:]` inside a bracket class; `pos` is at the `[`. */
+static int parse_posix(Parser *ps, int idx) {
+    size_t start = ps->pos + 2;
+    size_t end = start;
+    while (end + 1 < ps->len && !(ps->p[end] == ':' && ps->p[end + 1] == ']')) end++;
+    if (end + 1 >= ps->len) { fail(ps, "unterminated POSIX class"); return 0; }
+    const char *name = (const char *)ps->p + start;
+    size_t len = end - start;
+    int negated = 0;
+    if (len > 0 && name[0] == '^') { negated = 1; name++; len--; }
+    for (size_t i = 0; i < sizeof POSIX_CLASSES / sizeof POSIX_CLASSES[0]; i++) {
+        if (strlen(POSIX_CLASSES[i].name) == len && memcmp(POSIX_CLASSES[i].name, name, len) == 0) {
+            CharClass *c = &ps->re->classes[idx];
+            if (negated) class_add_complement(c, (const uint32_t (*)[2])POSIX_CLASSES[i].r, POSIX_CLASSES[i].n);
+            else for (int k = 0; k < POSIX_CLASSES[i].n; k++) class_add(c, POSIX_CLASSES[i].r[k][0], POSIX_CLASSES[i].r[k][1]);
+            ps->pos = end + 2;
+            return 1;
+        }
+    }
+    fail(ps, "unknown POSIX class (alpha, digit, alnum, upper, lower, space, blank, punct, xdigit, word, cntrl, print, graph)");
+    return 0;
+}
+
 static Node *parse_class(Parser *ps) {
     int idx = class_new(ps);
     CharClass *c = &ps->re->classes[idx];
@@ -191,9 +310,18 @@ static Node *parse_class(Parser *ps) {
         first = 0;
         uint32_t lo;
         int is_range_end_ok = 1;
+        if (ch == '[' && ps->pos + 1 < ps->len && ps->p[ps->pos + 1] == ':') {
+            if (!parse_posix(ps, idx)) return NULL;
+            continue;
+        }
         if (ch == '\\') {
             ps->pos++;
             int e = peek(ps);
+            if (e == 'p' || e == 'P') {
+                ps->pos++;
+                if (!parse_property(ps, idx, e == 'P')) return NULL;
+                continue;
+            }
             if (e == 'd' || e == 'w' || e == 's' || e == 'D' || e == 'W' || e == 'S') {
                 ps->pos++;
                 c = &ps->re->classes[idx];
@@ -244,16 +372,49 @@ static Node *parse_atom(Parser *ps) {
     if (c == '(') {
         ps->pos++;
         int group = -2;
+        char *group_name = NULL;
         if (peek(ps) == '?') {
-            if (ps->pos + 1 < ps->len && ps->p[ps->pos + 1] == ':') {
+            size_t q = ps->pos + 1;
+            if (q < ps->len && ps->p[q] == ':') {
                 ps->pos += 2;
                 group = -1;
+            } else if (q < ps->len && (ps->p[q] == '<' || (ps->p[q] == 'P' && q + 1 < ps->len && ps->p[q + 1] == '<'))) {
+                /* (?P<name>...) or (?<name>...); `(?<=` and `(?<!` are lookbehind */
+                size_t s = ps->p[q] == 'P' ? q + 2 : q + 1;
+                if (s < ps->len && (ps->p[s] == '=' || ps->p[s] == '!')) {
+                    fail(ps, "lookaround is not supported");
+                    return NULL;
+                }
+                size_t e2 = s;
+                while (e2 < ps->len && (isalnum(ps->p[e2]) || ps->p[e2] == '_')) e2++;
+                if (e2 == s || e2 >= ps->len || ps->p[e2] != '>' || isdigit(ps->p[s])) {
+                    fail(ps, "bad group name (letters, digits and _, not starting with a digit, then '>')");
+                    return NULL;
+                }
+                group_name = malloc(e2 - s + 1);
+                memcpy(group_name, ps->p + s, e2 - s);
+                group_name[e2 - s] = '\0';
+                for (int g = 1; g <= ps->re->n_groups; g++) {
+                    if (ps->re->group_names != NULL && ps->re->group_names[g] != NULL && strcmp(ps->re->group_names[g], group_name) == 0) {
+                        fail(ps, "duplicate group name");
+                        return NULL;
+                    }
+                }
+                ps->pos = e2 + 1;
+            } else if (q < ps->len && (ps->p[q] == '=' || ps->p[q] == '!')) {
+                fail(ps, "lookaround is not supported");
+                return NULL;
             } else {
-                fail(ps, "unsupported group syntax (only (?:...) and leading (?i)(?s)(?m) flags)");
+                fail(ps, "unsupported group syntax (only (?:...), (?P<name>...) and leading (?i)(?s)(?m) flags)");
                 return NULL;
             }
         }
-        if (group == -2) group = ++ps->re->n_groups;
+        if (group == -2) {
+            group = ++ps->re->n_groups;
+            ps->re->group_names = realloc(ps->re->group_names, (size_t)(ps->re->n_groups + 1) * sizeof(char *));
+            ps->re->group_names[group] = group_name;
+            ps->re->group_names[0] = NULL;
+        }
         if (++ps->depth > 200) { fail(ps, "pattern is nested too deeply"); return NULL; }
         Node *inner = parse_alt(ps);
         ps->depth--;
@@ -276,6 +437,14 @@ static Node *parse_atom(Parser *ps) {
             ps->pos++;
             int idx = class_new(ps);
             class_add_perl(&ps->re->classes[idx], (char)e);
+            Node *n = node(N_CLASS);
+            n->idx = idx;
+            return n;
+        }
+        if (e == 'p' || e == 'P') {
+            ps->pos++;
+            int idx = class_new(ps);
+            if (!parse_property(ps, idx, e == 'P')) return NULL;
             Node *n = node(N_CLASS);
             n->idx = idx;
             return n;
@@ -516,6 +685,8 @@ Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size
         return NULL;
     }
 
+    for (int i = 0; i < re->n_classes; i++) class_finalize(&re->classes[i]);
+
     Emit em = {re, 0, 0, err, err_size};
     emit(&em, I_SAVE, 0, 0, 0);
     gen(&em, root);
@@ -533,6 +704,11 @@ Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size
 }
 
 int regex_group_count(const Regex *re) { return re->n_groups; }
+
+const char *regex_group_name(const Regex *re, int group) {
+    if (group < 1 || group > re->n_groups || re->group_names == NULL) return NULL;
+    return re->group_names[group];
+}
 
 /* ---------------------------------------------------------------- matcher */
 

@@ -3245,3 +3245,30 @@ excluded**: their C code cannot see the type arguments, so a result's element ty
 is fixed up from the call site's static type (see the interpreter's generic-native
 patch), and a call through a function value has no such site; wrapping one in a
 lambda (`fn(a) { slice<int>(a, 0, 2) }`) restores the call site.
+
+## Regex: named groups, POSIX classes, Unicode properties
+
+**Named groups** (`(?P<name>...)`, `(?<name>...)`): names live in the compiled
+program; `Regex` and `Match` carry the name list, `group_named(m, name)` looks a
+name up, and replacements accept `${name}` and `$name`. Duplicate or malformed
+names are compile errors, and `(?<=`/`(?<!` says lookaround is unsupported rather
+than being misread as a name.
+
+**POSIX classes** (`[[:alpha:]]`, `[[:^digit:]]`) are ASCII and only valid inside
+brackets, as in Perl and Rust.
+
+**Unicode properties** (`\p{L}`, `\P{Nd}`, `\p{^Lu}`, `\pN`, and a few scripts)
+need tables. `tools/gen_regex_unicode.py` writes `src/regex_unicode.h` from
+Python's `unicodedata` (Unicode 16.0): exact ranges for every general category
+and their one-letter unions, about 92 KB of source, checked in so building needs
+no Python. **Scripts are approximations:** Python has no script data, so each is
+the union of its main blocks (`Han` includes the CJK ideograph blocks, `Greek` the
+Greek and Coptic and Greek Extended blocks, and so on); use categories where
+exactness matters. To keep a `\p{L}` class (hundreds of ranges) fast, every
+character class is now sorted and merged when the pattern compiles and matched by
+binary search. `\w \d \s` and `(?i)` are deliberately still ASCII: changing them
+would change what existing patterns match, so Unicode-aware matching is opt-in
+through `\p{...}`.
+
+**Still not done:** `\p{Script=...}` spelling and script extensions, `(?x)`
+verbose mode, case folding beyond ASCII, and `\X`/`\R`.
