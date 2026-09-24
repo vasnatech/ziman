@@ -1,0 +1,27 @@
+use util
+use util.label
+
+fn apply(f: fn(int) -> int, x: int) -> int {
+    return f(x)
+}
+
+fn show(f: fn(int) -> string, x: int) -> string {
+    return f(x)
+}
+
+fn double(n: int) -> int {
+    return n * 2
+}
+
+fn main() {
+    // a qualified reference to another module's public function
+    print(apply(util.inc, 41))
+    // a named import used bare
+    print(show(label, 7))
+    // own function
+    print(apply(double, 4))
+    // a local named like a function wins over the function
+    val double = util.inc
+    print(apply(double, 4))
+    print(double(100))
+}

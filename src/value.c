@@ -12,6 +12,13 @@
 Value value_int(int64_t i) { Value v; v.type = type_scalar(TY_INT); v.as.i = i; return v; }
 Value value_float(double f) { Value v; v.type = type_scalar(TY_FLOAT); v.as.f = f; return v; }
 Value value_bool(int b) { Value v; v.type = type_scalar(TY_BOOL); v.as.b = b; return v; }
+Value value_function(FunctionDecl *fn) {
+    Value v;
+    v.type = function_value_type(fn);
+    v.as.fn = fn;
+    return v;
+}
+
 Value value_string_view(const char *ptr, size_t len, int term) {
     if (len > 0xffffffffu) ziman_error("runtime", 0, 0, "string too long (limit is 4 GiB)");
     Value v;
@@ -225,6 +232,9 @@ int value_equals(Value a, Value b) {
         case TY_CHANNEL:
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on Channel should have been rejected by the type checker");
             return 0;
+        case TY_FUNC:
+            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on a function value should have been rejected by the type checker");
+            return 0;
         case TY_TYPEVAR:
             ziman_error("runtime", 0, 0, "internal error: a runtime value should never have an unsubstituted type variable as its type");
             return 0;
@@ -339,6 +349,13 @@ char *value_display(Value v) {
         }
         case TY_CHANNEL:
             return strdup("Channel");
+        case TY_FUNC: {
+            const char *name = v.as.fn->name;
+            size_t len = strlen(name) + 12;
+            char *out = malloc(len);
+            snprintf(out, len, "<function %s>", name);
+            return out;
+        }
         case TY_TYPEVAR:
             ziman_error("runtime", 0, 0, "internal error: a runtime value should never have an unsubstituted type variable as its type");
             return strdup("");

@@ -1,0 +1,63 @@
+// Function values can be returned, stored in arrays, and passed through
+// several layers; a function value may refer to a function that itself takes
+// a function value.
+fn inc(n: int) -> int {
+    return n + 1
+}
+
+fn dec(n: int) -> int {
+    return n - 1
+}
+
+fn compose_apply(a: fn(int) -> int, b: fn(int) -> int, x: int) -> int {
+    return b(a(x))
+}
+
+fn run_all(steps: [fn(int) -> int], start: int) -> int {
+    var value = start
+    for step in steps {
+        value = step(value)
+    }
+    return value
+}
+
+fn make_step(up: bool) -> fn(int) -> int {
+    if up {
+        return inc
+    }
+    return dec
+}
+
+fn fold_with(f: fn(int, int) -> int, xs: [int], initial: int) -> int {
+    var acc = initial
+    for x in xs {
+        acc = f(acc, x)
+    }
+    return acc
+}
+
+fn add(a: int, b: int) -> int {
+    return a + b
+}
+
+fn max_of(a: int, b: int) -> int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn main() {
+    print(compose_apply(inc, inc, 0))
+    print(run_all([inc, inc, dec, inc], 10))
+    val step = make_step(false)
+    print(step(0))
+    print(fold_with(add, [1, 2, 3, 4], 0))
+    print(fold_with(max_of, [3, 9, 2], 0))
+    val none: fn() = report
+    none()
+}
+
+fn report() {
+    print("no arguments, no result")
+}

@@ -1,0 +1,8 @@
+fn total(xs: int...) -> int {
+    return len(xs)
+}
+
+fn main() {
+    val f = total
+    print(1)
+}

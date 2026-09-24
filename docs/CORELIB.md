@@ -118,6 +118,22 @@ pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int>
 
 pub fn reverse<T>(items: [T]) -> [T]
 
+pub fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]
+
+pub fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
+
+pub fn fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A
+
+pub fn any<T>(items: [T], test: fn(T) -> bool) -> bool
+
+pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool
+
+pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T>
+
+pub fn for_each<T>(items: [T], f: fn(T))
+
+pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
+
 ```
 
 ## `crypto`

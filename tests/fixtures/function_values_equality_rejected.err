@@ -1,0 +1,1 @@
+function values (fn(int) -> int) cannot be compared with '=='/'!='

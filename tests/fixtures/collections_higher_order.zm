@@ -1,0 +1,55 @@
+use collections
+
+struct P {
+    name: string
+    age: int
+}
+
+fn label(n: int) -> string {
+    return concat("#", str(n))
+}
+
+fn is_big(n: int) -> bool {
+    return n > 10
+}
+
+fn add(acc: int, n: int) -> int {
+    return acc + n
+}
+
+fn longer(acc: string, s: string) -> string {
+    if len(s) > len(acc) {
+        return s
+    }
+    return acc
+}
+
+fn show(n: int) {
+    print(concat("item ", str(n)))
+}
+
+fn by_age_then_name(a: P, b: P) -> int {
+    if a.age != b.age {
+        return a.age - b.age
+    }
+    return compare(a.name, b.name)
+}
+
+fn main() {
+    val xs = [5, 12, 30, 7]
+    print(collections.map<int, string>(xs, label))
+    print(collections.filter<int>(xs, is_big))
+    print(collections.fold<int, int>(xs, 0, add))
+    print(collections.fold<string, string>(["aa", "bbbb", "c"], "", longer))
+    print(collections.any<int>(xs, is_big))
+    print(collections.all<int>(xs, is_big))
+    print(collections.find<int>(xs, is_big))
+    print(collections.find<int>([1, 2], is_big))
+    collections.for_each<int>([1, 2], show)
+    val people = [P { name: "zed", age: 30 }, P { name: "amy", age: 30 }, P { name: "bob", age: 25 }]
+    for p in collections.sort_with<P>(people, by_age_then_name) {
+        print(concat(p.name, str(p.age)))
+    }
+    val empty: [int] = []
+    print(collections.map<int, string>(empty, label))
+}

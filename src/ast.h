@@ -24,6 +24,7 @@ typedef enum {
     TY_ENUM,
     TY_CHANNEL,
     TY_TYPEVAR,
+    TY_FUNC,
 } TypeKind;
 
 /* A Type is a small value (kind + optional payload), not a heap object in
@@ -58,6 +59,12 @@ typedef enum {
  * send/receive, which no amount of user-definable generics would ever let
  * you express in pure Ziman. See docs/SYNTAX.md "Concurrency".
  *
+ * `fn(A, B) -> R` (TY_FUNC) is a function type: `type_args` holds the
+ * parameter types and `elem` the return type (TY_VOID for none). A value of
+ * this type is a reference to a named top-level function -- no closures, no
+ * capture (see docs/DESIGN.md's function-values entry). Function types are
+ * structural: two are the same when their parameters and return type are.
+ *
  * User-declared generics (`struct Box<T> { value: T }`) add two more
  * things: TY_TYPEVAR, a placeholder meaning "the formal type parameter
  * named `type_var_name`", used only *inside* a generic declaration's own
@@ -87,12 +94,12 @@ typedef struct {
 
 struct Type {
     TypeKind kind;
-    struct Type *elem;     /* TY_ARRAY: element type. TY_RESULT: success (Ok) type. TY_CHANNEL: element type. */
+    struct Type *elem;     /* TY_ARRAY: element type. TY_RESULT: success (Ok) type. TY_CHANNEL: element type. TY_FUNC: return type (TY_VOID when it returns nothing). */
     struct Type *elem_err; /* only meaningful when kind == TY_RESULT: the Err type */
     char *struct_name;     /* only meaningful when kind == TY_STRUCT */
     char *enum_name;       /* only meaningful when kind == TY_ENUM */
     char *type_var_name;   /* only meaningful when kind == TY_TYPEVAR */
-    TypeList type_args;    /* TY_STRUCT/TY_ENUM only, when the declaration is generic */
+    TypeList type_args;    /* TY_STRUCT/TY_ENUM only, when the declaration is generic. TY_FUNC: the parameter types, in order. */
 };
 
 Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY/TY_STRUCT/TY_RESULT/TY_ENUM/TY_CHANNEL/TY_TYPEVAR */
@@ -102,6 +109,8 @@ Type type_result(Type ok_type, Type err_type);
 Type type_enum(const char *name);
 Type type_channel(Type elem);
 Type type_typevar(const char *name);
+/* `fn(A, B) -> R`: the parameter types and the return type (TY_VOID for none). */
+Type type_func(TypeList params, Type ret);
 int type_equals(Type a, Type b);
 
 void type_list_push(TypeList *list, Type t);
@@ -166,6 +175,13 @@ struct Expr {
     ExprKind kind;
     int line, col;
     Type resolved_type; /* filled in by the type checker */
+    /* A bare identifier (EXPR_IDENT) or `module.name` (EXPR_FIELD_ACCESS) that
+     * names a top-level function, used as a value. The loader records the
+     * fully-qualified candidate in `fn_ref_name` without deciding (it cannot see
+     * local variables, and a local always wins); the type checker resolves it
+     * to `fn_ref` (a FunctionDecl *) only when no local of that name exists. */
+    char *fn_ref_name;
+    void *fn_ref;
 
     union {
         int64_t int_val;
@@ -201,7 +217,11 @@ struct Expr {
          * itself an array (`ArrayBuilder<[T]>`'s `ab_append<[T]>`, for
          * instance) -- a single element of type `[T]` also happens to
          * satisfy "is an array", the exact case that exposed this. */
-        struct { char *callee; ExprList args; TypeList type_args; char **arg_names; int variadic_tail_is_array_spread; } call;
+        /* `local_name` is the callee exactly as written when it had no dot -- the
+         * name of a local variable of function type that a call may go through
+         * (a local wins over a same-named top-level function). `through_value`
+         * is set by the type checker when the call resolved that way. */
+        struct { char *callee; ExprList args; TypeList type_args; char **arg_names; int variadic_tail_is_array_spread; char *local_name; int through_value; } call;
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
         struct { Expr *array; Expr *index; } index;
@@ -437,6 +457,10 @@ typedef struct {
      * own line/column, and errors in it say where it came from. */
     const char *derived_from;
 } FunctionDecl;
+
+/* The `fn(P1, P2) -> R` type of a (non-generic, non-variadic) function used as
+ * a value -- see type_func. */
+Type function_value_type(const FunctionDecl *fn);
 
 typedef struct {
     FunctionDecl **items;

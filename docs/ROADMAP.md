@@ -255,7 +255,7 @@ against)**
   nothing can be indexed by `Uuid`, an enum, or a struct -- a real hole for
   an entity-id-keyed backend. Derive `Hash`/`Eq` for structs and enums
   whose fields are hashable.
-- [ ] **R13. Revisit "no closures".** The stated benefit ("libraries can't
+- [x] **R13. Revisit "no closures".** *Stage 1 done 2026-09-23: function types and references to named functions (no capture); `collections.map`/`filter`/`fold`/`any`/`all`/`find`/`for_each`/`sort_with`. Stage 2 (capturing lambdas by value) and `http.serve`/`with_transaction` are still open.* The stated benefit ("libraries can't
   take opaque callback holes") is already delivered by no overloading, no
   methods and no inheritance; the cost is that `http` cannot be a
   framework, every app hand-writes a linear route chain (near-copy blocks,
@@ -1134,7 +1134,11 @@ from source.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.
-- **First-class functions / closures.** Currently function calls only
+- **First-class functions / closures.** *Update 2026-09-23 (R13): stage 1
+  shipped -- function types and references to named top-level functions, no
+  capture; see docs/DESIGN.md's function-values entry. What follows is the
+  original reasoning, kept for the record; capturing lambdas are still
+  open.* Originally: function calls only
   resolve a bare identifier at parse time; no function values, no passing
   a function as an argument. Considered building this before `spawn`
   (whose natural long-run shape would take a closure) and deliberately

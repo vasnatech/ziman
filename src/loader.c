@@ -184,6 +184,11 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
         self_qualify_type(t->elem, ctx);
         return;
     }
+    if (t->kind == TY_FUNC) {
+        for (int i = 0; i < t->type_args.count; i++) self_qualify_type(&t->type_args.items[i], ctx);
+        self_qualify_type(t->elem, ctx);
+        return;
+    }
     if (t->kind != TY_STRUCT) return;
     /* A generic struct reference's own type arguments (`Box<other::Foo>`)
      * can themselves need self-qualifying, independent of whether `Box`
@@ -258,6 +263,25 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
             if (!matched) {
                 const NamedImport *imp = find_named_import(ctx, e->as.ident_name, IMPORT_VAL);
                 if (imp != NULL) e->as.ident_name = imp->qualified_name;
+                matched = imp != NULL;
+            }
+            if (!matched) {
+                /* Maybe a function used as a value. Only a candidate: this pass
+                 * cannot see local variables, and a local of the same name must
+                 * win, so the type checker decides. */
+                const char *bare = e->as.ident_name;
+                const NamedImport *fn_imp = find_named_import(ctx, bare, IMPORT_FN);
+                if (fn_imp != NULL) {
+                    e->fn_ref_name = fn_imp->qualified_name;
+                } else {
+                    e->fn_ref_name = (char *)bare;
+                    for (int i = 0; i < ctx->n_fns; i++) {
+                        if (strcmp(bare, ctx->orig_fn_names[i]) == 0) {
+                            e->fn_ref_name = qualify_name(ctx->own_path, bare);
+                            break;
+                        }
+                    }
+                }
             }
             break;
         }
@@ -783,6 +807,11 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
         resolve_type_refs(t->elem, ctx, line, col);
         return;
     }
+    if (t->kind == TY_FUNC) {
+        for (int i = 0; i < t->type_args.count; i++) resolve_type_refs(&t->type_args.items[i], ctx, line, col);
+        resolve_type_refs(t->elem, ctx, line, col);
+        return;
+    }
     if (t->kind != TY_STRUCT) return;
     /* Same reasoning as self_qualify_type: a generic reference's own type
      * arguments need resolving independent of whether the base name does. */
@@ -875,6 +904,38 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
             break;
         case EXPR_FIELD_ACCESS:
             resolve_expr_refs(e->as.field_access.base, ctx);
+            /* `module.name` with no call parens: maybe a public function of an
+             * imported module used as a value. Only a candidate -- a local
+             * variable named like the qualifier wins in the type checker, and
+             * a name that isn't a function is left as ordinary field access. */
+            if (e->as.field_access.base->kind == EXPR_IDENT) {
+                UseDecl *u = find_use(ctx->mod, e->as.field_access.base->as.ident_name);
+                if (u != NULL) {
+                    Module *target = find_loaded(ctx->ldr, u->path);
+                    char *qualified = qualify_name(u->path, e->as.field_access.field_name);
+                    int found = 0, is_private = 0;
+                    for (int i = 0; i < target->functions.count; i++) {
+                        if (strcmp(target->functions.items[i]->name, qualified) == 0) {
+                            found = 1;
+                            if (target->functions.items[i]->is_public) e->fn_ref_name = qualified;
+                            else is_private = 1;
+                            break;
+                        }
+                    }
+                    if (!found || is_private) {
+                        /* Not a usable function. If the qualifier really is a
+                         * local variable this is ordinary field access and the
+                         * hint is never shown; if it is not, this is the
+                         * message the author needs instead of "undefined
+                         * variable 'util'". A leading '!' marks it as a hint. */
+                        size_t n = strlen(u->path) + strlen(e->as.field_access.field_name) + 96;
+                        char *hint = malloc(n);
+                        if (is_private) snprintf(hint, n, "!function '%s' in module '%s' is private (add 'pub' to export it)", e->as.field_access.field_name, u->path);
+                        else snprintf(hint, n, "!module '%s' has no function '%s'", u->path, e->as.field_access.field_name);
+                        e->fn_ref_name = hint;
+                    }
+                }
+            }
             break;
         case EXPR_WITH:
             resolve_expr_refs(e->as.with_expr.base, ctx);

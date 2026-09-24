@@ -1,0 +1,8 @@
+#[derive(Json)]
+struct Handler {
+    run: fn(int) -> int
+}
+
+fn main() {
+    print(1)
+}

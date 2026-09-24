@@ -1,0 +1,11 @@
+pub fn inc(n: int) -> int {
+    return n + 1
+}
+
+pub fn label(n: int) -> string {
+    return concat("#", str(n))
+}
+
+fn hidden(n: int) -> int {
+    return n
+}

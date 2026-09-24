@@ -74,6 +74,7 @@ struct Value {
         struct ResultObj *res;
         struct EnumObj *en;
         struct ChannelObj *ch;
+        FunctionDecl *fn; /* TY_FUNC: the named top-level function this value refers to */
     } as;
 };
 
@@ -126,6 +127,8 @@ Value value_float(double f);
 Value value_bool(int b);
 /* Takes ownership of a NUL-terminated heap buffer. */
 Value value_string(char *s);
+/* A function value: a reference to a named top-level function (no capture). */
+Value value_function(FunctionDecl *fn);
 /* A view of `len` bytes at `ptr` -- no copy. `term` is 1 only if ptr[len] is
  * a NUL. */
 Value value_string_view(const char *ptr, size_t len, int term);

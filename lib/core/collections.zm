@@ -419,3 +419,116 @@ pub fn reverse<T>(items: [T]) -> [T] {
     }
     return ab_to_array<T>(out)
 }
+
+// ------------------------------------------------- higher-order functions
+//
+// Ziman's function values are references to named top-level functions (no
+// closures), so the function passed in is a named function; anything it needs
+// besides its argument goes in an explicit context value (`fold` threads one
+// through as the accumulator). The type arguments are written out at the call:
+// `collections.map<int, string>(numbers, label)`.
+
+pub fn map<T, U>(items: [T], f: fn(T) -> U) -> [U] {
+    val out = ab_new<U>()
+    for item in items {
+        ab_append<U>(out, f(item))
+    }
+    return ab_to_array<U>(out)
+}
+
+pub fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T] {
+    val out = ab_new<T>()
+    for item in items {
+        if keep(item) {
+            ab_append<T>(out, item)
+        }
+    }
+    return ab_to_array<T>(out)
+}
+
+// Left to right: `f(f(initial, items[0]), items[1])` and so on.
+pub fn fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A {
+    var acc = initial
+    for item in items {
+        acc = f(acc, item)
+    }
+    return acc
+}
+
+pub fn any<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if test(item) {
+            return true
+        }
+    }
+    return false
+}
+
+pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if !test(item) {
+            return false
+        }
+    }
+    return true
+}
+
+// The first element for which `test` is true, or None.
+pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T> {
+    for item in items {
+        if test(item) {
+            return Option<T>.Some(item)
+        }
+    }
+    return Option<T>.None
+}
+
+pub fn for_each<T>(items: [T], f: fn(T)) {
+    for item in items {
+        f(item)
+    }
+}
+
+// A stable merge sort by a comparator function (negative / zero / positive,
+// like `compare`): for an order that is neither the type's own nor a single
+// key -- a two-field ordering, say. `sort_by_keys` covers the single-key case.
+pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
+    val n = len(items)
+    val start = ab_new<int>()
+    for i in 0..n {
+        ab_append<int>(start, i)
+    }
+    var order = ab_to_array<int>(start)
+    var width = 1
+    while width < n {
+        val merged = ab_new<int>()
+        var lo = 0
+        while lo < n {
+            val mid = min(lo + width, n)
+            val hi = min(lo + 2 * width, n)
+            var i = lo
+            var j = mid
+            while i < mid && j < hi {
+                if cmp(items[order[j]], items[order[i]]) < 0 {
+                    ab_append<int>(merged, order[j])
+                    j = j + 1
+                } else {
+                    ab_append<int>(merged, order[i])
+                    i = i + 1
+                }
+            }
+            while i < mid {
+                ab_append<int>(merged, order[i])
+                i = i + 1
+            }
+            while j < hi {
+                ab_append<int>(merged, order[j])
+                j = j + 1
+            }
+            lo = lo + 2 * width
+        }
+        order = ab_to_array<int>(merged)
+        width = width * 2
+    }
+    return gather<T>(items, order)
+}

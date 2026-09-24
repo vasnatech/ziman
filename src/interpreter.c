@@ -707,6 +707,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_DECIMAL: return value_decimal(e->as.decimal_val);
         case EXPR_BYTE: return value_byte(e->as.byte_val);
         case EXPR_IDENT: {
+            if (e->fn_ref != NULL) return value_function((FunctionDecl *)e->fn_ref);
             Binding *b = env_lookup(env, e->as.ident_name);
             return b->value;
         }
@@ -732,7 +733,12 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 args[i] = eval_expr(module, env, e->as.call.args.items[i]);
             }
             Value result;
-            if (strcmp(e->as.call.callee, "print") == 0) {
+            if (e->as.call.through_value) {
+                /* A call through a local of function type (a parameter, a val):
+                 * the value names the FunctionDecl to run. */
+                Binding *fb = env_lookup(env, e->as.call.local_name);
+                result = call_function(module, fb->value.as.fn, args, argc, 0, e->line, e->col);
+            } else if (strcmp(e->as.call.callee, "print") == 0) {
                 result = call_print(args[0]);
             } else if (strcmp(e->as.call.callee, "str") == 0) {
                 result = call_str(args[0]);
@@ -888,6 +894,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             return value_struct(e->resolved_type, struct_obj_new(names, fields, count));
         }
         case EXPR_FIELD_ACCESS: {
+            if (e->fn_ref != NULL) return value_function((FunctionDecl *)e->fn_ref);
             Value base = eval_expr(module, env, e->as.field_access.base);
             StructObj *st = base.as.st;
             for (int i = 0; i < st->count; i++) {

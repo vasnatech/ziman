@@ -143,6 +143,24 @@ static Type parse_type(Parser *p) {
         expect(p, TOK_RBRACKET, "']'");
         return type_array(elem);
     }
+    /* `fn(A, B) -> R` -- a function type; the arrow and return type are left
+     * off for a function that returns nothing. */
+    if (match(p, TOK_FN)) {
+        expect(p, TOK_LPAREN, "'('");
+        TypeList params = {0};
+        if (!check(p, TOK_RPAREN)) {
+            for (;;) {
+                type_list_push(&params, parse_type(p));
+                if (!match(p, TOK_COMMA)) break;
+            }
+        }
+        expect(p, TOK_RPAREN, "')'");
+        Type ret = type_scalar(TY_VOID);
+        if (match(p, TOK_ARROW)) {
+            ret = parse_type(p);
+        }
+        return type_func(params, ret);
+    }
     if (match(p, TOK_RESULT)) {
         expect(p, TOK_LT, "'<'");
         Type ok_type = parse_type(p);
@@ -418,6 +436,7 @@ static Expr *parse_primary(Parser *p) {
             expect(p, TOK_RPAREN, "')'");
             Expr *e = expr_new(EXPR_CALL, t->line, t->col);
             e->as.call.callee = name;
+            e->as.call.local_name = name;
             e->as.call.args = args.args;
             e->as.call.arg_names = args.names;
             return e;
@@ -1190,6 +1209,11 @@ static void reclassify_type_params(Type *t, TypeParamList *type_params) {
         return;
     }
     if (t->kind == TY_CHANNEL) { reclassify_type_params(t->elem, type_params); return; }
+    if (t->kind == TY_FUNC) {
+        for (int i = 0; i < t->type_args.count; i++) reclassify_type_params(&t->type_args.items[i], type_params);
+        reclassify_type_params(t->elem, type_params);
+        return;
+    }
     if (t->kind != TY_STRUCT) return;
     for (int i = 0; i < type_params->count; i++) {
         if (strcmp(t->struct_name, type_params->items[i].name) == 0) {

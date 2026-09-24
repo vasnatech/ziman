@@ -1,0 +1,41 @@
+// A function value is immutable, so it can cross a channel and be used by
+// another thread: the worker receives a job (a function and an input) and
+// sends back the result.
+struct Job {
+    run: fn(int) -> int
+    input: int
+}
+
+fn double(n: int) -> int {
+    return n * 2
+}
+
+fn negate(n: int) -> int {
+    return 0 - n
+}
+
+fn worker(jobs: Channel<Job>, results: Channel<int>) {
+    for i in 0..3 {
+        val job = receive(jobs)
+        val run = job.run
+        send(results, run(job.input))
+    }
+}
+
+fn main() {
+    val jobs: Channel<Job> = channel_new()
+    val results: Channel<int> = channel_new()
+    spawn worker(jobs, results)
+    send(jobs, Job { run: double, input: 21 })
+    send(jobs, Job { run: negate, input: 5 })
+    send(jobs, Job { run: double, input: 1 })
+    print(receive(results))
+    print(receive(results))
+    print(receive(results))
+
+    // a channel of function values
+    val fns: Channel<fn(int) -> int> = channel_new()
+    send(fns, double)
+    val got = receive(fns)
+    print(got(8))
+}

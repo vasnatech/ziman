@@ -63,6 +63,11 @@ static Type substitute_type(Type t, TypeParamList *params, TypeList *args) {
             return type_result(substitute_type(*t.elem, params, args), substitute_type(*t.elem_err, params, args));
         case TY_CHANNEL:
             return type_channel(substitute_type(*t.elem, params, args));
+        case TY_FUNC: {
+            TypeList substituted = {0};
+            for (int i = 0; i < t.type_args.count; i++) type_list_push(&substituted, substitute_type(t.type_args.items[i], params, args));
+            return type_func(substituted, substitute_type(*t.elem, params, args));
+        }
         case TY_STRUCT:
         case TY_ENUM: {
             if (t.type_args.count == 0) return t;
@@ -373,6 +378,10 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
                                 type_name(lt));
                 } else if (lt.kind == TY_CHANNEL) {
                     ziman_error("type", e->line, e->col, "%s cannot be compared with '=='/'!=' in v0", type_name(lt));
+                } else if (lt.kind == TY_FUNC) {
+                    ziman_error("type", e->line, e->col,
+                                "function values (%s) cannot be compared with '=='/'!=' -- compare a name or an id you keep alongside the function instead",
+                                type_name(lt));
                 } else if (lt.kind == TY_TYPEVAR) {
                     ziman_error("type", e->line, e->col,
                                 "type parameter '%s' cannot be compared with '=='/'!=' because it has no 'Eq' bound (add '%s: Eq' to require one)",
@@ -695,6 +704,33 @@ static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
 
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
+
+    /* A call through a local of function type (a parameter or a val): a local
+     * always wins over a top-level function of the same name. Named arguments
+     * and type arguments don't apply -- the value carries only a parameter list. */
+    if (e->as.call.local_name != NULL && e->as.call.type_args.count == 0) {
+        Binding *fb = env_lookup(env, e->as.call.local_name);
+        if (fb != NULL && fb->type.kind == TY_FUNC) {
+            Type ft = fb->type;
+            if (e->as.call.arg_names != NULL) {
+                ziman_error("type", e->line, e->col, "named arguments aren't supported when calling through a function value ('%s')", e->as.call.local_name);
+            }
+            if (e->as.call.args.count != ft.type_args.count) {
+                ziman_error("type", e->line, e->col, "'%s' has type %s, which takes %d argument(s), found %d",
+                            e->as.call.local_name, type_name(ft), ft.type_args.count, e->as.call.args.count);
+            }
+            for (int i = 0; i < e->as.call.args.count; i++) {
+                Type arg_type;
+                if (!check_value_against_param_type(module, env, &e->as.call.args.items[i], ft.type_args.items[i], &arg_type)) {
+                    ziman_error("type", e->as.call.args.items[i]->line, e->as.call.args.items[i]->col,
+                                "argument %d of '%s' (a %s) expects %s, found %s", i + 1, e->as.call.local_name, type_name(ft),
+                                type_name(ft.type_args.items[i]), type_name(arg_type));
+                }
+            }
+            e->as.call.through_value = 1;
+            return *ft.elem;
+        }
+    }
 
     if (e->as.call.arg_names != NULL) {
         for (int i = 0; BUILTINS_NO_NAMED_ARGS[i] != NULL; i++) {
@@ -1373,7 +1409,42 @@ static Type check_struct_literal(Module *module, Env *env, Expr *e) {
     return result;
 }
 
+/* A top-level function used as a value (`apply(double, 3)`). Records the
+ * FunctionDecl on the expression (`fn_ref`) for the interpreter and returns the
+ * `fn(...) -> ...` type. Only reached when no local variable of that name
+ * exists -- a local always wins. Not every function qualifies: a generic one
+ * has no single type to give it (an explicit-type-argument form of reference
+ * doesn't exist yet), and one with a variadic parameter can't be called with an
+ * argument list of unknown length through a value. */
+static int resolve_function_reference(Module *module, Expr *e, Type *out) {
+    if (e->fn_ref_name == NULL) return 0;
+    if (e->fn_ref_name[0] == '!') {
+        ziman_error("type", e->line, e->col, "%s", e->fn_ref_name + 1);
+    }
+    FunctionDecl *fn = find_function(module, e->fn_ref_name);
+    if (fn == NULL) return 0;
+    if (fn->type_params.count > 0) {
+        ziman_error("type", e->line, e->col,
+                    "'%s' is generic, so it can't be used as a value yet -- wrap it in a non-generic function that fixes its type arguments",
+                    fn->name);
+    }
+    for (int i = 0; i < fn->params.count; i++) {
+        if (fn->params.items[i].is_variadic) {
+            ziman_error("type", e->line, e->col,
+                        "'%s' takes a variable number of arguments, so it can't be used as a value -- wrap it in a function with a fixed parameter list",
+                        fn->name);
+        }
+    }
+    e->fn_ref = fn;
+    *out = function_value_type(fn);
+    return 1;
+}
+
 static Type check_field_access(Module *module, Env *env, Expr *e) {
+    if (e->as.field_access.base->kind == EXPR_IDENT && env_lookup(env, e->as.field_access.base->as.ident_name) == NULL) {
+        Type ft;
+        if (resolve_function_reference(module, e, &ft)) return ft;
+    }
     Type base_type = check_expr(module, env, e->as.field_access.base);
     if (base_type.kind != TY_STRUCT) {
         ziman_error("type", e->as.field_access.base->line, e->as.field_access.base->col,
@@ -1553,6 +1624,17 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
         case EXPR_IDENT: {
             Binding *b = env_lookup(env, e->as.ident_name);
             if (b == NULL) {
+                Type ft;
+                if (resolve_function_reference(module, e, &ft)) {
+                    t = ft;
+                    break;
+                }
+                for (size_t k = 0; k < sizeof BUILTINS_NO_NAMED_ARGS / sizeof BUILTINS_NO_NAMED_ARGS[0] && BUILTINS_NO_NAMED_ARGS[k] != NULL; k++) {
+                    if (strcmp(e->as.ident_name, BUILTINS_NO_NAMED_ARGS[k]) == 0) {
+                        ziman_error("type", e->line, e->col,
+                                    "'%s' is a builtin, not a function value -- wrap it in a function of your own to pass it around", e->as.ident_name);
+                    }
+                }
                 ziman_error("type", e->line, e->col, "use of undefined variable '%s'", e->as.ident_name);
             }
             t = b->type;
@@ -2200,6 +2282,9 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
         }
         check_type_args_satisfy_bounds(module, &decl->type_params, &t.type_args, line, col);
     } else if (t.kind == TY_CHANNEL) {
+        check_type_well_formed(module, *t.elem, line, col);
+    } else if (t.kind == TY_FUNC) {
+        for (int i = 0; i < t.type_args.count; i++) check_type_well_formed(module, t.type_args.items[i], line, col);
         check_type_well_formed(module, *t.elem, line, col);
     }
 }

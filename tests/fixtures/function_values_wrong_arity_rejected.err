@@ -1,0 +1,1 @@
+has type fn(int) -> int, which takes 1 argument(s), found 2

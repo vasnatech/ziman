@@ -95,7 +95,7 @@ continue_stmt  := "continue"   (* same restriction as break_stmt *)
 spawn_stmt     := "spawn" IDENT [ "." IDENT ] "(" [ arg_list ] ")"
                     (* the named function is resolved statically, exactly
                        like an ordinary call's callee -- never a
-                       first-class function value. See "Concurrency". *)
+                       function value or closure. See "Concurrency". *)
 return_stmt    := "return" [ expr ]
 expr_stmt      := expr
 
@@ -148,8 +148,8 @@ field_init     := IDENT ":" expr
 
 Notes on things this deliberately leaves out of v0 (tracked in ROADMAP.md):
 function calls as a primary only chain off a plain or single-qualified
-identifier, never an arbitrary expression (no first-class function values
-yet, so there's nothing to call *except* a name), no indexed/field
+identifier, never an arbitrary expression (a function *value* is called
+through a local name -- see "Function values"; `make()(x)` isn't valid), no indexed/field
 *assignment* (`arr[i] = x` and `p.x = 1` aren't valid — see "Arrays" and
 "Structs" below), and no expression-level `if`.
 
@@ -474,6 +474,54 @@ for i, x in arr { ... }       // index + value together
   enclosing loop; there's no way to reach an outer loop from inside a
   nested one. Small orthogonal core for now — revisit only if a real
   program needs multi-level early exit often enough to justify it.
+
+## Function values
+
+A function can be passed around: its type is `fn(A, B) -> R` (no `-> R` for a
+function that returns nothing), and the name of a top-level function is a value
+of that type.
+
+```
+fn double(n: int) -> int { return n * 2 }
+fn is_even(n: int) -> bool { return n % 2 == 0 }
+
+fn apply(f: fn(int) -> int, x: int) -> int {
+    return f(x)                       // a call through a local of function type
+}
+
+fn main() {
+    print(apply(double, 21))          // 42
+    val keep = is_even                // a val of type fn(int) -> bool
+    val evens = collections.filter<int>([1, 2, 3, 4], keep)
+}
+```
+
+- **A function value is a reference to a named top-level function -- not a
+  closure.** There are no anonymous functions and nothing is captured, so a
+  function value carries no state and cannot reintroduce shared mutable state.
+  Anything a function needs besides its arguments is passed explicitly (an
+  accumulator, a context value).
+- **What can be a value:** any top-level function (own module, `use mod.name`,
+  or `mod.name`; a `native fn` too) that is not generic and has no variadic
+  parameter. A generic function can't be used as a value yet (wrap it in a
+  non-generic one); the builtins (`len`, `print`, ...) aren't functions, so
+  they can't either.
+- **Calling:** `f(x)` where `f` is a parameter or a `val`/`var` of function
+  type. Arguments are checked against the parameter types, and the same
+  bare-value auto-wrap into `Option`/`Result` applies. Named arguments and
+  omitted `Option` parameters don't apply through a value. A **local always wins
+  over a top-level function of the same name**. You can only call a *name*:
+  `make()(x)` and `s.handler(x)` are not valid -- assign to a `val` first.
+- **Where they can go:** parameters, returns, `val`s, struct fields, arrays,
+  `Option`/`Result`, and channels (`Channel<fn(int) -> int>`), so a function
+  value can be sent to another thread. `spawn f(x)` still names the function
+  statically.
+- **What they can't do:** be compared (`==`), hashed, ordered or serialised --
+  a derive (`Json`, `Row`, ...) on a struct with a function field is an error.
+  `print` shows `<function name>`.
+- **In the standard library:** `collections.map`, `filter`, `fold`, `any`, `all`,
+  `find`, `for_each` and `sort_with`, with the type arguments written out at the
+  call (`collections.map<int, string>(numbers, label)`).
 
 ## Structs
 
@@ -1575,11 +1623,12 @@ val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
   field and payload must itself be `Ord`. A struct with no fields, or a generic
   type, can't derive it.
 - **`collections.sort<T: Ord>(items) -> [T]`** is a stable merge sort (equal
-  items keep their order) returning a new array. There is no comparator
-  argument, since Ziman has no function values: to sort by anything other than
-  the type's own order, compute a key per item and use
+  items keep their order) returning a new array. To sort by anything other
+  than the type's own order, compute a key per item and use
   **`collections.sort_by_keys<T, K: Ord>(items, keys) -> Result<[T], string>`**
-  (an `Err` if the lengths differ). Descending: **`sort_desc`** and
+  (an `Err` if the lengths differ), or pass a comparator *function value* to
+  **`sort_with<T>(items, cmp: fn(T, T) -> int)`** (also stable) for an order
+  that is not a single key. Descending: **`sort_desc`** and
   **`sort_by_keys_desc`** (also `sort_indices_desc`) -- stable too, so equal
   keys keep their input order; that is not the same as reversing the ascending
   result, which would flip ties. Also `sort_indices`, `is_sorted`,
@@ -1769,8 +1818,9 @@ fn main() {
   `Connection` across threads is safe *statement by statement*, but a
   transaction is not safe to share -- another thread's statements can
   interleave inside it. A `?` that returns early from inside a
-  transaction leaves it open (no destructors, no closures, so no
-  `with_transaction(fn)`). Accepted for now; see docs/DESIGN.md.
+  transaction leaves it open (no destructors, and function values don't
+  capture the connection, so no `with_transaction(fn)`). Accepted for now; see
+  docs/DESIGN.md.
 - **`#[derive(Row)]`** on a struct generates `<name>_from_row(row: Row)
   -> Result<Name, DbError>` and `<name>_to_params(v: Name) ->
   [SqlValue]` (field declaration order, the order a hand-written
@@ -1865,10 +1915,11 @@ fn main() {
 
 The `http` core module is an HTTP/1.1 **server toolkit** on `net`: parse a
 request off a socket, route it, write a response. It is a toolkit rather
-than a framework because Ziman has **no function values**, so a library
-can't be handed "your handler" -- there is no `http.serve(listener,
-handler)`. The application writes its own accept loop and its own `route`
-function (both short), and `http` supplies what they call.
+than a framework: a handler is a function value, but function values do not
+capture, so a handler can't reach the application's database connection unless
+it is passed in explicitly, and there is no `http.serve(listener, handler)`
+yet. The application writes its own accept loop and its own `route` function
+(both short), and `http` supplies what they call.
 
 ```
 use net
@@ -2293,8 +2344,8 @@ fn main() {
   semantics) and handed off to the new one. `name` must already be a
   declared function (`spawn mod.name(args)` for one from an imported
   module, subject to the same `pub` rule as an ordinary qualified call) —
-  never a first-class function value, since Ziman doesn't have those; see
-  docs/DESIGN.md for why that gap doesn't block this. **The spawned
+  never a function value (`spawn f(args)` names the function, it does not take
+  one from a variable); see docs/DESIGN.md. **The spawned
   function must return nothing (`void`).** There's no thread-handle/join
   mechanism in v0, so a spawned function's result has no way to be
   observed except through a `Channel` it's explicitly given — `spawn` is

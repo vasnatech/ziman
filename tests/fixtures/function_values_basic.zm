@@ -1,0 +1,81 @@
+fn double(n: int) -> int {
+    return n * 2
+}
+
+fn square(n: int) -> int {
+    return n * n
+}
+
+fn is_even(n: int) -> bool {
+    return n % 2 == 0
+}
+
+fn shout(s: string) -> string {
+    return concat(to_upper(s), "!")
+}
+
+fn say(s: string) {
+    print(s)
+}
+
+fn apply(f: fn(int) -> int, x: int) -> int {
+    return f(x)
+}
+
+fn twice(f: fn(int) -> int, x: int) -> int {
+    return f(f(x))
+}
+
+fn map_ints(xs: [int], f: fn(int) -> int) -> [int] {
+    val out = ab_new<int>()
+    for x in xs {
+        ab_append<int>(out, f(x))
+    }
+    return ab_to_array<int>(out)
+}
+
+fn filter_ints(xs: [int], keep: fn(int) -> bool) -> [int] {
+    val out = ab_new<int>()
+    for x in xs {
+        if keep(x) {
+            ab_append<int>(out, x)
+        }
+    }
+    return ab_to_array<int>(out)
+}
+
+struct Op {
+    name: string
+    run: fn(int) -> int
+}
+
+fn pick(which: string) -> fn(int) -> int {
+    if which == "double" {
+        return double
+    }
+    return square
+}
+
+fn main() {
+    print(apply(double, 21))
+    print(apply(square, 7))
+    print(twice(double, 5))
+    print(map_ints([1, 2, 3], square))
+    print(filter_ints([1, 2, 3, 4, 5, 6], is_even))
+    val f = double
+    print(f(10))
+    val ops = [Op { name: "d", run: double }, Op { name: "s", run: square }]
+    for op in ops {
+        val run = op.run
+        print(concat(op.name, str(run(6))))
+    }
+    val g = pick("double")
+    print(g(4))
+    val h = pick("other")
+    print(h(4))
+    val speak: fn(string) = say
+    speak("hi")
+    val loud: fn(string) -> string = shout
+    print(loud("hey"))
+    print(f)
+}

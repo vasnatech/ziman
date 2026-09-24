@@ -1642,6 +1642,41 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **Function values, stage 1: references to named functions, no closures
+  (external review, roadmap R13, 2026-09-23).** Ziman had no function values, so
+  a library could not take "your handler" (`http` could not be a framework),
+  nothing could be `map`ped or `filter`ed, and every callback-shaped API had to
+  be designed around the gap (`sort_by_keys`, a route chain written out by
+  hand). The review argued the stated reason -- "libraries can't take opaque
+  callback-shaped holes" -- is already delivered by having no overloading, no
+  methods and no inheritance, and that the real cost was the training-data
+  mismatch (a model's strongest habit is a lambda). **What shipped is the
+  smaller half:** a function type `fn(A, B) -> R` and the name of a top-level
+  function as a value of it -- *no anonymous functions and no capture*. That
+  keeps the one good reason for the old restriction intact: a value that carries
+  no environment cannot reintroduce shared mutable state or a hidden `var`
+  capture, so the actor model is unchanged, and it is safe to send across a
+  channel. **Mechanism.** `TY_FUNC` (parameter types in `type_args`, return type
+  in `elem`); a `Value` holds a `FunctionDecl *`. The loader cannot see local
+  variables, so for a bare identifier or `module.name` it only records a
+  *candidate* fully-qualified name on the expression (`fn_ref_name`); the type
+  checker resolves it, and only when no local of that name exists, so a local
+  always wins. A call whose callee was written as a plain name first checks for
+  a local of function type (`through_value`). Equality, hashing, ordering and
+  every derive reject function types with no new code (they only accept what
+  they list). **Restrictions, deliberate:** generic functions and functions with
+  a variadic parameter can't be used as values (no single type for the
+  former; unknown argument count for the latter); only a *name* can be called,
+  not an arbitrary expression; named arguments and omitted `Option` parameters
+  don't apply through a value. **Standard library:** `collections.map`, `filter`,
+  `fold`, `any`, `all`, `find`, `for_each` and `sort_with`. **What it does not
+  do yet, and why:** `with_transaction(conn, work)` and `http.serve(listener,
+  handler)` both need the callback to reach a value the caller has (a connection,
+  the pool), which without capture means threading an explicit context through a
+  generic parameter -- possible, but not built. **Stage 2, if it is needed:**
+  capturing lambdas, capturing by value as an immutable snapshot at creation
+  (the rule `defer` already uses for its arguments) and forbidding capture of a
+  `var`, so the actor model still holds. Recorded rather than started.
 - **`Hash` is structural and automatic (external review, roadmap R12,
   2026-09-23).** `Hash` was limited to the seven scalars, so a `HashMap` could
   not be keyed by a `Uuid`, an enum or a struct -- a real hole for a backend

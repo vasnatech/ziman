@@ -54,6 +54,21 @@ Type type_channel(Type elem) {
     return t;
 }
 
+Type type_func(TypeList params, Type ret) {
+    Type t = {0};
+    t.kind = TY_FUNC;
+    t.type_args = params;
+    t.elem = malloc(sizeof(Type));
+    *t.elem = ret;
+    return t;
+}
+
+Type function_value_type(const FunctionDecl *fn) {
+    TypeList params = {0};
+    for (int i = 0; i < fn->params.count; i++) type_list_push(&params, fn->params.items[i].type);
+    return type_func(params, fn->return_type);
+}
+
 Type type_typevar(const char *name) {
     Type t = {0};
     t.kind = TY_TYPEVAR;
@@ -79,6 +94,7 @@ int type_equals(Type a, Type b) {
     if (a.kind == TY_ENUM) return strcmp(a.enum_name, b.enum_name) == 0 && type_args_equal(a.type_args, b.type_args);
     if (a.kind == TY_CHANNEL) return type_equals(*a.elem, *b.elem);
     if (a.kind == TY_TYPEVAR) return strcmp(a.type_var_name, b.type_var_name) == 0;
+    if (a.kind == TY_FUNC) return type_args_equal(a.type_args, b.type_args) && type_equals(*a.elem, *b.elem);
     return 1;
 }
 
@@ -139,6 +155,35 @@ char *type_name(Type type) {
             free(ok);
             free(err);
             return buf;
+        }
+        case TY_FUNC: {
+            size_t cap = 32, len = 0;
+            char *out = malloc(cap);
+            const char *head = "fn(";
+            memcpy(out, head, 3);
+            len = 3;
+            for (int i = 0; i < type.type_args.count; i++) {
+                char *arg = type_name(type.type_args.items[i]);
+                size_t arg_len = strlen(arg);
+                while (len + arg_len + 3 > cap) { cap *= 2; out = realloc(out, cap); }
+                if (i > 0) { out[len++] = ','; out[len++] = ' '; }
+                memcpy(out + len, arg, arg_len);
+                len += arg_len;
+                free(arg);
+            }
+            char *ret = type.elem->kind == TY_VOID ? strdup("") : type_name(*type.elem);
+            size_t ret_len = strlen(ret);
+            while (len + ret_len + 8 > cap) { cap *= 2; out = realloc(out, cap); }
+            out[len++] = ')';
+            if (type.elem->kind != TY_VOID) {
+                memcpy(out + len, " -> ", 4);
+                len += 4;
+                memcpy(out + len, ret, ret_len);
+                len += ret_len;
+            }
+            out[len] = '\0';
+            free(ret);
+            return out;
         }
         case TY_CHANNEL: {
             char *inner = type_name(*type.elem);

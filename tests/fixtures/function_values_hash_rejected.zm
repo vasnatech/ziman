@@ -1,0 +1,15 @@
+fn double(n: int) -> int {
+    return n * 2
+}
+
+fn is_even(n: int) -> bool {
+    return n % 2 == 0
+}
+
+fn apply(f: fn(int) -> int, x: int) -> int {
+    return f(x)
+}
+
+fn main() {
+    print(hash(double))
+}

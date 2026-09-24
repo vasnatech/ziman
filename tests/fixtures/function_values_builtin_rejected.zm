@@ -1,0 +1,4 @@
+fn main() {
+    val f = len
+    print(1)
+}

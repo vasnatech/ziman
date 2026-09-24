@@ -1,0 +1,6 @@
+use util
+
+fn main() {
+    val f = util.hidden
+    print(1)
+}
