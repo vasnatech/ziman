@@ -157,8 +157,8 @@ as they land.
 **A. Silent-wrong-answer holes (fix first -- small, and they contradict the
 language's own principles)**
 
-- [ ] **R1. `Result<T, E>` auto-wrap turns errors into successes when
-  `T == E`.** `return "path must not be empty"` from a
+- [x] **R1. `Result<T, E>` auto-wrap turns errors into successes when
+  `T == E`.** *Done 2026-09-23.* `return "path must not be empty"` from a
   `Result<string, string>` function compiles to `Ok(...)` -- no
   diagnostic -- and that is the stdlib's most common Result shape
   (`io.read_file` included). Fix: refuse the bare-value auto-wrap when

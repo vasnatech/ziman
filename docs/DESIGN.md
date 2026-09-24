@@ -1689,6 +1689,21 @@ several languages rather than inheriting any one of them wholesale.
   as designed; a wrong-type argument produces a clear three-way message
   (`"expects Result<T, E>, T, or E, found ..."`, or the two-way
   `"expects Result<T, E> or T, found ..."` when `T == E`).
+  **Amended 2026-09-23 (external review, roadmap R1): `T == E` is now a
+  compile error, not "always `Ok`".** The rule above was documented and
+  deliberate, but `Result<string, string>` is the most common shape in the
+  standard library, and the failure was silent in the most-written
+  direction: `return "path must not be empty"` compiled to `Ok(...)`. For a
+  language whose premise is first-try correctness from a generator, the
+  sugar was most dangerous exactly where it was most likely to be used. A
+  bare value where `T == E` is now rejected with a message saying to write
+  `ok(...)`/`err(...)`; auditing the standard library found two places that
+  relied on the old behaviour (both meant `Ok`, in `json` and `http`). The
+  same review found `Option<Option<T>>` quietly turning a `None` into
+  `Some(None)` under the sugar; that is rejected too. Also corrected: the
+  "modeled on Rust's `impl From<T> for Option<T>`" justification here and
+  in the `Option<T>` entry does not hold -- Rust has no such implicit
+  conversion.
 - **Extended the Option<T>/Result<T, E> bare-value auto-wrap from
   function-call arguments to the other three positions where a type is
   already known from context.** Prompted by a follow-up idea for a

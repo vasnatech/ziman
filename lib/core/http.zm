@@ -180,7 +180,7 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
     if !is_ok(text) {
         return err("decodes to text containing a NUL byte")
     }
-    return unwrap(text)
+    return ok(unwrap(text))
 }
 
 // ------------------------------------------------------------- reading

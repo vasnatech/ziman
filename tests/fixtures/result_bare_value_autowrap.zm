@@ -31,9 +31,10 @@ fn main() {
     print(describe(good))
     print(describe(bad))
 
-    // T == E: a bare value always becomes Ok via the sugar -- an
-    // explicit err(...) is still the only way to get an Err then.
-    print(same_type(7))
+    // T == E: a bare value is ambiguous and rejected (see
+    // result_autowrap_same_type_bare_rejected) -- ok(...)/err(...) say which.
+    val explicit_ok: Result<int, int> = ok(7)
+    print(same_type(explicit_ok))
     val explicit_err: Result<int, int> = err(99)
     print(same_type(explicit_err))
 

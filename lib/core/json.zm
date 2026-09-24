@@ -436,7 +436,7 @@ pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
     if !Json.is_JString(v) {
         return err(format("field '{}' must be a string", key))
     }
-    return Json.unwrap_JString(v)
+    return ok(Json.unwrap_JString(v))
 }
 
 // Identity wrappers, named to match #[derive(Json)]'s own <type>_to_json/

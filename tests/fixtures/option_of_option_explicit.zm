@@ -1,0 +1,7 @@
+fn main() {
+    val n: Option<int> = Option<int>.None
+    val some_none = Option<Option<int>>.Some(n)
+    val none = Option<Option<int>>.None
+    print(Option.is_Some(some_none))
+    print(Option.is_Some(none))
+}

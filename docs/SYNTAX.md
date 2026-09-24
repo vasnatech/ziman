@@ -681,10 +681,13 @@ fn main() {
   literal field, a `with` override, or a function's returned value — a
   bare `T` works too**, auto-wrapped to `Some(T)`. An already-`Option<T>`
   value (or `None`) is also legal and passed through unchanged. This is
-  a deliberate, narrow exception to "no implicit coercion," modeled on
-  Rust's own `impl<T> From<T> for Option<T>`: wrapping a single,
-  statically-known type is never lossy or ambiguous, unlike numeric
-  coercion.
+  a deliberate, narrow exception to "no implicit coercion" (closer to a
+  C++ converting constructor than to anything in Rust, which makes you
+  write `Some(x)` or `.into()`): wrapping a single, statically-known type
+  is not lossy, unlike numeric coercion. The one place it *would* be
+  ambiguous is `Option<Option<T>>`, where a bare `Option<T>` would turn a
+  `None` into `Some(None)` -- that is a compile error; write
+  `Option<Option<T>>.Some(...)` explicitly.
 - **A generic function's `Option<T>` parameter can't have a default
   when `T` is that function's own, still-unbound type parameter** —
   a default is evaluated once, at program start, long before any call
@@ -733,10 +736,13 @@ fn main() {
   to "no implicit coercion" as `Option<T>`'s own auto-wrap, and for the
   same reason: wrapping a statically-known type is never lossy or
   ambiguous.
-- **When `T == E`, a bare value always becomes `Ok`** — there's no way
-  for the sugar itself to tell which one was meant in the degenerate
-  same-type case, so it doesn't guess; write `err(value)` explicitly
-  for that one case where you need `Err`.
+- **When `T == E`, a bare value is a compile error** — the sugar can't
+  tell which one was meant in the degenerate same-type case (`return "bad
+  input"` from a `Result<string, string>` function used to become `Ok`
+  silently), so it refuses to guess: write `ok(value)` or `err(value)`
+  (as a `return`, a typed `val`, a struct field or a `with` override; a
+  bare `ok(...)`/`err(...)` still isn't a legal call argument, so assign
+  it to a typed `val` first).
 - **`Result<T, E>` parameters can never be omitted, in any call** —
   unlike `Option<T>`, there's no natural "absent" state an outcome type
   could fall back to, so this sugar is only ever about *what a supplied

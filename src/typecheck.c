@@ -470,6 +470,14 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
         return 1;
     }
     if (is_option_type(param_type) && type_equals(arg_type, option_elem_type(param_type))) {
+        /* Option<Option<T>>: a bare Option<T> would become Some(that),
+         * so a None quietly turns into Some(None) -- exactly the
+         * distinction people get wrong. Make the author say which. */
+        if (is_option_type(option_elem_type(param_type))) {
+            ziman_error("type", arg->line, arg->col,
+                        "a bare %s is ambiguous where %s is expected (it would silently become Some(...), so a None turns into Some(None)); write %s.Some(...) explicitly",
+                        type_name(arg_type), type_name(param_type), type_name(param_type));
+        }
         *arg_slot = wrap_bare_in_some(arg, param_type);
         return 1;
     }
@@ -477,6 +485,14 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
         Type ok_type = *param_type.elem;
         Type err_type = *param_type.elem_err;
         if (type_equals(arg_type, ok_type)) {
+            /* T == E: the sugar can't tell an intended error from a
+             * success, and silently picking Ok turned `return "bad
+             * input"` into a success. Require ok(...)/err(...). */
+            if (type_equals(ok_type, err_type)) {
+                ziman_error("type", arg->line, arg->col,
+                            "a bare %s is ambiguous where %s is expected (the success and error types are the same): write ok(...) or err(...) to say which",
+                            type_name(arg_type), type_name(param_type));
+            }
             *arg_slot = wrap_bare_in_result(arg, param_type, 1);
             return 1;
         }

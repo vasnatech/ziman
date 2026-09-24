@@ -1,0 +1,1 @@
+a bare string is ambiguous where Result<string, string> is expected (the success and error types are the same): write ok(...) or err(...) to say which
