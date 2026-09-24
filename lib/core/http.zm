@@ -67,15 +67,15 @@ pub fn method_parse(name: string) -> HttpMethod {
 
 // The text that goes on the request line ("GET", "POST", ...).
 pub fn method_name(m: HttpMethod) -> string {
-    switch m {
-        Get { return "GET" }
-        Head { return "HEAD" }
-        Post { return "POST" }
-        Put { return "PUT" }
-        Patch { return "PATCH" }
-        Delete { return "DELETE" }
-        Options { return "OPTIONS" }
-        Other(name) { return name }
+    return switch m {
+        Get { "GET" }
+        Head { "HEAD" }
+        Post { "POST" }
+        Put { "PUT" }
+        Patch { "PATCH" }
+        Delete { "DELETE" }
+        Options { "OPTIONS" }
+        Other(name) { name }
     }
 }
 
@@ -416,10 +416,11 @@ pub fn error_response(e: HttpError) -> Response {
     if HttpError.is_NotImplemented(e) {
         return json_response(501, error_body(501, HttpError.unwrap_NotImplemented(e)))
     }
-    if HttpError.is_Timeout(e) {
-        return json_response(408, error_body(408, "request timed out"))
+    return if HttpError.is_Timeout(e) {
+        json_response(408, error_body(408, "request timed out"))
+    } else {
+        json_response(500, error_body(500, "internal error"))
     }
-    return json_response(500, error_body(500, "internal error"))
 }
 
 fn connection_close_requested(req: Request) -> bool {
@@ -562,10 +563,7 @@ pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Respon
         }
     }
     val methods = ab_to_array<string>(allowed)
-    if len(methods) > 0 {
-        return method_not_allowed(methods)
-    }
-    return not_found()
+    return if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
 }
 
 // A query-string value by name, percent-decoded ("+" is a space); the

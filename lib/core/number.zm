@@ -122,10 +122,7 @@ fn bigint_magnitude_to_hex(n: bigint) -> string {
 }
 
 pub fn bigint_to_hex(n: bigint) -> string {
-    if n < 0n {
-        return concat("-", bigint_magnitude_to_hex(-n))
-    }
-    return bigint_magnitude_to_hex(n)
+    return if n < 0n { concat("-", bigint_magnitude_to_hex(-n)) } else { bigint_magnitude_to_hex(n) }
 }
 
 pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
@@ -151,10 +148,7 @@ pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
         result = result * 16n + (unwrap(dv) as bigint)
         i = i + 1
     }
-    if negative {
-        return ok(-result)
-    }
-    return ok(result)
+    return if negative { ok(-result) } else { ok(result) }
 }
 
 // 2^64, computed by repeated multiplication -- Ziman has no bitwise
@@ -235,14 +229,8 @@ pub fn number_format_plain() -> NumberFormat {
 pub fn parse_pattern(pattern: string) -> NumberFormat {
     val parts = split(pattern, ".")
     val has_grouping = contains(parts[0], ",")
-    var thousands = ""
-    if has_grouping {
-        thousands = ","
-    }
-    var decimal_places = Option<int>.None
-    if len(parts) > 1 {
-        decimal_places = Option<int>.Some(len(parts[1]))
-    }
+    val thousands = if has_grouping { "," } else { "" }
+    val decimal_places = if len(parts) > 1 { Option<int>.Some(len(parts[1])) } else { Option<int>.None }
     return NumberFormat { thousands_separator: thousands, decimal_separator: ".", decimal_places: decimal_places }
 }
 
@@ -320,10 +308,7 @@ pub fn format_number(s: string, fmt: NumberFormat) -> string {
         frac_part = adjust_decimal_places(frac_part, Option.unwrap_Some(fmt.decimal_places))
     }
     val grouped = insert_thousands(int_part, fmt.thousands_separator)
-    if frac_part == "" {
-        return grouped
-    }
-    return concat(grouped, concat(fmt.decimal_separator, frac_part))
+    return if frac_part == "" { grouped } else { concat(grouped, concat(fmt.decimal_separator, frac_part)) }
 }
 
 fn strip_all(s: string, needle: string) -> string {

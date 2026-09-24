@@ -103,10 +103,7 @@ fn split_once(s: string, sep: string) -> Option<[string]> {
 }
 
 fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T {
-    if Option.is_Some(o) {
-        return Option.unwrap_Some(o)
-    }
-    return default_value
+    return if Option.is_Some(o) { Option.unwrap_Some(o) } else { default_value }
 }
 
 // A mutable string-accumulation handle -- the general-purpose fix for

@@ -60,10 +60,11 @@ fn find_file_entry(entries: [Entry], key: string) -> Option<Entry> {
 pub fn lookup(props: Properties, key: string) -> Option<Entry> {
     val name = env_name(key)
     val e = os.getenv(name)
-    if Option.is_Some(e) {
-        return Option<Entry>.Some(Entry { key: key, value: Option.unwrap_Some(e), source: concat("env ", name) })
+    return if Option.is_Some(e) {
+        Option<Entry>.Some(Entry { key: key, value: Option.unwrap_Some(e), source: concat("env ", name) })
+    } else {
+        find_file_entry(props.entries, key)
     }
-    return find_file_entry(props.entries, key)
 }
 
 // Resolves `${name}` / `${name:default}` in `value`; `seen` holds the
@@ -85,10 +86,7 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
             sb_append(sb, substring(value, p, start))
             val inner = substring(value, start + 2, end)
             val colon = index_of(inner, ":", 0)
-            var name = inner
-            if colon >= 0 {
-                name = substring(inner, 0, colon)
-            }
+            val name = if colon >= 0 { substring(inner, 0, colon) } else { inner }
             if contains(seen, name) {
                 return err(format("{}: placeholder cycle through '{}'", source, name))
             }
@@ -266,10 +264,7 @@ pub fn get_bool(props: Properties, key: string) -> Result<bool, string> {
 
 // "server" + "port" -> "server.port"; an empty prefix leaves the name alone.
 pub fn key(prefix: string, name: string) -> string {
-    if len(prefix) == 0 {
-        return name
-    }
-    return format("{}.{}", prefix, name)
+    return if len(prefix) == 0 { name } else { format("{}.{}", prefix, name) }
 }
 
 fn distance(a: string, b: string) -> int {
@@ -280,10 +275,7 @@ fn distance(a: string, b: string) -> int {
     for i in 0..len(a) {
         var cur: [int] = [i + 1]
         for j in 0..len(b) {
-            var cost = 1
-            if is_char_at(a, i, char_at(b, j)) {
-                cost = 0
-            }
+            val cost = if is_char_at(a, i, char_at(b, j)) { 0 } else { 1 }
             cur = push(cur, min(min(cur[j] + 1, prev[j + 1] + 1), prev[j] + cost))
         }
         prev = cur
@@ -301,10 +293,7 @@ fn suggestion(key: string, known: [string]) -> string {
             best_distance = d
         }
     }
-    if len(best) == 0 {
-        return ""
-    }
-    return format(" -- did you mean '{}'?", best)
+    return if len(best) == 0 { "" } else { format(" -- did you mean '{}'?", best) }
 }
 
 // Fails on a key in the files that isn't in `known` (`profile.active` is
@@ -363,10 +352,7 @@ pub fn report(props: Properties, keys: [string]) -> string {
         val found = lookup(props, keys[i])
         if Option.is_Some(found) {
             val e = Option.unwrap_Some(found)
-            var shown = mask_value(e.value)
-            if is_secret_key(e.key) {
-                shown = "****"
-            }
+            val shown = if is_secret_key(e.key) { "****" } else { mask_value(e.value) }
             sb_append(sb, format("{}={} ({})\n", e.key, shown, e.source))
         }
     }

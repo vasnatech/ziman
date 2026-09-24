@@ -65,10 +65,7 @@ pub fn error_message(e: ClientError) -> string {
     if ClientError.is_BadResponse(e) {
         return concat("bad response: ", ClientError.unwrap_BadResponse(e))
     }
-    if ClientError.is_TooLarge(e) {
-        return "response body is too large"
-    }
-    return "too many redirects"
+    return if ClientError.is_TooLarge(e) { "response body is too large" } else { "too many redirects" }
 }
 
 // A parsed `http://` or `https://` URL. `target` is the path and query as they
@@ -353,17 +350,19 @@ fn host_header(u: Url) -> string {
     if contains(host, ":") {
         host = format("[{}]", host)
     }
-    if (u.secure && u.port == 443) || (!u.secure && u.port == 80) {
-        return host
+    return if (u.secure && u.port == 443) || (!u.secure && u.port == 80) {
+        host
+    } else {
+        format("{}:{}", host, u.port)
     }
-    return format("{}:{}", host, u.port)
 }
 
 fn open_socket(u: Url, ca_file: Option<string>) -> Result<Socket, NetError> {
-    if u.secure {
-        return net.connect_tls_with(u.host, u.port, net.TlsVerify.Full, ca_file)
+    return if u.secure {
+        net.connect_tls_with(u.host, u.port, net.TlsVerify.Full, ca_file)
+    } else {
+        net.connect(u.host, u.port)
     }
-    return net.connect(u.host, u.port)
 }
 
 fn send_once(method: HttpMethod, u: Url, headers: [Header], body: Option<[byte]>, timeout_ms: int, ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
@@ -428,10 +427,7 @@ fn resolve_location(base: Url, location: string) -> Result<Url, string> {
     if starts_with(location, "http://") || starts_with(location, "https://") {
         return parse_url(location)
     }
-    var scheme = "http"
-    if base.secure {
-        scheme = "https"
-    }
+    val scheme = if base.secure { "https" } else { "http" }
     val authority = host_header(base)
     if starts_with(location, "//") {
         return parse_url(format("{}:{}", scheme, location))
@@ -454,9 +450,10 @@ fn resolve_location(base: Url, location: string) -> Result<Url, string> {
 //   ca_file       a PEM file of trusted CAs for https, instead of the system store
 //                 (a private CA, a test certificate); the certificate is always verified
 pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError> {
-    var bytes_body = Option<[byte]>.None
-    if Option.is_Some(body) {
-        bytes_body = Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
+    val bytes_body = if Option.is_Some(body) {
+        Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
+    } else {
+        Option<[byte]>.None
     }
     val r = request_bytes(method: method, url: url, headers: headers, body: bytes_body, timeout_ms: timeout_ms, max_redirects: max_redirects, ca_file: ca_file)?
     val text = text_of(r.body)?

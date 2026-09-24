@@ -168,10 +168,11 @@ fn parse_error(body: [byte]) -> DbError {
     if class == "23" {
         return DbError.Constraint(message)
     }
-    if class == "08" || class == "28" || class == "3D" {
-        return DbError.Connection(message)
+    return if class == "08" || class == "28" || class == "3D" {
+        DbError.Connection(message)
+    } else {
+        DbError.Sql(message)
     }
-    return DbError.Sql(message)
 }
 
 // ------------------------------------------------------------ URL parsing
@@ -332,10 +333,7 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<int, DbError> {
     } else {
         net.TlsVerify.Off
     }
-    var root = Option<string>.None
-    if url.sslrootcert != "" {
-        root = Option<string>.Some(url.sslrootcert)
-    }
+    val root = if url.sslrootcert != "" { Option<string>.Some(url.sslrootcert) } else { Option<string>.None }
     return lift<int>(net.start_tls_with(sock, url.host, verify, root))
 }
 
@@ -456,10 +454,7 @@ fn parse_data_row(body: [byte], oids: [int]) -> Result<[SqlValue], DbError> {
 fn affected_rows(tag: string) -> int {
     val words = split(tag, " ")
     val n = parse_int(words[len(words) - 1])
-    if is_ok(n) {
-        return unwrap(n)
-    }
-    return 0
+    return if is_ok(n) { unwrap(n) } else { 0 }
 }
 
 // Reads server messages until ReadyForQuery. An ErrorResponse doesn't

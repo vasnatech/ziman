@@ -81,10 +81,7 @@ fn days_in_month(year: int, month: int) -> int {
     if month == 4 || month == 6 || month == 9 || month == 11 {
         return 30
     }
-    if is_leap_year(year) {
-        return 29
-    }
-    return 28
+    return if is_leap_year(year) { 29 } else { 28 }
 }
 
 fn pad_left(n: int, width: int) -> string {
@@ -166,10 +163,7 @@ fn datetime_part_width(part: DateTimePart) -> int {
     if DateTimePart.is_Month(part) || DateTimePart.is_Day(part) || DateTimePart.is_Hour(part) || DateTimePart.is_Minute(part) || DateTimePart.is_Second(part) {
         return 2
     }
-    if DateTimePart.is_Nano(part) {
-        return 9
-    }
-    return len(DateTimePart.unwrap_Literal(part))
+    return if DateTimePart.is_Nano(part) { 9 } else { len(DateTimePart.unwrap_Literal(part)) }
 }
 
 // Scans `pattern` exactly once, building the compiled parts array
@@ -403,15 +397,9 @@ fn epoch_day_of(year: int, month: int, day: int) -> int {
     if month <= 2 {
         y = y - 1
     }
-    var era = y / 400
-    if y < 0 {
-        era = (y - 399) / 400
-    }
+    val era = if y < 0 { (y - 399) / 400 } else { y / 400 }
     val yoe = y - era * 400
-    var mp = month + 9
-    if month > 2 {
-        mp = month - 3
-    }
+    val mp = if month > 2 { month - 3 } else { month + 9 }
     val doy = (153 * mp + 2) / 5 + day - 1
     val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
     return era * 146097 + doe - 719468
@@ -419,24 +407,15 @@ fn epoch_day_of(year: int, month: int, day: int) -> int {
 
 fn date_of_epoch_day(epoch_day: int) -> LocalDate {
     val z = epoch_day + 719468
-    var era = z / 146097
-    if z < 0 {
-        era = (z - 146096) / 146097
-    }
+    val era = if z < 0 { (z - 146096) / 146097 } else { z / 146097 }
     val doe = z - era * 146097
     val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
     val y = yoe + era * 400
     val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
     val mp = (5 * doy + 2) / 153
     val d = doy - (153 * mp + 2) / 5 + 1
-    var m = mp - 9
-    if mp < 10 {
-        m = mp + 3
-    }
-    var year = y
-    if m <= 2 {
-        year = y + 1
-    }
+    val m = if mp < 10 { mp + 3 } else { mp - 9 }
+    val year = if m <= 2 { y + 1 } else { y }
     return LocalDate { year: year, month: m, day: d }
 }
 
@@ -616,17 +595,19 @@ pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTi
 // checking for "." is safe here since neither shape ever contains one
 // otherwise.
 pub fn localtime_from_string(s: string) -> Result<LocalTime, string> {
-    if contains(s, ".") {
-        return localtime_parse_pattern(s, iso_time_nanos_format)
+    return if contains(s, ".") {
+        localtime_parse_pattern(s, iso_time_nanos_format)
+    } else {
+        localtime_parse_pattern(s, iso_time_format)
     }
-    return localtime_parse_pattern(s, iso_time_format)
 }
 
 pub fn localtime_to_string(t: LocalTime) -> string {
-    if t.nano == 0 {
-        return localtime_format(t, iso_time_format)
+    return if t.nano == 0 {
+        localtime_format(t, iso_time_format)
+    } else {
+        localtime_format(t, iso_time_nanos_format)
     }
-    return localtime_format(t, iso_time_nanos_format)
 }
 
 pub struct Duration {
@@ -676,10 +657,7 @@ pub fn duration_subtract(a: Duration, b: Duration) -> Duration {
 // non-negative, so seconds alone is the correct primary ordering key
 // and nanos only ever needs to break a tie.
 pub fn duration_compare(a: Duration, b: Duration) -> int {
-    if a.seconds != b.seconds {
-        return a.seconds - b.seconds
-    }
-    return a.nanos - b.nanos
+    return if a.seconds != b.seconds { a.seconds - b.seconds } else { a.nanos - b.nanos }
 }
 
 // ISO-8601-shaped (PT<seconds>[.<nanos>]S), not full ISO-8601 duration
@@ -745,10 +723,11 @@ pub fn duration_from_string(s: string) -> Result<Duration, string> {
         return err(format("invalid duration '{}': bad nanos", s))
     }
     val mag_nanos = unwrap(mag_nanos_r)
-    if negative {
-        return ok(normalize(-mag_seconds - 1, 1000000000 - mag_nanos))
+    return if negative {
+        ok(normalize(-mag_seconds - 1, 1000000000 - mag_nanos))
+    } else {
+        ok(normalize(mag_seconds, mag_nanos))
     }
-    return ok(normalize(mag_seconds, mag_nanos))
 }
 
 pub struct LocalDateTime {
@@ -797,10 +776,7 @@ pub fn localdatetime_add_years(dt: LocalDateTime, years: int) -> LocalDateTime {
 
 pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int {
     val date_cmp = localdate_compare(a.date, b.date)
-    if date_cmp != 0 {
-        return date_cmp
-    }
-    return localtime_compare(a.time, b.time)
+    return if date_cmp != 0 { date_cmp } else { localtime_compare(a.time, b.time) }
 }
 
 // Treats both sides as wall-clock time with no zone (exactly what
@@ -835,17 +811,19 @@ pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Loc
 }
 
 pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string> {
-    if contains(s, ".") {
-        return localdatetime_parse_pattern(s, iso_datetime_nanos_format)
+    return if contains(s, ".") {
+        localdatetime_parse_pattern(s, iso_datetime_nanos_format)
+    } else {
+        localdatetime_parse_pattern(s, iso_datetime_format)
     }
-    return localdatetime_parse_pattern(s, iso_datetime_format)
 }
 
 pub fn localdatetime_to_string(dt: LocalDateTime) -> string {
-    if dt.time.nano == 0 {
-        return localdatetime_format(dt, iso_datetime_format)
+    return if dt.time.nano == 0 {
+        localdatetime_format(dt, iso_datetime_format)
+    } else {
+        localdatetime_format(dt, iso_datetime_nanos_format)
     }
-    return localdatetime_format(dt, iso_datetime_nanos_format)
 }
 
 pub struct ZoneOffset {
@@ -976,10 +954,7 @@ pub fn instant_diff(a: Instant, b: Instant) -> Duration {
 }
 
 pub fn instant_compare(a: Instant, b: Instant) -> int {
-    if a.seconds != b.seconds {
-        return a.seconds - b.seconds
-    }
-    return a.nanos - b.nanos
+    return if a.seconds != b.seconds { a.seconds - b.seconds } else { a.nanos - b.nanos }
 }
 
 pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime {
@@ -1043,18 +1018,20 @@ pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, 
 // output) may carry a genuine offset, and there's no extra cost to
 // accepting it.
 pub fn instant_from_string(s: string) -> Result<Instant, string> {
-    if contains(s, ".") {
-        return instant_parse_pattern(s, iso_datetime_nanos_format)
+    return if contains(s, ".") {
+        instant_parse_pattern(s, iso_datetime_nanos_format)
+    } else {
+        instant_parse_pattern(s, iso_datetime_format)
     }
-    return instant_parse_pattern(s, iso_datetime_format)
 }
 
 pub fn instant_to_string(i: Instant) -> string {
     val dt = instant_to_localdatetime(i, zoneoffset_utc())
-    if dt.time.nano == 0 {
-        return instant_format(i, zoneoffset_utc(), iso_datetime_format)
+    return if dt.time.nano == 0 {
+        instant_format(i, zoneoffset_utc(), iso_datetime_format)
+    } else {
+        instant_format(i, zoneoffset_utc(), iso_datetime_nanos_format)
     }
-    return instant_format(i, zoneoffset_utc(), iso_datetime_nanos_format)
 }
 
 // Thin wrappers over each type's own _to_string/_from_string pair,

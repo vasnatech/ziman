@@ -91,10 +91,11 @@ pub fn net_error_message(e: NetError) -> string {
     if NetError.is_Closed(e) {
         return concat("connection closed: ", NetError.unwrap_Closed(e))
     }
-    if NetError.is_Tls(e) {
-        return concat("TLS error: ", NetError.unwrap_Tls(e))
+    return if NetError.is_Tls(e) {
+        concat("TLS error: ", NetError.unwrap_Tls(e))
+    } else {
+        concat("network error: ", NetError.unwrap_Io(e))
     }
-    return concat("network error: ", NetError.unwrap_Io(e))
 }
 
 // A native error arrives as "category|message".
@@ -118,10 +119,7 @@ fn net_error_from_raw(raw: string) -> NetError {
     if category == "closed" {
         return NetError.Closed(message)
     }
-    if category == "tls" {
-        return NetError.Tls(message)
-    }
-    return NetError.Io(message)
+    return if category == "tls" { NetError.Tls(message) } else { NetError.Io(message) }
 }
 
 // `host` is a name or an address (IPv4 or IPv6).
@@ -216,10 +214,7 @@ fn tls_verify_level(v: TlsVerify) -> int {
     if TlsVerify.is_Off(v) {
         return 0
     }
-    if TlsVerify.is_Chain(v) {
-        return 1
-    }
-    return 2
+    return if TlsVerify.is_Chain(v) { 1 } else { 2 }
 }
 
 // Upgrades a connected socket to TLS, verifying the server's certificate
@@ -232,10 +227,7 @@ pub fn start_tls(s: Socket, host: string) -> Result<int, NetError> {
 // trusted CAs to use instead of the system store (e.g. a private CA, or a
 // self-signed test certificate).
 pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<int, NetError> {
-    var ca = ""
-    if Option.is_Some(ca_file) {
-        ca = Option.unwrap_Some(ca_file)
-    }
+    val ca = if Option.is_Some(ca_file) { Option.unwrap_Some(ca_file) } else { "" }
     val r = start_tls_raw(s.handle, host, tls_verify_level(verify), ca)
     if !is_ok(r) {
         return err(net_error_from_raw(unwrap_err(r)))

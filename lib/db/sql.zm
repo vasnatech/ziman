@@ -46,10 +46,11 @@ pub fn db_error_message(e: DbError) -> string {
     if DbError.is_Constraint(e) {
         return concat("constraint violation: ", DbError.unwrap_Constraint(e))
     }
-    if DbError.is_Connection(e) {
-        return concat("database connection error: ", DbError.unwrap_Connection(e))
+    return if DbError.is_Connection(e) {
+        concat("database connection error: ", DbError.unwrap_Connection(e))
+    } else {
+        concat("database error: ", DbError.unwrap_Sql(e))
     }
-    return concat("database error: ", DbError.unwrap_Sql(e))
 }
 
 pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError> {
@@ -76,10 +77,7 @@ fn sql_type_name(v: SqlValue) -> string {
     if SqlValue.is_Text(v) {
         return "TEXT"
     }
-    if SqlValue.is_Bool(v) {
-        return "BOOL"
-    }
-    return "BYTES"
+    return if SqlValue.is_Bool(v) { "BOOL" } else { "BYTES" }
 }
 
 fn sql_mismatch(expected: string, v: SqlValue) -> DbError {

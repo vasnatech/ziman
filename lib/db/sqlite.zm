@@ -32,10 +32,7 @@ fn error_from_raw(raw: string) -> DbError {
     if category == "constraint" {
         return DbError.Constraint(message)
     }
-    if category == "connection" {
-        return DbError.Connection(message)
-    }
-    return DbError.Sql(message)
+    return if category == "connection" { DbError.Connection(message) } else { DbError.Sql(message) }
 }
 
 fn encode_param(v: SqlValue) -> string {

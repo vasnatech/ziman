@@ -205,10 +205,11 @@ fn read_lenenc(b: [byte], pos: int) -> LenEnc {
     if first == 252 {
         return LenEnc { value: read_le(b, pos + 1, 2), next: pos + 3, is_null: false }
     }
-    if first == 253 {
-        return LenEnc { value: read_le(b, pos + 1, 3), next: pos + 4, is_null: false }
+    return if first == 253 {
+        LenEnc { value: read_le(b, pos + 1, 3), next: pos + 4, is_null: false }
+    } else {
+        LenEnc { value: read_le(b, pos + 1, 7), next: pos + 9, is_null: false }
     }
-    return LenEnc { value: read_le(b, pos + 1, 7), next: pos + 9, is_null: false }
 }
 
 fn write_lenenc(v: int) -> [byte] {
@@ -218,10 +219,7 @@ fn write_lenenc(v: int) -> [byte] {
     if v < 65536 {
         return bytes_concat([252b], le(v, 2))
     }
-    if v < 16777216 {
-        return bytes_concat([253b], le(v, 3))
-    }
-    return bytes_concat([254b], le(v, 8))
+    return if v < 16777216 { bytes_concat([253b], le(v, 3)) } else { bytes_concat([254b], le(v, 8)) }
 }
 
 // The position just after a length-encoded string starting at `pos`.
@@ -282,10 +280,11 @@ fn parse_error(body: [byte]) -> DbError {
     if class == "23" || code == 1364 || code == 3819 || code == 4025 {
         return DbError.Constraint(message)
     }
-    if class == "28" || class == "08" || code == 1049 || code == 1044 {
-        return DbError.Connection(message)
+    return if class == "28" || class == "08" || code == 1049 || code == 1044 {
+        DbError.Connection(message)
+    } else {
+        DbError.Sql(message)
     }
-    return DbError.Sql(message)
 }
 
 fn expect_ok(sock: Socket) -> Result<int, DbError> {
@@ -428,10 +427,7 @@ fn tls_verify(sslmode: string) -> net.TlsVerify {
     if sslmode == "verify-ca" {
         return net.TlsVerify.Chain
     }
-    if sslmode == "verify-full" {
-        return net.TlsVerify.Full
-    }
-    return net.TlsVerify.Off
+    return if sslmode == "verify-full" { net.TlsVerify.Full } else { net.TlsVerify.Off }
 }
 
 fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
@@ -443,9 +439,10 @@ fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
         if bit_set(hello.caps, 11) {
             send_packet(sock, seq, login_prefix(client_caps(true)))?
             seq = seq + 1
-            var root = Option<string>.None
-            if url.sslrootcert != "" {
-                root = Option<string>.Some(url.sslrootcert)
+            val root = if url.sslrootcert != "" {
+                Option<string>.Some(url.sslrootcert)
+            } else {
+                Option<string>.None
             }
             lift<int>(net.start_tls_with(sock, url.host, tls_verify(url.sslmode), root))?
             tls = true
@@ -566,10 +563,7 @@ fn is_binary_column(c: Column) -> bool {
 
 fn text_or_bytes(raw: [byte]) -> SqlValue {
     val text = bytes_to_string(raw)
-    if is_ok(text) {
-        return SqlValue.Text(unwrap(text))
-    }
-    return SqlValue.Bytes(raw)
+    return if is_ok(text) { SqlValue.Text(unwrap(text)) } else { SqlValue.Bytes(raw) }
 }
 
 // A text-protocol cell: every value arrives as characters.
@@ -676,10 +670,7 @@ fn decode_time(b: [byte], pos: int) -> string {
         return "00:00:00"
     }
     val start = pos + 1
-    var sign = ""
-    if b[start] == 1b {
-        sign = "-"
-    }
+    val sign = if b[start] == 1b { "-" } else { "" }
     val hours = read_le(b, start + 1, 4) * 24 + (b[start + 5] as int)
     var out = format("{}{}:{}:{}", sign, pad(hours, 2), pad(b[start + 6] as int, 2), pad(b[start + 7] as int, 2))
     if n == 12 {
@@ -746,10 +737,7 @@ fn decode_binary_value(c: Column, b: [byte], pos: int) -> Result<SqlValue, DbErr
     }
     val l = read_lenenc(b, pos)
     val raw = slice<byte>(b, l.next, l.next + l.value)
-    if is_binary_column(c) {
-        return SqlValue.Bytes(raw)
-    }
-    return text_or_bytes(raw)
+    return if is_binary_column(c) { SqlValue.Bytes(raw) } else { text_or_bytes(raw) }
 }
 
 // A binary-protocol row: 0x00, a NULL bitmap (bit i+2 for column i), then
@@ -889,10 +877,7 @@ fn param_type(v: SqlValue) -> [byte] {
     if SqlValue.is_Bytes(v) {
         return [252b, 0b]
     }
-    if SqlValue.is_Float(v) {
-        return [5b, 0b]
-    }
-    return [253b, 0b]
+    return if SqlValue.is_Float(v) { [5b, 0b] } else { [253b, 0b] }
 }
 
 // The value bytes; NULL is only the bitmap bit.

@@ -46,20 +46,20 @@ pub fn with_prefix(l: Logger, prefix: string) -> Logger {
 }
 
 pub fn level_rank(level: Level) -> int {
-    switch level {
-        Debug { return 0 }
-        Info { return 1 }
-        Warn { return 2 }
-        Error { return 3 }
+    return switch level {
+        Debug { 0 }
+        Info { 1 }
+        Warn { 2 }
+        Error { 3 }
     }
 }
 
 pub fn level_name(level: Level) -> string {
-    switch level {
-        Debug { return "DEBUG" }
-        Info { return "INFO " }
-        Warn { return "WARN " }
-        Error { return "ERROR" }
+    return switch level {
+        Debug { "DEBUG" }
+        Info { "INFO " }
+        Warn { "WARN " }
+        Error { "ERROR" }
     }
 }
 

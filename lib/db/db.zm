@@ -104,10 +104,11 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
     if Connection.is_Postgres(conn) {
         return pg.execute(Connection.unwrap_Postgres(conn), sql, params)
     }
-    if Connection.is_Mysql(conn) {
-        return mysql.execute(Connection.unwrap_Mysql(conn), sql, params)
+    return if Connection.is_Mysql(conn) {
+        mysql.execute(Connection.unwrap_Mysql(conn), sql, params)
+    } else {
+        sqlite.execute(Connection.unwrap_Sqlite(conn), sql, params)
     }
-    return sqlite.execute(Connection.unwrap_Sqlite(conn), sql, params)
 }
 
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
@@ -119,10 +120,11 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
     if Connection.is_Postgres(conn) {
         return pg.query(Connection.unwrap_Postgres(conn), sql, params)
     }
-    if Connection.is_Mysql(conn) {
-        return mysql.query(Connection.unwrap_Mysql(conn), sql, params)
+    return if Connection.is_Mysql(conn) {
+        mysql.query(Connection.unwrap_Mysql(conn), sql, params)
+    } else {
+        sqlite.query(Connection.unwrap_Sqlite(conn), sql, params)
     }
-    return sqlite.query(Connection.unwrap_Sqlite(conn), sql, params)
 }
 
 // The common lookup-by-key shape: the first row, or None.
@@ -221,10 +223,7 @@ pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
 // isn't a pool it just returns that connection, and `release` does
 // nothing -- so the same code runs against either.
 pub fn acquire(conn: Connection) -> Result<Connection, DbError> {
-    if Connection.is_Pool(conn) {
-        return receive(Connection.unwrap_Pool(conn).idle)
-    }
-    return conn
+    return if Connection.is_Pool(conn) { receive(Connection.unwrap_Pool(conn).idle) } else { conn }
 }
 
 // Gives back a connection taken with `acquire`. Pair every `acquire` with

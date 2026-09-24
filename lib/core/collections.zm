@@ -169,10 +169,11 @@ pub fn hashmap_set<K: Eq + Hash, V>(m: HashMap<K, V>, key: K, value: V) -> HashM
     }
     val new_buckets = set(m.buckets, idx, new_bucket)
     val updated = HashMap<K, V> { buckets: new_buckets, count: new_count }
-    if should_grow(updated.count, len(updated.buckets)) {
-        return hashmap_grow<K, V>(updated)
+    return if should_grow(updated.count, len(updated.buckets)) {
+        hashmap_grow<K, V>(updated)
+    } else {
+        updated
     }
-    return updated
 }
 
 pub fn hashmap_remove<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> HashMap<K, V> {
@@ -188,10 +189,7 @@ pub fn hashmap_remove<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> HashMap<K, V
         }
     }
     val new_buckets = set(m.buckets, idx, new_bucket)
-    var new_count = m.count
-    if removed {
-        new_count = m.count - 1
-    }
+    val new_count = if removed { m.count - 1 } else { m.count }
     return HashMap<K, V> { buckets: new_buckets, count: new_count }
 }
 
@@ -250,10 +248,7 @@ pub fn hashset_add<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
     val new_bucket = push(s.buckets[idx], item)
     val new_buckets = set(s.buckets, idx, new_bucket)
     val updated = HashSet<T> { buckets: new_buckets, count: s.count + 1 }
-    if should_grow(updated.count, len(updated.buckets)) {
-        return hashset_grow<T>(updated)
-    }
-    return updated
+    return if should_grow(updated.count, len(updated.buckets)) { hashset_grow<T>(updated) } else { updated }
 }
 
 pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
@@ -269,10 +264,7 @@ pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
         }
     }
     val new_buckets = set(s.buckets, idx, new_bucket)
-    var new_count = s.count
-    if removed {
-        new_count = s.count - 1
-    }
+    val new_count = if removed { s.count - 1 } else { s.count }
     return HashSet<T> { buckets: new_buckets, count: new_count }
 }
 
@@ -315,9 +307,10 @@ fn merge_sort_indices<K: Ord>(keys: [K], descending: bool) -> [int] {
             var i = lo
             var j = mid
             while i < mid && j < hi {
-                var take_right = compare(keys[order[j]], keys[order[i]]) < 0
-                if descending {
-                    take_right = compare(keys[order[j]], keys[order[i]]) > 0
+                val take_right = if descending {
+                    compare(keys[order[j]], keys[order[i]]) > 0
+                } else {
+                    compare(keys[order[j]], keys[order[i]]) < 0
                 }
                 if take_right {
                     ab_append<int>(merged, order[j])
@@ -395,10 +388,11 @@ pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int> {
             hi = mid
         }
     }
-    if lo < len(sorted) && compare(sorted[lo], target) == 0 {
-        return Option<int>.Some(lo)
+    return if lo < len(sorted) && compare(sorted[lo], target) == 0 {
+        Option<int>.Some(lo)
+    } else {
+        Option<int>.None
     }
-    return Option<int>.None
 }
 
 // The same elements, last to first -- with `sort`, a descending sort.
