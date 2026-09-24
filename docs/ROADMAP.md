@@ -262,6 +262,35 @@ against)**
   structs, which already forced the sample backend to type a field as raw
   `Json` and lose the type.
 
+- [ ] **R21. `if` and `switch` as expressions.** (Not from the review --
+  surfaced while implementing R4.) Both are statements today, so getting a
+  value out of a branch means declaring a `var` first and assigning in each
+  arm, or returning from every arm:
+  ```
+  var status = 500
+  switch e {
+      NotFound(m) { status = 404 }
+      Constraint(m) { status = 409 }
+      Connection(m) { status = 500 }
+      Sql(m) { status = 500 }
+  }
+  ```
+  Wanted: `val status = switch e { NotFound(m) { 404 } ... }` and
+  `val label = if n > 0 { "positive" } else { "not" }`, with each arm's
+  final expression as its value. Design questions to settle before
+  building: the value of a block (a trailing expression, or a keyword such
+  as `yield`); every arm must have the same type (and an `if` used as a
+  value needs an `else`); how `return`/`break`/`?` inside an arm behave
+  (they leave the enclosing function/loop, not the expression); whether it
+  can appear in any expression position or only as a `val`/`var`
+  initializer, a `return` value or an argument (compare the deliberately
+  narrow rules for `?`); and how it interacts with the Option/Result
+  auto-wrap. `switch` already type-checks by rewriting into an `if` chain,
+  so the two should be designed together, and doing `if` first makes the
+  `switch` case mostly free. Benefit: it removes the mutable-`var`-then-
+  assign pattern, which is the shape most likely to leave a path
+  unassigned.
+
 **E. Standard library gaps for a backend language**
 
 - [ ] **R15. Missing pieces:** an HTTP *client* (a Ziman service cannot
