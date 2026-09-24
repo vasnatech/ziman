@@ -140,6 +140,169 @@ a time mid-implementation:
   (see the "Larger, needs its own design pass" entry below for the
   current state).
 
+## External review follow-ups (2026-09-23)
+
+An outside compiler/PL-expert review (first exposure to the language; it
+read the docs, checked them against the source, ran ~25 probes and
+load-tested the sample backend) produced the items below. Full report with
+reproductions: docs/reviews/pl-expert-review-2026-09-23.md. Its verdict in
+one line: the design is coherent and unusually well documented, but
+measured against the "AI-first" goal Ziman fixed the cheap, visible error
+classes (implicit coercion, overloading) and left the ones that actually
+dominate machine-written bugs, and the runtime cannot yet host a
+long-running process. Each item is meant to be picked up on its own, in
+roughly this order (cheapest and highest-value first); tick them off here
+as they land.
+
+**A. Silent-wrong-answer holes (fix first -- small, and they contradict the
+language's own principles)**
+
+- [ ] **R1. `Result<T, E>` auto-wrap turns errors into successes when
+  `T == E`.** `return "path must not be empty"` from a
+  `Result<string, string>` function compiles to `Ok(...)` -- no
+  diagnostic -- and that is the stdlib's most common Result shape
+  (`io.read_file` included). Fix: refuse the bare-value auto-wrap when
+  `T == E` and require `ok(...)`/`err(...)`; audit the stdlib for existing
+  victims. Also worth a diagnostic: `Option<Option<T>>` quietly wraps a
+  `None` into `Some(None)`. Also correct SYNTAX.md's claim that this
+  mirrors Rust's `From` (Rust has no such implicit conversion; this is
+  closer to a C++ converting constructor).
+- [ ] **R2. Integer overflow is silent, and is undefined behaviour in C.**
+  `9223372036854775807 + 1` wraps quietly, while `bigint as int` and
+  `int as byte` saturate "so nothing silently wraps" -- the language
+  contradicts itself. Immediate floor: add `-fwrapv` to the Makefile (and
+  `-O2`, which is currently absent and worth 2-3x). Then decide the
+  language rule (trap, saturate, or documented wrap) and apply it to `+`,
+  `-`, `*`.
+- [ ] **R3. `for x in arr` vs `for i in arr` is one syntax with two
+  meanings.** Iterating an array binds the element; iterating a range binds
+  the index; the only guard is a naming convention in SYNTAX.md. A model
+  that writes Python's/Go's index loop gets silently wrong sums, not an
+  error. Fix: a distinct form for index iteration (or a compile error when
+  the binder of an array loop is used to index the same array).
+- [ ] **R4. No exhaustiveness checking for enums.** Adding a variant
+  compiles cleanly everywhere and crashes at runtime in the consumers
+  (the sample backend's `service_error_response` has exactly this
+  shape). Full `match` stays deferred, but a `switch`-style statement over
+  an enum that requires one arm per variant (desugaring to the existing
+  `is_`/`unwrap_`) closes the gap with machinery that already exists. This
+  is the highest-value static check for machine-generated code.
+
+**B. Diagnostics (the error message is the interface an agent iterates
+against)**
+
+- [ ] **R5. Special-case the mistakes models make most.** `p.to_string()`
+  says "no module imported under the name 'p'" -- it should say Ziman has
+  no methods and name the function; `"a" + "b"` says the operands must be
+  "the same numeric type" and suggests a cast that cannot exist -- it
+  should say `concat(a, b)`; `match` says "expected an expression" -- it
+  should say there is no `match` and point at `Enum.is_X`/`unwrap_X`. A few
+  lines each.
+- [ ] **R6. `#[derive(...)]` errors point into an invisible file.**
+  Generated code has no source mapping, so any error reports `1:5` of
+  nothing. Stamp every spliced token with the originating declaration's
+  line/column and prefix the message with `in derive(Json) for 'Point':`.
+- [ ] **R7. Auto-import what a derive itself generated.** One
+  `#[derive(Json)]` currently needs five hand-written `use json.*` lines
+  the generator already knows it needs, and forgetting one produces the
+  unhelpful error above. Inject them, or at least say which `use` is
+  missing.
+- [ ] **R8. `--check` and `--json` diagnostics.** The CLI takes exactly one
+  argument. A type-check-only mode is a few lines (typecheck is already a
+  separate phase); machine-readable diagnostics are DESIGN.md principle #5
+  and are still unbuilt, even though they are the item most aligned with
+  the AI-first goal. (`--emit-derived` to print generated code would help
+  R6 too.)
+
+**C. Runtime and memory**
+
+- [ ] **R9. Rewrite the memory-reclamation plan before implementing
+  anything.** Measured: the sample backend's server reached ~31 GB RSS
+  after ~1,500 requests (about 87 kB leaked per trivial request), so it is
+  not merely "a real problem" -- the north-star application cannot stay up.
+  And both proposed fixes have a design error: (a) the refcounting entry
+  claims the value graph can never contain a cycle, but `Channel<T>` is
+  mutable in place, so a struct holding a channel of its own type, sent into
+  that channel, is a real cycle (reproduced) -- channels need weak edges or
+  to be excluded from counting; (b) the per-thread arena entry does not fit
+  a thread-per-*connection* server, where one thread serves thousands of
+  keep-alive requests and would free nothing until disconnect -- the region
+  has to be per request, which needs an escape rule for the buffered
+  session and for anything sent over a channel. Also note the leak is
+  currently what makes cross-thread `Value` sharing lock-free, so this is
+  one project with the ownership design, not two. See the corrections
+  added inline to the two entries below.
+- [ ] **R10. Server hygiene in the sample backend.** Cap concurrency
+  (`server.zm` spawns an unbounded thread per connection -- a DoS
+  primitive on its own), and fix the config path that prints a friendly
+  error and then crashes on `unwrap` anyway. Add a native `exit(code)`;
+  there is also no signal handling, so no graceful shutdown.
+  Backpressure is absent too: `send` never blocks and queues are
+  unbounded.
+
+**D. Language expressiveness**
+
+- [ ] **R11. `Ord` bound and a generic `sort`.** Sorting is not just
+  missing, it is inexpressible: no comparator (no function values) and no
+  "comparable" bound. The nine hand-written `_compare` functions across
+  `byte`/`uuid`/`time` are the symptom. `Eq` and `Hash` already prove the
+  bound mechanism.
+- [ ] **R12. Widen `Hash`.** Map keys are limited to the seven scalars, so
+  nothing can be indexed by `Uuid`, an enum, or a struct -- a real hole for
+  an entity-id-keyed backend. Derive `Hash`/`Eq` for structs and enums
+  whose fields are hashable.
+- [ ] **R13. Revisit "no closures".** The stated benefit ("libraries can't
+  take opaque callback holes") is already delivered by no overloading, no
+  methods and no inheritance; the cost is that `http` cannot be a
+  framework, every app hand-writes a linear route chain (near-copy blocks,
+  the riskiest shape for copy-paste mistakes at ~40 entities), and no
+  generic `map`/`filter`/`sort`/`with_transaction` can exist. Decide
+  explicitly, and record the decision either way.
+- [ ] **R14. Derives on generic types.** `#[derive(Json)]` rejects generic
+  structs, which already forced the sample backend to type a field as raw
+  `Json` and lose the type.
+
+**E. Standard library gaps for a backend language**
+
+- [ ] **R15. Missing pieces:** an HTTP *client* (a Ziman service cannot
+  call another); logging (levels, destination); filesystem beyond
+  `read_file`/`write_file` (append, stat, delete, list; `write_file` is
+  still fatal on failure); regex; sorting (R11); domain-typed map keys
+  (R12).
+- [ ] **R16. Naming convention.** `collections` uses type-prefixed names
+  meant for bare import (`hashmap_get`); `http` uses bare names meant for
+  qualified use (`header`, `response`), which then collide with
+  application modules. Pick one convention per usage mode and document it.
+
+**F. Tooling and documentation**
+
+- [ ] **R17. A formatter (or at least a lint) that makes `val` and `var`
+  visually distinct** -- DESIGN.md already calls the one-character
+  difference a silent-mutability typo hazard.
+- [ ] **R18. Split README.md into sections.** It is ~3,000 words in
+  essentially one paragraph, and it is the document most likely to be
+  pasted into a model's context as "the language".
+- [ ] **R19. Fix documentation drift.** SYNTAX.md's `Result` section still
+  says "no `enum`, no `match`"; DESIGN.md still lists multi-file modules
+  under "deliberately deferred"; the `index_of` entry in SYNTAX.md's
+  builtins list is corrupted (starts mid-signature) so the function cannot
+  be discovered from it.
+- [ ] **R20. Reconcile the "AI-first" rationale with the real motives.**
+  Non-nestable `?` is an interpreter constraint (it happens to be good
+  style -- say so plainly); "no closures" is justified by a benefit other
+  choices already give (R13). Also acknowledge the training-distribution
+  cost of deliberate divergences (`Enum.unwrap_X(e)` for `match`,
+  `arr = push(arr, x)` for `arr.push(x)`, `concat` for `+`): a model's
+  priors are wrong on the most common operations, which makes R5's
+  diagnostics matter more.
+
+Things the review said to keep and copy (do not "fix"): block-scoped
+`defer`, parser-enforced identifier casing, compile-checked `format`
+literals, named arguments reusing struct-literal syntax, no wildcard
+imports, non-shadowable globals, readable generated derive source, the
+decision-log-with-rejected-alternatives habit, and generating CORELIB.md
+from source.
+
 ## Near-term, likely next
 
 - ~~**Recoverable error handling.**~~ Implemented: `Result<T, E>`, a
@@ -361,6 +524,12 @@ a time mid-implementation:
   scope exit or rebinding needs a decrement — a genuinely large,
   cross-cutting change, comparable in scope to the generics work, not
   something to fold into a smaller, unrelated feature.
+  **Correction (external review, 2026-09-23; see R9):** the "can never
+  contain a cycle" premise above is wrong. `Channel<T>` is mutable in
+  place, so `struct Node { peers: Channel<Node> }` with the node sent into
+  its own channel is a genuine cycle (reproduced). Pure refcounting needs
+  channels to hold weak references or to be left out of the counted graph;
+  do not implement against this entry as written.
   Not started, not designed in detail — needs its own pass (representation
   of the refcount itself, where increments/decrements actually need to be
   inserted given the interpreter's current "just copy the `Value` struct"
@@ -417,6 +586,14 @@ a time mid-implementation:
   actor's own heap could still eventually want its own reclamation
   story once *it* accumulates garbage across many processed messages,
   which per-thread arenas alone don't address).
+  **Correction (external review, 2026-09-23; see R9):** the granularity
+  doesn't match the server that motivates this. `server.zm` is thread-per-
+  *connection*, and with keep-alive one thread serves thousands of
+  requests, so a per-thread arena frees nothing until the client
+  disconnects. The region has to be per *request*, which needs an escape
+  rule for state that deliberately outlives one (the buffered `Session`
+  carried between requests for pipelining) and for values sent over a
+  channel (copy-on-send).
 - **`HashMap`/`HashSet`'s `set`/`add`/`remove` are O(bucket_count), not
   O(1) — a genuine gap next to Java's `HashMap` (O(1) amortized `put`),
   and a trie-shaped bucket structure could close it without touching
