@@ -83,9 +83,63 @@ Value value_array(Type array_type, ArrayObj *arr) {
 
 ArrayObj *array_obj_new(Value *items, int count) {
     ArrayObj *a = malloc(sizeof(ArrayObj));
-    a->items = items;
+    a->boxed_items = items;
+    a->bytes = NULL;
     a->count = count;
     return a;
+}
+
+ArrayObj *array_obj_new_bytes(uint8_t *bytes, int count) {
+    ArrayObj *a = malloc(sizeof(ArrayObj));
+    a->boxed_items = NULL;
+    a->bytes = bytes;
+    a->count = count;
+    return a;
+}
+
+Value array_get(const ArrayObj *a, int i) {
+    if (a->bytes != NULL) return value_byte(a->bytes[i]);
+    return a->boxed_items[i];
+}
+
+ArrayObj *array_obj_view(const ArrayObj *a, int start, int end) {
+    ArrayObj *v = malloc(sizeof(ArrayObj));
+    v->boxed_items = a->boxed_items != NULL ? a->boxed_items + start : NULL;
+    v->bytes = a->bytes != NULL ? a->bytes + start : NULL;
+    v->count = end - start;
+    return v;
+}
+
+int array_all_bytes(const Value *items, int count) {
+    if (count == 0) return 0; /* an empty array stays boxed: nothing to pack, and no element to type it by */
+    for (int i = 0; i < count; i++) {
+        if (items[i].type.kind != TY_BYTE) return 0;
+    }
+    return 1;
+}
+
+ArrayObj *array_obj_pack_bytes(const Value *items, int count) {
+    uint8_t *bytes = zalloc_atomic((size_t)(count > 0 ? count : 1));
+    for (int i = 0; i < count; i++) bytes[i] = (uint8_t)items[i].as.by;
+    return array_obj_new_bytes(bytes, count);
+}
+
+Value value_byte_array(const uint8_t *buf, size_t n) {
+    uint8_t *bytes = zalloc_atomic(n > 0 ? n : 1);
+    if (n > 0) memcpy(bytes, buf, n);
+    return value_array(type_array(type_scalar(TY_BYTE)), array_obj_new_bytes(bytes, (int)n));
+}
+
+uint8_t *array_copy_bytes(const ArrayObj *a, int *out_len) {
+    uint8_t *out = zalloc_atomic((size_t)a->count + 1);
+    if (a->bytes != NULL) {
+        memcpy(out, a->bytes, (size_t)a->count);
+    } else {
+        for (int i = 0; i < a->count; i++) out[i] = (uint8_t)a->boxed_items[i].as.by;
+    }
+    out[a->count] = 0;
+    if (out_len != NULL) *out_len = a->count;
+    return out;
 }
 
 Value value_struct(Type struct_type, StructObj *st) {
@@ -193,8 +247,11 @@ int value_equals(Value a, Value b) {
             ArrayObj *arr_a = a.as.arr;
             ArrayObj *arr_b = b.as.arr;
             if (arr_a->count != arr_b->count) return 0;
+            if (arr_a->bytes != NULL && arr_b->bytes != NULL) {
+                return memcmp(arr_a->bytes, arr_b->bytes, (size_t)arr_a->count) == 0;
+            }
             for (int i = 0; i < arr_a->count; i++) {
-                if (!value_equals(arr_a->items[i], arr_b->items[i])) return 0;
+                if (!value_equals(array_get(arr_a, i), array_get(arr_b, i))) return 0;
             }
             return 1;
         }
@@ -280,7 +337,7 @@ char *value_display(Value v) {
                     out[len++] = ',';
                     out[len++] = ' ';
                 }
-                char *piece = value_display(arr->items[i]);
+                char *piece = value_display(array_get(arr, i));
                 size_t piece_len = strlen(piece);
                 while (len + piece_len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
                 memcpy(out + len, piece, piece_len);

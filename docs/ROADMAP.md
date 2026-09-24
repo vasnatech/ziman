@@ -243,18 +243,14 @@ against)**
   there is also no signal handling, so no graceful shutdown.
   Backpressure is absent too: `send` never blocks and queues are
   unbounded.
-- [ ] **R23. A packed `[byte]` representation.** (Not from the review.)
-  Every element of a `[byte]` -- and of an `ArrayBuilder<byte>` -- is a full
-  interpreter `Value` (16 bytes or more), so a 1 KB buffer costs ~16 KB and
-  every `net.read`, `bytes_concat` and `crypto` call copies
-  and boxes accordingly. `sb_append_byte` (done) spares text assembly the
-  detour, but binary code (the Postgres/MySQL drivers, `httpclient`, TLS
-  reads) still pays. Fix: give byte arrays a packed `uint8_t` backing store
-  (a separate `ArrayObj` kind, or a tagged variant) that indexing, `for`,
-  slicing, `==` and the natives understand. Touches the interpreter's array
-  code and every native taking `[byte]`; do it together with the
-  memory/performance work, with a benchmark first. (Zero-copy `slice<T>`
-  exists now for the boxed representation; a packed layout should keep views.)
+- [x] **R23. A packed `[byte]` representation.** *Done 2026-09-24. A `[byte]`
+  is now one real byte per element (`ArrayObj.bytes`) instead of a 16-byte
+  `Value`; `tests/bench/bytes_bench.zm` (a 1 MB buffer: build, sum, sha256,
+  concat, slice, compare, convert) went from 297 MB / 0.33 s to 66 MB / 0.23 s.
+  Views (`slice`) work on both representations. See DESIGN.md "Packed byte
+  arrays".* (Original problem: every element of a `[byte]` was a full
+  interpreter `Value`, so a 1 KB buffer cost ~16 KB and every `net.read`,
+  `bytes_concat` and `crypto` call copied and boxed accordingly.)
 
 **D. Language expressiveness**
 

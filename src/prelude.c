@@ -360,7 +360,7 @@ static Value native_join(Value *args, int argc, int line, int col) {
 
     size_t total = prefix_len + suffix_len;
     for (int i = 0; i < pieces->count; i++) {
-        total += SLEN(pieces->items[i]);
+        total += SLEN(array_get(pieces, i));
     }
     if (pieces->count > 1) {
         total += separator_len * (size_t)(pieces->count - 1);
@@ -377,8 +377,9 @@ static Value native_join(Value *args, int argc, int line, int col) {
             memcpy(buf + pos, SPTR(dv), separator_len);
             pos += separator_len;
         }
-        size_t piece_len = SLEN(pieces->items[i]);
-        memcpy(buf + pos, SPTR(pieces->items[i]), piece_len);
+        Value piece = array_get(pieces, i);
+        size_t piece_len = SLEN(piece);
+        memcpy(buf + pos, SPTR(piece), piece_len);
         pos += piece_len;
     }
     if (has_suffix) {
@@ -503,8 +504,9 @@ static Value native_sb_append(Value *args, int argc, int line, int col) {
     StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
     ArrayObj *pieces = args[1].as.arr;
     for (int i = 0; i < pieces->count; i++) {
-        const char *s = SPTR(pieces->items[i]);
-        size_t len = SLEN(pieces->items[i]);
+        Value piece = array_get(pieces, i);
+        const char *s = SPTR(piece);
+        size_t len = SLEN(piece);
         sb_ensure_capacity(buf, len);
         memcpy(buf->data + buf->length, s, len);
         buf->length += len;
@@ -520,11 +522,18 @@ static Value native_sb_append_byte(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
     ArrayObj *bytes = args[1].as.arr;
+    if (bytes->bytes != NULL) {
+        if (memchr(bytes->bytes, 0, (size_t)bytes->count) != NULL) return value_bool(0);
+        sb_ensure_capacity(buf, (size_t)bytes->count);
+        memcpy(buf->data + buf->length, bytes->bytes, (size_t)bytes->count);
+        buf->length += (size_t)bytes->count;
+        return value_bool(1);
+    }
     for (int i = 0; i < bytes->count; i++) {
-        if (bytes->items[i].as.by == 0) return value_bool(0);
+        if (array_get(bytes, i).as.by == 0) return value_bool(0);
     }
     sb_ensure_capacity(buf, (size_t)bytes->count);
-    for (int i = 0; i < bytes->count; i++) buf->data[buf->length++] = (char)(unsigned char)bytes->items[i].as.by;
+    for (int i = 0; i < bytes->count; i++) buf->data[buf->length++] = (char)(unsigned char)array_get(bytes, i).as.by;
     return value_bool(1);
 }
 
@@ -567,6 +576,11 @@ typedef struct {
     size_t length;
     size_t capacity;
     double grow_factor;
+    /* Byte mode: once the first appended element is a byte, elements are kept
+     * as raw bytes in `bytes` (with `items` unused), so a [byte] under
+     * construction doesn't cost a Value per byte and ab_to_array is one memcpy. */
+    uint8_t *bytes;
+    int packed;
 } ArrayBuilderBuf;
 
 /* Same pointer-as-handle scheme as StringBuilder above, for the same reason. */
@@ -596,7 +610,8 @@ static void ab_ensure_capacity(ArrayBuilderBuf *buf, size_t additional) {
     while (new_capacity < needed) {
         new_capacity = (size_t)((double)new_capacity * buf->grow_factor) + 1;
     }
-    buf->items = realloc(buf->items, new_capacity * sizeof(Value));
+    if (buf->packed) buf->bytes = realloc(buf->bytes, new_capacity);
+    else buf->items = realloc(buf->items, new_capacity * sizeof(Value));
     buf->capacity = new_capacity;
 }
 
@@ -618,6 +633,8 @@ static Value native_ab_new(Value *args, int argc, int line, int col) {
     buf->length = 0;
     buf->grow_factor = grow_factor;
     buf->items = buf->capacity > 0 ? malloc(buf->capacity * sizeof(Value)) : NULL;
+    buf->bytes = NULL;
+    buf->packed = 0;
 
     int64_t handle = ab_table_register(buf);
 
@@ -632,9 +649,26 @@ static Value native_ab_append(Value *args, int argc, int line, int col) {
     (void)col;
     ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
     ArrayObj *pieces = args[1].as.arr;
+    if (pieces->count == 0) return value_int(0);
+    if (!buf->packed && buf->length == 0 && array_get(pieces, 0).type.kind == TY_BYTE) {
+        size_t cap = buf->capacity > 0 ? buf->capacity : 16;
+        buf->items = NULL;
+        buf->bytes = zalloc_atomic(cap);
+        buf->capacity = cap;
+        buf->packed = 1;
+    }
     ab_ensure_capacity(buf, (size_t)pieces->count);
+    if (buf->packed) {
+        if (pieces->bytes != NULL) {
+            memcpy(buf->bytes + buf->length, pieces->bytes, (size_t)pieces->count);
+        } else {
+            for (int i = 0; i < pieces->count; i++) buf->bytes[buf->length + (size_t)i] = (uint8_t)array_get(pieces, i).as.by;
+        }
+        buf->length += (size_t)pieces->count;
+        return value_int(0);
+    }
     for (int i = 0; i < pieces->count; i++) {
-        buf->items[buf->length] = pieces->items[i];
+        buf->items[buf->length] = array_get(pieces, i);
         buf->length++;
     }
     return value_int(0); /* void return -- the caller never uses this */
@@ -644,13 +678,29 @@ static Value native_concat_arrays(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     ArrayObj *parts = args[0].as.arr;
     int total = 0;
-    for (int i = 0; i < parts->count; i++) total += parts->items[i].as.arr->count;
+    int all_packed = 1;
+    for (int i = 0; i < parts->count; i++) {
+        ArrayObj *part = array_get(parts, i).as.arr;
+        total += part->count;
+        if (part->count > 0 && part->bytes == NULL) all_packed = 0;
+    }
+    if (total > 0 && all_packed) {
+        uint8_t *bytes = zalloc_atomic((size_t)total);
+        int at = 0;
+        for (int i = 0; i < parts->count; i++) {
+            ArrayObj *part = array_get(parts, i).as.arr;
+            if (part->count > 0) memcpy(bytes + at, part->bytes, (size_t)part->count);
+            at += part->count;
+        }
+        return value_array(type_scalar(TY_VOID), array_obj_new_bytes(bytes, total));
+    }
     Value *items = total > 0 ? malloc((size_t)total * sizeof(Value)) : NULL;
     int pos = 0;
     for (int i = 0; i < parts->count; i++) {
-        ArrayObj *part = parts->items[i].as.arr;
-        for (int j = 0; j < part->count; j++) items[pos++] = part->items[j];
+        ArrayObj *part = array_get(parts, i).as.arr;
+        for (int j = 0; j < part->count; j++) items[pos++] = array_get(part, j);
     }
+    if (array_all_bytes(items, total)) return value_array(type_scalar(TY_VOID), array_obj_pack_bytes(items, total));
     return value_array(type_scalar(TY_VOID), array_obj_new(items, total));
 }
 
@@ -666,7 +716,7 @@ static Value native_slice(Value *args, int argc, int line, int col) {
         ziman_error("runtime", line, col, "slice: range %lld..%lld is out of bounds for an array of length %d",
                     (long long)start, (long long)end, arr->count);
     }
-    return value_array(type_scalar(TY_VOID), array_obj_new(arr->items + start, (int)(end - start)));
+    return value_array(type_scalar(TY_VOID), array_obj_view(arr, (int)start, (int)end));
 }
 
 static Value native_ab_to_array(Value *args, int argc, int line, int col) {
@@ -674,6 +724,11 @@ static Value native_ab_to_array(Value *args, int argc, int line, int col) {
     (void)line;
     (void)col;
     ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    if (buf->packed) {
+        uint8_t *out = zalloc_atomic(buf->length);
+        memcpy(out, buf->bytes, buf->length);
+        return value_array(type_scalar(TY_VOID), array_obj_new_bytes(out, (int)buf->length));
+    }
     Value *items = buf->length > 0 ? malloc(buf->length * sizeof(Value)) : NULL;
     for (size_t i = 0; i < buf->length; i++) {
         items[i] = buf->items[i];

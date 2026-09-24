@@ -1,0 +1,33 @@
+use bytes
+use crypto
+
+fn main() {
+    val sb = sb_new()
+    for i in 0..100000 {
+        sb_append(sb, "0123456789")
+    }
+    val s = sb_to_string(sb)
+    val b = bytes.string_to_bytes(s)
+    print(len(b))
+    var sum = 0
+    for x in b {
+        sum = sum + (x as int)
+    }
+    print(sum)
+    val h = crypto.sha256(b)
+    print(len(h))
+    val c = bytes.bytes_concat(b, b)
+    print(len(c))
+    val part = slice<byte>(c, 1000, 1500000)
+    print(len(part))
+    print(part == slice<byte>(c, 1000, 1500000))
+    val back = unwrap(bytes.bytes_to_string(part))
+    print(len(back))
+    var i = 0
+    var acc = 0
+    while i < len(part) {
+        acc = acc + (part[i] as int)
+        i = i + 100
+    }
+    print(acc)
+}

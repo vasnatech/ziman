@@ -2610,6 +2610,10 @@ a type error.
   separator has no well-defined split points. Empty pieces (adjacent
   separators, or a leading/trailing separator) are kept, so `len(result)`
   is always `count(sep in s) + 1`.
+- **`[byte]` is stored packed** (one real byte per element, not one boxed
+  value), which is invisible to programs except for cost: a 1 MB buffer is
+  about 1 MB. Everything below (indexing, `for`, `push`, `slice`, `==`, `hash`,
+  `compare`) behaves identically for it.
 - `slice<T>(a: [T], start: int, end: int) -> [T]` — the elements from
   `start` up to (not including) `end` (`0 <= start <= end <= len(a)`, a runtime
   error otherwise). **It does not copy:** arrays are immutable, so the slice

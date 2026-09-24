@@ -28,7 +28,8 @@ typedef struct Value Value;
  * the same reason: nothing can mutate one through an alias). push/insert/set
  * never mutate their input; they always build a brand new ArrayObj. */
 typedef struct ArrayObj {
-    Value *items;
+    Value *boxed_items; /* one Value per element, or NULL when `bytes` is used */
+    uint8_t *bytes;     /* packed storage for a [byte]: one real byte per element, else NULL */
     int count;
 } ArrayObj;
 
@@ -151,6 +152,22 @@ Value value_enum(Type enum_type, EnumObj *en);
 Value value_channel(Type channel_type, ChannelObj *ch);
 
 ArrayObj *array_obj_new(Value *items, int count);
+/* A packed [byte]: `bytes` (one real byte per element, allocated by the caller
+ * with zalloc_atomic or pointing into another packed array) is used as is. */
+ArrayObj *array_obj_new_bytes(uint8_t *bytes, int count);
+/* Element `i` (0 <= i < count, unchecked) as a Value, whichever storage backs it. */
+Value array_get(const ArrayObj *a, int i);
+/* A zero-copy view of elements [start, end) sharing `a`'s storage (boxed or packed). */
+ArrayObj *array_obj_view(const ArrayObj *a, int start, int end);
+/* Copies `items` (a boxed array of byte Values) into packed storage. Callers
+ * check every element is a TY_BYTE first (see array_all_bytes). */
+ArrayObj *array_obj_pack_bytes(const Value *items, int count);
+int array_all_bytes(const Value *items, int count);
+/* A fresh, writable copy of the bytes of a [byte] array, NUL-terminated for
+ * convenience; `*out_len` gets the count. */
+uint8_t *array_copy_bytes(const ArrayObj *a, int *out_len);
+/* A packed [byte] Value holding a copy of `buf[0..n)`. */
+Value value_byte_array(const uint8_t *buf, size_t n);
 StructObj *struct_obj_new(char **field_names, Value *fields, int count);
 ResultObj *result_obj_new(int is_ok, Value value);
 EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Value payload);

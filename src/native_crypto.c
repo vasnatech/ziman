@@ -134,15 +134,11 @@ static void hmac_sha256(const unsigned char *key, size_t key_len, const unsigned
 static Type byte_array_type(void) { return type_array(type_scalar(TY_BYTE)); }
 
 static unsigned char *bytes_of(ArrayObj *arr) {
-    unsigned char *buf = malloc((size_t)(arr->count > 0 ? arr->count : 1));
-    for (int i = 0; i < arr->count; i++) buf[i] = (unsigned char)arr->items[i].as.by;
-    return buf;
+    return array_copy_bytes(arr, NULL);
 }
 
 static Value value_of_bytes(const unsigned char *buf, size_t n) {
-    Value *items = malloc(sizeof(Value) * (n > 0 ? n : 1));
-    for (size_t i = 0; i < n; i++) items[i] = value_byte(buf[i]);
-    return value_array(byte_array_type(), array_obj_new(items, (int)n));
+    return value_byte_array(buf, n);
 }
 
 /* SHA-1 (FIPS 180-4), one shot. Only here because MySQL's
@@ -203,7 +199,7 @@ static Value native_f64_from_bytes(Value *args, int argc, int line, int col) {
     int64_t off = args[1].as.i;
     if (off < 0 || off + 8 > arr->count) ziman_error("runtime", line, col, "f64_from_bytes: offset %lld out of range", (long long)off);
     uint64_t bits = 0;
-    for (int i = 7; i >= 0; i--) bits = (bits << 8) | arr->items[off + i].as.by;
+    for (int i = 7; i >= 0; i--) bits = (bits << 8) | array_get(arr, (int)(off + i)).as.by;
     double d;
     memcpy(&d, &bits, sizeof d);
     return value_float(d);
@@ -225,7 +221,7 @@ static Value native_f32_from_bytes(Value *args, int argc, int line, int col) {
     int64_t off = args[1].as.i;
     if (off < 0 || off + 4 > arr->count) ziman_error("runtime", line, col, "f32_from_bytes: offset %lld out of range", (long long)off);
     uint32_t bits = 0;
-    for (int i = 3; i >= 0; i--) bits = (bits << 8) | arr->items[off + i].as.by;
+    for (int i = 3; i >= 0; i--) bits = (bits << 8) | array_get(arr, (int)(off + i)).as.by;
     float f;
     memcpy(&f, &bits, sizeof f);
     return value_float((double)f);
@@ -295,9 +291,9 @@ static Value native_bytes_xor(Value *args, int argc, int line, int col) {
     (void)argc;
     ArrayObj *a = args[0].as.arr, *b = args[1].as.arr;
     if (a->count != b->count) ziman_error("runtime", line, col, "crypto.bytes_xor: lengths differ (%d vs %d)", a->count, b->count);
-    Value *items = malloc(sizeof(Value) * (size_t)(a->count > 0 ? a->count : 1));
-    for (int i = 0; i < a->count; i++) items[i] = value_byte(a->items[i].as.by ^ b->items[i].as.by);
-    return value_array(byte_array_type(), array_obj_new(items, a->count));
+    uint8_t *out = zalloc_atomic((size_t)(a->count > 0 ? a->count : 1));
+    for (int i = 0; i < a->count; i++) out[i] = (uint8_t)(array_get(a, i).as.by ^ array_get(b, i).as.by);
+    return value_array(byte_array_type(), array_obj_new_bytes(out, a->count));
 }
 
 static const char B64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

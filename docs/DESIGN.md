@@ -3002,3 +3002,45 @@ the library and the sample backend became `val`s (the backend's
 `db_error_response` status, the pg/mysql decoders, `httpclient`'s body
 reading, `properties`' profile choice). The lint (`--lint`) counts an
 assignment made by a value block.
+
+## Packed byte arrays (R23)
+
+**Before.** Every element of a `[byte]` was an interpreter `Value` (16 bytes:
+type header plus union), so a 1 MB buffer cost ~16 MB, and `net.read`, `crypto`,
+`string_to_bytes` and `bytes_concat` boxed and copied element by element.
+Benchmark (`tests/bench/bytes_bench.zm`: build a 1 MB string, convert to bytes,
+sum it, sha256, concat to 2 MB, slice, compare, convert back): **297 MB RSS,
+0.33 s.**
+
+**Now.** `ArrayObj` has two storages: `boxed_items` (a `Value` per element, for
+every other element type) and `bytes` (a `uint8_t *`, one real byte per
+element). The type system is unchanged: a `[byte]` is still `TY_ARRAY` of
+`TY_BYTE`; which storage backs a given array is invisible to Ziman code. The
+field rename (`items` to `boxed_items`) was done first so the compiler listed
+every site that touched storage (37), and all of them now go through
+`array_get(a, i)` or check `a->bytes`. Producers pack: array literals of bytes,
+`string_to_bytes`, `net.read`/`read_exact`, `random_bytes`, `crypto`, `bytes_xor`,
+`concat_arrays`, and a byte-mode `ArrayBuilder` (the first appended element
+being a byte switches the builder to raw storage, so `ab_to_array` is one
+memcpy and building costs a byte per byte). `push`/`insert`/`set`/`remove` on a
+packed array produce a packed array; `==` is `memcmp`, `contains` is `memchr`.
+Consumers that need a C buffer (`net.write`, `bytes_to_string`, `crypto`) use
+the storage directly or `array_copy_bytes`. Empty arrays stay boxed (there is
+no element to type them by), and anything generic that ends up with an
+all-byte boxed array is still correct, just unpacked. Storage is allocated
+`zalloc_atomic`, so the collector never scans it.
+
+**Views.** `slice<T>` works on both storages (`array_obj_view`): for bytes it
+is a pointer into the parent's buffer, an interior pointer that
+`ALL_INTERIOR_POINTERS` keeps alive (the `bytes_packed` fixture checks a slice
+outliving its parent under the GC build). So the design left the
+"anything that frees `items` needs an ownership flag" question exactly as it
+was.
+
+**After.** Same program: **66 MB RSS, 0.23 s** (the remainder is interpreter
+per-iteration scope garbage from the loop, not bytes). Other results:
+`make test`/`test-gc` 507 each, pg, mysql, tls, shutdown and the backend
+scenarios (SQLite and Postgres) unchanged.
+
+**Not done.** `ArrayBuilder<T>` for other scalar types (`int`, `float`, `bool`)
+still boxes; the same trick would apply, but nothing hot needs it yet.

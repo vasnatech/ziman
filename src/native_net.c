@@ -298,10 +298,9 @@ static Value native_net_read_raw(Value *args, int argc, int line, int col) {
     ssize_t n = io_read(h, buf, (size_t)max, &e);
     if (n < 0) { free(buf); return io_error_result(arr_type, &e); }
     if (n == 0) { free(buf); return err_result(arr_type, "closed", "connection closed by peer"); }
-    Value *items = malloc(sizeof(Value) * (size_t)n);
-    for (ssize_t i = 0; i < n; i++) items[i] = value_byte(buf[i]);
+    Value bytes = value_byte_array(buf, (size_t)n);
     free(buf);
-    return ok_result(arr_type, value_array(arr_type, array_obj_new(items, (int)n)));
+    return ok_result(arr_type, bytes);
 }
 
 static Value native_net_read_exact_raw(Value *args, int argc, int line, int col) {
@@ -310,19 +309,16 @@ static Value native_net_read_exact_raw(Value *args, int argc, int line, int col)
     NetHandle *h = require_handle(args[0].as.i, "read_exact", line, col);
     int64_t want = args[1].as.i;
     if (want < 0) return err_result(arr_type, "io", "read_exact: count must not be negative");
-    unsigned char *buf = malloc((size_t)want + 1);
+    unsigned char *buf = zalloc_atomic((size_t)want + 1);
     int64_t got = 0;
     while (got < want) {
         IoErr e;
         ssize_t n = io_read(h, buf + got, (size_t)(want - got), &e);
-        if (n < 0) { free(buf); return io_error_result(arr_type, &e); }
-        if (n == 0) { free(buf); return err_result(arr_type, "closed", "connection closed before the requested bytes arrived"); }
+        if (n < 0) return io_error_result(arr_type, &e);
+        if (n == 0) return err_result(arr_type, "closed", "connection closed before the requested bytes arrived");
         got += n;
     }
-    Value *items = malloc(sizeof(Value) * (size_t)(want > 0 ? want : 1));
-    for (int64_t i = 0; i < want; i++) items[i] = value_byte(buf[i]);
-    free(buf);
-    return ok_result(arr_type, value_array(arr_type, array_obj_new(items, (int)want)));
+    return ok_result(arr_type, value_array(arr_type, array_obj_new_bytes(buf, (int)want)));
 }
 
 static Value send_all(NetHandle *h, const unsigned char *data, size_t n) {
@@ -336,8 +332,8 @@ static Value native_net_write_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     NetHandle *h = require_handle(args[0].as.i, "write", line, col);
     ArrayObj *arr = args[1].as.arr;
-    unsigned char *buf = malloc((size_t)(arr->count > 0 ? arr->count : 1));
-    for (int i = 0; i < arr->count; i++) buf[i] = (unsigned char)arr->items[i].as.by;
+    if (arr->bytes != NULL) return send_all(h, arr->bytes, (size_t)arr->count);
+    uint8_t *buf = array_copy_bytes(arr, NULL);
     Value r = send_all(h, buf, (size_t)arr->count);
     free(buf);
     return r;
@@ -481,25 +477,21 @@ static Value native_bytes_string_to_bytes(Value *args, int argc, int line, int c
     Type arr_type = byte_array_type();
     const char *s = args[0].as.str.ptr;
     size_t n = args[0].as.str.len;
-    Value *items = malloc(sizeof(Value) * (n > 0 ? n : 1));
-    for (size_t i = 0; i < n; i++) items[i] = value_byte((unsigned char)s[i]);
-    return value_array(arr_type, array_obj_new(items, (int)n));
+    (void)arr_type;
+    return value_byte_array((const uint8_t *)s, n);
 }
 
 static Value native_bytes_bytes_to_string(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type str_type = string_type();
     ArrayObj *arr = args[0].as.arr;
-    char *s = malloc((size_t)arr->count + 1);
-    for (int i = 0; i < arr->count; i++) {
-        int b = arr->items[i].as.by;
-        if (b == 0) {
-            free(s);
-            return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(strdup("bytes contain a NUL byte and cannot be a string"))));
-        }
-        s[i] = (char)b;
+    int n = 0;
+    uint8_t *tmp = array_copy_bytes(arr, &n);
+    if (memchr(tmp, 0, (size_t)n) != NULL) {
+        free(tmp);
+        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(strdup("bytes contain a NUL byte and cannot be a string"))));
     }
-    s[arr->count] = '\0';
+    char *s = (char *)tmp; /* already NUL-terminated by array_copy_bytes */
     return value_result(type_result(str_type, str_type), result_obj_new(1, value_string(s)));
 }
 

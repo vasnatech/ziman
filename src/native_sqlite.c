@@ -165,7 +165,7 @@ static int bind_all(sqlite3_stmt *stmt, ArrayObj *params) {
     int expected = sqlite3_bind_parameter_count(stmt);
     if (expected != params->count) return -2;
     for (int i = 0; i < params->count; i++) {
-        int rc = bind_param(stmt, i + 1, value_cstr(params->items[i]));
+        int rc = bind_param(stmt, i + 1, value_cstr(array_get(params, i)));
         if (rc != SQLITE_OK) return rc == -1 ? -1 : rc;
     }
     return SQLITE_OK;

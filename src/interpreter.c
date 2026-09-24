@@ -202,8 +202,12 @@ static Value call_contains(Value first, Value second) {
         return value_bool(value_str_find(first.as.str.ptr, first.as.str.len, second.as.str.ptr, second.as.str.len, 0) >= 0);
     }
     ArrayObj *arr = first.as.arr;
+    if (arr->bytes != NULL) {
+        if (second.type.kind != TY_BYTE) return value_bool(0);
+        return value_bool(memchr(arr->bytes, second.as.by, (size_t)arr->count) != NULL);
+    }
     for (int i = 0; i < arr->count; i++) {
-        if (value_equals(arr->items[i], second)) return value_bool(1);
+        if (value_equals(arr->boxed_items[i], second)) return value_bool(1);
     }
     return value_bool(0);
 }
@@ -237,7 +241,7 @@ static uint64_t hash_raw(Value v) {
         case TY_ARRAY: {
             h = 1469598103934665603ULL ^ (uint64_t)v.as.arr->count;
             for (int i = 0; i < v.as.arr->count; i++) {
-                h ^= hash_raw(v.as.arr->items[i]);
+                h ^= hash_raw(array_get(v.as.arr, i));
                 h *= 1099511628211ULL;
             }
             break;
@@ -363,7 +367,7 @@ static int value_compare(Module *module, Value a, Value b, int line, int col) {
             ArrayObj *x = a.as.arr, *y = b.as.arr;
             int n = x->count < y->count ? x->count : y->count;
             for (int i = 0; i < n; i++) {
-                int c = value_compare(module, x->items[i], y->items[i], line, col);
+                int c = value_compare(module, array_get(x, i), array_get(y, i), line, col);
                 if (c != 0) return c;
             }
             return x->count < y->count ? -1 : (x->count > y->count ? 1 : 0);
@@ -439,8 +443,14 @@ static Value call_max(Value a, Value b) {
 static Value call_push(Type array_type, Value arr, Value x) {
     ArrayObj *old = arr.as.arr;
     int new_count = old->count + 1;
+    if (old->bytes != NULL) {
+        uint8_t *bytes = zalloc_atomic((size_t)new_count);
+        memcpy(bytes, old->bytes, (size_t)old->count);
+        bytes[old->count] = (uint8_t)x.as.by;
+        return value_array(array_type, array_obj_new_bytes(bytes, new_count));
+    }
     Value *items = malloc((size_t)new_count * sizeof(Value));
-    memcpy(items, old->items, (size_t)old->count * sizeof(Value));
+    memcpy(items, old->boxed_items, (size_t)old->count * sizeof(Value));
     items[old->count] = x;
     return value_array(array_type, array_obj_new(items, new_count));
 }
@@ -452,10 +462,17 @@ static Value call_insert(Type array_type, Value arr, Value idx, Value x, int lin
         ziman_error("runtime", line, col, "insert index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
     int new_count = old->count + 1;
+    if (old->bytes != NULL) {
+        uint8_t *bytes = zalloc_atomic((size_t)new_count);
+        memcpy(bytes, old->bytes, (size_t)i);
+        bytes[i] = (uint8_t)x.as.by;
+        memcpy(bytes + i + 1, old->bytes + i, (size_t)(old->count - (int)i));
+        return value_array(array_type, array_obj_new_bytes(bytes, new_count));
+    }
     Value *items = malloc((size_t)new_count * sizeof(Value));
-    memcpy(items, old->items, (size_t)i * sizeof(Value));
+    memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
     items[i] = x;
-    memcpy(items + i + 1, old->items + i, (size_t)(old->count - (int)i) * sizeof(Value));
+    memcpy(items + i + 1, old->boxed_items + i, (size_t)(old->count - (int)i) * sizeof(Value));
     return value_array(array_type, array_obj_new(items, new_count));
 }
 
@@ -465,8 +482,14 @@ static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, 
     if (i < 0 || i >= old->count) {
         ziman_error("runtime", line, col, "set index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
+    if (old->bytes != NULL) {
+        uint8_t *bytes = zalloc_atomic((size_t)old->count);
+        memcpy(bytes, old->bytes, (size_t)old->count);
+        bytes[i] = (uint8_t)x.as.by;
+        return value_array(array_type, array_obj_new_bytes(bytes, old->count));
+    }
     Value *items = malloc((size_t)old->count * sizeof(Value));
-    memcpy(items, old->items, (size_t)old->count * sizeof(Value));
+    memcpy(items, old->boxed_items, (size_t)old->count * sizeof(Value));
     items[i] = x;
     return value_array(array_type, array_obj_new(items, old->count));
 }
@@ -478,9 +501,15 @@ static Value call_remove(Type array_type, Value arr, Value idx, int line, int co
         ziman_error("runtime", line, col, "remove index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
     int new_count = old->count - 1;
+    if (old->bytes != NULL) {
+        uint8_t *bytes = zalloc_atomic((size_t)(new_count > 0 ? new_count : 1));
+        memcpy(bytes, old->bytes, (size_t)i);
+        memcpy(bytes + i, old->bytes + i + 1, (size_t)(new_count - (int)i));
+        return value_array(array_type, array_obj_new_bytes(bytes, new_count));
+    }
     Value *items = malloc((size_t)new_count * sizeof(Value));
-    memcpy(items, old->items, (size_t)i * sizeof(Value));
-    memcpy(items + i, old->items + i + 1, (size_t)(new_count - (int)i) * sizeof(Value));
+    memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
+    memcpy(items + i, old->boxed_items + i + 1, (size_t)(new_count - (int)i) * sizeof(Value));
     return value_array(array_type, array_obj_new(items, new_count));
 }
 
@@ -871,6 +900,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             for (int i = 0; i < count; i++) {
                 items[i] = eval_expr(module, env, e->as.array_lit.elements.items[i]);
             }
+            if (array_all_bytes(items, count)) return value_array(e->resolved_type, array_obj_pack_bytes(items, count));
             return value_array(e->resolved_type, array_obj_new(items, count));
         }
         case EXPR_INDEX: {
@@ -880,7 +910,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             if (i < 0 || i >= arr.as.arr->count) {
                 ziman_error("runtime", e->line, e->col, "index %lld out of bounds (array length %d)", (long long)i, arr.as.arr->count);
             }
-            return arr.as.arr->items[i];
+            return array_get(arr.as.arr, (int)i);
         }
         case EXPR_STRUCT_LIT: {
             StructDecl *decl = find_struct(module, e->as.struct_lit.type_name);
@@ -1080,10 +1110,10 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             for (int i = 0; i < arr->count; i++) {
                 Env *scope = env_new(env);
                 if (s->as.for_stmt.binder2 == NULL) {
-                    env_define(scope, s->as.for_stmt.binder1, elem_type, 0, arr->items[i]);
+                    env_define(scope, s->as.for_stmt.binder1, elem_type, 0, array_get(arr, i));
                 } else {
                     env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(i));
-                    env_define(scope, s->as.for_stmt.binder2, elem_type, 0, arr->items[i]);
+                    env_define(scope, s->as.for_stmt.binder2, elem_type, 0, array_get(arr, i));
                 }
                 ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
                 env_free(scope);
