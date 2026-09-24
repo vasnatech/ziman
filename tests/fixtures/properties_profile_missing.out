@@ -1,1 +1,1 @@
-cannot read tests/fixtures/props_conf/application-nope.properties: cannot open 'tests/fixtures/props_conf/application-nope.properties'
+cannot read 'tests/fixtures/props_conf/application-nope.properties': No such file or directory

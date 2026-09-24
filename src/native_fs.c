@@ -89,6 +89,37 @@ static Value native_fs_rename(Value *args, int argc, int line, int col) {
     return fs_ok_int(0);
 }
 
+/* Reads the whole file. A NUL byte can't live in a string, so a file that
+ * has one is an error rather than a silently truncated string. */
+static Value native_fs_read_text(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *path = value_cstr(args[0]);
+    Type str = string_type();
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return fs_err(str, "cannot read", path);
+    size_t cap = 4096, n = 0;
+    char *buf = zalloc_atomic(cap + 1);
+    for (;;) {
+        size_t got = fread(buf + n, 1, cap - n, f);
+        n += got;
+        if (n < cap) break;
+        cap *= 2;
+        char *bigger = zalloc_atomic(cap + 1);
+        memcpy(bigger, buf, n);
+        buf = bigger;
+    }
+    int failed = ferror(f);
+    fclose(f);
+    if (failed) return fs_err(str, "cannot read", path);
+    buf[n] = '\0';
+    if (strlen(buf) != n) {
+        char msg[1024];
+        snprintf(msg, sizeof(msg), "cannot read '%s': file contains a NUL byte", path);
+        return value_result(type_result(str, str), result_obj_new(0, value_string(strdup(msg))));
+    }
+    return value_result(type_result(str, str), result_obj_new(1, value_string(buf)));
+}
+
 static int compare_names(const void *a, const void *b) {
     return strcmp(*(char *const *)a, *(char *const *)b);
 }
@@ -122,6 +153,7 @@ static Value native_fs_list_dir(Value *args, int argc, int line, int col) {
 }
 
 void native_fs_register(void) {
+    native_register("fs::read_text", native_fs_read_text);
     native_register("fs::write_text", native_fs_write_text);
     native_register("fs::append_text", native_fs_append_text);
     native_register("fs::exists", native_fs_exists);

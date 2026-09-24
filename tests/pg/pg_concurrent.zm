@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.SqlValue
 use sql.row_get
@@ -19,7 +19,7 @@ fn worker(conn: db.Connection, base: int, done: Channel<int>) {
 }
 
 fn main() {
-    val conn = unwrap(db.open(trim(unwrap(io.read_file("tests/pg/.url")))))
+    val conn = unwrap(db.open(trim(unwrap(fs.read_text("tests/pg/.url")))))
     unwrap(db.execute(conn, "DROP TABLE IF EXISTS pg_c", []))
     unwrap(db.execute(conn, "CREATE TABLE pg_c (id INTEGER PRIMARY KEY, who INTEGER NOT NULL)", []))
     val done: Channel<int> = channel_new()

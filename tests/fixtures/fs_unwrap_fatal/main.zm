@@ -1,0 +1,5 @@
+use fs
+
+fn main() {
+    print(unwrap(fs.read_text("/tmp/ziman_test_this_file_does_not_exist_either.txt")))
+}

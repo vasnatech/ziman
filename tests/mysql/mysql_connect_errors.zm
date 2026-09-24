@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.DbError
 use sql.db_error_message
@@ -26,7 +26,7 @@ fn show_unknown_user(r: Result<db.Connection, DbError>) {
 }
 
 fn main() {
-    val hp = trim(unwrap(io.read_file("tests/mysql/.hostport")))
+    val hp = trim(unwrap(fs.read_text("tests/mysql/.hostport")))
     // unknown user, unknown database
     show_unknown_user(db.open(format("mysql://nobody:secret@{}/zimandb", hp)))
     show(db.open(format("mysql://nat_user:natpw@{}/no_such_db", hp)))

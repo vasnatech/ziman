@@ -1,5 +1,4 @@
 use fs
-use io
 use log
 use log.Level
 
@@ -11,7 +10,7 @@ fn main() {
     log.info(l, "shown")
     log.warn(with_prefix_demo(l), "component")
     log.error(l, "boom")
-    print(unwrap(io.read_file(path)))
+    print(unwrap(fs.read_text(path)))
     print(log.enabled(l, Level.Debug))
     print(log.enabled(l, Level.Error))
     print(log.level_parse("WARNING"))

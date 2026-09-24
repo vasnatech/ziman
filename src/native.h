@@ -10,7 +10,7 @@
 typedef Value (*NativeFn)(Value *args, int argc, int line, int col);
 
 /* Registers `fn` under `qualified_name` -- the exact fully-qualified name
- * the loader produces for a native fn declaration (e.g. "io::read_file").
+ * the loader produces for a native fn declaration (e.g. "fs::read_text").
  * Call once per native function, before any Ziman program runs. */
 void native_register(const char *qualified_name, NativeFn fn);
 

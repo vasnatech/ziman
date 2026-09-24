@@ -2,10 +2,10 @@
 #define ZIMAN_CORELIB_H
 
 /* Bundled core modules -- ordinary Ziman source, one file per module
- * under lib/core/ (currently collections.zm and io.zm), embedded
+ * under lib/core/ (currently collections.zm and fs.zm), embedded
  * directly into the ziman binary at build time (see the Makefile's rule
  * generating src/<name>_source.h from each lib/core/<name>.zm), so
- * `use collections`/`use io` work from any project with no local copy
+ * `use collections`/`use fs` work from any project with no local copy
  * of the module and no install-time filesystem search path.
  *
  * Unlike the prelude (prelude.h), a core module is NOT merged into every

@@ -1,7 +1,7 @@
-use io
+use fs
 
 fn main() {
-    val r = io.read_file("/tmp/ziman_test_this_file_does_not_exist.txt")
+    val r = fs.read_text("/tmp/ziman_test_this_file_does_not_exist.txt")
     if is_ok(r) {
         print(unwrap(r))
     } else {

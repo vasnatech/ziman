@@ -7,7 +7,7 @@ correctly and cheap for a human to read without running it. See
 concrete decisions they led to, [docs/SYNTAX.md](docs/SYNTAX.md) for
 the full v0 grammar and semantic rules, and
 [docs/CORELIB.md](docs/CORELIB.md) for a generated signature-only
-reference of every bundled core module (`collections`, `io`, `random`,
+reference of every bundled core module (`collections`, `fs`, `random`,
 `uuid`, `clock`, `time`, `json`, `number`, `sql`, `db`, `bytes`, `net`, `crypto`, `pg`, `http`) — every `pub struct`/`pub fn` in one
 place, kept in sync with the source by `make corelib-reference` rather
 than hand-copied.
@@ -50,8 +50,8 @@ style concurrency (below) already exists to avoid, and unlike a local
 `val`, a global one can never be shadowed by a same-named local (a
 compile-time error, not silent shadowing) — see docs/DESIGN.md's
 "Global val" entry for why, `native fn` for calling into
-C (a real, minimal `io` module — `read_file`/`write_file` — proves it
-end to end), `Result<T, E>` for recoverable errors (`io.read_file`
+C (the `fs` module proves it
+end to end), `Result<T, E>` for recoverable errors (`fs.read_text`
 returns one instead of crashing on a missing file, variant-then-payload
 `==`/`!=` when both `T` and `E` are comparable), user-declared `enum`
 tagged unions with enum-qualified construction and compiler-generated
@@ -90,10 +90,10 @@ outright, not moved, since nothing ever actually used it beyond being
 the first generic struct ever written; `struct Box<T> { value: T }`
 above is illustrative syntax anyone can still write, just not a
 `collections` export anymore.)
-It's also one of twenty *bundled core modules* (alongside `io`, mentioned
+It's also one of twenty *bundled core modules* (alongside `fs`, mentioned
 above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db`/`bytes`/`net`/`crypto`/`pg`/`http` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
-`use io` work from any project with no local copy needed — a
+`use fs` work from any project with no local copy needed — a
 project-relative file of the same name still wins if one exists, but
 this is the fallback that means one usually doesn't have to. `random`
 is one native function, `random_bytes(n: int) -> [byte]`, reading real
@@ -204,7 +204,7 @@ fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
 `parse_decimal`, `floor`, `ceil`, `round`, `decimal_round`, `concat`,
 `substring`, `split`, `trim`, `to_upper`, `to_lower`, `join` — instead
 lives in an auto-imported "prelude" module (`lib/prelude.zm`), each
-an ordinary `native fn` using the same mechanism the `io` module uses to
+an ordinary `native fn` using the same mechanism the `fs` module uses to
 call into C. `join(prefix: Option<string>, suffix: Option<string>,
 separator: Option<string>, pieces: string...) -> string` is also the
 first use of a *variadic parameter* — `join(pieces: "a", "b")`/
@@ -279,7 +279,7 @@ missing capability first: `native fn` couldn't take type parameters at
 all before this (a parser gap, not a deliberate restriction — the type
 checker's own generic-instantiation logic never special-cased native
 functions once the syntax was accepted). Unlike every other bundled
-module (`collections`, `io`, ...), `lib/prelude.zm` is never
+module (`collections`, `fs`, ...), `lib/prelude.zm` is never
 reachable through `use` at all — everything it declares is already
 unqualified everywhere, so
 there'd be nothing to gain and a redundant path to create. See

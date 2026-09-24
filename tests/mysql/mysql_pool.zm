@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.SqlValue
 use sql.row_get
@@ -16,7 +16,7 @@ fn writer(pool: db.Connection, base: int, done: Channel<int>) {
 }
 
 fn main() {
-    val hp = trim(unwrap(io.read_file("tests/mysql/.hostport")))
+    val hp = trim(unwrap(fs.read_text("tests/mysql/.hostport")))
     val pool = unwrap(db.open_pool(format("mysql://nat_user:natpw@{}/zimandb", hp), 3))
     unwrap(db.execute(pool, "DROP TABLE IF EXISTS my_p", []))
     unwrap(db.execute(pool, "CREATE TABLE my_p (id INT PRIMARY KEY, who INT NOT NULL) ENGINE=InnoDB", []))

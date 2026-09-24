@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.SqlValue
 use sql.row_get
@@ -19,7 +19,7 @@ fn worker(conn: db.Connection, base: int, done: Channel<int>) {
 }
 
 fn main() {
-    val hp = trim(unwrap(io.read_file("tests/mysql/.hostport")))
+    val hp = trim(unwrap(fs.read_text("tests/mysql/.hostport")))
     val conn = unwrap(db.open(format("mysql://nat_user:natpw@{}/zimandb", hp)))
     unwrap(db.execute(conn, "DROP TABLE IF EXISTS my_c", []))
     unwrap(db.execute(conn, "CREATE TABLE my_c (id INT PRIMARY KEY, who INT NOT NULL)", []))

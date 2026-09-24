@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.DbError
 use sql.db_error_message
@@ -9,7 +9,7 @@ fn show(r: Result<db.Connection, DbError>) {
 }
 
 fn main() {
-    val url = trim(unwrap(io.read_file("tests/pg/.url")))
+    val url = trim(unwrap(fs.read_text("tests/pg/.url")))
     // wrong password (SQLSTATE 28P01)
     show(db.open("postgres://ziman:wrong@127.0.0.1:55432/zimandb"))
     // unknown user, unknown database

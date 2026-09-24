@@ -1,5 +1,4 @@
 use fs
-use io
 
 fn main() {
     val d = "/tmp/ziman_fixture_fs_basic"
@@ -12,7 +11,7 @@ fn main() {
     val p = format("{}/a.txt", d)
     print(fs.write_text(p, "hello"))
     print(fs.append_text(p, " world"))
-    print(unwrap(io.read_file(p)))
+    print(unwrap(fs.read_text(p)))
     print(fs.size(p))
     print(fs.rename(p, format("{}/b.txt", d)))
     print(fs.list_dir(d))

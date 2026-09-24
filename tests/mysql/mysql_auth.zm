@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.row_get
 use sql.sql_as_text
@@ -26,7 +26,7 @@ fn whoami(url: string) {
 }
 
 fn main() {
-    val hp = trim(unwrap(io.read_file("tests/mysql/.hostport")))
+    val hp = trim(unwrap(fs.read_text("tests/mysql/.hostport")))
     // mysql_native_password, no TLS
     whoami(format("mysql://nat_user:natpw@{}/zimandb", hp))
     // wrong password

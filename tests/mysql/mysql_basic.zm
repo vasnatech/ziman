@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.SqlValue
 use sql.DbError
@@ -15,7 +15,7 @@ fn field(row: Row, name: string) -> SqlValue {
 }
 
 fn main() {
-    val hostport = trim(unwrap(io.read_file("tests/mysql/.hostport")))
+    val hostport = trim(unwrap(fs.read_text("tests/mysql/.hostport")))
     val conn = unwrap(db.open(format("mysql://nat_user:natpw@{}/zimandb", hostport)))
 
     // ---- DDL script (several statements, no params) and every value kind

@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.SqlValue
 use sql.DbError
@@ -37,7 +37,7 @@ pub struct Person {
 }
 
 fn main() {
-    val conn = unwrap(db.open(trim(unwrap(io.read_file("tests/pg/.url")))))
+    val conn = unwrap(db.open(trim(unwrap(fs.read_text("tests/pg/.url")))))
     unwrap(db.execute(conn, "DROP TABLE IF EXISTS people", []))
     unwrap(db.execute(conn, "CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, born TEXT NOT NULL, age_hint INTEGER, active INTEGER NOT NULL, score REAL NOT NULL, created_at TEXT NOT NULL)", []))
     val p1 = Person { id: uuid_new(), name: "Ada", nickname: Option<string>.Some("A"), born: unwrap(localdate_from_string("1815-12-10")), age_hint: Option<int>.None, active: true, score: 0.1, created_at: instant_now() }

@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.SqlValue
 use sql.DbError
@@ -24,7 +24,7 @@ fn count(conn: db.Connection) -> int {
 }
 
 fn main() {
-    val url = trim(unwrap(io.read_file("tests/pg/.url")))
+    val url = trim(unwrap(fs.read_text("tests/pg/.url")))
     val pool = unwrap(db.open_pool(url, 3))
     unwrap(db.execute(pool, "DROP TABLE IF EXISTS pg_tx", []))
     unwrap(db.execute(pool, "CREATE TABLE pg_tx (n INTEGER PRIMARY KEY)", []))

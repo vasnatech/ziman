@@ -8,7 +8,6 @@
 #include "native_clock.h"
 #include "native_crypto.h"
 #include "native_sqlite.h"
-#include "native_io.h"
 #include "native_fs.h"
 #include "native_net.h"
 #include "native_os.h"
@@ -60,7 +59,6 @@ int main(int argc, char **argv) {
      * happens, not when 4 KiB have accumulated or the process exits. */
     setvbuf(stdout, NULL, _IOLBF, 0);
 
-    native_io_register();
     native_fs_register();
     native_random_register();
     native_clock_register();

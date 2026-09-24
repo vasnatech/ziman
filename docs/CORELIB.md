@@ -166,6 +166,8 @@ pub fn bytes_to_hex(data: [byte]) -> string
 ## `fs`
 
 ```
+pub native fn read_text(path: string) -> Result<string, string>
+
 pub native fn write_text(path: string, text: string) -> Result<int, string>
 
 pub native fn append_text(path: string, text: string) -> Result<int, string>
@@ -311,17 +313,6 @@ pub struct ServeOptions {
 }
 
 pub fn serve<C>(listener: Listener, ctx: C, handler: fn(C, Request) -> Response, options: ServeOptions)
-
-```
-
-## `io`
-
-File I/O. The first native module -- proved the `native fn` mechanism end to end.
-
-```
-pub native fn read_file(path: string) -> Result<string, string>
-
-pub native fn write_file(path: string, contents: string)
 
 ```
 

@@ -1277,21 +1277,18 @@ fn main() {
   given call instantiated it with to do its job, since `Value` is
   already runtime-type-erased regardless of the language's static types
   (see "Generics" below).
-  A minimal real module ships today — `io`, with `read_file(path:
-  string) -> Result<string, string>` and `write_file(path: string,
-  contents: string)` — a small, honest proof of the mechanism, not a
-  general file API (no append mode, no directory listing yet).
-  `read_file` reports a missing/unreadable file as a `Result` (see
-  "Result" below) rather than crashing the whole program, since that's
-  an expected, recoverable condition; `write_file` is still fatal on
-  failure for now (disk full, permissions). `io.zm` is one of the
-  bundled core modules below, so a project needs no local copy of it.
+  The filesystem module `fs` is the standard example — `fs.read_text(path:
+  string) -> Result<string, string>`, `fs.write_text`, `fs.list_dir`, and
+  so on (see "Files" below). A missing or unreadable file is a `Result`
+  (see "Result" below) rather than a crash, since that's an expected,
+  recoverable condition. `fs.zm` is one of the bundled core modules
+  below, so a project needs no local copy of it.
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
   name exists. Eight so far: `collections` (`HashMap<K, V>`,
-  `HashSet<T>` — see "Generics" above), `io`
-  (`read_file`/`write_file`, above), `random` (`random_bytes(n: int) ->
+  `HashSet<T>` — see "Generics" above), `fs`
+  (files, above), `random` (`random_bytes(n: int) ->
   [byte]`, the one native function reading real OS entropy — no other
   source of non-determinism exists to build a PRNG on top of), `uuid`
   (`Uuid`, `uuid_new() -> Uuid`, `uuid_to_string(u: Uuid) -> string` —
@@ -1311,7 +1308,7 @@ fn main() {
   `int`/`float`/`bigint`/`decimal`/`byte` — see "Number formatting and
   parsing" below). Any project can `use` one of these with no
   local file of its own. Each is still an ordinary, qualified module in
-  every other respect — `use io`, always `io.read_file`, never a bare
+  every other respect — `use fs`, always `fs.read_text`, never a bare
   unqualified name the way the prelude's declarations are (though a
   per-name import, above, can still bind one bare on purpose). The
   prelude (`lib/prelude.zm`) is a deliberate exception to "every
@@ -2068,11 +2065,11 @@ connection reuse, HTTP/2. `parse_url(url)` is public.
 
 ## Files (`fs`)
 
-Beyond `io.read_file`: `fs.write_text`, `append_text`, `exists`, `is_dir`,
+`fs.read_text` (a whole file as a string), `fs.write_text`, `append_text`, `exists`, `is_dir`,
 `size`, `remove` (a file or an empty directory), `make_dir`, `rename` and
 `list_dir` (sorted names). Everything that can fail returns `Result<_,
-string>` carrying the OS message; `io.write_file` remains the fatal-on-failure
-one, kept for scripts.
+string>` carrying the OS message. (There used to be a separate `io` module
+with a fatal-on-failure `write_file`; it was folded into `fs`.)
 
 ## Logging (`log`)
 

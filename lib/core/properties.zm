@@ -27,7 +27,7 @@
 // Placeholders are resolved once, when the properties are built, so a bad
 // one fails startup and every lookup afterwards is a plain array scan.
 
-use io
+use fs
 use os
 
 pub struct Entry {
@@ -164,11 +164,7 @@ pub fn parse(text: string, source: string) -> Result<Properties, string> {
 }
 
 fn read_source(file: string) -> Result<string, string> {
-    val r = io.read_file(file)
-    if !is_ok(r) {
-        return err(format("cannot read {}: {}", file, unwrap_err(r)))
-    }
-    return ok(unwrap(r))
+    return fs.read_text(file)
 }
 
 // `over` wins on a key present in both.

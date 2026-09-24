@@ -1,4 +1,4 @@
-use io
+use fs
 use db
 use sql.SqlValue
 use sql.Row
@@ -55,7 +55,7 @@ fn distinct_count(items: [int]) -> int {
 }
 
 fn main() {
-    val url = trim(unwrap(io.read_file("tests/pg/.url")))
+    val url = trim(unwrap(fs.read_text("tests/pg/.url")))
     val setup = unwrap(db.open(url))
     unwrap(db.execute(setup, "DROP TABLE IF EXISTS pg_pool_counter; DROP TABLE IF EXISTS pg_pool_rows", []))
     unwrap(db.execute(setup, "CREATE TABLE pg_pool_counter (n INTEGER); INSERT INTO pg_pool_counter VALUES (0); CREATE TABLE pg_pool_rows (worker INTEGER, n INTEGER)", []))

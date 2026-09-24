@@ -4,8 +4,8 @@
 /* Ziman's prelude: everything declared in lib/prelude.zm -- native
  * functions, but also ordinary Ziman types/functions/vals -- is always
  * available, bare and unqualified, in every program, no `use` needed,
- * unlike every other module (`io`, which needs `use io` and
- * `io.read_file(...)`; even a bundled core module like `collections`
+ * unlike every other module (`fs`, which needs `use fs` and
+ * `fs.read_text(...)`; even a bundled core module like `collections`
  * still needs `use collections`). This is a deliberate, narrow exception
  * to "every cross-module reference is qualified": the native functions
  * here were already unqualified core builtins before they moved into

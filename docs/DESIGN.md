@@ -2845,3 +2845,12 @@ Properties stay non-generic: a row has a fixed column list.
   TLS fixture against `openssl s_server` is what caught it.
 - Regex is left open: it wants either a native engine or a sizeable pure-Ziman
   one, and is a design decision of its own.
+
+## `io` folded into `fs`
+
+`io` held two functions (`read_file`, and a fatal `write_file`) next to the
+newer `fs`. One domain, two modules; the fatal writer contradicted the
+Result-everywhere rule. Now `fs.read_text` replaces `io.read_file` (same
+Result; the message names the OS reason, e.g. "cannot read 'x': No such file
+or directory") and `fs.write_text` replaces `io.write_file`. Earlier entries in
+this file and ROADMAP.md that mention `io.read_file` describe history.

@@ -1,2 +1,0 @@
-pub native fn read_file(path: string) -> Result<string, string>
-pub native fn write_file(path: string, contents: string)
