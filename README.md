@@ -74,7 +74,8 @@ This program is `tests/fixtures/readme_example.zm`, run by the test suite, so it
 - **Concurrency:** real OS threads with `spawn` and thread-safe channels, in
   a single-writer/actor style rather than shared memory.
 - **Functions:** named arguments, variadic parameters, `Option` parameters
-  that can be omitted, function values (references to named functions).
+  that can be omitted, function values: references to named functions, and lambdas that capture
+  immutable locals by value.
 - **Modules:** `use path/to/mod` (qualified) or `use mod.Name [as alias]`;
   a small bundled standard library needs no installation.
 

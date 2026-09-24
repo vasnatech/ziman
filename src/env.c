@@ -13,6 +13,7 @@ Env *env_new(Env *parent) {
 void env_free(Env *env) {
     free(env->items);
     free(env->defers);
+    free(env->caps);
     free(env);
 }
 
@@ -33,11 +34,33 @@ int env_define(Env *env, const char *name, Type type, int is_mutable, Value valu
     return 1;
 }
 
+static void record_capture(Env *boundary, const Binding *b) {
+    for (int i = 0; i < boundary->cap_count; i++) {
+        if (strcmp(boundary->caps[i].name, b->name) == 0) return;
+    }
+    if (boundary->cap_count == boundary->cap_capacity) {
+        boundary->cap_capacity = boundary->cap_capacity == 0 ? 4 : boundary->cap_capacity * 2;
+        boundary->caps = realloc(boundary->caps, (size_t)boundary->cap_capacity * sizeof(Capture));
+    }
+    boundary->caps[boundary->cap_count].name = strdup(b->name);
+    boundary->caps[boundary->cap_count].type = b->type;
+    boundary->caps[boundary->cap_count].is_mutable = b->is_mutable;
+    boundary->cap_count++;
+}
+
 Binding *env_lookup(Env *env, const char *name) {
+    Env *crossed[16];
+    int n_crossed = 0;
     for (Env *e = env; e != NULL; e = e->parent) {
         for (int i = 0; i < e->count; i++) {
-            if (strcmp(e->items[i].name, name) == 0) return &e->items[i];
+            if (strcmp(e->items[i].name, name) == 0) {
+                if (!e->is_global) {
+                    for (int k = 0; k < n_crossed; k++) record_capture(crossed[k], &e->items[i]);
+                }
+                return &e->items[i];
+            }
         }
+        if (e->is_lambda_boundary && n_crossed < 16) crossed[n_crossed++] = e;
     }
     return NULL;
 }

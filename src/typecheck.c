@@ -39,6 +39,7 @@ static EnumDecl *find_enum(Module *module, const char *name) {
 static Env *g_global_env = NULL;
 
 static Type check_expr(Module *module, Env *env, Expr *e);
+static Type check_lambda(Module *module, Env *env, Expr *e);
 static void check_type_well_formed(Module *module, Type t, int line, int col);
 
 /* Rebuilds `t` with every TY_TYPEVAR named in `params` replaced by the
@@ -1697,6 +1698,7 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
             t = b->type;
             break;
         }
+        case EXPR_LAMBDA: t = check_lambda(module, env, e); break;
         case EXPR_UNARY: t = check_unary(module, env, e); break;
         case EXPR_BINARY: t = check_binary(module, env, e); break;
         case EXPR_CALL: t = check_call(module, env, e); break;
@@ -2177,6 +2179,76 @@ static int arm_yields_or_leaves(Stmt *s) {
     }
 }
 
+/* The type `fn(P...) -> R` of a lambda: its declared parameters only (the
+ * captured ones, in front, are not part of it). */
+static Type lambda_type(FunctionDecl *lam, int ncaptured) {
+    TypeList params = {0};
+    for (int i = ncaptured; i < lam->params.count; i++) type_list_push(&params, lam->params.items[i].type);
+    return type_func(params, lam->return_type);
+}
+
+/* `fn(x: int) -> int { ... }`. The body is checked in a scope whose parent is
+ * the enclosing scope but which is a *capture boundary*: any local of the
+ * enclosing function that the body uses is recorded by env_lookup. Those are
+ * captured by value, so they must be immutable (`val`, a parameter, a loop or
+ * switch binder); a `var` would let a lambda observe or change state the
+ * enclosing function also touches, which is what the actor model avoids. The
+ * captures become the lambda's leading parameters. */
+static Type check_lambda(Module *module, Env *env, Expr *e) {
+    FunctionDecl *lam = e->lambda_decl;
+    if (e->lambda_checked) return lambda_type(lam, e->lambda_ncaptured);
+
+    Env *root = env_new(env);
+    root->is_lambda_boundary = 1;
+    for (int i = 0; i < lam->params.count; i++) {
+        Param *param = &lam->params.items[i];
+        if (param->is_variadic || param->default_expr != NULL) {
+            ziman_error("type", param->line, param->col, "a lambda's parameters can't be variadic or have defaults");
+        }
+        check_type_well_formed(module, param->type, param->line, param->col);
+        if (!env_define(root, param->name, param->type, 0, value_int(0))) {
+            ziman_error("type", param->line, param->col, "duplicate parameter name '%s'", param->name);
+        }
+    }
+    check_type_well_formed(module, lam->return_type, lam->line, lam->col);
+
+    ValueCtx *saved_value_ctx = g_value_ctx;
+    g_value_ctx = NULL;
+    for (int i = 0; i < lam->body->as.block.stmts.count; i++) {
+        check_stmt(module, root, lam->body->as.block.stmts.items[i], lam->return_type, 0);
+    }
+    g_value_ctx = saved_value_ctx;
+    if (lam->return_type.kind != TY_VOID && !stmt_always_returns(lam->body)) {
+        ziman_error("type", lam->line, lam->col, "this lambda does not return a value on every path");
+    }
+
+    int ncaptured = root->cap_count;
+    for (int i = 0; i < ncaptured; i++) {
+        if (root->caps[i].is_mutable) {
+            ziman_error("type", e->line, e->col,
+                        "a lambda cannot capture '%s' because it is a 'var' -- copy it into a 'val' first and use that "
+                        "(captures are by value, so the lambda and the enclosing function never share mutable state)",
+                        root->caps[i].name);
+        }
+    }
+    ParamList all = {0};
+    for (int i = 0; i < ncaptured; i++) {
+        Param p;
+        memset(&p, 0, sizeof p);
+        p.name = root->caps[i].name;
+        p.type = root->caps[i].type;
+        p.line = e->line;
+        p.col = e->col;
+        param_list_push(&all, p);
+    }
+    for (int i = 0; i < lam->params.count; i++) param_list_push(&all, lam->params.items[i]);
+    lam->params = all;
+    e->lambda_ncaptured = ncaptured;
+    e->lambda_checked = 1;
+    env_free(root);
+    return lambda_type(lam, ncaptured);
+}
+
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
     switch (s->kind) {
         case STMT_SWITCH:
@@ -2495,6 +2567,7 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
  * since g_global_env is what every function's own scope is rooted in. */
 static void check_global_vals(Module *module) {
     g_global_env = env_new(NULL);
+    g_global_env->is_global = 1;
     for (int i = 0; i < module->vals.count; i++) {
         GlobalValDecl *v = module->vals.items[i];
         Stmt synthetic = {0};

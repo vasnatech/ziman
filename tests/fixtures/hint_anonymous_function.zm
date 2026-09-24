@@ -1,3 +1,0 @@
-fn main() {
-    val f = fn(x: int) -> int { return x }
-}

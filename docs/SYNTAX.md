@@ -478,8 +478,8 @@ for i, x in arr { ... }       // index + value together
 ## Function values
 
 A function can be passed around: its type is `fn(A, B) -> R` (no `-> R` for a
-function that returns nothing), and the name of a top-level function is a value
-of that type.
+function that returns nothing). Two things are values of that type: the name of
+a top-level function, and a *lambda*, an anonymous function written in place.
 
 ```
 fn double(n: int) -> int { return n * 2 }
@@ -496,11 +496,28 @@ fn main() {
 }
 ```
 
-- **A function value is a reference to a named top-level function -- not a
-  closure.** There are no anonymous functions and nothing is captured, so a
-  function value carries no state and cannot reintroduce shared mutable state.
-  Anything a function needs besides its arguments is passed explicitly (an
-  accumulator, a context value).
+- **A lambda is `fn(params) -> R { body }`**, with the parameter and return
+  types written out (no `-> R` means it returns nothing):
+  ```
+  val base = 10
+  val add = fn(x: int) -> int { return x + base }
+  val doubled = collections.map<int, int>(numbers, fn(n: int) -> int { return n * 2 })
+  ```
+  It is an expression, usable anywhere one is. `return`, `?` and `defer` inside
+  it belong to the lambda, and `break`/`continue` cannot leave it.
+- **What a lambda captures, and how.** Any *immutable* local of the enclosing
+  function that its body uses -- a `val`, a parameter, a loop or `switch`
+  binder, another function value -- is captured **by value**, copied when the
+  lambda is evaluated. A lambda cannot capture a `var` (compile error: copy it
+  into a `val` first), so a lambda and its enclosing function never share
+  mutable state and a function value is still safe to send to another thread.
+  Global `val`s are not captured, just used. Lambdas nest, and capture through
+  every level. A name declared inside a lambda (a parameter, a `val`) is its own
+  and takes precedence over an outer variable of the same name; in a module
+  (not the entry file) it may not share a global `val`'s name, the same rule as
+  everywhere else.
+- **A reference to a named top-level function** is the other kind of value:
+  `apply(double, 21)`. It carries nothing.
 - **What can be a value:** any top-level function (own module, `use mod.name`,
   or `mod.name`; a `native fn` too) that is not generic and has no variadic
   parameter. A generic function can't be used as a value yet (wrap it in a
@@ -522,8 +539,9 @@ fn main() {
 - **In the standard library:** `collections.map`, `filter`, `fold`, `any`, `all`,
   `find`, `for_each` and `sort_with`, with the type arguments written out at the
   call (`collections.map<int, string>(numbers, label)`). Because a function
-  can't capture, `map_ctx`, `filter_ctx` and `find_ctx` pass an extra value
-  through to the function on every call --
+  cannot capture (a named function has no enclosing scope), `map_ctx`,
+  `filter_ctx` and `find_ctx` pass an extra value through to the function on
+  every call, which a lambda makes unnecessary but a named handler still needs --
   `collections.find_ctx<http.Request, Route>(table, req, matches)` calls
   `matches(req, route)` for each route until one is true. That is how the sample
   backend's route table finds the handler for a request.

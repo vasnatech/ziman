@@ -768,7 +768,17 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 /* A call through a local of function type (a parameter, a val):
                  * the value names the FunctionDecl to run. */
                 Binding *fb = env_lookup(env, e->as.call.local_name);
-                result = call_function(module, fb->value.as.fn, args, argc, 0, e->line, e->col);
+                ClosureObj *clo = fb->value.as.clo;
+                if (clo->ncaptured == 0) {
+                    result = call_function(module, clo->fn, args, argc, 0, e->line, e->col);
+                } else {
+                    /* A lambda's captured values are its first parameters. */
+                    Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
+                    memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
+                    memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
+                    result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, e->line, e->col);
+                    free(all);
+                }
             } else if (strcmp(e->as.call.callee, "print") == 0) {
                 result = call_print(args[0]);
             } else if (strcmp(e->as.call.callee, "str") == 0) {
@@ -963,6 +973,13 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         }
         case EXPR_ENUM_ACCESS:
             return eval_enum_access(module, env, e);
+        case EXPR_LAMBDA: {
+            FunctionDecl *lam = e->lambda_decl;
+            int n = e->lambda_ncaptured;
+            Value *captured = n > 0 ? malloc((size_t)n * sizeof(Value)) : NULL;
+            for (int i = 0; i < n; i++) captured[i] = env_lookup(env, lam->params.items[i].name)->value;
+            return value_closure(lam, captured, n);
+        }
         case EXPR_TRY_UNWRAP:
             /* Unreachable in a well-typed program: check_expr's own
              * EXPR_TRY_UNWRAP case (typecheck.c) already rejects any

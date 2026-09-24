@@ -147,6 +147,7 @@ typedef enum {
     EXPR_WITH,
     EXPR_ENUM_ACCESS,
     EXPR_TRY_UNWRAP,
+    EXPR_LAMBDA,
 } ExprKind;
 
 typedef struct Expr Expr;
@@ -182,6 +183,15 @@ struct Expr {
      * to `fn_ref` (a FunctionDecl *) only when no local of that name exists. */
     char *fn_ref_name;
     void *fn_ref;
+    /* EXPR_LAMBDA: `fn(x: int) -> int { ... }`. `lambda_decl` (a FunctionDecl *)
+     * holds the parameters, return type and body as written. The type checker
+     * finds which enclosing `val`s the body uses (captures, by value) and puts
+     * them in front of the declared parameters; the first `lambda_ncaptured`
+     * parameters of the decl are those captures, filled in when the closure is
+     * created. See docs/DESIGN.md "Closures". */
+    void *lambda_decl;
+    int lambda_ncaptured;
+    int lambda_checked;
 
     union {
         int64_t int_val;

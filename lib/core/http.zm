@@ -6,7 +6,7 @@
 // Or write your own accept loop and connection loop and call the pieces:
 // `read_request`, `write_response`, the response builders, and route matching
 // that extracts path parameters (`route`, `param`). A handler cannot capture
-// (function values are references to named functions), so what it needs
+// (function values are references to named functions or lambdas), so what it needs
 // besides the request travels as an explicit context value.
 //
 // What it speaks: HTTP/1.1 and 1.0 requests with a request line, headers

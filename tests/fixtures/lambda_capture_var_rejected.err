@@ -1,0 +1,1 @@
+type error at 3:13: a lambda cannot capture 'n' because it is a 'var' -- copy it into a 'val' first and use that (captures are by value, so the lambda and the enclosing function never share mutable state)

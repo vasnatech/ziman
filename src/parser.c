@@ -218,6 +218,8 @@ static Type parse_type(Parser *p) {
 }
 
 static Expr *parse_expr(Parser *p);
+static ParamList parse_params(Parser *p);
+static Stmt *parse_block(Parser *p);
 
 /* Used by call arguments and array literals. Tolerates a newline after
  * each element/before each comma and after each comma, same "the last
@@ -627,15 +629,30 @@ static Expr *parse_primary(Parser *p) {
         return e;
     }
 
+    if (match(p, TOK_FN)) {
+        /* `fn(x: int) -> int { ... }`: a lambda. Parameter and return types are
+         * written out like a named function's; a missing `->` means it returns
+         * nothing. What it captures from the enclosing function is worked out
+         * by the type checker. */
+        FunctionDecl *fn = calloc(1, sizeof(FunctionDecl));
+        fn->name = (char *)"lambda";
+        fn->line = t->line;
+        fn->col = t->col;
+        expect(p, TOK_LPAREN, "'('");
+        fn->params = parse_params(p);
+        expect(p, TOK_RPAREN, "')'");
+        fn->return_type = type_scalar(TY_VOID);
+        if (match(p, TOK_ARROW)) fn->return_type = parse_type(p);
+        fn->body = parse_block(p);
+        Expr *e = expr_new(EXPR_LAMBDA, t->line, t->col);
+        e->lambda_decl = fn;
+        return e;
+    }
     if (t->type == TOK_IF || t->type == TOK_SWITCH) {
         ziman_error("syntax", t->line, t->col,
                     "an '%s' can be used as a value only as the whole right-hand side of 'val'/'var', an assignment or 'return' -- "
                     "bind it to a 'val' first, then use that name here",
                     t->type == TOK_IF ? "if" : "switch");
-    }
-    if (t->type == TOK_FN) {
-        ziman_error("syntax", t->line, t->col,
-                    "Ziman has no anonymous functions -- declare a top-level 'fn' and pass its name (function values are references to named functions)");
     }
     ziman_error("syntax", t->line, t->col, "expected an expression, found %s", token_type_name(t->type));
     return NULL; /* unreachable */
@@ -1371,6 +1388,13 @@ static void reclassify_type_params_in_expr(Expr *e, TypeParamList *type_params) 
         case EXPR_TRY_UNWRAP:
             reclassify_type_params_in_expr(e->as.try_unwrap.inner, type_params);
             break;
+        case EXPR_LAMBDA: {
+            FunctionDecl *lam = e->lambda_decl;
+            for (int i = 0; i < lam->params.count; i++) reclassify_type_params(&lam->params.items[i].type, type_params);
+            reclassify_type_params(&lam->return_type, type_params);
+            reclassify_type_params_in_stmt(lam->body, type_params);
+            break;
+        }
     }
 }
 

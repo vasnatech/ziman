@@ -154,7 +154,11 @@ typedef struct {
     int n_vals;
     NamedImport *imports;
     int n_imports;
+    int in_lambda; /* >0 while walking a lambda body, whose locals the val-shadowing pass can't see */
 } SelfQualifyCtx;
+
+static const NamedImport *find_named_import(SelfQualifyCtx *ctx, const char *name, ImportKind kind);
+static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx);
 
 static const NamedImport *find_named_import(SelfQualifyCtx *ctx, const char *name, ImportKind kind) {
     for (int i = 0; i < ctx->n_imports; i++) {
@@ -230,6 +234,22 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
     /* Not one of this module's own structs/enums, nor a named import --
      * leave it; typecheck reports "unknown struct or enum type" if it's
      * genuinely undefined. */
+}
+
+/* check_no_val_shadowing only sees statements, so a local declared inside a
+ * lambda body (which lives in an expression) is checked here instead, while the
+ * body is being walked: a local sharing a global val's name would be silently
+ * rewritten to that global by the blind substitution below. */
+static void forbid_global_val_name(SelfQualifyCtx *ctx, const char *name, int line, int col) {
+    if (ctx->in_lambda == 0) return;
+    int reserved = find_named_import(ctx, name, IMPORT_VAL) != NULL;
+    for (int i = 0; i < ctx->n_vals && !reserved; i++) {
+        if (strcmp(name, ctx->orig_val_names[i]) == 0) reserved = 1;
+    }
+    if (reserved) {
+        ziman_error("module", line, col,
+                    "'%s' is a global val in this module, so it can't also be used as a local name inside a lambda (rename one)", name);
+    }
 }
 
 static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
@@ -375,12 +395,25 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
         case EXPR_TRY_UNWRAP:
             self_qualify_expr(e->as.try_unwrap.inner, ctx);
             break;
+        case EXPR_LAMBDA: {
+            FunctionDecl *lam = e->lambda_decl;
+            ctx->in_lambda++;
+            for (int i = 0; i < lam->params.count; i++) {
+                self_qualify_type(&lam->params.items[i].type, ctx);
+                forbid_global_val_name(ctx, lam->params.items[i].name, lam->params.items[i].line, lam->params.items[i].col);
+            }
+            self_qualify_type(&lam->return_type, ctx);
+            self_qualify_stmt(lam->body, ctx);
+            ctx->in_lambda--;
+            break;
+        }
     }
 }
 
 static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
     switch (s->kind) {
         case STMT_VAL: case STMT_VAR:
+            forbid_global_val_name(ctx, s->as.decl.name, s->line, s->col);
             if (s->as.decl.has_declared_type) self_qualify_type(&s->as.decl.declared_type, ctx);
             self_qualify_expr(s->as.decl.init, ctx);
             break;
@@ -397,6 +430,8 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
             self_qualify_stmt(s->as.while_stmt.body, ctx);
             break;
         case STMT_FOR:
+            forbid_global_val_name(ctx, s->as.for_stmt.binder1, s->line, s->col);
+            if (s->as.for_stmt.binder2 != NULL) forbid_global_val_name(ctx, s->as.for_stmt.binder2, s->line, s->col);
             if (s->as.for_stmt.is_range) {
                 self_qualify_expr(s->as.for_stmt.range_start, ctx);
                 self_qualify_expr(s->as.for_stmt.range_end, ctx);
@@ -440,12 +475,20 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
             break;
         case STMT_SWITCH:
             self_qualify_expr(s->as.switch_stmt.scrutinee, ctx);
-            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) self_qualify_stmt(s->as.switch_stmt.arms[i].body, ctx);
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) {
+                if (s->as.switch_stmt.arms[i].binder != NULL) {
+                    forbid_global_val_name(ctx, s->as.switch_stmt.arms[i].binder, s->as.switch_stmt.arms[i].line, s->as.switch_stmt.arms[i].col);
+                }
+                self_qualify_stmt(s->as.switch_stmt.arms[i].body, ctx);
+            }
             break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) self_qualify_stmt(s->as.block.stmts.items[i], ctx);
             break;
         case STMT_VALUE_BLOCK:
+            if (s->as.value_block.target == STMT_VAL || s->as.value_block.target == STMT_VAR) {
+                forbid_global_val_name(ctx, s->as.value_block.name, s->line, s->col);
+            }
             if (s->as.value_block.has_declared_type) self_qualify_type(&s->as.value_block.declared_type, ctx);
             self_qualify_stmt(s->as.value_block.inner, ctx);
             break;
@@ -625,7 +668,7 @@ static void self_qualify_module(Module *mod, const char *own_path, NamedImport *
         mod->vals.items[i]->name = qualify_name(own_path, orig_val_names[i]);
     }
 
-    SelfQualifyCtx ctx = {own_path, orig_fn_names, n_fns, orig_struct_names, n_structs, orig_enum_names, n_enums, orig_val_names, n_vals, imports, n_imports};
+    SelfQualifyCtx ctx = {own_path, orig_fn_names, n_fns, orig_struct_names, n_structs, orig_enum_names, n_enums, orig_val_names, n_vals, imports, n_imports, 0};
     self_qualify_walk_module(mod, &ctx);
 
     free(orig_fn_names);
@@ -883,6 +926,8 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
     }
 }
 
+static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx);
+
 static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
     switch (e->kind) {
         case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_BYTE: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
@@ -968,6 +1013,13 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
         case EXPR_TRY_UNWRAP:
             resolve_expr_refs(e->as.try_unwrap.inner, ctx);
             break;
+        case EXPR_LAMBDA: {
+            FunctionDecl *lam = e->lambda_decl;
+            for (int i = 0; i < lam->params.count; i++) resolve_type_refs(&lam->params.items[i].type, ctx, lam->params.items[i].line, lam->params.items[i].col);
+            resolve_type_refs(&lam->return_type, ctx, lam->line, lam->col);
+            resolve_stmt_refs(lam->body, ctx);
+            break;
+        }
     }
 }
 
@@ -1262,7 +1314,7 @@ Module *load_module_graph(const char *entry_path) {
     for (int i = 0; i < entry_mod->vals.count; i++) entry_val_names[i] = entry_mod->vals.items[i]->name;
     check_no_val_shadowing(entry_mod, entry_val_names, entry_mod->vals.count, entry_imports, n_entry_imports);
     free(entry_val_names);
-    SelfQualifyCtx entry_ctx = {"", NULL, 0, NULL, 0, NULL, 0, NULL, 0, entry_imports, n_entry_imports};
+    SelfQualifyCtx entry_ctx = {"", NULL, 0, NULL, 0, NULL, 0, NULL, 0, entry_imports, n_entry_imports, 0};
     self_qualify_walk_module(entry_mod, &entry_ctx);
     resolve_cross_refs(&ldr, entry_mod);
 

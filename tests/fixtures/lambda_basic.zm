@@ -1,0 +1,106 @@
+use collections
+
+struct Item {
+    name: string
+    qty: int
+}
+
+fn apply(f: fn(int) -> int, x: int) -> int {
+    return f(x)
+}
+
+fn make_adder(k: int) -> fn(int) -> int {
+    return fn(x: int) -> int { return x + k }
+}
+
+fn twice<T>(x: T, f: fn(T) -> T) -> T {
+    return f(f(x))
+}
+
+fn keep_first<T>(items: [T], marker: T) -> [T] {
+    val replace = fn(a: T) -> T { return marker }
+    return [replace(items[0])]
+}
+
+fn parse_plus_one(s: string) -> Result<int, string> {
+    val f = fn(t: string) -> Result<int, string> {
+        val n = parse_int(t)?
+        return ok(n + 1)
+    }
+    return f(s)
+}
+
+fn worker(f: fn(int) -> int, out: Channel<int>) {
+    send(out, f(20))
+}
+
+fn main() {
+    val base = 10
+    val add = fn(x: int) -> int { return x + base }
+    print(add(5))
+    print(apply(add, 1))
+    print(apply(fn(x: int) -> int { return x * 2 }, 21))
+    val add3 = make_adder(3)
+    print(add3(4))
+
+    val items = [Item { name: "pen", qty: 3 }, Item { name: "ink", qty: 4 }, Item { name: "cup", qty: 0 }]
+    val min_qty = 1
+    print(collections.map<Item, string>(items, fn(i: Item) -> string { return i.name }))
+    print(len(collections.filter<Item>(items, fn(i: Item) -> bool { return i.qty >= min_qty })))
+    print(collections.fold<Item, int>(items, 0, fn(acc: int, i: Item) -> int { return acc + i.qty }))
+    print(collections.sort_with<Item>(items, fn(a: Item, b: Item) -> int { return b.qty - a.qty })[0].name)
+
+    // captured through two levels of lambda
+    val outer = 7
+    val make = fn(n: int) -> fn(int) -> int {
+        return fn(x: int) -> int { return x * n + outer }
+    }
+    val times3 = make(3)
+    print(times3(10))
+
+    // a captured function value, and a lambda taking one
+    val inc = fn(x: int) -> int { return x + min_qty }
+    val apply_twice = fn(f: fn(int) -> int, x: int) -> int { return f(f(x)) }
+    print(apply_twice(inc, 5))
+
+    // no parameters, no result
+    val hello = fn() { print("hello from a lambda") }
+    hello()
+
+    // loop binders capture by value
+    for i in 0..3 {
+        val f = fn() -> int { return i * 10 }
+        print(f())
+    }
+
+    // a parameter with the same name as an outer variable is the parameter
+    val x = 3
+    val shadow = fn(x: int) -> int { return x + 1 }
+    print(shadow(10))
+    print(x)
+
+    // generics, `?` and results inside a lambda
+    print(twice<int>(3, fn(n: int) -> int { return n * n }))
+    print(keep_first<string>(["a"], "z"))
+    print(parse_plus_one("41"))
+    print(parse_plus_one("x"))
+
+    // an if/switch value inside a lambda body
+    val pick = fn(y: int) -> int {
+        val z = if y > 0 { base } else { 0 }
+        return z
+    }
+    print(pick(1))
+
+    // functions in an array, and sent over a channel to another thread
+    val fs = [fn(v: int) -> int { return v + 1 }, fn(v: int) -> int { return v * 2 }]
+    var acc = 5
+    for f in fs {
+        acc = f(acc)
+    }
+    print(acc)
+    val out: Channel<int> = channel_new()
+    val k = 22
+    spawn worker(fn(v: int) -> int { return v + k }, out)
+    print(receive(out))
+}

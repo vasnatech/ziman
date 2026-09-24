@@ -2923,14 +2923,14 @@ language starts at zero. Every divergence from mainstream syntax, even a
 clearer one, costs generation accuracy until a corpus exists. Ziman pays it
 in the most common operations: `arr = push(arr, x)` for `arr.push(x)`,
 `concat(a, b)` for `a + b`, `switch` with `Enum.unwrap_X` accessors for `match`,
-no methods, no `if` expressions, no closures, `for i in 0..n` for the C loop.
+no methods, no `if` expression as an operand, lambdas that must spell out their types and cannot capture a `var`, `for i in 0..n` for the C loop.
 Those are accepted for the principles above, knowingly, and the mitigation is
 the **diagnostic**: a model's habit should fail at compile time with the
 sentence that fixes it. Probed on 2026-09-24, each habit now does:
 `"a" + "b"` (use `concat`/`format`), `a.push(x)` and `s.len()` (no methods; call
 `push(a, x)` / `len(s)`), `match` (use `switch`), `s.length` (use `len(s)`),
 `for (...; ...; ...)` (no `;`; use `for i in 0..n`), `if` as an expression
-(use a `var`), `fn(...) {}` as a value (declare a top-level `fn`), and
+(use a `var`), `fn(...) {}` was rejected here until R13 stage 2 made it a lambda, and
 `1 + 2.0` (cast with `as`). Adding a habit that produces a vague message is a
 defect to fix the way these were.
 
@@ -3044,3 +3044,52 @@ scenarios (SQLite and Postgres) unchanged.
 
 **Not done.** `ArrayBuilder<T>` for other scalar types (`int`, `float`, `bool`)
 still boxes; the same trick would apply, but nothing hot needs it yet.
+
+## Closures: lambdas that capture by value (R13 stage 2)
+
+**Decision.** Ziman gets anonymous functions, `fn(x: int) -> int { ... }`,
+capturing enclosing *immutable* locals by value. Captures cannot be `var`s.
+
+**Why by value and no `var`.** The stage 1 reason to have no closures was the
+actor model: a value that carries no environment cannot reintroduce shared
+mutable state. Capturing a copy of an immutable value keeps that true, since
+the lambda and the enclosing function share nothing that either can change, so a
+function value is still safe to hand to another thread over a channel. Capturing
+a `var` (by reference, or by copy that then diverges) is where the surprises
+live, so it is a compile error with the fix in the message. What it costs: a
+counter or accumulator cannot be updated from inside a lambda; that state
+belongs in a value the lambda returns, or in an actor.
+
+**Why explicit parameter and return types.** Ziman has no inference across
+function boundaries (principle 3; a signature is a contract), and a lambda is a
+function. It is verbose next to Rust or Kotlin (`collections.map<int, int>(xs,
+fn(n: int) -> int { return n * 2 })`), and lifting the annotations when the
+expected type is known is a later, separate decision.
+
+**Mechanism.** No free-variable pass. The lambda body is type-checked in a scope
+whose parent is the enclosing scope but which is a *capture boundary*
+(`Env.is_lambda_boundary`): when `env_lookup` finds a name beyond such a
+boundary, in an enclosing function's scopes rather than the global one, it
+records the capture on every boundary it crossed (so nested lambdas capture
+through each level). The captures then become the lambda's leading parameters
+(`FunctionDecl.params[0..ncaptured)`), and the lambda is an ordinary function
+body to the interpreter. At run time a function value is a `ClosureObj`
+(function plus captured values); evaluating `EXPR_LAMBDA` copies the captured
+values out of the current scope, and a call through a function value passes them
+ahead of the arguments. A plain reference to a named function is a closure with
+nothing captured, so there is one representation. The static type is unchanged:
+`fn(A) -> R`, regardless of what is captured.
+
+**Small consequences.** The loader's val-shadowing check sees statements, not
+expressions, so a lambda body's declarations are checked while it is walked
+(a local may not share a module-level global `val`'s name, as elsewhere). A
+lambda is never lifted to the module's function list, so it has no name and
+prints as `<function lambda>`. `spawn` still names its function statically (a
+lambda can be an *argument* to a spawned function, as the fixture shows).
+Generic functions still cannot be used as values; a lambda inside a generic
+function may use its type parameters.
+
+**Not done.** Stage 2 does not make `db.with_transaction` or `http.serve` drop
+their explicit context parameters: those APIs remain correct, and a caller can
+now also pass a lambda that closes over what it needs. Expression-bodied lambdas
+and inferring lambda parameter types are open.

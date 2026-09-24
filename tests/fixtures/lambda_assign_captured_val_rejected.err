@@ -1,0 +1,1 @@
+type error at 3:20: cannot assign to 'k' because it was declared with 'val' (use 'var' to make it mutable)

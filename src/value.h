@@ -75,7 +75,7 @@ struct Value {
         struct ResultObj *res;
         struct EnumObj *en;
         struct ChannelObj *ch;
-        FunctionDecl *fn; /* TY_FUNC: the named top-level function this value refers to */
+        struct ClosureObj *clo; /* TY_FUNC: a function plus the values it captured */
     } as;
 };
 
@@ -88,6 +88,15 @@ typedef struct ResultObj {
     int is_ok; /* 1 = Ok, 0 = Err */
     Value value; /* the Ok payload if is_ok, the Err payload otherwise */
 } ResultObj;
+
+/* A function value: the function and, for a lambda, the values it captured
+ * (immutable, copied when the lambda was evaluated). A reference to a named
+ * top-level function has ncaptured == 0. */
+typedef struct ClosureObj {
+    FunctionDecl *fn;
+    int ncaptured;
+    Value *captured;
+} ClosureObj;
 
 /* A user-declared enum value's backing storage. Same immutable-once-built
  * invariant as the others. `enum_name`/`variant_name` are borrowed from the
@@ -130,6 +139,9 @@ Value value_bool(int b);
 Value value_string(char *s);
 /* A function value: a reference to a named top-level function (no capture). */
 Value value_function(FunctionDecl *fn);
+/* A function value that carries `ncaptured` values, bound to the decl's first
+ * `ncaptured` parameters on each call. `captured` is taken over. */
+Value value_closure(FunctionDecl *fn, Value *captured, int ncaptured);
 /* A view of `len` bytes at `ptr` -- no copy. `term` is 1 only if ptr[len] is
  * a NUL. */
 Value value_string_view(const char *ptr, size_t len, int term);

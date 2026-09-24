@@ -1,0 +1,9 @@
+pub val limit = 5
+
+pub fn run() -> int {
+    val f = fn(x: int) -> int {
+        val limit = 2
+        return x + limit
+    }
+    return f(1)
+}

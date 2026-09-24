@@ -12,11 +12,26 @@
 Value value_int(int64_t i) { Value v; v.type = type_scalar(TY_INT); v.as.i = i; return v; }
 Value value_float(double f) { Value v; v.type = type_scalar(TY_FLOAT); v.as.f = f; return v; }
 Value value_bool(int b) { Value v; v.type = type_scalar(TY_BOOL); v.as.b = b; return v; }
-Value value_function(FunctionDecl *fn) {
+Value value_closure(FunctionDecl *fn, Value *captured, int ncaptured) {
     Value v;
+    ClosureObj *c = malloc(sizeof(ClosureObj));
+    c->fn = fn;
+    c->ncaptured = ncaptured;
+    c->captured = captured;
     v.type = function_value_type(fn);
-    v.as.fn = fn;
+    /* function_value_type reads every parameter; a lambda's leading captured
+     * ones are not part of its type. */
+    if (ncaptured > 0) {
+        TypeList params = {0};
+        for (int i = ncaptured; i < fn->params.count; i++) type_list_push(&params, fn->params.items[i].type);
+        v.type = type_func(params, fn->return_type);
+    }
+    v.as.clo = c;
     return v;
+}
+
+Value value_function(FunctionDecl *fn) {
+    return value_closure(fn, NULL, 0);
 }
 
 Value value_string_view(const char *ptr, size_t len, int term) {
@@ -407,7 +422,7 @@ char *value_display(Value v) {
         case TY_CHANNEL:
             return strdup("Channel");
         case TY_FUNC: {
-            const char *name = v.as.fn->name;
+            const char *name = v.as.clo->fn->name;
             size_t len = strlen(name) + 12;
             char *out = malloc(len);
             snprintf(out, len, "<function %s>", name);

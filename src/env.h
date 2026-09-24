@@ -18,6 +18,13 @@ typedef struct {
     Value value; /* unused by the type checker */
 } Binding;
 
+/* A variable a lambda's body used from outside itself (see env_lookup). */
+typedef struct {
+    char *name;
+    Type type;
+    int is_mutable;
+} Capture;
+
 typedef struct Env {
     Binding *items;
     int count;
@@ -29,6 +36,16 @@ typedef struct Env {
     struct Expr **defers;
     int defer_count;
     int defer_capacity;
+    /* Type checker only. A lambda's own root scope is a boundary: a name that
+     * env_lookup finds *beyond* it, in an enclosing function's scopes, is
+     * recorded in `caps` (once) -- that is how the checker learns what the body
+     * captures, without a separate free-variable pass. `is_global` marks the
+     * scope holding global vals, which are shared, not captured. */
+    int is_lambda_boundary;
+    int is_global;
+    Capture *caps;
+    int cap_count;
+    int cap_capacity;
 } Env;
 
 Env *env_new(Env *parent);

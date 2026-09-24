@@ -1,0 +1,5 @@
+fn main() {
+    val a = fn(x: int) -> int { return x }
+    val b = fn(x: int) -> int { return x }
+    print(a == b)
+}
