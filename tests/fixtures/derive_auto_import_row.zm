@@ -1,0 +1,13 @@
+#[derive(Row)]
+struct Person {
+    id: int
+    name: string
+    score: Option<float>
+    active: bool
+}
+
+fn main() {
+    val p = Person { id: 1, name: "ada", score: Option<float>.Some(1.5), active: true }
+    val params = person_to_params(p)
+    print(len(params))
+}

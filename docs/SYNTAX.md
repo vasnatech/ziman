@@ -1592,11 +1592,18 @@ fn main() {
   per-field priority order above). `Option<T>` is never tagged this way
   — it keeps its own `null`/unwrapped handling from the per-field rules
   even when it shows up as an enum variant's payload type.
-- **The consuming module must `use` whatever the generated code calls**
-  — `Json`, `JField`, `json_require_field`, `json_object_get`, and each
-  field type's own `_to_json`/`_from_json` (or `_to_string`/
-  `_from_string`) — exactly as hand-written code doing the same job
-  would need to. Nothing is auto-imported.
+- **A derive imports what it generates code against.** `#[derive(Json)]`
+  brings in `json.Json`, `JField`, `json_object_get`, `json_require_field`
+  and `json_require_string_field`; `#[derive(Row)]` brings in `sql.SqlValue`,
+  `DbError`, `Row`, `row_get` and the `sql_as_*` readers;
+  `#[derive(Properties)]` imports the `properties` module. A name is added
+  only if the module doesn't already bind it, so an explicit `use` (or a
+  declaration of your own with that name) is left alone. What a derive can't
+  supply is a *field type's* own conversion -- each field type's
+  `_to_json`/`_from_json` (or `_to_sql`/`_from_sql`) still has to exist and
+  be imported, and a missing one says so ("give that type its own
+  #[derive(Json)] or write it by hand"). Names the derive imported are
+  visible to the rest of the module, so your own code may use them too.
 
 ## Databases
 

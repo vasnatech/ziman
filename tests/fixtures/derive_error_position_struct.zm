@@ -1,4 +1,4 @@
-struct Other {
+struct Inner {
     a: int
 }
 
@@ -7,7 +7,7 @@ struct Other {
 #[derive(Json)]
 struct Point {
     x: int
-    y: int
+    inner: Inner
 }
 
 fn main() {

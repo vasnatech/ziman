@@ -1,0 +1,1 @@
+Ok(Point { x: 1, label: Some(a), tags: [t] })

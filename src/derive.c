@@ -645,6 +645,64 @@ static void parse_and_splice(Module *module, char *source, int line, int col, co
      * simplest and matches the rest of the codebase's policy. */
 }
 
+/* ---------------------------------------------------------------------
+ * Imports the generated code needs. The generator knows exactly which
+ * names it emitted, so the user shouldn't have to spell five `use` lines
+ * for one `#[derive(Json)]` -- and forgetting one gave an unhelpful error.
+ * A name is added only when the module doesn't already bind it (an
+ * explicit `use`, or a declaration of the same name), so an explicit
+ * import still works and a user's own `Row` is left alone.
+ * --------------------------------------------------------------------- */
+
+static int module_binds_name(Module *module, const char *name) {
+    for (int i = 0; i < module->uses.count; i++) {
+        UseDecl *u = &module->uses.items[i];
+        if (u->local_name != NULL && strcmp(u->local_name, name) == 0) return 1;
+    }
+    for (int i = 0; i < module->functions.count; i++) if (strcmp(module->functions.items[i]->name, name) == 0) return 1;
+    for (int i = 0; i < module->structs.count; i++) if (strcmp(module->structs.items[i]->name, name) == 0) return 1;
+    for (int i = 0; i < module->enums.count; i++) if (strcmp(module->enums.items[i]->name, name) == 0) return 1;
+    return 0;
+}
+
+static void ensure_named_import(Module *module, const char *path, const char *name, int line, int col) {
+    if (module_binds_name(module, name)) return;
+    UseDecl u;
+    memset(&u, 0, sizeof u);
+    u.path = fmt_str("%s", path);
+    u.imported_name = fmt_str("%s", name);
+    u.local_name = fmt_str("%s", name);
+    u.line = line;
+    u.col = col;
+    use_list_push(&module->uses, u);
+}
+
+static void ensure_module_import(Module *module, const char *path, int line, int col) {
+    for (int i = 0; i < module->uses.count; i++) {
+        UseDecl *u = &module->uses.items[i];
+        if (u->qualifier != NULL && strcmp(u->path, path) == 0 && strcmp(u->qualifier, path) == 0) return;
+    }
+    UseDecl u;
+    memset(&u, 0, sizeof u);
+    u.path = fmt_str("%s", path);
+    u.qualifier = fmt_str("%s", path);
+    u.line = line;
+    u.col = col;
+    use_list_push(&module->uses, u);
+}
+
+static void import_for_derive(Module *module, const char *target, int line, int col) {
+    if (strcmp(target, "Json") == 0) {
+        static const char *const names[] = {"Json", "JField", "json_object_get", "json_require_field", "json_require_string_field"};
+        for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "json", names[i], line, col);
+    } else if (strcmp(target, "Row") == 0) {
+        static const char *const names[] = {"SqlValue", "DbError", "Row", "row_get", "sql_as_text", "sql_as_int", "sql_as_bool", "sql_as_float"};
+        for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "sql", names[i], line, col);
+    } else if (strcmp(target, "Properties") == 0) {
+        ensure_module_import(module, "properties", line, col);
+    }
+}
+
 void generate_derived_functions(Module *module) {
     for (int i = 0; i < module->structs.count; i++) {
         StructDecl *sd = module->structs.items[i];
@@ -659,6 +717,7 @@ void generate_derived_functions(Module *module) {
                 ziman_error("syntax", sd->line, sd->col, "derive(%s) does not support a generic struct yet ('%s')", sd->derives[d], sd->name);
             }
             const char *label = fmt_str("derive(%s) for '%s'", sd->derives[d], sd->name);
+            import_for_derive(module, sd->derives[d], sd->line, sd->col);
             if (is_props) {
                 parse_and_splice(module, generate_struct_properties(sd), sd->line, sd->col, label);
             } else if (is_json) {
@@ -686,6 +745,7 @@ void generate_derived_functions(Module *module) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Json) does not support a generic enum yet ('%s')", ed->name);
             }
             const char *label = fmt_str("derive(%s) for '%s'", ed->derives[d], ed->name);
+            import_for_derive(module, ed->derives[d], ed->line, ed->col);
             parse_and_splice(module, generate_enum_to_json(ed), ed->line, ed->col, label);
             parse_and_splice(module, generate_enum_from_json(ed), ed->line, ed->col, label);
         }

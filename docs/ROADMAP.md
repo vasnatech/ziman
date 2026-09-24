@@ -202,7 +202,7 @@ against)**
   Generated code has no source mapping, so any error reports `1:5` of
   nothing. Stamp every spliced token with the originating declaration's
   line/column and prefix the message with `in derive(Json) for 'Point':`.
-- [ ] **R7. Auto-import what a derive itself generated.** One
+- [x] **R7. Auto-import what a derive itself generated.** *Done 2026-09-23 (Json, Row, Properties); field types' own conversions stay explicit but their missing-function error now says what to do.* One
   `#[derive(Json)]` currently needs five hand-written `use json.*` lines
   the generator already knows it needs, and forgetting one produces the
   unhelpful error above. Inject them, or at least say which `use` is

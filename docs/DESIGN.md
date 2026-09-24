@@ -1641,6 +1641,23 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **A derive imports the names it generates code against (external
+  review, roadmap R7, 2026-09-23).** One `#[derive(Json)]` needed five
+  hand-written `use json.*` lines, and forgetting one produced the old
+  invisible-line error with no mention of `use`. The docs presented "Nothing
+  is auto-imported" as a principle; it was an implementation consequence.
+  The generator knows exactly which names it emitted, so it now adds them
+  (a small per-target table: Json, Row, and a whole-module `use properties`
+  for Properties), skipping any name the module already binds -- an
+  explicit `use`, or the module's own declaration of that name -- so
+  nothing that compiled before changes meaning and the injected names stay
+  traceable to the `#[derive]` line. Not covered on purpose: a *field
+  type's* own conversion (`uuid_to_json`, `time`'s functions, ...). Those
+  depend on which type the field is and whether its module provides one, so
+  they stay explicit, but the error now says what to do ("give that type its
+  own #[derive(Json)], or write it by hand and `use` it"). Result: the
+  sample backend dropped 45 derive-only `use` lines across nine files with
+  no other change.
 - **`#[derive]` errors point at the declaration and say which derive
   produced them (external review, roadmap R6, 2026-09-23).** A derive
   generates real Ziman source and re-parses it, and the generated tokens

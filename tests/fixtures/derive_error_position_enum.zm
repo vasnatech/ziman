@@ -1,15 +1,14 @@
 
 
 
-enum Shape {
-    Circle(float)
-    Empty
+struct Inner {
+    a: int
 }
 
 #[derive(Json)]
 enum Kind {
     A
-    B(int)
+    B(Inner)
 }
 
 fn main() {

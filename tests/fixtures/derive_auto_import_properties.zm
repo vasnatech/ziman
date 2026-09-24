@@ -1,0 +1,16 @@
+#[derive(Properties)]
+struct Server {
+    port: int
+    name: Option<string>
+}
+
+fn main() {
+    val props = unwrap(parse_props())
+    val cfg = unwrap(server_from_properties(props, "srv"))
+    print(cfg.port)
+    print(Option.is_Some(cfg.name))
+}
+
+fn parse_props() -> Result<properties.Properties, string> {
+    return properties.parse("srv.port=8080\n", "t.properties")
+}

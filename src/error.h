@@ -13,5 +13,6 @@ void ziman_error(const char *phase, int line, int col, const char *fmt, ...);
  * declaration it came from, since its own positions point at the
  * declaration rather than into an invisible file. Pass NULL to clear. */
 void ziman_set_error_context(const char *context);
+const char *ziman_error_context(void);
 
 #endif

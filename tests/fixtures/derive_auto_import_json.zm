@@ -1,0 +1,11 @@
+#[derive(Json)]
+struct Point {
+    x: int
+    label: Option<string>
+    tags: [string]
+}
+
+fn main() {
+    val p = Point { x: 1, label: Option<string>.Some("a"), tags: ["t"] }
+    print(point_from_json(point_to_json(p)))
+}

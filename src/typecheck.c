@@ -883,6 +883,22 @@ static Type check_call(Module *module, Env *env, Expr *e) {
 
     FunctionDecl *fn = find_function(module, name);
     if (fn == NULL) {
+        /* Inside a #[derive] expansion, a missing <type>_to_json / _from_json
+         * / _to_sql / _from_sql means a field's type provides no conversion
+         * -- the one thing a derive can't supply for it -- so say how to. */
+        static const char *const suffixes[] = {"_to_json", "_from_json", "_to_sql", "_from_sql"};
+        if (ziman_error_context() != NULL) {
+            size_t n = strlen(name);
+            for (size_t k = 0; k < sizeof suffixes / sizeof suffixes[0]; k++) {
+                size_t sl = strlen(suffixes[k]);
+                if (n > sl && strcmp(name + n - sl, suffixes[k]) == 0) {
+                    ziman_error("type", e->line, e->col,
+                                "call to undefined function '%s' -- a derived conversion needs one for every field type: "
+                                "give that type its own #[derive(%s)] (or write '%s' by hand and import it with 'use')",
+                                name, (k < 2) ? "Json" : "Row", name);
+                }
+            }
+        }
         ziman_error("type", e->line, e->col, "call to undefined function '%s'", name);
     }
     canonicalize_named_args(e, fn);
