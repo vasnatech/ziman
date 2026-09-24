@@ -1,0 +1,13 @@
+#[derive(Json)]
+pub struct Page<T> {
+    items: [T]
+}
+
+#[derive(Json)]
+pub struct Holder {
+    page: Page<[int]>
+}
+
+fn main() {
+    print("unreachable")
+}

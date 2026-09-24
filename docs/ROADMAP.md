@@ -262,9 +262,14 @@ against)**
   the riskiest shape for copy-paste mistakes at ~40 entities), and no
   generic `map`/`filter`/`sort`/`with_transaction` can exist. Decide
   explicitly, and record the decision either way.
-- [ ] **R14. Derives on generic types.** `#[derive(Json)]` rejects generic
-  structs, which already forced the sample backend to type a field as raw
-  `Json` and lose the type.
+- [x] **R14. Derives on generic types.** `#[derive(Ord)]` and `#[derive(Json)]`
+  now work on generic structs and enums. Ord generates a generic
+  `name_compare<A: Ord, ...>`. Json takes one converter *function value* per
+  type parameter (`page_to_json<T>(v, t_to_json)`, `page_from_json<T>(j,
+  t_from_json)`), with `int_/float_/bool_/string_ to/from_json` in `json`
+  for the scalar arguments. A field like `Page<Point>` gets its converters
+  filled in automatically; array/Option type arguments are rejected with a
+  message. `Row` and `Properties` still reject generics.
 
 - [ ] **R21. `if` and `switch` as expressions.** (Not from the review --
   surfaced while implementing R4.) Both are statements today, so getting a

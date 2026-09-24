@@ -459,3 +459,50 @@ pub fn json_to_json(j: Json) -> Json {
 pub fn json_from_json(j: Json) -> Result<Json, string> {
     return j
 }
+
+// Converter functions for the scalar types. A generic #[derive(Json)] type takes
+// one converter per type parameter (`page_to_json<int>(page, int_to_json)`), and
+// a builtin type has no function of its own to pass -- these are those.
+pub fn int_to_json(n: int) -> Json {
+    return Json.JNumber(n as float)
+}
+
+pub fn int_from_json(j: Json) -> Result<int, string> {
+    if !Json.is_JNumber(j) {
+        return err("expected a number")
+    }
+    return ok(Json.unwrap_JNumber(j) as int)
+}
+
+pub fn float_to_json(f: float) -> Json {
+    return Json.JNumber(f)
+}
+
+pub fn float_from_json(j: Json) -> Result<float, string> {
+    if !Json.is_JNumber(j) {
+        return err("expected a number")
+    }
+    return ok(Json.unwrap_JNumber(j))
+}
+
+pub fn bool_to_json(b: bool) -> Json {
+    return Json.JBool(b)
+}
+
+pub fn bool_from_json(j: Json) -> Result<bool, string> {
+    if !Json.is_JBool(j) {
+        return err("expected a boolean")
+    }
+    return ok(Json.unwrap_JBool(j))
+}
+
+pub fn string_to_json(s: string) -> Json {
+    return Json.JString(s)
+}
+
+pub fn string_from_json(j: Json) -> Result<string, string> {
+    if !Json.is_JString(j) {
+        return err("expected a string")
+    }
+    return ok(Json.unwrap_JString(j))
+}

@@ -1,4 +1,4 @@
-#[derive(Json)]
+#[derive(Row)]
 pub struct Box<T> {
     value: T
 }

@@ -1,0 +1,10 @@
+#[derive(Ord)]
+pub struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+fn main() {
+    val a = Pair<int, bool> { first: 1, second: true }
+    print(compare<Pair<int, bool>>(a, a))
+}

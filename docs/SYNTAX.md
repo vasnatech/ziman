@@ -1625,8 +1625,10 @@ val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
 - **`#[derive(Ord)]`** writes `<type>_compare`: a struct compares its fields
   in declaration order (the first difference decides); an enum compares by
   variant position, then by payload when both are the same variant. Every
-  field and payload must itself be `Ord`. A struct with no fields, or a generic
-  type, can't derive it.
+  field and payload must itself be `Ord`. A struct with no fields can't derive
+  it. A generic type can: `#[derive(Ord)] struct Pair<A, B>` writes
+  `pair_compare<A: Ord, B: Ord>`, and `Pair<int, string>` is `Ord` exactly when
+  both arguments are (so `Pair<int, bool>` is rejected).
 - **`collections.sort<T: Ord>(items) -> [T]`** is a stable merge sort (equal
   items keep their order) returning a new array. To sort by anything other
   than the type's own order, compute a key per item and use

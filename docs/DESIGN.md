@@ -2816,3 +2816,16 @@ several languages rather than inheriting any one of them wholesale.
 - Not chasing raw performance in v0 — it's a tree-walking interpreter.
   Compilation to bytecode or native code is a later milestone if the
   language design proves out.
+
+## R14: derives on generic types
+
+`derive(Ord)` on `Pair<A, B>` emits `pair_compare<A: Ord, B: Ord>`; the
+typechecker's `find_compare_function` accepts a generic compare function and
+checks each type argument against the bounds it declares. `derive(Json)`
+cannot rely on a bound (Json has no trait), so instead each type parameter
+becomes a converter function-value parameter, which is what function values
+(R13) made possible. Converters for nested generic fields are synthesised from
+the concrete type arguments (type parameter -> the enclosing converter, scalar
+-> `json.int_to_json` etc., plain struct/enum -> its derived function).
+Arrays/Options as type arguments are rejected rather than guessed at. Row and
+Properties stay non-generic: a row has a fixed column list.

@@ -168,6 +168,96 @@ static int is_option_type_here(Type t) {
 static void emit_to_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col);
 static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col);
 
+/* ---- generic declarations ------------------------------------------------
+ * `struct Page<T> { ... }` / `enum Either<L, R> { ... }` derive too. `params`
+ * is the declaration's type parameter list (count 0 for an ordinary one).
+ *
+ * Ord: the generated function is itself generic with an `Ord` bound on every
+ * parameter -- `pair_compare<A: Ord, B: Ord>(a: Pair<A, B>, b: Pair<A, B>)` --
+ * so the `compare` calls in its body type-check.
+ *
+ * Json: a generic type can't know how to convert its `T`, so each type
+ * parameter gets one *converter function value* passed in:
+ *   page_to_json<T>(v: Page<T>, t_to_json: fn(T) -> Json) -> Json
+ *   page_from_json<T>(j: Json, t_from_json: fn(Json) -> Result<T, string>)
+ * A field of type `T` calls that converter. */
+
+/* "<T, U>" (with `bound` after each name, e.g. ": Ord"), or "" for no params. */
+static char *type_param_decl_text(TypeParamList *params, const char *bound) {
+    if (params->count == 0) return fmt_str("%s", "");
+    char *out = fmt_str("%s", "<");
+    for (int i = 0; i < params->count; i++) {
+        out = fmt_str("%s%s%s%s", out, i > 0 ? ", " : "", params->items[i].name, bound);
+    }
+    return fmt_str("%s>", out);
+}
+
+/* "Page" or "Page<T, U>" -- the declaration's own type as written in a signature. */
+static char *decl_type_text(const char *name, TypeParamList *params) {
+    if (params->count == 0) return fmt_str("%s", name);
+    char *out = fmt_str("%s<", name);
+    for (int i = 0; i < params->count; i++) {
+        out = fmt_str("%s%s%s", out, i > 0 ? ", " : "", params->items[i].name);
+    }
+    return fmt_str("%s>", out);
+}
+
+/* The converter parameter for type parameter `T`: "t_to_json" / "t_from_json". */
+static char *converter_param_name(const char *type_param, int is_to) {
+    char *snake = pascal_to_snake(type_param);
+    return fmt_str("%s_%s_json", snake, is_to ? "to" : "from");
+}
+
+/* ", t_to_json: fn(T) -> Json, u_to_json: fn(U) -> Json" appended to a parameter list. */
+static char *converter_params_text(TypeParamList *params, int is_to) {
+    char *out = fmt_str("%s", "");
+    for (int i = 0; i < params->count; i++) {
+        char *name = converter_param_name(params->items[i].name, is_to);
+        if (is_to) out = fmt_str("%s, %s: fn(%s) -> Json", out, name, params->items[i].name);
+        else out = fmt_str("%s, %s: fn(Json) -> Result<%s, string>", out, name, params->items[i].name);
+    }
+    return out;
+}
+
+/* The function value that converts one type argument of a generic field type
+ * (`Page<Patient>`'s `Patient`): the enclosing declaration's own converter for a
+ * type parameter, a `json` helper for a scalar, `<type>_to_json` for a plain
+ * struct/enum. Anything else (an array, an Option) has no named converter to
+ * pass. */
+static char *converter_for_type_arg(Type arg, int is_to, int line, int col) {
+    const char *dir = is_to ? "to" : "from";
+    switch (arg.kind) {
+        case TY_TYPEVAR: return converter_param_name(arg.type_var_name, is_to);
+        case TY_INT: return fmt_str("int_%s_json", dir);
+        case TY_FLOAT: return fmt_str("float_%s_json", dir);
+        case TY_BOOL: return fmt_str("bool_%s_json", dir);
+        case TY_STRING: return fmt_str("string_%s_json", dir);
+        case TY_STRUCT:
+        case TY_ENUM: {
+            if (arg.type_args.count == 0 && !is_option_type_here(arg)) {
+                const char *name = arg.kind == TY_STRUCT ? arg.struct_name : arg.enum_name;
+                char *snake = pascal_to_snake(name);
+                return fmt_str("%s_%s_json", snake, dir);
+            }
+            break;
+        }
+        default: break;
+    }
+    ziman_error("syntax", line, col,
+                "derive(Json) cannot build a converter for type argument '%s' -- use a scalar, a type parameter or a plain struct/enum there",
+                type_name(arg));
+    return NULL;
+}
+
+/* "<A, B>" from a concrete type's type arguments, for an explicit-type-argument call. */
+static char *type_args_text(Type t) {
+    char *out = fmt_str("%s", "<");
+    for (int i = 0; i < t.type_args.count; i++) {
+        out = fmt_str("%s%s%s", out, i > 0 ? ", " : "", type_name(t.type_args.items[i]));
+    }
+    return fmt_str("%s>", out);
+}
+
 /* Appends statements to `cb` that bind `dst_var` (a `val`, freshly
  * declared) to a `Json` value built from `src_expr` (an already-valid
  * Ziman expression of type `t`). Priority order, matching the design:
@@ -215,9 +305,21 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             } else {
                 const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
                 char *fn = pascal_to_snake(name);
-                cb_appendf(cb, "    val %s = %s_to_json(%s)\n", dst_var, fn, src_expr);
+                if (t.type_args.count > 0) {
+                    /* A generic type: its own converters take one converter per type argument. */
+                    char *convs = fmt_str("%s", "");
+                    for (int i = 0; i < t.type_args.count; i++) {
+                        convs = fmt_str("%s, %s", convs, converter_for_type_arg(t.type_args.items[i], 1, line, col));
+                    }
+                    cb_appendf(cb, "    val %s = %s_to_json%s(%s%s)\n", dst_var, fn, type_args_text(t), src_expr, convs);
+                } else {
+                    cb_appendf(cb, "    val %s = %s_to_json(%s)\n", dst_var, fn, src_expr);
+                }
                 return;
             }
+        case TY_TYPEVAR:
+            cb_appendf(cb, "    val %s = %s(%s)\n", dst_var, converter_param_name(t.type_var_name, 1), src_expr);
+            return;
         default:
             ziman_error("syntax", line, col, "derive(Json) does not support field type '%s' yet", type_name(t));
     }
@@ -278,9 +380,20 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             } else {
                 const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
                 char *fn = pascal_to_snake(name);
-                cb_appendf(cb, "    val %s = %s_from_json(%s)?\n", dst_var, fn, src_expr);
+                if (t.type_args.count > 0) {
+                    char *convs = fmt_str("%s", "");
+                    for (int i = 0; i < t.type_args.count; i++) {
+                        convs = fmt_str("%s, %s", convs, converter_for_type_arg(t.type_args.items[i], 0, line, col));
+                    }
+                    cb_appendf(cb, "    val %s = %s_from_json%s(%s%s)?\n", dst_var, fn, type_args_text(t), src_expr, convs);
+                } else {
+                    cb_appendf(cb, "    val %s = %s_from_json(%s)?\n", dst_var, fn, src_expr);
+                }
                 return;
             }
+        case TY_TYPEVAR:
+            cb_appendf(cb, "    val %s = %s(%s)?\n", dst_var, converter_param_name(t.type_var_name, 0), src_expr);
+            return;
         default:
             ziman_error("syntax", line, col, "derive(Json) does not support field type '%s' yet", type_name(t));
     }
@@ -294,7 +407,8 @@ static char *generate_struct_to_json(StructDecl *sd) {
     CodeBuf cb;
     cb_init(&cb);
     char *fn_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub fn %s_to_json(v: %s) -> Json {\n", fn_name, sd->name);
+    cb_appendf(&cb, "pub fn %s_to_json%s(v: %s%s) -> Json {\n", fn_name, type_param_decl_text(&sd->type_params, ""),
+               decl_type_text(sd->name, &sd->type_params), converter_params_text(&sd->type_params, 1));
 
     int tmp = 0;
     char **dst_vars = malloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
@@ -321,7 +435,8 @@ static char *generate_struct_from_json(StructDecl *sd) {
     CodeBuf cb;
     cb_init(&cb);
     char *fn_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub fn %s_from_json(j: Json) -> Result<%s, string> {\n", fn_name, sd->name);
+    cb_appendf(&cb, "pub fn %s_from_json%s(j: Json%s) -> Result<%s, string> {\n", fn_name, type_param_decl_text(&sd->type_params, ""),
+               converter_params_text(&sd->type_params, 0), decl_type_text(sd->name, &sd->type_params));
     cb_appendf(&cb, "    if !Json.is_JObject(j) { return err(\"expected a JSON object for %s\") }\n", sd->name);
 
     int tmp = 0;
@@ -357,7 +472,7 @@ static char *generate_struct_from_json(StructDecl *sd) {
         field_vars[i] = dst;
     }
 
-    cb_appendf(&cb, "    return %s {\n", sd->name);
+    cb_appendf(&cb, "    return %s {\n", decl_type_text(sd->name, &sd->type_params));
     for (int i = 0; i < sd->fields.count; i++) {
         Param *f = &sd->fields.items[i];
         cb_appendf(&cb, "        %s: %s%s\n", f->name, field_vars[i], i + 1 < sd->fields.count ? "," : "");
@@ -381,7 +496,8 @@ static char *generate_enum_to_json(EnumDecl *ed) {
     CodeBuf cb;
     cb_init(&cb);
     char *fn_name = pascal_to_snake(ed->name);
-    cb_appendf(&cb, "pub fn %s_to_json(v: %s) -> Json {\n", fn_name, ed->name);
+    cb_appendf(&cb, "pub fn %s_to_json%s(v: %s%s) -> Json {\n", fn_name, type_param_decl_text(&ed->type_params, ""),
+               decl_type_text(ed->name, &ed->type_params), converter_params_text(&ed->type_params, 1));
 
     int tmp = 0;
     int n = ed->variants.count;
@@ -418,7 +534,8 @@ static char *generate_enum_from_json(EnumDecl *ed) {
     CodeBuf cb;
     cb_init(&cb);
     char *fn_name = pascal_to_snake(ed->name);
-    cb_appendf(&cb, "pub fn %s_from_json(j: Json) -> Result<%s, string> {\n", fn_name, ed->name);
+    cb_appendf(&cb, "pub fn %s_from_json%s(j: Json%s) -> Result<%s, string> {\n", fn_name, type_param_decl_text(&ed->type_params, ""),
+               converter_params_text(&ed->type_params, 0), decl_type_text(ed->name, &ed->type_params));
     cb_appendf(&cb, "    if !Json.is_JObject(j) { return err(\"expected a JSON object for %s\") }\n", ed->name);
     cb_appendf(&cb, "    val __derive_tag = json_require_string_field(j, \"type\")?\n");
 
@@ -429,12 +546,13 @@ static char *generate_enum_from_json(EnumDecl *ed) {
         const char *kw = i == 0 ? "if" : "} else if";
         cb_appendf(&cb, "    %s __derive_tag == \"%s\" {\n", kw, variant->name);
         if (!variant->has_payload) {
-            cb_appendf(&cb, "        return %s.%s\n", ed->name, variant->name);
+            if (ed->type_params.count > 0) cb_appendf(&cb, "        return %s.%s\n", decl_type_text(ed->name, &ed->type_params), variant->name);
+            else cb_appendf(&cb, "        return %s.%s\n", ed->name, variant->name);
         } else {
             cb_appendf(&cb, "        val __derive_payload_raw = json_require_field(j, \"value\")?\n");
             char *dst = fmt_str("payload_%d", i);
             emit_from_json(variant->payload_type, "__derive_payload_raw", dst, &cb, &tmp, variant->line, variant->col);
-            cb_appendf(&cb, "        return %s.%s(%s)\n", ed->name, variant->name, dst);
+            cb_appendf(&cb, "        return %s.%s(%s)\n", decl_type_text(ed->name, &ed->type_params), variant->name, dst);
         }
     }
     cb_appendf(&cb, "    } else {\n");
@@ -689,7 +807,8 @@ static char *generate_struct_ord(StructDecl *sd) {
     CodeBuf cb;
     cb_init(&cb);
     char *fn_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub fn %s_compare(a: %s, b: %s) -> int {\n", fn_name, sd->name, sd->name);
+    cb_appendf(&cb, "pub fn %s_compare%s(a: %s, b: %s) -> int {\n", fn_name, type_param_decl_text(&sd->type_params, ": Ord"),
+               decl_type_text(sd->name, &sd->type_params), decl_type_text(sd->name, &sd->type_params));
     for (int i = 0; i < sd->fields.count; i++) {
         Param *f = &sd->fields.items[i];
         cb_appendf(&cb, "    val c_%s = compare(a.%s, b.%s)\n", f->name, f->name, f->name);
@@ -703,7 +822,8 @@ static char *generate_enum_ord(EnumDecl *ed) {
     CodeBuf cb;
     cb_init(&cb);
     char *fn_name = pascal_to_snake(ed->name);
-    cb_appendf(&cb, "pub fn %s_compare(a: %s, b: %s) -> int {\n", fn_name, ed->name, ed->name);
+    cb_appendf(&cb, "pub fn %s_compare%s(a: %s, b: %s) -> int {\n", fn_name, type_param_decl_text(&ed->type_params, ": Ord"),
+               decl_type_text(ed->name, &ed->type_params), decl_type_text(ed->name, &ed->type_params));
     cb_appendf(&cb, "    var ra = 0\n    var rb = 0\n");
     for (int i = 0; i + 1 < ed->variants.count; i++) {
         cb_appendf(&cb, "    if %s.is_%s(a) {\n        ra = %d\n    }\n", ed->name, ed->variants.items[i].name, i);
@@ -769,7 +889,9 @@ static void ensure_module_import(Module *module, const char *path, int line, int
 
 static void import_for_derive(Module *module, const char *target, int line, int col) {
     if (strcmp(target, "Json") == 0) {
-        static const char *const names[] = {"Json", "JField", "json_object_get", "json_require_field", "json_require_string_field"};
+        static const char *const names[] = {"Json", "JField", "json_object_get", "json_require_field", "json_require_string_field",
+                                            "int_to_json", "int_from_json", "float_to_json", "float_from_json",
+                                            "bool_to_json", "bool_from_json", "string_to_json", "string_from_json"};
         for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "json", names[i], line, col);
     } else if (strcmp(target, "Row") == 0) {
         static const char *const names[] = {"SqlValue", "DbError", "Row", "row_get", "sql_as_text", "sql_as_int", "sql_as_bool", "sql_as_float"};
@@ -790,8 +912,8 @@ void generate_derived_functions(Module *module) {
             if (!is_json && !is_row && !is_props && !is_ord) {
                 ziman_error("syntax", sd->line, sd->col, "unknown derive target '%s' on struct '%s'", sd->derives[d], sd->name);
             }
-            if (sd->type_params.count > 0) {
-                ziman_error("syntax", sd->line, sd->col, "derive(%s) does not support a generic struct yet ('%s')", sd->derives[d], sd->name);
+            if (sd->type_params.count > 0 && (is_row || is_props)) {
+                ziman_error("syntax", sd->line, sd->col, "derive(%s) does not support a generic struct ('%s') -- only Json and Ord do", sd->derives[d], sd->name);
             }
             const char *label = fmt_str("derive(%s) for '%s'", sd->derives[d], sd->name);
             import_for_derive(module, sd->derives[d], sd->line, sd->col);
@@ -821,18 +943,12 @@ void generate_derived_functions(Module *module) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Properties) does not support an enum ('%s') -- configuration binds to a struct", ed->name);
             }
             if (strcmp(ed->derives[d], "Ord") == 0) {
-                if (ed->type_params.count > 0) {
-                    ziman_error("syntax", ed->line, ed->col, "derive(Ord) does not support a generic enum yet ('%s')", ed->name);
-                }
                 const char *ord_label = fmt_str("derive(Ord) for '%s'", ed->name);
                 parse_and_splice(module, generate_enum_ord(ed), ed->line, ed->col, ord_label);
                 continue;
             }
             if (strcmp(ed->derives[d], "Json") != 0) {
                 ziman_error("syntax", ed->line, ed->col, "unknown derive target '%s' on enum '%s'", ed->derives[d], ed->name);
-            }
-            if (ed->type_params.count > 0) {
-                ziman_error("syntax", ed->line, ed->col, "derive(Json) does not support a generic enum yet ('%s')", ed->name);
             }
             const char *label = fmt_str("derive(%s) for '%s'", ed->derives[d], ed->name);
             import_for_derive(module, ed->derives[d], ed->line, ed->col);

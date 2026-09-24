@@ -1,0 +1,38 @@
+use collections
+
+#[derive(Ord)]
+pub struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+#[derive(Ord)]
+pub enum Either<L, R> {
+    Left(L)
+    Right(R)
+    Neither
+}
+
+fn main() {
+    val a = Pair<int, string> { first: 1, second: "b" }
+    val b = Pair<int, string> { first: 1, second: "c" }
+    print(compare<Pair<int, string>>(a, b) < 0)
+    print(compare<Pair<int, string>>(b, a) > 0)
+    print(compare<Pair<int, string>>(a, a) == 0)
+
+    val xs = [b, a, Pair<int, string> { first: 0, second: "z" }]
+    val sorted = collections.sort<Pair<int, string>>(xs)
+    print(format("{}{}{}", sorted[0].second, sorted[1].second, sorted[2].second))
+
+    val l = Either<int, string>.Left(5)
+    val r = Either<int, string>.Right("x")
+    val n = Either<int, string>.Neither
+    print(compare<Either<int, string>>(l, r) < 0)
+    print(compare<Either<int, string>>(r, n) < 0)
+    print(compare<Either<int, string>>(n, n) == 0)
+
+    val nested = [Pair<Pair<int, int>, int> { first: Pair<int, int> { first: 1, second: 2 }, second: 0 },
+                  Pair<Pair<int, int>, int> { first: Pair<int, int> { first: 1, second: 1 }, second: 9 }]
+    val ns = collections.sort<Pair<Pair<int, int>, int>>(nested)
+    print(ns[0].second)
+}

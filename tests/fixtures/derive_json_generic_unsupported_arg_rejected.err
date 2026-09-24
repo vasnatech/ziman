@@ -1,0 +1,1 @@
+syntax error at 8:5: derive(Json) cannot build a converter for type argument '[int]' -- use a scalar, a type parameter or a plain struct/enum there
