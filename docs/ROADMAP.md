@@ -1052,11 +1052,11 @@ from source.
   (`uuid.zm`'s `use random.random_bytes`) with zero new loader logic,
   since the corelib fallback triggers on the `use` path string alone,
   never on where the *importing* module's own source came from.
-  `Uuid` satisfies `Eq` but not `Hash` (see the `byte` entry's "no
-  derived hashing for a struct" note) — usable as a struct field
+  `Uuid` satisfies `Eq` — usable as a struct field
   compared with `==`, e.g. a `Patient.id: Uuid` replacing the
   `next_id: int` counter `health-record-backend-ziman` used to use —
-  not yet usable as a `HashMap` key. ~~Not wired into
+  (*update 2026-09-23: it is also `Hash` and `Ord` now, so it is a usable
+  `HashMap` key; see roadmap R11/R12*). ~~Not wired into
   `health-record-backend-ziman` yet~~ — done the same day:
   `Patient.id` is `uuid.Uuid` now, no more counter.
 - ~~**`time`/`clock` core modules — seven `java.time`-shaped types
