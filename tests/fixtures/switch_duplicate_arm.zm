@@ -1,0 +1,19 @@
+enum Shape {
+    Circle(float)
+    Square(float)
+    Empty
+}
+
+fn f(s: Shape) -> int {
+    switch s {
+        Circle(r) { return 1 }
+        Circle(q) { return 3 }
+        Square(w) { return 2 }
+        Empty { return 0 }
+    }
+    return 0
+}
+
+fn main() {
+    print(f(Shape.Empty))
+}

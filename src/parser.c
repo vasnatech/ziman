@@ -840,6 +840,45 @@ static Stmt *parse_for(Parser *p) {
     return s;
 }
 
+/* `switch expr { Variant[(binder)] { body } ... }` -- see ast.h's
+ * switch_stmt comment. Variant names are bare (the scrutinee's type says
+ * which enum they belong to); casing tells them from binders. */
+static Stmt *parse_switch(Parser *p) {
+    Token *kw = previous(p);
+    Stmt *s = stmt_new(STMT_SWITCH, kw->line, kw->col);
+    s->as.switch_stmt.scrutinee = parse_expr(p);
+    expect(p, TOK_LBRACE, "'{'");
+    skip_newlines(p);
+    int capacity = 0;
+    while (!check(p, TOK_RBRACE)) {
+        Token *variant_tok = expect(p, TOK_IDENT, "a variant name");
+        require_upper_start(variant_tok, "a variant name");
+        SwitchArm arm;
+        memset(&arm, 0, sizeof arm);
+        arm.line = variant_tok->line;
+        arm.col = variant_tok->col;
+        arm.variant = dup_token_text(variant_tok);
+        if (match(p, TOK_LPAREN)) {
+            Token *binder_tok = expect(p, TOK_IDENT, "a name for the variant's payload");
+            require_lower_start(binder_tok, "a payload name");
+            arm.binder = dup_token_text(binder_tok);
+            expect(p, TOK_RPAREN, "')'");
+        }
+        arm.body = parse_block(p);
+        if (s->as.switch_stmt.arm_count == capacity) {
+            capacity = capacity == 0 ? 4 : capacity * 2;
+            s->as.switch_stmt.arms = realloc(s->as.switch_stmt.arms, sizeof(SwitchArm) * (size_t)capacity);
+        }
+        s->as.switch_stmt.arms[s->as.switch_stmt.arm_count++] = arm;
+        skip_newlines(p);
+    }
+    expect(p, TOK_RBRACE, "'}'");
+    if (s->as.switch_stmt.arm_count == 0) {
+        ziman_error("syntax", kw->line, kw->col, "a 'switch' needs at least one arm");
+    }
+    return s;
+}
+
 static Stmt *parse_return(Parser *p) {
     Token *kw = previous(p);
     Stmt *s = stmt_new(STMT_RETURN, kw->line, kw->col);
@@ -900,6 +939,7 @@ static Stmt *parse_statement(Parser *p) {
     if (match(p, TOK_CONTINUE)) { Token *kw = previous(p); return stmt_new(STMT_CONTINUE, kw->line, kw->col); }
     if (match(p, TOK_SPAWN)) return parse_spawn(p);
     if (match(p, TOK_DEFER)) return parse_defer(p);
+    if (match(p, TOK_SWITCH)) return parse_switch(p);
     if (match(p, TOK_RETURN)) return parse_return(p);
 
     /* `IDENT = expr` (assignment) vs. any other expression statement
@@ -1256,6 +1296,10 @@ static void reclassify_type_params_in_stmt(Stmt *s, TypeParamList *type_params) 
             break;
         case STMT_DEFER:
             reclassify_type_params_in_expr(s->as.defer_stmt.call, type_params);
+            break;
+        case STMT_SWITCH:
+            reclassify_type_params_in_expr(s->as.switch_stmt.scrutinee, type_params);
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) reclassify_type_params_in_stmt(s->as.switch_stmt.arms[i].body, type_params);
             break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) reclassify_type_params_in_stmt(s->as.block.stmts.items[i], type_params);

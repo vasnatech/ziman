@@ -85,7 +85,7 @@
       "patterns": [
         {
           "name": "keyword.control.ziman",
-          "match": "\\b(if|else|while|for|in|break|continue|spawn|return)\\b"
+          "match": "\\b(if|else|while|for|in|break|continue|spawn|return|switch|defer)\\b"
         },
         {
           "name": "keyword.control.import.ziman",

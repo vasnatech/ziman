@@ -1602,8 +1602,184 @@ static void check_block(Module *module, Env *parent, Stmt *block, Type fn_return
     env_free(scope);
 }
 
+/* ---- switch: exhaustive consumption of an enum or a Result ----
+ *
+ * `switch e { A(x) { ... } B { ... } }` is checked and then rewritten in
+ * place into `{ val $swN = e; if Enum.is_A($swN) { val x = Enum.unwrap_A($swN); ... }
+ * else { ... } }` -- the same is_X/unwrap_X calls a person could write by
+ * hand, so generics, payload typing and the "does every path return" check
+ * all come from machinery that already exists. What `switch` adds is the
+ * exhaustiveness rule: every variant exactly once, none forgotten, so adding
+ * a variant to an enum is a compile error at every switch over it. There is
+ * deliberately no default arm -- that would reintroduce the silent case. */
+static Expr *mk_ident_expr(const char *name, int line, int col) {
+    Expr *e = expr_new(EXPR_IDENT, line, col);
+    e->as.ident_name = strdup(name);
+    return e;
+}
+
+static Expr *mk_enum_call_expr(const char *enum_name, const char *prefix, const char *variant, Expr *arg, int line, int col) {
+    Expr *e = expr_new(EXPR_ENUM_ACCESS, line, col);
+    e->as.enum_access.enum_name = strdup(enum_name);
+    size_t n = strlen(prefix) + strlen(variant) + 1;
+    e->as.enum_access.member_name = malloc(n);
+    snprintf(e->as.enum_access.member_name, n, "%s%s", prefix, variant);
+    expr_list_push(&e->as.enum_access.args, arg);
+    e->as.enum_access.has_parens = 1;
+    return e;
+}
+
+static Expr *mk_call_expr(const char *callee, Expr *arg, int line, int col) {
+    Expr *e = expr_new(EXPR_CALL, line, col);
+    e->as.call.callee = strdup(callee);
+    expr_list_push(&e->as.call.args, arg);
+    return e;
+}
+
+/* An arm's block with `val <binder> = <payload_expr>` put first. */
+static void prepend_binder(Stmt *body, const char *binder, Expr *payload_expr, int line, int col) {
+    Stmt *decl = stmt_new(STMT_VAL, line, col);
+    decl->as.decl.name = strdup(binder);
+    decl->as.decl.init = payload_expr;
+    StmtList old = body->as.block.stmts;
+    memset(&body->as.block.stmts, 0, sizeof body->as.block.stmts);
+    stmt_list_push(&body->as.block.stmts, decl);
+    for (int i = 0; i < old.count; i++) stmt_list_push(&body->as.block.stmts, old.items[i]);
+}
+
+static void check_switch(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
+    static int switch_counter = 0;
+    Expr *scrutinee = s->as.switch_stmt.scrutinee;
+    SwitchArm *arms = s->as.switch_stmt.arms;
+    int arm_count = s->as.switch_stmt.arm_count;
+
+    char *hidden = malloc(32);
+    snprintf(hidden, 32, "$sw%d", switch_counter++);
+    Env *scope = env_new(env);
+    Stmt *decl = stmt_new(STMT_VAL, s->line, s->col);
+    decl->as.decl.name = hidden;
+    decl->as.decl.init = scrutinee;
+    check_stmt(module, scope, decl, fn_return_type, in_loop);
+    Type t = env_lookup(scope, hidden)->type;
+
+    EnumDecl *enum_decl = NULL;
+    const char *const result_variants[2] = {"Ok", "Err"};
+    int variant_count;
+    if (t.kind == TY_ENUM) {
+        enum_decl = find_enum(module, t.enum_name);
+        if (enum_decl == NULL) ziman_error("type", scrutinee->line, scrutinee->col, "no enum named '%s'", t.enum_name);
+        variant_count = enum_decl->variants.count;
+    } else if (t.kind == TY_RESULT) {
+        variant_count = 2;
+    } else {
+        ziman_error("type", scrutinee->line, scrutinee->col, "'switch' works on an enum or a Result, found %s", type_name(t));
+        return;
+    }
+
+    int *seen = calloc((size_t)variant_count, sizeof(int));
+    int *arm_variant = malloc(sizeof(int) * (size_t)arm_count);
+    for (int a = 0; a < arm_count; a++) {
+        SwitchArm *arm = &arms[a];
+        int vi = -1;
+        int has_payload = 1;
+        for (int v = 0; v < variant_count; v++) {
+            const char *name = enum_decl != NULL ? enum_decl->variants.items[v].name : result_variants[v];
+            if (strcmp(name, arm->variant) == 0) {
+                vi = v;
+                has_payload = enum_decl != NULL ? enum_decl->variants.items[v].has_payload : 1;
+                break;
+            }
+        }
+        if (vi < 0) {
+            char list[512] = "";
+            for (int v = 0; v < variant_count; v++) {
+                const char *name = enum_decl != NULL ? enum_decl->variants.items[v].name : result_variants[v];
+                if (strlen(list) + strlen(name) + 3 < sizeof list) {
+                    if (v > 0) strcat(list, ", ");
+                    strcat(list, name);
+                }
+            }
+            ziman_error("type", arm->line, arm->col, "%s has no variant '%s' (its variants: %s)", type_name(t), arm->variant, list);
+        }
+        if (seen[vi]) {
+            ziman_error("type", arm->line, arm->col, "this 'switch' already has an arm for '%s'", arm->variant);
+        }
+        seen[vi] = 1;
+        arm_variant[a] = vi;
+        if (has_payload && arm->binder == NULL) {
+            ziman_error("type", arm->line, arm->col, "variant '%s' carries a value: write '%s(name) { ... }' to bind it", arm->variant, arm->variant);
+        }
+        if (!has_payload && arm->binder != NULL) {
+            ziman_error("type", arm->line, arm->col, "variant '%s' carries no value: write '%s { ... }' without a name", arm->variant, arm->variant);
+        }
+    }
+    char missing[512] = "";
+    for (int v = 0; v < variant_count; v++) {
+        if (seen[v]) continue;
+        const char *name = enum_decl != NULL ? enum_decl->variants.items[v].name : result_variants[v];
+        if (strlen(missing) + strlen(name) + 3 < sizeof missing) {
+            if (missing[0] != '\0') strcat(missing, ", ");
+            strcat(missing, name);
+        }
+    }
+    if (missing[0] != '\0') {
+        ziman_error("type", s->line, s->col,
+                    "this 'switch' over %s is not exhaustive: missing %s (add an arm for each variant; there is no default arm on purpose, so a new variant is a compile error here)",
+                    type_name(t), missing);
+    }
+
+    /* Build: if <arm0> { ... } else if <arm1> { ... } else { <last arm> } */
+    Stmt *chain = NULL;
+    for (int a = arm_count - 1; a >= 0; a--) {
+        SwitchArm *arm = &arms[a];
+        int is_result = enum_decl == NULL;
+        if (arm->binder != NULL) {
+            Expr *payload;
+            if (is_result) {
+                payload = mk_call_expr(strcmp(arm->variant, "Ok") == 0 ? "unwrap" : "unwrap_err", mk_ident_expr(hidden, arm->line, arm->col), arm->line, arm->col);
+            } else {
+                payload = mk_enum_call_expr(t.enum_name, "unwrap_", arm->variant, mk_ident_expr(hidden, arm->line, arm->col), arm->line, arm->col);
+            }
+            prepend_binder(arm->body, arm->binder, payload, arm->line, arm->col);
+        }
+        if (a == arm_count - 1) {
+            chain = arm->body;
+            continue;
+        }
+        Stmt *ifs = stmt_new(STMT_IF, arm->line, arm->col);
+        Expr *cond;
+        if (is_result) {
+            cond = mk_call_expr("is_ok", mk_ident_expr(hidden, arm->line, arm->col), arm->line, arm->col);
+            if (strcmp(arm->variant, "Err") == 0) {
+                Expr *neg = expr_new(EXPR_UNARY, arm->line, arm->col);
+                neg->as.unary.op = OP_NOT;
+                neg->as.unary.operand = cond;
+                cond = neg;
+            }
+        } else {
+            cond = mk_enum_call_expr(t.enum_name, "is_", arm->variant, mk_ident_expr(hidden, arm->line, arm->col), arm->line, arm->col);
+        }
+        ifs->as.if_stmt.cond = cond;
+        ifs->as.if_stmt.then_block = arm->body;
+        ifs->as.if_stmt.else_block = chain;
+        chain = ifs;
+    }
+    check_stmt(module, scope, chain, fn_return_type, in_loop);
+    env_free(scope);
+
+    free(seen);
+    free(arm_variant);
+    memset(&s->as, 0, sizeof s->as);
+    s->kind = STMT_BLOCK;
+    stmt_list_push(&s->as.block.stmts, decl);
+    stmt_list_push(&s->as.block.stmts, chain);
+}
+
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
     switch (s->kind) {
+        case STMT_SWITCH:
+            check_switch(module, env, s, fn_return_type, in_loop);
+            break;
         case STMT_VAL:
         case STMT_VAR: {
             Expr *init = s->as.decl.init;

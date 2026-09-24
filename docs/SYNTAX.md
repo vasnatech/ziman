@@ -1060,6 +1060,42 @@ fn main() {
   Option<T> { Some(T) None }`, the actual prelude-provided `Option<T>`)
   needs real type parameters on top of this; see "Generics" above.
 
+### `switch` — exhaustive consumption of an enum or a Result
+
+```
+enum Shape { Circle(float) Square(float) Empty }
+
+fn area(s: Shape) -> float {
+    switch s {
+        Circle(r) { return 3.14 * r * r }
+        Square(w) { return w * w }
+        Empty { return 0.0 }
+    }
+}
+```
+
+- **One arm per variant, none omitted, none repeated -- checked at compile
+  time.** Adding a variant to an enum makes every `switch` over it fail to
+  compile ("this 'switch' over Shape is not exhaustive: missing Triangle"),
+  instead of compiling cleanly and crashing when the new variant arrives.
+  There is deliberately **no default arm**: it would bring back the silent
+  case this exists to remove.
+- **Arms name variants bare** (`Circle`, not `Shape.Circle`) -- the
+  scrutinee's type says which enum -- and bind a payload with `Circle(r)`.
+  A variant that carries a value needs the binder; one that doesn't must
+  not have one. The binder is an immutable `val` scoped to the arm's block.
+- **Works on any enum (generic ones, ones from other modules, `Option<T>`
+  with arms `Some(x)`/`None`) and on `Result<T, E>` (arms `Ok(v)`/`Err(e)`).**
+  It is a statement, not an expression: each arm is a block, and a
+  function that returns from every arm satisfies the "returns on every
+  path" rule.
+- The scrutinee is evaluated once. `switch` is checked and then rewritten
+  into the `is_X`/`unwrap_X` calls you could have written by hand, so
+  everything else about enums is unchanged; `if Shape.is_Circle(s)` remains
+  fine for a single-variant test.
+- Not (yet) supported: nested patterns, guards, matching several variants
+  in one arm, or `switch` as an expression.
+
 ## Modules
 
 One file is one module, identified by its filesystem path — no separate
@@ -2012,11 +2048,11 @@ fn main() {
 }
 ```
 
-- **No sum types, no `enum`, no `match`.** `Result<T, E>` is a single
-  opaque builtin type, manipulated only through five functions —
-  `ok`, `err`, `is_ok`, `unwrap`, `unwrap_err` (see "Builtins" below for
-  exact signatures). There's nothing to pattern-match on and no way to
-  define your own `Result`-shaped type.
+- **`Result<T, E>` is a builtin, not a declared enum.** It is manipulated
+  through `ok`, `err`, `is_ok`, `unwrap`, `unwrap_err` (see "Builtins"
+  below for exact signatures) or consumed exhaustively with `switch`
+  (arms `Ok(v)` and `Err(e)`); you can't define your own `Result`-shaped
+  type, but you can declare an `enum` (see "Enums"). There is no `match`.
 - **`ok(x)`/`err(e)` can't fully infer their own type** — each only
   determines half of `Result<T, E>` (an `ok(x)` call tells you `T` from
   `x`, but nothing about what `E` should be, and vice versa for `err`).

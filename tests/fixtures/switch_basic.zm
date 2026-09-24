@@ -1,0 +1,50 @@
+enum Shape {
+    Circle(float)
+    Square(float)
+    Empty
+}
+
+fn area(s: Shape) -> float {
+    switch s {
+        Circle(r) {
+            return 3.0 * r * r
+        }
+        Square(w) {
+            return w * w
+        }
+        Empty {
+            return 0.0
+        }
+    }
+}
+
+fn describe(o: Option<int>) -> string {
+    switch o {
+        Some(n) { return format("some {}", n) }
+        None { return "none" }
+    }
+}
+
+fn check(r: Result<int, string>) -> string {
+    switch r {
+        Err(e) { return concat("bad: ", e) }
+        Ok(v) { return format("good: {}", v) }
+    }
+}
+
+fn main() {
+    print(area(Shape.Circle(2.0)))
+    print(area(Shape.Square(3.0)))
+    print(area(Shape.Empty))
+    print(describe(Option<int>.Some(7)))
+    print(describe(Option<int>.None))
+    val ok: Result<int, string> = 5
+    val bad: Result<int, string> = "boom"
+    print(check(ok))
+    print(check(bad))
+    switch Shape.Square(1.0) {
+        Circle(r) { print("circle") }
+        Square(w) { print("square") }
+        Empty { print("empty") }
+    }
+}

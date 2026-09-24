@@ -1,0 +1,38 @@
+use sql.DbError
+
+enum Wrapper<T> {
+    One(T)
+    Many([T])
+    Nothing
+}
+
+fn kind(e: DbError) -> string {
+    switch e {
+        NotFound(m) { return concat("notfound ", m) }
+        Constraint(m) { return concat("constraint ", m) }
+        Connection(m) { return concat("connection ", m) }
+        Sql(m) { return concat("sql ", m) }
+    }
+}
+
+fn size<T>(w: Wrapper<T>) -> int {
+    switch w {
+        One(x) { return 1 }
+        Many(xs) { return len(xs) }
+        Nothing { return 0 }
+    }
+}
+
+fn main() {
+    print(kind(DbError.Constraint("dup")))
+    print(size<int>(Wrapper<int>.Many([1, 2, 3])))
+    print(size<string>(Wrapper<string>.One("a")))
+    var count = 0
+    for i in 0..3 {
+        switch Option<int>.Some(i) {
+            Some(n) { count = count + n }
+            None { count = 100 }
+        }
+    }
+    print(count)
+}

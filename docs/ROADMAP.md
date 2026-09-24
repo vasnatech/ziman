@@ -180,7 +180,7 @@ language's own principles)**
   that writes Python's/Go's index loop gets silently wrong sums, not an
   error. Fix: a distinct form for index iteration (or a compile error when
   the binder of an array loop is used to index the same array).
-- [ ] **R4. No exhaustiveness checking for enums.** Adding a variant
+- [x] **R4. No exhaustiveness checking for enums.** *Done 2026-09-23 as `switch` (one arm per variant, no default arm; enums and `Result`); full `match` stays deferred.* Adding a variant
   compiles cleanly everywhere and crashes at runtime in the consumers
   (the sample backend's `service_error_response` has exactly this
   shape). Full `match` stays deferred, but a `switch`-style statement over

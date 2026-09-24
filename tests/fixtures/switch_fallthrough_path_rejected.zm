@@ -1,0 +1,10 @@
+fn f(s: Option<int>) -> int {
+    switch s {
+        Some(v) { return v }
+        None { print("none") }
+    }
+}
+
+fn main() {
+    print(f(Option<int>.None))
+}

@@ -1641,6 +1641,35 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **`switch`: exhaustive consumption of an enum or a Result (external
+  review, roadmap R4, 2026-09-23).** Enums were consumed with `if
+  Shape.is_Circle(s) { ... Shape.unwrap_Circle(s) ... }` chains, so adding
+  a variant compiled cleanly everywhere and crashed at runtime wherever a
+  consumer forgot it -- verified against the sample backend's own
+  `service_error_response`. That is the failure an LLM refactoring one
+  file at a time is *most* likely to cause, and the one static check the
+  language most directly could have but didn't, while `1 + 1.0` was a
+  compile error. Full pattern matching (nested patterns, guards, `or`
+  patterns, `match` as an expression) stays deferred; what shipped is the
+  small intermediate the review suggested: a statement, one arm per
+  variant, no default arm. Design points: arms use bare variant names and a
+  `Variant(binder)` for the payload (casing tells a variant from a
+  binder, the scrutinee's type says the enum); **no default arm on purpose**
+  -- it would reintroduce the silent case; statement-only, so each arm is
+  a block and returns work the ordinary way. **Implementation:** the
+  type checker validates the arms (unknown, duplicate, missing, payload/
+  binder mismatch, a non-enum scrutinee) and then rewrites the node in
+  place into a block holding a hidden `val $swN = <scrutinee>` and an
+  if/else chain over the existing `is_X`/`unwrap_X` calls (or
+  `is_ok`/`unwrap`/`unwrap_err` for a Result), the same trick `defer` and
+  the auto-wrap use for synthetic nodes. So generics, payload typing, the
+  "does every path return" analysis and the interpreter all needed nothing
+  new -- the interpreter never sees a `switch`. The last arm becomes the
+  chain's `else`, which is what lets an all-arms-return `switch` satisfy
+  the returns-on-every-path rule. Cost: five walkers (parser type-param
+  reclassification, three loader passes, the checker) learned a new
+  statement kind. The sample backend's three `is_X`/`unwrap_X` chains were
+  converted as the first users.
 - **`for i in a { a[i] }` is a compile error (external review, roadmap
   R3, 2026-09-23).** One header, `for x in expr`, binds the element for an
   array and the index for a range, and the only guard was a naming

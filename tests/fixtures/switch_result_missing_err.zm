@@ -1,0 +1,11 @@
+fn f(r: Result<int, string>) -> int {
+    switch r {
+        Ok(v) { return v }
+    }
+    return 0
+}
+
+fn main() {
+    val r: Result<int, string> = 1
+    print(f(r))
+}

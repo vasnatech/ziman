@@ -261,12 +261,22 @@ typedef enum {
     STMT_CONTINUE,
     STMT_SPAWN,
     STMT_DEFER,
+    STMT_SWITCH,
     STMT_RETURN,
     STMT_EXPR,
     STMT_BLOCK,
 } StmtKind;
 
 typedef struct Stmt Stmt;
+
+/* One arm of a `switch`: a bare variant name, an optional payload binder
+ * (`Circle(r)`), and its block. */
+typedef struct {
+    char *variant;
+    char *binder; /* NULL when the arm has no `(name)` */
+    Stmt *body;
+    int line, col;
+} SwitchArm;
 
 typedef struct {
     Stmt **items;
@@ -321,6 +331,12 @@ struct Stmt {
          * `defer` time, not whatever a `var` holds by then. */
         struct { Expr *call; Expr *replay; char **hidden; int hidden_count; } defer_stmt;
         struct { StmtList stmts; } block;
+        /* `switch expr { Variant(binder) { ... } ... }` over an enum or a
+         * Result, one arm per variant, none omitted. Type-checking rewrites
+         * it in place into a block holding a hidden `val` for the scrutinee
+         * and an if/else chain over the existing is_X/unwrap_X consumption
+         * calls, so the interpreter never sees this node. */
+        struct { Expr *scrutinee; SwitchArm *arms; int arm_count; } switch_stmt;
     } as;
 };
 

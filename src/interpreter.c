@@ -995,6 +995,9 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             eval_expr(module, env, s->as.expr_stmt.expr);
             return no_ctrl();
         }
+        case STMT_SWITCH:
+            ziman_error("runtime", s->line, s->col, "internal error: an un-desugared switch reached the interpreter");
+            return no_ctrl();
         case STMT_DEFER: {
             /* Evaluate the arguments now, into the hidden variables the
              * replay call reads, then register the replay for block exit. */

@@ -413,6 +413,10 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
         case STMT_DEFER:
             self_qualify_expr(s->as.defer_stmt.call, ctx);
             break;
+        case STMT_SWITCH:
+            self_qualify_expr(s->as.switch_stmt.scrutinee, ctx);
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) self_qualify_stmt(s->as.switch_stmt.arms[i].body, ctx);
+            break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) self_qualify_stmt(s->as.block.stmts.items[i], ctx);
             break;
@@ -493,6 +497,17 @@ static void check_no_val_shadowing_stmt(Stmt *s, char **val_names, int n_val_nam
             break;
         case STMT_WHILE:
             check_no_val_shadowing_stmt(s->as.while_stmt.body, val_names, n_val_names, imports, n_imports);
+            break;
+        case STMT_SWITCH:
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) {
+                SwitchArm *arm = &s->as.switch_stmt.arms[i];
+                if (arm->binder != NULL && is_reserved_val_name(arm->binder, val_names, n_val_names, imports, n_imports)) {
+                    ziman_error("module", arm->line, arm->col,
+                                "'%s' is a global val in this module, so it can't also be used as a switch payload name (rename one)",
+                                arm->binder);
+                }
+                check_no_val_shadowing_stmt(arm->body, val_names, n_val_names, imports, n_imports);
+            }
             break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) check_no_val_shadowing_stmt(s->as.block.stmts.items[i], val_names, n_val_names, imports, n_imports);
@@ -899,6 +914,10 @@ static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx) {
             break;
         case STMT_DEFER:
             resolve_expr_refs(s->as.defer_stmt.call, ctx);
+            break;
+        case STMT_SWITCH:
+            resolve_expr_refs(s->as.switch_stmt.scrutinee, ctx);
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) resolve_stmt_refs(s->as.switch_stmt.arms[i].body, ctx);
             break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) resolve_stmt_refs(s->as.block.stmts.items[i], ctx);

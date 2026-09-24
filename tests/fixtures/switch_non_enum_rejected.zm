@@ -1,0 +1,6 @@
+fn main() {
+    val n = 5
+    switch n {
+        Some(x) { print(x) }
+    }
+}
