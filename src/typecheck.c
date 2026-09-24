@@ -2180,6 +2180,18 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                             "(send a result back through a Channel instead)",
                             callee, type_name(fn->return_type));
             }
+            TypeList *spawn_type_args = &s->as.spawn_stmt.type_args;
+            if (fn->type_params.count == 0 && spawn_type_args->count > 0) {
+                ziman_error("type", s->line, s->col, "'%s' is not generic, but was given %d type argument(s)", callee, spawn_type_args->count);
+            }
+            if (fn->type_params.count > 0) {
+                if (spawn_type_args->count != fn->type_params.count) {
+                    ziman_error("type", s->line, s->col, "'%s' is generic and takes %d type argument(s), written out: spawn %s<...>(...); found %d",
+                                callee, fn->type_params.count, callee, spawn_type_args->count);
+                }
+                for (int ti = 0; ti < spawn_type_args->count; ti++) check_type_well_formed(module, spawn_type_args->items[ti], s->line, s->col);
+                check_type_args_satisfy_bounds(module, &fn->type_params, spawn_type_args, s->line, s->col);
+            }
             if (s->as.spawn_stmt.args.count != fn->params.count) {
                 ziman_error("type", s->line, s->col, "function '%s' expects %d argument(s), found %d",
                             callee, fn->params.count, s->as.spawn_stmt.args.count);
@@ -2189,6 +2201,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 Type arg_type = check_expr(module, env, arg);
                 require_not_void(arg, "as an argument");
                 Type expected = fn->params.items[i].type;
+                if (fn->type_params.count > 0) expected = substitute_type(expected, &fn->type_params, spawn_type_args);
                 if (!type_equals(arg_type, expected)) {
                     ziman_error("type", arg->line, arg->col,
                                 "argument %d of '%s' expects %s, found %s",

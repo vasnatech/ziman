@@ -1,0 +1,7 @@
+fn work<T>(x: T) {
+    print(1)
+}
+
+fn main() {
+    spawn work(3)
+}

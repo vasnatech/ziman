@@ -255,7 +255,7 @@ against)**
   nothing can be indexed by `Uuid`, an enum, or a struct -- a real hole for
   an entity-id-keyed backend. Derive `Hash`/`Eq` for structs and enums
   whose fields are hashable.
-- [x] **R13. Revisit "no closures".** *Stage 1 done 2026-09-23: function types and references to named functions (no capture); `collections.map`/`filter`/`fold`/`any`/`all`/`find`/`for_each`/`sort_with`. Stage 2 (capturing lambdas by value) and `http.serve`/`with_transaction` are still open.* The stated benefit ("libraries can't
+- [x] **R13. Revisit "no closures".** *Stage 1 done 2026-09-23: function types and references to named functions (no capture); `collections.map`/`filter`/`fold`/`any`/`all`/`find`/`for_each`/`sort_with`. `db.with_transaction` and `http.serve` (with an explicit context value) followed on 2026-09-24, and `spawn` accepts explicit type arguments. Stage 2 (capturing lambdas by value) is still open.* The stated benefit ("libraries can't
   take opaque callback holes") is already delivered by no overloading, no
   methods and no inheritance; the cost is that `http` cannot be a
   framework, every app hand-writes a linear route chain (near-copy blocks,

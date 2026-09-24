@@ -1,0 +1,22 @@
+use net
+use os
+use http
+
+// A tiny app on http.serve: the context is a greeting string, the handler is a
+// named function, and SIGTERM stops it cleanly.
+fn handle(greeting: string, req: http.Request) -> http.Response {
+    if req.path == "/hello" {
+        return http.text_response(200, format("{} {}", greeting, req.method))
+    }
+    return http.not_found()
+}
+
+fn main() {
+    os.install_shutdown_handler()
+    val listener = unwrap(net.listen("127.0.0.1", 0))
+    print(format("listening {}", net.listener_port(listener)))
+    val options = http.ServeOptions { idle_timeout_ms: 1000, max_connections: 4, log_requests: false }
+    http.serve<string>(listener, "hi", handle, options)
+    net.close_listener(listener)
+    print("stopped")
+}

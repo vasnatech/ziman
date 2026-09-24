@@ -335,7 +335,9 @@ struct Stmt {
          * resolution the loader already has for calls. Statically resolved
          * against an already-declared function, never a first-class
          * function value -- see docs/SYNTAX.md "Concurrency". */
-        struct { char *callee; ExprList args; } spawn_stmt;
+        /* `type_args` is non-empty for `spawn f<T>(args)` -- spawning a generic
+         * function, with its type arguments written out like any generic call. */
+        struct { char *callee; ExprList args; TypeList type_args; } spawn_stmt;
         struct { Expr *expr; } expr_stmt;
         /* `defer f(args)` -- runs the call when the enclosing *block* exits,
          * by any path (falling off the end, return, `?`, break, continue),

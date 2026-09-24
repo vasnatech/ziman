@@ -1,0 +1,70 @@
+use db
+use sql.SqlValue
+use sql.DbError
+use sql.db_error_message
+use sql
+use sql.Row
+
+struct Transfer {
+    from: int
+    to: int
+    amount: int
+}
+
+fn setup(conn: db.Connection) -> Result<int, DbError> {
+    db.execute(conn, "CREATE TABLE acct (id INTEGER PRIMARY KEY, balance INTEGER NOT NULL CHECK (balance >= 0))", [])?
+    db.execute(conn, "INSERT INTO acct (id, balance) VALUES (1, 100), (2, 50)", [])?
+    return ok(0)
+}
+
+fn transfer(tx: db.Connection, t: Transfer) -> Result<int, DbError> {
+    db.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2", [SqlValue.Int(t.amount), SqlValue.Int(t.from)])?
+    db.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2", [SqlValue.Int(t.amount), SqlValue.Int(t.to)])?
+    return ok(t.amount)
+}
+
+fn just_fail(tx: db.Connection) -> Result<int, DbError> {
+    db.execute(tx, "UPDATE acct SET balance = 0 WHERE id = 1", [])?
+    return err(DbError.Sql("changed my mind"))
+}
+
+fn count_rich(tx: db.Connection) -> Result<int, DbError> {
+    val rows = db.query(tx, "SELECT id FROM acct WHERE balance > 60", [])?
+    return ok(len(rows))
+}
+
+fn balances(conn: db.Connection) -> string {
+    val rows = unwrap(db.query(conn, "SELECT balance FROM acct ORDER BY id", []))
+    return format("{}", len(rows))
+}
+
+fn total(conn: db.Connection, id: int) -> int {
+    val rows = unwrap(db.query(conn, "SELECT balance FROM acct WHERE id = $1", [SqlValue.Int(id)]))
+    return unwrap(sql_as_int_of(rows[0]))
+}
+
+fn sql_as_int_of(row: Row) -> Result<int, DbError> {
+    return sql.sql_as_int(unwrap(sql.row_get(row, "balance")))
+}
+
+fn main() {
+    val conn = unwrap(db.open("sqlite::memory:"))
+    unwrap(setup(conn))
+    // success commits
+    print(unwrap(db.with_transaction_ctx<Transfer, int>(conn, Transfer { from: 1, to: 2, amount: 30 }, transfer)))
+    print(total(conn, 1))
+    print(total(conn, 2))
+    // an Err from work rolls back: the UPDATE inside it is undone
+    val failed = db.with_transaction<int>(conn, just_fail)
+    print(is_ok(failed))
+    print(db_error_message(unwrap_err(failed)))
+    print(total(conn, 1))
+    // a constraint violation midway rolls the first UPDATE back too
+    val overdraw = db.with_transaction_ctx<Transfer, int>(conn, Transfer { from: 1, to: 2, amount: 500 }, transfer)
+    print(is_ok(overdraw))
+    print(total(conn, 1))
+    print(total(conn, 2))
+    // read-only work returns its value
+    print(unwrap(db.with_transaction<int>(conn, count_rich)))
+    db.close(conn)
+}

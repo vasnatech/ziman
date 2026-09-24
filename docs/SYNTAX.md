@@ -1818,9 +1818,8 @@ fn main() {
   `Connection` across threads is safe *statement by statement*, but a
   transaction is not safe to share -- another thread's statements can
   interleave inside it. A `?` that returns early from inside a
-  transaction leaves it open (no destructors, and function values don't
-  capture the connection, so no `with_transaction(fn)`). Accepted for now; see
-  docs/DESIGN.md.
+  transaction leaves it open unless the caller uses `defer db.rollback(tx)`
+  or `db.with_transaction` (see "Transactions").
 - **`#[derive(Row)]`** on a struct generates `<name>_from_row(row: Row)
   -> Result<Name, DbError>` and `<name>_to_params(v: Name) ->
   [SqlValue]` (field declaration order, the order a hand-written
@@ -1914,12 +1913,30 @@ fn main() {
 ## HTTP
 
 The `http` core module is an HTTP/1.1 **server toolkit** on `net`: parse a
-request off a socket, route it, write a response. It is a toolkit rather
-than a framework: a handler is a function value, but function values do not
-capture, so a handler can't reach the application's database connection unless
-it is passed in explicitly, and there is no `http.serve(listener, handler)`
-yet. The application writes its own accept loop and its own `route` function
-(both short), and `http` supplies what they call.
+request off a socket, route it, write a response -- and, on top of that, a
+ready-made server loop:
+
+```
+fn route(conn: db.Connection, req: http.Request) -> http.Response { ... }
+
+val options = http.ServeOptions { idle_timeout_ms: 30000, max_connections: 64, log_requests: true }
+os.install_shutdown_handler()
+http.serve<db.Connection>(listener, conn, route, options)     // returns after SIGINT/SIGTERM
+```
+
+`http.serve<C>(listener, ctx: C, handler: fn(C, Request) -> Response, options)`
+runs the accept loop and the per-connection request loop and calls `handler`
+for each request. The handler is a function value, and function values do not
+capture, so whatever it needs (a database connection, configuration) is the
+explicit **context value** `ctx`, passed to it with every request. One thread
+per connection, at most `max_connections` at a time (a channel used as a
+counting semaphore; a client past the limit waits in the kernel's accept
+queue). It returns when a shutdown was requested
+(`os.install_shutdown_handler()`; see "Configuration") and every connection
+being served has finished, so the caller then closes its listener and pool.
+`serve` neither closes the listener nor installs the handler. You can still
+write your own accept loop and connection loop from the pieces below when you
+need something `serve` doesn't do.
 
 ```
 use net
@@ -2000,6 +2017,29 @@ fn main() {
   a bad one stays in the application.
 - **Not yet:** TLS (a plain `net.Socket` only), chunked request bodies,
   HTTP/2, multipart, compression, trailers, and `Date`/`Server` headers.
+
+## Transactions (`db.with_transaction`)
+
+`db.with_transaction<R>(conn, work: fn(Connection) -> Result<R, DbError>) ->
+Result<R, DbError>` runs `work` in a transaction on one exclusive connection:
+it borrows one from a pool, begins, calls `work(tx)`, commits if `work`
+returned `Ok`, and rolls back if it returned `Err` (or the commit failed),
+handing the connection back on every way out. The result of `work` is returned
+unchanged. `db.with_transaction_ctx<C, R>(conn, ctx, work: fn(Connection, C) ->
+Result<R, DbError>)` is the same for a `work` that needs a value of its own,
+passed through as `work(tx, ctx)` -- function values don't capture, so that
+value has to travel explicitly. `work` must not call `db.begin`/`db.commit`
+itself.
+
+```
+fn transfer(tx: db.Connection, t: Transfer) -> Result<int, DbError> {
+    db.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2", [...])?
+    db.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2", [...])?
+    return ok(t.amount)
+}
+
+val moved = db.with_transaction_ctx<Transfer, int>(conn, Transfer { ... }, transfer)?
+```
 
 ## Cryptography
 
@@ -2345,7 +2385,8 @@ fn main() {
   declared function (`spawn mod.name(args)` for one from an imported
   module, subject to the same `pub` rule as an ordinary qualified call) —
   never a function value (`spawn f(args)` names the function, it does not take
-  one from a variable); see docs/DESIGN.md. **The spawned
+  one from a variable); see docs/DESIGN.md. A generic function is spawned with
+  its type arguments written out, `spawn worker<int>(args)`. **The spawned
   function must return nothing (`void`).** There's no thread-handle/join
   mechanism in v0, so a spawned function's result has no way to be
   observed except through a `Channel` it's explicitly given — `spawn` is

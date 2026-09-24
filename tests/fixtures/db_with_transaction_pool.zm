@@ -1,0 +1,32 @@
+use db
+use sql.SqlValue
+use sql.DbError
+
+// with_transaction on a pool borrows one connection for the whole unit of work
+// and returns it on every way out: after a commit and after a rollback the
+// pool is whole again (a second transaction must not block).
+fn add(tx: db.Connection, n: int) -> Result<int, DbError> {
+    db.execute(tx, "INSERT INTO t (n) VALUES ($1)", [SqlValue.Int(n)])?
+    return ok(n)
+}
+
+fn boom(tx: db.Connection) -> Result<int, DbError> {
+    db.execute(tx, "INSERT INTO t (n) VALUES (99)", [])?
+    return err(DbError.Sql("nope"))
+}
+
+fn count(conn: db.Connection) -> int {
+    return len(unwrap(db.query(conn, "SELECT n FROM t", [])))
+}
+
+fn main() {
+    val pool = unwrap(db.open_pool("sqlite:/tmp/ziman_fixture_txpool.db", 3))
+    unwrap(db.execute(pool, "DROP TABLE IF EXISTS t", []))
+    unwrap(db.execute(pool, "CREATE TABLE t (n INTEGER)", []))
+    print(unwrap(db.with_transaction_ctx<int, int>(pool, 1, add)))
+    print(is_ok(db.with_transaction<int>(pool, boom)))
+    print(unwrap(db.with_transaction_ctx<int, int>(pool, 2, add)))
+    print(unwrap(db.with_transaction_ctx<int, int>(pool, 3, add)))
+    print(count(pool))
+    db.close(pool)
+}

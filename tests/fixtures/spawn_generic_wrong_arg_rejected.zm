@@ -1,0 +1,7 @@
+fn work<T>(x: T, y: T) {
+    print(1)
+}
+
+fn main() {
+    spawn work<int>(3, "a")
+}

@@ -1,0 +1,11 @@
+struct Plain {
+    a: int
+}
+
+fn work<T: Ord>(x: T) {
+    print(1)
+}
+
+fn main() {
+    spawn work<Plain>(Plain { a: 1 })
+}

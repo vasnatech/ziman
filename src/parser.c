@@ -933,12 +933,17 @@ static Stmt *parse_spawn(Parser *p) {
         free(callee);
         callee = qualified;
     }
+    TypeList type_args = {0};
+    if (check(p, TOK_LT) && next_looks_like_generic_call(p)) {
+        type_args = parse_type_args(p);
+    }
     expect(p, TOK_LPAREN, "'('");
     ExprList args = parse_comma_separated(p, TOK_RPAREN);
     expect(p, TOK_RPAREN, "')'");
     Stmt *s = stmt_new(STMT_SPAWN, kw->line, kw->col);
     s->as.spawn_stmt.callee = callee;
     s->as.spawn_stmt.args = args;
+    s->as.spawn_stmt.type_args = type_args;
     return s;
 }
 
@@ -1320,6 +1325,7 @@ static void reclassify_type_params_in_stmt(Stmt *s, TypeParamList *type_params) 
         case STMT_CONTINUE:
             break;
         case STMT_SPAWN:
+            for (int i = 0; i < s->as.spawn_stmt.type_args.count; i++) reclassify_type_params(&s->as.spawn_stmt.type_args.items[i], type_params);
             for (int i = 0; i < s->as.spawn_stmt.args.count; i++) reclassify_type_params_in_expr(s->as.spawn_stmt.args.items[i], type_params);
             break;
         case STMT_RETURN:

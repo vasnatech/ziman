@@ -426,6 +426,7 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
                     if (imp != NULL) s->as.spawn_stmt.callee = imp->qualified_name;
                 }
             }
+            for (int i = 0; i < s->as.spawn_stmt.type_args.count; i++) self_qualify_type(&s->as.spawn_stmt.type_args.items[i], ctx);
             for (int i = 0; i < s->as.spawn_stmt.args.count; i++) self_qualify_expr(s->as.spawn_stmt.args.items[i], ctx);
             break;
         case STMT_RETURN:
@@ -988,6 +989,7 @@ static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx) {
             if (strchr(s->as.spawn_stmt.callee, '.') != NULL) {
                 s->as.spawn_stmt.callee = resolve_function_ref(ctx, s->as.spawn_stmt.callee, s->line, s->col);
             }
+            for (int i = 0; i < s->as.spawn_stmt.type_args.count; i++) resolve_type_refs(&s->as.spawn_stmt.type_args.items[i], ctx, s->line, s->col);
             for (int i = 0; i < s->as.spawn_stmt.args.count; i++) resolve_expr_refs(s->as.spawn_stmt.args.items[i], ctx);
             break;
         case STMT_RETURN:

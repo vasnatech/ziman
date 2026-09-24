@@ -244,6 +244,14 @@ pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Respon
 
 pub fn query_param(req: Request, name: string) -> Option<string>
 
+pub struct ServeOptions {
+    idle_timeout_ms: int
+    max_connections: int
+    log_requests: bool
+}
+
+pub fn serve<C>(listener: Listener, ctx: C, handler: fn(C, Request) -> Response, options: ServeOptions)
+
 ```
 
 ## `io`
@@ -807,6 +815,10 @@ pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
 pub fn acquire(conn: Connection) -> Result<Connection, DbError>
 
 pub fn release(conn: Connection, taken: Connection)
+
+pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError>
+
+pub fn with_transaction_ctx<C, R>(conn: Connection, ctx: C, work: fn(Connection, C) -> Result<R, DbError>) -> Result<R, DbError>
 
 ```
 

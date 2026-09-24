@@ -1,0 +1,13 @@
+fn work<T>(input: T, handler: fn(T) -> string, done: Channel<string>) {
+    send(done, handler(input))
+}
+
+fn label(n: int) -> string {
+    return concat("n=", str(n))
+}
+
+fn main() {
+    val done: Channel<string> = channel_new()
+    spawn work<int>(41, label, done)
+    print(receive(done))
+}

@@ -1642,6 +1642,31 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **Using function values: `db.with_transaction` and `http.serve` (roadmap
+  R13, 2026-09-24).** Stage 1 deliberately has no capture, so a callback cannot
+  reach a value the caller has. The answer is an explicit **context parameter**
+  threaded through a generic function, and it turned out to be enough for both of
+  the things that had been out of reach. `db.with_transaction<R>(conn, work)`
+  and `with_transaction_ctx<C, R>(conn, ctx, work)` do the whole acquire /
+  begin / `defer rollback` / commit / release dance -- the exact sequence that
+  had to be written out (and could be got wrong: a `?` leaving a transaction
+  open) at every call site -- and roll back on an `Err` from `work` or a failed
+  commit. `http.serve<C>(listener, ctx, handler, options)` owns the accept loop,
+  thread per connection, the connection limit (a channel as a counting
+  semaphore) and graceful shutdown, and calls `handler(ctx, request)`; the
+  sample backend's `server.zm` lost its request loop and its semaphore and now
+  passes `routes.route` and the pool. **One language change fell out of it:**
+  `serve` has to `spawn` a per-connection function that is generic over the
+  context type, and `spawn` took only non-generic functions -- it now accepts
+  explicit type arguments (`spawn serve_connection<C>(...)`), checked and
+  substituted like any generic call. A generic `spawn` needs them written out for
+  the same reason every generic call does (no inference). **What this shows
+  about stage 2:** the context parameter is workable but it is the price of no
+  capture -- every callback-taking API needs a `_ctx` variant or a generic
+  context, and a handler that needs two things has to bundle them in a struct.
+  That is the argument for capturing lambdas; it is not yet strong enough to
+  make them a priority, and the alternative recorded in the previous entry
+  (capture by value, no `var`) is unchanged.
 - **Function values, stage 1: references to named functions, no closures
   (external review, roadmap R13, 2026-09-23).** Ziman had no function values, so
   a library could not take "your handler" (`http` could not be a framework),
@@ -1670,10 +1695,8 @@ several languages rather than inheriting any one of them wholesale.
   not an arbitrary expression; named arguments and omitted `Option` parameters
   don't apply through a value. **Standard library:** `collections.map`, `filter`,
   `fold`, `any`, `all`, `find`, `for_each` and `sort_with`. **What it does not
-  do yet, and why:** `with_transaction(conn, work)` and `http.serve(listener,
-  handler)` both need the callback to reach a value the caller has (a connection,
-  the pool), which without capture means threading an explicit context through a
-  generic parameter -- possible, but not built. **Stage 2, if it is needed:**
+  do yet, and why:** -- *(update, same day: both things this paragraph said were
+  not built now are; see the next entry.)* **Stage 2, if it is needed:**
   capturing lambdas, capturing by value as an immutable snapshot at creation
   (the rule `defer` already uses for its arguments) and forbidding capture of a
   `var`, so the actor model still holds. Recorded rather than started.

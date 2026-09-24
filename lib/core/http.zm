@@ -1,13 +1,13 @@
 // http.zm -- an HTTP/1.1 *server* toolkit, written in Ziman on top of
 // `net`: parse a request off a socket, route it, write a response.
-// Deliberately a toolkit, not a framework, and the reason is a language
-// fact: Ziman has no function values, so a library can't take "your
-// handler" as an argument. There is therefore no `http.serve(listener,
-// handler)`. The application writes its own accept loop and its own
-// `route` function (a few lines; see docs/SYNTAX.md's "HTTP" section) and
-// this module supplies everything they call: `read_request`,
-// `write_response`, the response builders, and route matching that
-// extracts path parameters (`route`, `param`).
+// Two ways to use it. `serve(listener, ctx, handler, options)` runs the accept
+// loop and the per-connection loop for you and calls your handler -- a
+// function value -- for each request (see "serve" at the end of this file).
+// Or write your own accept loop and connection loop and call the pieces:
+// `read_request`, `write_response`, the response builders, and route matching
+// that extracts path parameters (`route`, `param`). A handler cannot capture
+// (function values are references to named functions), so what it needs
+// besides the request travels as an explicit context value.
 //
 // What it speaks: HTTP/1.1 and 1.0 requests with a request line, headers
 // and an optional `Content-Length` body; keep-alive across requests on one
@@ -26,6 +26,9 @@
 
 use net
 use net.Socket
+use net.Listener
+use os
+use clock
 use net.NetError
 use net.net_error_message
 use bytes.string_to_bytes
@@ -551,4 +554,79 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
         }
     }
     return Option<string>.None
+}
+
+// ------------------------------------------------------------------- serve
+//
+// The accept loop and the per-connection request loop, so an application only
+// supplies its handler. A handler is a *function value*, and function values
+// do not capture, so whatever the handler needs (a database connection, a
+// configuration) is passed as an explicit context value `ctx` of any type `C`
+// and handed to the handler with every request:
+//
+//     fn route(conn: db.Connection, req: http.Request) -> http.Response { ... }
+//
+//     http.serve<db.Connection>(listener, conn, route, options)
+//
+// One thread per connection, at most `max_connections` at once (the limit is a
+// channel used as a counting semaphore: a client past it waits in the kernel's
+// accept queue). `serve` returns when a shutdown has been requested
+// (`os.install_shutdown_handler()` makes SIGINT/SIGTERM do that) and every
+// connection already being served has finished -- an idle keep-alive
+// connection ends at `idle_timeout_ms` at the latest. It does not close the
+// listener or install the signal handler; the caller owns both.
+
+pub struct ServeOptions {
+    idle_timeout_ms: int
+    max_connections: int
+    log_requests: bool
+}
+
+fn serve_connection<C>(ctx: C, sock: Socket, handler: fn(C, Request) -> Response, idle_timeout_ms: int, log_requests: bool, slots: Channel<int>) {
+    defer send(slots, 1)                               // the slot is returned on every way out
+    defer net.close(sock)
+    unwrap(net.set_timeout(sock, idle_timeout_ms))     // an idle client can't hold this thread forever
+    var session = open_session(sock)
+    var open = true
+    while open {
+        val next = read_request(session)
+        if !is_ok(next) {
+            write_error(sock, unwrap_err(next))        // 400/408/413/431/501, or nothing if the peer is gone
+            open = false
+        } else {
+            val exchange = unwrap(next)
+            session = exchange.session                 // carries any bytes read past this request
+            val response = handler(ctx, exchange.request)
+            if log_requests {
+                print(format("{} {} -> {}", exchange.request.method, exchange.request.target, response.status))
+            }
+            val keep = write_response(sock, exchange.request, response)
+            if !is_ok(keep) || !unwrap(keep) {
+                open = false
+            }
+        }
+    }
+}
+
+pub fn serve<C>(listener: Listener, ctx: C, handler: fn(C, Request) -> Response, options: ServeOptions) {
+    var limit = options.max_connections
+    if limit < 1 {
+        limit = 1
+    }
+    val slots: Channel<int> = channel_new()
+    for i in 0..limit {
+        send(slots, 1)
+    }
+    while !os.shutdown_requested() {
+        val client = net.accept(listener)
+        if is_ok(client) {
+            val slot = receive(slots)                  // waits here while every slot is in use
+            spawn serve_connection<C>(ctx, unwrap(client), handler, options.idle_timeout_ms, options.log_requests, slots)
+        } else if !os.shutdown_requested() {
+            clock.sleep_millis(10)                     // an accept error must not become a busy loop
+        }
+    }
+    for i in 0..limit {
+        val slot = receive(slots)                      // every slot back means every connection is done
+    }
 }
