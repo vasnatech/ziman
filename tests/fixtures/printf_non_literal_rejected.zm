@@ -1,0 +1,2 @@
+fn main() { val f = "x"
+ printf(f) }

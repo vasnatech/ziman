@@ -2547,6 +2547,11 @@ a type error.
   `decimal`, or `byte` to its display string. Rejects an argument that's
   already a `string` (there should be exactly one way to get a string
   from a value, not two).
+- `printf(fmt, args...)` — `format`, written straight to standard output
+  with **no newline added** (put `\n` in the format if you want one) and
+  flushed, so a prompt or a progress line appears immediately. Same rules as
+  `format`: a string-literal `fmt`, `{}` placeholders (not C's `%d`/`%s` --
+  see below for why), count checked at compile time. Returns nothing.
 - `format(fmt, args...) -> string` — the only variable-arity call in
   Ziman. `fmt` **must be a string literal** (not a variable or any other
   computed value) containing zero or more `{}` placeholders; the number

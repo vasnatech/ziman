@@ -1,0 +1,10 @@
+fn main() {
+    printf("no newline, ")
+    printf("{} + {} = {}\n", 1, 2, 1 + 2)
+    printf("name: {}, ok: {}, pi: {}\n", "Zed", true, 3.5)
+    val n = 7
+    printf("n={}", n)
+    print("")
+    defer printf("bye\n")
+    print("end")
+}

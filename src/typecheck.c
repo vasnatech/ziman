@@ -668,7 +668,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
  * arguments are for real (user or prelude) `fn`/`native fn`
  * declarations only. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
-    "print", "str", "format", "len", "contains", "hash", "compare", "abs", "min", "max",
+    "print", "printf", "str", "format", "len", "contains", "hash", "compare", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err",
     "ok", "err", "channel_new", "send", "receive", NULL,
 };
@@ -814,14 +814,14 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return type_scalar(TY_STRING);
     }
 
-    if (strcmp(name, "format") == 0) {
+    if (strcmp(name, "format") == 0 || strcmp(name, "printf") == 0) {
         if (e->as.call.args.count < 1) {
-            ziman_error("type", e->line, e->col, "'format' requires at least a format string argument");
+            ziman_error("type", e->line, e->col, "'%s' requires at least a format string argument", name);
         }
         Expr *fmt_expr = e->as.call.args.items[0];
         if (fmt_expr->kind != EXPR_STRING) {
             ziman_error("type", fmt_expr->line, fmt_expr->col,
-                        "'format' requires its first argument to be a string literal, not a computed value");
+                        "'%s' requires its first argument to be a string literal, not a computed value", name);
         }
         fmt_expr->resolved_type = type_scalar(TY_STRING);
 
@@ -837,7 +837,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             check_expr(module, env, arg);
             require_not_void(arg, "as a format argument");
         }
-        return type_scalar(TY_STRING);
+        return type_scalar(strcmp(name, "printf") == 0 ? TY_VOID : TY_STRING);
     }
 
     if (strcmp(name, "len") == 0) {
@@ -2462,7 +2462,7 @@ void typecheck(Module *module) {
      * module's own function list, and the generic duplicate-function-
      * name check just below already rejects redefining one of those the
      * same way it rejects redefining any other function. */
-    static const char *builtins[] = {"print", "str", "format", "len", "push", "insert", "set",
+    static const char *builtins[] = {"print", "printf", "str", "format", "len", "push", "insert", "set",
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "hash", "compare"};

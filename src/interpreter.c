@@ -744,6 +744,11 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_str(args[0]);
             } else if (strcmp(e->as.call.callee, "format") == 0) {
                 result = call_format(args, argc);
+            } else if (strcmp(e->as.call.callee, "printf") == 0) {
+                Value text = call_format(args, argc);
+                fwrite(text.as.str.ptr, 1, text.as.str.len, stdout);
+                fflush(stdout);
+                result = value_int(0);
             } else if (strcmp(e->as.call.callee, "len") == 0) {
                 result = call_len(args[0]);
             } else if (strcmp(e->as.call.callee, "push") == 0) {
