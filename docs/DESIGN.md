@@ -3093,3 +3093,17 @@ function may use its type parameters.
 their explicit context parameters: those APIs remain correct, and a caller can
 now also pass a lambda that closes over what it needs. Expression-bodied lambdas
 and inferring lambda parameter types are open.
+
+## Lambdas replace the context-passing workarounds
+
+The `_ctx` and generic-context APIs existed only because function values could
+not capture (DESIGN, R13 stage 1 "what this shows about stage 2"). With lambdas
+they are redundant, so they were removed rather than kept as a second way:
+`collections.map_ctx`/`filter_ctx`/`find_ctx`, `db.with_transaction_ctx`, and
+the `<C>` context parameter of `http.serve` (now
+`serve(listener, handler: fn(Request) -> Response, options)`, whose per-
+connection function is no longer generic). The sample backend's route lookup is
+`collections.find<Route>(table, fn(r: Route) -> bool { ... })` capturing the
+request, and `server.zm` passes a lambda capturing the connection. Captured
+values are immutable copies, so sharing one handler between connection threads
+is safe.

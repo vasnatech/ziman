@@ -17,8 +17,8 @@
 // statement by statement -- SQLite takes the connection's own lock, and a
 // Postgres connection is owned by one thread that serialises requests. A
 // transaction is NOT safe to share -- another thread's statements can
-// interleave inside it -- so run a transaction from one thread. With no
-// closures there is no `with_transaction(fn)`; use `defer` instead:
+// interleave inside it -- so run a transaction from one thread. Use
+// `with_transaction` (below), or by hand with `defer`:
 //
 //     db.begin(conn)?
 //     defer db.rollback(conn)
@@ -245,11 +245,13 @@ pub fn release(conn: Connection, taken: Connection) {
 // pool on every way out (a `defer`), so this is the whole of the
 // acquire / begin / rollback-on-error / commit / release dance:
 //
-//     fn transfer(tx: db.Connection) -> Result<int, DbError> { ... }
-//     val moved = db.with_transaction<int>(conn, transfer)?
+//     val moved = db.with_transaction<int>(conn, fn(tx: db.Connection) -> Result<int, DbError> {
+//         db.execute(tx, "UPDATE ...", [SqlValue.Int(amount)])?
+//         return ok(amount)
+//     })?
 //
-// `work` is a named function (function values don't capture); anything it
-// needs beyond the connection goes through `with_transaction_ctx`. A `work`
+// `work` is a function value: a lambda capturing what it needs (`amount` above),
+// or a named function. A `work`
 // that itself calls `db.begin`/`db.commit` on `tx` breaks the nesting -- it
 // must not.
 pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError> {
@@ -258,21 +260,6 @@ pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, D
     begin(tx)?
     defer rollback(tx)
     val result = work(tx)
-    if !is_ok(result) {
-        return result
-    }
-    commit(tx)?
-    return result
-}
-
-// `with_transaction` for a `work` function that needs a value of its own (the
-// data to write, say), passed through untouched: `work(tx, ctx)`.
-pub fn with_transaction_ctx<C, R>(conn: Connection, ctx: C, work: fn(Connection, C) -> Result<R, DbError>) -> Result<R, DbError> {
-    val tx = acquire(conn)?
-    defer release(conn, tx)
-    begin(tx)?
-    defer rollback(tx)
-    val result = work(tx, ctx)
     if !is_ok(result) {
         return result
     }

@@ -128,12 +128,6 @@ pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool
 
 pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T>
 
-pub fn map_ctx<C, T, U>(items: [T], ctx: C, f: fn(C, T) -> U) -> [U]
-
-pub fn filter_ctx<C, T>(items: [T], ctx: C, keep: fn(C, T) -> bool) -> [T]
-
-pub fn find_ctx<C, T>(items: [T], ctx: C, test: fn(C, T) -> bool) -> Option<T>
-
 pub fn for_each<T>(items: [T], f: fn(T))
 
 pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
@@ -333,7 +327,7 @@ pub struct ServeOptions {
     log_requests: bool
 }
 
-pub fn serve<C>(listener: Listener, ctx: C, handler: fn(C, Request) -> Response, options: ServeOptions)
+pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions)
 
 ```
 
@@ -946,8 +940,6 @@ pub fn acquire(conn: Connection) -> Result<Connection, DbError>
 pub fn release(conn: Connection, taken: Connection)
 
 pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError>
-
-pub fn with_transaction_ctx<C, R>(conn: Connection, ctx: C, work: fn(Connection, C) -> Result<R, DbError>) -> Result<R, DbError>
 
 ```
 

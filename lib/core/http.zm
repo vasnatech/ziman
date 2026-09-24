@@ -590,14 +590,12 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 // ------------------------------------------------------------------- serve
 //
 // The accept loop and the per-connection request loop, so an application only
-// supplies its handler. A handler is a *function value*, and function values
-// do not capture, so whatever the handler needs (a database connection, a
-// configuration) is passed as an explicit context value `ctx` of any type `C`
-// and handed to the handler with every request:
+// supplies its handler. A handler is a *function value*: a named function, or a
+// lambda that captures what it needs (a database connection, a configuration):
 //
-//     fn route(conn: db.Connection, req: http.Request) -> http.Response { ... }
-//
-//     http.serve<db.Connection>(listener, conn, route, options)
+//     http.serve(listener, fn(req: http.Request) -> http.Response {
+//         return route(conn, req)
+//     }, options)
 //
 // One thread per connection, at most `max_connections` at once (the limit is a
 // channel used as a counting semaphore: a client past it waits in the kernel's
@@ -613,7 +611,7 @@ pub struct ServeOptions {
     log_requests: bool
 }
 
-fn serve_connection<C>(ctx: C, sock: Socket, handler: fn(C, Request) -> Response, idle_timeout_ms: int, log_requests: bool, slots: Channel<int>) {
+fn serve_connection(sock: Socket, handler: fn(Request) -> Response, idle_timeout_ms: int, log_requests: bool, slots: Channel<int>) {
     defer send(slots, 1)                               // the slot is returned on every way out
     defer net.close(sock)
     unwrap(net.set_timeout(sock, idle_timeout_ms))     // an idle client can't hold this thread forever
@@ -627,7 +625,7 @@ fn serve_connection<C>(ctx: C, sock: Socket, handler: fn(C, Request) -> Response
         } else {
             val exchange = unwrap(next)
             session = exchange.session                 // carries any bytes read past this request
-            val response = handler(ctx, exchange.request)
+            val response = handler(exchange.request)
             if log_requests {
                 printf("{} {} -> {}\n", method_name(exchange.request.method), exchange.request.target, response.status)
             }
@@ -639,7 +637,7 @@ fn serve_connection<C>(ctx: C, sock: Socket, handler: fn(C, Request) -> Response
     }
 }
 
-pub fn serve<C>(listener: Listener, ctx: C, handler: fn(C, Request) -> Response, options: ServeOptions) {
+pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions) {
     var limit = options.max_connections
     if limit < 1 {
         limit = 1
@@ -652,7 +650,7 @@ pub fn serve<C>(listener: Listener, ctx: C, handler: fn(C, Request) -> Response,
         val client = net.accept(listener)
         if is_ok(client) {
             val slot = receive(slots)                  // waits here while every slot is in use
-            spawn serve_connection<C>(ctx, unwrap(client), handler, options.idle_timeout_ms, options.log_requests, slots)
+            spawn serve_connection(unwrap(client), handler, options.idle_timeout_ms, options.log_requests, slots)
         } else if !os.shutdown_requested() {
             clock.sleep_millis(10)                     // an accept error must not become a busy loop
         }

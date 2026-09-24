@@ -1,0 +1,23 @@
+use collections
+
+// A lambda uses what it captures where the removed `_ctx` forms threaded an
+// explicit value through.
+struct Route {
+    method: string
+    pattern: string
+}
+
+fn main() {
+    val routes = [Route { method: "GET", pattern: "/a" }, Route { method: "POST", pattern: "/b" }, Route { method: "GET", pattern: "/c" }]
+    val want = "POST"
+    val first_post = collections.find<Route>(routes, fn(r: Route) -> bool { return r.method == want })
+    print(Option.unwrap_Some(first_post).pattern)
+    val nothing = "DELETE"
+    print(Option.is_Some(collections.find<Route>(routes, fn(r: Route) -> bool { return r.method == nothing })))
+    val get = "GET"
+    print(len(collections.filter<Route>(routes, fn(r: Route) -> bool { return r.method == get })))
+    val prefix = "> "
+    print(collections.map<Route, string>(routes, fn(r: Route) -> string { return concat(prefix, concat(r.method, r.pattern)) }))
+    val threshold = 4
+    print(collections.filter<int>([1, 5, 9, 12], fn(n: int) -> bool { return n > threshold }))
+}

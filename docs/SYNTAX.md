@@ -538,13 +538,10 @@ fn main() {
   `print` shows `<function name>`.
 - **In the standard library:** `collections.map`, `filter`, `fold`, `any`, `all`,
   `find`, `for_each` and `sort_with`, with the type arguments written out at the
-  call (`collections.map<int, string>(numbers, label)`). Because a function
-  cannot capture (a named function has no enclosing scope), `map_ctx`,
-  `filter_ctx` and `find_ctx` pass an extra value through to the function on
-  every call, which a lambda makes unnecessary but a named handler still needs --
-  `collections.find_ctx<http.Request, Route>(table, req, matches)` calls
-  `matches(req, route)` for each route until one is true. That is how the sample
-  backend's route table finds the handler for a request.
+  call (`collections.map<int, string>(numbers, label)`). Pass a lambda when the
+  function needs something from the enclosing scope --
+  `collections.find<Route>(table, fn(r: Route) -> bool { return matches(req, r) })`
+  is how the sample backend's route table finds the handler for a request.
 
 ## Structs
 
@@ -2003,14 +2000,17 @@ fn route(conn: db.Connection, req: http.Request) -> http.Response { ... }
 
 val options = http.ServeOptions { idle_timeout_ms: 30000, max_connections: 64, log_requests: true }
 os.install_shutdown_handler()
-http.serve<db.Connection>(listener, conn, route, options)     // returns after SIGINT/SIGTERM
+http.serve(listener, fn(req: http.Request) -> http.Response {
+    return route(conn, req)                 // the lambda captured `conn`
+}, options)                                 // returns after SIGINT/SIGTERM
 ```
 
-`http.serve<C>(listener, ctx: C, handler: fn(C, Request) -> Response, options)`
+`http.serve(listener, handler: fn(Request) -> Response, options)`
 runs the accept loop and the per-connection request loop and calls `handler`
-for each request. The handler is a function value, and function values do not
-capture, so whatever it needs (a database connection, configuration) is the
-explicit **context value** `ctx`, passed to it with every request. One thread
+for each request. The handler is a function value -- a named function, or a
+lambda capturing whatever it needs (a database connection, configuration); the
+captured values are immutable copies, so they are safe to share between the
+connection threads. One thread
 per connection, at most `max_connections` at a time (a channel used as a
 counting semaphore; a client past the limit waits in the kernel's accept
 queue). It returns when a shutdown was requested
@@ -2113,11 +2113,8 @@ Result<R, DbError>` runs `work` in a transaction on one exclusive connection:
 it borrows one from a pool, begins, calls `work(tx)`, commits if `work`
 returned `Ok`, and rolls back if it returned `Err` (or the commit failed),
 handing the connection back on every way out. The result of `work` is returned
-unchanged. `db.with_transaction_ctx<C, R>(conn, ctx, work: fn(Connection, C) ->
-Result<R, DbError>)` is the same for a `work` that needs a value of its own,
-passed through as `work(tx, ctx)` -- function values don't capture, so that
-value has to travel explicitly. `work` must not call `db.begin`/`db.commit`
-itself.
+unchanged. `work` is a function value, usually a lambda capturing what it needs
+(the data to write, say). `work` must not call `db.begin`/`db.commit` itself.
 
 ```
 fn transfer(tx: db.Connection, t: Transfer) -> Result<int, DbError> {
@@ -2126,7 +2123,10 @@ fn transfer(tx: db.Connection, t: Transfer) -> Result<int, DbError> {
     return ok(t.amount)
 }
 
-val moved = db.with_transaction_ctx<Transfer, int>(conn, Transfer { ... }, transfer)?
+val t = Transfer { ... }
+val moved = db.with_transaction<int>(conn, fn(tx: db.Connection) -> Result<int, DbError> {
+    return transfer(tx, t)
+})?
 ```
 
 ## HTTP client (`httpclient`)

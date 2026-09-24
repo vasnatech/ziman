@@ -50,8 +50,10 @@ fn sql_as_int_of(row: Row) -> Result<int, DbError> {
 fn main() {
     val conn = unwrap(db.open("sqlite::memory:"))
     unwrap(setup(conn))
+    val first = Transfer { from: 1, to: 2, amount: 30 }
+    val too_much = Transfer { from: 1, to: 2, amount: 500 }
     // success commits
-    print(unwrap(db.with_transaction_ctx<Transfer, int>(conn, Transfer { from: 1, to: 2, amount: 30 }, transfer)))
+    print(unwrap(db.with_transaction<int>(conn, fn(tx: db.Connection) -> Result<int, DbError> { return transfer(tx, first) })))
     print(total(conn, 1))
     print(total(conn, 2))
     // an Err from work rolls back: the UPDATE inside it is undone
@@ -60,7 +62,7 @@ fn main() {
     print(db_error_message(unwrap_err(failed)))
     print(total(conn, 1))
     // a constraint violation midway rolls the first UPDATE back too
-    val overdraw = db.with_transaction_ctx<Transfer, int>(conn, Transfer { from: 1, to: 2, amount: 500 }, transfer)
+    val overdraw = db.with_transaction<int>(conn, fn(tx: db.Connection) -> Result<int, DbError> { return transfer(tx, too_much) })
     print(is_ok(overdraw))
     print(total(conn, 1))
     print(total(conn, 2))
