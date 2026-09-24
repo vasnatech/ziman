@@ -207,7 +207,7 @@ against)**
   the generator already knows it needs, and forgetting one produces the
   unhelpful error above. Inject them, or at least say which `use` is
   missing.
-- [ ] **R8. `--check` and `--json` diagnostics.** The CLI takes exactly one
+- [x] **R8. `--check` and `--json` diagnostics.** *Done 2026-09-23: `--check`, `--json`, `--emit-derived`, `--version`, `--help`.* The CLI takes exactly one
   argument. A type-check-only mode is a few lines (typecheck is already a
   separate phase); machine-readable diagnostics are DESIGN.md principle #5
   and are still unbuilt, even though they are the item most aligned with
@@ -375,9 +375,11 @@ from source.
   - **`Option<T>`** (for the still-separate optional/nullable-type gap
     above) would very likely use this exact same trick — not designed,
     but the precedent now exists.
-- **Structured/machine-parseable diagnostics** (`--json` error mode).
-  Central to the "errors are data" principle in DESIGN.md; deferred out of
-  v0 only to get a working language faster.
+- ~~**Structured/machine-parseable diagnostics** (`--json` error mode).~~
+  Done 2026-09-23 (roadmap R8): `--json` prints each error as one JSON
+  object on stderr. Still open: reporting *more than one* error per run
+  (the compiler stops at the first), a `file` field (no error carries a file
+  name yet), and warnings/notes as a separate severity.
 - ~~**String concatenation.**~~ Decided and implemented: a `concat(a, b)`
   builtin (both arguments must already be `string` — no auto-stringify,
   keeps it from becoming implicit coercion by another name), plus a

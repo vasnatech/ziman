@@ -1,0 +1,12 @@
+struct Inner {
+    a: int
+}
+
+#[derive(Json)]
+struct P {
+    inner: Inner
+}
+
+fn main() {
+    print(1)
+}

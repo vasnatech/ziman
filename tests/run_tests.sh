@@ -37,11 +37,20 @@ check_fixture() {
         done < "$env_file"
     fi
 
+    # An optional tests/fixtures/<name>.args holds command-line options (space
+    # separated) passed to ziman before the file -- how a fixture exercises
+    # --check, --json and --emit-derived.
+    local cli_args=()
+    local args_file="tests/fixtures/$name.args"
+    if [ -f "$args_file" ]; then
+        read -r -a cli_args < "$args_file"
+    fi
+
     local stdout status stderr
     # `timeout` guards against a genuine deadlock in a spawn/Channel fixture
     # (a mistake in the interpreter's channel/thread handling) hanging the
     # whole suite forever instead of just failing that one fixture.
-    stdout=$(env "${env_args[@]}" timeout 5 "$BIN" "$entry" 2>/tmp/ziman_test_stderr.$$)
+    stdout=$(env "${env_args[@]}" timeout 5 "$BIN" "${cli_args[@]+"${cli_args[@]}"}" "$entry" 2>/tmp/ziman_test_stderr.$$)
     status=$?
     stderr=$(cat /tmp/ziman_test_stderr.$$)
     rm -f /tmp/ziman_test_stderr.$$

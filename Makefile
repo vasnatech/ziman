@@ -2,7 +2,8 @@ CC := cc
 # -fwrapv: signed overflow in the C code itself is well defined (wraps) instead of
 # undefined behaviour the optimiser may exploit. Ziman's own `int` arithmetic
 # does not rely on it -- it traps on overflow explicitly (see interpreter.c).
-CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -g -MMD -MP -pthread
+ZIMAN_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+CFLAGS := -std=c11 -O2 -fwrapv -DZIMAN_VERSION='"$(ZIMAN_VERSION)"' -Wall -Wextra -Wpedantic -g -MMD -MP -pthread
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)

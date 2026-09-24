@@ -1,0 +1,3 @@
+fn main() {
+    print("this must not run under --check")
+}

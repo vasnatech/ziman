@@ -1,0 +1,4 @@
+fn main() {
+    val r: Result<int, string> = err("say \"hi\"")
+    print(unwrap(r))
+}

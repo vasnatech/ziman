@@ -1,0 +1,1 @@
+type error at 3:18: cannot initialize 'x' of declared type int with a value of type string

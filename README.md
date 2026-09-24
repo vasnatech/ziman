@@ -310,6 +310,12 @@ echo 'fn main() { print("hello, ziman") }' > hello.zm
 ./ziman hello.zm
 ```
 
+Options: `--check` loads and type-checks without running; `--json` reports each
+error as one JSON object on stderr (`{"severity":"error","phase":"type",
+"line":3,"col":18,"context":null,"message":"..."}`, with `--check` a clean
+run prints `{"ok":true}`); `--emit-derived` prints the code each
+`#[derive]` generates; `--version`; `--help`.
+
 ## Testing
 
 ```sh

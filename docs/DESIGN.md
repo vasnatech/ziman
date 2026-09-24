@@ -33,8 +33,9 @@ several languages rather than inheriting any one of them wholesale.
    structured (machine-parseable) and render as clear text for humans from
    the same underlying record. This lets an LLM (or a human's editor)
    consume a compile error programmatically without scraping a string.
-   (Planned for v0.2 — v0.1 just needs errors to carry line/column and a
-   stable message shape.)
+   (Implemented as `ziman --json`: one JSON object per error, rendered
+   from the same record as the text form -- see the "`--check` and
+   `--json`" entry below.)
 6. **Small orthogonal core.** Prefer a handful of composable constructs over
    many special-cased ones. Anything not in the core is a library function,
    not new syntax.
@@ -1641,6 +1642,30 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **`--check` and `--json`: the compiler as a tool an agent can call
+  (external review, roadmap R8, 2026-09-23).** The CLI took exactly one
+  argument, and principle #5 ("errors are data") had been promised since
+  v0 and never built -- yet it is the item most aligned with the AI-first
+  thesis: an agent iterating against the compiler should not have to
+  scrape prose. `ziman --check file.zm` loads and type-checks without
+  running (an agent's between-edits call; running a server just to see
+  whether it compiles is not acceptable). `ziman --json` prints every error
+  as one JSON object on stderr, `{"severity":"error","phase":"type",
+  "line":3,"col":18,"context":null,"message":"..."}`, where `phase` is
+  `syntax`/`module`/`type`/`runtime` and `context` names the derive an error
+  came from (R6) or is null; the text form is rendered from the same
+  arguments, so the two cannot drift. `--check --json` prints
+  `{"ok":true}` on stdout when clean. Program output stays on stdout and
+  diagnostics on stderr, so `--json` composes with a running program. Also
+  added: `--emit-derived` (print the source each `#[derive]` generates --
+  the debuggability argument for generating readable source in the first
+  place), `--version` (`git describe`, baked in at build time), `--help`.
+  Errors still exit 1; a bad command line exits 2. **Deliberately not
+  done:** several errors per run (the checker still stops at the first --
+  a real gap for an agent, since fixing one error to discover the next
+  costs a round trip), and a `file` field (no error carries one yet; the
+  loader would have to thread module paths through every error site). Both
+  are recorded as open in the roadmap.
 - **A derive imports the names it generates code against (external
   review, roadmap R7, 2026-09-23).** One `#[derive(Json)]` needed five
   hand-written `use json.*` lines, and forgetting one produced the old

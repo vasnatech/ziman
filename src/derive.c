@@ -624,7 +624,10 @@ static char *generate_struct_properties(StructDecl *sd) {
  * the generated code points at the user's own `struct`, and `label` (say,
  * "derive(Json) for 'Point'") is attached to the functions so the checker
  * can say what it was reading. */
+int g_emit_derived = 0;
+
 static void parse_and_splice(Module *module, char *source, int line, int col, const char *label) {
+    if (g_emit_derived) printf("// %s\n%s", label, source);
     ziman_set_error_context(label);
     TokenList tokens = lex(source);
     for (int i = 0; i < tokens.count; i++) {

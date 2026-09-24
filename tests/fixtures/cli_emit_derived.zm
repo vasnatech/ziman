@@ -1,0 +1,8 @@
+#[derive(Json)]
+struct P {
+    x: int
+}
+
+fn main() {
+    print(1)
+}

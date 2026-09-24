@@ -15,4 +15,10 @@ void ziman_error(const char *phase, int line, int col, const char *fmt, ...);
 void ziman_set_error_context(const char *context);
 const char *ziman_error_context(void);
 
+/* With this on, every error is one JSON object on stderr instead of prose:
+ *   {"severity":"error","phase":"type","line":8,"col":1,
+ *    "context":"derive(Json) for 'Point'" | null,"message":"..."}
+ * -- the same record the text form is rendered from. */
+void ziman_set_json_errors(int on);
+
 #endif

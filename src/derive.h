@@ -15,4 +15,8 @@
  * and derive" entry for the full design. */
 void generate_derived_functions(Module *module);
 
+/* When non-zero, every generated snippet is also printed to stdout, headed
+ * by a `// derive(...) for '...'` comment (ziman --emit-derived). */
+extern int g_emit_derived;
+
 #endif

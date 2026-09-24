@@ -1,0 +1,4 @@
+fn main() {
+    print("hi")
+    val x: int = "no"
+}
