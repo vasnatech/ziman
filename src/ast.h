@@ -431,6 +431,10 @@ typedef struct {
     int is_public;
     int is_native;
     int line, col;
+    /* Non-NULL for a function a #[derive] generated, e.g. "derive(Json) for
+     * 'Point'": every position inside it is stamped with the declaration's
+     * own line/column, and errors in it say where it came from. */
+    const char *derived_from;
 } FunctionDecl;
 
 typedef struct {

@@ -1,0 +1,15 @@
+use json.Json
+use json.JField
+use json.json_to_string
+use json.json_require_field
+use json.json_object_get
+
+#[derive(Json)]
+struct Point {
+    x: int
+    y: int
+}
+
+fn main() {
+    print(json_to_string(point_to_json(Point { x: 1, y: 2 })))
+}

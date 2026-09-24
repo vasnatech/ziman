@@ -1,0 +1,17 @@
+
+
+
+enum Shape {
+    Circle(float)
+    Empty
+}
+
+#[derive(Json)]
+enum Kind {
+    A
+    B(int)
+}
+
+fn main() {
+    print(1)
+}

@@ -433,9 +433,11 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
 static void self_qualify_walk_module(Module *mod, SelfQualifyCtx *ctx) {
     for (int i = 0; i < mod->functions.count; i++) {
         FunctionDecl *fn = mod->functions.items[i];
+        ziman_set_error_context(fn->derived_from);
         for (int pi = 0; pi < fn->params.count; pi++) self_qualify_type(&fn->params.items[pi].type, ctx);
         self_qualify_type(&fn->return_type, ctx);
         if (!fn->is_native) self_qualify_stmt(fn->body, ctx);
+        ziman_set_error_context(NULL);
     }
     for (int i = 0; i < mod->structs.count; i++) {
         StructDecl *sd = mod->structs.items[i];
@@ -950,11 +952,13 @@ static void resolve_cross_refs(Loader *ldr, Module *mod) {
     CrossRefCtx ctx = {ldr, mod};
     for (int i = 0; i < mod->functions.count; i++) {
         FunctionDecl *fn = mod->functions.items[i];
+        ziman_set_error_context(fn->derived_from);
         for (int pi = 0; pi < fn->params.count; pi++) {
             resolve_type_refs(&fn->params.items[pi].type, &ctx, fn->params.items[pi].line, fn->params.items[pi].col);
         }
         resolve_type_refs(&fn->return_type, &ctx, fn->line, fn->col);
         if (!fn->is_native) resolve_stmt_refs(fn->body, &ctx);
+        ziman_set_error_context(NULL);
     }
     for (int i = 0; i < mod->structs.count; i++) {
         StructDecl *sd = mod->structs.items[i];

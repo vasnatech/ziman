@@ -1,0 +1,15 @@
+struct Other {
+    a: int
+}
+
+// a comment line
+
+#[derive(Json)]
+struct Point {
+    x: int
+    y: int
+}
+
+fn main() {
+    print(1)
+}

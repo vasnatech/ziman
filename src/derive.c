@@ -619,10 +619,22 @@ static char *generate_struct_properties(StructDecl *sd) {
  * Driver: lex+parse the generated snippet and splice its functions in.
  * --------------------------------------------------------------------- */
 
-static void parse_and_splice(Module *module, char *source) {
+/* `line`/`col` are the declaration the code is generated for. Every token
+ * is restamped with that position before parsing, so an error anywhere in
+ * the generated code points at the user's own `struct`, and `label` (say,
+ * "derive(Json) for 'Point'") is attached to the functions so the checker
+ * can say what it was reading. */
+static void parse_and_splice(Module *module, char *source, int line, int col, const char *label) {
+    ziman_set_error_context(label);
     TokenList tokens = lex(source);
+    for (int i = 0; i < tokens.count; i++) {
+        tokens.items[i].line = line;
+        tokens.items[i].col = col;
+    }
     Module *snippet = parse(tokens);
+    ziman_set_error_context(NULL);
     for (int i = 0; i < snippet->functions.count; i++) {
+        snippet->functions.items[i]->derived_from = label;
         function_list_push(&module->functions, snippet->functions.items[i]);
     }
     /* `tokens`/`snippet`/`source` are deliberately never freed -- AST
@@ -646,14 +658,15 @@ void generate_derived_functions(Module *module) {
             if (sd->type_params.count > 0) {
                 ziman_error("syntax", sd->line, sd->col, "derive(%s) does not support a generic struct yet ('%s')", sd->derives[d], sd->name);
             }
+            const char *label = fmt_str("derive(%s) for '%s'", sd->derives[d], sd->name);
             if (is_props) {
-                parse_and_splice(module, generate_struct_properties(sd));
+                parse_and_splice(module, generate_struct_properties(sd), sd->line, sd->col, label);
             } else if (is_json) {
-                parse_and_splice(module, generate_struct_to_json(sd));
-                parse_and_splice(module, generate_struct_from_json(sd));
+                parse_and_splice(module, generate_struct_to_json(sd), sd->line, sd->col, label);
+                parse_and_splice(module, generate_struct_from_json(sd), sd->line, sd->col, label);
             } else {
-                parse_and_splice(module, generate_struct_from_row(sd));
-                parse_and_splice(module, generate_struct_to_params(sd));
+                parse_and_splice(module, generate_struct_from_row(sd), sd->line, sd->col, label);
+                parse_and_splice(module, generate_struct_to_params(sd), sd->line, sd->col, label);
             }
         }
     }
@@ -672,8 +685,9 @@ void generate_derived_functions(Module *module) {
             if (ed->type_params.count > 0) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Json) does not support a generic enum yet ('%s')", ed->name);
             }
-            parse_and_splice(module, generate_enum_to_json(ed));
-            parse_and_splice(module, generate_enum_from_json(ed));
+            const char *label = fmt_str("derive(%s) for '%s'", ed->derives[d], ed->name);
+            parse_and_splice(module, generate_enum_to_json(ed), ed->line, ed->col, label);
+            parse_and_splice(module, generate_enum_from_json(ed), ed->line, ed->col, label);
         }
     }
 }

@@ -4,8 +4,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static const char *g_error_context = NULL;
+
+void ziman_set_error_context(const char *context) {
+    g_error_context = context;
+}
+
 void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
-    fprintf(stderr, "ziman: %s error at %d:%d: ", phase, line, col);
+    if (g_error_context != NULL) {
+        fprintf(stderr, "ziman: %s error at %d:%d (in %s): ", phase, line, col, g_error_context);
+    } else {
+        fprintf(stderr, "ziman: %s error at %d:%d: ", phase, line, col);
+    }
 
     va_list args;
     va_start(args, fmt);

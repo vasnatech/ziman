@@ -1641,6 +1641,26 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **`#[derive]` errors point at the declaration and say which derive
+  produced them (external review, roadmap R6, 2026-09-23).** A derive
+  generates real Ziman source and re-parses it, and the generated tokens
+  carried positions inside that invisible text, so a missing import in the
+  user's file reported `type error at 1:5: unknown struct or enum type
+  'Json'` -- a line that exists nowhere the user can open. For a language
+  whose compile errors are the interface an agent iterates against, a wrong
+  line is close to worse than no line. Fix, in two parts. Every generated
+  token is restamped with the line/column of the declaration it was
+  generated for, so any error anywhere in the expansion points at the
+  user's own `struct`/`enum`. And each generated function remembers where
+  it came from (`FunctionDecl.derived_from`, e.g. "derive(Json) for
+  'Point'"), while the loader's qualify/resolve passes and the type checker
+  set a small global error context around each function, so the message
+  reads `type error at 8:1 (in derive(Json) for 'Point'): ...`. No
+  file name is printed because no error carries one yet (every error is a
+  bare line:col). What it deliberately does not do: pinpoint a *field*
+  inside the struct (the whole expansion maps to the declaration), or
+  improve the wording of the error itself -- the missing-`use` message is
+  R7.
 - **Diagnostics for the habits a model brings from other languages
   (external review, roadmap R5, 2026-09-23).** The compiler's error
   messages are the interface an agent iterates against, and the review

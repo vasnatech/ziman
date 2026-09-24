@@ -198,7 +198,7 @@ against)**
   should say `concat(a, b)`; `match` says "expected an expression" -- it
   should say there is no `match` and point at `Enum.is_X`/`unwrap_X`. A few
   lines each.
-- [ ] **R6. `#[derive(...)]` errors point into an invisible file.**
+- [x] **R6. `#[derive(...)]` errors point into an invisible file.** *Done 2026-09-23: positions map to the declaration and the message names the derive; no per-field pinpointing.*
   Generated code has no source mapping, so any error reports `1:5` of
   nothing. Stamp every spliced token with the originating declaration's
   line/column and prefix the message with `in derive(Json) for 'Point':`.

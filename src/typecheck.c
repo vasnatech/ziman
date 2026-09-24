@@ -2293,6 +2293,7 @@ void typecheck(Module *module) {
 
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *fn = module->functions.items[i];
+        ziman_set_error_context(fn->derived_from);
         for (size_t b = 0; b < sizeof(builtins) / sizeof(builtins[0]); b++) {
             if (strcmp(fn->name, builtins[b]) == 0) {
                 ziman_error("type", fn->line, fn->col, "'%s' is a builtin function and cannot be redefined", fn->name);
@@ -2325,6 +2326,7 @@ void typecheck(Module *module) {
         }
         check_type_well_formed(module, fn->return_type, fn->line, fn->col);
         current_decl_type_params = NULL;
+        ziman_set_error_context(NULL);
     }
 
     FunctionDecl *main_fn = find_function(module, "main");
@@ -2337,6 +2339,8 @@ void typecheck(Module *module) {
 
     check_global_vals(module);
     for (int i = 0; i < module->functions.count; i++) {
+        ziman_set_error_context(module->functions.items[i]->derived_from);
         check_function(module, module->functions.items[i]);
+        ziman_set_error_context(NULL);
     }
 }
