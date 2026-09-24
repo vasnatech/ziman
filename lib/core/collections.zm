@@ -483,6 +483,36 @@ pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T> {
     return Option<T>.None
 }
 
+// The `_ctx` forms pass an extra value through to the function on every call:
+// function values don't capture, so what `f` needs besides the element -- the
+// request a route is matched against, say -- is threaded in explicitly.
+pub fn map_ctx<C, T, U>(items: [T], ctx: C, f: fn(C, T) -> U) -> [U] {
+    val out = ab_new<U>()
+    for item in items {
+        ab_append<U>(out, f(ctx, item))
+    }
+    return ab_to_array<U>(out)
+}
+
+pub fn filter_ctx<C, T>(items: [T], ctx: C, keep: fn(C, T) -> bool) -> [T] {
+    val out = ab_new<T>()
+    for item in items {
+        if keep(ctx, item) {
+            ab_append<T>(out, item)
+        }
+    }
+    return ab_to_array<T>(out)
+}
+
+pub fn find_ctx<C, T>(items: [T], ctx: C, test: fn(C, T) -> bool) -> Option<T> {
+    for item in items {
+        if test(ctx, item) {
+            return Option<T>.Some(item)
+        }
+    }
+    return Option<T>.None
+}
+
 pub fn for_each<T>(items: [T], f: fn(T)) {
     for item in items {
         f(item)

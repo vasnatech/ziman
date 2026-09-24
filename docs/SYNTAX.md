@@ -521,7 +521,12 @@ fn main() {
   `print` shows `<function name>`.
 - **In the standard library:** `collections.map`, `filter`, `fold`, `any`, `all`,
   `find`, `for_each` and `sort_with`, with the type arguments written out at the
-  call (`collections.map<int, string>(numbers, label)`).
+  call (`collections.map<int, string>(numbers, label)`). Because a function
+  can't capture, `map_ctx`, `filter_ctx` and `find_ctx` pass an extra value
+  through to the function on every call --
+  `collections.find_ctx<http.Request, Route>(table, req, matches)` calls
+  `matches(req, route)` for each route until one is true. That is how the sample
+  backend's route table finds the handler for a request.
 
 ## Structs
 

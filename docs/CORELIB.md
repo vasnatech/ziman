@@ -130,6 +130,12 @@ pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool
 
 pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T>
 
+pub fn map_ctx<C, T, U>(items: [T], ctx: C, f: fn(C, T) -> U) -> [U]
+
+pub fn filter_ctx<C, T>(items: [T], ctx: C, keep: fn(C, T) -> bool) -> [T]
+
+pub fn find_ctx<C, T>(items: [T], ctx: C, test: fn(C, T) -> bool) -> Option<T>
+
 pub fn for_each<T>(items: [T], f: fn(T))
 
 pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
