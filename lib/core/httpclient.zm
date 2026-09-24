@@ -23,18 +23,18 @@
 // `BadResponse` -- use `request_bytes`. Not yet:
 // request bodies of bytes, compression, proxies, cookies, HTTP/2, streaming.
 
-use net
-use net.Socket
-use net.NetError
-use net.net_error_message
-use bytes.string_to_bytes
-use bytes.bytes_to_string
 use bytes.bytes_concat
-use number.int_from_hex
+use bytes.bytes_to_string
+use bytes.string_to_bytes
 use http.Header
-use http.Response
 use http.HttpMethod
+use http.Response
 use http.method_name
+use net
+use net.NetError
+use net.Socket
+use net.net_error_message
+use number.int_from_hex
 
 // Like `http.Response`, but the body is raw bytes.
 pub struct BytesResponse {
@@ -309,7 +309,8 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
         if !Option.is_Some(pair) {
             return err(ClientError.BadResponse(concat("malformed header line: ", lines[i])))
         }
-        ab_append<Header>(headers, Header { name: Option.unwrap_Some(pair)[0], value: trim(Option.unwrap_Some(pair)[1]) })
+        ab_append<Header>(headers,
+            Header { name: Option.unwrap_Some(pair)[0], value: trim(Option.unwrap_Some(pair)[1]) })
         i = i + 1
     }
     val header_list = ab_to_array<Header>(headers)
@@ -365,57 +366,58 @@ fn open_socket(u: Url, ca_file: Option<string>) -> Result<Socket, NetError> {
     }
 }
 
-fn send_once(method: HttpMethod, u: Url, headers: [Header], body: Option<[byte]>, timeout_ms: int, ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
-    val sock = open_socket(u, ca_file)
-    if !is_ok(sock) {
-        val e = unwrap_err(sock)
-        if NetError.is_Timeout(e) {
-            return err(ClientError.Timeout)
+fn send_once(method: HttpMethod, u: Url, headers: [Header], body: Option<[byte]>, timeout_ms: int,
+    ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
+        val sock = open_socket(u, ca_file)
+        if !is_ok(sock) {
+            val e = unwrap_err(sock)
+            if NetError.is_Timeout(e) {
+                return err(ClientError.Timeout)
+            }
+            return err(ClientError.Network(net_error_message(e)))
         }
-        return err(ClientError.Network(net_error_message(e)))
-    }
-    val s = unwrap(sock)
-    defer net.close(s)
-    lift<int>(net.set_timeout(s, timeout_ms))?
+        val s = unwrap(sock)
+        defer net.close(s)
+        lift<int>(net.set_timeout(s, timeout_ms))?
 
-    val out = ab_new<string>()
-    ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method_name(method), u.target))
-    var has_ua = false
-    var has_accept = false
-    for h in headers {
-        val lname = to_lower(h.name)
-        if lname == "user-agent" {
-            has_ua = true
+        val out = ab_new<string>()
+        ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method_name(method), u.target))
+        var has_ua = false
+        var has_accept = false
+        for h in headers {
+            val lname = to_lower(h.name)
+            if lname == "user-agent" {
+                has_ua = true
+            }
+            if lname == "accept" {
+                has_accept = true
+            }
+            if lname != "host" && lname != "content-length" && lname != "connection" {
+                ab_append<string>(out, format("{}: {}\r\n", h.name, h.value))
+            }
         }
-        if lname == "accept" {
-            has_accept = true
+        ab_append<string>(out, format("Host: {}\r\n", host_header(u)))
+        if !has_ua {
+            ab_append<string>(out, "User-Agent: ziman\r\n")
         }
-        if lname != "host" && lname != "content-length" && lname != "connection" {
-            ab_append<string>(out, format("{}: {}\r\n", h.name, h.value))
+        if !has_accept {
+            ab_append<string>(out, "Accept: */*\r\n")
         }
-    }
-    ab_append<string>(out, format("Host: {}\r\n", host_header(u)))
-    if !has_ua {
-        ab_append<string>(out, "User-Agent: ziman\r\n")
-    }
-    if !has_accept {
-        ab_append<string>(out, "Accept: */*\r\n")
-    }
-    ab_append<string>(out, "Accept-Encoding: identity\r\nConnection: close\r\n")
-    if Option.is_Some(body) {
-        ab_append<string>(out, format("Content-Length: {}\r\n", len(Option.unwrap_Some(body))))
-    } else {
-        if method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch {
-            ab_append<string>(out, "Content-Length: 0\r\n")
+        ab_append<string>(out, "Accept-Encoding: identity\r\nConnection: close\r\n")
+        if Option.is_Some(body) {
+            ab_append<string>(out, format("Content-Length: {}\r\n", len(Option.unwrap_Some(body))))
+        } else {
+            if method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch {
+                ab_append<string>(out, "Content-Length: 0\r\n")
+            }
         }
+        ab_append<string>(out, "\r\n")
+        lift<int>(net.write_text(s, join(pieces: ab_to_array<string>(out), separator: "")))?
+        if Option.is_Some(body) && len(Option.unwrap_Some(body)) > 0 {
+            lift<int>(net.write(s, Option.unwrap_Some(body)))?
+        }
+        return read_response(s, method == HttpMethod.Head)
     }
-    ab_append<string>(out, "\r\n")
-    lift<int>(net.write_text(s, join(pieces: ab_to_array<string>(out), separator: "")))?
-    if Option.is_Some(body) && len(Option.unwrap_Some(body)) > 0 {
-        lift<int>(net.write(s, Option.unwrap_Some(body)))?
-    }
-    return read_response(s, method == HttpMethod.Head)
-}
 
 fn location_of(r: BytesResponse) -> Option<string> {
     return header_value(r.headers, "Location")
@@ -449,54 +451,58 @@ fn resolve_location(base: Url, location: string) -> Result<Url, string> {
 //   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
 //   ca_file       a PEM file of trusted CAs for https, instead of the system store
 //                 (a private CA, a test certificate); the certificate is always verified
-pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError> {
-    val bytes_body = if Option.is_Some(body) {
-        Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
-    } else {
-        Option<[byte]>.None
+pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
+    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError> {
+        val bytes_body = if Option.is_Some(body) {
+            Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
+        } else {
+            Option<[byte]>.None
+        }
+        val r = request_bytes(method: method, url: url, headers: headers, body: bytes_body, timeout_ms: timeout_ms,
+            max_redirects: max_redirects, ca_file: ca_file)?
+        val text = text_of(r.body)?
+        return Response { status: r.status, headers: r.headers, body: text }
     }
-    val r = request_bytes(method: method, url: url, headers: headers, body: bytes_body, timeout_ms: timeout_ms, max_redirects: max_redirects, ca_file: ca_file)?
-    val text = text_of(r.body)?
-    return Response { status: r.status, headers: r.headers, body: text }
-}
 
 // Sends one request and returns the (final) response, body as bytes -- the
 // general function; `request` is this with text bodies. Arguments as for `request`.
-pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
-    val parsed = parse_url(url)
-    if !is_ok(parsed) {
-        return err(ClientError.BadUrl(unwrap_err(parsed)))
+pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
+    timeout_ms: Option<int>, max_redirects: Option<int>,
+    ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
+        val parsed = parse_url(url)
+        if !is_ok(parsed) {
+            return err(ClientError.BadUrl(unwrap_err(parsed)))
+        }
+        var current = unwrap(parsed)
+        var m = method
+        var b = body
+        val hs = option_unwrap_or<[Header]>(headers, [])
+        val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
+        val limit = option_unwrap_or<int>(max_redirects, 5)
+        var hops = 0
+        while true {
+            val resp = send_once(m, current, hs, b, timeout, ca_file)?
+            val s = resp.status
+            val redirect = s == 301 || s == 302 || s == 303 || s == 307 || s == 308
+            if !redirect || limit == 0 || !Option.is_Some(location_of(resp)) {
+                return resp
+            }
+            if hops >= limit {
+                return err(ClientError.TooManyRedirects)
+            }
+            val next = resolve_location(current, Option.unwrap_Some(location_of(resp)))
+            if !is_ok(next) {
+                return err(ClientError.BadResponse(concat("bad redirect location: ", unwrap_err(next))))
+            }
+            current = unwrap(next)
+            if s == 303 || ((s == 301 || s == 302) && m == HttpMethod.Post) {
+                m = HttpMethod.Get
+                b = Option<[byte]>.None
+            }
+            hops = hops + 1
+        }
+        return err(ClientError.TooManyRedirects)
     }
-    var current = unwrap(parsed)
-    var m = method
-    var b = body
-    val hs = option_unwrap_or<[Header]>(headers, [])
-    val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
-    val limit = option_unwrap_or<int>(max_redirects, 5)
-    var hops = 0
-    while true {
-        val resp = send_once(m, current, hs, b, timeout, ca_file)?
-        val s = resp.status
-        val redirect = s == 301 || s == 302 || s == 303 || s == 307 || s == 308
-        if !redirect || limit == 0 || !Option.is_Some(location_of(resp)) {
-            return resp
-        }
-        if hops >= limit {
-            return err(ClientError.TooManyRedirects)
-        }
-        val next = resolve_location(current, Option.unwrap_Some(location_of(resp)))
-        if !is_ok(next) {
-            return err(ClientError.BadResponse(concat("bad redirect location: ", unwrap_err(next))))
-        }
-        current = unwrap(next)
-        if s == 303 || ((s == 301 || s == 302) && m == HttpMethod.Post) {
-            m = HttpMethod.Get
-            b = Option<[byte]>.None
-        }
-        hops = hops + 1
-    }
-    return err(ClientError.TooManyRedirects)
-}
 
 pub fn get(url: string) -> Result<Response, ClientError> {
     return request(method: HttpMethod.Get, url: url)

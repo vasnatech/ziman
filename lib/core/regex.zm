@@ -48,7 +48,8 @@ pub struct Match {
 // The error message names the position of the problem.
 pub fn compile(pattern: string) -> Result<Regex, string> {
     val handle = compile_raw(pattern)?
-    return ok(Regex { handle: handle, groups: group_count_raw(handle), pattern: pattern, names: group_names_raw(handle) })
+    return ok(Regex { handle: handle, groups: group_count_raw(handle), pattern: pattern,
+        names: group_names_raw(handle) })
 }
 
 fn match_of(re: Regex, text: string, caps: [int], at: int) -> Match {

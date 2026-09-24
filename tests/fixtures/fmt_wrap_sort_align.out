@@ -1,0 +1,26 @@
+use alpha
+use bytes
+use collections.HashMap
+use http
+use http.Request  // the request type
+use net
+
+// trailing comments
+fn main() {
+    val a = 1              // one
+    val long_name = 12345  // two
+    val b = 2              // three
+
+    val result = some_function_name(first_argument_value, second_argument_value,
+        third_argument_value, fourth_argument_value, fifth)
+    val nested = outer(inner_call(alpha_beta_gamma, delta_epsilon), another_argument_that_is_long,
+        yet_another_long_argument_here, last)
+    val arr = [first_element_of_the_array, second_element_of_the_array, third_element_of_the_array,
+        fourth_element, fifth_element_x]
+    val obj = SomeStruct { alpha: first_value_for_alpha, beta: second_value_for_beta,
+        gamma: third_value_for_gamma, delta: fourth_value_d }
+    val g: Result<HashMap<string, [int]>, string> = compute_something_complicated_with_generics<string, [int], int, bool, float>(x,
+        y)
+    print(format("a very long message that has {} placeholders and {} more of them, plus {} and {}",
+        one, two, three, four))
+}

@@ -162,7 +162,7 @@ fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
 // "StringBuilder" entry, and this function's own original mention as
 // one of the motivating cases).
 fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
-    var p = pos + 1 // skip opening '"'
+    var p = pos + 1  // skip opening '"'
     val out = sb_new()
     while true {
         if p >= len(s) {
@@ -204,7 +204,7 @@ fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
 // reasoning as parse_string above, one level up: an arbitrary-length
 // JSON array used to mean one leaked, ever-growing array per element.
 fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
-    var p = skip_ws(s, pos + 1) // skip '['
+    var p = skip_ws(s, pos + 1)  // skip '['
     val items = ab_new<Json>()
     if is_char_at(s, p, "]") {
         return ok(ParseResult { value: Json.JArray(ab_to_array<Json>(items)), next_pos: p + 1 })
@@ -233,7 +233,7 @@ fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
 
 // Same ArrayBuilder<JField> fix as parse_array, for an object's fields.
 fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
-    var p = skip_ws(s, pos + 1) // skip '{'
+    var p = skip_ws(s, pos + 1)  // skip '{'
     val fields = ab_new<JField>()
     if is_char_at(s, p, "}") {
         return ok(ParseResult { value: Json.JObject(ab_to_array<JField>(fields)), next_pos: p + 1 })

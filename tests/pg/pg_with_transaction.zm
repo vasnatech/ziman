@@ -1,7 +1,7 @@
-use fs
 use db
-use sql.SqlValue
+use fs
 use sql.DbError
+use sql.SqlValue
 
 fn add(tx: db.Connection, n: int) -> Result<int, DbError> {
     db.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", [SqlValue.Int(n)])?

@@ -125,7 +125,8 @@ instead of running it (today: a `var` that is never reassigned -- `var` and
 mutable) as `file:line:col: warning: ...`, or JSON with `"severity":"warning"`,
 and exits 1 if there are any; `--fmt file.zm...` prints the source formatted
 (`--fmt --write` rewrites the files, `--fmt --check` lists the ones that would
-change and exits 1); `--version`; `--help`.
+change and exits 1, `--fmt -` reads stdin, `--width=N` sets the wrap column,
+default 120, 0 = never); `--version`; `--help`.
 
 The interpreter has a tracing garbage collector (the Boehm-Demers-Weiser
 collector, vendored in `vendor/bdwgc` and built by `make` -- no network, no

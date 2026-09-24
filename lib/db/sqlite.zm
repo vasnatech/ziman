@@ -8,11 +8,11 @@
 // *tagged strings* -- one tag character then a payload: N null,
 // I<int>, F<float>, T<text>, B<hex>, b0/b1 bool).
 
-use sql.SqlValue
+use number.byte_from_hex
+use number.byte_to_hex
 use sql.DbError
 use sql.Row
-use number.byte_to_hex
-use number.byte_from_hex
+use sql.SqlValue
 
 native fn open_raw(path: string) -> Result<int, string>
 native fn close_raw(handle: int)

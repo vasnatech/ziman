@@ -1,6 +1,6 @@
+use http
 use net
 use os
-use http
 
 // A tiny app on http.serve: the handler is a lambda capturing a greeting, and
 // SIGTERM stops it cleanly.

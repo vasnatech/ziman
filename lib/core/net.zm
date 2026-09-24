@@ -241,15 +241,16 @@ pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError> {
     return connect_tls_with(host, port, TlsVerify.Full, Option<string>.None)
 }
 
-pub fn connect_tls_with(host: string, port: int, verify: TlsVerify, ca_file: Option<string>) -> Result<Socket, NetError> {
-    val s = connect(host, port)?
-    val upgraded = start_tls_with(s, host, verify, ca_file)
-    if !is_ok(upgraded) {
-        close(s)
-        return err(unwrap_err(upgraded))
+pub fn connect_tls_with(host: string, port: int, verify: TlsVerify,
+    ca_file: Option<string>) -> Result<Socket, NetError> {
+        val s = connect(host, port)?
+        val upgraded = start_tls_with(s, host, verify, ca_file)
+        if !is_ok(upgraded) {
+            close(s)
+            return err(unwrap_err(upgraded))
+        }
+        return s
     }
-    return s
-}
 
 pub fn close(s: Socket) {
     close_raw(s.handle)

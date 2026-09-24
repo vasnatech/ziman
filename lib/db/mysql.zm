@@ -48,22 +48,22 @@
 // channel of requests, exactly as in `pg`: the protocol is strictly
 // request/response, so a lone owner thread serialises concurrent callers.
 
+use bytes.bytes_concat
+use bytes.bytes_to_string
+use bytes.f32_from_bytes
+use bytes.f64_from_bytes
+use bytes.f64_to_bytes
+use bytes.string_to_bytes
+use crypto.bytes_xor
+use crypto.sha1
+use crypto.sha256
+use dburl
 use net
 use net.Socket
 use net.net_error_message
-use bytes.string_to_bytes
-use bytes.bytes_to_string
-use bytes.bytes_concat
-use bytes.f64_from_bytes
-use bytes.f32_from_bytes
-use bytes.f64_to_bytes
-use crypto.sha1
-use crypto.sha256
-use crypto.bytes_xor
-use dburl
-use sql.SqlValue
 use sql.DbError
 use sql.Row
+use sql.SqlValue
 
 pub struct QueryResult {
     rows: [Row]
@@ -311,9 +311,11 @@ fn parse_url(url: string) -> Result<MyUrl, DbError> {
         sslrootcert = Option.unwrap_Some(root)
     }
     if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
-        return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ", sslmode)))
+        return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ",
+            sslmode)))
     }
-    return MyUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database, sslmode: sslmode, sslrootcert: sslrootcert }
+    return MyUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database,
+        sslmode: sslmode, sslrootcert: sslrootcert }
 }
 
 // ------------------------------------------------------------- handshake
@@ -362,7 +364,8 @@ fn scramble(plugin: string, password: string, salt: [byte]) -> Result<[byte], Db
         val p1 = sha256(pw)
         return bytes_xor(p1, sha256(bytes_concat(sha256(p1), salt)))
     }
-    return err(conn_err(format("server asks for the '{}' authentication plugin, which this driver does not support (mysql_native_password and caching_sha2_password only)", plugin)))
+    return err(conn_err(format("server asks for the '{}' authentication plugin, which this driver does not support (mysql_native_password and caching_sha2_password only)",
+        plugin)))
 }
 
 fn client_caps(with_ssl: bool) -> int {
@@ -384,44 +387,45 @@ fn login_prefix(caps: int) -> [byte] {
 // After the login packet: OK, an error, a request to switch plugin, or
 // caching_sha2's more-data packets (fast-auth success, or "send the
 // password" which is only acceptable over TLS).
-fn finish_auth(sock: Socket, start_seq: int, plugin_in: string, salt_in: [byte], password: string, tls: bool) -> Result<int, DbError> {
-    var plugin = plugin_in
-    var salt = salt_in
-    var seq = start_seq
-    while true {
-        val p = read_packet(sock)?
-        seq = p.seq + 1
-        val first = p.body[0] as int
-        if first == 0 {
-            return 0
-        }
-        if first == 255 {
-            return err(conn_err(text_of(p.body, 9, len(p.body))))
-        }
-        if first == 254 {
-            plugin = text_of(p.body, 1, cstring_end(p.body, 1))
-            val data_start = cstring_end(p.body, 1) + 1
-            var data_end = len(p.body)
-            if data_end > data_start && p.body[data_end - 1] == 0b {
-                data_end = data_end - 1
+fn finish_auth(sock: Socket, start_seq: int, plugin_in: string, salt_in: [byte], password: string,
+    tls: bool) -> Result<int, DbError> {
+        var plugin = plugin_in
+        var salt = salt_in
+        var seq = start_seq
+        while true {
+            val p = read_packet(sock)?
+            seq = p.seq + 1
+            val first = p.body[0] as int
+            if first == 0 {
+                return 0
             }
-            salt = slice<byte>(p.body, data_start, data_end)
-            val reply = scramble(plugin, password, salt)?
-            send_packet(sock, seq, reply)?
-        } else if first == 1 {
-            val sub = p.body[1] as int
-            if sub == 4 {
-                if !tls {
-                    return err(conn_err("caching_sha2_password needs the full authentication exchange for this login, which requires TLS; connect with sslmode=require (or set it up once over TLS so the server caches the login)"))
+            if first == 255 {
+                return err(conn_err(text_of(p.body, 9, len(p.body))))
+            }
+            if first == 254 {
+                plugin = text_of(p.body, 1, cstring_end(p.body, 1))
+                val data_start = cstring_end(p.body, 1) + 1
+                var data_end = len(p.body)
+                if data_end > data_start && p.body[data_end - 1] == 0b {
+                    data_end = data_end - 1
                 }
-                send_packet(sock, seq, cstring(password))?
+                salt = slice<byte>(p.body, data_start, data_end)
+                val reply = scramble(plugin, password, salt)?
+                send_packet(sock, seq, reply)?
+            } else if first == 1 {
+                val sub = p.body[1] as int
+                if sub == 4 {
+                    if !tls {
+                        return err(conn_err("caching_sha2_password needs the full authentication exchange for this login, which requires TLS; connect with sslmode=require (or set it up once over TLS so the server caches the login)"))
+                    }
+                    send_packet(sock, seq, cstring(password))?
+                }
+            } else {
+                return err(conn_err(format("unexpected packet {} during authentication", first)))
             }
-        } else {
-            return err(conn_err(format("unexpected packet {} during authentication", first)))
         }
+        return 0
     }
-    return 0
-}
 
 fn tls_verify(sslmode: string) -> net.TlsVerify {
     if sslmode == "verify-ca" {
@@ -451,7 +455,8 @@ fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
         }
     }
     val reply = scramble(hello.plugin, url.password, hello.salt)?
-    val login = bytes_concat(login_prefix(client_caps(tls)), cstring(url.user), write_lenenc(len(reply)), reply, cstring(url.database), cstring(hello.plugin))
+    val login = bytes_concat(login_prefix(client_caps(tls)), cstring(url.user), write_lenenc(len(reply)), reply,
+        cstring(url.database), cstring(hello.plugin))
     send_packet(sock, seq, login)?
     return finish_auth(sock, seq + 1, hello.plugin, hello.salt, url.password, tls)
 }
@@ -652,7 +657,8 @@ fn decode_datetime(b: [byte], pos: int, date_only: bool) -> string {
         return out
     }
     if n >= 7 {
-        out = format("{} {}:{}:{}", out, pad(b[start + 4] as int, 2), pad(b[start + 5] as int, 2), pad(b[start + 6] as int, 2))
+        out = format("{} {}:{}:{}", out, pad(b[start + 4] as int, 2), pad(b[start + 5] as int, 2),
+            pad(b[start + 6] as int, 2))
     } else {
         out = concat(out, " 00:00:00")
     }
@@ -833,7 +839,8 @@ fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, Db
             }
             val index = unwrap(parse_int(substring(sql, i + 1, j)))
             if index < 1 || index > len(params) {
-                return err(DbError.Sql(format("placeholder ${} has no matching parameter ({} given)", index, len(params))))
+                return err(DbError.Sql(format("placeholder ${} has no matching parameter ({} given)", index,
+                    len(params))))
             }
             sb_append(out, "?")
             ab_append<SqlValue>(ordered, params[index - 1])
@@ -928,7 +935,8 @@ fn execute_body(stmt_id: int, params: [SqlValue]) -> [byte] {
         ab_append<[byte]>(types, param_type(p))
         ab_append<[byte]>(values, param_value(p))
     }
-    return bytes_concat(head, ab_to_array<byte>(bitmap), [1b], concat_arrays<byte>(parts: ab_to_array<[byte]>(types)), concat_arrays<byte>(parts: ab_to_array<[byte]>(values)))
+    return bytes_concat(head, ab_to_array<byte>(bitmap), [1b], concat_arrays<byte>(parts: ab_to_array<[byte]>(types)),
+        concat_arrays<byte>(parts: ab_to_array<[byte]>(values)))
 }
 
 // --------------------------------------------------------------- queries

@@ -1,9 +1,9 @@
-use fs
 use db
+use fs
 use sql.SqlValue
+use sql.db_error_message
 use sql.row_get
 use sql.sql_as_text
-use sql.db_error_message
 
 // Same server, three authentication methods, chosen per role by pg_hba:
 // trust (no exchange), cleartext password, and SCRAM-SHA-256 (the

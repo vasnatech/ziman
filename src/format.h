@@ -11,8 +11,11 @@
  * where a line breaks and does not reflow long lines; it does not need the
  * source to be valid, only lexable. Returns a malloc'd NUL-terminated string,
  * or NULL with a message in `err` (an unterminated string literal, or an
- * internal self-check failure). `<` and `>` keep their original spacing, since
+
+ * internal self-check failure). Lines wider than `width` (0 = never) are broken
+ * after a comma of their outermost bracket group; runs of consecutive `use` lines
+ * are sorted; consecutive trailing comments are aligned. `<` and `>` keep their original spacing, since
  * `a < b` and `List<int>` cannot be told apart without parsing. */
-char *format_source(const char *src, size_t len, char *err, size_t err_size);
+char *format_source(const char *src, size_t len, int width, char *err, size_t err_size);
 
 #endif

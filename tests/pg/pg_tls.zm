@@ -1,14 +1,14 @@
-use fs
-use db
-use net
 use bytes
-use sql.SqlValue
+use db
+use fs
+use net
 use sql.DbError
 use sql.Row
+use sql.SqlValue
+use sql.db_error_message
 use sql.row_get
 use sql.sql_as_bool
 use sql.sql_as_int
-use sql.db_error_message
 
 // The Postgres server here has TLS enabled with a self-signed certificate
 // valid for localhost and 127.0.0.1; it is its own CA.
@@ -54,7 +54,8 @@ fn no_tls_server(l: net.Listener) {
     unwrap(net.write_text(second, "N"))
     val header = unwrap(net.read_exact(second, 4))
     unwrap(net.read_exact(second, bytes.u32_from_bytes(header, 0) - 4))
-    val body = bytes.bytes_concat(bytes.string_to_bytes("S"), bytes.string_to_bytes("FATAL"), [0b], bytes.string_to_bytes("C28000"), [0b], bytes.string_to_bytes("Mplaintext startup reached"), [0b, 0b])
+    val body = bytes.bytes_concat(bytes.string_to_bytes("S"), bytes.string_to_bytes("FATAL"), [0b],
+        bytes.string_to_bytes("C28000"), [0b], bytes.string_to_bytes("Mplaintext startup reached"), [0b, 0b])
     unwrap(net.write(second, bytes.bytes_concat(bytes.string_to_bytes("E"), bytes.u32_to_bytes(len(body) + 4), body)))
     net.close(second)
 }
@@ -73,7 +74,8 @@ fn main() {
     defer db.close(conn)
     unwrap(db.execute(conn, "DROP TABLE IF EXISTS pg_tls_t", []))
     unwrap(db.execute(conn, "CREATE TABLE pg_tls_t (id INTEGER PRIMARY KEY, note TEXT)", []))
-    unwrap(db.execute(conn, "INSERT INTO pg_tls_t (id, note) SELECT g, 'row ' || g FROM generate_series(1, 300) AS g", []))
+    unwrap(db.execute(conn, "INSERT INTO pg_tls_t (id, note) SELECT g, 'row ' || g FROM generate_series(1, 300) AS g",
+        []))
     val rows = unwrap(db.query(conn, "SELECT * FROM pg_tls_t ORDER BY id", []))
     print(len(rows))
     print(unwrap(sql_as_int(unwrap(row_get(rows[299], "id")))))

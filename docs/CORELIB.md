@@ -209,9 +209,9 @@ pub struct Url {
 
 pub fn parse_url(url: string) -> Result<Url, string>
 
-pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError>
+pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
 
-pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<BytesResponse, ClientError>
+pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
 
 pub fn get(url: string) -> Result<Response, ClientError>
 
@@ -477,7 +477,7 @@ pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Optio
 
 pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
 
-pub fn connect_tls_with(host: string, port: int, verify: TlsVerify, ca_file: Option<string>) -> Result<Socket, NetError>
+pub fn connect_tls_with(host: string, port: int, verify: TlsVerify,
 
 pub fn close(s: Socket)
 

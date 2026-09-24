@@ -3413,3 +3413,38 @@ not seen; an error inside a lambda body or a value-block arm aborts the statemen
 that contains it; and an error in a module's top-level declarations (structs,
 enums, global vals) or in `use` resolution is still fatal on its own. Runtime
 errors are unchanged.
+
+## Formatter: wrapping, comment alignment, sorted `use`, stdin (open item 9)
+
+The formatter (see "The formatter" above) gained the four things it lacked, all in
+the same text-level design, still self-checked for token equality.
+
+**Line wrapping.** The formatter used to keep every line break where the author put
+it. Now a line wider than the width (`--width=N`, default 120, 0 = never; comments
+are not counted) is broken after a comma of its *outermost* bracket group, chosen
+greedily as the last comma that keeps the first part within the width, and the
+process repeats on the continuation until every line fits or has no legal break.
+"Legal" is what the parser already accepts a newline after: a comma inside a call,
+an array literal or a struct literal. It skips commas inside a generic list
+(`Result<int, string>`: tracked as unmatched `<`, which also covers a comparison),
+inside `fn(A, B) -> R` types, and in `#[...]` attributes, where a newline would not
+parse; a line with no legal break is left long. The wrapper works by setting the
+next item's "newline before" flag and re-emitting, so indentation of the
+continuation comes from the existing bracket rule, and it never joins lines, which
+keeps the formatter idempotent (checked over the library and backend). Reformatting
+the library and the sample backend with it changed 33 files and every test still
+passes, which is the check that the breaks are all places the parser accepts.
+
+**Trailing comments** on consecutive code lines are aligned to one column (two
+spaces after the longest line of the run); a blank line or a line without a trailing
+comment starts a new run.
+
+**`use` lines**: a run of consecutive `use` lines (no blank line, no comment line
+between) is sorted by text, so `use http` precedes `use http.Request`. Order has no
+meaning in Ziman (imports resolve after all are read), so this is safe; the
+self-check compares against the sorted sequence.
+
+**stdin**: `ziman --fmt -` reads stdin and always writes stdout, for an editor's
+"format buffer". Still not done: joining lines that would now fit, wrapping at
+binary operators or `&&`/`||`, wrapping long `use` or `if` conditions, and an LSP
+"format document" (item 10).

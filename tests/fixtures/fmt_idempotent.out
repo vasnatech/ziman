@@ -1,5 +1,5 @@
-use net
 use models/user.User as U
+use net
 #[derive(Json)]
 pub struct Point {
     x: int
@@ -13,12 +13,12 @@ fn add(a: int, b: int) -> int {
 
 // a comment before a function
 fn main() {
-    val x = add(1, 2)   // trailing
+    val x = add(1, 2)  // trailing
     val y = -x + (3 * 4)
     val neg = [-1, -2, -3]
     val ok = !(x == y) && x != 2 || y <= 3
     if x>3 { print("big") } else {
-        print("small")   // small
+        print("small")  // small
     }
 
     // own-line comment inside a block

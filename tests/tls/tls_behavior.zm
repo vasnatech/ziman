@@ -1,7 +1,7 @@
+use bytes
 use net
 use net.NetError
 use net.TlsVerify
-use bytes
 
 // Everything here talks to `openssl s_server -www` on 127.0.0.1:55443
 // (started by tests/run_tls_tests.sh) or to a plain listener started

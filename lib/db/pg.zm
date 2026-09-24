@@ -47,29 +47,29 @@
 // still per-connection state on the server: statements from other
 // threads interleave inside it, as documented for `db`.
 
+use bytes.bytes_concat
+use bytes.bytes_to_string
+use bytes.string_to_bytes
+use bytes.u16_from_bytes
+use bytes.u16_to_bytes
+use bytes.u32_from_bytes
+use bytes.u32_to_bytes
+use crypto.base64_decode
+use crypto.base64_encode
+use crypto.bytes_to_hex
+use crypto.bytes_xor
+use crypto.hmac_sha256
+use crypto.pbkdf2_hmac_sha256
+use crypto.sha256
+use dburl
 use net
 use net.Socket
 use net.net_error_message
-use bytes.string_to_bytes
-use bytes.bytes_to_string
-use bytes.bytes_concat
-use bytes.u16_to_bytes
-use bytes.u32_to_bytes
-use bytes.u16_from_bytes
-use bytes.u32_from_bytes
-use crypto.sha256
-use crypto.hmac_sha256
-use crypto.pbkdf2_hmac_sha256
-use crypto.bytes_xor
-use crypto.base64_encode
-use crypto.base64_decode
-use crypto.bytes_to_hex
-use random.random_bytes
 use number.byte_from_hex
-use dburl
-use sql.SqlValue
+use random.random_bytes
 use sql.DbError
 use sql.Row
+use sql.SqlValue
 
 pub struct QueryResult {
     rows: [Row]
@@ -191,9 +191,11 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
         sslrootcert = Option.unwrap_Some(root)
     }
     if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
-        return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ", sslmode)))
+        return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ",
+            sslmode)))
     }
-    return PgUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database, sslmode: sslmode, sslrootcert: sslrootcert }
+    return PgUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database,
+        sslmode: sslmode, sslrootcert: sslrootcert }
 }
 
 // ---------------------------------------------------------------- SCRAM
@@ -226,7 +228,8 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
     val nonce = base64_encode(random_bytes(18))
     val client_first_bare = concat("n=,r=", nonce)
     val client_first = concat("n,,", client_first_bare)
-    send_message(sock, "p", bytes_concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), string_to_bytes(client_first)))?
+    send_message(sock, "p",
+        bytes_concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), string_to_bytes(client_first)))?
 
     val first = expect_auth(sock, 11)?
     val server_first = text_of(first.body, 4, len(first.body))
@@ -250,7 +253,8 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
     val client_key = hmac_sha256(salted, string_to_bytes("Client Key"))
     val stored_key = sha256(client_key)
     val client_final_without_proof = concat("c=biws,r=", combined_nonce)
-    val auth_message = string_to_bytes(join(separator: ",", pieces: [client_first_bare, server_first, client_final_without_proof]))
+    val auth_message = string_to_bytes(join(separator: ",",
+        pieces: [client_first_bare, server_first, client_final_without_proof]))
     val client_signature = hmac_sha256(stored_key, auth_message)
     val proof = bytes_xor(client_key, client_signature)
     val client_final = concat(client_final_without_proof, concat(",p=", base64_encode(proof)))
@@ -273,7 +277,8 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
 // ------------------------------------------------------------- handshake
 
 fn startup_message(url: PgUrl) -> [byte] {
-    val params = bytes_concat(cstring("user"), cstring(url.user), cstring("database"), cstring(url.database), cstring("client_encoding"), cstring("UTF8"), [0b])
+    val params = bytes_concat(cstring("user"), cstring(url.user), cstring("database"), cstring(url.database),
+        cstring("client_encoding"), cstring("UTF8"), [0b])
     return bytes_concat(u32_to_bytes(len(params) + 8), u32_to_bytes(196608), params)
 }
 
@@ -525,7 +530,8 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
     for p in params {
         ab_append<[byte]>(encoded, encode_param(p))
     }
-    val bind_body = bytes_concat(cstring(""), cstring(""), u16_to_bytes(0), u16_to_bytes(len(params)), concat_arrays<byte>(parts: ab_to_array<[byte]>(encoded)), u16_to_bytes(0))
+    val bind_body = bytes_concat(cstring(""), cstring(""), u16_to_bytes(0), u16_to_bytes(len(params)),
+        concat_arrays<byte>(parts: ab_to_array<[byte]>(encoded)), u16_to_bytes(0))
     val describe_body = bytes_concat(string_to_bytes("P"), cstring(""))
     val execute_body = bytes_concat(cstring(""), u32_to_bytes(0))
     val batch = bytes_concat(

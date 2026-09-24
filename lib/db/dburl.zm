@@ -5,8 +5,8 @@
 // literal `@` in the password also works: the LAST `@` separates userinfo
 // from host).
 
-use bytes.string_to_bytes
 use bytes.bytes_to_string
+use bytes.string_to_bytes
 use number.byte_from_hex
 use sql.DbError
 
@@ -137,5 +137,6 @@ pub fn parse(url: string, prefixes: [string], default_port: int) -> Result<DbUrl
     if db_name == "" {
         db_name = user_decoded
     }
-    return DbUrl { user: user_decoded, password: password_decoded, host: host, port: port, database: db_name, params: ab_to_array<UrlParam>(params) }
+    return DbUrl { user: user_decoded, password: password_decoded, host: host, port: port, database: db_name,
+        params: ab_to_array<UrlParam>(params) }
 }

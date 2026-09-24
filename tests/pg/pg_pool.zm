@@ -1,7 +1,7 @@
-use fs
 use db
-use sql.SqlValue
+use fs
 use sql.Row
+use sql.SqlValue
 use sql.row_get
 use sql.sql_as_int
 
@@ -38,7 +38,8 @@ fn incrementer(pool: db.Connection, done: Channel<int>) {
 fn inserter(pool: db.Connection, id: int, done: Channel<int>) {
     var i = 0
     while i < 5 {
-        unwrap(db.execute(pool, "INSERT INTO pg_pool_rows (worker, n) VALUES ($1, $2)", [SqlValue.Int(id), SqlValue.Int(i)]))
+        unwrap(db.execute(pool, "INSERT INTO pg_pool_rows (worker, n) VALUES ($1, $2)",
+            [SqlValue.Int(id), SqlValue.Int(i)]))
         i = i + 1
     }
     send(done, 1)
@@ -58,7 +59,9 @@ fn main() {
     val url = trim(unwrap(fs.read_text("tests/pg/.url")))
     val setup = unwrap(db.open(url))
     unwrap(db.execute(setup, "DROP TABLE IF EXISTS pg_pool_counter; DROP TABLE IF EXISTS pg_pool_rows", []))
-    unwrap(db.execute(setup, "CREATE TABLE pg_pool_counter (n INTEGER); INSERT INTO pg_pool_counter VALUES (0); CREATE TABLE pg_pool_rows (worker INTEGER, n INTEGER)", []))
+    unwrap(db.execute(setup,
+        "CREATE TABLE pg_pool_counter (n INTEGER); INSERT INTO pg_pool_counter VALUES (0); CREATE TABLE pg_pool_rows (worker INTEGER, n INTEGER)",
+        []))
     db.close(setup)
 
     val pool = unwrap(db.open_pool(url, 4))

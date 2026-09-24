@@ -59,8 +59,8 @@
 
 use clock.now_raw
 use json.Json
-use sql.SqlValue
 use sql.DbError
+use sql.SqlValue
 use sql.sql_as_text
 use sql.sql_lift
 
@@ -256,29 +256,30 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
 // distinct pattern and reused), this runs once per *formatted value*,
 // so it's the hotter of the two -- every field in every formatted
 // date/time used to mean one more leaked, ever-growing string.
-fn format_fields(year: int, month: int, day: int, hour: int, minute: int, second: int, nano: int, fmt: DateTimeFormat) -> string {
-    val out = sb_new()
-    for part in fmt.parts {
-        if DateTimePart.is_Year(part) {
-            sb_append(out, pad_left(year, 4))
-        } else if DateTimePart.is_Month(part) {
-            sb_append(out, pad_left(month, 2))
-        } else if DateTimePart.is_Day(part) {
-            sb_append(out, pad_left(day, 2))
-        } else if DateTimePart.is_Hour(part) {
-            sb_append(out, pad_left(hour, 2))
-        } else if DateTimePart.is_Minute(part) {
-            sb_append(out, pad_left(minute, 2))
-        } else if DateTimePart.is_Second(part) {
-            sb_append(out, pad_left(second, 2))
-        } else if DateTimePart.is_Nano(part) {
-            sb_append(out, pad_left(nano, 9))
-        } else {
-            sb_append(out, DateTimePart.unwrap_Literal(part))
+fn format_fields(year: int, month: int, day: int, hour: int, minute: int, second: int, nano: int,
+    fmt: DateTimeFormat) -> string {
+        val out = sb_new()
+        for part in fmt.parts {
+            if DateTimePart.is_Year(part) {
+                sb_append(out, pad_left(year, 4))
+            } else if DateTimePart.is_Month(part) {
+                sb_append(out, pad_left(month, 2))
+            } else if DateTimePart.is_Day(part) {
+                sb_append(out, pad_left(day, 2))
+            } else if DateTimePart.is_Hour(part) {
+                sb_append(out, pad_left(hour, 2))
+            } else if DateTimePart.is_Minute(part) {
+                sb_append(out, pad_left(minute, 2))
+            } else if DateTimePart.is_Second(part) {
+                sb_append(out, pad_left(second, 2))
+            } else if DateTimePart.is_Nano(part) {
+                sb_append(out, pad_left(nano, 9))
+            } else {
+                sb_append(out, DateTimePart.unwrap_Literal(part))
+            }
         }
+        return sb_to_string(out)
     }
-    return sb_to_string(out)
-}
 
 struct ParsedFields {
     year: int
@@ -368,7 +369,8 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
     if si != len(s) {
         return err(format("'{}' has trailing content after position {}", s, si))
     }
-    return ok(ParsedFields { year: year, month: month, day: day, hour: hour, minute: minute, second: second, nano: nano })
+    return ok(ParsedFields { year: year, month: month, day: day, hour: hour, minute: minute, second: second,
+        nano: nano })
 }
 
 // The fixed shapes every existing `_to_string` produces, now also the
@@ -790,7 +792,8 @@ pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration {
 }
 
 pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string {
-    return format_fields(dt.date.year, dt.date.month, dt.date.day, dt.time.hour, dt.time.minute, dt.time.second, dt.time.nano, fmt)
+    return format_fields(dt.date.year, dt.date.month, dt.date.day, dt.time.hour, dt.time.minute, dt.time.second,
+        dt.time.nano, fmt)
 }
 
 pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string> {
@@ -965,7 +968,8 @@ pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
         sec_of_day = sec_of_day + 86400
         epoch_day = epoch_day - 1
     }
-    return LocalDateTime { date: date_of_epoch_day(epoch_day), time: time_of_nano_of_day(sec_of_day * 1000000000 + i.nanos) }
+    return LocalDateTime { date: date_of_epoch_day(epoch_day),
+        time: time_of_nano_of_day(sec_of_day * 1000000000 + i.nanos) }
 }
 
 pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant {

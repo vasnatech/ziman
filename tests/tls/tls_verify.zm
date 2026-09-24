@@ -1,8 +1,8 @@
+use bytes
 use net
 use net.NetError
 use net.TlsVerify
 use net.net_error_message
-use bytes
 
 // Server A (127.0.0.1:55443) has a self-signed certificate valid for
 // localhost and 127.0.0.1; server B (127.0.0.1:55444) has a different
