@@ -1,0 +1,14 @@
+true
+false
+true
+hi
+2
+é
+café au lait!
+x+y+z
+Err(bad %-escape)
+Err(truncated %-escape)
+Err(decodes to text containing a NUL byte)
+
+p@ss:w/rd
+false

@@ -264,7 +264,7 @@ and now isn't — see docs/DESIGN.md's "StringBuilder" entry). It's a
 plain, one-field struct (`StringBuilder { handle: int }`), not a new
 built-in type the way `Channel<T>` is: the `handle` is an opaque index
 into a native-side table of real, growable buffers (`sb_new`/
-`sb_append`/`sb_to_string`/`sb_len`), so appending never copies
+`sb_append`/`sb_append_byte`/`sb_to_string`/`sb_len`), so appending never copies
 everything accumulated so far the way `concat` or `push` in a loop
 does. `sb_new(capacity: Option<int> = 20, grow_factor: Option<float> =
 2.0)` leans on `Option<T>` parameter omission for its own ergonomics:

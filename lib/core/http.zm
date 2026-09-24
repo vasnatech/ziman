@@ -191,10 +191,12 @@ pub fn header(req: Request, name: string) -> Option<string> {
 // %XX escapes; `plus_is_space` is for query strings ("a+b" is "a b"
 // there, but a literal plus in a path).
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> {
-    val out = ab_new<byte>()
+    val out = sb_new()
+    var run = 0
     var i = 0
     while i < len(s) {
         if is_char_at(s, i, "%") {
+            sb_append(out, substring(s, run, i))
             if i + 3 > len(s) {
                 return err("truncated %-escape")
             }
@@ -202,23 +204,21 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
             if !is_ok(b) {
                 return err("bad %-escape")
             }
-            ab_append<byte>(out, unwrap(b))
-            i = i + 3
-        } else if plus_is_space && is_char_at(s, i, "+") {
-            ab_append<byte>(out, 32b)
-            i = i + 1
-        } else {
-            for b in string_to_bytes(char_at(s, i)) {
-                ab_append<byte>(out, b)
+            if !sb_append_byte(out, unwrap(b)) {
+                return err("decodes to text containing a NUL byte")
             }
+            i = i + 3
+            run = i
+        } else if plus_is_space && is_char_at(s, i, "+") {
+            sb_append(out, substring(s, run, i), " ")
+            i = i + 1
+            run = i
+        } else {
             i = i + 1
         }
     }
-    val text = bytes_to_string(ab_to_array<byte>(out))
-    if !is_ok(text) {
-        return err("decodes to text containing a NUL byte")
-    }
-    return ok(unwrap(text))
+    sb_append(out, substring(s, run, len(s)))
+    return ok(sb_to_string(out))
 }
 
 // ------------------------------------------------------------- reading

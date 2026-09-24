@@ -1,0 +1,26 @@
+use http
+use dburl
+
+fn main() {
+    val sb = sb_new()
+    print(sb_append_byte(sb, 104b))
+    print(sb_append_byte(sb, 0b))
+    print(sb_append_byte(sb, 105b))
+    print(sb_to_string(sb))
+    print(sb_len(sb))
+
+    // a multi-byte UTF-8 character assembled from two raw bytes
+    val u = sb_new()
+    sb_append_byte(u, 195b)
+    sb_append_byte(u, 169b)
+    print(sb_to_string(u))
+
+    print(unwrap(http.percent_decode("caf%C3%A9 au+lait%21", true)))
+    print(unwrap(http.percent_decode("x%2By+z", false)))
+    print(http.percent_decode("bad%zz", false))
+    print(http.percent_decode("cut%4", false))
+    print(http.percent_decode("nul%00byte", false))
+    print(unwrap(http.percent_decode("", true)))
+    print(unwrap(dburl.percent_decode("p%40ss%3Aw%2Frd")))
+    print(is_ok(dburl.percent_decode("a%00b")))
+}

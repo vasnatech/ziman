@@ -2854,3 +2854,12 @@ Result-everywhere rule. Now `fs.read_text` replaces `io.read_file` (same
 Result; the message names the OS reason, e.g. "cannot read 'x': No such file
 or directory") and `fs.write_text` replaces `io.write_file`. Earlier entries in
 this file and ROADMAP.md that mention `io.read_file` describe history.
+
+## `sb_append_byte`
+
+`percent_decode` (in `http` and `dburl`) built an `ArrayBuilder<byte>` (one
+boxed Value per byte), copied it to a `[byte]`, then copied that to a string,
+allocating a one-element array per plain character on the way. Now it appends
+the plain runs between escapes as substring views to a `StringBuilder` and each
+decoded byte with `sb_append_byte`, which stores a raw byte and refuses `0b`
+(a string cannot hold a NUL). The general cost, boxed bytes, is roadmap R23.
