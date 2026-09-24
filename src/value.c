@@ -209,37 +209,82 @@ Value value_channel(Type channel_type, ChannelObj *ch) {
     return v;
 }
 
-ChannelObj *channel_obj_new(void) {
+ChannelObj *channel_obj_new(int limit) {
     ChannelObj *ch = malloc(sizeof(ChannelObj));
     pthread_mutex_init(&ch->mutex, NULL);
-    pthread_cond_init(&ch->cond, NULL);
+    pthread_cond_init(&ch->not_empty, NULL);
+    pthread_cond_init(&ch->not_full, NULL);
     ch->items = NULL;
+    ch->head = 0;
     ch->count = 0;
     ch->capacity = 0;
+    ch->limit = limit;
     return ch;
+}
+
+/* The caller holds the lock. */
+static void channel_push_locked(ChannelObj *ch, Value v) {
+    if (ch->count == ch->capacity) {
+        int new_capacity = ch->capacity == 0 ? 4 : ch->capacity * 2;
+        Value *bigger = malloc((size_t)new_capacity * sizeof(Value));
+        for (int i = 0; i < ch->count; i++) bigger[i] = ch->items[(ch->head + i) % ch->capacity];
+        ch->items = bigger;
+        ch->head = 0;
+        ch->capacity = new_capacity;
+    }
+    ch->items[(ch->head + ch->count) % ch->capacity] = v;
+    ch->count++;
+    pthread_cond_signal(&ch->not_empty);
+}
+
+static Value channel_pop_locked(ChannelObj *ch) {
+    Value v = ch->items[ch->head];
+    ch->head = (ch->head + 1) % ch->capacity;
+    ch->count--;
+    pthread_cond_signal(&ch->not_full);
+    return v;
 }
 
 void channel_send(ChannelObj *ch, Value v) {
     pthread_mutex_lock(&ch->mutex);
-    if (ch->count == ch->capacity) {
-        ch->capacity = ch->capacity == 0 ? 4 : ch->capacity * 2;
-        ch->items = realloc(ch->items, (size_t)ch->capacity * sizeof(Value));
+    while (ch->limit > 0 && ch->count >= ch->limit) {
+        pthread_cond_wait(&ch->not_full, &ch->mutex);
     }
-    ch->items[ch->count++] = v;
-    pthread_cond_signal(&ch->cond);
+    channel_push_locked(ch, v);
     pthread_mutex_unlock(&ch->mutex);
+}
+
+int channel_try_send(ChannelObj *ch, Value v) {
+    pthread_mutex_lock(&ch->mutex);
+    int ok = !(ch->limit > 0 && ch->count >= ch->limit);
+    if (ok) channel_push_locked(ch, v);
+    pthread_mutex_unlock(&ch->mutex);
+    return ok;
 }
 
 Value channel_receive(ChannelObj *ch) {
     pthread_mutex_lock(&ch->mutex);
     while (ch->count == 0) {
-        pthread_cond_wait(&ch->cond, &ch->mutex);
+        pthread_cond_wait(&ch->not_empty, &ch->mutex);
     }
-    Value v = ch->items[0];
-    memmove(ch->items, ch->items + 1, (size_t)(ch->count - 1) * sizeof(Value));
-    ch->count--;
+    Value v = channel_pop_locked(ch);
     pthread_mutex_unlock(&ch->mutex);
     return v;
+}
+
+int channel_try_receive(ChannelObj *ch, Value *out) {
+    pthread_mutex_lock(&ch->mutex);
+    int ok = ch->count > 0;
+    if (ok) *out = channel_pop_locked(ch);
+    pthread_mutex_unlock(&ch->mutex);
+    return ok;
+}
+
+int channel_length(ChannelObj *ch) {
+    pthread_mutex_lock(&ch->mutex);
+    int n = ch->count;
+    pthread_mutex_unlock(&ch->mutex);
+    return n;
 }
 
 int value_equals(Value a, Value b) {

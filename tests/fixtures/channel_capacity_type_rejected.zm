@@ -1,0 +1,4 @@
+fn main() {
+    val c: Channel<int> = channel_new("a")
+    print(channel_len(c))
+}

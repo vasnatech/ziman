@@ -2554,9 +2554,14 @@ fn main() {
   of one element type `T`** — unified, not split into separate
   sender/receiver types the way Rust's `mpsc` is: any `Channel<T>` value
   supports both `send`/`receive`, freely passed to whoever needs either
-  capability. `send(chan, value)` never blocks (the queue is unbounded in
-  v0 — no backpressure yet, tracked in ROADMAP.md); `receive(chan) -> T`
-  blocks until a value is available.
+  capability. A channel is **unbounded** (`channel_new()`: `send` never
+  blocks) or **bounded** (`channel_new(8)`: at most 8 values wait in it, and
+  `send` blocks while it is full, so a fast producer is held to the pace of a
+  slow consumer -- backpressure). `receive(chan) -> T` blocks until a value is
+  available. `try_send(chan, value) -> bool` and `try_receive(chan) ->
+  Option<T>` never block (`false`/`None` when full/empty), and
+  `channel_len(chan) -> int` is how many values are waiting. A bounded `send`
+  with nobody receiving waits forever; there is no deadlock detection.
 - **`channel_new()` can't infer its own type** (the call itself, zero
   arguments, carries no information about what it's a channel *of*) —
   same "expected type from context" mechanism `ok(...)`/`err(...)` and
@@ -2795,13 +2800,16 @@ a type error.
   if `r` is `Err`.
 - `unwrap_err(r: Result<T, E>) -> E` — the error value, or a runtime
   error if `r` is `Ok`.
-- `channel_new() -> Channel<T>` — construct a `Channel`. Only legal
-  where the missing type parameter is available from context — see
-  "Concurrency" above.
-- `send(c: Channel<T>, value: T)` — enqueue `value`; never blocks (the
-  queue is unbounded in v0).
+- `channel_new() -> Channel<T>` / `channel_new(capacity: int) ->
+  Channel<T>` — construct an unbounded / a bounded (capacity >= 1, a runtime
+  error otherwise) `Channel`. Only legal where the missing type parameter is
+  available from context — see "Concurrency" above.
+- `send(c: Channel<T>, value: T)` — enqueue `value`; blocks while a bounded
+  channel is full (an unbounded one never blocks).
 - `receive(c: Channel<T>) -> T` — dequeue the next value, blocking until
   one is available.
+- `try_send(c, value) -> bool`, `try_receive(c) -> Option<T>`,
+  `channel_len(c) -> int` — the non-blocking forms and the queue length.
 
 None of `push`/`insert`/`set` mutate their `arr` argument — see "Arrays"
 above for why, and why that's true regardless of `val`/`var`.

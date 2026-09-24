@@ -823,10 +823,28 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "max") == 0) {
                 result = call_max(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "channel_new") == 0) {
-                result = value_channel(e->resolved_type, channel_obj_new());
+                int limit = 0;
+                if (argc > 0) {
+                    if (args[0].as.i < 1) {
+                        ziman_error("runtime", e->line, e->col, "channel_new: capacity must be at least 1, found %lld", (long long)args[0].as.i);
+                    }
+                    limit = (int)args[0].as.i;
+                }
+                result = value_channel(e->resolved_type, channel_obj_new(limit));
             } else if (strcmp(e->as.call.callee, "send") == 0) {
                 channel_send(args[0].as.ch, args[1]);
                 result = value_int(0);
+            } else if (strcmp(e->as.call.callee, "try_send") == 0) {
+                result = value_bool(channel_try_send(args[0].as.ch, args[1]));
+            } else if (strcmp(e->as.call.callee, "channel_len") == 0) {
+                result = value_int(channel_length(args[0].as.ch));
+            } else if (strcmp(e->as.call.callee, "try_receive") == 0) {
+                Value got;
+                if (channel_try_receive(args[0].as.ch, &got)) {
+                    result = value_enum(e->resolved_type, enum_obj_new("Option", "Some", 1, got));
+                } else {
+                    result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                }
             } else if (strcmp(e->as.call.callee, "receive") == 0) {
                 result = channel_receive(args[0].as.ch);
             } else {

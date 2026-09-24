@@ -126,10 +126,13 @@ typedef struct EnumObj {
  * hazard once a Value has crossed the channel's own lock. */
 typedef struct ChannelObj {
     pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    Value *items;
+    pthread_cond_t not_empty;
+    pthread_cond_t not_full;
+    Value *items;  /* a ring buffer: `head` is the oldest element, `count` how many */
+    int head;
     int count;
-    int capacity;
+    int capacity;  /* size of `items` */
+    int limit;     /* 0 = unbounded; otherwise `send` blocks while `count == limit` */
 } ChannelObj;
 
 Value value_int(int64_t i);
@@ -183,9 +186,13 @@ Value value_byte_array(const uint8_t *buf, size_t n);
 StructObj *struct_obj_new(char **field_names, Value *fields, int count);
 ResultObj *result_obj_new(int is_ok, Value value);
 EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Value payload);
-ChannelObj *channel_obj_new(void);
+ChannelObj *channel_obj_new(int limit);
 void channel_send(ChannelObj *ch, Value v);
 Value channel_receive(ChannelObj *ch);
+/* Non-blocking: 1 on success, 0 if the channel is full / empty. */
+int channel_try_send(ChannelObj *ch, Value v);
+int channel_try_receive(ChannelObj *ch, Value *out);
+int channel_length(ChannelObj *ch);
 
 int value_equals(Value a, Value b);
 

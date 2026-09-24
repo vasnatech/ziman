@@ -681,7 +681,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err",
-    "ok", "err", "channel_new", "send", "receive", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", NULL,
 };
 
 /* A named call (`f(y: 2, x: 1)`) is reordered here, once, into the same
@@ -1075,14 +1075,40 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return type_scalar(TY_VOID);
     }
 
-    if (strcmp(name, "receive") == 0) {
-        if (e->as.call.args.count != 1) {
-            ziman_error("type", e->line, e->col, "'receive' takes exactly 1 argument, found %d", e->as.call.args.count);
+    if (strcmp(name, "try_send") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'try_send' takes exactly 2 arguments, found %d", e->as.call.args.count);
         }
         Expr *chan_arg = e->as.call.args.items[0];
         Type chan_type = check_expr(module, env, chan_arg);
         if (chan_type.kind != TY_CHANNEL) {
-            ziman_error("type", chan_arg->line, chan_arg->col, "'receive' expects a Channel, found %s", type_name(chan_type));
+            ziman_error("type", chan_arg->line, chan_arg->col, "argument 1 of 'try_send' expects a Channel, found %s", type_name(chan_type));
+        }
+        Expr *val_arg = e->as.call.args.items[1];
+        Type val_type = check_expr(module, env, val_arg);
+        require_not_void(val_arg, "as a channel value");
+        if (!type_equals(val_type, *chan_type.elem)) {
+            ziman_error("type", val_arg->line, val_arg->col,
+                        "argument 2 of 'try_send' expects %s (the channel's element type), found %s",
+                        type_name(*chan_type.elem), type_name(val_type));
+        }
+        return type_scalar(TY_BOOL);
+    }
+
+    if (strcmp(name, "receive") == 0 || strcmp(name, "try_receive") == 0 || strcmp(name, "channel_len") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
+        }
+        Expr *chan_arg = e->as.call.args.items[0];
+        Type chan_type = check_expr(module, env, chan_arg);
+        if (chan_type.kind != TY_CHANNEL) {
+            ziman_error("type", chan_arg->line, chan_arg->col, "'%s' expects a Channel, found %s", name, type_name(chan_type));
+        }
+        if (strcmp(name, "channel_len") == 0) return type_scalar(TY_INT);
+        if (strcmp(name, "try_receive") == 0) {
+            Type opt = type_enum("Option");
+            type_list_push(&opt.type_args, *chan_type.elem);
+            return opt;
         }
         return *chan_type.elem;
     }
@@ -1237,12 +1263,19 @@ static int check_ok_err_call(Module *module, Env *env, Expr *e, Type expected) {
  * channel of. Same set of legal positions as check_ok_err_call. Returns 1
  * and sets `e->resolved_type` if `e` is exactly `channel_new()` and
  * `expected` is a Channel<T>; returns 0 otherwise. */
-static int check_channel_new_call(Expr *e, Type expected) {
+static int check_channel_new_call(Module *module, Env *env, Expr *e, Type expected) {
     if (e->kind != EXPR_CALL) return 0;
     if (strcmp(e->as.call.callee, "channel_new") != 0) return 0;
     if (expected.kind != TY_CHANNEL) return 0;
-    if (e->as.call.args.count != 0) {
-        ziman_error("type", e->line, e->col, "'channel_new' takes no arguments, found %d", e->as.call.args.count);
+    if (e->as.call.args.count > 1) {
+        ziman_error("type", e->line, e->col, "'channel_new' takes at most 1 argument (a capacity), found %d", e->as.call.args.count);
+    }
+    if (e->as.call.args.count == 1) {
+        Type cap = check_expr(module, env, e->as.call.args.items[0]);
+        if (cap.kind != TY_INT) {
+            ziman_error("type", e->as.call.args.items[0]->line, e->as.call.args.items[0]->col,
+                        "the capacity of 'channel_new' must be an int, found %s", type_name(cap));
+        }
     }
     e->resolved_type = expected;
     return 1;
@@ -1414,7 +1447,7 @@ static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type e
     if (check_ok_err_call(module, env, e, expected)) {
         return expected;
     }
-    if (check_channel_new_call(e, expected)) {
+    if (check_channel_new_call(module, env, e, expected)) {
         return expected;
     }
     if (is_option_type(expected) || expected.kind == TY_RESULT) {
@@ -2156,7 +2189,7 @@ static Type check_initializer(Module *module, Env *env, Expr **init_slot, int ha
          * check_ok_err_call's own comment for why this needs its own
          * path instead of going through plain check_expr. */
         declared = declared_type;
-    } else if (has_declared && check_channel_new_call(init, declared_type)) {
+    } else if (has_declared && check_channel_new_call(module, env, init, declared_type)) {
         /* channel_new() resolved against the declared type -- same
          * reasoning as ok(...)/err(...) above. */
         declared = declared_type;
@@ -2877,7 +2910,7 @@ void typecheck(Module *module) {
     static const char *builtins[] = {"print", "printf", "str", "format", "len", "push", "insert", "set",
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err",
                                       "contains", "abs", "min", "max", "remove",
-                                      "channel_new", "send", "receive", "hash", "compare"};
+                                      "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "hash", "compare"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

@@ -1,0 +1,46 @@
+use clock
+
+fn producer(ch: Channel<int>, done: Channel<int>, n: int) {
+    for i in 0..n {
+        send(ch, i)          // blocks while the channel holds 2 items
+    }
+    send(done, 1)
+}
+
+fn main() {
+    val ch: Channel<int> = channel_new(2)
+    val done: Channel<int> = channel_new()
+    print(try_send(ch, 1))
+    print(try_send(ch, 2))
+    print(try_send(ch, 3))          // full
+    print(channel_len(ch))
+    print(receive(ch))
+    print(try_send(ch, 3))          // room again
+    print(try_receive(ch))
+    print(try_receive(ch))
+    print(try_receive(ch))          // empty
+    print(channel_len(ch))
+
+    // backpressure: the producer can be at most `capacity` ahead of the consumer
+    val work: Channel<int> = channel_new(2)
+    spawn producer(work, done, 10)
+    while channel_len(work) < 2 {
+        clock.sleep_millis(5)
+    }
+    clock.sleep_millis(50)
+    print(channel_len(work))        // the producer is blocked at 2, never more
+    var total = 0
+    for i in 0..10 {
+        total = total + receive(work)
+    }
+    receive(done)
+    print(total)
+
+    // an unbounded channel is unchanged
+    val free: Channel<int> = channel_new()
+    for i in 0..1000 {
+        send(free, i)
+    }
+    print(channel_len(free))
+    print(receive(free))
+}

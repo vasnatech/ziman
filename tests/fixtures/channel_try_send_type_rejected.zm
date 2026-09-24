@@ -1,0 +1,4 @@
+fn main() {
+    val c: Channel<int> = channel_new(1)
+    print(try_send(c, "x"))
+}

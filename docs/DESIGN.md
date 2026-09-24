@@ -3324,3 +3324,23 @@ build and `make test-nogc` against the other. **Not done:** memory is not
 returned to the OS; sockets, SQLite connections and TLS sessions are closed by
 hand as before; and conservative scanning can retain garbage that looks like a
 pointer.
+
+## Bounded channels and backpressure (R10 remainder)
+
+`channel_new(capacity)` makes a bounded channel: `send` blocks while `capacity`
+values are waiting, so a fast producer is held to the pace of a slow consumer
+instead of growing a queue without limit (the unbounded queue was the review's
+"a DoS primitive by design"). `channel_new()` is unchanged, since the connection
+semaphore in `http.serve` and the pool's idle list rely on unbounded, pre-filled
+channels, and a bounded default would break them. Also added: `try_send(ch, v) ->
+bool` and `try_receive(ch) -> Option<T>` (never block; the `Option` is built by
+the interpreter with the call's resolved type, the way `?` builds its propagated
+`None`) and `channel_len(ch)` (how many are waiting). Capacity 0 (a rendezvous
+channel) is rejected: it needs a sender and receiver to meet, which is a different
+protocol from a queue, and nothing needs it yet. **Implementation:** the queue
+is now a ring buffer (`head`, `count`, `capacity`) with two condition variables,
+`not_empty` and `not_full`; the old array shifted every element on each
+`receive`, which made draining a long unbounded queue quadratic. **Limits:** no
+`close`/end-of-stream on a channel, no `select` over several, no timeout on
+`send`/`receive` (poll with `try_*` and `clock.sleep_millis`), and a bounded
+`send` with no receiver blocks forever, with no deadlock detection.
