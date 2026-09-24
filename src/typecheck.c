@@ -242,6 +242,16 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
         case OP_MUL:
         case OP_DIV:
         case OP_MOD:
+            if (e->as.binary.op == OP_ADD && (lt.kind == TY_STRING || rt.kind == TY_STRING)) {
+                ziman_error("type", e->line, e->col,
+                            "'+' doesn't join strings (found %s and %s) -- use concat(a, b), or format(\"{}{}\", a, b) for several pieces; convert a number with str(n)",
+                            type_name(lt), type_name(rt));
+            }
+            if (e->as.binary.op == OP_ADD && (lt.kind == TY_ARRAY || rt.kind == TY_ARRAY)) {
+                ziman_error("type", e->line, e->col,
+                            "'+' doesn't join arrays (found %s and %s) -- use push(arr, item) to add one element or concat_arrays<T>(a, b) to join two",
+                            type_name(lt), type_name(rt));
+            }
             if (lt.kind != rt.kind || (lt.kind != TY_INT && lt.kind != TY_FLOAT && lt.kind != TY_BIGINT && lt.kind != TY_DECIMAL)) {
                 ziman_error("type", e->line, e->col,
                             "arithmetic operator requires two operands of the same numeric type, found %s and %s (use 'as' to cast explicitly)",

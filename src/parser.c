@@ -389,6 +389,14 @@ static Expr *parse_primary(Parser *p) {
     }
     if (match(p, TOK_IDENT)) {
         char *name = dup_token_text(t);
+        /* `match value { ... }` is what most languages write; Ziman has no
+         * `match`. A real call would be `match(...)`, so an identifier or a
+         * literal right after the name means the switch-shaped form. */
+        if (strcmp(name, "match") == 0 && (check(p, TOK_IDENT) || check(p, TOK_INT_LIT) || check(p, TOK_STRING_LIT) || check(p, TOK_TRUE) || check(p, TOK_FALSE))) {
+            ziman_error("syntax", t->line, t->col,
+                        "Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result "
+                        "(one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant");
+        }
         /* `identity<int>(5)` -- a generic function call. Unlike a
          * struct/enum's `<`, this genuinely can't be told apart from a
          * real comparison (`x < y`) by casing alone, since a call's

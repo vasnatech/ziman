@@ -1,0 +1,7 @@
+fn match(a: int, b: int) -> bool {
+    return a == b
+}
+
+fn main() {
+    print(match(1, 1))
+}

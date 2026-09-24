@@ -620,12 +620,33 @@ static void split_qualified(const char *dotted, char **qualifier_out, char **res
     *rest_out = strdup(dot + 1);
 }
 
+/* `p.to_string()` parses as a call into a module named `p`. The most common
+ * reason there is no such module is that `p` is a value and the author
+ * reached for a method, which Ziman doesn't have -- so say that first, with
+ * the function-call form that does work. */
+static void report_unknown_module_call(const char *qualifier, const char *member, int line, int col) {
+    char hint[160];
+    if (strcmp(member, "to_string") == 0 || strcmp(member, "toString") == 0 || strcmp(member, "to_str") == 0) {
+        snprintf(hint, sizeof hint, "str(%s)", qualifier);
+    } else if (strcmp(member, "len") == 0 || strcmp(member, "length") == 0 || strcmp(member, "size") == 0) {
+        snprintf(hint, sizeof hint, "len(%s)", qualifier);
+    } else if (strcmp(member, "push") == 0 || strcmp(member, "append") == 0) {
+        snprintf(hint, sizeof hint, "%s = push(%s, item)", qualifier, qualifier);
+    } else {
+        snprintf(hint, sizeof hint, "%s(%s, ...)", member, qualifier);
+    }
+    ziman_error("module", line, col,
+                "'%s.%s(...)': '%s' is not an imported module, and Ziman has no methods -- if '%s' is a value, call a function on it instead, e.g. %s "
+                "(if '%s' should be a module, add 'use %s')",
+                qualifier, member, qualifier, qualifier, hint, qualifier, qualifier);
+}
+
 static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line, int col) {
     char *qualifier, *rest;
     split_qualified(dotted, &qualifier, &rest);
     UseDecl *u = find_use(ctx->mod, qualifier);
     if (u == NULL) {
-        ziman_error("module", line, col, "no module imported under the name '%s'", qualifier);
+        report_unknown_module_call(qualifier, rest, line, col);
     }
     Module *target = find_loaded(ctx->ldr, u->path);
     char *qualified = qualify_name(u->path, rest);
@@ -649,7 +670,7 @@ static char *resolve_type_ref(CrossRefCtx *ctx, const char *dotted, int line, in
     split_qualified(dotted, &qualifier, &rest);
     UseDecl *u = find_use(ctx->mod, qualifier);
     if (u == NULL) {
-        ziman_error("module", line, col, "no module imported under the name '%s'", qualifier);
+        ziman_error("module", line, col, "no module imported under the name '%s' (add 'use %s')", qualifier, qualifier);
     }
     Module *target = find_loaded(ctx->ldr, u->path);
     char *qualified = qualify_name(u->path, rest);
@@ -682,7 +703,7 @@ static char *resolve_enum_ref(CrossRefCtx *ctx, const char *dotted, int line, in
     split_qualified(dotted, &qualifier, &rest);
     UseDecl *u = find_use(ctx->mod, qualifier);
     if (u == NULL) {
-        ziman_error("module", line, col, "no module imported under the name '%s'", qualifier);
+        ziman_error("module", line, col, "no module imported under the name '%s' (add 'use %s')", qualifier, qualifier);
     }
     Module *target = find_loaded(ctx->ldr, u->path);
     char *qualified = qualify_name(u->path, rest);
@@ -715,7 +736,7 @@ static void resolve_type_or_enum_ref(Type *t, CrossRefCtx *ctx, int line, int co
     split_qualified(t->struct_name, &qualifier, &rest);
     UseDecl *u = find_use(ctx->mod, qualifier);
     if (u == NULL) {
-        ziman_error("module", line, col, "no module imported under the name '%s'", qualifier);
+        ziman_error("module", line, col, "no module imported under the name '%s' (add 'use %s')", qualifier, qualifier);
     }
     Module *target = find_loaded(ctx->ldr, u->path);
     char *qualified = qualify_name(u->path, rest);

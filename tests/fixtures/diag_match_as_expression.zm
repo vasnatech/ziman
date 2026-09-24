@@ -1,0 +1,5 @@
+fn main() {
+    val e = Option<int>.None
+    val n = match e {
+    }
+}

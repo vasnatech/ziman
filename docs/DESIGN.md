@@ -1641,6 +1641,25 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **Diagnostics for the habits a model brings from other languages
+  (external review, roadmap R5, 2026-09-23).** The compiler's error
+  messages are the interface an agent iterates against, and the review
+  found them uneven exactly on the highest-frequency mistakes: four good
+  (`?` misuse, missing generic args, unsatisfied bounds, type mismatches),
+  and four bad. Fixed three: `p.to_string()` said "no module imported
+  under the name 'p'", sending the author to fix an import instead of
+  telling them Ziman has no methods -- it now says so and gives the
+  function form (`str(p)`, `len(p)`, `xs = push(xs, item)`, or generally
+  `name(p, ...)`), while still mentioning `use p` for the genuine
+  forgot-the-import case; `"a" + "b"` said the operands "must be the same
+  numeric type ... (use 'as' to cast explicitly)", self-contradictory and
+  suggesting a cast that cannot exist -- it now points at `concat`/`format`
+  (and `push`/`concat_arrays` for arrays); `match e { ... }` said "expected
+  an expression, found '{'" -- it now says there is no `match` and points
+  at `switch`. `match` stays a legal identifier (a function named `match`
+  still works); the special case only fires when it is followed by an
+  identifier or literal, which is never a call. The derive-error case from
+  the same table is R6.
 - **`switch`: exhaustive consumption of an enum or a Result (external
   review, roadmap R4, 2026-09-23).** Enums were consumed with `if
   Shape.is_Circle(s) { ... Shape.unwrap_Circle(s) ... }` chains, so adding

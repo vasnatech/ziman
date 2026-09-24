@@ -1,0 +1,5 @@
+fn main() {
+    val e = 1
+    match e {
+    }
+}

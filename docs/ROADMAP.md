@@ -191,7 +191,7 @@ language's own principles)**
 **B. Diagnostics (the error message is the interface an agent iterates
 against)**
 
-- [ ] **R5. Special-case the mistakes models make most.** `p.to_string()`
+- [x] **R5. Special-case the mistakes models make most.** *Done 2026-09-23 for method calls, string/array `+` and `match`; the derive-error case is R6.* `p.to_string()`
   says "no module imported under the name 'p'" -- it should say Ziman has
   no methods and name the function; `"a" + "b"` says the operands must be
   "the same numeric type" and suggests a cast that cannot exist -- it
