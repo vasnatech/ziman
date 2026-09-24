@@ -3,6 +3,6 @@ fn identity<T>(x: T) -> T {
 }
 
 fn main() {
-    val f = identity
-    print(1)
+    val f = identity<int, string>
+    print(f(1))
 }

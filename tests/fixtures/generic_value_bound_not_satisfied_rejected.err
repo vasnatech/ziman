@@ -1,0 +1,1 @@
+type error at 4:13: type argument bool does not satisfy bound 'Ord' required by type parameter 'T' (it must be a number, string or byte, or a struct/enum with a '<type>_compare(a, b) -> int' function -- '#[derive(Ord)]' writes one)

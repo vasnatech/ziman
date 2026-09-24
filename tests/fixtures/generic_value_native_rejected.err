@@ -1,0 +1,1 @@
+type error at 2:13: 'slice' is a generic native function, so it can't be used as a value -- wrap it in a lambda: fn(...) { slice<...>(...) }

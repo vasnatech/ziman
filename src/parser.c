@@ -434,6 +434,14 @@ static Expr *parse_primary(Parser *p) {
          * callee is always lowercase -- see next_looks_like_generic_call. */
         if (!starts_upper(name) && check(p, TOK_LT) && next_looks_like_generic_call(p)) {
             TypeList type_args = parse_type_args(p);
+            if (!check(p, TOK_LPAREN)) {
+                /* `identity<int>` with no call: a generic function used as a value,
+                 * its type arguments written out. */
+                Expr *e = expr_new(EXPR_IDENT, t->line, t->col);
+                e->as.ident_name = name;
+                e->fn_ref_type_args = type_args;
+                return e;
+            }
             expect(p, TOK_LPAREN, "'('");
             CallArgs args = parse_call_args(p, TOK_RPAREN);
             expect(p, TOK_RPAREN, "')'");
@@ -583,6 +591,17 @@ static Expr *parse_primary(Parser *p) {
                  * needs it. */
                 if (check(p, TOK_LT) && next_looks_like_generic_call(p)) {
                     TypeList type_args = parse_type_args(p);
+                    if (!check(p, TOK_LPAREN)) {
+                        /* `mod.identity<int>` with no call: a generic function of another
+                         * module used as a value. */
+                        Expr *base = expr_new(EXPR_IDENT, t->line, t->col);
+                        base->as.ident_name = name;
+                        Expr *fe = expr_new(EXPR_FIELD_ACCESS, t->line, t->col);
+                        fe->as.field_access.base = base;
+                        fe->as.field_access.field_name = dup_token_text(second);
+                        fe->fn_ref_type_args = type_args;
+                        return fe;
+                    }
                     expect(p, TOK_LPAREN, "'('");
                     CallArgs args = parse_call_args(p, TOK_RPAREN);
                     expect(p, TOK_RPAREN, "')'");
@@ -1395,6 +1414,7 @@ static void reclassify_type_params(Type *t, TypeParamList *type_params) {
  * self_qualify_expr/self_qualify_stmt shape exactly (same node kinds,
  * same recursion), just touching Type nodes instead of qualifying names. */
 static void reclassify_type_params_in_expr(Expr *e, TypeParamList *type_params) {
+    for (int i = 0; i < e->fn_ref_type_args.count; i++) reclassify_type_params(&e->fn_ref_type_args.items[i], type_params);
     switch (e->kind) {
         case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_BYTE: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
             break;

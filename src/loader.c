@@ -253,6 +253,7 @@ static void forbid_global_val_name(SelfQualifyCtx *ctx, const char *name, int li
 }
 
 static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
+    for (int i = 0; i < e->fn_ref_type_args.count; i++) self_qualify_type(&e->fn_ref_type_args.items[i], ctx);
     switch (e->kind) {
         case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_BYTE: case EXPR_STRING: case EXPR_BOOL:
             break;
@@ -935,6 +936,7 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
 static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx);
 
 static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
+    for (int i = 0; i < e->fn_ref_type_args.count; i++) resolve_type_refs(&e->fn_ref_type_args.items[i], ctx, e->line, e->col);
     switch (e->kind) {
         case EXPR_INT: case EXPR_FLOAT: case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_BYTE: case EXPR_STRING: case EXPR_BOOL: case EXPR_IDENT:
             break;

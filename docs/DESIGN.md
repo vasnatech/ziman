@@ -3228,3 +3228,20 @@ error asking for parentheses, because `if c { 1 } else { 2 } + 3` would otherwis
 be read either way; the parenthesised form is unambiguous.
 Not done: an arm that leaves inside an expression (needs the interpreter to
 unwind), which stays statement-only.
+
+## Generic functions as function values
+
+`identity<int>` (or `mod.identity<int>`) is a function value whose type is the
+generic function's signature with the type arguments substituted. There is still
+no inference: the arguments are written where the function is used as a value,
+exactly as at a call, and a missing or wrong-count list is an error that says so.
+Parsing: after `name<...>` a following `(` still means a call; anything else makes
+it a value (the same one-token lookahead that already tells a generic call from a
+comparison). The type arguments ride on the expression (`Expr.fn_ref_type_args`),
+are qualified and resolved by the loader like any type, and bounds are checked by
+the same routine calls use. At run time a generic function is one erased body, so
+the value is an ordinary closure over the same declaration. **Native generics are
+excluded**: their C code cannot see the type arguments, so a result's element type
+is fixed up from the call site's static type (see the interpreter's generic-native
+patch), and a call through a function value has no such site; wrapping one in a
+lambda (`fn(a) { slice<int>(a, 0, 2) }`) restores the call site.

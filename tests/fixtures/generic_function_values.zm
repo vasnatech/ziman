@@ -1,0 +1,21 @@
+use collections
+
+fn identity<T>(x: T) -> T { return x }
+
+fn twice<T>(f: fn(T) -> T, x: T) -> T { return f(f(x)) }
+
+fn describe<T>(x: T) -> string { return format("<{}>", x) }
+
+fn wrap<T>(x: T) -> [T] { return [x] }
+
+fn main() {
+    val f = identity<int>
+    print(f(5))
+    val g: fn(string) -> string = identity<string>
+    print(g("hi"))
+    print(twice<int>(identity<int>, 3))
+    print(collections.map<int, string>([1, 2, 3], describe<int>))
+    print(collections.map<string, [string]>(["a", "b"], wrap<string>))
+    val h = collections.sort<int>
+    print(h([3, 1, 2]))
+}

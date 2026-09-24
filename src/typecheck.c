@@ -1495,11 +1495,6 @@ static int resolve_function_reference(Module *module, Expr *e, Type *out) {
     }
     FunctionDecl *fn = find_function(module, e->fn_ref_name);
     if (fn == NULL) return 0;
-    if (fn->type_params.count > 0) {
-        ziman_error("type", e->line, e->col,
-                    "'%s' is generic, so it can't be used as a value yet -- wrap it in a non-generic function that fixes its type arguments",
-                    fn->name);
-    }
     for (int i = 0; i < fn->params.count; i++) {
         if (fn->params.items[i].is_variadic) {
             ziman_error("type", e->line, e->col,
@@ -1507,8 +1502,37 @@ static int resolve_function_reference(Module *module, Expr *e, Type *out) {
                         fn->name);
         }
     }
+    TypeList *targs = &e->fn_ref_type_args;
+    if (fn->type_params.count == 0) {
+        if (targs->count > 0) {
+            ziman_error("type", e->line, e->col, "'%s' is not generic, so it takes no type arguments", fn->name);
+        }
+        e->fn_ref = fn;
+        *out = function_value_type(fn);
+        return 1;
+    }
+    /* A generic function as a value: the type arguments are written out (there is
+     * no inference), which fixes its parameter and return types. */
+    if (fn->is_native) {
+        ziman_error("type", e->line, e->col,
+                    "'%s' is a generic native function, so it can't be used as a value -- wrap it in a lambda: fn(...) { %s<...>(...) }",
+                    fn->name, fn->name);
+    }
+    if (targs->count == 0) {
+        ziman_error("type", e->line, e->col,
+                    "'%s' is generic: write its type arguments where you use it as a value, e.g. %s<int>", fn->name, fn->name);
+    }
+    if (targs->count != fn->type_params.count) {
+        ziman_error("type", e->line, e->col, "'%s' takes %d type argument(s), found %d", fn->name, fn->type_params.count, targs->count);
+    }
+    for (int i = 0; i < targs->count; i++) check_type_well_formed(module, targs->items[i], e->line, e->col);
+    check_type_args_satisfy_bounds(module, &fn->type_params, targs, e->line, e->col);
+    TypeList params = {0};
+    for (int i = 0; i < fn->params.count; i++) {
+        type_list_push(&params, substitute_type(fn->params.items[i].type, &fn->type_params, targs));
+    }
     e->fn_ref = fn;
-    *out = function_value_type(fn);
+    *out = type_func(params, substitute_type(fn->return_type, &fn->type_params, targs));
     return 1;
 }
 
@@ -1714,6 +1738,9 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
                     }
                 }
                 ziman_error("type", e->line, e->col, "use of undefined variable '%s'", e->as.ident_name);
+            }
+            if (e->fn_ref_type_args.count > 0) {
+                ziman_error("type", e->line, e->col, "'%s' is a variable, not a generic function, so it takes no type arguments", e->as.ident_name);
             }
             t = b->type;
             break;

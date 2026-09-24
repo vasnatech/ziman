@@ -184,6 +184,9 @@ struct Expr {
      * to `fn_ref` (a FunctionDecl *) only when no local of that name exists. */
     char *fn_ref_name;
     void *fn_ref;
+    /* `identity<int>` / `mod.identity<int>` used as a value: the explicit type
+     * arguments of the generic function being referred to (empty otherwise). */
+    TypeList fn_ref_type_args;
     /* EXPR_LAMBDA: `fn(x: int) -> int { ... }`. `lambda_decl` (a FunctionDecl *)
      * holds the parameters, return type and body as written. The type checker
      * finds which enclosing `val`s the body uses (captures, by value) and puts

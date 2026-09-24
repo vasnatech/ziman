@@ -1,0 +1,1 @@
+type error at 6:13: 'identity' is generic: write its type arguments where you use it as a value, e.g. identity<int>

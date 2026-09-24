@@ -530,10 +530,14 @@ fn main() {
 - **A reference to a named top-level function** is the other kind of value:
   `apply(double, 21)`. It carries nothing.
 - **What can be a value:** any top-level function (own module, `use mod.name`,
-  or `mod.name`; a `native fn` too) that is not generic and has no variadic
-  parameter. A generic function can't be used as a value yet (wrap it in a
-  non-generic one); the builtins (`len`, `print`, ...) aren't functions, so
-  they can't either.
+  or `mod.name`; a `native fn` too) that has no variadic parameter. A **generic**
+  function is a value once its type arguments are written out, which fixes its
+  types: `identity<int>` is an `fn(int) -> int`, `collections.sort<string>` an
+  `fn([string]) -> [string]`, checked against the function's bounds like a call
+  (`collections.sort<bool>` is an error). Without type arguments it is an error
+  saying so. A *native* generic function (`slice`, `ab_new`, ...) can't be a
+  value -- wrap it in a lambda. The builtins (`len`, `print`, ...) aren't
+  functions, so they can't either.
 - **Calling:** `f(x)` where `f` is a parameter or a `val`/`var` of function
   type. Arguments are checked against the parameter types, and the same
   bare-value auto-wrap into `Option`/`Result` applies. Named arguments and
