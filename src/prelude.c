@@ -512,16 +512,19 @@ static Value native_sb_append(Value *args, int argc, int line, int col) {
     return value_int(0); /* void return -- the caller never uses this */
 }
 
-/* sb_append_byte(sb, b) -> bool: one raw byte, so text can be assembled from
- * decoded bytes without a [byte] in between. A string can't hold a 0 byte, so
- * 0b is refused (nothing appended, false). */
+/* sb_append_byte(sb, bytes...) -> bool: raw bytes, so text can be assembled
+ * from decoded bytes without a [byte] in between. A string can't hold a 0
+ * byte, so if any of them is 0b nothing at all is appended and the result is
+ * false. */
 static Value native_sb_append_byte(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
-    int b = args[1].as.by;
-    if (b == 0) return value_bool(0);
-    sb_ensure_capacity(buf, 1);
-    buf->data[buf->length++] = (char)(unsigned char)b;
+    ArrayObj *bytes = args[1].as.arr;
+    for (int i = 0; i < bytes->count; i++) {
+        if (bytes->items[i].as.by == 0) return value_bool(0);
+    }
+    sb_ensure_capacity(buf, (size_t)bytes->count);
+    for (int i = 0; i < bytes->count; i++) buf->data[buf->length++] = (char)(unsigned char)bytes->items[i].as.by;
     return value_bool(1);
 }
 

@@ -2867,8 +2867,8 @@ this file and ROADMAP.md that mention `io.read_file` describe history.
 boxed Value per byte), copied it to a `[byte]`, then copied that to a string,
 allocating a one-element array per plain character on the way. Now it appends
 the plain runs between escapes as substring views to a `StringBuilder` and each
-decoded byte with `sb_append_byte`, which stores a raw byte and refuses `0b`
-(a string cannot hold a NUL). The general cost, boxed bytes, is roadmap R23.
+decoded byte with `sb_append_byte`, which takes one or more raw bytes (variadic) and,
+because a string cannot hold a NUL, appends nothing and returns false if any is `0b`. The general cost, boxed bytes, is roadmap R23.
 
 ## R16: naming convention
 

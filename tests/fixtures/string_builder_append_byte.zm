@@ -15,6 +15,13 @@ fn main() {
     sb_append_byte(u, 169b)
     print(sb_to_string(u))
 
+    // several at once; a 0b anywhere appends nothing
+    val m = sb_new()
+    print(sb_append_byte(m, 104b, 105b))
+    print(sb_append_byte(m, 33b, 0b, 33b))
+    print(sb_append_byte(sb: m, b: [111b, 107b]))
+    print(sb_to_string(m))
+
     print(unwrap(http.percent_decode("caf%C3%A9 au+lait%21", true)))
     print(unwrap(http.percent_decode("x%2By+z", false)))
     print(http.percent_decode("bad%zz", false))

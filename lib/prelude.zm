@@ -142,11 +142,13 @@ native fn sb_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -
 // void return on `Channel<T>`, Ziman's only other mutable, identity-
 // based value.
 native fn sb_append(sb: StringBuilder, pieces: string...)
-// Appends one raw byte -- for text assembled from decoded bytes (a
-// percent-decoder, say) without building a [byte] first. A string cannot
-// hold a 0 byte, so `0b` is refused: nothing is appended and the result is
-// false (true otherwise). The bytes need not be valid UTF-8 on their own.
-native fn sb_append_byte(sb: StringBuilder, b: byte) -> bool
+// Appends raw bytes -- for text assembled from decoded bytes (a
+// percent-decoder, say) without building a [byte] first: `sb_append_byte(sb,
+// 195b, 169b)`, or an already-built array with `sb_append_byte(sb: sb, b: arr)`.
+// A string cannot hold a 0 byte, so if any of them is `0b` NOTHING is
+// appended and the result is false (true otherwise). The bytes need not be
+// valid UTF-8 on their own.
+native fn sb_append_byte(sb: StringBuilder, b: byte...) -> bool
 // Snapshots whatever has been appended so far into an ordinary,
 // immutable Ziman string -- `str(sb)` can't do this itself (it would
 // just print the struct's own literal fields, `StringBuilder { handle:
