@@ -1,0 +1,8 @@
+struct Handle {
+    ch: Channel<int>
+}
+
+fn main() {
+    val c: Channel<int> = channel_new()
+    print(hash(Handle { ch: c }))
+}

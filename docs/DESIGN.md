@@ -1642,6 +1642,28 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **`Hash` is structural and automatic (external review, roadmap R12,
+  2026-09-23).** `Hash` was limited to the seven scalars, so a `HashMap` could
+  not be keyed by a `Uuid`, an enum or a struct -- a real hole for a backend
+  whose entities are id-keyed. The fix mirrors what `==` already does rather
+  than `Ord`'s naming convention, because equality *is* structural and an order
+  is not: `==` on a struct or enum already compares field by field, so the hash
+  is the same recursion, and `a == b` implies `hash(a) == hash(b)` with no
+  function for anyone to write or forget (Rust makes this opt-in with `derive`;
+  Ziman's `==` is automatic, so an opt-in would be boilerplate a model forgets).
+  **Rule:** a type is hashable when it supports `==` and every leaf is a
+  scalar; arrays are hashable only for scalar elements (the same limit array
+  `==` has), a struct hashes its fields in order, an enum its variant name and
+  then its payload, `Result` its variant and payload, and a type parameter is
+  hashable when bounded by `Hash`. The checker's test recurses exactly like the
+  equality test (with the same depth guard), and the runtime builtin recurses
+  over the same shapes. No `collections` change was needed -- `HashMap` and
+  `HashSet` already required `Eq + Hash`, so `HashMap<Uuid, Patient>` and
+  composite keys just work. **Details:** `-0.0` is normalised to `0.0` before
+  hashing because they compare equal; a `NaN` key is never found (NaN != NaN),
+  which is documented rather than forbidden since bare `float` keys were
+  already allowed. **Cost:** hashing a struct or array is proportional to its
+  size on every lookup.
 - **`Ord`, `compare` and a generic `sort` (external review, roadmap R11,
   2026-09-23).** Sorting was not merely missing from the standard library but
   *inexpressible*: with no function values there is no comparator, and with

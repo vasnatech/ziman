@@ -1,0 +1,7 @@
+struct P {
+    a: int
+}
+
+fn main() {
+    print(hash([P { a: 1 }]))
+}

@@ -1,0 +1,57 @@
+use collections
+use uuid
+
+struct Key {
+    patient: uuid.Uuid
+    year: int
+}
+
+enum Rank {
+    Low
+    Mid(int)
+    High(string)
+}
+
+struct Wrap {
+    r: Option<int>
+    tags: [string]
+}
+
+fn main() {
+    val a = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000001"))
+    val b = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000002"))
+    val a2 = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000001"))
+    print(hash(a) == hash(a2))
+    print(hash(a) == hash(b))
+
+    var m = collections.hashmap_new<uuid.Uuid, string>()
+    m = collections.hashmap_set<uuid.Uuid, string>(m, a, "ada")
+    m = collections.hashmap_set<uuid.Uuid, string>(m, b, "bob")
+    print(collections.hashmap_get<uuid.Uuid, string>(m, a2))
+    print(collections.hashmap_size<uuid.Uuid, string>(m))
+
+    var by_rank = collections.hashmap_new<Rank, int>()
+    by_rank = collections.hashmap_set<Rank, int>(by_rank, Rank.Low, 1)
+    by_rank = collections.hashmap_set<Rank, int>(by_rank, Rank.Mid(5), 2)
+    by_rank = collections.hashmap_set<Rank, int>(by_rank, Rank.High("x"), 3)
+    print(collections.hashmap_get<Rank, int>(by_rank, Rank.Mid(5)))
+    print(collections.hashmap_get<Rank, int>(by_rank, Rank.Mid(6)))
+    print(collections.hashmap_get<Rank, int>(by_rank, Rank.High("x")))
+
+    var s = collections.hashset_new<Key>()
+    s = collections.hashset_add<Key>(s, Key { patient: a, year: 2024 })
+    s = collections.hashset_add<Key>(s, Key { patient: a2, year: 2024 })
+    s = collections.hashset_add<Key>(s, Key { patient: a, year: 2025 })
+    print(collections.hashset_size<Key>(s))
+    print(collections.hashset_contains<Key>(s, Key { patient: a2, year: 2025 }))
+    print(collections.hashset_contains<Key>(s, Key { patient: b, year: 2025 }))
+
+    print(hash(Option<int>.Some(3)) == hash(Option<int>.Some(3)))
+    print(hash([1, 2, 3]) == hash([1, 2, 3]))
+    print(hash([1, 2, 3]) == hash([3, 2, 1]))
+    print(hash(0.0) == hash(-0.0))
+    val r1: Result<int, string> = 1
+    val r2: Result<int, string> = 1
+    print(hash(r1) == hash(r2))
+    print(hash(Wrap { r: Option<int>.None, tags: ["a"] }) == hash(Wrap { r: Option<int>.None, tags: ["a"] }))
+}

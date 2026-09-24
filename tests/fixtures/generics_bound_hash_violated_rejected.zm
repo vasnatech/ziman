@@ -1,10 +1,11 @@
-struct Point {
-    x: int
-    y: int
+struct Handle {
+    id: int
+    ch: Channel<int>
 }
-struct Box<T: Eq + Hash> {
+struct Box<T: Hash> {
     value: T
 }
 fn main() {
-    val b = Box<Point> { value: Point { x: 1, y: 2 } }
+    val c: Channel<int> = channel_new()
+    val b = Box<Handle> { value: Handle { id: 1, ch: c } }
 }

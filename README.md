@@ -67,7 +67,8 @@ at every use site — `Box<int>{ value: 5 }`, `identity<string>(x)` — and
 no inference, since `Value` is runtime-type-erased and nothing is ever
 monomorphized. A type parameter can be bounded with `Eq`, `Hash` and/or `Ord`
 (`<K: Eq + Hash>`) to use `==`/`hash()`/`compare()` on it inside a generic
-body (`collections.sort<T: Ord>` is a stable merge sort, and
+body (`hash` is structural, so a `Uuid`, an enum or a struct of hashable
+fields works as a `HashMap` key) (`collections.sort<T: Ord>` is a stable merge sort, and
 `#[derive(Ord)]` writes a struct's or enum's order); these are the only
 three bounds Ziman has — there's no general
 trait/interface system (see docs/DESIGN.md's Generics entry for why,
@@ -103,9 +104,9 @@ inverse (accepting either case, the form any real caller getting a
 UUID back as a string — a JSON field, a URL path segment — actually
 has to parse), version/variant bits set with plain
 integer arithmetic rather than bitwise operators (Ziman has none).
-`Uuid` satisfies `Eq` but not `Hash` (no derived hashing for a struct),
-so it's usable as a struct field compared with `==`, not yet as a
-`HashMap` key. `clock` is one more native function, `now_raw() ->
+`Uuid` satisfies `Eq`, `Hash` (a structural hash, like `==`) and `Ord`
+(`uuid_compare`), so it works as a struct field, a `HashMap` key and in
+`collections.sort`. `clock` is one more native function, `now_raw() ->
 [int]`, reading the system clock — Ziman's other source of genuine
 non-determinism. `time` is pure Ziman on top of it: seven `java.time`-
 shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`,

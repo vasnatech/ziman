@@ -251,7 +251,7 @@ against)**
   "comparable" bound. The nine hand-written `_compare` functions across
   `byte`/`uuid`/`time` are the symptom. `Eq` and `Hash` already prove the
   bound mechanism.
-- [ ] **R12. Widen `Hash`.** Map keys are limited to the seven scalars, so
+- [x] **R12. Widen `Hash`.** *Done 2026-09-23: structural and automatic (any `==`-comparable type with hashable leaves); `Uuid`, enums, structs, `Option`, `Result` are usable keys.* Map keys are limited to the seven scalars, so
   nothing can be indexed by `Uuid`, an enum, or a struct -- a real hole for
   an entity-id-keyed backend. Derive `Hash`/`Eq` for structs and enums
   whose fields are hashable.

@@ -214,7 +214,7 @@ static Value call_contains(Value first, Value second) {
  * a cryptographic hash, and not stable across a future language version
  * bumping this function's internals -- only ever used within a single
  * program run, never persisted. */
-static Value call_hash(Value v) {
+static uint64_t hash_raw(Value v) {
     uint64_t h;
     switch (v.type.kind) {
         case TY_INT:
@@ -226,9 +226,49 @@ static Value call_hash(Value v) {
         case TY_BYTE:
             h = (uint64_t)v.as.by;
             break;
-        case TY_FLOAT:
-            memcpy(&h, &v.as.f, sizeof(h));
+        case TY_FLOAT: {
+            /* -0.0 == 0.0, so they must hash alike. */
+            double f = v.as.f == 0.0 ? 0.0 : v.as.f;
+            memcpy(&h, &f, sizeof(h));
             break;
+        }
+        case TY_ARRAY: {
+            h = 1469598103934665603ULL ^ (uint64_t)v.as.arr->count;
+            for (int i = 0; i < v.as.arr->count; i++) {
+                h ^= hash_raw(v.as.arr->items[i]);
+                h *= 1099511628211ULL;
+            }
+            break;
+        }
+        case TY_STRUCT: {
+            /* Field by field in declaration order: the same shape `==` compares. */
+            h = 1469598103934665603ULL ^ (uint64_t)v.as.st->count;
+            for (int i = 0; i < v.as.st->count; i++) {
+                h ^= hash_raw(v.as.st->fields[i]);
+                h *= 1099511628211ULL;
+            }
+            break;
+        }
+        case TY_RESULT:
+            h = 1469598103934665603ULL ^ (uint64_t)(v.as.res->is_ok ? 1 : 2);
+            h ^= hash_raw(v.as.res->value);
+            h *= 1099511628211ULL;
+            break;
+        case TY_ENUM: {
+            /* The variant name, then the payload if there is one -- the same
+             * two things `==` compares. */
+            const char *name = v.as.en->variant_name;
+            h = 1469598103934665603ULL;
+            for (const unsigned char *s = (const unsigned char *)name; *s; s++) {
+                h ^= *s;
+                h *= 1099511628211ULL;
+            }
+            if (v.as.en->has_payload) {
+                h ^= hash_raw(v.as.en->payload);
+                h *= 1099511628211ULL;
+            }
+            break;
+        }
         case TY_BIGINT: {
             /* FNV-1a folded over the sign and the normalized (trimmed)
              * digit array -- since two equal BigNums always have an
@@ -260,7 +300,7 @@ static Value call_hash(Value v) {
             }
             break;
         }
-        default: { /* TY_STRING -- the only other case type_supports_hashing allows */
+        default: { /* TY_STRING -- the only other hashable kind */
             const unsigned char *s = (const unsigned char *)v.as.str.ptr;
             h = 1469598103934665603ULL; /* FNV-1a 64-bit offset basis */
             for (uint32_t k = 0; k < v.as.str.len; k++) {
@@ -270,7 +310,13 @@ static Value call_hash(Value v) {
             break;
         }
     }
-    return value_int((int64_t)(h & 0x7FFFFFFFFFFFFFFFULL));
+    return h;
+}
+
+static Value call_hash(Value v) {
+    /* Sign bit cleared so the result is always non-negative, safe to use directly
+     * with '%' for bucket indexing. */
+    return value_int((int64_t)(hash_raw(v) & 0x7FFFFFFFFFFFFFFFULL));
 }
 
 /* Three-way comparison behind `compare` and `sort`: negative, zero or

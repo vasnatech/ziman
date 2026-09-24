@@ -1,1 +1,1 @@
-type argument Point does not satisfy bound 'Hash' required by type parameter 'T'
+type argument Handle does not satisfy bound 'Hash' required by type parameter 'T'

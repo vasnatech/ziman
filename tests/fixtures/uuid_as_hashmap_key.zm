@@ -1,0 +1,9 @@
+use uuid
+use collections
+
+fn main() {
+    val id = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000007"))
+    var m: collections.HashMap<uuid.Uuid, string> = collections.hashmap_new<uuid.Uuid, string>()
+    m = collections.hashmap_set<uuid.Uuid, string>(m, id, "seven")
+    print(collections.hashmap_get<uuid.Uuid, string>(m, unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000007"))))
+}

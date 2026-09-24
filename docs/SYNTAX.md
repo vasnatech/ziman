@@ -866,7 +866,8 @@ fn main() {
   stored and passed around, nothing else; there's no trait/interface
   system to express "T must support X." The three exceptions are hardcoded
   bounds, `Eq` (meaning "supports `==`"), `Hash` (meaning "supports
-  `hash`" — see "Builtins" below) and `Ord` (meaning "supports `compare`",
+  `hash`" -- a structural hash of any `==`-comparable type; see "Builtins"
+  below) and `Ord` (meaning "supports `compare`",
   see "Ordering" below), combinable with `+`
   (`struct Map<K: Eq + Hash, V> { ... }`). Enforced at every
   instantiation (`Map<Channel<int>, string>` is a compile-time error,
@@ -2446,9 +2447,16 @@ a type error.
   means anything); `T` is any type with a
   total order (see "Ordering" below). The way to order a struct or enum;
   `<`, `>`, `<=`, `>=` are for numbers, strings and bytes only.
-- `hash(x: T) -> int` — a hash of `x`; `T` is `int`, `float`, `bool`,
-  `string`, `bigint`, `decimal`, `byte`, or a type parameter bounded by
-  `Hash` (see "Generics" above). Not cryptographic and not stable across
+- `hash(x: T) -> int` — a hash of `x`. **`T` is any type that supports `==`
+  and has only hashable parts**: `int`, `float`, `bool`, `string`, `bigint`,
+  `decimal`, `byte`; an array of those; a struct, enum, `Option` or `Result`
+  built from hashable types (so `Uuid`, a `(patient, year)` struct or a
+  `Rank` enum all work); or a type parameter bounded by `Hash` (see
+  "Generics" above). The hash is structural -- the same shape `==` compares
+  -- so `a == b` implies `hash(a) == hash(b)` with no function to write; a
+  channel, or anything `==` rejects, is not hashable. `-0.0` and `0.0` hash
+  alike (they are equal); a `NaN` key is never found, since it does not equal
+  itself. Not cryptographic and not stable across
   a future language version, so never persist a hash — only use it
   within a single program run (e.g. `collections.HashMap<K, V>`'s bucket
   index).

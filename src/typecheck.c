@@ -175,17 +175,45 @@ static int type_supports_equality(Module *module, Type t, int depth) {
     }
 }
 
-/* Whether `t` supports the `hash` builtin -- scalars only (matching the
- * "no derived equality/hashing for an arbitrary struct" pattern
- * `type_supports_equality` and array `==` already follow), plus the same
- * TY_TYPEVAR bound-lookup `type_supports_equality` uses, checking the
- * `Hash` bit instead of `Eq`. Needed for `Map<K, V>`'s `get`/`set` to be
- * O(1) (bucket index = hash(key) % bucket count) instead of a linear
- * `Eq`-only scan -- see ROADMAP.md's "Collections module" entry. */
-static int type_supports_hashing(Type t) {
+/* Whether `t` supports the `hash` builtin, and so the `Hash` bound: exactly the
+ * types that support `==` (see type_supports_equality) whose leaves are
+ * hashable -- the scalars, arrays of scalars, structs and enums whose
+ * fields/payloads are hashable, Option and Result (an enum and a builtin)
+ * of hashable types, and a type parameter bounded by `Hash`. The hash is
+ * structural, the same shape as `==`, so `a == b` implies `hash(a) ==
+ * hash(b)` with no user function needed (unlike an order, which is not
+ * structural and needs `<type>_compare`). Channels, and anything `==` rejects,
+ * are not hashable. Needed for `HashMap<K, V>`'s bucket index -- see the
+ * `collections` module. */
+static int type_supports_hashing(Module *module, Type t, int depth) {
+    if (depth > 64) return 0;
     switch (t.kind) {
         case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE:
             return 1;
+        case TY_ARRAY:
+            return is_scalar_kind(t.elem->kind);
+        case TY_STRUCT: {
+            StructDecl *decl = find_struct(module, t.struct_name);
+            if (decl == NULL) return 0;
+            for (int i = 0; i < decl->fields.count; i++) {
+                Type field_type = substitute_type(decl->fields.items[i].type, &decl->type_params, &t.type_args);
+                if (!type_supports_hashing(module, field_type, depth + 1)) return 0;
+            }
+            return 1;
+        }
+        case TY_RESULT:
+            return type_supports_hashing(module, *t.elem, depth + 1) && type_supports_hashing(module, *t.elem_err, depth + 1);
+        case TY_ENUM: {
+            EnumDecl *decl = find_enum(module, t.enum_name);
+            if (decl == NULL) return 0;
+            for (int i = 0; i < decl->variants.count; i++) {
+                EnumVariant *v = &decl->variants.items[i];
+                if (!v->has_payload) continue;
+                Type payload_type = substitute_type(v->payload_type, &decl->type_params, &t.type_args);
+                if (!type_supports_hashing(module, payload_type, depth + 1)) return 0;
+            }
+            return 1;
+        }
         case TY_TYPEVAR:
             if (current_decl_type_params != NULL) {
                 for (int i = 0; i < current_decl_type_params->count; i++) {
@@ -272,9 +300,9 @@ static void check_type_args_satisfy_bounds(Module *module, TypeParamList *params
                         "or a struct/enum with a '<type>_compare(a, b) -> int' function -- '#[derive(Ord)]' writes one)",
                         type_name(args->items[i]), params->items[i].name);
         }
-        if ((bound & BOUND_HASH) && !type_supports_hashing(args->items[i])) {
+        if ((bound & BOUND_HASH) && !type_supports_hashing(module, args->items[i], 0)) {
             ziman_error("type", line, col,
-                        "type argument %s does not satisfy bound 'Hash' required by type parameter '%s' (it must support 'hash')",
+                        "type argument %s does not satisfy bound 'Hash' required by type parameter '%s' (it must support '==' and have only hashable parts)",
                         type_name(args->items[i]), params->items[i].name);
         }
     }
@@ -796,9 +824,10 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
-        if (!type_supports_hashing(arg_type)) {
+        if (!type_supports_hashing(module, arg_type, 0)) {
             ziman_error("type", arg->line, arg->col,
-                        "'hash' expects int, float, bool, string, bigint, decimal, byte, or a type parameter bounded by 'Hash', found %s",
+                        "'hash' expects a type that supports '==' with hashable parts (int, float, bool, string, bigint, decimal, byte, arrays of those, "
+                        "structs/enums/Option/Result made of them) or a type parameter bounded by 'Hash', found %s",
                         type_name(arg_type));
         }
         return type_scalar(TY_INT);
