@@ -7,6 +7,23 @@
 
 native fn getenv_raw(name: string) -> Result<string, string>
 
+// Leaves the process with `code` (0 = success), flushing stdout and stderr
+// first. The way a program reports a fatal setup error with a non-zero status
+// instead of crashing on an `unwrap`. Not a way to end one thread.
+pub native fn exit(code: int)
+
+// Text on stderr, unbuffered, with no newline added -- for messages that must
+// not mix into the program's normal output.
+pub native fn write_stderr(text: string)
+
+// Graceful shutdown. After `install_shutdown_handler()`, SIGINT (Ctrl-C) and
+// SIGTERM no longer kill the process: they make `shutdown_requested()` true,
+// and `net.accept` returns an error within about a quarter of a second so an
+// accept loop can notice, stop taking connections and drain. Without it the
+// signals behave as usual.
+pub native fn install_shutdown_handler()
+pub native fn shutdown_requested() -> bool
+
 // The value of the environment variable `name`, or None if it isn't set.
 // A variable that is set but empty is Some("") -- not the same as unset.
 pub fn getenv(name: string) -> Option<string> {

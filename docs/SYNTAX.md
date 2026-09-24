@@ -1914,6 +1914,28 @@ only when a real consumer needs more.
 (`Some("")` for set-but-empty, `None` for unset). The `properties` module
 builds Spring-Boot-style configuration on it.
 
+The rest of `os` is what a long-running program needs to end cleanly:
+`os.exit(code)` flushes stdout and stderr and leaves with that status (how a
+fatal setup error becomes exit 1 instead of a crash on an `unwrap`);
+`os.write_stderr(text)` writes to stderr with no newline added;
+`os.install_shutdown_handler()` makes SIGINT/SIGTERM set a flag instead of
+killing the process, `os.shutdown_requested() -> bool` reads it, and
+`net.accept` returns an error within about a quarter of a second of the
+signal so an accept loop can notice, stop taking connections, let the
+connections in flight finish and exit normally:
+
+```
+os.install_shutdown_handler()
+while !os.shutdown_requested() {
+    val client = net.accept(listener)
+    if is_ok(client) { ... }
+}
+```
+
+The signal can arrive on any thread, so nothing blocked in a call other than
+`accept` notices it; a program that needs to stop other blocking work has to
+arrange that itself (for example with a timeout on the socket).
+
 ```
 use properties
 

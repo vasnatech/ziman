@@ -368,6 +368,14 @@ pub fn format_byte(x: byte, fmt: NumberFormat) -> string
 ## `os`
 
 ```
+pub native fn exit(code: int)
+
+pub native fn write_stderr(text: string)
+
+pub native fn install_shutdown_handler()
+
+pub native fn shutdown_requested() -> bool
+
 pub fn getenv(name: string) -> Option<string>
 
 ```

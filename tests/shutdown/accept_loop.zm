@@ -1,0 +1,16 @@
+use net
+use os
+
+// Accepts until SIGINT/SIGTERM, then says so and leaves normally.
+fn main() {
+    os.install_shutdown_handler()
+    val listener = unwrap(net.listen("127.0.0.1", 0))
+    print("listening")
+    while !os.shutdown_requested() {
+        val client = net.accept(listener)
+        if is_ok(client) {
+            net.close(unwrap(client))
+        }
+    }
+    print("drained")
+}

@@ -1,0 +1,7 @@
+use os
+
+fn main() {
+    print("printed before a clean exit")
+    os.exit(0)
+    print("never printed")
+}

@@ -236,7 +236,7 @@ against)**
   currently what makes cross-thread `Value` sharing lock-free, so this is
   one project with the ownership design, not two. See the corrections
   added inline to the two entries below.
-- [ ] **R10. Server hygiene in the sample backend.** Cap concurrency
+- [x] **R10. Server hygiene in the sample backend.** *Done 2026-09-23: `os.exit`/`write_stderr`/shutdown handler, `server.max-connections`, graceful drain; bounded channels (backpressure) are still open.* Cap concurrency
   (`server.zm` spawns an unbounded thread per connection -- a DoS
   primitive on its own), and fix the config path that prints a friendly
   error and then crashes on `unwrap` anyway. Add a native `exit(code)`;

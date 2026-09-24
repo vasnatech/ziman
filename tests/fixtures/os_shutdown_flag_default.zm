@@ -1,0 +1,7 @@
+use os
+
+fn main() {
+    print(os.shutdown_requested())
+    os.install_shutdown_handler()
+    print(os.shutdown_requested())
+}

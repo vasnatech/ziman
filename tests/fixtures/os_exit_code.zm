@@ -1,0 +1,8 @@
+use os
+
+fn main() {
+    os.write_stderr("fatal: cannot continue\n")
+    print("before exit")
+    os.exit(3)
+    print("never printed")
+}

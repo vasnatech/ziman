@@ -102,6 +102,15 @@ for dir in tests/fixtures/*/; do
     fi
 done
 
+# Real-signal tests (a fixture can't signal its own process).
+while IFS= read -r line; do
+    echo "$line"
+    case "$line" in
+        PASS*) pass=$((pass + 1)) ;;
+        FAIL*) fail=$((fail + 1)) ;;
+    esac
+done < <(BIN="$BIN" tests/run_shutdown_test.sh 2>&1)
+
 echo "----"
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -7,6 +7,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -19,6 +20,7 @@
 
 #include "error.h"
 #include "native.h"
+#include "native_os.h"
 
 /* Blocking TCP behind lib/core/net.zm. A connection or listener is an int
  * handle into a table of file descriptors (same pattern as StringBuilder
@@ -267,6 +269,15 @@ static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
     Type int_type = type_scalar(TY_INT);
     int fd = require_fd(args[0].as.i, "accept", line, col);
     int c;
+    /* Wait in short slices so a shutdown request (a signal can land on any
+     * thread) is noticed instead of blocking in accept forever. */
+    for (;;) {
+        if (ziman_shutdown_requested()) return errno_result(int_type, EINTR);
+        struct pollfd pfd = {fd, POLLIN, 0};
+        int ready = poll(&pfd, 1, 250);
+        if (ready < 0 && errno != EINTR) return errno_result(int_type, errno);
+        if (ready > 0) break;
+    }
     do { c = accept(fd, NULL, NULL); } while (c < 0 && errno == EINTR);
     if (c < 0) return errno_result(int_type, errno);
     return ok_result(int_type, value_int(handle_register(c)));

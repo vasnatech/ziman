@@ -1642,6 +1642,34 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **Server hygiene: exit status, bounded concurrency, graceful shutdown
+  (external review, roadmap R10, 2026-09-23).** The showcase server had four
+  problems a real deployment hits at once: the configuration-error path printed
+  a message and then crashed on an `unwrap` anyway (Ziman had no way to say
+  "stop here" with a status); it spawned one thread per connection without
+  limit, a denial-of-service primitive on its own; Ctrl-C killed it mid-request;
+  and a startup failure looked like a stack of runtime noise. **Language
+  additions, all in `os`:** `exit(code)`, `write_stderr(text)`,
+  `install_shutdown_handler()` and `shutdown_requested()` -- SIGINT/SIGTERM set
+  an atomic flag, nothing more. `net.accept` now waits in 250 ms `poll` slices
+  and returns an error once the flag is set. That is deliberate: a signal is
+  delivered to an arbitrary thread, so relying on `EINTR` in the thread that
+  happens to be blocked in `accept` would be a race; polling a flag is not.
+  **No new concurrency primitive:** the connection limit is a channel used as a
+  counting semaphore -- it starts with one token per allowed connection, the
+  accept loop takes one before spawning, and the connection thread gives it back
+  with a `defer` on every way out -- so at most that many threads ever exist,
+  and a client past the limit is accepted by the kernel and waits. Shutdown
+  stops accepting, then takes every token back, which is exactly "all connections
+  finished", and only then closes the pool. `server.max-connections` (default
+  64) is validated at startup. **Limits, stated:** shutdown waits for in-flight
+  connections, so an idle keep-alive client delays it by up to
+  `server.idle-timeout-ms`; waiting for a slot cannot itself be interrupted by a
+  signal (it ends when a connection finishes); and this is a bounded thread per
+  connection, not a worker pool -- the threads are still created and destroyed
+  per connection. Still open from the review's list: `send` never blocks and
+  channel queues are unbounded (no backpressure primitive yet), and the pending
+  queue behind a full server is the kernel's, not ours.
 - **Memory reclamation: a tracing collector, opt-in as `make gc`
   (external review, roadmap R9, 2026-09-23).** The default build never frees
   a heap value, and the review measured the sample backend's server reaching
