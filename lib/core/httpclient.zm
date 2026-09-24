@@ -30,7 +30,6 @@ use net.net_error_message
 use bytes.string_to_bytes
 use bytes.bytes_to_string
 use bytes.bytes_concat
-use bytes.bytes_slice
 use number.int_from_hex
 use http.Header
 use http.Response
@@ -237,7 +236,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
             buf = step1
             eol = find_from(buf, 13b, 10b, 0)
         }
-        val line = text_of(bytes_slice(buf, 0, eol))?
+        val line = text_of(slice<byte>(buf, 0, eol))?
         val size_text = trim(split(line, ";")[0])
         val size_parsed = int_from_hex(size_text)
         if !is_ok(size_parsed) || unwrap(size_parsed) < 0 {
@@ -250,13 +249,13 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
         if len(body) + size > max_body_bytes {
             return err(ClientError.TooLarge)
         }
-        buf = bytes_slice(buf, eol + 2, len(buf))
+        buf = slice<byte>(buf, eol + 2, len(buf))
         while len(buf) < size + 2 {
             val step2 = more(sock, buf)?
             buf = step2
         }
-        body = bytes_concat(body, bytes_slice(buf, 0, size))
-        buf = bytes_slice(buf, size + 2, len(buf))
+        body = bytes_concat(body, slice<byte>(buf, 0, size))
+        buf = slice<byte>(buf, size + 2, len(buf))
     }
     return body
 }
@@ -295,7 +294,7 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
         buf = step3
         head_end = find_head_end(buf)
     }
-    val head = text_of(bytes_slice(buf, 0, head_end - 4))?
+    val head = text_of(slice<byte>(buf, 0, head_end - 4))?
     val lines = split(head, "\r\n")
     val status_parts = split(lines[0], " ")
     if len(status_parts) < 2 || !starts_with(status_parts[0], "HTTP/1.") {
@@ -317,7 +316,7 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
         i = i + 1
     }
     val header_list = ab_to_array<Header>(headers)
-    val rest = bytes_slice(buf, head_end, len(buf))
+    val rest = slice<byte>(buf, head_end, len(buf))
 
     val no_body = head_only || status < 200 || status == 204 || status == 304
     if no_body {
@@ -342,7 +341,7 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
                 val tail = lift<[byte]>(net.read_exact(sock, unwrap(n) - len(rest)))?
                 body_bytes = bytes_concat(rest, tail)
             } else {
-                body_bytes = bytes_slice(rest, 0, unwrap(n))
+                body_bytes = slice<byte>(rest, 0, unwrap(n))
             }
         } else {
             val step5 = read_to_close(sock, rest)?

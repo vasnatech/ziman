@@ -246,14 +246,15 @@ against)**
 - [ ] **R23. A packed `[byte]` representation.** (Not from the review.)
   Every element of a `[byte]` -- and of an `ArrayBuilder<byte>` -- is a full
   interpreter `Value` (16 bytes or more), so a 1 KB buffer costs ~16 KB and
-  every `net.read`, `bytes_concat`, `bytes_slice` and `crypto` call copies
+  every `net.read`, `bytes_concat` and `crypto` call copies
   and boxes accordingly. `sb_append_byte` (done) spares text assembly the
   detour, but binary code (the Postgres/MySQL drivers, `httpclient`, TLS
   reads) still pays. Fix: give byte arrays a packed `uint8_t` backing store
   (a separate `ArrayObj` kind, or a tagged variant) that indexing, `for`,
   slicing, `==` and the natives understand. Touches the interpreter's array
   code and every native taking `[byte]`; do it together with the
-  memory/performance work, with a benchmark first.
+  memory/performance work, with a benchmark first. (Zero-copy `slice<T>`
+  exists now for the boxed representation; a packed layout should keep views.)
 
 **D. Language expressiveness**
 

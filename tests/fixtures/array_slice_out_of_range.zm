@@ -1,0 +1,4 @@
+fn main() {
+    val a = [1, 2, 3]
+    print(slice<int>(a, 2, 5))
+}

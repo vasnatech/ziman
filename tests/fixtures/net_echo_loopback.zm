@@ -37,7 +37,7 @@ fn main() {
     print(got == sent)
     print(bytes.u32_from_bytes(got, 3))
     print(bytes.u16_from_bytes(got, 7))
-    print(len(bytes.bytes_slice(got, 3, 7)))
+    print(len(slice<byte>(got, 3, 7)))
     print(unwrap(bytes.bytes_to_string(bytes.string_to_bytes("round trip"))))
     print(is_ok(bytes.bytes_to_string([65b, 0b])))
     // a large-ish message arrives whole via read_exact even if TCP splits it

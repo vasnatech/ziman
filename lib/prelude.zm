@@ -180,6 +180,12 @@ struct ArrayBuilder<T> {
 // or `concat_arrays<int>(parts: arrays)`. The array counterpart of `join`
 // (`concat` is the two-string function).
 native fn concat_arrays<T>(parts: [T]...) -> [T]
+// slice<T>(a, start, end): the elements of `a` from `start` up to (not
+// including) `end` (`0 <= start <= end <= len(a)`, a runtime error
+// otherwise). It does not copy: arrays are immutable, so the result shares
+// `a`'s storage, like `substring` on a string -- free to make, and it keeps
+// the whole of `a` alive.
+native fn slice<T>(a: [T], start: int, end: int) -> [T]
 native fn ab_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> ArrayBuilder<T>
 // Appends however many pieces the call site writes out individually or
 // hands over as one already-built array -- same variadic shape as

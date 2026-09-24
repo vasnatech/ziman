@@ -1,0 +1,45 @@
+fn tail_of(n: int) -> [int] {
+    val big = ab_new<int>()
+    for i in 0..n {
+        ab_append<int>(big, i)
+    }
+    return slice<int>(ab_to_array<int>(big), n - 3, n)
+}
+
+fn main() {
+    val a = [10, 20, 30, 40, 50]
+    val s = slice<int>(a, 1, 4)
+    print(s)
+    print(len(s))
+    print(s[0] + s[2])
+
+    // a later push on the parent builds a new array; the slice is unchanged
+    val a2 = push(a, 60)
+    print(s)
+    print(slice<int>(a2, 4, 6))
+
+    print(len(slice<int>(a, 2, 2)))
+    print(len(slice<int>(a, 0, 5)))
+    print(slice<int>(s, 1, 3))
+    print(slice<string>(["x", "y", "z"], 0, 2) == ["x", "y"])
+
+    var total = 0
+    for v in slice<int>(a, 3, 5) {
+        total = total + v
+    }
+    print(total)
+
+    // a slice outlives the array it came from (matters under the GC build)
+    val t = tail_of(1000)
+    val junk = ab_new<string>()
+    for i in 0..2000 {
+        ab_append<string>(junk, format("junk {}", i))
+    }
+    print(t)
+
+    // appending a slice to a builder
+    val ab = ab_new<int>()
+    ab_append<int>(ab: ab, pieces: slice<int>(a, 0, 2))
+    ab_append<int>(ab: ab, pieces: slice<int>(a, 4, 5))
+    print(ab_to_array<int>(ab))
+}

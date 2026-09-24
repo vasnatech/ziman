@@ -224,9 +224,7 @@ pub fn hashset_contains<T: Eq + Hash>(s: HashSet<T>, item: T) -> bool {
 pub fn hashset_items<T: Eq + Hash>(s: HashSet<T>) -> [T] {
     val items = ab_new<T>()
     for bucket in s.buckets {
-        for x in bucket {
-            ab_append<T>(items, x)
-        }
+        ab_append<T>(ab: items, pieces: bucket)
     }
     return ab_to_array<T>(items)
 }
@@ -329,14 +327,8 @@ fn merge_sort_indices<K: Ord>(keys: [K], descending: bool) -> [int] {
                     i = i + 1
                 }
             }
-            while i < mid {
-                ab_append<int>(merged, order[i])
-                i = i + 1
-            }
-            while j < hi {
-                ab_append<int>(merged, order[j])
-                j = j + 1
-            }
+            ab_append<int>(ab: merged, pieces: slice<int>(order, i, mid))
+            ab_append<int>(ab: merged, pieces: slice<int>(order, j, hi))
             lo = lo + 2 * width
         }
         order = ab_to_array<int>(merged)
@@ -547,14 +539,8 @@ pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
                     i = i + 1
                 }
             }
-            while i < mid {
-                ab_append<int>(merged, order[i])
-                i = i + 1
-            }
-            while j < hi {
-                ab_append<int>(merged, order[j])
-                j = j + 1
-            }
+            ab_append<int>(ab: merged, pieces: slice<int>(order, i, mid))
+            ab_append<int>(ab: merged, pieces: slice<int>(order, j, hi))
             lo = lo + 2 * width
         }
         order = ab_to_array<int>(merged)

@@ -42,8 +42,6 @@ pub fn u32_from_bytes(b: [byte], offset: int) -> int
 
 pub fn u16_from_bytes(b: [byte], offset: int) -> int
 
-pub fn bytes_slice(b: [byte], start: int, end: int) -> [byte]
-
 ```
 
 ## `clock`

@@ -1907,7 +1907,7 @@ fn main() {
   timeout beyond the OS default.
 - **`bytes`**: `string_to_bytes`/`bytes_to_string` (the latter a `Result`
   -- a string can't hold a 0 byte), `bytes_concat(parts...)`,
-  `bytes_slice(b, start, end)`, and the big-endian `u16_to_bytes`/
+  (sub-ranges are the prelude's zero-copy `slice<byte>(b, start, end)`), and the big-endian `u16_to_bytes`/
   `u32_to_bytes`/`u16_from_bytes`/`u32_from_bytes` network protocols are
   built from.
 - **TLS (client side).** `net.connect_tls(host, port)` is `connect` plus
@@ -2567,6 +2567,12 @@ a type error.
   separator has no well-defined split points. Empty pieces (adjacent
   separators, or a leading/trailing separator) are kept, so `len(result)`
   is always `count(sep in s) + 1`.
+- `slice<T>(a: [T], start: int, end: int) -> [T]` — the elements from
+  `start` up to (not including) `end` (`0 <= start <= end <= len(a)`, a runtime
+  error otherwise). **It does not copy:** arrays are immutable, so the slice
+  shares the original's element storage, like `substring` on a string; it is
+  free to make and keeps the whole original alive. (`push`/`insert`/`set` on
+  either one build a new array, so neither can change under the other.)
 - `concat_arrays<T>(parts: [T]...) -> [T]` — one array from many, in a
   single allocation: `concat_arrays<int>(a, b)` or
   `concat_arrays<int>(parts: arrays)`. (The empty-`[]` literal can't be

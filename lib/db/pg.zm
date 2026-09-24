@@ -53,7 +53,6 @@ use net.net_error_message
 use bytes.string_to_bytes
 use bytes.bytes_to_string
 use bytes.bytes_concat
-use bytes.bytes_slice
 use bytes.u16_to_bytes
 use bytes.u32_to_bytes
 use bytes.u16_from_bytes
@@ -123,7 +122,7 @@ fn cstring(s: string) -> [byte] {
 }
 
 fn text_of(b: [byte], start: int, end: int) -> string {
-    return unwrap(bytes_to_string(bytes_slice(b, start, end)))
+    return unwrap(bytes_to_string(slice<byte>(b, start, end)))
 }
 
 // Index of the 0 byte at or after `start`.
@@ -442,7 +441,7 @@ fn parse_data_row(body: [byte], oids: [int]) -> Result<[SqlValue], DbError> {
         if length == 4294967295 {
             ab_append<SqlValue>(values, SqlValue.Null)
         } else {
-            val v = decode_value(oids[i], bytes_slice(body, pos, pos + length))?
+            val v = decode_value(oids[i], slice<byte>(body, pos, pos + length))?
             ab_append<SqlValue>(values, v)
             pos = pos + length
         }

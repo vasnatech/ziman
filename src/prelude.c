@@ -651,6 +651,21 @@ static Value native_concat_arrays(Value *args, int argc, int line, int col) {
     return value_array(type_scalar(TY_VOID), array_obj_new(items, total));
 }
 
+/* slice<T>(a, start, end): a zero-copy view. Arrays are immutable once built
+ * (see ArrayObj), so the result can share the parent's element storage: a new
+ * header pointing into `a`'s items. The same trade-off as string views: the
+ * slice keeps the whole parent alive. */
+static Value native_slice(Value *args, int argc, int line, int col) {
+    (void)argc;
+    ArrayObj *arr = args[0].as.arr;
+    int64_t start = args[1].as.i, end = args[2].as.i;
+    if (start < 0 || end < start || end > arr->count) {
+        ziman_error("runtime", line, col, "slice: range %lld..%lld is out of bounds for an array of length %d",
+                    (long long)start, (long long)end, arr->count);
+    }
+    return value_array(type_scalar(TY_VOID), array_obj_new(arr->items + start, (int)(end - start)));
+}
+
 static Value native_ab_to_array(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -696,6 +711,7 @@ void prelude_register(void) {
     native_register("to_lower", native_to_lower);
     native_register("join", native_join);
     native_register("concat_arrays", native_concat_arrays);
+    native_register("slice", native_slice);
     native_register("sb_new", native_sb_new);
     native_register("sb_append", native_sb_append);
     native_register("sb_append_byte", native_sb_append_byte);

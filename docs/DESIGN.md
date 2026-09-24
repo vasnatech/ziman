@@ -2942,3 +2942,22 @@ features that address those are the ones the goal most supports: exhaustive
 copy-pasted blocks (R13), `--json` diagnostics (R8) and `--lint` (R17). New
 work should be weighed against that list before adding another
 local-syntax restriction.
+
+## Array slices are views
+
+`slice<T>(a, start, end)` returns a new `ArrayObj` whose `items` points at
+`parent->items + start`. That is sound for the same reason string views are:
+an `ArrayObj` is immutable once built, and `push`/`insert`/`set` always build a
+new one. Costs: a slice keeps its whole parent reachable (the GC build's
+`libgc` is compiled with `ALL_INTERIOR_POINTERS`, so the interior pointer keeps
+the block alive -- the `array_slice` fixture checks a slice outliving its
+parent); and anything that later frees or reallocates an array's `items` would
+need an ownership flag (nothing does today; a `[byte]` packing, ROADMAP R23,
+should design views in from the start). Uses in the library: `bytes_slice`
+(which copied element by element through an `ArrayBuilder`) is gone in favour
+of `slice<byte>`, which also makes the chunked-response and packet-framing
+loops that repeatedly cut a prefix off a buffer O(1) per cut; the merge sort
+appends its leftover runs as slices via `ab_append(ab: ..., pieces: ...)`, and
+`hashset_items` appends each bucket the same way. The other `ArrayBuilder`
+users compute new values (decoders, encoders, `map`/`filter`), which a view
+cannot replace.

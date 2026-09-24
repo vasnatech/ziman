@@ -34,7 +34,6 @@ use net.net_error_message
 use bytes.string_to_bytes
 use bytes.bytes_to_string
 use bytes.bytes_concat
-use bytes.bytes_slice
 use number.byte_from_hex
 use json.Json
 use json.JField
@@ -155,7 +154,7 @@ fn lift<T>(r: Result<T, NetError>) -> Result<T, HttpError> {
 }
 
 fn text_of(b: [byte], start: int, end: int) -> Result<string, HttpError> {
-    val s = bytes_to_string(bytes_slice(b, start, end))
+    val s = bytes_to_string(slice<byte>(b, start, end))
     if !is_ok(s) {
         return err(HttpError.BadRequest("request contains a NUL byte"))
     }
@@ -324,7 +323,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         return err(HttpError.BodyTooLarge)
     }
 
-    var rest = bytes_slice(buf, head_end, len(buf))
+    var rest = slice<byte>(buf, head_end, len(buf))
     if content_length > len(rest) {
         val expect = header_value(header_list, "Expect")
         if Option.is_Some(expect) && equals_ignore_case(Option.unwrap_Some(expect), "100-continue") {
@@ -334,7 +333,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         rest = bytes_concat(rest, more)
     }
     val body = text_of(rest, 0, content_length)?
-    val leftover = bytes_slice(rest, content_length, len(rest))
+    val leftover = slice<byte>(rest, content_length, len(rest))
 
     val request = Request { method: method_parse(method_text), target: target, path: path, query: query, version: version, headers: header_list, body: body }
     return Exchange { request: request, session: Session { sock: sock, buffer: leftover } }

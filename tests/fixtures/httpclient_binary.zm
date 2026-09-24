@@ -18,18 +18,18 @@ fn find_head_end(buf: [byte]) -> int {
 fn handle(s: net.Socket) {
     defer net.close(s)
     unwrap(net.set_timeout(s, 2000))
-    var buf = bytes.bytes_slice([0b], 0, 0)
+    var buf: [byte] = []
     var end = find_head_end(buf)
     while end < 0 {
         buf = bytes.bytes_concat(buf, unwrap(net.read(s, 4096)))
         end = find_head_end(buf)
     }
-    val head = to_lower(unwrap(bytes.bytes_to_string(bytes.bytes_slice(buf, 0, end))))
+    val head = to_lower(unwrap(bytes.bytes_to_string(slice<byte>(buf, 0, end))))
     var want = 0
     if contains(head, "content-length: ") {
         want = unwrap(parse_int(trim(split(split(head, "content-length: ")[1], "\r\n")[0])))
     }
-    var body = bytes.bytes_slice(buf, end, len(buf))
+    var body = slice<byte>(buf, end, len(buf))
     if want > len(body) {
         body = bytes.bytes_concat(body, unwrap(net.read_exact(s, want - len(body))))
     }
