@@ -1,6 +1,8 @@
 ziman
-ziman-gc
+ziman-nogc
 third_party/
+vendor/bdwgc/gc.o
+vendor/bdwgc/libgc.a
 src/*.o
 *.o
 src/*.d

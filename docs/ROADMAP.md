@@ -218,10 +218,10 @@ against)**
 
 - [x] **R9. Rewrite the memory-reclamation plan before implementing
   anything.** *Superseded 2026-09-23: neither plan was built. A tracing
-  collector (Boehm) is available as `make gc` and cut the load test from
-  ~31 GB to ~0.47 GB; still open: making it the default (it is a build-time
-  dependency), pause times, sockets/SQLite handles that are still closed by
-  hand. See DESIGN.md's "Memory reclamation" entry.* Measured: the sample backend's server reached ~31 GB RSS
+  collector (Boehm) cut the load test from ~31 GB to ~0.47 GB, and on
+  2026-09-24 became the default build (vendored, `make nogc` for the old one),
+  with pause times measured; sockets/SQLite handles are still closed by hand.
+  See DESIGN.md's "Memory reclamation" entries.* Measured: the sample backend's server reached ~31 GB RSS
   after ~1,500 requests (about 87 kB leaked per trivial request), so it is
   not merely "a real problem" -- the north-star application cannot stay up.
   And both proposed fixes have a design error: (a) the refcounting entry

@@ -3,38 +3,46 @@ CC := cc
 # undefined behaviour the optimiser may exploit. Ziman's own `int` arithmetic
 # does not rely on it -- it traps on overflow explicitly (see interpreter.c).
 ZIMAN_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-CFLAGS := -std=c11 -O2 -fwrapv -DZIMAN_VERSION='"$(ZIMAN_VERSION)"' -Wall -Wextra -Wpedantic -g -MMD -MP -pthread
+
+# Every allocation of the interpreter goes through the Boehm-Demers-Weiser
+# collector (src/zgc.h is force-included into every source file and redirects
+# malloc/calloc/realloc/strdup to it; `free` becomes a no-op), so a long-running
+# program's memory is reclaimed instead of growing forever. The collector is
+# vendored (vendor/bdwgc, MIT-style license) and built here with the options
+# Ziman needs, so building needs no network and no other tools. `make nogc`
+# builds ./ziman-nogc without it (nothing is ever freed) -- for measuring, or a
+# platform the collector does not support. See docs/DESIGN.md, "Memory reclamation".
+GC_DIR := vendor/bdwgc
+GC_LIB := $(GC_DIR)/libgc.a
+GC_FLAGS := -DZIMAN_GC -DGC_THREADS -include src/zgc.h -I$(GC_DIR)/include -D_GNU_SOURCE
+
+# -fwrapv: signed overflow in the C code itself is well defined (wraps) instead of
+# undefined behaviour the optimiser may exploit. Ziman's own `int` arithmetic
+# does not rely on it -- it traps on overflow explicitly (see interpreter.c).
+PLAIN_CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -g -pthread
+CFLAGS := $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)"' $(GC_FLAGS) -MMD -MP
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-gc gc test-pg test-mysql test-tls test-bignum test-decimal corelib-reference
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-bignum test-decimal corelib-reference
 
 all: $(BIN)
 
-# `make gc` builds ./ziman-gc: the same interpreter with every allocation routed
-# through the Boehm-Demers-Weiser collector (src/zgc.h, force-included), so a
-# long-running program's memory is reclaimed instead of growing forever. It is a
-# separate binary and a separate build (sources compiled together, no .o files),
-# and the default build needs none of it. See docs/DESIGN.md's memory entry.
-GC_DIR := third_party/bdwgc
-GC_LIB := $(GC_DIR)/libgc.a
-GC_CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -g -pthread -DZIMAN_VERSION='"$(ZIMAN_VERSION)-gc"' -DZIMAN_GC -DGC_THREADS -include src/zgc.h -I$(GC_DIR)/include -D_GNU_SOURCE
+$(GC_LIB): $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/include/*.h $(GC_DIR)/include/*/*.h)
+	$(CC) -O2 -DNDEBUG -I$(GC_DIR)/include -DGC_THREADS -DGC_BUILTIN_ATOMIC -DTHREAD_LOCAL_ALLOC -DPARALLEL_MARK \
+	    -DUSE_MMAP -DALL_INTERIOR_POINTERS -D_GNU_SOURCE -pthread -c $(GC_DIR)/extra/gc.c -o $(GC_DIR)/gc.o
+	rm -f $@
+	ar rcs $@ $(GC_DIR)/gc.o
 
-gc: ziman-gc
+$(BIN): $(OBJ) $(GC_LIB)
+	$(CC) $(CFLAGS) -o $@ $(OBJ) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -pthread
 
-$(GC_LIB): tools/build_bdwgc.sh
-	./tools/build_bdwgc.sh
+nogc: ziman-nogc
 
-ziman-gc: $(GC_LIB) $(SRC) $(CORELIB_HEADERS) src/zgc.h
-	$(CC) $(GC_CFLAGS) -o $@ $(SRC) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -pthread
-
-test-gc: ziman-gc
-	BIN=./ziman-gc ./tests/run_tests.sh
-
-$(BIN): $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ -lm -lsqlite3 -lssl -lcrypto -pthread
+test-nogc: ziman-nogc
+	BIN=./ziman-nogc ./tests/run_tests.sh
 
 # Bundled core modules (see src/corelib.c): each lib/core/<name>.zm file
 # is embedded as a C string constant, generated fresh from its .zm
@@ -60,6 +68,9 @@ vpath %.zm lib lib/core lib/db
 CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 
 $(OBJ): $(CORELIB_HEADERS)
+
+ziman-nogc: $(SRC) $(CORELIB_HEADERS)
+	$(CC) $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-nogc"' -o $@ $(SRC) -lm -lsqlite3 -lssl -lcrypto -pthread
 
 # lib/core/<name>.zm -> src/<name>_source.h, a
 # `#define <NAME>_SOURCE "..."` (module name uppercased). A #define, not
@@ -111,11 +122,11 @@ test-tls: $(BIN)
 # lives outside src/ (which this Makefile wildcards into the ziman
 # binary) and is built/run standalone rather than joining $(OBJ).
 test-bignum: src/bignum.c tests/unit/bignum_test.c
-	$(CC) $(CFLAGS) -o /tmp/ziman_bignum_test src/bignum.c tests/unit/bignum_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_bignum_test src/bignum.c tests/unit/bignum_test.c
 	/tmp/ziman_bignum_test
 
 test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
-	$(CC) $(CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	/tmp/ziman_decimal_test
 
 # docs/CORELIB.md is generated from the lib/core and lib/db modules' own `pub` declarations
@@ -128,4 +139,4 @@ corelib-reference:
 	./tools/gen_corelib_reference.sh > docs/CORELIB.md
 
 clean:
-	rm -f $(BIN) src/*.o src/*.d src/*_source.h
+	rm -f $(BIN) ziman-nogc src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)

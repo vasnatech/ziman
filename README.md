@@ -125,12 +125,16 @@ and exits 1 if there are any; `--fmt file.zm...` prints the source formatted
 (`--fmt --write` rewrites the files, `--fmt --check` lists the ones that would
 change and exits 1); `--version`; `--help`.
 
-`make gc` builds `./ziman-gc`, the same interpreter with a tracing garbage
-collector (Boehm, built from a pinned source tree by `tools/build_bdwgc.sh`
--- needs git and a C compiler), so a long-running program's memory is
-reclaimed instead of growing without bound; `make test-gc` runs the suite
-against it. The default `./ziman` never frees a heap value, which is fine for
-scripts and tests and not for a server.
+The interpreter has a tracing garbage collector (the Boehm-Demers-Weiser
+collector, vendored in `vendor/bdwgc` and built by `make` -- no network, no
+extra tools), so a long-running program's memory is reclaimed: the sample
+backend under a request load stays around 40 MB where it would otherwise grow
+past a gigabyte. Sockets, SQLite connections and TLS sessions are still closed by
+hand. `make nogc` builds `./ziman-nogc` without the collector (about 1.3-2.3x
+faster on allocation-heavy code, and it never frees anything); `make test-nogc`
+runs the suite against it. `tests/bench/server_load.sh` measures memory and
+request latency on the sample backend. The collector's `GC_MARKERS` (default 2
+here) and its other environment variables apply.
 
 ## Testing
 

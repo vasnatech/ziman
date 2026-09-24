@@ -83,6 +83,16 @@ static int run_format(char **files, int n_files, int write, int check) {
 }
 
 int main(int argc, char **argv) {
+#ifdef ZIMAN_GC
+    /* Before the first allocation: the first one initialises the collector with defaults. */
+    /* Two settings measured on the sample backend (tests/bench/server_load.sh):
+     * a 32 MB initial heap avoids the early rounds of collections while the heap
+     * grows, and two marker threads keep marking off most of a many-core machine.
+     * GC_MARKERS (and the collector's other environment variables) still win. */
+    if (getenv("GC_MARKERS") == NULL) GC_set_markers_count(2);
+    GC_INIT();
+    (void)GC_expand_hp(32u * 1024 * 1024);
+#endif
     int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0;
     const char *file = NULL;
     char **files = malloc((size_t)argc * sizeof(char *));
@@ -110,9 +120,6 @@ int main(int argc, char **argv) {
         return 1;
     }
     ziman_set_json_errors(json);
-#ifdef ZIMAN_GC
-    GC_INIT();
-#endif
 
     /* Line-buffered stdout even when redirected to a file or a pipe (C's
      * default there is fully buffered). A long-running program -- a

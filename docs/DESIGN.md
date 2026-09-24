@@ -3272,3 +3272,55 @@ through `\p{...}`.
 
 **Still not done:** `\p{Script=...}` spelling and script extensions, `(?x)`
 verbose mode, case folding beyond ASCII, and `\X`/`\R`.
+
+## The collector is now the default build (R9 follow-up)
+
+**Decision: yes.** `make` builds `./ziman` with the Boehm-Demers-Weiser
+collector; `make nogc` builds the old never-frees `./ziman-nogc` (for measuring,
+or a platform the collector does not support). Reasons: the leak is not a corner
+(the sample backend reached >1 GB in 100 list requests, ~31 GB in the review's
+load test), the collector passes every suite under both builds, and the two
+objections in the earlier entry are gone.
+
+**The dependency objection.** The collector used to be cloned by a script at
+build time. It is now **vendored**: `vendor/bdwgc` holds the ~30 source files
+`extra/gc.c` includes, `include/` and the MIT-style license (1.8 MB, commit
+`2547e33`, refreshed by `tools/vendor_bdwgc.sh`), and the Makefile compiles it
+with the options Ziman needs (`ALL_INTERIOR_POINTERS`, `GC_THREADS`, parallel
+marking). Building needs a C compiler and `ar`, nothing else.
+
+**Measurements** (`tests/bench/server_load.sh`, sample backend, 100 requests per
+phase, in-memory SQLite; 16 cores):
+
+| build | RSS after health / post / list | list p50 / p99 |
+| --- | --- | --- |
+| nogc | 19 / 38 / **1,275 MB** (still growing) | 70 ms / 114 ms |
+| collector, defaults | 20 / 20 / 24 MB | 132 ms / 177 ms |
+| collector, tuned (as shipped) | 42 / 42 / **42 MB** (flat) | 102 ms / 158 ms |
+
+At the same request count with 60 patients, tuned runs were 1.3x the no-collector
+list latency (58 ms vs 44 ms p50, 88 vs 70 ms p99). **Pause times** show up as
+the p99/max: about 90-160 ms worst case here, on requests that allocate hundreds
+of megabytes-worth of garbage; the health and post phases stay under 7 ms max. An
+allocation-heavy micro benchmark (`tests/bench/bytes_bench.zm`) runs 2.3x slower
+(0.47 s vs 0.20 s), the price of `GC_MALLOC` per small object the interpreter
+allocates (a scope, an argument array); the test suite as a whole is within 5%.
+
+**Tuning.** Tried: marker threads 1/2/4, `GC_FREE_SPACE_DIVISOR` 1/2/6, initial
+heap 32/64/128 MB, incremental mode. Incremental mode is 3x slower on the
+micro benchmark; the divisor barely matters; a 32 MB initial heap avoids the
+early collections while the heap grows (fastest per RSS); marker count 2 keeps
+parallel marking from using every core of a large machine (default is one per
+core, which also made the process show 17 threads). Shipped: 32 MB initial heap,
+2 markers, both set in `main` **before the first allocation** (the first
+`GC_MALLOC` initialises the collector with defaults, which is how the marker
+setting was silently ignored at first), with `GC_MARKERS` and the collector's
+other environment variables still taking precedence.
+
+**Consequences.** Threads: the collector's marker threads appear with the first
+spawned thread, so the lifecycle test that bounds the server's thread count takes
+its baseline after a warm-up request. `make test` runs against the collector
+build and `make test-nogc` against the other. **Not done:** memory is not
+returned to the OS; sockets, SQLite connections and TLS sessions are closed by
+hand as before; and conservative scanning can retain garbage that looks like a
+pointer.
