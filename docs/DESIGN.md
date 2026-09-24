@@ -296,7 +296,9 @@ several languages rather than inheriting any one of them wholesale.
   queue in v0 (no backpressure) — a real production concern, not a
   correctness one, deferred until something concretely needs it.
   `spawn name(args)` is a new *statement*, not an ordinary call, because
-  Ziman has no first-class functions: naming the target function directly
+  Ziman had no first-class functions when `spawn` was designed (references to
+  named functions arrived later, ROADMAP R13, and `spawn` now accepts generic
+  targets too): naming the target function directly
   and resolving it statically (exactly like an ordinary call's callee
   already is) sidesteps that gap entirely rather than requiring it. The
   spawned function must return `void` — there's no thread-handle/join
@@ -2737,7 +2739,10 @@ several languages rather than inheriting any one of them wholesale.
   under `SELECT ... FOR UPDATE`).
 
 - **`http`: an HTTP/1.1 server toolkit, and the `\r` string escape.**
-  **A toolkit, because there are no function values.** A framework's
+  **A toolkit, because there were no function values.** (Superseded: with
+  R13's function values `http.serve(listener, ctx, handler, options)` now
+  exists and a route table of handler values is possible; the reasoning below
+  is the original one.) A framework's
   central move is `serve(listener, handler)` -- a library taking your
   code as an argument -- and Ziman can't express that: no closures, no
   first-class functions. So the application owns the two things that need
@@ -2800,12 +2805,13 @@ several languages rather than inheriting any one of them wholesale.
 
 ## Deliberately deferred (not v0)
 
+(Items that used to be listed here and have since shipped: multi-file
+modules and `use` imports, structured `--json` diagnostics, and a lint
+(`--lint`); see ROADMAP.md.)
+
 - Effects visible in function signatures (which functions do I/O or mutate
   outside their own frame) — real value, real design cost, tracked in
   ROADMAP.md.
-- Structured/machine-parseable compiler diagnostics as a first-class output
-  mode (`--json` errors).
-- Modules / imports beyond a single file.
 - A package manager or build system beyond a Makefile.
 
 ## Non-goals

@@ -344,7 +344,7 @@ against)**
 - [x] **R18. Split README.md into sections.** *Done: README.md is now ~900 words (a taste, the language at a glance, a module table, tooling); the old wall of prose lives in docs/FEATURE-NOTES.md under ten headings.* It is ~3,000 words in
   essentially one paragraph, and it is the document most likely to be
   pasted into a model's context as "the language".
-- [ ] **R19. Fix documentation drift.** SYNTAX.md's `Result` section still
+- [x] **R19. Fix documentation drift.** *Done: the three named items, plus a sweep that also fixed the "Eight core modules" paragraph (it claimed `Uuid` had no `Hash`), "no `match`"/"no Ord bound" statements in SYNTAX.md, the time/collections/http comments, and stale "no function values" claims (annotated in DESIGN.md, which is a dated record, rather than rewritten).* SYNTAX.md's `Result` section still
   says "no `enum`, no `match`"; DESIGN.md still lists multi-file modules
   under "deliberately deferred"; the `index_of` entry in SYNTAX.md's
   builtins list is corrupted (starts mid-signature) so the function cannot

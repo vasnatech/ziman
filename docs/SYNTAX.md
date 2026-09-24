@@ -1097,9 +1097,10 @@ fn main() {
   The generated name embeds the variant's exact declared casing
   (`unwrap_Circle`, not `unwrap_circle`) — simpler and unambiguous, since
   no case-folding step is needed to look either up.
-  **There is no `match`/pattern-matching yet** — this predicate-plus-unwrap
-  style is the only way to consume a variant in v0; tracked as a
-  follow-up design pass in ROADMAP.md.
+  To consume a variant, either test-then-unwrap with these accessors or use
+  the exhaustive `switch` statement (see "`switch`"), which the compiler
+  checks covers every variant. There is no `match` *expression* (`switch`
+  is a statement; ROADMAP R21 tracks expression forms).
 - **`==`/`!=` on an enum compares variant, then payload** — two values of
   *different* variants are never equal regardless of payload (an `Ok`-
   shaped mismatch is never accidentally "equal" to a payload-less one);
@@ -1286,48 +1287,31 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. Eight so far: `collections` (`HashMap<K, V>`,
-  `HashSet<T>` — see "Generics" above), `fs`
-  (files, above), `random` (`random_bytes(n: int) ->
-  [byte]`, the one native function reading real OS entropy — no other
-  source of non-determinism exists to build a PRNG on top of), `uuid`
-  (`Uuid`, `uuid_new() -> Uuid`, `uuid_to_string(u: Uuid) -> string` —
-  RFC 4122 v4, written in pure Ziman on top of `random`, version/variant
-  bits set with plain integer arithmetic since Ziman has no bitwise
-  operators), `clock` (`now_raw() -> [int]`, the one native function
-  reading the system clock — `[seconds, nanos]` from a single
-  `clock_gettime` call), `time` (`LocalDate`, `LocalTime`,
-  `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId` — see
-  "Date and time" below), and `json` (a JSON parser/serializer,
-  `parse_json(s: string) -> Result<Json, string>` /
-  `json_to_string(j: Json) -> string` / `json_object_get(j: Json, key:
-  string) -> Option<Json>` — `Json` is a genuinely recursive enum,
-  `JArray([Json])`/`JObject([JField])`, which works today with no new
-  language feature since the recursion goes through an array, not a
-  bare self-reference), and `number` (shared formatting/parsing across
-  `int`/`float`/`bigint`/`decimal`/`byte` — see "Number formatting and
-  parsing" below). Any project can `use` one of these with no
-  local file of its own. Each is still an ordinary, qualified module in
-  every other respect — `use fs`, always `fs.read_text`, never a bare
-  unqualified name the way the prelude's declarations are (though a
-  per-name import, above, can still bind one bare on purpose). The
-  prelude (`lib/prelude.zm`) is a deliberate exception to "every
-  module needs `use`" for exactly this reason: `Option<T>` (and its one
-  helper, `option_unwrap_or`) lives there, not in `collections`, and a
-  handful of native functions (`parse_int`, `concat`, `split`, ...) live
-  there too — merged bare into every program the same way the entry
-  file's own top-level names are, and, unlike the eight modules above,
-  never reachable through `use` at all (see docs/DESIGN.md's "Prelude"
-  entry). `Uuid`
-  satisfies `Eq` (structural `==` on its `[byte]` field) but not `Hash`
-  (hashing has no derived form for a struct), so it works as a struct
-  field compared with `==` but not yet as a `HashMap` key. `Json`
-  satisfies neither — array `==`/`!=` requires a *scalar* element type
-  (see "Arrays" above), and `[Json]`'s element (`Json` itself) isn't
-  one. See docs/CORELIB.md for a generated, signature-only listing of
-  every `pub struct`/`pub fn` these eight modules export — a quick
-  lookup, not
-  a replacement for the explanations here.
+  name exists. There are 22 (docs/CORELIB.md lists every `pub` signature;
+  README.md has a table): `collections` (`HashMap<K, V>`, `HashSet<T>`,
+  sorting and `map`/`filter`/`fold` -- see "Generics" and "Ordering"), `fs`,
+  `os`, `clock` (`now_raw() -> [int]`, the one native function reading the
+  system clock) and `random` (`random_bytes(n)`, the one native function
+  reading OS entropy), `uuid` (`Uuid`, RFC 4122 v4, pure Ziman on top of
+  `random`), `time` (see "Date and time"), `number` (see "Number formatting
+  and parsing"), `bytes`, `crypto`, `json` (a parser/serializer whose `Json`
+  is a genuinely recursive enum, `JArray([Json])`/`JObject([JField])`, plus
+  what `#[derive(Json)]` needs), `properties` and `log`, `net`, `http` and
+  `httpclient`, and the database layer `sql`, `db`, `sqlite`, `pg`, `mysql`
+  and `dburl`. Any project can `use` one of these with no local file of its
+  own. Each is still an ordinary, qualified module in every other respect --
+  `use fs`, always `fs.read_text`, never a bare unqualified name the way the
+  prelude's declarations are (though a per-name import, above, can still
+  bind one bare on purpose). The prelude (`lib/prelude.zm`) is a deliberate
+  exception to "every module needs `use`": `Option<T>` (and its helper
+  `option_unwrap_or`), the builders, and a set of native functions
+  (`parse_int`, `concat`, `split`, ...) live there, merged bare into every
+  program the same way the entry file's own top-level names are, and never
+  reachable through `use` (see docs/DESIGN.md's "Prelude" entry). `Uuid`
+  satisfies `Eq`, `Hash` and `Ord`, so it works as a struct field, a
+  `HashMap` key and in `collections.sort`. `Json` satisfies none of them:
+  array `==`/`!=` requires a *scalar* element type (see "Arrays" above),
+  and `[Json]`'s element isn't one.
 
 ### Naming conventions for module functions
 
@@ -1537,10 +1521,12 @@ fn main() {
   `zoneid_to_string`/`zoneid_from_string` (the latter just validates its
   argument is exactly `"UTC"` — a formality given there's only one
   legal value, included anyway so every type here has the same pair).
-- **No `<`/`>` on any of these seven types.** Ziman has no Ord/Cmp
-  bound, and this wasn't the forcing case to build one. Every type
-  instead gets a `_compare(a, b) -> int` function (negative/zero/
-  positive, the same convention as C's `strcmp`/`qsort` comparator).
+- **No `<`/`>` operators on any of these seven types.** Ordering goes
+  through `compare` and the `Ord` bound instead (see "Ordering"): every type
+  has a `_compare(a, b) -> int` function (negative/zero/positive, the same
+  convention as C's `strcmp`/`qsort` comparator), which is what makes it
+  `Ord`, so these types work in `collections.sort` and as `Ord`-bounded
+  type arguments.
   `==`/`!=` come free from structural equality on plain `int`/struct
   fields — no special-casing needed.
 - **Calendar year is assumed non-negative throughout** (no BCE
@@ -2303,7 +2289,7 @@ fn main() {
   through `ok`, `err`, `is_ok`, `unwrap`, `unwrap_err` (see "Builtins"
   below for exact signatures) or consumed exhaustively with `switch`
   (arms `Ok(v)` and `Err(e)`); you can't define your own `Result`-shaped
-  type, but you can declare an `enum` (see "Enums"). There is no `match`.
+  type, but you can declare an `enum` (see "Enums"). `switch` is a statement, not an expression (ROADMAP R21).
 - **`ok(x)`/`err(e)` can't fully infer their own type** — each only
   determines half of `Result<T, E>` (an `ok(x)` call tells you `T` from
   `x`, but nothing about what `E` should be, and vice versa for `err`).
@@ -2586,26 +2572,29 @@ a type error.
 - `char_at(s: string, i: int) -> string` — the one-byte string at index
   `i` (`0 <= i < len(s)`, a runtime error otherwise); `char_at(s, i) ==
   "x"` replaces `substring(s, i, i + 1) == "x"`.
-  `split_once(s, sep) -> Option<[string]>` — `Some([before, after])` split
-  at the *first* `sep`, `None` if it is absent; for `key=value`-shaped text
-  whose value may itself contain the separator (`split` would cut it up).
+- `split_once(s: string, sep: string) -> Option<[string]>` —
+  `Some([before, after])` split at the *first* `sep`, `None` if it is
+  absent; for `key=value`-shaped text whose value may itself contain the
+  separator (`split` would cut it up).
+- `index_of(s: string, needle: string, from: int) -> int` — the byte index
+  of the first `needle` at or after `from` (`0 <= from <= len(s)`, a
+  runtime error otherwise), or `-1`; an empty `needle` matches at `from`.
 - `last_index_of(s: string, needle: string) -> int` — the byte index of the
   last `needle` (`len(s)` for an empty one), or `-1`.
-  `equals_ignore_case(a: string, b: string) -> bool` — equality with ASCII
-  letters compared case-insensitively (non-ASCII bytes compare exactly);
-  allocates nothing, unlike `to_lower(a) == to_lower(b)`.
-  `is_char_at(s: string, i: int, c: string) -> bool` — whether `c` appears
+- `starts_with(s, prefix) -> bool` / `ends_with(s, suffix) -> bool`.
+- `is_char_at(s: string, i: int, c: string) -> bool` — whether `c` appears
   in `s` starting at `i`; `false` (never an error) when `i` is out of range
   or `c` doesn't fit, so it replaces the guarded `p < len(s) &&
   char_at(s, p) == "x"`. `c` is normally one character, but any text works
   (a literal matched at a position).
-, needle: string, from: int) -> int` — the byte index
-  of the first `needle` at or after `from` (`0 <= from <= len(s)`, a
-  runtime error otherwise), or `-1`; an empty `needle` matches at `from`.
-  `starts_with(s, prefix) -> bool` / `ends_with(s, suffix) -> bool`.
-  `replace(s, old, new) -> string` swaps every non-overlapping `old`
-  (must not be empty). None of these build intermediate strings, unlike
-  the `substring(s, i, i + n) == x` idiom they replace.
+- `replace(s, old, new) -> string` swaps every non-overlapping `old`
+  (`old` must not be empty).
+- `equals_ignore_case(a: string, b: string) -> bool` — equality with ASCII
+  letters compared case-insensitively (non-ASCII bytes compare exactly);
+  allocates nothing, unlike `to_lower(a) == to_lower(b)`.
+
+  None of the search/compare functions above build intermediate strings,
+  unlike the `substring(s, i, i + n) == x` idiom they replace.
 - `trim(s: string) -> string` — `s` with leading/trailing whitespace
   removed.
 - `to_upper(s: string) -> string` / `to_lower(s: string) -> string` —

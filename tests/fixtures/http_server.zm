@@ -5,8 +5,9 @@ use http.HttpMethod
 use http.HttpError
 
 // The server half is written the way an application writes it: its own
-// route function and its own accept loop, since a library can't be handed
-// a handler (no function values).
+// route function and its own accept loop, built from the raw pieces
+// (`http.serve`, which takes a handler function value, is covered by
+// tests/shutdown).
 
 fn route(req: http.Request) -> http.Response {
     val health = http.route(req, HttpMethod.Get, "/health")

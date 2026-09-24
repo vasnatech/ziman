@@ -21,11 +21,11 @@
 //   `{seconds: 0, nanos: -500000000}`. Every constructor/arithmetic
 //   function funnels through `normalize` below to maintain this.
 //
-// No `<`/`>` on any of these seven types -- Ziman has no Ord/Cmp bound,
-// and this isn't the forcing case to build one. Every type instead gets
+// No `<`/`>` operators on any of these seven types. Every type instead has
 // a `_compare(a, b) -> int` function (negative/zero/positive, the same
-// convention as C's strcmp/qsort comparator), and `==`/`!=` come free
-// from structural equality on plain int/struct fields.
+// convention as C's strcmp/qsort comparator), which is what makes it `Ord`
+// (usable with `compare` and `collections.sort`); `==`/`!=` come free from
+// structural equality on plain int/struct fields.
 //
 // Calendar year is assumed non-negative throughout (no BCE support) --
 // undocumented territory nothing here needs, so it's not handled rather

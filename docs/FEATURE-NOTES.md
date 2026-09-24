@@ -87,7 +87,7 @@ above is illustrative syntax anyone can still write, just not a
 
 ## Bundled core modules: `random`, `uuid`, `clock`, `time`
 
-It's also one of twenty *bundled core modules* (alongside `fs`, mentioned
+It's also one of the *bundled core modules* (22 now) (alongside `fs`, mentioned
 above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db`/`bytes`/`net`/`crypto`/`pg`/`http` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
 `use fs` work from any project with no local copy needed — a
@@ -123,8 +123,8 @@ every call; the ISO pair is implemented on top of the general one via
 start and reused for the process's whole lifetime. None of the nine new scalar/struct types
 across `byte`/`uuid`/`time` (`byte`, `Uuid`, and the `time` module's
 seven) got `<`/`>` — every one instead gets an explicit `_compare(a, b)
--> int`, since Ziman still has no Ord/Cmp bound and none of them were
-the forcing case to add one.
+-> int` (written when Ziman had no Ord bound; that function is now what
+makes each of them `Ord`, so `compare` and `collections.sort` work on them).
 
 ## `json` and `#[derive(Json)]`
 
@@ -169,7 +169,7 @@ conversion, big-endian integers).
 
 `defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `?`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer db.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error.
 
-`http` is an HTTP/1.1 server toolkit on `net` (request parsing with keep-alive and pipelining, bounded headers and bodies, response framing, and route matching with path parameters) — a toolkit rather than a framework (function values exist now, but they don't capture, so a handler can't reach the application's database connection without it being passed in), so the application writes its own accept loop and `route` function; strings now have a `\r` escape.
+`http` is an HTTP/1.1 server toolkit on `net` (request parsing with keep-alive and pipelining, bounded headers and bodies, response framing, and route matching with path parameters) — a toolkit rather than a framework (function values don't capture, so a handler can't reach the application's database connection unless it is passed in as an explicit context value); `http.serve(listener, ctx, handler, options)` runs the accept and connection loops around a handler function value, or an application can write its own loops and `route` function; strings now have a `\r` escape.
 
 `net` also does client-side TLS on the system OpenSSL (`net.connect_tls`/`net.start_tls`, upgrading a socket in place so everything built on `Socket` works over it), with certificate and host-name verification on by default and an explicit `TlsVerify` (`Full`/`Chain`/`Off`) plus optional CA file when relaxing it.
 

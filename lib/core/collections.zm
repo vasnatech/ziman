@@ -280,11 +280,11 @@ pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
 
 // ---------------------------------------------------------------- sorting
 //
-// Ziman has no function values, so a sort can't take a comparator; it takes
-// an `Ord` type instead (`compare` orders any number, string or byte, and any
-// struct/enum with a `<type>_compare` function -- `#[derive(Ord)]` writes
+// `sort` takes an `Ord` type (`compare` orders any number, string or byte, and
+// any struct/enum with a `<type>_compare` function -- `#[derive(Ord)]` writes
 // one). To sort by something other than a type's own order, compute the key
-// for each item and use `sort_by_keys`. All of these return a new array
+// for each item and use `sort_by_keys`, or pass a comparator function value
+// to `sort_with`. All of these return a new array
 // (arrays are immutable) and the sort is stable: equal keys keep their order.
 
 // The positions of `keys` in ascending order: a stable bottom-up merge sort,
