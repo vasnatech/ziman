@@ -191,6 +191,12 @@ pub native fn list_dir(path: string) -> Result<[string], string>
 ## `httpclient`
 
 ```
+pub struct BytesResponse {
+    status: int
+    headers: [Header]
+    body: [byte]
+}
+
 pub enum ClientError {
     BadUrl(string)
     Network(string)
@@ -212,6 +218,8 @@ pub struct Url {
 pub fn parse_url(url: string) -> Result<Url, string>
 
 pub fn request(method: string, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError>
+
+pub fn request_bytes(method: string, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<BytesResponse, ClientError>
 
 pub fn get(url: string) -> Result<Response, ClientError>
 

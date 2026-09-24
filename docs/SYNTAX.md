@@ -2059,8 +2059,11 @@ chain and host name verified; `ca_file` names a private CA's PEM file). One
 connection per request, closed afterwards. It reads `Content-Length`,
 chunked and until-close bodies, follows 301/302/303/307/308 up to
 `max_redirects` (default 5, 0 = return the 3xx; 303, and a POST answered
-301/302, is re-sent as a body-less GET), and caps a body at 8 MiB. Not yet:
-binary bodies (bodies are strings), compression, proxies, cookies,
+301/302, is re-sent as a body-less GET), and caps a body at 8 MiB. For binary
+data (images, files, a body with a 0 byte) use `httpclient.request_bytes`,
+which takes `body: Option<[byte]>` and returns a `BytesResponse` with a
+`[byte]` body; the text functions are built on it, and a binary response
+through them is `BadResponse`. Not yet: compression, proxies, cookies,
 connection reuse, HTTP/2. `parse_url(url)` is public.
 
 ## Files (`fs`)

@@ -14,10 +14,13 @@
 // default 5, 0 = don't follow; 303 and a 301/302 answering a POST are re-sent
 // as GET without a body).
 //
-// A response comes back as an `http.Response`; **any** status, including 404 or
+// A response comes back as an `http.Response` (text body) from `request`/`get`/
+// `post_json`, or as a `BytesResponse` (`[byte]` body) from `request_bytes`, the
+// one to use for images, files and other binary data. **Any** status, including 404 or
 // 500, is `Ok` -- an `Err` means the exchange itself failed (bad URL, network,
 // timeout, malformed response, too large). Bodies are strings, capped at 8 MiB
-// (`TooLarge`), so a binary body (a NUL byte) is `BadResponse`. Not yet:
+// (`TooLarge`). A text-body function given a binary body (a NUL byte) fails with
+// `BadResponse` -- use `request_bytes`. Not yet:
 // request bodies of bytes, compression, proxies, cookies, HTTP/2, streaming.
 
 use net
@@ -31,6 +34,13 @@ use bytes.bytes_slice
 use number.int_from_hex
 use http.Header
 use http.Response
+
+// Like `http.Response`, but the body is raw bytes.
+pub struct BytesResponse {
+    status: int
+    headers: [Header]
+    body: [byte]
+}
 
 pub enum ClientError {
     BadUrl(string)
@@ -273,7 +283,7 @@ fn read_to_close(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
     return body
 }
 
-fn read_response(sock: Socket, head_only: bool) -> Result<Response, ClientError> {
+fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientError> {
     var buf = bytes_slice([0b], 0, 0)
     var head_end = find_head_end(buf)
     while head_end < 0 {
@@ -310,7 +320,7 @@ fn read_response(sock: Socket, head_only: bool) -> Result<Response, ClientError>
 
     val no_body = head_only || status < 200 || status == 204 || status == 304
     if no_body {
-        return Response { status: status, headers: header_list, body: "" }
+        return BytesResponse { status: status, headers: header_list, body: bytes_slice([0b], 0, 0) }
     }
     var body_bytes = rest
     val te = header_value(header_list, "Transfer-Encoding")
@@ -338,8 +348,7 @@ fn read_response(sock: Socket, head_only: bool) -> Result<Response, ClientError>
             body_bytes = step5
         }
     }
-    val body = text_of(body_bytes)?
-    return Response { status: status, headers: header_list, body: body }
+    return BytesResponse { status: status, headers: header_list, body: body_bytes }
 }
 
 // ------------------------------------------------------------ sending
@@ -362,7 +371,7 @@ fn open_socket(u: Url, ca_file: Option<string>) -> Result<Socket, NetError> {
     return net.connect(u.host, u.port)
 }
 
-fn send_once(method: string, u: Url, headers: [Header], body: Option<string>, timeout_ms: int, ca_file: Option<string>) -> Result<Response, ClientError> {
+fn send_once(method: string, u: Url, headers: [Header], body: Option<[byte]>, timeout_ms: int, ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
     val sock = open_socket(u, ca_file)
     if !is_ok(sock) {
         val e = unwrap_err(sock)
@@ -400,21 +409,21 @@ fn send_once(method: string, u: Url, headers: [Header], body: Option<string>, ti
     }
     ab_append<string>(out, "Accept-Encoding: identity\r\nConnection: close\r\n")
     if Option.is_Some(body) {
-        ab_append<string>(out, format("Content-Length: {}\r\n", len(string_to_bytes(Option.unwrap_Some(body)))))
+        ab_append<string>(out, format("Content-Length: {}\r\n", len(Option.unwrap_Some(body))))
     } else {
         if method == "POST" || method == "PUT" || method == "PATCH" {
             ab_append<string>(out, "Content-Length: 0\r\n")
         }
     }
     ab_append<string>(out, "\r\n")
-    if Option.is_Some(body) {
-        ab_append<string>(out, Option.unwrap_Some(body))
-    }
     lift<int>(net.write_text(s, join(pieces: ab_to_array<string>(out), separator: "")))?
+    if Option.is_Some(body) && len(Option.unwrap_Some(body)) > 0 {
+        lift<int>(net.write(s, Option.unwrap_Some(body)))?
+    }
     return read_response(s, method == "HEAD")
 }
 
-fn location_of(r: Response) -> Option<string> {
+fn location_of(r: BytesResponse) -> Option<string> {
     return header_value(r.headers, "Location")
 }
 
@@ -450,6 +459,18 @@ fn resolve_location(base: Url, location: string) -> Result<Url, string> {
 //   ca_file       a PEM file of trusted CAs for https, instead of the system store
 //                 (a private CA, a test certificate); the certificate is always verified
 pub fn request(method: string, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError> {
+    var bytes_body = Option<[byte]>.None
+    if Option.is_Some(body) {
+        bytes_body = Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
+    }
+    val r = request_bytes(method: method, url: url, headers: headers, body: bytes_body, timeout_ms: timeout_ms, max_redirects: max_redirects, ca_file: ca_file)?
+    val text = text_of(r.body)?
+    return Response { status: r.status, headers: r.headers, body: text }
+}
+
+// Sends one request and returns the (final) response, body as bytes -- the
+// general function; `request` is this with text bodies. Arguments as for `request`.
+pub fn request_bytes(method: string, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
     val parsed = parse_url(url)
     if !is_ok(parsed) {
         return err(ClientError.BadUrl(unwrap_err(parsed)))
@@ -478,7 +499,7 @@ pub fn request(method: string, url: string, headers: Option<[Header]>, body: Opt
         current = unwrap(next)
         if s == 303 || ((s == 301 || s == 302) && m == "POST") {
             m = "GET"
-            b = Option<string>.None
+            b = Option<[byte]>.None
         }
         hops = hops + 1
     }

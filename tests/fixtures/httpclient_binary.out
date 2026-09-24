@@ -1,0 +1,8 @@
+200
+true
+5
+0
+plain text
+true
+false
+bad response: body contains a NUL byte
