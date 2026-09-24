@@ -1,0 +1,9 @@
+INFO  app: shown
+WARN  db: component
+ERROR app: boom
+
+false
+true
+Ok(Warn)
+Ok(Debug)
+Err(unknown log level 'loud' (use debug, info, warn or error))

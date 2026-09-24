@@ -1,0 +1,15 @@
+200 [hello]
+200 [hello, world]
+200 [until-close]
+404 [gone]
+200 [hello]
+302 []
+error: too many redirects
+200 []
+201 [POST /echo body={"a":1} ct=true]
+201 [GET /echo body= ct=false]
+error: bad response: malformed status line: NOT HTTP
+error: request timed out
+error: bad URL: only http:// and https:// URLs are supported
+error: connection refused: Connection refused
+text/plain

@@ -9,6 +9,7 @@
 #include "native_crypto.h"
 #include "native_sqlite.h"
 #include "native_io.h"
+#include "native_fs.h"
 #include "native_net.h"
 #include "native_os.h"
 #include "native_random.h"
@@ -60,6 +61,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     native_io_register();
+    native_fs_register();
     native_random_register();
     native_clock_register();
     native_sqlite_register();

@@ -1,0 +1,117 @@
+use net
+use clock
+use http
+use http.Header
+use httpclient
+
+// A raw-socket server with canned answers, so the client is tested against exact wire formats.
+
+fn read_head(s: net.Socket) -> string {
+    var acc = ""
+    while !contains(acc, "\r\n\r\n") {
+        acc = concat(acc, unwrap(net.read_text(s, 4096)))
+    }
+    return acc
+}
+
+fn put(s: net.Socket, text: string) {
+    unwrap(net.write_text(s, text))
+}
+
+fn handle(s: net.Socket) {
+    defer net.close(s)
+    unwrap(net.set_timeout(s, 2000))
+    var req = read_head(s)
+    val parts = split(req, "\r\n\r\n")
+    val head = parts[0]
+    var body = join(separator: "\r\n\r\n", pieces: [parts[1]])
+    val first = split(head, "\r\n")[0]
+    val method = split(first, " ")[0]
+    val path = split(first, " ")[1]
+    if contains(to_lower(head), "content-length: ") {
+        val want = unwrap(parse_int(trim(split(split(to_lower(head), "content-length: ")[1], "\r\n")[0])))
+        while len(body) < want {
+            body = concat(body, unwrap(net.read_text(s, 4096)))
+        }
+    }
+    if path == "/plain" {
+        put(s, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello")
+    } else if path == "/chunked" {
+        put(s, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n")
+        put(s, "7;ext=1\r\n, world\r\n0\r\n\r\n")
+    } else if path == "/close" {
+        put(s, "HTTP/1.0 200 OK\r\n\r\nuntil-close")
+    } else if path == "/head" {
+        put(s, "HTTP/1.1 200 OK\r\nContent-Length: 999\r\n\r\n")
+    } else if path == "/redir" {
+        put(s, "HTTP/1.1 302 Found\r\nLocation: /plain\r\nContent-Length: 0\r\n\r\n")
+    } else if path == "/redir-post" {
+        put(s, "HTTP/1.1 303 See Other\r\nLocation: /echo\r\nContent-Length: 0\r\n\r\n")
+    } else if path == "/loop" {
+        put(s, "HTTP/1.1 302 Found\r\nLocation: /loop\r\nContent-Length: 0\r\n\r\n")
+    } else if path == "/missing" {
+        put(s, "HTTP/1.1 404 Not Found\r\nContent-Length: 4\r\n\r\ngone")
+    } else if path == "/echo" {
+        val text = format("{} {} body={} ct={}", method, path, body, contains(head, "Content-Type: application/json"))
+        put(s, format("HTTP/1.1 201 Created\r\nContent-Length: {}\r\n\r\n{}", len(text), text))
+    } else if path == "/hang" {
+        clock.sleep_millis(1500)
+    } else if path == "/garbage" {
+        put(s, "NOT HTTP\r\n\r\n")
+    } else {
+        put(s, "HTTP/1.1 500 Oops\r\nContent-Length: 0\r\n\r\n")
+    }
+}
+
+fn accept_loop(l: net.Listener) {
+    while true {
+        val c = net.accept(l)
+        if !is_ok(c) {
+            return
+        }
+        spawn handle(unwrap(c))
+    }
+}
+
+fn show(r: Result<http.Response, httpclient.ClientError>) {
+    if is_ok(r) {
+        val resp = unwrap(r)
+        print(format("{} [{}]", resp.status, resp.body))
+    } else {
+        print(format("error: {}", httpclient.client_error_message(unwrap_err(r))))
+    }
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val base = format("http://127.0.0.1:{}", net.listener_port(l))
+    spawn accept_loop(l)
+
+    show(httpclient.get(concat(base, "/plain")))
+    show(httpclient.get(concat(base, "/chunked")))
+    show(httpclient.get(concat(base, "/close")))
+    show(httpclient.get(concat(base, "/missing")))
+    show(httpclient.get(concat(base, "/redir")))
+    show(httpclient.request(method: "GET", url: concat(base, "/redir"), max_redirects: 0))
+    show(httpclient.get(concat(base, "/loop")))
+    show(httpclient.request(method: "HEAD", url: concat(base, "/head")))
+    show(httpclient.post_json(concat(base, "/echo"), "{\"a\":1}"))
+    show(httpclient.request(method: "POST", url: concat(base, "/redir-post"), body: "x"))
+    show(httpclient.get(concat(base, "/garbage")))
+    show(httpclient.request(method: "GET", url: concat(base, "/hang"), timeout_ms: 300))
+    show(httpclient.get("ftp://nope"))
+    show(httpclient.get("http://127.0.0.1:1/"))
+
+    val h = unwrap(httpclient.get(concat(base, "/plain")))
+    print(http_header(h.headers, "content-type"))
+    net.close_listener(l)
+}
+
+fn http_header(headers: [Header], name: string) -> string {
+    for h in headers {
+        if to_lower(h.name) == name {
+            return h.value
+        }
+    }
+    return "(none)"
+}

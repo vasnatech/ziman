@@ -2048,6 +2048,42 @@ fn transfer(tx: db.Connection, t: Transfer) -> Result<int, DbError> {
 val moved = db.with_transaction_ctx<Transfer, int>(conn, Transfer { ... }, transfer)?
 ```
 
+## HTTP client (`httpclient`)
+
+`httpclient` lets a program call another service. `httpclient.get(url)`,
+`httpclient.post_json(url, body)` and the general
+`httpclient.request(method, url, headers, body, timeout_ms, max_redirects,
+ca_file)` (everything after `url` is optional, so it is called with named
+arguments) return `Result<http.Response, ClientError>`. **Any** HTTP status,
+404 and 500 included, is `Ok`; `Err` means the exchange failed: `BadUrl`,
+`Network`, `Timeout`, `BadResponse`, `TooLarge` or `TooManyRedirects`
+(`client_error_message` renders one). `http://` and `https://` (certificate
+chain and host name verified; `ca_file` names a private CA's PEM file). One
+connection per request, closed afterwards. It reads `Content-Length`,
+chunked and until-close bodies, follows 301/302/303/307/308 up to
+`max_redirects` (default 5, 0 = return the 3xx; 303, and a POST answered
+301/302, is re-sent as a body-less GET), and caps a body at 8 MiB. Not yet:
+binary bodies (bodies are strings), compression, proxies, cookies,
+connection reuse, HTTP/2. `parse_url(url)` is public.
+
+## Files (`fs`)
+
+Beyond `io.read_file`: `fs.write_text`, `append_text`, `exists`, `is_dir`,
+`size`, `remove` (a file or an empty directory), `make_dir`, `rename` and
+`list_dir` (sorted names). Everything that can fail returns `Result<_,
+string>` carrying the OS message; `io.write_file` remains the fatal-on-failure
+one, kept for scripts.
+
+## Logging (`log`)
+
+There is no global logger (no mutable globals): build a `Logger` with
+`log.logger(level: Level.Info, file: ..., timestamps: ..., prefix: ...)` and
+pass it. `log.debug/info/warn/error(logger, message)` write
+`<timestamp> LEVEL prefix message` to stderr, or append to `file` (falling
+back to stderr if the file can't be written); anything below the logger's
+level is dropped. `with_prefix` makes a per-component logger,
+`level_parse("warn")` reads a level from configuration.
+
 ## Cryptography
 
 The `crypto` core module is just enough to speak SCRAM-SHA-256:

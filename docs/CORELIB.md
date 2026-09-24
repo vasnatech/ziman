@@ -163,6 +163,60 @@ pub fn bytes_to_hex(data: [byte]) -> string
 
 ```
 
+## `fs`
+
+```
+pub native fn write_text(path: string, text: string) -> Result<int, string>
+
+pub native fn append_text(path: string, text: string) -> Result<int, string>
+
+pub native fn exists(path: string) -> bool
+
+pub native fn is_dir(path: string) -> bool
+
+pub native fn size(path: string) -> Result<int, string>
+
+pub native fn remove(path: string) -> Result<int, string>
+
+pub native fn make_dir(path: string) -> Result<int, string>
+
+pub native fn rename(from: string, to: string) -> Result<int, string>
+
+pub native fn list_dir(path: string) -> Result<[string], string>
+
+```
+
+## `httpclient`
+
+```
+pub enum ClientError {
+    BadUrl(string)
+    Network(string)
+    Timeout
+    BadResponse(string)
+    TooLarge
+    TooManyRedirects
+}
+
+pub fn client_error_message(e: ClientError) -> string
+
+pub struct Url {
+    secure: bool
+    host: string
+    port: int
+    target: string
+}
+
+pub fn parse_url(url: string) -> Result<Url, string>
+
+pub fn request(method: string, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError>
+
+pub fn get(url: string) -> Result<Response, ClientError>
+
+pub fn post_json(url: string, body: string) -> Result<Response, ClientError>
+
+```
+
 ## `http`
 
 ```
@@ -303,6 +357,63 @@ pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
 pub fn json_to_json(j: Json) -> Json
 
 pub fn json_from_json(j: Json) -> Result<Json, string>
+
+pub fn int_to_json(n: int) -> Json
+
+pub fn int_from_json(j: Json) -> Result<int, string>
+
+pub fn float_to_json(f: float) -> Json
+
+pub fn float_from_json(j: Json) -> Result<float, string>
+
+pub fn bool_to_json(b: bool) -> Json
+
+pub fn bool_from_json(j: Json) -> Result<bool, string>
+
+pub fn string_to_json(s: string) -> Json
+
+pub fn string_from_json(j: Json) -> Result<string, string>
+
+```
+
+## `log`
+
+```
+pub enum Level {
+    Debug
+    Info
+    Warn
+    Error
+}
+
+pub struct Logger {
+    level: Level
+    file: Option<string>
+    timestamps: bool
+    prefix: string
+}
+
+pub fn logger(level: Level, file: Option<string>, timestamps: Option<bool>, prefix: Option<string>) -> Logger
+
+pub fn with_prefix(l: Logger, prefix: string) -> Logger
+
+pub fn level_rank(level: Level) -> int
+
+pub fn level_name(level: Level) -> string
+
+pub fn level_parse(text: string) -> Result<Level, string>
+
+pub fn enabled(l: Logger, level: Level) -> bool
+
+pub fn write(l: Logger, level: Level, message: string)
+
+pub fn debug(l: Logger, message: string) { write(l, Level.Debug, message) }
+
+pub fn info(l: Logger, message: string) { write(l, Level.Info, message) }
+
+pub fn warn(l: Logger, message: string) { write(l, Level.Warn, message) }
+
+pub fn error(l: Logger, message: string) { write(l, Level.Error, message) }
 
 ```
 

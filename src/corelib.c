@@ -9,6 +9,9 @@
  * generates here, and adding one line to CORE_MODULES below. */
 #include "collections_source.h"
 #include "io_source.h"
+#include "fs_source.h"
+#include "log_source.h"
+#include "httpclient_source.h"
 #include "random_source.h"
 #include "uuid_source.h"
 #include "clock_source.h"
@@ -43,6 +46,9 @@ typedef struct {
 static const CoreModule CORE_MODULES[] = {
     {"collections", COLLECTIONS_SOURCE},
     {"io", IO_SOURCE},
+    {"fs", FS_SOURCE},
+    {"log", LOG_SOURCE},
+    {"httpclient", HTTPCLIENT_SOURCE},
     {"random", RANDOM_SOURCE},
     {"uuid", UUID_SOURCE},
     {"clock", CLOCK_SOURCE},

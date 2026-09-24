@@ -1,0 +1,15 @@
+false
+Ok(0)
+true
+Ok(5)
+Ok(6)
+hello world
+Ok(11)
+Ok(0)
+Ok([b.txt])
+Ok(0)
+Ok(0)
+false
+Err(cannot write '/nonexistent_dir/x': No such file or directory)
+Err(cannot list '/nonexistent_dir': No such file or directory)
+Err(cannot stat '/nonexistent_dir': No such file or directory)

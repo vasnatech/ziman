@@ -1,0 +1,25 @@
+// fs.zm -- the filesystem beyond io.read_file. Every function that can fail
+// returns a Result carrying the operating system's own message
+// ("cannot write 'x/y': No such file or directory"), so a missing directory or
+// a full disk is something a program handles, not a crash. Actions that have no
+// value to report return Ok(0), the same shape `net` uses.
+//
+// Reading a whole file is `io.read_file`; this module adds the rest.
+
+// Replaces the file's contents (creating it). Ok(bytes written).
+pub native fn write_text(path: string, text: string) -> Result<int, string>
+// Adds to the end of the file (creating it).
+pub native fn append_text(path: string, text: string) -> Result<int, string>
+
+pub native fn exists(path: string) -> bool
+pub native fn is_dir(path: string) -> bool
+// Size in bytes.
+pub native fn size(path: string) -> Result<int, string>
+
+// Deletes a file or an *empty* directory.
+pub native fn remove(path: string) -> Result<int, string>
+pub native fn make_dir(path: string) -> Result<int, string>
+pub native fn rename(from: string, to: string) -> Result<int, string>
+
+// The names in a directory (no "." or ".."), sorted.
+pub native fn list_dir(path: string) -> Result<[string], string>

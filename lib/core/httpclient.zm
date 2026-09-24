@@ -1,0 +1,500 @@
+// httpclient.zm -- an HTTP/1.1 *client*, written in Ziman on top of `net`, so a
+// Ziman program can call another service (the server side is `http`).
+//
+//   val r = httpclient.get("https://example.com/api/items?limit=5")
+//   val resp = httpclient.request(method: "POST", url: u, body: "{\"a\":1}",
+//                                 headers: [http.Header { name: "Content-Type", value: "application/json" }])
+//
+// `http://` and `https://` URLs (TLS with full certificate verification, via
+// `net.connect_tls`). One connection per request, closed afterwards
+// (`Connection: close`) -- simple, and correct for the occasional call to
+// another service; there is no connection pooling. Understands
+// `Content-Length`, `Transfer-Encoding: chunked` and bodies that end when the
+// server closes; follows 301/302/303/307/308 redirects (up to `max_redirects`,
+// default 5, 0 = don't follow; 303 and a 301/302 answering a POST are re-sent
+// as GET without a body).
+//
+// A response comes back as an `http.Response`; **any** status, including 404 or
+// 500, is `Ok` -- an `Err` means the exchange itself failed (bad URL, network,
+// timeout, malformed response, too large). Bodies are strings, capped at 8 MiB
+// (`TooLarge`), so a binary body (a NUL byte) is `BadResponse`. Not yet:
+// request bodies of bytes, compression, proxies, cookies, HTTP/2, streaming.
+
+use net
+use net.Socket
+use net.NetError
+use net.net_error_message
+use bytes.string_to_bytes
+use bytes.bytes_to_string
+use bytes.bytes_concat
+use bytes.bytes_slice
+use number.int_from_hex
+use http.Header
+use http.Response
+
+pub enum ClientError {
+    BadUrl(string)
+    Network(string)
+    Timeout
+    BadResponse(string)
+    TooLarge
+    TooManyRedirects
+}
+
+pub fn client_error_message(e: ClientError) -> string {
+    if ClientError.is_BadUrl(e) {
+        return concat("bad URL: ", ClientError.unwrap_BadUrl(e))
+    }
+    if ClientError.is_Network(e) {
+        return ClientError.unwrap_Network(e)
+    }
+    if ClientError.is_Timeout(e) {
+        return "request timed out"
+    }
+    if ClientError.is_BadResponse(e) {
+        return concat("bad response: ", ClientError.unwrap_BadResponse(e))
+    }
+    if ClientError.is_TooLarge(e) {
+        return "response body is too large"
+    }
+    return "too many redirects"
+}
+
+// A parsed `http://` or `https://` URL. `target` is the path and query as they
+// go on the request line ("/" if the URL has none); a #fragment is dropped.
+pub struct Url {
+    secure: bool
+    host: string
+    port: int
+    target: string
+}
+
+val max_body_bytes = 8388608
+val max_header_bytes = 65536
+val default_timeout_ms = 30000
+
+pub fn parse_url(url: string) -> Result<Url, string> {
+    var secure = false
+    var rest = ""
+    if starts_with(url, "http://") {
+        rest = substring(url, 7, len(url))
+    } else {
+        if starts_with(url, "https://") {
+            secure = true
+            rest = substring(url, 8, len(url))
+        } else {
+            return err("only http:// and https:// URLs are supported")
+        }
+    }
+    val no_fragment = split(rest, "#")[0]
+    var authority = no_fragment
+    var target = "/"
+    val slash = index_of(no_fragment, "/", 0)
+    val qmark = index_of(no_fragment, "?", 0)
+    var cut = slash
+    if cut < 0 || (qmark >= 0 && qmark < cut) {
+        cut = qmark
+    }
+    if cut >= 0 {
+        authority = substring(no_fragment, 0, cut)
+        target = substring(no_fragment, cut, len(no_fragment))
+        if !starts_with(target, "/") {
+            target = concat("/", target)
+        }
+    }
+    val at = last_index_of(authority, "@")
+    if at >= 0 {
+        authority = substring(authority, at + 1, len(authority))
+    }
+    if authority == "" {
+        return err("missing host")
+    }
+    var host = authority
+    var port = 80
+    if secure {
+        port = 443
+    }
+    var port_text = ""
+    if starts_with(authority, "[") {
+        val close = index_of(authority, "]", 0)
+        if close < 0 {
+            return err("unterminated [ in host")
+        }
+        host = substring(authority, 1, close)
+        val after = substring(authority, close + 1, len(authority))
+        if after != "" {
+            if !starts_with(after, ":") {
+                return err("unexpected text after ] in host")
+            }
+            port_text = substring(after, 1, len(after))
+        }
+    } else {
+        val colon = last_index_of(authority, ":")
+        if colon >= 0 {
+            host = substring(authority, 0, colon)
+            port_text = substring(authority, colon + 1, len(authority))
+        }
+    }
+    if host == "" {
+        return err("missing host")
+    }
+    if port_text != "" {
+        val p = parse_int(port_text)
+        if !is_ok(p) || unwrap(p) < 1 || unwrap(p) > 65535 {
+            return err(concat("invalid port: ", port_text))
+        }
+        port = unwrap(p)
+    }
+    return Url { secure: secure, host: host, port: port, target: target }
+}
+
+// ------------------------------------------------------------ reading
+
+fn lift<T>(r: Result<T, NetError>) -> Result<T, ClientError> {
+    if !is_ok(r) {
+        val e = unwrap_err(r)
+        if NetError.is_Timeout(e) {
+            return err(ClientError.Timeout)
+        }
+        return err(ClientError.Network(net_error_message(e)))
+    }
+    return unwrap(r)
+}
+
+fn is_closed(e: NetError) -> bool {
+    return NetError.is_Closed(e)
+}
+
+fn find_from(buf: [byte], a: byte, b: byte, from: int) -> int {
+    var i = from
+    while i + 1 < len(buf) {
+        if buf[i] == a && buf[i + 1] == b {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// Index just past the first CRLF CRLF, or -1.
+fn find_head_end(buf: [byte]) -> int {
+    var i = 0
+    while i + 3 < len(buf) {
+        if buf[i] == 13b && buf[i + 1] == 10b && buf[i + 2] == 13b && buf[i + 3] == 10b {
+            return i + 4
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn text_of(b: [byte]) -> Result<string, ClientError> {
+    val s = bytes_to_string(b)
+    if !is_ok(s) {
+        return err(ClientError.BadResponse("body contains a NUL byte"))
+    }
+    return unwrap(s)
+}
+
+fn header_value(headers: [Header], name: string) -> Option<string> {
+    val wanted = to_lower(name)
+    for h in headers {
+        if to_lower(h.name) == wanted {
+            return Option<string>.Some(h.value)
+        }
+    }
+    return Option<string>.None
+}
+
+// Reads up to `n` more bytes' worth: at least one byte, appended to `buf`.
+fn more(sock: Socket, buf: [byte]) -> Result<[byte], ClientError> {
+    val chunk = lift<[byte]>(net.read(sock, 8192))?
+    return bytes_concat(buf, chunk)
+}
+
+// The body of a chunked response; `buf` holds what was already read past the head.
+fn read_chunked(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
+    var buf = start
+    var body = bytes_slice([0b], 0, 0)
+    while true {
+        var eol = find_from(buf, 13b, 10b, 0)
+        while eol < 0 {
+            if len(buf) > 1024 {
+                return err(ClientError.BadResponse("chunk size line is too long"))
+            }
+            val step1 = more(sock, buf)?
+            buf = step1
+            eol = find_from(buf, 13b, 10b, 0)
+        }
+        val line = text_of(bytes_slice(buf, 0, eol))?
+        val size_text = trim(split(line, ";")[0])
+        val size_parsed = int_from_hex(size_text)
+        if !is_ok(size_parsed) || unwrap(size_parsed) < 0 {
+            return err(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+        }
+        val size = unwrap(size_parsed)
+        if size == 0 {
+            return body
+        }
+        if len(body) + size > max_body_bytes {
+            return err(ClientError.TooLarge)
+        }
+        buf = bytes_slice(buf, eol + 2, len(buf))
+        while len(buf) < size + 2 {
+            val step2 = more(sock, buf)?
+            buf = step2
+        }
+        body = bytes_concat(body, bytes_slice(buf, 0, size))
+        buf = bytes_slice(buf, size + 2, len(buf))
+    }
+    return body
+}
+
+// A body that runs until the server closes the connection.
+fn read_to_close(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
+    var body = start
+    while true {
+        if len(body) > max_body_bytes {
+            return err(ClientError.TooLarge)
+        }
+        val chunk = net.read(sock, 8192)
+        if !is_ok(chunk) {
+            val e = unwrap_err(chunk)
+            if is_closed(e) {
+                return body
+            }
+            if NetError.is_Timeout(e) {
+                return err(ClientError.Timeout)
+            }
+            return err(ClientError.Network(net_error_message(e)))
+        }
+        body = bytes_concat(body, unwrap(chunk))
+    }
+    return body
+}
+
+fn read_response(sock: Socket, head_only: bool) -> Result<Response, ClientError> {
+    var buf = bytes_slice([0b], 0, 0)
+    var head_end = find_head_end(buf)
+    while head_end < 0 {
+        if len(buf) > max_header_bytes {
+            return err(ClientError.BadResponse("response headers are too large"))
+        }
+        val step3 = more(sock, buf)?
+        buf = step3
+        head_end = find_head_end(buf)
+    }
+    val head = text_of(bytes_slice(buf, 0, head_end - 4))?
+    val lines = split(head, "\r\n")
+    val status_parts = split(lines[0], " ")
+    if len(status_parts) < 2 || !starts_with(status_parts[0], "HTTP/1.") {
+        return err(ClientError.BadResponse(concat("malformed status line: ", lines[0])))
+    }
+    val status_parsed = parse_int(status_parts[1])
+    if !is_ok(status_parsed) {
+        return err(ClientError.BadResponse(concat("malformed status line: ", lines[0])))
+    }
+    val status = unwrap(status_parsed)
+    val headers = ab_new<Header>()
+    var i = 1
+    while i < len(lines) {
+        val pair = split_once(lines[i], ":")
+        if !Option.is_Some(pair) {
+            return err(ClientError.BadResponse(concat("malformed header line: ", lines[i])))
+        }
+        ab_append<Header>(headers, Header { name: Option.unwrap_Some(pair)[0], value: trim(Option.unwrap_Some(pair)[1]) })
+        i = i + 1
+    }
+    val header_list = ab_to_array<Header>(headers)
+    val rest = bytes_slice(buf, head_end, len(buf))
+
+    val no_body = head_only || status < 200 || status == 204 || status == 304
+    if no_body {
+        return Response { status: status, headers: header_list, body: "" }
+    }
+    var body_bytes = rest
+    val te = header_value(header_list, "Transfer-Encoding")
+    val cl = header_value(header_list, "Content-Length")
+    if Option.is_Some(te) && contains(to_lower(Option.unwrap_Some(te)), "chunked") {
+        val step4 = read_chunked(sock, rest)?
+        body_bytes = step4
+    } else {
+        if Option.is_Some(cl) {
+            val n = parse_int(trim(Option.unwrap_Some(cl)))
+            if !is_ok(n) || unwrap(n) < 0 {
+                return err(ClientError.BadResponse("invalid Content-Length"))
+            }
+            if unwrap(n) > max_body_bytes {
+                return err(ClientError.TooLarge)
+            }
+            if unwrap(n) > len(rest) {
+                val tail = lift<[byte]>(net.read_exact(sock, unwrap(n) - len(rest)))?
+                body_bytes = bytes_concat(rest, tail)
+            } else {
+                body_bytes = bytes_slice(rest, 0, unwrap(n))
+            }
+        } else {
+            val step5 = read_to_close(sock, rest)?
+            body_bytes = step5
+        }
+    }
+    val body = text_of(body_bytes)?
+    return Response { status: status, headers: header_list, body: body }
+}
+
+// ------------------------------------------------------------ sending
+
+fn host_header(u: Url) -> string {
+    var host = u.host
+    if contains(host, ":") {
+        host = format("[{}]", host)
+    }
+    if (u.secure && u.port == 443) || (!u.secure && u.port == 80) {
+        return host
+    }
+    return format("{}:{}", host, u.port)
+}
+
+fn open_socket(u: Url, ca_file: Option<string>) -> Result<Socket, NetError> {
+    if u.secure {
+        return net.connect_tls_with(u.host, u.port, net.TlsVerify.Full, ca_file)
+    }
+    return net.connect(u.host, u.port)
+}
+
+fn send_once(method: string, u: Url, headers: [Header], body: Option<string>, timeout_ms: int, ca_file: Option<string>) -> Result<Response, ClientError> {
+    val sock = open_socket(u, ca_file)
+    if !is_ok(sock) {
+        val e = unwrap_err(sock)
+        if NetError.is_Timeout(e) {
+            return err(ClientError.Timeout)
+        }
+        return err(ClientError.Network(net_error_message(e)))
+    }
+    val s = unwrap(sock)
+    defer net.close(s)
+    lift<int>(net.set_timeout(s, timeout_ms))?
+
+    val out = ab_new<string>()
+    ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method, u.target))
+    var has_ua = false
+    var has_accept = false
+    for h in headers {
+        val lname = to_lower(h.name)
+        if lname == "user-agent" {
+            has_ua = true
+        }
+        if lname == "accept" {
+            has_accept = true
+        }
+        if lname != "host" && lname != "content-length" && lname != "connection" {
+            ab_append<string>(out, format("{}: {}\r\n", h.name, h.value))
+        }
+    }
+    ab_append<string>(out, format("Host: {}\r\n", host_header(u)))
+    if !has_ua {
+        ab_append<string>(out, "User-Agent: ziman\r\n")
+    }
+    if !has_accept {
+        ab_append<string>(out, "Accept: */*\r\n")
+    }
+    ab_append<string>(out, "Accept-Encoding: identity\r\nConnection: close\r\n")
+    if Option.is_Some(body) {
+        ab_append<string>(out, format("Content-Length: {}\r\n", len(string_to_bytes(Option.unwrap_Some(body)))))
+    } else {
+        if method == "POST" || method == "PUT" || method == "PATCH" {
+            ab_append<string>(out, "Content-Length: 0\r\n")
+        }
+    }
+    ab_append<string>(out, "\r\n")
+    if Option.is_Some(body) {
+        ab_append<string>(out, Option.unwrap_Some(body))
+    }
+    lift<int>(net.write_text(s, join(pieces: ab_to_array<string>(out), separator: "")))?
+    return read_response(s, method == "HEAD")
+}
+
+fn location_of(r: Response) -> Option<string> {
+    return header_value(r.headers, "Location")
+}
+
+// Resolves a redirect's Location against the URL it came from: an absolute URL,
+// a path ("/x"), or (rare) a relative one ("x", resolved against the directory).
+fn resolve_location(base: Url, location: string) -> Result<Url, string> {
+    if starts_with(location, "http://") || starts_with(location, "https://") {
+        return parse_url(location)
+    }
+    var scheme = "http"
+    if base.secure {
+        scheme = "https"
+    }
+    var authority = host_header(base)
+    if starts_with(location, "//") {
+        return parse_url(format("{}:{}", scheme, location))
+    }
+    if starts_with(location, "/") {
+        return parse_url(format("{}://{}{}", scheme, authority, location))
+    }
+    val path_only = split(split(base.target, "?")[0], "#")[0]
+    val dir_end = last_index_of(path_only, "/")
+    return parse_url(format("{}://{}{}{}", scheme, authority, substring(path_only, 0, dir_end + 1), location))
+}
+
+// Sends one request and returns the (final) response.
+//   method        "GET", "POST", ... (upper case)
+//   headers       extra request headers; Host, Content-Length and Connection are
+//                 always set by the client
+//   body          the request body, if any
+//   timeout_ms    per read/write, default 30000
+//   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
+//   ca_file       a PEM file of trusted CAs for https, instead of the system store
+//                 (a private CA, a test certificate); the certificate is always verified
+pub fn request(method: string, url: string, headers: Option<[Header]>, body: Option<string>, timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError> {
+    val parsed = parse_url(url)
+    if !is_ok(parsed) {
+        return err(ClientError.BadUrl(unwrap_err(parsed)))
+    }
+    var current = unwrap(parsed)
+    var m = method
+    var b = body
+    val hs = option_unwrap_or<[Header]>(headers, no_headers())
+    val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
+    val limit = option_unwrap_or<int>(max_redirects, 5)
+    var hops = 0
+    while true {
+        val resp = send_once(m, current, hs, b, timeout, ca_file)?
+        val s = resp.status
+        val redirect = s == 301 || s == 302 || s == 303 || s == 307 || s == 308
+        if !redirect || limit == 0 || !Option.is_Some(location_of(resp)) {
+            return resp
+        }
+        if hops >= limit {
+            return err(ClientError.TooManyRedirects)
+        }
+        val next = resolve_location(current, Option.unwrap_Some(location_of(resp)))
+        if !is_ok(next) {
+            return err(ClientError.BadResponse(concat("bad redirect location: ", unwrap_err(next))))
+        }
+        current = unwrap(next)
+        if s == 303 || ((s == 301 || s == 302) && m == "POST") {
+            m = "GET"
+            b = Option<string>.None
+        }
+        hops = hops + 1
+    }
+    return err(ClientError.TooManyRedirects)
+}
+
+fn no_headers() -> [Header] {
+    return ab_to_array<Header>(ab_new<Header>())
+}
+
+pub fn get(url: string) -> Result<Response, ClientError> {
+    return request(method: "GET", url: url)
+}
+
+// POST with a JSON body: sets `Content-Type: application/json`.
+pub fn post_json(url: string, body: string) -> Result<Response, ClientError> {
+    return request(method: "POST", url: url, body: body,
+                   headers: [Header { name: "Content-Type", value: "application/json" }])
+}

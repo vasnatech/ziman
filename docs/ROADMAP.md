@@ -302,7 +302,7 @@ against)**
 
 **E. Standard library gaps for a backend language**
 
-- [ ] **R15. Missing pieces:** an HTTP *client* (a Ziman service cannot
+- [~] **R15. Missing pieces** (HTTP client, logging and filesystem are done; regex remains): an HTTP *client* (a Ziman service cannot
   call another); logging (levels, destination); filesystem beyond
   `read_file`/`write_file` (append, stat, delete, list; `write_file` is
   still fatal on failure); regex; sorting (R11); domain-typed map keys

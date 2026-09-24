@@ -1,0 +1,25 @@
+use fs
+use io
+
+fn main() {
+    val d = "/tmp/ziman_fixture_fs_basic"
+    fs.remove(format("{}/b.txt", d))
+    fs.remove(format("{}/a.txt", d))
+    fs.remove(d)
+    print(fs.exists(d))
+    print(fs.make_dir(d))
+    print(fs.is_dir(d))
+    val p = format("{}/a.txt", d)
+    print(fs.write_text(p, "hello"))
+    print(fs.append_text(p, " world"))
+    print(unwrap(io.read_file(p)))
+    print(fs.size(p))
+    print(fs.rename(p, format("{}/b.txt", d)))
+    print(fs.list_dir(d))
+    print(fs.remove(format("{}/b.txt", d)))
+    print(fs.remove(d))
+    print(fs.exists(d))
+    print(fs.write_text("/nonexistent_dir/x", "y"))
+    print(fs.list_dir("/nonexistent_dir"))
+    print(fs.size("/nonexistent_dir"))
+}

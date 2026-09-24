@@ -2829,3 +2829,19 @@ the concrete type arguments (type parameter -> the enclosing converter, scalar
 -> `json.int_to_json` etc., plain struct/enum -> its derived function).
 Arrays/Options as type arguments are rejected rather than guessed at. Row and
 Properties stay non-generic: a row has a fixed column list.
+
+## R15: stdlib gaps -- HTTP client, filesystem, logging
+
+- `fs` is a thin native layer; every failure is a `Result` with `strerror`
+  text. Actions return `Ok(0)` (the shape `net` uses) rather than inventing a
+  unit `Result`.
+- `log` has no global logger because Ziman has no mutable globals; a `Logger`
+  value is passed instead, which also makes per-component prefixes trivial.
+  Named arguments + `Option` omission give it a small constructor.
+- `httpclient` is pure Ziman over `net` (so TLS comes free). It deliberately
+  treats every HTTP status as `Ok`: a 404 is an answer, not a failure of the
+  exchange. One request per connection keeps it stateless. Building it found a
+  real bug in its own first draft (connecting plain *and* TLS for https); the
+  TLS fixture against `openssl s_server` is what caught it.
+- Regex is left open: it wants either a native engine or a sizeable pure-Ziman
+  one, and is a design decision of its own.
