@@ -246,7 +246,7 @@ against)**
 
 **D. Language expressiveness**
 
-- [ ] **R11. `Ord` bound and a generic `sort`.** Sorting is not just
+- [x] **R11. `Ord` bound and a generic `sort`.** *Done 2026-09-23: `Ord` bound, `compare`, `<` on strings, `#[derive(Ord)]`, `collections.sort`/`sort_by_keys`/`binary_search`.* Sorting is not just
   missing, it is inexpressible: no comparator (no function values) and no
   "comparable" bound. The nine hand-written `_compare` functions across
   `byte`/`uuid`/`time` are the symptom. `Eq` and `Hash` already prove the

@@ -401,6 +401,7 @@ typedef enum {
     BOUND_NONE = 0,
     BOUND_EQ = 1 << 0,
     BOUND_HASH = 1 << 1,
+    BOUND_ORD = 1 << 2,
 } TypeParamBound;
 
 typedef struct {

@@ -1,0 +1,7 @@
+#[derive(Ord)]
+struct Empty {
+}
+
+fn main() {
+    print(1)
+}

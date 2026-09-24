@@ -1,0 +1,1 @@
+error at 2:1 (in derive(Ord) for 'Bad'): 'compare' expects

@@ -864,14 +864,15 @@ fn main() {
   type wherever it can't be trivially read off the right-hand side.
 - **No general bounds or constraints on a type parameter** — `T` can be
   stored and passed around, nothing else; there's no trait/interface
-  system to express "T must support X." The two exceptions are hardcoded
-  bounds, `Eq` (meaning "supports `==`") and `Hash` (meaning "supports
-  `hash`" — see "Builtins" below), combinable with `+`
+  system to express "T must support X." The three exceptions are hardcoded
+  bounds, `Eq` (meaning "supports `==`"), `Hash` (meaning "supports
+  `hash`" — see "Builtins" below) and `Ord` (meaning "supports `compare`",
+  see "Ordering" below), combinable with `+`
   (`struct Map<K: Eq + Hash, V> { ... }`). Enforced at every
   instantiation (`Map<Channel<int>, string>` is a compile-time error,
   since `Channel` supports neither), not a general trait system, and
   each usable inside the bounded declaration's own body (see "Generic
-  functions" below). A bound name other than `Eq`/`Hash` (`<T: Ord>`) is
+  functions" below). A bound name other than `Eq`/`Hash`/`Ord` is
   a compile-time error. `Eq` works the same way `==` already does
   everywhere else (recursively, for a struct/enum whose fields/payloads
   are themselves comparable), but `Hash` is scalar-only — no struct or
@@ -1532,6 +1533,45 @@ fn main() {
   of this module in application code — `parse_json`, then
   `json_object_get` each expected field, then validate/convert each one
   — not something this module does itself.
+
+## Ordering (`Ord`, `compare`, sorting)
+
+```
+use collections
+
+#[derive(Ord)]
+struct Person { last: string  first: string }
+
+val sorted = collections.sort<Person>(people)               // by last, then first
+val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
+```
+
+- **`<`, `>`, `<=`, `>=` work on `int`, `float`, `bigint`, `decimal`, `byte`
+  and `string`** (a string compares byte by byte, then by length). They stay
+  non-overloadable: a struct or enum is compared with `compare(a, b)`.
+- **`compare<T: Ord>(a, b) -> int`** (`-1`/`0`/`1`). `Ord` is satisfied by
+  those scalars, by a struct or enum with a function
+  `<snake_case_type>_compare(a: T, b: T) -> int` (`Person` looks for
+  `person_compare`; a type from another module looks in its own module; the
+  spelling without inserted underscores, `localdate_compare`, is also
+  accepted, which is what the bundled `time` types use), and by a type
+  parameter bounded with `Ord`. `bool`, arrays, `Option` and `Result` have no
+  order. A `float` order is total: NaN sorts after every other value and
+  equals itself.
+- **`#[derive(Ord)]`** writes `<type>_compare`: a struct compares its fields
+  in declaration order (the first difference decides); an enum compares by
+  variant position, then by payload when both are the same variant. Every
+  field and payload must itself be `Ord`. A struct with no fields, or a generic
+  type, can't derive it.
+- **`collections.sort<T: Ord>(items) -> [T]`** is a stable merge sort (equal
+  items keep their order) returning a new array. There is no comparator
+  argument, since Ziman has no function values: to sort by anything other than
+  the type's own order, compute a key per item and use
+  **`collections.sort_by_keys<T, K: Ord>(items, keys) -> Result<[T], string>`**
+  (an `Err` if the lengths differ). Also `sort_indices`, `is_sorted`,
+  `binary_search` (first match, `Option<int>`) and `reverse`, which with `sort`
+  gives a descending sort. `Uuid`, `LocalDate`, `LocalTime`, `LocalDateTime`,
+  `Instant`, `Duration` and `ZoneOffset` are all `Ord`.
 
 ## Attributes and derive
 
@@ -2390,6 +2430,9 @@ a type error.
   (`int`/`float`/`bool`/`string`/`bigint`/`decimal`/`byte`) — same
   restriction as array `==`/`!=`, since only scalars have a well-defined
   equality in v0.
+- `compare(a: T, b: T) -> int` — `-1`, `0` or `1`; `T` is any type with a
+  total order (see "Ordering" below). The way to order a struct or enum;
+  `<`, `>`, `<=`, `>=` are for numbers, strings and bytes only.
 - `hash(x: T) -> int` — a hash of `x`; `T` is `int`, `float`, `bool`,
   `string`, `bigint`, `decimal`, `byte`, or a type parameter bounded by
   `Hash` (see "Generics" above). Not cryptographic and not stable across

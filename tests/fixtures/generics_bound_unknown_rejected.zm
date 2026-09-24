@@ -1,4 +1,4 @@
-struct Box<T: Ord> {
+struct Box<T: Bogus> {
     value: T
 }
 

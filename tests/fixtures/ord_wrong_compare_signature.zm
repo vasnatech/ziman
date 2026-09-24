@@ -1,0 +1,14 @@
+use collections
+
+struct Plain {
+    a: int
+}
+
+fn plain_compare(a: Plain) -> int {
+    return 0
+}
+
+fn main() {
+    val xs = [Plain { a: 2 }]
+    print(len(collections.sort<Plain>(xs)))
+}

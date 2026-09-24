@@ -81,6 +81,7 @@ static char *fmt_str(const char *fmt, ...) {
  * convention, so a struct field of type LocalDate correctly resolves to
  * `local_date_to_json`. See docs/DESIGN.md's "Attributes and derive"
  * entry. */
+char *ziman_pascal_to_snake(const char *name);
 static char *pascal_to_snake(const char *name) {
     size_t len = strlen(name);
     char *out = malloc(len * 2 + 1);
@@ -97,6 +98,34 @@ static char *pascal_to_snake(const char *name) {
         }
     }
     out[oi] = '\0';
+    return out;
+}
+
+char *ziman_pascal_to_snake(const char *name) {
+    return pascal_to_snake(name);
+}
+
+char *ziman_compare_function_name(const char *type_name) {
+    const char *bare = type_name;
+    for (const char *p = strstr(bare, "::"); p != NULL; p = strstr(bare, "::")) bare = p + 2;
+    char *snake = pascal_to_snake(bare);
+    size_t prefix_len = (size_t)(bare - type_name);
+    char *out = malloc(prefix_len + strlen(snake) + strlen("_compare") + 1);
+    memcpy(out, type_name, prefix_len);
+    strcpy(out + prefix_len, snake);
+    strcat(out, "_compare");
+    return out;
+}
+
+char *ziman_compare_function_name_flat(const char *type_name) {
+    const char *bare = type_name;
+    for (const char *p = strstr(bare, "::"); p != NULL; p = strstr(bare, "::")) bare = p + 2;
+    size_t prefix_len = (size_t)(bare - type_name);
+    size_t bare_len = strlen(bare);
+    char *out = malloc(prefix_len + bare_len + strlen("_compare") + 1);
+    memcpy(out, type_name, prefix_len);
+    for (size_t i = 0; i < bare_len; i++) out[prefix_len + i] = (char)tolower((unsigned char)bare[i]);
+    strcpy(out + prefix_len + bare_len, "_compare");
     return out;
 }
 
@@ -649,6 +678,50 @@ static void parse_and_splice(Module *module, char *source, int line, int col, co
 }
 
 /* ---------------------------------------------------------------------
+ * Ord derive: <name>_compare(a, b) -> int. A struct compares field by field in
+ * declaration order (the first difference decides); an enum compares by
+ * variant position first, then by payload when both are the same variant.
+ * Each field/payload is compared with the `compare` builtin, so it must be an
+ * Ord type itself -- the checker reports one that isn't.
+ * --------------------------------------------------------------------- */
+
+static char *generate_struct_ord(StructDecl *sd) {
+    CodeBuf cb;
+    cb_init(&cb);
+    char *fn_name = pascal_to_snake(sd->name);
+    cb_appendf(&cb, "pub fn %s_compare(a: %s, b: %s) -> int {\n", fn_name, sd->name, sd->name);
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        cb_appendf(&cb, "    val c_%s = compare(a.%s, b.%s)\n", f->name, f->name, f->name);
+        cb_appendf(&cb, "    if c_%s != 0 {\n        return c_%s\n    }\n", f->name, f->name);
+    }
+    cb_appendf(&cb, "    return 0\n}\n\n");
+    return cb.data;
+}
+
+static char *generate_enum_ord(EnumDecl *ed) {
+    CodeBuf cb;
+    cb_init(&cb);
+    char *fn_name = pascal_to_snake(ed->name);
+    cb_appendf(&cb, "pub fn %s_compare(a: %s, b: %s) -> int {\n", fn_name, ed->name, ed->name);
+    cb_appendf(&cb, "    var ra = 0\n    var rb = 0\n");
+    for (int i = 0; i + 1 < ed->variants.count; i++) {
+        cb_appendf(&cb, "    if %s.is_%s(a) {\n        ra = %d\n    }\n", ed->name, ed->variants.items[i].name, i);
+        cb_appendf(&cb, "    if %s.is_%s(b) {\n        rb = %d\n    }\n", ed->name, ed->variants.items[i].name, i);
+    }
+    cb_appendf(&cb, "    if ra == 0 && !%s.is_%s(a) {\n        ra = %d\n    }\n", ed->name, ed->variants.items[0].name, ed->variants.count - 1);
+    cb_appendf(&cb, "    if rb == 0 && !%s.is_%s(b) {\n        rb = %d\n    }\n", ed->name, ed->variants.items[0].name, ed->variants.count - 1);
+    cb_appendf(&cb, "    if ra < rb {\n        return -1\n    }\n    if ra > rb {\n        return 1\n    }\n");
+    for (int i = 0; i < ed->variants.count; i++) {
+        if (!ed->variants.items[i].has_payload) continue;
+        cb_appendf(&cb, "    if %s.is_%s(a) {\n        return compare(%s.unwrap_%s(a), %s.unwrap_%s(b))\n    }\n",
+                   ed->name, ed->variants.items[i].name, ed->name, ed->variants.items[i].name, ed->name, ed->variants.items[i].name);
+    }
+    cb_appendf(&cb, "    return 0\n}\n\n");
+    return cb.data;
+}
+
+/* ---------------------------------------------------------------------
  * Imports the generated code needs. The generator knows exactly which
  * names it emitted, so the user shouldn't have to spell five `use` lines
  * for one `#[derive(Json)]` -- and forgetting one gave an unhelpful error.
@@ -713,7 +786,8 @@ void generate_derived_functions(Module *module) {
             int is_json = strcmp(sd->derives[d], "Json") == 0;
             int is_row = strcmp(sd->derives[d], "Row") == 0;
             int is_props = strcmp(sd->derives[d], "Properties") == 0;
-            if (!is_json && !is_row && !is_props) {
+            int is_ord = strcmp(sd->derives[d], "Ord") == 0;
+            if (!is_json && !is_row && !is_props && !is_ord) {
                 ziman_error("syntax", sd->line, sd->col, "unknown derive target '%s' on struct '%s'", sd->derives[d], sd->name);
             }
             if (sd->type_params.count > 0) {
@@ -721,7 +795,12 @@ void generate_derived_functions(Module *module) {
             }
             const char *label = fmt_str("derive(%s) for '%s'", sd->derives[d], sd->name);
             import_for_derive(module, sd->derives[d], sd->line, sd->col);
-            if (is_props) {
+            if (is_ord) {
+                if (sd->fields.count == 0) {
+                    ziman_error("syntax", sd->line, sd->col, "derive(Ord) needs at least one field to compare ('%s' has none)", sd->name);
+                }
+                parse_and_splice(module, generate_struct_ord(sd), sd->line, sd->col, label);
+            } else if (is_props) {
                 parse_and_splice(module, generate_struct_properties(sd), sd->line, sd->col, label);
             } else if (is_json) {
                 parse_and_splice(module, generate_struct_to_json(sd), sd->line, sd->col, label);
@@ -740,6 +819,14 @@ void generate_derived_functions(Module *module) {
             }
             if (strcmp(ed->derives[d], "Properties") == 0) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Properties) does not support an enum ('%s') -- configuration binds to a struct", ed->name);
+            }
+            if (strcmp(ed->derives[d], "Ord") == 0) {
+                if (ed->type_params.count > 0) {
+                    ziman_error("syntax", ed->line, ed->col, "derive(Ord) does not support a generic enum yet ('%s')", ed->name);
+                }
+                const char *ord_label = fmt_str("derive(Ord) for '%s'", ed->name);
+                parse_and_splice(module, generate_enum_ord(ed), ed->line, ed->col, ord_label);
+                continue;
             }
             if (strcmp(ed->derives[d], "Json") != 0) {
                 ziman_error("syntax", ed->line, ed->col, "unknown derive target '%s' on enum '%s'", ed->derives[d], ed->name);

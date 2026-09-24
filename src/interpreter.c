@@ -9,6 +9,7 @@
 
 #include "bignum.h"
 #include "decimal.h"
+#include "derive.h"
 #include "env.h"
 #include "error.h"
 #include "native.h"
@@ -272,6 +273,52 @@ static Value call_hash(Value v) {
     return value_int((int64_t)(h & 0x7FFFFFFFFFFFFFFFULL));
 }
 
+/* Three-way comparison behind `compare` and `sort`: -1, 0 or 1. Scalars
+ * compare natively (a string bytewise, then by length; a float with NaN
+ * sorting after every other value and equal to itself, so the order is
+ * total). A struct or enum calls its `<type>_compare` function -- written by
+ * hand or by #[derive(Ord)]; the checker has already proved it exists. */
+static int cmp_string_values(Value a, Value b) {
+    size_t la = a.as.str.len, lb = b.as.str.len;
+    int c = memcmp(a.as.str.ptr, b.as.str.ptr, la < lb ? la : lb);
+    if (c != 0) return c < 0 ? -1 : 1;
+    return la < lb ? -1 : (la > lb ? 1 : 0);
+}
+
+static int cmp_float_values(double x, double y) {
+    int nx = x != x, ny = y != y;
+    if (nx || ny) return nx == ny ? 0 : (nx ? 1 : -1);
+    return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col);
+
+static int value_compare(Module *module, Value a, Value b, int line, int col) {
+    switch (a.type.kind) {
+        case TY_INT: return a.as.i < b.as.i ? -1 : (a.as.i > b.as.i ? 1 : 0);
+        case TY_FLOAT: return cmp_float_values(a.as.f, b.as.f);
+        case TY_STRING: return cmp_string_values(a, b);
+        case TY_BYTE: return a.as.by < b.as.by ? -1 : (a.as.by > b.as.by ? 1 : 0);
+        case TY_BIGINT: { int c = bignum_compare(*a.as.bi, *b.as.bi); return c < 0 ? -1 : (c > 0 ? 1 : 0); }
+        case TY_DECIMAL: { int c = decimal_compare(*a.as.dec, *b.as.dec); return c < 0 ? -1 : (c > 0 ? 1 : 0); }
+        case TY_STRUCT:
+        case TY_ENUM: {
+            const char *type_name_str = a.type.kind == TY_STRUCT ? a.type.struct_name : a.type.enum_name;
+            char *fn_name = ziman_compare_function_name(type_name_str);
+            FunctionDecl *fn = find_function(module, fn_name);
+            if (fn == NULL) fn = find_function(module, ziman_compare_function_name_flat(type_name_str));
+            if (fn == NULL) ziman_error("runtime", line, col, "no compare function '%s' for %s", fn_name, type_name_str);
+            Value args[2] = {a, b};
+            Value r = call_function(module, fn, args, 2, 0, line, col);
+            free(fn_name);
+            return r.as.i < 0 ? -1 : (r.as.i > 0 ? 1 : 0);
+        }
+        default:
+            ziman_error("runtime", line, col, "internal error: compare on an unordered type");
+            return 0;
+    }
+}
+
 static Value call_abs(Value x, int line, int col) {
     if (x.type.kind == TY_INT) {
         if (x.as.i == INT64_MIN) int_overflow(line, col, "abs");
@@ -511,21 +558,29 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
         case OP_EQ: return value_bool(value_equals(l, r));
         case OP_NEQ: return value_bool(!value_equals(l, r));
         case OP_LT:
+            if (l.type.kind == TY_STRING) return value_bool(cmp_string_values(l, r) < 0);
+            if (l.type.kind == TY_BYTE) return value_bool(l.as.by < r.as.by);
             if (l.type.kind == TY_INT) return value_bool(l.as.i < r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) < 0);
             if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) < 0);
             return value_bool(l.as.f < r.as.f);
         case OP_GT:
+            if (l.type.kind == TY_STRING) return value_bool(cmp_string_values(l, r) > 0);
+            if (l.type.kind == TY_BYTE) return value_bool(l.as.by > r.as.by);
             if (l.type.kind == TY_INT) return value_bool(l.as.i > r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) > 0);
             if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) > 0);
             return value_bool(l.as.f > r.as.f);
         case OP_LE:
+            if (l.type.kind == TY_STRING) return value_bool(cmp_string_values(l, r) <= 0);
+            if (l.type.kind == TY_BYTE) return value_bool(l.as.by <= r.as.by);
             if (l.type.kind == TY_INT) return value_bool(l.as.i <= r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) <= 0);
             if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) <= 0);
             return value_bool(l.as.f <= r.as.f);
         case OP_GE:
+            if (l.type.kind == TY_STRING) return value_bool(cmp_string_values(l, r) >= 0);
+            if (l.type.kind == TY_BYTE) return value_bool(l.as.by >= r.as.by);
             if (l.type.kind == TY_INT) return value_bool(l.as.i >= r.as.i);
             if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) >= 0);
             if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) >= 0);
@@ -637,6 +692,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_contains(args[0], args[1]);
             } else if (strcmp(e->as.call.callee, "hash") == 0) {
                 result = call_hash(args[0]);
+            } else if (strcmp(e->as.call.callee, "compare") == 0) {
+                result = value_int(value_compare(module, args[0], args[1], e->line, e->col));
             } else if (strcmp(e->as.call.callee, "abs") == 0) {
                 result = call_abs(args[0], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "min") == 0) {

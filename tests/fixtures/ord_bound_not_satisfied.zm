@@ -1,0 +1,10 @@
+use collections
+
+struct Plain {
+    a: int
+}
+
+fn main() {
+    val xs = [Plain { a: 2 }, Plain { a: 1 }]
+    print(len(collections.sort<Plain>(xs)))
+}

@@ -1,0 +1,8 @@
+#[derive(Ord)]
+struct Bad {
+    ok: bool
+}
+
+fn main() {
+    print(1)
+}

@@ -1,0 +1,8 @@
+struct Plain {
+    a: int
+}
+
+fn main() {
+    val x = Plain { a: 1 }
+    print(compare(x, x))
+}

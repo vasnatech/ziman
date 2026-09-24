@@ -1642,6 +1642,41 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **`Ord`, `compare` and a generic `sort` (external review, roadmap R11,
+  2026-09-23).** Sorting was not merely missing from the standard library but
+  *inexpressible*: with no function values there is no comparator, and with
+  only `Eq` and `Hash` as bounds there was no way to say "T can be ordered".
+  The nine hand-written `_compare` functions across `time` were the symptom --
+  the language needed ordering nine times and worked around it nine times.
+  **Design.** A third hardcoded bound, `Ord`, satisfied by the scalars that
+  order naturally (`int`, `float`, `bigint`, `decimal`, `byte`, and `string`
+  byte-wise -- `bool`, arrays, `Option` and `Result` deliberately not) and by a
+  struct or enum that has a `<snake_type>_compare(a: T, b: T) -> int` function.
+  That is a *naming convention*, the same kind derives already dispatch on
+  (`<type>_to_json`), chosen over a new declaration form because it needs no
+  syntax and the `time` types already followed it; the checker verifies the
+  function exists and has the right signature, both at a bound and at a
+  `compare` call, and the runtime `compare` builtin finds and calls it. Both
+  spellings are accepted (`local_date_compare` and `localdate_compare`),
+  because the bundled `time` types were written before this convention was
+  named. A builtin `compare<T: Ord>(a, b) -> int` does the work, and `<`, `>`,
+  `<=`, `>=` gained `string` and `byte` (the common gap) but stay
+  non-overloadable, so a user type never redefines an operator (principle #2):
+  it goes through `compare`. A `float` order is made total by putting NaN after
+  everything and equal to itself, since an order with NaN "equal to everything"
+  is not transitive. **Sorting** lives in `collections` (a prelude function
+  named `sort` would collide with every program that defines its own): a
+  stable bottom-up merge sort computes the *permutation* (`sort_indices`), and
+  `sort` and `sort_by_keys` both gather by it. `sort_by_keys` is the answer to
+  "no comparator": the caller builds the key array and the sort orders the
+  items by it, which covers any field or computed ordering with no function
+  values. `#[derive(Ord)]` writes `_compare` for structs (lexicographic by
+  field) and enums (variant position, then payload). **Cost and limits:** a
+  pure-Ziman merge sort sorts 20,000 ints in about 0.3 s; a native fast path
+  for scalar arrays is an easy later win. A type has exactly one order (its
+  `_compare`); anything else goes through `sort_by_keys`. A generic type can't
+  derive `Ord` yet. Bounded type parameters are still checked only at the use
+  site, as with `Eq`/`Hash`.
 - **Server hygiene: exit status, bounded concurrency, graceful shutdown
   (external review, roadmap R10, 2026-09-23).** The showcase server had four
   problems a real deployment hits at once: the configuration-error path printed

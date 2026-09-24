@@ -1,0 +1,3 @@
+fn main() {
+    print(compare(true, false))
+}

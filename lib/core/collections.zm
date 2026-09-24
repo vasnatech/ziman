@@ -277,3 +277,118 @@ pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T> {
     }
     return HashSet<T> { buckets: new_buckets, count: new_count }
 }
+
+// ---------------------------------------------------------------- sorting
+//
+// Ziman has no function values, so a sort can't take a comparator; it takes
+// an `Ord` type instead (`compare` orders any number, string or byte, and any
+// struct/enum with a `<type>_compare` function -- `#[derive(Ord)]` writes
+// one). To sort by something other than a type's own order, compute the key
+// for each item and use `sort_by_keys`. All of these return a new array
+// (arrays are immutable) and the sort is stable: equal keys keep their order.
+
+// The positions of `keys` in ascending order: a stable bottom-up merge sort,
+// O(n log n) comparisons. `sort` and `sort_by_keys` are both "gather by this
+// permutation".
+pub fn sort_indices<K: Ord>(keys: [K]) -> [int] {
+    val n = len(keys)
+    val start = ab_new<int>()
+    for i in 0..n {
+        ab_append<int>(start, i)
+    }
+    var order = ab_to_array<int>(start)
+    var width = 1
+    while width < n {
+        val merged = ab_new<int>()
+        var lo = 0
+        while lo < n {
+            val mid = min(lo + width, n)
+            val hi = min(lo + 2 * width, n)
+            var i = lo
+            var j = mid
+            while i < mid && j < hi {
+                if compare(keys[order[j]], keys[order[i]]) < 0 {
+                    ab_append<int>(merged, order[j])
+                    j = j + 1
+                } else {
+                    ab_append<int>(merged, order[i])
+                    i = i + 1
+                }
+            }
+            while i < mid {
+                ab_append<int>(merged, order[i])
+                i = i + 1
+            }
+            while j < hi {
+                ab_append<int>(merged, order[j])
+                j = j + 1
+            }
+            lo = lo + 2 * width
+        }
+        order = ab_to_array<int>(merged)
+        width = width * 2
+    }
+    return order
+}
+
+fn gather<T>(items: [T], order: [int]) -> [T] {
+    val out = ab_new<T>()
+    for position in order {
+        ab_append<T>(out, items[position])
+    }
+    return ab_to_array<T>(out)
+}
+
+// `items` in ascending order of their own `compare`.
+pub fn sort<T: Ord>(items: [T]) -> [T] {
+    return gather<T>(items, sort_indices<T>(items))
+}
+
+// `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a
+// caller sorts by a field or a computed value without a comparator function.
+// An Err if the two arrays differ in length.
+pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string> {
+    if len(items) != len(keys) {
+        return err(format("sort_by_keys: {} items but {} keys", len(items), len(keys)))
+    }
+    return ok(gather<T>(items, sort_indices<K>(keys)))
+}
+
+pub fn is_sorted<T: Ord>(items: [T]) -> bool {
+    for i in 1..len(items) {
+        if compare(items[i - 1], items[i]) > 0 {
+            return false
+        }
+    }
+    return true
+}
+
+// The position of the first element equal to `target` in an already sorted
+// array, or None. O(log n).
+pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int> {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) < 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    if lo < len(sorted) && compare(sorted[lo], target) == 0 {
+        return Option<int>.Some(lo)
+    }
+    return Option<int>.None
+}
+
+// The same elements, last to first -- with `sort`, a descending sort.
+pub fn reverse<T>(items: [T]) -> [T] {
+    val out = ab_new<T>()
+    var i = len(items) - 1
+    while i >= 0 {
+        ab_append<T>(out, items[i])
+        i = i - 1
+    }
+    return ab_to_array<T>(out)
+}

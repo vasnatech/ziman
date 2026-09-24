@@ -1,0 +1,18 @@
+use collections
+
+// A hand-written <type>_compare is all the Ord bound needs: descending by score.
+struct Entry {
+    name: string
+    score: int
+}
+
+fn entry_compare(a: Entry, b: Entry) -> int {
+    return compare(b.score, a.score)
+}
+
+fn main() {
+    val entries = [Entry { name: "a", score: 1 }, Entry { name: "b", score: 9 }, Entry { name: "c", score: 5 }]
+    for e in collections.sort<Entry>(entries) {
+        print(e.name)
+    }
+}

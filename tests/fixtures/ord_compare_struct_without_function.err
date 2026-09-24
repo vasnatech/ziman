@@ -1,0 +1,1 @@
+'compare' expects int, float, bigint, decimal, byte, string, a struct/enum with a '<type>_compare' function

@@ -100,6 +100,18 @@ pub fn hashset_add<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T>
 
 pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T>
 
+pub fn sort_indices<K: Ord>(keys: [K]) -> [int]
+
+pub fn sort<T: Ord>(items: [T]) -> [T]
+
+pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string>
+
+pub fn is_sorted<T: Ord>(items: [T]) -> bool
+
+pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int>
+
+pub fn reverse<T>(items: [T]) -> [T]
+
 ```
 
 ## `crypto`
@@ -707,6 +719,8 @@ pub fn uuid_from_json(j: Json) -> Result<Uuid, string>
 pub fn uuid_to_sql(u: Uuid) -> SqlValue
 
 pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError>
+
+pub fn uuid_compare(a: Uuid, b: Uuid) -> int
 
 ```
 

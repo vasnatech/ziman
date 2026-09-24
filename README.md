@@ -65,9 +65,11 @@ shared memory and locks).
 (`struct Box<T> { value: T }`), with explicit type arguments required
 at every use site — `Box<int>{ value: 5 }`, `identity<string>(x)` — and
 no inference, since `Value` is runtime-type-erased and nothing is ever
-monomorphized. A type parameter can be bounded with `Eq` and/or `Hash`
-(`<K: Eq + Hash>`) to use `==`/`hash()` on it inside a generic body;
-these are the only two bounds Ziman has — there's no general
+monomorphized. A type parameter can be bounded with `Eq`, `Hash` and/or `Ord`
+(`<K: Eq + Hash>`) to use `==`/`hash()`/`compare()` on it inside a generic
+body (`collections.sort<T: Ord>` is a stable merge sort, and
+`#[derive(Ord)]` writes a struct's or enum's order); these are the only
+three bounds Ziman has — there's no general
 trait/interface system (see docs/DESIGN.md's Generics entry for why,
 and what's deliberately left undecided). A small `collections` module
 built on this (`lib/core/collections.zm`) provides

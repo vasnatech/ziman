@@ -1,0 +1,1 @@
+derive(Ord) needs at least one field to compare

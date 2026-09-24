@@ -116,3 +116,16 @@ pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError> {
     val text = sql_as_text(v)?
     return sql_lift<Uuid>(uuid_from_string(text), "Uuid")
 }
+
+// Byte-wise order (the order of the canonical dashed-hex text), so a `Uuid`
+// satisfies `Ord`: it can be sorted with `collections.sort<Uuid>` and compared
+// with `compare`.
+pub fn uuid_compare(a: Uuid, b: Uuid) -> int {
+    for i in 0..len(a.bytes) {
+        val c = compare(a.bytes[i], b.bytes[i])
+        if c != 0 {
+            return c
+        }
+    }
+    return 0
+}

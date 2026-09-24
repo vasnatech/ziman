@@ -1156,9 +1156,11 @@ static TypeParamList parse_type_param_list(Parser *p) {
                     bound |= BOUND_EQ;
                 } else if (bound_tok->length == 4 && strncmp(bound_tok->start, "Hash", 4) == 0) {
                     bound |= BOUND_HASH;
+                } else if (bound_tok->length == 3 && strncmp(bound_tok->start, "Ord", 3) == 0) {
+                    bound |= BOUND_ORD;
                 } else {
                     ziman_error("syntax", bound_tok->line, bound_tok->col,
-                                "unknown bound '%.*s' (only 'Eq'/'Hash' are supported)", bound_tok->length, bound_tok->start);
+                                "unknown bound '%.*s' (only 'Eq', 'Hash' and 'Ord' are supported)", bound_tok->length, bound_tok->start);
                 }
                 if (!match(p, TOK_PLUS)) break;
             }

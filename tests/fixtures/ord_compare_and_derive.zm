@@ -1,0 +1,47 @@
+#[derive(Ord)]
+struct Person {
+    last: string
+    first: string
+    age: int
+}
+
+#[derive(Ord)]
+enum Rank {
+    Low
+    Mid(int)
+    High(string)
+}
+
+fn biggest<T: Ord>(a: T, b: T) -> T {
+    if compare(a, b) >= 0 {
+        return a
+    }
+    return b
+}
+
+fn main() {
+    print("apple" < "banana")
+    print("b" > "abc")
+    print("abc" <= "abc")
+    print("ab" < "abc")
+    print(compare("x", "y"))
+    print(compare(3, 3))
+    print(compare(2.5, 1.5))
+    print(compare(1.0 / 1.0, 1.0))
+    val p1 = Person { last: "Lovelace", first: "Ada", age: 36 }
+    val p2 = Person { last: "Lovelace", first: "Byron", age: 1 }
+    val p3 = Person { last: "Babbage", first: "Zed", age: 90 }
+    print(compare(p1, p2))
+    print(compare(p2, p1))
+    print(compare(p3, p1))
+    print(compare(p1, p1))
+    print(compare(Rank.Low, Rank.Mid(5)))
+    print(compare(Rank.Mid(5), Rank.Mid(3)))
+    print(compare(Rank.High("a"), Rank.Mid(9)))
+    print(compare(Rank.High("a"), Rank.High("b")))
+    print(compare(Rank.Low, Rank.Low))
+    print(biggest<int>(4, 9))
+    print(biggest<string>("pear", "apple"))
+    print(biggest<Person>(p1, p3).first)
+    print(biggest<Rank>(Rank.Mid(1), Rank.High("z")))
+}

@@ -1,1 +1,1 @@
-unknown bound 'Ord' (only 'Eq'/'Hash' are supported)
+unknown bound 'Bogus' (only 'Eq', 'Hash' and 'Ord' are supported)
