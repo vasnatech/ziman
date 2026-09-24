@@ -627,6 +627,14 @@ static Expr *parse_primary(Parser *p) {
         return e;
     }
 
+    if (t->type == TOK_IF) {
+        ziman_error("syntax", t->line, t->col,
+                    "'if' is a statement, not an expression -- declare a 'var' before it and assign in each branch, or 'return' from each branch");
+    }
+    if (t->type == TOK_FN) {
+        ziman_error("syntax", t->line, t->col,
+                    "Ziman has no anonymous functions -- declare a top-level 'fn' and pass its name (function values are references to named functions)");
+    }
     ziman_error("syntax", t->line, t->col, "expected an expression, found %s", token_type_name(t->type));
     return NULL; /* unreachable */
 }

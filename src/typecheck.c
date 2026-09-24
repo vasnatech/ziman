@@ -1498,8 +1498,14 @@ static Type check_field_access(Module *module, Env *env, Expr *e) {
     }
     Type base_type = check_expr(module, env, e->as.field_access.base);
     if (base_type.kind != TY_STRUCT) {
+        const char *fname = e->as.field_access.field_name;
+        if ((base_type.kind == TY_STRING || base_type.kind == TY_ARRAY) &&
+            (strcmp(fname, "len") == 0 || strcmp(fname, "length") == 0 || strcmp(fname, "size") == 0 || strcmp(fname, "count") == 0)) {
+            ziman_error("type", e->as.field_access.base->line, e->as.field_access.base->col,
+                        "%s has no field '%s' -- use len(x) for its length", type_name(base_type), fname);
+        }
         ziman_error("type", e->as.field_access.base->line, e->as.field_access.base->col,
-                    "cannot access field '%s' on %s (not a struct)", e->as.field_access.field_name, type_name(base_type));
+                    "cannot access field '%s' on %s (not a struct)", fname, type_name(base_type));
     }
     StructDecl *decl = find_struct(module, base_type.struct_name);
     for (int i = 0; i < decl->fields.count; i++) {

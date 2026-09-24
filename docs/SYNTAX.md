@@ -858,11 +858,13 @@ fn first_positive_doubled(items: [int]) -> Option<int> {
 - **Only legal as the entire initializer of a `val`/`var` declaration,
   or as its own bare statement** — never nested inside a larger
   expression (`return str(foo()?)`, `bar(foo()?, baz()?)` are both
-  syntax errors). This is a deliberate v0 scope cut: full nesting would
-  need the interpreter to unwind out of an arbitrary expression tree,
-  not just a statement; restricting `?` to these two positions covers
-  the common case (unwrap once, keep using the value) with no new
-  interpreter control-flow mechanism.
+  syntax errors). The reason is an implementation constraint, stated
+  plainly: full nesting would need the tree-walking interpreter to unwind
+  out of an arbitrary expression tree, not just a statement. It also
+  happens to be reasonable style (each fallible step sits on its own
+  line), but that is a side benefit, not the motive; restricting `?` to
+  these two positions covers the common case (unwrap once, keep using the
+  value) with no new interpreter control-flow mechanism.
 - **`Result<T, E>`'s `?` requires the enclosing function to return
   `Result<T2, E>` with the *same* `E`** — propagating `Err(e)` means
   handing the caller a real value, so the error type has to match

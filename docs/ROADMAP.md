@@ -349,7 +349,7 @@ against)**
   under "deliberately deferred"; the `index_of` entry in SYNTAX.md's
   builtins list is corrupted (starts mid-signature) so the function cannot
   be discovered from it.
-- [ ] **R20. Reconcile the "AI-first" rationale with the real motives.**
+- [x] **R20. Reconcile the "AI-first" rationale with the real motives.** *Done: DESIGN.md "What the AI-first goal does and does not justify" states the real motive per restriction and the training-distribution cost of each divergence; the weakest diagnostics were fixed (`;`, `if`/`fn` in expression position, `.length`/`.size` on a value).*
   Non-nestable `?` is an interpreter constraint (it happens to be good
   style -- say so plainly); "no closures" is justified by a benefit other
   choices already give (R13). Also acknowledge the training-distribution

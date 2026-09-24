@@ -1,0 +1,1 @@
+lexical error at 2:19: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'

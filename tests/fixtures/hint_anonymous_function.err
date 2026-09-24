@@ -1,0 +1,1 @@
+syntax error at 2:13: Ziman has no anonymous functions -- declare a top-level 'fn' and pass its name (function values are references to named functions)

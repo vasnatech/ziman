@@ -2893,3 +2893,52 @@ linted through the program that uses it) and derived functions are skipped.
 `--lint` replaces running: exit 0 clean, 1 with findings, so it drops into CI.
 It also adds the first `file` field to a diagnostic (warnings only). A
 formatter is a separate, larger project (the parser drops comments and layout).
+
+## What the AI-first goal does and does not justify
+
+(External review, roadmap R20, 2026-09-24.) "Cheap for an LLM to generate
+correctly" is a real design forcing function: asking "would a model get this
+right?" is a large part of why Ziman is small and orthogonal. It is not a
+universal justification, and some restrictions have a different motive that
+should be named.
+
+**Restrictions whose motive is the implementation, not clarity.**
+- *`?` is not nestable.* The motive is that the tree-walking interpreter
+  would otherwise have to unwind out of an arbitrary expression tree. It
+  happens to be good style; that is luck, not design. The rule stays.
+- *Function values don't capture* (R13 stage 1). This one has a design
+  motive, recorded in the R13 entry: a value carrying no environment cannot
+  reintroduce shared mutable state or a hidden `var` capture, so the actor
+  model is unchanged and the value is safe to send over a channel. It is a
+  concurrency argument, not a readability one. The earlier argument that "no
+  closures keeps call sites obvious" was weak -- no overloading, no methods and
+  no inheritance already deliver that -- and is withdrawn. Capture by value
+  (stage 2) stays open.
+- *`if` and `switch` are statements.* Same shape: expression forms are an
+  interpreter/typechecker change, tracked as R21, not a readability position.
+
+**The training-distribution cost of deliberate divergence.** A model writes
+Ziman well in proportion to how much Ziman-shaped code it has seen, and a new
+language starts at zero. Every divergence from mainstream syntax, even a
+clearer one, costs generation accuracy until a corpus exists. Ziman pays it
+in the most common operations: `arr = push(arr, x)` for `arr.push(x)`,
+`concat(a, b)` for `a + b`, `switch` with `Enum.unwrap_X` accessors for `match`,
+no methods, no `if` expressions, no closures, `for i in 0..n` for the C loop.
+Those are accepted for the principles above, knowingly, and the mitigation is
+the **diagnostic**: a model's habit should fail at compile time with the
+sentence that fixes it. Probed on 2026-09-24, each habit now does:
+`"a" + "b"` (use `concat`/`format`), `a.push(x)` and `s.len()` (no methods; call
+`push(a, x)` / `len(s)`), `match` (use `switch`), `s.length` (use `len(s)`),
+`for (...; ...; ...)` (no `;`; use `for i in 0..n`), `if` as an expression
+(use a `var`), `fn(...) {}` as a value (declare a top-level `fn`), and
+`1 + 2.0` (cast with `as`). Adding a habit that produces a vague message is a
+defect to fix the way these were.
+
+**Where the goal points the other way.** The errors models make in practice
+are cross-file and semantic (a variant added but a consumer missed, an off-by-
+one, one identifier mis-pasted in a duplicated block), not `1 + 1.0`. The
+features that address those are the ones the goal most supports: exhaustive
+`switch` (R4), function values so a route table replaces near-identical
+copy-pasted blocks (R13), `--json` diagnostics (R8) and `--lint` (R17). New
+work should be weighed against that list before adding another
+local-syntax restriction.

@@ -327,6 +327,9 @@ TokenList lex(const char *source) {
                 ziman_error("lexical", line, col, "unexpected character '|' (did you mean '||'?)");
                 continue;
             default:
+                if (c == ';') {
+                    ziman_error("lexical", line, col, "unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'");
+                }
                 ziman_error("lexical", line, col, "unexpected character '%c'", c);
         }
     }

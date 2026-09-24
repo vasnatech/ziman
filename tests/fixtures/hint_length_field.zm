@@ -1,0 +1,7 @@
+fn size_of(s: string) -> int {
+    return s.length
+}
+
+fn main() {
+    print(size_of("a"))
+}
