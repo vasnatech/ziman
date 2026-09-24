@@ -10,6 +10,7 @@
 #include "collections_source.h"
 #include "fs_source.h"
 #include "log_source.h"
+#include "regex_source.h"
 #include "httpclient_source.h"
 #include "random_source.h"
 #include "uuid_source.h"
@@ -46,6 +47,7 @@ static const CoreModule CORE_MODULES[] = {
     {"collections", COLLECTIONS_SOURCE},
     {"fs", FS_SOURCE},
     {"log", LOG_SOURCE},
+    {"regex", REGEX_SOURCE},
     {"httpclient", HTTPCLIENT_SOURCE},
     {"random", RANDOM_SOURCE},
     {"uuid", UUID_SOURCE},

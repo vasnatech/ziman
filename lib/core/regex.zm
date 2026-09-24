@@ -1,0 +1,220 @@
+// regex.zm -- regular expressions.
+//
+//   val re = regex.compile("(\\w+)@(\\w+)\\.com")?
+//   val m = regex.find(re, "mail bob@site.com now")     // Option<Match>
+//   regex.replace_all(re, text, "$2: $1")
+//
+// A Perl-flavoured syntax, without backreferences or lookaround -- which is what
+// lets every match run in time proportional to (text length x pattern size), so
+// a pattern that comes from outside can never make a program hang. Text and
+// patterns are UTF-8; every offset is a *byte* offset, like `substring`.
+//
+// Supported: literals, `.`, `[a-z]` `[^...]` classes (with `\d \w \s` inside),
+// `\d \D \w \W \s \S` (ASCII), `\b \B`, `^ $`, groups `( )` and `(?: )`,
+// alternation `|`, and the quantifiers `* + ? {n} {n,} {n,m}` (greedy, or lazy
+// with a trailing `?`). Escapes: `\n \r \t \f \v \0 \xHH` and `\` before any
+// punctuation. Flags go first: `(?i)` ignore ASCII case, `(?s)` `.` matches
+// newline, `(?m)` `^`/`$` match at line breaks (combine: `(?im)`). `.` and
+// classes match one whole UTF-8 character. `$` matches only at the very end
+// unless `(?m)`. Matching is leftmost, with Perl's priority between
+// alternatives.
+
+native fn compile_raw(pattern: string) -> Result<int, string>
+native fn group_count_raw(handle: int) -> int
+native fn search_raw(handle: int, text: string, from: int) -> [int]
+native fn search_all_raw(handle: int, text: string) -> [int]
+
+// A compiled pattern. Immutable and shareable between threads; compile once.
+pub struct Regex {
+    handle: int
+    groups: int
+    pattern: string
+}
+
+// One match: where it is (byte offsets, `end` exclusive), its text, and the
+// capture groups 1..n in order (`None` for a group that did not take part).
+pub struct Match {
+    start: int
+    end: int
+    text: string
+    groups: [Option<string>]
+}
+
+// The error message names the position of the problem.
+pub fn compile(pattern: string) -> Result<Regex, string> {
+    val handle = compile_raw(pattern)?
+    return ok(Regex { handle: handle, groups: group_count_raw(handle), pattern: pattern })
+}
+
+fn match_of(re: Regex, text: string, caps: [int], at: int) -> Match {
+    val groups = ab_new<Option<string>>()
+    for g in 1..re.groups + 1 {
+        val s = caps[at + 2 * g]
+        if s < 0 {
+            ab_append<Option<string>>(groups, Option<string>.None)
+        } else {
+            ab_append<Option<string>>(groups, Option<string>.Some(substring(text, s, caps[at + 2 * g + 1])))
+        }
+    }
+    return Match {
+        start: caps[at],
+        end: caps[at + 1],
+        text: substring(text, caps[at], caps[at + 1]),
+        groups: ab_to_array<Option<string>>(groups)
+    }
+}
+
+pub fn is_match(re: Regex, text: string) -> bool {
+    return len(search_raw(re.handle, text, 0)) > 0
+}
+
+// The first match at or after byte offset `from` (0 <= from <= len(text)).
+pub fn find_from(re: Regex, text: string, from: int) -> Option<Match> {
+    val caps = search_raw(re.handle, text, from)
+    if len(caps) == 0 {
+        return Option<Match>.None
+    }
+    return Option<Match>.Some(match_of(re, text, caps, 0))
+}
+
+pub fn find(re: Regex, text: string) -> Option<Match> {
+    return find_from(re, text, 0)
+}
+
+// Every non-overlapping match, left to right. After an empty match the scan
+// moves on by one character.
+pub fn find_all(re: Regex, text: string) -> [Match] {
+    val caps = search_all_raw(re.handle, text)
+    val stride = 2 * (re.groups + 1)
+    val out = ab_new<Match>()
+    var at = 0
+    while at < len(caps) {
+        ab_append<Match>(out, match_of(re, text, caps, at))
+        at = at + stride
+    }
+    return ab_to_array<Match>(out)
+}
+
+// The text of group `n` of a match: 0 is the whole match, 1.. the groups.
+// `None` for a group that did not take part or one that does not exist.
+pub fn group(m: Match, n: int) -> Option<string> {
+    if n == 0 {
+        return Option<string>.Some(m.text)
+    }
+    if n < 0 || n > len(m.groups) {
+        return Option<string>.None
+    }
+    return m.groups[n - 1]
+}
+
+fn group_text(m: Match, n: int) -> string {
+    return option_unwrap_or<string>(group(m, n), "")
+}
+
+// `replacement` with `$0` (whole match), `$1`..`$9`, `${12}` (any group number)
+// replaced by that group's text (empty if it did not take part or does not
+// exist), and `$$` for a literal `$`.
+fn expand(replacement: string, m: Match) -> string {
+    if index_of(replacement, "$", 0) < 0 {
+        return replacement
+    }
+    val out = sb_new()
+    var i = 0
+    while i < len(replacement) {
+        val dollar = index_of(replacement, "$", i)
+        if dollar < 0 {
+            sb_append(out, substring(replacement, i, len(replacement)))
+            i = len(replacement)
+        } else {
+            sb_append(out, substring(replacement, i, dollar))
+            i = dollar + 1
+            if is_char_at(replacement, i, "$") {
+                sb_append(out, "$")
+                i = i + 1
+            } else if is_char_at(replacement, i, "{") {
+                val close = index_of(replacement, "}", i)
+                if close < 0 {
+                    sb_append(out, "$")
+                } else {
+                    val number = parse_int(substring(replacement, i + 1, close))
+                    if is_ok(number) {
+                        sb_append(out, group_text(m, unwrap(number)))
+                        i = close + 1
+                    } else {
+                        sb_append(out, "$")
+                    }
+                }
+            } else {
+                var j = i
+                while j < len(replacement) && is_digit_char(char_at(replacement, j)) {
+                    j = j + 1
+                }
+                if j == i {
+                    sb_append(out, "$")
+                } else {
+                    sb_append(out, group_text(m, unwrap(parse_int(substring(replacement, i, j)))))
+                    i = j
+                }
+            }
+        }
+    }
+    return sb_to_string(out)
+}
+
+fn is_digit_char(c: string) -> bool {
+    return c >= "0" && c <= "9"
+}
+
+fn replace_matches(re: Regex, text: string, replacement: string, first_only: bool) -> string {
+    val matches = find_all(re, text)
+    if len(matches) == 0 {
+        return text
+    }
+    val out = sb_new()
+    var last = 0
+    var i = 0
+    while i < len(matches) {
+        val m = matches[i]
+        sb_append(out, substring(text, last, m.start), expand(replacement, m))
+        last = m.end
+        i = if first_only { len(matches) } else { i + 1 }
+    }
+    sb_append(out, substring(text, last, len(text)))
+    return sb_to_string(out)
+}
+
+// Replaces the first match; see `expand` for `$1`-style references.
+pub fn replace(re: Regex, text: string, replacement: string) -> string {
+    return replace_matches(re, text, replacement, true)
+}
+
+pub fn replace_all(re: Regex, text: string, replacement: string) -> string {
+    return replace_matches(re, text, replacement, false)
+}
+
+// The pieces of `text` between matches (an empty match separates nothing).
+pub fn split(re: Regex, text: string) -> [string] {
+    val out = ab_new<string>()
+    var last = 0
+    for m in find_all(re, text) {
+        if m.end > m.start {
+            ab_append<string>(out, substring(text, last, m.start))
+            last = m.end
+        }
+    }
+    ab_append<string>(out, substring(text, last, len(text)))
+    return ab_to_array<string>(out)
+}
+
+// `text` with every regex metacharacter escaped, so it matches itself.
+pub fn escape(text: string) -> string {
+    val out = sb_new()
+    for i in 0..len(text) {
+        val c = char_at(text, i)
+        if contains("\\.^$|?*+()[]{}", c) {
+            sb_append(out, "\\")
+        }
+        sb_append(out, c)
+    }
+    return sb_to_string(out)
+}

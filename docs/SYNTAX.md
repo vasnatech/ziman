@@ -2129,6 +2129,35 @@ val moved = db.with_transaction<int>(conn, fn(tx: db.Connection) -> Result<int, 
 })?
 ```
 
+## Regular expressions (`regex`)
+
+```
+val re = regex.compile("(\\w+)@(\\w+)\\.com")?           // Result<Regex, string>
+val m = regex.find(re, "mail bob@site.com now")             // Option<Match>
+regex.replace_all(re, "bob@site.com", "$2: $1")             // "site: bob"
+```
+
+`compile(pattern)` returns `Err` with a message naming the position of the
+problem. A `Regex` is immutable: compile once, share it between threads.
+`is_match`, `find`, `find_from`, `find_all`, `group`, `replace`, `replace_all`,
+`split` and `escape` do the rest. A `Match` has `start`/`end` (byte offsets, like
+`substring`), `text` and `groups` (`[Option<string>]`, groups 1..n).
+Replacements expand `$0`, `$1`..`$9`, `${12}` and `$$`.
+
+The syntax is Perl-flavoured **without backreferences or lookaround**, on
+purpose: matching then runs in time proportional to text length times pattern
+size, so a pattern taken from a request cannot make a program hang (`(a+)+$`
+against a long run of `a`s answers immediately). Supported: literals, `.`,
+classes `[a-z]` `[^...]` (with `\d \w \s` inside), `\d \D \w \W \s \S` (ASCII),
+`\b \B`, `^ $`, groups `( )` and `(?: )`, `|`, and `* + ? {n} {n,} {n,m}`
+(greedy, or lazy with a trailing `?`). Flags go first: `(?i)` ignore ASCII case,
+`(?s)` `.` matches newline, `(?m)` `^`/`$` match at line breaks. Patterns and
+text are UTF-8 and `.`/classes match a whole character. `$` matches only at the
+very end (unless `(?m)`), so use `^...$` to require the whole text. A repetition
+count is limited to 1000 and a compiled pattern to 20,000 instructions.
+`find_all` steps one character past an empty match, and `split` ignores empty
+matches.
+
 ## HTTP client (`httpclient`)
 
 `httpclient` lets a program call another service. `httpclient.get(url)`,

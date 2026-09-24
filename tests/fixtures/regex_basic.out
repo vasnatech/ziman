@@ -1,0 +1,18 @@
+[5..17) 'bob@site.com' groups=[Some(bob), Some(site)]
+no match
+true
+site: bob and corp: amy
+<bob|bob@site.com|$> and amy@corp.com
+3
+333
+[a, b, c, d]
+[x, y, z]
+-a-b-c-
+cafe e
+a\.b\*c\(d\)
+[0..1) 'b' groups=[None, Some(b)]
+Err(missing closing parenthesis at position 2)
+Err(repetition maximum is below the minimum at position 6)
+true
+Some(1)
+None

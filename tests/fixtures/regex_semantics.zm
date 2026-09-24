@@ -1,0 +1,61 @@
+use regex
+
+fn show(pattern: string, text: string) {
+    val compiled = regex.compile(pattern)
+    if !is_ok(compiled) {
+        printf("{} -> ERROR {}\n", pattern, unwrap_err(compiled))
+        return
+    }
+    val m = regex.find(unwrap(compiled), text)
+    if !Option.is_Some(m) {
+        printf("{} on '{}' -> no match\n", pattern, text)
+        return
+    }
+    val x = Option.unwrap_Some(m)
+    printf("{} on '{}' -> [{}..{}) {}\n", pattern, text, x.start, x.end, x.groups)
+}
+
+fn main() {
+    show("abc", "xxabcxx")
+    show("a+", "baaac")
+    show("a+?", "baaac")
+    show("(a|ab)(c|bcd)(d*)", "abcd")
+    show("^\\d{3}-\\d{4}$", "555-1234")
+    show("^\\d{3}-\\d{4}$", "555-12345")
+    show("\\bfoo\\b", "a foo b")
+    show("\\bfoo", "xfoo foo")
+    show("\\Boo", "foo")
+    show("(?i)hello", "Say HeLLo")
+    show("[a-c]+", "xxabcabcx")
+    show("[^a-c]+", "abcxyzabc")
+    show("[\\d\\s]+", "x1 2y")
+    show("[]a]+", "b]a]")
+    show("[a\\-z]+", "b-az")
+    show("(\\w+)@(\\w+)\\.com", "mail bob@site.com now")
+    show("a*", "b")
+    show("x{2,3}", "xxxxx")
+    show("x{2,3}?", "xxxxx")
+    show("x{2}", "x")
+    show("colou?r", "my color")
+    show("é+", "caféé!")
+    show(".", "é")
+    show("a.c", "a\nc")
+    show("(?s)a.c", "a\nc")
+    show("(?m)^b$", "a\nb\nc")
+    show("^b$", "a\nb\nc")
+    show("", "abc")
+    show("$", "abc")
+    show("a|b|c", "zzc")
+    show("(?:ab)+", "ababab")
+    show("\\.", "a.b")
+    show("\\x41\\t", "A\t")
+    show("(a)|(b)", "b")
+    show("(", "x")
+    show("a)", "x")
+    show("*a", "x")
+    show("[a", "x")
+    show("\\1", "x")
+    show("a{2,1}", "x")
+    show("(?=a)", "x")
+    show("\\q", "x")
+}

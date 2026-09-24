@@ -1,0 +1,48 @@
+abc on 'xxabcxx' -> [2..5) []
+a+ on 'baaac' -> [1..4) []
+a+? on 'baaac' -> [1..2) []
+(a|ab)(c|bcd)(d*) on 'abcd' -> [0..4) [Some(a), Some(bcd), Some()]
+^\d{3}-\d{4}$ on '555-1234' -> [0..8) []
+^\d{3}-\d{4}$ on '555-12345' -> no match
+\bfoo\b on 'a foo b' -> [2..5) []
+\bfoo on 'xfoo foo' -> [5..8) []
+\Boo on 'foo' -> [1..3) []
+(?i)hello on 'Say HeLLo' -> [4..9) []
+[a-c]+ on 'xxabcabcx' -> [2..8) []
+[^a-c]+ on 'abcxyzabc' -> [3..6) []
+[\d\s]+ on 'x1 2y' -> [1..4) []
+[]a]+ on 'b]a]' -> [1..4) []
+[a\-z]+ on 'b-az' -> [1..4) []
+(\w+)@(\w+)\.com on 'mail bob@site.com now' -> [5..17) [Some(bob), Some(site)]
+a* on 'b' -> [0..0) []
+x{2,3} on 'xxxxx' -> [0..3) []
+x{2,3}? on 'xxxxx' -> [0..2) []
+x{2} on 'x' -> no match
+colou?r on 'my color' -> [3..8) []
+é+ on 'caféé!' -> [3..7) []
+. on 'é' -> [0..2) []
+a.c on 'a
+c' -> no match
+(?s)a.c on 'a
+c' -> [0..3) []
+(?m)^b$ on 'a
+b
+c' -> [2..3) []
+^b$ on 'a
+b
+c' -> no match
+ on 'abc' -> [0..0) []
+$ on 'abc' -> [3..3) []
+a|b|c on 'zzc' -> [2..3) []
+(?:ab)+ on 'ababab' -> [0..6) []
+\. on 'a.b' -> [1..2) []
+\x41\t on 'A	' -> [0..2) []
+(a)|(b) on 'b' -> [0..1) [None, Some(b)]
+( -> ERROR missing closing parenthesis at position 1
+a) -> ERROR unmatched closing parenthesis at position 1
+*a -> ERROR nothing to repeat at position 0
+[a -> ERROR unterminated character class at position 2
+\1 -> ERROR backreferences are not supported at position 2
+a{2,1} -> ERROR repetition maximum is below the minimum at position 6
+(?=a) -> ERROR unsupported group syntax (only (?:...) and leading (?i)(?s)(?m) flags) at position 1
+\q -> ERROR unknown escape at position 2

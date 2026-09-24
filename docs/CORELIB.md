@@ -598,6 +598,44 @@ pub native fn random_bytes(n: int) -> [byte]
 
 ```
 
+## `regex`
+
+```
+pub struct Regex {
+    handle: int
+    groups: int
+    pattern: string
+}
+
+pub struct Match {
+    start: int
+    end: int
+    text: string
+    groups: [Option<string>]
+}
+
+pub fn compile(pattern: string) -> Result<Regex, string>
+
+pub fn is_match(re: Regex, text: string) -> bool
+
+pub fn find_from(re: Regex, text: string, from: int) -> Option<Match>
+
+pub fn find(re: Regex, text: string) -> Option<Match>
+
+pub fn find_all(re: Regex, text: string) -> [Match]
+
+pub fn group(m: Match, n: int) -> Option<string>
+
+pub fn replace(re: Regex, text: string, replacement: string) -> string
+
+pub fn replace_all(re: Regex, text: string, replacement: string) -> string
+
+pub fn split(re: Regex, text: string) -> [string]
+
+pub fn escape(text: string) -> string
+
+```
+
 ## `time`
 
 Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneOffset` only -- no IANA-style `ZoneId` with DST rules. Every type has a fixed ISO-8601 `_to_string`/`_parse` pair; `LocalDate`/`LocalTime`/`LocalDateTime`/`Instant` also get a general `_format`/`_parse_pattern` pair taking a `DateTimeFormat` -- a pattern compiled once by `datetime_format_of` (see the `iso_*_format` vals, each compiled exactly once at program start) rather than a raw pattern string re-scanned on every call.

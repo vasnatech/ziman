@@ -1,0 +1,20 @@
+use regex
+
+// One compiled pattern shared by several threads.
+fn worker(re: regex.Regex, text: string, out: Channel<string>) {
+    val m = regex.find(re, text)
+    send(out, Option.unwrap_Some(m).text)
+}
+
+fn main() {
+    val re = unwrap(regex.compile("\\d+"))
+    val out: Channel<string> = channel_new()
+    spawn worker(re, "a1", out)
+    spawn worker(re, "b22", out)
+    spawn worker(re, "c333", out)
+    var total = 0
+    for i in 0..3 {
+        total = total + len(receive(out))
+    }
+    print(total)
+}

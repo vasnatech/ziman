@@ -3107,3 +3107,36 @@ connection function is no longer generic). The sample backend's route lookup is
 request, and `server.zm` passes a lambda capturing the connection. Captured
 values are immutable copies, so sharing one handler between connection threads
 is safe.
+
+## Regular expressions (R15)
+
+**Native, not pure Ziman.** A regex engine is a tight inner loop over bytes;
+written in Ziman it would run at tree-walking speed, an order of magnitude or two
+slower than the same loop in C, for the one library where users notice. So
+`src/regex.c` is a self-contained engine (no PCRE or POSIX `regcomp`: their
+semantics differ, and neither is available identically everywhere) and
+`lib/core/regex.zm` is the Ziman-side API on top of four small natives
+(`compile_raw`, `group_count_raw`, `search_raw`, `search_all_raw`). Matches are
+returned as raw offset arrays because a native cannot build an `Option` or a
+struct of Ziman enums; the wrapper builds `Match` values with `substring` views.
+
+**No backreferences, no lookaround.** That is the design decision. With them a
+regex is NP-hard to match and every backtracking engine can be made to take
+exponential time by a crafted pattern or text (ReDoS); a language meant for
+servers that read patterns and text from outside should not have that. Without
+them the engine is a Pike VM (a Thompson NFA simulation carrying capture
+positions per thread): O(text x pattern), with Perl's leftmost/priority
+semantics, so results agree with what people expect from `(a|ab)`. The
+`regex_no_backtracking_blowup` fixture pins that with the classic pathological
+patterns. Repetition counts (`{n,m}`) expand by copying, so they are capped
+(1000 each, 20,000 instructions total) instead of allowed to blow memory.
+
+**UTF-8.** Pattern and text are UTF-8, `.` and classes consume a whole
+character, offsets are byte offsets (consistent with `substring`, `index_of` and
+`char_at`), and `\w \d \s` and `(?i)` are ASCII-only, since Unicode
+properties need tables Ziman does not carry.
+
+**Not done.** Named groups, `\p{...}`, POSIX classes (`[[:alpha:]]`),
+lookaround, backreferences, and a compiled-pattern cache; a `regex` literal
+syntax was considered and rejected (a string plus `compile` keeps one way to do
+it, and a bad pattern is a `Result`, not a compile error).

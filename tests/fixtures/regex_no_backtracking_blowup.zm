@@ -1,0 +1,16 @@
+use regex
+
+// Patterns that make a backtracking engine take exponential time; this one
+// answers immediately.
+fn main() {
+    val evil = unwrap(regex.compile("(a+)+$"))
+    val text = concat(join(pieces: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], separator: ""), "b")
+    print(regex.is_match(evil, text))
+    val evil2 = unwrap(regex.compile("(x+x+)+y"))
+    print(regex.is_match(evil2, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"))
+    val evil3 = unwrap(regex.compile("(.*a){12}"))
+    print(regex.is_match(evil3, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+    val big = unwrap(regex.compile("a{1000}"))
+    print(regex.is_match(big, "b"))
+    print(is_ok(regex.compile("((a{1000}){1000}){1000}")))
+}

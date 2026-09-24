@@ -1,0 +1,108 @@
+#define _POSIX_C_SOURCE 200809L
+#include "native_regex.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "error.h"
+#include "native.h"
+#include "regex.h"
+#include "value.h"
+
+/* A compiled pattern is immutable, so it is shared freely between threads and
+ * never freed (like every other heap object in the default build); the
+ * `handle` Ziman holds is the address of this wrapper, with a magic word so a
+ * forged or stale handle is an error, not a crash. */
+enum { REGEX_MAGIC = 0x52454758 };
+typedef struct {
+    unsigned magic;
+    Regex *re;
+} RegexHandle;
+
+static RegexHandle *handle_of(Value v, int line, int col) {
+    RegexHandle *h = (RegexHandle *)(intptr_t)v.as.i;
+    if (h == NULL || h->magic != REGEX_MAGIC) ziman_error("runtime", line, col, "regex: not a valid compiled pattern");
+    return h;
+}
+
+static Value native_regex_compile_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type str = type_scalar(TY_STRING);
+    Type rt = type_result(type_scalar(TY_INT), str);
+    char err[256];
+    Regex *re = regex_compile(args[0].as.str.ptr, args[0].as.str.len, err, sizeof err);
+    if (re == NULL) return value_result(rt, result_obj_new(0, value_string(strdup(err))));
+    RegexHandle *h = malloc(sizeof(RegexHandle));
+    h->magic = REGEX_MAGIC;
+    h->re = re;
+    return value_result(rt, result_obj_new(1, value_int((int64_t)(intptr_t)h)));
+}
+
+static Value native_regex_group_count_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return value_int(regex_group_count(handle_of(args[0], line, col)->re));
+}
+
+static Value int_array(int *vals, int n) {
+    Value *items = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    for (int i = 0; i < n; i++) items[i] = value_int(vals[i]);
+    return value_array(type_array(type_scalar(TY_INT)), array_obj_new(items, n));
+}
+
+/* search_raw(handle, text, from) -> [int]: the capture offsets of the first match at or after `from` (see regex_search), or [] for none. */
+static Value native_regex_search_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    RegexHandle *h = handle_of(args[0], line, col);
+    size_t len = args[1].as.str.len;
+    int64_t from = args[2].as.i;
+    if (from < 0 || (size_t)from > len) {
+        ziman_error("runtime", line, col, "regex: start offset %lld is out of range for a text of length %zu", (long long)from, len);
+    }
+    int n = 2 * (regex_group_count(h->re) + 1);
+    int *caps = malloc((size_t)n * sizeof(int));
+    Value result;
+    if (regex_search(h->re, args[1].as.str.ptr, len, (size_t)from, caps)) result = int_array(caps, n);
+    else result = int_array(caps, 0);
+    free(caps);
+    return result;
+}
+
+/* search_all_raw(handle, text) -> [int]: the capture offsets of every non-overlapping match, concatenated. An empty
+ * match is followed by a step of one character so the scan always advances. */
+static Value native_regex_search_all_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    RegexHandle *h = handle_of(args[0], line, col);
+    const char *text = args[1].as.str.ptr;
+    size_t len = args[1].as.str.len;
+    int n = 2 * (regex_group_count(h->re) + 1);
+    int *caps = malloc((size_t)n * sizeof(int));
+    int cap = 64, count = 0;
+    int *all = malloc((size_t)cap * sizeof(int));
+    size_t from = 0;
+    while (from <= len && regex_search(h->re, text, len, from, caps)) {
+        if (count + n > cap) {
+            while (count + n > cap) cap *= 2;
+            all = realloc(all, (size_t)cap * sizeof(int));
+        }
+        memcpy(all + count, caps, (size_t)n * sizeof(int));
+        count += n;
+        size_t end = (size_t)caps[1];
+        if (caps[1] == caps[0]) {
+            end++;
+            while (end < len && ((unsigned char)text[end] & 0xC0) == 0x80) end++; /* step over a whole UTF-8 character */
+        }
+        from = end;
+    }
+    Value result = int_array(all, count);
+    free(caps);
+    free(all);
+    return result;
+}
+
+void native_regex_register(void) {
+    native_register("regex::compile_raw", native_regex_compile_raw);
+    native_register("regex::group_count_raw", native_regex_group_count_raw);
+    native_register("regex::search_raw", native_regex_search_raw);
+    native_register("regex::search_all_raw", native_regex_search_all_raw);
+}

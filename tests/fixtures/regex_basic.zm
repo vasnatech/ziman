@@ -1,0 +1,37 @@
+use regex
+
+fn show(m: Option<regex.Match>) {
+    if Option.is_Some(m) {
+        val x = Option.unwrap_Some(m)
+        printf("[{}..{}) '{}' groups={}\n", x.start, x.end, x.text, x.groups)
+    } else {
+        print("no match")
+    }
+}
+
+fn main() {
+    val re = unwrap(regex.compile("(\\w+)@(\\w+)\\.com"))
+    show(regex.find(re, "mail bob@site.com now"))
+    show(regex.find(re, "nothing here"))
+    print(regex.is_match(re, "a@b.com"))
+    print(regex.replace_all(re, "bob@site.com and amy@corp.com", "$2: $1"))
+    print(regex.replace(re, "bob@site.com and amy@corp.com", "<${1}|$0|$$>"))
+
+    val num = unwrap(regex.compile("\\d+"))
+    val all = regex.find_all(num, "a1 b22 c333")
+    print(len(all))
+    print(all[2].text)
+    print(regex.split(unwrap(regex.compile("\\s*,\\s*")), "a , b,c ,  d"))
+    print(regex.split(num, "x1y22z"))
+    print(regex.replace_all(unwrap(regex.compile("x*")), "abc", "-"))
+    print(regex.replace_all(unwrap(regex.compile("é")), "café é", "e"))
+    print(regex.escape("a.b*c(d)"))
+    val opt = unwrap(regex.compile("(a)|(b)"))
+    show(regex.find(opt, "b"))
+    print(regex.compile("(a"))
+    print(regex.compile("a{3,1}"))
+    val ci = unwrap(regex.compile("(?i)ziman"))
+    print(regex.is_match(ci, "I like ZiMaN"))
+    print(regex.group(all[0], 0))
+    print(regex.group(all[0], 5))
+}
