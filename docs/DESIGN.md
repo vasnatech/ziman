@@ -3344,3 +3344,31 @@ is now a ring buffer (`head`, `count`, `capacity`) with two condition variables,
 `close`/end-of-stream on a channel, no `select` over several, no timeout on
 `send`/`receive` (poll with `try_*` and `clock.sleep_millis`), and a bounded
 `send` with no receiver blocks forever, with no deadlock detection.
+
+## Packed storage for `[int]`, `[float]` and `[bool]`
+
+R23 packed `[byte]`; this extends the same design to the other scalar element
+types. A `Value` is 80 bytes, so a million `[int]` cost 80 MB (and the collector
+had to scan and copy it); packed it is 8 MB of pointer-free memory the collector
+never scans. `ArrayObj` now has, besides `boxed_items`, one of `bytes`, `bools`,
+`ints` or `floats` (at most one non-NULL, chosen by the element type) -- separate
+fields rather than a tag, so every existing `arr->bytes != NULL` fast path
+(`memcmp`, `memchr`, `net.write`, `sb_append_byte`) stays exactly right for
+`[byte]` and never misfires on a bool array that shares the byte width.
+`array_get` returns the right `Value` for each kind, `array_obj_view` (slices)
+offsets whichever buffer is set, and `array_packed_edit` does `push`/`insert`/
+`set`/`remove` on any packed kind in one place. **Producers that pack:** array
+literals of one scalar type, `concat_arrays`, a builder (the first appended
+element's type picks the buffer, so `ab_new<int>()` is a raw `int64` buffer and
+`ab_to_array` one `memcpy`), `push` onto an empty boxed array, and the natives
+that return `[int]` (`clock.now_raw`, the regex offsets). Anything else that ends
+up an all-scalar boxed array is still correct. Empty arrays stay boxed (there is
+no element to type them by) until they grow. `==` is `memcmp` for `[int]`/
+`[bool]` and per-element for `[float]` (`NaN != NaN`, `-0.0 == 0.0`, unchanged).
+**Measured** (`tests/bench/scalar_arrays_bench.zm`: three million-element arrays
+built, summed, one sorted, compared): **52.9 s and 2.7 GB before, 7.9 s and 80 MB
+after** (the ratio is inflated by the collector working through the boxed
+arrays; either way `[int]` in a hot path was the most expensive thing in the
+language). Not done: packing `string` elements (a `{ptr,len}` view is 16 bytes,
+so a packed string array is possible but touches every string native), and
+`decimal`/`bigint` arrays.

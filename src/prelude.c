@@ -576,11 +576,12 @@ typedef struct {
     size_t length;
     size_t capacity;
     double grow_factor;
-    /* Byte mode: once the first appended element is a byte, elements are kept
-     * as raw bytes in `bytes` (with `items` unused), so a [byte] under
-     * construction doesn't cost a Value per byte and ab_to_array is one memcpy. */
-    uint8_t *bytes;
-    int packed;
+    /* Packed mode: once the first appended element is a byte, bool, int or float,
+     * elements are kept as raw values in `pdata` (with `items` unused), so an
+     * array of them under construction doesn't cost a Value each and ab_to_array
+     * is one memcpy. */
+    PackKind pkind;
+    unsigned char *pdata;
 } ArrayBuilderBuf;
 
 /* Same pointer-as-handle scheme as StringBuilder above, for the same reason. */
@@ -610,7 +611,7 @@ static void ab_ensure_capacity(ArrayBuilderBuf *buf, size_t additional) {
     while (new_capacity < needed) {
         new_capacity = (size_t)((double)new_capacity * buf->grow_factor) + 1;
     }
-    if (buf->packed) buf->bytes = realloc(buf->bytes, new_capacity);
+    if (buf->pkind != PK_NONE) buf->pdata = realloc(buf->pdata, new_capacity * pack_elem_size(buf->pkind));
     else buf->items = realloc(buf->items, new_capacity * sizeof(Value));
     buf->capacity = new_capacity;
 }
@@ -633,8 +634,8 @@ static Value native_ab_new(Value *args, int argc, int line, int col) {
     buf->length = 0;
     buf->grow_factor = grow_factor;
     buf->items = buf->capacity > 0 ? malloc(buf->capacity * sizeof(Value)) : NULL;
-    buf->bytes = NULL;
-    buf->packed = 0;
+    buf->pdata = NULL;
+    buf->pkind = PK_NONE;
 
     int64_t handle = ab_table_register(buf);
 
@@ -650,19 +651,25 @@ static Value native_ab_append(Value *args, int argc, int line, int col) {
     ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
     ArrayObj *pieces = args[1].as.arr;
     if (pieces->count == 0) return value_int(0);
-    if (!buf->packed && buf->length == 0 && array_get(pieces, 0).type.kind == TY_BYTE) {
-        size_t cap = buf->capacity > 0 ? buf->capacity : 16;
-        buf->items = NULL;
-        buf->bytes = zalloc_atomic(cap);
-        buf->capacity = cap;
-        buf->packed = 1;
+    if (buf->pkind == PK_NONE && buf->length == 0) {
+        PackKind first = pack_kind_of_type(array_get(pieces, 0).type.kind);
+        if (first != PK_NONE) {
+            size_t cap = buf->capacity > 0 ? buf->capacity : 16;
+            buf->items = NULL;
+            buf->pdata = zalloc_atomic(cap * pack_elem_size(first));
+            buf->capacity = cap;
+            buf->pkind = first;
+        }
     }
     ab_ensure_capacity(buf, (size_t)pieces->count);
-    if (buf->packed) {
-        if (pieces->bytes != NULL) {
-            memcpy(buf->bytes + buf->length, pieces->bytes, (size_t)pieces->count);
+    if (buf->pkind != PK_NONE) {
+        size_t esz = pack_elem_size(buf->pkind);
+        if (array_pack_kind(pieces) == buf->pkind) {
+            const void *src = buf->pkind == PK_BYTE ? (const void *)pieces->bytes : buf->pkind == PK_BOOL ? (const void *)pieces->bools :
+                              buf->pkind == PK_INT ? (const void *)pieces->ints : (const void *)pieces->floats;
+            memcpy(buf->pdata + esz * buf->length, src, esz * (size_t)pieces->count);
         } else {
-            for (int i = 0; i < pieces->count; i++) buf->bytes[buf->length + (size_t)i] = (uint8_t)array_get(pieces, i).as.by;
+            for (int i = 0; i < pieces->count; i++) pack_store(buf->pkind, buf->pdata, (int)buf->length + i, array_get(pieces, i));
         }
         buf->length += (size_t)pieces->count;
         return value_int(0);
@@ -678,21 +685,28 @@ static Value native_concat_arrays(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     ArrayObj *parts = args[0].as.arr;
     int total = 0;
+    PackKind kind = PK_NONE;
     int all_packed = 1;
     for (int i = 0; i < parts->count; i++) {
         ArrayObj *part = array_get(parts, i).as.arr;
         total += part->count;
-        if (part->count > 0 && part->bytes == NULL) all_packed = 0;
+        if (part->count == 0) continue;
+        PackKind pk = array_pack_kind(part);
+        if (pk == PK_NONE || (kind != PK_NONE && pk != kind)) all_packed = 0;
+        else if (kind == PK_NONE) kind = pk;
     }
-    if (total > 0 && all_packed) {
-        uint8_t *bytes = zalloc_atomic((size_t)total);
-        int at = 0;
+    if (total > 0 && all_packed && kind != PK_NONE) {
+        size_t esz = pack_elem_size(kind);
+        unsigned char *buf = zalloc_atomic(esz * (size_t)total);
+        size_t at = 0;
         for (int i = 0; i < parts->count; i++) {
             ArrayObj *part = array_get(parts, i).as.arr;
-            if (part->count > 0) memcpy(bytes + at, part->bytes, (size_t)part->count);
-            at += part->count;
+            if (part->count == 0) continue;
+            const void *src = kind == PK_BYTE ? (const void *)part->bytes : kind == PK_BOOL ? (const void *)part->bools : kind == PK_INT ? (const void *)part->ints : (const void *)part->floats;
+            memcpy(buf + at, src, esz * (size_t)part->count);
+            at += esz * (size_t)part->count;
         }
-        return value_array(type_scalar(TY_VOID), array_obj_new_bytes(bytes, total));
+        return value_array(type_scalar(TY_VOID), array_obj_new_packed(kind, buf, total));
     }
     Value *items = total > 0 ? malloc((size_t)total * sizeof(Value)) : NULL;
     int pos = 0;
@@ -700,7 +714,8 @@ static Value native_concat_arrays(Value *args, int argc, int line, int col) {
         ArrayObj *part = array_get(parts, i).as.arr;
         for (int j = 0; j < part->count; j++) items[pos++] = array_get(part, j);
     }
-    if (array_all_bytes(items, total)) return value_array(type_scalar(TY_VOID), array_obj_pack_bytes(items, total));
+    ArrayObj *packed = array_try_pack(items, total);
+    if (packed != NULL) return value_array(type_scalar(TY_VOID), packed);
     return value_array(type_scalar(TY_VOID), array_obj_new(items, total));
 }
 
@@ -724,10 +739,11 @@ static Value native_ab_to_array(Value *args, int argc, int line, int col) {
     (void)line;
     (void)col;
     ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
-    if (buf->packed) {
-        uint8_t *out = zalloc_atomic(buf->length);
-        memcpy(out, buf->bytes, buf->length);
-        return value_array(type_scalar(TY_VOID), array_obj_new_bytes(out, (int)buf->length));
+    if (buf->pkind != PK_NONE) {
+        size_t esz = pack_elem_size(buf->pkind);
+        unsigned char *out = zalloc_atomic(esz * buf->length);
+        memcpy(out, buf->pdata, esz * buf->length);
+        return value_array(type_scalar(TY_VOID), array_obj_new_packed(buf->pkind, out, (int)buf->length));
     }
     Value *items = buf->length > 0 ? malloc(buf->length * sizeof(Value)) : NULL;
     for (size_t i = 0; i < buf->length; i++) {

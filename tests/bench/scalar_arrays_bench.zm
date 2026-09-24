@@ -1,0 +1,34 @@
+// A million-element [int], [float] and [bool]: build with a builder, sum, sort, compare.
+use collections
+
+fn main() {
+    val n = 1000000
+    val ints = ab_new<int>()
+    val floats = ab_new<float>()
+    val flags = ab_new<bool>()
+    for i in 0..n {
+        ab_append<int>(ints, (i * 7919) % 100003)
+        ab_append<float>(floats, (i % 1000) as float / 8.0)
+        ab_append<bool>(flags, i % 3 == 0)
+    }
+    val a = ab_to_array<int>(ints)
+    val f = ab_to_array<float>(floats)
+    val b = ab_to_array<bool>(flags)
+    var sum = 0
+    var fsum = 0.0
+    var trues = 0
+    for i in 0..n {
+        sum = sum + a[i]
+        fsum = fsum + f[i]
+        if b[i] {
+            trues = trues + 1
+        }
+    }
+    print(sum)
+    print(fsum)
+    print(trues)
+    val sorted = collections.sort<int>(slice<int>(a, 0, 200000))
+    print(sorted[0])
+    print(sorted[199999])
+    print(a == slice<int>(a, 0, n))
+}

@@ -45,9 +45,11 @@ static Value native_regex_group_count_raw(Value *args, int argc, int line, int c
 }
 
 static Value int_array(int *vals, int n) {
-    Value *items = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
-    for (int i = 0; i < n; i++) items[i] = value_int(vals[i]);
-    return value_array(type_array(type_scalar(TY_INT)), array_obj_new(items, n));
+    int64_t *wide = malloc((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+    for (int i = 0; i < n; i++) wide[i] = vals[i];
+    Value v = value_int_array(wide, (size_t)n);
+    free(wide);
+    return v;
 }
 
 /* search_raw(handle, text, from) -> [int]: the capture offsets of the first match at or after `from` (see regex_search), or [] for none. */

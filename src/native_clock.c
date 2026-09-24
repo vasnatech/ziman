@@ -19,10 +19,8 @@ static Value native_clock_now_raw(Value *args, int argc, int line, int col) {
     if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
         ziman_error("runtime", line, col, "clock.now_raw: clock_gettime failed");
     }
-    Value *items = malloc(2 * sizeof(Value));
-    items[0] = value_int((int64_t)ts.tv_sec);
-    items[1] = value_int((int64_t)ts.tv_nsec);
-    return value_array(type_array(type_scalar(TY_INT)), array_obj_new(items, 2));
+    int64_t parts[2] = {(int64_t)ts.tv_sec, (int64_t)ts.tv_nsec};
+    return value_int_array(parts, 2);
 }
 
 /* clock.sleep_millis(ms): blocks the calling thread only. Retried on

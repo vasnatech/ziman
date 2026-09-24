@@ -97,46 +97,131 @@ Value value_array(Type array_type, ArrayObj *arr) {
 }
 
 ArrayObj *array_obj_new(Value *items, int count) {
-    ArrayObj *a = malloc(sizeof(ArrayObj));
+    ArrayObj *a = calloc(1, sizeof(ArrayObj));
     a->boxed_items = items;
-    a->bytes = NULL;
     a->count = count;
     return a;
 }
 
 ArrayObj *array_obj_new_bytes(uint8_t *bytes, int count) {
-    ArrayObj *a = malloc(sizeof(ArrayObj));
-    a->boxed_items = NULL;
-    a->bytes = bytes;
+    return array_obj_new_packed(PK_BYTE, bytes, count);
+}
+
+PackKind array_pack_kind(const ArrayObj *a) {
+    if (a->bytes != NULL) return PK_BYTE;
+    if (a->bools != NULL) return PK_BOOL;
+    if (a->ints != NULL) return PK_INT;
+    if (a->floats != NULL) return PK_FLOAT;
+    return PK_NONE;
+}
+
+size_t pack_elem_size(PackKind k) {
+    switch (k) {
+        case PK_BYTE:
+        case PK_BOOL: return 1;
+        case PK_INT: return sizeof(int64_t);
+        case PK_FLOAT: return sizeof(double);
+        default: return 0;
+    }
+}
+
+ArrayObj *array_obj_new_packed(PackKind k, void *data, int count) {
+    ArrayObj *a = calloc(1, sizeof(ArrayObj));
+    switch (k) {
+        case PK_BYTE: a->bytes = data; break;
+        case PK_BOOL: a->bools = data; break;
+        case PK_INT: a->ints = data; break;
+        case PK_FLOAT: a->floats = data; break;
+        default: break;
+    }
     a->count = count;
     return a;
 }
 
 Value array_get(const ArrayObj *a, int i) {
     if (a->bytes != NULL) return value_byte(a->bytes[i]);
+    if (a->ints != NULL) return value_int(a->ints[i]);
+    if (a->floats != NULL) return value_float(a->floats[i]);
+    if (a->bools != NULL) return value_bool(a->bools[i]);
     return a->boxed_items[i];
 }
 
 ArrayObj *array_obj_view(const ArrayObj *a, int start, int end) {
-    ArrayObj *v = malloc(sizeof(ArrayObj));
+    ArrayObj *v = calloc(1, sizeof(ArrayObj));
     v->boxed_items = a->boxed_items != NULL ? a->boxed_items + start : NULL;
     v->bytes = a->bytes != NULL ? a->bytes + start : NULL;
+    v->bools = a->bools != NULL ? a->bools + start : NULL;
+    v->ints = a->ints != NULL ? a->ints + start : NULL;
+    v->floats = a->floats != NULL ? a->floats + start : NULL;
     v->count = end - start;
     return v;
 }
 
-int array_all_bytes(const Value *items, int count) {
-    if (count == 0) return 0; /* an empty array stays boxed: nothing to pack, and no element to type it by */
-    for (int i = 0; i < count; i++) {
-        if (items[i].type.kind != TY_BYTE) return 0;
+PackKind pack_kind_of_type(TypeKind k) {
+    switch (k) {
+        case TY_BYTE: return PK_BYTE;
+        case TY_BOOL: return PK_BOOL;
+        case TY_INT: return PK_INT;
+        case TY_FLOAT: return PK_FLOAT;
+        default: return PK_NONE;
     }
-    return 1;
 }
 
-ArrayObj *array_obj_pack_bytes(const Value *items, int count) {
-    uint8_t *bytes = zalloc_atomic((size_t)(count > 0 ? count : 1));
-    for (int i = 0; i < count; i++) bytes[i] = (uint8_t)items[i].as.by;
-    return array_obj_new_bytes(bytes, count);
+void pack_store(PackKind k, void *buf, int idx, Value v) {
+    switch (k) {
+        case PK_BYTE: ((uint8_t *)buf)[idx] = (uint8_t)v.as.by; break;
+        case PK_BOOL: ((uint8_t *)buf)[idx] = v.as.b ? 1 : 0; break;
+        case PK_INT: ((int64_t *)buf)[idx] = v.as.i; break;
+        case PK_FLOAT: ((double *)buf)[idx] = v.as.f; break;
+        default: break;
+    }
+}
+
+ArrayObj *array_try_pack(const Value *items, int count) {
+    if (count == 0) return NULL; /* an empty array stays boxed: no element to type it by */
+    PackKind k = pack_kind_of_type(items[0].type.kind);
+    if (k == PK_NONE) return NULL;
+    for (int i = 1; i < count; i++) {
+        if (pack_kind_of_type(items[i].type.kind) != k) return NULL;
+    }
+    void *buf = zalloc_atomic(pack_elem_size(k) * (size_t)count);
+    for (int i = 0; i < count; i++) pack_store(k, buf, i, items[i]);
+    return array_obj_new_packed(k, buf, count);
+}
+
+ArrayObj *array_packed_edit(const ArrayObj *old, int mode, int at, Value x) {
+    PackKind k = array_pack_kind(old);
+    size_t esz = pack_elem_size(k);
+    const unsigned char *src = k == PK_BYTE ? old->bytes : k == PK_BOOL ? old->bools : k == PK_INT ? (const unsigned char *)old->ints : (const unsigned char *)old->floats;
+    int n = old->count;
+    int new_count = mode == 0 || mode == 1 ? n + 1 : mode == 3 ? n - 1 : n;
+    unsigned char *buf = zalloc_atomic(esz * (size_t)(new_count > 0 ? new_count : 1));
+    switch (mode) {
+        case 0: /* push */
+            memcpy(buf, src, esz * (size_t)n);
+            pack_store(k, buf, n, x);
+            break;
+        case 1: /* insert */
+            memcpy(buf, src, esz * (size_t)at);
+            pack_store(k, buf, at, x);
+            memcpy(buf + esz * (size_t)(at + 1), src + esz * (size_t)at, esz * (size_t)(n - at));
+            break;
+        case 2: /* set */
+            memcpy(buf, src, esz * (size_t)n);
+            pack_store(k, buf, at, x);
+            break;
+        default: /* remove */
+            memcpy(buf, src, esz * (size_t)at);
+            memcpy(buf + esz * (size_t)at, src + esz * (size_t)(at + 1), esz * (size_t)(n - at - 1));
+            break;
+    }
+    return array_obj_new_packed(k, buf, new_count);
+}
+
+Value value_int_array(const int64_t *buf, size_t n) {
+    int64_t *ints = zalloc_atomic(n > 0 ? n * sizeof(int64_t) : 1);
+    if (n > 0) memcpy(ints, buf, n * sizeof(int64_t));
+    return value_array(type_array(type_scalar(TY_INT)), array_obj_new_packed(PK_INT, ints, (int)n));
 }
 
 Value value_byte_array(const uint8_t *buf, size_t n) {
@@ -309,6 +394,12 @@ int value_equals(Value a, Value b) {
             if (arr_a->count != arr_b->count) return 0;
             if (arr_a->bytes != NULL && arr_b->bytes != NULL) {
                 return memcmp(arr_a->bytes, arr_b->bytes, (size_t)arr_a->count) == 0;
+            }
+            if (arr_a->ints != NULL && arr_b->ints != NULL) {
+                return memcmp(arr_a->ints, arr_b->ints, (size_t)arr_a->count * sizeof(int64_t)) == 0;
+            }
+            if (arr_a->bools != NULL && arr_b->bools != NULL) {
+                return memcmp(arr_a->bools, arr_b->bools, (size_t)arr_a->count) == 0;
             }
             for (int i = 0; i < arr_a->count; i++) {
                 if (!value_equals(array_get(arr_a, i), array_get(arr_b, i))) return 0;

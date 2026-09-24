@@ -28,10 +28,18 @@ typedef struct Value Value;
  * the same reason: nothing can mutate one through an alias). push/insert/set
  * never mutate their input; they always build a brand new ArrayObj. */
 typedef struct ArrayObj {
-    Value *boxed_items; /* one Value per element, or NULL when `bytes` is used */
-    uint8_t *bytes;     /* packed storage for a [byte]: one real byte per element, else NULL */
+    Value *boxed_items; /* one Value per element, or NULL when one of the packed buffers is used */
+    /* Packed storage for an array of one scalar type: at most one of these is
+     * non-NULL, holding `count` raw elements (a byte, a bool as 0/1, an int64, a
+     * double) instead of a 16-byte-plus Value each. Invisible to programs. */
+    uint8_t *bytes;    /* [byte] */
+    uint8_t *bools;    /* [bool] */
+    int64_t *ints;     /* [int] */
+    double *floats;    /* [float] */
     int count;
 } ArrayObj;
+
+typedef enum { PK_NONE = 0, PK_BYTE, PK_BOOL, PK_INT, PK_FLOAT } PackKind;
 
 /* A struct's backing storage. Same immutable-once-built invariant and the
  * same payoff as ArrayObj: a Value can share one by plain pointer copy and
@@ -174,10 +182,22 @@ ArrayObj *array_obj_new_bytes(uint8_t *bytes, int count);
 Value array_get(const ArrayObj *a, int i);
 /* A zero-copy view of elements [start, end) sharing `a`'s storage (boxed or packed). */
 ArrayObj *array_obj_view(const ArrayObj *a, int start, int end);
-/* Copies `items` (a boxed array of byte Values) into packed storage. Callers
- * check every element is a TY_BYTE first (see array_all_bytes). */
-ArrayObj *array_obj_pack_bytes(const Value *items, int count);
-int array_all_bytes(const Value *items, int count);
+/* Which packed representation `a` uses (PK_NONE for a boxed array). */
+PackKind array_pack_kind(const ArrayObj *a);
+PackKind pack_kind_of_type(TypeKind k); /* PK_NONE for anything that is not byte/bool/int/float */
+void pack_store(PackKind k, void *buf, int idx, Value v);
+size_t pack_elem_size(PackKind k);
+/* A packed ArrayObj of `count` elements over `data` (taken over). */
+ArrayObj *array_obj_new_packed(PackKind k, void *data, int count);
+/* Packs `items` if there is at least one element and they are all byte, bool,
+ * int or float Values (all the same kind); NULL otherwise -- the caller keeps
+ * the boxed array. */
+ArrayObj *array_try_pack(const Value *items, int count);
+/* A new packed array from `old` (packed): mode 0 push `x`, 1 insert `x` at `at`,
+ * 2 set element `at` to `x`, 3 remove element `at`. */
+ArrayObj *array_packed_edit(const ArrayObj *old, int mode, int at, Value x);
+/* Packed [int] / [float] Values holding a copy of `buf[0..n)`. */
+Value value_int_array(const int64_t *buf, size_t n);
 /* A fresh, writable copy of the bytes of a [byte] array, NUL-terminated for
  * convenience; `*out_len` gets the count. */
 uint8_t *array_copy_bytes(const ArrayObj *a, int *out_len);

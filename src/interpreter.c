@@ -207,7 +207,7 @@ static Value call_contains(Value first, Value second) {
         return value_bool(memchr(arr->bytes, second.as.by, (size_t)arr->count) != NULL);
     }
     for (int i = 0; i < arr->count; i++) {
-        if (value_equals(arr->boxed_items[i], second)) return value_bool(1);
+        if (value_equals(array_get(arr, i), second)) return value_bool(1);
     }
     return value_bool(0);
 }
@@ -442,17 +442,14 @@ static Value call_max(Value a, Value b) {
  * is immutable once built (see value.h) -- there's nothing to alias into. */
 static Value call_push(Type array_type, Value arr, Value x) {
     ArrayObj *old = arr.as.arr;
+    if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 0, 0, x));
     int new_count = old->count + 1;
-    if (old->bytes != NULL) {
-        uint8_t *bytes = zalloc_atomic((size_t)new_count);
-        memcpy(bytes, old->bytes, (size_t)old->count);
-        bytes[old->count] = (uint8_t)x.as.by;
-        return value_array(array_type, array_obj_new_bytes(bytes, new_count));
-    }
     Value *items = malloc((size_t)new_count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)old->count * sizeof(Value));
     items[old->count] = x;
-    return value_array(array_type, array_obj_new(items, new_count));
+    /* a `[]` that grows by push becomes packed on its first element */
+    ArrayObj *packed = old->count == 0 ? array_try_pack(items, new_count) : NULL;
+    return value_array(array_type, packed != NULL ? packed : array_obj_new(items, new_count));
 }
 
 static Value call_insert(Type array_type, Value arr, Value idx, Value x, int line, int col) {
@@ -461,19 +458,14 @@ static Value call_insert(Type array_type, Value arr, Value idx, Value x, int lin
     if (i < 0 || i > old->count) {
         ziman_error("runtime", line, col, "insert index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
+    if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 1, (int)i, x));
     int new_count = old->count + 1;
-    if (old->bytes != NULL) {
-        uint8_t *bytes = zalloc_atomic((size_t)new_count);
-        memcpy(bytes, old->bytes, (size_t)i);
-        bytes[i] = (uint8_t)x.as.by;
-        memcpy(bytes + i + 1, old->bytes + i, (size_t)(old->count - (int)i));
-        return value_array(array_type, array_obj_new_bytes(bytes, new_count));
-    }
     Value *items = malloc((size_t)new_count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
     items[i] = x;
     memcpy(items + i + 1, old->boxed_items + i, (size_t)(old->count - (int)i) * sizeof(Value));
-    return value_array(array_type, array_obj_new(items, new_count));
+    ArrayObj *packed = old->count == 0 ? array_try_pack(items, new_count) : NULL;
+    return value_array(array_type, packed != NULL ? packed : array_obj_new(items, new_count));
 }
 
 static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, int col) {
@@ -482,12 +474,7 @@ static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, 
     if (i < 0 || i >= old->count) {
         ziman_error("runtime", line, col, "set index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
-    if (old->bytes != NULL) {
-        uint8_t *bytes = zalloc_atomic((size_t)old->count);
-        memcpy(bytes, old->bytes, (size_t)old->count);
-        bytes[i] = (uint8_t)x.as.by;
-        return value_array(array_type, array_obj_new_bytes(bytes, old->count));
-    }
+    if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 2, (int)i, x));
     Value *items = malloc((size_t)old->count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)old->count * sizeof(Value));
     items[i] = x;
@@ -500,13 +487,8 @@ static Value call_remove(Type array_type, Value arr, Value idx, int line, int co
     if (i < 0 || i >= old->count) {
         ziman_error("runtime", line, col, "remove index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
+    if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 3, (int)i, value_int(0)));
     int new_count = old->count - 1;
-    if (old->bytes != NULL) {
-        uint8_t *bytes = zalloc_atomic((size_t)(new_count > 0 ? new_count : 1));
-        memcpy(bytes, old->bytes, (size_t)i);
-        memcpy(bytes + i, old->bytes + i + 1, (size_t)(new_count - (int)i));
-        return value_array(array_type, array_obj_new_bytes(bytes, new_count));
-    }
     Value *items = malloc((size_t)new_count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
     memcpy(items + i, old->boxed_items + i + 1, (size_t)(new_count - (int)i) * sizeof(Value));
@@ -928,7 +910,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             for (int i = 0; i < count; i++) {
                 items[i] = eval_expr(module, env, e->as.array_lit.elements.items[i]);
             }
-            if (array_all_bytes(items, count)) return value_array(e->resolved_type, array_obj_pack_bytes(items, count));
+            ArrayObj *packed = array_try_pack(items, count);
+            if (packed != NULL) return value_array(e->resolved_type, packed);
             return value_array(e->resolved_type, array_obj_new(items, count));
         }
         case EXPR_INDEX: {

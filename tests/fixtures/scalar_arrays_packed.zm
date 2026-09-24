@@ -1,0 +1,76 @@
+use collections
+
+fn main() {
+    // [int]
+    val a = [5, -3, 9, 0, 9]
+    print(a)
+    print(len(a))
+    print(a[1])
+    print(a == [5, -3, 9, 0, 9])
+    print(a == [5, -3, 9, 0, 8])
+    print(contains(a, 9))
+    print(contains(a, 4))
+    print(hash(a) == hash([5, -3, 9, 0, 9]))
+    print(compare(a, [5, -3, 10]) < 0)
+    print(push(a, 1))
+    print(insert(a, 2, 100))
+    print(set(a, 0, -1))
+    print(remove(a, 1))
+    print(a)
+    print(collections.sort<int>(a))
+    print(collections.reverse<int>(a))
+    print(slice<int>(a, 1, 4))
+    print(concat_arrays<int>(a, [1, 2], slice<int>(a, 0, 1)))
+    val big = [9223372036854775807, -9223372036854775807]
+    print(big[0] + big[1])
+
+    // [float]
+    val f = [1.5, -0.0, 2.25]
+    print(f)
+    print(f == [1.5, 0.0, 2.25])
+    print(contains(f, 2.25))
+    print(push(f, 3.0))
+    print(collections.sort<float>(f))
+
+    // [bool]
+    val b = [true, false, true]
+    print(b)
+    print(b == [true, false, true])
+    print(b == [true, true, true])
+    print(contains(b, false))
+    print(set(b, 1, true))
+    print(push(b, false))
+    print(remove(b, 0))
+
+    // grows from empty by push; builders for each scalar type
+    var grown: [int] = []
+    for i in 0..5 {
+        grown = push(grown, i * i)
+    }
+    print(grown)
+    val ib = ab_new<int>()
+    ab_append<int>(ib, 1, 2, 3)
+    ab_append<int>(ab: ib, pieces: slice<int>(a, 0, 2))
+    print(ab_to_array<int>(ib))
+    val fb = ab_new<float>()
+    ab_append<float>(fb, 0.5, 1.5)
+    print(ab_to_array<float>(fb))
+    val bb = ab_new<bool>()
+    ab_append<bool>(bb, true, false)
+    ab_append<bool>(bb, true)
+    print(ab_to_array<bool>(bb))
+    print(len(ab_to_array<int>(ab_new<int>())))
+
+    // for loops, both forms
+    var s = 0
+    for x in a {
+        s = s + x
+    }
+    print(s)
+    for i, x in slice<int>(a, 3, 5) {
+        print(i * 100 + x)
+    }
+    // nested arrays and structs of packed arrays
+    val grid = [[1, 2], [3, 4]]
+    print(grid[1][0])
+}
