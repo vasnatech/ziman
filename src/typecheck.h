@@ -9,4 +9,9 @@
  * returns on all statically-reachable paths" rule. */
 void typecheck(Module *module);
 
+/* `--lint`: after this, typecheck() also reports style findings in the user's
+ * own (non-bundled, non-derived) code through ziman_warning(), and counts them. */
+void typecheck_enable_lint(void);
+int typecheck_lint_count(void);
+
 #endif

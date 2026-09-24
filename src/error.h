@@ -21,4 +21,10 @@ const char *ziman_error_context(void);
  * -- the same record the text form is rendered from. */
 void ziman_set_json_errors(int on);
 
+/* A lint finding: printed and counted, never fatal. Text form is
+ * "file:line:col: warning: message"; with JSON errors on it is
+ *   {"severity":"warning","phase":"lint","file":"...","line":L,"col":C,
+ *    "context":null,"message":"..."}. */
+void ziman_warning(const char *file, int line, int col, const char *fmt, ...);
+
 #endif

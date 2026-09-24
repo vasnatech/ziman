@@ -438,7 +438,7 @@ fn resolve_location(base: Url, location: string) -> Result<Url, string> {
     if base.secure {
         scheme = "https"
     }
-    var authority = host_header(base)
+    val authority = host_header(base)
     if starts_with(location, "//") {
         return parse_url(format("{}:{}", scheme, location))
     }

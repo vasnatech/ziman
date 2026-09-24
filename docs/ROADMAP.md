@@ -335,9 +335,12 @@ against)**
 
 **F. Tooling and documentation**
 
-- [ ] **R17. A formatter (or at least a lint) that makes `val` and `var`
+- [~] **R17. A formatter (or at least a lint) that makes `val` and `var`
   visually distinct** -- DESIGN.md already calls the one-character
-  difference a silent-mutability typo hazard.
+  difference a silent-mutability typo hazard. *Lint done: `ziman --lint`
+  flags a `var` that is never reassigned, in user code only (bundled modules
+  and derived code are skipped); running it over the bundled library found
+  three. A real formatter is still open.*
 - [ ] **R18. Split README.md into sections.** It is ~3,000 words in
   essentially one paragraph, and it is the document most likely to be
   pasted into a model's context as "the language".

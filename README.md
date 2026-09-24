@@ -317,7 +317,11 @@ Options: `--check` loads and type-checks without running; `--json` reports each
 error as one JSON object on stderr (`{"severity":"error","phase":"type",
 "line":3,"col":18,"context":null,"message":"..."}`, with `--check` a clean
 run prints `{"ok":true}`); `--emit-derived` prints the code each
-`#[derive]` generates; `--version`; `--help`.
+`#[derive]` generates; `--lint` reports style findings in your own code
+instead of running it (today: a `var` that is never reassigned -- `var` and
+`val` differ by one letter, so it is the typo that silently makes something
+mutable) as `file:line:col: warning: ...`, or JSON with `"severity":"warning"`,
+and exits 1 if there are any; `--version`; `--help`.
 
 `make gc` builds `./ziman-gc`, the same interpreter with a tracing garbage
 collector (Boehm, built from a pinned source tree by `tools/build_bdwgc.sh`

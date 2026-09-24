@@ -2874,3 +2874,16 @@ consequence of importing a verb-style name bare, which the convention now says
 not to do. No mass rename: it would churn derive-generated code and every
 fixture for no gain. Rule 3 (type-prefixed operations for types a module
 defines) is what lets `derive` find `<type>_compare` and friends by name.
+
+## R17: `--lint`
+
+The hazard is one-directional: assigning to a `val` is already a type error, so
+the silent mistake is a `var` that never changes. The lint therefore flags
+exactly that (Rust's `unused_mut`), by having the type checker mark each `var`
+on `STMT_ASSIGN` and report the unmarked ones at the end of the function. It
+needs the merged module to know where code came from, so `FunctionDecl` gained
+`source_file` (NULL for bundled modules and the prelude, so a library isn't
+linted through the program that uses it) and derived functions are skipped.
+`--lint` replaces running: exit 0 clean, 1 with findings, so it drops into CI.
+It also adds the first `file` field to a diagnostic (warnings only). A
+formatter is a separate, larger project (the parser drops comments and layout).

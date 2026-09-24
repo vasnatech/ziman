@@ -25,18 +25,21 @@ static void usage(FILE *out) {
           "  --check          load and type-check only; do not run the program\n"
           "  --json           report errors as one JSON object per error on stderr\n"
           "                   (with --check, print {\"ok\":true} on success)\n"
+          "  --lint           report style findings (a `var` never reassigned) in your own\n"
+          "                   code instead of running it; exit 1 if there are any\n"
           "  --emit-derived   print the code each #[derive] generates, then continue\n"
           "  --version        print the version and exit\n"
           "  --help           print this help and exit\n", out);
 }
 
 int main(int argc, char **argv) {
-    int check_only = 0, json = 0;
+    int check_only = 0, json = 0, lint = 0;
     const char *file = NULL;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         if (strcmp(a, "--check") == 0) check_only = 1;
         else if (strcmp(a, "--json") == 0) json = 1;
+        else if (strcmp(a, "--lint") == 0) lint = 1;
         else if (strcmp(a, "--emit-derived") == 0) g_emit_derived = 1;
         else if (strcmp(a, "--version") == 0 || strcmp(a, "-V") == 0) { printf("ziman %s\n", ZIMAN_VERSION); return 0; }
         else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) { usage(stdout); return 0; }
@@ -69,7 +72,13 @@ int main(int argc, char **argv) {
     prelude_register();
 
     Module *module = load_module_graph(file);
+    if (lint) typecheck_enable_lint();
     typecheck(module);
+    if (lint) {
+        int n = typecheck_lint_count();
+        if (json && n == 0) printf("{\"ok\":true}\n");
+        return n == 0 ? 0 : 1;
+    }
     if (check_only) {
         if (json) printf("{\"ok\":true}\n");
         return 0;

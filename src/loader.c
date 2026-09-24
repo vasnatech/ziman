@@ -1164,6 +1164,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
 
     char *file_path = resolve_file_path(ldr->project_root, use_path);
     char *source = read_all(file_path);
+    int from_disk = source != NULL;
     if (source == NULL) {
         /* No project-relative file by this name -- fall back to a
          * bundled core module (see corelib.h) before giving up. A
@@ -1177,6 +1178,9 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
         source = strdup(core_source);
     }
     Module *mod = parse_file_contents(source);
+    if (from_disk) {
+        for (int i = 0; i < mod->functions.count; i++) mod->functions.items[i]->source_file = file_path;
+    }
 
     for (int i = 0; i < mod->uses.count; i++) {
         UseDecl *u = &mod->uses.items[i];
@@ -1215,6 +1219,7 @@ Module *load_module_graph(const char *entry_path) {
         exit(1);
     }
     Module *entry_mod = parse_file_contents(entry_source);
+    for (int i = 0; i < entry_mod->functions.count; i++) entry_mod->functions.items[i]->source_file = entry_path;
     for (int i = 0; i < entry_mod->uses.count; i++) {
         UseDecl *u = &entry_mod->uses.items[i];
         load_module(&ldr, u->path, u->line, u->col);

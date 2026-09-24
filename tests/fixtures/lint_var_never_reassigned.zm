@@ -1,0 +1,15 @@
+fn count(n: int) -> int {
+    var total = 0
+    var never = 5
+    var i = 0
+    while i < n {
+        total = total + i
+        i = i + 1
+    }
+    return total + never
+}
+
+fn main() {
+    var x = 1
+    print(count(3))
+}

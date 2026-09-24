@@ -418,7 +418,7 @@ fn epoch_day_of(year: int, month: int, day: int) -> int {
 }
 
 fn date_of_epoch_day(epoch_day: int) -> LocalDate {
-    var z = epoch_day + 719468
+    val z = epoch_day + 719468
     var era = z / 146097
     if z < 0 {
         era = (z - 146096) / 146097

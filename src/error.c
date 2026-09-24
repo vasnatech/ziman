@@ -65,3 +65,25 @@ void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
     }
     exit(1);
 }
+
+void ziman_warning(const char *file, int line, int col, const char *fmt, ...) {
+    va_list args, copy;
+    va_start(args, fmt);
+    va_copy(copy, args);
+    int n = vsnprintf(NULL, 0, fmt, copy);
+    va_end(copy);
+    char *message = malloc((size_t)(n > 0 ? n : 0) + 1);
+    vsnprintf(message, (size_t)(n > 0 ? n : 0) + 1, fmt, args);
+    va_end(args);
+
+    if (g_json_errors) {
+        fputs("{\"severity\":\"warning\",\"phase\":\"lint\",\"file\":", stderr);
+        print_json_string(stderr, file);
+        fprintf(stderr, ",\"line\":%d,\"col\":%d,\"context\":null,\"message\":", line, col);
+        print_json_string(stderr, message);
+        fputs("}\n", stderr);
+    } else {
+        fprintf(stderr, "%s:%d:%d: warning: %s\n", file, line, col, message);
+    }
+    free(message);
+}

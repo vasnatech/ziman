@@ -458,6 +458,10 @@ typedef struct {
      * 'Point'": every position inside it is stamped with the declaration's
      * own line/column, and errors in it say where it came from. */
     const char *derived_from;
+    /* The file this function was loaded from, or NULL for a bundled core
+     * module and the prelude. What `--lint` uses to report only code the user
+     * owns. */
+    const char *source_file;
 } FunctionDecl;
 
 /* The `fn(P1, P2) -> R` type of a (non-generic, non-variadic) function used as

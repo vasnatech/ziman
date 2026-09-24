@@ -13,6 +13,7 @@ struct Expr;
 typedef struct {
     char *name;
     int is_mutable;
+    int lint_id; /* type checker only: 1-based index into its `var` lint table, 0 = none */
     Type type;
     Value value; /* unused by the type checker */
 } Binding;

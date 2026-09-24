@@ -1,0 +1,21 @@
+#[derive(Json)]
+#[derive(Ord)]
+pub struct Point {
+    x: int
+    y: int
+}
+
+fn total(n: int) -> int {
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + i
+        i = i + 1
+    }
+    return sum
+}
+
+fn main() {
+    val t = total(4)
+    print(t)
+}

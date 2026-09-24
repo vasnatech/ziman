@@ -402,7 +402,7 @@ fn finish_auth(sock: Socket, start_seq: int, plugin_in: string, salt_in: [byte],
         }
         if first == 254 {
             plugin = text_of(p.body, 1, cstring_end(p.body, 1))
-            var data_start = cstring_end(p.body, 1) + 1
+            val data_start = cstring_end(p.body, 1) + 1
             var data_end = len(p.body)
             if data_end > data_start && p.body[data_end - 1] == 0b {
                 data_end = data_end - 1
