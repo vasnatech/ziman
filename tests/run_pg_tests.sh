@@ -14,7 +14,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-BIN=./ziman
+BIN=${BIN:-./ziman}
 PORT=55432
 NAME="ziman-pg-test-$$"
 RUNTIME=$(command -v docker || command -v podman || true)

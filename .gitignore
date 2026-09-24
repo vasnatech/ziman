@@ -1,4 +1,6 @@
 ziman
+ziman-gc
+third_party/
 src/*.o
 *.o
 src/*.d

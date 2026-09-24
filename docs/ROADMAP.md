@@ -216,8 +216,12 @@ against)**
 
 **C. Runtime and memory**
 
-- [ ] **R9. Rewrite the memory-reclamation plan before implementing
-  anything.** Measured: the sample backend's server reached ~31 GB RSS
+- [x] **R9. Rewrite the memory-reclamation plan before implementing
+  anything.** *Superseded 2026-09-23: neither plan was built. A tracing
+  collector (Boehm) is available as `make gc` and cut the load test from
+  ~31 GB to ~0.47 GB; still open: making it the default (it is a build-time
+  dependency), pause times, sockets/SQLite handles that are still closed by
+  hand. See DESIGN.md's "Memory reclamation" entry.* Measured: the sample backend's server reached ~31 GB RSS
   after ~1,500 requests (about 87 kB leaked per trivial request), so it is
   not merely "a real problem" -- the north-star application cannot stay up.
   And both proposed fixes have a design error: (a) the refcounting entry
@@ -499,9 +503,13 @@ from source.
 
 ## Larger, needs its own design pass
 
-- **Memory is never reclaimed while a program runs — fine for a
-  short-lived script, a real problem for the North Star goal of an
-  always-on backend.** Every `Value` payload (`ArrayObj`/`StructObj`/
+- **Memory is never reclaimed while a program runs (in the default build)
+  — fine for a short-lived script, a real problem for the North Star goal
+  of an always-on backend.** *Update 2026-09-23: `make gc` builds
+  `ziman-gc`, which routes every allocation through the Boehm collector;
+  the two plans below (refcounting, per-thread arenas) were not built and
+  are kept for their reasoning. See docs/DESIGN.md's "Memory
+  reclamation" entry for what shipped, what it measured, and what is left.* Every `Value` payload (`ArrayObj`/`StructObj`/
   `EnumObj`/`ResultObj`, every `string` buffer) is heap-allocated and
   never freed, on purpose — see docs/DESIGN.md's "single-writer/actor
   pattern" entry: *"this interpreter never frees an `ArrayObj`/

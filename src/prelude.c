@@ -146,7 +146,7 @@ static Value native_concat(Value *args, int argc, int line, int col) {
     (void)line;
     (void)col;
     size_t la = SLEN(args[0]), lb = SLEN(args[1]);
-    char *buf = malloc(la + lb + 1);
+    char *buf = zalloc_atomic(la + lb + 1);
     memcpy(buf, SPTR(args[0]), la);
     memcpy(buf + la, SPTR(args[1]), lb);
     buf[la + lb] = '\0';
@@ -222,7 +222,7 @@ static Value native_replace(Value *args, int argc, int line, int col) {
     size_t hits = 0;
     for (long at = value_str_find(str, ls, SPTR(args[1]), lf, 0); at >= 0; at = value_str_find(str, ls, SPTR(args[1]), lf, (size_t)at + lf)) hits++;
     size_t total = ls + hits * lt - hits * lf;
-    char *buf = malloc(total + 1);
+    char *buf = zalloc_atomic(total + 1);
     size_t out = 0, cursor = 0;
     for (long at = value_str_find(str, ls, SPTR(args[1]), lf, 0); at >= 0; at = value_str_find(str, ls, SPTR(args[1]), lf, cursor)) {
         memcpy(buf + out, str + cursor, (size_t)at - cursor);
@@ -279,7 +279,7 @@ static Value native_to_upper(Value *args, int argc, int line, int col) {
     (void)col;
     const char *str = SPTR(args[0]);
     size_t len = SLEN(args[0]);
-    char *buf = malloc(len + 1);
+    char *buf = zalloc_atomic(len + 1);
     for (size_t i = 0; i < len; i++) buf[i] = (char)toupper((unsigned char)str[i]);
     buf[len] = '\0';
     return value_string_view(buf, len, 1);
@@ -291,7 +291,7 @@ static Value native_to_lower(Value *args, int argc, int line, int col) {
     (void)col;
     const char *str = SPTR(args[0]);
     size_t len = SLEN(args[0]);
-    char *buf = malloc(len + 1);
+    char *buf = zalloc_atomic(len + 1);
     for (size_t i = 0; i < len; i++) buf[i] = (char)tolower((unsigned char)str[i]);
     buf[len] = '\0';
     return value_string_view(buf, len, 1);
@@ -351,7 +351,7 @@ static Value native_join(Value *args, int argc, int line, int col) {
         total += separator_len * (size_t)(pieces->count - 1);
     }
 
-    char *buf = malloc(total + 1);
+    char *buf = zalloc_atomic(total + 1);
     size_t pos = 0;
     if (has_prefix) {
         memcpy(buf + pos, SPTR(pv), prefix_len);
@@ -377,48 +377,34 @@ static Value native_join(Value *args, int argc, int line, int col) {
 /* --- StringBuilder -------------------------------------------------
  * A mutable string-accumulation handle, backed entirely here, native-
  * side -- Ziman code never sees anything but an opaque `handle: int`
- * (see lib/prelude.zm's StringBuilder struct). Each handle indexes
- * into `g_sb_table`, an array of *pointers* to individually heap-
- * allocated StringBuilderBuf objects: growing the table (realloc'ing
- * the array of pointers) never invalidates a StringBuilderBuf a caller
- * already holds a pointer to, since only the pointers move, never the
- * buffers themselves. `g_sb_table_mutex` guards every read or write of
- * the table itself (registering a new handle, or looking one up) --
- * necessary because reading a pointer variable that another thread
- * might concurrently be reallocating is undefined behavior in C even if
- * the bytes involved would turn out identical. Appending to one
- * already-fetched StringBuilderBuf happens outside that lock, entirely
- * unsynchronized between callers -- same as Java's own (non-thread-
- * safe) StringBuilder: one is meant to be built up by a single thread
- * at a time, not shared. */
+ * (see lib/prelude.zm's StringBuilder struct). The handle IS the address of
+ * an individually heap-allocated StringBuilderBuf, not an index into a
+ * global table: a table would keep every builder ever made reachable
+ * forever (each json_to_string node makes one), which is exactly the kind
+ * of leak a collector cannot fix. As a plain int in a Value the address is
+ * still visible to the conservative collector, so the buffer lives exactly
+ * as long as the StringBuilder value that names it. `magic` catches a
+ * forged or stale handle with a clear error instead of a wild read (not
+ * airtight -- the docs already say "don't construct one by hand").
+ * Appending is unsynchronized between callers, same as Java's own
+ * StringBuilder: one is built up by a single thread at a time. */
+enum { SB_MAGIC = 0x53424c44 };
 typedef struct {
+    uint32_t magic;
     char *data;
     size_t length;
     size_t capacity;
     double grow_factor;
 } StringBuilderBuf;
 
-static StringBuilderBuf **g_sb_table = NULL;
-static int g_sb_count = 0;
-static int g_sb_capacity = 0;
-static pthread_mutex_t g_sb_table_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static int sb_table_register(StringBuilderBuf *buf) {
-    pthread_mutex_lock(&g_sb_table_mutex);
-    if (g_sb_count == g_sb_capacity) {
-        g_sb_capacity = g_sb_capacity == 0 ? 16 : g_sb_capacity * 2;
-        g_sb_table = realloc(g_sb_table, (size_t)g_sb_capacity * sizeof(StringBuilderBuf *));
-    }
-    int handle = g_sb_count++;
-    g_sb_table[handle] = buf;
-    pthread_mutex_unlock(&g_sb_table_mutex);
-    return handle;
+static int64_t sb_table_register(StringBuilderBuf *buf) {
+    buf->magic = SB_MAGIC;
+    return (int64_t)(intptr_t)buf;
 }
 
-static StringBuilderBuf *sb_table_get(int handle) {
-    pthread_mutex_lock(&g_sb_table_mutex);
-    StringBuilderBuf *buf = g_sb_table[handle];
-    pthread_mutex_unlock(&g_sb_table_mutex);
+static StringBuilderBuf *sb_table_get(int64_t handle) {
+    StringBuilderBuf *buf = (StringBuilderBuf *)(intptr_t)handle;
+    if (buf == NULL || buf->magic != SB_MAGIC) ziman_error("runtime", 0, 0, "not a valid StringBuilder handle");
     return buf;
 }
 
@@ -445,16 +431,10 @@ static double option_float_or(Value opt, double fallback) {
     return fallback;
 }
 
-/* Every StringBuilder value shares this same one-field shape, so unlike
- * a struct built from real .zm source (whose field_names array is
- * borrowed from its StructDecl -- see value.h's StructObj comment),
- * this is just a small static array: a native function has no Module*
- * to look a StructDecl up in at all, and the content is identical for
- * every instance regardless. */
 static char *STRINGBUILDER_FIELD_NAMES[] = {"handle"};
 
-static int sb_handle_of(Value sb) {
-    return (int)sb.as.st->fields[0].as.i;
+static int64_t sb_handle_of(Value sb) {
+    return sb.as.st->fields[0].as.i;
 }
 
 static void sb_ensure_capacity(StringBuilderBuf *buf, size_t additional) {
@@ -492,9 +472,9 @@ static Value native_sb_new(Value *args, int argc, int line, int col) {
     buf->capacity = (size_t)capacity;
     buf->length = 0;
     buf->grow_factor = grow_factor;
-    buf->data = buf->capacity > 0 ? malloc(buf->capacity) : NULL;
+    buf->data = buf->capacity > 0 ? zalloc_atomic(buf->capacity) : NULL;
 
-    int handle = sb_table_register(buf);
+    int64_t handle = sb_table_register(buf);
 
     Value *fields = malloc(sizeof(Value));
     fields[0] = value_int(handle);
@@ -522,7 +502,7 @@ static Value native_sb_to_string(Value *args, int argc, int line, int col) {
     (void)line;
     (void)col;
     StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
-    char *out = malloc(buf->length + 1);
+    char *out = zalloc_atomic(buf->length + 1);
     memcpy(out, buf->data, buf->length);
     out[buf->length] = '\0';
     return value_string(out);
@@ -549,41 +529,31 @@ static Value native_sb_len(Value *args, int argc, int line, int col) {
  * below is a placeholder for exactly this reason, immediately
  * overwritten with the call's own already-substituted e->resolved_type
  * right after each of these returns (see eval_expr's EXPR_CALL case). */
+enum { AB_MAGIC = 0x41424c44 };
 typedef struct {
+    uint32_t magic;
     Value *items;
     size_t length;
     size_t capacity;
     double grow_factor;
 } ArrayBuilderBuf;
 
-static ArrayBuilderBuf **g_ab_table = NULL;
-static int g_ab_count = 0;
-static int g_ab_capacity = 0;
-static pthread_mutex_t g_ab_table_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static int ab_table_register(ArrayBuilderBuf *buf) {
-    pthread_mutex_lock(&g_ab_table_mutex);
-    if (g_ab_count == g_ab_capacity) {
-        g_ab_capacity = g_ab_capacity == 0 ? 16 : g_ab_capacity * 2;
-        g_ab_table = realloc(g_ab_table, (size_t)g_ab_capacity * sizeof(ArrayBuilderBuf *));
-    }
-    int handle = g_ab_count++;
-    g_ab_table[handle] = buf;
-    pthread_mutex_unlock(&g_ab_table_mutex);
-    return handle;
+/* Same pointer-as-handle scheme as StringBuilder above, for the same reason. */
+static int64_t ab_table_register(ArrayBuilderBuf *buf) {
+    buf->magic = AB_MAGIC;
+    return (int64_t)(intptr_t)buf;
 }
 
-static ArrayBuilderBuf *ab_table_get(int handle) {
-    pthread_mutex_lock(&g_ab_table_mutex);
-    ArrayBuilderBuf *buf = g_ab_table[handle];
-    pthread_mutex_unlock(&g_ab_table_mutex);
+static ArrayBuilderBuf *ab_table_get(int64_t handle) {
+    ArrayBuilderBuf *buf = (ArrayBuilderBuf *)(intptr_t)handle;
+    if (buf == NULL || buf->magic != AB_MAGIC) ziman_error("runtime", 0, 0, "not a valid ArrayBuilder handle");
     return buf;
 }
 
 static char *ARRAYBUILDER_FIELD_NAMES[] = {"handle"};
 
-static int ab_handle_of(Value ab) {
-    return (int)ab.as.st->fields[0].as.i;
+static int64_t ab_handle_of(Value ab) {
+    return ab.as.st->fields[0].as.i;
 }
 
 static void ab_ensure_capacity(ArrayBuilderBuf *buf, size_t additional) {
@@ -618,7 +588,7 @@ static Value native_ab_new(Value *args, int argc, int line, int col) {
     buf->grow_factor = grow_factor;
     buf->items = buf->capacity > 0 ? malloc(buf->capacity * sizeof(Value)) : NULL;
 
-    int handle = ab_table_register(buf);
+    int64_t handle = ab_table_register(buf);
 
     Value *fields = malloc(sizeof(Value));
     fields[0] = value_int(handle);

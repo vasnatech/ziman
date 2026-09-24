@@ -28,7 +28,7 @@ static Value native_io_read_file(Value *args, int argc, int line, int col) {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    char *buf = malloc((size_t)size + 1);
+    char *buf = zalloc_atomic((size_t)size + 1);
     size_t n = fread(buf, 1, (size_t)size, f);
     buf[n] = '\0';
     fclose(f);

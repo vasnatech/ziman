@@ -1,6 +1,18 @@
 #ifndef ZIMAN_VALUE_H
 #define ZIMAN_VALUE_H
 
+/* Memory for bytes that can never hold a pointer (a string's text): under the
+ * collector it is allocated "atomic", so it is never scanned for pointers --
+ * cheaper to mark and immune to a stray text byte pattern looking like an
+ * address. Without the collector it is plain malloc. */
+#ifdef ZIMAN_GC
+#include <gc.h>
+#define zalloc_atomic(n) GC_MALLOC_ATOMIC(n)
+#else
+#include <stdlib.h>
+#define zalloc_atomic(n) malloc(n)
+#endif
+
 #include <pthread.h>
 #include <stdint.h>
 

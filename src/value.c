@@ -25,7 +25,7 @@ Value value_string_view(const char *ptr, size_t len, int term) {
 Value value_string(char *s) { return value_string_view(s, strlen(s), 1); }
 
 Value value_string_copy(const char *ptr, size_t len) {
-    char *buf = malloc(len + 1);
+    char *buf = zalloc_atomic(len + 1);
     memcpy(buf, ptr, len);
     buf[len] = '\0';
     return value_string_view(buf, len, 1);
@@ -43,7 +43,7 @@ long value_str_find(const char *hay, size_t hay_len, const char *needle, size_t 
 
 const char *value_cstr(Value v) {
     if (v.as.str.term) return v.as.str.ptr;
-    char *buf = malloc((size_t)v.as.str.len + 1);
+    char *buf = zalloc_atomic((size_t)v.as.str.len + 1);
     memcpy(buf, v.as.str.ptr, v.as.str.len);
     buf[v.as.str.len] = '\0';
     return buf;
@@ -252,7 +252,7 @@ char *value_display(Value v) {
             return strdup(buf);
         case TY_STRING:
             {
-                char *copy = malloc((size_t)v.as.str.len + 1);
+                char *copy = zalloc_atomic((size_t)v.as.str.len + 1);
                 memcpy(copy, v.as.str.ptr, v.as.str.len);
                 copy[v.as.str.len] = '\0';
                 return copy;
@@ -262,7 +262,7 @@ char *value_display(Value v) {
         case TY_ARRAY: {
             ArrayObj *arr = v.as.arr;
             size_t cap = 32, len = 0;
-            char *out = malloc(cap);
+            char *out = zalloc_atomic(cap);
             out[len++] = '[';
             for (int i = 0; i < arr->count; i++) {
                 if (i > 0) {
@@ -286,7 +286,7 @@ char *value_display(Value v) {
             StructObj *st = v.as.st;
             const char *type_display_name = v.type.struct_name;
             size_t cap = 32, len = 0;
-            char *out = malloc(cap);
+            char *out = zalloc_atomic(cap);
             size_t name_len = strlen(type_display_name);
             while (len + name_len + 3 > cap) { cap *= 2; out = realloc(out, cap); }
             memcpy(out + len, type_display_name, name_len);
@@ -322,7 +322,7 @@ char *value_display(Value v) {
             const char *tag = v.as.res->is_ok ? "Ok" : "Err";
             char *inner = value_display(v.as.res->value);
             size_t len = strlen(tag) + 1 + strlen(inner) + 1 + 1;
-            char *out = malloc(len);
+            char *out = zalloc_atomic(len);
             snprintf(out, len, "%s(%s)", tag, inner);
             free(inner);
             return out;
@@ -332,7 +332,7 @@ char *value_display(Value v) {
             if (!en->has_payload) return strdup(en->variant_name);
             char *inner = value_display(en->payload);
             size_t len = strlen(en->variant_name) + 1 + strlen(inner) + 1 + 1;
-            char *out = malloc(len);
+            char *out = zalloc_atomic(len);
             snprintf(out, len, "%s(%s)", en->variant_name, inner);
             free(inner);
             return out;

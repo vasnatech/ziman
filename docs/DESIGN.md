@@ -1642,6 +1642,55 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **Memory reclamation: a tracing collector, opt-in as `make gc`
+  (external review, roadmap R9, 2026-09-23).** The default build never frees
+  a heap value, and the review measured the sample backend's server reaching
+  ~31 GB RSS after ~1,500 requests. Neither planned fix was built. Refcounting
+  needs an increment or decrement at every place a `Value` is copied (hundreds
+  of sites), atomic counts across threads, and breaks on the one mutable type
+  -- a `Channel<T>` can hold a struct that holds the channel (a real cycle).
+  Per-thread arenas free nothing in a thread-per-*connection* server until the
+  client disconnects. A tracing collector fits how Ziman values already work
+  (immutable, shared by pointer, shared across threads): no ownership design,
+  cycles are fine, and the leak stops being what makes cross-thread sharing
+  safe. **Mechanism:** `src/zgc.h` is force-included into every source file of a
+  `make gc` build and redirects `malloc`/`calloc`/`realloc`/`strdup` to the
+  Boehm-Demers-Weiser collector and turns `free` into a no-op; `GC_INIT()` runs
+  at start-up and `gc.h` redirects `pthread_create` so every spawned thread is
+  registered. Conservative scanning of thread stacks and registers means the
+  interpreter needed no rooting discipline. The text bytes of a string are
+  allocated "atomic" (never scanned for pointers). libgc is built from a pinned
+  source tree by `tools/build_bdwgc.sh` (git + a C compiler, no cmake or
+  autotools) with `ALL_INTERIOR_POINTERS` and `GC_THREADS`. **Two things bit
+  during the prototype and are worth remembering.** (1) Without
+  `ALL_INTERIOR_POINTERS`, an interior pointer more than a page into a large
+  block is not recognised, so a live string slice or token into a big source
+  buffer was collected -- parse errors in bundled modules, but only when a
+  collection happened to run mid-parse. (2) The real retention root was ours:
+  `StringBuilder` and `ArrayBuilder` kept every builder ever created in a
+  global handle table (each `json_to_string` node makes one), so nothing a
+  builder held was ever unreachable. The handle is now the builder's address
+  (a plain int in the Ziman value, which the collector still sees), with a
+  magic word so a forged or stale handle is a clear error rather than a wild
+  read. **Results** (sample backend, sequential curl, the review's workload of
+  500 `GET /health`, 500 `POST /patients`, 500 `GET /patients`): peak RSS
+  ~31 GB before, ~0.47 GB with the collector -- flat at ~17 MB through the
+  first 1,000 requests, then a ~465 MB plateau during the list phase (each list
+  of hundreds of patients builds large transient structures; it was not still
+  growing). A single list request used to add ~12.5 MB of RSS each; with the
+  collector, three in a row moved 30.4 -> 30.5 -> 30.7 MB. All 421 fixtures,
+  the Postgres/TLS suites and the backend's Curly scenarios pass under both
+  builds. **Not done, deliberately:** it is not the default build (libgc is a
+  build-time dependency fetched by the script, and a decision for the project);
+  pause times are unmeasured (parallel marking used many cores in the most
+  garbage-heavy phase -- `GC_MARKERS` tuning is untried); sockets, SQLite
+  connections and TLS sessions are still closed by hand and simply leak if
+  forgotten, as before; memory is not returned to the OS; a `Channel`'s mutex is
+  never destroyed; and conservative scanning can retain garbage that looks like
+  a pointer. If the dependency is unwelcome, the same shape can be written in
+  the interpreter (an allocation registry, conservative stack scanning,
+  cooperative safepoints for stop-the-world) -- the prototype says the approach
+  works; it does not say which implementation to keep.
 - **Strings are `{ptr, len}` views, so slicing is free (2026-09-23).**
   A `string` was a NUL-terminated `char *`, so every `substring`, `trim`,
   `char_at` and `split` piece allocated and copied -- and, since nothing is

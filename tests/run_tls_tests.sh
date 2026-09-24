@@ -11,7 +11,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-BIN=./ziman
+BIN=${BIN:-./ziman}
 CERTS=tests/tls/.certs
 if ! command -v openssl >/dev/null; then echo "SKIP: no openssl binary"; exit 0; fi
 for port in 55443 55444; do

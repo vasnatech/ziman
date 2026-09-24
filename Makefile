@@ -9,9 +9,29 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean test test-pg test-mysql test-tls test-bignum test-decimal corelib-reference
+.PHONY: all clean test test-gc gc test-pg test-mysql test-tls test-bignum test-decimal corelib-reference
 
 all: $(BIN)
+
+# `make gc` builds ./ziman-gc: the same interpreter with every allocation routed
+# through the Boehm-Demers-Weiser collector (src/zgc.h, force-included), so a
+# long-running program's memory is reclaimed instead of growing forever. It is a
+# separate binary and a separate build (sources compiled together, no .o files),
+# and the default build needs none of it. See docs/DESIGN.md's memory entry.
+GC_DIR := third_party/bdwgc
+GC_LIB := $(GC_DIR)/libgc.a
+GC_CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -g -pthread -DZIMAN_VERSION='"$(ZIMAN_VERSION)-gc"' -DZIMAN_GC -DGC_THREADS -include src/zgc.h -I$(GC_DIR)/include -D_GNU_SOURCE
+
+gc: ziman-gc
+
+$(GC_LIB): tools/build_bdwgc.sh
+	./tools/build_bdwgc.sh
+
+ziman-gc: $(GC_LIB) $(SRC) $(CORELIB_HEADERS) src/zgc.h
+	$(CC) $(GC_CFLAGS) -o $@ $(SRC) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -pthread
+
+test-gc: ziman-gc
+	BIN=./ziman-gc ./tests/run_tests.sh
 
 $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ -lm -lsqlite3 -lssl -lcrypto -pthread

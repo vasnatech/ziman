@@ -401,7 +401,7 @@ static Value call_format(Value *args, int argc) {
     const char *fmt = args[0].as.str.ptr;
     size_t fmt_len = args[0].as.str.len;
     size_t cap = 32, len = 0;
-    char *buf = malloc(cap);
+    char *buf = zalloc_atomic(cap);
     int arg_i = 1;
 
     for (const char *p = fmt; p < fmt + fmt_len; p++) {

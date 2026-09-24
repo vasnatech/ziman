@@ -316,6 +316,13 @@ error as one JSON object on stderr (`{"severity":"error","phase":"type",
 run prints `{"ok":true}`); `--emit-derived` prints the code each
 `#[derive]` generates; `--version`; `--help`.
 
+`make gc` builds `./ziman-gc`, the same interpreter with a tracing garbage
+collector (Boehm, built from a pinned source tree by `tools/build_bdwgc.sh`
+-- needs git and a C compiler), so a long-running program's memory is
+reclaimed instead of growing without bound; `make test-gc` runs the suite
+against it. The default `./ziman` never frees a heap value, which is fine for
+scripts and tests and not for a server.
+
 ## Testing
 
 ```sh

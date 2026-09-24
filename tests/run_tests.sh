@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-BIN=./ziman
+BIN=${BIN:-./ziman}
 pass=0
 fail=0
 
