@@ -341,7 +341,7 @@ against)**
   flags a `var` that is never reassigned, in user code only (bundled modules
   and derived code are skipped); running it over the bundled library found
   three. A real formatter is still open.*
-- [ ] **R18. Split README.md into sections.** It is ~3,000 words in
+- [x] **R18. Split README.md into sections.** *Done: README.md is now ~900 words (a taste, the language at a glance, a module table, tooling); the old wall of prose lives in docs/FEATURE-NOTES.md under ten headings.* It is ~3,000 words in
   essentially one paragraph, and it is the document most likely to be
   pasted into a model's context as "the language".
 - [ ] **R19. Fix documentation drift.** SYNTAX.md's `Result` section still

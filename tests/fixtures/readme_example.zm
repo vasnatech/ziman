@@ -1,0 +1,28 @@
+use json
+
+#[derive(Json)]
+struct Item {
+    name: string
+    qty: int
+}
+
+fn total(items: [Item]) -> int {
+    var sum = 0
+    for item in items {
+        sum = sum + item.qty
+    }
+    return sum
+}
+
+fn summarize(text: string) -> Result<string, string> {
+    val parsed = json.parse_json(text)?
+    val item = item_from_json(parsed)?
+    return ok(format("{} x{}", item.name, item.qty))
+}
+
+fn main() {
+    val items = [Item { name: "pen", qty: 3 }, Item { name: "ink", qty: 4 }]
+    printf("total units: {}\n", total(items))
+    print(summarize("{\"name\":\"cup\",\"qty\":2}"))
+    print(summarize("{\"name\":1}"))
+}
