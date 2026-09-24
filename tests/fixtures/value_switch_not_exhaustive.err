@@ -1,0 +1,1 @@
+type error at 4:13: this 'switch' over E is not exhaustive: missing B (add an arm for each variant; there is no default arm on purpose, so a new variant is a compile error here)

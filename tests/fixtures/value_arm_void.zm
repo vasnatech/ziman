@@ -1,0 +1,3 @@
+fn main() {
+    val a = if true { print(1) } else { print(2) }
+}

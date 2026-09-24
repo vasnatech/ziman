@@ -1,0 +1,3 @@
+fn main() {
+    val z = 1 + if true { 1 } else { 2 }
+}

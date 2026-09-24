@@ -15,7 +15,9 @@
 #include "native.h"
 #include "value.h"
 
-typedef enum { CTRL_NONE, CTRL_RETURN, CTRL_BREAK, CTRL_CONTINUE } CtrlKind;
+/* CTRL_YIELD carries the value of an `if`/`switch` arm used as a value up to the
+ * enclosing STMT_VALUE_BLOCK, the way CTRL_RETURN carries a return value. */
+typedef enum { CTRL_NONE, CTRL_RETURN, CTRL_BREAK, CTRL_CONTINUE, CTRL_YIELD } CtrlKind;
 
 typedef struct {
     CtrlKind kind;
@@ -1155,6 +1157,37 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
         }
         case STMT_BLOCK:
             return exec_block(module, env, s);
+        case STMT_YIELD: {
+            ExecResult y = {CTRL_YIELD, value_int(0)};
+            Expr *e = s->as.yield_stmt.value;
+            if (e->kind == EXPR_TRY_UNWRAP) {
+                ExecResult propagated;
+                if (!eval_try_unwrap(module, env, e, &y.value, &propagated)) return propagated;
+                return y;
+            }
+            y.value = eval_expr(module, env, e);
+            return y;
+        }
+        case STMT_VALUE_BLOCK: {
+            ExecResult r = exec_stmt(module, env, s->as.value_block.inner);
+            if (r.kind != CTRL_YIELD) return r; /* an arm that leaves (return/break/continue) */
+            Value v = r.value;
+            switch (s->as.value_block.target) {
+                case STMT_VAL:
+                case STMT_VAR: {
+                    Type t = s->as.value_block.has_declared_type ? s->as.value_block.declared_type : v.type;
+                    env_define(env, s->as.value_block.name, t, s->as.value_block.target == STMT_VAR, v);
+                    return no_ctrl();
+                }
+                case STMT_ASSIGN:
+                    env_lookup(env, s->as.value_block.name)->value = v;
+                    return no_ctrl();
+                default: {
+                    ExecResult ret = {CTRL_RETURN, v};
+                    return ret;
+                }
+            }
+        }
     }
     return no_ctrl();
 }

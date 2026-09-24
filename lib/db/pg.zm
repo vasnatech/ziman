@@ -325,11 +325,12 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<int, DbError> {
     if answer != "S" {
         return err(conn_err(format("unexpected reply '{}' to the TLS request", answer)))
     }
-    var verify = net.TlsVerify.Off
-    if url.sslmode == "verify-ca" {
-        verify = net.TlsVerify.Chain
+    val verify = if url.sslmode == "verify-ca" {
+        net.TlsVerify.Chain
     } else if url.sslmode == "verify-full" {
-        verify = net.TlsVerify.Full
+        net.TlsVerify.Full
+    } else {
+        net.TlsVerify.Off
     }
     var root = Option<string>.None
     if url.sslrootcert != "" {
@@ -509,21 +510,16 @@ fn encode_param(v: SqlValue) -> [byte] {
     if SqlValue.is_Null(v) {
         return u32_to_bytes(4294967295)
     }
-    var text = ""
-    if SqlValue.is_Int(v) {
-        text = str(SqlValue.unwrap_Int(v))
+    val text = if SqlValue.is_Int(v) {
+        str(SqlValue.unwrap_Int(v))
     } else if SqlValue.is_Float(v) {
-        text = float_to_text(SqlValue.unwrap_Float(v))
+        float_to_text(SqlValue.unwrap_Float(v))
     } else if SqlValue.is_Text(v) {
-        text = SqlValue.unwrap_Text(v)
+        SqlValue.unwrap_Text(v)
     } else if SqlValue.is_Bool(v) {
-        if SqlValue.unwrap_Bool(v) {
-            text = "1"
-        } else {
-            text = "0"
-        }
+        if SqlValue.unwrap_Bool(v) { "1" } else { "0" }
     } else {
-        text = concat("\\x", bytes_to_hex(SqlValue.unwrap_Bytes(v)))
+        concat("\\x", bytes_to_hex(SqlValue.unwrap_Bytes(v)))
     }
     val payload = string_to_bytes(text)
     return bytes_concat(u32_to_bytes(len(payload)), payload)

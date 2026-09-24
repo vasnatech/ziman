@@ -1738,6 +1738,8 @@ static int stmt_always_returns(Stmt *s) {
             }
             return 0;
         }
+        case STMT_VALUE_BLOCK:
+            return s->as.value_block.target == STMT_RETURN;
         case STMT_IF:
             return s->as.if_stmt.else_block != NULL &&
                    stmt_always_returns(s->as.if_stmt.then_block) &&
@@ -2048,6 +2050,133 @@ static void check_switch(Module *module, Env *env, Stmt *s, Type fn_return_type,
     stmt_list_push(&s->as.block.stmts, chain);
 }
 
+/* A wrong-typed initializer. `name` is NULL for an arm's yielded value. */
+static void init_mismatch(const char *name, Type declared, Type actual, int line, int col) {
+    if (name == NULL) {
+        ziman_error("type", line, col, "an arm of this 'if'/'switch' has type %s but %s is expected here", type_name(actual), type_name(declared));
+    }
+    ziman_error("type", line, col, "cannot initialize '%s' of declared type %s with a value of type %s", name, type_name(declared), type_name(actual));
+}
+
+/* Checks the initializer of a `val`/`var` (or a value arm's yielded value)
+ * against an optional declared type, applying the special paths that need the
+ * expected type -- `x?`, an empty `[]`, `ok(...)`/`err(...)`, `channel_new()`,
+ * a bare value auto-wrapped to Option/Result -- and returns the type the
+ * binding gets. `*init_slot` is updated in place when a wrap is inserted. */
+static Type check_initializer(Module *module, Env *env, Expr **init_slot, int has_declared, Type declared_type,
+                              const char *name_for_msg, Type fn_return_type) {
+    Expr *init = *init_slot;
+    Type declared;
+    /* `val|var NAME = inner?` -- checked directly against
+     * `fn_return_type`, not the declared type (there usually
+     * isn't one; the unwrapped type is already fully determined
+     * by `inner`'s own Option<T>/Result<T, E> type, with
+     * nothing left to infer or disambiguate). A declared type
+     * annotation is still allowed, and still checked against
+     * the unwrapped type, exactly like the plain fallback below
+     * already does for an ordinary initializer. */
+    if (init->kind == EXPR_TRY_UNWRAP) {
+        Type unwrapped = check_try_unwrap(module, env, init, fn_return_type);
+        declared = unwrapped;
+        if (has_declared) {
+            declared = declared_type;
+            if (!type_equals(declared, unwrapped)) {
+                init_mismatch(name_for_msg, declared, unwrapped, init->line, init->col);
+            }
+        }
+    } else if (init->kind == EXPR_ARRAY_LIT && init->as.array_lit.elements.count == 0) {
+        /* An empty array literal (`[]`) has no elements to infer
+         * a type from -- it's only legal when a declared type
+         * gives its element type explicitly, checked here
+         * rather than inside the generic check_expr, which has
+         * no such context to work from. */
+        if (!has_declared) {
+            ziman_error("type", init->line, init->col,
+                        "cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])");
+        }
+        if (declared_type.kind != TY_ARRAY) {
+            ziman_error("type", init->line, init->col,
+                        "cannot initialize '%s' of declared type %s with an empty array literal",
+                        name_for_msg, type_name(declared_type));
+        }
+        init->resolved_type = declared_type;
+        declared = declared_type;
+    } else if (has_declared && check_ok_err_call(module, env, init, declared_type)) {
+        /* ok(...)/err(...) resolved against the declared type -- see
+         * check_ok_err_call's own comment for why this needs its own
+         * path instead of going through plain check_expr. */
+        declared = declared_type;
+    } else if (has_declared && check_channel_new_call(init, declared_type)) {
+        /* channel_new() resolved against the declared type -- same
+         * reasoning as ok(...)/err(...) above. */
+        declared = declared_type;
+    } else if (has_declared && (is_option_type(declared_type) || declared_type.kind == TY_RESULT)) {
+        /* A bare Option<T>/Result<T, E> auto-wrap against the
+         * declared type -- same reasoning as ok(...)/err(...)
+         * above, via check_value_against_param_type directly
+         * (passing init_slot, not the local `init` copy,
+         * so a successful wrap persists into the AST the
+         * interpreter later evaluates). */
+        Type arg_type;
+        if (check_value_against_param_type(module, env, init_slot, declared_type, &arg_type)) {
+            declared = declared_type;
+        } else {
+            init_mismatch(name_for_msg, declared_type, arg_type, init->line, init->col);
+        }
+    } else {
+        Type init_type = check_expr(module, env, init);
+        require_not_void(init, "to initialize a variable");
+        declared = init_type;
+        if (has_declared) {
+            declared = declared_type;
+            if (!type_equals(declared, init_type)) {
+                init_mismatch(name_for_msg, declared, init_type, init->line, init->col);
+            }
+        }
+    }
+    return declared;
+}
+
+/* ---- `if`/`switch` used as a value (see docs/DESIGN.md) ------------------
+ * A STMT_VALUE_BLOCK wraps an ordinary if/switch whose arms end in STMT_YIELD.
+ * The enclosing statement's expected type (a declared type, the assigned
+ * variable's type, the function's return type) is pushed here so each yielded
+ * value is checked against it exactly as an initializer would be; with no
+ * expected type the first arm decides and the rest must match. */
+typedef struct ValueCtx {
+    int has_expected;
+    Type expected;
+    int count;
+    Type first;
+} ValueCtx;
+
+static ValueCtx *g_value_ctx = NULL;
+
+/* Whether every path through `s` (an arm block, or an if/switch ending one)
+ * ends by yielding a value or by leaving (return/break/continue). */
+static int arm_yields_or_leaves(Stmt *s) {
+    switch (s->kind) {
+        case STMT_BLOCK:
+            if (s->as.block.stmts.count == 0) return 0;
+            return arm_yields_or_leaves(s->as.block.stmts.items[s->as.block.stmts.count - 1]);
+        case STMT_YIELD:
+        case STMT_RETURN:
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+            return 1;
+        case STMT_IF:
+            return s->as.if_stmt.else_block != NULL && arm_yields_or_leaves(s->as.if_stmt.then_block) &&
+                   arm_yields_or_leaves(s->as.if_stmt.else_block);
+        case STMT_SWITCH:
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) {
+                if (!arm_yields_or_leaves(s->as.switch_stmt.arms[i].body)) return 0;
+            }
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
     switch (s->kind) {
         case STMT_SWITCH:
@@ -2055,90 +2184,82 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             break;
         case STMT_VAL:
         case STMT_VAR: {
-            Expr *init = s->as.decl.init;
-            Type declared;
             if (s->as.decl.has_declared_type) {
                 check_type_well_formed(module, s->as.decl.declared_type, s->line, s->col);
             }
-            /* `val|var NAME = inner?` -- checked directly against
-             * `fn_return_type`, not the declared type (there usually
-             * isn't one; the unwrapped type is already fully determined
-             * by `inner`'s own Option<T>/Result<T, E> type, with
-             * nothing left to infer or disambiguate). A declared type
-             * annotation is still allowed, and still checked against
-             * the unwrapped type, exactly like the plain fallback below
-             * already does for an ordinary initializer. */
-            if (init->kind == EXPR_TRY_UNWRAP) {
-                Type unwrapped = check_try_unwrap(module, env, init, fn_return_type);
-                declared = unwrapped;
-                if (s->as.decl.has_declared_type) {
-                    declared = s->as.decl.declared_type;
-                    if (!type_equals(declared, unwrapped)) {
-                        ziman_error("type", init->line, init->col,
-                                    "cannot initialize '%s' of declared type %s with a value of type %s",
-                                    s->as.decl.name, type_name(declared), type_name(unwrapped));
-                    }
-                }
-            } else if (init->kind == EXPR_ARRAY_LIT && init->as.array_lit.elements.count == 0) {
-                /* An empty array literal (`[]`) has no elements to infer
-                 * a type from -- it's only legal when a declared type
-                 * gives its element type explicitly, checked here
-                 * rather than inside the generic check_expr, which has
-                 * no such context to work from. */
-                if (!s->as.decl.has_declared_type) {
-                    ziman_error("type", init->line, init->col,
-                                "cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])");
-                }
-                if (s->as.decl.declared_type.kind != TY_ARRAY) {
-                    ziman_error("type", init->line, init->col,
-                                "cannot initialize '%s' of declared type %s with an empty array literal",
-                                s->as.decl.name, type_name(s->as.decl.declared_type));
-                }
-                init->resolved_type = s->as.decl.declared_type;
-                declared = s->as.decl.declared_type;
-            } else if (s->as.decl.has_declared_type && check_ok_err_call(module, env, init, s->as.decl.declared_type)) {
-                /* ok(...)/err(...) resolved against the declared type -- see
-                 * check_ok_err_call's own comment for why this needs its own
-                 * path instead of going through plain check_expr. */
-                declared = s->as.decl.declared_type;
-            } else if (s->as.decl.has_declared_type && check_channel_new_call(init, s->as.decl.declared_type)) {
-                /* channel_new() resolved against the declared type -- same
-                 * reasoning as ok(...)/err(...) above. */
-                declared = s->as.decl.declared_type;
-            } else if (s->as.decl.has_declared_type && (is_option_type(s->as.decl.declared_type) || s->as.decl.declared_type.kind == TY_RESULT)) {
-                /* A bare Option<T>/Result<T, E> auto-wrap against the
-                 * declared type -- same reasoning as ok(...)/err(...)
-                 * above, via check_value_against_param_type directly
-                 * (passing &s->as.decl.init, not the local `init` copy,
-                 * so a successful wrap persists into the AST the
-                 * interpreter later evaluates). */
-                Type arg_type;
-                if (check_value_against_param_type(module, env, &s->as.decl.init, s->as.decl.declared_type, &arg_type)) {
-                    declared = s->as.decl.declared_type;
-                } else {
-                    ziman_error("type", init->line, init->col,
-                                "cannot initialize '%s' of declared type %s with a value of type %s",
-                                s->as.decl.name, type_name(s->as.decl.declared_type), type_name(arg_type));
-                }
-            } else {
-                Type init_type = check_expr(module, env, init);
-                require_not_void(init, "to initialize a variable");
-                declared = init_type;
-                if (s->as.decl.has_declared_type) {
-                    declared = s->as.decl.declared_type;
-                    if (!type_equals(declared, init_type)) {
-                        ziman_error("type", init->line, init->col,
-                                    "cannot initialize '%s' of declared type %s with a value of type %s",
-                                    s->as.decl.name, type_name(declared), type_name(init_type));
-                    }
-                }
-            }
+            Type declared = check_initializer(module, env, &s->as.decl.init, s->as.decl.has_declared_type,
+                                              s->as.decl.declared_type, s->as.decl.name, fn_return_type);
             int is_mutable = s->kind == STMT_VAR;
             if (!env_define(env, s->as.decl.name, declared, is_mutable, value_int(0))) {
                 ziman_error("type", s->line, s->col, "'%s' is already declared in this scope", s->as.decl.name);
             }
             if (is_mutable && g_lint_active) {
                 env_lookup(env, s->as.decl.name)->lint_id = lint_register_var(s->as.decl.name, s->line, s->col);
+            }
+            break;
+        }
+        case STMT_YIELD: {
+            ValueCtx *ctx = g_value_ctx;
+            Type t = check_initializer(module, env, &s->as.yield_stmt.value, ctx->has_expected, ctx->expected, NULL, fn_return_type);
+            if (ctx->count == 0) {
+                ctx->first = t;
+            } else if (!type_equals(t, ctx->first)) {
+                ziman_error("type", s->line, s->col,
+                            "the arms of an 'if'/'switch' used as a value must all have the same type: found %s and %s",
+                            type_name(ctx->first), type_name(t));
+            }
+            ctx->count++;
+            break;
+        }
+        case STMT_VALUE_BLOCK: {
+            Stmt *inner = s->as.value_block.inner;
+            if (!arm_yields_or_leaves(inner)) {
+                ziman_error("type", inner->line, inner->col,
+                            "every arm of an 'if'/'switch' used as a value must end with a value expression (or return/break/continue)");
+            }
+            ValueCtx ctx;
+            memset(&ctx, 0, sizeof ctx);
+            StmtKind target = s->as.value_block.target;
+            Binding *assigned = NULL;
+            if (target == STMT_VAL || target == STMT_VAR) {
+                if (s->as.value_block.has_declared_type) {
+                    check_type_well_formed(module, s->as.value_block.declared_type, s->line, s->col);
+                    ctx.has_expected = 1;
+                    ctx.expected = s->as.value_block.declared_type;
+                }
+            } else if (target == STMT_ASSIGN) {
+                assigned = env_lookup(env, s->as.value_block.name);
+                if (assigned == NULL) {
+                    ziman_error("type", s->line, s->col, "assignment to undefined variable '%s'", s->as.value_block.name);
+                }
+                if (assigned->lint_id > 0) g_lint_vars[assigned->lint_id - 1].assigned = 1;
+                if (!assigned->is_mutable) {
+                    ziman_error("type", s->line, s->col, "cannot assign to '%s' because it was declared with 'val' (use 'var' to make it mutable)", s->as.value_block.name);
+                }
+                ctx.has_expected = 1;
+                ctx.expected = assigned->type;
+            } else {
+                if (fn_return_type.kind == TY_VOID) {
+                    ziman_error("type", s->line, s->col, "cannot return a value from a function that returns nothing");
+                }
+                ctx.has_expected = 1;
+                ctx.expected = fn_return_type;
+            }
+            ValueCtx *saved = g_value_ctx;
+            g_value_ctx = &ctx;
+            check_stmt(module, env, inner, fn_return_type, in_loop);
+            g_value_ctx = saved;
+            if (ctx.count == 0 && target != STMT_RETURN) {
+                ziman_error("type", s->line, s->col, "no arm of this 'if'/'switch' produces a value (every arm leaves)");
+            }
+            if (target == STMT_VAL || target == STMT_VAR) {
+                Type result = ctx.has_expected ? ctx.expected : ctx.first;
+                if (!env_define(env, s->as.value_block.name, result, target == STMT_VAR, value_int(0))) {
+                    ziman_error("type", s->line, s->col, "'%s' is already declared in this scope", s->as.value_block.name);
+                }
+                if (target == STMT_VAR && g_lint_active) {
+                    env_lookup(env, s->as.value_block.name)->lint_id = lint_register_var(s->as.value_block.name, s->line, s->col);
+                }
             }
             break;
         }

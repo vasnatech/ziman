@@ -2961,3 +2961,44 @@ appends its leftover runs as slices via `ab_append(ab: ..., pieces: ...)`, and
 `hashset_items` appends each bucket the same way. The other `ArrayBuilder`
 users compute new values (decoders, encoders, `map`/`filter`), which a view
 cannot replace.
+
+## `if` and `switch` as values (R21)
+
+**Form.** `val x = if c { a } else { b }`, `x = switch e { ... }`,
+`return if ...`. An arm's value is its final bare expression.
+
+**Why only those three positions.** An arm can `return`, `break` or `continue`
+(`val n = switch r { Ok(v) { v } Err(e) { return err(e) } }` is the most useful
+shape), and a tree-walking interpreter can unwind out of a *statement* but not
+out of an arbitrary expression tree; that is the same reason `?` is
+restricted (ROADMAP R20 states this plainly). So the value form is a
+statement, not an expression node, and `1 + if ...` or `f(if ...)` are syntax
+errors with a hint to bind a `val` first. Relaxing it later (arms that cannot
+leave, used as operands) is possible without breaking anything.
+
+**Mechanism: no new expression kind.** The parser wraps an ordinary `if` or
+`switch` statement in a `STMT_VALUE_BLOCK` (target: val, var, assignment or
+return) and turns each arm's last bare expression into a `STMT_YIELD`
+(recursively through a trailing `if`/`switch`). Type checking checks the inner
+statement as usual, with the target's expected type pushed on a small stack so
+each yielded value goes through `check_initializer` -- the val/var initializer
+logic, factored out for this -- and therefore gets `?`, `[]`, `ok()`/`err()`,
+`channel_new()` and the Option/Result auto-wrap for free. `switch` is rewritten
+into its `if` chain as before, so exhaustiveness is unchanged. The interpreter
+gets one new control result, `CTRL_YIELD`, which carries an arm's value out of
+its blocks the way `CTRL_RETURN` carries a return value (chosen over a
+thread-local "yield register" so the value stays on the C stack, visible to the
+collector). Scoping, defers and `return`/`break` inside an arm are the
+existing statement machinery.
+
+**Decisions.** `if` needs an `else`. Every arm must yield or leave. All arms
+have one type; with an expected type they are each coerced to it, without one
+the first decides and there is no auto-wrap between arms (write both arms the
+same way). A trailing `if`/`switch` in an arm is a value, never a statement
+(an arm that must do something conditionally and produce nothing can't be one).
+
+**Effect on the code base.** Nine `var x = ...; if ... { x = ... }` patterns in
+the library and the sample backend became `val`s (the backend's
+`db_error_response` status, the pg/mysql decoders, `httpclient`'s body
+reading, `properties`' profile choice). The lint (`--lint`) counts an
+assignment made by a value block.

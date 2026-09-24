@@ -627,9 +627,11 @@ static Expr *parse_primary(Parser *p) {
         return e;
     }
 
-    if (t->type == TOK_IF) {
+    if (t->type == TOK_IF || t->type == TOK_SWITCH) {
         ziman_error("syntax", t->line, t->col,
-                    "'if' is a statement, not an expression -- declare a 'var' before it and assign in each branch, or 'return' from each branch");
+                    "an '%s' can be used as a value only as the whole right-hand side of 'val'/'var', an assignment or 'return' -- "
+                    "bind it to a 'val' first, then use that name here",
+                    t->type == TOK_IF ? "if" : "switch");
     }
     if (t->type == TOK_FN) {
         ziman_error("syntax", t->line, t->col,
@@ -777,6 +779,66 @@ static Stmt *parse_block(Parser *p) {
     return block;
 }
 
+static Stmt *parse_if(Parser *p);
+static Stmt *parse_switch(Parser *p);
+
+/* In an `if`/`switch` used as a value, each arm's last statement is its value:
+ * a bare expression becomes a STMT_YIELD, and a trailing `if`/`switch` is
+ * converted the same way, recursively (an `else if` chain, or a nested value).
+ * Anything else that ends an arm (return, break, continue) is left alone -- the
+ * type checker requires it to leave rather than fall off the end. */
+static void yieldify(Stmt *s) {
+    switch (s->kind) {
+        case STMT_BLOCK: {
+            int n = s->as.block.stmts.count;
+            if (n == 0) return;
+            Stmt *last = s->as.block.stmts.items[n - 1];
+            if (last->kind == STMT_EXPR) {
+                Stmt *y = stmt_new(STMT_YIELD, last->line, last->col);
+                y->as.yield_stmt.value = last->as.expr_stmt.expr;
+                s->as.block.stmts.items[n - 1] = y;
+            } else if (last->kind == STMT_IF || last->kind == STMT_SWITCH) {
+                yieldify(last);
+            }
+            return;
+        }
+        case STMT_IF:
+            yieldify(s->as.if_stmt.then_block);
+            if (s->as.if_stmt.else_block != NULL) yieldify(s->as.if_stmt.else_block);
+            return;
+        case STMT_SWITCH:
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) yieldify(s->as.switch_stmt.arms[i].body);
+            return;
+        default:
+            return;
+    }
+}
+
+/* If the next token starts an `if` or `switch`, parses it as a value and wraps
+ * it in a STMT_VALUE_BLOCK standing in for a `val`/`var`/assignment/`return`;
+ * otherwise returns NULL and consumes nothing. */
+static Stmt *parse_value_block(Parser *p, StmtKind target, Token *start, char *name, int has_declared_type, Type declared_type) {
+    Stmt *inner;
+    if (match(p, TOK_IF)) {
+        inner = parse_if(p);
+        if (inner->as.if_stmt.else_block == NULL) {
+            ziman_error("syntax", inner->line, inner->col, "an 'if' used as a value needs an 'else' (every path must produce a value)");
+        }
+    } else if (match(p, TOK_SWITCH)) {
+        inner = parse_switch(p);
+    } else {
+        return NULL;
+    }
+    yieldify(inner);
+    Stmt *s = stmt_new(STMT_VALUE_BLOCK, start->line, start->col);
+    s->as.value_block.target = target;
+    s->as.value_block.name = name;
+    s->as.value_block.has_declared_type = has_declared_type;
+    s->as.value_block.declared_type = declared_type;
+    s->as.value_block.inner = inner;
+    return s;
+}
+
 static Stmt *parse_decl(Parser *p, StmtKind kind) {
     Token *kw = previous(p);
     Token *name_tok = expect(p, TOK_IDENT, "an identifier");
@@ -788,6 +850,8 @@ static Stmt *parse_decl(Parser *p, StmtKind kind) {
         s->as.decl.has_declared_type = 1;
     }
     expect(p, TOK_EQ, "'='");
+    Stmt *value = parse_value_block(p, kind, kw, s->as.decl.name, s->as.decl.has_declared_type, s->as.decl.declared_type);
+    if (value != NULL) return value;
     s->as.decl.init = parse_expr(p);
     return s;
 }
@@ -918,6 +982,10 @@ static Stmt *parse_return(Parser *p) {
     Token *kw = previous(p);
     Stmt *s = stmt_new(STMT_RETURN, kw->line, kw->col);
     if (!check(p, TOK_NEWLINE) && !check(p, TOK_RBRACE)) {
+        Type no_type;
+        memset(&no_type, 0, sizeof no_type);
+        Stmt *value = parse_value_block(p, STMT_RETURN, kw, NULL, 0, no_type);
+        if (value != NULL) return value;
         s->as.ret.value = parse_expr(p);
     }
     return s;
@@ -993,6 +1061,10 @@ static Stmt *parse_statement(Parser *p) {
         }
         Stmt *s = stmt_new(STMT_ASSIGN, start->line, start->col);
         s->as.assign.name = first->as.ident_name;
+        Type no_type;
+        memset(&no_type, 0, sizeof no_type);
+        Stmt *value = parse_value_block(p, STMT_ASSIGN, start, first->as.ident_name, 0, no_type);
+        if (value != NULL) return value;
         s->as.assign.value = parse_expr(p);
         return s;
     }
@@ -1351,6 +1423,13 @@ static void reclassify_type_params_in_stmt(Stmt *s, TypeParamList *type_params) 
             break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) reclassify_type_params_in_stmt(s->as.block.stmts.items[i], type_params);
+            break;
+        case STMT_VALUE_BLOCK:
+            if (s->as.value_block.has_declared_type) reclassify_type_params(&s->as.value_block.declared_type, type_params);
+            reclassify_type_params_in_stmt(s->as.value_block.inner, type_params);
+            break;
+        case STMT_YIELD:
+            reclassify_type_params_in_expr(s->as.yield_stmt.value, type_params);
             break;
     }
 }

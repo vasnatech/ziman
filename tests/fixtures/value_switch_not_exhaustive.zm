@@ -1,0 +1,6 @@
+enum E { A B }
+fn main() {
+    val e = E.A
+    val x = switch e { A { 1 } }
+    print(x)
+}

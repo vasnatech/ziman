@@ -445,6 +445,13 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) self_qualify_stmt(s->as.block.stmts.items[i], ctx);
             break;
+        case STMT_VALUE_BLOCK:
+            if (s->as.value_block.has_declared_type) self_qualify_type(&s->as.value_block.declared_type, ctx);
+            self_qualify_stmt(s->as.value_block.inner, ctx);
+            break;
+        case STMT_YIELD:
+            self_qualify_expr(s->as.yield_stmt.value, ctx);
+            break;
     }
 }
 
@@ -539,8 +546,17 @@ static void check_no_val_shadowing_stmt(Stmt *s, char **val_names, int n_val_nam
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) check_no_val_shadowing_stmt(s->as.block.stmts.items[i], val_names, n_val_names, imports, n_imports);
             break;
+        case STMT_VALUE_BLOCK:
+            if ((s->as.value_block.target == STMT_VAL || s->as.value_block.target == STMT_VAR) &&
+                is_reserved_val_name(s->as.value_block.name, val_names, n_val_names, imports, n_imports)) {
+                ziman_error("module", s->line, s->col,
+                            "'%s' is a global val in this module, so it can't also be used as a local name (rename one)",
+                            s->as.value_block.name);
+            }
+            check_no_val_shadowing_stmt(s->as.value_block.inner, val_names, n_val_names, imports, n_imports);
+            break;
         case STMT_ASSIGN: case STMT_BREAK: case STMT_CONTINUE:
-        case STMT_SPAWN: case STMT_RETURN: case STMT_EXPR: case STMT_DEFER:
+        case STMT_SPAWN: case STMT_RETURN: case STMT_EXPR: case STMT_DEFER: case STMT_YIELD:
             break; /* declares no new name */
     }
 }
@@ -1007,6 +1023,13 @@ static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx) {
             break;
         case STMT_BLOCK:
             for (int i = 0; i < s->as.block.stmts.count; i++) resolve_stmt_refs(s->as.block.stmts.items[i], ctx);
+            break;
+        case STMT_VALUE_BLOCK:
+            if (s->as.value_block.has_declared_type) resolve_type_refs(&s->as.value_block.declared_type, ctx, s->line, s->col);
+            resolve_stmt_refs(s->as.value_block.inner, ctx);
+            break;
+        case STMT_YIELD:
+            resolve_expr_refs(s->as.yield_stmt.value, ctx);
             break;
     }
 }

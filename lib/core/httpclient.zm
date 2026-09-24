@@ -322,31 +322,26 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
     if no_body {
         return BytesResponse { status: status, headers: header_list, body: [] }
     }
-    var body_bytes = rest
     val te = header_value(header_list, "Transfer-Encoding")
     val cl = header_value(header_list, "Content-Length")
-    if Option.is_Some(te) && contains(to_lower(Option.unwrap_Some(te)), "chunked") {
-        val step4 = read_chunked(sock, rest)?
-        body_bytes = step4
-    } else {
-        if Option.is_Some(cl) {
-            val n = parse_int(trim(Option.unwrap_Some(cl)))
-            if !is_ok(n) || unwrap(n) < 0 {
-                return err(ClientError.BadResponse("invalid Content-Length"))
-            }
-            if unwrap(n) > max_body_bytes {
-                return err(ClientError.TooLarge)
-            }
-            if unwrap(n) > len(rest) {
-                val tail = lift<[byte]>(net.read_exact(sock, unwrap(n) - len(rest)))?
-                body_bytes = bytes_concat(rest, tail)
-            } else {
-                body_bytes = slice<byte>(rest, 0, unwrap(n))
-            }
-        } else {
-            val step5 = read_to_close(sock, rest)?
-            body_bytes = step5
+    val body_bytes = if Option.is_Some(te) && contains(to_lower(Option.unwrap_Some(te)), "chunked") {
+        read_chunked(sock, rest)?
+    } else if Option.is_Some(cl) {
+        val n = parse_int(trim(Option.unwrap_Some(cl)))
+        if !is_ok(n) || unwrap(n) < 0 {
+            return err(ClientError.BadResponse("invalid Content-Length"))
         }
+        if unwrap(n) > max_body_bytes {
+            return err(ClientError.TooLarge)
+        }
+        if unwrap(n) > len(rest) {
+            val tail = lift<[byte]>(net.read_exact(sock, unwrap(n) - len(rest)))?
+            bytes_concat(rest, tail)
+        } else {
+            slice<byte>(rest, 0, unwrap(n))
+        }
+    } else {
+        read_to_close(sock, rest)?
     }
     return BytesResponse { status: status, headers: header_list, body: body_bytes }
 }

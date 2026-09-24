@@ -1,0 +1,14 @@
+3
+60
+80
+positive
+negative
+zero
+12
+9
+0
+Some(4)
+Ok(42)
+Err(bad: cannot parse 'x' as int)
+200
+Some(yes)

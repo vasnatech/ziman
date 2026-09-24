@@ -185,13 +185,14 @@ pub fn load(name: string) -> Result<Properties, string> {
     val base_file = concat(name, ".properties")
     val text = read_source(base_file)?
     val base = parse_raw(text, base_file)?
-    var profile = ""
     val from_env = os.getenv("PROFILE_ACTIVE")
     val declared = find_file_entry(base.entries, "profile.active")
-    if Option.is_Some(from_env) {
-        profile = trim(Option.unwrap_Some(from_env))
+    val profile = if Option.is_Some(from_env) {
+        trim(Option.unwrap_Some(from_env))
     } else if Option.is_Some(declared) {
-        profile = Option.unwrap_Some(declared).value
+        Option.unwrap_Some(declared).value
+    } else {
+        ""
     }
     if len(profile) == 0 {
         return resolve_all(base)

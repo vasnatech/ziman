@@ -1,0 +1,84 @@
+enum Shape { Circle(int) Square(int) Empty }
+
+fn classify(n: int) -> string {
+    return if n > 0 { "positive" } else if n < 0 { "negative" } else { "zero" }
+}
+
+fn area(s: Shape) -> int {
+    val a = switch s {
+        Circle(r) { 3 * r * r }
+        Square(w) {
+            val side = w
+            side * side
+        }
+        Empty { 0 }
+    }
+    return a
+}
+
+fn first_even(items: [int]) -> Option<int> {
+    for x in items {
+        val ok_even: bool = if x % 2 == 0 { true } else { false }
+        if ok_even {
+            return Option<int>.Some(x)
+        }
+    }
+    return Option<int>.None
+}
+
+fn parse_or(s: string) -> Result<int, string> {
+    val n = switch parse_int(s) {
+        Ok(v) { v }
+        Err(e) { return err(concat("bad: ", e)) }
+    }
+    return ok(n + 1)
+}
+
+fn status(e: Result<int, string>) -> int {
+    var code = 0
+    code = if is_ok(e) { 200 } else { 500 }
+    return code
+}
+
+fn loop_break() -> int {
+    var i = 0
+    while true {
+        val v = if i > 2 { break } else { i }
+        i = v + 1
+    }
+    return i
+}
+
+fn nested(i: int) -> int {
+    val n = if i == 3 {
+        if i > 100 { 1 } else { 30 }
+    } else {
+        40
+    }
+    val big = if n > 1 {
+        val t = n * 2
+        if t > 5 { t } else { 5 }
+    } else {
+        0
+    }
+    return big
+}
+
+fn main() {
+    print(loop_break())
+    print(nested(3))
+    print(nested(4))
+    print(classify(5))
+    print(classify(-2))
+    print(classify(0))
+    print(area(Shape.Circle(2)))
+    print(area(Shape.Square(3)))
+    print(area(Shape.Empty))
+    print(first_even([1, 3, 4]))
+    print(parse_or("41"))
+    print(parse_or("x"))
+    val good: Result<int, string> = ok(1)
+    print(status(good))
+    val label: Option<string> = if true { "yes" } else { Option<string>.None }
+    print(label)
+}

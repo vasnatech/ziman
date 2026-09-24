@@ -1,0 +1,6 @@
+fn main() {
+    var code = 0
+    var unused = 1
+    code = if true { 1 } else { 2 }
+    print(code)
+}

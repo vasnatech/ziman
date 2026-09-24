@@ -634,15 +634,8 @@ fn read_int(b: [byte], pos: int, n: int, unsigned: bool) -> Result<int, DbError>
         return high * 4294967296 + low
     }
     val v = read_le(b, pos, n)
-    var limit = 128
-    var span = 256
-    if n == 2 {
-        limit = 32768
-        span = 65536
-    } else if n == 4 {
-        limit = 2147483648
-        span = 4294967296
-    }
+    val limit = if n == 2 { 32768 } else if n == 4 { 2147483648 } else { 128 }
+    val span = if n == 2 { 65536 } else if n == 4 { 4294967296 } else { 256 }
     if !unsigned && v >= limit {
         return v - span
     }
@@ -841,12 +834,8 @@ fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, Db
             sb_append(out, substring(sql, i, end))
             i = end
         } else if is_char_at(sql, i, "/") && is_char_at(sql, i + 1, "*") {
-            var end = index_of(sql, "*/", i + 2)
-            if end < 0 {
-                end = n
-            } else {
-                end = end + 2
-            }
+            val close = index_of(sql, "*/", i + 2)
+            val end = if close < 0 { n } else { close + 2 }
             sb_append(out, substring(sql, i, end))
             i = end
         } else if is_char_at(sql, i, "$") && i + 1 < n && is_digit_char(char_at(sql, i + 1)) {

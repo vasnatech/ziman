@@ -1344,6 +1344,49 @@ a naming rule. The bundled modules follow it; new ones should too.
 The one thing to avoid is a short generic verb that is also meant for bare
 import; that is the collision the two modes are otherwise designed around.
 
+### `if` and `switch` as values
+
+An `if` or `switch` can produce a value, which removes the "declare a `var`,
+then assign it in every branch" pattern:
+
+```
+val label = if n > 0 { "positive" } else if n < 0 { "negative" } else { "zero" }
+
+val status = switch e {
+    NotFound(m) { 404 }
+    Constraint(m) { 409 }
+    Connection(m) { 500 }
+    Sql(m) { 500 }
+}
+
+val n = switch parse_int(text) {
+    Ok(v) { v }
+    Err(msg) { return err(msg) }      // an arm may leave instead of producing a value
+}
+```
+
+- **Where:** only as the *entire* right-hand side of a `val`/`var`, of an
+  assignment (`x = if ...`), or of `return` (`return if ...`). It is not an
+  operand or an argument: `1 + if ...` and `print(if ...)` are syntax errors
+  that say to bind it to a `val` first. (Same deliberate narrowness as `?`,
+  and for the same reason: an arm can `return`, and the interpreter unwinds
+  a *statement*, not an arbitrary expression tree.) At the start of a
+  statement, `if`/`switch` are still the statements described above.
+- **The value of an arm** is its last expression: a block's statements run,
+  and its final bare expression is the value. That final expression may be
+  `foo()?`. A trailing `if`/`switch` is itself the value (so `else if`
+  chains and nested choices work).
+- **An arm may leave** (`return`, `break`, `continue`) instead of ending in a
+  value; at least one arm must produce a value, and every path must do one or
+  the other, or it is a compile error.
+- **`if` needs an `else`;** a `switch` is exhaustive as always.
+- **All arms have the same type.** With a declared type
+  (`val x: Option<int> = if ...`), an assigned variable, or a `return`, each
+  arm is checked against that type exactly like an initializer, so a bare
+  value auto-wraps to `Some`/`Ok` and `ok(...)`/`err(...)` resolve. With no
+  expected type the first arm decides, and there is no auto-wrap between arms.
+- `switch` payload names (`Circle(r)`) scope over their own arm only.
+
 ## Date and time
 
 The `time` core module (`use time.Name`) provides seven types, modeled

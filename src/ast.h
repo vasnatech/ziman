@@ -285,6 +285,8 @@ typedef enum {
     STMT_RETURN,
     STMT_EXPR,
     STMT_BLOCK,
+    STMT_VALUE_BLOCK,
+    STMT_YIELD,
 } StmtKind;
 
 typedef struct Stmt Stmt;
@@ -359,6 +361,19 @@ struct Stmt {
          * and an if/else chain over the existing is_X/unwrap_X consumption
          * calls, so the interpreter never sees this node. */
         struct { Expr *scrutinee; SwitchArm *arms; int arm_count; } switch_stmt;
+        /* `if`/`switch` used as a value: `val x = if c { 1 } else { 2 }`,
+         * `x = switch e { ... }`, `return if ...`. `target` says which of
+         * STMT_VAL / STMT_VAR / STMT_ASSIGN / STMT_RETURN this stands in for
+         * (`name`/`declared_type` are the val/var's or the assignment's
+         * variable). `inner` is an ordinary STMT_IF or STMT_SWITCH whose arms
+         * each end in a STMT_YIELD (produces the value) or in a statement that
+         * leaves (return/break/continue). Everything else about it -- scoping,
+         * control flow, the switch rewrite -- is the existing statement
+         * machinery; see docs/DESIGN.md's "if and switch as expressions". */
+        struct { StmtKind target; char *name; Type declared_type; int has_declared_type; Stmt *inner; } value_block;
+        /* The trailing expression of a value arm. The interpreter evaluates it
+         * into a per-thread register the enclosing STMT_VALUE_BLOCK reads. */
+        struct { Expr *value; } yield_stmt;
     } as;
 };
 
