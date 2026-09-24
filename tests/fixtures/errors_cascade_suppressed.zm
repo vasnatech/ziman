@@ -1,0 +1,13 @@
+fn main() {
+    val a = missing_function(1)
+    val b = a + 1
+    print(b)
+    val c: int = "no"
+    print(c * 2)
+    print(a)
+    var d = unknown_value
+    d = d + 1
+    print(d)
+    print("still reached")
+    print(undefined_at_the_end)
+}

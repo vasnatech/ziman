@@ -120,6 +120,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     ziman_set_json_errors(json);
+    ziman_set_entry_file(file);
 
     /* Line-buffered stdout even when redirected to a file or a pipe (C's
      * default there is fully buffered). A long-running program -- a

@@ -28,6 +28,7 @@ int env_define(Env *env, const char *name, Type type, int is_mutable, Value valu
     env->items[env->count].name = strdup(name);
     env->items[env->count].is_mutable = is_mutable;
     env->items[env->count].lint_id = 0;
+    env->items[env->count].poisoned = 0;
     env->items[env->count].type = type;
     env->items[env->count].value = value;
     env->count++;

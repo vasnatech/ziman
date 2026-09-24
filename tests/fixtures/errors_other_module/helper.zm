@@ -1,0 +1,7 @@
+pub fn broken() -> int {
+    return "module error"
+}
+
+pub fn also() -> string {
+    return 3
+}

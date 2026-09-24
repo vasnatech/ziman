@@ -902,9 +902,15 @@ static void import_for_derive(Module *module, const char *target, int line, int 
 }
 
 void generate_derived_functions(Module *module) {
-    for (int i = 0; i < module->structs.count; i++) {
+    for (volatile int i = 0; i < module->structs.count; i++) {
         StructDecl *sd = module->structs.items[i];
-        for (int d = 0; d < sd->derive_count; d++) {
+        for (volatile int d = 0; d < sd->derive_count; d++) {
+        jmp_buf recover;
+        ziman_recovery_push(&recover);
+        if (setjmp(recover) != 0) {
+            ziman_set_error_context(NULL);
+            continue;
+        }
             int is_json = strcmp(sd->derives[d], "Json") == 0;
             int is_row = strcmp(sd->derives[d], "Row") == 0;
             int is_props = strcmp(sd->derives[d], "Properties") == 0;
@@ -931,11 +937,18 @@ void generate_derived_functions(Module *module) {
                 parse_and_splice(module, generate_struct_from_row(sd), sd->line, sd->col, label);
                 parse_and_splice(module, generate_struct_to_params(sd), sd->line, sd->col, label);
             }
-        }
+                ziman_recovery_pop();
+}
     }
-    for (int i = 0; i < module->enums.count; i++) {
+    for (volatile int i = 0; i < module->enums.count; i++) {
         EnumDecl *ed = module->enums.items[i];
-        for (int d = 0; d < ed->derive_count; d++) {
+        for (volatile int d = 0; d < ed->derive_count; d++) {
+        jmp_buf recover;
+        ziman_recovery_push(&recover);
+        if (setjmp(recover) != 0) {
+            ziman_set_error_context(NULL);
+            continue;
+        }
             if (strcmp(ed->derives[d], "Row") == 0) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Row) does not support an enum ('%s') -- a SQL row is a struct", ed->name);
             }
@@ -945,6 +958,7 @@ void generate_derived_functions(Module *module) {
             if (strcmp(ed->derives[d], "Ord") == 0) {
                 const char *ord_label = fmt_str("derive(Ord) for '%s'", ed->name);
                 parse_and_splice(module, generate_enum_ord(ed), ed->line, ed->col, ord_label);
+                ziman_recovery_pop();
                 continue;
             }
             if (strcmp(ed->derives[d], "Json") != 0) {
@@ -954,6 +968,7 @@ void generate_derived_functions(Module *module) {
             import_for_derive(module, ed->derives[d], ed->line, ed->col);
             parse_and_splice(module, generate_enum_to_json(ed), ed->line, ed->col, label);
             parse_and_splice(module, generate_enum_from_json(ed), ed->line, ed->col, label);
-        }
+                ziman_recovery_pop();
+}
     }
 }

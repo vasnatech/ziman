@@ -1772,6 +1772,7 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
                 }
                 ziman_error("type", e->line, e->col, "use of undefined variable '%s'", e->as.ident_name);
             }
+            if (b->poisoned) ziman_abort_quietly();
             if (e->fn_ref_type_args.count > 0) {
                 ziman_error("type", e->line, e->col, "'%s' is a variable, not a generic function, so it takes no type arguments", e->as.ident_name);
             }
@@ -1948,9 +1949,68 @@ static Type check_try_unwrap(Module *module, Env *env, Expr *e, Type fn_return_t
  * statements execute somewhere inside a while/for body -- threaded through
  * so a `break`/`continue` deeper inside (e.g. under an `if`) can still be
  * validated without re-deriving it from scratch. */
+typedef struct ValueCtx {
+    int has_expected;
+    Type expected;
+    int count;
+    Type first;
+} ValueCtx;
+
+static ValueCtx *g_value_ctx = NULL;
+
+/* ---- reporting several errors: recovery per statement ------------------------
+ * An error inside a statement is reported and the checker moves on to the next
+ * one (see error.h). The globals the checker keeps while it walks are restored,
+ * since the jump left them pointing into frames that no longer exist. A `val`/
+ * `var` whose statement failed is defined anyway, "poisoned": a later use of it
+ * is skipped without a message, so one bad declaration does not report an error
+ * at every place that uses the name. */
+typedef struct {
+    ValueCtx *value_ctx;
+    TypeParamList *decl_params;
+    int lint_active;
+} CheckState;
+
+static CheckState check_state_save(void) {
+    CheckState s = {g_value_ctx, current_decl_type_params, g_lint_active};
+    return s;
+}
+
+static void check_state_restore(const CheckState *s) {
+    g_value_ctx = s->value_ctx;
+    current_decl_type_params = s->decl_params;
+    g_lint_active = s->lint_active;
+}
+
+static void poison_declaration(Env *scope, const Stmt *s) {
+    const char *name = NULL;
+    if (s->kind == STMT_VAL || s->kind == STMT_VAR) name = s->as.decl.name;
+    else if (s->kind == STMT_VALUE_BLOCK && (s->as.value_block.target == STMT_VAL || s->as.value_block.target == STMT_VAR)) name = s->as.value_block.name;
+    if (name == NULL) return;
+    for (int i = 0; i < scope->count; i++) {
+        if (strcmp(scope->items[i].name, name) == 0) return; /* it got defined before the error */
+    }
+    env_define(scope, name, type_scalar(TY_VOID), 0, value_int(0));
+    scope->items[scope->count - 1].poisoned = 1;
+}
+
+/* Checks one statement, recovering from an error in it. */
+static void check_stmt_recovering(Module *module, Env *scope, Stmt *s, Type fn_return_type, int in_loop) {
+    jmp_buf jb;
+    CheckState saved = check_state_save();
+    ziman_recovery_push(&jb);
+    if (setjmp(jb) == 0) {
+        check_stmt(module, scope, s, fn_return_type, in_loop);
+        ziman_recovery_pop();
+    } else {
+        check_state_restore(&saved);
+        poison_declaration(scope, s);
+    }
+}
+
 static void check_stmts_in_scope(Module *module, Env *scope, Stmt *block, Type fn_return_type, int in_loop) {
     for (int i = 0; i < block->as.block.stmts.count; i++) {
-        check_stmt(module, scope, block->as.block.stmts.items[i], fn_return_type, in_loop);
+        check_stmt_recovering(module, scope, block->as.block.stmts.items[i], fn_return_type, in_loop);
     }
 }
 
@@ -2235,14 +2295,6 @@ static Type check_initializer(Module *module, Env *env, Expr **init_slot, int ha
  * variable's type, the function's return type) is pushed here so each yielded
  * value is checked against it exactly as an initializer would be; with no
  * expected type the first arm decides and the rest must match. */
-typedef struct ValueCtx {
-    int has_expected;
-    Type expected;
-    int count;
-    Type first;
-} ValueCtx;
-
-static ValueCtx *g_value_ctx = NULL;
 
 /* Whether every path through `s` (an arm block, or an if/switch ending one)
  * ends by yielding a value or by leaving (return/break/continue). */
@@ -2579,6 +2631,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             if (b == NULL) {
                 ziman_error("type", s->line, s->col, "assignment to undefined variable '%s'", s->as.assign.name);
             }
+            if (b->poisoned) ziman_abort_quietly();
             if (b->lint_id > 0) g_lint_vars[b->lint_id - 1].assigned = 1;
             if (!b->is_mutable) {
                 ziman_error("type", s->line, s->col, "cannot assign to '%s' because it was declared with 'val' (use 'var' to make it mutable)", s->as.assign.name);
@@ -2887,7 +2940,7 @@ static void check_function(Module *module, FunctionDecl *fn) {
         g_lint_active = g_lint_on && fn->source_file != NULL && fn->derived_from == NULL;
         g_lint_file = fn->source_file;
         for (int i = 0; i < fn->body->as.block.stmts.count; i++) {
-            check_stmt(module, env, fn->body->as.block.stmts.items[i], fn->return_type, 0);
+            check_stmt_recovering(module, env, fn->body->as.block.stmts.items[i], fn->return_type, 0);
         }
         if (g_lint_active) lint_finish_function(lint_first_var);
         g_lint_active = 0;
@@ -3056,6 +3109,26 @@ void typecheck(Module *module) {
         ziman_set_error_context(NULL);
     }
 
+    check_global_vals(module);
+    /* Each function is checked on its own, so an error in one does not hide the
+     * errors in the others (and within a function, in the other statements). */
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *fn = module->functions.items[i];
+        ziman_set_error_context(fn->derived_from);
+        ziman_set_error_file(fn->source_file);
+        jmp_buf jb;
+        CheckState saved = check_state_save();
+        ziman_recovery_push(&jb);
+        if (setjmp(jb) == 0) {
+            check_function(module, fn);
+            ziman_recovery_pop();
+        } else {
+            check_state_restore(&saved);
+        }
+        ziman_set_error_context(NULL);
+    }
+    ziman_set_error_file(NULL);
+
     FunctionDecl *main_fn = find_function(module, "main");
     if (main_fn == NULL) {
         ziman_error("type", 0, 0, "no 'main' function found");
@@ -3063,11 +3136,5 @@ void typecheck(Module *module) {
     if (main_fn->params.count != 0 || main_fn->return_type.kind != TY_VOID) {
         ziman_error("type", main_fn->line, main_fn->col, "'main' must take no parameters and return nothing");
     }
-
-    check_global_vals(module);
-    for (int i = 0; i < module->functions.count; i++) {
-        ziman_set_error_context(module->functions.items[i]->derived_from);
-        check_function(module, module->functions.items[i]);
-        ziman_set_error_context(NULL);
-    }
+    ziman_finish_errors();
 }

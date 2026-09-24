@@ -1,0 +1,3 @@
+fn one() -> int { return "a" }
+fn two() -> int { return "b" }
+fn main() { print(one() + two()) }

@@ -7,6 +7,45 @@
 
 static const char *g_error_context = NULL;
 static int g_json_errors = 0;
+static const char *g_error_file = NULL;
+static const char *g_entry_file = NULL;
+static int g_error_count = 0;
+#define MAX_ERRORS 25
+#define MAX_RECOVERY_DEPTH 512
+static jmp_buf *g_recovery[MAX_RECOVERY_DEPTH];
+static int g_recovery_depth = 0;
+
+void ziman_set_error_file(const char *file) { g_error_file = file; }
+void ziman_set_entry_file(const char *file) { g_entry_file = file; }
+int ziman_error_count(void) { return g_error_count; }
+
+void ziman_recovery_push(jmp_buf *jb) {
+    if (g_recovery_depth < MAX_RECOVERY_DEPTH) g_recovery[g_recovery_depth] = jb;
+    g_recovery_depth++;
+}
+
+void ziman_recovery_pop(void) {
+    if (g_recovery_depth > 0) g_recovery_depth--;
+}
+
+/* Only points that fit in the table are real; a deeper push is ignored, so an
+ * error there jumps to the deepest real one. */
+static void jump_to_recovery(void) {
+    int depth = g_recovery_depth > MAX_RECOVERY_DEPTH ? MAX_RECOVERY_DEPTH : g_recovery_depth;
+    g_recovery_depth = depth - 1;
+    longjmp(*g_recovery[depth - 1], 1);
+}
+
+void ziman_abort_quietly(void) {
+    if (g_recovery_depth > 0) jump_to_recovery();
+    exit(1);
+}
+
+void ziman_finish_errors(void) {
+    if (g_error_count == 0) return;
+    if (g_error_count > 1 && !g_json_errors) fprintf(stderr, "ziman: %d errors\n", g_error_count);
+    exit(1);
+}
 
 void ziman_set_error_context(const char *context) {
     g_error_context = context;
@@ -49,19 +88,31 @@ void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
     vsnprintf(message, (size_t)(n > 0 ? n : 0) + 1, fmt, args);
     va_end(args);
 
+    int show_file = g_error_file != NULL && (g_entry_file == NULL || strcmp(g_error_file, g_entry_file) != 0);
     if (g_json_errors) {
         fprintf(stderr, "{\"severity\":\"error\",\"phase\":");
         print_json_string(stderr, phase);
+        fputs(",\"file\":", stderr);
+        if (g_error_file != NULL) print_json_string(stderr, g_error_file);
+        else fputs("null", stderr);
         fprintf(stderr, ",\"line\":%d,\"col\":%d,\"context\":", line, col);
         if (g_error_context != NULL) print_json_string(stderr, g_error_context);
         else fputs("null", stderr);
         fputs(",\"message\":", stderr);
         print_json_string(stderr, message);
         fputs("}\n", stderr);
-    } else if (g_error_context != NULL) {
-        fprintf(stderr, "ziman: %s error at %d:%d (in %s): %s\n", phase, line, col, g_error_context, message);
     } else {
-        fprintf(stderr, "ziman: %s error at %d:%d: %s\n", phase, line, col, message);
+        fprintf(stderr, "ziman: %s error at %d:%d", phase, line, col);
+        if (show_file) fprintf(stderr, " in %s", g_error_file);
+        if (g_error_context != NULL) fprintf(stderr, " (in %s)", g_error_context);
+        fprintf(stderr, ": %s\n", message);
+    }
+    g_error_count++;
+    if (g_recovery_depth > 0 && g_error_count < MAX_ERRORS) jump_to_recovery();
+    if (g_error_count >= MAX_ERRORS && g_recovery_depth > 0) {
+        if (!g_json_errors) fprintf(stderr, "ziman: too many errors (%d); stopping\n", g_error_count);
+    } else if (g_error_count > 1 && !g_json_errors) {
+        fprintf(stderr, "ziman: %d errors\n", g_error_count);
     }
     exit(1);
 }

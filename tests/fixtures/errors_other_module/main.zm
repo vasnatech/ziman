@@ -1,0 +1,6 @@
+use helper
+
+fn main() {
+    val x: int = "entry error"
+    print(helper.broken())
+}

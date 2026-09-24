@@ -1,0 +1,10 @@
+#[derive(Bogus)]
+struct A { x: int }
+
+#[derive(Json)]
+struct B { f: fn(int) -> int }
+
+#[derive(Ord)]
+struct C { }
+
+fn main() { }

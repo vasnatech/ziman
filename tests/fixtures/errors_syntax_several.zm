@@ -1,0 +1,16 @@
+fn a() -> int {
+    return 1 +
+}
+
+fn b(x: int -> int {
+    return x
+}
+
+struct P {
+    x int
+}
+
+fn main() {
+    val q = a(
+    print(q)
+}

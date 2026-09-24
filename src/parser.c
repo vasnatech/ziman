@@ -1733,8 +1733,27 @@ Module *parse(TokenList tokens) {
 
     skip_newlines(&p);
     while (!check(&p, TOK_EOF)) {
+        /* One declaration at a time, so several syntax errors in a file are all
+         * reported: after an error, skip to the next line that starts a top-level
+         * declaration (a keyword in column 1) and carry on. */
+        jmp_buf jb;
+        volatile int start_pos = p.pos;
+        ziman_recovery_push(&jb);
+        if (setjmp(jb) != 0) {
+            if (p.pos <= start_pos) p.pos = start_pos + 1;
+            while (!check(&p, TOK_EOF)) {
+                Token *t = cur(&p);
+                int starts_decl = t->col == 1 && (t->type == TOK_FN || t->type == TOK_STRUCT || t->type == TOK_ENUM || t->type == TOK_USE ||
+                                                  t->type == TOK_PUB || t->type == TOK_VAL || t->type == TOK_NATIVE || t->type == TOK_HASH);
+                if (starts_decl) break;
+                advance_tok(&p);
+            }
+            skip_newlines(&p);
+            continue;
+        }
         if (check(&p, TOK_USE)) {
             use_list_push(&module->uses, parse_use_decl(&p));
+            ziman_recovery_pop();
             skip_newlines(&p);
             continue;
         }
@@ -1770,10 +1789,15 @@ Module *parse(TokenList tokens) {
             fn->is_public = is_public;
             function_list_push(&module->functions, fn);
         }
+        ziman_recovery_pop();
         skip_newlines(&p);
     }
 
+    /* A file with syntax errors is not checked further: what is missing would
+     * make the next phases report errors that are only echoes. */
+    ziman_finish_errors();
     generate_derived_functions(module);
+    ziman_finish_errors();
 
     return module;
 }

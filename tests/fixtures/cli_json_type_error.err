@@ -1,1 +1,1 @@
-{"severity":"error","phase":"type","line":3,"col":18,"context":null,"message":"cannot initialize 'x' of declared type int with a value of type string"}
+{"severity":"error","phase":"type","file":"tests/fixtures/cli_json_type_error.zm","line":3,"col":18,"context":null,"message":"cannot initialize 'x' of declared type int with a value of type string"}

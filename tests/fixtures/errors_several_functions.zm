@@ -1,0 +1,21 @@
+fn helper(a: int) -> int {
+    return a + "x"
+}
+
+fn other() -> string {
+    val n = 5
+    return n
+}
+
+fn main() {
+    val x: int = "text"
+    print(x + 1)
+    val y = undefined_name + 1
+    print(y)
+    print(helper(1))
+    var z = 3
+    z = "s"
+    if z {
+        print(1)
+    }
+}

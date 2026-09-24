@@ -114,9 +114,11 @@ echo 'fn main() { print("hello, ziman") }' > hello.zm
 ```
 
 Options: `--check` loads and type-checks without running; `--json` reports each
-error as one JSON object on stderr (`{"severity":"error","phase":"type",
+error as one JSON object on stderr (`{"severity":"error","phase":"type","file":"a.zm",
 "line":3,"col":18,"context":null,"message":"..."}`, with `--check` a clean
-run prints `{"ok":true}`); `--emit-derived` prints the code each
+run prints `{"ok":true}`); a run reports **every** error it can find, not
+just the first (up to 25): all syntax errors in a file, then type errors in every
+function and statement, with a "N errors" line at the end; `--emit-derived` prints the code each
 `#[derive]` generates; `--lint` reports style findings in your own code
 instead of running it (today: a `var` that is never reassigned -- `var` and
 `val` differ by one letter, so it is the typo that silently makes something

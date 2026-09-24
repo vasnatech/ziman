@@ -1,0 +1,5 @@
+ziman: syntax error at 3:1: expected an expression, found '}'
+ziman: syntax error at 5:13: expected ')', found '->'
+ziman: syntax error at 10:7: expected ':', found 'int'
+ziman: syntax error at 16:1: expected ')', found '}'
+ziman: 4 errors

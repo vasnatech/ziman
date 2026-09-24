@@ -1,0 +1,5 @@
+ziman: type error at 2:13: call to undefined function 'missing_function'
+ziman: type error at 5:18: cannot initialize 'c' of declared type int with a value of type string
+ziman: type error at 8:13: use of undefined variable 'unknown_value'
+ziman: type error at 12:11: use of undefined variable 'undefined_at_the_end'
+ziman: 4 errors

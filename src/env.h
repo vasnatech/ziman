@@ -14,6 +14,7 @@ typedef struct {
     char *name;
     int is_mutable;
     int lint_id; /* type checker only: 1-based index into its `var` lint table, 0 = none */
+    int poisoned; /* type checker only: the declaration of this name failed to check; uses of it are skipped silently */
     Type type;
     Value value; /* unused by the type checker */
 } Binding;

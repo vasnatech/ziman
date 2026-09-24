@@ -1,0 +1,26 @@
+ziman: type error at 1:25: returned string but function is declared to return int
+ziman: type error at 2:25: returned string but function is declared to return int
+ziman: type error at 3:25: returned string but function is declared to return int
+ziman: type error at 4:25: returned string but function is declared to return int
+ziman: type error at 5:25: returned string but function is declared to return int
+ziman: type error at 6:25: returned string but function is declared to return int
+ziman: type error at 7:25: returned string but function is declared to return int
+ziman: type error at 8:25: returned string but function is declared to return int
+ziman: type error at 9:25: returned string but function is declared to return int
+ziman: type error at 10:25: returned string but function is declared to return int
+ziman: type error at 11:26: returned string but function is declared to return int
+ziman: type error at 12:26: returned string but function is declared to return int
+ziman: type error at 13:26: returned string but function is declared to return int
+ziman: type error at 14:26: returned string but function is declared to return int
+ziman: type error at 15:26: returned string but function is declared to return int
+ziman: type error at 16:26: returned string but function is declared to return int
+ziman: type error at 17:26: returned string but function is declared to return int
+ziman: type error at 18:26: returned string but function is declared to return int
+ziman: type error at 19:26: returned string but function is declared to return int
+ziman: type error at 20:26: returned string but function is declared to return int
+ziman: type error at 21:26: returned string but function is declared to return int
+ziman: type error at 22:26: returned string but function is declared to return int
+ziman: type error at 23:26: returned string but function is declared to return int
+ziman: type error at 24:26: returned string but function is declared to return int
+ziman: type error at 25:26: returned string but function is declared to return int
+ziman: too many errors (25); stopping

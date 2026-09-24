@@ -3372,3 +3372,44 @@ arrays; either way `[int]` in a hot path was the most expensive thing in the
 language). Not done: packing `string` elements (a `{ptr,len}` view is 16 bytes,
 so a packed string array is possible but touches every string native), and
 `decimal`/`bigint` arrays.
+
+## Reporting several errors per run (roadmap open item 8)
+
+A model (or a person) fixing a program used to need one compile per error. Now a
+run reports every error it can find, up to 25, in source order, ending with
+`ziman: N errors` (JSON mode prints just the objects, each now with a `file`
+field, like warnings).
+
+**Mechanism: recovery points, not error values.** `ziman_error` used to print and
+`exit(1)`. Now, while a *recovery point* is active, it prints and counts the
+diagnostic and `longjmp`s to the innermost one; with none active (running the
+program, or code that does not recover) it behaves as before, so every one of the
+hundreds of existing `ziman_error` call sites is unchanged. Recovery points are
+installed only where carrying on is sound: **the parser** around each top-level
+declaration (after an error, skip to the next line that starts a declaration with a
+keyword in column 1 and continue); **derive** around each `#[derive]`; **the type
+checker** around each function and around each *statement* (so a bad line in the
+middle of a function does not hide the rest of it). A file with syntax errors is
+not type-checked, since the missing declarations would only produce echoes. Errors
+before the function bodies (a bad struct, a global `val`) and in the loader stay
+first-error-wins.
+
+**Cascades are suppressed, not merely counted.** When a `val`/`var` statement fails,
+its name is still defined but *poisoned*; a later statement that reads or assigns
+it is skipped silently (a quiet jump to the recovery point). Without this, one
+undefined function would be reported again at every line that uses its result.
+The checker's own state (the value-block context, the generic parameter list, lint
+state) is saved and restored around each recovery, because the jump leaves it
+pointing into frames that no longer exist; loop variables around a `setjmp` are
+`volatile`.
+
+**Files.** `ziman_set_error_file` is set to each function's source file while it is
+checked; text output shows ` in <file>` only for a file other than the entry file,
+so a single-file error reads exactly as before, and JSON always carries `file`
+(`null` for runtime errors, which do not know which module is running).
+
+**Limits.** Recovery is per statement, so a later error in the *same* statement is
+not seen; an error inside a lambda body or a value-block arm aborts the statement
+that contains it; and an error in a module's top-level declarations (structs,
+enums, global vals) or in `use` resolution is still fatal on its own. Runtime
+errors are unchanged.

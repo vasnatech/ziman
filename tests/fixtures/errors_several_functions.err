@@ -1,0 +1,7 @@
+ziman: type error at 2:14: '+' doesn't join strings (found int and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+ziman: type error at 7:12: returned int but function is declared to return string
+ziman: type error at 11:18: cannot initialize 'x' of declared type int with a value of type string
+ziman: type error at 13:13: use of undefined variable 'undefined_name'
+ziman: type error at 17:9: cannot assign a value of type string to 'z' (declared as int)
+ziman: type error at 18:8: 'if' condition must be bool, found int
+ziman: 6 errors

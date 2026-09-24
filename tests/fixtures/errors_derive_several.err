@@ -1,0 +1,4 @@
+ziman: syntax error at 2:1: unknown derive target 'Bogus' on struct 'A'
+ziman: syntax error at 5:12: derive(Json) does not support field type 'fn(int) -> int' yet
+ziman: syntax error at 8:1: derive(Ord) needs at least one field to compare ('C' has none)
+ziman: 3 errors
