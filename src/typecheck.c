@@ -1056,7 +1056,54 @@ static Type check_array_literal(Module *module, Env *env, Expr *e) {
     return type_array(elem_type);
 }
 
+/* The loop binders currently in scope, innermost last, so an index
+ * expression can tell whether its index is the ELEMENT binder of a
+ * `for x in arr` over that very array. `array` is the iterated
+ * identifier for a single-binder array loop, NULL for every other kind
+ * of binder (a range index, or a two-binder loop's variables) -- those
+ * still get an entry so they shadow an outer element binder of the same
+ * name. */
+typedef struct {
+    const char *binder;
+    const char *array;
+} LoopBinder;
+enum { MAX_LOOP_BINDERS = 64 };
+static LoopBinder g_loop_binders[MAX_LOOP_BINDERS];
+static int g_loop_binder_count = 0;
+
+static void push_loop_binder(const char *binder, const char *array) {
+    if (g_loop_binder_count < MAX_LOOP_BINDERS) {
+        g_loop_binders[g_loop_binder_count].binder = binder;
+        g_loop_binders[g_loop_binder_count].array = array;
+    }
+    g_loop_binder_count++;
+}
+
+/* `for i in a { ... a[i] ... }`: in Ziman `i` is the ELEMENT here, but
+ * models (and people) coming from Go/JS/Python read it as the index and
+ * silently compute the wrong thing. Reject exactly this shape and say how
+ * to write each intent. */
+static void reject_element_used_as_index(Expr *e) {
+    Expr *arr = e->as.index.array;
+    Expr *idx = e->as.index.index;
+    if (arr->kind != EXPR_IDENT || idx->kind != EXPR_IDENT) return;
+    int n = g_loop_binder_count < MAX_LOOP_BINDERS ? g_loop_binder_count : MAX_LOOP_BINDERS;
+    for (int i = n - 1; i >= 0; i--) {
+        if (strcmp(g_loop_binders[i].binder, idx->as.ident_name) != 0) continue;
+        if (g_loop_binders[i].array != NULL && strcmp(g_loop_binders[i].array, arr->as.ident_name) == 0) {
+            ziman_error("type", idx->line, idx->col,
+                        "'%s' is an element of '%s' here ('for %s in %s' binds each element, not its position), so '%s[%s]' indexes with a value; "
+                        "to loop over positions write 'for %s in 0..len(%s)', or use 'for %s, item in %s' for both",
+                        idx->as.ident_name, arr->as.ident_name, idx->as.ident_name, arr->as.ident_name,
+                        arr->as.ident_name, idx->as.ident_name, idx->as.ident_name, arr->as.ident_name,
+                        idx->as.ident_name, arr->as.ident_name);
+        }
+        return;
+    }
+}
+
 static Type check_index(Module *module, Env *env, Expr *e) {
+    reject_element_used_as_index(e);
     Type arr_type = check_expr(module, env, e->as.index.array);
     if (arr_type.kind != TY_ARRAY) {
         ziman_error("type", e->as.index.array->line, e->as.index.array->col, "cannot index into %s (not an array)", type_name(arr_type));
@@ -1710,7 +1757,16 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                     env_define(scope, s->as.for_stmt.binder2, *iter_type.elem, 0, value_int(0));
                 }
             }
+            int binders_pushed_from = g_loop_binder_count;
+            if (s->as.for_stmt.is_range || s->as.for_stmt.binder2 != NULL) {
+                push_loop_binder(s->as.for_stmt.binder1, NULL);
+                if (s->as.for_stmt.binder2 != NULL) push_loop_binder(s->as.for_stmt.binder2, NULL);
+            } else {
+                Expr *iterable = s->as.for_stmt.iterable;
+                push_loop_binder(s->as.for_stmt.binder1, iterable->kind == EXPR_IDENT ? iterable->as.ident_name : NULL);
+            }
             check_stmts_in_scope(module, scope, s->as.for_stmt.body, fn_return_type, 1);
+            g_loop_binder_count = binders_pushed_from;
             env_free(scope);
             break;
         }

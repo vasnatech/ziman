@@ -440,6 +440,19 @@ for i, x in arr { ... }       // index + value together
 - **Scoped to the loop body only** — a loop variable doesn't exist
   before the loop or after it ends, same as any other block-scoped
   binding.
+- **`for i in a { ... a[i] ... }` is a compile error.** In this form `i`
+  is the *element*, not its position -- unlike Go's `for i := range a`,
+  JavaScript's `for (i in a)` or Python's `range(len(a))` habit -- so
+  indexing the same array with it silently computes the wrong thing. The
+  compiler rejects that exact shape (a single-binder loop over an
+  identifier, indexing that identifier with the binder) and names both
+  fixes: `for i in 0..len(a)` for positions, `for i, item in a` for both.
+  A range loop or an inner loop that reuses the name shadows the element
+  binder, and indexing a *different* array is fine. Deliberately narrow:
+  it doesn't catch `for i in a { print(i) }` when a position was meant,
+  and it does reject the rare legitimate case of an array whose elements
+  are positions into itself (`for x in next { ... next[x] ... }`) -- write
+  that with an index loop.
 - **Naming convention, not enforced by the grammar:** name a
   range-loop's single `int` binder `i`/`j`/`k` (matches the near-universal
   counted-loop convention), and an array value-loop's binder with a

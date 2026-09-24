@@ -1641,6 +1641,24 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
+- **`for i in a { a[i] }` is a compile error (external review, roadmap
+  R3, 2026-09-23).** One header, `for x in expr`, binds the element for an
+  array and the index for a range, and the only guard was a naming
+  convention -- in a language that enforces identifier casing in the
+  parser. A model carrying Go/JS/Python's meaning of a single binder wrote
+  `for i in a { sum = sum + a[i] }` and got a plausible wrong answer (`2`
+  instead of `4`), sometimes a crash. Options considered: a distinct
+  keyword (`in` for ranges, `of` for arrays -- closes the whole class,
+  matches JavaScript's for-in/for-of, but breaks ~55 sites), removing the
+  single-binder form (needs a `_` discard Ziman lacks), or a narrow check.
+  Chosen: the narrow check, because the grammar is not actually ambiguous
+  (a range is only ever a literal `a..b` after `in`), so this is a
+  model-prior problem, not a parsing one, and one keyword stays. The check
+  is exact -- single binder, iterated expression a plain identifier, index
+  expression the bare binder, same identifier -- tracked with a small stack
+  of in-scope loop binders so a shadowing inner loop is not flagged. Known
+  gap: it does not catch other misuses of the element as a position
+  (`for i in a { print(i) }`). Revisit `of` if the misuse keeps appearing.
 - **`int` overflow is a runtime error, not a silent wrap (external review,
   roadmap R2, 2026-09-23).** `9223372036854775807 + 1` used to print
   `-9223372036854775808`, contradicting the language's own rule that casts

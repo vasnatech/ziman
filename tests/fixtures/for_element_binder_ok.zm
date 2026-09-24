@@ -1,0 +1,37 @@
+fn main() {
+    val a = [2, 2, 0]
+    val b = [10, 20, 30]
+
+    // the element indexes a DIFFERENT array: fine
+    var sum = 0
+    for i in a {
+        sum = sum + b[i]
+    }
+    print(sum)
+
+    // a range loop that reuses the name shadows the element binder: fine
+    var count = 0
+    for x in a {
+        for x in 0..len(a) {
+            count = count + a[x]
+        }
+    }
+    print(count)
+
+    // index and element together, or an index range: fine
+    var total = 0
+    for j, item in a {
+        total = total + a[j] + item
+    }
+    for k in 0..len(a) {
+        total = total + a[k]
+    }
+    print(total)
+
+    // an element used as a value, not an index
+    var doubled = 0
+    for n in a {
+        doubled = doubled + n * 2
+    }
+    print(doubled)
+}

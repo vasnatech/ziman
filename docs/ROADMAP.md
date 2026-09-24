@@ -174,8 +174,8 @@ language's own principles)**
   `-O2`, which is currently absent and worth 2-3x). Then decide the
   language rule (trap, saturate, or documented wrap) and apply it to `+`,
   `-`, `*`.
-- [ ] **R3. `for x in arr` vs `for i in arr` is one syntax with two
-  meanings.** Iterating an array binds the element; iterating a range binds
+- [x] **R3. `for x in arr` vs `for i in arr` is one syntax with two
+  meanings.** *Done 2026-09-23 as a narrow compile error (`for i in a { a[i] }`), keeping one keyword; the `in`/`of` split was considered and deferred.* Iterating an array binds the element; iterating a range binds
   the index; the only guard is a naming convention in SYNTAX.md. A model
   that writes Python's/Go's index loop gets silently wrong sums, not an
   error. Fix: a distinct form for index iteration (or a compile error when

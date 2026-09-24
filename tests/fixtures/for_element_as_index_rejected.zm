@@ -1,0 +1,8 @@
+fn main() {
+    val a = [2, 2, 0]
+    var sum = 0
+    for i in a {
+        sum = sum + a[i]
+    }
+    print(sum)
+}
