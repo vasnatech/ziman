@@ -37,7 +37,7 @@ fn main() {
     print(contains(substring("xxabcxx", 2, 5), "abc"))
     print(contains(substring("xxabcxx", 2, 5), "x"))
     print(concat(substring("xxabcxx", 2, 4), substring("yyabcyy", 4, 6)))
-    print(format("[{}|{}]", char_at("hello", 1), substring("hello", 1, 4)))
+    printf("[{}|{}]\n", char_at("hello", 1), substring("hello", 1, 4))
     print(to_upper(substring("hello", 1, 4)))
     print(last_index_of(substring("a.b.c.d", 0, 5), "."))
 

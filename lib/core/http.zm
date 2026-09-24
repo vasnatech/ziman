@@ -632,7 +632,7 @@ fn serve_connection<C>(ctx: C, sock: Socket, handler: fn(C, Request) -> Response
             session = exchange.session                 // carries any bytes read past this request
             val response = handler(ctx, exchange.request)
             if log_requests {
-                print(format("{} {} -> {}", method_name(exchange.request.method), exchange.request.target, response.status))
+                printf("{} {} -> {}\n", method_name(exchange.request.method), exchange.request.target, response.status)
             }
             val keep = write_response(sock, exchange.request, response)
             if !is_ok(keep) || !unwrap(keep) {

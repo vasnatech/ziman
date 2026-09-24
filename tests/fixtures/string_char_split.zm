@@ -1,7 +1,7 @@
 fn show(p: Option<[string]>) {
     if Option.is_Some(p) {
         val parts = Option.unwrap_Some(p)
-        print(format("[{}] [{}]", parts[0], parts[1]))
+        printf("[{}] [{}]\n", parts[0], parts[1])
     } else {
         print("none")
     }

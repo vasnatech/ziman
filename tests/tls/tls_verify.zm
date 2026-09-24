@@ -29,10 +29,10 @@ fn reason(msg: string) -> string {
 fn attempt(label: string, host: string, port: int, verify: TlsVerify, ca: Option<string>) {
     val r = net.connect_tls_with(host, port, verify, ca)
     if is_ok(r) {
-        print(format("{}: ok ({})", label, get(unwrap(r))))
+        printf("{}: ok ({})\n", label, get(unwrap(r)))
         net.close(unwrap(r))
     } else {
-        print(format("{}: FAIL {}", label, reason(net_error_message(unwrap_err(r)))))
+        printf("{}: FAIL {}\n", label, reason(net_error_message(unwrap_err(r))))
     }
 }
 

@@ -22,7 +22,7 @@ fn main() {
 
     val xs = [b, a, Pair<int, string> { first: 0, second: "z" }]
     val sorted = collections.sort<Pair<int, string>>(xs)
-    print(format("{}{}{}", sorted[0].second, sorted[1].second, sorted[2].second))
+    printf("{}{}{}\n", sorted[0].second, sorted[1].second, sorted[2].second)
 
     val l = Either<int, string>.Left(5)
     val r = Either<int, string>.Right("x")

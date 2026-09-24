@@ -3,7 +3,7 @@ fn say(s: string) {
 }
 
 fn tag(a: string, b: int) {
-    print(format("{} {}", a, b))
+    printf("{} {}\n", a, b)
 }
 
 // LIFO order, and defers run after the body finishes
@@ -88,7 +88,7 @@ fn result_discarded() {
 
 // named args and default handling go through the normal call path
 fn labelled(name: string, count: int) {
-    print(format("{}={}", name, count))
+    printf("{}={}\n", name, count)
 }
 
 fn named() {

@@ -34,7 +34,7 @@ fn main() {
     print(show(http.path_params("/n/{name}", "/n/%zz"), "name"))
     // several captures
     val m = http.path_params("/a/{x}/b/{y}", "/a/1/b/2")
-    print(format("{},{}", http.param(Option.unwrap_Some(m), "x"), http.param(Option.unwrap_Some(m), "y")))
+    printf("{},{}\n", http.param(Option.unwrap_Some(m), "x"), http.param(Option.unwrap_Some(m), "y"))
     // the root
     print(Option.is_Some(http.path_params("/", "/")))
     // method must match too

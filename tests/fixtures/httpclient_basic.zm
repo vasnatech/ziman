@@ -77,9 +77,9 @@ fn accept_loop(l: net.Listener) {
 fn show(r: Result<http.Response, httpclient.ClientError>) {
     if is_ok(r) {
         val resp = unwrap(r)
-        print(format("{} [{}]", resp.status, resp.body))
+        printf("{} [{}]\n", resp.status, resp.body)
     } else {
-        print(format("error: {}", httpclient.error_message(unwrap_err(r))))
+        printf("error: {}\n", httpclient.error_message(unwrap_err(r)))
     }
 }
 

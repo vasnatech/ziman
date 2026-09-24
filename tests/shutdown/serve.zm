@@ -14,7 +14,7 @@ fn handle(greeting: string, req: http.Request) -> http.Response {
 fn main() {
     os.install_shutdown_handler()
     val listener = unwrap(net.listen("127.0.0.1", 0))
-    print(format("listening {}", net.listener_port(listener)))
+    printf("listening {}\n", net.listener_port(listener))
     val options = http.ServeOptions { idle_timeout_ms: 1000, max_connections: 4, log_requests: false }
     http.serve<string>(listener, "hi", handle, options)
     net.close_listener(listener)

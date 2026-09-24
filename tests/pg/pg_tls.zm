@@ -26,15 +26,15 @@ fn encrypted(label: string, url: string) {
     if !is_ok(c) {
         val msg = db_error_message(unwrap_err(c))
         if contains(msg, "self-signed") {
-            print(format("{}: FAIL untrusted certificate", label))
+            printf("{}: FAIL untrusted certificate\n", label)
         } else if contains(msg, "cannot load trusted certificates") {
-            print(format("{}: FAIL bad CA file", label))
+            printf("{}: FAIL bad CA file\n", label)
         } else {
-            print(format("{}: FAIL {}", label, msg))
+            printf("{}: FAIL {}\n", label, msg)
         }
     } else {
         val rows = unwrap(db.query(unwrap(c), "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()", []))
-        print(format("{}: ssl={}", label, unwrap(sql_as_bool(unwrap(row_get(rows[0], "ssl"))))))
+        printf("{}: ssl={}\n", label, unwrap(sql_as_bool(unwrap(row_get(rows[0], "ssl")))))
         db.close(unwrap(c))
     }
 }
