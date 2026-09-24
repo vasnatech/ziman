@@ -220,6 +220,9 @@ static Type parse_type(Parser *p) {
 static Expr *parse_expr(Parser *p);
 static ParamList parse_params(Parser *p);
 static Stmt *parse_block(Parser *p);
+static Stmt *parse_if(Parser *p);
+static Stmt *parse_switch(Parser *p);
+static void yieldify(Stmt *s);
 
 /* Used by call arguments and array literals. Tolerates a newline after
  * each element/before each comma and after each comma, same "the last
@@ -325,6 +328,14 @@ static FieldInitList parse_field_inits(Parser *p, TokenType stop) {
 }
 
 static Expr *parse_postfix(Parser *p);
+
+static int continues_expression(const Token *after) {
+    return after->type == TOK_PLUS || after->type == TOK_MINUS || after->type == TOK_STAR || after->type == TOK_SLASH ||
+           after->type == TOK_PERCENT || after->type == TOK_EQEQ || after->type == TOK_BANGEQ || after->type == TOK_LT ||
+           after->type == TOK_GT || after->type == TOK_LTEQ || after->type == TOK_GTEQ || after->type == TOK_AMPAMP ||
+           after->type == TOK_PIPEPIPE || after->type == TOK_DOT || after->type == TOK_LBRACKET || after->type == TOK_AS ||
+           after->type == TOK_QUESTION;
+}
 
 static Expr *parse_primary(Parser *p) {
     Token *t = cur(p);
@@ -662,10 +673,30 @@ static Expr *parse_primary(Parser *p) {
         return e;
     }
     if (t->type == TOK_IF || t->type == TOK_SWITCH) {
-        ziman_error("syntax", t->line, t->col,
-                    "an '%s' can be used as a value only as the whole right-hand side of 'val'/'var', an assignment or 'return' -- "
-                    "bind it to a 'val' first, then use that name here",
-                    t->type == TOK_IF ? "if" : "switch");
+        /* An `if`/`switch` inside an expression (an argument, an operand, an
+         * element). At the start of a statement they are statements, and as the
+         * right-hand side of `val`/`var`/assignment/`return` they are
+         * STMT_VALUE_BLOCKs (see parse_value_block); this is every other place. */
+        advance_tok(p);
+        Stmt *inner;
+        if (t->type == TOK_IF) {
+            inner = parse_if(p);
+            if (inner->as.if_stmt.else_block == NULL) {
+                ziman_error("syntax", inner->line, inner->col, "an 'if' used as a value needs an 'else' (every path must produce a value)");
+            }
+        } else {
+            inner = parse_switch(p);
+        }
+        yieldify(inner);
+        Token *after = cur(p);
+        if (continues_expression(after)) {
+            ziman_error("syntax", after->line, after->col,
+                        "wrap the '%s' in parentheses to use its value as an operand: (%s ...) %s ...",
+                        t->type == TOK_IF ? "if" : "switch", t->type == TOK_IF ? "if" : "switch", token_type_name(after->type));
+        }
+        Expr *e = expr_new(EXPR_VALUE_BLOCK, t->line, t->col);
+        e->as.value_block.inner = inner;
+        return e;
     }
     ziman_error("syntax", t->line, t->col, "expected an expression, found %s", token_type_name(t->type));
     return NULL; /* unreachable */
@@ -860,6 +891,12 @@ static Stmt *parse_value_block(Parser *p, StmtKind target, Token *start, char *n
         return NULL;
     }
     yieldify(inner);
+    if (continues_expression(cur(p))) {
+        Token *after = cur(p);
+        ziman_error("syntax", after->line, after->col,
+                    "an 'if'/'switch' used as a value must be the whole right-hand side here; wrap it in parentheses to use it as an operand: (if ...) %s ...",
+                    token_type_name(after->type));
+    }
     Stmt *s = stmt_new(STMT_VALUE_BLOCK, start->line, start->col);
     s->as.value_block.target = target;
     s->as.value_block.name = name;
@@ -1400,6 +1437,9 @@ static void reclassify_type_params_in_expr(Expr *e, TypeParamList *type_params) 
             break;
         case EXPR_TRY_UNWRAP:
             reclassify_type_params_in_expr(e->as.try_unwrap.inner, type_params);
+            break;
+        case EXPR_VALUE_BLOCK:
+            reclassify_type_params_in_stmt(e->as.value_block.inner, type_params);
             break;
         case EXPR_LAMBDA: {
             FunctionDecl *lam = e->lambda_decl;

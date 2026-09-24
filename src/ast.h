@@ -148,6 +148,7 @@ typedef enum {
     EXPR_ENUM_ACCESS,
     EXPR_TRY_UNWRAP,
     EXPR_LAMBDA,
+    EXPR_VALUE_BLOCK,
 } ExprKind;
 
 typedef struct Expr Expr;
@@ -277,6 +278,11 @@ struct Expr {
          * only ever reached when it wasn't already intercepted by one
          * of those two statement forms. */
         struct { Expr *inner; Type propagated_type; } try_unwrap;
+        /* `if`/`switch` used as an operand or argument: `f(if c { 1 } else { 2 })`,
+         * `1 + (switch e { ... })`. `inner` is the same STMT_IF/STMT_SWITCH with
+         * yielding arms that STMT_VALUE_BLOCK wraps; here no arm may leave
+         * (return/break/continue/`?`), so the interpreter can evaluate it in place. */
+        struct { struct Stmt *inner; } value_block;
     } as;
 };
 

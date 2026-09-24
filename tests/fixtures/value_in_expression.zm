@@ -1,0 +1,40 @@
+enum Shape { Circle(int) Square(int) Empty }
+
+fn area(s: Shape) -> int {
+    return 1 + switch s {
+        Circle(r) { 3 * r * r }
+        Square(w) { w * w }
+        Empty { 0 }
+    }
+}
+
+fn pick(flag: bool) -> string {
+    return concat("value: ", if flag { "yes" } else { "no" })
+}
+
+fn main() {
+    val n = 5
+    print(if n > 3 { "big" } else { "small" })
+    print((if n > 3 { 10 } else { 20 }) + 1)
+    print(area(Shape.Circle(2)))
+    print(pick(true))
+    print(pick(false))
+    print(len([if n > 0 { 1 } else { 2 }, 7]))
+    val msg = format("{} items", if n == 1 { "one" } else { "many" })
+    print(msg)
+    val tag = if n > 100 { "huge" } else if n > 3 { "mid" } else { "low" }
+    print(tag)
+    print(max(if n > 2 { n } else { 0 }, 4))
+    val label: Option<string> = Option<string>.Some(if n > 1 { "a" } else { "b" })
+    print(label)
+    print(if n > 1 { if n > 4 { "x" } else { "y" } } else { "z" })
+    val f = fn(k: int) -> int { (if k > 0 { k } else { 0 }) * 2 }
+    print(f(3))
+    print(if n > 1 {
+        val a = n * 2
+        val b = a + 1
+        b
+    } else {
+        0
+    })
+}

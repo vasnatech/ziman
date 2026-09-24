@@ -3205,3 +3205,26 @@ parser; `check_lambda_expecting` takes the expected function type, which the
 argument, initializer, assignment and `check_expr_expecting` paths now pass when
 the operand is a lambda. Array literal elements do not carry an expected type, so
 `[fn(x) { x }]` still needs annotations.
+
+## `if`/`switch` values anywhere an expression can go
+
+R21 restricted the value forms to the right-hand side of `val`/`var`, an
+assignment or `return`, because an arm can leave (`return`, `break`, `continue`,
+`?`) and a tree-walking interpreter can leave a statement but not the middle of an
+expression. Two observations lifted the restriction for the common case:
+most arms *don't* leave, and whether one can is decidable by walking the arm's
+statements. So there is a second node, `EXPR_VALUE_BLOCK`, wrapping the same
+`if`/`switch` statement with yielding arms that `STMT_VALUE_BLOCK` wraps. It is
+allowed anywhere an expression is (a call argument, an operand, an element, a
+field), and the type checker rejects it if any arm may leave: a `return`, a
+`break`/`continue` outside a loop of the arm's own, or a `?` (in a `val`
+initializer, a bare statement or a yielded value); nested lambdas are not walked,
+their `return` is their own. The interpreter then needs nothing new: it runs the
+statement and takes the `CTRL_YIELD` value. Type checking passes the parameter,
+declared or field type down as the expected type, so autowrap and `ok()`/`err()`
+work in an argument exactly as in a `val`. **Precedence:** a value `if`/`switch`
+followed on the same line by a binary operator, `.`, `[`, `as` or `?` is a syntax
+error asking for parentheses, because `if c { 1 } else { 2 } + 3` would otherwise
+be read either way; the parenthesised form is unambiguous.
+Not done: an arm that leaves inside an expression (needs the interpreter to
+unwind), which stays statement-only.

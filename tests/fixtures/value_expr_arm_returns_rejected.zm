@@ -1,0 +1,7 @@
+fn f(n: int) -> int {
+    return 1 + if n > 0 { return 5 } else { 2 }
+}
+
+fn main() {
+    print(f(1))
+}

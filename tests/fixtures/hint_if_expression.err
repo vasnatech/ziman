@@ -1,1 +1,0 @@
-syntax error at 2:11: an 'if' can be used as a value only as the whole right-hand side of 'val'/'var', an assignment or 'return' -- bind it to a 'val' first, then use that name here

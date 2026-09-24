@@ -1,0 +1,4 @@
+fn main() {
+    val n = 3
+    print(if n > 1 { 1 } else { "a" })
+}

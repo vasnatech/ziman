@@ -279,7 +279,7 @@ against)**
   filled in automatically; array/Option type arguments are rejected with a
   message. `Row` and `Properties` still reject generics.
 
-- [x] **R21. `if` and `switch` as expressions.** *Done 2026-09-24 in the narrow form the `?` operator uses: only as the whole right-hand side of `val`/`var`, an assignment or `return`; arms end in a value (or leave). See SYNTAX.md "`if` and `switch` as values". Not done: use as an operand or call argument.* (Not from the review --
+- [x] **R21. `if` and `switch` as expressions.** *Done 2026-09-24: first as the whole right-hand side of `val`/`var`, an assignment or `return` (arms may leave), then anywhere an expression can appear -- an argument, an operand, an element -- provided no arm can leave. See SYNTAX.md "`if` and `switch` as values". Not done: an arm that leaves inside an expression.* (Not from the review --
   surfaced while implementing R4.) Both are statements today, so getting a
   value out of a branch means declaring a `var` first and assigning in each
   arm, or returning from every arm:

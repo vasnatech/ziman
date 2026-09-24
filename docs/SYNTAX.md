@@ -1391,13 +1391,18 @@ val n = switch parse_int(text) {
 }
 ```
 
-- **Where:** only as the *entire* right-hand side of a `val`/`var`, of an
-  assignment (`x = if ...`), or of `return` (`return if ...`). It is not an
-  operand or an argument: `1 + if ...` and `print(if ...)` are syntax errors
-  that say to bind it to a `val` first. (Same deliberate narrowness as `?`,
-  and for the same reason: an arm can `return`, and the interpreter unwinds
-  a *statement*, not an arbitrary expression tree.) At the start of a
-  statement, `if`/`switch` are still the statements described above.
+- **Where:** as the entire right-hand side of a `val`/`var`, an assignment
+  (`x = if ...`) or `return` -- in those an arm may `return`, `break`, `continue`
+  or use `?` to leave. Anywhere else an expression can appear -- a call
+  argument (`print(if c { 1 } else { 2 })`), an operand (`1 + switch e { ... }`),
+  an array element, a struct field -- it is also allowed, but **no arm may leave**
+  (no `return`/`break`/`continue`/`?`; a `break` inside a loop the arm itself
+  contains is fine): the interpreter can leave a statement, not the middle of an
+  expression, so it says so and points you at `val x = if ...` where an arm may
+  leave. As an operand it must be parenthesised when anything follows it on the
+  line: `(if a { 1 } else { 2 }) + 3`; without the parentheses `... + 3` would
+  read as part of the last arm's value, so it is a syntax error. At the start of a
+  statement, `if`/`switch` are still statements.
 - **The value of an arm** is its last expression: a block's statements run,
   and its final bare expression is the value. That final expression may be
   `foo()?`. A trailing `if`/`switch` is itself the value (so `else if`
@@ -1409,7 +1414,8 @@ val n = switch parse_int(text) {
 - **All arms have the same type.** With a declared type
   (`val x: Option<int> = if ...`), an assigned variable, or a `return`, each
   arm is checked against that type exactly like an initializer, so a bare
-  value auto-wraps to `Some`/`Ok` and `ok(...)`/`err(...)` resolve. With no
+  value auto-wraps to `Some`/`Ok` and `ok(...)`/`err(...)` resolve; the same goes
+  for a call argument, whose parameter type is the expected type. With no
   expected type the first arm decides, and there is no auto-wrap between arms.
 - `switch` payload names (`Circle(r)`) scope over their own arm only.
 

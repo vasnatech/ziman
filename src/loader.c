@@ -395,6 +395,12 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
         case EXPR_TRY_UNWRAP:
             self_qualify_expr(e->as.try_unwrap.inner, ctx);
             break;
+        case EXPR_VALUE_BLOCK:
+            /* declarations inside the arms are checked against global val names like a lambda's */
+            ctx->in_lambda++;
+            self_qualify_stmt(e->as.value_block.inner, ctx);
+            ctx->in_lambda--;
+            break;
         case EXPR_LAMBDA: {
             FunctionDecl *lam = e->lambda_decl;
             ctx->in_lambda++;
@@ -1012,6 +1018,9 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
             break;
         case EXPR_TRY_UNWRAP:
             resolve_expr_refs(e->as.try_unwrap.inner, ctx);
+            break;
+        case EXPR_VALUE_BLOCK:
+            resolve_stmt_refs(e->as.value_block.inner, ctx);
             break;
         case EXPR_LAMBDA: {
             FunctionDecl *lam = e->lambda_decl;

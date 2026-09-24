@@ -973,6 +973,10 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         }
         case EXPR_ENUM_ACCESS:
             return eval_enum_access(module, env, e);
+        case EXPR_VALUE_BLOCK: {
+            ExecResult r = exec_stmt(module, env, e->as.value_block.inner);
+            return r.value; /* a CTRL_YIELD: the type checker guarantees no arm leaves */
+        }
         case EXPR_LAMBDA: {
             FunctionDecl *lam = e->lambda_decl;
             int n = e->lambda_ncaptured;

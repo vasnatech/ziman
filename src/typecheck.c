@@ -40,6 +40,7 @@ static Env *g_global_env = NULL;
 
 static Type check_expr(Module *module, Env *env, Expr *e);
 static Type check_lambda(Module *module, Env *env, Expr *e);
+static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type *expected);
 static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type *expected);
 static void check_type_well_formed(Module *module, Type t, int line, int col);
 
@@ -620,6 +621,9 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
      * long after type-checking is done. */
     if (arg->resolved_type.kind != TY_VOID) {
         arg_type = arg->resolved_type;
+    } else if (arg->kind == EXPR_VALUE_BLOCK) {
+        arg_type = check_value_block_expr(module, env, arg, &param_type);
+        arg->resolved_type = arg_type;
     } else if (arg->kind == EXPR_LAMBDA && param_type.kind == TY_FUNC) {
         /* a lambda is checked against the function type the parameter wants,
          * so its own parameter and return types may be left out */
@@ -1397,6 +1401,11 @@ static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type e
         e->resolved_type = expected;
         return expected;
     }
+    if (e->kind == EXPR_VALUE_BLOCK) {
+        Type t = check_value_block_expr(module, env, e, &expected);
+        e->resolved_type = t;
+        return t;
+    }
     if (e->kind == EXPR_LAMBDA && expected.kind == TY_FUNC) {
         Type t = check_lambda_expecting(module, env, e, &expected);
         e->resolved_type = t;
@@ -1710,6 +1719,7 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
             break;
         }
         case EXPR_LAMBDA: t = check_lambda(module, env, e); break;
+        case EXPR_VALUE_BLOCK: t = check_value_block_expr(module, env, e, NULL); break;
         case EXPR_UNARY: t = check_unary(module, env, e); break;
         case EXPR_BINARY: t = check_binary(module, env, e); break;
         case EXPR_CALL: t = check_call(module, env, e); break;
@@ -2138,7 +2148,10 @@ static Type check_initializer(Module *module, Env *env, Expr **init_slot, int ha
         }
     } else {
         Type init_type;
-        if (init->kind == EXPR_LAMBDA && has_declared && declared_type.kind == TY_FUNC) {
+        if (init->kind == EXPR_VALUE_BLOCK && has_declared) {
+            init_type = check_value_block_expr(module, env, init, &declared_type);
+            init->resolved_type = init_type;
+        } else if (init->kind == EXPR_LAMBDA && has_declared && declared_type.kind == TY_FUNC) {
             init_type = check_lambda_expecting(module, env, init, &declared_type);
             init->resolved_type = init_type;
         } else {
@@ -2355,6 +2368,64 @@ static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type
 
 static Type check_lambda(Module *module, Env *env, Expr *e) {
     return check_lambda_expecting(module, env, e, NULL);
+}
+
+/* Whether running `s` (an arm of an `if`/`switch` used inside an expression)
+ * could leave the arm other than by yielding: a `return`, a `break`/`continue`
+ * that is not inside a loop of the arm itself, or a `?` (which returns early).
+ * Such an arm needs statement context (the interpreter can leave a statement,
+ * not the middle of an expression). Nested lambdas are expressions and are
+ * never walked: their `return` is their own. */
+static int arm_may_leave(const Stmt *s, int in_loop) {
+    switch (s->kind) {
+        case STMT_RETURN: return 1;
+        case STMT_BREAK:
+        case STMT_CONTINUE: return !in_loop;
+        case STMT_VAL:
+        case STMT_VAR: return s->as.decl.init->kind == EXPR_TRY_UNWRAP;
+        case STMT_EXPR: return s->as.expr_stmt.expr->kind == EXPR_TRY_UNWRAP;
+        case STMT_YIELD: return s->as.yield_stmt.value->kind == EXPR_TRY_UNWRAP;
+        case STMT_BLOCK:
+            for (int i = 0; i < s->as.block.stmts.count; i++) if (arm_may_leave(s->as.block.stmts.items[i], in_loop)) return 1;
+            return 0;
+        case STMT_IF:
+            return arm_may_leave(s->as.if_stmt.then_block, in_loop) || (s->as.if_stmt.else_block != NULL && arm_may_leave(s->as.if_stmt.else_block, in_loop));
+        case STMT_WHILE: return arm_may_leave(s->as.while_stmt.body, 1);
+        case STMT_FOR: return arm_may_leave(s->as.for_stmt.body, 1);
+        case STMT_SWITCH:
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) if (arm_may_leave(s->as.switch_stmt.arms[i].body, in_loop)) return 1;
+            return 0;
+        case STMT_VALUE_BLOCK: return s->as.value_block.target == STMT_RETURN || arm_may_leave(s->as.value_block.inner, in_loop);
+        default: return 0;
+    }
+}
+
+/* An `if`/`switch` inside an expression. With an expected type (an argument, a
+ * declared `val`, a struct field) each arm is checked against it like an
+ * initializer; without one the first arm decides. */
+static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type *expected) {
+    if (e->resolved_type.kind != TY_VOID) return e->resolved_type; /* already checked */
+    Stmt *inner = e->as.value_block.inner;
+    if (!arm_yields_or_leaves(inner)) {
+        ziman_error("type", inner->line, inner->col,
+                    "every arm of an 'if'/'switch' used as a value must end with a value expression");
+    }
+    if (arm_may_leave(inner, 0)) {
+        ziman_error("type", inner->line, inner->col,
+                    "an arm of an 'if'/'switch' used inside an expression cannot 'return', 'break', 'continue' or use '?' -- "
+                    "bind it to a 'val' (or return it) first, where an arm may leave");
+    }
+    ValueCtx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    if (expected != NULL) {
+        ctx.has_expected = 1;
+        ctx.expected = *expected;
+    }
+    ValueCtx *saved = g_value_ctx;
+    g_value_ctx = &ctx;
+    check_stmt(module, env, inner, type_scalar(TY_VOID), 0);
+    g_value_ctx = saved;
+    return ctx.has_expected ? ctx.expected : ctx.first;
 }
 
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
