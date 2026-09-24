@@ -639,10 +639,23 @@ static Expr *parse_primary(Parser *p) {
         fn->line = t->line;
         fn->col = t->col;
         expect(p, TOK_LPAREN, "'('");
-        fn->params = parse_params(p);
+        if (!check(p, TOK_RPAREN)) {
+            for (;;) {
+                Token *name = expect(p, TOK_IDENT, "a parameter name");
+                require_lower_start(name, "a parameter name");
+                Param param = {dup_token_text(name), type_scalar(TY_VOID), 0, NULL, NULL, name->line, name->col, 0};
+                if (match(p, TOK_COLON)) param.type = parse_type(p);
+                else param.type_omitted = 1;
+                param_list_push(&fn->params, param);
+                skip_newlines(p);
+                if (!match(p, TOK_COMMA)) break;
+                skip_newlines(p);
+            }
+        }
         expect(p, TOK_RPAREN, "')'");
         fn->return_type = type_scalar(TY_VOID);
         if (match(p, TOK_ARROW)) fn->return_type = parse_type(p);
+        else fn->return_omitted = 1;
         fn->body = parse_block(p);
         Expr *e = expr_new(EXPR_LAMBDA, t->line, t->col);
         e->lambda_decl = fn;
@@ -1149,7 +1162,7 @@ static ParamList parse_params(Parser *p) {
                 default_expr = parse_expr(p);
                 default_key = param_default_key(param_name->start, param_name->length);
             }
-            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col};
+            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0};
             param_list_push(&params, param);
             skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
@@ -1480,7 +1493,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
         expect(p, TOK_COLON, "':'");
         Type field_type = parse_type(p);
         if (sd->type_params.count > 0) reclassify_type_params(&field_type, &sd->type_params);
-        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col};
+        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col, 0};
         param_list_push(&sd->fields, field);
         skip_newlines(p);
     }

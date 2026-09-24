@@ -593,9 +593,7 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 // supplies its handler. A handler is a *function value*: a named function, or a
 // lambda that captures what it needs (a database connection, a configuration):
 //
-//     http.serve(listener, fn(req: http.Request) -> http.Response {
-//         return route(conn, req)
-//     }, options)
+//     http.serve(listener, fn(req) { route(conn, req) }, options)
 //
 // One thread per connection, at most `max_connections` at once (the limit is a
 // channel used as a counting semaphore: a client past it waits in the kernel's

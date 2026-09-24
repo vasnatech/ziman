@@ -428,6 +428,9 @@ typedef struct {
      * already-evaluated Value straight into the AST. */
     char *default_key;
     int line, col;
+    /* A lambda parameter written without a type (`fn(n) { ... }`); the type
+     * checker fills `type` in from the function type the lambda is used as. */
+    int type_omitted;
 } Param;
 
 typedef struct {
@@ -487,6 +490,9 @@ typedef struct {
      * module and the prelude. What `--lint` uses to report only code the user
      * owns. */
     const char *source_file;
+    /* A lambda written without `->`: its return type comes from the function
+     * type it is used as, or else from its final expression. */
+    int return_omitted;
 } FunctionDecl;
 
 /* The `fn(P1, P2) -> R` type of a (non-generic, non-variadic) function used as

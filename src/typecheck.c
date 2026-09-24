@@ -40,6 +40,7 @@ static Env *g_global_env = NULL;
 
 static Type check_expr(Module *module, Env *env, Expr *e);
 static Type check_lambda(Module *module, Env *env, Expr *e);
+static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type *expected);
 static void check_type_well_formed(Module *module, Type t, int line, int col);
 
 /* Rebuilds `t` with every TY_TYPEVAR named in `params` replaced by the
@@ -619,6 +620,11 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
      * long after type-checking is done. */
     if (arg->resolved_type.kind != TY_VOID) {
         arg_type = arg->resolved_type;
+    } else if (arg->kind == EXPR_LAMBDA && param_type.kind == TY_FUNC) {
+        /* a lambda is checked against the function type the parameter wants,
+         * so its own parameter and return types may be left out */
+        arg_type = check_lambda_expecting(module, env, arg, &param_type);
+        arg->resolved_type = arg_type;
     } else {
         arg_type = check_expr(module, env, arg);
         require_not_void(arg, "as an argument");
@@ -1391,6 +1397,11 @@ static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type e
         e->resolved_type = expected;
         return expected;
     }
+    if (e->kind == EXPR_LAMBDA && expected.kind == TY_FUNC) {
+        Type t = check_lambda_expecting(module, env, e, &expected);
+        e->resolved_type = t;
+        return t;
+    }
     if (check_ok_err_call(module, env, e, expected)) {
         return expected;
     }
@@ -2126,7 +2137,13 @@ static Type check_initializer(Module *module, Env *env, Expr **init_slot, int ha
             init_mismatch(name_for_msg, declared_type, arg_type, init->line, init->col);
         }
     } else {
-        Type init_type = check_expr(module, env, init);
+        Type init_type;
+        if (init->kind == EXPR_LAMBDA && has_declared && declared_type.kind == TY_FUNC) {
+            init_type = check_lambda_expecting(module, env, init, &declared_type);
+            init->resolved_type = init_type;
+        } else {
+            init_type = check_expr(module, env, init);
+        }
         require_not_void(init, "to initialize a variable");
         declared = init_type;
         if (has_declared) {
@@ -2187,16 +2204,66 @@ static Type lambda_type(FunctionDecl *lam, int ncaptured) {
     return type_func(params, lam->return_type);
 }
 
+/* Whether a lambda body contains an explicit `return` (not counting nested
+ * lambdas, which are expressions and never walked here). */
+static int has_return_stmt(const Stmt *s) {
+    switch (s->kind) {
+        case STMT_RETURN: return 1;
+        case STMT_BLOCK:
+            for (int i = 0; i < s->as.block.stmts.count; i++) if (has_return_stmt(s->as.block.stmts.items[i])) return 1;
+            return 0;
+        case STMT_IF:
+            return has_return_stmt(s->as.if_stmt.then_block) || (s->as.if_stmt.else_block != NULL && has_return_stmt(s->as.if_stmt.else_block));
+        case STMT_WHILE: return has_return_stmt(s->as.while_stmt.body);
+        case STMT_FOR: return has_return_stmt(s->as.for_stmt.body);
+        case STMT_SWITCH:
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) if (has_return_stmt(s->as.switch_stmt.arms[i].body)) return 1;
+            return 0;
+        case STMT_VALUE_BLOCK: return has_return_stmt(s->as.value_block.inner);
+        default: return 0;
+    }
+}
+
 /* `fn(x: int) -> int { ... }`. The body is checked in a scope whose parent is
  * the enclosing scope but which is a *capture boundary*: any local of the
  * enclosing function that the body uses is recorded by env_lookup. Those are
  * captured by value, so they must be immutable (`val`, a parameter, a loop or
  * switch binder); a `var` would let a lambda observe or change state the
  * enclosing function also touches, which is what the actor model avoids. The
- * captures become the lambda's leading parameters. */
-static Type check_lambda(Module *module, Env *env, Expr *e) {
+ * captures become the lambda's leading parameters.
+ *
+ * `expected` is the function type the lambda is being used as, when the context
+ * says (an argument, a declared `val`, a return value, a struct field): omitted
+ * parameter types and an omitted `->` are taken from it, so
+ * `map<int, int>(xs, fn(n) { n * 2 })` needs no annotations. With no `->` and no
+ * expected type, a body ending in an expression returns it (a call that returns
+ * nothing leaves the lambda void), and a body without one is void. A non-void
+ * lambda's final bare expression is its result; `return` remains for early exits. */
+static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type *expected) {
     FunctionDecl *lam = e->lambda_decl;
     if (e->lambda_checked) return lambda_type(lam, e->lambda_ncaptured);
+    const Type *want = expected != NULL && expected->kind == TY_FUNC ? expected : NULL;
+
+    if (want != NULL && want->type_args.count != lam->params.count) {
+        ziman_error("type", e->line, e->col, "this lambda takes %d parameter(s) but a function taking %d is expected here (%s)",
+                    lam->params.count, want->type_args.count, type_name(*want));
+    }
+    for (int i = 0; i < lam->params.count; i++) {
+        Param *param = &lam->params.items[i];
+        if (!param->type_omitted) continue;
+        if (want == NULL) {
+            ziman_error("type", param->line, param->col,
+                        "cannot infer the type of parameter '%s' -- write it (`%s: T`), or use the lambda where a function type is expected "
+                        "(an argument, a `val` with a declared type, a return value)",
+                        param->name, param->name);
+        }
+        param->type = want->type_args.items[i];
+        param->type_omitted = 0;
+    }
+    if (lam->return_omitted && want != NULL) {
+        lam->return_type = *want->elem;
+        lam->return_omitted = 0;
+    }
 
     Env *root = env_new(env);
     root->is_lambda_boundary = 1;
@@ -2210,12 +2277,49 @@ static Type check_lambda(Module *module, Env *env, Expr *e) {
             ziman_error("type", param->line, param->col, "duplicate parameter name '%s'", param->name);
         }
     }
-    check_type_well_formed(module, lam->return_type, lam->line, lam->col);
+    if (!lam->return_omitted) check_type_well_formed(module, lam->return_type, lam->line, lam->col);
+
+    StmtList *stmts = &lam->body->as.block.stmts;
+    int n = stmts->count;
+    Stmt *last = n > 0 ? stmts->items[n - 1] : NULL;
+    int last_is_expr = last != NULL && last->kind == STMT_EXPR;
 
     ValueCtx *saved_value_ctx = g_value_ctx;
     g_value_ctx = NULL;
-    for (int i = 0; i < lam->body->as.block.stmts.count; i++) {
-        check_stmt(module, root, lam->body->as.block.stmts.items[i], lam->return_type, 0);
+    if (!lam->return_omitted) {
+        /* the return type is known: a final bare expression is the result */
+        if (lam->return_type.kind != TY_VOID && last_is_expr) {
+            Expr *value = last->as.expr_stmt.expr;
+            last->kind = STMT_RETURN;
+            memset(&last->as, 0, sizeof last->as);
+            last->as.ret.value = value;
+        }
+        for (int i = 0; i < n; i++) check_stmt(module, root, stmts->items[i], lam->return_type, 0);
+    } else {
+        /* no `->` and no expected type: infer from a final expression */
+        if (has_return_stmt(lam->body)) {
+            ziman_error("type", lam->line, lam->col,
+                        "cannot infer the return type of a lambda that uses 'return' -- write `-> T` after the parameters");
+        }
+        Type void_type = type_scalar(TY_VOID);
+        lam->return_type = void_type;
+        int checked = last_is_expr ? n - 1 : n;
+        for (int i = 0; i < checked; i++) check_stmt(module, root, stmts->items[i], void_type, 0);
+        if (last_is_expr) {
+            Expr *value = last->as.expr_stmt.expr;
+            if (value->kind == EXPR_TRY_UNWRAP) {
+                check_stmt(module, root, last, void_type, 0);
+            } else {
+                Type t = check_expr(module, root, value);
+                if (t.kind != TY_VOID) {
+                    last->kind = STMT_RETURN;
+                    memset(&last->as, 0, sizeof last->as);
+                    last->as.ret.value = value;
+                    lam->return_type = t;
+                }
+            }
+        }
+        lam->return_omitted = 0;
     }
     g_value_ctx = saved_value_ctx;
     if (lam->return_type.kind != TY_VOID && !stmt_always_returns(lam->body)) {
@@ -2247,6 +2351,10 @@ static Type check_lambda(Module *module, Env *env, Expr *e) {
     e->lambda_checked = 1;
     env_free(root);
     return lambda_type(lam, ncaptured);
+}
+
+static Type check_lambda(Module *module, Env *env, Expr *e) {
+    return check_lambda_expecting(module, env, e, NULL);
 }
 
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
@@ -2344,7 +2452,13 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             if (!b->is_mutable) {
                 ziman_error("type", s->line, s->col, "cannot assign to '%s' because it was declared with 'val' (use 'var' to make it mutable)", s->as.assign.name);
             }
-            Type value_type = check_expr(module, env, s->as.assign.value);
+            Type value_type;
+            if (s->as.assign.value->kind == EXPR_LAMBDA && b->type.kind == TY_FUNC) {
+                value_type = check_lambda_expecting(module, env, s->as.assign.value, &b->type);
+                s->as.assign.value->resolved_type = value_type;
+            } else {
+                value_type = check_expr(module, env, s->as.assign.value);
+            }
             require_not_void(s->as.assign.value, "in an assignment");
             if (!type_equals(value_type, b->type)) {
                 ziman_error("type", s->as.assign.value->line, s->as.assign.value->col,

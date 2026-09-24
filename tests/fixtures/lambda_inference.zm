@@ -1,0 +1,45 @@
+use collections
+
+struct Item { name: string  qty: int }
+
+fn make_adder(k: int) -> fn(int) -> int {
+    return fn(x) { x + k }
+}
+
+fn main() {
+    val base = 10
+    val xs = [1, 2, 3]
+    // parameter and return types inferred from the expected function type
+    print(collections.map<int, int>(xs, fn(n) { n * 2 }))
+    print(collections.filter<int>(xs, fn(n) { n > 1 }))
+    print(collections.fold<int, int>(xs, 0, fn(acc, n) { acc + n * base }))
+    val items = [Item { name: "pen", qty: 3 }, Item { name: "cup", qty: 0 }]
+    print(collections.map<Item, string>(items, fn(i) { i.name }))
+    // expression body with declared types
+    val add = fn(a: int, b: int) -> int { a + b }
+    print(add(2, 3))
+    // a declared val type gives the lambda its types
+    val neg: fn(int) -> int = fn(n) { -n }
+    print(neg(4))
+    // inferred from the final expression
+    val triple = fn(x: int) { x * 3 }
+    print(triple(5))
+    val shout = fn(s: string) { concat(s, "!") }
+    print(shout("hi"))
+    // void: a call with no result stays a statement
+    val hello = fn(who: string) { print(concat("hello ", who)) }
+    hello("zed")
+    val add5 = make_adder(5)
+    print(add5(1))
+    // multi-statement body, last expression is the result
+    val area = fn(w: int, h: int) -> int {
+        val a = w * h
+        a + 1
+    }
+    print(area(3, 4))
+    // assignment gets the type from the variable
+    var f: fn(int) -> int = fn(x) { x }
+    f = fn(x) { x + 100 }
+    print(f(1))
+    collections.for_each<int>(xs, fn(n) { print(n * base) })
+}

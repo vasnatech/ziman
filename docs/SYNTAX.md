@@ -505,6 +505,17 @@ fn main() {
   ```
   It is an expression, usable anywhere one is. `return`, `?` and `defer` inside
   it belong to the lambda, and `break`/`continue` cannot leave it.
+- **Shorter forms.** The final bare expression of a lambda with a known
+  non-void return type is its result, so `return` is only for early exits:
+  `fn(a: int, b: int) -> int { a + b }`. Where the context says what function type
+  is wanted -- an argument (`collections.map<int, int>(xs, fn(n) { n * 2 })`), a
+  `val`/`var` with a declared type, an assignment, a `return`, a struct field --
+  parameter types and the `->` can be left out and are taken from it. With no such
+  context, parameter types must be written, and an omitted `->` means "the type of
+  the final expression" (a final call that returns nothing, or no final
+  expression, makes the lambda return nothing). A lambda that uses `return` needs
+  its `-> T` unless the context gives it. A wrong-arity lambda, or a body of the
+  wrong type, is a compile error naming the function type expected.
 - **What a lambda captures, and how.** Any *immutable* local of the enclosing
   function that its body uses -- a `val`, a parameter, a loop or `switch`
   binder, another function value -- is captured **by value**, copied when the
@@ -2000,9 +2011,8 @@ fn route(conn: db.Connection, req: http.Request) -> http.Response { ... }
 
 val options = http.ServeOptions { idle_timeout_ms: 30000, max_connections: 64, log_requests: true }
 os.install_shutdown_handler()
-http.serve(listener, fn(req: http.Request) -> http.Response {
-    return route(conn, req)                 // the lambda captured `conn`
-}, options)                                 // returns after SIGINT/SIGTERM
+http.serve(listener, fn(req) { route(conn, req) }, options)   // the lambda captured `conn`
+                                            // returns after SIGINT/SIGTERM
 ```
 
 `http.serve(listener, handler: fn(Request) -> Response, options)`

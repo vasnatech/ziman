@@ -3177,3 +3177,31 @@ layout, so `tests/fixtures` is left as written.
 
 **Not done.** Line wrapping; alignment of consecutive trailing comments; sorting
 `use` lines; an editor integration (`--fmt` reads files, not stdin).
+
+## Lambda shorthand and inference
+
+Two changes to lambdas, both about writing less. **Expression bodies:** when a
+lambda's return type is known and not void, its final bare expression is
+rewritten to a `return` before checking, so `fn(a: int, b: int) -> int { a + b }`
+works and all the usual return handling (autowrap to `Some`/`Ok`, `ok()`/`err()`
+resolution) applies unchanged. **Inference from the expected type:** a lambda used
+where the context names a function type (an argument of a call whose parameter is
+`fn(...)`, a `val`/`var` with a declared type, an assignment, a `return`, a struct
+field) takes omitted parameter types and an omitted `->` from it. This is *not*
+inference across function boundaries in general: the expected type is written in
+a signature or declaration right there, which is the contract Ziman insists on,
+and generic calls already spell their type arguments so `fn(T) -> U` is concrete
+by the time the lambda is checked. **With no context** the parameter types must
+be written; an omitted `->` then means "the type of the final expression" (a void
+call as the last statement, or no final expression, makes it void). That rule
+changes what `fn(x: int) { foo() }` means when `foo` returns a value: it now
+returns it, which is harmless where a void function type is expected (the value
+is discarded). A lambda that uses `return` must write its `-> T` (or get it from
+context), because inferring a type from scattered `return`s is the kind of
+non-local reasoning Ziman avoids.
+
+Mechanism: `Param.type_omitted` and `FunctionDecl.return_omitted` from the
+parser; `check_lambda_expecting` takes the expected function type, which the
+argument, initializer, assignment and `check_expr_expecting` paths now pass when
+the operand is a lambda. Array literal elements do not carry an expected type, so
+`[fn(x) { x }]` still needs annotations.

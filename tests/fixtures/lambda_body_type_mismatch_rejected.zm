@@ -1,0 +1,5 @@
+use collections
+
+fn main() {
+    print(collections.map<int, string>([1], fn(n) { n }))
+}
