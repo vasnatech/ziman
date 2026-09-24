@@ -1329,6 +1329,35 @@ fn main() {
   lookup, not
   a replacement for the explanations here.
 
+### Naming conventions for module functions
+
+Two usage modes exist (`use net` then `net.connect(...)`, or a per-name import
+`use net.net_error_message` then a bare `net_error_message(...)`), and each has
+a naming rule. The bundled modules follow it; new ones should too.
+
+1. **Called qualified: a short verb, no module prefix.** `net.connect`,
+   `fs.read_text`, `http.route`, `db.query`, `log.info`, `httpclient.get`.
+   The qualifier already says where it comes from, so `net.net_connect` would
+   stutter. Don't import such names bare: `use http.response` makes a bare
+   `response` that collides with an application module or variable of that name.
+2. **Imported bare, or found by name: carry the noun.** A function another
+   module imports by name, or one the compiler locates by a naming convention,
+   keeps a self-describing name that is unique across modules:
+   `byte_from_hex`, `string_to_bytes`, `net_error_message`, `sql_lift`,
+   `method_name`, and everything `#[derive]` dispatches on
+   (`<snake_type>_to_json`, `<snake_type>_compare`, `<snake_type>_to_sql`).
+3. **A module that defines types names their operations after the type.**
+   `hashmap_get`, `hashset_add`, `uuid_new`, `localdate_add_days`,
+   `duration_negate`: the type is the noun, so rule 2 applies and the same
+   name is safe bare or qualified. The generic combinators on built-in types
+   (`collections.map`, `filter`, `sort`, `find`) are rule 1.
+4. **Conversions are `<from>_to_<to>` / `<to>_from_<from>`**, parsing is
+   `parse`/`<type>_parse`, and a fallible call returns a `Result` rather than
+   using a `try_` prefix.
+
+The one thing to avoid is a short generic verb that is also meant for bare
+import; that is the collision the two modes are otherwise designed around.
+
 ## Date and time
 
 The `time` core module (`use time.Name`) provides seven types, modeled
@@ -2060,7 +2089,7 @@ ca_file)` (everything after `url` is optional, so it is called with named
 arguments) return `Result<http.Response, ClientError>`. **Any** HTTP status,
 404 and 500 included, is `Ok`; `Err` means the exchange failed: `BadUrl`,
 `Network`, `Timeout`, `BadResponse`, `TooLarge` or `TooManyRedirects`
-(`client_error_message` renders one). `http://` and `https://` (certificate
+(`error_message` renders one). `http://` and `https://` (certificate
 chain and host name verified; `ca_file` names a private CA's PEM file). One
 connection per request, closed afterwards. It reads `Content-Length`,
 chunked and until-close bodies, follows 301/302/303/307/308 up to

@@ -74,6 +74,6 @@ fn main() {
     print(unwrap(httpclient.request_bytes(method: HttpMethod.Get, url: bin_url)).body == [104b, 0b, 105b])
     val as_text = httpclient.get(bin_url)
     print(is_ok(as_text))
-    print(httpclient.client_error_message(unwrap_err(as_text)))
+    print(httpclient.error_message(unwrap_err(as_text)))
     net.close_listener(l)
 }

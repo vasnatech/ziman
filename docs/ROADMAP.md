@@ -318,7 +318,7 @@ against)**
   `read_file`/`write_file` (append, stat, delete, list; `write_file` is
   still fatal on failure); regex; sorting (R11); domain-typed map keys
   (R12).
-- [ ] **R16. Naming convention.** `collections` uses type-prefixed names
+- [x] **R16. Naming convention.** *Done: the rule is written down (SYNTAX.md, "Naming conventions for module functions"). Surveying every bundled module found it was already followed -- every name imported bare is noun-prefixed, every qualified-use name is a short verb -- so the only rename was `httpclient.client_error_message` -> `error_message`.* `collections` uses type-prefixed names
   meant for bare import (`hashmap_get`); `http` uses bare names meant for
   qualified use (`header`, `response`), which then collide with
   application modules. Pick one convention per usage mode and document it.

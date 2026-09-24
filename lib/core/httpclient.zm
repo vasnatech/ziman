@@ -53,7 +53,7 @@ pub enum ClientError {
     TooManyRedirects
 }
 
-pub fn client_error_message(e: ClientError) -> string {
+pub fn error_message(e: ClientError) -> string {
     if ClientError.is_BadUrl(e) {
         return concat("bad URL: ", ClientError.unwrap_BadUrl(e))
     }

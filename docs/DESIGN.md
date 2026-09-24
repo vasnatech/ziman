@@ -2863,3 +2863,14 @@ allocating a one-element array per plain character on the way. Now it appends
 the plain runs between escapes as substring views to a `StringBuilder` and each
 decoded byte with `sb_append_byte`, which stores a raw byte and refuses `0b`
 (a string cannot hold a NUL). The general cost, boxed bytes, is roadmap R23.
+
+## R16: naming convention
+
+Survey result: the two usage modes already sort the names. Everything another
+module imports bare (`byte_from_hex`, `string_to_bytes`, `net_error_message`,
+`sql_lift`, `random_bytes`) carries its noun, and every module's qualified-use
+API is short verbs. The review's collision (`use http.response`) is a
+consequence of importing a verb-style name bare, which the convention now says
+not to do. No mass rename: it would churn derive-generated code and every
+fixture for no gain. Rule 3 (type-prefixed operations for types a module
+defines) is what lets `derive` find `<type>_compare` and friends by name.
