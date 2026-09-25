@@ -1,6 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "native_fs.h"
 
+#ifdef ZIMAN_GC
+#include <gc.h>
+#endif
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -335,9 +338,188 @@ static Value native_fs_lines(Value *args, int argc, int line, int col) {
     return value_result(type_result(iter_type, string_type()), result_obj_new(1, iter_make(it)));
 }
 
+
+/* fs.chunks(path, size): a lazy iterator over the bytes of a file in blocks of `size` (the last one may
+ * be shorter). Each item is a Result<[byte], string>; a read error is a last Err item. */
+typedef struct {
+    FILE *file;
+    size_t size;
+    uint8_t *buf;
+    int failed;
+} ChunksState;
+
+static Value chunk_item(int ok, Value v) {
+    Type bt = type_array(type_scalar(TY_BYTE));
+    return value_result(type_result(bt, string_type()), result_obj_new(ok, v));
+}
+
+static int chunks_next(IterObj *it, Value *out) {
+    ChunksState *st = it->state;
+    if (st->file == NULL || st->failed) return 0;
+    size_t got = fread(st->buf, 1, st->size, st->file);
+    if (got == 0) {
+        if (ferror(st->file)) {
+            st->failed = 1;
+            *out = chunk_item(0, value_string(strdup(strerror(errno))));
+            return 1;
+        }
+        return 0;
+    }
+    uint8_t *copy = malloc(got);
+    memcpy(copy, st->buf, got);
+    *out = chunk_item(1, value_byte_array(copy, got));
+    free(copy);
+    return 1;
+}
+
+static void chunks_release(IterObj *it) {
+    ChunksState *st = it->state;
+    if (st->file != NULL) fclose(st->file);
+    st->file = NULL;
+    free(st->buf);
+    st->buf = NULL;
+}
+
+static Value native_fs_chunks(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *path = value_cstr(args[0]);
+    Type iter_type = type_struct("Iter");
+    int64_t size = args[1].as.i;
+    if (size < 1 || size > (int64_t)1 << 30) {
+        char msg[128];
+        snprintf(msg, sizeof msg, "chunk size %lld is out of range (1 to 1073741824)", (long long)size);
+        return value_result(type_result(iter_type, string_type()), result_obj_new(0, value_string(strdup(msg))));
+    }
+    FILE *f = fopen(path, "rb");
+#ifdef ZIMAN_GC
+    if (f == NULL && (errno == EMFILE || errno == ENFILE)) {
+        GC_gcollect();
+        GC_invoke_finalizers();
+        f = fopen(path, "rb");
+    }
+#endif
+    if (f == NULL) return fs_err(iter_type, "cannot read", path);
+    ChunksState *st = calloc(1, sizeof(ChunksState));
+    st->file = f;
+    st->size = (size_t)size;
+    st->buf = malloc(st->size);
+    IterObj *it = calloc(1, sizeof(IterObj));
+    it->next = chunks_next;
+    it->release = chunks_release;
+    it->state = st;
+    return value_result(type_result(iter_type, string_type()), result_obj_new(1, iter_make(it)));
+}
+
+/* fs.walk(dir): a lazy, depth-first iterator over the files under `dir`, each directory in sorted
+ * order. Every item is a Result<string, string>: a path (`dir` joined with the names below it) of
+ * something that is not a directory, or an Err for a subdirectory that cannot be read, after which
+ * the walk carries on. A symbolic link to a directory is a path, not followed, so a cycle cannot loop. */
+typedef struct {
+    char *path;
+    char **names;
+    int count;
+    int next;
+} WalkFrame;
+
+typedef struct {
+    WalkFrame *frames;
+    int depth;
+    int capacity;
+} WalkState;
+
+static char *join_path(const char *dir, const char *name) {
+    size_t dl = strlen(dir), nl = strlen(name);
+    char *out = malloc(dl + nl + 2);
+    memcpy(out, dir, dl);
+    size_t at = dl;
+    if (dl > 0 && dir[dl - 1] != '/') out[at++] = '/';
+    memcpy(out + at, name, nl);
+    out[at + nl] = '\0';
+    return out;
+}
+
+/* Reads and sorts the entries of `path` into a new frame on top of the stack; returns 0 with errno set
+ * when it cannot be opened. */
+static int walk_push(WalkState *st, const char *path) {
+    DIR *d = opendir(path);
+    if (d == NULL) return 0;
+    int cap = 16, n = 0;
+    char **names = malloc((size_t)cap * sizeof(char *));
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if (n == cap) {
+            cap *= 2;
+            names = realloc(names, (size_t)cap * sizeof(char *));
+        }
+        names[n++] = strdup(e->d_name);
+    }
+    closedir(d);
+    qsort(names, (size_t)n, sizeof(char *), compare_names);
+    if (st->depth == st->capacity) {
+        st->capacity = st->capacity > 0 ? st->capacity * 2 : 8;
+        st->frames = realloc(st->frames, (size_t)st->capacity * sizeof(WalkFrame));
+    }
+    st->frames[st->depth++] = (WalkFrame){strdup(path), names, n, 0};
+    return 1;
+}
+
+static Value walk_item(int ok, char *text) {
+    Type str = string_type();
+    return value_result(type_result(str, str), result_obj_new(ok, value_string(text)));
+}
+
+static int walk_next(IterObj *it, Value *out) {
+    WalkState *st = it->state;
+    while (st->depth > 0) {
+        WalkFrame *top = &st->frames[st->depth - 1];
+        if (top->next >= top->count) {
+            st->depth--;
+            continue;
+        }
+        char *full = join_path(top->path, top->names[top->next++]);
+        struct stat sb;
+        if (lstat(full, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+            if (!walk_push(st, full)) {
+                char msg[1024];
+                snprintf(msg, sizeof msg, "cannot list '%s': %s", full, strerror(errno));
+                *out = walk_item(0, strdup(msg));
+                return 1;
+            }
+            continue;
+        }
+        *out = walk_item(1, full);
+        return 1;
+    }
+    return 0;
+}
+
+static void walk_release(IterObj *it) {
+    WalkState *st = it->state;
+    st->depth = 0;
+    free(st->frames);
+    st->frames = NULL;
+    st->capacity = 0;
+}
+
+static Value native_fs_walk(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *path = value_cstr(args[0]);
+    Type iter_type = type_struct("Iter");
+    WalkState *st = calloc(1, sizeof(WalkState));
+    if (!walk_push(st, path)) return fs_err(iter_type, "cannot list", path);
+    IterObj *it = calloc(1, sizeof(IterObj));
+    it->next = walk_next;
+    it->release = walk_release;
+    it->state = st;
+    return value_result(type_result(iter_type, string_type()), result_obj_new(1, iter_make(it)));
+}
+
 void native_fs_register(void) {
     native_register("fs::read_text", native_fs_read_text);
     native_register("fs::lines", native_fs_lines);
+    native_register("fs::chunks", native_fs_chunks);
+    native_register("fs::walk", native_fs_walk);
     native_register("fs::write_text", native_fs_write_text);
     native_register("fs::append_text", native_fs_append_text);
     native_register("fs::exists", native_fs_exists);

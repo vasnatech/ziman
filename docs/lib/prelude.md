@@ -601,6 +601,27 @@ rest unread. `handle` is an opaque reference to the native source; a source that
 or closed is closed when it is garbage collected. It can be walked once: a second `for` over the
 same Iter carries on where the first stopped.
 
+### `iter_from`
+
+```
+native fn iter_from<T>(next: fn() -> Option<T>, close: fn()) -> Iter<T>
+```
+
+An Iter written in Ziman. `next` returns the next item as `Some(item)`, or `None` at the end; `close` is
+called once when the source is finished, left early by a `for` loop (`break`, `return`, `?`) or closed
+with `iter_close`. A closure cannot change a variable it captured, so the state lives in whatever the
+closures call: a native handle such as a socket or a database cursor, or a Channel. Unlike the built-in
+sources it is NOT closed by the garbage collector (that would run your code from a finalizer), so
+finish it or close it.
+
+### `iter_of_array`
+
+```
+native fn iter_of_array<T>(items: [T]) -> Iter<T>
+```
+
+The elements of `items` as an Iter, for code that takes a lazy source but has an array.
+
 ### `iter_next`
 
 ```

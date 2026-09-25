@@ -42,6 +42,16 @@ fn main() {
     }
     print(count)
 
+    // Walk a directory tree, and read a file in blocks.
+    for file in unwrap(fs.walk(dir)) {
+        print(unwrap(file))
+    }
+    var bytes = 0
+    for chunk in unwrap(fs.chunks(path, 4)) {
+        bytes = bytes + len(unwrap(chunk))
+    }
+    print(bytes)
+
     print(is_ok(fs.read_text(fs.path_join(dir, "missing.txt"))))
 
     unwrap(fs.remove(path))
@@ -60,6 +70,8 @@ todo.txt
 .txt
 [todo.txt]
 1
+/tmp/ziman_manual_fs_example/notes/todo.txt
+18
 false
 false
 ```
@@ -86,6 +98,32 @@ for one line: `val lines = fs.lines(path)?` then `for line in lines { val text =
 an empty file has no lines), or an Err for a line with a NUL byte (a string cannot hold one) or a read
 error, after which the iteration ends. The Err on the call itself is the file failing to open.
 Leaving the loop early closes the file.
+
+### `chunks`
+
+```
+pub native fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, string>
+```
+
+The bytes of a file in blocks of `size` (1 to 1073741824), read lazily as a `for` loop asks for them, so
+a file of any size uses memory for one block: for copying, hashing or uploading a large file. Each item
+is a `Result<[byte], string>`: a block of exactly `size` bytes, except the last, which may be shorter (an
+empty file has none); a read error is a last Err item. The Err on the call is the file failing to open
+or a `size` out of range. Leaving the loop early closes the file.
+
+### `walk`
+
+```
+pub native fn walk(dir: string) -> Result<Iter<Result<string, string>>, string>
+```
+
+The files under a directory, found lazily and depth first, each directory's entries in sorted order:
+`val files = fs.walk(dir)?` then `for file in files { val path = file? ... }`. Each item is a
+`Result<string, string>`: a path made of `dir` and the names below it, for anything that is not a
+directory (a file, a link, a device); a subdirectory that cannot be read is an Err item and the walk
+carries on. Directories themselves are not listed, and a symbolic link to a directory is a path, not
+followed, so a cycle cannot loop. The Err on the call is `dir` failing to open. Leaving the loop early
+releases it.
 
 ### `write_text`
 

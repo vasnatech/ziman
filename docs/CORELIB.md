@@ -183,6 +183,10 @@ pub native fn read_text(path: string) -> Result<string, string>
 
 pub native fn lines(path: string) -> Result<Iter<Result<string, string>>, string>
 
+pub native fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, string>
+
+pub native fn walk(dir: string) -> Result<Iter<Result<string, string>>, string>
+
 pub native fn write_text(path: string, text: string) -> Result<int, string>
 
 pub native fn append_text(path: string, text: string) -> Result<int, string>
@@ -713,6 +717,8 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
 
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
 
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+
 pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError>
 
 pub fn begin(conn: Connection) -> Result<int, DbError>
@@ -819,6 +825,8 @@ pub fn close(conn: Connection)
 pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
 
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
 
 ```
 

@@ -66,6 +66,12 @@ fn main() {
     print(len(rows))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))
 
+    // A large result is read one row at a time with rows, instead of building the whole array.
+    val cursor = unwrap(db.rows(conn, "SELECT id, name FROM person", []))
+    for row in cursor {
+        print(unwrap(sql_as_text(unwrap(row_get(unwrap(row), "name")))))
+    }
+
     // A constraint violation is its own kind of error.
     val bad = db.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
     print(db_error_message(unwrap_err(bad)))
@@ -85,6 +91,7 @@ Output:
 
 ```
 1
+Ada
 Ada
 constraint violation: NOT NULL constraint failed: person.name
 false
@@ -159,6 +166,31 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
 
 Runs a query and returns its rows, each a `sql.Row`; `params` are bound to the placeholders
 (`?` for SQLite and MySQL, `$1`, `$2` for Postgres), never spliced into `sql`.
+
+### `rows`
+
+```
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+```
+
+Runs a query and returns its rows lazily, one at a time as a `for` loop asks for them:
+
+
+```
+val rows = db.rows(conn, "SELECT * FROM lab_result", [])?
+for row in rows {
+    val r = row?                       // Result<Row, DbError>
+    ...
+}
+```
+
+On SQLite the rows come from a cursor, so a result of any size uses memory for one row; the cursor
+is closed when the rows are used up, when the loop is left early, or with `iter_close`. On a pool the
+connection is borrowed for the whole iteration and given back the same way, so finish or close the
+iterator (a pooled one is not closed by the garbage collector, and a forgotten one keeps its
+connection). Postgres and MySQL do not stream yet: the whole result is fetched first and then walked,
+so `rows` gives the same items but not the memory saving. A row that fails to arrive is an Err item and
+ends the iteration; the Err on the call is the statement failing to run.
 
 ### `query_one`
 

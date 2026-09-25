@@ -24,6 +24,12 @@ fn main() {
     print(len(rows))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))
 
+    // A large result is read one row at a time with rows, instead of building the whole array.
+    val cursor = unwrap(db.rows(conn, "SELECT id, name FROM person", []))
+    for row in cursor {
+        print(unwrap(sql_as_text(unwrap(row_get(unwrap(row), "name")))))
+    }
+
     // A constraint violation is its own kind of error.
     val bad = db.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
     print(db_error_message(unwrap_err(bad)))

@@ -23,6 +23,16 @@ fn main() {
     }
     print(count)
 
+    // Walk a directory tree, and read a file in blocks.
+    for file in unwrap(fs.walk(dir)) {
+        print(unwrap(file))
+    }
+    var bytes = 0
+    for chunk in unwrap(fs.chunks(path, 4)) {
+        bytes = bytes + len(unwrap(chunk))
+    }
+    print(bytes)
+
     print(is_ok(fs.read_text(fs.path_join(dir, "missing.txt"))))
 
     unwrap(fs.remove(path))

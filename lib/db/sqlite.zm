@@ -20,6 +20,10 @@ native fn close_raw(handle: int)
 native fn execute_raw(handle: int, sql: string, params: [string]) -> Result<int, string>
 native fn query_raw(handle: int, sql: string, params: [string]) -> Result<[string], string>
 native fn float_to_text(f: float) -> string
+native fn cursor_open_raw(handle: int, sql: string, params: [string]) -> Result<int, string>
+native fn cursor_columns_raw(cursor: int) -> [string]
+native fn cursor_next_raw(cursor: int) -> Result<[string], string>
+native fn cursor_close_raw(cursor: int)
 
 // A native error arrives as "category|message".
 fn error_from_raw(raw: string) -> DbError {
@@ -164,4 +168,43 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
         pos = pos + ncols
     }
     return ab_to_array<Row>(rows)
+}
+
+fn row_from_cells(names: [string], cells: [string]) -> Result<Row, DbError> {
+    val values = ab_new<SqlValue>()
+    for cell in cells {
+        val v = decode_cell(cell)?
+        ab_append<SqlValue>(values, v)
+    }
+    return Row { columns: names, values: ab_to_array<SqlValue>(values) }
+}
+
+fn next_row(cursor: int, names: [string]) -> Option<Result<Row, DbError>> {
+    val r = cursor_next_raw(cursor)
+    if !is_ok(r) {
+        val failure: Result<Row, DbError> = error_from_raw(unwrap_err(r))
+        return Option<Result<Row, DbError>>.Some(failure)
+    }
+    val cells = unwrap(r)
+    if len(cells) == 0 {
+        return Option<Result<Row, DbError>>.None
+    }
+    return Option<Result<Row, DbError>>.Some(row_from_cells(names, cells))
+}
+
+// Runs a statement and returns its rows lazily, one at a time as a `for` loop asks for them, so a
+// result of any size uses memory for one row. Each item is a `Result<Row, DbError>`: a row, or the
+// error that ended the result part-way (after which the iteration ends). The Err on the call is the
+// statement failing to prepare or bind. The cursor is finalized when the rows are used up, when the
+// loop is left early, with `iter_close`, or when it is garbage collected. Close cursors before
+// closing the connection.
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+    val opened = cursor_open_raw(conn.handle, sql, encode_params(params))
+    if !is_ok(opened) {
+        return err(error_from_raw(unwrap_err(opened)))
+    }
+    val cursor = unwrap(opened)
+    val names = cursor_columns_raw(cursor)
+    return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> { next_row(cursor, names) },
+        fn() { cursor_close_raw(cursor) })
 }

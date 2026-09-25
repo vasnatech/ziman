@@ -376,6 +376,135 @@ done:
     return result;
 }
 
+
+/* ---- cursors ------------------------------------------------------------------------------
+ * db.rows walks a result one row at a time instead of building the whole array: `cursor_open_raw`
+ * prepares and binds a statement, `cursor_next_raw` steps it, `cursor_close_raw` finalizes it. A
+ * cursor is an address in the same pointer-as-handle scheme as a connection, and a cursor that is
+ * dropped unfinished is finalized when it is collected. It holds its connection, so close cursors
+ * before closing the connection. */
+typedef struct {
+    DbConn *conn;
+    sqlite3_stmt *stmt;
+    int ncols;
+    int done;
+} DbCursor;
+
+static HandleSet g_cursors = HANDLE_SET_INIT;
+
+static void cursor_finalize(DbCursor *cur) {
+    if (cur->stmt != NULL) {
+        pthread_mutex_lock(&cur->conn->mu);
+        sqlite3_finalize(cur->stmt);
+        pthread_mutex_unlock(&cur->conn->mu);
+        cur->stmt = NULL;
+    }
+    cur->done = 1;
+}
+
+#ifdef ZIMAN_GC
+static void cursor_finalizer(void *obj, void *client_data) {
+    (void)client_data;
+    DbCursor *cur = obj;
+    if (handleset_remove(&g_cursors, cur)) cursor_finalize(cur);
+}
+#endif
+
+static DbCursor *cursor_get(int64_t handle, int line, int col) {
+    DbCursor *cur = (DbCursor *)(intptr_t)handle;
+    if (!handleset_has(&g_cursors, cur)) ziman_error("runtime", line, col, "db: invalid or closed cursor handle %lld", (long long)handle);
+    return cur;
+}
+
+/* sqlite.cursor_open_raw(handle, sql, params) -> Result<int, string> */
+static Value native_sqlite_cursor_open_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Type int_type = type_scalar(TY_INT);
+    DbConn *c = conn_get(args[0].as.i, line, col);
+    ArrayObj *params = args[2].as.arr;
+    pthread_mutex_lock(&c->mu);
+    Value result;
+    sqlite3_stmt *stmt = NULL;
+    char *sql = rewrite_placeholders(value_cstr(args[1]));
+    if (sqlite3_prepare_v2(c->db, sql, -1, &stmt, NULL) != SQLITE_OK || stmt == NULL) {
+        result = err_result(int_type, category_for(c->db), stmt == NULL && sqlite3_errcode(c->db) == SQLITE_OK ? "empty statement" : sqlite3_errmsg(c->db));
+        goto done;
+    }
+    int rc = bind_all(stmt, params);
+    if (rc != SQLITE_OK) {
+        result = bind_error(int_type, c->db, rc, 0, params);
+        sqlite3_finalize(stmt);
+        goto done;
+    }
+    DbCursor *cur = calloc(1, sizeof(DbCursor));
+    cur->conn = c;
+    cur->stmt = stmt;
+    cur->ncols = sqlite3_column_count(stmt);
+    handleset_add(&g_cursors, cur);
+#ifdef ZIMAN_GC
+    GC_REGISTER_FINALIZER_NO_ORDER(cur, cursor_finalizer, NULL, NULL, NULL);
+#endif
+    result = ok_result(int_type, value_int((int64_t)(intptr_t)cur));
+done:
+    pthread_mutex_unlock(&c->mu);
+    return result;
+}
+
+/* sqlite.cursor_columns_raw(cursor) -> [string] */
+static Value native_sqlite_cursor_columns_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    DbCursor *cur = cursor_get(args[0].as.i, line, col);
+    CellVec names = {0};
+    if (cur->stmt != NULL) {
+        for (int i = 0; i < cur->ncols; i++) cellvec_push(&names, strdup(sqlite3_column_name(cur->stmt, i)));
+    }
+    return value_array(type_array(string_type()), array_obj_new(names.items, names.count));
+}
+
+/* sqlite.cursor_next_raw(cursor) -> Result<[string], string>: the next row's tagged cells, or an empty
+ * array when the rows are used up (the statement is then finalized). After an error the cursor is done. */
+static Value native_sqlite_cursor_next_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Type arr_type = type_array(string_type());
+    DbCursor *cur = cursor_get(args[0].as.i, line, col);
+    if (cur->done || cur->stmt == NULL) return ok_result(arr_type, value_array(arr_type, array_obj_new(NULL, 0)));
+    DbConn *c = cur->conn;
+    pthread_mutex_lock(&c->mu);
+    Value result;
+    if (c->db == NULL) {
+        cur->done = 1;
+        result = err_result(arr_type, "connection", "the connection was closed while a cursor was open");
+        goto done;
+    }
+    int rc = sqlite3_step(cur->stmt);
+    if (rc == SQLITE_ROW) {
+        CellVec cells = {0};
+        for (int i = 0; i < cur->ncols; i++) cellvec_push(&cells, encode_cell(cur->stmt, i));
+        result = ok_result(arr_type, value_array(arr_type, array_obj_new(cells.items, cells.count)));
+        goto done;
+    }
+    cur->done = 1;
+    if (rc == SQLITE_DONE) {
+        result = ok_result(arr_type, value_array(arr_type, array_obj_new(NULL, 0)));
+    } else {
+        result = err_result(arr_type, category_for(c->db), sqlite3_errmsg(c->db));
+    }
+    sqlite3_finalize(cur->stmt);
+    cur->stmt = NULL;
+done:
+    pthread_mutex_unlock(&c->mu);
+    return result;
+}
+
+static Value native_sqlite_cursor_close_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    DbCursor *cur = (DbCursor *)(intptr_t)args[0].as.i;
+    if (handleset_remove(&g_cursors, cur)) cursor_finalize(cur);
+    return value_int(0);
+}
+
 /* db.float_to_text(f) -> string: exact (%.17g) text form of a float, for
  * encoding a bound parameter. Ziman's own str(float) uses %g (six
  * significant digits), which would silently lose precision on a value
@@ -394,4 +523,8 @@ void native_sqlite_register(void) {
     native_register("sqlite::close_raw", native_sqlite_close_raw);
     native_register("sqlite::execute_raw", native_sqlite_execute_raw);
     native_register("sqlite::query_raw", native_sqlite_query_raw);
+    native_register("sqlite::cursor_open_raw", native_sqlite_cursor_open_raw);
+    native_register("sqlite::cursor_columns_raw", native_sqlite_cursor_columns_raw);
+    native_register("sqlite::cursor_next_raw", native_sqlite_cursor_next_raw);
+    native_register("sqlite::cursor_close_raw", native_sqlite_cursor_close_raw);
 }

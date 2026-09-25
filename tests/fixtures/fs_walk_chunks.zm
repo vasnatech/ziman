@@ -1,0 +1,89 @@
+use fs
+use os
+
+fn main() {
+    val root = "/tmp/ziman_fixture_walk"
+    unwrap(fs.make_dirs(fs.path_join(root, "b", "deep")))
+    unwrap(fs.make_dirs(fs.path_join(root, "a")))
+    unwrap(fs.make_dirs(fs.path_join(root, "empty")))
+    unwrap(fs.write_text(fs.path_join(root, "z.txt"), "z"))
+    unwrap(fs.write_text(fs.path_join(root, "a", "one.txt"), "1"))
+    unwrap(fs.write_text(fs.path_join(root, "a", "two.txt"), "22"))
+    unwrap(fs.write_text(fs.path_join(root, "b", "deep", "x.txt"), "x"))
+    unwrap(fs.write_text(fs.path_join(root, "b", "y.txt"), "y"))
+
+    // depth first, sorted, files only, paths joined onto the starting directory
+    for file in unwrap(fs.walk(root)) {
+        print(unwrap(file))
+    }
+    print(unwrap_err(fs.walk("/tmp/ziman_fixture_no_such_dir")))
+
+    // a trailing slash does not double up
+    var first = ""
+    for file in unwrap(fs.walk(concat(root, "/"))) {
+        first = unwrap(file)
+        break
+    }
+    print(first)
+
+    // leaving early releases the directory handles
+    val before = os.open_descriptors()
+    for round in 0..30 {
+        for file in unwrap(fs.walk(root)) {
+            break
+        }
+    }
+    print(os.open_descriptors() == before)
+
+    // files removed while no walk is open are simply not found (an empty directory lists nothing)
+    val locked = fs.path_join(root, "a")
+    unwrap(fs.remove(fs.path_join(locked, "one.txt")))
+    unwrap(fs.remove(fs.path_join(locked, "two.txt")))
+    var entries = 0
+    for file in unwrap(fs.walk(root)) {
+        entries = entries + 1
+    }
+    print(entries)
+
+    // chunks: exact blocks, a shorter last one, an empty file, bad sizes, a missing file
+    val data = fs.path_join(root, "data.bin")
+    unwrap(fs.write_bytes(data, [1b, 2b, 3b, 4b, 5b, 6b, 7b]))
+    for chunk in unwrap(fs.chunks(data, 3)) {
+        print(unwrap(chunk))
+    }
+    var whole = 0
+    for chunk in unwrap(fs.chunks(data, 1000)) {
+        whole = whole + len(unwrap(chunk))
+    }
+    print(whole)
+    unwrap(fs.write_bytes(data, []))
+    var blocks = 0
+    for chunk in unwrap(fs.chunks(data, 4)) {
+        blocks = blocks + 1
+    }
+    print(blocks)
+    print(unwrap_err(fs.chunks(data, 0)))
+    print(unwrap_err(fs.chunks(data, -5)))
+    print(unwrap_err(fs.chunks("/tmp/ziman_fixture_no_such_file.bin", 4)))
+    val after = os.open_descriptors()
+    for round in 0..30 {
+        for chunk in unwrap(fs.chunks(data, 4)) {
+            break
+        }
+    }
+    print(os.open_descriptors() == after)
+
+    // iter_of_array and iter_from
+    for name in iter_of_array<string>(["x", "y"]) {
+        print(name)
+    }
+    unwrap(fs.remove(fs.path_join(root, "data.bin")))
+    unwrap(fs.remove(fs.path_join(root, "z.txt")))
+    unwrap(fs.remove(fs.path_join(root, "b", "y.txt")))
+    unwrap(fs.remove(fs.path_join(root, "b", "deep", "x.txt")))
+    unwrap(fs.remove(fs.path_join(root, "b", "deep")))
+    unwrap(fs.remove(fs.path_join(root, "b")))
+    unwrap(fs.remove(fs.path_join(root, "a")))
+    unwrap(fs.remove(fs.path_join(root, "empty")))
+    unwrap(fs.remove(root))
+}

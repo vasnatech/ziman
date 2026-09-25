@@ -15,6 +15,11 @@ typedef struct IterObj {
     /* Releases what the source holds (a file, a cursor); called once. */
     void (*release)(struct IterObj *it);
     void *state;
+    /* the source position of the `for` or call asking for an item, for a source that runs Ziman code */
+    int line, col;
+    /* nonzero: the garbage collector must not run `release` (it runs Ziman code, which is not safe from
+     * a finalizer), so the source is released only when finished or closed */
+    int no_finalizer;
 } IterObj;
 
 /* Wraps `it` as an `Iter<T>` value. */

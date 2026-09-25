@@ -498,7 +498,12 @@ for i, x in arr { ... }       // index + value together
   the source can be far larger than memory, and `break`, `return` or a `?` inside the loop
   closes it; one that is never finished is closed when it is garbage collected. Take the items by
   hand with `iter_next(it)` (an `Option`) and release early with `iter_close(it)`. An `Iter` is
-  walked once: a second `for` over it carries on where the first stopped.
+  walked once: a second `for` over it carries on where the first stopped. `iter_of_array(items)`
+  makes an `Iter` from an array, and `iter_from<T>(next, close)` makes one from your own code:
+  `next` returns `Some(item)` or `None`, `close` runs once when the source is finished, left
+  early or closed. A closure cannot change a variable it captured, so keep the position in what
+  the closures call (a native handle, a Channel). Unlike the built-in sources it is not closed
+  by the garbage collector (that would run your code from a finalizer), so finish or close it.
 
   ```
   val lines = fs.lines("app.log")?            // Iter<Result<string, string>>
@@ -2015,6 +2020,13 @@ fn main() {
   Kerberos/GSS, client certificates, IPv6 literals in the URL, COPY,
   LISTEN/NOTIFY, prepared-statement reuse, and SASLprep of a non-ASCII
   password.
+- **`db.rows(conn, sql, params)`** is `query` as a lazy `Iter<Result<Row, DbError>>`
+  for a `for` loop: on SQLite the rows come from a cursor, so a million-row result
+  uses memory for one row (72 MB against 1.7 GB in a test) and is closed when it is used up, when the loop
+  is left early, or with `iter_close`. On a pool the connection is borrowed for the whole
+  iteration and returned the same way (finish or close it: a pooled iterator is not closed by
+  the garbage collector). Postgres and MySQL do not stream yet: they fetch the whole result
+  and walk it, so the items are the same but the memory is not saved.
 - **`db.query`** returns `[Row]`; `db.query_one` returns `Option<Row>`;
   `db.execute` returns the row count of the last statement, and takes a
   `;`-separated script when there are no parameters (for DDL).
@@ -2376,7 +2388,10 @@ moves to another host, port or scheme); cookies through
 `fs.read_text` (a whole file as a string), `fs.write_text`, `append_text`, `exists`, `is_dir`,
 `size`, `remove` (a file or an empty directory), `make_dir`, `rename` and
 `list_dir` (sorted names). `fs.lines(path)` reads a file lazily, line by line, as an `Iter`
-for a `for` loop (see "For loops"): memory for one line, whatever the file size. Everything that can fail returns `Result<_,
+for a `for` loop (see "For loops"): memory for one line, whatever the file size.
+`fs.chunks(path, size)` does the same for the bytes of a file in blocks (`Iter<Result<[byte], string>>`),
+and `fs.walk(dir)` finds the files under a directory depth first, sorted, without listing them all
+first (`Iter<Result<string, string>>`; directories are not listed, a symlink to one is not followed). Everything that can fail returns `Result<_,
 string>` carrying the OS message. (There used to be a separate `io` module
 with a fatal-on-failure `write_file`; it was folded into `fs`.)
 

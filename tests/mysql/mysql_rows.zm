@@ -1,0 +1,34 @@
+use db
+use fs
+use sql.DbError
+use sql.Row
+use sql.row_get
+use sql.sql_as_int
+
+fn main() {
+    val url = format("mysql://nat_user:natpw@{}/zimandb", trim(unwrap(fs.read_text("tests/mysql/.hostport"))))
+    val conn = unwrap(db.open(url))
+
+    // MySQL does not stream yet: the rows are fetched, then walked as items
+    var total = 0
+    for row in unwrap(db.rows(conn,
+        "SELECT n FROM (SELECT 1 AS n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10) t",
+        [])) {
+            total = total + unwrap(sql_as_int(unwrap(row_get(unwrap(row), "n"))))
+        }
+    print(total)
+    print(is_ok(db.rows(conn, "SELEC 1", [])))
+
+    // through a pool: the connection goes back when the loop ends, however it ends
+    val pool = unwrap(db.open_pool(url, 1))
+    for round in 0..3 {
+        for row in unwrap(db.rows(pool, "SELECT 1 AS n", [])) {
+            break
+        }
+    }
+    val back = db.acquire_timeout(pool, 500)
+    print(is_ok(back))
+    db.release(pool, unwrap(back))
+    db.close(pool)
+    db.close(conn)
+}

@@ -705,7 +705,18 @@ several languages rather than inheriting any one of them wholesale.
   the loop handles with `?` instead of an exception; a line holding a NUL byte (a `string` cannot)
   is an Err item and the iteration carries on. Opening a file when the process is out of descriptors
   runs the collector once and retries, so iterators dropped mid-file do not exhaust them.
-  `iter_next` and `iter_close` are the manual forms. The line reading is a shared `LineSource`
+  `iter_next` and `iter_close` are the manual forms. `iter_from<T>(next, close)` is a source written in
+  Ziman: the interpreter calls the `next` closure through the same `native_call_closure` the array
+  natives use, and `close` on release; the state lives in what the closures call (a channel, a native
+  handle) because a closure cannot mutate a captured variable, and it is deliberately excluded from
+  the finalizer (`no_finalizer`), which must not run Ziman code. `fs.chunks` and `fs.walk` are native
+  (a depth-first stack of sorted directory listings; `lstat` decides, so a symlink to a directory is
+  a path and cannot loop). `db.rows` is a SQLite cursor (`cursor_open_raw`/`_next_raw`/`_close_raw`
+  over `sqlite3_step`, its own handle set and finalizer) wrapped by `iter_from` in `sqlite.zm`;
+  `db.rows` on a pool borrows a connection and wraps the iterator so closing it also releases the
+  connection, and on Postgres and MySQL it walks the already fetched result with `iter_of_array`
+  (a real portal or `COM_STMT_FETCH` cursor is the next step there). Measured: a million-row SELECT
+  through `db.rows` used 72 MB and 16 s, through `db.query` 1.7 GB and 50 s. The line reading is a shared `LineSource`
   (`src/iter.c`), used by `fs.lines` and by `ndjson.records`, which parses each line with the same
   native JSON parser as `parse_json` (an Err item names the line, as `parse_ndjson` does). Every lib
   function that reads a file was checked: `properties`, `toml`, `yaml` and `csv` need the whole

@@ -85,3 +85,16 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
 ```
 
 Runs a statement and returns its rows; `params` bind to the `?` placeholders.
+
+### `rows`
+
+```
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+```
+
+Runs a statement and returns its rows lazily, one at a time as a `for` loop asks for them, so a
+result of any size uses memory for one row. Each item is a `Result<Row, DbError>`: a row, or the
+error that ended the result part-way (after which the iteration ends). The Err on the call is the
+statement failing to prepare or bind. The cursor is finalized when the rows are used up, when the
+loop is left early, with `iter_close`, or when it is garbage collected. Close cursors before
+closing the connection.

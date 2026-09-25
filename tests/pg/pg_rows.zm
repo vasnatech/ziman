@@ -1,0 +1,32 @@
+use db
+use fs
+use sql.DbError
+use sql.Row
+use sql.row_get
+use sql.sql_as_int
+
+fn main() {
+    val url = trim(unwrap(fs.read_text("tests/pg/.url")))
+    val conn = unwrap(db.open(url))
+
+    // Postgres does not stream yet: the rows are fetched, then walked as items
+    var total = 0
+    for row in unwrap(db.rows(conn, "SELECT g AS n FROM generate_series(1, 10) AS g", [])) {
+        total = total + unwrap(sql_as_int(unwrap(row_get(unwrap(row), "n"))))
+    }
+    print(total)
+    print(is_ok(db.rows(conn, "SELEC 1", [])))
+
+    // through a pool: the connection goes back when the loop ends, however it ends
+    val pool = unwrap(db.open_pool(url, 1))
+    for round in 0..3 {
+        for row in unwrap(db.rows(pool, "SELECT 1 AS n", [])) {
+            break
+        }
+    }
+    val back = db.acquire_timeout(pool, 500)
+    print(is_ok(back))
+    db.release(pool, unwrap(back))
+    db.close(pool)
+    db.close(conn)
+}

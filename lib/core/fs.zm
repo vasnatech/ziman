@@ -23,6 +23,22 @@ pub native fn read_text(path: string) -> Result<string, string>
 // Leaving the loop early closes the file.
 pub native fn lines(path: string) -> Result<Iter<Result<string, string>>, string>
 
+// The bytes of a file in blocks of `size` (1 to 1073741824), read lazily as a `for` loop asks for them, so
+// a file of any size uses memory for one block: for copying, hashing or uploading a large file. Each item
+// is a `Result<[byte], string>`: a block of exactly `size` bytes, except the last, which may be shorter (an
+// empty file has none); a read error is a last Err item. The Err on the call is the file failing to open
+// or a `size` out of range. Leaving the loop early closes the file.
+pub native fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, string>
+
+// The files under a directory, found lazily and depth first, each directory's entries in sorted order:
+// `val files = fs.walk(dir)?` then `for file in files { val path = file? ... }`. Each item is a
+// `Result<string, string>`: a path made of `dir` and the names below it, for anything that is not a
+// directory (a file, a link, a device); a subdirectory that cannot be read is an Err item and the walk
+// carries on. Directories themselves are not listed, and a symbolic link to a directory is a path, not
+// followed, so a cycle cannot loop. The Err on the call is `dir` failing to open. Leaving the loop early
+// releases it.
+pub native fn walk(dir: string) -> Result<Iter<Result<string, string>>, string>
+
 // Replaces the file's contents with `text`, creating the file. `Ok(bytes written)`. Not
 // atomic: a crash part-way leaves a partly written file (use `write_text_atomic` for that).
 pub native fn write_text(path: string, text: string) -> Result<int, string>

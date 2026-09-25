@@ -1,0 +1,21 @@
+[Null, Null, Null, Null]
+[Int(1), Text(row 1), Float(1.5), Bytes([1, 2])]
+[Int(2), Text(row 2), Float(1.5), Bytes([1, 2])]
+55
+true
+true
+[n, label]
+1
+0
+true
+10
+changed
+database error: near "SELEC": syntax error
+false
+true
+true
+55
+1
+true
+false
+true

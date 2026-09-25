@@ -1,0 +1,73 @@
+// A source written in Ziman: the position lives in a Channel, and `close` reports through another.
+fn counter(limit: int, log: Channel<string>) -> Iter<int> {
+    val position: Channel<int> = channel_new()
+    send(position, 0)
+    return iter_from<int>(fn() -> Option<int> {
+        val n = receive(position)
+        if n >= limit {
+            send(position, n)
+            return Option<int>.None
+        }
+        send(position, n + 1)
+        return Option<int>.Some(n)
+    }, fn() { send(log, "closed") })
+}
+
+fn find_three(log: Channel<string>) -> int {
+    for n in counter(10, log) {
+        if n == 3 {
+            return n
+        }
+    }
+    return -1
+}
+
+fn main() {
+    val log: Channel<string> = channel_new()
+
+    // run to the end: closed once, by the loop
+    var sum = 0
+    for n in counter(4, log) {
+        sum = sum + n
+    }
+    print(sum)
+    print(receive(log))
+    print(channel_len(log))
+
+    // left early with break, and with return
+    for n in counter(10, log) {
+        if n == 2 {
+            break
+        }
+    }
+    print(receive(log))
+    print(find_three(log))
+    print(receive(log))
+
+    // by hand
+    val it = counter(2, log)
+    print(iter_next<int>(it))
+    print(iter_next<int>(it))
+    print(channel_len(log))
+    print(iter_next<int>(it))
+    print(receive(log))
+    print(iter_next<int>(it))
+    print(channel_len(log))
+    iter_close<int>(it)
+    print(channel_len(log))
+
+    val early = counter(5, log)
+    print(iter_next<int>(early))
+    iter_close<int>(early)
+    print(receive(log))
+    iter_close<int>(early)
+    print(channel_len(log))
+    print(iter_next<int>(early))
+
+    // an array as an Iter
+    var joined = ""
+    for word in iter_of_array<string>(["a", "b", "c"]) {
+        joined = concat(joined, word)
+    }
+    print(joined)
+}

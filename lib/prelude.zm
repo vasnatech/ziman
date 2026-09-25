@@ -271,6 +271,17 @@ struct Iter<T> {
     handle: int
 }
 
+// An Iter written in Ziman. `next` returns the next item as `Some(item)`, or `None` at the end; `close` is
+// called once when the source is finished, left early by a `for` loop (`break`, `return`, `?`) or closed
+// with `iter_close`. A closure cannot change a variable it captured, so the state lives in whatever the
+// closures call: a native handle such as a socket or a database cursor, or a Channel. Unlike the built-in
+// sources it is NOT closed by the garbage collector (that would run your code from a finalizer), so
+// finish it or close it.
+native fn iter_from<T>(next: fn() -> Option<T>, close: fn()) -> Iter<T>
+
+// The elements of `items` as an Iter, for code that takes a lazy source but has an array.
+native fn iter_of_array<T>(items: [T]) -> Iter<T>
+
 // The next item of `it`, or None when it is exhausted. For a `while` loop that wants the items one
 // by one; `for` does this for you.
 native fn iter_next<T>(it: Iter<T>) -> Option<T>

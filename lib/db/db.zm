@@ -31,6 +31,7 @@
 // transaction leaves it open.
 
 use clock.sleep_millis
+use collections
 use mysql
 use pg
 use sql.DbError
@@ -133,6 +134,49 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
     } else {
         sqlite.query(Connection.unwrap_Sqlite(conn), sql, params)
     }
+}
+
+// A row wrapped as an item of `rows`.
+fn row_item(r: Row) -> Result<Row, DbError> {
+    return r
+}
+
+// Runs a query and returns its rows lazily, one at a time as a `for` loop asks for them:
+//
+//     val rows = db.rows(conn, "SELECT * FROM lab_result", [])?
+//     for row in rows {
+//         val r = row?                       // Result<Row, DbError>
+//         ...
+//     }
+//
+// On SQLite the rows come from a cursor, so a result of any size uses memory for one row; the cursor
+// is closed when the rows are used up, when the loop is left early, or with `iter_close`. On a pool the
+// connection is borrowed for the whole iteration and given back the same way, so finish or close the
+// iterator (a pooled one is not closed by the garbage collector, and a forgotten one keeps its
+// connection). Postgres and MySQL do not stream yet: the whole result is fetched first and then walked,
+// so `rows` gives the same items but not the memory saving. A row that fails to arrive is an Err item and
+// ends the iteration; the Err on the call is the statement failing to run.
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+    if Connection.is_Pool(conn) {
+        val inner = acquire(conn)?
+        val opened = rows(inner, sql, params)
+        if !is_ok(opened) {
+            release(conn, inner)
+            return err(unwrap_err(opened))
+        }
+        val source = unwrap(opened)
+        return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> {
+            iter_next<Result<Row, DbError>>(source)
+        }, fn() {
+            iter_close<Result<Row, DbError>>(source)
+            release(conn, inner)
+        })
+    }
+    if Connection.is_Sqlite(conn) {
+        return sqlite.rows(Connection.unwrap_Sqlite(conn), sql, params)
+    }
+    val all = query(conn, sql, params)?
+    return iter_of_array<Result<Row, DbError>>(collections.map<Row, Result<Row, DbError>>(all, row_item))
 }
 
 // The common lookup-by-key shape: the first row, or None.

@@ -1,0 +1,126 @@
+use db
+use fs
+use sql
+use sql.DbError
+use sql.Row
+use sql.SqlValue
+use sql.row_get
+use sql.sql_as_int
+use sql.sql_as_text
+
+fn n_of(row: Row) -> int {
+    return unwrap(sql_as_int(unwrap(row_get(row, "n"))))
+}
+
+fn sum_rows(conn: db.Connection, sql: string) -> Result<int, DbError> {
+    val rows = db.rows(conn, sql, [])?
+    var total = 0
+    for row in rows {
+        val r = row?
+        total = total + n_of(r)
+    }
+    return total
+}
+
+fn first_n(conn: db.Connection) -> Result<int, DbError> {
+    val rows = db.rows(conn, "SELECT n FROM t WHERE n IS NOT NULL ORDER BY n", [])?
+    for row in rows {
+        val r = row?
+        return n_of(r)
+    }
+    return err(DbError.NotFound("no rows"))
+}
+
+fn fill(conn: db.Connection) {
+    unwrap(db.execute(conn, "CREATE TABLE t (n INTEGER, label TEXT, extra REAL, blob BLOB)", []))
+    for i in 1..11 {
+        unwrap(db.execute(conn, "INSERT INTO t VALUES ($1, $2, $3, $4)",
+            [SqlValue.Int(i), SqlValue.Text(format("row {}", i)), SqlValue.Float(1.5), SqlValue.Bytes([1b, 2b])]))
+    }
+    unwrap(db.execute(conn, "INSERT INTO t VALUES (NULL, NULL, NULL, NULL)", []))
+}
+
+fn main() {
+    val conn = unwrap(db.open("sqlite::memory:"))
+    fill(conn)
+
+    // every row, in order, with each kind of value; parameters bind like query's
+    val rows = unwrap(db.rows(conn, "SELECT n, label, extra, blob FROM t WHERE n <= $1 OR n IS NULL ORDER BY n",
+        [SqlValue.Int(2)]))
+    for row in rows {
+        val r = unwrap(row)
+        print(r.values)
+    }
+    print(unwrap(sum_rows(conn, "SELECT n FROM t WHERE n IS NOT NULL")))
+
+    // the same rows as query gives, as text
+    val eager = unwrap(db.query(conn, "SELECT n, label FROM t ORDER BY n", []))
+    var streamed: [Row] = []
+    for row in unwrap(db.rows(conn, "SELECT n, label FROM t ORDER BY n", [])) {
+        streamed = push(streamed, unwrap(row))
+    }
+    print(len(eager) == len(streamed))
+    print(format("{}", eager[3].values) == format("{}", streamed[3].values))
+    print(streamed[0].columns)
+
+    // leaving early, by break, return and ?, and finishing a statement that has no rows
+    for row in unwrap(db.rows(conn, "SELECT n FROM t", [])) {
+        break
+    }
+    print(unwrap(first_n(conn)))
+    print(unwrap(sum_rows(conn, "SELECT n FROM t WHERE n > 100")))
+    print(is_ok(sum_rows(conn, "SELECT n FROM t WHERE n = 1")))
+
+    // updating while a cursor is open on the same connection is fine
+    val open = unwrap(db.rows(conn, "SELECT n FROM t WHERE n IS NOT NULL ORDER BY n", []))
+    var seen = 0
+    for row in open {
+        seen = seen + 1
+        if seen == 2 {
+            unwrap(db.execute(conn, "UPDATE t SET label = 'changed' WHERE n = 10", []))
+        }
+    }
+    print(seen)
+    val changed = Option.unwrap_Some(unwrap(db.query_one(conn, "SELECT label FROM t WHERE n = 10", [])))
+    print(unwrap(sql_as_text(unwrap(row_get(changed, "label")))))
+
+    // errors: a bad statement fails on the call, a bad parameter count too
+    print(sql.db_error_message(unwrap_err(db.rows(conn, "SELEC 1", []))))
+    print(is_ok(db.rows(conn, "SELECT n FROM t WHERE n = $1", [])))
+
+    // iter_close by hand; nothing more comes out
+    val by_hand = unwrap(db.rows(conn, "SELECT n FROM t ORDER BY n", []))
+    print(Option.is_Some(iter_next<Result<Row, DbError>>(by_hand)))
+    iter_close<Result<Row, DbError>>(by_hand)
+    print(Option.is_None(iter_next<Result<Row, DbError>>(by_hand)))
+    db.close(conn)
+
+    // a pool: the connection is borrowed for the loop and given back however it ends
+    val path = "/tmp/ziman_fixture_db_rows.db"
+    if fs.exists(path) {
+        unwrap(fs.remove(path))
+    }
+    val single = unwrap(db.open(concat("sqlite:", path)))
+    fill(single)
+    db.close(single)
+    val pool = unwrap(db.open_pool(concat("sqlite:", path), 1))
+    print(unwrap(sum_rows(pool, "SELECT n FROM t WHERE n IS NOT NULL")))
+    print(unwrap(first_n(pool)))
+    for round in 0..5 {
+        for row in unwrap(db.rows(pool, "SELECT n FROM t", [])) {
+            break
+        }
+    }
+    val late = db.acquire_timeout(pool, 200)
+    print(is_ok(late))
+    db.release(pool, unwrap(late))
+    // a running iteration holds the pool's only connection
+    val held = unwrap(db.rows(pool, "SELECT n FROM t", []))
+    print(is_ok(db.acquire_timeout(pool, 50)))
+    iter_close<Result<Row, DbError>>(held)
+    val back = db.acquire_timeout(pool, 50)
+    print(is_ok(back))
+    db.release(pool, unwrap(back))
+    db.close(pool)
+    unwrap(fs.remove(path))
+}
