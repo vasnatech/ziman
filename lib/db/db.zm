@@ -30,6 +30,7 @@
 // Without the `defer`, a `?` that returns early from inside a
 // transaction leaves it open.
 
+use clock.now_raw
 use clock.sleep_millis
 use mysql
 use pg
@@ -43,9 +44,17 @@ use sqlite
 // statement, and `acquire` hands one out exclusively. `Connection` is recursive through this
 // `Channel`, like `Json` is through an array.
 pub struct PoolState {
-    idle: Channel<Connection>
+    idle: Channel<IdleConnection>
     size: int
     url: string
+    check_after: int
+}
+
+// A connection waiting in the pool, and the time (Unix seconds) it was put there, so a long-idle one can
+// be tested before it is lent out.
+pub struct IdleConnection {
+    connection: Connection
+    since: int
 }
 
 // One database connection, or a pool of them; every `db` function takes this one type, so code
@@ -86,7 +95,7 @@ pub fn close(conn: Connection) {
     if Connection.is_Pool(conn) {
         val pool = Connection.unwrap_Pool(conn)
         for i in 0..pool.size {
-            close(receive(pool.idle))
+            close(receive(pool.idle).connection)
         }
     } else if Connection.is_Postgres(conn) {
         pg.close(Connection.unwrap_Postgres(conn))
@@ -242,7 +251,9 @@ pub fn rollback(conn: Connection) -> Result<int, DbError> {
 // it uses it directly and never borrows again (borrowing while holding one
 // could deadlock a small pool).
 //
-// A connection that dies (server restart, dropped network) is replaced: when a statement run
+// A connection that sat idle for 30 seconds or more is tested with `SELECT 1` when it is lent out and
+// replaced if that fails (`open_pool_with` changes the time or turns this off). A connection that dies
+// (server restart, dropped network) is replaced: when a statement run
 // on the pool fails with `DbError.Connection`, that connection is closed and a fresh one opened
 // from the same URL in its place (if the server is still down the dead one goes back, and the
 // next statement tries again). The statement that met the failure is NOT re-sent -- it may or may
@@ -253,28 +264,48 @@ pub fn rollback(conn: Connection) -> Result<int, DbError> {
 // `size` says: every in-memory connection is its own private database, so
 // N of them would be N different databases.
 pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
+    return open_pool_with(url, size, default_check_after_seconds)
+}
+
+// How long a connection may sit idle in a pool before it is tested when lent out, in seconds.
+val default_check_after_seconds = 30
+
+fn now_seconds() -> int {
+    return now_raw()[0]
+}
+
+// Puts a connection in the pool's idle channel, stamped with the time.
+fn park(idle: Channel<IdleConnection>, c: Connection) {
+    send(idle, IdleConnection { connection: c, since: now_seconds() })
+}
+
+// `open_pool`, choosing how long a connection may sit idle before it is tested when borrowed: one idle for
+// `check_after_seconds` or more gets a `SELECT 1` first, and if that fails with a connection error it is
+// replaced with a fresh connection before it is lent out, so a server restart overnight does not cost the
+// first request of the morning. Zero or less turns the test off. SQLite connections are never tested.
+pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError> {
     if size < 1 {
         return err(DbError.Sql("a pool needs at least one connection"))
     }
     if starts_with(url, "sqlite::memory") {
         return open(url)
     }
-    val idle: Channel<Connection> = channel_new()
+    val idle: Channel<IdleConnection> = channel_new()
     var opened = 0
     while opened < size {
         val c = open(url)
         if !is_ok(c) {
             var i = 0
             while i < opened {
-                close(receive(idle))
+                close(receive(idle).connection)
                 i = i + 1
             }
             return err(unwrap_err(c))
         }
-        send(idle, unwrap(c))
+        park(idle, unwrap(c))
         opened = opened + 1
     }
-    return Connection.Pool(PoolState { idle: idle, size: size, url: url })
+    return Connection.Pool(PoolState { idle: idle, size: size, url: url, check_after: check_after_seconds })
 }
 
 // A connection that failed with a connection error, swapped for a fresh one; the failed one when
@@ -285,6 +316,27 @@ fn replacement(pool: PoolState, dead: Connection) -> Connection {
         return dead
     }
     close(dead)
+    return unwrap(fresh)
+}
+
+// A connection taken from the pool's idle channel, tested first when it has been idle long enough: one that
+// fails a `SELECT 1` with a connection error is replaced by a fresh connection. When none can be opened the
+// dead one goes back and the borrower gets the Err, rather than a connection that would fail.
+fn checked(pool: PoolState, entry: IdleConnection) -> Result<Connection, DbError> {
+    val c = entry.connection
+    if pool.check_after <= 0 || Connection.is_Sqlite(c) || now_seconds() - entry.since < pool.check_after {
+        return c
+    }
+    val probe = query(c, "SELECT 1", [])
+    if is_ok(probe) || !DbError.is_Connection(unwrap_err(probe)) {
+        return c
+    }
+    val fresh = open(pool.url)
+    if !is_ok(fresh) {
+        park(pool.idle, c)
+        return err(unwrap_err(fresh))
+    }
+    close(c)
     return unwrap(fresh)
 }
 
@@ -303,7 +355,11 @@ fn settle<T>(conn: Connection, taken: Connection, result: Result<T, DbError>) {
 // isn't a pool it just returns that connection, and `release` does
 // nothing -- so the same code runs against either.
 pub fn acquire(conn: Connection) -> Result<Connection, DbError> {
-    return if Connection.is_Pool(conn) { receive(Connection.unwrap_Pool(conn).idle) } else { conn }
+    if !Connection.is_Pool(conn) {
+        return conn
+    }
+    val pool = Connection.unwrap_Pool(conn)
+    return checked(pool, receive(pool.idle))
 }
 
 // Like `acquire`, but gives up with a `DbError.Connection` once `timeout_ms` milliseconds pass
@@ -313,11 +369,11 @@ pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, 
     if !Connection.is_Pool(conn) {
         return conn
     }
-    val idle = Connection.unwrap_Pool(conn).idle
+    val pool = Connection.unwrap_Pool(conn)
     for _ in 0..(if timeout_ms > 0 { timeout_ms / 2 + 1 } else { 1 }) {
-        val got = try_receive(idle)
+        val got = try_receive(pool.idle)
         if Option.is_Some(got) {
-            return Option.unwrap_Some(got)
+            return checked(pool, Option.unwrap_Some(got))
         }
         if timeout_ms > 0 {
             sleep_millis(2)
@@ -332,7 +388,7 @@ pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, 
 // registered *after* the release defer runs before it).
 pub fn release(conn: Connection, taken: Connection) {
     if Connection.is_Pool(conn) {
-        send(Connection.unwrap_Pool(conn).idle, taken)
+        park(Connection.unwrap_Pool(conn).idle, taken)
     }
 }
 
@@ -343,7 +399,7 @@ pub fn release(conn: Connection, taken: Connection) {
 pub fn discard(conn: Connection, taken: Connection) {
     if Connection.is_Pool(conn) {
         val pool = Connection.unwrap_Pool(conn)
-        send(pool.idle, replacement(pool, taken))
+        park(pool.idle, replacement(pool, taken))
     }
 }
 

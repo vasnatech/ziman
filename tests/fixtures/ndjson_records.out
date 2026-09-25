@@ -3,7 +3,7 @@
 {"n":3}
 6
 {"n":1}
-line 2: expected 'null' at position 0
+line 2: invalid value 'not' at position 0
 {"n":2}
 line 4: unexpected end of input
 {"n":3}

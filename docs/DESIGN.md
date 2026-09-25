@@ -2786,9 +2786,13 @@ several languages rather than inheriting any one of them wholesale.
   dead one goes back so the pool never shrinks. The failed statement is not
   re-sent, because it may have executed and a retried INSERT would repeat
   it. `db.discard` does the same for an `acquire`d connection, and
-  `with_transaction` calls it on a connection-class failure. There is no
-  `SELECT 1` on every borrow (a round trip per statement), so the first
-  statement after an outage fails and the ones after it succeed. **Acquire
+  `with_transaction` calls it on a connection-class failure. A `SELECT 1` on
+  every borrow would cost a round trip per statement, so only a connection idle for `check_after`
+  seconds (default 30; `open_pool_with` sets it, 0 disables) is tested when lent out: the idle channel
+  holds `IdleConnection { connection, since }` stamped when a connection is parked, and a failed probe
+  replaces the connection before the borrower sees it (if no replacement can be opened the dead one
+  goes back and the borrower gets the Err). A connection that dies while in use, or before the idle
+  limit, still costs one failed statement, after which the connection is replaced. **Acquire
   timeout:** `acquire_timeout` polls `try_receive` every 2 ms, since channel
   `receive` has no timeout; a leaked borrow blocks plain `acquire` forever
   (`defer release` is the guard). **Still v1:** no min/max sizing or

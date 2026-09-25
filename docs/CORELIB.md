@@ -684,9 +684,15 @@ pub fn yaml_to_string(j: Json) -> string
 
 ```
 pub struct PoolState {
-    idle: Channel<Connection>
+    idle: Channel<IdleConnection>
     size: int
     url: string
+    check_after: int
+}
+
+pub struct IdleConnection {
+    connection: Connection
+    since: int
 }
 
 pub enum Connection {
@@ -715,6 +721,8 @@ pub fn commit(conn: Connection) -> Result<int, DbError>
 pub fn rollback(conn: Connection) -> Result<int, DbError>
 
 pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
+
+pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError>
 
 pub fn acquire(conn: Connection) -> Result<Connection, DbError>
 

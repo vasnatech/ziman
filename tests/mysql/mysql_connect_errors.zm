@@ -11,18 +11,21 @@ fn show(r: Result<db.Connection, DbError>) {
 // For a user MySQL has never heard of, the server picks a plugin to
 // challenge with deterministically from the username (so a client can't
 // tell a wrong password from a nonexistent user by timing), and that pick
-// isn't stable across server restarts. Depending on it lands on either an
-// immediate "access denied" or (if the picked plugin isn't one this driver
-// supports) a plugin-rejection message first -- both are real, correct
-// rejections of the same login, so this test only checks that one happens.
+// isn't stable across server restarts. Depending on it lands on an immediate
+// "access denied", on a plugin-rejection message (a plugin this driver does not
+// support), or on caching_sha2's "needs the full authentication exchange"
+// refusal (the driver will not send a password in the clear without TLS) --
+// all real, correct rejections of the same login, so this test only checks that
+// one happens.
 fn show_unknown_user(r: Result<db.Connection, DbError>) {
     print(is_ok(r))
     val message = db_error_message(unwrap_err(r))
-    if contains(message, "Access denied") || contains(message, "authentication plugin") {
-        print("database connection error: login rejected")
-    } else {
-        print(message)
-    }
+    if contains(message, "Access denied") || contains(message, "authentication plugin") ||
+        contains(message, "full authentication exchange") {
+            print("database connection error: login rejected")
+        } else {
+            print(message)
+        }
 }
 
 fn main() {

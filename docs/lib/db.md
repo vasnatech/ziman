@@ -102,9 +102,10 @@ false
 
 ```
 pub struct PoolState {
-    idle: Channel<Connection>
+    idle: Channel<IdleConnection>
     size: int
     url: string
+    check_after: int
 }
 ```
 
@@ -112,6 +113,18 @@ The state of a pool: the channel of idle connections, how many were opened and t
 reopen one from (see `open_pool`). Statements run on the pool borrow a connection for that one
 statement, and `acquire` hands one out exclusively. `Connection` is recursive through this
 `Channel`, like `Json` is through an array.
+
+### `IdleConnection`
+
+```
+pub struct IdleConnection {
+    connection: Connection
+    since: int
+}
+```
+
+A connection waiting in the pool, and the time (Unix seconds) it was put there, so a long-idle one can
+be tested before it is lent out.
 
 ### `Connection`
 
@@ -261,7 +274,9 @@ every connection is in use -- natural backpressure, no extra locking.
 it uses it directly and never borrows again (borrowing while holding one
 could deadlock a small pool).
 
-A connection that dies (server restart, dropped network) is replaced: when a statement run
+A connection that sat idle for 30 seconds or more is tested with `SELECT 1` when it is lent out and
+replaced if that fails (`open_pool_with` changes the time or turns this off). A connection that dies
+(server restart, dropped network) is replaced: when a statement run
 on the pool fails with `DbError.Connection`, that connection is closed and a fresh one opened
 from the same URL in its place (if the server is still down the dead one goes back, and the
 next statement tries again). The statement that met the failure is NOT re-sent -- it may or may
@@ -271,6 +286,17 @@ blocks while every connection is in use; `acquire_timeout` gives up after a whil
 leaked borrow blocks other callers forever -- `defer release` is the guard. A pool over `sqlite::memory:` is a single connection whatever
 `size` says: every in-memory connection is its own private database, so
 N of them would be N different databases.
+
+### `open_pool_with`
+
+```
+pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError>
+```
+
+`open_pool`, choosing how long a connection may sit idle before it is tested when borrowed: one idle for
+`check_after_seconds` or more gets a `SELECT 1` first, and if that fails with a connection error it is
+replaced with a fresh connection before it is lent out, so a server restart overnight does not cost the
+first request of the morning. Zero or less turns the test off. SQLite connections are never tested.
 
 ### `acquire`
 

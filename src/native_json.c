@@ -245,7 +245,11 @@ static Value parse_object(Parser *ps, int depth) {
 static int match_literal(Parser *ps, const char *lit) {
     size_t len = strlen(lit);
     if (ps->p + len <= ps->n && memcmp(ps->s + ps->p, lit, len) == 0) { ps->p += len; return 1; }
-    fail(ps, "expected '%s' at position %zu", lit, ps->p);
+    /* name the word that was found rather than the literal that was not: `not json` starts like `null` */
+    size_t end = ps->p;
+    while (end < ps->n && end - ps->p < 24 && ((ps->s[end] >= 'a' && ps->s[end] <= 'z') || (ps->s[end] >= 'A' && ps->s[end] <= 'Z') || is_digit_c(ps->s[end]) || ps->s[end] == '_')) end++;
+    fail(ps, "invalid value '%.*s' at position %zu",
+         (int)(end - ps->p), ps->s + ps->p, ps->p);
     return 0;
 }
 

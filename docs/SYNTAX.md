@@ -2069,8 +2069,10 @@ fn main() {
   connection and opens a fresh one from the same URL (the statement itself
   is not re-sent, since it may have run); after a failure on an acquired
   connection, `db.discard(pool, tx)` does the same instead of `release`, and
-  `with_transaction` does it by itself. **Limits:** there is no health
-  check before a borrow, no min/max sizing or idle timeout; a released connection isn't reset (release one with a
+  `with_transaction` does it by itself. **Health check:** a connection idle for
+  30 seconds or more is tested with `SELECT 1` when it is lent out, and replaced first if that fails with a
+  connection error (`db.open_pool_with(url, size, check_after_seconds)` changes the time; 0 turns it off;
+  SQLite connections are never tested). **Limits:** no min/max sizing or idle timeout; a released connection isn't reset (release one with a
   transaction open and it goes back dirty); and a pool over
   `sqlite::memory:` is a **single** connection whatever `size` says, since
   every in-memory connection is its own private database. SQLite

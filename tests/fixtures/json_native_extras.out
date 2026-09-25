@@ -20,8 +20,8 @@ expected string key at position 1
 expected ',' or ']' at position 3
 unexpected end of input
 unexpected end of input
-expected 'true' at position 0
-expected 'null' at position 0
+invalid value 'tru' at position 0
+invalid value 'nul' at position 0
 invalid number at position 0
 invalid number at position 0
 invalid number at position 0

@@ -1249,7 +1249,8 @@ from source.
   (docs/DESIGN.md's pool entry) -- still wanted, and deliberately left for
   a better implementation: ~~reconnect and an acquire timeout~~ (done: a
   connection-class failure replaces the connection, `db.acquire_timeout`,
-  `db.discard`), health checks on borrow, min/max sizing and
+  `db.discard`, and a `SELECT 1` health check of long-idle connections on borrow,
+  `db.open_pool_with`), min/max sizing and
   idle timeouts, resetting a connection on release, and real pooling over
   in-memory SQLite (shared-cache); (4)
   **schema management/migrations**, currently a plain `create_schema`
