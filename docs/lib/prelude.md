@@ -641,6 +641,47 @@ Releases what `it` holds (a file, say) now instead of when it is collected. A `f
 itself when it is left early; call it when you take items by hand and stop before the end. Harmless
 on one that is finished or already closed.
 
+## Map and Set helpers
+
+### `MapEntry`
+
+```
+struct MapEntry<K, V> {
+    key: K
+    value: V
+}
+```
+
+One key and its value, as `map_entries` returns them.
+
+### `map_entries`
+
+```
+fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>]
+```
+
+The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
+say, with `collections.sort_by_keys`) or taking the first few. Written with the type arguments:
+`map_entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
+
+### `map_map_values`
+
+```
+fn map_map_values<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(V) -> R) -> Map<K, R>
+```
+
+`m` with `f` applied to every value, keys and their order unchanged:
+`map_map_values<string, int, string>(stock, fn(n) { str(n) })`.
+
+### `set_map`
+
+```
+fn set_map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U>
+```
+
+The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the same
+value become one: `set_map<int, int>(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
+
 ## Bytes
 
 ### `bytes_index_of`

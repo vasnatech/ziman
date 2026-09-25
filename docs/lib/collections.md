@@ -40,6 +40,13 @@ fn main() {
 
     print(collections.distinct<int>([3, 1, 3, 2, 1]))
     print(collections.group_by<string, int>(words, fn(w) { len(w) }))
+
+    // Counting, indexing, and a map's entries as an array.
+    print(collections.frequencies<string>(["a", "b", "a", "c", "a"]))
+    print(collections.index_by<string, int>(words, fn(w) { len(w) }))
+    val stock = Map<string, int> { "apple": 4, "fig": 9 }
+    print(map_entries<string, int>(stock)[1].key)
+    print(map_map_values<string, int, string>(stock, fn(n) { format("{} units", n) }))
 }
 ```
 
@@ -56,6 +63,10 @@ Some(2)
 2
 [3, 1, 2]
 {4: [pear, kiwi], 3: [fig], 5: [apple]}
+{a: 3, b: 1, c: 1}
+{4: kiwi, 3: fig, 5: apple}
+fig
+{apple: 4 units, fig: 9 units}
 ```
 
 ## Sorting
@@ -294,3 +305,22 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]>
 
 The elements grouped by `key`: a map from each key to the elements that have it, in input
 order, with the keys in the order they first appear.
+
+### `frequencies`
+
+```
+pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int>
+```
+
+How many times each distinct element occurs: `frequencies<string>(["a", "b", "a"])` is `{a: 2, b: 1}`, keys
+in the order they first appear.
+
+### `index_by`
+
+```
+pub fn index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T>
+```
+
+The elements keyed by `key`: a map from each key to the element that has it. When two elements share a
+key the later one wins, like `set` on a map; use `group_by` to keep them all. Keys are in the order they
+first appear.

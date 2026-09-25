@@ -291,6 +291,45 @@ native fn iter_next<T>(it: Iter<T>) -> Option<T>
 // on one that is finished or already closed.
 native fn iter_close<T>(it: Iter<T>)
 
+// ---------------------------------------------------------------- Map and Set helpers
+
+// One key and its value, as `map_entries` returns them.
+struct MapEntry<K, V> {
+    key: K
+    value: V
+}
+
+// The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
+// say, with `collections.sort_by_keys`) or taking the first few. Written with the type arguments:
+// `map_entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
+fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
+    val out = ab_new<MapEntry<K, V>>()
+    for k, v in m {
+        ab_append<MapEntry<K, V>>(out, MapEntry<K, V> { key: k, value: v })
+    }
+    return ab_to_array<MapEntry<K, V>>(out)
+}
+
+// `m` with `f` applied to every value, keys and their order unchanged:
+// `map_map_values<string, int, string>(stock, fn(n) { str(n) })`.
+fn map_map_values<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(V) -> R) -> Map<K, R> {
+    val out = mapb_new<K, R>()
+    for k, v in m {
+        mapb_set<K, R>(out, k, f(v))
+    }
+    return mapb_to_map<K, R>(out)
+}
+
+// The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the same
+// value become one: `set_map<int, int>(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
+fn set_map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U> {
+    val out = setb_new<U>()
+    for x in s {
+        setb_add<U>(out, f(x))
+    }
+    return setb_to_set<U>(out)
+}
+
 // ---------------------------------------------------------------- bytes
 
 // The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an

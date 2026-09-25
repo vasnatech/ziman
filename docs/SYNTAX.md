@@ -452,8 +452,14 @@ for x in seen { ... }                    // a set has one binder
   - Sets: `set_union(a, b)`, `set_intersect(a, b)`, `set_difference(a, b)` (all in `a`'s order,
     `b`'s extras appended for union), `set_is_subset(a, b)`, `set_from_array(items)`,
     `set_insert_all(s, items)`, `set_filter(s, keep)` with `keep: fn(T) -> bool`.
-  - Not there: `map_map_values`/`set_map` (they would need the result type inferred from a
-    lambda) and `map_entries` (there is no pair type; use `for k, v in m`).
+  - Written with their type arguments (the result type of a lambda is not inferred, as in
+    `collections.map<T, U>`): `map_map_values<K, V, R>(m, f)` applies `f: fn(V) -> R` to every value,
+    keys and order unchanged; `set_map<T, U>(s, f)` is the set of `f(x)`, elements that map to the same
+    value merging; `map_entries<K, V>(m)` is an array of `MapEntry<K, V> { key, value }` in the map's
+    order, for sorting or slicing entries (`for k, v in m` needs no array to just walk one).
+  - In `collections`: `frequencies<T>(items)` counts occurrences into a `Map<T, int>`, and
+    `index_by<T, K>(items, key)` builds a `Map<K, T>` (the later element wins a shared key; `group_by` keeps
+    them all).
 - **Builders** for filling one up entry by entry: `MapBuilder<K, V>` (`mapb_new`, `mapb_set`,
   `mapb_get`, `mapb_remove`, `mapb_contains`, `mapb_len`, `mapb_to_map`) and `SetBuilder<T>`
   (`setb_new`, `setb_add`, `setb_remove`, `setb_contains`, `setb_len`, `setb_to_set`), the

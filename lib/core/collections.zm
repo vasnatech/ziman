@@ -292,3 +292,25 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
     }
     return mapb_to_map<K, [T]>(groups)
 }
+
+// How many times each distinct element occurs: `frequencies<string>(["a", "b", "a"])` is `{a: 2, b: 1}`, keys
+// in the order they first appear.
+pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
+    val counts = mapb_new<T, int>()
+    for item in items {
+        val seen = mapb_get<T, int>(counts, item)
+        mapb_set<T, int>(counts, item, if Option.is_Some(seen) { Option.unwrap_Some(seen) + 1 } else { 1 })
+    }
+    return mapb_to_map<T, int>(counts)
+}
+
+// The elements keyed by `key`: a map from each key to the element that has it. When two elements share a
+// key the later one wins, like `set` on a map; use `group_by` to keep them all. Keys are in the order they
+// first appear.
+pub fn index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T> {
+    val index = mapb_new<K, T>()
+    for item in items {
+        mapb_set<K, T>(index, key(item), item)
+    }
+    return mapb_to_map<K, T>(index)
+}

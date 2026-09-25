@@ -8,3 +8,7 @@ Some(2)
 2
 [3, 1, 2]
 {4: [pear, kiwi], 3: [fig], 5: [apple]}
+{a: 3, b: 1, c: 1}
+{4: kiwi, 3: fig, 5: apple}
+fig
+{apple: 4 units, fig: 9 units}

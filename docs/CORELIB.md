@@ -93,6 +93,10 @@ pub fn distinct<T: Eq + Hash>(items: [T]) -> [T]
 
 pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]>
 
+pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int>
+
+pub fn index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T>
+
 ```
 
 ## `compress`

@@ -1,32 +1,42 @@
-fn is_even(x: int) -> bool {
-    return x % 2 == 0
-}
+use collections
 
-fn big_score(name: string, score: int) -> bool {
-    return score >= 10
+struct Person {
+    name: string
+    age: int
 }
 
 fn main() {
-    val a = Set<int> { 1, 2, 3, 4 }
-    val b = Set<int> { 3, 4, 5 }
-    print(set_union(a, b))
-    print(set_intersect(a, b))
-    print(set_difference(a, b))
-    print(set_is_subset(Set<int> { 3, 4 }, a))
-    print(set_is_subset(b, a))
-    print(set_from_array([3, 1, 3, 2, 1]))
-    print(set_insert_all(a, [9, 1, 8]))
-    print(set_filter(a, is_even))
-    val floor = 2
-    print(set_filter(a, fn(x: int) -> bool { x > floor }))
+    val stock = Map<string, int> { "apple": 4, "fig": 9, "pear": 6 }
 
-    val m = Map<string, int> { "ann": 12, "bob": 3, "cy": 40 }
-    print(map_get_or(m, "bob", -1))
-    print(map_get_or(m, "zed", -1))
-    print(map_merge(m, Map<string, int> { "bob": 4, "dee": 5 }))
-    print(map_filter(m, big_score))
-    print(map_filter(m, fn(k: string, v: int) -> bool { len(k) == 2 || v < 5 }))
-    print(map_remove_all(m, ["ann", "nobody", "cy"]))
-    print(map_from_arrays(["p", "q", "p"], [1, 2, 3]))
-    print(map_from_arrays(map_values(m), set_items(map_keys(m))))
+    // entries, in insertion order, and sorted by value
+    val entries = map_entries<string, int>(stock)
+    print(len(entries))
+    print(entries[1].key)
+    print(entries[1].value)
+    val values = collections.map<MapEntry<string, int>, int>(entries, fn(e) { e.value })
+    val ranked = unwrap(collections.sort_by_keys_desc<MapEntry<string, int>, int>(entries, values))
+    print(collections.map<MapEntry<string, int>, string>(ranked, fn(e) { e.key }))
+    print(len(map_entries<string, int>(Map<string, int> {})))
+
+    // map_map_values keeps keys and order
+    val labels = map_map_values<string, int, string>(stock, fn(n) { format("{} units", n) })
+    print(labels)
+    print(map_map_values<string, int, bool>(stock, fn(n) { n > 5 }))
+    print(len(map_map_values<string, int, int>(Map<string, int> {}, fn(n) { n })))
+
+    // set_map: results merge
+    val parity = set_map<int, int>(Set<int> { 1, 2, 3, 4, 5 }, fn(n) { n % 2 })
+    print(parity)
+    print(set_map<string, int>(Set<string> { "a", "bb", "cc" }, fn(s) { len(s) }))
+    print(len(set_map<int, int>(Set<int> {}, fn(n) { n })))
+
+    // frequencies and index_by
+    print(collections.frequencies<string>(["a", "b", "a", "c", "a", "b"]))
+    print(collections.frequencies<int>([]))
+    val people = [Person { name: "Ada", age: 36 }, Person { name: "Grace", age: 45 }, Person { name: "Ada", age: 29 }]
+    val by_name = collections.index_by<Person, string>(people, fn(p) { p.name })
+    print(len(by_name))
+    print(Option.unwrap_Some(map_get(by_name, "Ada")).age)
+    print(map_keys(by_name))
+    print(len(collections.index_by<Person, int>([], fn(p) { p.age })))
 }
