@@ -1456,7 +1456,21 @@ static void init_param_defaults(Module *module) {
     }
 }
 
+static Module *g_program = NULL;
+
+Value native_call_closure(Value fn, Value *args, int argc, int line, int col) {
+    ClosureObj *clo = fn.as.clo;
+    if (clo->ncaptured == 0) return call_function(g_program, clo->fn, args, argc, 0, line, col);
+    Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
+    memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
+    memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
+    Value result = call_function(g_program, clo->fn, all, clo->ncaptured + argc, 0, line, col);
+    free(all);
+    return result;
+}
+
 void interpret(Module *module) {
+    g_program = module;
     g_global_env = env_new(NULL);
     init_param_defaults(module);
     init_global_vals(module);

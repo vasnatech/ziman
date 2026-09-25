@@ -24,51 +24,15 @@ pub fn sort_indices_desc<K: Ord>(keys: [K]) -> [int] {
 }
 
 // Packed numbers and strings are sorted natively; anything else (a struct, an enum, a bigint)
-// by the merge sort below, calling `compare`.
+// by the merge sort `sort_positions`, calling `compare`.
 fn order_of<K: Ord>(keys: [K], descending: bool) -> [int] {
     if is_sortable_scalars<K>(keys) {
         return sort_scalar_order<K>(keys, descending)
     }
     if descending {
-        return merge_order(len(keys), fn(a, b) { compare(keys[b], keys[a]) })
+        return sort_positions(len(keys), fn(a, b) { compare(keys[b], keys[a]) })
     }
-    return merge_order(len(keys), fn(a, b) { compare(keys[a], keys[b]) })
-}
-
-// A stable bottom-up merge sort of the positions 0..n by `cmp(a, b)` (negative, zero or
-// positive, like `compare`, over two positions): O(n log n) comparisons.
-fn merge_order(n: int, cmp: fn(int, int) -> int) -> [int] {
-    val start = ab_new<int>()
-    for i in 0..n {
-        ab_append<int>(start, i)
-    }
-    var order = ab_to_array<int>(start)
-    var width = 1
-    while width < n {
-        val merged = ab_new<int>()
-        var lo = 0
-        while lo < n {
-            val mid = min(lo + width, n)
-            val hi = min(lo + 2 * width, n)
-            var i = lo
-            var j = mid
-            while i < mid && j < hi {
-                if cmp(order[j], order[i]) < 0 {
-                    ab_append<int>(merged, order[j])
-                    j = j + 1
-                } else {
-                    ab_append<int>(merged, order[i])
-                    i = i + 1
-                }
-            }
-            ab_append<int>(ab: merged, pieces: slice<int>(order, i, mid))
-            ab_append<int>(ab: merged, pieces: slice<int>(order, j, hi))
-            lo = lo + 2 * width
-        }
-        order = ab_to_array<int>(merged)
-        width = width * 2
-    }
-    return order
+    return sort_positions(len(keys), fn(a, b) { compare(keys[a], keys[b]) })
 }
 
 // `items` in ascending order of their own `compare`. `compare` orders any number, string or
@@ -110,7 +74,7 @@ pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string
 // an order that is neither the type's own nor a single key -- a two-field ordering, say.
 // Stable. `sort_by_keys` covers the single-key case.
 pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
-    return permute<T>(items, merge_order(len(items), fn(a, b) { cmp(items[a], items[b]) }))
+    return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
 }
 
 // True when no element is greater than the one after it (an empty or one-element array is).

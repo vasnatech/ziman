@@ -769,6 +769,36 @@ static int64_t *scalar_order(const ArrayObj *a, int desc) {
     return order;
 }
 
+/* sort_positions(n, cmp): the positions 0..n ordered by `cmp(a, b)` (negative, zero or
+ * positive, over two positions) -- a stable merge sort in two reused buffers, calling back
+ * into Ziman only for the comparisons. */
+static Value native_sort_positions(Value *args, int argc, int line, int col) {
+    (void)argc;
+    int64_t n = args[0].as.i;
+    Value cmp = args[1];
+    if (n < 0) ziman_error("runtime", line, col, "sort_positions: n must be non-negative, found %lld", (long long)n);
+    int64_t *order = zalloc_atomic((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+    int64_t *tmp = zalloc_atomic((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+    for (int64_t i = 0; i < n; i++) order[i] = i;
+    for (int64_t width = 1; width < n; width *= 2) {
+        int64_t k = 0;
+        for (int64_t lo = 0; lo < n; lo += 2 * width) {
+            int64_t mid = lo + width < n ? lo + width : n;
+            int64_t hi = lo + 2 * width < n ? lo + 2 * width : n;
+            int64_t i = lo, j = mid;
+            while (i < mid && j < hi) {
+                Value pair[2] = {value_int(order[j]), value_int(order[i])};
+                if (native_call_closure(cmp, pair, 2, line, col).as.i < 0) tmp[k++] = order[j++];
+                else tmp[k++] = order[i++];
+            }
+            while (i < mid) tmp[k++] = order[i++];
+            while (j < hi) tmp[k++] = order[j++];
+        }
+        int64_t *swap = order; order = tmp; tmp = swap;
+    }
+    return value_int_array(order, (size_t)n);
+}
+
 static Value native_sort_scalar_order(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     const ArrayObj *a = args[0].as.arr;
@@ -923,6 +953,7 @@ void prelude_register(void) {
     native_register("sort_scalar_order", native_sort_scalar_order);
     native_register("sort_scalars", native_sort_scalars);
     native_register("permute", native_permute);
+    native_register("sort_positions", native_sort_positions);
     native_register("string_to_bytes", native_string_to_bytes);
     native_register("bytes_to_string", native_bytes_to_string);
     native_register("slice", native_slice);

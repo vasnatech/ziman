@@ -18,4 +18,8 @@ void native_register(const char *qualified_name, NativeFn fn);
  * name, or NULL if nothing was ever registered for it. */
 NativeFn native_lookup(const char *qualified_name);
 
+/* Calls a Ziman function value (a named function or a lambda) from native code: the
+ * result of `fn(args...)`. Valid once a program is running. Implemented by the interpreter. */
+Value native_call_closure(Value fn, Value *args, int argc, int line, int col);
+
 #endif

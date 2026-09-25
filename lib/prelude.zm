@@ -197,6 +197,9 @@ native fn sort_scalar_order<T>(items: [T], descending: bool) -> [int]
 // `items[order[0]], items[order[1]], ...` for any element type, in one allocation.
 native fn sort_scalars<T>(items: [T], descending: bool) -> [T]
 native fn permute<T>(items: [T], order: [int]) -> [T]
+// The positions 0..n ordered by `cmp(a, b)` (negative, zero or positive, like `compare`,
+// over two positions): a stable merge sort, in two reused buffers.
+native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
 // slice<T>(a, start, end): the elements of `a` from `start` up to (not
 // including) `end` (`0 <= start <= end <= len(a)`, a runtime error
 // otherwise). It does not copy: arrays are immutable, so the result shares
