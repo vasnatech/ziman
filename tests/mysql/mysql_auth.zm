@@ -19,7 +19,7 @@ fn whoami(url: string) {
             print(message)
         }
     } else {
-        val rows = unwrap(datasource.query(unwrap(conn), "SELECT SUBSTRING_INDEX(CURRENT_USER(), '@', 1) AS u", []))
+        val rows = unwrap(datasource.query(unwrap(conn), "SELECT SUBSTRING_INDEX(CURRENT_USER(), '@', 1) AS u"))
         print(unwrap(sql_as_text(unwrap(row_get(rows[0], "u")))))
         datasource.close(unwrap(conn))
     }

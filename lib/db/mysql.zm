@@ -1268,13 +1268,13 @@ fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult,
 }
 
 // The number of rows the last statement changed.
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
+pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
     val result = run(conn, sql, params)?
     return result.affected
 }
 
 // Runs a statement and returns its rows.
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
     val result = run(conn, sql, params)?
     return result.rows
 }
@@ -1291,6 +1291,6 @@ pub fn close(conn: Connection) {
 // which the iteration ends). The Err on the call is the statement failing. A connection holds one cursor
 // at a time; other statements may run between fetches. A cursor dropped unfinished is ended when it is
 // garbage collected.
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError> {
     return open_rows(conn.requests, sql, params)
 }

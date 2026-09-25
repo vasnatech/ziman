@@ -122,7 +122,7 @@ parse_csv_typed with another one-character delimiter.
 ### `parse_csv_columns`
 
 ```
-pub fn parse_csv_columns(text: string, columns: [string]) -> Result<Json, string>
+pub fn parse_csv_columns(text: string, columns: string...) -> Result<Json, string>
 ```
 
 For a file with no header row: every row is data, and `columns` names the cells. Each row
@@ -131,7 +131,7 @@ must have `len(columns)` cells.
 ### `parse_csv_columns_typed`
 
 ```
-pub fn parse_csv_columns_typed(text: string, columns: [string]) -> Result<Json, string>
+pub fn parse_csv_columns_typed(text: string, columns: string...) -> Result<Json, string>
 ```
 
 parse_csv_columns with the cell typing of `parse_csv_typed`.

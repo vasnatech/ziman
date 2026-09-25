@@ -19,7 +19,7 @@ fn main() {
     print(is_ok(json.json_require_string_field(doc, "email")))
 
     // A path into nested values.
-    val first = json.json_get_path(doc, ["langs"])
+    val first = json.json_get_path(doc, "langs")
     print(Option.is_Some(first))
 
     // Build a tree and write it out, compact or indented.

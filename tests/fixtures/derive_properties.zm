@@ -22,7 +22,7 @@ fn main() {
     print(Option.is_Some(cfg.banner))
     print(Option.unwrap_Some(cfg.workers))
     print(server_config_keys("srv"))
-    print(properties.check_unknown(props, ["other.port"]))
+    print(properties.check_unknown(props, "other.port"))
 
     val bad = unwrap(properties.parse("srv.port=80x\n", "b.properties"))
     print(server_config_from_properties(bad, "srv"))

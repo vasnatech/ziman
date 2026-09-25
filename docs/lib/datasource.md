@@ -58,31 +58,30 @@ fn main() {
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL
         )
-        """,
-        []))
-    unwrap(datasource.execute(conn, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Ada")]))
+        """))
+    unwrap(datasource.execute(conn, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Ada")))
 
-    val rows = unwrap(datasource.query(conn, "SELECT id, name FROM person", []))
+    val rows = unwrap(datasource.query(conn, "SELECT id, name FROM person"))
     print(len(rows))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))
 
     // A large result is read one row at a time with rows, instead of building the whole array.
-    val cursor = unwrap(datasource.rows(conn, "SELECT id, name FROM person", []))
+    val cursor = unwrap(datasource.rows(conn, "SELECT id, name FROM person"))
     for row in cursor {
         print(unwrap(sql_as_text(unwrap(row_get(unwrap(row), "name")))))
     }
 
     // A constraint violation is its own kind of error.
-    val bad = datasource.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
+    val bad = datasource.execute(conn, "INSERT INTO person (name) VALUES (NULL)")
     print(db_error_message(unwrap_err(bad)))
 
     // with_transaction commits when the work returns Ok and rolls back when it returns Err.
     val failed = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
-        datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Grace")])?
+        datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Grace"))?
         return err(DbError.Sql("changed my mind"))
     })
     print(is_ok(failed))
-    print(len(unwrap(datasource.query(conn, "SELECT id FROM person", []))))
+    print(len(unwrap(datasource.query(conn, "SELECT id FROM person"))))
     datasource.close(conn)
 }
 ```
@@ -165,7 +164,7 @@ forever; `defer datasource.release(...)` is what prevents that.
 ### `execute`
 
 ```
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError>
 ```
 
 Runs a statement (or, for DDL, a `;`-separated script) and returns the
@@ -174,7 +173,7 @@ number of rows the last statement changed.
 ### `query`
 
 ```
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError>
 ```
 
 Runs a query and returns its rows, each a `db.Row`; `params` are bound to the placeholders
@@ -183,14 +182,14 @@ Runs a query and returns its rows, each a `db.Row`; `params` are bound to the pl
 ### `rows`
 
 ```
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError>
 ```
 
 Runs a query and returns its rows lazily, one at a time as a `for` loop asks for them:
 
 
 ```
-val rows = datasource.rows(conn, "SELECT * FROM lab_result", [])?
+val rows = datasource.rows(conn, "SELECT * FROM lab_result")?
 for row in rows {
     val r = row?                       // Result<Row, DbError>
     ...
@@ -211,7 +210,7 @@ failing to run.
 ### `query_one`
 
 ```
-pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError>
+pub fn query_one(conn: Connection, sql: string, params: SqlValue...) -> Result<Option<Row>, DbError>
 ```
 
 The common lookup-by-key shape: the first row, or None.
@@ -359,7 +358,7 @@ acquire / begin / rollback-on-error / commit / release dance:
 
 ```
 val moved = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
-    datasource.execute(tx, "UPDATE ...", [SqlValue.Int(amount)])?
+    datasource.execute(tx, "UPDATE ...", SqlValue.Int(amount))?
     return ok(amount)
 })?
 ```

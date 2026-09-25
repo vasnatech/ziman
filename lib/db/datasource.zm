@@ -108,7 +108,7 @@ pub fn close(conn: Connection) {
 
 // Runs a statement (or, for DDL, a `;`-separated script) and returns the
 // number of rows the last statement changed.
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
+pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
     if Connection.is_Pool(conn) {
         val inner = acquire(conn)?
         val result = execute(inner, sql, params)
@@ -127,7 +127,7 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
 
 // Runs a query and returns its rows, each a `db.Row`; `params` are bound to the placeholders
 // (`?` for SQLite and MySQL, `$1`, `$2` for Postgres), never spliced into `sql`.
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
     if Connection.is_Pool(conn) {
         val inner = acquire(conn)?
         val result = query(inner, sql, params)
@@ -146,7 +146,7 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
 
 // Runs a query and returns its rows lazily, one at a time as a `for` loop asks for them:
 //
-//     val rows = datasource.rows(conn, "SELECT * FROM lab_result", [])?
+//     val rows = datasource.rows(conn, "SELECT * FROM lab_result")?
 //     for row in rows {
 //         val r = row?                       // Result<Row, DbError>
 //         ...
@@ -162,7 +162,7 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
 // 500 at a time; other statements may run between fetches, but a connection holds one cursor at a time.
 // A row that fails to arrive is an Err item and ends the iteration; the Err on the call is the statement
 // failing to run.
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError> {
     if Connection.is_Pool(conn) {
         val inner = acquire(conn)?
         val opened = rows(inner, sql, params)
@@ -188,7 +188,7 @@ pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Re
 }
 
 // The common lookup-by-key shape: the first row, or None.
-pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError> {
+pub fn query_one(conn: Connection, sql: string, params: SqlValue...) -> Result<Option<Row>, DbError> {
     val rows = query(conn, sql, params)?
     if len(rows) == 0 {
         return Option<Row>.None
@@ -212,20 +212,20 @@ fn refuse_on_pool(conn: Connection) -> Result<int, DbError> {
 // use `with_transaction`.
 pub fn begin(conn: Connection) -> Result<int, DbError> {
     refuse_on_pool(conn)?
-    return execute(conn, "BEGIN", [])
+    return execute(conn, "BEGIN")
 }
 
 // Commits the transaction open on `conn`.
 pub fn commit(conn: Connection) -> Result<int, DbError> {
     refuse_on_pool(conn)?
-    return execute(conn, "COMMIT", [])
+    return execute(conn, "COMMIT")
 }
 
 // Rolls back the transaction open on `conn`. Called with none open it is harmless, which is what
 // lets `defer datasource.rollback(conn)` stand guard after a commit.
 pub fn rollback(conn: Connection) -> Result<int, DbError> {
     refuse_on_pool(conn)?
-    return execute(conn, "ROLLBACK", [])
+    return execute(conn, "ROLLBACK")
 }
 
 // ---------------------------------------------------------------- pooling
@@ -327,7 +327,7 @@ fn checked(pool: PoolState, entry: IdleConnection) -> Result<Connection, DbError
     if pool.check_after <= 0 || Connection.is_Sqlite(c) || now_seconds() - entry.since < pool.check_after {
         return c
     }
-    val probe = query(c, "SELECT 1", [])
+    val probe = query(c, "SELECT 1")
     if is_ok(probe) || !DbError.is_Connection(unwrap_err(probe)) {
         return c
     }
@@ -413,7 +413,7 @@ pub fn discard(conn: Connection, taken: Connection) {
 // acquire / begin / rollback-on-error / commit / release dance:
 //
 //     val moved = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
-//         datasource.execute(tx, "UPDATE ...", [SqlValue.Int(amount)])?
+//         datasource.execute(tx, "UPDATE ...", SqlValue.Int(amount))?
 //         return ok(amount)
 //     })?
 //

@@ -166,9 +166,9 @@ pub fn parse_csv_typed(text: string) -> Result<Json, string>
 
 pub fn parse_csv_typed_with(text: string, delimiter: string) -> Result<Json, string>
 
-pub fn parse_csv_columns(text: string, columns: [string]) -> Result<Json, string>
+pub fn parse_csv_columns(text: string, columns: string...) -> Result<Json, string>
 
-pub fn parse_csv_columns_typed(text: string, columns: [string]) -> Result<Json, string>
+pub fn parse_csv_columns_typed(text: string, columns: string...) -> Result<Json, string>
 
 pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string>
 
@@ -266,7 +266,7 @@ pub fn json_to_string(j: Json) -> string
 
 pub fn json_object_get(j: Json, key: string) -> Option<Json>
 
-pub fn json_get_path(j: Json, path: [string]) -> Option<Json>
+pub fn json_get_path(j: Json, path: string...) -> Option<Json>
 
 pub fn json_require_field(j: Json, key: string) -> Result<Json, string>
 
@@ -643,9 +643,9 @@ pub fn get_bool(props: Properties, key: string) -> Result<bool, string>
 
 pub fn key(prefix: string, name: string) -> string
 
-pub fn check_unknown(props: Properties, known: [string]) -> Result<bool, string>
+pub fn check_unknown(props: Properties, known: string...) -> Result<bool, string>
 
-pub fn report(props: Properties, keys: [string]) -> string
+pub fn report(props: Properties, keys: string...) -> string
 
 ```
 
@@ -781,13 +781,13 @@ pub fn open(url: string) -> Result<Connection, DbError>
 
 pub fn close(conn: Connection)
 
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError>
 
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError>
 
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError>
 
-pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError>
+pub fn query_one(conn: Connection, sql: string, params: SqlValue...) -> Result<Option<Row>, DbError>
 
 pub fn begin(conn: Connection) -> Result<int, DbError>
 
@@ -926,13 +926,13 @@ pub struct Connection {
 
 pub fn connect(url: string) -> Result<Connection, DbError>
 
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError>
 
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError>
 
 pub fn close(conn: Connection)
 
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError>
 
 ```
 
@@ -948,13 +948,13 @@ pub struct Connection {
 
 pub fn connect(url: string) -> Result<Connection, DbError>
 
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError>
 
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError>
 
 pub fn close(conn: Connection)
 
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError>
 
 ```
 
@@ -969,11 +969,11 @@ pub fn open(path: string) -> Result<Connection, DbError>
 
 pub fn close(conn: Connection)
 
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError>
 
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError>
 
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError>
 
 ```
 
@@ -1211,7 +1211,7 @@ pub fn bad_request(message: string) -> Response
 
 pub fn not_found() -> Response
 
-pub fn method_not_allowed(allowed: [string]) -> Response
+pub fn method_not_allowed(allowed: string...) -> Response
 
 pub fn error_response(e: HttpError) -> Response
 

@@ -11,7 +11,7 @@ fn worker(conn: datasource.Connection, base: int, done: Channel<int>) {
     var ok = 0
     while i < 20 {
         if is_ok(datasource.execute(conn, "INSERT INTO pg_c (id, who) VALUES ($1, $2)",
-            [SqlValue.Int(base + i), SqlValue.Int(base)])) {
+            SqlValue.Int(base + i), SqlValue.Int(base))) {
                 ok = ok + 1
             }
         i = i + 1
@@ -21,8 +21,8 @@ fn worker(conn: datasource.Connection, base: int, done: Channel<int>) {
 
 fn main() {
     val conn = unwrap(datasource.open(trim(unwrap(fs.read_text("tests/pg/.url")))))
-    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS pg_c", []))
-    unwrap(datasource.execute(conn, "CREATE TABLE pg_c (id INTEGER PRIMARY KEY, who INTEGER NOT NULL)", []))
+    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS pg_c"))
+    unwrap(datasource.execute(conn, "CREATE TABLE pg_c (id INTEGER PRIMARY KEY, who INTEGER NOT NULL)"))
     val done: Channel<int> = channel_new()
     var t = 0
     while t < 10 {
@@ -36,8 +36,8 @@ fn main() {
         i = i + 1
     }
     print(total)
-    val rows = unwrap(datasource.query(conn, "SELECT count(*) AS n FROM pg_c", []))
+    val rows = unwrap(datasource.query(conn, "SELECT count(*) AS n FROM pg_c"))
     print(unwrap(sql_as_int(unwrap(row_get(rows[0], "n")))))
-    unwrap(datasource.execute(conn, "DROP TABLE pg_c", []))
+    unwrap(datasource.execute(conn, "DROP TABLE pg_c"))
     datasource.close(conn)
 }

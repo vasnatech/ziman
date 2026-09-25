@@ -16,30 +16,29 @@ fn main() {
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL
         )
-        """,
-        []))
-    unwrap(datasource.execute(conn, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Ada")]))
+        """))
+    unwrap(datasource.execute(conn, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Ada")))
 
-    val rows = unwrap(datasource.query(conn, "SELECT id, name FROM person", []))
+    val rows = unwrap(datasource.query(conn, "SELECT id, name FROM person"))
     print(len(rows))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))
 
     // A large result is read one row at a time with rows, instead of building the whole array.
-    val cursor = unwrap(datasource.rows(conn, "SELECT id, name FROM person", []))
+    val cursor = unwrap(datasource.rows(conn, "SELECT id, name FROM person"))
     for row in cursor {
         print(unwrap(sql_as_text(unwrap(row_get(unwrap(row), "name")))))
     }
 
     // A constraint violation is its own kind of error.
-    val bad = datasource.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
+    val bad = datasource.execute(conn, "INSERT INTO person (name) VALUES (NULL)")
     print(db_error_message(unwrap_err(bad)))
 
     // with_transaction commits when the work returns Ok and rolls back when it returns Err.
     val failed = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
-        datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Grace")])?
+        datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Grace"))?
         return err(DbError.Sql("changed my mind"))
     })
     print(is_ok(failed))
-    print(len(unwrap(datasource.query(conn, "SELECT id FROM person", []))))
+    print(len(unwrap(datasource.query(conn, "SELECT id FROM person"))))
     datasource.close(conn)
 }

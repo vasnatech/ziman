@@ -206,7 +206,7 @@ A 404 response with a JSON body `{"status":404,"error":"not found"}`.
 ### `method_not_allowed`
 
 ```
-pub fn method_not_allowed(allowed: [string]) -> Response
+pub fn method_not_allowed(allowed: string...) -> Response
 ```
 
 A 405 response with an `Allow` header listing `allowed`, and a JSON error body.

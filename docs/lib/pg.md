@@ -86,7 +86,7 @@ Connects, authenticates, and starts the thread that owns the socket.
 ### `execute`
 
 ```
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError>
 ```
 
 The number of rows the last statement changed.
@@ -94,7 +94,7 @@ The number of rows the last statement changed.
 ### `query`
 
 ```
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError>
 ```
 
 Runs a statement and returns its rows.
@@ -111,7 +111,7 @@ the request is queued behind any statement still running.
 ### `rows`
 
 ```
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError>
 ```
 
 Runs a statement and returns its rows lazily, `cursor_fetch_rows` at a time, so a result of any size

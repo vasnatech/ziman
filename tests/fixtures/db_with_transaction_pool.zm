@@ -6,23 +6,23 @@ use db.SqlValue
 // and returns it on every way out: after a commit and after a rollback the
 // pool is whole again (a second transaction must not block).
 fn add(tx: datasource.Connection, n: int) -> Result<int, DbError> {
-    datasource.execute(tx, "INSERT INTO t (n) VALUES ($1)", [SqlValue.Int(n)])?
+    datasource.execute(tx, "INSERT INTO t (n) VALUES ($1)", SqlValue.Int(n))?
     return ok(n)
 }
 
 fn boom(tx: datasource.Connection) -> Result<int, DbError> {
-    datasource.execute(tx, "INSERT INTO t (n) VALUES (99)", [])?
+    datasource.execute(tx, "INSERT INTO t (n) VALUES (99)")?
     return err(DbError.Sql("nope"))
 }
 
 fn count(conn: datasource.Connection) -> int {
-    return len(unwrap(datasource.query(conn, "SELECT n FROM t", [])))
+    return len(unwrap(datasource.query(conn, "SELECT n FROM t")))
 }
 
 fn main() {
     val pool = unwrap(datasource.open_pool("sqlite:/tmp/ziman_fixture_txpool.db", 3))
-    unwrap(datasource.execute(pool, "DROP TABLE IF EXISTS t", []))
-    unwrap(datasource.execute(pool, "CREATE TABLE t (n INTEGER)", []))
+    unwrap(datasource.execute(pool, "DROP TABLE IF EXISTS t"))
+    unwrap(datasource.execute(pool, "CREATE TABLE t (n INTEGER)"))
     print(unwrap(datasource.with_transaction<int>(pool,
         fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 1) })))
     print(is_ok(datasource.with_transaction<int>(pool, boom)))

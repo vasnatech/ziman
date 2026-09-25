@@ -12,20 +12,20 @@ use db.sql_as_int
 fn insert_two(conn: datasource.Connection, a: int, b: int) -> Result<int, DbError> {
     datasource.begin(conn)?
     defer datasource.rollback(conn)
-    datasource.execute(conn, "INSERT INTO t (id) VALUES ($1)", [SqlValue.Int(a)])?
-    datasource.execute(conn, "INSERT INTO t (id) VALUES ($1)", [SqlValue.Int(b)])?
+    datasource.execute(conn, "INSERT INTO t (id) VALUES ($1)", SqlValue.Int(a))?
+    datasource.execute(conn, "INSERT INTO t (id) VALUES ($1)", SqlValue.Int(b))?
     datasource.commit(conn)?
     return 0
 }
 
 fn count(conn: datasource.Connection) -> int {
-    val rows = unwrap(datasource.query(conn, "SELECT count(*) AS n FROM t", []))
+    val rows = unwrap(datasource.query(conn, "SELECT count(*) AS n FROM t"))
     return unwrap(sql_as_int(unwrap(row_get(rows[0], "n"))))
 }
 
 fn main() {
     val conn = unwrap(datasource.open("sqlite::memory:"))
-    unwrap(datasource.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY)", []))
+    unwrap(datasource.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY)"))
     print(is_ok(insert_two(conn, 1, 2)))
     print(count(conn))
     // the second insert violates the primary key: `?` returns early, the

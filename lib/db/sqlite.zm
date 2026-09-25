@@ -135,7 +135,7 @@ pub fn close(conn: Connection) {
 
 // Runs a statement, or a `;`-separated script of them, and returns the rows the last statement
 // changed. `params` bind to the `?` placeholders.
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
+pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
     val r = execute_raw(conn.handle, sql, encode_params(params))
     if !is_ok(r) {
         return err(error_from_raw(unwrap_err(r)))
@@ -144,7 +144,7 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
 }
 
 // Runs a statement and returns its rows; `params` bind to the `?` placeholders.
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
     val r = query_raw(conn.handle, sql, encode_params(params))
     if !is_ok(r) {
         return err(error_from_raw(unwrap_err(r)))
@@ -198,7 +198,7 @@ fn next_row(cursor: int, names: [string]) -> Option<Result<Row, DbError>> {
 // statement failing to prepare or bind. The cursor is finalized when the rows are used up, when the
 // loop is left early, with `iter_close`, or when it is garbage collected. Close cursors before
 // closing the connection.
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError> {
     val opened = cursor_open_raw(conn.handle, sql, encode_params(params))
     if !is_ok(opened) {
         return err(error_from_raw(unwrap_err(opened)))

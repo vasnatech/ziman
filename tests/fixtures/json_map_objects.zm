@@ -24,10 +24,10 @@ fn main() {
 
     // paths into objects and arrays
     val doc = unwrap(json.parse_json("{\"items\": [{\"name\": \"a\"}, {\"name\": \"b\"}], \"n\": 3}"))
-    print(json.json_get_path(doc, ["items", "1", "name"]))
-    print(json.json_get_path(doc, ["items", "2"]))
-    print(json.json_get_path(doc, ["n", "x"]))
-    print(json.json_get_path(doc, []))
+    print(json.json_get_path(doc, "items", "1", "name"))
+    print(json.json_get_path(doc, "items", "2"))
+    print(json.json_get_path(doc, "n", "x"))
+    print(json.json_get_path(doc))
     print(json.json_require_int_field(doc, "n"))
     print(unwrap_err(json.json_require_bool_field(doc, "n")))
     print(unwrap_err(json.json_require_float_field(doc, "nope")))

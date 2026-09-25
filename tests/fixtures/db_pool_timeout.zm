@@ -19,13 +19,13 @@ fn main() {
     val c = unwrap(datasource.acquire(pool))
     datasource.discard(pool, c)
     val d = unwrap(datasource.acquire_timeout(pool, 0))
-    print(is_ok(datasource.query(d, "SELECT 1 AS n", [])))
+    print(is_ok(datasource.query(d, "SELECT 1 AS n")))
     datasource.release(pool, d)
     // on a plain connection both are no-ops
     val plain = unwrap(datasource.open("sqlite::memory:"))
     val same = unwrap(datasource.acquire_timeout(plain, 10))
     datasource.discard(plain, same)
-    print(is_ok(datasource.query(plain, "SELECT 1 AS n", [])))
+    print(is_ok(datasource.query(plain, "SELECT 1 AS n")))
     datasource.close(pool)
     datasource.close(plain)
 }

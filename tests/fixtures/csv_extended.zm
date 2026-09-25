@@ -14,9 +14,9 @@ fn main() {
     print(unwrap_err(csv.parse_csv("a\n\"x\"y\n")))
 
     // no header row: the caller names the columns
-    print(json.json_to_string(unwrap(csv.parse_csv_columns("1,Ada\n2,Bob\n", ["id", "name"]))))
-    print(json.json_to_string(unwrap(csv.parse_csv_columns_typed("1,Ada\n2,\n", ["id", "name"]))))
-    print(unwrap_err(csv.parse_csv_columns("1,Ada,x\n", ["id", "name"])))
+    print(json.json_to_string(unwrap(csv.parse_csv_columns("1,Ada\n2,Bob\n", "id", "name"))))
+    print(json.json_to_string(unwrap(csv.parse_csv_columns_typed("1,Ada\n2,\n", "id", "name"))))
+    print(unwrap_err(csv.parse_csv_columns("1,Ada,x\n", "id", "name")))
 
     // delimiters are checked
     print(unwrap_err(csv.parse_csv_with("a;b\n", ";;")))

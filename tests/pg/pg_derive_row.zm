@@ -38,10 +38,9 @@ pub struct Person {
 
 fn main() {
     val conn = unwrap(datasource.open(trim(unwrap(fs.read_text("tests/pg/.url")))))
-    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS people", []))
+    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS people"))
     unwrap(datasource.execute(conn,
-        "CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, born TEXT NOT NULL, age_hint INTEGER, active INTEGER NOT NULL, score REAL NOT NULL, created_at TEXT NOT NULL)",
-        []))
+        "CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, born TEXT NOT NULL, age_hint INTEGER, active INTEGER NOT NULL, score REAL NOT NULL, created_at TEXT NOT NULL)"))
     val p1 = Person { id: uuid_new(), name: "Ada", nickname: Option<string>.Some("A"),
         born: unwrap(localdate_from_string("1815-12-10")), age_hint: Option<int>.None, active: true, score: 0.1,
         created_at: instant_now() }
@@ -51,7 +50,7 @@ fn main() {
     val ins = "INSERT INTO people (id, name, nickname, born, age_hint, active, score, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
     unwrap(datasource.execute(conn, ins, person_to_params(p1)))
     unwrap(datasource.execute(conn, ins, person_to_params(p2)))
-    val rows = unwrap(datasource.query(conn, "SELECT * FROM people ORDER BY name", []))
+    val rows = unwrap(datasource.query(conn, "SELECT * FROM people ORDER BY name"))
     val a = unwrap(person_from_row(rows[0]))
     val b = unwrap(person_from_row(rows[1]))
     print(a.id == p1.id)
@@ -66,6 +65,6 @@ fn main() {
     print(Option.unwrap_Some(b.age_hint))
     print(b.active)
     print(db_error_message(unwrap_err(datasource.execute(conn, ins, person_to_params(p1)))))
-    unwrap(datasource.execute(conn, "DROP TABLE people", []))
+    unwrap(datasource.execute(conn, "DROP TABLE people"))
     datasource.close(conn)
 }

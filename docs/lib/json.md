@@ -53,7 +53,7 @@ fn main() {
     print(is_ok(json.json_require_string_field(doc, "email")))
 
     // A path into nested values.
-    val first = json.json_get_path(doc, ["langs"])
+    val first = json.json_get_path(doc, "langs")
     print(Option.is_Some(first))
 
     // Build a tree and write it out, compact or indented.
@@ -151,12 +151,12 @@ including, without turning this into a general "Json query language."
 ### `json_get_path`
 
 ```
-pub fn json_get_path(j: Json, path: [string]) -> Option<Json>
+pub fn json_get_path(j: Json, path: string...) -> Option<Json>
 ```
 
 Follows `path` down from `j`: each segment is an object key, or -- when the current
 value is an array -- a decimal index. None if any step is missing or of the wrong
-kind: `json_get_path(j, ["items", "0", "name"])`.
+kind: `json_get_path(j, "items", "0", "name")`.
 
 ### `json_require_field`
 

@@ -5,10 +5,10 @@ use db.sql_as_text
 
 fn main() {
     val conn = unwrap(datasource.open("sqlite::memory:"))
-    val a = datasource.execute(conn, "CREATE TABLE t (a TEXT, b TEXT)", [])
-    val i = datasource.execute(conn, "INSERT INTO t VALUES ($2, $1)", [SqlValue.Text("first"), SqlValue.Text("second")])
+    val a = datasource.execute(conn, "CREATE TABLE t (a TEXT, b TEXT)")
+    val i = datasource.execute(conn, "INSERT INTO t VALUES ($2, $1)", SqlValue.Text("first"), SqlValue.Text("second"))
     val rows = unwrap(datasource.query(conn, "SELECT a, b, '$1 literal' AS lit FROM t WHERE b = $1 AND a = $2",
-        [SqlValue.Text("first"), SqlValue.Text("second")]))
+        SqlValue.Text("first"), SqlValue.Text("second")))
     print(len(rows))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "a")))))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "lit")))))

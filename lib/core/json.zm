@@ -85,8 +85,8 @@ pub fn json_object_get(j: Json, key: string) -> Option<Json> {
 
 // Follows `path` down from `j`: each segment is an object key, or -- when the current
 // value is an array -- a decimal index. None if any step is missing or of the wrong
-// kind: `json_get_path(j, ["items", "0", "name"])`.
-pub fn json_get_path(j: Json, path: [string]) -> Option<Json> {
+// kind: `json_get_path(j, "items", "0", "name")`.
+pub fn json_get_path(j: Json, path: string...) -> Option<Json> {
     var cur = j
     for segment in path {
         if Json.is_JObject(cur) {

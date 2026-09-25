@@ -331,7 +331,7 @@ fn suggestion(key: string, known: [string]) -> string {
 // Fails on a key in the files that isn't in `known` (`profile.active` is
 // always allowed), so a typo like `server.prot` stops startup instead of
 // silently falling back to a default.
-pub fn check_unknown(props: Properties, known: [string]) -> Result<bool, string> {
+pub fn check_unknown(props: Properties, known: string...) -> Result<bool, string> {
     for i in 0..len(props.entries) {
         val e = props.entries[i]
         if e.key != "profile.active" && !contains(known, e.key) {
@@ -373,7 +373,7 @@ fn mask_value(value: string) -> string {
 
 // One line per key in `keys` that has a value: `key=value (source)`,
 // with secrets masked. Meant to be printed at startup.
-pub fn report(props: Properties, keys: [string]) -> string {
+pub fn report(props: Properties, keys: string...) -> string {
     val sb = sb_new()
     if len(props.profile) == 0 {
         sb_append(sb, "active profile: (none)\n")

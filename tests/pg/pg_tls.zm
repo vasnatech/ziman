@@ -33,7 +33,7 @@ fn encrypted(label: string, url: string) {
             printf("{}: FAIL {}\n", label, msg)
         }
     } else {
-        val rows = unwrap(datasource.query(unwrap(c), "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()", []))
+        val rows = unwrap(datasource.query(unwrap(c), "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"))
         printf("{}: ssl={}\n", label, unwrap(sql_as_bool(unwrap(row_get(rows[0], "ssl")))))
         datasource.close(unwrap(c))
     }
@@ -72,15 +72,14 @@ fn main() {
     // ordinary work over an encrypted connection, including concurrent callers
     val conn = unwrap(datasource.open(format("{}?sslmode=verify-full&{}", base(), root())))
     defer datasource.close(conn)
-    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS pg_tls_t", []))
-    unwrap(datasource.execute(conn, "CREATE TABLE pg_tls_t (id INTEGER PRIMARY KEY, note TEXT)", []))
+    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS pg_tls_t"))
+    unwrap(datasource.execute(conn, "CREATE TABLE pg_tls_t (id INTEGER PRIMARY KEY, note TEXT)"))
     unwrap(datasource.execute(conn,
-        "INSERT INTO pg_tls_t (id, note) SELECT g, 'row ' || g FROM generate_series(1, 300) AS g",
-        []))
-    val rows = unwrap(datasource.query(conn, "SELECT * FROM pg_tls_t ORDER BY id", []))
+        "INSERT INTO pg_tls_t (id, note) SELECT g, 'row ' || g FROM generate_series(1, 300) AS g"))
+    val rows = unwrap(datasource.query(conn, "SELECT * FROM pg_tls_t ORDER BY id"))
     print(len(rows))
     print(unwrap(sql_as_int(unwrap(row_get(rows[299], "id")))))
-    unwrap(datasource.execute(conn, "DROP TABLE pg_tls_t", []))
+    unwrap(datasource.execute(conn, "DROP TABLE pg_tls_t"))
 
     // a server with no TLS: `require` refuses, `prefer` falls back to plaintext
     val l = unwrap(net.listen("127.0.0.1", 0))

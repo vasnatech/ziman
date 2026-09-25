@@ -1986,9 +1986,9 @@ use db.sql_as_text
 
 fn main() {
     val conn = unwrap(datasource.open("sqlite::memory:"))
-    unwrap(datasource.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)", []))
-    unwrap(datasource.execute(conn, "INSERT INTO t (id, name) VALUES ($1, $2)", [SqlValue.Int(1), SqlValue.Text("Ada")]))
-    val rows = unwrap(datasource.query(conn, "SELECT name FROM t WHERE id = $1", [SqlValue.Int(1)]))
+    unwrap(datasource.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"))
+    unwrap(datasource.execute(conn, "INSERT INTO t (id, name) VALUES ($1, $2)", SqlValue.Int(1), SqlValue.Text("Ada")))
+    val rows = unwrap(datasource.query(conn, "SELECT name FROM t WHERE id = $1", SqlValue.Int(1)))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))   // Ada
 }
 ```
@@ -2324,8 +2324,8 @@ unchanged. `work` is a function value, usually a lambda capturing what it needs
 
 ```
 fn transfer(tx: datasource.Connection, t: Transfer) -> Result<int, DbError> {
-    datasource.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2", [...])?
-    datasource.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2", [...])?
+    datasource.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2", ...)?
+    datasource.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2", ...)?
     return ok(t.amount)
 }
 
@@ -2689,7 +2689,7 @@ fn talk(port: int) -> Result<int, string> {
 fn transfer(conn: datasource.Connection) -> Result<int, DbError> {
     datasource.begin(conn)?
     defer datasource.rollback(conn)            // undone unless we reach the commit
-    datasource.execute(conn, "...", [])?
+    datasource.execute(conn, "...")?
     datasource.commit(conn)?
     return 0
 }

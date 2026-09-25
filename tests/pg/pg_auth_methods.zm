@@ -13,7 +13,7 @@ fn whoami(url: string) {
     if !is_ok(conn) {
         print(db_error_message(unwrap_err(conn)))
     } else {
-        val rows = unwrap(datasource.query(unwrap(conn), "SELECT current_user AS u", []))
+        val rows = unwrap(datasource.query(unwrap(conn), "SELECT current_user AS u"))
         print(unwrap(sql_as_text(unwrap(row_get(rows[0], "u")))))
         datasource.close(unwrap(conn))
     }

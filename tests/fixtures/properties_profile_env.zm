@@ -11,6 +11,6 @@ fn main() {
     print(unwrap(properties.get_bool(props, "server.log-requests")))
     print(unwrap(properties.get_string(props, "datasource.url")))
     print(unwrap(properties.get_int(props, "datasource.pool-size")))
-    print(properties.report(props, ["server.port", "server.extra", "datasource.url", "datasource.pool-size"]))
+    print(properties.report(props, "server.port", "server.extra", "datasource.url", "datasource.pool-size"))
     print(properties.load("tests/fixtures/props_conf/missing"))
 }

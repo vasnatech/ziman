@@ -458,7 +458,7 @@ pub fn not_found() -> Response {
 }
 
 // A 405 response with an `Allow` header listing `allowed`, and a JSON error body.
-pub fn method_not_allowed(allowed: [string]) -> Response {
+pub fn method_not_allowed(allowed: string...) -> Response {
     return with_header(error_reply(status_method_not_allowed, "method not allowed"), "Allow",
         join(separator: ", ", pieces: allowed))
 }
