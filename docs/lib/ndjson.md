@@ -5,6 +5,36 @@ The format of the FHIR bulk-data files and of most log pipelines.
 
 `use ndjson` -- or `use ndjson.Name` to bring one item in bare.
 
+## Example
+
+```
+use json
+use json.Json
+use ndjson
+
+// One JSON value per line: a format for logs and streams.
+fn main() {
+    val items = unwrap(ndjson.parse_ndjson("""
+        {"id": 1, "ok": true}
+        {"id": 2, "ok": false}
+        """))
+    print(len(items))
+    print(json.json_to_string(items[1]))
+    print(trim(ndjson.ndjson_to_string(items)))
+    print(is_ok(ndjson.parse_ndjson("{\"id\": 1}\nnot json")))
+}
+```
+
+Output:
+
+```
+2
+{"id":2,"ok":false}
+{"id":1,"ok":true}
+{"id":2,"ok":false}
+false
+```
+
 ### `parse_ndjson`
 
 ```

@@ -1,0 +1,30 @@
+// Everything here is available without a `use`.
+fn main() {
+    // Parsing returns a Result, so bad text is a value you handle.
+    print(parse_int("42"))
+    print(parse_int("4x2"))
+    print(round(2.5))
+    print(decimal_round(1.235d, 2))
+
+    // Strings are UTF-8 and positions are bytes.
+    print(split("a,b,,c", ","))
+    print(split_once("key=a=b", "="))
+    print(replace("aaa", "a", "b"))
+    print(join(prefix: "[", suffix: "]", separator: ", ", pieces: ["x", "y", "z"]))
+
+    // Option is an ordinary enum.
+    val found = split_once("no separator here", "=")
+    print(option_unwrap_or<[string]>(found, ["", ""]))
+
+    // Builders assemble a result without copying it on every step.
+    val sb = sb_new()
+    for i in 0..5 {
+        sb_append(sb, str(i), ",")
+    }
+    print(sb_to_string(sb))
+    val ab = ab_new<int>()
+    for i in 0..5 {
+        ab_append<int>(ab, i * i)
+    }
+    print(ab_to_array<int>(ab))
+}

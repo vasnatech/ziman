@@ -1,0 +1,9 @@
+use random
+
+fn main() {
+    val a = random.random_bytes(16)
+    val b = random.random_bytes(16)
+    print(len(a))
+    print(a == b)
+    print(len(random.random_bytes(0)))
+}

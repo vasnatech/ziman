@@ -14,6 +14,44 @@ those (SQLite has no UUID or timestamp type at all).
 
 `use sql` -- or `use sql.Name` to bring one item in bare.
 
+## Example
+
+```
+use sql.DbError
+use sql.Row
+use sql.SqlValue
+use sql.db_error_message
+use sql.row_get
+use sql.sql_as_bool
+use sql.sql_as_int
+use sql.sql_as_text
+
+// The vocabulary the database modules share: a value, a row, and the error type.
+fn main() {
+    val row = Row { columns: ["id", "name", "active"],
+        values: [SqlValue.Int(1), SqlValue.Text("Ada"), SqlValue.Int(1)] }
+
+    print(unwrap(sql_as_int(unwrap(row_get(row, "id")))))
+    print(unwrap(sql_as_text(unwrap(row_get(row, "name")))))
+    // SQLite has no boolean type, so a 0 or 1 integer reads as one.
+    print(unwrap(sql_as_bool(unwrap(row_get(row, "active")))))
+
+    // Asking for the wrong type, or a column that is not there, is a DbError.
+    print(db_error_message(unwrap_err(sql_as_int(SqlValue.Text("x")))))
+    print(db_error_message(unwrap_err(row_get(row, "email"))))
+}
+```
+
+Output:
+
+```
+1
+Ada
+true
+database error: expected INTEGER, found TEXT
+database error: no such column in result row: email
+```
+
 ### `SqlValue`
 
 ```

@@ -2,7 +2,7 @@
 
 A MySQL / MariaDB client, the third engine behind the `db`
 module (`db.open("mysql://user:password@host:port/database")`). Written
-in Ziman on top of `net` (TCP + TLS), `bytes` (packet framing) and
+in Ziman on top of `net` (TCP + TLS), byte arrays (packet framing) and
 `crypto` (SHA-1 / SHA-256 for the login scramble); nothing here is
 native at all.
 

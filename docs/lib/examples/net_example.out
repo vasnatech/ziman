@@ -1,0 +1,3 @@
+echo: hi
+false
+connection refused: Connection refused

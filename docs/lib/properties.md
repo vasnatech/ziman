@@ -31,6 +31,41 @@ one fails startup and every lookup afterwards is a plain array scan.
 
 `use properties` -- or `use properties.Name` to bring one item in bare.
 
+## Example
+
+```
+use properties
+
+// Configuration as `key=value` lines. An error names the key and where its value came from.
+fn main() {
+    val props = unwrap(properties.parse("""
+        server.port=8080
+        server.address=127.0.0.1
+        greeting=hello ${server.address}
+        debug=true
+        """,
+        "example"))
+
+    print(unwrap(properties.get_int(props, "server.port")))
+    print(unwrap(properties.get_string(props, "greeting")))
+    print(unwrap(properties.get_bool(props, "debug")))
+
+    // A missing key, or a value of the wrong type, is an Err that says which.
+    print(is_ok(properties.get_int(props, "server.threads")))
+    print(properties.get_int(props, "server.address"))
+}
+```
+
+Output:
+
+```
+8080
+hello 127.0.0.1
+true
+false
+Err(server.address: '127.0.0.1' is not an integer (example:2))
+```
+
 ### `Entry`
 
 ```

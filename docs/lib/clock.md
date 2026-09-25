@@ -7,6 +7,31 @@ in Ziman there.
 
 `use clock` -- or `use clock.Name` to bring one item in bare.
 
+## Example
+
+```
+use clock
+
+fn main() {
+    val before = clock.now_raw()
+    clock.sleep_millis(20)
+    val after = clock.now_raw()
+    print(after[0] > 1700000000)
+    print(after[0] * 1000 + after[1] / 1000000 - (before[0] * 1000 + before[1] / 1000000) >= 20)
+    print(len(clock.now_iso()))
+    print(len(clock.now_http_date()))
+}
+```
+
+Output:
+
+```
+true
+true
+24
+29
+```
+
 ### `now_raw`
 
 ```

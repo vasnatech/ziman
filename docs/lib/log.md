@@ -17,6 +17,36 @@ Messages below the logger's level are dropped without being written.
 
 `use log` -- or `use log.Name` to bring one item in bare.
 
+## Example
+
+```
+use fs
+use log
+use log.Level
+
+// A Logger is a value you build once and pass where it is needed. Records below its level are dropped.
+fn main() {
+    val path = "/tmp/ziman_manual_log_example.log"
+    val logger = log.logger(level: Level.Info, file: path, timestamps: false, prefix: "app: ")
+    log.debug(logger, "not written")
+    log.info(logger, "started")
+    log.error(log.with_prefix(logger, "db: "), "connection lost")
+    print(trim(unwrap(fs.read_text(path))))
+    unwrap(fs.remove(path))
+    print(log.enabled(logger, Level.Debug))
+    print(unwrap(log.level_parse("warn")) == Level.Warn)
+}
+```
+
+Output:
+
+```
+INFO  app: started
+ERROR db: connection lost
+false
+true
+```
+
 ### `Level`
 
 ```

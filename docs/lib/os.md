@@ -8,6 +8,30 @@ directory, which returns a `Result`; the rest are plain values or actions.
 
 `use os` -- or `use os.Name` to bring one item in bare.
 
+## Example
+
+```
+use os
+
+fn main() {
+    print(Option.is_None(os.getenv("ZIMAN_SURELY_NOT_SET")))
+    print(os.pid() > 0)
+    print(len(unwrap(os.cwd())) > 0)
+    print(len(os.args()))
+    print(os.shutdown_requested())
+}
+```
+
+Output:
+
+```
+true
+true
+true
+0
+false
+```
+
 ## Environment
 
 ### `getenv`

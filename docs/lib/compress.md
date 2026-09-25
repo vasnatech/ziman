@@ -13,6 +13,33 @@ an `Err` if the data is corrupt, truncated, or would expand past it.
 
 `use compress` -- or `use compress.Name` to bring one item in bare.
 
+## Example
+
+```
+use compress
+
+fn main() {
+    val data = string_to_bytes("hello hello hello hello hello hello")
+    val packed = compress.gzip(data)
+    print(len(packed) < len(data))
+
+    // Reading back takes a size limit, so a small file cannot expand into memory without bound.
+    val unpacked = unwrap(compress.gunzip(packed, 1000))
+    print(unwrap(bytes_to_string(unpacked)))
+    print(is_ok(compress.gunzip(packed, 10)))
+    print(is_ok(compress.gunzip(string_to_bytes("not gzip"), 1000)))
+}
+```
+
+Output:
+
+```
+true
+hello hello hello hello hello hello
+false
+false
+```
+
 ### `gzip`
 
 ```

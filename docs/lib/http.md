@@ -6,6 +6,49 @@ builds on it to answer requests, `client` to make them.
 
 `use http` -- or `use http.Name` to bring one item in bare.
 
+## Example
+
+```
+use http
+use http.Header
+use http.HttpMethod
+use http.status_not_found
+
+// The types a server and a client share.
+fn main() {
+    print(http.method_name(HttpMethod.Post))
+    print(http.method_name(http.method_parse("PATCH")))
+    print(http.method_parse("get") == HttpMethod.Other("get"))
+
+    val req = http.Request {
+        method: HttpMethod.Get,
+        target: "/a?x=1",
+        path: "/a",
+        query: "x=1",
+        version: "HTTP/1.1",
+        headers: [Header { name: "Content-Type", value: "text/plain" }],
+        body: ""
+    }
+    print(http.header(req, "content-type"))
+    print(status_not_found)
+
+    print(http.percent_encode("a b&c/é", false))
+    print(unwrap(http.percent_decode("a+b%26c", true)))
+}
+```
+
+Output:
+
+```
+POST
+PATCH
+true
+Some(text/plain)
+404
+a%20b%26c%2F%C3%A9
+a b&c
+```
+
 ### `status_continue`
 
 ```

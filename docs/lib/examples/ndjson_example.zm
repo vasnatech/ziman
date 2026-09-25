@@ -1,0 +1,15 @@
+use json
+use json.Json
+use ndjson
+
+// One JSON value per line: a format for logs and streams.
+fn main() {
+    val items = unwrap(ndjson.parse_ndjson("""
+        {"id": 1, "ok": true}
+        {"id": 2, "ok": false}
+        """))
+    print(len(items))
+    print(json.json_to_string(items[1]))
+    print(trim(ndjson.ndjson_to_string(items)))
+    print(is_ok(ndjson.parse_ndjson("{\"id\": 1}\nnot json")))
+}

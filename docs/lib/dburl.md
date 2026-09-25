@@ -9,6 +9,39 @@ from host).
 
 `use dburl` -- or `use dburl.Name` to bring one item in bare.
 
+## Example
+
+```
+use dburl
+
+fn main() {
+    val u = unwrap(dburl.parse("postgres://ada:p%40ss@db.example:6543/health?sslmode=require", ["postgres://"], 5432))
+    print(u.user)
+    print(u.password)
+    print(u.host)
+    print(u.port)
+    print(u.database)
+    print(dburl.param(u, "sslmode"))
+
+    // The port defaults when the URL has none.
+    print(unwrap(dburl.parse("postgres://ada@localhost/health", ["postgres://"], 5432)).port)
+    print(is_ok(dburl.parse("mysql://x@h/d", ["postgres://"], 5432)))
+}
+```
+
+Output:
+
+```
+ada
+p@ss
+db.example
+6543
+health
+Some(require)
+5432
+false
+```
+
 ### `UrlParam`
 
 ```

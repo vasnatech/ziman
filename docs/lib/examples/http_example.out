@@ -1,0 +1,7 @@
+POST
+PATCH
+true
+Some(text/plain)
+404
+a%20b%26c%2F%C3%A9
+a b&c

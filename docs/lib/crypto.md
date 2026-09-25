@@ -15,6 +15,42 @@ not base64) is a `Err(string)`.
 
 `use crypto` -- or `use crypto.Name` to bring one item in bare.
 
+## Example
+
+```
+use crypto
+use number.bytes_to_hex
+
+fn main() {
+    val data = string_to_bytes("abc")
+    print(bytes_to_hex(crypto.sha256(data)))
+    print(bytes_to_hex(crypto.hmac_sha256(string_to_bytes("key"), data)))
+
+    // Compare secrets in constant time, not with ==.
+    print(crypto.bytes_equal(crypto.sha256(data), crypto.sha256(data)))
+
+    print(crypto.base64_encode(data))
+    print(unwrap(bytes_to_string(unwrap(crypto.base64_decode("YWJj")))))
+    print(is_ok(crypto.base64_decode("***")))
+
+    // A password hash: many iterations, a salt, a fixed output length.
+    val key = crypto.pbkdf2_hmac_sha256(string_to_bytes("secret"), string_to_bytes("salt"), 1000, 16)
+    print(len(key))
+}
+```
+
+Output:
+
+```
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+9c196e32dc0175f86f4b1cb89289d6619de6bee699e4c378e68309ed97a1a6ab
+true
+YWJj
+abc
+false
+16
+```
+
 ## Hashes
 
 ### `sha1`

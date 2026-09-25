@@ -8,6 +8,42 @@ hex, byte and float-text functions are native; the formatting engine and `bigint
 
 `use number` -- or `use number.Name` to bring one item in bare.
 
+## Example
+
+```
+use number
+
+fn main() {
+    // Formatting with a pattern: thousands separators and fixed decimals.
+    val fmt = number.parse_pattern("#,##0.00")
+    print(number.format_int(1234567, fmt))
+    print(number.format_float(3.14159, fmt))
+
+    // Hex, both ways, and shortest-text floats.
+    print(number.int_to_hex(255))
+    print(unwrap(number.int_from_hex("ff")))
+    print(number.bytes_to_hex([1b, 171b, 255b]))
+    print(number.float_to_text(0.1))
+
+    // Fixed-width big-endian integers, as binary protocols use them.
+    print(number.u32_to_bytes(258))
+    print(number.u16_from_bytes([1b, 2b], 0))
+}
+```
+
+Output:
+
+```
+1,234,567.00
+3.14
+ff
+255
+01abff
+0.1
+[0, 0, 1, 2]
+258
+```
+
 ## Float text
 
 ### `float_to_text`

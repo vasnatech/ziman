@@ -13,6 +13,34 @@ I<int>, F<float>, T<text>, B<hex>, b0/b1 bool).
 
 `use sqlite` -- or `use sqlite.Name` to bring one item in bare.
 
+## Example
+
+```
+use fs
+use sql.SqlValue
+use sql.row_get
+use sql.sql_as_int
+use sqlite
+
+// The SQLite driver on its own. Most programs use it through `db.open("sqlite:...")` instead.
+fn main() {
+    val path = "/tmp/ziman_manual_sqlite_example.db"
+    val conn = unwrap(sqlite.open(path))
+    unwrap(sqlite.execute(conn, "CREATE TABLE t (n INTEGER, label TEXT)", []))
+    unwrap(sqlite.execute(conn, "INSERT INTO t VALUES (?, ?)", [SqlValue.Int(7), SqlValue.Text("seven")]))
+    val rows = unwrap(sqlite.query(conn, "SELECT n FROM t", []))
+    print(unwrap(sql_as_int(unwrap(row_get(rows[0], "n")))))
+    sqlite.close(conn)
+    unwrap(fs.remove(path))
+}
+```
+
+Output:
+
+```
+7
+```
+
 ### `Connection`
 
 ```

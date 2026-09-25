@@ -1,0 +1,5 @@
+1
+Ada
+true
+database error: expected INTEGER, found TEXT
+database error: no such column in result row: email

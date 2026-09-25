@@ -42,6 +42,44 @@ Unix-domain sockets, UDP, and a connect timeout beyond the OS default.
 
 `use net` -- or `use net.Name` to bring one item in bare.
 
+## Example
+
+```
+use net
+
+// An echo server and a client in one program, over the loopback interface.
+fn echo(l: net.Listener) {
+    val s = unwrap(net.accept(l))
+    val got = unwrap(net.read_text(s, 100))
+    unwrap(net.write_text(s, concat("echo: ", got)))
+    net.close(s)
+}
+
+fn main() {
+    val listener = unwrap(net.listen("127.0.0.1", 0))
+    spawn echo(listener)
+
+    val s = unwrap(net.connect("127.0.0.1", net.listener_port(listener)))
+    unwrap(net.set_timeout(s, 2000))
+    unwrap(net.write_text(s, "hi"))
+    print(unwrap(net.read_text(s, 100)))
+    net.close(s)
+
+    // A failure is a NetError saying what kind, and net_error_message turns it into text.
+    val refused = net.connect("127.0.0.1", 1)
+    print(is_ok(refused))
+    print(net.net_error_message(unwrap_err(refused)))
+}
+```
+
+Output:
+
+```
+echo: hi
+false
+connection refused: Connection refused
+```
+
 ### `NetError`
 
 ```

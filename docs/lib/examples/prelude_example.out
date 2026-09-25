@@ -1,0 +1,11 @@
+Ok(42)
+Err(cannot parse '4x2' as int)
+3
+1.24
+[a, b, , c]
+Some([key, a=b])
+bbb
+[x, y, z]
+[, ]
+0,1,2,3,4,
+[0, 1, 4, 9, 16]

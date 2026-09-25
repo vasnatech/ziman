@@ -75,7 +75,7 @@ def signature(lines, i):
     """The declaration starting at lines[i] and the index after it (a struct or enum runs to its
     closing brace, a function to the end of its signature)."""
     first = lines[i]
-    if re.match(r"pub (struct|enum) ", first):
+    if re.match(r"(pub )?(struct|enum) ", first):
         j = i
         while lines[j] != "}":
             j += 1
@@ -92,6 +92,8 @@ def signature(lines, i):
 
 
 def parse(path):
+    prelude = os.path.basename(path) == "prelude.zm"
+    decl = r"(pub )?(native fn|fn|struct|enum|val) " if prelude else r"pub (native fn|fn|struct|enum|val) "
     lines = read_lines(path)
     i = 0
     header = []
@@ -113,7 +115,7 @@ def parse(path):
                 pending.append(l)
             i += 1
             continue
-        if re.match(r"pub (native fn|fn|struct|enum|val) ", l):
+        if re.match(decl, l):
             sig, i = signature(lines, i)
             entries.append((section, pending, sig))
             pending = []
@@ -171,7 +173,7 @@ def page(name, path, kind):
             current = section
             if section:
                 out += ["## %s" % (section[:1].upper() + section[1:]), ""]
-        name_m = re.match(r"pub (?:native fn|fn|struct|enum|val) (\w+)", sig)
+        name_m = re.match(r"(?:pub )?(?:native fn|fn|struct|enum|val) (\w+)", sig)
         out += ["### `%s`" % name_m.group(1), "", "```", sig, "```", ""]
         c = render_comment(comment_text(comment))
         out += [c, ""] if c else []

@@ -28,6 +28,45 @@ can't hold a thread forever: a timed-out read is `Err(Timeout)`.
 
 `use server` -- or `use server.Name` to bring one item in bare.
 
+## Example
+
+```
+use client
+use http
+use http.HttpMethod
+use net
+use server
+use server.ServeOptions
+
+// Routes with path parameters, a JSON reply, and a 404 for everything else. The client module's
+// example shows the same server from the other side.
+fn handle(req: http.Request) -> http.Response {
+    val user = server.route(req, HttpMethod.Get, "/users/{id}")
+    if Option.is_Some(user) {
+        val id = server.param(Option.unwrap_Some(user), "id")
+        return server.json_response(200, concat(concat("{\"id\":\"", id), "\"}"))
+    }
+    return server.not_found_or_method_not_allowed(req, ["GET /users/{id}"])
+}
+
+fn main() {
+    val listener = unwrap(net.listen("127.0.0.1", 0))
+    val options = ServeOptions { idle_timeout_ms: 2000, max_connections: 4, log_requests: false }
+    spawn server.serve(listener, handle, options)
+    val base = format("http://127.0.0.1:{}", net.listener_port(listener))
+
+    print(unwrap(client.get(concat(base, "/users/42"))).body)
+    print(unwrap(client.get(concat(base, "/other"))).status)
+}
+```
+
+Output:
+
+```
+{"id":"42"}
+404
+```
+
 ### `Params`
 
 ```

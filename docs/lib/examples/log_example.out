@@ -1,0 +1,4 @@
+INFO  app: started
+ERROR db: connection lost
+false
+true

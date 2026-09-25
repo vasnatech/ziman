@@ -9,6 +9,28 @@ built on it. See docs/DESIGN.md's "random" entry.
 
 `use random` -- or `use random.Name` to bring one item in bare.
 
+## Example
+
+```
+use random
+
+fn main() {
+    val a = random.random_bytes(16)
+    val b = random.random_bytes(16)
+    print(len(a))
+    print(a == b)
+    print(len(random.random_bytes(0)))
+}
+```
+
+Output:
+
+```
+16
+false
+0
+```
+
 ### `random_bytes`
 
 ```

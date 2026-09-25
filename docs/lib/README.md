@@ -74,4 +74,4 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 
 | Module | What it is |
 |---|---|
-| [`prelude`](prelude.md) | Every type/function/val declared here is merged bare, unqualified, into every Ziman program, no `use` required. |
+| [`prelude`](prelude.md) | The functions and types every Ziman program has without a `use`. |

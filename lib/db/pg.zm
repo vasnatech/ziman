@@ -1,6 +1,6 @@
 // pg.zm -- a PostgreSQL client, the second backend behind the `db`
 // module (`db.open("postgres://user:password@host:port/database")`).
-// Written in Ziman on top of `net` (TCP), `bytes` (message framing) and
+// Written in Ziman on top of `net` (TCP), byte arrays (message framing) and
 // `crypto` (SCRAM-SHA-256); nothing here is native but the exact float
 // formatting. It speaks protocol version 3.0.
 //
