@@ -1366,3 +1366,10 @@ from source.
     lack. A compact copy of the IANA rules bundled in the binary would be the fallback (100 to 400 KB, and it
     has to be refreshed when the rules change). `UTC` and fixed offsets already work without any files.
 
+- **A Ziman website -- not started; when there is one, it should carry the library map.** The manual
+  (`docs/lib/`) is generated Markdown that reads fine on GitHub, but a site would want the module pages
+  rendered, the runnable examples, and the interactive dependency map. `tools/gen_lib_map.py` already writes
+  that map as one self-contained HTML page (layers, colours by folder, click a module to trace what it uses
+  and what uses it; light and dark themes), read from the `use` lines so it cannot drift. It is not built by
+  `make corelib-reference` and is not committed, so a site build would run it.
+
