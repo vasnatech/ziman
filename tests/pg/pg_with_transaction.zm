@@ -1,46 +1,47 @@
-use db
+use db.DbError
+use db.SqlValue
 use fs
-use sql.DbError
-use sql.SqlValue
+use sql
 
-fn add(tx: db.Connection, n: int) -> Result<int, DbError> {
-    db.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", [SqlValue.Int(n)])?
+fn add(tx: sql.Connection, n: int) -> Result<int, DbError> {
+    sql.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", [SqlValue.Int(n)])?
     return ok(n)
 }
 
-fn boom(tx: db.Connection) -> Result<int, DbError> {
-    db.execute(tx, "INSERT INTO pg_tx (n) VALUES (99)", [])?
+fn boom(tx: sql.Connection) -> Result<int, DbError> {
+    sql.execute(tx, "INSERT INTO pg_tx (n) VALUES (99)", [])?
     return err(DbError.Sql("nope"))
 }
 
-fn duplicate(tx: db.Connection, n: int) -> Result<int, DbError> {
-    db.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", [SqlValue.Int(n)])?
-    db.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", [SqlValue.Int(n)])?
+fn duplicate(tx: sql.Connection, n: int) -> Result<int, DbError> {
+    sql.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", [SqlValue.Int(n)])?
+    sql.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", [SqlValue.Int(n)])?
     return ok(n)
 }
 
-fn count(conn: db.Connection) -> int {
-    return len(unwrap(db.query(conn, "SELECT n FROM pg_tx", [])))
+fn count(conn: sql.Connection) -> int {
+    return len(unwrap(sql.query(conn, "SELECT n FROM pg_tx", [])))
 }
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/pg/.url")))
-    val pool = unwrap(db.open_pool(url, 3))
-    unwrap(db.execute(pool, "DROP TABLE IF EXISTS pg_tx", []))
-    unwrap(db.execute(pool, "CREATE TABLE pg_tx (n INTEGER PRIMARY KEY)", []))
-    print(unwrap(db.with_transaction<int>(pool, fn(tx: db.Connection) -> Result<int, DbError> { return add(tx, 1) })))
-    print(is_ok(db.with_transaction<int>(pool, boom)))
+    val pool = unwrap(sql.open_pool(url, 3))
+    unwrap(sql.execute(pool, "DROP TABLE IF EXISTS pg_tx", []))
+    unwrap(sql.execute(pool, "CREATE TABLE pg_tx (n INTEGER PRIMARY KEY)", []))
+    print(unwrap(sql.with_transaction<int>(pool, fn(tx: sql.Connection) -> Result<int, DbError> { return add(tx, 1) })))
+    print(is_ok(sql.with_transaction<int>(pool, boom)))
     print(count(pool))
     // the second insert violates the primary key: the first is rolled back too
-    val dup = db.with_transaction<int>(pool, fn(tx: db.Connection) -> Result<int, DbError> { return duplicate(tx, 7) })
+    val dup = sql.with_transaction<int>(pool,
+        fn(tx: sql.Connection) -> Result<int, DbError> { return duplicate(tx, 7) })
     print(is_ok(dup))
     print(DbError.is_Constraint(unwrap_err(dup)))
     print(count(pool))
     // every borrowed connection came back: three more transactions do not block
-    print(unwrap(db.with_transaction<int>(pool, fn(tx: db.Connection) -> Result<int, DbError> { return add(tx, 2) })))
-    print(unwrap(db.with_transaction<int>(pool, fn(tx: db.Connection) -> Result<int, DbError> { return add(tx, 3) })))
-    print(unwrap(db.with_transaction<int>(pool, fn(tx: db.Connection) -> Result<int, DbError> { return add(tx, 4) })))
+    print(unwrap(sql.with_transaction<int>(pool, fn(tx: sql.Connection) -> Result<int, DbError> { return add(tx, 2) })))
+    print(unwrap(sql.with_transaction<int>(pool, fn(tx: sql.Connection) -> Result<int, DbError> { return add(tx, 3) })))
+    print(unwrap(sql.with_transaction<int>(pool, fn(tx: sql.Connection) -> Result<int, DbError> { return add(tx, 4) })))
     print(count(pool))
-    unwrap(db.execute(pool, "DROP TABLE pg_tx", []))
-    db.close(pool)
+    unwrap(sql.execute(pool, "DROP TABLE pg_tx", []))
+    sql.close(pool)
 }

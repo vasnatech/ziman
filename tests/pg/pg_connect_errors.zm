@@ -1,9 +1,9 @@
-use db
+use db.DbError
+use db.db_error_message
 use fs
-use sql.DbError
-use sql.db_error_message
+use sql
 
-fn show(r: Result<db.Connection, DbError>) {
+fn show(r: Result<sql.Connection, DbError>) {
     print(is_ok(r))
     print(db_error_message(unwrap_err(r)))
 }
@@ -11,22 +11,22 @@ fn show(r: Result<db.Connection, DbError>) {
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/pg/.url")))
     // wrong password (SQLSTATE 28P01)
-    show(db.open("postgres://ziman:wrong@127.0.0.1:55432/zimandb"))
+    show(sql.open("postgres://ziman:wrong@127.0.0.1:55432/zimandb"))
     // unknown user, unknown database
-    show(db.open("postgres://nobody:secret@127.0.0.1:55432/zimandb"))
-    show(db.open("postgres://ziman:secret@127.0.0.1:55432/no_such_db"))
+    show(sql.open("postgres://nobody:secret@127.0.0.1:55432/zimandb"))
+    show(sql.open("postgres://ziman:secret@127.0.0.1:55432/no_such_db"))
     // nothing listening
-    show(db.open("postgres://ziman:secret@127.0.0.1:1/zimandb"))
+    show(sql.open("postgres://ziman:secret@127.0.0.1:1/zimandb"))
     // unsupported sslmode values are refused, not guessed at
-    show(db.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=allow"))
-    show(db.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=bogus"))
+    show(sql.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=allow"))
+    show(sql.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=bogus"))
     // malformed URLs
-    show(db.open("postgres://@127.0.0.1/db"))
-    show(db.open("postgres://u:p@127.0.0.1:notaport/db"))
+    show(sql.open("postgres://@127.0.0.1/db"))
+    show(sql.open("postgres://u:p@127.0.0.1:notaport/db"))
     // percent-encoded credentials decode ("s%65cret" == "secret")
-    val ok = db.open("postgres://ziman:s%65cret@127.0.0.1:55432/zimandb?sslmode=disable")
+    val ok = sql.open("postgres://ziman:s%65cret@127.0.0.1:55432/zimandb?sslmode=disable")
     print(is_ok(ok))
     if is_ok(ok) {
-        db.close(unwrap(ok))
+        sql.close(unwrap(ok))
     }
 }

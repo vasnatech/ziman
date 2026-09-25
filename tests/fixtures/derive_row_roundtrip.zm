@@ -1,25 +1,25 @@
-use db
-use sql.SqlValue
-use sql.DbError
-use sql.Row
-use sql.row_get
-use sql.sql_as_text
-use sql.sql_as_int
-use sql.sql_as_bool
-use sql.sql_as_float
-use sql.db_error_message
-use uuid.Uuid
-use uuid.uuid_new
-use uuid.uuid_to_sql
-use uuid.uuid_from_sql
-use time.LocalDate
-use time.local_date_to_sql
-use time.local_date_from_sql
-use time.localdate_from_string
+use db.DbError
+use db.Row
+use db.SqlValue
+use db.db_error_message
+use db.row_get
+use db.sql_as_bool
+use db.sql_as_float
+use db.sql_as_int
+use db.sql_as_text
+use sql
 use time.Instant
+use time.LocalDate
+use time.instant_from_sql
 use time.instant_now
 use time.instant_to_sql
-use time.instant_from_sql
+use time.local_date_from_sql
+use time.local_date_to_sql
+use time.localdate_from_string
+use uuid.Uuid
+use uuid.uuid_from_sql
+use uuid.uuid_new
+use uuid.uuid_to_sql
 
 #[derive(Row)]
 pub struct Person {
@@ -34,14 +34,20 @@ pub struct Person {
 }
 
 fn main() {
-    val conn = unwrap(db.open("sqlite::memory:"))
-    unwrap(db.execute(conn, "CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, born TEXT NOT NULL, age_hint INTEGER, active INTEGER NOT NULL, score REAL NOT NULL, created_at TEXT NOT NULL)", []))
-    val p1 = Person { id: uuid_new(), name: "Ada", nickname: Option<string>.Some("A"), born: unwrap(localdate_from_string("1815-12-10")), age_hint: Option<int>.None, active: true, score: 0.1, created_at: instant_now() }
-    val p2 = Person { id: uuid_new(), name: "Bob", nickname: Option<string>.None, born: unwrap(localdate_from_string("1990-01-01")), age_hint: Option<int>.Some(30), active: false, score: 2.5, created_at: instant_now() }
+    val conn = unwrap(sql.open("sqlite::memory:"))
+    unwrap(sql.execute(conn,
+        "CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, born TEXT NOT NULL, age_hint INTEGER, active INTEGER NOT NULL, score REAL NOT NULL, created_at TEXT NOT NULL)",
+        []))
+    val p1 = Person { id: uuid_new(), name: "Ada", nickname: Option<string>.Some("A"),
+        born: unwrap(localdate_from_string("1815-12-10")), age_hint: Option<int>.None, active: true, score: 0.1,
+        created_at: instant_now() }
+    val p2 = Person { id: uuid_new(), name: "Bob", nickname: Option<string>.None,
+        born: unwrap(localdate_from_string("1990-01-01")), age_hint: Option<int>.Some(30), active: false, score: 2.5,
+        created_at: instant_now() }
     val ins = "INSERT INTO people (id, name, nickname, born, age_hint, active, score, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
-    unwrap(db.execute(conn, ins, person_to_params(p1)))
-    unwrap(db.execute(conn, ins, person_to_params(p2)))
-    val rows = unwrap(db.query(conn, "SELECT * FROM people ORDER BY name", []))
+    unwrap(sql.execute(conn, ins, person_to_params(p1)))
+    unwrap(sql.execute(conn, ins, person_to_params(p2)))
+    val rows = unwrap(sql.query(conn, "SELECT * FROM people ORDER BY name", []))
     val a = unwrap(person_from_row(rows[0]))
     val b = unwrap(person_from_row(rows[1]))
     print(a.id == p1.id)
@@ -55,7 +61,7 @@ fn main() {
     print(Option.is_Some(b.nickname))
     print(Option.unwrap_Some(b.age_hint))
     print(b.active)
-    val dup = db.execute(conn, ins, person_to_params(p1))
+    val dup = sql.execute(conn, ins, person_to_params(p1))
     print(db_error_message(unwrap_err(dup)))
     val short = person_from_row(Row { columns: ["id"], values: [SqlValue.Text("x")] })
     print(db_error_message(unwrap_err(short)))

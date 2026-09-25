@@ -1,5 +1,5 @@
+use db
 use http
-use url
 
 fn main() {
     val sb = sb_new()
@@ -28,6 +28,6 @@ fn main() {
     print(http.percent_decode("cut%4", false))
     print(http.percent_decode("nul%00byte", false))
     print(unwrap(http.percent_decode("", true)))
-    print(unwrap(url.percent_decode("p%40ss%3Aw%2Frd")))
-    print(is_ok(url.percent_decode("a%00b")))
+    print(unwrap(db.percent_decode("p%40ss%3Aw%2Frd")))
+    print(is_ok(db.percent_decode("a%00b")))
 }

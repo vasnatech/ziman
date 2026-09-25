@@ -1,11 +1,11 @@
 # `sqlite`
 
-The SQLite driver behind `db`. A connection is an integer
+The SQLite driver behind `sql`. A connection is an integer
 handle to a native connection object (src/native_sqlite.c, linked against
 libsqlite3), closed by `close` or, failing that, when it is garbage collected. This
 module encodes `SqlValue` parameters into that native's primitive-only shape and decodes
 result cells back. Use it
-through `db.open("sqlite:...")`; `pg` is the Postgres counterpart.
+through `sql.open("sqlite:...")`; `pg` is the Postgres counterpart.
 
 The natives only ever exchange primitives (ints, strings, arrays of
 *tagged strings* -- one tag character then a payload: N null,
@@ -16,13 +16,13 @@ I<int>, F<float>, T<text>, B<hex>, b0/b1 bool).
 ## Example
 
 ```
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
 use fs
-use sql.SqlValue
-use sql.row_get
-use sql.sql_as_int
 use sqlite
 
-// The SQLite driver on its own. Most programs use it through `db.open("sqlite:...")` instead.
+// The SQLite driver on its own. Most programs use it through `sql.open("sqlite:...")` instead.
 fn main() {
     val path = "/tmp/ziman_manual_sqlite_example.db"
     val conn = unwrap(sqlite.open(path))

@@ -1,31 +1,31 @@
-use db
-use sql.SqlValue
-use sql.DbError
-use sql.row_get
-use sql.sql_as_int
+use db.DbError
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
+use sql
 
 // The motivating case: begin a transaction, `defer` the rollback, and
 // every way out of the function -- an error propagated by `?`, or
 // success -- leaves the connection with no transaction open. After a
 // successful commit the deferred rollback finds nothing to roll back;
 // its error result is discarded, which is the point of the shape.
-fn insert_two(conn: db.Connection, a: int, b: int) -> Result<int, DbError> {
-    db.begin(conn)?
-    defer db.rollback(conn)
-    db.execute(conn, "INSERT INTO t (id) VALUES ($1)", [SqlValue.Int(a)])?
-    db.execute(conn, "INSERT INTO t (id) VALUES ($1)", [SqlValue.Int(b)])?
-    db.commit(conn)?
+fn insert_two(conn: sql.Connection, a: int, b: int) -> Result<int, DbError> {
+    sql.begin(conn)?
+    defer sql.rollback(conn)
+    sql.execute(conn, "INSERT INTO t (id) VALUES ($1)", [SqlValue.Int(a)])?
+    sql.execute(conn, "INSERT INTO t (id) VALUES ($1)", [SqlValue.Int(b)])?
+    sql.commit(conn)?
     return 0
 }
 
-fn count(conn: db.Connection) -> int {
-    val rows = unwrap(db.query(conn, "SELECT count(*) AS n FROM t", []))
+fn count(conn: sql.Connection) -> int {
+    val rows = unwrap(sql.query(conn, "SELECT count(*) AS n FROM t", []))
     return unwrap(sql_as_int(unwrap(row_get(rows[0], "n"))))
 }
 
 fn main() {
-    val conn = unwrap(db.open("sqlite::memory:"))
-    unwrap(db.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY)", []))
+    val conn = unwrap(sql.open("sqlite::memory:"))
+    unwrap(sql.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY)", []))
     print(is_ok(insert_two(conn, 1, 2)))
     print(count(conn))
     // the second insert violates the primary key: `?` returns early, the

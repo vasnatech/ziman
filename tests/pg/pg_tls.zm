@@ -1,14 +1,14 @@
-use db
+use db.DbError
+use db.Row
+use db.SqlValue
+use db.db_error_message
+use db.row_get
+use db.sql_as_bool
+use db.sql_as_int
 use fs
 use net
 use number
-use sql.DbError
-use sql.Row
-use sql.SqlValue
-use sql.db_error_message
-use sql.row_get
-use sql.sql_as_bool
-use sql.sql_as_int
+use sql
 
 // The Postgres server here has TLS enabled with a self-signed certificate
 // valid for localhost and 127.0.0.1; it is its own CA.
@@ -22,7 +22,7 @@ fn root() -> string {
 
 // Does the server say this very connection is encrypted?
 fn encrypted(label: string, url: string) {
-    val c = db.open(url)
+    val c = sql.open(url)
     if !is_ok(c) {
         val msg = db_error_message(unwrap_err(c))
         if contains(msg, "self-signed") {
@@ -33,9 +33,9 @@ fn encrypted(label: string, url: string) {
             printf("{}: FAIL {}\n", label, msg)
         }
     } else {
-        val rows = unwrap(db.query(unwrap(c), "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()", []))
+        val rows = unwrap(sql.query(unwrap(c), "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()", []))
         printf("{}: ssl={}\n", label, unwrap(sql_as_bool(unwrap(row_get(rows[0], "ssl")))))
-        db.close(unwrap(c))
+        sql.close(unwrap(c))
     }
 }
 
@@ -70,24 +70,24 @@ fn main() {
     encrypted("verify-ca, missing root cert file", concat(base(), "?sslmode=verify-ca&sslrootcert=/nonexistent.pem"))
 
     // ordinary work over an encrypted connection, including concurrent callers
-    val conn = unwrap(db.open(format("{}?sslmode=verify-full&{}", base(), root())))
-    defer db.close(conn)
-    unwrap(db.execute(conn, "DROP TABLE IF EXISTS pg_tls_t", []))
-    unwrap(db.execute(conn, "CREATE TABLE pg_tls_t (id INTEGER PRIMARY KEY, note TEXT)", []))
-    unwrap(db.execute(conn, "INSERT INTO pg_tls_t (id, note) SELECT g, 'row ' || g FROM generate_series(1, 300) AS g",
+    val conn = unwrap(sql.open(format("{}?sslmode=verify-full&{}", base(), root())))
+    defer sql.close(conn)
+    unwrap(sql.execute(conn, "DROP TABLE IF EXISTS pg_tls_t", []))
+    unwrap(sql.execute(conn, "CREATE TABLE pg_tls_t (id INTEGER PRIMARY KEY, note TEXT)", []))
+    unwrap(sql.execute(conn, "INSERT INTO pg_tls_t (id, note) SELECT g, 'row ' || g FROM generate_series(1, 300) AS g",
         []))
-    val rows = unwrap(db.query(conn, "SELECT * FROM pg_tls_t ORDER BY id", []))
+    val rows = unwrap(sql.query(conn, "SELECT * FROM pg_tls_t ORDER BY id", []))
     print(len(rows))
     print(unwrap(sql_as_int(unwrap(row_get(rows[299], "id")))))
-    unwrap(db.execute(conn, "DROP TABLE pg_tls_t", []))
+    unwrap(sql.execute(conn, "DROP TABLE pg_tls_t", []))
 
     // a server with no TLS: `require` refuses, `prefer` falls back to plaintext
     val l = unwrap(net.listen("127.0.0.1", 0))
     spawn no_tls_server(l)
     val port = net.listener_port(l)
-    val required = db.open(format("postgres://u:p@127.0.0.1:{}/d?sslmode=require", port))
+    val required = sql.open(format("postgres://u:p@127.0.0.1:{}/d?sslmode=require", port))
     print(db_error_message(unwrap_err(required)))
-    val preferred = db.open(format("postgres://u:p@127.0.0.1:{}/d?sslmode=prefer", port))
+    val preferred = sql.open(format("postgres://u:p@127.0.0.1:{}/d?sslmode=prefer", port))
     print(db_error_message(unwrap_err(preferred)))
     net.close_listener(l)
 }

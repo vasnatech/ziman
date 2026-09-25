@@ -1,440 +1,290 @@
-// db.zm -- a database driver layer, the shape of JDBC: a connection
-// handle plus execute/query taking SQL text and *bound* parameters (a
-// value is never spliced into the SQL string), transactions as plain
-// begin/commit/rollback, and rows handed back as `sql.Row`. Which
-// engine sits behind a handle is chosen by the URL given to `open`:
-// `sqlite::memory:`, `sqlite:<path>` or
-// `postgres://user:password@host:port/database` or
-// `mysql://user:password@host:port/database` -- the API above doesn't
-// change, so repositories written against it don't either. There are no
-// interfaces in Ziman to abstract over drivers with; dispatching by URL
-// scheme inside this module is the substitute. Each engine has its own
-// driver module: `sqlite` (a thin layer over the C library), `pg` and
-// `mysql` (both written in Ziman, on top of `net`), sharing URL parsing
-// through `url`.
+// db.zm -- what every database module shares: the value, row and error types, the readers that turn a
+// `SqlValue` into an ordinary value, and the parser for database URLs. `sqlite`, `pg` and `mysql` are
+// built on it, and so is `sql`, the module a program calls (`sql.open`, `sql.query`, ...), which picks
+// the driver and pools connections. Anything that maps its own types to and from SQL (`uuid`, `time`,
+// `#[derive(Row)]`-generated code) uses this module alone, so it needs no driver.
 //
-// Concurrency: sharing one `Connection` between threads is safe
-// statement by statement -- SQLite takes the connection's own lock, and a
-// Postgres connection is owned by one thread that serialises requests. A
-// transaction is NOT safe to share -- another thread's statements can
-// interleave inside it -- so run a transaction from one thread. Use
-// `with_transaction` (below), or by hand with `defer`:
+// Only primitives cross the driver boundary: NULL, integer, float, text, bool, and bytes. Uuid,
+// LocalDate, Instant, decimal and bigint all travel as `Text` and are converted by the mapping layer --
+// that sidesteps every dialect difference in how SQLite and Postgres type those (SQLite has no UUID or
+// timestamp type at all).
 //
-//     db.begin(conn)?
-//     defer db.rollback(conn)
-//     db.execute(conn, ...)?     // an early return rolls back
-//     db.commit(conn)?           // after a commit the deferred rollback
-//                                // finds nothing to undo (its error
-//                                // result is discarded, as `defer` does)
-//
-// Without the `defer`, a `?` that returns early from inside a
-// transaction leaves it open.
+// The URL parser reads `scheme://user[:password]@host[:port]/database[?k=v&...]`. User, password,
+// database and query values are percent-decoded, so a password may contain `@`, `:` or `/` when written
+// as %40, %3A, %2F (a literal `@` in the password also works: the LAST `@` separates userinfo from host).
 
-use clock.now_raw
-use clock.sleep_millis
-use mysql
-use pg
-use sql.DbError
-use sql.Row
-use sql.SqlValue
-use sqlite
+use number.byte_from_hex
 
-// The state of a pool: the channel of idle connections, how many were opened and the URL to
-// reopen one from (see `open_pool`). Statements run on the pool borrow a connection for that one
-// statement, and `acquire` hands one out exclusively. `Connection` is recursive through this
-// `Channel`, like `Json` is through an array.
-pub struct PoolState {
-    idle: Channel<IdleConnection>
-    size: int
-    url: string
-    check_after: int
+// ---------------------------------------------------------------- values, rows, errors
+
+// One database value: SQL NULL, an integer, a float, text, a boolean or a blob.
+pub enum SqlValue {
+    Null
+    Int(int)
+    Float(float)
+    Text(string)
+    Bool(bool)
+    Bytes([byte])
 }
 
-// A connection waiting in the pool, and the time (Unix seconds) it was put there, so a long-idle one can
-// be tested before it is lent out.
-pub struct IdleConnection {
-    connection: Connection
-    since: int
+// What a database call can fail with. `NotFound` isn't something a
+// driver raises -- it's for a repository whose lookup came back empty,
+// kept here so one error type covers the whole data-access layer.
+// `Constraint` is a unique/foreign-key/not-null/check violation (the
+// caller did something the schema forbids); `Connection` is failing to
+// reach or open the database at all; `Sql` is everything else (bad
+// syntax, wrong parameter count, a value of the wrong SQL type).
+pub enum DbError {
+    NotFound(string)
+    Constraint(string)
+    Connection(string)
+    Sql(string)
 }
 
-// One database connection, or a pool of them; every `db` function takes this one type, so code
-// written against it does not care which engine is behind it or whether it is pooled.
-pub enum Connection {
-    Sqlite(sqlite.Connection)
-    Postgres(pg.Connection)
-    Mysql(mysql.Connection)
-    Pool(PoolState)
+// One result row: `values[i]` belongs to column `columns[i]`.
+pub struct Row {
+    columns: [string]
+    values: [SqlValue]
 }
 
-// `sqlite::memory:` (a private in-memory database, gone when the
-// process exits), `sqlite:<path>` (a file, created if missing), or
-// `postgres://user:password@host:port/database` (`postgresql://` too;
-// no TLS yet -- a `sslmode=require` URL is refused, not downgraded).
-pub fn open(url: string) -> Result<Connection, DbError> {
-    if starts_with(url, "sqlite:") {
-        val conn = sqlite.open(substring(url, 7, len(url)))?
-        return Connection.Sqlite(conn)
+// `e` as a sentence for a log line or a response, prefixed by its kind (`NotFound` is the bare
+// message).
+pub fn db_error_message(e: DbError) -> string {
+    if DbError.is_NotFound(e) {
+        return DbError.unwrap_NotFound(e)
     }
-    if starts_with(url, "postgres://") || starts_with(url, "postgresql://") {
-        val conn = pg.connect(url)?
-        return Connection.Postgres(conn)
+    if DbError.is_Constraint(e) {
+        return concat("constraint violation: ", DbError.unwrap_Constraint(e))
     }
-    if starts_with(url, "mysql://") {
-        val conn = mysql.connect(url)?
-        return Connection.Mysql(conn)
+    return if DbError.is_Connection(e) {
+        concat("database connection error: ", DbError.unwrap_Connection(e))
+    } else {
+        concat("database error: ", DbError.unwrap_Sql(e))
     }
-    return err(DbError.Connection(concat("unsupported database URL (expected sqlite:, postgres:// or mysql://): ",
-        url)))
 }
 
-// Closes a connection. For a pool, waits until every connection has been
-// released (`receive` blocks until each is back), then closes them all --
-// so a borrowed connection that was never released makes this wait
-// forever; `defer db.release(...)` is what prevents that.
-pub fn close(conn: Connection) {
-    if Connection.is_Pool(conn) {
-        val pool = Connection.unwrap_Pool(conn)
-        for i in 0..pool.size {
-            close(receive(pool.idle).connection)
+// The value of column `column` in `row`, or a DbError.Sql naming the missing column.
+pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError> {
+    var i = 0
+    while i < len(row.columns) {
+        if row.columns[i] == column {
+            return row.values[i]
         }
-    } else if Connection.is_Postgres(conn) {
-        pg.close(Connection.unwrap_Postgres(conn))
-    } else if Connection.is_Mysql(conn) {
-        mysql.close(Connection.unwrap_Mysql(conn))
-    } else {
-        sqlite.close(Connection.unwrap_Sqlite(conn))
+        i = i + 1
     }
+    return err(DbError.Sql(concat("no such column in result row: ", column)))
 }
 
-// Runs a statement (or, for DDL, a `;`-separated script) and returns the
-// number of rows the last statement changed.
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
-    if Connection.is_Pool(conn) {
-        val inner = acquire(conn)?
-        val result = execute(inner, sql, params)
-        settle<int>(conn, inner, result)
-        return result
+fn sql_type_name(v: SqlValue) -> string {
+    if SqlValue.is_Null(v) {
+        return "NULL"
     }
-    if Connection.is_Postgres(conn) {
-        return pg.execute(Connection.unwrap_Postgres(conn), sql, params)
+    if SqlValue.is_Int(v) {
+        return "INTEGER"
     }
-    return if Connection.is_Mysql(conn) {
-        mysql.execute(Connection.unwrap_Mysql(conn), sql, params)
-    } else {
-        sqlite.execute(Connection.unwrap_Sqlite(conn), sql, params)
+    if SqlValue.is_Float(v) {
+        return "FLOAT"
     }
+    if SqlValue.is_Text(v) {
+        return "TEXT"
+    }
+    return if SqlValue.is_Bool(v) { "BOOL" } else { "BYTES" }
 }
 
-// Runs a query and returns its rows, each a `sql.Row`; `params` are bound to the placeholders
-// (`?` for SQLite and MySQL, `$1`, `$2` for Postgres), never spliced into `sql`.
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
-    if Connection.is_Pool(conn) {
-        val inner = acquire(conn)?
-        val result = query(inner, sql, params)
-        settle<[Row]>(conn, inner, result)
-        return result
-    }
-    if Connection.is_Postgres(conn) {
-        return pg.query(Connection.unwrap_Postgres(conn), sql, params)
-    }
-    return if Connection.is_Mysql(conn) {
-        mysql.query(Connection.unwrap_Mysql(conn), sql, params)
-    } else {
-        sqlite.query(Connection.unwrap_Sqlite(conn), sql, params)
-    }
+fn sql_mismatch(expected: string, v: SqlValue) -> DbError {
+    return DbError.Sql(format("expected {}, found {}", expected, sql_type_name(v)))
 }
 
-// Runs a query and returns its rows lazily, one at a time as a `for` loop asks for them:
-//
-//     val rows = db.rows(conn, "SELECT * FROM lab_result", [])?
-//     for row in rows {
-//         val r = row?                       // Result<Row, DbError>
-//         ...
-//     }
-//
-// On SQLite the rows come from a cursor, so a result of any size uses memory for one row; the cursor
-// is closed when the rows are used up, when the loop is left early, or with `iter_close`. On a pool the
-// connection is borrowed for the whole iteration and given back the same way, so finish or close the
-// iterator (a pooled one is not closed by the garbage collector, and a forgotten one keeps its
-// connection). On Postgres the rows come from a portal, 500 at a time; the connection carries no other
-// statement until the cursor is read to the end or closed (one sent meanwhile is an Err), which a
-// pool takes care of by lending another connection. On MySQL the rows come from a server-side cursor,
-// 500 at a time; other statements may run between fetches, but a connection holds one cursor at a time.
-// A row that fails to arrive is an Err item and ends the iteration; the Err on the call is the statement
-// failing to run.
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
-    if Connection.is_Pool(conn) {
-        val inner = acquire(conn)?
-        val opened = rows(inner, sql, params)
-        if !is_ok(opened) {
-            release(conn, inner)
-            return err(unwrap_err(opened))
+// The text of a TEXT value, or a DbError.Sql saying what was found instead.
+pub fn sql_as_text(v: SqlValue) -> Result<string, DbError> {
+    if !SqlValue.is_Text(v) {
+        return err(sql_mismatch("TEXT", v))
+    }
+    return SqlValue.unwrap_Text(v)
+}
+
+// The number in an INTEGER value, or a DbError.Sql saying what was found instead.
+pub fn sql_as_int(v: SqlValue) -> Result<int, DbError> {
+    if !SqlValue.is_Int(v) {
+        return err(sql_mismatch("INTEGER", v))
+    }
+    return SqlValue.unwrap_Int(v)
+}
+
+// SQLite hands an integer column back for a value stored as 0/1 where
+// Postgres would say Bool -- accept an integer that's exactly 0 or 1 too.
+pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError> {
+    if SqlValue.is_Bool(v) {
+        return SqlValue.unwrap_Bool(v)
+    }
+    if SqlValue.is_Int(v) {
+        val n = SqlValue.unwrap_Int(v)
+        if n == 0 {
+            return false
         }
-        val source = unwrap(opened)
-        return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> {
-            iter_next<Result<Row, DbError>>(source)
-        }, fn() {
-            iter_close<Result<Row, DbError>>(source)
-            release(conn, inner)
-        })
+        if n == 1 {
+            return true
+        }
     }
-    if Connection.is_Sqlite(conn) {
-        return sqlite.rows(Connection.unwrap_Sqlite(conn), sql, params)
+    return err(sql_mismatch("BOOL", v))
+}
+
+// A whole-number column read as a float, or a float column as itself.
+pub fn sql_as_float(v: SqlValue) -> Result<float, DbError> {
+    if SqlValue.is_Float(v) {
+        return SqlValue.unwrap_Float(v)
     }
-    if Connection.is_Postgres(conn) {
-        return pg.rows(Connection.unwrap_Postgres(conn), sql, params)
+    if SqlValue.is_Int(v) {
+        return SqlValue.unwrap_Int(v) as float
     }
-    return mysql.rows(Connection.unwrap_Mysql(conn), sql, params)
+    return err(sql_mismatch("FLOAT", v))
 }
 
-// The common lookup-by-key shape: the first row, or None.
-pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError> {
-    val rows = query(conn, sql, params)?
-    if len(rows) == 0 {
-        return Option<Row>.None
+// Lifts a domain type's own parse result (Result<T, string>, e.g.
+// uuid_from_string) into the DbError error type a from_sql needs.
+pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError> {
+    if !is_ok(r) {
+        return err(DbError.Sql(format("invalid {} value: {}", what, unwrap_err(r))))
     }
-    return Option<Row>.Some(rows[0])
+    return unwrap(r)
 }
 
-// A transaction spans several statements, so it must run on ONE
-// connection: on a pool, `begin`/`commit`/`rollback` would each borrow a
-// different connection and silently do the wrong thing, so they are
-// refused -- `acquire` an exclusive connection and run the transaction on
-// that.
-fn refuse_on_pool(conn: Connection) -> Result<int, DbError> {
-    if Connection.is_Pool(conn) {
-        return err(DbError.Sql("a transaction needs an exclusive connection: db.acquire(pool) one first"))
-    }
-    return 0
+// ---------------------------------------------------------------- URLs
+
+// One `name=value` pair from the query part of a database URL, already decoded.
+pub struct UrlParam {
+    name: string
+    value: string
 }
 
-// Starts a transaction on `conn`. Refused on a pool: `acquire` an exclusive connection first, or
-// use `with_transaction`.
-pub fn begin(conn: Connection) -> Result<int, DbError> {
-    refuse_on_pool(conn)?
-    return execute(conn, "BEGIN", [])
+// A parsed database URL: the decoded credentials, host, port (0 when the URL names none), database
+// and query parameters.
+pub struct DbUrl {
+    user: string
+    password: string
+    host: string
+    port: int
+    database: string
+    params: [UrlParam]
 }
 
-// Commits the transaction open on `conn`.
-pub fn commit(conn: Connection) -> Result<int, DbError> {
-    refuse_on_pool(conn)?
-    return execute(conn, "COMMIT", [])
+fn bad(message: string) -> DbError {
+    return DbError.Connection(message)
 }
 
-// Rolls back the transaction open on `conn`. Called with none open it is harmless, which is what
-// lets `defer db.rollback(conn)` stand guard after a commit.
-pub fn rollback(conn: Connection) -> Result<int, DbError> {
-    refuse_on_pool(conn)?
-    return execute(conn, "ROLLBACK", [])
-}
-
-// ---------------------------------------------------------------- pooling
-
-// Opens `size` connections to `url` up front (failing fast if any can't
-// connect) and returns a pool-backed `Connection`: the same type as
-// `open` returns, so repository code written against a `Connection` works
-// unchanged. Statements run on it (`execute`/`query`) each borrow a
-// connection for that one statement and give it back; a unit of work that
-// spans several statements -- a transaction above all -- borrows one
-// exclusively with `acquire`:
-//
-//     val tx = db.acquire(conn)?
-//     defer db.release(conn, tx)
-//     db.begin(tx)?
-//     defer db.rollback(tx)
-//     ...
-//     db.commit(tx)?
-//
-// The pool is a channel of idle connections, so a borrow blocks while
-// every connection is in use -- natural backpressure, no extra locking.
-// `tx` is an ordinary, non-pool `Connection`, so a repository called with
-// it uses it directly and never borrows again (borrowing while holding one
-// could deadlock a small pool).
-//
-// A connection that sat idle for 30 seconds or more is tested with `SELECT 1` when it is lent out and
-// replaced if that fails (`open_pool_with` changes the time or turns this off). A connection that dies
-// (server restart, dropped network) is replaced: when a statement run
-// on the pool fails with `DbError.Connection`, that connection is closed and a fresh one opened
-// from the same URL in its place (if the server is still down the dead one goes back, and the
-// next statement tries again). The statement that met the failure is NOT re-sent -- it may or may
-// not have run, so retrying an INSERT could repeat it -- and returns its error. For a connection
-// taken with `acquire`, use `discard` in place of `release` after a connection error. A borrow
-// blocks while every connection is in use; `acquire_timeout` gives up after a while instead, and a
-// leaked borrow blocks other callers forever -- `defer release` is the guard. A pool over `sqlite::memory:` is a single connection whatever
-// `size` says: every in-memory connection is its own private database, so
-// N of them would be N different databases.
-pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
-    return open_pool_with(url, size, default_check_after_seconds)
-}
-
-// How long a connection may sit idle in a pool before it is tested when lent out, in seconds.
-val default_check_after_seconds = 30
-
-fn now_seconds() -> int {
-    return now_raw()[0]
-}
-
-// Puts a connection in the pool's idle channel, stamped with the time.
-fn park(idle: Channel<IdleConnection>, c: Connection) {
-    send(idle, IdleConnection { connection: c, since: now_seconds() })
-}
-
-// `open_pool`, choosing how long a connection may sit idle before it is tested when borrowed: one idle for
-// `check_after_seconds` or more gets a `SELECT 1` first, and if that fails with a connection error it is
-// replaced with a fresh connection before it is lent out, so a server restart overnight does not cost the
-// first request of the morning. Zero or less turns the test off. SQLite connections are never tested.
-pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError> {
-    if size < 1 {
-        return err(DbError.Sql("a pool needs at least one connection"))
-    }
-    if starts_with(url, "sqlite::memory") {
-        return open(url)
-    }
-    val idle: Channel<IdleConnection> = channel_new()
-    var opened = 0
-    while opened < size {
-        val c = open(url)
-        if !is_ok(c) {
-            var i = 0
-            while i < opened {
-                close(receive(idle).connection)
-                i = i + 1
+// Decodes `%XX` escapes in `s`; an Err for a malformed escape or one that yields a NUL byte.
+pub fn percent_decode(s: string) -> Result<string, DbError> {
+    val out = sb_new()
+    var run = 0
+    var i = 0
+    while i < len(s) {
+        if is_char_at(s, i, "%") {
+            if i + 3 > len(s) {
+                return err(bad(concat("bad %-escape in database URL: ", s)))
             }
-            return err(unwrap_err(c))
-        }
-        park(idle, unwrap(c))
-        opened = opened + 1
-    }
-    return Connection.Pool(PoolState { idle: idle, size: size, url: url, check_after: check_after_seconds })
-}
-
-// A connection that failed with a connection error, swapped for a fresh one; the failed one when
-// none can be opened, so the pool never shrinks.
-fn replacement(pool: PoolState, dead: Connection) -> Connection {
-    val fresh = open(pool.url)
-    if !is_ok(fresh) {
-        return dead
-    }
-    close(dead)
-    return unwrap(fresh)
-}
-
-// A connection taken from the pool's idle channel, tested first when it has been idle long enough: one that
-// fails a `SELECT 1` with a connection error is replaced by a fresh connection. When none can be opened the
-// dead one goes back and the borrower gets the Err, rather than a connection that would fail.
-fn checked(pool: PoolState, entry: IdleConnection) -> Result<Connection, DbError> {
-    val c = entry.connection
-    if pool.check_after <= 0 || Connection.is_Sqlite(c) || now_seconds() - entry.since < pool.check_after {
-        return c
-    }
-    val probe = query(c, "SELECT 1", [])
-    if is_ok(probe) || !DbError.is_Connection(unwrap_err(probe)) {
-        return c
-    }
-    val fresh = open(pool.url)
-    if !is_ok(fresh) {
-        park(pool.idle, c)
-        return err(unwrap_err(fresh))
-    }
-    close(c)
-    return unwrap(fresh)
-}
-
-// Puts a borrowed connection back after a statement, replacing it first when the statement's
-// error says the connection is gone.
-fn settle<T>(conn: Connection, taken: Connection, result: Result<T, DbError>) {
-    if !is_ok(result) && DbError.is_Connection(unwrap_err(result)) {
-        discard(conn, taken)
-    } else {
-        release(conn, taken)
-    }
-}
-
-// An exclusive connection, for a unit of work that must stay on one (a
-// transaction). Blocks while the pool is exhausted. On a connection that
-// isn't a pool it just returns that connection, and `release` does
-// nothing -- so the same code runs against either.
-pub fn acquire(conn: Connection) -> Result<Connection, DbError> {
-    if !Connection.is_Pool(conn) {
-        return conn
-    }
-    val pool = Connection.unwrap_Pool(conn)
-    return checked(pool, receive(pool.idle))
-}
-
-// Like `acquire`, but gives up with a `DbError.Connection` once `timeout_ms` milliseconds pass
-// with every connection still in use (checked every 2 ms). A `timeout_ms` of zero or less tries
-// once.
-pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, DbError> {
-    if !Connection.is_Pool(conn) {
-        return conn
-    }
-    val pool = Connection.unwrap_Pool(conn)
-    for _ in 0..(if timeout_ms > 0 { timeout_ms / 2 + 1 } else { 1 }) {
-        val got = try_receive(pool.idle)
-        if Option.is_Some(got) {
-            return checked(pool, Option.unwrap_Some(got))
-        }
-        if timeout_ms > 0 {
-            sleep_millis(2)
+            sb_append(out, substring(s, run, i))
+            val b = byte_from_hex(substring(s, i + 1, i + 3))
+            if !is_ok(b) {
+                return err(bad(concat("bad %-escape in database URL: ", s)))
+            }
+            if !sb_append_byte(out, unwrap(b)) {
+                return err(bad("database URL decodes to text containing a NUL byte"))
+            }
+            i = i + 3
+            run = i
+        } else {
+            i = i + 1
         }
     }
-    return err(DbError.Connection(format("timed out after {} ms waiting for a pooled connection", timeout_ms)))
+    sb_append(out, substring(s, run, len(s)))
+    return sb_to_string(out)
 }
 
-// Gives back a connection taken with `acquire`. Pair every `acquire` with
-// a `defer db.release(...)`. A connection released while a transaction is
-// still open goes back dirty -- roll it back first (`defer db.rollback`
-// registered *after* the release defer runs before it).
-pub fn release(conn: Connection, taken: Connection) {
-    if Connection.is_Pool(conn) {
-        park(Connection.unwrap_Pool(conn).idle, taken)
+// The query parameter `name`, if the URL has it.
+pub fn url_param(u: DbUrl, name: string) -> Option<string> {
+    for p in u.params {
+        if p.name == name {
+            return Option<string>.Some(p.value)
+        }
     }
+    return Option<string>.None
 }
 
-// Gives back a connection taken with `acquire` that has failed with a connection error: it is
-// closed and a fresh one opened in its place (the failed one goes back if none can be opened).
-// Use it instead of `release` when the connection is known to be broken. Does nothing on a
-// connection that isn't a pool.
-pub fn discard(conn: Connection, taken: Connection) {
-    if Connection.is_Pool(conn) {
-        val pool = Connection.unwrap_Pool(conn)
-        park(pool.idle, replacement(pool, taken))
+// `prefixes` are the accepted `scheme://` starts (e.g. "postgres://").
+// The database defaults to the user name when the URL has none.
+pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<DbUrl, DbError> {
+    var rest = ""
+    var matched = false
+    for prefix in prefixes {
+        if !matched && starts_with(url, prefix) {
+            rest = substring(url, len(prefix), len(url))
+            matched = true
+        }
     }
-}
-
-// ------------------------------------------------------------ transactions
-
-// Runs `work` inside a transaction on one exclusive connection: begin, call
-// `work(tx)`, then commit if it returned Ok -- or roll back if it returned
-// Err, or if the commit itself failed. The result of `work` is returned
-// unchanged. On a pool, `tx` is a borrowed connection that goes back to the
-// pool on every way out (a `defer`), so this is the whole of the
-// acquire / begin / rollback-on-error / commit / release dance:
-//
-//     val moved = db.with_transaction<int>(conn, fn(tx: db.Connection) -> Result<int, DbError> {
-//         db.execute(tx, "UPDATE ...", [SqlValue.Int(amount)])?
-//         return ok(amount)
-//     })?
-//
-// `work` is a function value: a lambda capturing what it needs (`amount` above), or a named
-// function. If the transaction ends in a connection error the connection is replaced rather than
-// returned to the pool. A `work` that itself calls `db.begin`/`db.commit` on `tx` breaks the nesting -- it
-// must not.
-pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError> {
-    val tx = acquire(conn)?
-    val result = run_transaction<R>(tx, work)
-    settle<R>(conn, tx, result)
-    return result
-}
-
-fn run_transaction<R>(tx: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError> {
-    begin(tx)?
-    defer rollback(tx)
-    val result = work(tx)
-    if !is_ok(result) {
-        return result
+    if !matched {
+        return err(bad(concat("unsupported database URL: ", url)))
     }
-    commit(tx)?
-    return result
+
+    var path_and_query = ""
+    var authority = rest
+    val slash = split_once(rest, "/")
+    if Option.is_Some(slash) {
+        authority = Option.unwrap_Some(slash)[0]
+        path_and_query = Option.unwrap_Some(slash)[1]
+    }
+    var database = path_and_query
+    val params = ab_new<UrlParam>()
+    val q = split_once(path_and_query, "?")
+    if Option.is_Some(q) {
+        database = Option.unwrap_Some(q)[0]
+        for pair in split(Option.unwrap_Some(q)[1], "&") {
+            val kv = split_once(pair, "=")
+            if Option.is_Some(kv) {
+                val value = percent_decode(Option.unwrap_Some(kv)[1])?
+                ab_append<UrlParam>(params, UrlParam { name: Option.unwrap_Some(kv)[0], value: value })
+            }
+        }
+    }
+
+    val at = last_index_of(authority, "@")
+    var userinfo = ""
+    var hostport = authority
+    if at >= 0 {
+        userinfo = substring(authority, 0, at)
+        hostport = substring(authority, at + 1, len(authority))
+    }
+    var user = userinfo
+    var password = ""
+    val up = split_once(userinfo, ":")
+    if Option.is_Some(up) {
+        user = Option.unwrap_Some(up)[0]
+        password = Option.unwrap_Some(up)[1]
+    }
+    var host = hostport
+    var port = default_port
+    val hp = split_once(hostport, ":")
+    if Option.is_Some(hp) {
+        host = Option.unwrap_Some(hp)[0]
+        val text = Option.unwrap_Some(hp)[1]
+        val parsed_port = parse_int(text)
+        if !is_ok(parsed_port) {
+            return err(bad(concat("bad port in database URL: ", text)))
+        }
+        port = unwrap(parsed_port)
+    }
+    val user_decoded = percent_decode(user)?
+    val password_decoded = percent_decode(password)?
+    val database_decoded = percent_decode(database)?
+    if user_decoded == "" {
+        return err(bad("database URL has no user name"))
+    }
+    if host == "" {
+        return err(bad("database URL has no host"))
+    }
+    var db_name = database_decoded
+    if db_name == "" {
+        db_name = user_decoded
+    }
+    return DbUrl { user: user_decoded, password: password_decoded, host: host, port: port, database: db_name,
+        params: ab_to_array<UrlParam>(params) }
 }

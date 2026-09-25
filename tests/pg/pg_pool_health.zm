@@ -1,54 +1,54 @@
 use clock
 use db
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
 use fs
 use sql
-use sql.SqlValue
-use sql.row_get
-use sql.sql_as_int
 
-fn pid_of(conn: db.Connection) -> Result<int, sql.DbError> {
-    val rows = db.query(conn, "SELECT pg_backend_pid() AS pid", [])?
+fn pid_of(conn: sql.Connection) -> Result<int, db.DbError> {
+    val rows = sql.query(conn, "SELECT pg_backend_pid() AS pid", [])?
     return unwrap(sql_as_int(unwrap(row_get(rows[0], "pid"))))
 }
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/pg/.url")))
-    val admin = unwrap(db.open(url))
+    val admin = unwrap(sql.open(url))
 
     // idle past the limit: the dead connection is found by a test query and replaced before it is lent out,
     // so the first statement after the outage succeeds
-    val pool = unwrap(db.open_pool_with(url, 1, 1))
+    val pool = unwrap(sql.open_pool_with(url, 1, 1))
     val first = unwrap(pid_of(pool))
-    unwrap(db.query(admin, "SELECT pg_terminate_backend($1)", [SqlValue.Int(first)]))
+    unwrap(sql.query(admin, "SELECT pg_terminate_backend($1)", [SqlValue.Int(first)]))
     clock.sleep_millis(1300)
     val second = pid_of(pool)
     print(is_ok(second))
     print(unwrap(second) != first)
-    db.close(pool)
+    sql.close(pool)
 
     // not idle long enough to be tested: the first statement after the outage fails, the next works
-    val eager = unwrap(db.open_pool_with(url, 1, 3600))
+    val eager = unwrap(sql.open_pool_with(url, 1, 3600))
     val a = unwrap(pid_of(eager))
-    unwrap(db.query(admin, "SELECT pg_terminate_backend($1)", [SqlValue.Int(a)]))
+    unwrap(sql.query(admin, "SELECT pg_terminate_backend($1)", [SqlValue.Int(a)]))
     clock.sleep_millis(300)
     print(is_ok(pid_of(eager)))
     print(unwrap(pid_of(eager)) != a)
-    db.close(eager)
+    sql.close(eager)
 
     // testing turned off behaves the same way
-    val off = unwrap(db.open_pool_with(url, 1, 0))
+    val off = unwrap(sql.open_pool_with(url, 1, 0))
     val b = unwrap(pid_of(off))
-    unwrap(db.query(admin, "SELECT pg_terminate_backend($1)", [SqlValue.Int(b)]))
+    unwrap(sql.query(admin, "SELECT pg_terminate_backend($1)", [SqlValue.Int(b)]))
     clock.sleep_millis(1300)
     print(is_ok(pid_of(off)))
     print(is_ok(pid_of(off)))
-    db.close(off)
+    sql.close(off)
 
     // a healthy idle connection is kept
-    val keep = unwrap(db.open_pool_with(url, 1, 1))
+    val keep = unwrap(sql.open_pool_with(url, 1, 1))
     val c = unwrap(pid_of(keep))
     clock.sleep_millis(1300)
     print(unwrap(pid_of(keep)) == c)
-    db.close(keep)
-    db.close(admin)
+    sql.close(keep)
+    sql.close(admin)
 }

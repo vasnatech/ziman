@@ -5,7 +5,7 @@ true
 false
 false
 50
-database error: a transaction needs an exclusive connection: db.acquire(pool) one first
+database error: a transaction needs an exclusive connection: sql.acquire(pool) one first
 1
 1
 1

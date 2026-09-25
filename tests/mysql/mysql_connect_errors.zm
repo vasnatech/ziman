@@ -1,9 +1,9 @@
-use db
+use db.DbError
+use db.db_error_message
 use fs
-use sql.DbError
-use sql.db_error_message
+use sql
 
-fn show(r: Result<db.Connection, DbError>) {
+fn show(r: Result<sql.Connection, DbError>) {
     print(is_ok(r))
     print(db_error_message(unwrap_err(r)))
 }
@@ -17,7 +17,7 @@ fn show(r: Result<db.Connection, DbError>) {
 // refusal (the driver will not send a password in the clear without TLS) --
 // all real, correct rejections of the same login, so this test only checks that
 // one happens.
-fn show_unknown_user(r: Result<db.Connection, DbError>) {
+fn show_unknown_user(r: Result<sql.Connection, DbError>) {
     print(is_ok(r))
     val message = db_error_message(unwrap_err(r))
     if contains(message, "Access denied") || contains(message, "authentication plugin") ||
@@ -31,19 +31,19 @@ fn show_unknown_user(r: Result<db.Connection, DbError>) {
 fn main() {
     val hp = trim(unwrap(fs.read_text("tests/mysql/.hostport")))
     // unknown user, unknown database
-    show_unknown_user(db.open(format("mysql://nobody:secret@{}/zimandb", hp)))
-    show(db.open(format("mysql://nat_user:natpw@{}/no_such_db", hp)))
+    show_unknown_user(sql.open(format("mysql://nobody:secret@{}/zimandb", hp)))
+    show(sql.open(format("mysql://nat_user:natpw@{}/no_such_db", hp)))
     // nothing listening
-    show(db.open("mysql://root:secret@127.0.0.1:1/zimandb"))
+    show(sql.open("mysql://root:secret@127.0.0.1:1/zimandb"))
     // unsupported sslmode values are refused, not guessed at
-    show(db.open(format("mysql://nat_user:natpw@{}/zimandb?sslmode=allow", hp)))
+    show(sql.open(format("mysql://nat_user:natpw@{}/zimandb?sslmode=allow", hp)))
     // malformed URLs
-    show(db.open("mysql://@127.0.0.1/db"))
-    show(db.open("mysql://u:p@127.0.0.1:notaport/db"))
+    show(sql.open("mysql://@127.0.0.1/db"))
+    show(sql.open("mysql://u:p@127.0.0.1:notaport/db"))
     // percent-encoded credentials decode ("nat%70w" == "natpw")
-    val ok = db.open(format("mysql://nat_user:nat%70w@{}/zimandb", hp))
+    val ok = sql.open(format("mysql://nat_user:nat%70w@{}/zimandb", hp))
     print(is_ok(ok))
     if is_ok(ok) {
-        db.close(unwrap(ok))
+        sql.close(unwrap(ok))
     }
 }

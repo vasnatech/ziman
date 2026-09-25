@@ -1,9 +1,9 @@
-use db
+use db.Row
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
 use fs
-use sql.Row
-use sql.SqlValue
-use sql.row_get
-use sql.sql_as_int
+use sql
 
 fn value(rows: [Row], name: string) -> int {
     return unwrap(sql_as_int(unwrap(row_get(rows[0], name))))
@@ -11,34 +11,34 @@ fn value(rows: [Row], name: string) -> int {
 
 // Each worker borrows a connection, holds it for 50ms inside the server
 // (pg_sleep), and reports which backend process served it.
-fn worker(pool: db.Connection, pids: Channel<int>) {
-    val tx = unwrap(db.acquire(pool))
-    defer db.release(pool, tx)
-    val rows = unwrap(db.query(tx, "SELECT pg_backend_pid() AS pid, pg_sleep(0.05)", []))
+fn worker(pool: sql.Connection, pids: Channel<int>) {
+    val tx = unwrap(sql.acquire(pool))
+    defer sql.release(pool, tx)
+    val rows = unwrap(sql.query(tx, "SELECT pg_backend_pid() AS pid, pg_sleep(0.05)", []))
     send(pids, value(rows, "pid"))
 }
 
 // Read-modify-write in a transaction; FOR UPDATE makes the row lock do
 // what a single shared connection couldn't guarantee.
-fn incrementer(pool: db.Connection, done: Channel<int>) {
+fn incrementer(pool: sql.Connection, done: Channel<int>) {
     var i = 0
     while i < 10 {
-        val tx = unwrap(db.acquire(pool))
-        defer db.release(pool, tx)
-        unwrap(db.begin(tx))
-        defer db.rollback(tx)
-        val rows = unwrap(db.query(tx, "SELECT n FROM pg_pool_counter FOR UPDATE", []))
-        unwrap(db.execute(tx, "UPDATE pg_pool_counter SET n = $1", [SqlValue.Int(value(rows, "n") + 1)]))
-        unwrap(db.commit(tx))
+        val tx = unwrap(sql.acquire(pool))
+        defer sql.release(pool, tx)
+        unwrap(sql.begin(tx))
+        defer sql.rollback(tx)
+        val rows = unwrap(sql.query(tx, "SELECT n FROM pg_pool_counter FOR UPDATE", []))
+        unwrap(sql.execute(tx, "UPDATE pg_pool_counter SET n = $1", [SqlValue.Int(value(rows, "n") + 1)]))
+        unwrap(sql.commit(tx))
         i = i + 1
     }
     send(done, 1)
 }
 
-fn inserter(pool: db.Connection, id: int, done: Channel<int>) {
+fn inserter(pool: sql.Connection, id: int, done: Channel<int>) {
     var i = 0
     while i < 5 {
-        unwrap(db.execute(pool, "INSERT INTO pg_pool_rows (worker, n) VALUES ($1, $2)",
+        unwrap(sql.execute(pool, "INSERT INTO pg_pool_rows (worker, n) VALUES ($1, $2)",
             [SqlValue.Int(id), SqlValue.Int(i)]))
         i = i + 1
     }
@@ -57,14 +57,14 @@ fn distinct_count(items: [int]) -> int {
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/pg/.url")))
-    val setup = unwrap(db.open(url))
-    unwrap(db.execute(setup, "DROP TABLE IF EXISTS pg_pool_counter; DROP TABLE IF EXISTS pg_pool_rows", []))
-    unwrap(db.execute(setup,
+    val setup = unwrap(sql.open(url))
+    unwrap(sql.execute(setup, "DROP TABLE IF EXISTS pg_pool_counter; DROP TABLE IF EXISTS pg_pool_rows", []))
+    unwrap(sql.execute(setup,
         "CREATE TABLE pg_pool_counter (n INTEGER); INSERT INTO pg_pool_counter VALUES (0); CREATE TABLE pg_pool_rows (worker INTEGER, n INTEGER)",
         []))
-    db.close(setup)
+    sql.close(setup)
 
-    val pool = unwrap(db.open_pool(url, 4))
+    val pool = unwrap(sql.open_pool(url, 4))
 
     // 12 workers, 4 connections: never more than 4 backends, more than 1 used
     val pids: Channel<int> = channel_new()
@@ -95,7 +95,7 @@ fn main() {
         receive(done)
         i = i + 1
     }
-    print(value(unwrap(db.query(pool, "SELECT count(*) AS n FROM pg_pool_rows", [])), "n"))
+    print(value(unwrap(sql.query(pool, "SELECT count(*) AS n FROM pg_pool_rows", [])), "n"))
 
     // no lost updates: 8 threads x 10 transactional increments
     t = 0
@@ -108,11 +108,11 @@ fn main() {
         receive(done)
         i = i + 1
     }
-    print(value(unwrap(db.query(pool, "SELECT n FROM pg_pool_counter", [])), "n"))
+    print(value(unwrap(sql.query(pool, "SELECT n FROM pg_pool_counter", [])), "n"))
 
-    unwrap(db.execute(pool, "DROP TABLE pg_pool_counter; DROP TABLE pg_pool_rows", []))
-    db.close(pool)
+    unwrap(sql.execute(pool, "DROP TABLE pg_pool_counter; DROP TABLE pg_pool_rows", []))
+    sql.close(pool)
 
     // opening a pool fails fast, and leaves nothing open, when it can't connect
-    print(is_ok(db.open_pool("postgres://ziman:wrong@127.0.0.1:55432/zimandb", 3)))
+    print(is_ok(sql.open_pool("postgres://ziman:wrong@127.0.0.1:55432/zimandb", 3)))
 }

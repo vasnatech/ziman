@@ -1,8 +1,8 @@
-use db
-use sql.db_error_message
+use db.db_error_message
+use sql
 
 fn main() {
-    val r = db.open("oracle://nope")
+    val r = sql.open("oracle://nope")
     print(is_ok(r))
     print(db_error_message(unwrap_err(r)))
     unwrap(r)

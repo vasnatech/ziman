@@ -1,7 +1,7 @@
-use sql.SqlValue
-use sql.DbError
-use sql.Row
-use sql.row_get
+use db.DbError
+use db.Row
+use db.SqlValue
+use db.row_get
 
 #[derive(Row)]
 pub enum Shape {

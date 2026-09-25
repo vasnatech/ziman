@@ -1,5 +1,6 @@
 1
 Ada
-true
-database error: expected INTEGER, found TEXT
-database error: no such column in result row: email
+Ada
+constraint violation: NOT NULL constraint failed: person.name
+false
+1

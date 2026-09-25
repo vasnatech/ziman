@@ -683,56 +683,60 @@ pub fn yaml_to_string(j: Json) -> string
 ## `db`
 
 ```
-pub struct PoolState {
-    idle: Channel<IdleConnection>
-    size: int
-    url: string
-    check_after: int
+pub enum SqlValue {
+    Null
+    Int(int)
+    Float(float)
+    Text(string)
+    Bool(bool)
+    Bytes([byte])
 }
 
-pub struct IdleConnection {
-    connection: Connection
-    since: int
+pub enum DbError {
+    NotFound(string)
+    Constraint(string)
+    Connection(string)
+    Sql(string)
 }
 
-pub enum Connection {
-    Sqlite(sqlite.Connection)
-    Postgres(pg.Connection)
-    Mysql(mysql.Connection)
-    Pool(PoolState)
+pub struct Row {
+    columns: [string]
+    values: [SqlValue]
 }
 
-pub fn open(url: string) -> Result<Connection, DbError>
+pub fn db_error_message(e: DbError) -> string
 
-pub fn close(conn: Connection)
+pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError>
 
-pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
+pub fn sql_as_text(v: SqlValue) -> Result<string, DbError>
 
-pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
+pub fn sql_as_int(v: SqlValue) -> Result<int, DbError>
 
-pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError>
 
-pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError>
+pub fn sql_as_float(v: SqlValue) -> Result<float, DbError>
 
-pub fn begin(conn: Connection) -> Result<int, DbError>
+pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError>
 
-pub fn commit(conn: Connection) -> Result<int, DbError>
+pub struct UrlParam {
+    name: string
+    value: string
+}
 
-pub fn rollback(conn: Connection) -> Result<int, DbError>
+pub struct DbUrl {
+    user: string
+    password: string
+    host: string
+    port: int
+    database: string
+    params: [UrlParam]
+}
 
-pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
+pub fn percent_decode(s: string) -> Result<string, DbError>
 
-pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError>
+pub fn url_param(u: DbUrl, name: string) -> Option<string>
 
-pub fn acquire(conn: Connection) -> Result<Connection, DbError>
-
-pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, DbError>
-
-pub fn release(conn: Connection, taken: Connection)
-
-pub fn discard(conn: Connection, taken: Connection)
-
-pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError>
+pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<DbUrl, DbError>
 
 ```
 
@@ -882,65 +886,56 @@ pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Re
 ## `sql`
 
 ```
-pub enum SqlValue {
-    Null
-    Int(int)
-    Float(float)
-    Text(string)
-    Bool(bool)
-    Bytes([byte])
+pub struct PoolState {
+    idle: Channel<IdleConnection>
+    size: int
+    url: string
+    check_after: int
 }
 
-pub enum DbError {
-    NotFound(string)
-    Constraint(string)
-    Connection(string)
-    Sql(string)
+pub struct IdleConnection {
+    connection: Connection
+    since: int
 }
 
-pub struct Row {
-    columns: [string]
-    values: [SqlValue]
+pub enum Connection {
+    Sqlite(sqlite.Connection)
+    Postgres(pg.Connection)
+    Mysql(mysql.Connection)
+    Pool(PoolState)
 }
 
-pub fn db_error_message(e: DbError) -> string
+pub fn open(url: string) -> Result<Connection, DbError>
 
-pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError>
+pub fn close(conn: Connection)
 
-pub fn sql_as_text(v: SqlValue) -> Result<string, DbError>
+pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError>
 
-pub fn sql_as_int(v: SqlValue) -> Result<int, DbError>
+pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
 
-pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError>
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
 
-pub fn sql_as_float(v: SqlValue) -> Result<float, DbError>
+pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Option<Row>, DbError>
 
-pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError>
+pub fn begin(conn: Connection) -> Result<int, DbError>
 
-```
+pub fn commit(conn: Connection) -> Result<int, DbError>
 
-## `url`
+pub fn rollback(conn: Connection) -> Result<int, DbError>
 
-```
-pub struct UrlParam {
-    name: string
-    value: string
-}
+pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
 
-pub struct DbUrl {
-    user: string
-    password: string
-    host: string
-    port: int
-    database: string
-    params: [UrlParam]
-}
+pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError>
 
-pub fn percent_decode(s: string) -> Result<string, DbError>
+pub fn acquire(conn: Connection) -> Result<Connection, DbError>
 
-pub fn param(u: DbUrl, name: string) -> Option<string>
+pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, DbError>
 
-pub fn parse(url: string, prefixes: [string], default_port: int) -> Result<DbUrl, DbError>
+pub fn release(conn: Connection, taken: Connection)
+
+pub fn discard(conn: Connection, taken: Connection)
+
+pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError>
 
 ```
 

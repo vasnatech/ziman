@@ -98,7 +98,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `json`, `ndjson`, `csv`, `toml`, `yaml` | JSON, and the other formats as converters to and from the same `Json` tree |
 | `properties`, `log`, `regex` | configuration files, levelled logging, regular expressions |
 | `net`, `http`, `server`, `client` | TCP and TLS, the types HTTP shares, an HTTP/1.1 server toolkit, an HTTP/HTTPS client |
-| `sql`, `db`, `sqlite`, `pg`, `mysql`, `url` | one database API over SQLite, PostgreSQL and MySQL, with pooling |
+| `db`, `sql`, `sqlite`, `pg`, `mysql` | one database API over SQLite, PostgreSQL and MySQL, with pooling |
 
 Builtins available without `use`: `print`, `printf`, `format`, `str`, `len`,
 `push`, `insert`, `set`, `remove`, `contains`, `hash`, `compare`, `abs`,

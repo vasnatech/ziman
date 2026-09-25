@@ -13,14 +13,14 @@
 // as `(b & 0x0F) | 0x40`.
 
 use clock.now_raw
+use db.DbError
+use db.SqlValue
+use db.sql_as_text
+use db.sql_lift
 use json.Json
 use number.bytes_from_hex
 use number.bytes_to_hex
 use random.random_bytes
-use sql.DbError
-use sql.SqlValue
-use sql.sql_as_text
-use sql.sql_lift
 
 val uuid_byte_count = 16
 val uuid_text_length = 36

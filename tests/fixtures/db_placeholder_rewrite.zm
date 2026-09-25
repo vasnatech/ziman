@@ -1,13 +1,14 @@
-use db
-use sql.SqlValue
-use sql.row_get
-use sql.sql_as_text
+use db.SqlValue
+use db.row_get
+use db.sql_as_text
+use sql
 
 fn main() {
-    val conn = unwrap(db.open("sqlite::memory:"))
-    val a = db.execute(conn, "CREATE TABLE t (a TEXT, b TEXT)", [])
-    val i = db.execute(conn, "INSERT INTO t VALUES ($2, $1)", [SqlValue.Text("first"), SqlValue.Text("second")])
-    val rows = unwrap(db.query(conn, "SELECT a, b, '$1 literal' AS lit FROM t WHERE b = $1 AND a = $2", [SqlValue.Text("first"), SqlValue.Text("second")]))
+    val conn = unwrap(sql.open("sqlite::memory:"))
+    val a = sql.execute(conn, "CREATE TABLE t (a TEXT, b TEXT)", [])
+    val i = sql.execute(conn, "INSERT INTO t VALUES ($2, $1)", [SqlValue.Text("first"), SqlValue.Text("second")])
+    val rows = unwrap(sql.query(conn, "SELECT a, b, '$1 literal' AS lit FROM t WHERE b = $1 AND a = $2",
+        [SqlValue.Text("first"), SqlValue.Text("second")]))
     print(len(rows))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "a")))))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "lit")))))

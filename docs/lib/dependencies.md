@@ -33,7 +33,6 @@ flowchart LR
         pg["db.pg"]
         sql["db.sql"]
         sqlite["db.sqlite"]
-        url["db.url"]
     end
     subgraph group_http["HTTP"]
         client["http.client"]
@@ -55,27 +54,21 @@ flowchart LR
     csv --> fs
     csv --> json
     csv --> number
-    db --> clock
-    db --> mysql
-    db --> pg
-    db --> sql
-    db --> sqlite
+    db --> number
     http --> number
     log --> clock
     log --> fs
     log --> os
     mysql --> crypto
+    mysql --> db
     mysql --> net
     mysql --> number
-    mysql --> sql
-    mysql --> url
     ndjson --> json
     pg --> crypto
+    pg --> db
     pg --> net
     pg --> number
     pg --> random
-    pg --> sql
-    pg --> url
     properties --> fs
     properties --> os
     server --> clock
@@ -83,21 +76,24 @@ flowchart LR
     server --> net
     server --> number
     server --> os
+    sql --> clock
+    sql --> db
+    sql --> mysql
+    sql --> pg
+    sql --> sqlite
+    sqlite --> db
     sqlite --> number
-    sqlite --> sql
     time --> clock
+    time --> db
     time --> json
-    time --> sql
     time --> zone
     toml --> json
     toml --> number
-    url --> number
-    url --> sql
     uuid --> clock
+    uuid --> db
     uuid --> json
     uuid --> number
     uuid --> random
-    uuid --> sql
     yaml --> json
     yaml --> number
     zone --> fs
@@ -112,49 +108,48 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `clock`, `collections`, `compress`, `crypto`, `fs`, `json`, `net`, `number`, `os`, `random`, `regex`, `sql` |
-| 1 | `csv`, `http`, `log`, `ndjson`, `properties`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
-| 2 | `mysql`, `pg`, `server`, `time` |
-| 3 | `client`, `db` |
+| 0 | `clock`, `collections`, `compress`, `crypto`, `fs`, `json`, `net`, `number`, `os`, `random`, `regex` |
+| 1 | `csv`, `db`, `http`, `log`, `ndjson`, `properties`, `toml`, `yaml`, `zone` |
+| 2 | `mysql`, `pg`, `server`, `sqlite`, `time`, `uuid` |
+| 3 | `client`, `sql` |
 
 ## Each module
 
 | Module | Uses | Used by |
 |---|---|---|
 | `client` | `clock`, `compress`, `crypto`, `http`, `net`, `number`, `os`, `time` | - |
-| `clock` | - | `client`, `db`, `log`, `server`, `time`, `uuid` |
+| `clock` | - | `client`, `log`, `server`, `sql`, `time`, `uuid` |
 | `collections` | - | - |
 | `compress` | - | `client` |
 | `crypto` | - | `client`, `mysql`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
-| `db` | `clock`, `mysql`, `pg`, `sql`, `sqlite` | - |
+| `db` | `number` | `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
 | `fs` | - | `csv`, `log`, `properties`, `zone` |
 | `http` | `number` | `client`, `server` |
 | `json` | - | `csv`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `log` | `clock`, `fs`, `os` | - |
-| `mysql` | `crypto`, `net`, `number`, `sql`, `url` | `db` |
+| `mysql` | `crypto`, `db`, `net`, `number` | `sql` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
-| `number` | - | `client`, `csv`, `http`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
+| `number` | - | `client`, `csv`, `db`, `http`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
 | `os` | - | `client`, `log`, `properties`, `server`, `zone` |
-| `pg` | `crypto`, `net`, `number`, `random`, `sql`, `url` | `db` |
+| `pg` | `crypto`, `db`, `net`, `number`, `random` | `sql` |
 | `properties` | `fs`, `os` | - |
 | `random` | - | `pg`, `uuid` |
 | `regex` | - | - |
 | `server` | `clock`, `http`, `net`, `number`, `os` | - |
-| `sql` | - | `db`, `mysql`, `pg`, `sqlite`, `time`, `url`, `uuid` |
-| `sqlite` | `number`, `sql` | `db` |
-| `time` | `clock`, `json`, `sql`, `zone` | `client` |
+| `sql` | `clock`, `db`, `mysql`, `pg`, `sqlite` | - |
+| `sqlite` | `db`, `number` | `sql` |
+| `time` | `clock`, `db`, `json`, `zone` | `client` |
 | `toml` | `json`, `number` | - |
-| `url` | `number`, `sql` | `mysql`, `pg` |
-| `uuid` | `clock`, `json`, `number`, `random`, `sql` | - |
+| `uuid` | `clock`, `db`, `json`, `number`, `random` | - |
 | `yaml` | `json`, `number` | - |
 | `zone` | `fs`, `number`, `os` | `time` |
 
 ## Why some modules are separate
 
-- `sql` holds the vocabulary the database modules share (`SqlValue`, `Row`, `DbError`) so that `pg`,
-  `mysql`, `sqlite`, `url`, `time` and `uuid` can use it without using `db`, which uses them.
+- `db` holds what the database modules share (`SqlValue`, `Row`, `DbError`, the URL parser) so that `pg`,
+  `mysql`, `sqlite`, `time` and `uuid` can use it without using `sql`, which uses them.
 - `http` holds what `server` and `client` share (`Request`, `Response`, `Header`, `HttpMethod`) so neither
   needs the other.
 - `zone` reads the operating system's zone files for `time`; it needs only `fs`, `number` and `os`.

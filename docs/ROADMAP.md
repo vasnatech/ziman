@@ -263,7 +263,7 @@ against)**
   nothing can be indexed by `Uuid`, an enum, or a struct -- a real hole for
   an entity-id-keyed backend. Derive `Hash`/`Eq` for structs and enums
   whose fields are hashable.
-- [x] **R13. Revisit "no closures".** *(Follow-up 2026-09-24: expression-bodied lambdas and parameter/return type inference from the expected function type, see SYNTAX.md "Function values".)* *Stage 1 done 2026-09-23: function types and references to named functions (no capture); `collections.map`/`filter`/`fold`/`any`/`all`/`find`/`for_each`/`sort_with`. `db.with_transaction` and `http.serve` (with an explicit context value) followed on 2026-09-24, and `spawn` accepts explicit type arguments. Stage 2 done 2026-09-24: lambdas `fn(x: int) -> int { ... }` capturing immutable locals by value (a `var` cannot be captured); see DESIGN.md "Closures".* The stated benefit ("libraries can't
+- [x] **R13. Revisit "no closures".** *(Follow-up 2026-09-24: expression-bodied lambdas and parameter/return type inference from the expected function type, see SYNTAX.md "Function values".)* *Stage 1 done 2026-09-23: function types and references to named functions (no capture); `collections.map`/`filter`/`fold`/`any`/`all`/`find`/`for_each`/`sort_with`. `sql.with_transaction` and `http.serve` (with an explicit context value) followed on 2026-09-24, and `spawn` accepts explicit type arguments. Stage 2 done 2026-09-24: lambdas `fn(x: int) -> int { ... }` capturing immutable locals by value (a `var` cannot be captured); see DESIGN.md "Closures".* The stated benefit ("libraries can't
   take opaque callback holes") is already delivered by no overloading, no
   methods and no inheritance; the cost is that `http` cannot be a
   framework, every app hand-writes a linear route chain (near-copy blocks,
@@ -1238,7 +1238,7 @@ from source.
   constraint).
 
 - **Database access follow-ups.** `db`/`sql`, `#[derive(Row)]`, `net`,
-  `crypto`, a shared `url`, and Postgres/MySQL drivers (`pg`/`mysql`)
+  `crypto`, a shared URL parser (now in `db`), and Postgres/MySQL drivers (`pg`/`mysql`)
   exist (docs/DESIGN.md's `db`/`sql`, `net`, `crypto`/`pg` and `mysql`
   entries); SQLite, Postgres and MySQL are the three backends. Still open: (1) ~~TLS~~ **done for clients** (docs/DESIGN.md's TLS entry) -- still
   open: server-side TLS (`listen_tls`, for an HTTPS server), client
@@ -1248,9 +1248,9 @@ from source.
   skipping defers, and no true `with_transaction(fn)` (no closures); (3) ~~connection pool~~ **done as v1**
   (docs/DESIGN.md's pool entry) -- still wanted, and deliberately left for
   a better implementation: ~~reconnect and an acquire timeout~~ (done: a
-  connection-class failure replaces the connection, `db.acquire_timeout`,
-  `db.discard`, and a `SELECT 1` health check of long-idle connections on borrow,
-  `db.open_pool_with`), min/max sizing and
+  connection-class failure replaces the connection, `sql.acquire_timeout`,
+  `sql.discard`, and a `SELECT 1` health check of long-idle connections on borrow,
+  `sql.open_pool_with`), min/max sizing and
   idle timeouts, resetting a connection on release, and real pooling over
   in-memory SQLite (shared-cache); (4)
   **schema management/migrations**, currently a plain `create_schema`
@@ -1301,7 +1301,7 @@ from source.
 
 - **Lazy iteration -- first step done:** `Iter<T>` and `fs.lines(path)`; `for` walks an `Iter` one item at a
   time and releases it on every way out (docs/SYNTAX.md "For loops", docs/DESIGN.md "Lazy iteration").
-  Also done: `fs.chunks`, `fs.walk`, `db.rows` (SQLite, Postgres and MySQL cursors), `ndjson.records`,
+  Also done: `fs.chunks`, `fs.walk`, `sql.rows` (SQLite, Postgres and MySQL cursors), `ndjson.records`,
   `csv.records`, `net.lines`, `client.stream`, and `iter_from` for sources written in Ziman. Still to do: the
   stream pipeline below on top. Reading the source of a pipeline lazily needs no pipe operator; chaining stages does.
 - **Lazy streams (a Java-`Stream`-style pipeline) -- decided direction, not started.** Wanted: a

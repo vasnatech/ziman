@@ -1,23 +1,45 @@
-use sql.DbError
-use sql.Row
-use sql.SqlValue
-use sql.db_error_message
-use sql.row_get
-use sql.sql_as_bool
-use sql.sql_as_int
-use sql.sql_as_text
+use db.DbError
+use db.SqlValue
+use db.db_error_message
+use db.row_get
+use db.sql_as_int
+use db.sql_as_text
+use sql
 
-// The vocabulary the database modules share: a value, a row, and the error type.
+// Bound parameters, rows, and a transaction that rolls back on an error. `sqlite::memory:` is a
+// private in-memory database; `postgres://...` and `mysql://...` URLs work the same way.
 fn main() {
-    val row = Row { columns: ["id", "name", "active"],
-        values: [SqlValue.Int(1), SqlValue.Text("Ada"), SqlValue.Int(1)] }
+    val conn = unwrap(sql.open("sqlite::memory:"))
+    unwrap(sql.execute(conn,
+        """
+        CREATE TABLE person (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL
+        )
+        """,
+        []))
+    unwrap(sql.execute(conn, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Ada")]))
 
-    print(unwrap(sql_as_int(unwrap(row_get(row, "id")))))
-    print(unwrap(sql_as_text(unwrap(row_get(row, "name")))))
-    // SQLite has no boolean type, so a 0 or 1 integer reads as one.
-    print(unwrap(sql_as_bool(unwrap(row_get(row, "active")))))
+    val rows = unwrap(sql.query(conn, "SELECT id, name FROM person", []))
+    print(len(rows))
+    print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))
 
-    // Asking for the wrong type, or a column that is not there, is a DbError.
-    print(db_error_message(unwrap_err(sql_as_int(SqlValue.Text("x")))))
-    print(db_error_message(unwrap_err(row_get(row, "email"))))
+    // A large result is read one row at a time with rows, instead of building the whole array.
+    val cursor = unwrap(sql.rows(conn, "SELECT id, name FROM person", []))
+    for row in cursor {
+        print(unwrap(sql_as_text(unwrap(row_get(unwrap(row), "name")))))
+    }
+
+    // A constraint violation is its own kind of error.
+    val bad = sql.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
+    print(db_error_message(unwrap_err(bad)))
+
+    // with_transaction commits when the work returns Ok and rolls back when it returns Err.
+    val failed = sql.with_transaction<int>(conn, fn(tx: sql.Connection) -> Result<int, DbError> {
+        sql.execute(tx, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Grace")])?
+        return err(DbError.Sql("changed my mind"))
+    })
+    print(is_ok(failed))
+    print(len(unwrap(sql.query(conn, "SELECT id FROM person", []))))
+    sql.close(conn)
 }

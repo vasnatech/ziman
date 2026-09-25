@@ -65,12 +65,11 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 
 | Module | What it is |
 |---|---|
-| [`sql`](sql.md) | The value/row/error vocabulary shared by the `db` driver module and by anything that maps its own types to and from SQL. |
-| [`db`](db.md) | A database driver layer, the shape of JDBC. |
-| [`sqlite`](sqlite.md) | The SQLite driver behind `db`. |
-| [`pg`](pg.md) | A PostgreSQL client, the second backend behind the `db` module. |
-| [`mysql`](mysql.md) | A MySQL / MariaDB client, the third engine behind the `db` module. |
-| [`url`](url.md) | Parsing of database URLs shared by the network drivers. |
+| [`db`](db.md) | What every database module shares. |
+| [`sql`](sql.md) | The module a program calls to use a database, the shape of JDBC. |
+| [`sqlite`](sqlite.md) | The SQLite driver behind `sql`. |
+| [`pg`](pg.md) | A PostgreSQL client, the second backend behind the `sql` module. |
+| [`mysql`](mysql.md) | A MySQL / MariaDB client, the third engine behind the `sql` module. |
 
 ## Always available
 

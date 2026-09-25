@@ -1,45 +1,35 @@
 use db
-use sql.DbError
-use sql.SqlValue
-use sql.db_error_message
-use sql.row_get
-use sql.sql_as_int
-use sql.sql_as_text
+use db.DbError
+use db.Row
+use db.SqlValue
+use db.db_error_message
+use db.row_get
+use db.sql_as_bool
+use db.sql_as_int
+use db.sql_as_text
 
-// Bound parameters, rows, and a transaction that rolls back on an error. `sqlite::memory:` is a
-// private in-memory database; `postgres://...` and `mysql://...` URLs work the same way.
+// What the database modules share: a value, a row, the error type, and the URL parser.
 fn main() {
-    val conn = unwrap(db.open("sqlite::memory:"))
-    unwrap(db.execute(conn,
-        """
-        CREATE TABLE person (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL
-        )
-        """,
-        []))
-    unwrap(db.execute(conn, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Ada")]))
+    val row = Row { columns: ["id", "name", "active"],
+        values: [SqlValue.Int(1), SqlValue.Text("Ada"), SqlValue.Int(1)] }
 
-    val rows = unwrap(db.query(conn, "SELECT id, name FROM person", []))
-    print(len(rows))
-    print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))
+    print(unwrap(sql_as_int(unwrap(row_get(row, "id")))))
+    print(unwrap(sql_as_text(unwrap(row_get(row, "name")))))
+    // SQLite has no boolean type, so a 0 or 1 integer reads as one.
+    print(unwrap(sql_as_bool(unwrap(row_get(row, "active")))))
 
-    // A large result is read one row at a time with rows, instead of building the whole array.
-    val cursor = unwrap(db.rows(conn, "SELECT id, name FROM person", []))
-    for row in cursor {
-        print(unwrap(sql_as_text(unwrap(row_get(unwrap(row), "name")))))
-    }
+    // Asking for the wrong type, or a column that is not there, is a DbError.
+    print(db_error_message(unwrap_err(sql_as_int(SqlValue.Text("x")))))
+    print(db_error_message(unwrap_err(row_get(row, "email"))))
 
-    // A constraint violation is its own kind of error.
-    val bad = db.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
-    print(db_error_message(unwrap_err(bad)))
-
-    // with_transaction commits when the work returns Ok and rolls back when it returns Err.
-    val failed = db.with_transaction<int>(conn, fn(tx: db.Connection) -> Result<int, DbError> {
-        db.execute(tx, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Grace")])?
-        return err(DbError.Sql("changed my mind"))
-    })
-    print(is_ok(failed))
-    print(len(unwrap(db.query(conn, "SELECT id FROM person", []))))
-    db.close(conn)
+    // A database URL, with its credentials decoded (`%40` is `@`); a missing port takes the default.
+    val u = unwrap(db.parse_url("postgres://ada:p%40ss@db.example:6543/health?sslmode=require", ["postgres://"], 5432))
+    print(u.user)
+    print(u.password)
+    print(u.host)
+    print(u.port)
+    print(u.database)
+    print(db.url_param(u, "sslmode"))
+    print(unwrap(db.parse_url("postgres://ada@localhost/health", ["postgres://"], 5432)).port)
+    print(is_ok(db.parse_url("mysql://x@h/d", ["postgres://"], 5432)))
 }

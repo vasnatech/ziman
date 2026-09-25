@@ -23,7 +23,7 @@ GROUPS = [
     ("System", "core", ["fs", "os", "log", "random", "clock"]),
     ("Networking", "core", ["net"]),
     ("HTTP", "http", ["http", "server", "client"]),
-    ("Databases", "db", ["sql", "db", "sqlite", "pg", "mysql", "url"]),
+    ("Databases", "db", ["db", "sql", "sqlite", "pg", "mysql"]),
 ]
 
 

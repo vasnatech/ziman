@@ -71,8 +71,8 @@ def cell(names):
 for name in sorted(mods):
     out.append("| `%s` | %s | %s |" % (name, cell(deps[name]), cell(used_by[name])))
 out += ["", "## Why some modules are separate", "",
-        "- `sql` holds the vocabulary the database modules share (`SqlValue`, `Row`, `DbError`) so that `pg`,",
-        "  `mysql`, `sqlite`, `url`, `time` and `uuid` can use it without using `db`, which uses them.",
+        "- `db` holds what the database modules share (`SqlValue`, `Row`, `DbError`, the URL parser) so that `pg`,",
+        "  `mysql`, `sqlite`, `time` and `uuid` can use it without using `sql`, which uses them.",
         "- `http` holds what `server` and `client` share (`Request`, `Response`, `Header`, `HttpMethod`) so neither",
         "  needs the other.",
         "- `zone` reads the operating system's zone files for `time`; it needs only `fs`, `number` and `os`.", ""]

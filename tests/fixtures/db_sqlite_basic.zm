@@ -1,21 +1,24 @@
-use db
-use sql.SqlValue
-use sql.DbError
-use sql.Row
-use sql.row_get
-use sql.sql_as_text
-use sql.sql_as_int
-use sql.sql_as_bool
-use sql.sql_as_float
-use sql.db_error_message
+use db.DbError
+use db.Row
+use db.SqlValue
+use db.db_error_message
+use db.row_get
+use db.sql_as_bool
+use db.sql_as_float
+use db.sql_as_int
+use db.sql_as_text
+use sql
 
 fn main() {
-    val conn = unwrap(db.open("sqlite::memory:"))
-    print(unwrap(db.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, score REAL, ok INTEGER, note TEXT); CREATE TABLE u (id INTEGER PRIMARY KEY, t_id INTEGER NOT NULL REFERENCES t(id))", [])))
-    val ins = db.execute(conn, "INSERT INTO t (id, name, score, ok, note) VALUES ($1, $2, $3, $4, $5)", [SqlValue.Int(1), SqlValue.Text("Ada | 'x'"), SqlValue.Float(0.1), SqlValue.Bool(true), SqlValue.Null])
+    val conn = unwrap(sql.open("sqlite::memory:"))
+    print(unwrap(sql.execute(conn,
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, score REAL, ok INTEGER, note TEXT); CREATE TABLE u (id INTEGER PRIMARY KEY, t_id INTEGER NOT NULL REFERENCES t(id))",
+        [])))
+    val ins = sql.execute(conn, "INSERT INTO t (id, name, score, ok, note) VALUES ($1, $2, $3, $4, $5)",
+        [SqlValue.Int(1), SqlValue.Text("Ada | 'x'"), SqlValue.Float(0.1), SqlValue.Bool(true), SqlValue.Null])
     print(is_ok(ins))
-    print(is_ok(db.execute(conn, "INSERT INTO t (id, name) VALUES (?1, ?2)", [SqlValue.Int(2), SqlValue.Text("Bob")])))
-    val rows = unwrap(db.query(conn, "SELECT * FROM t ORDER BY id", []))
+    print(is_ok(sql.execute(conn, "INSERT INTO t (id, name) VALUES (?1, ?2)", [SqlValue.Int(2), SqlValue.Text("Bob")])))
+    val rows = unwrap(sql.query(conn, "SELECT * FROM t ORDER BY id", []))
     print(len(rows))
     val r = rows[0]
     print(unwrap(sql_as_text(unwrap(row_get(r, "name")))))
@@ -23,20 +26,20 @@ fn main() {
     print(unwrap(sql_as_bool(unwrap(row_get(r, "ok")))))
     print(SqlValue.is_Null(unwrap(row_get(r, "note"))))
     print(SqlValue.is_Null(unwrap(row_get(rows[1], "score"))))
-    val dup = db.execute(conn, "INSERT INTO t (id, name) VALUES (1, 'dup')", [])
+    val dup = sql.execute(conn, "INSERT INTO t (id, name) VALUES (1, 'dup')", [])
     print(db_error_message(unwrap_err(dup)))
-    val fk = db.execute(conn, "INSERT INTO u (id, t_id) VALUES (1, 99)", [])
+    val fk = sql.execute(conn, "INSERT INTO u (id, t_id) VALUES (1, 99)", [])
     print(db_error_message(unwrap_err(fk)))
-    print(db_error_message(unwrap_err(db.query(conn, "SELEKT 1", []))))
-    print(db_error_message(unwrap_err(db.query(conn, "SELECT * FROM t WHERE id = $1", []))))
-    print(len(unwrap(db.query(conn, "SELECT * FROM t WHERE id = $1", [SqlValue.Int(99)]))))
-    print(is_ok(db.begin(conn)))
-    print(is_ok(db.execute(conn, "DELETE FROM t", [])))
-    print(is_ok(db.rollback(conn)))
-    print(len(unwrap(db.query(conn, "SELECT * FROM t", []))))
-    val blob = unwrap(db.execute(conn, "CREATE TABLE b (x BLOB)", []))
-    print(is_ok(db.execute(conn, "INSERT INTO b VALUES ($1)", [SqlValue.Bytes([1b, 255b])])))
-    val br = unwrap(db.query(conn, "SELECT x FROM b", []))
+    print(db_error_message(unwrap_err(sql.query(conn, "SELEKT 1", []))))
+    print(db_error_message(unwrap_err(sql.query(conn, "SELECT * FROM t WHERE id = $1", []))))
+    print(len(unwrap(sql.query(conn, "SELECT * FROM t WHERE id = $1", [SqlValue.Int(99)]))))
+    print(is_ok(sql.begin(conn)))
+    print(is_ok(sql.execute(conn, "DELETE FROM t", [])))
+    print(is_ok(sql.rollback(conn)))
+    print(len(unwrap(sql.query(conn, "SELECT * FROM t", []))))
+    val blob = unwrap(sql.execute(conn, "CREATE TABLE b (x BLOB)", []))
+    print(is_ok(sql.execute(conn, "INSERT INTO b VALUES ($1)", [SqlValue.Bytes([1b, 255b])])))
+    val br = unwrap(sql.query(conn, "SELECT x FROM b", []))
     print(len(SqlValue.unwrap_Bytes(unwrap(row_get(br[0], "x")))))
-    print(db_error_message(unwrap_err(db.open("oracle://x"))))
+    print(db_error_message(unwrap_err(sql.open("oracle://x"))))
 }

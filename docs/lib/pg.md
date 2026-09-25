@@ -1,7 +1,7 @@
 # `pg`
 
-A PostgreSQL client, the second backend behind the `db`
-module (`db.open("postgres://user:password@host:port/database")`).
+A PostgreSQL client, the second backend behind the `sql`
+module (`sql.open("postgres://user:password@host:port/database")`).
 Written in Ziman on top of `net` (TCP), byte arrays (message framing) and
 `crypto` (SCRAM-SHA-256); nothing here is native but the exact float
 formatting. It speaks protocol version 3.0.
@@ -49,7 +49,7 @@ request/response, so a lone owner thread is what serialises concurrent
 callers (each blocks on its own reply channel). That also means there
 is no lock a `?` returning early can leave held. A *transaction* is
 still per-connection state on the server: statements from other
-threads interleave inside it, as documented for `db`.
+threads interleave inside it, as documented for `sql`.
 
 `use pg` -- or `use pg.Name` to bring one item in bare.
 

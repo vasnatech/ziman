@@ -1,5 +1,5 @@
-// mysql.zm -- a MySQL / MariaDB client, the third engine behind the `db`
-// module (`db.open("mysql://user:password@host:port/database")`). Written
+// mysql.zm -- a MySQL / MariaDB client, the third engine behind the `sql`
+// module (`sql.open("mysql://user:password@host:port/database")`). Written
 // in Ziman on top of `net` (TCP + TLS), byte arrays (packet framing) and
 // `crypto` (SHA-1 / SHA-256 for the login scramble); nothing here is
 // native at all.
@@ -53,16 +53,16 @@
 use crypto.bytes_xor
 use crypto.sha1
 use crypto.sha256
+use db
+use db.DbError
+use db.Row
+use db.SqlValue
 use net
 use net.Socket
 use net.net_error_message
 use number.f32_from_bytes
 use number.f64_from_bytes
 use number.f64_to_bytes
-use sql.DbError
-use sql.Row
-use sql.SqlValue
-use url
 
 // Client capability flags: the bits of the login packet's `caps` field this driver sets.
 val cap_long_password = 1
@@ -388,14 +388,14 @@ fn expect_ok(sock: Socket) -> Result<int, DbError> {
 
 // mysql://user[:password]@host[:port]/database[?sslmode=...&sslrootcert=...]
 fn parse_url(url: string) -> Result<MyUrl, DbError> {
-    val u = url.parse(url, ["mysql://"], 3306)?
+    val u = db.parse_url(url, ["mysql://"], 3306)?
     var sslmode = "disable"
     var sslrootcert = ""
-    val mode = url.param(u, "sslmode")
+    val mode = db.url_param(u, "sslmode")
     if Option.is_Some(mode) {
         sslmode = Option.unwrap_Some(mode)
     }
-    val root = url.param(u, "sslrootcert")
+    val root = db.url_param(u, "sslrootcert")
     if Option.is_Some(root) {
         sslrootcert = Option.unwrap_Some(root)
     }

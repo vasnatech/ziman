@@ -634,7 +634,7 @@ static char *generate_enum_from_json(EnumDecl *ed) {
 
 /* ---------------------------------------------------------------------
  * Row derive: <name>_from_row / <name>_to_params, for mapping a struct to
- * and from one SQL result row (lib/db/sql.zm's Row/SqlValue).
+ * and from one SQL result row (lib/db/db.zm's Row/SqlValue).
  *
  * Column names are the struct's own field names, as written -- already
  * snake_case, which is also how SQL columns are conventionally named, so
@@ -965,7 +965,7 @@ static void import_for_derive(Module *module, const char *target, int line, int 
         for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "json", names[i], line, col);
     } else if (strcmp(target, "Row") == 0) {
         static const char *const names[] = {"SqlValue", "DbError", "Row", "row_get", "sql_as_text", "sql_as_int", "sql_as_bool", "sql_as_float"};
-        for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "sql", names[i], line, col);
+        for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "db", names[i], line, col);
     } else if (strcmp(target, "Properties") == 0) {
         ensure_module_import(module, "properties", line, col);
     }

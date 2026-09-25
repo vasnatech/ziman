@@ -1,6 +1,13 @@
 1
 Ada
-Ada
-constraint violation: NOT NULL constraint failed: person.name
+true
+database error: expected INTEGER, found TEXT
+database error: no such column in result row: email
+ada
+p@ss
+db.example
+6543
+health
+Some(require)
+5432
 false
-1

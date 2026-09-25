@@ -159,25 +159,25 @@ empty read) — blocking on purpose, since `spawn` gives every connection its ow
 OS thread — and the `[byte]` helpers that go with it are prelude builtins (string
 conversion) and `number` (big-endian integers).
 
-`defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `?`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer db.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error.
+`defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `?`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer sql.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error.
 
 `http` is an HTTP/1.1 server toolkit on `net` (request parsing with keep-alive and pipelining, bounded headers and bodies, response framing, and route matching with path parameters) — a toolkit rather than a framework (function values don't capture, so a handler can't reach the application's database connection unless it is passed in as an explicit context value); `server.serve(listener, ctx, handler, options)` runs the accept and connection loops around a handler function value, or an application can write its own loops and `route` function; strings now have a `\r` escape.
 
 `net` also does client-side TLS on the system OpenSSL (`net.connect_tls`/`net.start_tls`, upgrading a socket in place so everything built on `Socket` works over it), with certificate and host-name verification on by default and an explicit `TlsVerify` (`Full`/`Chain`/`Off`) plus optional CA file when relaxing it.
 
-`db.open_pool(url, size)` returns a pool-backed `Connection` (same type, so repository code is unchanged): statements borrow a connection for one call, and `db.acquire`/`db.release` (with `defer`) hand out an exclusive connection for a transaction — the pool is just a channel of idle connections. A dead connection is replaced after a connection-class failure; `db.acquire_timeout` bounds the wait.
+`sql.open_pool(url, size)` returns a pool-backed `Connection` (same type, so repository code is unchanged): statements borrow a connection for one call, and `sql.acquire`/`sql.release` (with `defer`) hand out an exclusive connection for a transaction — the pool is just a channel of idle connections. A dead connection is replaced after a connection-class failure; `sql.acquire_timeout` bounds the wait.
 
-## Databases: `crypto`, `pg`, `sql`/`db`
+## Databases: `crypto`, `pg`, `db`/`sql`
 
 `crypto` is just enough cryptography for SCRAM-SHA-256 (SHA-256, HMAC, PBKDF2, base64 — native, self-contained,
 checked against the RFC vectors; not a general-purpose library), and `pg` is a PostgreSQL client written in Ziman on top of
 `net`/`number`/`crypto`: trust, cleartext and SCRAM-SHA-256 authentication (the server's signature is verified too),
 the simple and extended query protocols, tested against a real Postgres server by `make test-pg`.
-`db.open("postgres://user:password@host:port/database")` selects it, so the same repository SQL and
-`#[derive(Row)]` code run on SQLite and Postgres unchanged; `sslmode` follows libpq (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`, `sslrootcert`), verified against a real TLS-enabled server. `sql` and `db` are a JDBC-shaped database layer: `db.open("sqlite::memory:")`
-returns a `Connection`, `db.execute`/`db.query` take SQL text with `$1, $2`
+`sql.open("postgres://user:password@host:port/database")` selects it, so the same repository SQL and
+`#[derive(Row)]` code run on SQLite and Postgres unchanged; `sslmode` follows libpq (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`, `sslrootcert`), verified against a real TLS-enabled server. `sql` and `db` are a JDBC-shaped database layer: `sql.open("sqlite::memory:")`
+returns a `Connection`, `sql.execute`/`sql.query` take SQL text with `$1, $2`
 bound parameters (never spliced in) as `[SqlValue]`, and rows come back as
-`sql.Row`; `#[derive(Row)]` generates the row-to-struct mapping, and
+`db.Row`; `#[derive(Row)]` generates the row-to-struct mapping, and
 `Uuid`/`time` types map through `Text` columns. SQLite (system
 `libsqlite3`, linked with `-lsqlite3`) and Postgres are the two backends, chosen by URL
 scheme behind the same API.
