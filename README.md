@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo/ziman-logo.svg" alt="Ziman logo" width="120"></p>
+
 # Ziman
 
 Ziman ("language" in Kurdish) is a small, statically-typed language whose

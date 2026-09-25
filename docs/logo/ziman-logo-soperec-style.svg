@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Ziman">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <g fill="none" stroke="#426141" stroke-width="62" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M150 320 L870 320 L150 704 L870 704"/>
+    <path d="M150 150 L150 200"/>
+    <path d="M150 854 L150 874"/>
+    <path d="M270 150 L270 170"/>
+    <path d="M270 824 L270 874"/>
+    <path d="M390 150 L390 200"/>
+    <path d="M390 854 L390 874"/>
+    <path d="M510 150 L510 170"/>
+    <path d="M510 824 L510 874"/>
+    <path d="M630 150 L630 200"/>
+    <path d="M630 854 L630 874"/>
+    <path d="M750 150 L750 170"/>
+    <path d="M750 824 L750 874"/>
+    <path d="M870 150 L870 200"/>
+    <path d="M870 854 L870 874"/>
+    <path d="M358 459 L234 525"/>
+    <path d="M786 499 L662 565"/>
+  </g>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Ziman">
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- braces -->
+    <path d="M38 26 C27 26 27 33 27 42 L27 54 C27 60 24 64 18 64 C24 64 27 68 27 74 L27 86 C27 95 27 102 38 102" stroke="#d9992b" stroke-width="7"/>
+    <path d="M90 26 C101 26 101 33 101 42 L101 54 C101 60 104 64 110 64 C104 64 101 68 101 74 L101 86 C101 95 101 102 90 102" stroke="#d9992b" stroke-width="7"/>
+    <!-- Z -->
+    <path d="M47 40 L81 40 L47 88 L81 88" stroke="#2e6b4f" stroke-width="10"/>
+  </g>
+</svg>
