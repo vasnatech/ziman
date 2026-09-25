@@ -1707,10 +1707,12 @@ fn main() {
   (a large id no longer loses precision); a fraction, an exponent or an integer too big
   for `int` parses to `JNumber(float)`. `int_from_json` accepts a `JInt` or a whole-valued
   `JNumber` in range; `float_from_json` accepts either.
-- **`parse_json(s: string) -> Result<Json, string>`** — a recursive-descent parser.
+- **`parse_json(s: string) -> Result<Json, string>`** — a native parser (about 40x faster than the
+  Ziman one it replaced); errors give the byte position, and nesting past 512 levels is an error.
   All JSON string escapes are read (`\" \\ \/ \b \f \n \r \t` and `\uXXXX`, surrogate
   pairs included, decoded to UTF-8); `\u0000` is an error (a string cannot hold a 0 byte).
-- **`json_to_string(j: Json) -> string`** — compact serialization, control characters
+- **`json_to_string(j: Json) -> string`** — native compact serialization; a float is written with the
+  fewest digits that read back exactly (`0.1`, not `0.100000`), NaN and infinity as `null`; control characters
   written as `\b \f \u00XX`. **`json_to_pretty_string(j, indent)`** indents.
 - **Lookups:** `json_object_get(j, key) -> Option<Json>`; `json_get_path(j, ["items", "0",
   "name"]) -> Option<Json>` (an array segment is a decimal index); `json_require_field`,

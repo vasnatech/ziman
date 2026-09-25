@@ -6,6 +6,7 @@
 #include "format.h"
 #include "lsp.h"
 #include "native_csv.h"
+#include "native_json.h"
 #include "native_number.h"
 #include "native_os.h"
 #include "error.h"
@@ -149,6 +150,7 @@ int main(int argc, char **argv) {
         native_crypto_register();
         native_number_register();
         native_csv_register();
+        native_json_register();
         prelude_register();
         return lsp_main();
     }
@@ -180,6 +182,7 @@ int main(int argc, char **argv) {
     native_crypto_register();
     native_number_register();
     native_csv_register();
+    native_json_register();
     prelude_register();
 
     Module *module = load_module_graph(file);

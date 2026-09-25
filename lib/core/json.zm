@@ -1,5 +1,7 @@
-// json.zm -- a JSON parser and serializer, written in pure Ziman.
-// `Json` is a genuinely recursive enum: `JArray([Json])` and
+// json.zm -- JSON as a `Json` tree: a native parser and serializer, and Ziman helpers for
+// reading and building trees.
+//
+// `Json` is a recursive enum: `JArray([Json])` and
 // `JObject(Map<string, Json>)`. An object is a built-in `Map`, so a field lookup is
 // near-O(1) (not a scan), a duplicate key has one defined meaning (the last one
 // wins; `parse_json_strict` rejects it instead), and iteration -- and so
@@ -23,13 +25,6 @@
 // expected to be built on top of it (see `json_object_get`, `json_get_path` and the
 // `json_require_*` helpers below, or `#[derive(Json)]`), not inside this module.
 
-// UTF-16 surrogate ranges, for reading `\uD83D\uDE00`-style escapes.
-val surrogate_high_start = 55296
-val surrogate_high_end = 56319
-val surrogate_low_start = 56320
-val surrogate_low_end = 57343
-val hex_chars = "0123456789abcdef"
-
 pub enum Json {
     JNull
     JBool(bool)
@@ -40,462 +35,39 @@ pub enum Json {
     JObject(Map<string, Json>)
 }
 
-fn is_ws(c: string) -> bool {
-    return c == " " || c == "\t" || c == "\n" || c == "\r"
-}
+// ---------------------------------------------------------------- parsing
 
-fn skip_ws(s: string, pos: int) -> int {
-    var p = pos
-    while p < len(s) && is_ws(char_at(s, p)) {
-        p = p + 1
-    }
-    return p
-}
+// The parser and serializer are native (src/native_json.c). `proto` is any `Json` value: the
+// native builds its values with the same enum type as `proto`, since a native cannot name the
+// loader's qualified `Json` type itself.
+native fn parse_native(text: string, proto: Json, strict: bool) -> Result<Json, string>
+native fn to_string_native(j: Json) -> string
 
-fn is_digit(c: string) -> bool {
-    return c == "0" || c == "1" || c == "2" || c == "3" || c == "4" || c == "5" || c == "6" || c == "7" || c == "8" || c == "9"
-}
-
-// Every recursive-descent helper below returns "the value it parsed,
-// plus where parsing should resume" -- Ziman has no mutable
-// out-parameters, so threading the cursor position explicitly through
-// a small return struct is the natural fit (same shape PatientStore's
-// own "return a new one, don't mutate in place" pattern uses elsewhere
-// in this project).
-struct ParseResult {
-    value: Json
-    next_pos: int
-}
-
-fn expect_literal(s: string, pos: int, lit: string) -> Result<int, string> {
-    val end = pos + len(lit)
-    if !is_char_at(s, pos, lit) {
-        return err(format("expected '{}' at position {}", lit, pos))
-    }
-    return ok(end)
-}
-
-fn parse_null(s: string, pos: int) -> Result<ParseResult, string> {
-    val r = expect_literal(s, pos, "null")
-    if !is_ok(r) {
-        return err(unwrap_err(r))
-    }
-    return ok(ParseResult { value: Json.JNull, next_pos: unwrap(r) })
-}
-
-fn parse_bool(s: string, pos: int) -> Result<ParseResult, string> {
-    if is_char_at(s, pos, "t") {
-        val r = expect_literal(s, pos, "true")
-        if !is_ok(r) {
-            return err(unwrap_err(r))
-        }
-        return ok(ParseResult { value: Json.JBool(true), next_pos: unwrap(r) })
-    }
-    val r = expect_literal(s, pos, "false")
-    if !is_ok(r) {
-        return err(unwrap_err(r))
-    }
-    return ok(ParseResult { value: Json.JBool(false), next_pos: unwrap(r) })
-}
-
-fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
-    var p = pos
-    if is_char_at(s, p, "-") {
-        p = p + 1
-    }
-    val int_start = p
-    var is_whole = true
-    while p < len(s) && is_digit(char_at(s, p)) {
-        p = p + 1
-    }
-    if p == int_start {
-        return err(format("invalid number at position {}", pos))
-    }
-    if is_char_at(s, p, ".") {
-        is_whole = false
-        p = p + 1
-        val frac_start = p
-        while p < len(s) && is_digit(char_at(s, p)) {
-            p = p + 1
-        }
-        if p == frac_start {
-            return err(format("invalid number at position {}", pos))
-        }
-    }
-    if is_char_at(s, p, "e") || is_char_at(s, p, "E") {
-        is_whole = false
-        p = p + 1
-        if is_char_at(s, p, "+") || is_char_at(s, p, "-") {
-            p = p + 1
-        }
-        val exp_start = p
-        while p < len(s) && is_digit(char_at(s, p)) {
-            p = p + 1
-        }
-        if p == exp_start {
-            return err(format("invalid number at position {}", pos))
-        }
-    }
-    val text = substring(s, pos, p)
-    if is_whole {
-        val as_int = parse_int(text)
-        if is_ok(as_int) {
-            return ok(ParseResult { value: Json.JInt(unwrap(as_int)), next_pos: p })
-        }
-    }
-    val parsed = parse_float(text)
-    if !is_ok(parsed) {
-        return err(format("invalid number '{}' at position {}", text, pos))
-    }
-    return ok(ParseResult { value: Json.JNumber(unwrap(parsed)), next_pos: p })
-}
-
-fn hex_digit(c: string) -> int {
-    if len(c) != 1 {
-        return -1
-    }
-    return index_of(hex_chars, to_lower(c), 0)
-}
-
-// Four hex digits at `pos`, or -1.
-fn hex4(s: string, pos: int) -> int {
-    if pos + 4 > len(s) {
-        return -1
-    }
-    var n = 0
-    for i in 0..4 {
-        val d = hex_digit(char_at(s, pos + i))
-        if d < 0 {
-            return -1
-        }
-        n = n * 16 + d
-    }
-    return n
-}
-
-struct UnicodeEscape {
-    code_point: int
-    next_pos: int
-}
-
-// The `\uXXXX` (or a `\uD83D\uDE00` surrogate pair) whose backslash is at `pos`.
-fn read_unicode_escape(s: string, pos: int) -> Result<UnicodeEscape, string> {
-    val hi = hex4(s, pos + 2)
-    if hi < 0 {
-        return err(format("invalid \\u escape at position {}", pos))
-    }
-    if hi >= surrogate_high_start && hi <= surrogate_high_end {
-        if is_char_at(s, pos + 6, "\\") && is_char_at(s, pos + 7, "u") {
-            val lo = hex4(s, pos + 8)
-            if lo >= surrogate_low_start && lo <= surrogate_low_end {
-                return ok(UnicodeEscape { code_point: 65536 + (hi - surrogate_high_start) * 1024 + (lo - surrogate_low_start),
-                    next_pos: pos + 12 })
-            }
-        }
-        return err(format("unpaired surrogate in \\u escape at position {}", pos))
-    }
-    if hi >= surrogate_low_start && hi <= surrogate_low_end {
-        return err(format("unpaired surrogate in \\u escape at position {}", pos))
-    }
-    if hi == 0 {
-        return err(format("\\u0000 is not supported (a string cannot contain a 0 byte), at position {}", pos))
-    }
-    return ok(UnicodeEscape { code_point: hi, next_pos: pos + 6 })
-}
-
-fn append_utf8(out: StringBuilder, cp: int) {
-    if cp < 128 {
-        sb_append_byte(out, cp as byte)
-    } else if cp < 2048 {
-        sb_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
-    } else if cp < 65536 {
-        sb_append_byte(out, (224 + cp / 4096) as byte, (128 + cp / 64 % 64) as byte, (128 + cp % 64) as byte)
-    } else {
-        sb_append_byte(out, (240 + cp / 262144) as byte, (128 + cp / 4096 % 64) as byte, (128 + cp / 64 % 64) as byte,
-            (128 + cp % 64) as byte)
-    }
-}
-
-// Also used for an object's key, which is just a JSON string in key
-// position -- there's no separate grammar for it.
-//
-// Built on the prelude's StringBuilder rather than the concat-in-a-loop
-// this originally was -- an arbitrary-length JSON string used to mean
-// one leaked, ever-growing string per character (see docs/DESIGN.md's
-// "StringBuilder" entry, and this function's own original mention as
-// one of the motivating cases).
-fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
-    var p = pos + 1  // skip opening '"'
-    val out = sb_new()
-    while true {
-        if p >= len(s) {
-            return err("unterminated string")
-        }
-        if is_char_at(s, p, "\"") {
-            return ok(ParseResult { value: Json.JString(sb_to_string(out)), next_pos: p + 1 })
-        }
-        if is_char_at(s, p, "\\") {
-            if p + 1 >= len(s) {
-                return err("unterminated escape sequence")
-            }
-            val esc = substring(s, p + 1, p + 2)
-            if esc == "\"" {
-                sb_append(out, "\"")
-            } else if esc == "\\" {
-                sb_append(out, "\\")
-            } else if esc == "/" {
-                sb_append(out, "/")
-            } else if esc == "n" {
-                sb_append(out, "\n")
-            } else if esc == "t" {
-                sb_append(out, "\t")
-            } else if esc == "r" {
-                sb_append(out, "\r")
-            } else if esc == "b" {
-                sb_append_byte(out, 8b)
-            } else if esc == "f" {
-                sb_append_byte(out, 12b)
-            } else if esc == "u" {
-                val cp_result = read_unicode_escape(s, p)
-                if !is_ok(cp_result) {
-                    return err(unwrap_err(cp_result))
-                }
-                val decoded = unwrap(cp_result)
-                append_utf8(out, decoded.code_point)
-                p = decoded.next_pos
-                continue
-            } else {
-                return err(format("unsupported escape '\\{}' at position {}", esc, p))
-            }
-            p = p + 2
-        } else {
-            sb_append(out, char_at(s, p))
-            p = p + 1
-        }
-    }
-    return err("unreachable")
-}
-
-// Built on ArrayBuilder<Json> rather than `push` in a loop -- same
-// reasoning as parse_string above, one level up: an arbitrary-length
-// JSON array used to mean one leaked, ever-growing array per element.
-fn parse_array(s: string, pos: int, strict: bool) -> Result<ParseResult, string> {
-    var p = skip_ws(s, pos + 1)  // skip '['
-    val items = ab_new<Json>()
-    if is_char_at(s, p, "]") {
-        return ok(ParseResult { value: Json.JArray(ab_to_array<Json>(items)), next_pos: p + 1 })
-    }
-    while true {
-        val r = parse_value(s, p, strict)
-        if !is_ok(r) {
-            return err(unwrap_err(r))
-        }
-        val pr = unwrap(r)
-        ab_append<Json>(items, pr.value)
-        p = skip_ws(s, pr.next_pos)
-        if p >= len(s) {
-            return err("unterminated array")
-        }
-        if is_char_at(s, p, ",") {
-            p = skip_ws(s, p + 1)
-        } else if is_char_at(s, p, "]") {
-            return ok(ParseResult { value: Json.JArray(ab_to_array<Json>(items)), next_pos: p + 1 })
-        } else {
-            return err(format("expected ',' or ']' at position {}", p))
-        }
-    }
-    return err("unreachable")
-}
-
-// Fields go into a Map in document order; a repeated key overwrites (keeping its
-// first position) unless `strict`, where it is an error.
-fn parse_object(s: string, pos: int, strict: bool) -> Result<ParseResult, string> {
-    var p = skip_ws(s, pos + 1)  // skip '{'
-    val fields = mapb_new<string, Json>()
-    if is_char_at(s, p, "}") {
-        return ok(ParseResult { value: Json.JObject(Map<string, Json> {}), next_pos: p + 1 })
-    }
-    while true {
-        if !is_char_at(s, p, "\"") {
-            return err(format("expected string key at position {}", p))
-        }
-        val key_result = parse_string(s, p)
-        if !is_ok(key_result) {
-            return err(unwrap_err(key_result))
-        }
-        val key_pr = unwrap(key_result)
-        val key = Json.unwrap_JString(key_pr.value)
-        if strict && mapb_contains<string, Json>(fields, key) {
-            return err(format("duplicate key '{}' at position {}", key, p))
-        }
-        p = skip_ws(s, key_pr.next_pos)
-        if !is_char_at(s, p, ":") {
-            return err(format("expected ':' at position {}", p))
-        }
-        p = skip_ws(s, p + 1)
-        val val_result = parse_value(s, p, strict)
-        if !is_ok(val_result) {
-            return err(unwrap_err(val_result))
-        }
-        val val_pr = unwrap(val_result)
-        mapb_set<string, Json>(fields, key, val_pr.value)
-        p = skip_ws(s, val_pr.next_pos)
-        if p >= len(s) {
-            return err("unterminated object")
-        }
-        if is_char_at(s, p, ",") {
-            p = skip_ws(s, p + 1)
-        } else if is_char_at(s, p, "}") {
-            return ok(ParseResult { value: Json.JObject(mapb_to_map<string, Json>(fields)), next_pos: p + 1 })
-        } else {
-            return err(format("expected ',' or a closing brace at position {}", p))
-        }
-    }
-    return err("unreachable")
-}
-
-fn parse_value(s: string, pos: int, strict: bool) -> Result<ParseResult, string> {
-    val p = skip_ws(s, pos)
-    if p >= len(s) {
-        return err("unexpected end of input")
-    }
-    val c = char_at(s, p)
-    if c == "{" {
-        return parse_object(s, p, strict)
-    }
-    if c == "[" {
-        return parse_array(s, p, strict)
-    }
-    if c == "\"" {
-        return parse_string(s, p)
-    }
-    if c == "t" || c == "f" {
-        return parse_bool(s, p)
-    }
-    if c == "n" {
-        return parse_null(s, p)
-    }
-    if c == "-" || is_digit(c) {
-        return parse_number(s, p)
-    }
-    return err(format("unexpected character '{}' at position {}", c, p))
-}
-
-fn parse_document(s: string, strict: bool) -> Result<Json, string> {
-    val r = parse_value(s, 0, strict)
-    if !is_ok(r) {
-        return err(unwrap_err(r))
-    }
-    val pr = unwrap(r)
-    val end = skip_ws(s, pr.next_pos)
-    if end != len(s) {
-        return err(format("trailing content at position {}", end))
-    }
-    return ok(pr.value)
-}
-
-// Parses one JSON document. A repeated key in an object is allowed: the last one wins.
+// Parses one JSON document. A repeated key in an object is allowed: the last one wins, keeping
+// the position of the first. Errors say what was expected and the byte position
+// (`expected ',' or ']' at position 12`); nesting deeper than 512 levels is an error. The whole
+// input must be one value: `trailing content at position N` otherwise.
 pub fn parse_json(s: string) -> Result<Json, string> {
-    return parse_document(s, false)
+    return parse_native(s, Json.JNull, false)
 }
 
-// parse_json, but a repeated key in any object is an error -- for input where a
-// duplicate means something is wrong (a signed or audited document, a config file).
+// parse_json, but a repeated key in any object is an error -- for input where a duplicate
+// means something is wrong (a signed or audited document, a config file).
 pub fn parse_json_strict(s: string) -> Result<Json, string> {
-    return parse_document(s, true)
+    return parse_native(s, Json.JNull, true)
 }
 
-// Built on StringBuilder rather than the concat-in-a-loop this
-// originally was -- see parse_string's own comment above; an
-// arbitrary-length string used to mean one leaked, ever-growing string
-// per character escaped.
-fn escape_json_string(s: string) -> string {
-    val out = sb_new()
-    sb_append(out, "\"")
-    var i = 0
-    while i < len(s) {
-        val c = char_at(s, i)
-        if c == "\"" {
-            sb_append(out, "\\\"")
-        } else if c == "\\" {
-            sb_append(out, "\\\\")
-        } else if c == "\n" {
-            sb_append(out, "\\n")
-        } else if c == "\t" {
-            sb_append(out, "\\t")
-        } else if c == "\r" {
-            sb_append(out, "\\r")
-        } else if compare(c, " ") < 0 {
-            val code = string_to_bytes(c)[0] as int
-            if code == 8 {
-                sb_append(out, "\\b")
-            } else if code == 12 {
-                sb_append(out, "\\f")
-            } else {
-                sb_append(out, "\\u00", substring(hex_chars, code / 16, code / 16 + 1),
-                    substring(hex_chars, code % 16, code % 16 + 1))
-            }
-        } else {
-            sb_append(out, c)
-        }
-        i = i + 1
-    }
-    sb_append(out, "\"")
-    return sb_to_string(out)
-}
+// ---------------------------------------------------------------- writing
 
-// Built on StringBuilder rather than the concat-in-a-loop this
-// originally was -- see parse_string's own comment above; an
-// arbitrary-size array or object used to mean one leaked, ever-growing
-// string per element serialized, on top of whatever each element's own
-// recursive json_to_string call already allocated.
+// `j` as compact JSON text (no spaces), objects in key insertion order. A float is written
+// with the fewest digits that read back as the same number (`0.1`, `1e+20`); NaN and infinity,
+// which JSON cannot represent, are written as `null`. Control characters in strings are
+// escaped (`\b \f \n \r \t`, else `\u00XX`); everything else, including non-ASCII, is written as is.
 pub fn json_to_string(j: Json) -> string {
-    if Json.is_JNull(j) {
-        return "null"
-    }
-    if Json.is_JBool(j) {
-        if Json.unwrap_JBool(j) {
-            return "true"
-        }
-        return "false"
-    }
-    if Json.is_JInt(j) {
-        return str(Json.unwrap_JInt(j))
-    }
-    if Json.is_JNumber(j) {
-        return str(Json.unwrap_JNumber(j))
-    }
-    if Json.is_JString(j) {
-        return escape_json_string(Json.unwrap_JString(j))
-    }
-    if Json.is_JArray(j) {
-        val items = Json.unwrap_JArray(j)
-        val out = sb_new()
-        sb_append(out, "[")
-        var i = 0
-        while i < len(items) {
-            if i > 0 {
-                sb_append(out, ",")
-            }
-            sb_append(out, json_to_string(items[i]))
-            i = i + 1
-        }
-        sb_append(out, "]")
-        return sb_to_string(out)
-    }
-    val out = sb_new()
-    sb_append(out, "{")
-    var first = true
-    for key, value in Json.unwrap_JObject(j) {
-        if !first {
-            sb_append(out, ",")
-        }
-        first = false
-        sb_append(out, escape_json_string(key), ":", json_to_string(value))
-    }
-    sb_append(out, "}")
-    return sb_to_string(out)
+    return to_string_native(j)
 }
+
+// ---------------------------------------------------------------- reading a tree
 
 // The core convenience lookup provided beyond parse/serialize -- looking
 // up a field by key is common enough (every schema-specific parser
@@ -654,7 +226,7 @@ fn write_pretty(out: StringBuilder, j: Json, indent: int, level: int) {
         var n = 0
         for key, value in fields {
             n = n + 1
-            sb_append(out, pad, escape_json_string(key), ": ")
+            sb_append(out, pad, json_to_string(Json.JString(key)), ": ")
             write_pretty(out, value, indent, level + 1)
             sb_append(out, if n < len(fields) { ",\n" } else { "\n" })
         }

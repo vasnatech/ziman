@@ -1,0 +1,37 @@
+0.1234567
+1234567.5
+0.30000000000000004
+1e+20
+-1e-06
+null
+-9223372036854775807
+[0.30000000000000004,1234567.5,1e-07]
+"tab\t nl\n bell\u0007 é 😀"
+true
+nesting is too deep at position 513
+unexpected end of input
+unexpected end of input
+expected string key at position 1
+expected ':' at position 4
+unexpected end of input
+unterminated object
+expected ':' at position 5
+expected string key at position 1
+expected ',' or ']' at position 3
+unexpected end of input
+unexpected end of input
+expected 'true' at position 0
+expected 'null' at position 0
+invalid number at position 0
+invalid number at position 0
+invalid number at position 0
+unterminated string
+unterminated escape sequence
+unsupported escape '\q' at position 2
+invalid \u escape at position 1
+unpaired surrogate in \u escape at position 1
+unpaired surrogate in \u escape at position 1
+trailing content at position 2
+unexpected character '@' at position 0
+true
+3000

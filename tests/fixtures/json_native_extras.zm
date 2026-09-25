@@ -1,0 +1,54 @@
+use json
+use json.Json
+
+fn depth(n: int) -> string {
+    val sb = sb_new()
+    for i in 0..n {
+        sb_append(sb, "[")
+    }
+    for i in 0..n {
+        sb_append(sb, "]")
+    }
+    return sb_to_string(sb)
+}
+
+fn main() {
+    // floats are written with the shortest text that reads back exactly
+    print(json.json_to_string(Json.JNumber(0.1234567)))
+    print(json.json_to_string(Json.JNumber(1234567.5)))
+    print(json.json_to_string(Json.JNumber(0.1 + 0.2)))
+    print(json.json_to_string(Json.JNumber(100000000000000000000.0)))
+    print(json.json_to_string(Json.JNumber(-0.000001)))
+    print(json.json_to_string(Json.JNumber(unwrap(parse_float("nan")))))
+    print(json.json_to_string(Json.JInt(-9223372036854775807)))
+    val back = unwrap(json.parse_json("[0.30000000000000004, 1234567.5, 1e-7]"))
+    print(json.json_to_string(back))
+
+    // control characters and non-ASCII in strings
+    print(json.json_to_string(unwrap(json.parse_json("\"tab\\t nl\\n bell\\u0007 \\u00e9 \\ud83d\\ude00\""))))
+
+    // nesting is limited, not a crash
+    print(is_ok(json.parse_json(depth(500))))
+    print(unwrap_err(json.parse_json(depth(600))))
+
+    // every error message
+    for text in ["", "  ", "{", "{\"a\"", "{\"a\":", "{\"a\":1", "{\"a\" 1}", "{1:2}", "[1 2]", "[1,", "[", "tru",
+        "nul", "-", "1.", "1e", "\"abc", "\"a\\", "\"a\\q\"", "\"\\u12\"", "\"\\ud800\"", "\"\\udc00\"", "1 2", "@"] {
+            print(unwrap_err(json.parse_json(text)))
+        }
+
+    // a big document round-trips
+    val sb = sb_new()
+    sb_append(sb, "[")
+    for i in 0..3000 {
+        if i > 0 {
+            sb_append(sb, ",")
+        }
+        sb_append(sb, "{\"id\":", str(i), ",\"name\":\"n", str(i), "\",\"tags\":[true,null,1.5]}")
+    }
+    sb_append(sb, "]")
+    val text = sb_to_string(sb)
+    val parsed = unwrap(json.parse_json(text))
+    print(json.json_to_string(parsed) == text)
+    print(len(Json.unwrap_JArray(parsed)))
+}
