@@ -742,12 +742,10 @@ static Value native_is_sortable_scalars(Value *args, int argc, int line, int col
     return value_bool(scalar_sortable(args[0].as.arr));
 }
 
-/* The positions of the array's elements in sorted order. Stable: equal elements keep their
- * input order, in descending order too (it is not the ascending result reversed). */
-static Value native_sort_scalar_order(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
-    const ArrayObj *a = args[0].as.arr;
-    int desc = args[1].as.b;
+/* The positions of the array's elements in sorted order, as a fresh int64 buffer (the
+ * caller's to use). Stable: equal elements keep their input order, in descending order
+ * too (it is not the ascending result reversed). */
+static int64_t *scalar_order(const ArrayObj *a, int desc) {
     int n = a->count;
     int64_t *order = zalloc_atomic((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
     int64_t *tmp = zalloc_atomic((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
@@ -768,7 +766,53 @@ static Value native_sort_scalar_order(Value *args, int argc, int line, int col) 
         }
         int64_t *swap = order; order = tmp; tmp = swap;
     }
-    return value_int_array(order, (size_t)n);
+    return order;
+}
+
+static Value native_sort_scalar_order(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const ArrayObj *a = args[0].as.arr;
+    return value_int_array(scalar_order(a, args[1].as.b), (size_t)a->count);
+}
+
+/* `a` rearranged: element i of the result is a's element order[i]. One allocation, and a
+ * packed array stays packed. Positions are 0-based and must be in range. */
+static Value permute_array(Type type, const ArrayObj *a, const int64_t *order, int n, int line, int col) {
+    for (int i = 0; i < n; i++) {
+        if (order[i] < 0 || order[i] >= a->count) {
+            ziman_error("runtime", line, col, "permute: position %lld out of range for an array of length %d", (long long)order[i], a->count);
+        }
+    }
+    PackKind kind = array_pack_kind(a);
+    if (kind == PK_NONE) {
+        Value *items = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+        for (int i = 0; i < n; i++) items[i] = a->boxed_items[order[i]];
+        return value_array(type, array_obj_new(items, n));
+    }
+    size_t esz = pack_elem_size(kind);
+    unsigned char *buf = zalloc_atomic(esz * (size_t)(n > 0 ? n : 1));
+    const unsigned char *src = kind == PK_BYTE ? (const unsigned char *)a->bytes : kind == PK_BOOL ? (const unsigned char *)a->bools
+                               : kind == PK_INT ? (const unsigned char *)a->ints : (const unsigned char *)a->floats;
+    for (int i = 0; i < n; i++) memcpy(buf + esz * (size_t)i, src + esz * (size_t)order[i], esz);
+    return value_array(type, array_obj_new_packed(kind, buf, n));
+}
+
+/* sort_scalars<T>(items, descending): the array sorted, without an index array in between. */
+static Value native_sort_scalars(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const ArrayObj *a = args[0].as.arr;
+    return permute_array(args[0].type, a, scalar_order(a, args[1].as.b), a->count, line, col);
+}
+
+/* permute<T>(items, order): items[order[0]], items[order[1]], ... */
+static Value native_permute(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const ArrayObj *a = args[0].as.arr;
+    const ArrayObj *ord = args[1].as.arr;
+    int n = ord->count;
+    int64_t *order = zalloc_atomic((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+    for (int i = 0; i < n; i++) order[i] = array_get(ord, i).as.i;
+    return permute_array(args[0].type, a, order, n, line, col);
 }
 
 static Value native_concat_arrays(Value *args, int argc, int line, int col) {
@@ -877,6 +921,8 @@ void prelude_register(void) {
     native_register("concat_arrays", native_concat_arrays);
     native_register("is_sortable_scalars", native_is_sortable_scalars);
     native_register("sort_scalar_order", native_sort_scalar_order);
+    native_register("sort_scalars", native_sort_scalars);
+    native_register("permute", native_permute);
     native_register("string_to_bytes", native_string_to_bytes);
     native_register("bytes_to_string", native_bytes_to_string);
     native_register("slice", native_slice);

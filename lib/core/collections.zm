@@ -71,23 +71,21 @@ fn merge_order(n: int, cmp: fn(int, int) -> int) -> [int] {
     return order
 }
 
-fn gather<T>(items: [T], order: [int]) -> [T] {
-    val out = ab_new<T>()
-    for position in order {
-        ab_append<T>(out, items[position])
-    }
-    return ab_to_array<T>(out)
-}
-
 // `items` in ascending order of their own `compare`. `compare` orders any number, string or
 // byte, and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one).
 pub fn sort<T: Ord>(items: [T]) -> [T] {
-    return gather<T>(items, sort_indices<T>(items))
+    if is_sortable_scalars<T>(items) {
+        return sort_scalars<T>(items, false)
+    }
+    return permute<T>(items, sort_indices<T>(items))
 }
 
 // `items` in descending order of their own `compare` (stable).
 pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
-    return gather<T>(items, sort_indices_desc<T>(items))
+    if is_sortable_scalars<T>(items) {
+        return sort_scalars<T>(items, true)
+    }
+    return permute<T>(items, sort_indices_desc<T>(items))
 }
 
 // `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a caller sorts by
@@ -97,7 +95,7 @@ pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string> {
     if len(items) != len(keys) {
         return err(format("sort_by_keys: {} items but {} keys", len(items), len(keys)))
     }
-    return ok(gather<T>(items, sort_indices<K>(keys)))
+    return ok(permute<T>(items, sort_indices<K>(keys)))
 }
 
 // The descending form of `sort_by_keys`.
@@ -105,14 +103,14 @@ pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string
     if len(items) != len(keys) {
         return err(format("sort_by_keys_desc: {} items but {} keys", len(items), len(keys)))
     }
-    return ok(gather<T>(items, sort_indices_desc<K>(keys)))
+    return ok(permute<T>(items, sort_indices_desc<K>(keys)))
 }
 
 // `items` ordered by a comparator function (negative, zero or positive, like `compare`), for
 // an order that is neither the type's own nor a single key -- a two-field ordering, say.
 // Stable. `sort_by_keys` covers the single-key case.
 pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
-    return gather<T>(items, merge_order(len(items), fn(a, b) { cmp(items[a], items[b]) }))
+    return permute<T>(items, merge_order(len(items), fn(a, b) { cmp(items[a], items[b]) }))
 }
 
 // True when no element is greater than the one after it (an empty or one-element array is).

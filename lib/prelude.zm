@@ -193,6 +193,10 @@ native fn concat_arrays<T>(parts: [T]...) -> [T]
 // (ascending, or descending with `descending`) without calling back into the interpreter.
 native fn is_sortable_scalars<T>(items: [T]) -> bool
 native fn sort_scalar_order<T>(items: [T], descending: bool) -> [int]
+// `sort_scalars` is the array itself sorted (no index array in between); `permute` is
+// `items[order[0]], items[order[1]], ...` for any element type, in one allocation.
+native fn sort_scalars<T>(items: [T], descending: bool) -> [T]
+native fn permute<T>(items: [T], order: [int]) -> [T]
 // slice<T>(a, start, end): the elements of `a` from `start` up to (not
 // including) `end` (`0 <= start <= end <= len(a)`, a runtime error
 // otherwise). It does not copy: arrays are immutable, so the result shares
