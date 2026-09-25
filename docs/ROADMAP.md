@@ -1299,3 +1299,30 @@ from source.
   `map_from_arrays`, `set_union`, `set_intersect`, `set_difference`, `set_is_subset`, `set_from_array`,
   `set_insert_all`, `set_filter` (docs/SYNTAX.md "Maps and sets"). Still open: `map_map_values`/`set_map`
   (need the lambda's result type inferred) and `map_entries` (needs a pair/tuple type).
+
+- **Lazy streams (a Java-`Stream`-style pipeline) -- decided direction, not started.** Wanted: a
+  lazy `Stream<T>` where intermediate steps only record what to do and nothing is computed until a
+  terminal operation runs, so a pipeline can short-circuit (`first`, `any`), work on large or
+  infinite sources (`iterate`, `generate`, `range`) and avoid intermediate arrays. Sketch:
+  - **The type:** a built-in `Stream<T>` holding a source plus a chain of steps (filter, map,
+    take, skip, ...), consumed once by a terminal step. Sources: an array, a `Set`, a `Map`'s
+    keys/values/entries, `range(a, b)`, `iterate(seed, f)`.
+  - **Intermediate ops (lazy):** `filter`, `map`, `flat_map`, `take`, `skip`, `take_while`,
+    `distinct`, `sorted`, `peek`. **Terminals (run the pipeline):** `to_array`, `to_set`,
+    `count`, `sum`, `min`/`max`, `fold`, `first`, `any`/`all`/`find`, `for_each`, `join`,
+    `group_by` (a `Map<K, [T]>`), `to_map(key_fn, value_fn)`.
+  - **What has to exist first / be decided:**
+    - Type inference for the higher-order builtins: `map`'s result type comes from the lambda's
+      inferred return, as `map_get`/the Map helpers already infer from their arguments. No
+      general generic-call inference; these stay builtins.
+    - Fluent syntax, so a pipeline reads left to right: method-call sugar (`x.f(a)` = `f(x, a)`)
+      or a pipe (`x |> f(a)`). Undecided; method sugar suits both LLM output and existing
+      `module.function` reading, but must resolve a local named like a module.
+    - `Stream<T>` is single-use: consuming it twice is a compile or runtime error. Decide which.
+    - `sorted`/`distinct` are barrier operations (they must see every item), which is fine but
+      means they are not lazy per item.
+  - **Not planned:** parallel streams, and primitive-specialised streams (`IntStream`); Ziman's
+    packed scalar arrays already cover the memory side.
+  - Until then, the eager array helpers in `collections` (`sort`, `map`, `filter`, `fold`, `any`, ...)
+    are the stopgap.
+
