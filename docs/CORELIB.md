@@ -581,17 +581,23 @@ pub fn close_listener(l: Listener)
 Shared formatting/parsing across `int`/`float`/`bigint`/`decimal`/`byte`, written in pure Ziman on top of each type's own `str()`. `NumberFormat`/`parse_pattern` cover thousands separators and forced decimal places (a small subset of DecimalFormat-style patterns); `byte_to_hex`/`int_to_hex`/`bigint_to_hex` (and their `_from_hex` inverses) cover hex for the three integral types.
 
 ```
-pub fn byte_to_hex(b: byte) -> string
+pub native fn float_to_text(x: float) -> string
 
-pub fn byte_from_hex(s: string) -> Result<byte, string>
+pub native fn byte_to_hex(b: byte) -> string
+
+pub native fn byte_from_hex(s: string) -> Result<byte, string>
+
+pub native fn int_to_hex(x: int) -> string
+
+pub native fn int_from_hex(s: string) -> Result<int, string>
+
+pub native fn bytes_to_hex(data: [byte]) -> string
+
+pub native fn bytes_from_hex(s: string) -> Result<[byte], string>
 
 pub fn bigint_to_hex(n: bigint) -> string
 
 pub fn bigint_from_hex(s: string) -> Result<bigint, string>
-
-pub fn int_to_hex(x: int) -> string
-
-pub fn int_from_hex(s: string) -> Result<int, string>
 
 pub fn parse_byte(s: string) -> Result<byte, string>
 
@@ -619,23 +625,19 @@ pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string
 
 pub fn format_byte(x: byte, fmt: NumberFormat) -> string
 
+pub native fn u16_to_bytes(n: int) -> [byte]
+
+pub native fn u32_to_bytes(n: int) -> [byte]
+
+pub native fn u16_from_bytes(b: [byte], offset: int) -> int
+
+pub native fn u32_from_bytes(b: [byte], offset: int) -> int
+
 pub native fn f64_from_bytes(b: [byte], offset: int) -> float
 
 pub native fn f32_from_bytes(b: [byte], offset: int) -> float
 
 pub native fn f64_to_bytes(f: float) -> [byte]
-
-pub fn u32_to_bytes(n: int) -> [byte]
-
-pub fn u16_to_bytes(n: int) -> [byte]
-
-pub fn u32_from_bytes(b: [byte], offset: int) -> int
-
-pub fn u16_from_bytes(b: [byte], offset: int) -> int
-
-pub native fn bytes_to_hex(data: [byte]) -> string
-
-pub native fn bytes_from_hex(s: string) -> Result<[byte], string>
 
 ```
 

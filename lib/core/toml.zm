@@ -19,6 +19,7 @@ val max_code_point = 1114111
 val hex_chars = "0123456789abcdef"
 
 use json.Json
+use number.float_to_text
 
 // ------------------------------------------------------------------ reading
 
@@ -609,7 +610,7 @@ fn path_text(path: [string]) -> string {
 }
 
 fn float_text(f: float) -> string {
-    val t = str(f)
+    val t = float_to_text(f)
     if contains(t, ".") || contains(t, "e") || contains(t, "n") || contains(t, "i") {
         return t
     }

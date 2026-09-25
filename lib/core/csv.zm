@@ -15,6 +15,7 @@
 // `csv_to_string` wrote gives the same table.
 
 use json.Json
+use number.float_to_text
 
 // One cell as the scanner saw it, and one row with the line it started on (a quoted cell can
 // contain newlines, so a row's line is not its index).
@@ -324,7 +325,7 @@ fn cell_text(v: Json, key: string, sep: string) -> Result<string, string> {
         return ok(str(Json.unwrap_JInt(v)))
     }
     if Json.is_JNumber(v) {
-        return ok(str(Json.unwrap_JNumber(v)))
+        return ok(float_to_text(Json.unwrap_JNumber(v)))
     }
     if Json.is_JString(v) {
         val s = Json.unwrap_JString(v)

@@ -1,0 +1,5 @@
+use number
+
+fn main() {
+    print(number.u32_from_bytes([1b, 2b, 3b], 0))
+}

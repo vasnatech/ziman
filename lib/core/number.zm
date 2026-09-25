@@ -1,60 +1,51 @@
-// number.zm -- shared formatting/parsing for int/float/bigint/decimal/
-// byte, written in ordinary Ziman, no native code needed.
+// number.zm -- numbers as text and as bytes: formatting and parsing with separators, hex,
+// shortest-text floats, and the fixed-width big-endian integers binary protocols use.
 //
-// One engine, not five: every numeric type already normalizes to a
-// canonical string via `str()`, so `format_number`/`parse_number`
-// operate on *strings*, never on the numeric types themselves --
-// sidestepping the fact that Ziman has no argument-based overloading
-// (a single `format(x: T, ...)` across five unrelated types isn't
-// expressible any other way). `format_int`/`format_float`/
-// `format_bigint`/`format_decimal`/`format_byte` are thin one-line
-// wrappers over that one engine, for ergonomics at call sites only.
-//
-// `NumberFormat` and a pattern string (`"#,###.00"`, the familiar
-// shape from Java's DecimalFormat/.NET custom format strings/Excel)
-// are two ways to describe the same thing -- `parse_pattern` just
-// builds a `NumberFormat` from the pattern's shape. The pattern
-// support here is deliberately a small subset of what those real
-// pattern languages do: no `0`-vs-`#` distinction (both just mean "a
-// forced decimal place" here, never "trim trailing zeros"), no `%`
-// (percentage), no `E` (scientific notation), no `;`-separated
-// positive/negative subpatterns, no literal prefix/suffix text or
-// escaping, no custom (e.g. Indian-style) grouping sizes. Forcing
-// fewer decimal places than a value has truncates, never rounds --
-// rounding is `round`/`decimal_round`'s job, not a formatter's; a
-// formatter that also rounded would mean the same value could display
-// differently depending on what last touched it.
-//
-// Hex support (`byte_to_hex`/`int_to_hex`/`bigint_to_hex` and their
-// `_from_hex` inverses) covers the three genuinely integral types --
-// not `float`/`decimal`, which have no natural hex representation for
-// a non-whole value. `byte` has no sign to worry about (always
-// 0-255). `int` is fixed-width (64 bits), so the standard convention
-// (C's `printf("%x", ...)`, Java's `Long.toHexString`) is two's
-// complement: `-1` is `"ffffffffffffffff"`, not a sign-prefixed
-// `"-1"`. `bigint` has no fixed width at all, so two's complement
-// isn't even a well-defined concept for it (there's no width to
-// complement against) -- the only sensible convention is sign-prefixed
-// magnitude, matching Java's own `BigInteger.toString(16)` for the
-// same reason. Computing a negative `int`'s two's-complement hex needs
-// its *unsigned* 64-bit equivalent, which doesn't fit in a signed
-// `int64` -- handled via `bigint` (`x + 2^64`, `2^64` computed by 64
-// repeated multiplications) rather than a new native primitive, since
-// `bigint` arithmetic already does everything needed.
+// Four parts below: float text, hex, formatting and parsing with separators, and bytes. The
+// hex, byte and float-text functions are native; the formatting engine and `bigint` hex are Ziman.
 
-// Module-level, built once -- not rebuilt on every hex_digit_char/
-// hex_digit_value call the way a same-shaped local `val` would be.
-// 2^8, 2^16 and 2^24: the place values of the big-endian integer encodings below.
-val two_pow_8 = 256
-val two_pow_16 = 65536
-val two_pow_24 = 16777216
+// ---------------------------------------------------------------- float text
+
+// The shortest text that reads back as exactly `x`: `0.1`, `1234567.891`, `150`, `1e-7`,
+// `1.5e+300`. Plain notation for magnitudes from 1e-7 up to (not including) 1e21, scientific
+// beyond, `nan`, `inf` and `-inf` for the special values. Unlike `str(x)`, which keeps only six
+// significant digits, this never loses precision; use it when a float is written for a machine
+// or a person to read back (the `json`, `toml`, `yaml` and `csv` writers do).
+pub native fn float_to_text(x: float) -> string
+
+// ---------------------------------------------------------------- hex
+//
+// `byte`, `int` and `bigint` have hex text; `float` and `decimal` have no natural hex form. A
+// negative `int` is written as its 64-bit two's complement (`-1` is "ffffffffffffffff"), the
+// convention of C's `%x` and Java's `Long.toHexString`; a `bigint`, which has no fixed width,
+// is written sign-prefixed ("-ff"), like Java's `BigInteger.toString(16)`. Text read back
+// accepts upper and lower case.
+
+// Two lowercase hex digits: `byte_to_hex(255b)` is "ff".
+pub native fn byte_to_hex(b: byte) -> string
+
+// The byte written as exactly two hex digits. An Err for any other length or a non-hex character.
+pub native fn byte_from_hex(s: string) -> Result<byte, string>
+
+// Lowercase hex of `x` with no leading zeros ("0" for zero); a negative `x` is its 16-digit
+// two's complement.
+pub native fn int_to_hex(x: int) -> string
+
+// The int written in 1 to 16 hex digits, read as a 64-bit two's complement value:
+// `int_from_hex("ffffffffffffffff")` is -1. An Err for an empty string, more than 16 digits, or a
+// non-hex character.
+pub native fn int_from_hex(s: string) -> Result<int, string>
+
+// Lowercase hex text of a byte array, two digits per byte: `bytes_to_hex([1b, 255b])` is
+// "01ff". The array counterpart of `byte_to_hex`.
+pub native fn bytes_to_hex(data: [byte]) -> string
+
+// The bytes of hex text (upper or lower case, an even number of digits). An Err on an odd length
+// or a character that is not a hex digit.
+pub native fn bytes_from_hex(s: string) -> Result<[byte], string>
 
 val hex_digits: [string] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
 val hex_digits_upper: [string] = ["A", "B", "C", "D", "E", "F"]
-
-fn hex_digit_char(n: int) -> string {
-    return hex_digits[n]
-}
 
 fn hex_digit_value(c: string) -> Result<int, string> {
     for i in 0..16 {
@@ -70,41 +61,8 @@ fn hex_digit_value(c: string) -> Result<int, string> {
     return err(format("invalid hex digit '{}'", c))
 }
 
-pub fn byte_to_hex(b: byte) -> string {
-    val n = b as int
-    return concat(hex_digit_char(n / 16), hex_digit_char(n % 16))
-}
-
-pub fn byte_from_hex(s: string) -> Result<byte, string> {
-    if len(s) != 2 {
-        return err(format("invalid byte hex '{}': expected exactly 2 hex digits", s))
-    }
-    val hi = hex_digit_value(substring(s, 0, 1))
-    if !is_ok(hi) {
-        return err(unwrap_err(hi))
-    }
-    val lo = hex_digit_value(substring(s, 1, 2))
-    if !is_ok(lo) {
-        return err(unwrap_err(lo))
-    }
-    return ok((unwrap(hi) * 16 + unwrap(lo)) as byte)
-}
-
-// Assumes n >= 0 -- callers handle the sign themselves, the same
-// "magnitude conversion is separate from sign handling" split
-// `decimal_to_string`'s own implementation uses in the `ziman` repo.
-//
-// Collects digits least-significant-first (the order they naturally
-// fall out of repeated division), into an ArrayBuilder<string> rather
-// than prepending onto a string in a loop -- an arbitrary-precision
-// bigint can have arbitrarily many hex digits, so the original
-// `concat(new_digit, digits)` pattern meant one leaked, ever-growing
-// string per digit (see docs/DESIGN.md's "StringBuilder"/"ArrayBuilder"
-// entries). Prepending isn't something either builder supports
-// directly (both only ever append), so the digits are collected in
-// their natural (reversed) order first, then read back out
-// highest-index-first into a StringBuilder to produce the correct
-// most-significant-first result.
+// Assumes n >= 0; the caller handles the sign. Digits are collected least-significant first and
+// read back out into a StringBuilder, since a bigint can have arbitrarily many.
 fn bigint_magnitude_to_hex(n: bigint) -> string {
     if n == 0n {
         return "0"
@@ -113,7 +71,7 @@ fn bigint_magnitude_to_hex(n: bigint) -> string {
     var remaining = n
     while remaining > 0n {
         val digit_val = (remaining % 16n) as int
-        ab_append<string>(digits, hex_digit_char(digit_val))
+        ab_append<string>(digits, hex_digits[digit_val])
         remaining = remaining / 16n
     }
     val reversed = ab_to_array<string>(digits)
@@ -126,10 +84,13 @@ fn bigint_magnitude_to_hex(n: bigint) -> string {
     return sb_to_string(out)
 }
 
+// Lowercase hex of `n`, sign-prefixed for a negative one: `bigint_to_hex(-255n)` is "-ff".
 pub fn bigint_to_hex(n: bigint) -> string {
     return if n < 0n { concat("-", bigint_magnitude_to_hex(-n)) } else { bigint_magnitude_to_hex(n) }
 }
 
+// The bigint written in hex, with an optional leading "-". An Err for an empty string, a lone "-",
+// or a non-hex character.
 pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
     if len(s) == 0 {
         return err("invalid bigint hex: empty string")
@@ -156,54 +117,8 @@ pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
     return if negative { ok(-result) } else { ok(result) }
 }
 
-// 2^64, computed by repeated multiplication -- Ziman has no bitwise
-// operators and no pow() for bigint, but plain `*` already does
-// everything this needs.
-fn two_pow_64() -> bigint {
-    var p: bigint = 1n
-    var i = 0
-    while i < 64 {
-        p = p * 2n
-        i = i + 1
-    }
-    return p
-}
-
-pub fn int_to_hex(x: int) -> string {
-    if x >= 0 {
-        return bigint_magnitude_to_hex(x as bigint)
-    }
-    val unsigned_equiv = (x as bigint) + two_pow_64()
-    var padded = bigint_magnitude_to_hex(unsigned_equiv)
-    while len(padded) < 16 {
-        padded = concat("0", padded)
-    }
-    return padded
-}
-
-pub fn int_from_hex(s: string) -> Result<int, string> {
-    if len(s) == 0 {
-        return err("invalid int hex: empty string")
-    }
-    if len(s) > 16 {
-        return err(format("invalid int hex '{}': more than 16 hex digits (64 bits)", s))
-    }
-    var result: bigint = 0n
-    var i = 0
-    while i < len(s) {
-        val dv = hex_digit_value(char_at(s, i))
-        if !is_ok(dv) {
-            return err(unwrap_err(dv))
-        }
-        result = result * 16n + (unwrap(dv) as bigint)
-        i = i + 1
-    }
-    if result >= two_pow_64() / 2n {
-        result = result - two_pow_64()
-    }
-    return ok(result as int)
-}
-
+// The byte written as a decimal number, 0 to 255: `parse_byte("200")` is `Ok(200b)`. An Err for
+// text that is not an integer or is out of range.
 pub fn parse_byte(s: string) -> Result<byte, string> {
     val r = parse_int(s)
     if !is_ok(r) {
@@ -216,21 +131,37 @@ pub fn parse_byte(s: string) -> Result<byte, string> {
     return ok(v as byte)
 }
 
+// ---------------------------------------------------------------- formatting and parsing
+//
+// One engine, not five: every numeric type already has a canonical text (`str(x)`), so
+// `format_number` and `parse_number` work on *strings*, and `format_int`, `format_float`,
+// `format_bigint`, `format_decimal` and `format_byte` are one-line wrappers that supply the
+// text. (Ziman has no overloading, so one `format(x, ...)` across the five types cannot exist.)
+//
+// A `NumberFormat` is a thousands separator, a decimal separator and an optional fixed number of
+// decimal places; `parse_pattern("#,###.00")` builds one from the familiar DecimalFormat-style
+// shape. The pattern support is a deliberate subset: no `0`-versus-`#` distinction (both force a
+// decimal place), no percent, no scientific notation, no positive/negative subpatterns, no
+// literal prefix or suffix, and only groups of three. Forcing fewer decimal places than a value
+// has *truncates*: rounding is `round` / `decimal_round`'s job, and a formatter that also rounded
+// would show one value two ways depending on what touched it last.
+
+// How a number is written: the character between groups of three integer digits ("" for none),
+// the character before the decimals, and how many decimals to force (`None` keeps the value's own).
 pub struct NumberFormat {
     thousands_separator: string
     decimal_separator: string
     decimal_places: Option<int>
 }
 
+// No grouping, "." as the decimal separator, the value's own decimals: formats a number as `str` would.
 pub fn number_format_plain() -> NumberFormat {
     return NumberFormat { thousands_separator: "", decimal_separator: ".", decimal_places: Option<int>.None }
 }
 
-// "#,###.00" -- a comma anywhere in the integer part turns grouping on
-// (the exact position isn't significant, only standard group-by-3 is
-// supported), and the digit count after the dot forces that many
-// decimal places. See the header comment for what real DecimalFormat-
-// style patterns support that this deliberately doesn't.
+// A format from a pattern such as "#,###.00": a comma anywhere in the integer part turns
+// grouping on (groups of three), and the digit count after the dot forces that many decimal
+// places. The decimal separator is always ".".
 pub fn parse_pattern(pattern: string) -> NumberFormat {
     val parts = split(pattern, ".")
     val has_grouping = contains(parts[0], ",")
@@ -239,15 +170,8 @@ pub fn parse_pattern(pattern: string) -> NumberFormat {
     return NumberFormat { thousands_separator: thousands, decimal_separator: ".", decimal_places: decimal_places }
 }
 
-// Builds left-to-right (most-significant digit first) directly, rather
-// than the original right-to-left prepend loop -- a separator goes
-// before digit `i` exactly when the digits from `i` to the end,
-// inclusive, form a full group of 3 (`(n - i) % 3 == 0`), the same
-// grouping the original counted up to from the right; restructuring the
-// direction is what lets this append into a StringBuilder instead of
-// prepending onto a string every iteration (an arbitrarily long
-// int/bigint/decimal, once grouped, is an arbitrary-length loop -- see
-// docs/DESIGN.md's "StringBuilder" entry).
+// Builds left to right into a StringBuilder: a separator goes before digit `i` exactly when the
+// digits from `i` to the end form a whole number of groups of three.
 fn insert_thousands(int_part: string, sep: string) -> string {
     if sep == "" {
         return int_part
@@ -289,16 +213,9 @@ fn adjust_decimal_places(frac: string, places: int) -> string {
     return sb_to_string(out)
 }
 
-// The one real formatting engine -- `s` is whatever `str(x)` already
-// produced for any of int/float/bigint/decimal/byte, so this never
-// needs to know which type it came from. One real exception: `float`'s
-// own `str()` switches to scientific notation past 6 significant
-// digits ("1234567.891" becomes "1.23457e+06"), which grouping/
-// decimal-place-forcing has no sensible meaning for -- passed through
-// unchanged rather than silently mangled (naively splitting
-// "1.23457e+06" on "." and truncating its "23457e+06" half to 2 places
-// would otherwise produce the nonsense "1.23"; caught by testing, not
-// assumed away).
+// `s`, the plain text of a number, written according to `fmt`: `format_number("1234567.5",
+// parse_pattern("#,###.00"))` is "1,234,567.50". Text containing an exponent (`1e-7`) is returned
+// unchanged, since grouping and fixed decimals have no sensible meaning for it.
 pub fn format_number(s: string, fmt: NumberFormat) -> string {
     if contains(s, "e") || contains(s, "E") {
         return s
@@ -316,21 +233,13 @@ pub fn format_number(s: string, fmt: NumberFormat) -> string {
     return if frac_part == "" { grouped } else { concat(grouped, concat(fmt.decimal_separator, frac_part)) }
 }
 
-fn strip_all(s: string, needle: string) -> string {
-    return replace(s, needle, "")
-}
-
-// The inverse of format_number: strips thousands separators and
-// normalizes the decimal separator back to "." -- the shape
-// parse_int/parse_float/parse_bigint/parse_decimal (or parse_byte,
-// above) already expect. Returns the normalized string, not a Result
-// -- malformed input is the downstream parser's job to reject, the
-// same "this layer only normalizes, the real parser validates" split
-// health-record-backend-ziman's own request.zm already uses for dates.
+// The inverse of `format_number`: strips the thousands separator and turns the decimal separator
+// back into ".", giving text `parse_int`, `parse_float`, `parse_bigint`, `parse_decimal` or
+// `parse_byte` accepts. It only normalizes: malformed input is the parser's job to reject.
 pub fn parse_number(s: string, fmt: NumberFormat) -> string {
     var out = s
     if fmt.thousands_separator != "" {
-        out = strip_all(out, fmt.thousands_separator)
+        out = replace(out, fmt.thousands_separator, "")
     }
     if fmt.decimal_separator != "." {
         val parts = split(out, fmt.decimal_separator)
@@ -341,61 +250,56 @@ pub fn parse_number(s: string, fmt: NumberFormat) -> string {
     return out
 }
 
+// `x` written according to `fmt`.
 pub fn format_int(x: int, fmt: NumberFormat) -> string {
     return format_number(str(x), fmt)
 }
 
+// `x` written according to `fmt`, with the float's full precision (`float_to_text`, not `str`).
 pub fn format_float(x: float, fmt: NumberFormat) -> string {
-    return format_number(str(x), fmt)
+    return format_number(float_to_text(x), fmt)
 }
 
+// `x` written according to `fmt`.
 pub fn format_bigint(x: bigint, fmt: NumberFormat) -> string {
     return format_number(str(x), fmt)
 }
 
+// `x` written according to `fmt`.
 pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string {
     return format_number(str(x), fmt)
 }
 
+// `x` written according to `fmt`.
 pub fn format_byte(x: byte, fmt: NumberFormat) -> string {
     return format_number(str(x), fmt)
 }
 
-// ---- binary encodings of numbers in `[byte]` --------------------------------
-// The big-endian integer encodings network protocols (Postgres's wire
-// protocol first among them) are made of, and the little-endian IEEE-754
-// floats MySQL's binary protocol carries. (`string_to_bytes`,
-// `bytes_to_string` and `bytes_concat` are prelude builtins.)
+// ---------------------------------------------------------------- bytes
+//
+// Fixed-width integers and floats in `[byte]`, for binary protocols: the big-endian (network
+// order) unsigned integers Postgres's wire protocol is made of, and the little-endian IEEE-754
+// floats MySQL's binary protocol carries. A value out of range or an offset past the end of the
+// array is a runtime error. (`string_to_bytes`, `bytes_to_string` and `bytes_concat` are
+// prelude builtins.)
 
-// The little-endian IEEE-754 double / float at `offset`.
+// `n` (0 to 65535) as 2 big-endian bytes.
+pub native fn u16_to_bytes(n: int) -> [byte]
+
+// `n` (0 to 4294967295) as 4 big-endian bytes, network byte order.
+pub native fn u32_to_bytes(n: int) -> [byte]
+
+// The unsigned big-endian integer of 2 bytes starting at `offset` in `b`.
+pub native fn u16_from_bytes(b: [byte], offset: int) -> int
+
+// The unsigned big-endian integer of 4 bytes starting at `offset` in `b`.
+pub native fn u32_from_bytes(b: [byte], offset: int) -> int
+
+// The little-endian IEEE-754 double (8 bytes) at `offset`.
 pub native fn f64_from_bytes(b: [byte], offset: int) -> float
+
+// The little-endian IEEE-754 float (4 bytes) at `offset`, widened to a `float`.
 pub native fn f32_from_bytes(b: [byte], offset: int) -> float
+
 // A double as 8 little-endian IEEE-754 bytes.
 pub native fn f64_to_bytes(f: float) -> [byte]
-
-// `n` (0..=4294967295) as 4 big-endian bytes, network byte order.
-pub fn u32_to_bytes(n: int) -> [byte] {
-    return [(n / two_pow_24 % two_pow_8) as byte, (n / two_pow_16 % two_pow_8) as byte,
-        (n / two_pow_8 % two_pow_8) as byte, (n % two_pow_8) as byte]
-}
-
-pub fn u16_to_bytes(n: int) -> [byte] {
-    return [(n / two_pow_8 % two_pow_8) as byte, (n % two_pow_8) as byte]
-}
-
-// Reads a big-endian unsigned integer starting at `offset` in `b`.
-pub fn u32_from_bytes(b: [byte], offset: int) -> int {
-    return (b[offset] as int) * two_pow_24 + (b[offset + 1] as int) * two_pow_16 + (b[offset + 2] as int) * two_pow_8 + (b[offset + 3] as int)
-}
-
-pub fn u16_from_bytes(b: [byte], offset: int) -> int {
-    return (b[offset] as int) * two_pow_8 + (b[offset + 1] as int)
-}
-
-// Lowercase hex text of a byte array, two digits per byte: `bytes_to_hex([1b, 255b])` is
-// "01ff". The array counterpart of `byte_to_hex`.
-pub native fn bytes_to_hex(data: [byte]) -> string
-
-// The bytes of hex text (upper or lower case, an even number of digits). An Err on an odd
-// length or a character that is not a hex digit.
-pub native fn bytes_from_hex(s: string) -> Result<[byte], string>

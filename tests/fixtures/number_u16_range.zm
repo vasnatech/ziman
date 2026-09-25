@@ -1,0 +1,5 @@
+use number
+
+fn main() {
+    print(number.u16_to_bytes(65536))
+}

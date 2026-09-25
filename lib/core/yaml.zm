@@ -22,6 +22,7 @@ val max_code_point = 1114111
 val hex_chars = "0123456789abcdef"
 
 use json.Json
+use number.float_to_text
 
 struct Line {
     no: int
@@ -854,7 +855,7 @@ fn key_text(k: string) -> string {
 }
 
 fn float_text(f: float) -> string {
-    val t = str(f)
+    val t = float_to_text(f)
     if contains(t, ".") || contains(t, "e") {
         return t
     }

@@ -1,0 +1,37 @@
+0.1
+1234567.891
+150
+0.30000000000000004
+-0.000001
+100000000000000000000
+1e+21
+0.0000001
+1e-08
+1.2345678901234568e+22
+0
+nan
+1e+300
+-2.5
+1,234,567.89
+0.5
+ff
+0
+ffffffffffffffff
+ffffffffffffff01
+Ok(255)
+Ok(-1)
+Ok(9223372036854775807)
+invalid int hex: empty string
+invalid int hex '12345678901234567': more than 16 hex digits (64 bits)
+invalid hex digit 'x'
+00
+ab
+Ok(171)
+invalid byte hex 'abc': expected exactly 2 hex digits
+invalid hex digit 'g'
+[0, 0]
+[255, 255]
+[18, 52, 86, 120]
+[255, 255, 255, 255]
+258
+16909060
