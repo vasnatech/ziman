@@ -27,4 +27,11 @@ MapObj *mapobj_remove(const MapObj *m, Value key);
  * pointer may be NULL to skip it). */
 void mapobj_entries(const MapObj *m, Value **keys, Value **vals);
 
+/* In-place mutation for a builder's private MapObj (see mapobj.c). `shared` is set once a
+ * snapshot has been taken, since a snapshot shares the leaves. */
+MapObj *mapobj_mut_new(void);
+void mapobj_set_mut(MapObj *m, Value key, Value val, int shared);
+void mapobj_remove_mut(MapObj *m, Value key);
+MapObj *mapobj_snapshot(const MapObj *m);
+
 #endif

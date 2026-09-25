@@ -3534,3 +3534,19 @@ item that is a mapping" into ordinary nested indentation -- the parser never nee
 special case for it. Speed is the interpreter's: these are for configuration and
 export-sized data.
 
+## MapBuilder and SetBuilder
+
+A persistent `Map`/`Set` copies the trie nodes on the path to every changed entry, which is
+cheap per call but adds up when a loop builds a whole map: measured in the non-GC build,
+`collections.group_by` and `distinct` on 1,000 items produced 4.3 MB and 1.2 MB of garbage.
+`MapBuilder<K, V>` and `SetBuilder<T>` are the mutable counterparts (like `ArrayBuilder` and
+`StringBuilder`): a handle to a private trie that `mapb_set`/`setb_add` change in place
+(`mapobj_set_mut`; growing a node is a `realloc`, which frees the old block). Two decisions:
+`to_map`/`to_set` *snapshot* (an O(n) copy of the nodes, leaves shared) rather than freeze, so a
+builder stays usable like `ab_to_array`, and a `shared` flag makes an overwrite after a snapshot
+replace the leaf instead of updating it, so a snapshot never changes. Removal shrinks a node
+without collapsing single-leaf children (still correct; lookups depend only on the hash path).
+The persistent `Map` stays the default for ordinary code and for anything that keeps old
+versions; builders are for loops that only add. Used in `collections.distinct`/`group_by`, the
+`json`, `csv` and `yaml` object builders, and `#[derive(Json)]`'s map and set fields.
+

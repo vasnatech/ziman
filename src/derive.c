@@ -305,12 +305,12 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             char *v = gen_tmp(tmp, "entry");
             char *v_json = gen_tmp(tmp, "entry_json");
             char *acc = gen_tmp(tmp, "fields");
-            cb_appendf(cb, "    var %s = Map<string, Json> {}\n", acc);
+            cb_appendf(cb, "    val %s = mapb_new<string, Json>()\n", acc);
             cb_appendf(cb, "    for %s, %s in %s {\n", k, v, src_expr);
             emit_to_json(*t.elem_err, v, v_json, cb, tmp, line, col);
-            cb_appendf(cb, "    %s = set(%s, %s, %s)\n", acc, acc, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
+            cb_appendf(cb, "    mapb_set<string, Json>(%s, %s, %s)\n", acc, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
             cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = Json.JObject(%s)\n", dst_var, acc);
+            cb_appendf(cb, "    val %s = Json.JObject(mapb_to_map<string, Json>(%s))\n", dst_var, acc);
             return;
         }
         case TY_SET: {
@@ -404,30 +404,35 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             char *v = gen_tmp(tmp, "raw");
             char *entry = gen_tmp(tmp, "entry");
             char *key_n = gen_tmp(tmp, "key_n");
-            char *map_type_name = type_name(t);
+            char *bld = gen_tmp(tmp, "builder");
+            char *kt = type_name(*t.elem);
+            char *vt = type_name(*t.elem_err);
             cb_appendf(cb, "    if !Json.is_JObject(%s) { return err(\"expected an object\") }\n", src_expr);
-            cb_appendf(cb, "    var %s = %s {}\n", dst_var, map_type_name);
+            cb_appendf(cb, "    val %s = mapb_new<%s, %s>()\n", bld, kt, vt);
             cb_appendf(cb, "    for %s, %s in Json.unwrap_JObject(%s) {\n", k, v, src_expr);
             emit_from_json(*t.elem_err, v, entry, cb, tmp, line, col);
             if (t.elem->kind == TY_INT) {
                 cb_appendf(cb, "    val %s = parse_int(%s)?\n", key_n, k);
-                cb_appendf(cb, "    %s = set(%s, %s, %s)\n", dst_var, dst_var, key_n, entry);
+                cb_appendf(cb, "    mapb_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, key_n, entry);
             } else {
-                cb_appendf(cb, "    %s = set(%s, %s, %s)\n", dst_var, dst_var, k, entry);
+                cb_appendf(cb, "    mapb_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, k, entry);
             }
             cb_appendf(cb, "    }\n");
+            cb_appendf(cb, "    val %s = mapb_to_map<%s, %s>(%s)\n", dst_var, kt, vt, bld);
             return;
         }
         case TY_SET: {
             char *item = gen_tmp(tmp, "item");
             char *item_val = gen_tmp(tmp, "item_val");
-            char *set_type_name = type_name(t);
+            char *bld = gen_tmp(tmp, "builder");
+            char *et = type_name(*t.elem);
             cb_appendf(cb, "    if !Json.is_JArray(%s) { return err(\"expected an array\") }\n", src_expr);
-            cb_appendf(cb, "    var %s = %s {}\n", dst_var, set_type_name);
+            cb_appendf(cb, "    val %s = setb_new<%s>()\n", bld, et);
             cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
             emit_from_json(*t.elem, item, item_val, cb, tmp, line, col);
-            cb_appendf(cb, "    %s = insert(%s, %s)\n", dst_var, dst_var, item_val);
+            cb_appendf(cb, "    setb_add<%s>(%s, %s)\n", et, bld, item_val);
             cb_appendf(cb, "    }\n");
+            cb_appendf(cb, "    val %s = setb_to_set<%s>(%s)\n", dst_var, et, bld);
             return;
         }
         case TY_STRUCT:

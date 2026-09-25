@@ -259,3 +259,137 @@ void mapobj_entries(const MapObj *m, Value **keys, Value **vals) {
         if (vals != NULL) (*vals)[i] = leaves[i]->val;
     }
 }
+
+/* ---- in-place mutation, for MapBuilder / SetBuilder ------------------------------------
+ * A builder owns a MapObj nobody else can see, so it may change nodes in place: growing a
+ * node is a realloc (which frees the old block), not a copy. Leaves are the one thing a
+ * snapshot shares with the builder; while `shared` is set an overwrite replaces the leaf
+ * instead of updating it. */
+static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, Value val, int64_t seq, int shared, int *added) {
+    MapNode *node = *np;
+    if (depth >= MAX_DEPTH) {
+        for (int i = 0; i < node->n; i++) {
+            Leaf *old = node->slots[i].leaf;
+            if (keys_equal(old, hash, key)) {
+                if (shared) {
+                    Leaf *nl = malloc(sizeof(Leaf));
+                    *nl = *old;
+                    nl->val = val;
+                    node->slots[i].leaf = nl;
+                } else {
+                    old->val = val;
+                }
+                *added = 0;
+                return;
+            }
+        }
+        node = realloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
+        Leaf *nl = malloc(sizeof(Leaf));
+        *nl = (Leaf){hash, key, val, seq};
+        node->slots[node->n].leaf = nl;
+        node->slots[node->n].child = NULL;
+        node->n++;
+        *np = node;
+        *added = 1;
+        return;
+    }
+    uint32_t bit = bit_at(hash, depth);
+    int pos = slot_pos(node->bitmap, bit);
+    if (!(node->bitmap & bit)) {
+        node = realloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
+        memmove(node->slots + pos + 1, node->slots + pos, (size_t)(node->n - pos) * sizeof(Slot));
+        Leaf *nl = malloc(sizeof(Leaf));
+        *nl = (Leaf){hash, key, val, seq};
+        node->slots[pos].leaf = nl;
+        node->slots[pos].child = NULL;
+        node->bitmap |= bit;
+        node->n++;
+        *np = node;
+        *added = 1;
+        return;
+    }
+    Slot *s = &node->slots[pos];
+    if (s->child != NULL) {
+        node_insert_mut(&s->child, depth + 1, hash, key, val, seq, shared, added);
+        return;
+    }
+    Leaf *old = s->leaf;
+    if (keys_equal(old, hash, key)) {
+        if (shared) {
+            Leaf *nl = malloc(sizeof(Leaf));
+            *nl = *old;
+            nl->val = val;
+            s->leaf = nl;
+        } else {
+            old->val = val;
+        }
+        *added = 0;
+        return;
+    }
+    Leaf *nl = malloc(sizeof(Leaf));
+    *nl = (Leaf){hash, key, val, seq};
+    s->leaf = NULL;
+    s->child = make_pair(old, nl, depth + 1);
+    *added = 1;
+}
+
+MapObj *mapobj_mut_new(void) {
+    return mapobj_empty();
+}
+
+void mapobj_set_mut(MapObj *m, Value key, Value val, int shared) {
+    int added = 0;
+    node_insert_mut(&m->root, 0, map_hash(key), key, val, m->next_seq, shared, &added);
+    m->count += added;
+    m->next_seq += added;
+}
+
+static int node_remove_mut(MapNode *node, int depth, uint64_t hash, Value key) {
+    if (depth >= MAX_DEPTH) {
+        for (int i = 0; i < node->n; i++) {
+            if (keys_equal(node->slots[i].leaf, hash, key)) {
+                memmove(node->slots + i, node->slots + i + 1, (size_t)(node->n - i - 1) * sizeof(Slot));
+                node->n--;
+                return 1;
+            }
+        }
+        return 0;
+    }
+    uint32_t bit = bit_at(hash, depth);
+    if (!(node->bitmap & bit)) return 0;
+    int pos = slot_pos(node->bitmap, bit);
+    Slot *s = &node->slots[pos];
+    if (s->child == NULL) {
+        if (!keys_equal(s->leaf, hash, key)) return 0;
+    } else {
+        if (!node_remove_mut(s->child, depth + 1, hash, key)) return 0;
+        if (s->child->n > 0) return 1;
+    }
+    memmove(node->slots + pos, node->slots + pos + 1, (size_t)(node->n - pos - 1) * sizeof(Slot));
+    node->n--;
+    node->bitmap &= ~bit;
+    return 1;
+}
+
+void mapobj_remove_mut(MapObj *m, Value key) {
+    if (node_remove_mut(m->root, 0, map_hash(key), key)) m->count--;
+}
+
+static MapNode *copy_tree(const MapNode *node) {
+    MapNode *copy = node_copy(node);
+    for (int i = 0; i < node->n; i++) {
+        if (node->slots[i].child != NULL) copy->slots[i].child = copy_tree(node->slots[i].child);
+    }
+    return copy;
+}
+
+/* An independent immutable MapObj with the builder's entries. Leaves are shared, so the
+ * caller must treat the builder's leaves as shared from now on. */
+MapObj *mapobj_snapshot(const MapObj *m) {
+    MapObj *out = malloc(sizeof(MapObj));
+    out->root = copy_tree(m->root);
+    out->count = m->count;
+    out->next_seq = m->next_seq;
+    return out;
+}
+

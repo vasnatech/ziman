@@ -223,3 +223,34 @@ native fn ab_append<T>(ab: ArrayBuilder<T>, pieces: T...)
 native fn ab_to_array<T>(ab: ArrayBuilder<T>) -> [T]
 // The number of elements appended so far (always >= 0).
 native fn ab_len<T>(ab: ArrayBuilder<T>) -> int
+
+// MapBuilder<K, V> and SetBuilder<T>: the mutable counterparts of Map and Set, for building
+// one entry by entry. `set`/`insert` on a Map copies a few trie nodes every time; a builder
+// changes its own private trie in place, so filling one with n entries allocates O(n) once,
+// not O(n) per entry. Same handle shape as ArrayBuilder (a struct holding an opaque handle,
+// meant for one thread at a time). `mapb_to_map` / `setb_to_set` snapshot what has been added
+// so far into an ordinary immutable Map/Set; the builder stays usable afterwards. Keys keep
+// the order they were first added, as in a Map, and follow the same key rule (Eq + Hash).
+struct MapBuilder<K: Eq + Hash, V> {
+    handle: int
+}
+
+struct SetBuilder<T: Eq + Hash> {
+    handle: int
+}
+
+native fn mapb_new<K: Eq + Hash, V>() -> MapBuilder<K, V>
+// Adds `key` or replaces its value (keeping its position).
+native fn mapb_set<K: Eq + Hash, V>(mb: MapBuilder<K, V>, key: K, value: V)
+native fn mapb_get<K: Eq + Hash, V>(mb: MapBuilder<K, V>, key: K) -> Option<V>
+native fn mapb_remove<K: Eq + Hash, V>(mb: MapBuilder<K, V>, key: K)
+native fn mapb_contains<K: Eq + Hash, V>(mb: MapBuilder<K, V>, key: K) -> bool
+native fn mapb_len<K: Eq + Hash, V>(mb: MapBuilder<K, V>) -> int
+native fn mapb_to_map<K: Eq + Hash, V>(mb: MapBuilder<K, V>) -> Map<K, V>
+
+native fn setb_new<T: Eq + Hash>() -> SetBuilder<T>
+native fn setb_add<T: Eq + Hash>(sb: SetBuilder<T>, item: T)
+native fn setb_remove<T: Eq + Hash>(sb: SetBuilder<T>, item: T)
+native fn setb_contains<T: Eq + Hash>(sb: SetBuilder<T>, item: T) -> bool
+native fn setb_len<T: Eq + Hash>(sb: SetBuilder<T>) -> int
+native fn setb_to_set<T: Eq + Hash>(sb: SetBuilder<T>) -> Set<T>

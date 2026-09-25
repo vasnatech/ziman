@@ -436,6 +436,16 @@ for x in seen { ... }                    // a set has one binder
     `set_insert_all(s, items)`, `set_filter(s, keep)` with `keep: fn(T) -> bool`.
   - Not there: `map_map_values`/`set_map` (they would need the result type inferred from a
     lambda) and `map_entries` (there is no pair type; use `for k, v in m`).
+- **Builders** for filling one up entry by entry: `MapBuilder<K, V>` (`mapb_new`, `mapb_set`,
+  `mapb_get`, `mapb_remove`, `mapb_contains`, `mapb_len`, `mapb_to_map`) and `SetBuilder<T>`
+  (`setb_new`, `setb_add`, `setb_remove`, `setb_contains`, `setb_len`, `setb_to_set`), the
+  counterparts of `ArrayBuilder`. A builder is mutable and changes its own private trie in
+  place, so building an n-entry map allocates O(n) once instead of copying a few nodes per
+  entry; use one in a loop that adds many entries (a parser, `group_by`, `distinct`). The type
+  arguments are written out (`mapb_set<string, int>(mb, "a", 1)`), as for any generic function.
+  `mapb_to_map` / `setb_to_set` snapshot the builder into an ordinary immutable Map/Set (an O(n)
+  copy); the builder stays usable and later changes do not touch the snapshot. One thread at a
+  time, like the other builders.
 - **Values, like arrays.** `set`/`insert`/`remove` return a new collection and leave
   their argument untouched. Internally a persistent hash trie, so an update copies only
   a few nodes: building an n-entry map is O(n log n), not O(n^2).

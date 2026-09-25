@@ -1,0 +1,54 @@
+// A MapBuilder/SetBuilder fills in place; to_map/to_set snapshot it (the builder stays
+// usable, and later changes do not touch the snapshot).
+fn main() {
+    val mb = mapb_new<string, int>()
+    mapb_set<string, int>(mb, "a", 1)
+    mapb_set<string, int>(mb, "b", 2)
+    mapb_set<string, int>(mb, "a", 10)
+    print(mapb_get<string, int>(mb, "a"))
+    print(mapb_len<string, int>(mb))
+    val snap = mapb_to_map<string, int>(mb)
+    mapb_set<string, int>(mb, "c", 3)
+    mapb_set<string, int>(mb, "a", 99)
+    mapb_remove<string, int>(mb, "b")
+    print(snap)
+    print(mapb_to_map<string, int>(mb))
+    print(mapb_contains<string, int>(mb, "b"))
+    val big = mapb_new<int, int>()
+    for i in 0..5000 {
+        mapb_set<int, int>(big, i, i * 2)
+    }
+    for i in 0..5000 {
+        if i % 3 == 0 {
+            mapb_remove<int, int>(big, i)
+        }
+    }
+    val m = mapb_to_map<int, int>(big)
+    print(len(m))
+    print(map_get(m, 4))
+    print(map_get(m, 3))
+    print(map_keys(m) == Set<int> {})
+    val sb = setb_new<string>()
+    setb_add<string>(sb, "x")
+    setb_add<string>(sb, "y")
+    setb_add<string>(sb, "x")
+    print(setb_to_set<string>(sb))
+    print(setb_len<string>(sb))
+    setb_remove<string>(sb, "x")
+    print(setb_to_set<string>(sb))
+    // a snapshot is independent of what the builder does next
+    val keep = setb_to_set<string>(sb)
+    setb_add<string>(sb, "z")
+    setb_remove<string>(sb, "y")
+    print(keep)
+    print(setb_to_set<string>(sb))
+    // many keys: collisions, growth, removals and overwrites keep insertion order
+    val many = mapb_new<string, int>()
+    for i in 0..2000 {
+        mapb_set<string, int>(many, concat("k", str(i % 700)), i)
+    }
+    val all = mapb_to_map<string, int>(many)
+    print(len(all))
+    print(map_get(all, "k5"))
+    print(map_get(all, "k699"))
+}

@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "bignum.h"
+#include "mapobj.h"
 #include "decimal.h"
 #include "error.h"
 #include "native.h"
@@ -924,6 +925,94 @@ static Value native_ab_len(Value *args, int argc, int line, int col) {
     return value_int((int64_t)buf->length);
 }
 
+/* --- MapBuilder<K, V> and SetBuilder<T> -------------------------------------------------
+ * Mutable counterparts of Map and Set, for building one up entry by entry without the
+ * persistent map's per-insert node copying. Same pointer-as-handle scheme as ArrayBuilder;
+ * the buffer owns a MapObj nobody else can see and changes it in place (mapobj_set_mut).
+ * `to_map` / `to_set` snapshot it (an O(n) copy of the trie's nodes) and the builder stays
+ * usable, like ab_to_array. */
+enum { MB_MAGIC = 0x4d424c44 };
+typedef struct {
+    uint32_t magic;
+    MapObj *m;
+    int shared; /* a snapshot exists: overwritten leaves must be replaced, not updated */
+} MapBuilderBuf;
+
+static char *MAPBUILDER_FIELD_NAMES[] = {"handle"};
+
+static MapBuilderBuf *mb_get_buf(Value b) {
+    MapBuilderBuf *buf = (MapBuilderBuf *)(intptr_t)b.as.st->fields[0].as.i;
+    if (buf == NULL || buf->magic != MB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MapBuilder/SetBuilder handle");
+    return buf;
+}
+
+static Value mb_new_value(const char *type_name) {
+    MapBuilderBuf *buf = malloc(sizeof(MapBuilderBuf));
+    buf->magic = MB_MAGIC;
+    buf->m = mapobj_mut_new();
+    buf->shared = 0;
+    Value *fields = malloc(sizeof(Value));
+    fields[0] = value_int((int64_t)(intptr_t)buf);
+    return value_struct(type_struct(type_name), struct_obj_new(MAPBUILDER_FIELD_NAMES, fields, 1));
+}
+
+static Value native_mapb_new(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    return mb_new_value("MapBuilder");
+}
+
+static Value native_setb_new(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    return mb_new_value("SetBuilder");
+}
+
+static Value native_mapb_set(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    MapBuilderBuf *buf = mb_get_buf(args[0]);
+    mapobj_set_mut(buf->m, args[1], args[2], buf->shared);
+    return value_int(0);
+}
+
+static Value native_setb_add(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    MapBuilderBuf *buf = mb_get_buf(args[0]);
+    mapobj_set_mut(buf->m, args[1], value_int(0), buf->shared);
+    return value_int(0);
+}
+
+static Value native_mapb_get(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    MapBuilderBuf *buf = mb_get_buf(args[0]);
+    Type option = type_enum("Option");
+    Value found;
+    if (mapobj_get(buf->m, args[1], &found)) return value_enum(option, enum_obj_new("Option", "Some", 1, found));
+    return value_enum(option, enum_obj_new("Option", "None", 0, value_int(0)));
+}
+
+static Value native_mb_remove(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    mapobj_remove_mut(mb_get_buf(args[0])->m, args[1]);
+    return value_int(0);
+}
+
+static Value native_mb_contains(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Value ignored;
+    return value_bool(mapobj_get(mb_get_buf(args[0])->m, args[1], &ignored));
+}
+
+static Value native_mb_len(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_int(mb_get_buf(args[0])->m->count);
+}
+
+static Value native_mb_snapshot(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    MapBuilderBuf *buf = mb_get_buf(args[0]);
+    buf->shared = 1;
+    return value_map(type_scalar(TY_VOID), mapobj_snapshot(buf->m));
+}
+
 /* ---- array_map / array_filter / array_flat_map / array_reverse (collections) ---------
  * One allocation for the result (packed when the elements are all byte/bool/int/float),
  * calling back into Ziman only for the user's function. */
@@ -1008,6 +1097,19 @@ void prelude_register(void) {
     native_register("sort_scalars", native_sort_scalars);
     native_register("permute", native_permute);
     native_register("sort_positions", native_sort_positions);
+    native_register("mapb_new", native_mapb_new);
+    native_register("mapb_set", native_mapb_set);
+    native_register("mapb_get", native_mapb_get);
+    native_register("mapb_remove", native_mb_remove);
+    native_register("mapb_contains", native_mb_contains);
+    native_register("mapb_len", native_mb_len);
+    native_register("mapb_to_map", native_mb_snapshot);
+    native_register("setb_new", native_setb_new);
+    native_register("setb_add", native_setb_add);
+    native_register("setb_remove", native_mb_remove);
+    native_register("setb_contains", native_mb_contains);
+    native_register("setb_len", native_mb_len);
+    native_register("setb_to_set", native_mb_snapshot);
     native_register("array_map", native_array_map);
     native_register("array_filter", native_array_filter);
     native_register("array_flat_map", native_array_flat_map);

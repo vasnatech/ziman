@@ -205,12 +205,12 @@ fn rows_to_objects(rows: [[Cell]], typed: bool) -> Result<Json, string> {
         return ok(Json.JArray(ab_to_array<Json>(out)))
     }
     val header = rows[0]
-    var seen = Set<string> {}
+    val seen = setb_new<string>()
     for h in header {
-        if contains(seen, h.text) {
+        if setb_contains<string>(seen, h.text) {
             return err(format("duplicate column name '{}'", h.text))
         }
-        seen = insert(seen, h.text)
+        setb_add<string>(seen, h.text)
     }
     var i = 1
     while i < len(rows) {
@@ -218,13 +218,14 @@ fn rows_to_objects(rows: [[Cell]], typed: bool) -> Result<Json, string> {
         if len(row) != len(header) {
             return err(format("row {} has {} cells but the header has {}", i, len(row), len(header)))
         }
-        var obj = Map<string, Json> {}
+        val obj = mapb_new<string, Json>()
         var j = 0
         while j < len(header) {
-            obj = set(obj, header[j].text, if typed { typed_cell(row[j]) } else { Json.JString(row[j].text) })
+            mapb_set<string, Json>(obj, header[j].text,
+                if typed { typed_cell(row[j]) } else { Json.JString(row[j].text) })
             j = j + 1
         }
-        ab_append<Json>(out, Json.JObject(obj))
+        ab_append<Json>(out, Json.JObject(mapb_to_map<string, Json>(obj)))
         i = i + 1
     }
     return ok(Json.JArray(ab_to_array<Json>(out)))
@@ -335,20 +336,20 @@ fn cell_text(v: Json, key: string, sep: string) -> Result<string, string> {
 
 // Flattens one row into ordered (column, cell text) entries.
 fn flatten_row(row: Json, sep: string) -> Result<Map<string, string>, string> {
-    var cells = Map<string, string> {}
+    val cells = mapb_new<string, string>()
     for key, value in Json.unwrap_JObject(row) {
         if Json.is_JObject(value) {
             for inner_key, inner in Json.unwrap_JObject(value) {
                 val name = concat(key, concat(".", inner_key))
                 val text = cell_text(inner, name, sep)?
-                cells = set(cells, name, text)
+                mapb_set<string, string>(cells, name, text)
             }
         } else {
             val text = cell_text(value, key, sep)?
-            cells = set(cells, key, text)
+            mapb_set<string, string>(cells, key, text)
         }
     }
-    return ok(cells)
+    return ok(mapb_to_map<string, string>(cells))
 }
 
 // A JSON array of objects as CSV: a header row of the union of the keys, then one line per
@@ -362,18 +363,20 @@ pub fn csv_to_string_with(rows: Json, sep: string) -> Result<string, string> {
         return err("expected an array of objects")
     }
     val flat = ab_new<Map<string, string>>()
-    var columns = Set<string> {}
+    val columns = setb_new<string>()
     var i = 0
     for row in Json.unwrap_JArray(rows) {
         if !Json.is_JObject(row) {
             return err(format("row {} is not an object", i))
         }
         val cells = flatten_row(row, sep)?
-        columns = set_union(columns, map_keys(cells))
+        for name in map_keys(cells) {
+            setb_add<string>(columns, name)
+        }
         ab_append<Map<string, string>>(flat, cells)
         i = i + 1
     }
-    val names = set_items(columns)
+    val names = set_items(setb_to_set<string>(columns))
     val out = sb_new()
     write_row(out, names, sep)
     for cells in ab_to_array<Map<string, string>>(flat) {
