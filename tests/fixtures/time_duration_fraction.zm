@@ -1,0 +1,20 @@
+use time
+
+fn show(s: string) {
+    val r = time.duration_from_string(s)
+    if is_ok(r) {
+        print(time.duration_to_string(unwrap(r)))
+    } else {
+        print(unwrap_err(r))
+    }
+}
+
+fn main() {
+    show("PT1.5S")
+    show("PT-0.5S")
+    show("PT0.000000001S")
+    show("PT2.S")
+    show("PT1.1234567891S")
+    show("PT1.-5S")
+    show("PT3S")
+}

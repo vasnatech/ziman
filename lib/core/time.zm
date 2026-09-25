@@ -433,12 +433,16 @@ fn date_of_epoch_day(epoch_day: int) -> LocalDate {
     return LocalDate { year: year, month: m, day: d }
 }
 
+// A calendar date with no time or zone: a proleptic Gregorian `year` (0 or later), `month` (1-12)
+// and `day`. Build one with `localdate_of`, which checks the fields.
 pub struct LocalDate {
     year: int
     month: int
     day: int
 }
 
+// The date `year`-`month`-`day`, or an Err naming the field that is out of range (the day is checked
+// against that month's length, leap years included).
 pub fn localdate_of(year: int, month: int, day: int) -> Result<LocalDate, string> {
     if month < 1 || month > 12 {
         return err(format("invalid month: {} (must be 1-12)", month))
@@ -450,18 +454,22 @@ pub fn localdate_of(year: int, month: int, day: int) -> Result<LocalDate, string
     return ok(LocalDate { year: year, month: month, day: day })
 }
 
+// True when `year` is a leap year in the Gregorian calendar.
 pub fn localdate_is_leap_year(year: int) -> bool {
     return is_leap_year(year)
 }
 
+// The number of days from 1970-01-01 to `d`; negative before it.
 pub fn localdate_to_epoch_day(d: LocalDate) -> int {
     return epoch_day_of(d.year, d.month, d.day)
 }
 
+// The date `epoch_day` days after 1970-01-01 (the inverse of `localdate_to_epoch_day`).
 pub fn localdate_from_epoch_day(epoch_day: int) -> LocalDate {
     return date_of_epoch_day(epoch_day)
 }
 
+// `d` moved by `days` (negative to go back), across month and year ends.
 pub fn localdate_add_days(d: LocalDate, days: int) -> LocalDate {
     return date_of_epoch_day(localdate_to_epoch_day(d) + days)
 }
@@ -487,22 +495,31 @@ pub fn localdate_add_months(d: LocalDate, months: int) -> LocalDate {
     return LocalDate { year: year, month: month, day: day }
 }
 
+// `d` moved by `years` years; 29 February in a non-leap target year becomes the 28th, as in
+// `localdate_add_months`.
 pub fn localdate_add_years(d: LocalDate, years: int) -> LocalDate {
     return localdate_add_months(d, years * 12)
 }
 
+// The whole days from `b` to `a`: positive when `a` is the later date.
 pub fn localdate_diff_days(a: LocalDate, b: LocalDate) -> int {
     return localdate_to_epoch_day(a) - localdate_to_epoch_day(b)
 }
 
+// Negative, zero or positive as `a` is before, the same as, or after `b`. This makes `LocalDate`
+// `Ord`.
 pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int {
     return localdate_to_epoch_day(a) - localdate_to_epoch_day(b)
 }
 
+// `d` rendered with a compiled pattern from `datetime_format_of`. Fields the date lacks (hour,
+// minute, second, nanosecond) print as zeros.
 pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string {
     return format_fields(d.year, d.month, d.day, 0, 0, 0, 0, fmt)
 }
 
+// Reads `s` with a compiled pattern; an Err says which part did not match, or that the resulting
+// date does not exist (31 February).
 pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string> {
     val fields_r = parse_fields(s, fmt)
     if !is_ok(fields_r) {
@@ -512,14 +529,18 @@ pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDa
     return localdate_of(f.year, f.month, f.day)
 }
 
+// Reads an ISO date, `2026-09-24`; an Err otherwise. The inverse of `localdate_to_string`.
 pub fn localdate_from_string(s: string) -> Result<LocalDate, string> {
     return localdate_parse_pattern(s, iso_date_format)
 }
 
+// `d` as an ISO date, `2026-09-24`.
 pub fn localdate_to_string(d: LocalDate) -> string {
     return localdate_format(d, iso_date_format)
 }
 
+// A time of day with no date or zone: `hour` (0-23), `minute`, `second` and `nano` (nanosecond
+// within the second). Build one with `localtime_of`, which checks the fields.
 pub struct LocalTime {
     hour: int
     minute: int
@@ -527,6 +548,7 @@ pub struct LocalTime {
     nano: int
 }
 
+// The time `hour`:`minute`:`second`.`nano`, or an Err naming the field that is out of range.
 pub fn localtime_of(hour: int, minute: int, second: int, nano: int) -> Result<LocalTime, string> {
     if hour < 0 || hour > 23 {
         return err(format("invalid hour: {} (must be 0-23)", hour))
@@ -563,37 +585,47 @@ fn time_of_nano_of_day(n: int) -> LocalTime {
     return LocalTime { hour: hour, minute: minute, second: second, nano: nano }
 }
 
+// `t` moved by `nanos` nanoseconds (negative to go back). Wraps at midnight and drops the day carry,
+// like java.time.LocalTime.plusNanos; use `localdatetime_add_nanos` to keep it.
 pub fn localtime_add_nanos(t: LocalTime, nanos: int) -> LocalTime {
     return time_of_nano_of_day(nano_of_day(t) + nanos)
 }
 
+// `t` moved by `seconds`, wrapping at midnight (see `localtime_add_nanos`).
 pub fn localtime_add_seconds(t: LocalTime, seconds: int) -> LocalTime {
     return localtime_add_nanos(t, seconds * nanos_per_second)
 }
 
+// `t` moved by `minutes`, wrapping at midnight.
 pub fn localtime_add_minutes(t: LocalTime, minutes: int) -> LocalTime {
     return localtime_add_seconds(t, minutes * 60)
 }
 
+// `t` moved by `hours`, wrapping at midnight.
 pub fn localtime_add_hours(t: LocalTime, hours: int) -> LocalTime {
     return localtime_add_minutes(t, hours * 60)
 }
 
-// Wraps at 24h and discards any day overflow -- same as
-// java.time.LocalTime.plusHours. Use LocalDateTime's add functions
-// instead when day rollover needs to be tracked.
+// The nanoseconds from `b` to `a` within one day: positive when `a` is later. Both are read as
+// times of the same day, so the result is in -86399999999999 to 86399999999999.
 pub fn localtime_diff_nanos(a: LocalTime, b: LocalTime) -> int {
     return nano_of_day(a) - nano_of_day(b)
 }
 
+// Negative, zero or positive as `a` is earlier than, the same as, or later than `b`. This makes
+// `LocalTime` `Ord`.
 pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int {
     return localtime_diff_nanos(a, b)
 }
 
+// `t` rendered with a compiled pattern from `datetime_format_of`. Year, month and day print as
+// zeros.
 pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string {
     return format_fields(0, 0, 0, t.hour, t.minute, t.second, t.nano, fmt)
 }
 
+// Reads `s` with a compiled pattern; an Err says which part did not match or which field is out of
+// range.
 pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string> {
     val fields_r = parse_fields(s, fmt)
     if !is_ok(fields_r) {
@@ -616,6 +648,8 @@ pub fn localtime_from_string(s: string) -> Result<LocalTime, string> {
     }
 }
 
+// `t` as ISO text, `13:05:09`, with `.nnnnnnnnn` after the seconds only when the nanoseconds are not
+// zero.
 pub fn localtime_to_string(t: LocalTime) -> string {
     return if t.nano == 0 {
         localtime_format(t, iso_time_format)
@@ -624,6 +658,8 @@ pub fn localtime_to_string(t: LocalTime) -> string {
     }
 }
 
+// A length of time as `seconds` and `nanos` (0 to 999999999). `seconds` carries the sign, so -0.5 s
+// is `{seconds: -1, nanos: 500000000}`. Build one with `duration_of_seconds`, which keeps that form.
 pub struct Duration {
     seconds: int
     nanos: int
@@ -646,22 +682,28 @@ fn normalize(seconds: int, nanos: int) -> Duration {
     return Duration { seconds: s, nanos: n }
 }
 
+// The duration `seconds` + `nanos`, with `nanos` allowed outside 0-999999999 and carried into
+// `seconds` (`duration_of_seconds(0, -1)` is -1 ns).
 pub fn duration_of_seconds(seconds: int, nanos: int) -> Duration {
     return normalize(seconds, nanos)
 }
 
+// The empty duration.
 pub fn duration_zero() -> Duration {
     return Duration { seconds: 0, nanos: 0 }
 }
 
+// The sum of two durations.
 pub fn duration_add(a: Duration, b: Duration) -> Duration {
     return normalize(a.seconds + b.seconds, a.nanos + b.nanos)
 }
 
+// `d` with its sign flipped.
 pub fn duration_negate(d: Duration) -> Duration {
     return normalize(-d.seconds, -d.nanos)
 }
 
+// `a` minus `b`.
 pub fn duration_subtract(a: Duration, b: Duration) -> Duration {
     return duration_add(a, duration_negate(b))
 }
@@ -732,11 +774,18 @@ pub fn duration_from_string(s: string) -> Result<Duration, string> {
     if len(parts) != 2 {
         return err(format("invalid duration '{}'", s))
     }
-    val mag_nanos_r = parse_int(parts[1])
+    val digits = parts[1]
+    if len(digits) < 1 || len(digits) > 9 || starts_with(digits, "-") || starts_with(digits, "+") {
+        return err(format("invalid duration '{}': the fraction must be 1 to 9 digits", s))
+    }
+    val mag_nanos_r = parse_int(digits)
     if !is_ok(mag_nanos_r) {
         return err(format("invalid duration '{}': bad nanos", s))
     }
-    val mag_nanos = unwrap(mag_nanos_r)
+    var mag_nanos = unwrap(mag_nanos_r)
+    for _ in len(digits)..9 {
+        mag_nanos = mag_nanos * 10
+    }
     return if negative {
         ok(normalize(-mag_seconds - 1, nanos_per_second - mag_nanos))
     } else {
@@ -744,15 +793,19 @@ pub fn duration_from_string(s: string) -> Result<Duration, string> {
     }
 }
 
+// A date and a time of day with no zone: the wall-clock reading on a calendar. Pair it with a
+// `ZoneOffset` (`localdatetime_to_instant`) to place it on the timeline.
 pub struct LocalDateTime {
     date: LocalDate
     time: LocalTime
 }
 
+// The date-time made of `date` and `time`.
 pub fn localdatetime_of(date: LocalDate, time: LocalTime) -> LocalDateTime {
     return LocalDateTime { date: date, time: time }
 }
 
+// `dt` moved by `nanos` nanoseconds (negative to go back), carrying into the date.
 pub fn localdatetime_add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime {
     val total = nano_of_day(dt.time) + nanos
     var day_carry = total / nanos_per_day
@@ -764,30 +817,38 @@ pub fn localdatetime_add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime {
     return LocalDateTime { date: localdate_add_days(dt.date, day_carry), time: time_of_nano_of_day(rem) }
 }
 
+// `dt` moved by `seconds`, carrying into the date.
 pub fn localdatetime_add_seconds(dt: LocalDateTime, seconds: int) -> LocalDateTime {
     return localdatetime_add_nanos(dt, seconds * nanos_per_second)
 }
 
+// `dt` moved by `minutes`, carrying into the date.
 pub fn localdatetime_add_minutes(dt: LocalDateTime, minutes: int) -> LocalDateTime {
     return localdatetime_add_seconds(dt, minutes * 60)
 }
 
+// `dt` moved by `hours`, carrying into the date.
 pub fn localdatetime_add_hours(dt: LocalDateTime, hours: int) -> LocalDateTime {
     return localdatetime_add_minutes(dt, hours * 60)
 }
 
+// `dt` moved by `days`; the time of day is unchanged.
 pub fn localdatetime_add_days(dt: LocalDateTime, days: int) -> LocalDateTime {
     return LocalDateTime { date: localdate_add_days(dt.date, days), time: dt.time }
 }
 
+// `dt` moved by `months`; the day is clamped to the target month as in `localdate_add_months`.
 pub fn localdatetime_add_months(dt: LocalDateTime, months: int) -> LocalDateTime {
     return LocalDateTime { date: localdate_add_months(dt.date, months), time: dt.time }
 }
 
+// `dt` moved by `years`; 29 February becomes the 28th in a non-leap target year.
 pub fn localdatetime_add_years(dt: LocalDateTime, years: int) -> LocalDateTime {
     return LocalDateTime { date: localdate_add_years(dt.date, years), time: dt.time }
 }
 
+// Negative, zero or positive as `a` is before, the same as, or after `b`. This makes `LocalDateTime`
+// `Ord`.
 pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int {
     val date_cmp = localdate_compare(a.date, b.date)
     return if date_cmp != 0 { date_cmp } else { localtime_compare(a.time, b.time) }
@@ -803,11 +864,14 @@ pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration {
     return normalize(day_diff * seconds_per_day, nano_diff)
 }
 
+// `dt` rendered with a compiled pattern from `datetime_format_of`.
 pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string {
     return format_fields(dt.date.year, dt.date.month, dt.date.day, dt.time.hour, dt.time.minute, dt.time.second,
         dt.time.nano, fmt)
 }
 
+// Reads `s` with a compiled pattern; an Err says which part did not match or which field is out of
+// range.
 pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string> {
     val fields_r = parse_fields(s, fmt)
     if !is_ok(fields_r) {
@@ -825,6 +889,8 @@ pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Loc
     return ok(LocalDateTime { date: unwrap(date_r), time: unwrap(time_r) })
 }
 
+// Reads an ISO date-time, `2026-09-24T13:05:09` with an optional `.nnnnnnnnn` fraction; an Err
+// otherwise.
 pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string> {
     return if contains(s, ".") {
         localdatetime_parse_pattern(s, iso_datetime_nanos_format)
@@ -833,6 +899,7 @@ pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string> {
     }
 }
 
+// `dt` as ISO text, `2026-09-24T13:05:09`, with the fraction only when the nanoseconds are not zero.
 pub fn localdatetime_to_string(dt: LocalDateTime) -> string {
     return if dt.time.nano == 0 {
         localdatetime_format(dt, iso_datetime_format)
@@ -841,14 +908,18 @@ pub fn localdatetime_to_string(dt: LocalDateTime) -> string {
     }
 }
 
+// A fixed offset from UTC in seconds, east positive, at most 18 hours either way. Build one with
+// `zoneoffset_of_seconds` or `zoneoffset_of_hours_minutes`.
 pub struct ZoneOffset {
     total_seconds: int
 }
 
+// The zero offset, written `Z`.
 pub fn zoneoffset_utc() -> ZoneOffset {
     return ZoneOffset { total_seconds: 0 }
 }
 
+// The offset of `total_seconds` from UTC, or an Err beyond 18 hours (64800 seconds) either way.
 pub fn zoneoffset_of_seconds(total_seconds: int) -> Result<ZoneOffset, string> {
     if total_seconds < -max_offset_seconds || total_seconds > max_offset_seconds {
         return err(format("zone offset out of range: {} seconds (must be -64800 to 64800)", total_seconds))
@@ -856,6 +927,8 @@ pub fn zoneoffset_of_seconds(total_seconds: int) -> Result<ZoneOffset, string> {
     return ok(ZoneOffset { total_seconds: total_seconds })
 }
 
+// The offset of `hours` and `minutes` from UTC, both negative for a west offset (`-5, -30`). An Err
+// when they disagree in sign or the total exceeds 18 hours.
 pub fn zoneoffset_of_hours_minutes(hours: int, minutes: int) -> Result<ZoneOffset, string> {
     if (hours < 0 && minutes > 0) || (hours > 0 && minutes < 0) {
         return err("hours and minutes must have the same sign")
@@ -863,10 +936,13 @@ pub fn zoneoffset_of_hours_minutes(hours: int, minutes: int) -> Result<ZoneOffse
     return zoneoffset_of_seconds(hours * seconds_per_hour + minutes * 60)
 }
 
+// Negative, zero or positive as `a` lies west of, at the same place as, or east of `b`. This makes
+// `ZoneOffset` `Ord`.
 pub fn zoneoffset_compare(a: ZoneOffset, b: ZoneOffset) -> int {
     return a.total_seconds - b.total_seconds
 }
 
+// `z` as `Z` for UTC, otherwise `+HH:MM` or `-HH:MM`.
 pub fn zoneoffset_to_string(z: ZoneOffset) -> string {
     if z.total_seconds == 0 {
         return "Z"
@@ -919,14 +995,17 @@ pub struct ZoneId {
     name: string
 }
 
+// The `UTC` zone.
 pub fn zoneid_utc() -> ZoneId {
     return ZoneId { name: "UTC" }
 }
 
+// The offset of `z`, always UTC's, since `UTC` is the only zone there is.
 pub fn zoneid_to_offset(z: ZoneId) -> ZoneOffset {
     return zoneoffset_utc()
 }
 
+// The name of `z`.
 pub fn zoneid_to_string(z: ZoneId) -> string {
     return z.name
 }
@@ -941,37 +1020,49 @@ pub fn zoneid_from_string(s: string) -> Result<ZoneId, string> {
     return ok(zoneid_utc())
 }
 
+// A point on the timeline, as `seconds` since 1970-01-01T00:00:00Z and `nanos` (0 to 999999999);
+// negative instants are before the epoch. Build one with `instant_of` or `instant_now`.
 pub struct Instant {
     seconds: int
     nanos: int
 }
 
+// The instant `seconds` + `nanos` after the epoch, with `nanos` allowed outside 0-999999999 and
+// carried into `seconds`.
 pub fn instant_of(seconds: int, nanos: int) -> Instant {
     val d = normalize(seconds, nanos)
     return Instant { seconds: d.seconds, nanos: d.nanos }
 }
 
+// The current time from the system clock. It is the wall clock and can jump when the system time is
+// adjusted, so it is not for timing an interval.
 pub fn instant_now() -> Instant {
     val raw = now_raw()
     return instant_of(raw[0], raw[1])
 }
 
+// `i` moved later by `d` (earlier when `d` is negative).
 pub fn instant_add(i: Instant, d: Duration) -> Instant {
     return instant_of(i.seconds + d.seconds, i.nanos + d.nanos)
 }
 
+// `i` moved earlier by `d`.
 pub fn instant_subtract(i: Instant, d: Duration) -> Instant {
     return instant_add(i, duration_negate(d))
 }
 
+// The time from `b` to `a`: positive when `a` is the later instant.
 pub fn instant_diff(a: Instant, b: Instant) -> Duration {
     return normalize(a.seconds - b.seconds, a.nanos - b.nanos)
 }
 
+// Negative, zero or positive as `a` is before, the same as, or after `b`. This makes `Instant`
+// `Ord`.
 pub fn instant_compare(a: Instant, b: Instant) -> int {
     return if a.seconds != b.seconds { a.seconds - b.seconds } else { a.nanos - b.nanos }
 }
 
+// The wall-clock date and time of `i` under `offset`.
 pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime {
     val shifted = i.seconds + offset.total_seconds
     var epoch_day = shifted / seconds_per_day
@@ -984,6 +1075,7 @@ pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
         time: time_of_nano_of_day(sec_of_day * nanos_per_second + i.nanos) }
 }
 
+// The instant at which a clock in `offset` reads `dt`.
 pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant {
     val epoch_day = localdate_to_epoch_day(dt.date)
     val sec_of_day = dt.time.hour * seconds_per_hour + dt.time.minute * 60 + dt.time.second
@@ -1041,9 +1133,10 @@ pub fn instant_from_string(s: string) -> Result<Instant, string> {
     }
 }
 
+// `i` in UTC as `2026-09-24T13:05:09Z`, with a `.nnnnnnnnn` fraction when the nanoseconds are not
+// zero.
 pub fn instant_to_string(i: Instant) -> string {
-    val dt = instant_to_localdatetime(i, zoneoffset_utc())
-    return if dt.time.nano == 0 {
+    return if i.nanos == 0 {
         instant_format(i, zoneoffset_utc(), iso_datetime_format)
     } else {
         instant_format(i, zoneoffset_utc(), iso_datetime_nanos_format)
@@ -1060,6 +1153,7 @@ pub fn local_date_to_json(d: LocalDate) -> Json {
     return Json.JString(localdate_to_string(d))
 }
 
+// A `LocalDate` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn local_date_from_json(j: Json) -> Result<LocalDate, string> {
     if !Json.is_JString(j) {
         return err("expected a JSON string for LocalDate")
@@ -1067,10 +1161,12 @@ pub fn local_date_from_json(j: Json) -> Result<LocalDate, string> {
     return localdate_from_string(Json.unwrap_JString(j))
 }
 
+// `LocalTime` as a JSON string in its ISO form.
 pub fn local_time_to_json(t: LocalTime) -> Json {
     return Json.JString(localtime_to_string(t))
 }
 
+// A `LocalTime` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn local_time_from_json(j: Json) -> Result<LocalTime, string> {
     if !Json.is_JString(j) {
         return err("expected a JSON string for LocalTime")
@@ -1078,10 +1174,12 @@ pub fn local_time_from_json(j: Json) -> Result<LocalTime, string> {
     return localtime_from_string(Json.unwrap_JString(j))
 }
 
+// `Duration` as a JSON string in its ISO form.
 pub fn duration_to_json(d: Duration) -> Json {
     return Json.JString(duration_to_string(d))
 }
 
+// A `Duration` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn duration_from_json(j: Json) -> Result<Duration, string> {
     if !Json.is_JString(j) {
         return err("expected a JSON string for Duration")
@@ -1089,10 +1187,12 @@ pub fn duration_from_json(j: Json) -> Result<Duration, string> {
     return duration_from_string(Json.unwrap_JString(j))
 }
 
+// `LocalDateTime` as a JSON string in its ISO form.
 pub fn local_date_time_to_json(dt: LocalDateTime) -> Json {
     return Json.JString(localdatetime_to_string(dt))
 }
 
+// A `LocalDateTime` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string> {
     if !Json.is_JString(j) {
         return err("expected a JSON string for LocalDateTime")
@@ -1100,10 +1200,12 @@ pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string> {
     return localdatetime_from_string(Json.unwrap_JString(j))
 }
 
+// `ZoneOffset` as a JSON string in its ISO form.
 pub fn zone_offset_to_json(z: ZoneOffset) -> Json {
     return Json.JString(zoneoffset_to_string(z))
 }
 
+// A `ZoneOffset` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string> {
     if !Json.is_JString(j) {
         return err("expected a JSON string for ZoneOffset")
@@ -1111,10 +1213,12 @@ pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string> {
     return zoneoffset_from_string(Json.unwrap_JString(j))
 }
 
+// `ZoneId` as a JSON string in its ISO form.
 pub fn zone_id_to_json(z: ZoneId) -> Json {
     return Json.JString(zoneid_to_string(z))
 }
 
+// A `ZoneId` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string> {
     if !Json.is_JString(j) {
         return err("expected a JSON string for ZoneId")
@@ -1122,10 +1226,12 @@ pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string> {
     return zoneid_from_string(Json.unwrap_JString(j))
 }
 
+// `Instant` as a JSON string in its ISO form.
 pub fn instant_to_json(i: Instant) -> Json {
     return Json.JString(instant_to_string(i))
 }
 
+// A `Instant` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn instant_from_json(j: Json) -> Result<Instant, string> {
     if !Json.is_JString(j) {
         return err("expected a JSON string for Instant")
@@ -1139,64 +1245,78 @@ pub fn instant_from_json(j: Json) -> Result<Instant, string> {
 // nicer to query against, but SQLite has none, and the two dialects
 // disagree on the rest -- text is the one representation both handle.)
 
+// `LocalDate` as a SQL text value in its ISO form.
 pub fn local_date_to_sql(v: LocalDate) -> SqlValue {
     return SqlValue.Text(localdate_to_string(v))
 }
 
+// A `LocalDate` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn local_date_from_sql(v: SqlValue) -> Result<LocalDate, DbError> {
     val text = sql_as_text(v)?
     return sql_lift<LocalDate>(localdate_from_string(text), "LocalDate")
 }
 
+// `LocalTime` as a SQL text value in its ISO form.
 pub fn local_time_to_sql(v: LocalTime) -> SqlValue {
     return SqlValue.Text(localtime_to_string(v))
 }
 
+// A `LocalTime` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn local_time_from_sql(v: SqlValue) -> Result<LocalTime, DbError> {
     val text = sql_as_text(v)?
     return sql_lift<LocalTime>(localtime_from_string(text), "LocalTime")
 }
 
+// `Duration` as a SQL text value in its ISO form.
 pub fn duration_to_sql(v: Duration) -> SqlValue {
     return SqlValue.Text(duration_to_string(v))
 }
 
+// A `Duration` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn duration_from_sql(v: SqlValue) -> Result<Duration, DbError> {
     val text = sql_as_text(v)?
     return sql_lift<Duration>(duration_from_string(text), "Duration")
 }
 
+// `LocalDateTime` as a SQL text value in its ISO form.
 pub fn local_date_time_to_sql(v: LocalDateTime) -> SqlValue {
     return SqlValue.Text(localdatetime_to_string(v))
 }
 
+// A `LocalDateTime` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn local_date_time_from_sql(v: SqlValue) -> Result<LocalDateTime, DbError> {
     val text = sql_as_text(v)?
     return sql_lift<LocalDateTime>(localdatetime_from_string(text), "LocalDateTime")
 }
 
+// `ZoneOffset` as a SQL text value in its ISO form.
 pub fn zone_offset_to_sql(v: ZoneOffset) -> SqlValue {
     return SqlValue.Text(zoneoffset_to_string(v))
 }
 
+// A `ZoneOffset` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn zone_offset_from_sql(v: SqlValue) -> Result<ZoneOffset, DbError> {
     val text = sql_as_text(v)?
     return sql_lift<ZoneOffset>(zoneoffset_from_string(text), "ZoneOffset")
 }
 
+// `ZoneId` as a SQL text value in its ISO form.
 pub fn zone_id_to_sql(v: ZoneId) -> SqlValue {
     return SqlValue.Text(zoneid_to_string(v))
 }
 
+// A `ZoneId` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn zone_id_from_sql(v: SqlValue) -> Result<ZoneId, DbError> {
     val text = sql_as_text(v)?
     return sql_lift<ZoneId>(zoneid_from_string(text), "ZoneId")
 }
 
+// `Instant` as a SQL text value in its ISO form.
 pub fn instant_to_sql(v: Instant) -> SqlValue {
     return SqlValue.Text(instant_to_string(v))
 }
 
+// A `Instant` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn instant_from_sql(v: SqlValue) -> Result<Instant, DbError> {
     val text = sql_as_text(v)?
     return sql_lift<Instant>(instant_from_string(text), "Instant")

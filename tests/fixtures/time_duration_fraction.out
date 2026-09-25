@@ -1,0 +1,7 @@
+PT1.500000000S
+PT-0.500000000S
+PT0.000000001S
+invalid duration 'PT2.S': the fraction must be 1 to 9 digits
+invalid duration 'PT1.1234567891S': the fraction must be 1 to 9 digits
+invalid duration 'PT1.-5S': the fraction must be 1 to 9 digits
+PT3S
