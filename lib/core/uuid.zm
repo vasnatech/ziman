@@ -1,22 +1,21 @@
-// uuid.zm -- UUID v4 (RFC 4122), written in ordinary Ziman on top of
-// the `random` core module's one native function. Version/variant bits
-// are set with plain integer arithmetic (div/mod/mul/add on a byte's
-// int value), not bitwise operators -- Ziman has none -- since clearing
-// or setting a nibble of an unsigned byte via div/mod by a power of two
-// is exactly equivalent to masking it: `(b % 16) + 64` clears the top
-// nibble and sets it to 4, the same effect as `(b & 0x0F) | 0x40`.
+// uuid.zm -- UUIDs (RFC 4122): random version 4, time-ordered version 7, and the canonical
+// text form.
 //
-// `Uuid` satisfies `Eq` (structural equality on `[byte]`, which works
-// since `byte` is scalar) but not `Hash` (hashing has no derived form
-// for a struct -- see docs/SYNTAX.md "Generics") -- fine for using a
-// `Uuid` as a struct field compared with `==`, not yet enough to use
-// one as a `HashMap` key. `bytes` is an implementation detail Ziman has
-// no per-field privacy to actually hide (same as `HashMap`'s own
-// `buckets`) -- documented as "don't," not enforced.
+// A `Uuid` is 16 bytes. It satisfies `Eq`, `Hash` and `Ord` (structurally, and byte-wise for
+// order), so it works as a struct field, a `Map` key or a `Set` element and sorts with
+// `collections.sort<Uuid>`. Its text is the lowercase 8-4-4-4-12 dashed form; text is read case
+// insensitively but must have exactly that shape (no braces, no missing dashes). It has
+// `_to_json` / `_from_json` and `_to_sql` / `_from_sql` functions, so `#[derive(Json)]` and
+// `#[derive(Row)]` handle a `Uuid` field: a JSON string, and a TEXT column.
+//
+// The version and variant bits are set with plain arithmetic, since Ziman has no bitwise
+// operators: clearing the top nibble of a byte and setting it to 4 is `(b % 16) + 64`, the same
+// as `(b & 0x0F) | 0x40`.
 
+use clock.now_raw
 use json.Json
-use number.byte_from_hex
-use number.byte_to_hex
+use number.bytes_from_hex
+use number.bytes_to_hex
 use random.random_bytes
 use sql.DbError
 use sql.SqlValue
@@ -26,51 +25,59 @@ use sql.sql_lift
 val uuid_byte_count = 16
 val uuid_text_length = 36
 val uuid_version_4_bits = 64
+val uuid_version_7_bits = 112
 val uuid_variant_rfc4122_bits = 128
 // Where the four dashes of the 8-4-4-4-12 text form sit.
 val uuid_dash_positions: [int] = [8, 13, 18, 23]
 
+// 16 bytes. `bytes` is public because Ziman has no per-field privacy; treat it as read-only.
 pub struct Uuid {
     bytes: [byte]
 }
 
-pub fn uuid_new() -> Uuid {
-    var bytes = random_bytes(uuid_byte_count)
-    val version_nibble = (bytes[6] as int) % 16
-    bytes = set(bytes, 6, (version_nibble + uuid_version_4_bits) as byte)  // version 4
-    val variant_bits = (bytes[8] as int) % 64
-    bytes = set(bytes, 8, (variant_bits + uuid_variant_rfc4122_bits) as byte)  // variant 1 (RFC 4122)
+// Sets the version (the high nibble of byte 6) and the RFC 4122 variant (the top two bits of byte 8).
+fn stamp(raw: [byte], version_bits: int) -> Uuid {
+    var bytes = raw
+    bytes = set(bytes, 6, ((bytes[6] as int) % 16 + version_bits) as byte)
+    bytes = set(bytes, 8, ((bytes[8] as int) % 64 + uuid_variant_rfc4122_bits) as byte)
     return Uuid { bytes: bytes }
 }
 
-// Built on the prelude's StringBuilder rather than the concat-in-a-loop
-// this originally was -- that accumulated a brand new string on every
-// one of ~20 concat calls per Uuid stringified, each one immediately
-// abandoned (Ziman never frees a Value -- see docs/DESIGN.md's memory-
-// reclamation entry), a real, repeated cost given Uuid is Patient's own
-// id in health-record-backend-ziman. One shared, amortized-growth native
-// buffer plus one final snapshot copy replaces all of that.
-pub fn uuid_to_string(u: Uuid) -> string {
-    val sb = sb_new()
-    for i in 0..16 {
-        sb_append(sb, byte_to_hex(u.bytes[i]))
-        if i == 3 || i == 5 || i == 7 || i == 9 {
-            sb_append(sb, "-")
-        }
-    }
-    return sb_to_string(sb)
+// A fresh random (version 4) UUID, from the operating system's entropy.
+pub fn uuid_new() -> Uuid {
+    return stamp(random_bytes(uuid_byte_count), uuid_version_4_bits)
 }
 
-// The inverse of uuid_to_string -- needed the moment any real caller
-// gets a UUID back as a string (a JSON response field, a URL path
-// segment) and has to turn it back into a usable Uuid for a follow-up
-// call, exactly the "parse an id out of a response, then look it up"
-// round trip health-record-backend-ziman's own response side needed.
-// Requires the canonical, lowercase, dashed form uuid_to_string itself
-// always produces (8-4-4-4-12 hex digits) -- not a general parser for
-// every UUID variant's textual quirks (braces, uppercase, no dashes),
-// none of which anything in this codebase ever produces or needs to
-// accept.
+// A fresh time-ordered (version 7) UUID: the first 48 bits are the current time in milliseconds,
+// the rest random, so UUIDs made later sort after earlier ones -- a good database key, since new
+// rows land at the end of an index instead of all over it.
+pub fn uuid_new_v7() -> Uuid {
+    val now = now_raw()
+    val millis = now[0] * 1000 + now[1] / 1000000
+    val time_bytes = ab_new<byte>()
+    var shift = 1099511627776
+    for i in 0..6 {
+        ab_append<byte>(time_bytes, (millis / shift % 256) as byte)
+        shift = shift / 256
+    }
+    val rest = random_bytes(10)
+    return stamp(concat_arrays<byte>(ab_to_array<byte>(time_bytes), rest), uuid_version_7_bits)
+}
+
+// The all-zero UUID, `00000000-0000-0000-0000-000000000000`: "no id".
+pub fn uuid_nil() -> Uuid {
+    return Uuid { bytes: unwrap(bytes_from_hex("00000000000000000000000000000000")) }
+}
+
+// The lowercase dashed text of `u`: `123e4567-e89b-42d3-a456-426614174000`.
+pub fn uuid_to_string(u: Uuid) -> string {
+    val hex = bytes_to_hex(u.bytes)
+    return join(separator: "-", pieces: [substring(hex, 0, 8), substring(hex, 8, 12), substring(hex, 12, 16),
+        substring(hex, 16, 20), substring(hex, 20, 32)])
+}
+
+// The UUID written in the 8-4-4-4-12 dashed form (upper or lower case). An Err for any other
+// length, misplaced dashes, or a non-hex character; the message names the text.
 pub fn uuid_from_string(s: string) -> Result<Uuid, string> {
     if len(s) != uuid_text_length {
         return err(format("invalid UUID '{}': expected 36 characters, found {}", s, len(s)))
@@ -80,33 +87,25 @@ pub fn uuid_from_string(s: string) -> Result<Uuid, string> {
             return err(format("invalid UUID '{}': expected '-' at positions 8, 13, 18, 23", s))
         }
     }
-    val bytes = ab_new<byte>()
-    var i = 0
-    while i < uuid_text_length {
-        if contains(uuid_dash_positions, i) {
-            i = i + 1
-        } else {
-            val b = byte_from_hex(substring(s, i, i + 2))?
-            ab_append<byte>(bytes, b)
-            i = i + 2
-        }
+    val bytes = bytes_from_hex(replace(s, "-", ""))
+    if !is_ok(bytes) {
+        return err(format("invalid UUID '{}': {}", s, unwrap_err(bytes)))
     }
-    return Uuid { bytes: ab_to_array<byte>(bytes) }
+    return ok(Uuid { bytes: unwrap(bytes) })
 }
 
-// Thin wrappers over uuid_to_string/uuid_from_string, named to match
-// #[derive(Json)]'s own <type>_to_json/<type>_from_json naming
-// convention (src/derive.c's pascal_to_snake) -- so a struct field of
-// type Uuid resolves here automatically, the same as it would for a
-// hand-written or derived struct/enum field. See docs/DESIGN.md's
-// "Attributes and derive" entry for the full priority order this
-// implements (a domain type's own _to_string/_from_string pair, wrapped
-// in a JSON string, one level of indirection under the same _to_json/
-// _from_json name every other field type is looked up by).
+// The UUID's version (4 for `uuid_new`, 7 for `uuid_new_v7`): the high nibble of byte 6.
+pub fn uuid_version(u: Uuid) -> int {
+    return (u.bytes[6] as int) / 16
+}
+
+// A `Uuid` as a JSON string of its canonical text. Named for `#[derive(Json)]`'s
+// `<type>_to_json` convention, so a `Uuid` field works in a derived struct.
 pub fn uuid_to_json(u: Uuid) -> Json {
     return Json.JString(uuid_to_string(u))
 }
 
+// A `Uuid` from a JSON string. An Err if `j` is not a string or not a valid UUID.
 pub fn uuid_from_json(j: Json) -> Result<Uuid, string> {
     if !Json.is_JString(j) {
         return err("expected a JSON string for Uuid")
@@ -114,21 +113,20 @@ pub fn uuid_from_json(j: Json) -> Result<Uuid, string> {
     return uuid_from_string(Json.unwrap_JString(j))
 }
 
-// SQL mapping, for #[derive(Row)] (see src/derive.c): a Uuid is a TEXT
-// column, in the canonical dashed form -- SQLite has no UUID type and
-// Postgres's `uuid` column reads and writes the same text.
+// A `Uuid` as a TEXT value in the canonical dashed form, for `#[derive(Row)]` (SQLite has no
+// UUID type, and Postgres's `uuid` column reads and writes the same text).
 pub fn uuid_to_sql(u: Uuid) -> SqlValue {
     return SqlValue.Text(uuid_to_string(u))
 }
 
+// A `Uuid` from a TEXT value. An Err if the value is not text or not a valid UUID.
 pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError> {
     val text = sql_as_text(v)?
     return sql_lift<Uuid>(uuid_from_string(text), "Uuid")
 }
 
-// Byte-wise order (the order of the canonical dashed-hex text), so a `Uuid`
-// satisfies `Ord`: it can be sorted with `collections.sort<Uuid>` and compared
-// with `compare`.
+// Byte-wise order (the order of the canonical text), negative, zero or positive; what makes
+// `Uuid` satisfy `Ord`, so it works with `collections.sort<Uuid>` and `compare`.
 pub fn uuid_compare(a: Uuid, b: Uuid) -> int {
     for i in 0..len(a.bytes) {
         val c = compare(a.bytes[i], b.bytes[i])

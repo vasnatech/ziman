@@ -7,12 +7,13 @@
 //   log.info(logger, "listening on port 8080")
 //   log.debug(logger, "not printed: below the Info threshold")
 //
-// A line looks like `2026-09-24T12:00:00Z INFO  listening on port 8080`.
+// A line looks like `2026-09-24T12:00:00.123Z INFO  listening on port 8080`.
 // Messages below the logger's level are dropped without being written.
+use clock.now_iso
 use fs
 use os
-use time
 
+// A message's severity, lowest first. A logger drops messages below its own level.
 pub enum Level {
     Debug
     Info
@@ -20,6 +21,7 @@ pub enum Level {
     Error
 }
 
+// A logger's settings; build one with `logger`, and use `with_prefix` for per-component copies.
 pub struct Logger {
     level: Level
     file: Option<string>
@@ -45,6 +47,7 @@ pub fn with_prefix(l: Logger, prefix: string) -> Logger {
     return Logger { level: l.level, file: l.file, timestamps: l.timestamps, prefix: prefix }
 }
 
+// 0 for Debug up to 3 for Error: the order of severity.
 pub fn level_rank(level: Level) -> int {
     return switch level {
         Debug { 0 }
@@ -54,6 +57,7 @@ pub fn level_rank(level: Level) -> int {
     }
 }
 
+// The level as it appears in a log line, padded to five characters ("INFO ").
 pub fn level_name(level: Level) -> string {
     return switch level {
         Debug { "DEBUG" }
@@ -74,17 +78,21 @@ pub fn level_parse(text: string) -> Result<Level, string> {
     return err(format("unknown log level '{}' (use debug, info, warn or error)", text))
 }
 
+// True if a message at `level` would be written by `l`.
 pub fn enabled(l: Logger, level: Level) -> bool {
     return level_rank(level) >= level_rank(l.level)
 }
 
+// Writes `message` at `level` if the logger's level allows it: a line of the form
+// `<timestamp> <LEVEL> <prefix><message>`. To stderr, or appended to the logger's file (falling back
+// to stderr if the file cannot be written).
 pub fn write(l: Logger, level: Level, message: string) {
     if !enabled(l, level) {
         return
     }
     var line = ""
     if l.timestamps {
-        line = format("{} ", time.instant_to_string(time.instant_now()))
+        line = format("{} ", now_iso())
     }
     line = format("{}{} {}{}\n", line, level_name(level), l.prefix, message)
     switch l.file {
@@ -98,7 +106,11 @@ pub fn write(l: Logger, level: Level, message: string) {
     }
 }
 
+// `write` at each level: detail useful while developing.
 pub fn debug(l: Logger, message: string) { write(l, Level.Debug, message) }
+// Normal events worth recording.
 pub fn info(l: Logger, message: string) { write(l, Level.Info, message) }
+// Something unexpected that the program handled.
 pub fn warn(l: Logger, message: string) { write(l, Level.Warn, message) }
+// A failure the program could not handle.
 pub fn error(l: Logger, message: string) { write(l, Level.Error, message) }

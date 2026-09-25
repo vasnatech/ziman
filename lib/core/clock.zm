@@ -11,6 +11,10 @@
 // to measure elapsed time.
 pub native fn now_raw() -> [int]
 
+// The current UTC time as ISO-8601 text with milliseconds: "2026-09-24T12:00:00.123Z". The
+// fast way to stamp a log line; use `time.instant_now()` when you need to compute with the time.
+pub native fn now_iso() -> string
+
 // Blocks the calling thread, and only that thread, for at least `ms` milliseconds; other
 // threads keep running. A signal cannot cut the sleep short. A `ms` of zero or less
 // returns at once.

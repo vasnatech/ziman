@@ -1,0 +1,28 @@
+use clock
+use uuid
+
+fn main() {
+    val a = uuid.uuid_new()
+    print(uuid.uuid_version(a))
+    val s = uuid.uuid_to_string(a)
+    print(len(s))
+    print(unwrap(uuid.uuid_from_string(s)) == a)
+    // upper case is accepted, and prints back lower case
+    val up = unwrap(uuid.uuid_from_string("123E4567-E89B-42D3-A456-426614174000"))
+    print(uuid.uuid_to_string(up))
+    print(uuid.uuid_version(up))
+    // the nil UUID
+    print(uuid.uuid_to_string(uuid.uuid_nil()))
+    // version 7: time-ordered
+    val first = uuid.uuid_new_v7()
+    clock.sleep_millis(3)
+    val second = uuid.uuid_new_v7()
+    print(uuid.uuid_version(first))
+    print(uuid.uuid_compare(first, second) < 0)
+    print(uuid.uuid_to_string(first) < uuid.uuid_to_string(second))
+    val text = uuid.uuid_to_string(first)
+    print(substring(text, 14, 15))
+    print(contains("89ab", substring(text, 19, 20)))
+    print(clock.now_iso() > "2020-01-01")
+    print(len(clock.now_iso()))
+}

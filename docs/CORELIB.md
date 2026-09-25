@@ -26,6 +26,8 @@ One native function reading the system clock (`clock_gettime`) -- Ziman's other 
 ```
 pub native fn now_raw() -> [int]
 
+pub native fn now_iso() -> string
+
 pub native fn sleep_millis(ms: int)
 
 ```
@@ -1033,9 +1035,15 @@ pub struct Uuid {
 
 pub fn uuid_new() -> Uuid
 
+pub fn uuid_new_v7() -> Uuid
+
+pub fn uuid_nil() -> Uuid
+
 pub fn uuid_to_string(u: Uuid) -> string
 
 pub fn uuid_from_string(s: string) -> Result<Uuid, string>
+
+pub fn uuid_version(u: Uuid) -> int
 
 pub fn uuid_to_json(u: Uuid) -> Json
 

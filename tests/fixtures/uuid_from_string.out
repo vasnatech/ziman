@@ -3,5 +3,5 @@ true
 false
 invalid UUID 'too-short': expected 36 characters, found 9
 false
-invalid hex digit 'g'
+invalid UUID 'gggggggg-gggg-gggg-gggg-gggggggggggg': invalid hex: bad digit
 false
