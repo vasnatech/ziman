@@ -11,3 +11,4 @@ src/*_source.h
 tests/pg/.url
 tests/tls/.certs/
 tests/pg/.certs/
+editors/vscode/node_modules/
