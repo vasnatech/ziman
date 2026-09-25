@@ -693,11 +693,11 @@ several languages rather than inheriting any one of them wholesale.
   types — every one gets an explicit `_compare(a, b) -> int` instead,
   same "don't reopen Ord/Cmp without a forcing case" posture held
   throughout this project.
-- **Named time zones (`zoneid_of`, module `tzdata`).** Read from the operating
+- **Named time zones (`zoneid_of`, module `zone`).** Read from the operating
   system's compiled zone files (TZif, `$TZDIR` or `/usr/share/zoneinfo`)
   rather than embedding the IANA database: the data changes several times a
   year and is the operating system's to keep current, and a program that runs
-  where the files are absent gets an Err, never a wrong offset. `tzdata` parses
+  where the files are absent gets an Err, never a wrong offset. `zone` parses
   the version 2+ block (64-bit transitions), keeps the transition list and the
   local time types as parallel arrays of scalars (Ziman compares arrays of
   structs by reference-free `==` only for scalars, and `ZoneId` has to stay
@@ -2286,12 +2286,12 @@ several languages rather than inheriting any one of them wholesale.
   in derive.c) -- `ValidationError` -> `validation_error`, `Patient` ->
   `patient`. Deliberately its *own*, fresh convention, distinct from the
   older, simpler "lowercase with no inserted underscores" shortcut
-  `lib/core/time.zm`'s hand-written `_to_string`/`_from_string` pairs
+  `lib/time/time.zm`'s hand-written `_to_string`/`_from_string` pairs
   already use for their own compound names (`localdate_to_string`, not
   `local_date_to_string`) -- a cosmetic inconsistency between the two
   naming families, not a functional one. Every domain type in `uuid`/
   `time` got a hand-written `<type>_to_json`/`<type>_from_json` pair
-  added (`lib/core/uuid.zm`, `lib/core/time.zm`) as a thin wrapper around
+  added (`lib/core/uuid.zm`, `lib/time/time.zm`) as a thin wrapper around
   its own existing `_to_string`/`_from_string`, named to match *this*
   new convention (`local_date_to_json`, `zone_offset_from_json`, ...) --
   this is what makes tier 2 of the priority order ("does the type have a

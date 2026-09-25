@@ -21,7 +21,7 @@
 // and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
 // types (an ISO string, and a TEXT column).
 //
-// Named zones (`zoneid_of("Europe/Paris")`) come from the system's IANA zone files (see `tzdata`), so
+// Named zones (`zoneid_of("Europe/Paris")`) come from the system's IANA zone files (see `zone`), so
 // they need the operating system's tzdata package; `zoneid_offset_at` gives the offset at an
 // instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` convert with daylight
 // saving applied.
@@ -30,7 +30,7 @@
 
 // Implementation notes. Modeled on java.time, scoped down in two deliberate ways:
 //
-// - Named zones read the operating system's zone files (module `tzdata`) instead of embedding the
+// - Named zones read the operating system's zone files (module `zone`) instead of embedding the
 //   IANA database, which changes several times a year worldwide; a system without them can still
 //   use `UTC` and fixed `ZoneOffset`s, and gets an Err from `zoneid_of` for the rest.
 // - Instant/Duration are `{ seconds: int, nanos: int }`, matching both
@@ -97,10 +97,10 @@ use sql.DbError
 use sql.SqlValue
 use sql.sql_as_text
 use sql.sql_lift
-use tzdata.ZoneRules
-use tzdata.load_rules
-use tzdata.no_rule
-use tzdata.type_at
+use zone.ZoneRules
+use zone.load_rules
+use zone.no_rule
+use zone.type_at
 
 fn is_leap_year(year: int) -> bool {
     if year % 400 == 0 {
@@ -1029,7 +1029,7 @@ pub fn zoneid_utc() -> ZoneId {
     return ZoneId { name: "UTC", rules: utc_rules }
 }
 
-// The zone called `name`, read from the system's IANA time zone files (see `tzdata`), or an Err
+// The zone called `name`, read from the system's IANA time zone files (see `zone`), or an Err
 // when the name is unknown or the system has no zone database. `UTC` and `Z` always work.
 pub fn zoneid_of(name: string) -> Result<ZoneId, string> {
     if name == "UTC" || name == "Z" {

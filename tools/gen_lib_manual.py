@@ -19,8 +19,8 @@ OUT = os.path.join(ROOT, "docs", "lib")
 GROUPS = [
     ("Data and formats", "core", ["collections", "json", "ndjson", "csv", "toml", "yaml", "properties",
                                    "number", "uuid", "regex", "compress", "crypto"]),
-    ("Time", "core", ["time", "tzdata", "clock"]),
-    ("System", "core", ["fs", "os", "log", "random"]),
+    ("Time", "time", ["time", "zone"]),
+    ("System", "core", ["fs", "os", "log", "random", "clock"]),
     ("Networking", "core", ["net"]),
     ("HTTP", "http", ["http", "server", "client"]),
     ("Databases", "db", ["sql", "db", "sqlite", "pg", "mysql", "dburl"]),
@@ -210,7 +210,7 @@ def main():
     index += ["## Always available", "", "| Module | What it is |", "|---|---|",
               "| [`prelude`](prelude.md) | %s |" % summary.replace("|", "\\|"), ""]
     seen.add(path)
-    for folder in ("core", "db", "http"):
+    for folder in ("core", "db", "http", "time"):
         for fn in sorted(os.listdir(os.path.join(ROOT, "lib", folder))):
             p = os.path.join(ROOT, "lib", folder, fn)
             if fn.endswith(".zm") and p not in seen:

@@ -1,4 +1,4 @@
-# `tzdata`
+# `zone`
 
 The IANA time zone database, read from the operating system's compiled zone files
 (`/usr/share/zoneinfo/America/New_York` and so on, in the TZif format), for `time`'s named
@@ -14,7 +14,7 @@ answer; the zone `UTC` needs no files.
 
 Leap-second tables in the files are skipped: times here are Unix time, which has none.
 
-`use tzdata` -- or `use tzdata.Name` to bring one item in bare.
+`use zone` -- or `use zone.Name` to bring one item in bare.
 
 ### `ZoneType`
 

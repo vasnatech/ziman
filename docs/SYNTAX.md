@@ -1669,7 +1669,7 @@ fn main() {
   `zoneoffset_from_string`.
 - **`ZoneId`** — an IANA time zone (`"UTC"`, `"Europe/Paris"`,
   `"America/New_York"`) with its rules. `zoneid_of(name)` reads them from
-  the operating system's zone files (the `tzdata` module: `$TZDIR`, else
+  the operating system's zone files (the `zone` module: `$TZDIR`, else
   `/usr/share/zoneinfo`) and is an Err for an unknown name or a system with
   no zone database; `zoneid_utc()` and `"UTC"` never need the files.
   `zoneid_offset_at(z, instant)` is the offset in force then (`-05:00` in

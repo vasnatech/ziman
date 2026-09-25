@@ -34,8 +34,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | Module | What it is |
 |---|---|
 | [`time`](time.md) | Dates, times, durations and instants, modeled on java.time and written in ordinary Ziman. |
-| [`tzdata`](tzdata.md) | The IANA time zone database, read from the operating system's compiled zone files. |
-| [`clock`](clock.md) | The system clock and sleeping, the two things Ziman cannot do in pure code. |
+| [`zone`](zone.md) | The IANA time zone database, read from the operating system's compiled zone files. |
 
 ## System
 
@@ -45,6 +44,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`os`](os.md) | The process and its environment. |
 | [`log`](log.md) | Levelled logging to stderr or to a file. |
 | [`random`](random.md) | Randomness from the operating system. |
+| [`clock`](clock.md) | The system clock and sleeping, the two things Ziman cannot do in pure code. |
 
 ## Networking
 

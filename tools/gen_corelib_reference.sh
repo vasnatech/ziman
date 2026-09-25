@@ -17,7 +17,7 @@ describe() {
         uuid) echo "RFC 4122 v4 UUIDs, written in pure Ziman on top of \`random\` -- version/variant bits set with plain integer arithmetic, since Ziman has no bitwise operators." ;;
         clock) echo "One native function reading the system clock (\`clock_gettime\`) -- Ziman's other source of genuine non-determinism." ;;
         time) echo "Seven \`java.time\`-shaped types (\`LocalDate\`, \`LocalTime\`, \`LocalDateTime\`, \`Duration\`, \`Instant\`, \`ZoneOffset\`, \`ZoneId\`), written in pure Ziman on top of \`clock\`. \`ZoneId\` reads the IANA zone files (see \`tzdata\`). Every type has a fixed ISO-8601 \`_to_string\`/\`_parse\` pair; \`LocalDate\`/\`LocalTime\`/\`LocalDateTime\`/\`Instant\` also get a general \`_format\`/\`_parse_pattern\` pair taking a \`DateTimeFormat\` -- a pattern compiled once by \`datetime_format_of\` (see the \`iso_*_format\` vals, each compiled exactly once at program start) rather than a raw pattern string re-scanned on every call." ;;
-        tzdata) echo "The IANA time zone database, read from the operating system's zone files, for \`time\`'s named zones (\`zoneid_of\`)." ;;
+        zone) echo "The IANA time zone database, read from the operating system's zone files, for \`time\`'s named zones (\`zoneid_of\`)." ;;
         json) echo "A JSON parser/serializer (\`Json\`, a genuinely recursive enum), written in pure Ziman -- no native code needed. \`\\uXXXX\` unicode escapes and \`==\`/\`!=\` on \`Json\` are the two known gaps." ;;
         number) echo "Shared formatting/parsing across \`int\`/\`float\`/\`bigint\`/\`decimal\`/\`byte\`, written in pure Ziman on top of each type's own \`str()\`. \`NumberFormat\`/\`parse_pattern\` cover thousands separators and forced decimal places (a small subset of DecimalFormat-style patterns); \`byte_to_hex\`/\`int_to_hex\`/\`bigint_to_hex\` (and their \`_from_hex\` inverses) cover hex for the three integral types." ;;
         crypto) echo "Hashes (SHA-1/256/512), HMAC, PBKDF2, a constant-time byte comparison, base64 and base64url, on OpenSSL. No ciphers or public-key operations." ;;
@@ -52,7 +52,7 @@ unqualified in every program, the same way `print`/`str`/`parse_int`
 are. See docs/SYNTAX.md's "Modules" section for what it contains.
 EOF
 
-for f in lib/core/*.zm lib/db/*.zm lib/http/*.zm; do
+for f in lib/core/*.zm lib/db/*.zm lib/http/*.zm lib/time/*.zm; do
     name=$(basename "$f" .zm)
     if [ "$name" = "prelude" ]; then continue; fi
     desc=$(describe "$name")

@@ -1,6 +1,6 @@
 use time
 use time.Instant
-use tzdata
+use zone
 
 fn offset(zone: string, at: Instant) -> string {
     return time.zoneoffset_to_string(time.zoneid_offset_at(unwrap(time.zoneid_of(zone)), at))
@@ -65,11 +65,11 @@ fn main() {
     print(unwrap_err(time.zoneid_of("America")))
 
     // the rule string on its own
-    print(is_ok(tzdata.parse_posix_rule("EST5EDT,M3.2.0,M11.1.0")))
-    print(is_ok(tzdata.parse_posix_rule("<+0330>-3:30")))
-    print(is_ok(tzdata.parse_posix_rule("CET-1CEST,M3.5.0,M10.5.0/3")))
-    print(is_ok(tzdata.parse_posix_rule("AB")))
-    print(is_ok(tzdata.parse_posix_rule("EST5EDT,M13.2.0,M11.1.0")))
-    print(is_ok(tzdata.parse_posix_rule("EST5EDT,M3.2.0")))
-    print(is_ok(tzdata.parse_rules(string_to_bytes("not a zone file at all, just some text that is long enough"))))
+    print(is_ok(zone.parse_posix_rule("EST5EDT,M3.2.0,M11.1.0")))
+    print(is_ok(zone.parse_posix_rule("<+0330>-3:30")))
+    print(is_ok(zone.parse_posix_rule("CET-1CEST,M3.5.0,M10.5.0/3")))
+    print(is_ok(zone.parse_posix_rule("AB")))
+    print(is_ok(zone.parse_posix_rule("EST5EDT,M13.2.0,M11.1.0")))
+    print(is_ok(zone.parse_posix_rule("EST5EDT,M3.2.0")))
+    print(is_ok(zone.parse_rules(string_to_bytes("not a zone file at all, just some text that is long enough"))))
 }

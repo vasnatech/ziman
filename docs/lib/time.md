@@ -26,7 +26,7 @@ width, anything else copied through as literal text. Every type has `_to_json` /
 and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
 types (an ISO string, and a TEXT column).
 
-Named zones (`zoneid_of("Europe/Paris")`) come from the system's IANA zone files (see `tzdata`), so
+Named zones (`zoneid_of("Europe/Paris")`) come from the system's IANA zone files (see `zone`), so
 they need the operating system's tzdata package; `zoneid_offset_at` gives the offset at an
 instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` convert with daylight
 saving applied.
@@ -711,7 +711,7 @@ The `UTC` zone.
 pub fn zoneid_of(name: string) -> Result<ZoneId, string>
 ```
 
-The zone called `name`, read from the system's IANA time zone files (see `tzdata`), or an Err
+The zone called `name`, read from the system's IANA time zone files (see `zone`), or an Err
 when the name is unknown or the system has no zone database. `UTC` and `Z` always work.
 
 ### `zoneid_offset_at`

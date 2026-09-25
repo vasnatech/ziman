@@ -605,269 +605,6 @@ pub fn escape(text: string) -> string
 
 ```
 
-## `time`
-
-Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneId` reads the IANA zone files (see `tzdata`). Every type has a fixed ISO-8601 `_to_string`/`_parse` pair; `LocalDate`/`LocalTime`/`LocalDateTime`/`Instant` also get a general `_format`/`_parse_pattern` pair taking a `DateTimeFormat` -- a pattern compiled once by `datetime_format_of` (see the `iso_*_format` vals, each compiled exactly once at program start) rather than a raw pattern string re-scanned on every call.
-
-```
-pub struct DateTimeFormat {
-    parts: [DateTimePart]
-    width: int
-}
-
-pub fn datetime_format_of(pattern: string) -> DateTimeFormat
-
-pub val iso_date_format = datetime_format_of("yyyy-MM-dd")
-
-pub val iso_time_format = datetime_format_of("HH:mm:ss")
-
-pub val iso_time_nanos_format = datetime_format_of("HH:mm:ss.SSSSSSSSS")
-
-pub val iso_datetime_format = datetime_format_of("yyyy-MM-ddTHH:mm:ss")
-
-pub val iso_datetime_nanos_format = datetime_format_of("yyyy-MM-ddTHH:mm:ss.SSSSSSSSS")
-
-pub struct LocalDate {
-    year: int
-    month: int
-    day: int
-}
-
-pub fn localdate_of(year: int, month: int, day: int) -> Result<LocalDate, string>
-
-pub fn localdate_is_leap_year(year: int) -> bool
-
-pub fn localdate_to_epoch_day(d: LocalDate) -> int
-
-pub fn localdate_from_epoch_day(epoch_day: int) -> LocalDate
-
-pub fn localdate_add_days(d: LocalDate, days: int) -> LocalDate
-
-pub fn localdate_add_months(d: LocalDate, months: int) -> LocalDate
-
-pub fn localdate_add_years(d: LocalDate, years: int) -> LocalDate
-
-pub fn localdate_diff_days(a: LocalDate, b: LocalDate) -> int
-
-pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int
-
-pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string
-
-pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string>
-
-pub fn localdate_from_string(s: string) -> Result<LocalDate, string>
-
-pub fn localdate_to_string(d: LocalDate) -> string
-
-pub struct LocalTime {
-    hour: int
-    minute: int
-    second: int
-    nano: int
-}
-
-pub fn localtime_of(hour: int, minute: int, second: int, nano: int) -> Result<LocalTime, string>
-
-pub fn localtime_add_nanos(t: LocalTime, nanos: int) -> LocalTime
-
-pub fn localtime_add_seconds(t: LocalTime, seconds: int) -> LocalTime
-
-pub fn localtime_add_minutes(t: LocalTime, minutes: int) -> LocalTime
-
-pub fn localtime_add_hours(t: LocalTime, hours: int) -> LocalTime
-
-pub fn localtime_diff_nanos(a: LocalTime, b: LocalTime) -> int
-
-pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int
-
-pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string
-
-pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string>
-
-pub fn localtime_from_string(s: string) -> Result<LocalTime, string>
-
-pub fn localtime_to_string(t: LocalTime) -> string
-
-pub struct Duration {
-    seconds: int
-    nanos: int
-}
-
-pub fn duration_of_seconds(seconds: int, nanos: int) -> Duration
-
-pub fn duration_zero() -> Duration
-
-pub fn duration_add(a: Duration, b: Duration) -> Duration
-
-pub fn duration_negate(d: Duration) -> Duration
-
-pub fn duration_subtract(a: Duration, b: Duration) -> Duration
-
-pub fn duration_compare(a: Duration, b: Duration) -> int
-
-pub fn duration_to_string(d: Duration) -> string
-
-pub fn duration_from_string(s: string) -> Result<Duration, string>
-
-pub struct LocalDateTime {
-    date: LocalDate
-    time: LocalTime
-}
-
-pub fn localdatetime_of(date: LocalDate, time: LocalTime) -> LocalDateTime
-
-pub fn localdatetime_add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime
-
-pub fn localdatetime_add_seconds(dt: LocalDateTime, seconds: int) -> LocalDateTime
-
-pub fn localdatetime_add_minutes(dt: LocalDateTime, minutes: int) -> LocalDateTime
-
-pub fn localdatetime_add_hours(dt: LocalDateTime, hours: int) -> LocalDateTime
-
-pub fn localdatetime_add_days(dt: LocalDateTime, days: int) -> LocalDateTime
-
-pub fn localdatetime_add_months(dt: LocalDateTime, months: int) -> LocalDateTime
-
-pub fn localdatetime_add_years(dt: LocalDateTime, years: int) -> LocalDateTime
-
-pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int
-
-pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration
-
-pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
-
-pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string>
-
-pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string>
-
-pub fn localdatetime_to_string(dt: LocalDateTime) -> string
-
-pub struct ZoneOffset {
-    total_seconds: int
-}
-
-pub fn zoneoffset_utc() -> ZoneOffset
-
-pub fn zoneoffset_of_seconds(total_seconds: int) -> Result<ZoneOffset, string>
-
-pub fn zoneoffset_of_hours_minutes(hours: int, minutes: int) -> Result<ZoneOffset, string>
-
-pub fn zoneoffset_compare(a: ZoneOffset, b: ZoneOffset) -> int
-
-pub fn zoneoffset_to_string(z: ZoneOffset) -> string
-
-pub fn zoneoffset_from_string(s: string) -> Result<ZoneOffset, string>
-
-pub struct ZoneId {
-    name: string
-    rules: ZoneRules
-}
-
-pub fn zoneid_utc() -> ZoneId
-
-pub fn zoneid_of(name: string) -> Result<ZoneId, string>
-
-pub fn zoneid_offset_at(z: ZoneId, i: Instant) -> ZoneOffset
-
-pub fn zoneid_is_dst_at(z: ZoneId, i: Instant) -> bool
-
-pub fn zoneid_abbreviation_at(z: ZoneId, i: Instant) -> string
-
-pub fn zoneid_to_string(z: ZoneId) -> string
-
-pub fn zoneid_from_string(s: string) -> Result<ZoneId, string>
-
-pub struct Instant {
-    seconds: int
-    nanos: int
-}
-
-pub fn instant_of(seconds: int, nanos: int) -> Instant
-
-pub fn instant_now() -> Instant
-
-pub fn instant_add(i: Instant, d: Duration) -> Instant
-
-pub fn instant_subtract(i: Instant, d: Duration) -> Instant
-
-pub fn instant_diff(a: Instant, b: Instant) -> Duration
-
-pub fn instant_compare(a: Instant, b: Instant) -> int
-
-pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
-
-pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant
-
-pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime
-
-pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant
-
-pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
-
-pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string>
-
-pub fn instant_from_string(s: string) -> Result<Instant, string>
-
-pub fn instant_to_string(i: Instant) -> string
-
-pub fn local_date_to_json(d: LocalDate) -> Json
-
-pub fn local_date_from_json(j: Json) -> Result<LocalDate, string>
-
-pub fn local_time_to_json(t: LocalTime) -> Json
-
-pub fn local_time_from_json(j: Json) -> Result<LocalTime, string>
-
-pub fn duration_to_json(d: Duration) -> Json
-
-pub fn duration_from_json(j: Json) -> Result<Duration, string>
-
-pub fn local_date_time_to_json(dt: LocalDateTime) -> Json
-
-pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string>
-
-pub fn zone_offset_to_json(z: ZoneOffset) -> Json
-
-pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string>
-
-pub fn zone_id_to_json(z: ZoneId) -> Json
-
-pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string>
-
-pub fn instant_to_json(i: Instant) -> Json
-
-pub fn instant_from_json(j: Json) -> Result<Instant, string>
-
-pub fn local_date_to_sql(v: LocalDate) -> SqlValue
-
-pub fn local_date_from_sql(v: SqlValue) -> Result<LocalDate, DbError>
-
-pub fn local_time_to_sql(v: LocalTime) -> SqlValue
-
-pub fn local_time_from_sql(v: SqlValue) -> Result<LocalTime, DbError>
-
-pub fn duration_to_sql(v: Duration) -> SqlValue
-
-pub fn duration_from_sql(v: SqlValue) -> Result<Duration, DbError>
-
-pub fn local_date_time_to_sql(v: LocalDateTime) -> SqlValue
-
-pub fn local_date_time_from_sql(v: SqlValue) -> Result<LocalDateTime, DbError>
-
-pub fn zone_offset_to_sql(v: ZoneOffset) -> SqlValue
-
-pub fn zone_offset_from_sql(v: SqlValue) -> Result<ZoneOffset, DbError>
-
-pub fn zone_id_to_sql(v: ZoneId) -> SqlValue
-
-pub fn zone_id_from_sql(v: SqlValue) -> Result<ZoneId, DbError>
-
-pub fn instant_to_sql(v: Instant) -> SqlValue
-
-pub fn instant_from_sql(v: SqlValue) -> Result<Instant, DbError>
-
-```
-
 ## `toml`
 
 TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.
@@ -876,56 +613,6 @@ TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected
 pub fn parse_toml(text: string) -> Result<Json, string>
 
 pub fn toml_to_string(j: Json) -> Result<string, string>
-
-```
-
-## `tzdata`
-
-The IANA time zone database, read from the operating system's zone files, for `time`'s named zones (`zoneid_of`).
-
-```
-pub struct ZoneType {
-    utoff: int
-    dst: bool
-    name: string
-}
-
-pub struct RuleDate {
-    kind: int
-    month: int
-    week: int
-    weekday: int
-    day: int
-    seconds: int
-}
-
-pub struct PosixRule {
-    standard: ZoneType
-    daylight: ZoneType
-    has_dst: bool
-    start: RuleDate
-    end: RuleDate
-}
-
-pub struct ZoneRules {
-    transitions: [int]
-    type_of: [int]
-    utoffs: [int]
-    dsts: [bool]
-    names: [string]
-    has_rule: bool
-    rule: PosixRule
-}
-
-pub fn parse_posix_rule(text: string) -> Result<PosixRule, string>
-
-pub val no_rule = PosixRule { standard: ZoneType { utoff: 0, dst: false, name: "UTC" },
-
-pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string>
-
-pub fn load_rules(name: string) -> Result<ZoneRules, string>
-
-pub fn type_at(rules: ZoneRules, t: int) -> ZoneType
 
 ```
 
@@ -1412,5 +1099,318 @@ pub struct ServeOptions {
 }
 
 pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions)
+
+```
+
+## `time`
+
+Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneId` reads the IANA zone files (see `tzdata`). Every type has a fixed ISO-8601 `_to_string`/`_parse` pair; `LocalDate`/`LocalTime`/`LocalDateTime`/`Instant` also get a general `_format`/`_parse_pattern` pair taking a `DateTimeFormat` -- a pattern compiled once by `datetime_format_of` (see the `iso_*_format` vals, each compiled exactly once at program start) rather than a raw pattern string re-scanned on every call.
+
+```
+pub struct DateTimeFormat {
+    parts: [DateTimePart]
+    width: int
+}
+
+pub fn datetime_format_of(pattern: string) -> DateTimeFormat
+
+pub val iso_date_format = datetime_format_of("yyyy-MM-dd")
+
+pub val iso_time_format = datetime_format_of("HH:mm:ss")
+
+pub val iso_time_nanos_format = datetime_format_of("HH:mm:ss.SSSSSSSSS")
+
+pub val iso_datetime_format = datetime_format_of("yyyy-MM-ddTHH:mm:ss")
+
+pub val iso_datetime_nanos_format = datetime_format_of("yyyy-MM-ddTHH:mm:ss.SSSSSSSSS")
+
+pub struct LocalDate {
+    year: int
+    month: int
+    day: int
+}
+
+pub fn localdate_of(year: int, month: int, day: int) -> Result<LocalDate, string>
+
+pub fn localdate_is_leap_year(year: int) -> bool
+
+pub fn localdate_to_epoch_day(d: LocalDate) -> int
+
+pub fn localdate_from_epoch_day(epoch_day: int) -> LocalDate
+
+pub fn localdate_add_days(d: LocalDate, days: int) -> LocalDate
+
+pub fn localdate_add_months(d: LocalDate, months: int) -> LocalDate
+
+pub fn localdate_add_years(d: LocalDate, years: int) -> LocalDate
+
+pub fn localdate_diff_days(a: LocalDate, b: LocalDate) -> int
+
+pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int
+
+pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string
+
+pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string>
+
+pub fn localdate_from_string(s: string) -> Result<LocalDate, string>
+
+pub fn localdate_to_string(d: LocalDate) -> string
+
+pub struct LocalTime {
+    hour: int
+    minute: int
+    second: int
+    nano: int
+}
+
+pub fn localtime_of(hour: int, minute: int, second: int, nano: int) -> Result<LocalTime, string>
+
+pub fn localtime_add_nanos(t: LocalTime, nanos: int) -> LocalTime
+
+pub fn localtime_add_seconds(t: LocalTime, seconds: int) -> LocalTime
+
+pub fn localtime_add_minutes(t: LocalTime, minutes: int) -> LocalTime
+
+pub fn localtime_add_hours(t: LocalTime, hours: int) -> LocalTime
+
+pub fn localtime_diff_nanos(a: LocalTime, b: LocalTime) -> int
+
+pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int
+
+pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string
+
+pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string>
+
+pub fn localtime_from_string(s: string) -> Result<LocalTime, string>
+
+pub fn localtime_to_string(t: LocalTime) -> string
+
+pub struct Duration {
+    seconds: int
+    nanos: int
+}
+
+pub fn duration_of_seconds(seconds: int, nanos: int) -> Duration
+
+pub fn duration_zero() -> Duration
+
+pub fn duration_add(a: Duration, b: Duration) -> Duration
+
+pub fn duration_negate(d: Duration) -> Duration
+
+pub fn duration_subtract(a: Duration, b: Duration) -> Duration
+
+pub fn duration_compare(a: Duration, b: Duration) -> int
+
+pub fn duration_to_string(d: Duration) -> string
+
+pub fn duration_from_string(s: string) -> Result<Duration, string>
+
+pub struct LocalDateTime {
+    date: LocalDate
+    time: LocalTime
+}
+
+pub fn localdatetime_of(date: LocalDate, time: LocalTime) -> LocalDateTime
+
+pub fn localdatetime_add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime
+
+pub fn localdatetime_add_seconds(dt: LocalDateTime, seconds: int) -> LocalDateTime
+
+pub fn localdatetime_add_minutes(dt: LocalDateTime, minutes: int) -> LocalDateTime
+
+pub fn localdatetime_add_hours(dt: LocalDateTime, hours: int) -> LocalDateTime
+
+pub fn localdatetime_add_days(dt: LocalDateTime, days: int) -> LocalDateTime
+
+pub fn localdatetime_add_months(dt: LocalDateTime, months: int) -> LocalDateTime
+
+pub fn localdatetime_add_years(dt: LocalDateTime, years: int) -> LocalDateTime
+
+pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int
+
+pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration
+
+pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
+
+pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string>
+
+pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string>
+
+pub fn localdatetime_to_string(dt: LocalDateTime) -> string
+
+pub struct ZoneOffset {
+    total_seconds: int
+}
+
+pub fn zoneoffset_utc() -> ZoneOffset
+
+pub fn zoneoffset_of_seconds(total_seconds: int) -> Result<ZoneOffset, string>
+
+pub fn zoneoffset_of_hours_minutes(hours: int, minutes: int) -> Result<ZoneOffset, string>
+
+pub fn zoneoffset_compare(a: ZoneOffset, b: ZoneOffset) -> int
+
+pub fn zoneoffset_to_string(z: ZoneOffset) -> string
+
+pub fn zoneoffset_from_string(s: string) -> Result<ZoneOffset, string>
+
+pub struct ZoneId {
+    name: string
+    rules: ZoneRules
+}
+
+pub fn zoneid_utc() -> ZoneId
+
+pub fn zoneid_of(name: string) -> Result<ZoneId, string>
+
+pub fn zoneid_offset_at(z: ZoneId, i: Instant) -> ZoneOffset
+
+pub fn zoneid_is_dst_at(z: ZoneId, i: Instant) -> bool
+
+pub fn zoneid_abbreviation_at(z: ZoneId, i: Instant) -> string
+
+pub fn zoneid_to_string(z: ZoneId) -> string
+
+pub fn zoneid_from_string(s: string) -> Result<ZoneId, string>
+
+pub struct Instant {
+    seconds: int
+    nanos: int
+}
+
+pub fn instant_of(seconds: int, nanos: int) -> Instant
+
+pub fn instant_now() -> Instant
+
+pub fn instant_add(i: Instant, d: Duration) -> Instant
+
+pub fn instant_subtract(i: Instant, d: Duration) -> Instant
+
+pub fn instant_diff(a: Instant, b: Instant) -> Duration
+
+pub fn instant_compare(a: Instant, b: Instant) -> int
+
+pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
+
+pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant
+
+pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime
+
+pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant
+
+pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
+
+pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string>
+
+pub fn instant_from_string(s: string) -> Result<Instant, string>
+
+pub fn instant_to_string(i: Instant) -> string
+
+pub fn local_date_to_json(d: LocalDate) -> Json
+
+pub fn local_date_from_json(j: Json) -> Result<LocalDate, string>
+
+pub fn local_time_to_json(t: LocalTime) -> Json
+
+pub fn local_time_from_json(j: Json) -> Result<LocalTime, string>
+
+pub fn duration_to_json(d: Duration) -> Json
+
+pub fn duration_from_json(j: Json) -> Result<Duration, string>
+
+pub fn local_date_time_to_json(dt: LocalDateTime) -> Json
+
+pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string>
+
+pub fn zone_offset_to_json(z: ZoneOffset) -> Json
+
+pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string>
+
+pub fn zone_id_to_json(z: ZoneId) -> Json
+
+pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string>
+
+pub fn instant_to_json(i: Instant) -> Json
+
+pub fn instant_from_json(j: Json) -> Result<Instant, string>
+
+pub fn local_date_to_sql(v: LocalDate) -> SqlValue
+
+pub fn local_date_from_sql(v: SqlValue) -> Result<LocalDate, DbError>
+
+pub fn local_time_to_sql(v: LocalTime) -> SqlValue
+
+pub fn local_time_from_sql(v: SqlValue) -> Result<LocalTime, DbError>
+
+pub fn duration_to_sql(v: Duration) -> SqlValue
+
+pub fn duration_from_sql(v: SqlValue) -> Result<Duration, DbError>
+
+pub fn local_date_time_to_sql(v: LocalDateTime) -> SqlValue
+
+pub fn local_date_time_from_sql(v: SqlValue) -> Result<LocalDateTime, DbError>
+
+pub fn zone_offset_to_sql(v: ZoneOffset) -> SqlValue
+
+pub fn zone_offset_from_sql(v: SqlValue) -> Result<ZoneOffset, DbError>
+
+pub fn zone_id_to_sql(v: ZoneId) -> SqlValue
+
+pub fn zone_id_from_sql(v: SqlValue) -> Result<ZoneId, DbError>
+
+pub fn instant_to_sql(v: Instant) -> SqlValue
+
+pub fn instant_from_sql(v: SqlValue) -> Result<Instant, DbError>
+
+```
+
+## `zone`
+
+The IANA time zone database, read from the operating system's zone files, for `time`'s named zones (`zoneid_of`).
+
+```
+pub struct ZoneType {
+    utoff: int
+    dst: bool
+    name: string
+}
+
+pub struct RuleDate {
+    kind: int
+    month: int
+    week: int
+    weekday: int
+    day: int
+    seconds: int
+}
+
+pub struct PosixRule {
+    standard: ZoneType
+    daylight: ZoneType
+    has_dst: bool
+    start: RuleDate
+    end: RuleDate
+}
+
+pub struct ZoneRules {
+    transitions: [int]
+    type_of: [int]
+    utoffs: [int]
+    dsts: [bool]
+    names: [string]
+    has_rule: bool
+    rule: PosixRule
+}
+
+pub fn parse_posix_rule(text: string) -> Result<PosixRule, string>
+
+pub val no_rule = PosixRule { standard: ZoneType { utoff: 0, dst: false, name: "UTC" },
+
+pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string>
+
+pub fn load_rules(name: string) -> Result<ZoneRules, string>
+
+pub fn type_at(rules: ZoneRules, t: int) -> ZoneType
 
 ```
