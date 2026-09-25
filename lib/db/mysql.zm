@@ -53,7 +53,6 @@
 use crypto.bytes_xor
 use crypto.sha1
 use crypto.sha256
-use dburl
 use net
 use net.Socket
 use net.net_error_message
@@ -63,6 +62,7 @@ use number.f64_to_bytes
 use sql.DbError
 use sql.Row
 use sql.SqlValue
+use url
 
 // Client capability flags: the bits of the login packet's `caps` field this driver sets.
 val cap_long_password = 1
@@ -388,14 +388,14 @@ fn expect_ok(sock: Socket) -> Result<int, DbError> {
 
 // mysql://user[:password]@host[:port]/database[?sslmode=...&sslrootcert=...]
 fn parse_url(url: string) -> Result<MyUrl, DbError> {
-    val u = dburl.parse(url, ["mysql://"], 3306)?
+    val u = url.parse(url, ["mysql://"], 3306)?
     var sslmode = "disable"
     var sslrootcert = ""
-    val mode = dburl.param(u, "sslmode")
+    val mode = url.param(u, "sslmode")
     if Option.is_Some(mode) {
         sslmode = Option.unwrap_Some(mode)
     }
-    val root = dburl.param(u, "sslrootcert")
+    val root = url.param(u, "sslrootcert")
     if Option.is_Some(root) {
         sslrootcert = Option.unwrap_Some(root)
     }

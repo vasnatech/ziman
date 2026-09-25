@@ -1,4 +1,4 @@
-# `dburl`
+# `url`
 
 Parsing of database URLs shared by the network drivers
 (`pg`, `mysql`): `scheme://user[:password]@host[:port]/database[?k=v&...]`.
@@ -7,25 +7,25 @@ password may contain `@`, `:` or `/` when written as %40, %3A, %2F (a
 literal `@` in the password also works: the LAST `@` separates userinfo
 from host).
 
-`use dburl` -- or `use dburl.Name` to bring one item in bare.
+`use url` -- or `use url.Name` to bring one item in bare.
 
 ## Example
 
 ```
-use dburl
+use url
 
 fn main() {
-    val u = unwrap(dburl.parse("postgres://ada:p%40ss@db.example:6543/health?sslmode=require", ["postgres://"], 5432))
+    val u = unwrap(url.parse("postgres://ada:p%40ss@db.example:6543/health?sslmode=require", ["postgres://"], 5432))
     print(u.user)
     print(u.password)
     print(u.host)
     print(u.port)
     print(u.database)
-    print(dburl.param(u, "sslmode"))
+    print(url.param(u, "sslmode"))
 
     // The port defaults when the URL has none.
-    print(unwrap(dburl.parse("postgres://ada@localhost/health", ["postgres://"], 5432)).port)
-    print(is_ok(dburl.parse("mysql://x@h/d", ["postgres://"], 5432)))
+    print(unwrap(url.parse("postgres://ada@localhost/health", ["postgres://"], 5432)).port)
+    print(is_ok(url.parse("mysql://x@h/d", ["postgres://"], 5432)))
 }
 ```
 

@@ -1429,7 +1429,7 @@ fn main() {
   is a recursive enum, `JArray([Json])`/`JObject(Map<string, Json>)`, plus
   what `#[derive(Json)]` needs), `properties` and `log`, `net`, the HTTP modules
   `http` (the types they share), `server` and `client`, and the database layer `sql`, `db`, `sqlite`, `pg`, `mysql`
-  and `dburl`. Any project can `use` one of these with no local file of its
+  and `url`. Any project can `use` one of these with no local file of its
   own. Each is still an ordinary, qualified module in every other respect --
   `use fs`, always `fs.read_text`, never a bare unqualified name the way the
   prelude's declarations are (though a per-name import, above, can still

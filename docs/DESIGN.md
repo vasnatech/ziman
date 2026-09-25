@@ -2586,7 +2586,7 @@ several languages rather than inheriting any one of them wholesale.
 
 - **`mysql`: a MySQL/MariaDB client, the third backend behind `db.open`.**
   Pure Ziman on `net`+`bytes`+`crypto`, sharing URL parsing with `pg` via a
-  new `dburl` module (`scheme://user:password@host:port/database?k=v`,
+  new `url` module (`scheme://user:password@host:port/database?k=v`,
   percent-decoded, last `@` splits userinfo from host so a password may
   contain one). **Two authentication plugins**: `mysql_native_password`
   (SHA-1-based) and `caching_sha2_password` (MySQL 8's default, SHA-256-based).
@@ -2929,7 +2929,7 @@ this file and ROADMAP.md that mention `io.read_file` describe history.
 
 ## `sb_append_byte`
 
-`percent_decode` (in `http` and `dburl`) built an `ArrayBuilder<byte>` (one
+`percent_decode` (in `http` and `url`) built an `ArrayBuilder<byte>` (one
 boxed Value per byte), copied it to a `[byte]`, then copied that to a string,
 allocating a one-element array per plain character on the way. Now it appends
 the plain runs between escapes as substring views to a `StringBuilder` and each

@@ -27,7 +27,7 @@
 #include "server_source.h"
 #include "os_source.h"
 #include "sqlite_source.h"
-#include "dburl_source.h"
+#include "url_source.h"
 #include "mysql_source.h"
 #include "properties_source.h"
 #include "compress_source.h"
@@ -70,7 +70,7 @@ static const CoreModule CORE_MODULES[] = {
     {"server", SERVER_SOURCE},
     {"os", OS_SOURCE},
     {"sqlite", SQLITE_SOURCE},
-    {"dburl", DBURL_SOURCE},
+    {"url", URL_SOURCE},
     {"mysql", MYSQL_SOURCE},
     {"properties", PROPERTIES_SOURCE},
     {"compress", COMPRESS_SOURCE},

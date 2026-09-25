@@ -13,7 +13,7 @@ interfaces in Ziman to abstract over drivers with; dispatching by URL
 scheme inside this module is the substitute. Each engine has its own
 driver module: `sqlite` (a thin layer over the C library), `pg` and
 `mysql` (both written in Ziman, on top of `net`), sharing URL parsing
-through `dburl`.
+through `url`.
 
 Concurrency: sharing one `Connection` between threads is safe
 statement by statement -- SQLite takes the connection's own lock, and a

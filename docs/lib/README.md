@@ -69,7 +69,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`sqlite`](sqlite.md) | The SQLite driver behind `db`. |
 | [`pg`](pg.md) | A PostgreSQL client, the second backend behind the `db` module. |
 | [`mysql`](mysql.md) | A MySQL / MariaDB client, the third engine behind the `db` module. |
-| [`dburl`](dburl.md) | Parsing of database URLs shared by the network drivers. |
+| [`url`](url.md) | Parsing of database URLs shared by the network drivers. |
 
 ## Always available
 

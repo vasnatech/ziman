@@ -1,4 +1,4 @@
-// dburl.zm -- parsing of database URLs shared by the network drivers
+// url.zm -- parsing of database URLs shared by the network drivers
 // (`pg`, `mysql`): `scheme://user[:password]@host[:port]/database[?k=v&...]`.
 // User, password, database and query values are percent-decoded, so a
 // password may contain `@`, `:` or `/` when written as %40, %3A, %2F (a

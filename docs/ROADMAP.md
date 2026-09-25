@@ -1238,7 +1238,7 @@ from source.
   constraint).
 
 - **Database access follow-ups.** `db`/`sql`, `#[derive(Row)]`, `net`,
-  `crypto`, a shared `dburl`, and Postgres/MySQL drivers (`pg`/`mysql`)
+  `crypto`, a shared `url`, and Postgres/MySQL drivers (`pg`/`mysql`)
   exist (docs/DESIGN.md's `db`/`sql`, `net`, `crypto`/`pg` and `mysql`
   entries); SQLite, Postgres and MySQL are the three backends. Still open: (1) ~~TLS~~ **done for clients** (docs/DESIGN.md's TLS entry) -- still
   open: server-side TLS (`listen_tls`, for an HTTPS server), client

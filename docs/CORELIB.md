@@ -668,31 +668,6 @@ pub fn yaml_to_string(j: Json) -> string
 
 ```
 
-## `dburl`
-
-```
-pub struct UrlParam {
-    name: string
-    value: string
-}
-
-pub struct DbUrl {
-    user: string
-    password: string
-    host: string
-    port: int
-    database: string
-    params: [UrlParam]
-}
-
-pub fn percent_decode(s: string) -> Result<string, DbError>
-
-pub fn param(u: DbUrl, name: string) -> Option<string>
-
-pub fn parse(url: string, prefixes: [string], default_port: int) -> Result<DbUrl, DbError>
-
-```
-
 ## `db`
 
 ```
@@ -921,6 +896,31 @@ pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError>
 pub fn sql_as_float(v: SqlValue) -> Result<float, DbError>
 
 pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError>
+
+```
+
+## `url`
+
+```
+pub struct UrlParam {
+    name: string
+    value: string
+}
+
+pub struct DbUrl {
+    user: string
+    password: string
+    host: string
+    port: int
+    database: string
+    params: [UrlParam]
+}
+
+pub fn percent_decode(s: string) -> Result<string, DbError>
+
+pub fn param(u: DbUrl, name: string) -> Option<string>
+
+pub fn parse(url: string, prefixes: [string], default_port: int) -> Result<DbUrl, DbError>
 
 ```
 

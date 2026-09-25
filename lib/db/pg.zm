@@ -55,7 +55,6 @@ use crypto.bytes_xor
 use crypto.hmac_sha256
 use crypto.pbkdf2_hmac_sha256
 use crypto.sha256
-use dburl
 use net
 use net.Socket
 use net.net_error_message
@@ -69,6 +68,7 @@ use random.random_bytes
 use sql.DbError
 use sql.Row
 use sql.SqlValue
+use url
 
 // Protocol 3.0 startup: a 4-byte length (counting itself), a 4-byte version, then the
 // parameters -- 8 fixed bytes. An SSLRequest is that same 8-byte header with a magic
@@ -221,14 +221,14 @@ fn parse_error(body: [byte]) -> DbError {
 
 // postgres://user[:password]@host[:port]/database[?sslmode=...&sslrootcert=...]
 fn parse_url(url: string) -> Result<PgUrl, DbError> {
-    val u = dburl.parse(url, ["postgres://", "postgresql://"], 5432)?
+    val u = url.parse(url, ["postgres://", "postgresql://"], 5432)?
     var sslmode = "disable"
     var sslrootcert = ""
-    val mode = dburl.param(u, "sslmode")
+    val mode = url.param(u, "sslmode")
     if Option.is_Some(mode) {
         sslmode = Option.unwrap_Some(mode)
     }
-    val root = dburl.param(u, "sslrootcert")
+    val root = url.param(u, "sslrootcert")
     if Option.is_Some(root) {
         sslrootcert = Option.unwrap_Some(root)
     }
