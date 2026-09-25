@@ -32,7 +32,6 @@ val http_1_1 = "HTTP/1.1"
 val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
 
 use clock
-use clock.now_http_date
 use http.Header
 use http.HttpMethod
 use http.Request
@@ -492,7 +491,7 @@ pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool
         }
     }
     if !has_date {
-        sb_append(sb, "Date: ", now_http_date(), "\r\n")
+        sb_append(sb, "Date: ", clock.now_http_date(), "\r\n")
     }
     if !has_server {
         sb_append(sb, "Server: ", server_name, "\r\n")
