@@ -1324,3 +1324,17 @@ from source.
   - Until then, the eager array helpers in `collections` (`sort`, `map`, `filter`, `fold`, `any`, ...)
     are the stopgap.
 
+- **A manual for the bundled libraries -- not started.** docs/CORELIB.md lists every `pub` signature (generated),
+  and SYNTAX.md has a section per module, but there is no place that says how to *use* a module: what it is for,
+  a worked example per function group, the error cases and how to handle them, and how the modules fit together.
+  Wanted: one page per module (`docs/lib/<name>.md`) plus an index, each with a purpose paragraph, a runnable
+  example, the functions grouped by task with their behaviour and errors spelled out, and the known limits.
+  - **Kept true by tests:** the examples should be real programs run by the suite (as `readme_example.zm` is), or
+    generated from fixtures, so the manual cannot drift from the code.
+  - **Comments as the source:** each `pub` item's own comment becomes its manual entry, so the per-file review
+    of `lib/` (file comment separate from function comments, as now done for `clock.zm`) feeds this directly.
+    `tools/gen_corelib_reference.sh` could extract those comments next to the signatures.
+  - **Order of work:** finish the per-file review of `lib/`; write the index and the shared conventions (errors
+    as `Result`, naming, `use` forms); then a page per module, starting with the ones people reach for first
+    (`json`, `http`/`httpclient`, `db`/`sql`, `time`, `fs`, `collections`, then the format modules).
+
