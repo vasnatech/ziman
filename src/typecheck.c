@@ -701,7 +701,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", NULL,
 };
 
 /* A named call (`f(y: 2, x: 1)`) is reordered here, once, into the same
@@ -842,6 +842,93 @@ static Type check_collection_literal(Module *module, Env *env, Expr *e, int is_m
     return result;
 }
 
+/* The Map/Set helper builtins (map_get_or, map_merge, set_union, ...): each takes its
+ * types from its arguments, so none is generic-with-explicit-type-arguments. Returns 1
+ * and sets *out when `name` is one of them. */
+static Type helper_arg(Module *module, Env *env, Expr *e, int i, Type want, const char *name) {
+    Type got = check_expr_expecting(module, env, &e->as.call.args.items[i], want);
+    require_not_void(e->as.call.args.items[i], "as an argument");
+    if (!type_equals(got, want)) {
+        Expr *bad = e->as.call.args.items[i];
+        ziman_error("type", bad->line, bad->col, "argument %d of '%s' expects %s, found %s", i + 1, name, type_name(want), type_name(got));
+    }
+    return got;
+}
+
+static Type helper_first(Module *module, Env *env, Expr *e, int argc, const char *name, TypeKind kind) {
+    if (e->as.call.args.count != argc) {
+        ziman_error("type", e->line, e->col, "'%s' takes exactly %d arguments, found %d", name, argc, e->as.call.args.count);
+    }
+    Type first = check_expr(module, env, e->as.call.args.items[0]);
+    if (first.kind != kind) {
+        ziman_error("type", e->as.call.args.items[0]->line, e->as.call.args.items[0]->col, "argument 1 of '%s' expects a %s, found %s", name,
+                    kind == TY_MAP ? "Map" : "Set", type_name(first));
+    }
+    return first;
+}
+
+static int check_collection_helper(Module *module, Env *env, Expr *e, const char *name, Type *out) {
+    static const struct { const char *name; int argc; } TABLE[] = {
+        {"map_get_or", 3}, {"map_merge", 2}, {"map_filter", 2}, {"map_remove_all", 2}, {"set_union", 2}, {"set_intersect", 2},
+        {"set_difference", 2}, {"set_is_subset", 2}, {"set_insert_all", 2}, {"set_filter", 2},
+    };
+    if (strcmp(name, "map_from_arrays") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'map_from_arrays' takes exactly 2 arguments, found %d", e->as.call.args.count);
+        }
+        Type keys = check_expr(module, env, e->as.call.args.items[0]);
+        Type vals = check_expr(module, env, e->as.call.args.items[1]);
+        if (keys.kind != TY_ARRAY || vals.kind != TY_ARRAY) {
+            ziman_error("type", e->line, e->col, "'map_from_arrays' expects two arrays (the keys and the values), found %s and %s", type_name(keys),
+                        type_name(vals));
+        }
+        *out = type_map(*keys.elem, *vals.elem);
+        check_type_well_formed(module, *out, e->line, e->col);
+        return 1;
+    }
+    if (strcmp(name, "set_from_array") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'set_from_array' takes exactly 1 argument, found %d", e->as.call.args.count);
+        }
+        Type items = check_expr(module, env, e->as.call.args.items[0]);
+        if (items.kind != TY_ARRAY) {
+            ziman_error("type", e->line, e->col, "'set_from_array' expects an array, found %s", type_name(items));
+        }
+        *out = type_set(*items.elem);
+        check_type_well_formed(module, *out, e->line, e->col);
+        return 1;
+    }
+    int found = 0;
+    for (size_t i = 0; i < sizeof TABLE / sizeof TABLE[0]; i++) {
+        if (strcmp(name, TABLE[i].name) == 0) {
+            found = TABLE[i].argc;
+            break;
+        }
+    }
+    if (!found) return 0;
+    int is_map = strncmp(name, "map_", 4) == 0;
+    Type coll = helper_first(module, env, e, found, name, is_map ? TY_MAP : TY_SET);
+    if (strcmp(name, "map_get_or") == 0) {
+        helper_arg(module, env, e, 1, *coll.elem, name);
+        helper_arg(module, env, e, 2, *coll.elem_err, name);
+        *out = *coll.elem_err;
+    } else if (strcmp(name, "map_merge") == 0 || strcmp(name, "set_union") == 0 || strcmp(name, "set_intersect") == 0 ||
+               strcmp(name, "set_difference") == 0 || strcmp(name, "set_is_subset") == 0) {
+        helper_arg(module, env, e, 1, coll, name);
+        *out = strcmp(name, "set_is_subset") == 0 ? type_scalar(TY_BOOL) : coll;
+    } else if (strcmp(name, "map_remove_all") == 0 || strcmp(name, "set_insert_all") == 0) {
+        helper_arg(module, env, e, 1, type_array(*coll.elem), name);
+        *out = coll;
+    } else { /* map_filter / set_filter: a predicate over the entry */
+        TypeList params = {0};
+        type_list_push(&params, *coll.elem);
+        if (is_map) type_list_push(&params, *coll.elem_err);
+        helper_arg(module, env, e, 1, type_func(params, type_scalar(TY_BOOL)), name);
+        *out = coll;
+    }
+    return 1;
+}
+
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
 
@@ -905,6 +992,11 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         if (strcmp(name, "map_values") == 0) return type_array(*coll.elem_err);
         if (strcmp(name, "map_keys") == 0) return type_set(*coll.elem);
         return type_array(*coll.elem);
+    }
+
+    {
+        Type helper_result;
+        if (check_collection_helper(module, env, e, name, &helper_result)) return helper_result;
     }
 
     if (strcmp(name, "$map_lit") == 0) return check_collection_literal(module, env, e, 1);
@@ -3111,7 +3203,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "hash", "compare",
-                                      "map_get", "map_keys", "map_values", "set_items"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

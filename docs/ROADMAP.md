@@ -1295,7 +1295,7 @@ from source.
   `insert`, `remove`, `contains`, `len`, `for`) plus the ordered operations. Not started:
   `sort(map_keys(m))` covers "give me it sorted" today, and nothing needs range queries yet.
   Revisit when a feature does.
-- **`Map`/`Set` helper functions.** Only the core operations exist. Candidates (none started;
-  most are a short loop in Ziman today): set algebra (`union`, `intersection`, `difference`,
-  `is_subset`), `map_merge`, `map_filter`, `map_map_values`, `map_entries`, `map_get_or`.
-
+- **`Map`/`Set` helper functions.** Done: `map_get_or`, `map_merge`, `map_filter`, `map_remove_all`,
+  `map_from_arrays`, `set_union`, `set_intersect`, `set_difference`, `set_is_subset`, `set_from_array`,
+  `set_insert_all`, `set_filter` (docs/SYNTAX.md "Maps and sets"). Still open: `map_map_values`/`set_map`
+  (need the lambda's result type inferred) and `map_entries` (needs a pair/tuple type).

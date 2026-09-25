@@ -1,0 +1,5 @@
+fn main() {
+    val a = Map<string, int> {}
+    val b = Map<string, string> {}
+    print(len(map_merge(a, b)))
+}

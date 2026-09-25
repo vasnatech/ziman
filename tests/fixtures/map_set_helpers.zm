@@ -1,0 +1,32 @@
+fn is_even(x: int) -> bool {
+    return x % 2 == 0
+}
+
+fn big_score(name: string, score: int) -> bool {
+    return score >= 10
+}
+
+fn main() {
+    val a = Set<int> { 1, 2, 3, 4 }
+    val b = Set<int> { 3, 4, 5 }
+    print(set_union(a, b))
+    print(set_intersect(a, b))
+    print(set_difference(a, b))
+    print(set_is_subset(Set<int> { 3, 4 }, a))
+    print(set_is_subset(b, a))
+    print(set_from_array([3, 1, 3, 2, 1]))
+    print(set_insert_all(a, [9, 1, 8]))
+    print(set_filter(a, is_even))
+    val floor = 2
+    print(set_filter(a, fn(x: int) -> bool { x > floor }))
+
+    val m = Map<string, int> { "ann": 12, "bob": 3, "cy": 40 }
+    print(map_get_or(m, "bob", -1))
+    print(map_get_or(m, "zed", -1))
+    print(map_merge(m, Map<string, int> { "bob": 4, "dee": 5 }))
+    print(map_filter(m, big_score))
+    print(map_filter(m, fn(k: string, v: int) -> bool { len(k) == 2 || v < 5 }))
+    print(map_remove_all(m, ["ann", "nobody", "cy"]))
+    print(map_from_arrays(["p", "q", "p"], [1, 2, 3]))
+    print(map_from_arrays(map_values(m), set_items(map_keys(m))))
+}

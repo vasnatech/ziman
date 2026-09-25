@@ -816,6 +816,74 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 } else {
                     result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
+            } else if (strcmp(e->as.call.callee, "map_get_or") == 0) {
+                Value found;
+                result = mapobj_get(args[0].as.map, args[1], &found) ? found : args[2];
+            } else if (strcmp(e->as.call.callee, "map_merge") == 0 || strcmp(e->as.call.callee, "set_union") == 0) {
+                MapObj *m = args[0].as.map;
+                Value *keys, *vals = NULL;
+                int is_map = args[1].type.kind == TY_MAP;
+                mapobj_entries(args[1].as.map, &keys, is_map ? &vals : NULL);
+                for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], is_map ? vals[i] : value_int(0));
+                result = value_map(args[0].type, m);
+            } else if (strcmp(e->as.call.callee, "set_intersect") == 0 || strcmp(e->as.call.callee, "set_difference") == 0) {
+                int keep_present = e->as.call.callee[4] == 'i';
+                Value *keys;
+                Value ignored;
+                MapObj *m = mapobj_empty();
+                mapobj_entries(args[0].as.map, &keys, NULL);
+                for (int i = 0; i < args[0].as.map->count; i++) {
+                    if (mapobj_get(args[1].as.map, keys[i], &ignored) == keep_present) m = mapobj_set(m, keys[i], value_int(0));
+                }
+                result = value_map(args[0].type, m);
+            } else if (strcmp(e->as.call.callee, "set_is_subset") == 0) {
+                Value *keys;
+                Value ignored;
+                int subset = 1;
+                mapobj_entries(args[0].as.map, &keys, NULL);
+                for (int i = 0; i < args[0].as.map->count && subset; i++) subset = mapobj_get(args[1].as.map, keys[i], &ignored);
+                result = value_bool(subset);
+            } else if (strcmp(e->as.call.callee, "map_filter") == 0 || strcmp(e->as.call.callee, "set_filter") == 0) {
+                int is_map = args[0].type.kind == TY_MAP;
+                Value *keys, *vals = NULL;
+                mapobj_entries(args[0].as.map, &keys, is_map ? &vals : NULL);
+                ClosureObj *clo = args[1].as.clo;
+                MapObj *m = mapobj_empty();
+                for (int i = 0; i < args[0].as.map->count; i++) {
+                    Value call_args[2] = {keys[i], is_map ? vals[i] : value_int(0)};
+                    int nargs = is_map ? 2 : 1;
+                    Value verdict;
+                    if (clo->ncaptured == 0) {
+                        verdict = call_function(module, clo->fn, call_args, nargs, 0, e->line, e->col);
+                    } else {
+                        Value *all = malloc((size_t)(clo->ncaptured + nargs) * sizeof(Value));
+                        memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
+                        memcpy(all + clo->ncaptured, call_args, (size_t)nargs * sizeof(Value));
+                        verdict = call_function(module, clo->fn, all, clo->ncaptured + nargs, 0, e->line, e->col);
+                        free(all);
+                    }
+                    if (verdict.as.b) m = mapobj_set(m, keys[i], call_args[1]);
+                }
+                result = value_map(args[0].type, m);
+            } else if (strcmp(e->as.call.callee, "map_remove_all") == 0) {
+                MapObj *m = args[0].as.map;
+                for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_remove(m, array_get(args[1].as.arr, i));
+                result = value_map(args[0].type, m);
+            } else if (strcmp(e->as.call.callee, "set_insert_all") == 0) {
+                MapObj *m = args[0].as.map;
+                for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_set(m, array_get(args[1].as.arr, i), value_int(0));
+                result = value_map(args[0].type, m);
+            } else if (strcmp(e->as.call.callee, "set_from_array") == 0) {
+                MapObj *m = mapobj_empty();
+                for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), value_int(0));
+                result = value_map(e->resolved_type, m);
+            } else if (strcmp(e->as.call.callee, "map_from_arrays") == 0) {
+                if (args[0].as.arr->count != args[1].as.arr->count) {
+                    ziman_error("runtime", e->line, e->col, "map_from_arrays: %d keys but %d values", args[0].as.arr->count, args[1].as.arr->count);
+                }
+                MapObj *m = mapobj_empty();
+                for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), array_get(args[1].as.arr, i));
+                result = value_map(e->resolved_type, m);
             } else if (strcmp(e->as.call.callee, "map_keys") == 0) {
                 /* the key set, in the map's insertion order */
                 Value *keys;

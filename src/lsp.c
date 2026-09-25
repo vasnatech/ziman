@@ -807,7 +807,7 @@ static const char *const BUILTINS[] = {"print", "printf", "format", "str", "len"
                                        "abs", "min", "max", "ok", "err", "is_ok", "unwrap", "unwrap_err", "channel_new", "send", "receive",
                                        "try_send", "try_receive", "channel_len", "concat", "substring", "split", "trim", "to_upper", "to_lower",
                                        "index_of", "replace", "starts_with", "ends_with", "parse_int", "parse_float", "join", "slice",
-                                       "concat_arrays", "map_get", "map_keys", "map_values", "set_items", "string_to_bytes", "bytes_to_string", "bytes_concat", "sb_new", "sb_append", "sb_to_string", "ab_new", "ab_append", "ab_to_array"};
+                                       "concat_arrays", "map_get", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "map_keys", "map_values", "set_items", "string_to_bytes", "bytes_to_string", "bytes_concat", "sb_new", "sb_append", "sb_to_string", "ab_new", "ab_append", "ab_to_array"};
 
 static void add_completion(SB *b, int *first, const char *label, int kind, const char *detail) {
     if (!*first) sb_puts(b, ",");

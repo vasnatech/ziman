@@ -426,6 +426,16 @@ for name, qty in stock { ... }           // key and value; `for name in stock` b
 for x in seen { ... }                    // a set has one binder
 ```
 
+- **Helpers** (all return new collections, all infer their types from the arguments):
+  - Maps: `map_get_or(m, k, default)`, `map_merge(a, b)` (`b` wins on shared keys),
+    `map_filter(m, keep)` with `keep: fn(K, V) -> bool`, `map_remove_all(m, keys)` (an array),
+    `map_from_arrays(keys, values)` (equal lengths, else a runtime error; a repeated key keeps
+    the last value).
+  - Sets: `set_union(a, b)`, `set_intersect(a, b)`, `set_difference(a, b)` (all in `a`'s order,
+    `b`'s extras appended for union), `set_is_subset(a, b)`, `set_from_array(items)`,
+    `set_insert_all(s, items)`, `set_filter(s, keep)` with `keep: fn(T) -> bool`.
+  - Not there: `map_map_values`/`set_map` (they would need the result type inferred from a
+    lambda) and `map_entries` (there is no pair type; use `for k, v in m`).
 - **Values, like arrays.** `set`/`insert`/`remove` return a new collection and leave
   their argument untouched. Internally a persistent hash trie, so an update copies only
   a few nodes: building an n-entry map is O(n log n), not O(n^2).
