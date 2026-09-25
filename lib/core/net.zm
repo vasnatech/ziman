@@ -226,6 +226,91 @@ pub fn write_text(s: Socket, text: string) -> Result<int, NetError> {
     return unwrap(r)
 }
 
+// The bytes read from a socket but not yet handed out as a line, and whether the peer has finished.
+struct LineBuffer {
+    data: [byte]
+    eof: bool
+}
+
+val default_max_line_bytes = 1048576
+
+fn line_error(message: string) -> Result<string, NetError> {
+    return err(NetError.Io(message))
+}
+
+// The line in `bytes`, without a trailing CR, as an item of `lines`.
+fn line_item(bytes: [byte]) -> Result<string, NetError> {
+    var end = len(bytes)
+    if end > 0 && bytes[end - 1] == 13b {
+        end = end - 1
+    }
+    val text = bytes_to_string(slice<byte>(bytes, 0, end))
+    if !is_ok(text) {
+        return line_error("line contains a NUL byte")
+    }
+    return unwrap(text)
+}
+
+fn next_line(s: Socket, cell: Channel<LineBuffer>, max_line_bytes: int) -> Option<Result<string, NetError>> {
+    val state = receive(cell)
+    val at = bytes_index_of(state.data, [10b], 0)
+    if at >= 0 {
+        send(cell, LineBuffer { data: slice<byte>(state.data, at + 1, len(state.data)), eof: state.eof })
+        return Option<Result<string, NetError>>.Some(line_item(slice<byte>(state.data, 0, at)))
+    }
+    if state.eof {
+        send(cell, LineBuffer { data: [], eof: true })
+        if len(state.data) == 0 {
+            return Option<Result<string, NetError>>.None
+        }
+        return Option<Result<string, NetError>>.Some(line_item(state.data))
+    }
+    if len(state.data) > max_line_bytes {
+        send(cell, LineBuffer { data: [], eof: true })
+        return Option<Result<string, NetError>>.Some(line_error(format("line longer than {} bytes", max_line_bytes)))
+    }
+    val chunk = read(s, 4096)
+    if is_ok(chunk) {
+        send(cell, LineBuffer { data: bytes_concat(state.data, unwrap(chunk)), eof: false })
+        return next_line(s, cell, max_line_bytes)
+    }
+    val failure = unwrap_err(chunk)
+    send(cell, LineBuffer { data: state.data, eof: true })
+    if NetError.is_Closed(failure) {
+        return next_line(s, cell, max_line_bytes)
+    }
+    send_failure_end(cell)
+    val failed: Result<string, NetError> = failure
+    return Option<Result<string, NetError>>.Some(failed)
+}
+
+// After a read error nothing more can be read: leave nothing buffered and mark the end.
+fn send_failure_end(cell: Channel<LineBuffer>) {
+    receive(cell)
+    send(cell, LineBuffer { data: [], eof: true })
+}
+
+// The lines a peer sends, read lazily as a `for` loop asks for them: `for line in net.lines(socket) { val
+// text = line? ... }`. Each item is a `Result<string, NetError>`: a line without its `\n` or `\r\n` (a last
+// line the peer ends the connection on counts), or an Err for a line with a NUL byte, one longer than 1 MiB,
+// or a read error (`Timeout`, `Closed` mid-line, ...); after a read error or an over-long line the
+// iteration ends. It ends normally when the peer closes the connection. It reads ahead in blocks of up to
+// 4096 bytes, so take all of a socket's lines from one `lines` iterator, and use `read` or `read_exact`
+// on the socket only when you are not reading lines. The iterator does not close the socket; that stays
+// yours. Set a timeout with `set_timeout` so a silent peer cannot block the loop for ever.
+pub fn lines(s: Socket) -> Iter<Result<string, NetError>> {
+    return lines_with(s, default_max_line_bytes)
+}
+
+// `lines` with a chosen longest line, in bytes.
+pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>> {
+    val cell: Channel<LineBuffer> = channel_new()
+    send(cell, LineBuffer { data: [], eof: false })
+    return iter_from<Result<string, NetError>>(fn() -> Option<Result<string, NetError>> {
+        next_line(s, cell, max_line_bytes)
+    }, fn() {})
+}
+
 // Applies to reads and writes on this socket; a call that waits longer
 // fails with `Timeout`. Without one, a read on a dead peer waits forever.
 pub fn set_timeout(s: Socket, millis: int) -> Result<int, NetError> {

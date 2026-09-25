@@ -27,4 +27,12 @@ fn main() {
     // Any status is Ok; only a failed exchange is an Err.
     print(unwrap(client.get(concat(base, "/nowhere"))).status)
     print(is_ok(client.get("http://127.0.0.1:1/")))
+
+    // A response read as a stream, block by block, instead of all at once.
+    val streamed = unwrap(client.stream(method: HttpMethod.Get, url: concat(base, "/hello/ada")))
+    var bytes = 0
+    for block in streamed.body {
+        bytes = bytes + len(unwrap(block))
+    }
+    print(bytes)
 }

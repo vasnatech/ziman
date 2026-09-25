@@ -2,3 +2,5 @@
 [{"name":"Ada","age":36}]
 name,age
 Ada,36
+{"name":"Ada","note":"likes maths"}
+{"name":"Grace","note":"two\nlines"}

@@ -743,6 +743,20 @@ several languages rather than inheriting any one of them wholesale.
   `ndjson` streams. Not done: a lazy stream API on top
   (`map`/`filter` fusing over an `Iter`), other sources (a database cursor, `csv.records`,
   `net` lines), and a `for` over an `Iter` of a user-defined source (the sources are native).
+- **More lazy sources: `net.lines`, `csv.records`, `client.stream`.** All three are written in Ziman on
+  `iter_from`, with the position kept in a one-element `Channel` used as a mutable cell (receive the state,
+  send the new one) because a closure cannot change a captured variable. `net.lines` keeps unread bytes and an
+  end-of-input flag there and looks for `\n` with `bytes_index_of`; it never closes the socket. `csv.records`
+  reads lines from `fs.lines` and joins them until a record's `"` count is even (a quoted cell opens and
+  closes with one each and a doubled quote adds two), then hands that one record to the same native scanner
+  `parse_csv` uses, so the two agree cell for cell; errors from the scanner are relative to the record, so
+  their line numbers are shifted to the file's, and a record left open at the end of the file is re-scanned
+  to get the scanner's own message (a stray quote in the middle of a cell looks like an unclosed one to a
+  line count). `client.stream` splits the request-writing half out of `exchange` (`write_request`), reads
+  only the head, and then reads the body block by block under a small state machine for the three framings
+  (length, chunked with its size lines, trailers and per-chunk CRLF, until-close); it asks for `identity`
+  because the whole-buffer decompressor cannot run a block at a time, and does no redirects, cookies or
+  connection reuse.
 - **Named time zones (`zoneid_of`, module `zone`).** Read from the operating
   system's compiled zone files (TZif, `$TZDIR` or `/usr/share/zoneinfo`)
   rather than embedding the IANA database: the data changes several times a

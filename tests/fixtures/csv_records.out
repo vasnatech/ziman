@@ -1,0 +1,23 @@
+{"name":"Ada","age":"36"}
+{"name":"Grace","age":"45"}
+{"name":"Lin","age":"29"}
+{"name":"Ada","age":36}
+{"name":"Grace","age":45}
+{"name":"Lin","age":29}
+{"id":"1","note":"hello, world"}
+{"id":"2","note":"she said \"hi\""}
+{"id":"3","note":"two\nlines"}
+{"id":"4","note":"plain"}
+true
+{"a":"1","b":"2"}
+line 3: 1 cells, but there are 2 columns
+{"a":"4","b":"5"}
+line 5: unterminated quoted field (opened on line 5)
+{"a":"1","b":"2"}
+line 3: a quote inside an unquoted field
+duplicate column name 'a'
+cannot read '/tmp/ziman_fixture_csv_no_such.csv': No such file or directory
+{"a":1,"b":"x"}
+{"a":2,"b":null}
+invalid delimiter 'ab': it must be one character and not a quote or a newline
+true

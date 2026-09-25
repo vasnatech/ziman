@@ -8,6 +8,12 @@ fn echo(l: net.Listener) {
     net.close(s)
 }
 
+fn sender(l: net.Listener) {
+    val c = unwrap(net.accept(l))
+    unwrap(net.write_text(c, "first\r\nsecond\nthird"))
+    net.close(c)
+}
+
 fn main() {
     val listener = unwrap(net.listen("127.0.0.1", 0))
     spawn echo(listener)
@@ -17,6 +23,15 @@ fn main() {
     unwrap(net.write_text(s, "hi"))
     print(unwrap(net.read_text(s, 100)))
     net.close(s)
+
+    // Lines from a peer, read lazily until it closes.
+    val again = unwrap(net.listen("127.0.0.1", 0))
+    spawn sender(again)
+    val t = unwrap(net.connect("127.0.0.1", net.listener_port(again)))
+    for line in net.lines(t) {
+        print(unwrap(line))
+    }
+    net.close(t)
 
     // A failure is a NetError saying what kind, and net_error_message turns it into text.
     val refused = net.connect("127.0.0.1", 1)

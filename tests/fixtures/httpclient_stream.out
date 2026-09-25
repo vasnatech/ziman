@@ -1,0 +1,16 @@
+200
+200000
+true
+true
+hello world
+3
+3
+abc
+request timed out
+bad response: invalid chunk size: zz
+200
+0
+302
+abcd
+bad URL: only http:// and https:// URLs are supported
+false

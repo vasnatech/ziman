@@ -1,0 +1,144 @@
+use client
+use http.HttpMethod
+use net
+use os
+
+fn reply(c: net.Socket, text: string) {
+    unwrap(net.write_text(c, text))
+}
+
+fn pause() {
+    var i = 0
+    while i < 300000 {
+        i = i + 1
+    }
+}
+
+fn repeat(piece: string, times: int) -> string {
+    val sb = sb_new()
+    for i in 0..times {
+        sb_append(sb, piece)
+    }
+    return sb_to_string(sb)
+}
+
+// Serves `rounds` connections, each answered by path.
+fn server(l: net.Listener, rounds: int, closed: Channel<int>) {
+    for round in 0..rounds {
+        val c = unwrap(net.accept(l))
+        unwrap(net.set_timeout(c, 5000))
+        val req = unwrap(net.read_text(c, 4096))
+        if contains(req, "GET /big ") {
+            reply(c, "HTTP/1.1 200 OK\r\nContent-Length: 200000\r\n\r\n")
+            reply(c, repeat("0123456789", 20000))
+        } else if contains(req, "GET /chunks ") {
+            reply(c, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhel")
+            pause()
+            reply(c, "lo\r\n1\r")
+            pause()
+            reply(c, "\n \r\n5;ext=1\r\nworld\r\n0\r\nTrailer: x\r\n\r\n")
+        } else if contains(req, "GET /endless ") {
+            reply(c, "HTTP/1.1 200 OK\r\n\r\n")
+            var sent = 0
+            var open = true
+            while open {
+                val w = net.write_text(c, repeat("x", 4096))
+                sent = sent + 1
+                if !is_ok(w) || sent > 5000 {
+                    open = false
+                }
+            }
+        } else if contains(req, "GET /stall ") {
+            reply(c, "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nabc")
+            val hold = net.read(c, 1)
+        } else if contains(req, "GET /badchunk ") {
+            reply(c, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n")
+        } else if contains(req, "HEAD /head ") {
+            reply(c, "HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\n")
+        } else if contains(req, "GET /gzip ") {
+            reply(c, "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 4\r\n\r\nabcd")
+        } else {
+            reply(c, "HTTP/1.1 302 Found\r\nLocation: /elsewhere\r\nContent-Length: 0\r\n\r\n")
+        }
+        net.close(c)
+        send(closed, 1)
+    }
+}
+
+fn get(base: string, path: string) -> client.StreamResponse {
+    return unwrap(client.stream(method: HttpMethod.Get, url: concat(base, path), timeout_ms: 800))
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val closed: Channel<int> = channel_new()
+    spawn server(l, 8, closed)
+    val base = format("http://127.0.0.1:{}", net.listener_port(l))
+
+    // a large body comes in blocks of at most 8192 bytes and adds up
+    val big = get(base, "/big")
+    print(big.status)
+    var total = 0
+    var largest = 0
+    var blocks = 0
+    for block in big.body {
+        val n = len(unwrap(block))
+        total = total + n
+        blocks = blocks + 1
+        if n > largest {
+            largest = n
+        }
+    }
+    print(total)
+    print(largest <= 8192)
+    print(blocks > 20)
+
+    // chunked, with chunk boundaries and size lines split across reads, an extension and a trailer
+    var text = ""
+    for block in get(base, "/chunks").body {
+        text = concat(text, unwrap(bytes_to_string(unwrap(block))))
+    }
+    print(text)
+
+    // an endless body can be abandoned: leaving the loop closes the connection
+    var seen = 0
+    for block in get(base, "/endless").body {
+        seen = seen + 1
+        if seen == 3 {
+            break
+        }
+    }
+    print(seen)
+    print(receive(closed) + receive(closed) + receive(closed))
+
+    // a stall is a last Err item; a bad chunk size too
+    for block in get(base, "/stall").body {
+        if is_ok(block) {
+            print(unwrap(bytes_to_string(unwrap(block))))
+        } else {
+            print(client.error_message(unwrap_err(block)))
+        }
+    }
+    for block in get(base, "/badchunk").body {
+        if !is_ok(block) {
+            print(client.error_message(unwrap_err(block)))
+        }
+    }
+
+    // HEAD has no body, a redirect is returned as it is, and compression is not decoded
+    val head = unwrap(client.stream(method: HttpMethod.Head, url: concat(base, "/head")))
+    print(head.status)
+    var head_blocks = 0
+    for block in head.body {
+        head_blocks = head_blocks + 1
+    }
+    print(head_blocks)
+    print(get(base, "/other").status)
+    for block in get(base, "/gzip").body {
+        print(unwrap(bytes_to_string(unwrap(block))))
+    }
+
+    // errors on the call
+    print(client.error_message(unwrap_err(client.stream(method: HttpMethod.Get, url: "nonsense"))))
+    print(is_ok(client.stream(method: HttpMethod.Get, url: "http://127.0.0.1:1/")))
+}

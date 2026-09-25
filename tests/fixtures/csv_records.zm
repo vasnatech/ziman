@@ -1,0 +1,73 @@
+use csv
+use fs
+use json
+use os
+
+fn show(path: string, typed: bool) {
+    val opened = if typed { csv.records_typed(path) } else { csv.records(path) }
+    if !is_ok(opened) {
+        print(unwrap_err(opened))
+        return
+    }
+    for record in unwrap(opened) {
+        if is_ok(record) {
+            print(json.json_to_string(unwrap(record)))
+        } else {
+            print(unwrap_err(record))
+        }
+    }
+}
+
+fn main() {
+    val path = "/tmp/ziman_fixture_csv_records.csv"
+
+    // plain rows, blank lines, CRLF, a last line with no newline
+    unwrap(fs.write_text(path, "name,age\nAda,36\n\nGrace,45\r\nLin,29"))
+    show(path, false)
+    show(path, true)
+
+    // quoted cells: commas, doubled quotes, and newlines inside a cell (a record spanning lines)
+    unwrap(fs.write_text(path, "id,note\n1,\"hello, world\"\n2,\"she said \"\"hi\"\"\"\n3,\"two\nlines\"\n4,plain\n"))
+    show(path, false)
+
+    // the same file read all at once gives the same rows
+    val whole = unwrap(csv.parse_csv(unwrap(fs.read_text(path))))
+    var streamed: [json.Json] = []
+    for record in unwrap(csv.records(path)) {
+        streamed = push(streamed, unwrap(record))
+    }
+    print(json.json_to_string(whole) == json.json_to_string(json.Json.JArray(streamed)))
+
+    // errors name the line the record started on, and the iteration carries on
+    unwrap(fs.write_text(path, "a,b\n1,2\n3\n4,5\n\"6,7\n"))
+    show(path, false)
+    unwrap(fs.write_text(path, "a,b\n1,2\nx\"y,3\n5,6\n"))
+    show(path, false)
+
+    // a header problem fails on the call; an empty file has no records
+    unwrap(fs.write_text(path, "a,a\n1,2\n"))
+    show(path, false)
+    unwrap(fs.write_text(path, ""))
+    show(path, false)
+    unwrap(fs.write_text(path, "\n\n"))
+    show(path, false)
+    show("/tmp/ziman_fixture_csv_no_such.csv", false)
+
+    // another delimiter, and typed cells
+    unwrap(fs.write_text(path, "a;b\n1;x\n2;\n"))
+    for record in unwrap(csv.records_typed_with(path, ";")) {
+        print(json.json_to_string(unwrap(record)))
+    }
+    print(unwrap_err(csv.records_with(path, "ab")))
+
+    // leaving early releases the file
+    unwrap(fs.write_text(path, "a,b\n1,2\n3,4\n5,6\n"))
+    val before = os.open_descriptors()
+    for round in 0..30 {
+        for record in unwrap(csv.records(path)) {
+            break
+        }
+    }
+    print(os.open_descriptors() == before)
+    unwrap(fs.remove(path))
+}

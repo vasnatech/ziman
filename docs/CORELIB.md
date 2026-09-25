@@ -166,6 +166,14 @@ pub fn parse_csv_columns(text: string, columns: [string]) -> Result<Json, string
 
 pub fn parse_csv_columns_typed(text: string, columns: [string]) -> Result<Json, string>
 
+pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string>
+
+pub fn records_with(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string>
+
+pub fn records_typed(path: string) -> Result<Iter<Result<Json, string>>, string>
+
+pub fn records_typed_with(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string>
+
 pub fn csv_rows_to_string(rows: [[string]]) -> string
 
 pub fn csv_rows_to_string_with(rows: [[string]], delimiter: string) -> Result<string, string>
@@ -397,6 +405,10 @@ pub fn write(s: Socket, data: [byte]) -> Result<int, NetError>
 pub fn read_text(s: Socket, max: int) -> Result<string, NetError>
 
 pub fn write_text(s: Socket, text: string) -> Result<int, NetError>
+
+pub fn lines(s: Socket) -> Iter<Result<string, NetError>>
+
+pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>>
 
 pub fn set_timeout(s: Socket, millis: int) -> Result<int, NetError>
 
@@ -1002,6 +1014,14 @@ pub fn put_json(url: string, body: string) -> Result<Response, ClientError>
 pub fn form_encode(fields: Map<string, string>) -> string
 
 pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, ClientError>
+
+pub struct StreamResponse {
+    status: int
+    headers: [Header]
+    body: Iter<Result<[byte], ClientError>>
+}
+
+pub fn stream(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>,
 
 ```
 

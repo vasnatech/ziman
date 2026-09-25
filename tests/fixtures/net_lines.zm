@@ -1,0 +1,71 @@
+use net
+
+// A server that sends lines in awkward pieces, then closes.
+fn serve(l: net.Listener, script: [string]) {
+    val c = unwrap(net.accept(l))
+    for piece in script {
+        unwrap(net.write_text(c, piece))
+        clock_pause()
+    }
+    net.close(c)
+}
+
+fn clock_pause() {
+    var i = 0
+    while i < 200000 {
+        i = i + 1
+    }
+}
+
+fn collect(port: int, max: int) -> [string] {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.set_timeout(s, 3000))
+    var out: [string] = []
+    for item in net.lines_with(s, max) {
+        if is_ok(item) {
+            out = push(out, format("[{}]", unwrap(item)))
+        } else {
+            out = push(out, net.net_error_message(unwrap_err(item)))
+        }
+    }
+    net.close(s)
+    return out
+}
+
+fn run(script: [string], max: int) -> [string] {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    spawn serve(l, script)
+    return collect(net.listener_port(l), max)
+}
+
+fn main() {
+    // whole lines, split across writes, CRLF, blank lines, and a last line with no newline
+    print(run(["one\n", "tw", "o\r\n", "\n", "thr", "ee", "\nlast"], 1000))
+    print(run([], 1000))
+    print(run(["only\n"], 1000))
+    print(run(["a\nb\nc\n"], 1000))
+
+    // an over-long line ends the iteration with an Err
+    print(run(["short\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], 20))
+
+    // a timeout is an Err item
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    spawn silent(l)
+    val s = unwrap(net.connect("127.0.0.1", net.listener_port(l)))
+    unwrap(net.set_timeout(s, 200))
+    for item in net.lines(s) {
+        if is_ok(item) {
+            print(unwrap(item))
+        } else {
+            print("timeout")
+        }
+    }
+    net.close(s)
+}
+
+fn silent(l: net.Listener) {
+    val c = unwrap(net.accept(l))
+    unwrap(net.write_text(c, "hello\n"))
+    val hold = net.read(c, 1)
+    net.close(c)
+}

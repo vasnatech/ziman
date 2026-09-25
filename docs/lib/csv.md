@@ -22,6 +22,7 @@ the strings that would otherwise read back as something else, so `parse_csv_type
 
 ```
 use csv
+use fs
 use json
 use json.Json
 
@@ -37,6 +38,15 @@ fn main() {
     val typed = unwrap(csv.parse_csv_typed("name,age\nAda,36\n"))
     print(json.json_to_string(typed))
     print(trim(unwrap(csv.csv_to_string(typed))))
+
+    // A big file is read one record at a time.
+    val path = "/tmp/ziman_manual_csv_example.csv"
+    unwrap(fs.write_text(path, "name,note\nAda,\"likes maths\"\nGrace,\"two\nlines\"\n"))
+    val records = unwrap(csv.records(path))
+    for record in records {
+        print(json.json_to_string(unwrap(record)))
+    }
+    unwrap(fs.remove(path))
 }
 ```
 
@@ -47,6 +57,8 @@ Output:
 [{"name":"Ada","age":36}]
 name,age
 Ada,36
+{"name":"Ada","note":"likes maths"}
+{"name":"Grace","note":"two\nlines"}
 ```
 
 ## Reading
@@ -123,6 +135,48 @@ pub fn parse_csv_columns_typed(text: string, columns: [string]) -> Result<Json, 
 ```
 
 parse_csv_columns with the cell typing of `parse_csv_typed`.
+
+## Reading a file lazily
+
+### `records`
+
+```
+pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string>
+```
+
+A CSV file read lazily, one record at a time as a `for` loop asks for them, so a file of any size uses
+memory for one record: `val records = csv.records(path)?` then `for record in records { val row =
+record? ... }`. The first record names the columns and every later one is a JSON object of strings keyed
+by them, as in `parse_csv`. Each item is a `Result<Json, string>`: an object, or an Err for a record
+with the wrong number of cells, a stray quote, a quote never closed, a line with a NUL byte or a read
+error; each message names the line the record started on, and the iteration carries on after all but a
+read error or an unclosed quote. The Err on the call is the file failing to open, an invalid header
+or a duplicate column name. A quoted cell may contain newlines (the record then spans lines). Leaving the
+loop early closes the file.
+
+### `records_with`
+
+```
+pub fn records_with(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string>
+```
+
+records with another one-character delimiter.
+
+### `records_typed`
+
+```
+pub fn records_typed(path: string) -> Result<Iter<Result<Json, string>>, string>
+```
+
+records with the cell typing of `parse_csv_typed`: unquoted numbers, booleans and empty cells.
+
+### `records_typed_with`
+
+```
+pub fn records_typed_with(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string>
+```
+
+records_typed with another one-character delimiter.
 
 ## Writing
 

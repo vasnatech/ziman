@@ -64,6 +64,14 @@ fn main() {
     // Any status is Ok; only a failed exchange is an Err.
     print(unwrap(client.get(concat(base, "/nowhere"))).status)
     print(is_ok(client.get("http://127.0.0.1:1/")))
+
+    // A response read as a stream, block by block, instead of all at once.
+    val streamed = unwrap(client.stream(method: HttpMethod.Get, url: concat(base, "/hello/ada")))
+    var bytes = 0
+    for block in streamed.body {
+        bytes = bytes + len(unwrap(block))
+    }
+    print(bytes)
 }
 ```
 
@@ -74,6 +82,7 @@ Output:
 hello ada
 404
 false
+9
 ```
 
 ### `BytesResponse`
@@ -325,3 +334,37 @@ pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, C
 ```
 
 POST an HTML-form-style body built from `fields` (`Content-Type: application/x-www-form-urlencoded`).
+
+## Streaming a response body
+
+### `StreamResponse`
+
+```
+pub struct StreamResponse {
+    status: int
+    headers: [Header]
+    body: Iter<Result<[byte], ClientError>>
+}
+```
+
+A response whose body has not been read yet: the status and headers, and the body as an `Iter` of blocks
+of bytes read as a `for` loop asks for them.
+
+### `stream`
+
+```
+pub fn stream(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>,
+    ca_file: Option<string>, proxy: Option<string>) -> Result<StreamResponse, ClientError>
+```
+
+Sends one request and returns the status and headers as soon as they arrive, with the body left on the
+connection to be read lazily -- for a large download, or a response that never ends. The body is an
+`Iter` of `Result<[byte], ClientError>` blocks of at most 8192 bytes, read as a `for` loop asks for
+them: `val r = client.stream(method: HttpMethod.Get, url: u)?` then `for block in r.body { val bytes =
+block? ... }`. A read error, or a timeout waiting for the next block, is a last Err item. The body comes
+as sent: this asks for no compression (`Accept-Encoding: identity`), and a server that compresses anyway
+is not decoded. No redirects are followed and no cookies are sent (a 3xx is returned as it is), nothing
+is limited to 8 MiB, and the connection is not reused: it is closed when the body is finished, when the
+loop is left early or with `iter_close(r.body)`, and a stream dropped unfinished is closed when its
+socket is collected. Arguments as for `request_bytes`: `headers`, `body`, `timeout_ms`, `ca_file`,
+`proxy`.

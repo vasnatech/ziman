@@ -1,3 +1,6 @@
 echo: hi
+first
+second
+third
 false
 connection refused: Connection refused

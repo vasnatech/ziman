@@ -1800,7 +1800,7 @@ fn main() {
 | Module | Reads | Writes |
 | --- | --- | --- |
 | `ndjson` | `parse_ndjson(text) -> Result<[Json], string>` (one value per line, blank lines skipped); `records(path)` reads a file lazily as an `Iter` of `Result<Json, string>` for a `for` loop, one record in memory at a time | `ndjson_to_string([Json])` |
-| `csv` | `parse_csv` / `parse_csv_typed` -> a `Json` array of objects keyed by the header row; `parse_csv_rows` -> `[[string]]`; `_with(text, delimiter)` variants for TSV etc. | `csv_to_string(Json)`, `csv_rows_to_string([[string]])` |
+| `csv` | `parse_csv` / `parse_csv_typed` -> a `Json` array of objects keyed by the header row; `parse_csv_rows` -> `[[string]]`; `_with(text, delimiter)` variants for TSV etc.; `records(path)` (and `records_typed`, `_with`) reads a file lazily as an `Iter` of `Result<Json, string>` for a `for` loop, a record at a time, quoted newlines included | `csv_to_string(Json)`, `csv_rows_to_string([[string]])` |
 | `toml` | `parse_toml(text) -> Result<Json, string>` | `toml_to_string(Json) -> Result<string, string>` |
 | `yaml` | `parse_yaml(text) -> Result<Json, string>` | `yaml_to_string(Json) -> string` |
 
@@ -2152,6 +2152,11 @@ fn main() {
   pass. Sub-ranges are the prelude's zero-copy `slice<byte>(b, start, end)`.
 - **`number`** (binary encodings): the big-endian `u16_to_bytes`/`u32_to_bytes`/`u16_from_bytes`/
   `u32_from_bytes` and the float encodings that network protocols are built from.
+- **Lines.** `net.lines(socket)` (and `lines_with(socket, max_line_bytes)`) is an `Iter<Result<string,
+  NetError>>` of the lines a peer sends, read lazily for a `for` loop and ended when the peer closes. Each
+  item is a line without its `\n` or `\r\n` (a last line with no newline counts), or an Err for a line
+  with a NUL byte, one longer than 1 MiB (which ends the iteration) or a read error such as `Timeout`. It
+  reads ahead in blocks, so take all of a socket's lines from one iterator; it does not close the socket.
 - **TLS (client side).** `net.connect_tls(host, port)` is `connect` plus
   `net.start_tls(sock, host)`, which upgrades a connected socket **in
   place** -- afterwards the same `read`/`read_exact`/`write`/`read_text`/
@@ -2355,6 +2360,12 @@ count is limited to 1000 and a compiled pattern to 20,000 instructions.
 matches.
 
 ## HTTP client (`client`)
+
+For a response too large to hold, or one that never ends, `client.stream(method: ..., url: ...)`
+returns the status and headers at once and the body as an `Iter` of `Result<[byte], ClientError>` blocks
+(at most 8192 bytes) read as a `for` loop asks for them; a timeout or read error is a last Err item, and
+leaving the loop early closes the connection. It follows no redirects, sends no cookies and does not decode
+compression (it asks for `identity`).
 
 `client` lets a program call another service. `client.get(url)`,
 `client.post_json(url, body)` and the general

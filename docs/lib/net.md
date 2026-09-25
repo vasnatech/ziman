@@ -55,6 +55,12 @@ fn echo(l: net.Listener) {
     net.close(s)
 }
 
+fn sender(l: net.Listener) {
+    val c = unwrap(net.accept(l))
+    unwrap(net.write_text(c, "first\r\nsecond\nthird"))
+    net.close(c)
+}
+
 fn main() {
     val listener = unwrap(net.listen("127.0.0.1", 0))
     spawn echo(listener)
@@ -64,6 +70,15 @@ fn main() {
     unwrap(net.write_text(s, "hi"))
     print(unwrap(net.read_text(s, 100)))
     net.close(s)
+
+    // Lines from a peer, read lazily until it closes.
+    val again = unwrap(net.listen("127.0.0.1", 0))
+    spawn sender(again)
+    val t = unwrap(net.connect("127.0.0.1", net.listener_port(again)))
+    for line in net.lines(t) {
+        print(unwrap(line))
+    }
+    net.close(t)
 
     // A failure is a NetError saying what kind, and net_error_message turns it into text.
     val refused = net.connect("127.0.0.1", 1)
@@ -76,6 +91,9 @@ Output:
 
 ```
 echo: hi
+first
+second
+third
 false
 connection refused: Connection refused
 ```
@@ -227,6 +245,29 @@ pub fn write_text(s: Socket, text: string) -> Result<int, NetError>
 ```
 
 Writes the whole string (UTF-8) before returning, and reports how many bytes.
+
+### `lines`
+
+```
+pub fn lines(s: Socket) -> Iter<Result<string, NetError>>
+```
+
+The lines a peer sends, read lazily as a `for` loop asks for them: `for line in net.lines(socket) { val
+text = line? ... }`. Each item is a `Result<string, NetError>`: a line without its `\n` or `\r\n` (a last
+line the peer ends the connection on counts), or an Err for a line with a NUL byte, one longer than 1 MiB,
+or a read error (`Timeout`, `Closed` mid-line, ...); after a read error or an over-long line the
+iteration ends. It ends normally when the peer closes the connection. It reads ahead in blocks of up to
+4096 bytes, so take all of a socket's lines from one `lines` iterator, and use `read` or `read_exact`
+on the socket only when you are not reading lines. The iterator does not close the socket; that stays
+yours. Set a timeout with `set_timeout` so a silent peer cannot block the loop for ever.
+
+### `lines_with`
+
+```
+pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>>
+```
+
+`lines` with a chosen longest line, in bytes.
 
 ### `set_timeout`
 
