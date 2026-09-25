@@ -1,0 +1,5 @@
+use crypto
+
+fn main() {
+    print(crypto.pbkdf2_hmac_sha256([1b], [2b], 0, 32))
+}

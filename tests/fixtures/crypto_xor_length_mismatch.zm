@@ -1,0 +1,5 @@
+use crypto
+
+fn main() {
+    print(crypto.bytes_xor([1b, 2b], [3b]))
+}

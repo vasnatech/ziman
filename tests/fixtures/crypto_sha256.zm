@@ -1,7 +1,8 @@
 use crypto
+use number
 
 fn h(s: string) -> string {
-    return crypto.bytes_to_hex(crypto.sha256(string_to_bytes(s)))
+    return number.bytes_to_hex(crypto.sha256(string_to_bytes(s)))
 }
 
 fn main() {

@@ -391,3 +391,11 @@ pub fn u32_from_bytes(b: [byte], offset: int) -> int {
 pub fn u16_from_bytes(b: [byte], offset: int) -> int {
     return (b[offset] as int) * two_pow_8 + (b[offset + 1] as int)
 }
+
+// Lowercase hex text of a byte array, two digits per byte: `bytes_to_hex([1b, 255b])` is
+// "01ff". The array counterpart of `byte_to_hex`.
+pub native fn bytes_to_hex(data: [byte]) -> string
+
+// The bytes of hex text (upper or lower case, an even number of digits). An Err on an odd
+// length or a character that is not a hex digit.
+pub native fn bytes_from_hex(s: string) -> Result<[byte], string>

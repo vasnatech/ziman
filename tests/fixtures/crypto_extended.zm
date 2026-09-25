@@ -1,0 +1,43 @@
+use crypto
+use number
+
+fn main() {
+    val parts = ab_new<byte>()
+    for i in 0..100000 {
+        ab_append<byte>(parts, string_to_bytes("aaaaaaaaaa"))
+    }
+    val big = ab_to_array<byte>(parts)
+    print(number.bytes_to_hex(crypto.sha512(string_to_bytes("abc"))))
+    print(number.bytes_to_hex(crypto.sha512(string_to_bytes(""))))
+    print(number.bytes_to_hex(crypto.hmac_sha512(string_to_bytes("key"),
+        string_to_bytes("The quick brown fox jumps over the lazy dog"))))
+    print(number.bytes_to_hex(crypto.pbkdf2_hmac_sha512(string_to_bytes("password"), string_to_bytes("salt"), 2, 40)))
+    print(number.bytes_to_hex(crypto.pbkdf2_hmac_sha256(string_to_bytes("password"), string_to_bytes("salt"), 4096,
+        20)))
+    print(number.bytes_to_hex(crypto.sha256(big)))
+    print(crypto.base64url_encode([251b, 255b, 254b]))
+    print(crypto.base64url_encode(string_to_bytes("ab")))
+    print(crypto.base64_encode([251b, 255b, 254b]))
+    // base64url and standard base64 decode, strictly
+    print(crypto.base64url_decode("-__-"))
+    print(crypto.base64url_decode("YWI"))
+    print(is_ok(crypto.base64url_decode("YWI=")))
+    print(is_ok(crypto.base64url_decode("Y")))
+    print(is_ok(crypto.base64_decode("YWI")))
+    print(is_ok(crypto.base64_decode("YW I=")))
+    print(is_ok(crypto.base64_decode("Y=Wk")))
+    print(crypto.base64_decode("YWI="))
+    print(is_ok(crypto.base64_decode("-__-")))
+    // constant-time comparison
+    print(crypto.bytes_equal([1b, 2b, 3b], [1b, 2b, 3b]))
+    print(crypto.bytes_equal([1b, 2b, 3b], [1b, 2b, 4b]))
+    print(crypto.bytes_equal([1b, 2b], [1b, 2b, 3b]))
+    print(crypto.bytes_equal([], []))
+    // hex text of byte arrays
+    print(number.bytes_to_hex([0b, 1b, 171b, 255b]))
+    print(number.bytes_from_hex("0001abFF"))
+    print(unwrap_err(number.bytes_from_hex("abc")))
+    print(unwrap_err(number.bytes_from_hex("zz")))
+    print(number.bytes_from_hex(""))
+    print(crypto.bytes_xor([1b, 2b], [3b, 3b]))
+}

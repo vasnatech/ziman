@@ -93,22 +93,34 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]>
 
 ## `crypto`
 
+Hashes (SHA-1/256/512), HMAC, PBKDF2, a constant-time byte comparison, base64 and base64url, on OpenSSL. No ciphers or public-key operations.
+
 ```
+pub native fn sha1(data: [byte]) -> [byte]
+
 pub native fn sha256(data: [byte]) -> [byte]
 
-pub native fn sha1(data: [byte]) -> [byte]
+pub native fn sha512(data: [byte]) -> [byte]
 
 pub native fn hmac_sha256(key: [byte], data: [byte]) -> [byte]
 
+pub native fn hmac_sha512(key: [byte], data: [byte]) -> [byte]
+
 pub native fn pbkdf2_hmac_sha256(password: [byte], salt: [byte], iterations: int, length: int) -> [byte]
 
+pub native fn pbkdf2_hmac_sha512(password: [byte], salt: [byte], iterations: int, length: int) -> [byte]
+
 pub native fn bytes_xor(a: [byte], b: [byte]) -> [byte]
+
+pub native fn bytes_equal(a: [byte], b: [byte]) -> bool
 
 pub native fn base64_encode(data: [byte]) -> string
 
 pub native fn base64_decode(s: string) -> Result<[byte], string>
 
-pub fn bytes_to_hex(data: [byte]) -> string
+pub native fn base64url_encode(data: [byte]) -> string
+
+pub native fn base64url_decode(s: string) -> Result<[byte], string>
 
 ```
 
@@ -592,6 +604,10 @@ pub fn u16_to_bytes(n: int) -> [byte]
 pub fn u32_from_bytes(b: [byte], offset: int) -> int
 
 pub fn u16_from_bytes(b: [byte], offset: int) -> int
+
+pub native fn bytes_to_hex(data: [byte]) -> string
+
+pub native fn bytes_from_hex(s: string) -> Result<[byte], string>
 
 ```
 

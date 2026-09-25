@@ -5,6 +5,7 @@
 #include "derive.h"
 #include "format.h"
 #include "lsp.h"
+#include "native_number.h"
 #include "error.h"
 #include "interpreter.h"
 #include "loader.h"
@@ -139,6 +140,7 @@ int main(int argc, char **argv) {
         native_net_register();
         native_os_register();
         native_crypto_register();
+        native_number_register();
         prelude_register();
         return lsp_main();
     }
@@ -168,6 +170,7 @@ int main(int argc, char **argv) {
     native_net_register();
     native_os_register();
     native_crypto_register();
+    native_number_register();
     prelude_register();
 
     Module *module = load_module_graph(file);

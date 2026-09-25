@@ -2328,14 +2328,21 @@ level is dropped. `with_prefix` makes a per-component logger,
 
 ## Cryptography
 
-The `crypto` core module is just enough to speak SCRAM-SHA-256:
-`sha256`, `hmac_sha256`, `pbkdf2_hmac_sha256(password, salt, iterations,
-length)`, `base64_encode`/`base64_decode`, `bytes_xor` (Ziman has no
-bitwise operators) and `bytes_to_hex`. All native and self-contained (no
-libcrypto), checked against the published test vectors. **It is not a
-general-purpose crypto library**: not constant-time, no randomness (use
-`random.random_bytes`), no ciphers or public-key operations -- it grows
-only when a real consumer needs more.
+The `crypto` core module is hashes, message authentication, key derivation and base64 on
+OpenSSL's libcrypto (already linked for TLS); all native, `[byte]` in and out.
+
+- **Hashes:** `sha1` (broken -- legacy formats and MySQL's login only), `sha256`, `sha512`.
+- **Keyed:** `hmac_sha256`, `hmac_sha512`, and `pbkdf2_hmac_sha256` / `pbkdf2_hmac_sha512(password,
+  salt, iterations, length)` for turning a password into a key or a storable hash.
+- **Bytes:** `bytes_xor` (Ziman has no bitwise operators) and `bytes_equal`, a comparison that takes the
+  same time whatever the contents -- use it for MACs and tokens, not `==`.
+- **base64:** `base64_encode` / `base64_decode` (standard, padded, strict) and `base64url_encode` /
+  `base64url_decode` (URL-safe, no padding: JWTs).
+- **Hex** text of byte arrays is in `number`: `bytes_to_hex` and `bytes_from_hex`.
+- **Errors:** a wrong argument (mismatched lengths, an out-of-range iteration count) is a runtime error;
+  malformed data (`base64_decode`, `bytes_from_hex`) is an `Err(string)`.
+- **Not a general crypto library:** no ciphers, no public-key operations, no randomness (use
+  `random.random_bytes`).
 
 ## Configuration (`properties`, `os`)
 
