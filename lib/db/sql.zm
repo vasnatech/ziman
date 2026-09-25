@@ -10,6 +10,7 @@
 // sidesteps every dialect difference in how SQLite and Postgres type
 // those (SQLite has no UUID or timestamp type at all).
 
+// One database value: SQL NULL, an integer, a float, text, a boolean or a blob.
 pub enum SqlValue {
     Null
     Int(int)
@@ -39,6 +40,8 @@ pub struct Row {
     values: [SqlValue]
 }
 
+// `e` as a sentence for a log line or a response, prefixed by its kind (`NotFound` is the bare
+// message).
 pub fn db_error_message(e: DbError) -> string {
     if DbError.is_NotFound(e) {
         return DbError.unwrap_NotFound(e)
@@ -53,6 +56,7 @@ pub fn db_error_message(e: DbError) -> string {
     }
 }
 
+// The value of column `column` in `row`, or a DbError.Sql naming the missing column.
 pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError> {
     var i = 0
     while i < len(row.columns) {
@@ -84,6 +88,7 @@ fn sql_mismatch(expected: string, v: SqlValue) -> DbError {
     return DbError.Sql(format("expected {}, found {}", expected, sql_type_name(v)))
 }
 
+// The text of a TEXT value, or a DbError.Sql saying what was found instead.
 pub fn sql_as_text(v: SqlValue) -> Result<string, DbError> {
     if !SqlValue.is_Text(v) {
         return err(sql_mismatch("TEXT", v))
@@ -91,6 +96,7 @@ pub fn sql_as_text(v: SqlValue) -> Result<string, DbError> {
     return SqlValue.unwrap_Text(v)
 }
 
+// The number in an INTEGER value, or a DbError.Sql saying what was found instead.
 pub fn sql_as_int(v: SqlValue) -> Result<int, DbError> {
     if !SqlValue.is_Int(v) {
         return err(sql_mismatch("INTEGER", v))

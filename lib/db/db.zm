@@ -30,6 +30,7 @@
 // Without the `defer`, a `?` that returns early from inside a
 // transaction leaves it open.
 
+use clock.sleep_millis
 use mysql
 use pg
 use sql.DbError
@@ -38,13 +39,14 @@ use sql.SqlValue
 use sqlite
 
 // Which engine a connection talks to, or a pool of them. A pool holds
-// the channel of idle connections and how many were opened (see
-// `open_pool`); statements run on it borrow a connection for that one
+// the channel of idle connections, how many were opened and the URL to
+// reopen one from (see `open_pool`); statements run on it borrow a connection for that one
 // statement, and `acquire` hands one out exclusively. The type is
 // recursive through a `Channel`, like `Json` is through an array.
 pub struct PoolState {
     idle: Channel<Connection>
     size: int
+    url: string
 }
 
 pub enum Connection {
@@ -99,8 +101,9 @@ pub fn close(conn: Connection) {
 pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
     if Connection.is_Pool(conn) {
         val inner = acquire(conn)?
-        defer release(conn, inner)
-        return execute(inner, sql, params)
+        val result = execute(inner, sql, params)
+        settle<int>(conn, inner, result)
+        return result
     }
     if Connection.is_Postgres(conn) {
         return pg.execute(Connection.unwrap_Postgres(conn), sql, params)
@@ -112,11 +115,14 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
     }
 }
 
+// Runs a query and returns its rows, each a `sql.Row`; `params` are bound to the placeholders
+// (`?` for SQLite and MySQL, `$1`, `$2` for Postgres), never spliced into `sql`.
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
     if Connection.is_Pool(conn) {
         val inner = acquire(conn)?
-        defer release(conn, inner)
-        return query(inner, sql, params)
+        val result = query(inner, sql, params)
+        settle<[Row]>(conn, inner, result)
+        return result
     }
     if Connection.is_Postgres(conn) {
         return pg.query(Connection.unwrap_Postgres(conn), sql, params)
@@ -149,16 +155,21 @@ fn refuse_on_pool(conn: Connection) -> Result<int, DbError> {
     return 0
 }
 
+// Starts a transaction on `conn`. Refused on a pool: `acquire` an exclusive connection first, or
+// use `with_transaction`.
 pub fn begin(conn: Connection) -> Result<int, DbError> {
     refuse_on_pool(conn)?
     return execute(conn, "BEGIN", [])
 }
 
+// Commits the transaction open on `conn`.
 pub fn commit(conn: Connection) -> Result<int, DbError> {
     refuse_on_pool(conn)?
     return execute(conn, "COMMIT", [])
 }
 
+// Rolls back the transaction open on `conn`. Called with none open it is harmless, which is what
+// lets `defer db.rollback(conn)` stand guard after a commit.
 pub fn rollback(conn: Connection) -> Result<int, DbError> {
     refuse_on_pool(conn)?
     return execute(conn, "ROLLBACK", [])
@@ -187,11 +198,14 @@ pub fn rollback(conn: Connection) -> Result<int, DbError> {
 // it uses it directly and never borrows again (borrowing while holding one
 // could deadlock a small pool).
 //
-// v1 limits, deliberate: a connection that dies (server restart, dropped
-// network) is NOT replaced -- it keeps failing until the pool is rebuilt;
-// there is no health check and no reconnect. There is no acquire timeout
-// (a leaked borrow blocks other callers forever -- `defer release` is the
-// guard). A pool over `sqlite::memory:` is a single connection whatever
+// A connection that dies (server restart, dropped network) is replaced: when a statement run
+// on the pool fails with `DbError.Connection`, that connection is closed and a fresh one opened
+// from the same URL in its place (if the server is still down the dead one goes back, and the
+// next statement tries again). The statement that met the failure is NOT re-sent -- it may or may
+// not have run, so retrying an INSERT could repeat it -- and returns its error. For a connection
+// taken with `acquire`, use `discard` in place of `release` after a connection error. A borrow
+// blocks while every connection is in use; `acquire_timeout` gives up after a while instead, and a
+// leaked borrow blocks other callers forever -- `defer release` is the guard. A pool over `sqlite::memory:` is a single connection whatever
 // `size` says: every in-memory connection is its own private database, so
 // N of them would be N different databases.
 pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
@@ -216,7 +230,28 @@ pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
         send(idle, unwrap(c))
         opened = opened + 1
     }
-    return Connection.Pool(PoolState { idle: idle, size: size })
+    return Connection.Pool(PoolState { idle: idle, size: size, url: url })
+}
+
+// A connection that failed with a connection error, swapped for a fresh one; the failed one when
+// none can be opened, so the pool never shrinks.
+fn replacement(pool: PoolState, dead: Connection) -> Connection {
+    val fresh = open(pool.url)
+    if !is_ok(fresh) {
+        return dead
+    }
+    close(dead)
+    return unwrap(fresh)
+}
+
+// Puts a borrowed connection back after a statement, replacing it first when the statement's
+// error says the connection is gone.
+fn settle<T>(conn: Connection, taken: Connection, result: Result<T, DbError>) {
+    if !is_ok(result) && DbError.is_Connection(unwrap_err(result)) {
+        discard(conn, taken)
+    } else {
+        release(conn, taken)
+    }
 }
 
 // An exclusive connection, for a unit of work that must stay on one (a
@@ -227,6 +262,26 @@ pub fn acquire(conn: Connection) -> Result<Connection, DbError> {
     return if Connection.is_Pool(conn) { receive(Connection.unwrap_Pool(conn).idle) } else { conn }
 }
 
+// Like `acquire`, but gives up with a `DbError.Connection` once `timeout_ms` milliseconds pass
+// with every connection still in use (checked every 2 ms). A `timeout_ms` of zero or less tries
+// once.
+pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, DbError> {
+    if !Connection.is_Pool(conn) {
+        return conn
+    }
+    val idle = Connection.unwrap_Pool(conn).idle
+    for _ in 0..(if timeout_ms > 0 { timeout_ms / 2 + 1 } else { 1 }) {
+        val got = try_receive(idle)
+        if Option.is_Some(got) {
+            return Option.unwrap_Some(got)
+        }
+        if timeout_ms > 0 {
+            sleep_millis(2)
+        }
+    }
+    return err(DbError.Connection(format("timed out after {} ms waiting for a pooled connection", timeout_ms)))
+}
+
 // Gives back a connection taken with `acquire`. Pair every `acquire` with
 // a `defer db.release(...)`. A connection released while a transaction is
 // still open goes back dirty -- roll it back first (`defer db.rollback`
@@ -234,6 +289,17 @@ pub fn acquire(conn: Connection) -> Result<Connection, DbError> {
 pub fn release(conn: Connection, taken: Connection) {
     if Connection.is_Pool(conn) {
         send(Connection.unwrap_Pool(conn).idle, taken)
+    }
+}
+
+// Gives back a connection taken with `acquire` that has failed with a connection error: it is
+// closed and a fresh one opened in its place (the failed one goes back if none can be opened).
+// Use it instead of `release` when the connection is known to be broken. Does nothing on a
+// connection that isn't a pool.
+pub fn discard(conn: Connection, taken: Connection) {
+    if Connection.is_Pool(conn) {
+        val pool = Connection.unwrap_Pool(conn)
+        send(pool.idle, replacement(pool, taken))
     }
 }
 
@@ -251,13 +317,18 @@ pub fn release(conn: Connection, taken: Connection) {
 //         return ok(amount)
 //     })?
 //
-// `work` is a function value: a lambda capturing what it needs (`amount` above),
-// or a named function. A `work`
-// that itself calls `db.begin`/`db.commit` on `tx` breaks the nesting -- it
+// `work` is a function value: a lambda capturing what it needs (`amount` above), or a named
+// function. If the transaction ends in a connection error the connection is replaced rather than
+// returned to the pool. A `work` that itself calls `db.begin`/`db.commit` on `tx` breaks the nesting -- it
 // must not.
 pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError> {
     val tx = acquire(conn)?
-    defer release(conn, tx)
+    val result = run_transaction<R>(tx, work)
+    settle<R>(conn, tx, result)
+    return result
+}
+
+fn run_transaction<R>(tx: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError> {
     begin(tx)?
     defer rollback(tx)
     val result = work(tx)

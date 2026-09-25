@@ -2005,10 +2005,15 @@ fn main() {
   `acquire` returns it and `release` does nothing, so the same code runs
   against either. `db.close(pool)` waits for every connection to be
   released, then closes them all -- a borrow that was never released makes
-  it wait forever, which is what `defer db.release` prevents. **v1
-  limits:** a connection that dies is *not* replaced (no health check, no
-  reconnect -- it keeps failing until the pool is rebuilt); there is no
-  acquire timeout; a released connection isn't reset (release one with a
+  it wait forever, which is what `defer db.release` prevents.
+  `db.acquire_timeout(pool, ms)` gives up with a `DbError.Connection`
+  instead of waiting for ever. **A connection that dies is replaced:** a
+  statement on the pool that fails with `DbError.Connection` closes that
+  connection and opens a fresh one from the same URL (the statement itself
+  is not re-sent, since it may have run); after a failure on an acquired
+  connection, `db.discard(pool, tx)` does the same instead of `release`, and
+  `with_transaction` does it by itself. **Limits:** there is no health
+  check before a borrow, no min/max sizing or idle timeout; a released connection isn't reset (release one with a
   transaction open and it goes back dirty); and a pool over
   `sqlite::memory:` is a **single** connection whatever `size` says, since
   every in-memory connection is its own private database. SQLite

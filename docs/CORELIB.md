@@ -1176,6 +1176,7 @@ pub fn parse(url: string, prefixes: [string], default_port: int) -> Result<DbUrl
 pub struct PoolState {
     idle: Channel<Connection>
     size: int
+    url: string
 }
 
 pub enum Connection {
@@ -1205,7 +1206,11 @@ pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
 
 pub fn acquire(conn: Connection) -> Result<Connection, DbError>
 
+pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, DbError>
+
 pub fn release(conn: Connection, taken: Connection)
+
+pub fn discard(conn: Connection, taken: Connection)
 
 pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError>
 

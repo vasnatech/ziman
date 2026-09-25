@@ -1,0 +1,63 @@
+use db
+use fs
+use sql.DbError
+use sql.Row
+use sql.SqlValue
+use sql.db_error_message
+use sql.row_get
+use sql.sql_as_int
+
+fn pid_of(conn: db.Connection) -> int {
+    val rows = unwrap(db.query(conn, "SELECT pg_backend_pid() AS pid", []))
+    return unwrap(sql_as_int(unwrap(row_get(rows[0], "pid"))))
+}
+
+fn main() {
+    val url = trim(unwrap(fs.read_text("tests/pg/.url")))
+    val admin = unwrap(db.open(url))
+    val pool = unwrap(db.open_pool(url, 1))
+
+    val first = pid_of(pool)
+    print(pid_of(pool) == first)
+
+    // the server drops the pool's only connection: one statement fails, the next one works on a new backend
+    unwrap(db.query(admin, "SELECT pg_terminate_backend($1)", [SqlValue.Int(first)]))
+    val broken = db.query(pool, "SELECT 1", [])
+    print(is_ok(broken))
+    val second = pid_of(pool)
+    print(second != first)
+    print(pid_of(pool) == second)
+
+    // the same for a connection taken with acquire and given back with discard
+    val tx = unwrap(db.acquire(pool))
+    unwrap(db.query(admin, "SELECT pg_terminate_backend($1)", [SqlValue.Int(second)]))
+    print(is_ok(db.query(tx, "SELECT 1", [])))
+    db.discard(pool, tx)
+    val third = pid_of(pool)
+    print(third != second)
+
+    // a transaction that dies with its connection replaces it too
+    val moved = db.with_transaction<int>(pool, fn(t: db.Connection) -> Result<int, DbError> {
+        unwrap(db.query(admin, "SELECT pg_terminate_backend($1)", [SqlValue.Int(third)]))
+        val r = db.query(t, "SELECT 1", [])
+        if !is_ok(r) {
+            return err(unwrap_err(r))
+        }
+        return ok(1)
+    })
+    print(is_ok(moved))
+    print(pid_of(pool) != third)
+
+    // acquire_timeout: the only connection is out, so waiting gives up
+    val held = unwrap(db.acquire(pool))
+    val late = db.acquire_timeout(pool, 60)
+    print(is_ok(late))
+    print(db_error_message(unwrap_err(late)))
+    db.release(pool, held)
+    val ok_now = db.acquire_timeout(pool, 60)
+    print(is_ok(ok_now))
+    db.release(pool, unwrap(ok_now))
+
+    db.close(pool)
+    db.close(admin)
+}

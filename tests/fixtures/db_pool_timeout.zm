@@ -1,0 +1,31 @@
+use db
+use sql.db_error_message
+
+fn main() {
+    val url = "sqlite:/tmp/ziman_fixture_pool_timeout.db"
+    val pool = unwrap(db.open_pool(url, 2))
+    val a = unwrap(db.acquire_timeout(pool, 50))
+    val b = unwrap(db.acquire_timeout(pool, 0))
+    val none = db.acquire_timeout(pool, 40)
+    print(is_ok(none))
+    print(db_error_message(unwrap_err(none)))
+    print(is_ok(db.acquire_timeout(pool, 0)))
+    db.release(pool, a)
+    val again = db.acquire_timeout(pool, 40)
+    print(is_ok(again))
+    db.release(pool, unwrap(again))
+    db.release(pool, b)
+    // discard puts a fresh connection back
+    val c = unwrap(db.acquire(pool))
+    db.discard(pool, c)
+    val d = unwrap(db.acquire_timeout(pool, 0))
+    print(is_ok(db.query(d, "SELECT 1 AS n", [])))
+    db.release(pool, d)
+    // on a plain connection both are no-ops
+    val plain = unwrap(db.open("sqlite::memory:"))
+    val same = unwrap(db.acquire_timeout(plain, 10))
+    db.discard(plain, same)
+    print(is_ok(db.query(plain, "SELECT 1 AS n", [])))
+    db.close(pool)
+    db.close(plain)
+}

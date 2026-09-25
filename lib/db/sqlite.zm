@@ -1,7 +1,8 @@
 // sqlite.zm -- the SQLite driver behind `db`. A connection is an integer
-// handle into a native table (src/native_sqlite.c, linked against
-// libsqlite3); this module encodes `SqlValue` parameters into that
-// native's primitive-only shape and decodes result cells back. Use it
+// handle to a native connection object (src/native_sqlite.c, linked against
+// libsqlite3), closed by `close` or, failing that, when it is garbage collected. This
+// module encodes `SqlValue` parameters into that native's primitive-only shape and decodes
+// result cells back. Use it
 // through `db.open("sqlite:...")`; `pg` is the Postgres counterpart.
 //
 // The natives only ever exchange primitives (ints, strings, arrays of
@@ -107,7 +108,7 @@ fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
     return err(DbError.Sql(concat("unknown cell tag from driver: ", tag)))
 }
 
-// An open SQLite connection: an index into the native table. Opaque to
+// An open SQLite connection: a handle to the native connection. Opaque to
 // callers -- use `execute`/`query`/`close`.
 pub struct Connection {
     handle: int
@@ -122,10 +123,14 @@ pub fn open(path: string) -> Result<Connection, DbError> {
     return Connection { handle: unwrap(opened) }
 }
 
+// Closes the database. Using the connection afterwards is an error, not a crash; one never closed
+// is closed when it is garbage collected, but a file database stays locked until then.
 pub fn close(conn: Connection) {
     close_raw(conn.handle)
 }
 
+// Runs a statement, or a `;`-separated script of them, and returns the rows the last statement
+// changed. `params` bind to the `?` placeholders.
 pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
     val r = execute_raw(conn.handle, sql, encode_params(params))
     if !is_ok(r) {
@@ -134,6 +139,7 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
     return ok(unwrap(r))
 }
 
+// Runs a statement and returns its rows; `params` bind to the `?` placeholders.
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
     val r = query_raw(conn.handle, sql, encode_params(params))
     if !is_ok(r) {

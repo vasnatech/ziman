@@ -1248,8 +1248,9 @@ from source.
   discarded `Result` (a failing cleanup is invisible), fatal errors
   skipping defers, and no true `with_transaction(fn)` (no closures); (3) ~~connection pool~~ **done as v1**
   (docs/DESIGN.md's pool entry) -- still wanted, and deliberately left for
-  a better implementation: health checks and reconnect (a dead pooled
-  connection is never replaced), an acquire timeout, min/max sizing and
+  a better implementation: ~~reconnect and an acquire timeout~~ (done: a
+  connection-class failure replaces the connection, `db.acquire_timeout`,
+  `db.discard`), health checks on borrow, min/max sizing and
   idle timeouts, resetting a connection on release, and real pooling over
   in-memory SQLite (shared-cache); (4)
   **schema management/migrations**, currently a plain `create_schema`

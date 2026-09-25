@@ -117,17 +117,20 @@ val type_var_string = 253
 val type_string = 254
 val type_geometry = 255
 
+// What a statement produced: its rows and how many rows it changed.
 pub struct QueryResult {
     rows: [Row]
     affected: int
 }
 
+// A statement sent to the thread that owns the connection, with the channel to answer on.
 pub struct RunRequest {
     sql: string
     params: [SqlValue]
     reply_to: Channel<Result<QueryResult, DbError>>
 }
 
+// A message to a connection's owning thread: run a statement, or close the connection.
 pub enum Request {
     Run(RunRequest)
     Close
@@ -333,7 +336,7 @@ fn parse_error(body: [byte]) -> DbError {
     if class == "23" || code == 1364 || code == 3819 || code == 4025 {
         return DbError.Constraint(message)
     }
-    return if class == "28" || class == "08" || code == 1049 || code == 1044 {
+    return if class == "28" || class == "08" || code == 1049 || code == 1044 || code == 1053 || code == 1927 {
         DbError.Connection(message)
     } else {
         DbError.Sql(message)
@@ -1080,11 +1083,14 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
     return result.affected
 }
 
+// Runs a statement and returns its rows.
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
     val result = run(conn, sql, params)?
     return result.rows
 }
 
+// Asks the connection's thread to say goodbye to the server and close the socket. Returns at once;
+// the request is queued behind any statement still running.
 pub fn close(conn: Connection) {
     send(conn.requests, Request.Close)
 }

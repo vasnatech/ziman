@@ -166,7 +166,7 @@ conversion) and `number` (big-endian integers).
 
 `net` also does client-side TLS on the system OpenSSL (`net.connect_tls`/`net.start_tls`, upgrading a socket in place so everything built on `Socket` works over it), with certificate and host-name verification on by default and an explicit `TlsVerify` (`Full`/`Chain`/`Off`) plus optional CA file when relaxing it.
 
-`db.open_pool(url, size)` returns a pool-backed `Connection` (same type, so repository code is unchanged): statements borrow a connection for one call, and `db.acquire`/`db.release` (with `defer`) hand out an exclusive connection for a transaction — the pool is just a channel of idle connections. v1: no reconnect or health checks, no acquire timeout.
+`db.open_pool(url, size)` returns a pool-backed `Connection` (same type, so repository code is unchanged): statements borrow a connection for one call, and `db.acquire`/`db.release` (with `defer`) hand out an exclusive connection for a transaction — the pool is just a channel of idle connections. A dead connection is replaced after a connection-class failure; `db.acquire_timeout` bounds the wait.
 
 ## Databases: `crypto`, `pg`, `sql`/`db`
 

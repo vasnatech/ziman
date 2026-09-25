@@ -8,11 +8,14 @@
 use number.byte_from_hex
 use sql.DbError
 
+// One `name=value` pair from the query part of a database URL, already decoded.
 pub struct UrlParam {
     name: string
     value: string
 }
 
+// A parsed database URL: the decoded credentials, host, port (0 when the URL names none), database
+// and query parameters.
 pub struct DbUrl {
     user: string
     password: string
@@ -26,12 +29,16 @@ fn bad(message: string) -> DbError {
     return DbError.Connection(message)
 }
 
+// Decodes `%XX` escapes in `s`; an Err for a malformed escape or one that yields a NUL byte.
 pub fn percent_decode(s: string) -> Result<string, DbError> {
     val out = sb_new()
     var run = 0
     var i = 0
     while i < len(s) {
-        if is_char_at(s, i, "%") && i + 3 <= len(s) {
+        if is_char_at(s, i, "%") {
+            if i + 3 > len(s) {
+                return err(bad(concat("bad %-escape in database URL: ", s)))
+            }
             sb_append(out, substring(s, run, i))
             val b = byte_from_hex(substring(s, i + 1, i + 3))
             if !is_ok(b) {

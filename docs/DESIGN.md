@@ -2703,15 +2703,19 @@ several languages rather than inheriting any one of them wholesale.
   the design exists for: an exclusively borrowed connection can't be
   interleaved by another thread, which is what a shared single connection
   could never promise.
-  **Deliberately v1, with better implementations wanted later:** a
-  connection that dies (server restart, dropped network) is *not*
-  replaced -- there is no health check and no reconnect, so it keeps
-  failing until the pool is rebuilt; validating with `SELECT 1` on every
-  borrow would cost a round trip per statement, and doing this properly
-  (discard on a connection-class error, reconnect lazily, optionally
-  validate only after idleness) deserves its own step. There is no acquire
-  timeout (channel `receive` has none, so a leaked borrow blocks other
-  callers forever -- `defer release` is the guard), no min/max sizing or
+  **Reconnect, done lazily:** a statement that fails with
+  `DbError.Connection` (a network error, or a server-side class 08/28/3D/57
+  or MySQL shutdown code) has its connection closed and replaced by a fresh
+  one from the pool's URL (`PoolState.url`); if the server is still down the
+  dead one goes back so the pool never shrinks. The failed statement is not
+  re-sent, because it may have executed and a retried INSERT would repeat
+  it. `db.discard` does the same for an `acquire`d connection, and
+  `with_transaction` calls it on a connection-class failure. There is no
+  `SELECT 1` on every borrow (a round trip per statement), so the first
+  statement after an outage fails and the ones after it succeed. **Acquire
+  timeout:** `acquire_timeout` polls `try_receive` every 2 ms, since channel
+  `receive` has no timeout; a leaked borrow blocks plain `acquire` forever
+  (`defer release` is the guard). **Still v1:** no min/max sizing or
   idle timeout, connections open eagerly and fail fast, `db.close(pool)`
   waits for every borrow to come back before closing, and a connection
   released mid-transaction goes back dirty (roll it back first; a `defer
