@@ -1,0 +1,37 @@
+use http.status_not_acceptable
+use http.status_unsupported_media_type
+use http
+use mime
+use server
+
+fn h(name: string, value: string) -> http.Header {
+    return http.Header { name: name, value: value }
+}
+
+fn show(m: Option<mime.MediaType>) -> string {
+    return if Option.is_Some(m) { mime.to_string(Option.unwrap_Some(m)) } else { "none" }
+}
+
+fn main() {
+    print(show(http.content_type([h("content-type", "Application/JSON; charset=UTF-8")])))
+    print(show(http.content_type([])))
+    print(show(http.content_type([h("Content-Type", "json")])))
+
+    val json = mime.application_json()
+    val html = mime.text_html()
+    print(str(http.accepts([], json)))
+    print(str(http.accepts([h("Accept", "*/*")], json)))
+    print(str(http.accepts([h("Accept", "text/html, application/json;q=0.5")], json)))
+    print(str(http.accepts([h("Accept", "text/*")], json)))
+    print(str(http.accepts([h("Accept", "text/*")], html)))
+    print(str(http.accepts([h("Accept", "application/json;q=0, */*")], json)))
+    print(str(http.accepts([h("accept", "application/json;q=0.0")], json)))
+    print(str(http.accepts([h("Accept", "garbage")], json)))
+
+    val r = server.media_response(200, "x", mime.with_param(mime.text_csv(), "charset", "utf-8"))
+    print(show(http.content_type(r.headers)))
+    print(show(http.content_type(server.json_response(200, "{}").headers)))
+    print(show(http.content_type(server.text_response(200, "hi").headers)))
+    print(str(status_not_acceptable))
+    print(str(status_unsupported_media_type))
+}

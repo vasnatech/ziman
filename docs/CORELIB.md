@@ -1095,11 +1095,15 @@ pub val status_not_found = 404
 
 pub val status_method_not_allowed = 405
 
+pub val status_not_acceptable = 406
+
 pub val status_request_timeout = 408
 
 pub val status_conflict = 409
 
 pub val status_payload_too_large = 413
+
+pub val status_unsupported_media_type = 415
 
 pub val status_unprocessable_entity = 422
 
@@ -1151,6 +1155,10 @@ pub fn header(req: Request, name: string) -> Option<string>
 
 pub fn header_value(headers: [Header], name: string) -> Option<string>
 
+pub fn content_type(headers: [Header]) -> Option<mime.MediaType>
+
+pub fn accepts(headers: [Header], media: mime.MediaType) -> bool
+
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string>
 
 pub fn percent_encode(s: string, plus_for_space: bool) -> string
@@ -1192,6 +1200,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError>
 pub fn response(status: int, body: string) -> Response
 
 pub fn with_header(r: Response, name: string, value: string) -> Response
+
+pub fn media_response(status: int, body: string, media: mime.MediaType) -> Response
 
 pub fn json_response(status: int, body: string) -> Response
 

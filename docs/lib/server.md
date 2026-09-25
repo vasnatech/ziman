@@ -163,6 +163,14 @@ pub fn with_header(r: Response, name: string, value: string) -> Response
 
 `r` with one more header (added after any it already has; nothing is replaced).
 
+### `media_response`
+
+```
+pub fn media_response(status: int, body: string, media: mime.MediaType) -> Response
+```
+
+A response with `status` and `body`, `Content-Type` set to `media` (parameters such as a charset included).
+
 ### `json_response`
 
 ```

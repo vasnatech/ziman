@@ -48,6 +48,7 @@ flowchart LR
     client --> compress
     client --> crypto
     client --> http
+    client --> mime
     client --> net
     client --> number
     client --> os
@@ -61,6 +62,7 @@ flowchart LR
     datasource --> pg
     datasource --> sqlite
     db --> number
+    http --> mime
     http --> number
     log --> clock
     log --> fs
@@ -79,6 +81,7 @@ flowchart LR
     properties --> os
     server --> clock
     server --> http
+    server --> mime
     server --> net
     server --> number
     server --> os
@@ -118,7 +121,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Module | Uses | Used by |
 |---|---|---|
-| `client` | `clock`, `compress`, `crypto`, `http`, `net`, `number`, `os`, `time` | - |
+| `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `log`, `server`, `time`, `uuid` |
 | `collections` | - | - |
 | `compress` | - | `client` |
@@ -127,10 +130,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | - |
 | `db` | `number` | `datasource`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | - | `csv`, `log`, `properties`, `zone` |
-| `http` | `number` | `client`, `server` |
+| `http` | `mime`, `number` | `client`, `server` |
 | `json` | - | `csv`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `log` | `clock`, `fs`, `os` | - |
-| `mime` | - | - |
+| `mime` | - | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
@@ -140,7 +143,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `properties` | `fs`, `os` | - |
 | `random` | - | `pg`, `uuid` |
 | `regex` | - | - |
-| `server` | `clock`, `http`, `net`, `number`, `os` | - |
+| `server` | `clock`, `http`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
 | `time` | `clock`, `db`, `json`, `zone` | `client` |
 | `toml` | `json`, `number` | - |

@@ -38,6 +38,7 @@ use http.Request
 use http.Response
 use http.header
 use http.header_value
+use mime
 use http.method_name
 use http.method_parse
 use http.percent_decode
@@ -53,6 +54,7 @@ use http.status_internal_server_error
 use http.status_method_not_allowed
 use http.status_moved_permanently
 use http.status_no_content
+use http.status_not_acceptable
 use http.status_not_found
 use http.status_not_implemented
 use http.status_not_modified
@@ -61,6 +63,7 @@ use http.status_payload_too_large
 use http.status_request_timeout
 use http.status_service_unavailable
 use http.status_unauthorized
+use http.status_unsupported_media_type
 use http.status_unprocessable_entity
 use net
 use net.Listener
@@ -368,9 +371,11 @@ fn reason(status: int) -> string {
     if status == status_forbidden { return "Forbidden" }
     if status == status_not_found { return "Not Found" }
     if status == status_method_not_allowed { return "Method Not Allowed" }
+    if status == status_not_acceptable { return "Not Acceptable" }
     if status == status_request_timeout { return "Request Timeout" }
     if status == status_conflict { return "Conflict" }
     if status == status_payload_too_large { return "Payload Too Large" }
+    if status == status_unsupported_media_type { return "Unsupported Media Type" }
     if status == status_unprocessable_entity { return "Unprocessable Entity" }
     if status == status_header_fields_too_large { return "Request Header Fields Too Large" }
     if status == status_internal_server_error { return "Internal Server Error" }
@@ -389,14 +394,19 @@ pub fn with_header(r: Response, name: string, value: string) -> Response {
     return Response { status: r.status, headers: push(r.headers, Header { name: name, value: value }), body: r.body }
 }
 
+// A response with `status` and `body`, `Content-Type` set to `media` (parameters such as a charset included).
+pub fn media_response(status: int, body: string, media: mime.MediaType) -> Response {
+    return with_header(response(status, body), "Content-Type", mime.to_string(media))
+}
+
 // A response with `status` and `body`, `Content-Type: application/json`.
 pub fn json_response(status: int, body: string) -> Response {
-    return with_header(response(status, body), "Content-Type", "application/json")
+    return media_response(status, body, mime.application_json())
 }
 
 // A response with `status` and `body`, `Content-Type: text/plain; charset=utf-8`.
 pub fn text_response(status: int, body: string) -> Response {
-    return with_header(response(status, body), "Content-Type", "text/plain; charset=utf-8")
+    return media_response(status, body, mime.with_param(mime.text_plain(), "charset", "utf-8"))
 }
 
 // `text` as a JSON string literal, quotes included: `"` and `\` and the control characters escaped, every

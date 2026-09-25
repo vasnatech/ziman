@@ -35,6 +35,7 @@ use http.Response
 use http.method_name
 use http.percent_decode
 use http.percent_encode
+use mime
 use net
 use net.NetError
 use net.Socket
@@ -1061,13 +1062,13 @@ pub fn delete(url: string) -> Result<Response, ClientError> {
 // POST with a JSON body: sets `Content-Type: application/json`.
 pub fn post_json(url: string, body: string) -> Result<Response, ClientError> {
     return request(method: HttpMethod.Post, url: url, body: body,
-        headers: [Header { name: "Content-Type", value: "application/json" }])
+        headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }])
 }
 
 // PUT with a JSON body: sets `Content-Type: application/json`.
 pub fn put_json(url: string, body: string) -> Result<Response, ClientError> {
     return request(method: HttpMethod.Put, url: url, body: body,
-        headers: [Header { name: "Content-Type", value: "application/json" }])
+        headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }])
 }
 
 // The fields as an `application/x-www-form-urlencoded` body: `a=1&b=x+y`, names and values
@@ -1083,7 +1084,7 @@ pub fn form_encode(fields: Map<string, string>) -> string {
 // POST an HTML-form-style body built from `fields` (`Content-Type: application/x-www-form-urlencoded`).
 pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, ClientError> {
     return request(method: HttpMethod.Post, url: url, body: form_encode(fields),
-        headers: [Header { name: "Content-Type", value: "application/x-www-form-urlencoded" }])
+        headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_form()) }])
 }
 
 // ---------------------------------------------------------------- streaming a response body

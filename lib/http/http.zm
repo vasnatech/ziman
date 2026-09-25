@@ -2,6 +2,7 @@
 // types, the method enum, status codes by name, header lookup and percent-encoding. `server`
 // builds on it to answer requests, `client` to make them.
 
+use mime
 use number.byte_from_hex
 use number.byte_to_hex
 
@@ -19,9 +20,11 @@ pub val status_unauthorized = 401
 pub val status_forbidden = 403
 pub val status_not_found = 404
 pub val status_method_not_allowed = 405
+pub val status_not_acceptable = 406
 pub val status_request_timeout = 408
 pub val status_conflict = 409
 pub val status_payload_too_large = 413
+pub val status_unsupported_media_type = 415
 pub val status_unprocessable_entity = 422
 pub val status_header_fields_too_large = 431
 pub val status_internal_server_error = 500
@@ -111,6 +114,58 @@ pub fn header_value(headers: [Header], name: string) -> Option<string> {
         }
     }
     return Option<string>.None
+}
+
+// The `Content-Type` in `headers` as a media type, or None when there is none or it is not a valid media type.
+pub fn content_type(headers: [Header]) -> Option<mime.MediaType> {
+    val value = header_value(headers, "Content-Type")
+    if !Option.is_Some(value) {
+        return Option<mime.MediaType>.None
+    }
+    val parsed = mime.parse(Option.unwrap_Some(value))
+    return switch parsed {
+        Ok(m) { Option<mime.MediaType>.Some(m) }
+        Err(e) { Option<mime.MediaType>.None }
+    }
+}
+
+fn is_zero_quality(m: mime.MediaType) -> bool {
+    val q = mime.param(m, "q")
+    if !Option.is_Some(q) {
+        return false
+    }
+    val digits = replace(replace(Option.unwrap_Some(q), "0", ""), ".", "")
+    return digits == ""
+}
+
+// Whether a client whose headers are `headers` accepts a response of type `media`: true when there is no
+// `Accept` header, or when one of its ranges (`application/json`, `text/*`, `*/*`) matches `media`. A range
+// naming `media` exactly with `q=0` refuses it even when a wildcard would allow it. Other quality weights
+// are not ranked; any positive one counts as acceptance.
+pub fn accepts(headers: [Header], media: mime.MediaType) -> bool {
+    val value = header_value(headers, "Accept")
+    if !Option.is_Some(value) {
+        return true
+    }
+    val ranges = ab_new<mime.MediaType>()
+    for item in split(Option.unwrap_Some(value), ",") {
+        val range = mime.parse(item)
+        if is_ok(range) {
+            ab_append<mime.MediaType>(ranges, unwrap(range))
+        }
+    }
+    val all = ab_to_array<mime.MediaType>(ranges)
+    for r in all {
+        if is_zero_quality(r) && mime.essence(r) == mime.essence(media) {
+            return false
+        }
+    }
+    for r in all {
+        if !is_zero_quality(r) && mime.matches(r, media) {
+            return true
+        }
+    }
+    return false
 }
 
 // %XX escapes; `plus_is_space` is for query strings ("a+b" is "a b"

@@ -129,6 +129,12 @@ pub val status_not_found = 404
 pub val status_method_not_allowed = 405
 ```
 
+### `status_not_acceptable`
+
+```
+pub val status_not_acceptable = 406
+```
+
 ### `status_request_timeout`
 
 ```
@@ -145,6 +151,12 @@ pub val status_conflict = 409
 
 ```
 pub val status_payload_too_large = 413
+```
+
+### `status_unsupported_media_type`
+
+```
+pub val status_unsupported_media_type = 415
 ```
 
 ### `status_unprocessable_entity`
@@ -272,6 +284,25 @@ pub fn header_value(headers: [Header], name: string) -> Option<string>
 ```
 
 The value of the first header called `name` (case-insensitive), or None.
+
+### `content_type`
+
+```
+pub fn content_type(headers: [Header]) -> Option<mime.MediaType>
+```
+
+The `Content-Type` in `headers` as a media type, or None when there is none or it is not a valid media type.
+
+### `accepts`
+
+```
+pub fn accepts(headers: [Header], media: mime.MediaType) -> bool
+```
+
+Whether a client whose headers are `headers` accepts a response of type `media`: true when there is no
+`Accept` header, or when one of its ranges (`application/json`, `text/*`, `*/*`) matches `media`. A range
+naming `media` exactly with `q=0` refuses it even when a wildcard would allow it. Other quality weights
+are not ranked; any positive one counts as acceptance.
 
 ### `percent_decode`
 
