@@ -1,14 +1,17 @@
 # Ziman for VS Code
 
-Syntax highlighting for `.zm` files. A TextMate grammar only — no
-language server, no diagnostics, no autocomplete. It highlights:
+Support for `.zm` files: a TextMate grammar for highlighting, and a client for the
+built-in language server (`ziman --lsp`, see "Language server" below). The grammar highlights:
 
-- keywords (`fn`, `val`, `var`, `if`, `else`, `while`, `return`, `struct`,
-  `with`, `pub`, `use`, `as`, `native`)
-- the four primitive types (`int`, `float`, `bool`, `string`)
-- comments, strings (with `\n`/`\t`/`\"`/`\\` escapes), numbers, `true`/`false`
-- function names at both declaration (`fn greet`) and call (`greet(...)`)
-  sites
+- keywords (`fn`, `val`, `var`, `if`, `else`, `while`, `for`, `in`, `return`, `switch`, `defer`,
+  `spawn`, `struct`, `enum`, `with`, `pub`, `use`, `as`, `native`)
+- the primitive types (`int`, `float`, `bool`, `string`, `bigint`, `decimal`, `byte`) and the
+  built-in generic types (`Result`, `Option`, `Channel`, `Map`, `Set`)
+- comments, strings (with `\n`/`\t`/`\"`/`\\` escapes), numbers including the `123n` bigint,
+  `19.99d` decimal and `200b` byte literals, `true`/`false`
+- `#[derive(...)]` attributes
+- function names at both declaration (`fn greet`) and call (`greet(...)`) sites, with the
+  builtins (`len`, `set`, `insert`, `map_get`, `set_union`, `sb_append`, ...) in their own scope
 - type/struct names, using Ziman's own enforced casing rule (a value or
   function name can never start uppercase, so any capitalized identifier
   is reliably a type) — this also lights up qualified references like

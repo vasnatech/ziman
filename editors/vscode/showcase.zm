@@ -27,6 +27,27 @@ fn double_worker(inbox: Channel<int>, reply: Channel<int>) {
     send(reply, n * 2)
 }
 
+#[derive(Json)]
+struct Profile {
+    scores: Map<string, int>
+    tags: Set<string>
+}
+
+fn maps_and_sets() {
+    var scores = Map<string, int> { "ann": 12, "bob": 3 }
+    scores = set(scores, "cy", 40)
+    for name, score in scores {
+        printf("{} = {}\n", name, score)
+    }
+    val tags = set_union(Set<string> { "a" }, Set<string> { "b" })
+    print(map_get(scores, "ann"))
+    print(contains(tags, "a"))
+    val amount = 19.99d + 0.01d
+    val level = 200b
+    val huge = 123456789012345678901234567890n
+    print(amount)
+}
+
 fn main() {
     val p1 = Point { x: 0, y: 0 }
     val p2 = Point { x: 3, y: 4 }
