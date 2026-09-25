@@ -1667,7 +1667,9 @@ fn main() {
   dropped. `instant_now() -> Instant` reads the real system clock (the
   `clock` core module's one native function, `clock_gettime` under the
   hood — Ziman's only source of genuine non-determinism besides
-  `random`), `instant_of(seconds, nanos)` (normalizing, like
+  `random`), `localdatetime_now(offset)`, `localdate_now(offset)` and `localtime_now(offset)` (the current
+  date and time on a clock in `offset`, e.g. `localdate_now(zoneoffset_utc())`),
+  `instant_of(seconds, nanos)` (normalizing, like
   `Duration`), `instant_add`/`_subtract` (with a `Duration`),
   `instant_diff(a, b) -> Duration`, `instant_compare`,
   `instant_to_localdatetime(i, offset: ZoneOffset) -> LocalDateTime` /

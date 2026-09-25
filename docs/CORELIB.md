@@ -1454,6 +1454,12 @@ pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
 
 pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant
 
+pub fn localdatetime_now(offset: ZoneOffset) -> LocalDateTime
+
+pub fn localdate_now(offset: ZoneOffset) -> LocalDate
+
+pub fn localtime_now(offset: ZoneOffset) -> LocalTime
+
 pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime
 
 pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant

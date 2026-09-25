@@ -835,6 +835,30 @@ pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instan
 
 The instant at which a clock in `offset` reads `dt`.
 
+### `localdatetime_now`
+
+```
+pub fn localdatetime_now(offset: ZoneOffset) -> LocalDateTime
+```
+
+The current date and time on a clock in `offset`: `instant_to_localdatetime(instant_now(), offset)`.
+
+### `localdate_now`
+
+```
+pub fn localdate_now(offset: ZoneOffset) -> LocalDate
+```
+
+Today's date on a clock in `offset`.
+
+### `localtime_now`
+
+```
+pub fn localtime_now(offset: ZoneOffset) -> LocalTime
+```
+
+The current time of day on a clock in `offset`.
+
 ### `instant_to_localdatetime_in`
 
 ```

@@ -1129,6 +1129,21 @@ pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instan
     return instant_of(total_seconds, dt.time.nano)
 }
 
+// The current date and time on a clock in `offset`: `instant_to_localdatetime(instant_now(), offset)`.
+pub fn localdatetime_now(offset: ZoneOffset) -> LocalDateTime {
+    return instant_to_localdatetime(instant_now(), offset)
+}
+
+// Today's date on a clock in `offset`.
+pub fn localdate_now(offset: ZoneOffset) -> LocalDate {
+    return localdatetime_now(offset).date
+}
+
+// The current time of day on a clock in `offset`.
+pub fn localtime_now(offset: ZoneOffset) -> LocalTime {
+    return localdatetime_now(offset).time
+}
+
 // The wall-clock date and time in zone `z` at the instant `i`, daylight saving applied.
 pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime {
     return instant_to_localdatetime(i, zoneid_offset_at(z, i))
