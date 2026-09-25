@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "error.h"
+#include "iter.h"
 #include "mapobj.h"
 #include "native.h"
 
@@ -275,15 +276,16 @@ static Value parse_value(Parser *ps, int depth) {
     return value_int(0);
 }
 
-static Value native_json_parse(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
+/* Parses `n` bytes at `text` as one JSON value: Result<Json, string>. `sample` is any Json value,
+ * which tells the parser the enum's type and qualified name. */
+static Value parse_json_text(const char *text, size_t n, Value sample, int strict) {
     Parser ps;
     memset(&ps, 0, sizeof ps);
-    ps.s = args[0].as.str.ptr;
-    ps.n = args[0].as.str.len;
-    ps.json_type = args[1].type;
-    ps.enum_name = args[1].as.en->enum_name;
-    ps.strict = args[2].as.b;
+    ps.s = text;
+    ps.n = n;
+    ps.json_type = sample.type;
+    ps.enum_name = sample.as.en->enum_name;
+    ps.strict = strict;
     Type string_type = type_scalar(TY_STRING);
     Type result_type = type_result(ps.json_type, string_type);
     Value v = parse_value(&ps, 0);
@@ -293,6 +295,75 @@ static Value native_json_parse(Value *args, int argc, int line, int col) {
     }
     if (ps.failed) return value_result(result_type, result_obj_new(0, value_string(strdup(ps.err))));
     return value_result(result_type, result_obj_new(1, v));
+}
+
+static Value native_json_parse(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return parse_json_text(args[0].as.str.ptr, args[0].as.str.len, args[1], args[2].as.b);
+}
+
+/* ndjson.records_raw(path, sample): a lazy iterator over the JSON values of a newline-delimited file,
+ * each item a Result<Json, string>; blank lines are skipped and a bad line is an Err naming its number. */
+typedef struct {
+    LineSource *lines;
+    Value sample;
+} RecordsState;
+
+static int records_next(IterObj *it, Value *out) {
+    RecordsState *st = it->state;
+    Type str = type_scalar(TY_STRING);
+    for (;;) {
+        const char *line;
+        size_t len;
+        int64_t number;
+        char err[256];
+        int r = line_source_next(st->lines, &line, &len, &number, err, sizeof err);
+        if (r == 0) return 0;
+        Type json_type = st->sample.type;
+        if (r < 0) {
+            *out = value_result(type_result(json_type, str), result_obj_new(0, value_string(strdup(err))));
+            return 1;
+        }
+        size_t a = 0;
+        while (a < len && (line[a] == ' ' || line[a] == '\t')) a++;
+        if (a == len) continue;
+        Value parsed = parse_json_text(line, len, st->sample, 0);
+        if (parsed.as.res->is_ok) {
+            *out = parsed;
+        } else {
+            const char *msg = value_cstr(parsed.as.res->value);
+            char buf[400];
+            snprintf(buf, sizeof buf, "line %lld: %s", (long long)number, msg);
+            *out = value_result(type_result(json_type, str), result_obj_new(0, value_string(strdup(buf))));
+        }
+        return 1;
+    }
+}
+
+static void records_release(IterObj *it) {
+    RecordsState *st = it->state;
+    line_source_close(st->lines);
+}
+
+static Value native_ndjson_records_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type str = type_scalar(TY_STRING);
+    Type iter_type = type_struct("Iter");
+    const char *path = value_cstr(args[0]);
+    LineSource *ls = line_source_open(path);
+    if (ls == NULL) {
+        char msg[1024];
+        snprintf(msg, sizeof msg, "cannot read '%s': %s", path, strerror(errno));
+        return value_result(type_result(iter_type, str), result_obj_new(0, value_string(strdup(msg))));
+    }
+    RecordsState *st = calloc(1, sizeof(RecordsState));
+    st->lines = ls;
+    st->sample = args[1];
+    IterObj *it = calloc(1, sizeof(IterObj));
+    it->next = records_next;
+    it->release = records_release;
+    it->state = st;
+    return value_result(type_result(iter_type, str), result_obj_new(1, iter_make(it)));
 }
 
 /* ---- serializer ---- */
@@ -387,6 +458,7 @@ static Value native_json_to_string(Value *args, int argc, int line, int col) {
 }
 
 void native_json_register(void) {
+    native_register("ndjson::records_raw", native_ndjson_records_raw);
     native_register("json::parse_native", native_json_parse);
     native_register("json::to_string_native", native_json_to_string);
 }

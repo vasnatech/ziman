@@ -4,6 +4,8 @@
 #ifdef ZIMAN_GC
 #include <gc.h>
 #endif
+#include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -66,6 +68,57 @@ static Value native_iter_close(Value *args, int argc, int line, int col) {
     (void)col;
     iter_close_handle(iter_handle_of(args[0]));
     return value_int(0);
+}
+
+struct LineSource {
+    FILE *file;
+    char *buf;
+    size_t cap;
+    int64_t number;
+    int failed;
+};
+
+LineSource *line_source_open(const char *path) {
+    FILE *f = fopen(path, "r");
+#ifdef ZIMAN_GC
+    if (f == NULL && (errno == EMFILE || errno == ENFILE)) {
+        GC_gcollect();
+        GC_invoke_finalizers();
+        f = fopen(path, "r");
+    }
+#endif
+    if (f == NULL) return NULL;
+    LineSource *ls = calloc(1, sizeof(LineSource));
+    ls->file = f;
+    return ls;
+}
+
+int line_source_next(LineSource *ls, const char **line, size_t *len, int64_t *number, char *err, size_t err_size) {
+    if (ls->file == NULL || ls->failed) return 0;
+    ssize_t n = getline(&ls->buf, &ls->cap, ls->file);
+    if (n < 0) {
+        if (ferror(ls->file)) {
+            ls->failed = 1;
+            snprintf(err, err_size, "read error after line %lld: %s", (long long)ls->number, strerror(errno));
+            return -1;
+        }
+        return 0;
+    }
+    ls->number++;
+    size_t l = (size_t)n;
+    if (l > 0 && ls->buf[l - 1] == '\n') l--;
+    if (l > 0 && ls->buf[l - 1] == '\r') l--;
+    *line = ls->buf;
+    *len = l;
+    *number = ls->number;
+    return 1;
+}
+
+void line_source_close(LineSource *ls) {
+    if (ls->file != NULL) fclose(ls->file);
+    ls->file = NULL;
+    free(ls->buf);
+    ls->buf = NULL;
 }
 
 void native_iter_register(void) {

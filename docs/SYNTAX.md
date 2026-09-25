@@ -1794,7 +1794,7 @@ fn main() {
 
 | Module | Reads | Writes |
 | --- | --- | --- |
-| `ndjson` | `parse_ndjson(text) -> Result<[Json], string>` (one value per line, blank lines skipped) | `ndjson_to_string([Json])` |
+| `ndjson` | `parse_ndjson(text) -> Result<[Json], string>` (one value per line, blank lines skipped); `records(path)` reads a file lazily as an `Iter` of `Result<Json, string>` for a `for` loop, one record in memory at a time | `ndjson_to_string([Json])` |
 | `csv` | `parse_csv` / `parse_csv_typed` -> a `Json` array of objects keyed by the header row; `parse_csv_rows` -> `[[string]]`; `_with(text, delimiter)` variants for TSV etc. | `csv_to_string(Json)`, `csv_rows_to_string([[string]])` |
 | `toml` | `parse_toml(text) -> Result<Json, string>` | `toml_to_string(Json) -> Result<string, string>` |
 | `yaml` | `parse_yaml(text) -> Result<Json, string>` | `yaml_to_string(Json) -> string` |

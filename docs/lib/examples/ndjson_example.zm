@@ -1,3 +1,4 @@
+use fs
 use json
 use json.Json
 use ndjson
@@ -12,4 +13,17 @@ fn main() {
     print(json.json_to_string(items[1]))
     print(trim(ndjson.ndjson_to_string(items)))
     print(is_ok(ndjson.parse_ndjson("{\"id\": 1}\nnot json")))
+
+    // A large file is read one record at a time instead of all at once.
+    val path = "/tmp/ziman_manual_ndjson_example.ndjson"
+    unwrap(fs.write_text(path, ndjson.ndjson_to_string(items)))
+    var ok_records = 0
+    val records = unwrap(ndjson.records(path))
+    for record in records {
+        if unwrap(json.json_require_bool_field(unwrap(record), "ok")) {
+            ok_records = ok_records + 1
+        }
+    }
+    print(ok_records)
+    unwrap(fs.remove(path))
 }

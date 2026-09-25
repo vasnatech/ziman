@@ -340,6 +340,8 @@ Newline-delimited JSON (one value per line) on top of `json`.
 ```
 pub fn parse_ndjson(text: string) -> Result<[Json], string>
 
+pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string>
+
 pub fn ndjson_to_string(items: [Json]) -> string
 
 ```

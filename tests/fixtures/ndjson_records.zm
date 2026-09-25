@@ -1,0 +1,54 @@
+use fs
+use json
+use ndjson
+use os
+
+fn total(path: string) -> Result<int, string> {
+    val records = ndjson.records(path)?
+    var sum = 0
+    for record in records {
+        val value = record?
+        sum = sum + unwrap(json.json_require_int_field(value, "n"))
+    }
+    return sum
+}
+
+fn main() {
+    val path = "/tmp/ziman_fixture_ndjson_records.ndjson"
+    unwrap(fs.write_text(path, "{\"n\": 1}\n\n  \n{\"n\": 2, \"tags\": [\"a\", \"b\"]}\r\n{\"n\": 3}"))
+
+    // every value in order, blank lines skipped, CRLF and a last line without a newline handled
+    for record in unwrap(ndjson.records(path)) {
+        print(json.json_to_string(unwrap(record)))
+    }
+    print(unwrap(total(path)))
+
+    // a bad line is an Err item naming its line number, and the iteration carries on
+    unwrap(fs.write_text(path, "{\"n\": 1}\nnot json\n{\"n\": 2}\n{\"n\": \n{\"n\": 3}\n"))
+    for record in unwrap(ndjson.records(path)) {
+        if is_ok(record) {
+            print(json.json_to_string(unwrap(record)))
+        } else {
+            print(unwrap_err(record))
+        }
+    }
+    print(is_ok(total(path)))
+
+    // leaving early releases the file
+    val before = os.open_descriptors()
+    for round in 0..30 {
+        for record in unwrap(ndjson.records(path)) {
+            break
+        }
+    }
+    print(os.open_descriptors() == before)
+
+    unwrap(fs.write_text(path, ""))
+    var n = 0
+    for record in unwrap(ndjson.records(path)) {
+        n = n + 1
+    }
+    print(n)
+    print(unwrap_err(ndjson.records("/tmp/ziman_fixture_no_such.ndjson")))
+    unwrap(fs.remove(path))
+}

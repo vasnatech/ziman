@@ -1,9 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "native_fs.h"
 
-#ifdef ZIMAN_GC
-#include <gc.h>
-#endif
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -294,54 +291,34 @@ static Value native_fs_modified_seconds(Value *args, int argc, int line, int col
  * the line without its "\n" or "\r\n", or an Err for a line that cannot be a string (a NUL byte) or a
  * read error, after which the iteration ends. The file is read a buffer at a time, so a file of any
  * size uses memory for one line. */
-typedef struct {
-    FILE *file;
-    char *buf;
-    size_t cap;
-    int64_t number;
-    int failed;
-} LinesState;
-
 static Value line_item(int ok, Value v) {
     Type str = string_type();
     return value_result(type_result(str, str), result_obj_new(ok, v));
 }
 
 static int lines_next(IterObj *it, Value *out) {
-    LinesState *st = it->state;
-    if (st->file == NULL || st->failed) return 0;
-    ssize_t n = getline(&st->buf, &st->cap, st->file);
-    if (n < 0) {
-        if (ferror(st->file)) {
-            st->failed = 1;
-            char msg[256];
-            snprintf(msg, sizeof(msg), "read error after line %lld: %s", (long long)st->number, strerror(errno));
-            *out = line_item(0, value_string(strdup(msg)));
-            return 1;
-        }
-        return 0;
+    LineSource *ls = it->state;
+    const char *line;
+    size_t len;
+    int64_t number;
+    char err[256];
+    int r = line_source_next(ls, &line, &len, &number, err, sizeof err);
+    if (r == 0) return 0;
+    if (r < 0) {
+        *out = line_item(0, value_string(strdup(err)));
+        return 1;
     }
-    st->number++;
-    size_t len = (size_t)n;
-    if (len > 0 && st->buf[len - 1] == '\n') len--;
-    if (len > 0 && st->buf[len - 1] == '\r') len--;
-    if (memchr(st->buf, '\0', len) != NULL) {
+    if (memchr(line, '\0', len) != NULL) {
         char msg[128];
-        snprintf(msg, sizeof(msg), "line %lld contains a NUL byte", (long long)st->number);
+        snprintf(msg, sizeof(msg), "line %lld contains a NUL byte", (long long)number);
         *out = line_item(0, value_string(strdup(msg)));
         return 1;
     }
-    *out = line_item(1, value_string_copy(st->buf, len));
+    *out = line_item(1, value_string_copy(line, len));
     return 1;
 }
 
-static void lines_release(IterObj *it) {
-    LinesState *st = it->state;
-    if (st->file != NULL) fclose(st->file);
-    st->file = NULL;
-    free(st->buf);
-    st->buf = NULL;
-}
+static void lines_release(IterObj *it) { line_source_close(it->state); }
 
 static Value native_fs_lines(Value *args, int argc, int line, int col) {
     (void)argc;
@@ -349,23 +326,12 @@ static Value native_fs_lines(Value *args, int argc, int line, int col) {
     (void)col;
     const char *path = value_cstr(args[0]);
     Type iter_type = type_struct("Iter");
-    FILE *f = fopen(path, "r");
-#ifdef ZIMAN_GC
-    if (f == NULL && (errno == EMFILE || errno == ENFILE)) {
-        /* out of descriptors: line iterators dropped without finishing are only closed when the collector
-         * next runs, so run it now and try once more */
-        GC_gcollect();
-        GC_invoke_finalizers();
-        f = fopen(path, "r");
-    }
-#endif
-    if (f == NULL) return fs_err(iter_type, "cannot read", path);
-    LinesState *st = calloc(1, sizeof(LinesState));
-    st->file = f;
+    LineSource *ls = line_source_open(path);
+    if (ls == NULL) return fs_err(iter_type, "cannot read", path);
     IterObj *it = calloc(1, sizeof(IterObj));
     it->next = lines_next;
     it->release = lines_release;
-    it->state = st;
+    it->state = ls;
     return value_result(type_result(iter_type, string_type()), result_obj_new(1, iter_make(it)));
 }
 

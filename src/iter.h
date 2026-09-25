@@ -30,6 +30,21 @@ void iter_close_handle(int64_t handle);
 /* The handle stored in an `Iter<T>` value. */
 int64_t iter_handle_of(Value iter);
 
+/* A file read one line at a time, shared by the line-oriented sources (`fs.lines`, `ndjson.records`). */
+typedef struct LineSource LineSource;
+
+/* Opens `path` for reading, or returns NULL with errno set. Out of descriptors, it runs the collector
+ * once (dropped iterators close their files in finalizers) and tries again. */
+LineSource *line_source_open(const char *path);
+
+/* Returns 1 with the next line (without its "\n" or "\r\n", not NUL-terminated, valid until the next
+ * call) and its 1-based number, 0 at the end of the file, or -1 with a message in `err` after a read
+ * error. */
+int line_source_next(LineSource *ls, const char **line, size_t *len, int64_t *number, char *err, size_t err_size);
+
+/* Closes the file; harmless if already closed. */
+void line_source_close(LineSource *ls);
+
 void native_iter_register(void);
 
 #endif

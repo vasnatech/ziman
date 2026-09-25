@@ -705,7 +705,12 @@ several languages rather than inheriting any one of them wholesale.
   the loop handles with `?` instead of an exception; a line holding a NUL byte (a `string` cannot)
   is an Err item and the iteration carries on. Opening a file when the process is out of descriptors
   runs the collector once and retries, so iterators dropped mid-file do not exhaust them.
-  `iter_next` and `iter_close` are the manual forms. Not done: a lazy stream API on top
+  `iter_next` and `iter_close` are the manual forms. The line reading is a shared `LineSource`
+  (`src/iter.c`), used by `fs.lines` and by `ndjson.records`, which parses each line with the same
+  native JSON parser as `parse_json` (an Err item names the line, as `parse_ndjson` does). Every lib
+  function that reads a file was checked: `properties`, `toml`, `yaml` and `csv` need the whole
+  document (placeholders and profiles span lines, a quoted CSV cell can contain a newline), so only
+  `ndjson` streams. Not done: a lazy stream API on top
   (`map`/`filter` fusing over an `Iter`), other sources (a database cursor, `csv.records`,
   `net` lines), and a `for` over an `Iter` of a user-defined source (the sources are native).
 - **Named time zones (`zoneid_of`, module `zone`).** Read from the operating

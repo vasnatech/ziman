@@ -5,6 +5,8 @@ use json.Json
 use json.json_to_string
 use json.parse_json
 
+native fn records_raw(path: string, sample: Json) -> Result<Iter<Result<Json, string>>, string>
+
 // Every non-blank line as a JSON value, in order. A line that is not valid JSON is an
 // error naming its (1-based) line number. A trailing CR (CRLF files) is ignored.
 pub fn parse_ndjson(text: string) -> Result<[Json], string> {
@@ -23,6 +25,16 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
         ab_append<Json>(items, unwrap(parsed))
     }
     return ok(ab_to_array<Json>(items))
+}
+
+// The JSON values of a newline-delimited file, read lazily as a `for` loop asks for them, so a log
+// of any size uses memory for one record: `val records = ndjson.records(path)?` then
+// `for record in records { val value = record? ... }`. Each item is a `Result<Json, string>`; blank
+// lines are skipped, a line that is not valid JSON is an Err item naming its (1-based) line number
+// (`line 3: unexpected character ...`) and the iteration carries on, and a read error is a last Err
+// item. The Err on the call itself is the file failing to open. Leaving the loop early closes the file.
+pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string> {
+    return records_raw(path, Json.JNull)
 }
 
 // One compact JSON value per line, each line ended by "\n" (so the text ends with a newline).
