@@ -36,7 +36,7 @@ for sweep in range(6):
     for ri in range(len(rows)-2,-1,-1):
         rows[ri].sort(key=lambda n:(sum(pos[d] for d in deps[n])/len(deps[n]) if deps[n] else 0.5, n)); setpos()
 NW,NH,GAPX,GAPY=120,32,10,120
-full=lambda n: '%s.%s'%(mods[n],n)
+full=lambda n: n if mods[n]=='core' or n==mods[n] else '%s.%s'%(mods[n],n)
 W=max(len(r) for r in rows)*(NW+GAPX)+GAPX+40
 X0=20
 xy={}
@@ -124,13 +124,13 @@ code{font:12px "IBM Plex Mono",ui-monospace,monospace}
 <main>
 <header>
 <div><h1>Ziman library map</h1>
-<p class="lede">Which bundled module uses which, named as folder.module (the folder under lib/; a program writes just the module, as in <code>use server</code>). Each arrow runs from a module to one it uses; every module in a layer depends only on layers below it. Select a module to trace it.</p></div>
+<p class="lede">Which bundled module uses which, named by module, with the folder under lib/ in front when it is not core (<code>http.server</code>, <code>db.pg</code>); a program writes just the module, as in <code>use server</code>. Each arrow runs from a module to one it uses; every module in a layer depends only on layers below it. Select a module to trace it.</p></div>
 <div class="legend"><span><i class="sw core"></i>core</span><span><i class="sw db"></i>databases</span><span><i class="sw http"></i>HTTP</span><span><i class="sw time"></i>time</span>
 <span><i class="ln use"></i>it uses</span><span><i class="ln usedby"></i>uses it</span></div>
 </header>
 <div class="stage">'''+"".join(svg)+'''</div>
 <section class="detail" id="detail" aria-live="polite">
-<div><h2 id="d-name">db.db</h2><p class="hint" id="d-hint">The front door for databases: picks SQLite, Postgres or MySQL from the URL.</p></div>
+<div><h2 id="d-name">db</h2><p class="hint" id="d-hint">The front door for databases: picks SQLite, Postgres or MySQL from the URL.</p></div>
 <div><h3>Uses</h3><p id="d-uses"></p></div>
 <div><h3>Used by</h3><p id="d-by"></p></div>
 </section>
@@ -165,7 +165,7 @@ nodes.forEach(function(n){
   n.addEventListener("click",function(){pinned=(pinned===n.dataset.name)?null:n.dataset.name;pinned?show(pinned):clear()});
   n.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();n.dispatchEvent(new Event("click"))}});
 });
-show("db.db");pinned="db.db";
+show("db");pinned="db";
 </script>
 ''' % data
 out=sys.argv[1] if len(sys.argv)>1 else os.path.join(ROOT,'docs','lib','library-map.html')
