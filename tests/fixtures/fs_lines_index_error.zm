@@ -1,0 +1,7 @@
+use fs
+fn main() {
+    val lines = unwrap(fs.lines("x"))
+    for i, l in lines {
+        print(l)
+    }
+}

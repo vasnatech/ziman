@@ -15,6 +15,14 @@
 // The whole file as a string. An Err if it cannot be read or contains a NUL byte.
 pub native fn read_text(path: string) -> Result<string, string>
 
+// The lines of a file, read lazily as a `for` loop asks for them, so a file of any size uses memory
+// for one line: `val lines = fs.lines(path)?` then `for line in lines { val text = line? ... }`. Each item is a
+// `Result<string, string>`: the line without its `\n` or `\r\n` (a final line with no newline counts,
+// an empty file has no lines), or an Err for a line with a NUL byte (a string cannot hold one) or a read
+// error, after which the iteration ends. The Err on the call itself is the file failing to open.
+// Leaving the loop early closes the file.
+pub native fn lines(path: string) -> Result<Iter<Result<string, string>>, string>
+
 // Replaces the file's contents with `text`, creating the file. `Ok(bytes written)`. Not
 // atomic: a crash part-way leaves a partly written file (use `write_text_atomic` for that).
 pub native fn write_text(path: string, text: string) -> Result<int, string>

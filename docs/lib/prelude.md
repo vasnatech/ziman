@@ -584,6 +584,42 @@ native fn setb_to_set<T: Eq + Hash>(sb: SetBuilder<T>) -> Set<T>
 
 The items added so far, as an ordinary Set.
 
+## Iter
+
+### `Iter`
+
+```
+struct Iter<T> {
+    handle: int
+}
+```
+
+A lazy source of values, produced one at a time as a `for` loop asks for them: `for line in
+lines { ... }` over an `Iter<Result<string, string>>` from `fs.lines`. Nothing is read ahead, so
+the source can be far larger than memory, and stopping early (`break`, `return`, or `?`) leaves the
+rest unread. `handle` is an opaque reference to the native source; a source that is not finished
+or closed is closed when it is garbage collected. It can be walked once: a second `for` over the
+same Iter carries on where the first stopped.
+
+### `iter_next`
+
+```
+native fn iter_next<T>(it: Iter<T>) -> Option<T>
+```
+
+The next item of `it`, or None when it is exhausted. For a `while` loop that wants the items one
+by one; `for` does this for you.
+
+### `iter_close`
+
+```
+native fn iter_close<T>(it: Iter<T>)
+```
+
+Releases what `it` holds (a file, say) now instead of when it is collected. A `for` loop does this
+itself when it is left early; call it when you take items by hand and stop before the end. Harmless
+on one that is finished or already closed.
+
 ## Bytes
 
 ### `bytes_index_of`

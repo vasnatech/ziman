@@ -13,6 +13,16 @@ fn main() {
     print(fs.extension(path))
     print(unwrap(fs.list_dir(fs.parent_dir(path))))
 
+    // Read a big file one line at a time instead of all at once.
+    val lines = unwrap(fs.lines(path))
+    var count = 0
+    for line in lines {
+        if contains(unwrap(line), "milk") {
+            count = count + 1
+        }
+    }
+    print(count)
+
     print(is_ok(fs.read_text(fs.path_join(dir, "missing.txt"))))
 
     unwrap(fs.remove(path))

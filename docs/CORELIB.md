@@ -181,6 +181,8 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
 ```
 pub native fn read_text(path: string) -> Result<string, string>
 
+pub native fn lines(path: string) -> Result<Iter<Result<string, string>>, string>
+
 pub native fn write_text(path: string, text: string) -> Result<int, string>
 
 pub native fn append_text(path: string, text: string) -> Result<int, string>

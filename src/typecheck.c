@@ -2912,9 +2912,15 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(0));
             } else {
                 Type iter_type = check_expr(module, env, s->as.for_stmt.iterable);
-                if (iter_type.kind != TY_ARRAY && iter_type.kind != TY_MAP && iter_type.kind != TY_SET) {
+                int is_iter = iter_type.kind == TY_STRUCT && iter_type.struct_name != NULL &&
+                              strcmp(iter_type.struct_name, "Iter") == 0 && iter_type.type_args.count == 1;
+                if (iter_type.kind != TY_ARRAY && iter_type.kind != TY_MAP && iter_type.kind != TY_SET && !is_iter) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
-                                "'for' can only iterate an array, a map, a set or a range, found %s", type_name(iter_type));
+                                "'for' can only iterate an array, a map, a set, an Iter or a range, found %s", type_name(iter_type));
+                }
+                if (is_iter && s->as.for_stmt.binder2 != NULL) {
+                    ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
+                                "an Iter has no index to bind: write 'for item in iter'");
                 }
                 if (iter_type.kind == TY_SET && s->as.for_stmt.binder2 != NULL) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
@@ -2924,6 +2930,8 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                     /* `for k in m` binds each key; `for k, v in m` each key and its value */
                     env_define(scope, s->as.for_stmt.binder1, *iter_type.elem, 0, value_int(0));
                     if (s->as.for_stmt.binder2 != NULL) env_define(scope, s->as.for_stmt.binder2, *iter_type.elem_err, 0, value_int(0));
+                } else if (is_iter) {
+                    env_define(scope, s->as.for_stmt.binder1, iter_type.type_args.items[0], 0, value_int(0));
                 } else if (s->as.for_stmt.binder2 == NULL) {
                     env_define(scope, s->as.for_stmt.binder1, *iter_type.elem, 0, value_int(0));
                 } else {

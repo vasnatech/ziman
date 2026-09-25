@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "interpreter.h"
+#include "iter.h"
 
 #include <pthread.h>
 #include <stdint.h>
@@ -1257,6 +1258,27 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             }
 
             Value iterable = eval_expr(module, env, s->as.for_stmt.iterable);
+            if (iterable.type.kind == TY_STRUCT && iterable.type.struct_name != NULL && strcmp(iterable.type.struct_name, "Iter") == 0) {
+                /* a lazy source: ask for one item at a time, and release it however the loop is left */
+                int64_t handle = iter_handle_of(iterable);
+                Type item_type = s->as.for_stmt.iterable->resolved_type.type_args.items[0];
+                Value item;
+                while (iter_advance(handle, &item, s->line, s->col)) {
+                    Env *scope = env_new(env);
+                    env_define(scope, s->as.for_stmt.binder1, item_type, 0, item);
+                    ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
+                    env_free(scope);
+                    if (result.kind == CTRL_RETURN) {
+                        iter_close_handle(handle);
+                        return result;
+                    }
+                    if (result.kind == CTRL_BREAK) {
+                        iter_close_handle(handle);
+                        break;
+                    }
+                }
+                return no_ctrl();
+            }
             if (iterable.type.kind == TY_MAP || iterable.type.kind == TY_SET) {
                 /* iterates a snapshot in insertion order, so the body may rebind the collection freely */
                 int is_map = iterable.type.kind == TY_MAP;

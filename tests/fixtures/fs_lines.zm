@@ -1,0 +1,89 @@
+use fs
+use os
+
+fn count_matching(path: string, needle: string) -> Result<int, string> {
+    val lines = fs.lines(path)?
+    var n = 0
+    for line in lines {
+        val text = line?
+        if contains(text, needle) {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+fn first(path: string) -> Result<string, string> {
+    val lines = fs.lines(path)?
+    for line in lines {
+        return line
+    }
+    return err("no lines")
+}
+
+fn main() {
+    val path = "/tmp/ziman_fixture_fs_lines.txt"
+    unwrap(fs.write_text(path, "alpha\nERROR one\r\n\nERROR two\nlast ERROR"))
+
+    print(unwrap(count_matching(path, "ERROR")))
+    print(unwrap(first(path)))
+
+    // every line, including the empty one, the CRLF one and the last line with no newline
+    var all: [string] = []
+    for line in unwrap(fs.lines(path)) {
+        all = push(all, format("[{}]", unwrap(line)))
+    }
+    print(all)
+
+    // leaving early releases the file: no descriptor is left open by any of these
+    val before = os.open_descriptors()
+    for round in 0..50 {
+        for line in unwrap(fs.lines(path)) {
+            break
+        }
+        unwrap(first(path))
+    }
+    print(os.open_descriptors() == before)
+
+    // by hand: iter_next until None, and iter_close early
+    val it = unwrap(fs.lines(path))
+    print(iter_next<Result<string, string>>(it))
+    print(iter_next<Result<string, string>>(it))
+    iter_close<Result<string, string>>(it)
+    print(iter_next<Result<string, string>>(it))
+    iter_close<Result<string, string>>(it)
+    print(os.open_descriptors() == before)
+
+    // a finished iterator has closed itself and stays finished
+    val done = unwrap(fs.lines(path))
+    var n = 0
+    for line in done {
+        n = n + 1
+    }
+    print(n)
+    print(os.open_descriptors() == before)
+    for line in done {
+        n = n + 100
+    }
+    print(n)
+
+    // a line with a NUL byte is an Err item; the iteration carries on
+    unwrap(fs.write_bytes(path, [97b, 10b, 98b, 0b, 99b, 10b, 100b, 10b]))
+    for line in unwrap(fs.lines(path)) {
+        if is_ok(line) {
+            print(unwrap(line))
+        } else {
+            print(unwrap_err(line))
+        }
+    }
+
+    // an empty file has no lines, a missing one fails to open
+    unwrap(fs.write_text(path, ""))
+    var empty = 0
+    for line in unwrap(fs.lines(path)) {
+        empty = empty + 1
+    }
+    print(empty)
+    print(unwrap_err(fs.lines("/tmp/ziman_fixture_no_such_file.txt")))
+    unwrap(fs.remove(path))
+}

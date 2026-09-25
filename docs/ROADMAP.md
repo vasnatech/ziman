@@ -1298,6 +1298,10 @@ from source.
   `set_insert_all`, `set_filter` (docs/SYNTAX.md "Maps and sets"). Still open: `map_map_values`/`set_map`
   (need the lambda's result type inferred) and `map_entries` (needs a pair/tuple type).
 
+- **Lazy iteration -- first step done:** `Iter<T>` and `fs.lines(path)`; `for` walks an `Iter` one item at a
+  time and releases it on every way out (docs/SYNTAX.md "For loops", docs/DESIGN.md "Lazy iteration").
+  Still to do: more sources (a database cursor `db.rows`, `csv.records`, lines of a socket), and the stream
+  pipeline below on top. Reading the source of a pipeline lazily needs no pipe operator; chaining stages does.
 - **Lazy streams (a Java-`Stream`-style pipeline) -- decided direction, not started.** Wanted: a
   lazy `Stream<T>` where intermediate steps only record what to do and nothing is computed until a
   terminal operation runs, so a pipeline can short-circuit (`first`, `any`), work on large or

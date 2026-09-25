@@ -32,6 +32,16 @@ fn main() {
     print(fs.extension(path))
     print(unwrap(fs.list_dir(fs.parent_dir(path))))
 
+    // Read a big file one line at a time instead of all at once.
+    val lines = unwrap(fs.lines(path))
+    var count = 0
+    for line in lines {
+        if contains(unwrap(line), "milk") {
+            count = count + 1
+        }
+    }
+    print(count)
+
     print(is_ok(fs.read_text(fs.path_join(dir, "missing.txt"))))
 
     unwrap(fs.remove(path))
@@ -49,6 +59,7 @@ call Ada
 todo.txt
 .txt
 [todo.txt]
+1
 false
 false
 ```
@@ -62,6 +73,19 @@ pub native fn read_text(path: string) -> Result<string, string>
 ```
 
 The whole file as a string. An Err if it cannot be read or contains a NUL byte.
+
+### `lines`
+
+```
+pub native fn lines(path: string) -> Result<Iter<Result<string, string>>, string>
+```
+
+The lines of a file, read lazily as a `for` loop asks for them, so a file of any size uses memory
+for one line: `val lines = fs.lines(path)?` then `for line in lines { val text = line? ... }`. Each item is a
+`Result<string, string>`: the line without its `\n` or `\r\n` (a final line with no newline counts,
+an empty file has no lines), or an Err for a line with a NUL byte (a string cannot hold one) or a read
+error, after which the iteration ends. The Err on the call itself is the file failing to open.
+Leaving the loop early closes the file.
 
 ### `write_text`
 

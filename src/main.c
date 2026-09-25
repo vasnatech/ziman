@@ -16,6 +16,7 @@
 #include "native_clock.h"
 #include "native_crypto.h"
 #include "native_sqlite.h"
+#include "iter.h"
 #include "native_fs.h"
 #include "native_regex.h"
 #include "native_net.h"
@@ -142,6 +143,7 @@ int main(int argc, char **argv) {
     }
     if (lsp) {
         native_fs_register();
+        native_iter_register();
         native_regex_register();
         native_random_register();
         native_clock_register();
@@ -175,6 +177,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     native_fs_register();
+    native_iter_register();
     native_regex_register();
     native_random_register();
     native_clock_register();

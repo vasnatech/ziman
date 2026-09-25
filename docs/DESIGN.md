@@ -693,6 +693,21 @@ several languages rather than inheriting any one of them wholesale.
   types — every one gets an explicit `_compare(a, b) -> int` instead,
   same "don't reopen Ord/Cmp without a forcing case" posture held
   throughout this project.
+- **Lazy iteration: `Iter<T>` and `fs.lines`.** `for` walked arrays, maps, sets and ranges, all
+  fully in memory. A file of any size, a database cursor, a large CSV need to be read as the loop
+  asks. `Iter<T>` is a prelude struct holding a native handle (the address of an `IterObj`: a
+  `next` function, a `release` function and its state; tracked in a `HandleSet` like sockets and
+  connections, with a GC finalizer so an abandoned source is still closed). `for` over an `Iter`
+  calls `next` per item and releases the source on every way out (`break`, `return`, and so a `?`);
+  an exhausted source releases itself. The item type is the struct's type argument as the checker
+  resolved it on the iterable expression, so `for line in lines` binds a `Result<string, string>`.
+  Items of `fs.lines` are `Result`s rather than plain strings so a read error mid-file is a value
+  the loop handles with `?` instead of an exception; a line holding a NUL byte (a `string` cannot)
+  is an Err item and the iteration carries on. Opening a file when the process is out of descriptors
+  runs the collector once and retries, so iterators dropped mid-file do not exhaust them.
+  `iter_next` and `iter_close` are the manual forms. Not done: a lazy stream API on top
+  (`map`/`filter` fusing over an `Iter`), other sources (a database cursor, `csv.records`,
+  `net` lines), and a `for` over an `Iter` of a user-defined source (the sources are native).
 - **Named time zones (`zoneid_of`, module `zone`).** Read from the operating
   system's compiled zone files (TZif, `$TZDIR` or `/usr/share/zoneinfo`)
   rather than embedding the IANA database: the data changes several times a

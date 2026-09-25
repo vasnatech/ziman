@@ -493,6 +493,24 @@ for i in 0..len(arr) { ... }  // index only -- i: int, counting a range
 for i, x in arr { ... }       // index + value together
 ```
 
+- **`for x in iter`** also walks an `Iter<T>`, a lazy source that produces one item
+  at a time, such as `fs.lines(path)`. It has one binder (no index). Nothing is read ahead, so
+  the source can be far larger than memory, and `break`, `return` or a `?` inside the loop
+  closes it; one that is never finished is closed when it is garbage collected. Take the items by
+  hand with `iter_next(it)` (an `Option`) and release early with `iter_close(it)`. An `Iter` is
+  walked once: a second `for` over it carries on where the first stopped.
+
+  ```
+  val lines = fs.lines("app.log")?            // Iter<Result<string, string>>
+  var errors = 0
+  for line in lines {
+      val text = line?                        // a read error is an Err item
+      if contains(text, "ERROR") {
+          errors = errors + 1
+      }
+  }
+  ```
+
 - **`a..b` is exclusive of `b`** (`[a, b)`), same convention as
   `substring`'s `start`/`end`. `a`/`b` must both be `int`. If `a >= b`
   the loop body runs zero times — not a runtime error, same as an empty
@@ -2357,7 +2375,8 @@ moves to another host, port or scheme); cookies through
 
 `fs.read_text` (a whole file as a string), `fs.write_text`, `append_text`, `exists`, `is_dir`,
 `size`, `remove` (a file or an empty directory), `make_dir`, `rename` and
-`list_dir` (sorted names). Everything that can fail returns `Result<_,
+`list_dir` (sorted names). `fs.lines(path)` reads a file lazily, line by line, as an `Iter`
+for a `for` loop (see "For loops"): memory for one line, whatever the file size. Everything that can fail returns `Result<_,
 string>` carrying the OS message. (There used to be a separate `io` module
 with a fatal-on-failure `write_file`; it was folded into `fs`.)
 
