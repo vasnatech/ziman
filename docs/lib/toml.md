@@ -16,6 +16,49 @@ number keeps its `.0`; a `JInt` stays an integer).
 
 `use toml` -- or `use toml.Name` to bring one item in bare.
 
+## Example
+
+```
+use json
+use json.Json
+use toml
+
+// A TOML document becomes a Json tree, so the json helpers read it.
+fn main() {
+    val config = unwrap(toml.parse_toml("""
+        title = "demo"
+
+        [server]
+        port = 8080
+        hosts = ["a.example", "b.example"]
+
+        [[job]]
+        name = "backup"
+
+        [[job]]
+        name = "report"
+        """))
+
+    val server = unwrap(json.json_require_field(config, "server"))
+    print(unwrap(json.json_require_int_field(server, "port")))
+    print(json.json_to_string(unwrap(json.json_require_field(config, "job"))))
+
+    // An error says where the text went wrong.
+    print(is_ok(toml.parse_toml("port = ")))
+    print(trim(unwrap(toml.toml_to_string(server))))
+}
+```
+
+Output:
+
+```
+8080
+[{"name":"backup"},{"name":"report"}]
+false
+port = 8080
+hosts = ["a.example", "b.example"]
+```
+
 ## Reading
 
 ### `parse_toml`

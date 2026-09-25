@@ -26,8 +26,17 @@ use json
 use json.Json
 
 fn main() {
-    val table = unwrap(csv.parse_csv("name,age\nAda,36\nGrace,45\n"))
+    val table = unwrap(csv.parse_csv("""
+        name,age
+        Ada,36
+        Grace,45
+        """))
     print(json.json_to_string(table))
+
+    // Typed parsing reads 36 as a number; writing it back gives the same text.
+    val typed = unwrap(csv.parse_csv_typed("name,age\nAda,36\n"))
+    print(json.json_to_string(typed))
+    print(trim(unwrap(csv.csv_to_string(typed))))
 }
 ```
 
@@ -35,6 +44,9 @@ Output:
 
 ```
 [{"name":"Ada","age":"36"},{"name":"Grace","age":"45"}]
+[{"name":"Ada","age":36}]
+name,age
+Ada,36
 ```
 
 ## Reading

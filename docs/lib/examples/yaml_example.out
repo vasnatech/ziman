@@ -1,0 +1,10 @@
+demo
+{"name":"demo","ports":[80,443],"limits":{"cpu":2,"memory":512}}
+name: demo
+ports:
+  - 80
+  - 443
+limits:
+  cpu: 2
+  memory: 512
+false

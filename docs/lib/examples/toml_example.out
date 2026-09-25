@@ -1,0 +1,5 @@
+8080
+[{"name":"backup"},{"name":"report"}]
+false
+port = 8080
+hosts = ["a.example", "b.example"]

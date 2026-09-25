@@ -19,6 +19,47 @@ Writes block style; a string that would read back as another type (`"42"`, `"tru
 
 `use yaml` -- or `use yaml.Name` to bring one item in bare.
 
+## Example
+
+```
+use json
+use json.Json
+use yaml
+
+// A YAML document becomes a Json tree, the same as TOML or JSON, so one set of helpers reads all three.
+fn main() {
+    val doc = unwrap(yaml.parse_yaml("""
+        name: demo
+        ports:
+          - 80
+          - 443
+        limits: {cpu: 2, memory: 512}
+        """))
+
+    print(unwrap(json.json_require_string_field(doc, "name")))
+    print(json.json_to_string(doc))
+    print(trim(yaml.yaml_to_string(doc)))
+
+    // Anchors, tags and multiple documents are errors, not silently misread.
+    print(is_ok(yaml.parse_yaml("a: &x 1\nb: *x")))
+}
+```
+
+Output:
+
+```
+demo
+{"name":"demo","ports":[80,443],"limits":{"cpu":2,"memory":512}}
+name: demo
+ports:
+  - 80
+  - 443
+limits:
+  cpu: 2
+  memory: 512
+false
+```
+
 ## Block structure
 
 ### `parse_yaml`

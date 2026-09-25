@@ -37,7 +37,13 @@ use json.Json
 
 // Parse text into a tree, read from it, build a new tree and print it.
 fn main() {
-    val doc = unwrap(json.parse_json("{\"name\": \"Ada\", \"langs\": [\"en\", \"fr\"], \"age\": 36}"))
+    val doc = unwrap(json.parse_json("""
+        {
+          "name": "Ada",
+          "langs": ["en", "fr"],
+          "age": 36
+        }
+        """))
 
     print(unwrap(json.json_require_string_field(doc, "name")))
     print(unwrap(json.json_require_int_field(doc, "age")))
