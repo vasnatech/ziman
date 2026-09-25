@@ -1,0 +1,19 @@
+// Iteration is insertion order: overwriting keeps a key's place, removing and
+// re-adding sends it to the end. set/remove return a new map and leave the
+// original untouched.
+fn main() {
+    val base = Map<string, int> { "x": 1, "y": 2, "z": 3 }
+    val changed = set(set(remove(base, "y"), "x", 10), "y", 20)
+    print(base)
+    print(changed)
+    print(map_keys(changed))
+    print(map_values(changed))
+    for k, v in changed {
+        printf("{}={}\n", k, v)
+    }
+    for k in base {
+        print(k)
+    }
+    print(len(base))
+    print(len(changed))
+}

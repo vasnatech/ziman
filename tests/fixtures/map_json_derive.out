@@ -1,0 +1,6 @@
+{"tags":["x","y"],"scores":{"a":1,"b":2},"byId":{"7":["p","q"]}}
+true
+Bag { tags: {x, y}, scores: {a: 1, b: 2}, byId: {7: [p, q]} }
+false
+false
+true

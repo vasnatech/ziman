@@ -1,0 +1,4 @@
+fn main() {
+    val m = Map<string, int> { "a": "one" }
+    print(len(m))
+}

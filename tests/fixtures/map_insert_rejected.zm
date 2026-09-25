@@ -1,0 +1,4 @@
+fn main() {
+    val m = Map<int, int> {}
+    print(len(insert(m, 1)))
+}

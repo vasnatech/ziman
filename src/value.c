@@ -449,9 +449,19 @@ int value_equals(Value a, Value b) {
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on Channel should have been rejected by the type checker");
             return 0;
         case TY_MAP:
-        case TY_SET:
-            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on a Map or Set should have been rejected by the type checker");
-            return 0;
+        case TY_SET: {
+            /* Same entries in any order: same size, and every key of `a` present in `b` (with an equal value). */
+            if (a.as.map->count != b.as.map->count) return 0;
+            int is_map = a.type.kind == TY_MAP;
+            Value *keys, *vals = NULL;
+            mapobj_entries(a.as.map, &keys, is_map ? &vals : NULL);
+            for (int i = 0; i < a.as.map->count; i++) {
+                Value other;
+                if (!mapobj_get(b.as.map, keys[i], &other)) return 0;
+                if (is_map && !value_equals(vals[i], other)) return 0;
+            }
+            return 1;
+        }
         case TY_FUNC:
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on a function value should have been rejected by the type checker");
             return 0;

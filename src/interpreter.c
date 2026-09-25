@@ -261,6 +261,27 @@ uint64_t value_hash(Value v) {
             }
             break;
         }
+        case TY_MAP:
+        case TY_SET: {
+            /* Order-independent (equal maps hash equal whatever their insertion order): the
+             * entries' hashes are combined with a commutative sum. */
+            int is_map = v.type.kind == TY_MAP;
+            Value *keys, *vals = NULL;
+            mapobj_entries(v.as.map, &keys, is_map ? &vals : NULL);
+            h = 1469598103934665603ULL ^ (uint64_t)v.as.map->count;
+            uint64_t sum = 0;
+            for (int i = 0; i < v.as.map->count; i++) {
+                uint64_t e = value_hash(keys[i]) * 0x9E3779B97F4A7C15ULL;
+                if (is_map) e ^= value_hash(vals[i]) + 0x7F4A7C15ULL;
+                e ^= e >> 29;
+                e *= 0xBF58476D1CE4E5B9ULL;
+                e ^= e >> 32;
+                sum += e;
+            }
+            h ^= sum;
+            h *= 1099511628211ULL;
+            break;
+        }
         case TY_RESULT:
             h = 1469598103934665603ULL ^ (uint64_t)(v.as.res->is_ok ? 1 : 2);
             h ^= value_hash(v.as.res->value);

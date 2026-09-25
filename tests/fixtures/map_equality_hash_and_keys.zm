@@ -1,0 +1,34 @@
+// == on maps and sets ignores insertion order; equal collections hash equal, so
+// they can be keys themselves.
+struct Profile {
+    scores: Map<string, int>
+    tags: Set<string>
+}
+
+fn main() {
+    val a = Map<string, int> { "x": 1, "y": 2 }
+    val b = Map<string, int> { "y": 2, "x": 1 }
+    print(a == b)
+    print(a == Map<string, int> { "x": 1, "y": 3 })
+    print(a != Map<string, int> { "x": 1 })
+    print(Set<int> { 1, 2, 3 } == Set<int> { 3, 2, 1 })
+    print(Set<int> { 1, 2 } == Set<int> { 1, 2, 3 })
+    print(Map<int, int> {} == Map<int, int> {})
+    print(hash(a) == hash(b))
+    print(hash(Set<int> { 1, 2 }) == hash(Set<int> { 2, 1 }))
+    print(hash(a) == hash(Map<string, int> { "x": 1, "y": 3 }))
+
+    val p1 = Profile { scores: a, tags: Set<string> { "a", "b" } }
+    val p2 = Profile { scores: b, tags: Set<string> { "b", "a" } }
+    print(p1 == p2)
+
+    var by_shape = Map<Set<int>, string> {}
+    by_shape = set(by_shape, Set<int> { 1, 2 }, "first")
+    by_shape = set(by_shape, Set<int> { 2, 1 }, "same set, overwrites")
+    print(len(by_shape))
+    print(map_get(by_shape, Set<int> { 1, 2 }))
+    var seen = Set<Map<string, int>> {}
+    seen = insert(seen, a)
+    seen = insert(seen, b)
+    print(len(seen))
+}

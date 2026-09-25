@@ -3491,8 +3491,13 @@ map the same API without duplicating every function. Making them built-in fixes 
   `for k, v in m` reuses the existing two-binder `for`.
 - **`for` walks a snapshot** (a sorted entry array taken when the loop starts), so the body
   may rebind the collection without a hazard to define.
-- **Keys** must satisfy the `Hash` rule, checked wherever the type is written. **Not
-  offered yet:** `==` on maps/sets, maps as keys, `#[derive(Json/Row/Properties)]` fields
-  (a `Map<string, V>` <-> JSON object is the obvious next step), and set algebra
-  (union/intersection). A sorted `TreeMap` would still be a separate type.
+- **Keys** must satisfy the `Hash` rule, checked wherever the type is written.
+- **Equality and hash are order-independent**: `==` is same size plus every key of one
+  found in the other with an equal value; the hash sums a mixed hash of each entry, which
+  is commutative, so equal maps hash equal whatever order they were built in. That makes a
+  map or set a legal key, struct field or set element.
+- **Json:** `derive(Json)` maps a `Map<string|int, V>` to a JSON object (an int key as its
+  decimal text, decoded with `parse_int`) and a `Set<T>` to an array. `Row`/`Properties`
+  don't support them. **Not offered yet:** set algebra and other helpers (union,
+  intersection, filter, ... -- see docs/ROADMAP.md), and a sorted `TreeMap`.
 

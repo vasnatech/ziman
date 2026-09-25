@@ -1,0 +1,24 @@
+// A `for` over a map walks a snapshot: rebinding the variable inside the body does
+// not change what the loop visits.
+fn main() {
+    var m = Map<int, int> { 1: 10, 2: 20, 3: 30 }
+    var visited = 0
+    for k, v in m {
+        m = set(m, k + 100, v)
+        m = remove(m, k)
+        visited = visited + 1
+    }
+    print(visited)
+    print(m)
+    var s = Set<string> { "a", "b" }
+    for item in s {
+        s = insert(s, concat(item, item))
+    }
+    print(s)
+    for item in s {
+        if item == "b" {
+            break
+        }
+        print(item)
+    }
+}

@@ -1,0 +1,5 @@
+fn main() {
+    val a = Map<int, Channel<int>> {}
+    val b = Map<int, Channel<int>> {}
+    print(a == b)
+}

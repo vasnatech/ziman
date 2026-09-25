@@ -1286,3 +1286,16 @@ from source.
 - A package manager or build system beyond the Makefile — see the "real
   package registry" entry above for the shape this would eventually take
   and why it's sequenced so far out.
+
+- **`TreeMap<K, V>` / `TreeSet<T>` (sorted collections) -- postponed.** `Map`/`Set` iterate in
+  insertion order; a sorted map would add ordered iteration, `first`/`last`, floor/ceiling
+  lookups and range queries (e.g. records by date range), keyed by `Ord` instead of `Hash`.
+  The natural design is a persistent balanced tree (red-black or AVL, path-copying, O(log n)
+  writes, values stay immutable), as its own built-in type with the same surface (`set`,
+  `insert`, `remove`, `contains`, `len`, `for`) plus the ordered operations. Not started:
+  `sort(map_keys(m))` covers "give me it sorted" today, and nothing needs range queries yet.
+  Revisit when a feature does.
+- **`Map`/`Set` helper functions.** Only the core operations exist. Candidates (none started;
+  most are a short loop in Ziman today): set algebra (`union`, `intersection`, `difference`,
+  `is_subset`), `map_merge`, `map_filter`, `map_map_values`, `map_entries`, `map_get_or`.
+

@@ -1,0 +1,4 @@
+fn main() {
+    val m = Map<Channel<int>, int> {}
+    print(len(m))
+}

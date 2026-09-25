@@ -258,6 +258,15 @@ static char *type_args_text(Type t) {
     return fmt_str("%s>", out);
 }
 
+/* A Map's key as a JSON object key: a string as is, an int through str(). Nothing else
+ * has an obvious text form. */
+static void check_json_map_key(Type key, int line, int col) {
+    if (key.kind != TY_STRING && key.kind != TY_INT) {
+        ziman_error("syntax", line, col, "derive(Json) supports Map keys of type string or int (they become JSON object keys), found '%s'",
+                    type_name(key));
+    }
+}
+
 /* Appends statements to `cb` that bind `dst_var` (a `val`, freshly
  * declared) to a `Json` value built from `src_expr` (an already-valid
  * Ziman expression of type `t`). Priority order, matching the design:
@@ -279,6 +288,32 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             cb_appendf(cb, "    val %s = Json.JString(%s)\n", dst_var, src_expr);
             return;
         case TY_ARRAY: {
+            char *item = gen_tmp(tmp, "item");
+            char *item_json = gen_tmp(tmp, "item_json");
+            char *ab = gen_tmp(tmp, "ab");
+            cb_appendf(cb, "    val %s = ab_new<Json>()\n", ab);
+            cb_appendf(cb, "    for %s in %s {\n", item, src_expr);
+            emit_to_json(*t.elem, item, item_json, cb, tmp, line, col);
+            cb_appendf(cb, "    ab_append<Json>(%s, %s)\n", ab, item_json);
+            cb_appendf(cb, "    }\n");
+            cb_appendf(cb, "    val %s = Json.JArray(ab_to_array<Json>(%s))\n", dst_var, ab);
+            return;
+        }
+        case TY_MAP: {
+            check_json_map_key(*t.elem, line, col);
+            char *k = gen_tmp(tmp, "key");
+            char *v = gen_tmp(tmp, "entry");
+            char *v_json = gen_tmp(tmp, "entry_json");
+            char *ab = gen_tmp(tmp, "ab");
+            cb_appendf(cb, "    val %s = ab_new<JField>()\n", ab);
+            cb_appendf(cb, "    for %s, %s in %s {\n", k, v, src_expr);
+            emit_to_json(*t.elem_err, v, v_json, cb, tmp, line, col);
+            cb_appendf(cb, "    ab_append<JField>(%s, JField { key: %s, value: %s })\n", ab, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
+            cb_appendf(cb, "    }\n");
+            cb_appendf(cb, "    val %s = Json.JObject(ab_to_array<JField>(%s))\n", dst_var, ab);
+            return;
+        }
+        case TY_SET: {
             char *item = gen_tmp(tmp, "item");
             char *item_json = gen_tmp(tmp, "item_json");
             char *ab = gen_tmp(tmp, "ab");
@@ -363,6 +398,38 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             cb_appendf(cb, "    ab_append<%s>(%s, %s)\n", elem_type_name, ab, item_val);
             cb_appendf(cb, "    }\n");
             cb_appendf(cb, "    val %s = ab_to_array<%s>(%s)\n", dst_var, elem_type_name, ab);
+            return;
+        }
+        case TY_MAP: {
+            check_json_map_key(*t.elem, line, col);
+            char *field = gen_tmp(tmp, "field");
+            char *entry = gen_tmp(tmp, "entry");
+            char *key_n = gen_tmp(tmp, "key");
+            char *map_type_name = type_name(t);
+            cb_appendf(cb, "    if !Json.is_JObject(%s) { return err(\"expected an object\") }\n", src_expr);
+            cb_appendf(cb, "    var %s = %s {}\n", dst_var, map_type_name);
+            cb_appendf(cb, "    for %s in Json.unwrap_JObject(%s) {\n", field, src_expr);
+            char *value_src = fmt_str("%s.value", field);
+            emit_from_json(*t.elem_err, value_src, entry, cb, tmp, line, col);
+            if (t.elem->kind == TY_INT) {
+                cb_appendf(cb, "    val %s = parse_int(%s.key)?\n", key_n, field);
+                cb_appendf(cb, "    %s = set(%s, %s, %s)\n", dst_var, dst_var, key_n, entry);
+            } else {
+                cb_appendf(cb, "    %s = set(%s, %s.key, %s)\n", dst_var, dst_var, field, entry);
+            }
+            cb_appendf(cb, "    }\n");
+            return;
+        }
+        case TY_SET: {
+            char *item = gen_tmp(tmp, "item");
+            char *item_val = gen_tmp(tmp, "item_val");
+            char *set_type_name = type_name(t);
+            cb_appendf(cb, "    if !Json.is_JArray(%s) { return err(\"expected an array\") }\n", src_expr);
+            cb_appendf(cb, "    var %s = %s {}\n", dst_var, set_type_name);
+            cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
+            emit_from_json(*t.elem, item, item_val, cb, tmp, line, col);
+            cb_appendf(cb, "    %s = insert(%s, %s)\n", dst_var, dst_var, item_val);
+            cb_appendf(cb, "    }\n");
             return;
         }
         case TY_STRUCT:

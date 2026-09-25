@@ -1,0 +1,6 @@
+fn main() {
+    val s = Set<int> { 1, 2 }
+    for i, x in s {
+        print(x)
+    }
+}

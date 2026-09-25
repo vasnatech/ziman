@@ -1,0 +1,8 @@
+#[derive(Json)]
+struct Bad {
+    m: Map<bool, int>
+}
+
+fn main() {
+    print(1)
+}

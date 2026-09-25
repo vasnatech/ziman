@@ -1,0 +1,4 @@
+fn main() {
+    val s = Set<int> { 1 }
+    print(len(set(s, 1)))
+}

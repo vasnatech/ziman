@@ -433,8 +433,12 @@ for x in seen { ... }                    // a set has one binder
   re-adding sends it to the end.
 - **`for` walks a snapshot**, so rebinding the collection inside the body neither
   changes what the loop visits nor is an error. `break`/`continue` work as usual.
-- **Not comparable.** `==` on two maps or sets is a type error; compare `len` and
-  `contains`. They are not valid keys or `#[derive(Json/Row/Properties)]` fields yet.
+- **Equality and hashing ignore order.** `==` on two maps or sets is true when they hold the
+  same entries (a map's values must themselves support `==`), and equal ones hash equal, so
+  a map or set can be a struct field, a map key or a set element.
+- **`#[derive(Json)]`** writes a `Map<string, V>` or `Map<int, V>` as a JSON object (an int
+  key becomes its decimal text) and a `Set<T>` as an array (duplicates collapse on decoding).
+  Other key types are a derive error. `Row` and `Properties` do not support them.
 - **Names.** `Map` and `Set` are reserved words (a user `struct Map` is a syntax error).
   `map_get`, `map_keys`, `map_values` and `set_items` are builtins that take the
   collection's type from their argument, so no type arguments are written on them.

@@ -1,0 +1,7 @@
+struct Map {
+    x: int
+}
+
+fn main() {
+    print(1)
+}

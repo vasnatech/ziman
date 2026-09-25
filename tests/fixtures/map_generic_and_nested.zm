@@ -1,0 +1,43 @@
+struct Inventory {
+    stock: Map<string, int>
+    tags: Set<string>
+}
+
+fn count_by<K: Eq + Hash>(items: [K]) -> Map<K, int> {
+    var counts = Map<K, int> {}
+    for item in items {
+        counts = set(counts, item, option_unwrap_or<int>(map_get(counts, item), 0) + 1)
+    }
+    return counts
+}
+
+fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
+    var seen = Set<T> {}
+    for item in items {
+        seen = insert(seen, item)
+    }
+    return set_items(seen)
+}
+
+fn total(m: Map<string, int>) -> int {
+    var sum = 0
+    for _k, v in m {
+        sum = sum + v
+    }
+    return sum
+}
+
+fn main() {
+    print(count_by<string>(["a", "b", "a", "c", "a", "b"]))
+    print(distinct<int>([3, 1, 3, 2, 1]))
+    val inv = Inventory { stock: Map<string, int> { "apple": 4, "pear": 6 }, tags: Set<string> { "fruit" } }
+    val updated = with inv { stock: set(inv.stock, "apple", 5) }
+    print(total(inv.stock))
+    print(total(updated.stock))
+    print(contains(updated.tags, "fruit"))
+    val nested = Map<string, Map<string, int>> { "outer": Map<string, int> { "inner": 1 } }
+    print(map_get(option_unwrap_or<Map<string, int>>(map_get(nested, "outer"), Map<string, int> {}), "inner"))
+    val empty = Map<int, string> {}
+    print(len(empty))
+    print(empty)
+}

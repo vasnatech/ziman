@@ -166,10 +166,10 @@ static int type_supports_equality(Module *module, Type t, int depth) {
              * so it's just not comparable at all in v0. */
             return 0;
         case TY_MAP:
+            /* Order-independent: same entries, whatever order they were added in. */
+            return type_supports_equality(module, *t.elem_err, depth + 1);
         case TY_SET:
-            /* Insertion-ordered, so structural equality would have to ignore
-             * the order; not offered. Compare `len` and `contains` instead. */
-            return 0;
+            return 1; /* the element type already satisfies Hash (checked where the type is written) */
         case TY_TYPEVAR:
             /* A bare, unsubstituted type variable is comparable exactly
              * when it's the *current declaration's own* type parameter
@@ -221,6 +221,10 @@ static int type_supports_hashing(Module *module, Type t, int depth) {
         }
         case TY_RESULT:
             return type_supports_hashing(module, *t.elem, depth + 1) && type_supports_hashing(module, *t.elem_err, depth + 1);
+        case TY_MAP:
+            return type_supports_hashing(module, *t.elem_err, depth + 1);
+        case TY_SET:
+            return 1;
         case TY_ENUM: {
             EnumDecl *decl = find_enum(module, t.enum_name);
             if (decl == NULL) return 0;
@@ -446,7 +450,7 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
                     ziman_error("type", e->line, e->col, "%s cannot be compared with '=='/'!=' in v0", type_name(lt));
                 } else if (lt.kind == TY_MAP || lt.kind == TY_SET) {
                     ziman_error("type", e->line, e->col,
-                                "%s cannot be compared with '=='/'!=' -- compare len() and contains() of the entries you care about",
+                                "%s cannot be compared with '=='/'!=' because its value type is not a comparable type",
                                 type_name(lt));
                 } else if (lt.kind == TY_FUNC) {
                     ziman_error("type", e->line, e->col,
