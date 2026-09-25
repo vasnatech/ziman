@@ -1,8 +1,8 @@
 {
   "name": "ziman",
   "displayName": "Ziman",
-  "description": "Ziman language support: syntax highlighting and a language server client (.zm files)",
-  "version": "0.2.0",
+  "description": "Ziman language support: highlighting, snippets, and a language server client (go to definition across files and into the bundled library, hover, completion, symbols, formatting, diagnostics)",
+  "version": "0.3.0",
   "publisher": "ziman-lang",
   "engines": {
     "vscode": "^1.75.0"
@@ -39,6 +39,87 @@
           "default": "ziman",
           "description": "Path to the ziman executable (run as `ziman --lsp`)."
         }
+      }
+    },
+    "snippets": [
+      {
+        "language": "ziman",
+        "path": "./snippets/ziman.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ziman.runFile",
+        "title": "Run File",
+        "category": "Ziman",
+        "icon": "$(play)"
+      },
+      {
+        "command": "ziman.runProgram",
+        "title": "Run Program (main.zm)",
+        "category": "Ziman"
+      },
+      {
+        "command": "ziman.checkFile",
+        "title": "Check File (type-check without running)",
+        "category": "Ziman"
+      },
+      {
+        "command": "ziman.restartServer",
+        "title": "Restart Language Server",
+        "category": "Ziman"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "ziman.runFile",
+          "when": "resourceLangId == ziman",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "ziman.runFile",
+          "when": "editorLangId == ziman"
+        },
+        {
+          "command": "ziman.runProgram",
+          "when": "editorLangId == ziman"
+        },
+        {
+          "command": "ziman.checkFile",
+          "when": "editorLangId == ziman"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "ziman.runFile",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "editorLangId == ziman"
+      },
+      {
+        "command": "ziman.runProgram",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m",
+        "when": "editorLangId == ziman"
+      }
+    ],
+    "configurationDefaults": {
+      "[ziman]": {
+        "editor.defaultFormatter": "ziman-lang.ziman",
+        "editor.formatOnSave": true,
+        "editor.insertSpaces": true,
+        "editor.tabSize": 4,
+        "editor.detectIndentation": false,
+        "editor.rulers": [
+          120
+        ],
+        "editor.wordBasedSuggestions": "off",
+        "editor.gotoLocation.multipleDefinitions": "goto",
+        "editor.suggest.snippetsPreventQuickSuggestions": false
       }
     }
   },

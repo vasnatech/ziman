@@ -39,7 +39,7 @@ active. Open any `.zm` file there.
 
 ```sh
 # macOS/Linux
-ln -s "$(pwd)" ~/.vscode/extensions/ziman-lang.ziman-0.1.0
+ln -s "$(pwd)" ~/.vscode/extensions/ziman-lang.ziman-0.3.0
 # WSL/remote: ~/.vscode-server/extensions/ instead of ~/.vscode/extensions/
 ```
 
@@ -49,10 +49,10 @@ language indicator in the status bar and pick "Ziman".
 
 ## Files
 
-- `package.json` — the extension manifest (declares the `ziman` language
-  and points at the grammar).
-- `language-configuration.json` — comment toggling (`//`) and bracket/
-  quote auto-closing.
+- `package.json` — the extension manifest (language, grammar, snippets, commands, keybindings, editor defaults).
+- `language-configuration.json` — comment toggling (`//`), bracket/quote auto-closing (including `"""`), indentation and `// region` folding.
+- `snippets/ziman.json` — the snippets above.
+- `extension.js` — the language client and the commands.
 - `syntaxes/ziman.tmLanguage.json` — the actual TextMate grammar.
 - `showcase.zm` (+ `models/user.zm`, which it `use`s) — a file exercising
   every highlighted construct, for eyeballing changes to the grammar.
@@ -63,14 +63,45 @@ language indicator in the status bar and pick "Ziman".
 
 `ziman --lsp` speaks the Language Server Protocol on stdin/stdout: diagnostics
 (every error the compiler finds, from the open, unsaved buffers), formatting
-(`ziman --fmt`, width 120), document symbols, go to definition (across files),
-hover (signatures), and completion (keywords, builtins, the file's declarations,
-`module.` members, enum variants).
+(`ziman --fmt`, width 120), document symbols, workspace symbols, go to definition,
+hover (signatures), document highlight, and completion (keywords, builtins, the file's
+declarations, `module.` members, enum variants).
+
+**Go to definition (Ctrl+Click, F12; Ctrl+Alt+Click opens to the side)** follows:
+
+- a `use` line: the path opens the module's file, and a name or alias goes to that
+  declaration (`use models/user.User as Person`);
+- a call or type through a module qualifier, including an `as` alias:
+  `medications.handle_list` finds `handle_list` in `medication/controller.zm`;
+- the qualifier itself (`medications` in `medications.handle_list`): the module's file;
+- a name brought in bare with `use mod.Name [as alias]`;
+- the **bundled library** (`mime.parse`, `json.json_get_path`, `datasource.query`, ...): the
+  embedded source is written once to `~/.cache/ziman/core/<module>.zm` (read-only) and opened
+  there, with hover and completion working on it too;
+- an enum variant (its enum), and local variables, parameters, `for` binders, `switch` arm
+  binders and lambda parameters (found by reading the function above the cursor).
+
+Other conveniences: **Ctrl+T** searches every declaration by name (the program's own first, then
+the library's); selecting a name highlights its other uses in the file; the outline shows each
+file's declarations.
+
+**Editor defaults for `.zm`** (a `configurationDefaults` block, override in your settings): format on
+save, 4-space indentation, a ruler at 120, and `"""` closing like other quotes.
+
+**Snippets** (type the prefix, Tab): `main`, `fn`, `pubfn`, `fnr` (returns a `Result`), `struct`,
+`enum`, `derive`, `switch`, `switchr` (switch on a `Result`), `if`, `ifelse`, `for`, `fori`, `forr`,
+`while`, `val`, `valq` (`val x = call()?`), `use`, `usea` (`as`), `usen` (`use mod.Name`), `spawn`,
+`defer`, `block` (a `"""` text block), `pr`.
+
+**Commands** (Command Palette, category "Ziman"): *Run File* (Ctrl+Alt+R, also the play button in the
+editor title) runs the current file in a terminal; *Run Program (main.zm)* (Ctrl+Alt+M) runs the
+`main.zm` next to it; *Check File* type-checks without running; *Restart Language Server*. Changing
+`ziman.serverPath` offers to restart the server.
 
 - **VS Code:** `cd editors/vscode && npm install`, then load the folder as an
-  extension. Set `ziman.serverPath` if `ziman` is not on `PATH`. The client
-  (`extension.js`) has not been exercised in a real VS Code here; the server is
-  covered by `make test-lsp`.
+  extension (see "Installing it locally"). Set `ziman.serverPath` if `ziman` is not on
+  `PATH`. The server is covered by `make test-lsp`; the client (`extension.js`) is a thin
+  wrapper that has not been exercised in a real VS Code here.
 - **Neovim:** `vim.lsp.start({ name = "ziman", cmd = { "ziman", "--lsp" }, root_dir = vim.fs.root(0, "main.zm") })` in a `FileType ziman` autocmd.
 - **Helix** (`languages.toml`): `[language-server.ziman]` `command = "ziman"`, `args = ["--lsp"]`, and a `[[language]] name = "ziman"` with `language-servers = ["ziman"]`.
 - **Emacs (eglot):** `(add-to-list 'eglot-server-programs '(ziman-mode "ziman" "--lsp"))`.

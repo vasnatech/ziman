@@ -9,8 +9,10 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "ast.h"
+#include "corelib.h"
 #include "error.h"
 #include "format.h"
 #include "loader.h"
@@ -473,8 +475,8 @@ static void publish(const char *path, int has_doc) {
     send_notification("textDocument/publishDiagnostics", b.s);
 }
 
-static void analyze(Doc *trigger) {
-    char *entry = find_entry(trigger->path);
+/* Loads and type-checks the program rooted at `entry`, collecting its diagnostics into g_diags. */
+static void run_analysis(char *entry) {
     g_current_entry = entry;
 
     const char **paths = malloc((size_t)(g_ndocs + 1) * sizeof(char *));
@@ -500,6 +502,35 @@ static void analyze(Doc *trigger) {
     }
     ziman_set_error_sink(NULL);
     g_current_entry = NULL;
+}
+
+/* Whether the last analysis loaded a declaration from `path`. */
+static int graph_has_file(const char *path) {
+    if (g_module == NULL) return 0;
+    for (int i = 0; i < g_module->functions.count; i++) {
+        const char *f = g_module->functions.items[i]->source_file;
+        if (f != NULL && strcmp(f, path) == 0) return 1;
+    }
+    for (int i = 0; i < g_module->structs.count; i++) {
+        const char *f = g_module->structs.items[i]->source_file;
+        if (f != NULL && strcmp(f, path) == 0) return 1;
+    }
+    for (int i = 0; i < g_module->enums.count; i++) {
+        const char *f = g_module->enums.items[i]->source_file;
+        if (f != NULL && strcmp(f, path) == 0) return 1;
+    }
+    for (int i = 0; i < g_module->vals.count; i++) {
+        const char *f = g_module->vals.items[i]->source_file;
+        if (f != NULL && strcmp(f, path) == 0) return 1;
+    }
+    return 0;
+}
+
+static void analyze(Doc *trigger) {
+    char *entry = find_entry(trigger->path);
+    run_analysis(entry);
+    /* a file the nearest main.zm does not reach (a second entry point, a test) is its own program */
+    if (strcmp(entry, trigger->path) != 0 && !graph_has_file(trigger->path)) run_analysis(trigger->path);
 
     /* publish to every open document that has diagnostics now or had them before */
     char **files = malloc((size_t)(g_ndocs + g_prev_n + g_ndiags + 2) * sizeof(char *));
@@ -621,34 +652,81 @@ static char *val_signature(const GlobalValDecl *v) {
     return b.s;
 }
 
-typedef struct { const char *name; const char *file; int line, col; int kind; char *signature; int is_public; } Sym;
+/* Bundled core modules have no file of their own: their embedded source is written once to a cache directory so
+ * an editor can open it (read-only) and jump into it. */
+static char *core_file(const char *use_path) {
+    static char *names[64];
+    static char *files[64];
+    static int n = 0;
+    for (int i = 0; i < n; i++) if (strcmp(names[i], use_path) == 0) return files[i];
+    const char *source = corelib_source_for(use_path);
+    if (source == NULL || n == 64) return NULL;
+    const char *xdg = getenv("XDG_CACHE_HOME");
+    const char *home = getenv("HOME");
+    SB dir = {0};
+    if (xdg != NULL && xdg[0] != '\0') sb_printf(&dir, "%s/ziman", xdg);
+    else if (home != NULL) sb_printf(&dir, "%s/.cache/ziman", home);
+    else sb_printf(&dir, "/tmp/ziman-cache");
+    mkdir(dir.s, 0755);
+    sb_puts(&dir, "/core");
+    mkdir(dir.s, 0755);
+    SB path = {0};
+    sb_printf(&path, "%s/%s.zm", dir.s, use_path);
+    unlink(path.s);
+    FILE *f = fopen(path.s, "w");
+    if (f == NULL) return NULL;
+    fputs(source, f);
+    fclose(f);
+    chmod(path.s, 0444);
+    names[n] = strdup(use_path);
+    files[n] = path.s;
+    return files[n++];
+}
+
+typedef struct { const char *name; const char *file; int line, col; int kind; char *signature; int is_public; int core; } Sym;
+
+/* The file a declaration lives in: its own, or for a bundled core module (`mime::parse`) the cached copy. */
+static const char *sym_file(const char *name, const char *source_file, int *core) {
+    *core = 0;
+    if (source_file != NULL) return source_file;
+    const char *sep = strstr(name, "::");
+    if (sep == NULL) return NULL;
+    char *mod = strndup(name, (size_t)(sep - name));
+    char *f = core_file(mod);
+    free(mod);
+    if (f != NULL) *core = 1;
+    return f;
+}
 
 /* Every declaration the last analysis loaded (derived code excluded). */
 static Sym *collect_symbols(int *count) {
     int n = 0, cap = 64;
     Sym *out = malloc((size_t)cap * sizeof(Sym));
-#define ADD(nm, f, l, c, k, sig, pub) do { if (n == cap) { cap *= 2; out = realloc(out, (size_t)cap * sizeof(Sym)); } \
-    out[n++] = (Sym){nm, f, l, c, k, sig, pub}; } while (0)
+#define ADD(nm, f, l, c, k, sig, pub, cr) do { if (n == cap) { cap *= 2; out = realloc(out, (size_t)cap * sizeof(Sym)); } \
+    out[n++] = (Sym){nm, f, l, c, k, sig, pub, cr}; } while (0)
     if (g_module != NULL) {
+        int core;
+        const char *file;
         for (int i = 0; i < g_module->functions.count; i++) {
             FunctionDecl *fn = g_module->functions.items[i];
-            if (fn->derived_from != NULL || fn->source_file == NULL || fn->name[0] == '$') continue;
-            ADD(fn->name, fn->source_file, fn->line, fn->col, 12, fn_signature(fn), fn->is_public);
+            if (fn->derived_from != NULL || fn->name[0] == '$') continue;
+            if ((file = sym_file(fn->name, fn->source_file, &core)) == NULL || fn->line <= 0) continue;
+            ADD(fn->name, file, fn->line, fn->col, 12, fn_signature(fn), fn->is_public, core);
         }
         for (int i = 0; i < g_module->structs.count; i++) {
             StructDecl *sd = g_module->structs.items[i];
-            if (sd->source_file == NULL) continue;
-            ADD(sd->name, sd->source_file, sd->line, sd->col, 23, struct_signature(sd), sd->is_public);
+            if ((file = sym_file(sd->name, sd->source_file, &core)) == NULL || sd->line <= 0) continue;
+            ADD(sd->name, file, sd->line, sd->col, 23, struct_signature(sd), sd->is_public, core);
         }
         for (int i = 0; i < g_module->enums.count; i++) {
             EnumDecl *ed = g_module->enums.items[i];
-            if (ed->source_file == NULL) continue;
-            ADD(ed->name, ed->source_file, ed->line, ed->col, 10, enum_signature(ed), ed->is_public);
+            if ((file = sym_file(ed->name, ed->source_file, &core)) == NULL || ed->line <= 0) continue;
+            ADD(ed->name, file, ed->line, ed->col, 10, enum_signature(ed), ed->is_public, core);
         }
         for (int i = 0; i < g_module->vals.count; i++) {
             GlobalValDecl *v = g_module->vals.items[i];
-            if (v->source_file == NULL) continue;
-            ADD(v->name, v->source_file, v->line, v->col, 13, val_signature(v), v->is_public);
+            if ((file = sym_file(v->name, v->source_file, &core)) == NULL || v->line <= 0) continue;
+            ADD(v->name, file, v->line, v->col, 13, val_signature(v), v->is_public, core);
         }
     }
 #undef ADD
@@ -692,12 +770,134 @@ static void write_location(SB *b, const char *file, int line, int col) {
     sb_printf(b, ",\"range\":{\"start\":{\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%d}}}", line0, sc, line0, sc + 2);
 }
 
-static int matches_word(const Sym *s, const Cursor *c) {
+/* ---- `use` lines: `use path/to/mod[.Name] [as alias]` ---- */
+
+typedef struct {
+    char path[192], name[128], alias[128];
+    int path_start, path_end, name_start, name_end, alias_start, alias_end; /* byte offsets in the line */
+    int has_name, has_alias;
+} UseLine;
+
+static int parse_use_line(const char *lp, UseLine *u) {
+    memset(u, 0, sizeof *u);
+    int i = 0;
+    while (lp[i] == ' ' || lp[i] == '\t') i++;
+    if (strncmp(lp + i, "use", 3) != 0 || (lp[i + 3] != ' ' && lp[i + 3] != '\t')) return 0;
+    i += 3;
+    while (lp[i] == ' ' || lp[i] == '\t') i++;
+    int st = i;
+    while (is_ident_char((unsigned char)lp[i]) || lp[i] == '/') i++;
+    if (i == st || (size_t)(i - st) >= sizeof u->path) return 0;
+    memcpy(u->path, lp + st, (size_t)(i - st));
+    u->path_start = st;
+    u->path_end = i;
+    if (lp[i] == '.' && is_ident_char((unsigned char)lp[i + 1])) {
+        int ns = ++i;
+        while (is_ident_char((unsigned char)lp[i])) i++;
+        if ((size_t)(i - ns) >= sizeof u->name) return 0;
+        memcpy(u->name, lp + ns, (size_t)(i - ns));
+        u->name_start = ns;
+        u->name_end = i;
+        u->has_name = 1;
+    }
+    int j = i;
+    while (lp[j] == ' ' || lp[j] == '\t') j++;
+    if (j > i && strncmp(lp + j, "as", 2) == 0 && (lp[j + 2] == ' ' || lp[j + 2] == '\t')) {
+        j += 2;
+        while (lp[j] == ' ' || lp[j] == '\t') j++;
+        int as = j;
+        while (is_ident_char((unsigned char)lp[j])) j++;
+        if (j > as && (size_t)(j - as) < sizeof u->alias) {
+            memcpy(u->alias, lp + as, (size_t)(j - as));
+            u->alias_start = as;
+            u->alias_end = j;
+            u->has_alias = 1;
+        }
+    }
+    return 1;
+}
+
+static const char *last_segment(const char *path) {
+    const char *slash = strrchr(path, '/');
+    return slash != NULL ? slash + 1 : path;
+}
+
+/* Calls `visit` for every `use` line of a document; stops when it returns non-zero. */
+typedef int (*UseVisitor)(const UseLine *u, void *ctx);
+static void for_each_use(const Doc *d, UseVisitor visit, void *ctx) {
+    const char *p = d->text;
+    while (*p != '\0') {
+        UseLine u;
+        if (parse_use_line(p, &u) && visit(&u, ctx)) return;
+        const char *nl = strchr(p, '\n');
+        if (nl == NULL) break;
+        p = nl + 1;
+    }
+}
+
+typedef struct { const char *word; UseLine found; int hit; int want_name; } UseQuery;
+
+static int visit_by_local(const UseLine *u, void *ctx) {
+    UseQuery *q = ctx;
+    const char *local = q->want_name ? (u->has_name ? (u->has_alias ? u->alias : u->name) : NULL)
+                                     : (u->has_name ? NULL : (u->has_alias ? u->alias : last_segment(u->path)));
+    if (local != NULL && strcmp(local, q->word) == 0) { q->found = *u; q->hit = 1; return 1; }
+    return 0;
+}
+
+/* The `use` line that gives `word` a meaning: a whole-module import whose qualifier is `word` (want_name 0),
+ * or a per-name import whose local name is `word` (want_name 1). */
+static int find_use(const Doc *d, const char *word, int want_name, UseLine *out) {
+    UseQuery q;
+    memset(&q, 0, sizeof q);
+    q.word = word;
+    q.want_name = want_name;
+    for_each_use(d, visit_by_local, &q);
+    if (q.hit) *out = q.found;
+    return q.hit;
+}
+
+static int visit_has_import(const UseLine *u, void *ctx) {
+    UseQuery *q = ctx; /* q->word is "path::Name" */
+    char key[400];
+    if (!u->has_name) return 0;
+    snprintf(key, sizeof key, "%s::%s", u->path, u->name);
+    if (strcmp(key, q->word) == 0) { q->hit = 1; return 1; }
+    return 0;
+}
+
+/* The file of a module named by a `use` path: a project file next to the program's entry, else a bundled module. */
+static char *module_file(const Doc *d, const char *mod_path) {
+    const char *base = g_module_entry != NULL ? g_module_entry : d->path;
+    const char *slash = strrchr(base, '/');
+    SB b = {0};
+    if (slash != NULL) sb_printf(&b, "%.*s/%s.zm", (int)(slash - base), base, mod_path);
+    else sb_printf(&b, "%s.zm", mod_path);
+    if (file_exists(b.s) || find_doc_by_path(b.s) != NULL) return b.s;
+    return core_file(mod_path);
+}
+
+static int module_part_equals(const char *qualified, const char *mod_path) {
+    const char *sep = strstr(qualified, "::");
+    return sep != NULL && strlen(mod_path) == (size_t)(sep - qualified) && strncmp(qualified, mod_path, (size_t)(sep - qualified)) == 0;
+}
+
+static int matches_word(const Doc *d, const Sym *s, const Cursor *c) {
     if (strcmp(bare_name(s->name), c->word) != 0) return 0;
     if (c->qualifier[0] != '\0') {
+        UseLine u;
+        if (find_use(d, c->qualifier, 0, &u)) return module_part_equals(s->name, u.path);
         char *seg = module_segment(s->name);
         int ok = strcmp(seg, c->qualifier) == 0;
+        free(seg);
         return ok;
+    }
+    if (s->core) { /* a bundled module's names are bare only where a `use mod.Name` brought them in */
+        UseQuery q;
+        memset(&q, 0, sizeof q);
+        q.word = s->name;
+        for_each_use(d, visit_has_import, &q);
+        return q.hit;
     }
     return 1;
 }
@@ -710,45 +910,205 @@ static Sym *lookup(const Doc *d, const Cursor *c, Sym *syms, int nsyms, int *fou
         for (int i = 0; i < nsyms; i++) {
             int same = strcmp(syms[i].file, d->path) == 0;
             if ((pass == 0) != same) continue;
-            if (matches_word(&syms[i], c)) { if (best == NULL) best = &syms[i]; (*found)++; }
+            if (matches_word(d, &syms[i], c)) { if (best == NULL) best = &syms[i]; (*found)++; }
         }
         if (best != NULL) break;
     }
     return best;
 }
 
+static Sym *find_qualified(Sym *syms, int nsyms, const char *path, const char *name) {
+    char key[400];
+    snprintf(key, sizeof key, "%s::%s", path, name);
+    for (int i = 0; i < nsyms; i++) if (strcmp(syms[i].name, key) == 0) return &syms[i];
+    return NULL;
+}
+
+static void send_location(const JVal *id, const char *file, int line, int col) {
+    SB b = {0};
+    write_location(&b, file, line, col);
+    send_result(id, b.s);
+}
+
+/* ---- local variables, found by reading the source above the cursor ---- */
+
+static int word_at(const char *s, int i, const char *w, int wl) {
+    if (strncmp(s + i, w, (size_t)wl) != 0) return 0;
+    if (i > 0 && is_ident_char((unsigned char)s[i - 1])) return 0;
+    return !is_ident_char((unsigned char)s[i + wl]);
+}
+
+static int skip_blanks(const char *s, int i) {
+    while (s[i] == ' ' || s[i] == '\t') i++;
+    return i;
+}
+
+/* The last column (byte offset, < `upto`) at which the line declares `w`, or -1. Recognises `val w`, `var w`,
+ * `for w in` / `for i, w in`, a `Variant(w) {` switch arm, and lambda parameters `fn(w) {`. */
+static int line_declares(const char *ln, int len, const char *w, int upto) {
+    int wl = (int)strlen(w), best = -1;
+    for (int i = 0; i + wl <= len; i++) {
+        if (i >= upto) break;
+        if (ln[i] == '/' && ln[i + 1] == '/') break;
+        if (i > 0 && is_ident_char((unsigned char)ln[i - 1])) continue;
+        if ((strncmp(ln + i, "val", 3) == 0 || strncmp(ln + i, "var", 3) == 0) && (ln[i + 3] == ' ')) {
+            int j = skip_blanks(ln, i + 3);
+            if (word_at(ln, j, w, wl) && j < upto) best = j;
+        } else if (strncmp(ln + i, "for", 3) == 0 && ln[i + 3] == ' ') {
+            int j = skip_blanks(ln, i + 3);
+            for (;;) {
+                if (word_at(ln, j, w, wl) && j < upto) best = j;
+                while (is_ident_char((unsigned char)ln[j])) j++;
+                j = skip_blanks(ln, j);
+                if (ln[j] != ',') break;
+                j = skip_blanks(ln, j + 1);
+            }
+        } else if (ln[i] == '(' && i > 0 && is_ident_char((unsigned char)ln[i - 1])) {
+            int j = skip_blanks(ln, i + 1);
+            if (word_at(ln, j, w, wl)) {
+                int k = skip_blanks(ln, j + wl);
+                if (ln[k] == ')') {
+                    k = skip_blanks(ln, k + 1);
+                    if (ln[k] == '{' && j < upto) best = j;
+                }
+            }
+        } else if (strncmp(ln + i, "fn(", 3) == 0) { /* a lambda's parameters */
+            int j = i + 3;
+            while (j < len && ln[j] != ')') {
+                j = skip_blanks(ln, j);
+                if (word_at(ln, j, w, wl) && j < upto) best = j;
+                while (j < len && ln[j] != ',' && ln[j] != ')') j++;
+                if (ln[j] == ',') j++;
+            }
+        }
+    }
+    return best;
+}
+
+/* Parameters of a top-level `fn` header that starts at `ln` and may run over several lines. */
+static int header_declares(const char *ln, const char *w, int *out_line_off, int *out_col) {
+    int wl = (int)strlen(w), depth = 0, line_off = 0, started = 0;
+    const char *p = ln;
+    while (*p != '\0') {
+        const char *end = strchr(p, '\n');
+        int len = end != NULL ? (int)(end - p) : (int)strlen(p);
+        for (int i = 0; i < len; i++) {
+            if (p[i] == '/' && p[i + 1] == '/') break;
+            if (p[i] == '(') { depth++; started = 1; }
+            else if (p[i] == ')') { depth--; if (started && depth == 0) return 0; }
+            else if (started && depth == 1 && word_at(p, i, w, wl)) {
+                int k = skip_blanks(p, i + wl);
+                if (p[k] == ':') { *out_line_off = line_off; *out_col = i; return 1; }
+            }
+        }
+        if (end == NULL) break;
+        p = end + 1;
+        line_off++;
+    }
+    return 0;
+}
+
+static int is_header_start(const char *ln) {
+    return strncmp(ln, "fn ", 3) == 0 || strncmp(ln, "pub fn ", 7) == 0 || strncmp(ln, "native fn ", 10) == 0 ||
+           strncmp(ln, "pub native fn ", 14) == 0;
+}
+
+/* Where the local variable, parameter or loop binder `w` used on line `line0` was declared. */
+static int find_local(const Doc *d, int line0, int col_bytes, const char *w, int *oline, int *ocol) {
+    for (int l = line0; l >= 0; l--) {
+        const char *ln = line_ptr(d->text, l);
+        if (ln == NULL) continue;
+        const char *nl = strchr(ln, '\n');
+        int len = nl != NULL ? (int)(nl - ln) : (int)strlen(ln);
+        int c = line_declares(ln, len, w, l == line0 ? col_bytes : len);
+        if (c >= 0) { *oline = l; *ocol = c; return 1; }
+        if (len > 0 && ln[0] != ' ' && ln[0] != '\t' && ln[0] != '}' && ln[0] != '/') {
+            int off, col;
+            if (is_header_start(ln) && header_declares(ln, w, &off, &col)) { *oline = l + off; *ocol = col; return 1; }
+            return 0; /* a top-level item: the enclosing function has been searched */
+        }
+    }
+    return 0;
+}
+
 static void handle_definition(const JVal *id, const JVal *params) {
     const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
     JVal *pos = jget(params, "position");
     Doc *d = uri != NULL ? find_doc_by_uri(uri) : NULL;
+    int line0 = jint(jget(pos, "line"), 0), character = jint(jget(pos, "character"), 0);
+    if (d == NULL) {
+        send_result(id, "null");
+        return;
+    }
+    const char *lp = line_ptr(d->text, line0);
+    int col = lp != NULL ? bytes_of_utf16(lp, character) : 0;
+
+    /* on a `use` line: the module path goes to the module's file, a name or alias to that declaration */
+    UseLine u;
+    if (lp != NULL && parse_use_line(lp, &u)) {
+        if (col >= u.path_start && col <= u.path_end) {
+            char *file = module_file(d, u.path);
+            if (file != NULL) { send_location(id, file, 1, 1); return; }
+        } else if ((u.has_name && col >= u.name_start && col <= u.name_end) || (u.has_alias && col >= u.alias_start && col <= u.alias_end)) {
+            int nsyms;
+            Sym *syms = collect_symbols(&nsyms);
+            Sym *s = u.has_name ? find_qualified(syms, nsyms, u.path, u.name) : NULL;
+            if (s != NULL) { send_location(id, s->file, s->line, s->col); return; }
+            char *file = module_file(d, u.path);
+            if (file != NULL) { send_location(id, file, 1, 1); return; }
+        }
+        send_result(id, "null");
+        return;
+    }
+
     Cursor c;
-    if (d == NULL || !cursor_at(d, jint(jget(pos, "line"), 0), jint(jget(pos, "character"), 0), &c) || c.word[0] == '\0') {
+    if (!cursor_at(d, line0, character, &c) || c.word[0] == '\0') {
         send_result(id, "null");
         return;
     }
     int nsyms, found;
     Sym *syms = collect_symbols(&nsyms);
     Sym *s = lookup(d, &c, syms, nsyms, &found);
-    if (s == NULL) {
-        /* an enum variant (`Shape.Circle`): point at its enum */
-        for (int i = 0; i < g_module->enums.count && g_module != NULL; i++) {
-            EnumDecl *ed = g_module->enums.items[i];
-            for (int v = 0; v < ed->variants.count; v++) {
-                if (strcmp(ed->variants.items[v].name, c.word) == 0 && ed->source_file != NULL) {
-                    SB b = {0};
-                    write_location(&b, ed->source_file, ed->variants.items[v].line > 0 ? ed->variants.items[v].line : ed->line,
-                                   ed->variants.items[v].line > 0 ? ed->variants.items[v].col : ed->col);
-                    send_result(id, b.s);
-                    return;
-                }
-            }
-        }
-        send_result(id, "null");
+    if (s != NULL) {
+        send_location(id, s->file, s->line, s->col);
         return;
     }
-    SB b = {0};
-    write_location(&b, s->file, s->line, s->col);
-    send_result(id, b.s);
+    /* `mod.` where `mod` names an imported module: the module's file */
+    UseLine use;
+    if (!c.after_dot && lp != NULL && lp[c.end_byte] == '.' && find_use(d, c.word, 0, &use)) {
+        char *file = module_file(d, use.path);
+        if (file != NULL) { send_location(id, file, 1, 1); return; }
+    }
+    /* a name imported with `use mod.Name [as alias]` */
+    if (c.qualifier[0] == '\0' && find_use(d, c.word, 1, &use)) {
+        Sym *imported = find_qualified(syms, nsyms, use.path, use.name);
+        if (imported != NULL) { send_location(id, imported->file, imported->line, imported->col); return; }
+    }
+    /* an enum variant (`Shape.Circle`): point at its enum */
+    for (int i = 0; g_module != NULL && i < g_module->enums.count; i++) {
+        EnumDecl *ed = g_module->enums.items[i];
+        for (int v = 0; v < ed->variants.count; v++) {
+            if (strcmp(ed->variants.items[v].name, c.word) == 0 && ed->source_file != NULL) {
+                send_location(id, ed->source_file, ed->variants.items[v].line > 0 ? ed->variants.items[v].line : ed->line,
+                              ed->variants.items[v].line > 0 ? ed->variants.items[v].col : ed->col);
+                return;
+            }
+        }
+    }
+    /* a local variable, parameter or loop binder */
+    int ll, lc;
+    if (!c.after_dot && find_local(d, line0, c.start_byte, c.word, &ll, &lc)) {
+        SB b = {0};
+        const char *lline = line_ptr(d->text, ll);
+        sb_printf(&b, "{\"uri\":");
+        sb_json_string(&b, d->uri);
+        int sc = utf16_of_bytes(lline, lc);
+        sb_printf(&b, ",\"range\":{\"start\":{\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%d}}}", ll, sc, ll,
+                  sc + (int)strlen(c.word));
+        send_result(id, b.s);
+        return;
+    }
+    send_result(id, "null");
 }
 
 static void handle_hover(const JVal *id, const JVal *params) {
@@ -881,6 +1241,72 @@ static void handle_formatting(const JVal *id, const JVal *params) {
 
 static int g_shutdown = 0;
 
+/* Ctrl+T: every declaration whose name contains the query, the program's own before the bundled library's. */
+static void handle_workspace_symbol(const JVal *id, const JVal *params) {
+    const char *query = jstr(jget(params, "query"));
+    if (query == NULL) query = "";
+    int nsyms;
+    Sym *syms = collect_symbols(&nsyms);
+    SB b = {0};
+    sb_puts(&b, "[");
+    int first = 1, emitted = 0;
+    for (int pass = 0; pass < 2 && emitted < 200; pass++) {
+        for (int i = 0; i < nsyms && emitted < 200; i++) {
+            if (syms[i].core != pass) continue;
+            if (strcasestr(bare_name(syms[i].name), query) == NULL) continue;
+            if (!first) sb_puts(&b, ",");
+            first = 0;
+            emitted++;
+            sb_puts(&b, "{\"name\":");
+            sb_json_string(&b, bare_name(syms[i].name));
+            sb_printf(&b, ",\"kind\":%d,\"containerName\":", syms[i].kind);
+            char *seg = module_segment(syms[i].name);
+            sb_json_string(&b, seg);
+            free(seg);
+            sb_puts(&b, ",\"location\":");
+            write_location(&b, syms[i].file, syms[i].line, syms[i].col);
+            sb_puts(&b, "}");
+        }
+    }
+    sb_puts(&b, "]");
+    send_result(id, b.s);
+}
+
+/* Every other place the word under the cursor appears in the file (outside `//` comments). */
+static void handle_document_highlight(const JVal *id, const JVal *params) {
+    const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
+    JVal *pos = jget(params, "position");
+    Doc *d = uri != NULL ? find_doc_by_uri(uri) : NULL;
+    Cursor c;
+    if (d == NULL || !cursor_at(d, jint(jget(pos, "line"), 0), jint(jget(pos, "character"), 0), &c) || c.word[0] == '\0') {
+        send_result(id, "[]");
+        return;
+    }
+    int wl = (int)strlen(c.word);
+    SB b = {0};
+    sb_puts(&b, "[");
+    int first = 1, line = 0;
+    const char *p = d->text;
+    while (*p != '\0') {
+        const char *nl = strchr(p, '\n');
+        int len = nl != NULL ? (int)(nl - p) : (int)strlen(p);
+        for (int i = 0; i + wl <= len; i++) {
+            if (p[i] == '/' && p[i + 1] == '/') break;
+            if (!word_at(p, i, c.word, wl)) continue;
+            if (!first) sb_puts(&b, ",");
+            first = 0;
+            int sc = utf16_of_bytes(p, i);
+            sb_printf(&b, "{\"range\":{\"start\":{\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%d}}}", line, sc, line,
+                      sc + utf16_of_bytes(p + i, wl));
+        }
+        if (nl == NULL) break;
+        p = nl + 1;
+        line++;
+    }
+    sb_puts(&b, "]");
+    send_result(id, b.s);
+}
+
 static void handle_message(const JVal *msg) {
     const char *method = jstr(jget(msg, "method"));
     JVal *id = jget(msg, "id");
@@ -890,7 +1316,7 @@ static void handle_message(const JVal *msg) {
         send_result(id,
                     "{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{}},"
                     "\"documentFormattingProvider\":true,\"hoverProvider\":true,\"definitionProvider\":true,"
-                    "\"documentSymbolProvider\":true,\"completionProvider\":{\"triggerCharacters\":[\".\"]}},"
+                    "\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"documentHighlightProvider\":true,\"completionProvider\":{\"triggerCharacters\":[\".\"]}},"
                     "\"serverInfo\":{\"name\":\"ziman\"}}");
     } else if (strcmp(method, "shutdown") == 0) {
         g_shutdown = 1;
@@ -936,6 +1362,10 @@ static void handle_message(const JVal *msg) {
         handle_definition(id, params);
     } else if (strcmp(method, "textDocument/documentSymbol") == 0) {
         handle_document_symbol(id, params);
+    } else if (strcmp(method, "workspace/symbol") == 0) {
+        handle_workspace_symbol(id, params);
+    } else if (strcmp(method, "textDocument/documentHighlight") == 0) {
+        handle_document_highlight(id, params);
     } else if (strcmp(method, "textDocument/completion") == 0) {
         handle_completion(id, params);
     } else if (id != NULL) {

@@ -4,7 +4,9 @@ definition, hover, completion and shutdown."""
 import json, os, subprocess, sys, tempfile
 
 ZIMAN = sys.argv[1] if len(sys.argv) > 1 else "./ziman"
-proc = subprocess.Popen([ZIMAN, "--lsp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+cache = tempfile.mkdtemp()
+proc = subprocess.Popen([ZIMAN, "--lsp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                        env=dict(os.environ, XDG_CACHE_HOME=cache))
 _id = 0
 pending = []
 
@@ -88,6 +90,51 @@ check("document symbols", names == ["Point", "double"], names)
 r = request("textDocument/completion", {"textDocument": {"uri": main_uri}, "position": {"line": 4, "character": 15}})
 labels = [i["label"] for i in r["result"]["items"]]
 check("completion after `util.`", "double" in labels and "Point" in labels, labels)
+
+# navigation: `use` lines, aliases, bundled modules, locals, per-name imports
+nav = ('use util as u\nuse mime\nuse util.double as twice\n\nfn helper(count: int) -> int {\n    return count\n}\n\n'
+       'fn main() {\n    val a = 21\n    for i, item in [a] {\n        print(item + i)\n    }\n'
+       '    print(u.double(a))\n    print(mime.essence(mime.text_plain()))\n    print(twice(a))\n    print(helper(a))\n}\n')
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 4}, "contentChanges": [{"text": nav}]})
+diagnostics_for(main_uri)
+
+def goto(line, character):
+    r = request("textDocument/definition", {"textDocument": {"uri": main_uri}, "position": {"line": line, "character": character}})
+    return r["result"]
+
+r = goto(0, 8)
+check("ctrl+click on a `use` path opens the module file", r and r["uri"] == util_uri and r["range"]["start"]["line"] == 0, r)
+r = goto(1, 6)
+check("ctrl+click on a bundled module path opens its cached source", r and r["uri"].endswith("/ziman/core/mime.zm"), r)
+r = goto(13, 13)
+check("an alias qualifier resolves to the aliased module", r and r["uri"] == util_uri and r["range"]["start"]["line"] == 5, r)
+r = goto(13, 11)
+check("the alias itself opens the module", r and r["uri"] == util_uri and r["range"]["start"]["line"] == 0, r)
+r = goto(14, 18)
+check("a call into a bundled module opens its source", r and r["uri"].endswith("/ziman/core/mime.zm") and r["range"]["start"]["line"] > 0, r)
+r = goto(15, 11)
+check("a name imported with `use mod.Name as alias` resolves", r and r["uri"] == util_uri and r["range"]["start"]["line"] == 5, r)
+r = goto(2, 22)
+check("ctrl+click on an imported name in its `use` line", r and r["uri"] == util_uri and r["range"]["start"]["line"] == 5, r)
+r = goto(15, 17)
+check("a local variable goes to its `val`", r and r["uri"] == main_uri and r["range"]["start"]["line"] == 9, r)
+r = goto(11, 15)
+check("a for-loop binder goes to its `for`", r and r["uri"] == main_uri and r["range"]["start"]["line"] == 10, r)
+r = goto(5, 11)
+check("a parameter goes to the function header", r and r["uri"] == main_uri and r["range"]["start"]["line"] == 4, r)
+r = goto(16, 12)
+check("a function of the same file", r and r["uri"] == main_uri and r["range"]["start"]["line"] == 4, r)
+
+r = request("textDocument/hover", {"textDocument": {"uri": main_uri}, "position": {"line": 14, "character": 18}})
+check("hover works on bundled modules", r["result"] and "fn essence(" in r["result"]["contents"]["value"], r)
+r = request("textDocument/completion", {"textDocument": {"uri": main_uri}, "position": {"line": 14, "character": 17}})
+labels = [i["label"] for i in r["result"]["items"]]
+check("completion after a bundled module's qualifier", "essence" in labels and "parse" in labels, labels[:10])
+
+r = request("workspace/symbol", {"query": "doub"})
+check("workspace symbols by name", any(x["name"] == "double" and x["location"]["uri"] == util_uri for x in r["result"]), r)
+r = request("textDocument/documentHighlight", {"textDocument": {"uri": main_uri}, "position": {"line": 9, "character": 8}})
+check("document highlight finds every use of a name", len(r["result"]) >= 5, r)
 
 messy = 'fn main(){\nval x=1\nprint(x)\n}\n'
 notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 3}, "contentChanges": [{"text": messy}]})
