@@ -20,7 +20,7 @@ use json.Json
 // contain newlines, so a row's line is not its index).
 struct Cell {
     text: string
-    quoted: bool
+    tag: string
 }
 
 struct Row {
@@ -32,11 +32,13 @@ struct Row {
 val byte_order_mark = unwrap(bytes_to_string([239b, 187b, 191b]))
 
 // Splits `text` into cells. The result is a flat array: each cell is a one-character tag
-// (`q` for a quoted cell, `u` for an unquoted one) followed by its text, and each row is ended
-// by a string starting with the control character U+0001 followed by the row's line number.
-// Blank lines produce nothing. An Err names the line of a stray quote, of text after a
-// closing quote, or of an unterminated quote (and where that quote opened).
-native fn scan_cells(text: string, sep: string) -> Result<[string], string>
+// followed by its text, and each row is ended by a string starting with the control character
+// U+0001 followed by the row's line number. The tag is `q` for a quoted cell and `u` for an
+// unquoted one; with `typed`, an unquoted cell that looks like something else is tagged `n`
+// (empty), `t` or `x` (true or false), `i` (an integer) or `d` (a float). Blank lines produce
+// nothing. An Err names the line of a stray quote, of text after a closing quote, or of an
+// unterminated quote (and where that quote opened).
+native fn scan_cells(text: string, sep: string, typed: bool) -> Result<[string], string>
 
 // ---------------------------------------------------------------- reading
 
@@ -48,10 +50,10 @@ fn check_delimiter(sep: string) -> Result<string, string> {
 }
 
 // The table as rows of cells, from the scanner's flat form.
-fn parse_rows(text: string, sep: string) -> Result<[Row], string> {
+fn parse_rows(text: string, sep: string, typed: bool) -> Result<[Row], string> {
     check_delimiter(sep)?
     val body = if starts_with(text, byte_order_mark) { substring(text, len(byte_order_mark), len(text)) } else { text }
-    val flat = scan_cells(body, sep)?
+    val flat = scan_cells(body, sep, typed)?
     val rows = ab_new<Row>()
     var cells = ab_new<Cell>()
     for item in flat {
@@ -60,7 +62,7 @@ fn parse_rows(text: string, sep: string) -> Result<[Row], string> {
             ab_append<Row>(rows, Row { line: line, cells: ab_to_array<Cell>(cells) })
             cells = ab_new<Cell>()
         } else {
-            ab_append<Cell>(cells, Cell { text: substring(item, 1, len(item)), quoted: char_at(item, 0) == "q" })
+            ab_append<Cell>(cells, Cell { text: substring(item, 1, len(item)), tag: substring(item, 0, 1) })
         }
     }
     return ok(ab_to_array<Row>(rows))
@@ -127,33 +129,28 @@ fn looks_float(s: string) -> bool {
     return seen_digit && (seen_dot || seen_exp)
 }
 
+// A cell as JSON: the scanner's tag says what it looks like (only `parse_csv_typed` asks it to
+// look).
 fn typed_cell(cell: Cell) -> Json {
-    if cell.quoted {
-        return Json.JString(cell.text)
-    }
-    val t = cell.text
-    if len(t) == 0 {
+    val tag = cell.tag
+    if tag == "n" {
         return Json.JNull
     }
-    if t == "true" {
+    if tag == "t" {
         return Json.JBool(true)
     }
-    if t == "false" {
+    if tag == "x" {
         return Json.JBool(false)
     }
-    if looks_int(t) {
-        val n = parse_int(t)
-        if is_ok(n) {
-            return Json.JInt(unwrap(n))
-        }
+    if tag == "i" {
+        val n = parse_int(cell.text)
+        return if is_ok(n) { Json.JInt(unwrap(n)) } else { Json.JString(cell.text) }
     }
-    if looks_float(t) {
-        val f = parse_float(t)
-        if is_ok(f) {
-            return Json.JNumber(unwrap(f))
-        }
+    if tag == "d" {
+        val f = parse_float(cell.text)
+        return if is_ok(f) { Json.JNumber(unwrap(f)) } else { Json.JString(cell.text) }
     }
-    return Json.JString(t)
+    return Json.JString(cell.text)
 }
 
 // Rows `from..` as objects keyed by `header`. Every row must have as many cells as the header.
@@ -190,7 +187,7 @@ fn header_of(rows: [Row]) -> [string] {
 }
 
 fn table_of(text: string, sep: string, typed: bool) -> Result<Json, string> {
-    val rows = parse_rows(text, sep)?
+    val rows = parse_rows(text, sep, typed)?
     if len(rows) == 0 {
         val no_rows: [Json] = []
         return ok(Json.JArray(no_rows))
@@ -199,7 +196,7 @@ fn table_of(text: string, sep: string, typed: bool) -> Result<Json, string> {
 }
 
 fn table_with_columns(text: string, columns: [string], typed: bool) -> Result<Json, string> {
-    val rows = parse_rows(text, ",")?
+    val rows = parse_rows(text, ",", typed)?
     return rows_to_objects(rows, columns, 0, typed)
 }
 
@@ -212,7 +209,7 @@ pub fn parse_csv_rows(text: string) -> Result<[[string]], string> {
 
 // parse_csv_rows with another one-character delimiter, e.g. "\t" for TSV.
 pub fn parse_csv_rows_with(text: string, delimiter: string) -> Result<[[string]], string> {
-    val rows = parse_rows(text, delimiter)?
+    val rows = parse_rows(text, delimiter, false)?
     val out = ab_new<[string]>()
     for row in rows {
         val cells = ab_new<string>()
