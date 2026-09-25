@@ -164,19 +164,43 @@ pub native fn write_text(path: string, text: string) -> Result<int, string>
 
 pub native fn append_text(path: string, text: string) -> Result<int, string>
 
+pub native fn write_text_atomic(path: string, text: string) -> Result<int, string>
+
+pub native fn read_bytes(path: string) -> Result<[byte], string>
+
+pub native fn write_bytes(path: string, data: [byte]) -> Result<int, string>
+
+pub native fn append_bytes(path: string, data: [byte]) -> Result<int, string>
+
 pub native fn exists(path: string) -> bool
 
 pub native fn is_dir(path: string) -> bool
 
+pub native fn is_file(path: string) -> bool
+
 pub native fn size(path: string) -> Result<int, string>
+
+pub native fn modified_seconds(path: string) -> Result<int, string>
+
+pub native fn list_dir(path: string) -> Result<[string], string>
 
 pub native fn remove(path: string) -> Result<int, string>
 
 pub native fn make_dir(path: string) -> Result<int, string>
 
+pub native fn make_dirs(path: string) -> Result<int, string>
+
 pub native fn rename(from: string, to: string) -> Result<int, string>
 
-pub native fn list_dir(path: string) -> Result<[string], string>
+pub native fn copy_file(from: string, to: string) -> Result<int, string>
+
+pub fn path_join(pieces: string...) -> string
+
+pub fn file_name(path: string) -> string
+
+pub fn parent_dir(path: string) -> string
+
+pub fn extension(path: string) -> string
 
 ```
 
@@ -618,6 +642,16 @@ pub native fn bytes_from_hex(s: string) -> Result<[byte], string>
 ## `os`
 
 ```
+pub fn getenv(name: string) -> Option<string>
+
+pub native fn set_env(name: string, value: string) -> bool
+
+pub native fn args() -> [string]
+
+pub fn cwd() -> Result<string, string>
+
+pub native fn pid() -> int
+
 pub native fn exit(code: int)
 
 pub native fn write_stderr(text: string)
@@ -625,8 +659,6 @@ pub native fn write_stderr(text: string)
 pub native fn install_shutdown_handler()
 
 pub native fn shutdown_requested() -> bool
-
-pub fn getenv(name: string) -> Option<string>
 
 ```
 

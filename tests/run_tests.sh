@@ -50,7 +50,13 @@ check_fixture() {
     # `timeout` guards against a genuine deadlock in a spawn/Channel fixture
     # (a mistake in the interpreter's channel/thread handling) hanging the
     # whole suite forever instead of just failing that one fixture.
-    stdout=$(env "${env_args[@]}" timeout 5 "$BIN" "${cli_args[@]+"${cli_args[@]}"}" "$entry" 2>/tmp/ziman_test_stderr.$$)
+    # An optional <name>.progargs holds the program's own arguments (after `--`).
+    local prog_args=()
+    if [ -f "tests/fixtures/$name.progargs" ]; then
+        read -r -a prog_args < "tests/fixtures/$name.progargs"
+        prog_args=(-- "${prog_args[@]}")
+    fi
+    stdout=$(env "${env_args[@]}" timeout 5 "$BIN" "${cli_args[@]+"${cli_args[@]}"}" "$entry" "${prog_args[@]+"${prog_args[@]}"}" 2>/tmp/ziman_test_stderr.$$)
     status=$?
     stderr=$(cat /tmp/ziman_test_stderr.$$)
     rm -f /tmp/ziman_test_stderr.$$

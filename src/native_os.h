@@ -9,4 +9,7 @@ void native_os_register(void);
  * net.accept polls it, so a server's accept loop wakes up and can drain. */
 int ziman_shutdown_requested(void);
 
+/* The arguments after `--` on the command line (`ziman prog.zm -- a b`), for os.args(). */
+void ziman_set_program_args(int count, char **args);
+
 #endif

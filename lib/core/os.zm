@@ -1,31 +1,17 @@
-// os.zm -- the operating-system environment, so far just environment
-// variables. A program that reads its configuration from the environment
-// (the `properties` module does, to let `SERVER_PORT` override
-// `server.port`) needs this; before it existed Ziman had no way to see
-// the environment at all, which is why an earlier backend kept its
-// settings in ad hoc files.
+// os.zm -- the process and its environment: environment variables, command-line arguments,
+// the working directory, and ending or shutting down the program.
+//
+// Nothing here can fail in a way a program needs to handle except reading the working
+// directory, which returns a `Result`; the rest are plain values or actions.
 
 native fn getenv_raw(name: string) -> Result<string, string>
+native fn cwd_raw() -> Result<string, string>
 
-// Leaves the process with `code` (0 = success), flushing stdout and stderr
-// first. The way a program reports a fatal setup error with a non-zero status
-// instead of crashing on an `unwrap`. Not a way to end one thread.
-pub native fn exit(code: int)
+// ---------------------------------------------------------------- environment
 
-// Text on stderr, unbuffered, with no newline added -- for messages that must
-// not mix into the program's normal output.
-pub native fn write_stderr(text: string)
-
-// Graceful shutdown. After `install_shutdown_handler()`, SIGINT (Ctrl-C) and
-// SIGTERM no longer kill the process: they make `shutdown_requested()` true,
-// and `net.accept` returns an error within about a quarter of a second so an
-// accept loop can notice, stop taking connections and drain. Without it the
-// signals behave as usual.
-pub native fn install_shutdown_handler()
-pub native fn shutdown_requested() -> bool
-
-// The value of the environment variable `name`, or None if it isn't set.
-// A variable that is set but empty is Some("") -- not the same as unset.
+// The value of the environment variable `name`, or None if it isn't set. A variable that is
+// set but empty is Some(""), which is not the same as unset. (The `properties` module uses this
+// to let `SERVER_PORT` override `server.port`.)
 pub fn getenv(name: string) -> Option<string> {
     val r = getenv_raw(name)
     if !is_ok(r) {
@@ -33,3 +19,43 @@ pub fn getenv(name: string) -> Option<string> {
     }
     return Option<string>.Some(unwrap(r))
 }
+
+// Sets an environment variable for this process and any it starts. False if the name or value
+// is not valid for the environment (an empty name, or a name containing `=`).
+pub native fn set_env(name: string, value: string) -> bool
+
+// ---------------------------------------------------------------- process
+
+// The program's own command-line arguments: everything after `--` in `ziman prog.zm -- a b`,
+// so `["a", "b"]`. Empty when there is no `--`.
+pub native fn args() -> [string]
+
+// The process's working directory. An Err carries the operating system's message.
+pub fn cwd() -> Result<string, string> {
+    return cwd_raw()
+}
+
+// The process id.
+pub native fn pid() -> int
+
+// Leaves the process with status `code` (0 = success), flushing stdout and stderr first. This
+// is how a program reports a fatal setup error with a non-zero status instead of crashing on an
+// `unwrap`. It ends the whole process, not one thread.
+pub native fn exit(code: int)
+
+// Writes `text` to stderr immediately, with no newline added and no buffering -- for messages
+// that must not mix into the program's normal output.
+pub native fn write_stderr(text: string)
+
+// ---------------------------------------------------------------- graceful shutdown
+//
+// After `install_shutdown_handler()`, SIGINT (Ctrl-C) and SIGTERM no longer kill the process:
+// they make `shutdown_requested()` true, and `net.accept` returns an error within about a
+// quarter of a second, so an accept loop can notice, stop taking connections and drain its
+// work. Without the handler the signals behave as usual.
+
+// Turns on the behavior described above. Call it once at startup.
+pub native fn install_shutdown_handler()
+
+// True once SIGINT or SIGTERM has arrived (after `install_shutdown_handler`).
+pub native fn shutdown_requested() -> bool

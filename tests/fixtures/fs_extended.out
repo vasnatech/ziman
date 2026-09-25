@@ -1,0 +1,40 @@
+Ok(0)
+Ok(0)
+true
+Ok(5)
+Ok(1)
+Ok([0, 1, 255, 0, 65, 10])
+false
+true
+false
+Ok(6)
+Ok(6)
+Ok([0, 1, 255, 0, 65, 10])
+Ok(5)
+Ok(6)
+second
+Ok([a, atomic.txt, copy.bin])
+true
+false
+false
+false
+false
+Err(cannot write '/nonexistent_dir/x': No such file or directory)
+Ok(0)
+Ok(0)
+Ok(0)
+Ok(0)
+Ok(0)
+Ok(0)
+a/b/c.txt
+/x
+a/b
+c.txt
+b
+plain
+a/b
+.
+/
+.gz
+
+

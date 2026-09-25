@@ -1,7 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "native_os.h"
 
+#include <errno.h>
 #include <signal.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +23,44 @@ static Value native_os_getenv_raw(Value *args, int argc, int line, int col) {
     const char *v = getenv(value_cstr(args[0]));
     if (v == NULL) return value_result(result_type, result_obj_new(0, value_string(strdup(""))));
     return value_result(result_type, result_obj_new(1, value_string(strdup(v))));
+}
+
+static int g_prog_argc = 0;
+static char **g_prog_argv = NULL;
+
+void ziman_set_program_args(int count, char **args) {
+    g_prog_argc = count;
+    g_prog_argv = args;
+}
+
+/* os.args() -> [string]: the program's own arguments (those after `--`). */
+static Value native_os_args(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    Value *items = malloc((size_t)(g_prog_argc > 0 ? g_prog_argc : 1) * sizeof(Value));
+    for (int i = 0; i < g_prog_argc; i++) items[i] = value_string(strdup(g_prog_argv[i]));
+    return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, g_prog_argc));
+}
+
+/* os.cwd_raw() -> Result<string, string>: the current directory. */
+static Value native_os_cwd(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    Type str = type_scalar(TY_STRING);
+    char buf[4096];
+    if (getcwd(buf, sizeof buf) == NULL) {
+        return value_result(type_result(str, str), result_obj_new(0, value_string(strdup(strerror(errno)))));
+    }
+    return value_result(type_result(str, str), result_obj_new(1, value_string(strdup(buf))));
+}
+
+static Value native_os_pid(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    return value_int((int64_t)getpid());
+}
+
+/* os.set_env(name, value) -> bool: sets a variable for this process and its children. */
+static Value native_os_set_env(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_bool(setenv(value_cstr(args[0]), value_cstr(args[1]), 1) == 0);
 }
 
 /* os.exit(code): flush stdout/stderr and leave the process with `code`. */
@@ -74,6 +114,10 @@ static Value native_os_shutdown_requested(Value *args, int argc, int line, int c
 void native_os_register(void) {
     native_register("os::getenv_raw", native_os_getenv_raw);
     native_register("os::exit", native_os_exit);
+    native_register("os::args", native_os_args);
+    native_register("os::cwd_raw", native_os_cwd);
+    native_register("os::pid", native_os_pid);
+    native_register("os::set_env", native_os_set_env);
     native_register("os::write_stderr", native_os_write_stderr);
     native_register("os::install_shutdown_handler", native_os_install_shutdown_handler);
     native_register("os::shutdown_requested", native_os_shutdown_requested);

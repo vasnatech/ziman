@@ -1,26 +1,131 @@
-// fs.zm -- the filesystem. Every function that can fail
-// returns a Result carrying the operating system's own message
-// ("cannot write 'x/y': No such file or directory"), so a missing directory or
-// a full disk is something a program handles, not a crash. Actions that have no
-// value to report return Ok(0), the same shape `net` uses.
+// fs.zm -- the filesystem: files, directories and paths.
+//
+// Every function that can fail returns a `Result` carrying the operating system's own message
+// ("cannot write 'x/y': No such file or directory"), so a missing directory, a permission
+// problem or a full disk is something a program handles, not a crash. An action with no value
+// to report returns `Ok(0)` (or `Ok(bytes)` for the ones that write), the same shape `net`
+// uses. The path predicates (`exists`, `is_dir`, `is_file`) return a plain bool: false covers
+// "does not exist" and "cannot be checked" alike.
+//
+// Text is UTF-8 in a `string`, which cannot hold a NUL byte; anything else -- images, archives,
+// files that might contain NUL -- is read and written as `[byte]`.
 
-// The whole file as a string (an error if it contains a NUL byte).
+// ---------------------------------------------------------------- text files
+
+// The whole file as a string. An Err if it cannot be read or contains a NUL byte.
 pub native fn read_text(path: string) -> Result<string, string>
 
-// Replaces the file's contents (creating it). Ok(bytes written).
+// Replaces the file's contents with `text`, creating the file. `Ok(bytes written)`. Not
+// atomic: a crash part-way leaves a partly written file (use `write_text_atomic` for that).
 pub native fn write_text(path: string, text: string) -> Result<int, string>
-// Adds to the end of the file (creating it).
+
+// Adds `text` to the end of the file, creating it. `Ok(bytes written)`.
 pub native fn append_text(path: string, text: string) -> Result<int, string>
 
+// Replaces the file's contents so that a reader, or a crash, sees either the old contents or
+// the new ones, never a mixture: the text goes to a temporary file next to `path`, is flushed
+// to disk, and is renamed over it. `Ok(bytes written)`.
+pub native fn write_text_atomic(path: string, text: string) -> Result<int, string>
+
+// ---------------------------------------------------------------- binary files
+
+// The whole file as bytes (any content, including NUL).
+pub native fn read_bytes(path: string) -> Result<[byte], string>
+
+// Replaces the file's contents with `data`, creating the file. `Ok(bytes written)`.
+pub native fn write_bytes(path: string, data: [byte]) -> Result<int, string>
+
+// Adds `data` to the end of the file, creating it. `Ok(bytes written)`.
+pub native fn append_bytes(path: string, data: [byte]) -> Result<int, string>
+
+// ---------------------------------------------------------------- inspecting
+
+// True if something (a file, directory, ...) exists at `path`.
 pub native fn exists(path: string) -> bool
+
+// True if `path` is a directory.
 pub native fn is_dir(path: string) -> bool
-// Size in bytes.
+
+// True if `path` is a regular file.
+pub native fn is_file(path: string) -> bool
+
+// The size of the file in bytes.
 pub native fn size(path: string) -> Result<int, string>
+
+// The time the file was last modified, in seconds since the Unix epoch.
+pub native fn modified_seconds(path: string) -> Result<int, string>
+
+// The names in a directory, sorted (no "." or ".."). Names only, not paths: join them with
+// `path_join`.
+pub native fn list_dir(path: string) -> Result<[string], string>
+
+// ---------------------------------------------------------------- changing
 
 // Deletes a file or an *empty* directory.
 pub native fn remove(path: string) -> Result<int, string>
+
+// Creates one directory; its parent must exist and it must not already exist.
 pub native fn make_dir(path: string) -> Result<int, string>
+
+// Creates a directory and any missing parents (like `mkdir -p`); `Ok(0)` if it already
+// exists as a directory.
+pub native fn make_dirs(path: string) -> Result<int, string>
+
+// Moves or renames `from` to `to`, replacing `to` if it is a file.
 pub native fn rename(from: string, to: string) -> Result<int, string>
 
-// The names in a directory (no "." or ".."), sorted.
-pub native fn list_dir(path: string) -> Result<[string], string>
+// Copies a file's contents (not its permissions) to `to`, replacing it. `Ok(bytes copied)`.
+pub native fn copy_file(from: string, to: string) -> Result<int, string>
+
+// ---------------------------------------------------------------- paths
+//
+// Pure string helpers using "/" as the separator; they never touch the filesystem.
+
+// Joins path pieces with single slashes: `path_join("a/", "/b", "c.txt")` is "a/b/c.txt". A
+// piece that starts with "/" after the first one is treated as relative, not as a new root.
+pub fn path_join(pieces: string...) -> string {
+    val out = sb_new()
+    var first = true
+    for piece in pieces {
+        if len(piece) == 0 {
+            continue
+        }
+        if first {
+            sb_append(out, piece)
+            first = false
+        } else {
+            val left = sb_to_string(out)
+            val right = if is_char_at(piece, 0, "/") { substring(piece, 1, len(piece)) } else { piece }
+            sb_append(out, if is_char_at(left, len(left) - 1, "/") { "" } else { "/" }, right)
+        }
+    }
+    return sb_to_string(out)
+}
+
+// The last segment of a path: `file_name("a/b/c.txt")` is "c.txt". A trailing slash is ignored.
+pub fn file_name(path: string) -> string {
+    val trimmed = if len(path) > 1 && is_char_at(path, len(path) - 1,
+        "/") { substring(path, 0, len(path) - 1) } else { path }
+    val at = last_index_of(trimmed, "/")
+    return if at < 0 { trimmed } else { substring(trimmed, at + 1, len(trimmed)) }
+}
+
+// Everything before the last segment: `parent_dir("a/b/c.txt")` is "a/b"; "." for a bare name,
+// "/" for a top-level absolute path.
+pub fn parent_dir(path: string) -> string {
+    val trimmed = if len(path) > 1 && is_char_at(path, len(path) - 1,
+        "/") { substring(path, 0, len(path) - 1) } else { path }
+    val at = last_index_of(trimmed, "/")
+    if at < 0 {
+        return "."
+    }
+    return if at == 0 { "/" } else { substring(trimmed, 0, at) }
+}
+
+// The extension of the last segment including the dot, or "" if it has none:
+// `extension("a/b.tar.gz")` is ".gz"; `extension(".bashrc")` and `extension("a/b")` are "".
+pub fn extension(path: string) -> string {
+    val name = file_name(path)
+    val at = last_index_of(name, ".")
+    return if at <= 0 { "" } else { substring(name, at, len(name)) }
+}

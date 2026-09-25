@@ -7,6 +7,7 @@
 #include "lsp.h"
 #include "native_csv.h"
 #include "native_number.h"
+#include "native_os.h"
 #include "error.h"
 #include "interpreter.h"
 #include "loader.h"
@@ -35,6 +36,7 @@ static void usage(FILE *out) {
           "                   code instead of running it; exit 1 if there are any\n"
           "  --lsp            run as a Language Server on stdin/stdout (diagnostics, formatting,\n"
           "                   symbols, go to definition, hover, completion)\n"
+          "  -- args...       everything after `--` is the program's own arguments (os.args())\n"
           "  --fmt            print the source formatted (several files allowed, `-` is\n"
           "                   stdin); with --write rewrite the files in place, with\n"
           "                   --check list the files that would change and exit 1;\n"
@@ -119,6 +121,10 @@ int main(int argc, char **argv) {
     int n_files = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
+        if (strcmp(a, "--") == 0) {
+            ziman_set_program_args(argc - i - 1, argv + i + 1);
+            break;
+        }
         if (strcmp(a, "--check") == 0) check_only = 1;
         else if (strcmp(a, "--json") == 0) json = 1;
         else if (strcmp(a, "--lint") == 0) lint = 1;

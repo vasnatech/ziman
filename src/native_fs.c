@@ -152,6 +152,139 @@ static Value native_fs_list_dir(Value *args, int argc, int line, int col) {
     return value_result(type_result(list_type, string_type()), result_obj_new(1, arr));
 }
 
+/* ---- bytes, directories, copying, atomic writes -------------------------------------- */
+static Value fs_ok_bytes(uint8_t *buf, size_t n) {
+    Type bt = type_array(type_scalar(TY_BYTE));
+    return value_result(type_result(bt, string_type()), result_obj_new(1, value_byte_array(buf, n)));
+}
+
+static Value native_fs_read_bytes(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *path = value_cstr(args[0]);
+    Type bt = type_array(type_scalar(TY_BYTE));
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return fs_err(bt, "cannot read", path);
+    size_t cap = 4096, n = 0;
+    uint8_t *buf = malloc(cap);
+    for (;;) {
+        size_t got = fread(buf + n, 1, cap - n, f);
+        n += got;
+        if (n < cap) break;
+        cap *= 2;
+        buf = realloc(buf, cap);
+    }
+    int failed = ferror(f);
+    fclose(f);
+    if (failed) { free(buf); return fs_err(bt, "cannot read", path); }
+    Value v = fs_ok_bytes(buf, n);
+    free(buf);
+    return v;
+}
+
+static Value fs_write_bytes(Value *args, const char *mode, const char *what) {
+    const char *path = value_cstr(args[0]);
+    int n = 0;
+    uint8_t *data = array_copy_bytes(args[1].as.arr, &n);
+    FILE *f = fopen(path, mode);
+    if (f == NULL) { free(data); return fs_err(type_scalar(TY_INT), what, path); }
+    size_t wrote = n > 0 ? fwrite(data, 1, (size_t)n, f) : 0;
+    int failed = wrote != (size_t)n;
+    if (fclose(f) != 0) failed = 1;
+    free(data);
+    if (failed) return fs_err(type_scalar(TY_INT), what, path);
+    return fs_ok_int((int64_t)n);
+}
+
+static Value native_fs_write_bytes(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return fs_write_bytes(args, "wb", "cannot write");
+}
+
+static Value native_fs_append_bytes(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return fs_write_bytes(args, "ab", "cannot append to");
+}
+
+/* Writes to a temporary file in the same directory, then renames it over `path`, so a reader
+ * (or a crash) sees the old contents or the new, never half of the new. */
+static Value native_fs_write_text_atomic(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *path = value_cstr(args[0]);
+    char tmp[4096];
+    snprintf(tmp, sizeof tmp, "%s.tmp%d", path, (int)getpid());
+    FILE *f = fopen(tmp, "wb");
+    if (f == NULL) return fs_err(type_scalar(TY_INT), "cannot write", path);
+    size_t n = fwrite(args[1].as.str.ptr, 1, args[1].as.str.len, f);
+    int failed = n != args[1].as.str.len;
+    if (fflush(f) != 0 || fsync(fileno(f)) != 0) failed = 1;
+    if (fclose(f) != 0) failed = 1;
+    if (failed || rename(tmp, path) != 0) {
+        int saved = errno;
+        remove(tmp);
+        errno = saved;
+        return fs_err(type_scalar(TY_INT), "cannot write", path);
+    }
+    return fs_ok_int((int64_t)n);
+}
+
+static Value native_fs_is_file(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    struct stat st;
+    return value_bool(stat(value_cstr(args[0]), &st) == 0 && S_ISREG(st.st_mode));
+}
+
+/* mkdir -p: creates every missing directory on the path; Ok(0) if it already exists as a directory. */
+static Value native_fs_make_dirs(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *path = value_cstr(args[0]);
+    char buf[4096];
+    if (strlen(path) >= sizeof buf) { errno = ENAMETOOLONG; return fs_err(type_scalar(TY_INT), "cannot create directory", path); }
+    strcpy(buf, path);
+    for (char *p = buf + 1; *p; p++) {
+        if (*p != '/') continue;
+        *p = '\0';
+        if (mkdir(buf, 0777) != 0 && errno != EEXIST) return fs_err(type_scalar(TY_INT), "cannot create directory", path);
+        *p = '/';
+    }
+    if (mkdir(buf, 0777) != 0) {
+        struct stat st;
+        if (errno == EEXIST && stat(buf, &st) == 0 && S_ISDIR(st.st_mode)) return fs_ok_int(0);
+        return fs_err(type_scalar(TY_INT), "cannot create directory", path);
+    }
+    return fs_ok_int(0);
+}
+
+static Value native_fs_copy_file(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *from = value_cstr(args[0]);
+    const char *to = value_cstr(args[1]);
+    FILE *in = fopen(from, "rb");
+    if (in == NULL) return fs_err(type_scalar(TY_INT), "cannot read", from);
+    FILE *out = fopen(to, "wb");
+    if (out == NULL) { int saved = errno; fclose(in); errno = saved; return fs_err(type_scalar(TY_INT), "cannot write", to); }
+    char chunk[65536];
+    size_t total = 0, got;
+    int failed = 0;
+    while ((got = fread(chunk, 1, sizeof chunk, in)) > 0) {
+        if (fwrite(chunk, 1, got, out) != got) { failed = 1; break; }
+        total += got;
+    }
+    if (ferror(in)) failed = 1;
+    fclose(in);
+    if (fclose(out) != 0) failed = 1;
+    if (failed) return fs_err(type_scalar(TY_INT), "cannot copy to", to);
+    return fs_ok_int((int64_t)total);
+}
+
+/* Last modification time, in seconds since the Unix epoch. */
+static Value native_fs_modified_seconds(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *path = value_cstr(args[0]);
+    struct stat st;
+    if (stat(path, &st) != 0) return fs_err(type_scalar(TY_INT), "cannot stat", path);
+    return fs_ok_int((int64_t)st.st_mtime);
+}
+
 void native_fs_register(void) {
     native_register("fs::read_text", native_fs_read_text);
     native_register("fs::write_text", native_fs_write_text);
@@ -163,4 +296,12 @@ void native_fs_register(void) {
     native_register("fs::make_dir", native_fs_make_dir);
     native_register("fs::rename", native_fs_rename);
     native_register("fs::list_dir", native_fs_list_dir);
+    native_register("fs::read_bytes", native_fs_read_bytes);
+    native_register("fs::write_bytes", native_fs_write_bytes);
+    native_register("fs::append_bytes", native_fs_append_bytes);
+    native_register("fs::write_text_atomic", native_fs_write_text_atomic);
+    native_register("fs::is_file", native_fs_is_file);
+    native_register("fs::make_dirs", native_fs_make_dirs);
+    native_register("fs::copy_file", native_fs_copy_file);
+    native_register("fs::modified_seconds", native_fs_modified_seconds);
 }
