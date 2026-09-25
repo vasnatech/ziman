@@ -1,0 +1,105 @@
+use http
+use mime
+use server
+
+struct Ctx {
+    prefix: string
+}
+
+struct Item {
+    id: int
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, format("fault {}: {}", status, message))
+}
+
+fn failure(e: string) -> http.Response {
+    return server.text_response(422, format("failure: {}", e))
+}
+
+fn as_text(item: Item) -> string {
+    return format("item {}", item.id)
+}
+
+fn as_csv(item: Item) -> string {
+    return format("id\n{}\n", item.id)
+}
+
+fn read_item(text: string) -> Result<Item, string> {
+    val n = parse_int(trim(text))
+    if !is_ok(n) {
+        return err("body is not a number")
+    }
+    return Item { id: unwrap(n) }
+}
+
+fn get_item(ctx: Ctx, params: server.Params) -> Result<Item, string> {
+    val n = parse_int(server.param(params, "id"))
+    if !is_ok(n) {
+        return err("bad id")
+    }
+    return Item { id: unwrap(n) }
+}
+
+fn create_item(ctx: Ctx, item: Item) -> Result<Item, string> {
+    if item.id < 0 {
+        return err("negative id")
+    }
+    return Item { id: item.id + 100 }
+}
+
+fn request(method: string, path: string, headers: [http.Header], body: string) -> http.Request {
+    return http.Request { method: http.method_parse(method), target: path, path: path, query: "", version: "HTTP/1.1",
+        headers: headers, body: body }
+}
+
+fn h(name: string, value: string) -> http.Header {
+    return http.Header { name: name, value: value }
+}
+
+fn main() {
+    val text_out = server.Writer<Item> { media: mime.text_plain(), write: as_text }
+    val csv_out = server.Writer<Item> { media: mime.text_csv(), write: as_csv }
+    val text_in = server.Reader<Item> { media: mime.text_plain(), read: read_item }
+    val endpoints = [
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Get,
+            pattern: "/items/{id}",
+            handler: server.handler<Ctx, Item, string>(writers: [text_out, csv_out], status: 200, run: get_item,
+                failure: failure, fault: fault)
+        },
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Post,
+            pattern: "/items",
+            handler: server.body_handler<Ctx, Item, Item, string>(reader: text_in, writers: [text_out], status: 201,
+                run: create_item, failure: failure, fault: fault)
+        }
+    ]
+    val ctx = Ctx { prefix: "x" }
+    val plain = [h("Content-Type", "text/plain; charset=utf-8")]
+
+    val cases = [
+        request("GET", "/items/7", [], ""),
+        request("GET", "/items/7", [h("Accept", "text/csv")], ""),
+        request("GET", "/items/7", [h("Accept", "text/*, text/csv;q=0")], ""),
+        request("GET", "/items/7", [h("Accept", "application/json")], ""),
+        request("GET", "/items/x", [], ""),
+        request("POST", "/items", plain, "5"),
+        request("POST", "/items", plain, "-5"),
+        request("POST", "/items", plain, "five"),
+        request("POST", "/items", [h("Content-Type", "application/json")], "5"),
+        request("POST", "/items", [], "5"),
+        request("POST", "/items", [h("Content-Type", "text/plain"), h("Accept", "text/csv")], "5"),
+        request("DELETE", "/items", [], ""),
+        request("GET", "/nothing", [], "")
+    ]
+    for c in cases {
+        val r = server.dispatch<Ctx>(endpoints, ctx, c, fault)
+        val kind = http.content_type(r.headers)
+        val allow = http.header_value(r.headers, "Allow")
+        print(format("{} {} -> {} [{}] {}{}", http.method_name(c.method), c.path, r.status,
+            if Option.is_Some(kind) { mime.to_string(Option.unwrap_Some(kind)) } else { "-" }, replace(r.body, "\n", "|"),
+            if Option.is_Some(allow) { format(" Allow={}", Option.unwrap_Some(allow)) } else { "" }))
+    }
+}

@@ -294,6 +294,72 @@ pub fn query_param(req: Request, name: string) -> Option<string>
 A query-string value by name, percent-decoded ("+" is a space); the
 first one if it is repeated. `None` if absent.
 
+## Typed endpoints
+
+### `Endpoint`
+
+```
+pub struct Endpoint<C> {
+    method: HttpMethod
+    pattern: string
+    handler: fn(C, Request, Params) -> Response
+}
+```
+
+A route: the handler, already adapted to requests and responses, for `method` on `pattern`.
+
+### `Reader`
+
+```
+pub struct Reader<I> {
+    media: mime.MediaType
+    read: fn(string) -> Result<I, string>
+}
+```
+
+How to decode a request body of type `media` into an `I`; an `Err` message is answered 400.
+
+### `Writer`
+
+```
+pub struct Writer<O> {
+    media: mime.MediaType
+    write: fn(O) -> string
+}
+```
+
+How to encode an answer `O` as `media`.
+
+### `handler`
+
+```
+pub fn handler<C, O, E>(writers: [Writer<O>], status: int, run: fn(C, Params) -> Result<O, E>,
+    failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response
+```
+
+An endpoint with no request body: `run(ctx, params)` gets the path parameters and returns the answer or an
+error; the answer is written with the first of `writers` the client's `Accept` allows, with `status`.
+
+### `body_handler`
+
+```
+pub fn body_handler<C, I, O, E>(reader: Reader<I>, writers: [Writer<O>], status: int, run: fn(C, I) -> Result<O, E>,
+    failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response
+```
+
+An endpoint with a request body: it must arrive as `reader.media` (else 415), the answer is negotiated (else
+406) before anything runs, the body is decoded with `reader` (a failure is 400), and `run(ctx, input)` returns
+the answer or an error.
+
+### `dispatch`
+
+```
+pub fn dispatch<C>(endpoints: [Endpoint<C>], ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
+```
+
+Calls the handler of the first endpoint whose method and pattern match `req`. When none does, the answer is
+`fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
+
 ## Serve
 
 ### `ServeOptions`

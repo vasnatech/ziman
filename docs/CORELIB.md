@@ -1229,6 +1229,28 @@ pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Respon
 
 pub fn query_param(req: Request, name: string) -> Option<string>
 
+pub struct Endpoint<C> {
+    method: HttpMethod
+    pattern: string
+    handler: fn(C, Request, Params) -> Response
+}
+
+pub struct Reader<I> {
+    media: mime.MediaType
+    read: fn(string) -> Result<I, string>
+}
+
+pub struct Writer<O> {
+    media: mime.MediaType
+    write: fn(O) -> string
+}
+
+pub fn handler<C, O, E>(writers: [Writer<O>], status: int, run: fn(C, Params) -> Result<O, E>,
+
+pub fn body_handler<C, I, O, E>(reader: Reader<I>, writers: [Writer<O>], status: int, run: fn(C, I) -> Result<O, E>,
+
+pub fn dispatch<C>(endpoints: [Endpoint<C>], ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
+
 pub struct ServeOptions {
     idle_timeout_ms: int
     max_connections: int

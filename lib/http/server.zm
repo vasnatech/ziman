@@ -36,6 +36,8 @@ use http.Header
 use http.HttpMethod
 use http.Request
 use http.Response
+use http.accepts
+use http.content_type
 use http.header
 use http.header_value
 use http.method_name
@@ -662,6 +664,135 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
         }
     }
     return Option<string>.None
+}
+
+// -------------------------------------------------------------- typed endpoints
+//
+// An endpoint is a method, a pattern and a handler over *typed* values instead of requests and responses:
+// the handler takes the decoded request body and returns a `Result` of the answer or an error of the
+// application's own type, and the library does what depends on the media type -- it checks the request's
+// `Content-Type` (415), negotiates the answer against `Accept` (406), decodes the body (400), and encodes the
+// answer with a `Writer` for the negotiated type and the status the endpoint declares. A `Reader` and a `Writer`
+// pair a media type with the function that decodes or encodes it, so this module knows no format: JSON, YAML
+// or CSV come from the application's own functions.
+//
+//     val patients = [
+//         Endpoint<Ctx> { method: HttpMethod.Post, pattern: "/patients",
+//             handler: body_handler<Ctx, PatientRequest, Patient, ApiError>(reader: json_in, writers: [json_out],
+//                 status: 201, run: create_patient, failure: api_error, fault: fault) }
+//     ]
+//     server.dispatch<Ctx>(patients, ctx, req, fault)
+//
+// `fault(status, message)` builds the response for what the library itself rejects (400, 404, 405, 406, 415),
+// so an application's error bodies have one shape.
+
+// A route: the handler, already adapted to requests and responses, for `method` on `pattern`.
+pub struct Endpoint<C> {
+    method: HttpMethod
+    pattern: string
+    handler: fn(C, Request, Params) -> Response
+}
+
+// How to decode a request body of type `media` into an `I`; an `Err` message is answered 400.
+pub struct Reader<I> {
+    media: mime.MediaType
+    read: fn(string) -> Result<I, string>
+}
+
+// How to encode an answer `O` as `media`.
+pub struct Writer<O> {
+    media: mime.MediaType
+    write: fn(O) -> string
+}
+
+fn negotiate<O>(writers: [Writer<O>], req: Request) -> Option<Writer<O>> {
+    for w in writers {
+        if accepts(req.headers, w.media) {
+            return Option<Writer<O>>.Some(w)
+        }
+    }
+    return Option<Writer<O>>.None
+}
+
+fn produced_types<O>(writers: [Writer<O>]) -> string {
+    val names = ab_new<string>()
+    for w in writers {
+        ab_append<string>(names, mime.essence(w.media))
+    }
+    return join(separator: ", ", pieces: ab_to_array<string>(names))
+}
+
+fn answer<O, E>(result: Result<O, E>, writer: Writer<O>, status: int, failure: fn(E) -> Response) -> Response {
+    val write = writer.write
+    val fail = failure
+    return switch result {
+        Ok(value) { media_response(status, write(value), writer.media) }
+        Err(e) { fail(e) }
+    }
+}
+
+// An endpoint with no request body: `run(ctx, params)` gets the path parameters and returns the answer or an
+// error; the answer is written with the first of `writers` the client's `Accept` allows, with `status`.
+pub fn handler<C, O, E>(writers: [Writer<O>], status: int, run: fn(C, Params) -> Result<O, E>,
+    failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response {
+        return fn(ctx: C, req: Request, params: Params) -> Response {
+            val writer = negotiate<O>(writers, req)
+            if !Option.is_Some(writer) {
+                return fault(status_not_acceptable,
+                    format("not acceptable: this route produces {}", produced_types<O>(writers)))
+            }
+            return answer<O, E>(run(ctx, params), Option.unwrap_Some(writer), status, failure)
+        }
+    }
+
+// An endpoint with a request body: it must arrive as `reader.media` (else 415), the answer is negotiated (else
+// 406) before anything runs, the body is decoded with `reader` (a failure is 400), and `run(ctx, input)` returns
+// the answer or an error.
+pub fn body_handler<C, I, O, E>(reader: Reader<I>, writers: [Writer<O>], status: int, run: fn(C, I) -> Result<O, E>,
+    failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response {
+        return fn(ctx: C, req: Request, params: Params) -> Response {
+            val sent = content_type(req.headers)
+            if !Option.is_Some(sent) || !mime.matches(reader.media, Option.unwrap_Some(sent)) {
+                return fault(status_unsupported_media_type,
+                    format("unsupported media type: send {}", mime.essence(reader.media)))
+            }
+            val writer = negotiate<O>(writers, req)
+            if !Option.is_Some(writer) {
+                return fault(status_not_acceptable,
+                    format("not acceptable: this route produces {}", produced_types<O>(writers)))
+            }
+            val read = reader.read
+            val decoded = read(req.body)
+            return switch decoded {
+                Ok(input) { answer<O, E>(run(ctx, input), Option.unwrap_Some(writer), status, failure) }
+                Err(message) { fault(status_bad_request, message) }
+            }
+        }
+    }
+
+fn describe<C>(e: Endpoint<C>) -> string {
+    return format("{} {}", method_name(e.method), e.pattern)
+}
+
+// Calls the handler of the first endpoint whose method and pattern match `req`. When none does, the answer is
+// `fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
+pub fn dispatch<C>(endpoints: [Endpoint<C>], ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
+    for e in endpoints {
+        val matched = route(req, e.method, e.pattern)
+        if Option.is_Some(matched) {
+            val h = e.handler
+            return h(ctx, req, Option.unwrap_Some(matched))
+        }
+    }
+    val routes = ab_new<string>()
+    for e in endpoints {
+        ab_append<string>(routes, describe<C>(e))
+    }
+    val unmatched = not_found_or_method_not_allowed(req, ab_to_array<string>(routes))
+    val message = if unmatched.status == status_method_not_allowed { "method not allowed" } else { "not found" }
+    val reply = fault(unmatched.status, message)
+    val allow = header_value(unmatched.headers, "Allow")
+    return if Option.is_Some(allow) { with_header(reply, "Allow", Option.unwrap_Some(allow)) } else { reply }
 }
 
 // ------------------------------------------------------------------- serve

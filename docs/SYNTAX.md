@@ -2309,6 +2309,16 @@ fn main() {
   string (percent-decoded, `+` is a space). A route in a `{id}` position is
   still a *string*: converting it (a `Uuid`, an `int`) and answering 400 on
   a bad one stays in the application.
+- **Typed endpoints.** `server.Endpoint<C> { method, pattern, handler }` with a handler built by
+  `server.handler<C, O, E>(writers:, status:, run:, failure:, fault:)` (no request body; `run(ctx, params)`) or
+  `server.body_handler<C, I, O, E>(reader:, writers:, status:, run:, failure:, fault:)` (`run(ctx, input)`).
+  `run` returns `Result<O, E>`: the answer or an error of the application's own type. A `Reader<I> { media, read }`
+  decodes a body of that media type (an `Err` is a 400) and a `Writer<O> { media, write }` encodes an answer; the
+  server knows no format, the application supplies the functions. The handler checks the `Content-Type` (415), picks
+  the first writer `Accept` allows (406), decodes, runs, and writes with the declared `status` and the writer's
+  media type; `failure(e)` builds the response for an `Err`, and `fault(status, message)` the one for what the
+  library itself rejects. `server.dispatch<C>(endpoints, ctx, req, fault)` calls the first endpoint that matches, or
+  answers 404, or 405 with `Allow`. See `tests/fixtures/http_endpoints.zm`.
 - **Not yet:** TLS (a plain `net.Socket` only), chunked request bodies,
   HTTP/2, multipart, compression, trailers, and `Date`/`Server` headers.
 
