@@ -355,3 +355,33 @@ pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string {
 pub fn format_byte(x: byte, fmt: NumberFormat) -> string {
     return format_number(str(x), fmt)
 }
+
+// ---- binary encodings of numbers in `[byte]` --------------------------------
+// The big-endian integer encodings network protocols (Postgres's wire
+// protocol first among them) are made of, and the little-endian IEEE-754
+// floats MySQL's binary protocol carries. (`string_to_bytes`,
+// `bytes_to_string` and `bytes_concat` are prelude builtins.)
+
+// The little-endian IEEE-754 double / float at `offset`.
+pub native fn f64_from_bytes(b: [byte], offset: int) -> float
+pub native fn f32_from_bytes(b: [byte], offset: int) -> float
+// A double as 8 little-endian IEEE-754 bytes.
+pub native fn f64_to_bytes(f: float) -> [byte]
+
+// `n` (0..=4294967295) as 4 big-endian bytes, network byte order.
+pub fn u32_to_bytes(n: int) -> [byte] {
+    return [(n / 16777216 % 256) as byte, (n / 65536 % 256) as byte, (n / 256 % 256) as byte, (n % 256) as byte]
+}
+
+pub fn u16_to_bytes(n: int) -> [byte] {
+    return [(n / 256 % 256) as byte, (n % 256) as byte]
+}
+
+// Reads a big-endian unsigned integer starting at `offset` in `b`.
+pub fn u32_from_bytes(b: [byte], offset: int) -> int {
+    return (b[offset] as int) * 16777216 + (b[offset + 1] as int) * 65536 + (b[offset + 2] as int) * 256 + (b[offset + 3] as int)
+}
+
+pub fn u16_from_bytes(b: [byte], offset: int) -> int {
+    return (b[offset] as int) * 256 + (b[offset + 1] as int)
+}

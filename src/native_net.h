@@ -4,7 +4,7 @@
 /* Registers the `net` core module's native functions (blocking TCP over
  * POSIX sockets) and the `bytes` module's two string/[byte] conversions
  * with native.c's table. Called once from main() before interpret()
- * runs. See lib/core/net.zm and lib/core/bytes.zm for the Ziman-side API. */
+ * runs. See lib/core/net.zm and lib/core/number.zm for the Ziman-side API. */
 void native_net_register(void);
 
 #endif

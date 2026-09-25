@@ -47,10 +47,6 @@
 // still per-connection state on the server: statements from other
 // threads interleave inside it, as documented for `db`.
 
-use bytes.u16_from_bytes
-use bytes.u16_to_bytes
-use bytes.u32_from_bytes
-use bytes.u32_to_bytes
 use crypto.base64_decode
 use crypto.base64_encode
 use crypto.bytes_to_hex
@@ -63,6 +59,10 @@ use net
 use net.Socket
 use net.net_error_message
 use number.byte_from_hex
+use number.u16_from_bytes
+use number.u16_to_bytes
+use number.u32_from_bytes
+use number.u32_to_bytes
 use random.random_bytes
 use sql.DbError
 use sql.Row

@@ -359,9 +359,9 @@ static Value native_base64_decode(Value *args, int argc, int line, int col) {
 void native_crypto_register(void) {
     native_register("crypto::sha256", native_sha256);
     native_register("crypto::sha1", native_sha1);
-    native_register("bytes::f64_from_bytes", native_f64_from_bytes);
-    native_register("bytes::f32_from_bytes", native_f32_from_bytes);
-    native_register("bytes::f64_to_bytes", native_f64_to_bytes);
+    native_register("number::f64_from_bytes", native_f64_from_bytes);
+    native_register("number::f32_from_bytes", native_f32_from_bytes);
+    native_register("number::f64_to_bytes", native_f64_to_bytes);
     native_register("crypto::hmac_sha256", native_hmac_sha256);
     native_register("crypto::pbkdf2_hmac_sha256", native_pbkdf2);
     native_register("crypto::bytes_xor", native_bytes_xor);

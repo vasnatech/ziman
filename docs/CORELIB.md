@@ -19,25 +19,6 @@ and docs/DESIGN.md's "Prelude" entry), since everything it declares
 unqualified in every program, the same way `print`/`str`/`parse_int`
 are. See docs/SYNTAX.md's "Modules" section for what it contains.
 
-## `bytes`
-
-```
-pub native fn f64_from_bytes(b: [byte], offset: int) -> float
-
-pub native fn f32_from_bytes(b: [byte], offset: int) -> float
-
-pub native fn f64_to_bytes(f: float) -> [byte]
-
-pub fn u32_to_bytes(n: int) -> [byte]
-
-pub fn u16_to_bytes(n: int) -> [byte]
-
-pub fn u32_from_bytes(b: [byte], offset: int) -> int
-
-pub fn u16_from_bytes(b: [byte], offset: int) -> int
-
-```
-
 ## `clock`
 
 One native function reading the system clock (`clock_gettime`) -- Ziman's other source of genuine non-determinism.
@@ -521,6 +502,20 @@ pub fn format_bigint(x: bigint, fmt: NumberFormat) -> string
 pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string
 
 pub fn format_byte(x: byte, fmt: NumberFormat) -> string
+
+pub native fn f64_from_bytes(b: [byte], offset: int) -> float
+
+pub native fn f32_from_bytes(b: [byte], offset: int) -> float
+
+pub native fn f64_to_bytes(f: float) -> [byte]
+
+pub fn u32_to_bytes(n: int) -> [byte]
+
+pub fn u16_to_bytes(n: int) -> [byte]
+
+pub fn u32_from_bytes(b: [byte], offset: int) -> int
+
+pub fn u16_from_bytes(b: [byte], offset: int) -> int
 
 ```
 

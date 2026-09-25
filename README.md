@@ -94,7 +94,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `collections` | `HashMap`, `HashSet`, sorting, `map`/`filter`/`fold` |
 | `fs`, `os`, `clock`, `random` | files, environment and process, time source, entropy |
 | `time` | `java.time`-shaped dates, times, durations, instants |
-| `uuid`, `number`, `bytes`, `crypto` | UUIDs, number formatting/parsing, byte helpers, SHA-256/HMAC/PBKDF2/base64 |
+| `uuid`, `number`, `crypto` | UUIDs, number formatting/parsing and binary encodings, SHA-256/HMAC/PBKDF2/base64 |
 | `json`, `properties`, `log`, `regex` | JSON, configuration files, levelled logging, regular expressions |
 | `net`, `http`, `httpclient` | TCP and TLS, an HTTP/1.1 server toolkit, an HTTP/HTTPS client |
 | `sql`, `db`, `sqlite`, `pg`, `mysql`, `dburl` | one database API over SQLite, PostgreSQL and MySQL, with pooling |

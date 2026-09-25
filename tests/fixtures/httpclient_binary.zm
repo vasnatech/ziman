@@ -1,5 +1,4 @@
 use net
-use bytes
 use httpclient
 use http.HttpMethod
 

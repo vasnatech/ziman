@@ -1,7 +1,7 @@
 use net
-use bytes
 use net.NetError
 use net.net_error_message
+use number
 
 // Echo server: accepts one client, echoes every chunk until the client closes.
 fn serve(l: net.Listener, done: Channel<string>) {
@@ -31,12 +31,12 @@ fn main() {
     unwrap(net.write_text(s, "hello net"))
     print(unwrap(net.read_text(s, 100)))
     // binary mode, including a 0 byte and 255
-    val sent = bytes_concat([0b, 1b, 255b], bytes.u32_to_bytes(305419896), bytes.u16_to_bytes(258))
+    val sent = bytes_concat([0b, 1b, 255b], number.u32_to_bytes(305419896), number.u16_to_bytes(258))
     unwrap(net.write(s, sent))
     val got = unwrap(net.read_exact(s, len(sent)))
     print(got == sent)
-    print(bytes.u32_from_bytes(got, 3))
-    print(bytes.u16_from_bytes(got, 7))
+    print(number.u32_from_bytes(got, 3))
+    print(number.u16_from_bytes(got, 7))
     print(len(slice<byte>(got, 3, 7)))
     print(unwrap(bytes_to_string(string_to_bytes("round trip"))))
     print(is_ok(bytes_to_string([65b, 0b])))

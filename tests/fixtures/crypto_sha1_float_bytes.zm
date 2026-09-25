@@ -1,12 +1,12 @@
 use crypto
-use bytes
+use number
 
 fn main() {
     print(crypto.bytes_to_hex(crypto.sha1(string_to_bytes(""))))
     print(crypto.bytes_to_hex(crypto.sha1(string_to_bytes("abc"))))
     print(crypto.bytes_to_hex(crypto.sha1(string_to_bytes("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))))
     // 1.5 as a little-endian double / float
-    print(bytes.f64_from_bytes([0b, 0b, 0b, 0b, 0b, 0b, 248b, 63b], 0))
-    print(bytes.f32_from_bytes([0b, 0b, 192b, 63b], 0))
-    print(bytes.f64_from_bytes([9b, 0b, 0b, 0b, 0b, 0b, 0b, 240b, 63b], 1))
+    print(number.f64_from_bytes([0b, 0b, 0b, 0b, 0b, 0b, 248b, 63b], 0))
+    print(number.f32_from_bytes([0b, 0b, 192b, 63b], 0))
+    print(number.f64_from_bytes([9b, 0b, 0b, 0b, 0b, 0b, 0b, 240b, 63b], 1))
 }

@@ -88,7 +88,7 @@ above is illustrative syntax anyone can still write, just not a
 ## Bundled core modules: `random`, `uuid`, `clock`, `time`
 
 It's also one of the *bundled core modules* (22 now) (alongside `fs`, mentioned
-above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db`/`bytes`/`net`/`crypto`/`pg`/`http` below): each one's source is
+above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`sql`/`db`/`net`/`crypto`/`pg`/`http` below): each one's source is
 embedded into the `ziman` binary at build time, so `use collections`/
 `use fs` work from any project with no local copy needed — a
 project-relative file of the same name still wins if one exists, but
@@ -164,8 +164,8 @@ than hand-constructing AST nodes.
 `net` is blocking TCP over POSIX sockets (`connect`/`listen`/`accept`/`read`/
 `write`, timeouts, a clean peer close reported as `Err(Closed)` rather than an
 empty read) — blocking on purpose, since `spawn` gives every connection its own
-OS thread — and `bytes` is the `[byte]` helpers that go with it (string
-conversion, big-endian integers).
+OS thread — and the `[byte]` helpers that go with it are prelude builtins (string
+conversion) and `number` (big-endian integers).
 
 `defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `?`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer db.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error.
 
@@ -179,7 +179,7 @@ conversion, big-endian integers).
 
 `crypto` is just enough cryptography for SCRAM-SHA-256 (SHA-256, HMAC, PBKDF2, base64 — native, self-contained,
 checked against the RFC vectors; not a general-purpose library), and `pg` is a PostgreSQL client written in Ziman on top of
-`net`/`bytes`/`crypto`: trust, cleartext and SCRAM-SHA-256 authentication (the server's signature is verified too),
+`net`/`number`/`crypto`: trust, cleartext and SCRAM-SHA-256 authentication (the server's signature is verified too),
 the simple and extended query protocols, tested against a real Postgres server by `make test-pg`.
 `db.open("postgres://user:password@host:port/database")` selects it, so the same repository SQL and
 `#[derive(Row)]` code run on SQLite and Postgres unchanged; `sslmode` follows libpq (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`, `sslrootcert`), verified against a real TLS-enabled server. `sql` and `db` are a JDBC-shaped database layer: `db.open("sqlite::memory:")`

@@ -1326,7 +1326,7 @@ fn main() {
   system clock) and `random` (`random_bytes(n)`, the one native function
   reading OS entropy), `uuid` (`Uuid`, RFC 4122 v4, pure Ziman on top of
   `random`), `time` (see "Date and time"), `number` (see "Number formatting
-  and parsing"), `bytes`, `crypto`, `json` (a parser/serializer whose `Json`
+  and parsing", which also holds the binary integer/float encodings for `[byte]`), `crypto`, `json` (a parser/serializer whose `Json`
   is a genuinely recursive enum, `JArray([Json])`/`JObject([JField])`, plus
   what `#[derive(Json)]` needs), `properties` and `log`, `net`, `http` and
   `httpclient`, and the database layer `sql`, `db`, `sqlite`, `pg`, `mysql`
@@ -1845,7 +1845,7 @@ fn main() {
   `NotFound` is never raised by the driver -- a repository whose lookup
   came back empty returns it, so one error type covers the whole
   data-access layer. `db_error_message(e)` renders any of them.
-- **Postgres** is written in Ziman (module `pg`, on `net`, `bytes` and
+- **Postgres** is written in Ziman (module `pg`, on `net`, `number` and
   `crypto`) and speaks protocol 3.0: trust, cleartext-password and
   **SCRAM-SHA-256** authentication (Postgres's default), the simple query
   protocol for parameterless statements (so `execute` takes a `;`-separated
@@ -1935,12 +1935,11 @@ fn main() {
 
 ## Networking
 
-The `net` core module is blocking TCP; `bytes` is the `[byte]` helpers
-that go with it.
+The `net` core module is blocking TCP; the `[byte]` helpers that go
+with it are prelude builtins, plus the binary encodings in `number`.
 
 ```
 use net
-use bytes
 
 fn serve(l: net.Listener) {
     val client = unwrap(net.accept(l))
@@ -1988,7 +1987,7 @@ fn main() {
   (no `use`): `bytes_to_string` returns a `Result` -- a string can't hold a 0
   byte -- and `bytes_concat(parts...)` joins any number of byte arrays in one
   pass. Sub-ranges are the prelude's zero-copy `slice<byte>(b, start, end)`.
-- **`bytes`**: the big-endian `u16_to_bytes`/`u32_to_bytes`/`u16_from_bytes`/
+- **`number`** (binary encodings): the big-endian `u16_to_bytes`/`u32_to_bytes`/`u16_from_bytes`/
   `u32_from_bytes` and the float encodings that network protocols are built from.
 - **TLS (client side).** `net.connect_tls(host, port)` is `connect` plus
   `net.start_tls(sock, host)`, which upgrades a connected socket **in
