@@ -714,9 +714,28 @@ several languages rather than inheriting any one of them wholesale.
   a path and cannot loop). `db.rows` is a SQLite cursor (`cursor_open_raw`/`_next_raw`/`_close_raw`
   over `sqlite3_step`, its own handle set and finalizer) wrapped by `iter_from` in `sqlite.zm`;
   `db.rows` on a pool borrows a connection and wraps the iterator so closing it also releases the
-  connection, and on Postgres and MySQL it walks the already fetched result with `iter_of_array`
-  (a real portal or `COM_STMT_FETCH` cursor is the next step there). Measured: a million-row SELECT
-  through `db.rows` used 72 MB and 16 s, through `db.query` 1.7 GB and 50 s. The line reading is a shared `LineSource`
+  connection. Measured on SQLite: a million-row SELECT through `db.rows` used 72 MB and 16 s, through
+  `db.query` 1.7 GB and 50 s.
+  **Postgres and MySQL cursors.** Both are protocol-level, run by the connection's owner thread, which now
+  takes `OpenCursor`, `FetchCursor` and `EndCursor` requests next to `Run`; each cursor gets a number so a
+  late message about a finished one (a garbage-collected guard) cannot end the one that replaced it. The
+  client side is an `iter_from` whose `next` drains a page buffer (a `Channel<Option<Row>>`, since a
+  closure cannot mutate a captured variable) and asks for another page when it is empty; the guard
+  in the closure's state ends the cursor if the iterator is dropped, because the finalizer only sends a
+  channel message. **Postgres:** `Parse`/`Bind`/`Describe`/`Execute` with a 500-row limit and a `Flush` instead
+  of a `Sync`, since a `Sync` outside a transaction block destroys the unnamed portal; `PortalSuspended`
+  means more, `CommandComplete` the end, and only then is `Sync` sent and `ReadyForQuery` read. Because an
+  unsynced portal owns the protocol state, the connection answers any other statement with an Err until the
+  cursor is done. **MySQL:** the statement is prepared and executed with `CURSOR_TYPE_READ_ONLY`, which
+  answers with the column definitions and no rows; each `COM_STMT_FETCH` returns binary rows and an EOF
+  whose `LAST_ROW_SENT` status ends the cursor. The server allows other statements between fetches, so
+  they are allowed; only one cursor per connection is. **Errors** that arrive after some rows of a page
+  are delivered as rows first and the error on the next fetch (`deferred`), so the loop sees every row the
+  server sent and then the Err item. Postgres 300,000 rows: 51 MB against 609 MB; MySQL: 43 MB against
+  706 MB. **A bug found on the way:** `guard_new` registered its finalizer with `GC_REGISTER_FINALIZER_NO_ORDER`,
+  which does not keep what the guard references alive: the message it sends (and the channel) could
+  already be reclaimed, and the owner thread received some other value, which the old code hid because
+  anything unrecognised means "close" in every driver's `serve`. It now uses ordered finalization. The line reading is a shared `LineSource`
   (`src/iter.c`), used by `fs.lines` and by `ndjson.records`, which parses each line with the same
   native JSON parser as `parse_json` (an Err item names the line, as `parse_ndjson` does). Every lib
   function that reads a file was checked: `properties`, `toml`, `yaml` and `csv` need the whole

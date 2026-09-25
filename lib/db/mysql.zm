@@ -44,6 +44,8 @@
 // `[byte]` is an array of interpreter values, so very large result sets
 // are slow -- see docs/ROADMAP.md.
 //
+// `rows` reads a result lazily through a server-side cursor, 500 rows at a time (see `rows`).
+//
 // One connection is owned by one spawned thread and driven through a
 // channel of requests, exactly as in `pg`: the protocol is strictly
 // request/response, so a lone owner thread serialises concurrent callers.
@@ -130,9 +132,40 @@ pub struct RunRequest {
     reply_to: Channel<Result<QueryResult, DbError>>
 }
 
-// A message to a connection's owning thread: run a statement, or close the connection.
+// One batch of a cursor's rows, decoded, whether the server has no more, and the cursor's number (each
+// cursor a connection opens gets the next one, so a late message about a finished cursor cannot touch
+// the cursor that replaced it).
+pub struct Page {
+    rows: [Row]
+    finished: bool
+    cursor: int
+}
+
+// Starts a cursor on the owning thread: run `sql` and answer with its first page.
+pub struct OpenRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<Page, DbError>>
+}
+
+// Asks the owning thread for the next page of the open cursor.
+pub struct FetchRequest {
+    cursor: int
+    reply_to: Channel<Result<Page, DbError>>
+}
+
+// Asks the owning thread to end the open cursor, if there is one.
+pub struct EndRequest {
+    cursor: int
+    reply_to: Channel<int>
+}
+
+// A message to a connection's owning thread: run a statement, work a cursor, or close the connection.
 pub enum Request {
     Run(RunRequest)
+    OpenCursor(OpenRequest)
+    FetchCursor(FetchRequest)
+    EndCursor(EndRequest)
     Close
 }
 
@@ -969,8 +1002,10 @@ fn param_value(v: SqlValue) -> [byte] {
     return none
 }
 
-fn execute_body(stmt_id: int, params: [SqlValue]) -> [byte] {
-    val head = bytes_concat([23b], le(stmt_id, 4), [0b], le(1, 4))
+// COM_STMT_EXECUTE. `flags` is 0 for a plain execution or 1 (CURSOR_TYPE_READ_ONLY) to open a server-side
+// cursor whose rows are then asked for with COM_STMT_FETCH.
+fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
+    val head = bytes_concat([23b], le(stmt_id, 4), [flags as byte], le(1, 4))
     if len(params) == 0 {
         return head
     }
@@ -1019,7 +1054,7 @@ fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
     if param_count != len(rewritten.params) {
         return err(DbError.Sql(format("statement takes {} parameters, {} given", param_count, len(rewritten.params))))
     }
-    send_packet(sock, 0, execute_body(stmt_id, rewritten.params))?
+    send_packet(sock, 0, execute_body(stmt_id, rewritten.params, 0))?
     val rs = read_all_results(sock)?
     return to_result(rs, true)
 }
@@ -1033,15 +1068,213 @@ fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResul
     return prepared_query(sock, sql, params)
 }
 
+// ---------------------------------------------------------------- cursors
+
+// How many rows the server sends per COM_STMT_FETCH.
+val cursor_fetch_rows = 500
+
+// SERVER_STATUS_LAST_ROW_SENT: the EOF that ends a fetch carries it when no rows remain.
+val status_last_row_sent = 7
+
+// What the owner thread keeps for an open cursor, and the latest page.
+struct CursorStep {
+    page: Result<Page, DbError>
+    open: bool
+    statement: int
+    columns: [Column]
+    deferred: Option<DbError>
+}
+
+fn failed_step(e: DbError) -> CursorStep {
+    val page: Result<Page, DbError> = e
+    val none: [Column] = []
+    return CursorStep { page: page, open: false, statement: 0, columns: none, deferred: Option<DbError>.None }
+}
+
+fn column_names(columns: [Column]) -> [string] {
+    val names = ab_new<string>()
+    for c in columns {
+        ab_append<string>(names, c.name)
+    }
+    return ab_to_array<string>(names)
+}
+
+// Asks for the next `cursor_fetch_rows` rows and reads them: binary rows, then an EOF whose status says
+// whether that was the last of them. The statement is closed when the cursor is finished or failed.
+fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> CursorStep {
+    val sent = send_packet(sock, 0, bytes_concat([28b], le(statement, 4), le(cursor_fetch_rows, 4)))
+    if !is_ok(sent) {
+        return failed_step(unwrap_err(sent))
+    }
+    val raw = ab_new<[byte]>()
+    var failure = Option<DbError>.None
+    var last = false
+    var done = false
+    while !done {
+        val p = read_packet(sock)
+        if !is_ok(p) {
+            return failed_step(unwrap_err(p))
+        }
+        val body = unwrap(p).body
+        if is_err_packet(body) {
+            failure = Option<DbError>.Some(parse_error(body))
+            done = true
+        } else if is_eof_packet(body) {
+            last = bit_set(read_le(body, 3, 2), status_last_row_sent)
+            done = true
+        } else {
+            ab_append<[byte]>(raw, body)
+        }
+    }
+    val names = column_names(columns)
+    val rows = ab_new<Row>()
+    for body in ab_to_array<[byte]>(raw) {
+        val values = decode_binary_row(body, columns)
+        if is_ok(values) {
+            ab_append<Row>(rows, Row { columns: names, values: unwrap(values) })
+        } else if !Option.is_Some(failure) {
+            failure = Option<DbError>.Some(unwrap_err(values))
+        }
+    }
+    val delivered = ab_to_array<Row>(rows)
+    if Option.is_Some(failure) {
+        close_statement(sock, statement)
+        if len(delivered) == 0 {
+            return failed_step(Option.unwrap_Some(failure))
+        }
+        val partial: Result<Page, DbError> = Page { rows: delivered, finished: false, cursor: id }
+        return CursorStep { page: partial, open: false, statement: statement, columns: columns, deferred: failure }
+    }
+    if last {
+        close_statement(sock, statement)
+    }
+    val page: Result<Page, DbError> = Page { rows: delivered, finished: last, cursor: id }
+    return CursorStep { page: page, open: !last, statement: statement, columns: columns,
+        deferred: Option<DbError>.None }
+}
+
+// Prepares the statement and opens a server-side cursor on it, then reads the first page. A statement that
+// returns no rows (an INSERT) answers with an OK packet and is a finished cursor with no rows.
+fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> CursorStep {
+    val rewritten = rewrite_placeholders(sql, params)
+    if !is_ok(rewritten) {
+        return failed_step(unwrap_err(rewritten))
+    }
+    val statement_text = unwrap(rewritten)
+    val prepared = send_packet(sock, 0, bytes_concat([22b], string_to_bytes(statement_text.sql)))
+    if !is_ok(prepared) {
+        return failed_step(unwrap_err(prepared))
+    }
+    val reply = read_packet(sock)
+    if !is_ok(reply) {
+        return failed_step(unwrap_err(reply))
+    }
+    val head = unwrap(reply).body
+    if is_err_packet(head) {
+        return failed_step(parse_error(head))
+    }
+    val statement = read_le(head, 1, 4)
+    val column_count = read_le(head, 5, 2)
+    val param_count = read_le(head, 7, 2)
+    val param_defs = read_columns(sock, param_count)
+    if !is_ok(param_defs) {
+        close_statement(sock, statement)
+        return failed_step(unwrap_err(param_defs))
+    }
+    val column_defs = read_columns(sock, column_count)
+    if !is_ok(column_defs) {
+        close_statement(sock, statement)
+        return failed_step(unwrap_err(column_defs))
+    }
+    if param_count != len(statement_text.params) {
+        close_statement(sock, statement)
+        return failed_step(DbError.Sql(format("statement takes {} parameters, {} given", param_count,
+            len(statement_text.params))))
+    }
+    val executed = send_packet(sock, 0, execute_body(statement, statement_text.params, 1))
+    if !is_ok(executed) {
+        close_statement(sock, statement)
+        return failed_step(unwrap_err(executed))
+    }
+    val first = read_packet(sock)
+    if !is_ok(first) {
+        return failed_step(unwrap_err(first))
+    }
+    val b = unwrap(first).body
+    if is_err_packet(b) {
+        close_statement(sock, statement)
+        return failed_step(parse_error(b))
+    }
+    if b[0] == pkt_ok {
+        close_statement(sock, statement)
+        val none: Result<Page, DbError> = Page { rows: [], finished: true, cursor: id }
+        val no_columns: [Column] = []
+        return CursorStep { page: none, open: false, statement: 0, columns: no_columns, deferred: Option<DbError>.None }
+    }
+    val columns = read_columns(sock, read_lenenc(b, 0).value)
+    if !is_ok(columns) {
+        close_statement(sock, statement)
+        return failed_step(unwrap_err(columns))
+    }
+    return fetch_page(sock, id, statement, unwrap(columns))
+}
+
 // -------------------------------------------------------- owner thread API
+
+fn cursor_busy() -> DbError {
+    return DbError.Sql("a cursor is already open on this connection: read it to the end or close it first")
+}
 
 fn serve(sock: Socket, requests: Channel<Request>) {
     var open = true
+    var cursor_open = false
+    var cursor_id = 0
+    var issued = 0
+    var statement = 0
+    var columns: [Column] = []
+    var deferred = Option<DbError>.None
     while open {
         val req = receive(requests)
         if Request.is_Run(req) {
             val r = Request.unwrap_Run(req)
             send(r.reply_to, run_query(sock, r.sql, r.params))
+        } else if Request.is_OpenCursor(req) {
+            val r = Request.unwrap_OpenCursor(req)
+            if cursor_open {
+                val busy: Result<Page, DbError> = cursor_busy()
+                send(r.reply_to, busy)
+            } else {
+                issued = issued + 1
+                cursor_id = issued
+                val step = start_cursor(sock, cursor_id, r.sql, r.params)
+                deferred = step.deferred
+                cursor_open = step.open
+                statement = step.statement
+                columns = step.columns
+                send(r.reply_to, step.page)
+            }
+        } else if Request.is_FetchCursor(req) {
+            val r = Request.unwrap_FetchCursor(req)
+            if r.cursor == cursor_id && Option.is_Some(deferred) {
+                val failed: Result<Page, DbError> = Option.unwrap_Some(deferred)
+                deferred = Option<DbError>.None
+                send(r.reply_to, failed)
+            } else if !cursor_open || r.cursor != cursor_id {
+                val over: Result<Page, DbError> = Page { rows: [], finished: true, cursor: r.cursor }
+                send(r.reply_to, over)
+            } else {
+                val step = fetch_page(sock, cursor_id, statement, columns)
+                deferred = step.deferred
+                cursor_open = step.open
+                send(r.reply_to, step.page)
+            }
+        } else if Request.is_EndCursor(req) {
+            val r = Request.unwrap_EndCursor(req)
+            if cursor_open && r.cursor == cursor_id {
+                cursor_open = false
+                close_statement(sock, statement)
+            }
+            send(r.reply_to, 0)
         } else {
             send_packet(sock, 0, [1b])
             net.close(sock)
@@ -1093,4 +1326,72 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
 // the request is queued behind any statement still running.
 pub fn close(conn: Connection) {
     send(conn.requests, Request.Close)
+}
+
+// What a cursor iterator keeps: the cursor's number, the channel to the owning thread, and a guard that
+// ends the cursor if the iterator is dropped unfinished.
+struct CursorHandle {
+    cursor: int
+    requests: Channel<Request>
+    guard: Guard
+}
+
+fn end_cursor(handle: CursorHandle) {
+    val reply: Channel<int> = channel_new()
+    send(handle.requests, Request.EndCursor(EndRequest { cursor: handle.cursor, reply_to: reply }))
+    receive(reply)
+}
+
+fn buffer_page(buffer: Channel<Option<Row>>, page: Page) {
+    for row in page.rows {
+        send(buffer, Option<Row>.Some(row))
+    }
+    if page.finished {
+        send(buffer, Option<Row>.None)
+    }
+}
+
+// The next row from the buffer, fetching another page from the server when it is empty. A `None` in the
+// buffer marks the end and is put back, so asking again after the end is safe.
+fn next_item(handle: CursorHandle, buffer: Channel<Option<Row>>) -> Option<Result<Row, DbError>> {
+    val got = try_receive(buffer)
+    if Option.is_Some(got) {
+        val item = Option.unwrap_Some(got)
+        if Option.is_Some(item) {
+            val row: Result<Row, DbError> = Option.unwrap_Some(item)
+            return Option<Result<Row, DbError>>.Some(row)
+        }
+        send(buffer, item)
+        return Option<Result<Row, DbError>>.None
+    }
+    val reply: Channel<Result<Page, DbError>> = channel_new()
+    send(handle.requests, Request.FetchCursor(FetchRequest { cursor: handle.cursor, reply_to: reply }))
+    val page = receive(reply)
+    if !is_ok(page) {
+        send(buffer, Option<Row>.None)
+        val failure: Result<Row, DbError> = unwrap_err(page)
+        return Option<Result<Row, DbError>>.Some(failure)
+    }
+    buffer_page(buffer, unwrap(page))
+    return next_item(handle, buffer)
+}
+
+// Runs a statement and returns its rows lazily, `cursor_fetch_rows` at a time from a server-side cursor
+// (a prepared statement opened with CURSOR_TYPE_READ_ONLY), so a result of any size uses memory for one
+// page. Each item is a `Result<Row, DbError>`: a row, or the error that ended the result part-way (after
+// which the iteration ends). The Err on the call is the statement failing. A connection holds one cursor
+// at a time; other statements may run between fetches. A cursor dropped unfinished is ended when it is
+// garbage collected.
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+    val reply: Channel<Result<Page, DbError>> = channel_new()
+    send(conn.requests, Request.OpenCursor(OpenRequest { sql: sql, params: params, reply_to: reply }))
+    val first = receive(reply)?
+    val ender: Channel<int> = channel_new()
+    val handle = CursorHandle { cursor: first.cursor, requests: conn.requests,
+        guard: guard_new<Request>(conn.requests,
+            Request.EndCursor(EndRequest { cursor: first.cursor, reply_to: ender })) }
+    val buffer: Channel<Option<Row>> = channel_new()
+    buffer_page(buffer, first)
+    return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> { next_item(handle, buffer) },
+        fn() { end_cursor(handle) })
 }

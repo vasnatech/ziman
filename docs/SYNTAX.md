@@ -2025,8 +2025,12 @@ fn main() {
   uses memory for one row (72 MB against 1.7 GB in a test) and is closed when it is used up, when the loop
   is left early, or with `iter_close`. On a pool the connection is borrowed for the whole
   iteration and returned the same way (finish or close it: a pooled iterator is not closed by
-  the garbage collector). Postgres and MySQL do not stream yet: they fetch the whole result
-  and walk it, so the items are the same but the memory is not saved.
+  the garbage collector). Postgres and MySQL stream too, 500 rows at a time: Postgres reads
+  a portal with a row limit, and until the cursor is done, closed or dropped that connection carries
+  no other statement (one sent meanwhile is an Err); MySQL uses a server-side cursor (a prepared statement
+  opened read-only and read with `COM_STMT_FETCH`), where other statements may run between fetches but a
+  connection holds one cursor at a time. A cursor dropped unfinished is ended when it is garbage
+  collected. A 300,000-row result used 51 MB against 609 MB on Postgres and 43 MB against 706 MB on MySQL.
 - **`db.query`** returns `[Row]`; `db.query_one` returns `Option<Row>`;
   `db.execute` returns the row count of the last statement, and takes a
   `;`-separated script when there are no parameters (for DDL).

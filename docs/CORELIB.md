@@ -755,8 +755,33 @@ pub struct RunRequest {
     reply_to: Channel<Result<QueryResult, DbError>>
 }
 
+pub struct Page {
+    rows: [Row]
+    finished: bool
+    cursor: int
+}
+
+pub struct OpenRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<Page, DbError>>
+}
+
+pub struct FetchRequest {
+    cursor: int
+    reply_to: Channel<Result<Page, DbError>>
+}
+
+pub struct EndRequest {
+    cursor: int
+    reply_to: Channel<int>
+}
+
 pub enum Request {
     Run(RunRequest)
+    OpenCursor(OpenRequest)
+    FetchCursor(FetchRequest)
+    EndCursor(EndRequest)
     Close
 }
 
@@ -772,6 +797,8 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
 
 pub fn close(conn: Connection)
+
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
 
 ```
 
@@ -789,8 +816,33 @@ pub struct RunRequest {
     reply_to: Channel<Result<QueryResult, DbError>>
 }
 
+pub struct Page {
+    rows: [Row]
+    finished: bool
+    cursor: int
+}
+
+pub struct OpenRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<Page, DbError>>
+}
+
+pub struct FetchRequest {
+    cursor: int
+    reply_to: Channel<Result<Page, DbError>>
+}
+
+pub struct EndRequest {
+    cursor: int
+    reply_to: Channel<int>
+}
+
 pub enum Request {
     Run(RunRequest)
+    OpenCursor(OpenRequest)
+    FetchCursor(FetchRequest)
+    EndCursor(EndRequest)
     Close
 }
 
@@ -808,6 +860,8 @@ pub fn execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int,
 pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError>
 
 pub fn close(conn: Connection)
+
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
 
 ```
 

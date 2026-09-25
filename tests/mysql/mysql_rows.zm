@@ -1,28 +1,98 @@
 use db
 use fs
+use sql
 use sql.DbError
 use sql.Row
+use sql.SqlValue
 use sql.row_get
 use sql.sql_as_int
 
-fn main() {
-    val url = format("mysql://nat_user:natpw@{}/zimandb", trim(unwrap(fs.read_text("tests/mysql/.hostport"))))
-    val conn = unwrap(db.open(url))
+fn n_of(row: Row) -> int {
+    return unwrap(sql_as_int(unwrap(row_get(row, "n"))))
+}
 
-    // MySQL does not stream yet: the rows are fetched, then walked as items
+fn sum_rows(conn: db.Connection, sql: string) -> Result<int, DbError> {
+    val rows = db.rows(conn, sql, [])?
     var total = 0
-    for row in unwrap(db.rows(conn,
-        "SELECT n FROM (SELECT 1 AS n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10) t",
-        [])) {
-            total = total + unwrap(sql_as_int(unwrap(row_get(unwrap(row), "n"))))
-        }
-    print(total)
-    print(is_ok(db.rows(conn, "SELEC 1", [])))
+    for row in rows {
+        val r = row?
+        total = total + n_of(r)
+    }
+    return total
+}
 
-    // through a pool: the connection goes back when the loop ends, however it ends
+fn main() {
+    val hp = trim(unwrap(fs.read_text("tests/mysql/.hostport")))
+    val url = format("mysql://nat_user:natpw@{}/zimandb", hp)
+    val conn = unwrap(db.open(url))
+    unwrap(db.execute(conn, "DROP TABLE IF EXISTS my_rows", []))
+    unwrap(db.execute(conn, "CREATE TABLE my_rows (n INT PRIMARY KEY, s VARCHAR(20), f DOUBLE, b BLOB) ENGINE=InnoDB",
+        []))
+    unwrap(db.execute(conn, "SET SESSION cte_max_recursion_depth = 10000", []))
+    unwrap(db.execute(conn,
+        "INSERT INTO my_rows (n, s, f, b) WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 2000) SELECT n, CONCAT('row ', n), 1.5, x'0102' FROM c",
+        []))
+    unwrap(db.execute(conn, "INSERT INTO my_rows (n) VALUES (0)", []))
+
+    // more rows than one page (500), read a page at a time
+    print(unwrap(sum_rows(conn, "SELECT n FROM my_rows WHERE n >= 1")))
+    print(unwrap(sum_rows(conn, "SELECT n FROM my_rows WHERE n BETWEEN 1 AND 500")))
+    print(unwrap(sum_rows(conn, "SELECT n FROM my_rows WHERE n BETWEEN 1 AND 501")))
+    print(unwrap(sum_rows(conn, "SELECT n FROM my_rows WHERE n > 100000")))
+
+    // bound parameters, and each kind of value including NULL
+    val typed = unwrap(db.rows(conn, "SELECT n, s, f, b FROM my_rows WHERE n IN ($1, 0) ORDER BY n", [SqlValue.Int(2)]))
+    for row in typed {
+        print(unwrap(row).values)
+    }
+
+    // other statements may run between fetches, but a second cursor may not open until the first is done
+    val open = unwrap(db.rows(conn, "SELECT n FROM my_rows WHERE n >= 1 ORDER BY n", []))
+    print(is_ok(db.query(conn, "SELECT 1", [])))
+    print(sql.db_error_message(unwrap_err(db.rows(conn, "SELECT 1", []))))
+    var seen = 0
+    for row in open {
+        seen = seen + 1
+        if seen == 600 {
+            print(is_ok(db.query(conn, "SELECT COUNT(*) AS n FROM my_rows", [])))
+        }
+    }
+    print(seen)
+    print(is_ok(db.rows(conn, "SELECT 1", [])))
+
+    // leaving early releases the cursor, however the loop ends
+    for round in 0..5 {
+        for row in unwrap(db.rows(conn, "SELECT n FROM my_rows", [])) {
+            break
+        }
+        unwrap(db.query(conn, "SELECT 1", []))
+    }
+    val by_hand = unwrap(db.rows(conn, "SELECT n FROM my_rows", []))
+    print(Option.is_Some(iter_next<Result<Row, DbError>>(by_hand)))
+    iter_close<Result<Row, DbError>>(by_hand)
+    print(Option.is_None(iter_next<Result<Row, DbError>>(by_hand)))
+    print(is_ok(db.rows(conn, "SELECT 1", [])))
+
+    // a statement with no rows is a finished cursor; errors come on the call
+    var none = 0
+    for row in unwrap(db.rows(conn, "INSERT INTO my_rows (n) VALUES (100000)", [])) {
+        none = none + 1
+    }
+    print(none)
+    print(is_ok(db.rows(conn, "SELEC 1", [])))
+    print(is_ok(db.rows(conn, "SELECT n FROM my_rows WHERE n = $1", [])))
+    print(is_ok(db.query(conn, "SELECT 1", [])))
+
+    // inside a transaction the cursor and the transaction both carry on
+    unwrap(db.begin(conn))
+    print(unwrap(sum_rows(conn, "SELECT n FROM my_rows WHERE n BETWEEN 1 AND 1000")))
+    unwrap(db.rollback(conn))
+
+    // a pool: the connection is borrowed for the loop and returned however it ends
     val pool = unwrap(db.open_pool(url, 1))
+    print(unwrap(sum_rows(pool, "SELECT n FROM my_rows WHERE n BETWEEN 1 AND 1200")))
     for round in 0..3 {
-        for row in unwrap(db.rows(pool, "SELECT 1 AS n", [])) {
+        for row in unwrap(db.rows(pool, "SELECT n FROM my_rows", [])) {
             break
         }
     }
@@ -30,5 +100,6 @@ fn main() {
     print(is_ok(back))
     db.release(pool, unwrap(back))
     db.close(pool)
+    unwrap(db.execute(conn, "DROP TABLE my_rows", []))
     db.close(conn)
 }

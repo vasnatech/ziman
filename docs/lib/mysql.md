@@ -46,6 +46,8 @@ parameterised statement is prepared afresh), multiple result sets
 `[byte]` is an array of interpreter values, so very large result sets
 are slow -- see docs/ROADMAP.md.
 
+`rows` reads a result lazily through a server-side cursor, 500 rows at a time (see `rows`).
+
 One connection is owned by one spawned thread and driven through a
 channel of requests, exactly as in `pg`: the protocol is strictly
 request/response, so a lone owner thread serialises concurrent callers.
@@ -75,16 +77,67 @@ pub struct RunRequest {
 
 A statement sent to the thread that owns the connection, with the channel to answer on.
 
+### `Page`
+
+```
+pub struct Page {
+    rows: [Row]
+    finished: bool
+    cursor: int
+}
+```
+
+One batch of a cursor's rows, decoded, whether the server has no more, and the cursor's number (each
+cursor a connection opens gets the next one, so a late message about a finished cursor cannot touch
+the cursor that replaced it).
+
+### `OpenRequest`
+
+```
+pub struct OpenRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<Page, DbError>>
+}
+```
+
+Starts a cursor on the owning thread: run `sql` and answer with its first page.
+
+### `FetchRequest`
+
+```
+pub struct FetchRequest {
+    cursor: int
+    reply_to: Channel<Result<Page, DbError>>
+}
+```
+
+Asks the owning thread for the next page of the open cursor.
+
+### `EndRequest`
+
+```
+pub struct EndRequest {
+    cursor: int
+    reply_to: Channel<int>
+}
+```
+
+Asks the owning thread to end the open cursor, if there is one.
+
 ### `Request`
 
 ```
 pub enum Request {
     Run(RunRequest)
+    OpenCursor(OpenRequest)
+    FetchCursor(FetchRequest)
+    EndCursor(EndRequest)
     Close
 }
 ```
 
-A message to a connection's owning thread: run a statement, or close the connection.
+A message to a connection's owning thread: run a statement, work a cursor, or close the connection.
 
 ## Owner thread API
 
@@ -132,3 +185,16 @@ pub fn close(conn: Connection)
 
 Asks the connection's thread to say goodbye to the server and close the socket. Returns at once;
 the request is queued behind any statement still running.
+
+### `rows`
+
+```
+pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+```
+
+Runs a statement and returns its rows lazily, `cursor_fetch_rows` at a time from a server-side cursor
+(a prepared statement opened with CURSOR_TYPE_READ_ONLY), so a result of any size uses memory for one
+page. Each item is a `Result<Row, DbError>`: a row, or the error that ended the result part-way (after
+which the iteration ends). The Err on the call is the statement failing. A connection holds one cursor
+at a time; other statements may run between fetches. A cursor dropped unfinished is ended when it is
+garbage collected.

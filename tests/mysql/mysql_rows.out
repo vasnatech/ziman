@@ -1,3 +1,21 @@
-55
+2001000
+125250
+125751
+0
+[Int(0), Null, Null, Null]
+[Int(2), Text(row 2), Float(1.5), Bytes([1, 2])]
+true
+database error: a cursor is already open on this connection: read it to the end or close it first
+true
+2000
+true
+true
+true
+true
+0
 false
+false
+true
+500500
+720600
 true

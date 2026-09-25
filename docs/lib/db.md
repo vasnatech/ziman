@@ -188,9 +188,12 @@ On SQLite the rows come from a cursor, so a result of any size uses memory for o
 is closed when the rows are used up, when the loop is left early, or with `iter_close`. On a pool the
 connection is borrowed for the whole iteration and given back the same way, so finish or close the
 iterator (a pooled one is not closed by the garbage collector, and a forgotten one keeps its
-connection). Postgres and MySQL do not stream yet: the whole result is fetched first and then walked,
-so `rows` gives the same items but not the memory saving. A row that fails to arrive is an Err item and
-ends the iteration; the Err on the call is the statement failing to run.
+connection). On Postgres the rows come from a portal, 500 at a time; the connection carries no other
+statement until the cursor is read to the end or closed (one sent meanwhile is an Err), which a
+pool takes care of by lending another connection. On MySQL the rows come from a server-side cursor,
+500 at a time; other statements may run between fetches, but a connection holds one cursor at a time.
+A row that fails to arrive is an Err item and ends the iteration; the Err on the call is the statement
+failing to run.
 
 ### `query_one`
 

@@ -1068,7 +1068,10 @@ static Value native_guard_new(Value *args, int argc, int line, int col) {
     g->ch = args[0].as.ch;
     g->message = args[1];
 #ifdef ZIMAN_GC
-    GC_REGISTER_FINALIZER_NO_ORDER(g, guard_finalizer, NULL, NULL, NULL);
+    /* Ordered finalization, not NO_ORDER: the finalizer sends `message` on `ch`, both reachable only
+     * from `g`, and an unordered finalizer may find them already collected (a message that turned into
+     * some other value). Ordered keeps everything reachable from `g` alive until the finalizer has run. */
+    GC_REGISTER_FINALIZER(g, guard_finalizer, NULL, NULL, NULL);
 #endif
     Value *fields = malloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)g);

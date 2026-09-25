@@ -1,3 +1,20 @@
-55
+2001000
+125250
+125751
+0
+[Int(7), Text(x), Bool(true), Float(1.5), Null]
+database error: a cursor is open on this connection: read it to the end or close it first
 false
+1200
+true
+true
+true
+true
+false
+true
+10
+database error: division by zero
+true
+500500
+720600
 true
