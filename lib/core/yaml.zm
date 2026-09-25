@@ -758,6 +758,10 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
     return ok(NodeRes { value: Json.JObject(mapb_to_map<string, Json>(fields)), next: j })
 }
 
+// Parses a YAML document (the subset described above) into a `Json` tree; an empty document is
+// `JNull`. An Err carries `line N: ...` for a syntax error, a duplicate key, bad indentation, or
+// something unsupported (anchors, aliases, tags, the `<<` merge key, multiple documents, tab
+// indentation), so nothing is silently misread.
 pub fn parse_yaml(text: string) -> Result<Json, string> {
     val all = tokenize(text)?
     val kept = ab_new<Line>()
@@ -942,6 +946,10 @@ fn write_node(out: StringBuilder, j: Json, indent: int) {
     }
 }
 
+// Writes `j` as block-style YAML: maps as `key: value`, sequences as `- item`, empty containers
+// as `{}` / `[]`. A string that would read back as another type (`"42"`, `"true"`, `""`, `"null"`)
+// or that needs it (a leading `-`, a `: ` inside) is double-quoted; floats are written with full
+// precision and keep a `.0`. Reading the output back gives the same tree.
 pub fn yaml_to_string(j: Json) -> string {
     if is_container(j) && !is_empty_container(j) {
         val out = sb_new()

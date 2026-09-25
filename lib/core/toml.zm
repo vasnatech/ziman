@@ -509,6 +509,10 @@ fn expect_line_end(s: string, pos: int) -> Result<int, string> {
     return err(fail(s, p, "expected the end of the line"))
 }
 
+// Parses a TOML document into a `Json` object (tables and inline tables become objects, arrays
+// arrays, integers `JInt`, floats `JNumber`, dates and times `JString`). An Err carries
+// `line N: ...` for a syntax error, a duplicate key, a table defined twice, a table redefined as a
+// value (or the reverse), or an unsupported value (`inf`, `nan`).
 pub fn parse_toml(text: string) -> Result<Json, string> {
     var root = Json.JObject(Map<string, Json> {})
     var current: [string] = []
@@ -696,6 +700,10 @@ fn write_table(out: StringBuilder, table: Json, path: [string]) -> Result<int, s
     return ok(0)
 }
 
+// Writes a `Json` object as TOML: scalars and arrays first as `key = value`, then sub-tables
+// (`[a.b]`), then arrays of objects (`[[name]]`). Floats are written with full precision and always
+// look like floats (`150.0`). An Err if `j` is not an object, or a null sits inside an array or an
+// inline table (TOML has no null; a null field of a table is simply left out).
 pub fn toml_to_string(j: Json) -> Result<string, string> {
     if !Json.is_JObject(j) {
         return err("a TOML document must be an object")
