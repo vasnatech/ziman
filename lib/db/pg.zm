@@ -68,6 +68,13 @@ use sql.DbError
 use sql.Row
 use sql.SqlValue
 
+// Protocol 3.0 startup: a 4-byte length (counting itself), a 4-byte version, then the
+// parameters -- 8 fixed bytes. An SSLRequest is that same 8-byte header with a magic
+// code where the version goes.
+val startup_header_bytes = 8
+val protocol_version_3 = 196608
+val ssl_request_code = 80877103
+
 pub struct QueryResult {
     rows: [Row]
     affected: int
@@ -276,7 +283,7 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
 fn startup_message(url: PgUrl) -> [byte] {
     val params = bytes_concat(cstring("user"), cstring(url.user), cstring("database"), cstring(url.database),
         cstring("client_encoding"), cstring("UTF8"), [0b])
-    return bytes_concat(u32_to_bytes(len(params) + 8), u32_to_bytes(196608), params)
+    return bytes_concat(u32_to_bytes(len(params) + startup_header_bytes), u32_to_bytes(protocol_version_3), params)
 }
 
 // Everything after authentication succeeds, up to ReadyForQuery:
@@ -316,7 +323,7 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<int, DbError> {
     if url.sslmode == "disable" {
         return 0
     }
-    lift<int>(net.write(sock, bytes_concat(u32_to_bytes(8), u32_to_bytes(80877103))))?
+    lift<int>(net.write(sock, bytes_concat(u32_to_bytes(startup_header_bytes), u32_to_bytes(ssl_request_code))))?
     val reply = lift<[byte]>(net.read_exact(sock, 1))?
     val answer = text_of(reply, 0, 1)
     if answer == "N" {

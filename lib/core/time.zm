@@ -57,6 +57,18 @@
 // sense, so a general pattern language wouldn't fit them the way it
 // fits a year/month/day/hour/minute/second breakdown.
 
+// Named constants used throughout: the {seconds, nanos} representation, and the civil-date
+// (days <-> year/month/day) algorithm's cycle length and epoch shift (Howard Hinnant's
+// `civil_from_days`, with the 0000-03-01 origin).
+val nanos_per_second = 1000000000
+val max_nano = 999999999
+val seconds_per_hour = 3600
+val seconds_per_day = 86400
+val nanos_per_day = 86400000000000
+val max_offset_seconds = 64800
+val days_per_era = 146097
+val epoch_shift_days = 719468
+
 use clock.now_raw
 use json.Json
 use sql.DbError
@@ -404,14 +416,14 @@ fn epoch_day_of(year: int, month: int, day: int) -> int {
     val mp = if month > 2 { month - 3 } else { month + 9 }
     val doy = (153 * mp + 2) / 5 + day - 1
     val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
-    return era * 146097 + doe - 719468
+    return era * days_per_era + doe - epoch_shift_days
 }
 
 fn date_of_epoch_day(epoch_day: int) -> LocalDate {
-    val z = epoch_day + 719468
-    val era = if z < 0 { (z - 146096) / 146097 } else { z / 146097 }
-    val doe = z - era * 146097
-    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    val z = epoch_day + epoch_shift_days
+    val era = if z < 0 { (z - (days_per_era - 1)) / days_per_era } else { z / days_per_era }
+    val doe = z - era * days_per_era
+    val yoe = (doe - doe / 1460 + doe / 36524 - doe / (days_per_era - 1)) / 365
     val y = yoe + era * 400
     val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
     val mp = (5 * doy + 2) / 153
@@ -525,25 +537,25 @@ pub fn localtime_of(hour: int, minute: int, second: int, nano: int) -> Result<Lo
     if second < 0 || second > 59 {
         return err(format("invalid second: {} (must be 0-59)", second))
     }
-    if nano < 0 || nano > 999999999 {
+    if nano < 0 || nano > max_nano {
         return err(format("invalid nano: {} (must be 0-999999999)", nano))
     }
     return ok(LocalTime { hour: hour, minute: minute, second: second, nano: nano })
 }
 
 fn nano_of_day(t: LocalTime) -> int {
-    return (t.hour * 3600 + t.minute * 60 + t.second) * 1000000000 + t.nano
+    return (t.hour * seconds_per_hour + t.minute * 60 + t.second) * nanos_per_second + t.nano
 }
 
-// 86400000000000 = nanoseconds per day, inlined everywhere it's needed
-// since Ziman has no top-level `val` to hold it as a named constant.
+// `nanos_per_day` (above) is inlined everywhere it's needed
+// (a plain function, not a top-level `val`, so it stays pure arithmetic).
 fn time_of_nano_of_day(n: int) -> LocalTime {
-    var total = n % 86400000000000
+    var total = n % nanos_per_day
     if total < 0 {
-        total = total + 86400000000000
+        total = total + nanos_per_day
     }
-    val nano = total % 1000000000
-    var secs = total / 1000000000
+    val nano = total % nanos_per_second
+    var secs = total / nanos_per_second
     val second = secs % 60
     secs = secs / 60
     val minute = secs % 60
@@ -556,7 +568,7 @@ pub fn localtime_add_nanos(t: LocalTime, nanos: int) -> LocalTime {
 }
 
 pub fn localtime_add_seconds(t: LocalTime, seconds: int) -> LocalTime {
-    return localtime_add_nanos(t, seconds * 1000000000)
+    return localtime_add_nanos(t, seconds * nanos_per_second)
 }
 
 pub fn localtime_add_minutes(t: LocalTime, minutes: int) -> LocalTime {
@@ -624,11 +636,11 @@ pub struct Duration {
 fn normalize(seconds: int, nanos: int) -> Duration {
     var s = seconds
     var n = nanos
-    val extra_seconds = n / 1000000000
+    val extra_seconds = n / nanos_per_second
     s = s + extra_seconds
-    n = n % 1000000000
+    n = n % nanos_per_second
     if n < 0 {
-        n = n + 1000000000
+        n = n + nanos_per_second
         s = s - 1
     }
     return Duration { seconds: s, nanos: n }
@@ -684,7 +696,7 @@ pub fn duration_to_string(d: Duration) -> string {
         return format("PT-{}S", -d.seconds)
     }
     val mag_seconds = -d.seconds - 1
-    val mag_nanos = 1000000000 - d.nanos
+    val mag_nanos = nanos_per_second - d.nanos
     return format("PT-{}.{}S", mag_seconds, pad_left(mag_nanos, 9))
 }
 
@@ -726,7 +738,7 @@ pub fn duration_from_string(s: string) -> Result<Duration, string> {
     }
     val mag_nanos = unwrap(mag_nanos_r)
     return if negative {
-        ok(normalize(-mag_seconds - 1, 1000000000 - mag_nanos))
+        ok(normalize(-mag_seconds - 1, nanos_per_second - mag_nanos))
     } else {
         ok(normalize(mag_seconds, mag_nanos))
     }
@@ -743,17 +755,17 @@ pub fn localdatetime_of(date: LocalDate, time: LocalTime) -> LocalDateTime {
 
 pub fn localdatetime_add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime {
     val total = nano_of_day(dt.time) + nanos
-    var day_carry = total / 86400000000000
-    var rem = total % 86400000000000
+    var day_carry = total / nanos_per_day
+    var rem = total % nanos_per_day
     if rem < 0 {
-        rem = rem + 86400000000000
+        rem = rem + nanos_per_day
         day_carry = day_carry - 1
     }
     return LocalDateTime { date: localdate_add_days(dt.date, day_carry), time: time_of_nano_of_day(rem) }
 }
 
 pub fn localdatetime_add_seconds(dt: LocalDateTime, seconds: int) -> LocalDateTime {
-    return localdatetime_add_nanos(dt, seconds * 1000000000)
+    return localdatetime_add_nanos(dt, seconds * nanos_per_second)
 }
 
 pub fn localdatetime_add_minutes(dt: LocalDateTime, minutes: int) -> LocalDateTime {
@@ -788,7 +800,7 @@ pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int {
 pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration {
     val day_diff = localdate_diff_days(a.date, b.date)
     val nano_diff = nano_of_day(a.time) - nano_of_day(b.time)
-    return normalize(day_diff * 86400, nano_diff)
+    return normalize(day_diff * seconds_per_day, nano_diff)
 }
 
 pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string {
@@ -838,7 +850,7 @@ pub fn zoneoffset_utc() -> ZoneOffset {
 }
 
 pub fn zoneoffset_of_seconds(total_seconds: int) -> Result<ZoneOffset, string> {
-    if total_seconds < -64800 || total_seconds > 64800 {
+    if total_seconds < -max_offset_seconds || total_seconds > max_offset_seconds {
         return err(format("zone offset out of range: {} seconds (must be -64800 to 64800)", total_seconds))
     }
     return ok(ZoneOffset { total_seconds: total_seconds })
@@ -848,7 +860,7 @@ pub fn zoneoffset_of_hours_minutes(hours: int, minutes: int) -> Result<ZoneOffse
     if (hours < 0 && minutes > 0) || (hours > 0 && minutes < 0) {
         return err("hours and minutes must have the same sign")
     }
-    return zoneoffset_of_seconds(hours * 3600 + minutes * 60)
+    return zoneoffset_of_seconds(hours * seconds_per_hour + minutes * 60)
 }
 
 pub fn zoneoffset_compare(a: ZoneOffset, b: ZoneOffset) -> int {
@@ -865,7 +877,7 @@ pub fn zoneoffset_to_string(z: ZoneOffset) -> string {
         sign = "-"
         total = -total
     }
-    return format("{}{}:{}", sign, pad_left(total / 3600, 2), pad_left((total % 3600) / 60, 2))
+    return format("{}{}:{}", sign, pad_left(total / seconds_per_hour, 2), pad_left((total % seconds_per_hour) / 60, 2))
 }
 
 // The exact inverse of zoneoffset_to_string: "Z" for UTC, otherwise
@@ -962,20 +974,20 @@ pub fn instant_compare(a: Instant, b: Instant) -> int {
 
 pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime {
     val shifted = i.seconds + offset.total_seconds
-    var epoch_day = shifted / 86400
-    var sec_of_day = shifted % 86400
+    var epoch_day = shifted / seconds_per_day
+    var sec_of_day = shifted % seconds_per_day
     if sec_of_day < 0 {
-        sec_of_day = sec_of_day + 86400
+        sec_of_day = sec_of_day + seconds_per_day
         epoch_day = epoch_day - 1
     }
     return LocalDateTime { date: date_of_epoch_day(epoch_day),
-        time: time_of_nano_of_day(sec_of_day * 1000000000 + i.nanos) }
+        time: time_of_nano_of_day(sec_of_day * nanos_per_second + i.nanos) }
 }
 
 pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant {
     val epoch_day = localdate_to_epoch_day(dt.date)
-    val sec_of_day = dt.time.hour * 3600 + dt.time.minute * 60 + dt.time.second
-    val total_seconds = epoch_day * 86400 + sec_of_day - offset.total_seconds
+    val sec_of_day = dt.time.hour * seconds_per_hour + dt.time.minute * 60 + dt.time.second
+    val total_seconds = epoch_day * seconds_per_day + sec_of_day - offset.total_seconds
     return instant_of(total_seconds, dt.time.nano)
 }
 

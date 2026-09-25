@@ -44,6 +44,11 @@
 
 // Module-level, built once -- not rebuilt on every hex_digit_char/
 // hex_digit_value call the way a same-shaped local `val` would be.
+// 2^8, 2^16 and 2^24: the place values of the big-endian integer encodings below.
+val two_pow_8 = 256
+val two_pow_16 = 65536
+val two_pow_24 = 16777216
+
 val hex_digits: [string] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
 val hex_digits_upper: [string] = ["A", "B", "C", "D", "E", "F"]
 
@@ -370,18 +375,19 @@ pub native fn f64_to_bytes(f: float) -> [byte]
 
 // `n` (0..=4294967295) as 4 big-endian bytes, network byte order.
 pub fn u32_to_bytes(n: int) -> [byte] {
-    return [(n / 16777216 % 256) as byte, (n / 65536 % 256) as byte, (n / 256 % 256) as byte, (n % 256) as byte]
+    return [(n / two_pow_24 % two_pow_8) as byte, (n / two_pow_16 % two_pow_8) as byte,
+        (n / two_pow_8 % two_pow_8) as byte, (n % two_pow_8) as byte]
 }
 
 pub fn u16_to_bytes(n: int) -> [byte] {
-    return [(n / 256 % 256) as byte, (n % 256) as byte]
+    return [(n / two_pow_8 % two_pow_8) as byte, (n % two_pow_8) as byte]
 }
 
 // Reads a big-endian unsigned integer starting at `offset` in `b`.
 pub fn u32_from_bytes(b: [byte], offset: int) -> int {
-    return (b[offset] as int) * 16777216 + (b[offset + 1] as int) * 65536 + (b[offset + 2] as int) * 256 + (b[offset + 3] as int)
+    return (b[offset] as int) * two_pow_24 + (b[offset + 1] as int) * two_pow_16 + (b[offset + 2] as int) * two_pow_8 + (b[offset + 3] as int)
 }
 
 pub fn u16_from_bytes(b: [byte], offset: int) -> int {
-    return (b[offset] as int) * 256 + (b[offset + 1] as int)
+    return (b[offset] as int) * two_pow_8 + (b[offset + 1] as int)
 }

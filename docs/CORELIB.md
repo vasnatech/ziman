@@ -186,6 +186,48 @@ pub fn post_json(url: string, body: string) -> Result<Response, ClientError>
 ## `http`
 
 ```
+pub val status_continue = 100
+
+pub val status_ok = 200
+
+pub val status_created = 201
+
+pub val status_accepted = 202
+
+pub val status_no_content = 204
+
+pub val status_moved_permanently = 301
+
+pub val status_found = 302
+
+pub val status_not_modified = 304
+
+pub val status_bad_request = 400
+
+pub val status_unauthorized = 401
+
+pub val status_forbidden = 403
+
+pub val status_not_found = 404
+
+pub val status_method_not_allowed = 405
+
+pub val status_request_timeout = 408
+
+pub val status_conflict = 409
+
+pub val status_payload_too_large = 413
+
+pub val status_unprocessable_entity = 422
+
+pub val status_header_fields_too_large = 431
+
+pub val status_internal_server_error = 500
+
+pub val status_not_implemented = 501
+
+pub val status_service_unavailable = 503
+
 pub enum HttpMethod {
     Get
     Head

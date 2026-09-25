@@ -15,6 +15,12 @@
 // `"null"`) or that needs it is double-quoted, so the output re-reads as the same tree. A
 // `JNull` is written `null`; a whole-valued float keeps a `.0`.
 
+// The UTF-16 surrogate block (not valid code points) and the highest code point, for `\u` escapes.
+val surrogate_start = 55296
+val surrogate_end = 57343
+val max_code_point = 1114111
+val hex_chars = "0123456789abcdef"
+
 use json.Json
 
 struct Line {
@@ -53,7 +59,7 @@ fn hex_value(c: string) -> int {
     if len(c) != 1 {
         return -1
     }
-    return index_of("0123456789abcdef", to_lower(c), 0)
+    return index_of(hex_chars, to_lower(c), 0)
 }
 
 fn read_hex(s: string, pos: int, n: int) -> int {
@@ -257,7 +263,7 @@ fn plain_scalar(t: string, no: int) -> Result<Json, string> {
         return err(fail(no, ".inf and .nan are not supported"))
     }
     if starts_with(t, "0x") && len(t) > 2 {
-        return ok(parse_radix(substring(t, 2, len(t)), "0123456789abcdef", 16))
+        return ok(parse_radix(substring(t, 2, len(t)), hex_chars, 16))
     }
     if starts_with(t, "0o") && len(t) > 2 {
         return ok(parse_radix(substring(t, 2, len(t)), "01234567", 8))
@@ -303,7 +309,7 @@ fn read_double(s: string, pos: int, no: int) -> Result<Scalar, string> {
             } else if e == "x" || e == "u" || e == "U" {
                 val digits = if e == "x" { 2 } else if e == "u" { 4 } else { 8 }
                 val cp = read_hex(s, p + 2, digits)
-                if cp <= 0 || cp > 1114111 || (cp >= 55296 && cp <= 57343) {
+                if cp <= 0 || cp > max_code_point || (cp >= surrogate_start && cp <= surrogate_end) {
                     return err(fail(no, "invalid unicode escape"))
                 }
                 append_utf8(out, cp)
@@ -805,8 +811,8 @@ fn quote_double(s: string) -> string {
             sb_append(out, "\\r")
         } else if compare(c, " ") < 0 {
             val code = string_to_bytes(c)[0] as int
-            sb_append(out, "\\x", substring("0123456789abcdef", code / 16, code / 16 + 1),
-                substring("0123456789abcdef", code % 16, code % 16 + 1))
+            sb_append(out, "\\x", substring(hex_chars, code / 16, code / 16 + 1),
+                substring(hex_chars, code % 16, code % 16 + 1))
         } else {
             sb_append(out, c)
         }

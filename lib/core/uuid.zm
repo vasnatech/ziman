@@ -23,16 +23,23 @@ use sql.SqlValue
 use sql.sql_as_text
 use sql.sql_lift
 
+val uuid_byte_count = 16
+val uuid_text_length = 36
+val uuid_version_4_bits = 64
+val uuid_variant_rfc4122_bits = 128
+// Where the four dashes of the 8-4-4-4-12 text form sit.
+val uuid_dash_positions: [int] = [8, 13, 18, 23]
+
 pub struct Uuid {
     bytes: [byte]
 }
 
 pub fn uuid_new() -> Uuid {
-    var bytes = random_bytes(16)
+    var bytes = random_bytes(uuid_byte_count)
     val version_nibble = (bytes[6] as int) % 16
-    bytes = set(bytes, 6, (version_nibble + 64) as byte)  // version 4
+    bytes = set(bytes, 6, (version_nibble + uuid_version_4_bits) as byte)  // version 4
     val variant_bits = (bytes[8] as int) % 64
-    bytes = set(bytes, 8, (variant_bits + 128) as byte)  // variant 1 (RFC 4122)
+    bytes = set(bytes, 8, (variant_bits + uuid_variant_rfc4122_bits) as byte)  // variant 1 (RFC 4122)
     return Uuid { bytes: bytes }
 }
 
@@ -65,17 +72,18 @@ pub fn uuid_to_string(u: Uuid) -> string {
 // none of which anything in this codebase ever produces or needs to
 // accept.
 pub fn uuid_from_string(s: string) -> Result<Uuid, string> {
-    if len(s) != 36 {
+    if len(s) != uuid_text_length {
         return err(format("invalid UUID '{}': expected 36 characters, found {}", s, len(s)))
     }
-    if substring(s, 8, 9) != "-" || substring(s, 13, 14) != "-" || substring(s, 18, 19) != "-" || substring(s, 23,
-        24) != "-" {
+    for pos in uuid_dash_positions {
+        if substring(s, pos, pos + 1) != "-" {
             return err(format("invalid UUID '{}': expected '-' at positions 8, 13, 18, 23", s))
         }
+    }
     val bytes = ab_new<byte>()
     var i = 0
-    while i < 36 {
-        if i == 8 || i == 13 || i == 18 || i == 23 {
+    while i < uuid_text_length {
+        if contains(uuid_dash_positions, i) {
             i = i + 1
         } else {
             val b = byte_from_hex(substring(s, i, i + 2))?

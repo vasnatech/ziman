@@ -77,6 +77,19 @@ pub struct Url {
 val max_body_bytes = 8388608
 val max_header_bytes = 65536
 val default_timeout_ms = 30000
+val read_chunk_bytes = 8192
+val max_chunk_size_line_bytes = 1024
+val max_port = 65535
+val default_http_port = 80
+val default_https_port = 443
+val default_max_redirects = 5
+val status_no_content = 204
+val status_moved_permanently = 301
+val status_found = 302
+val status_see_other = 303
+val status_not_modified = 304
+val status_temporary_redirect = 307
+val status_permanent_redirect = 308
 
 pub fn parse_url(url: string) -> Result<Url, string> {
     var secure = false
@@ -145,7 +158,7 @@ pub fn parse_url(url: string) -> Result<Url, string> {
     }
     if port_text != "" {
         val p = parse_int(port_text)
-        if !is_ok(p) || unwrap(p) < 1 || unwrap(p) > 65535 {
+        if !is_ok(p) || unwrap(p) < 1 || unwrap(p) > max_port {
             return err(concat("invalid port: ", port_text))
         }
         port = unwrap(p)
@@ -212,7 +225,7 @@ fn header_value(headers: [Header], name: string) -> Option<string> {
 
 // Reads up to `n` more bytes' worth: at least one byte, appended to `buf`.
 fn more(sock: Socket, buf: [byte]) -> Result<[byte], ClientError> {
-    val chunk = lift<[byte]>(net.read(sock, 8192))?
+    val chunk = lift<[byte]>(net.read(sock, read_chunk_bytes))?
     return bytes_concat(buf, chunk)
 }
 
@@ -223,7 +236,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
     while true {
         var eol = find_from(buf, 13b, 10b, 0)
         while eol < 0 {
-            if len(buf) > 1024 {
+            if len(buf) > max_chunk_size_line_bytes {
                 return err(ClientError.BadResponse("chunk size line is too long"))
             }
             val step1 = more(sock, buf)?
@@ -261,7 +274,7 @@ fn read_to_close(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
         if len(body) > max_body_bytes {
             return err(ClientError.TooLarge)
         }
-        val chunk = net.read(sock, 8192)
+        val chunk = net.read(sock, read_chunk_bytes)
         if !is_ok(chunk) {
             val e = unwrap_err(chunk)
             if is_closed(e) {
@@ -313,7 +326,7 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
     val header_list = ab_to_array<Header>(headers)
     val rest = slice<byte>(buf, head_end, len(buf))
 
-    val no_body = head_only || status < 200 || status == 204 || status == 304
+    val no_body = head_only || status < 200 || status == status_no_content || status == status_not_modified
     if no_body {
         return BytesResponse { status: status, headers: header_list, body: [] }
     }
@@ -348,7 +361,7 @@ fn host_header(u: Url) -> string {
     if contains(host, ":") {
         host = format("[{}]", host)
     }
-    return if (u.secure && u.port == 443) || (!u.secure && u.port == 80) {
+    return if (u.secure && u.port == default_https_port) || (!u.secure && u.port == default_http_port) {
         host
     } else {
         format("{}:{}", host, u.port)
@@ -475,12 +488,13 @@ pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>,
         var b = body
         val hs = option_unwrap_or<[Header]>(headers, [])
         val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
-        val limit = option_unwrap_or<int>(max_redirects, 5)
+        val limit = option_unwrap_or<int>(max_redirects, default_max_redirects)
         var hops = 0
         while true {
             val resp = send_once(m, current, hs, b, timeout, ca_file)?
             val s = resp.status
-            val redirect = s == 301 || s == 302 || s == 303 || s == 307 || s == 308
+            val redirect = s == status_moved_permanently || s == status_found || s == status_see_other || s == status_temporary_redirect ||
+                s == status_permanent_redirect
             if !redirect || limit == 0 || !Option.is_Some(location_of(resp)) {
                 return resp
             }
@@ -492,7 +506,7 @@ pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>,
                 return err(ClientError.BadResponse(concat("bad redirect location: ", unwrap_err(next))))
             }
             current = unwrap(next)
-            if s == 303 || ((s == 301 || s == 302) && m == HttpMethod.Post) {
+            if s == status_see_other || ((s == status_moved_permanently || s == status_found) && m == HttpMethod.Post) {
                 m = HttpMethod.Get
                 b = Option<[byte]>.None
             }

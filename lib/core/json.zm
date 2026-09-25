@@ -23,6 +23,13 @@
 // expected to be built on top of it (see `json_object_get`, `json_get_path` and the
 // `json_require_*` helpers below, or `#[derive(Json)]`), not inside this module.
 
+// UTF-16 surrogate ranges, for reading `\uD83D\uDE00`-style escapes.
+val surrogate_high_start = 55296
+val surrogate_high_end = 56319
+val surrogate_low_start = 56320
+val surrogate_low_end = 57343
+val hex_chars = "0123456789abcdef"
+
 pub enum Json {
     JNull
     JBool(bool)
@@ -147,7 +154,7 @@ fn hex_digit(c: string) -> int {
     if len(c) != 1 {
         return -1
     }
-    return index_of("0123456789abcdef", to_lower(c), 0)
+    return index_of(hex_chars, to_lower(c), 0)
 }
 
 // Four hex digits at `pos`, or -1.
@@ -177,16 +184,17 @@ fn read_unicode_escape(s: string, pos: int) -> Result<UnicodeEscape, string> {
     if hi < 0 {
         return err(format("invalid \\u escape at position {}", pos))
     }
-    if hi >= 55296 && hi <= 56319 {
+    if hi >= surrogate_high_start && hi <= surrogate_high_end {
         if is_char_at(s, pos + 6, "\\") && is_char_at(s, pos + 7, "u") {
             val lo = hex4(s, pos + 8)
-            if lo >= 56320 && lo <= 57343 {
-                return ok(UnicodeEscape { code_point: 65536 + (hi - 55296) * 1024 + (lo - 56320), next_pos: pos + 12 })
+            if lo >= surrogate_low_start && lo <= surrogate_low_end {
+                return ok(UnicodeEscape { code_point: 65536 + (hi - surrogate_high_start) * 1024 + (lo - surrogate_low_start),
+                    next_pos: pos + 12 })
             }
         }
         return err(format("unpaired surrogate in \\u escape at position {}", pos))
     }
-    if hi >= 56320 && hi <= 57343 {
+    if hi >= surrogate_low_start && hi <= surrogate_low_end {
         return err(format("unpaired surrogate in \\u escape at position {}", pos))
     }
     if hi == 0 {
@@ -424,8 +432,8 @@ fn escape_json_string(s: string) -> string {
             } else if code == 12 {
                 sb_append(out, "\\f")
             } else {
-                sb_append(out, "\\u00", substring("0123456789abcdef", code / 16, code / 16 + 1),
-                    substring("0123456789abcdef", code % 16, code % 16 + 1))
+                sb_append(out, "\\u00", substring(hex_chars, code / 16, code / 16 + 1),
+                    substring(hex_chars, code % 16, code % 16 + 1))
             }
         } else {
             sb_append(out, c)

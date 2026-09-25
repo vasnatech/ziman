@@ -24,6 +24,34 @@
 // timeout on the socket (`net.set_timeout`) so an idle or stalled client
 // can't hold a thread forever: a timed-out read is `Err(Timeout)`.
 
+// HTTP status codes by name.
+pub val status_continue = 100
+pub val status_ok = 200
+pub val status_created = 201
+pub val status_accepted = 202
+pub val status_no_content = 204
+pub val status_moved_permanently = 301
+pub val status_found = 302
+pub val status_not_modified = 304
+pub val status_bad_request = 400
+pub val status_unauthorized = 401
+pub val status_forbidden = 403
+pub val status_not_found = 404
+pub val status_method_not_allowed = 405
+pub val status_request_timeout = 408
+pub val status_conflict = 409
+pub val status_payload_too_large = 413
+pub val status_unprocessable_entity = 422
+pub val status_header_fields_too_large = 431
+pub val status_internal_server_error = 500
+pub val status_not_implemented = 501
+pub val status_service_unavailable = 503
+val read_chunk_bytes = 4096
+val accept_error_backoff_ms = 10
+val http_1_0 = "HTTP/1.0"
+val http_1_1 = "HTTP/1.1"
+val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
+
 use clock
 use json.Json
 use json.json_to_string
@@ -255,7 +283,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         if len(buf) > max_header_bytes {
             return err(HttpError.HeadersTooLarge)
         }
-        val chunk = lift<[byte]>(net.read(sock, 4096))?
+        val chunk = lift<[byte]>(net.read(sock, read_chunk_bytes))?
         buf = bytes_concat(buf, chunk)
         head_end = find_head_end(buf)
     }
@@ -279,7 +307,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     val method_text = request_line[0]
     val target = request_line[1]
     val version = request_line[2]
-    if version != "HTTP/1.1" && version != "HTTP/1.0" {
+    if version != http_1_1 && version != http_1_0 {
         return err(HttpError.BadRequest(concat("unsupported HTTP version: ", version)))
     }
     if method_text == "" || (!starts_with(target, "/") && target != "*") {
@@ -323,7 +351,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     if content_length > len(rest) {
         val expect = header_value(header_list, "Expect")
         if Option.is_Some(expect) && equals_ignore_case(Option.unwrap_Some(expect), "100-continue") {
-            lift<int>(net.write_text(sock, "HTTP/1.1 100 Continue\r\n\r\n"))?
+            lift<int>(net.write_text(sock, continue_response))?
         }
         val more = lift<[byte]>(net.read_exact(sock, content_length - len(rest)))?
         rest = bytes_concat(rest, more)
@@ -339,27 +367,27 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
 // ------------------------------------------------------------ responses
 
 fn reason(status: int) -> string {
-    if status == 100 { return "Continue" }
-    if status == 200 { return "OK" }
-    if status == 201 { return "Created" }
-    if status == 202 { return "Accepted" }
-    if status == 204 { return "No Content" }
-    if status == 301 { return "Moved Permanently" }
-    if status == 302 { return "Found" }
-    if status == 304 { return "Not Modified" }
-    if status == 400 { return "Bad Request" }
-    if status == 401 { return "Unauthorized" }
-    if status == 403 { return "Forbidden" }
-    if status == 404 { return "Not Found" }
-    if status == 405 { return "Method Not Allowed" }
-    if status == 408 { return "Request Timeout" }
-    if status == 409 { return "Conflict" }
-    if status == 413 { return "Payload Too Large" }
-    if status == 422 { return "Unprocessable Entity" }
-    if status == 431 { return "Request Header Fields Too Large" }
-    if status == 500 { return "Internal Server Error" }
-    if status == 501 { return "Not Implemented" }
-    if status == 503 { return "Service Unavailable" }
+    if status == status_continue { return "Continue" }
+    if status == status_ok { return "OK" }
+    if status == status_created { return "Created" }
+    if status == status_accepted { return "Accepted" }
+    if status == status_no_content { return "No Content" }
+    if status == status_moved_permanently { return "Moved Permanently" }
+    if status == status_found { return "Found" }
+    if status == status_not_modified { return "Not Modified" }
+    if status == status_bad_request { return "Bad Request" }
+    if status == status_unauthorized { return "Unauthorized" }
+    if status == status_forbidden { return "Forbidden" }
+    if status == status_not_found { return "Not Found" }
+    if status == status_method_not_allowed { return "Method Not Allowed" }
+    if status == status_request_timeout { return "Request Timeout" }
+    if status == status_conflict { return "Conflict" }
+    if status == status_payload_too_large { return "Payload Too Large" }
+    if status == status_unprocessable_entity { return "Unprocessable Entity" }
+    if status == status_header_fields_too_large { return "Request Header Fields Too Large" }
+    if status == status_internal_server_error { return "Internal Server Error" }
+    if status == status_not_implemented { return "Not Implemented" }
+    if status == status_service_unavailable { return "Service Unavailable" }
     return "Status"
 }
 
@@ -384,16 +412,20 @@ fn error_body(status: int, message: string) -> string {
         "error": Json.JString(message) }))
 }
 
+fn error_reply(status: int, message: string) -> Response {
+    return json_response(status, error_body(status, message))
+}
+
 pub fn bad_request(message: string) -> Response {
-    return json_response(400, error_body(400, message))
+    return error_reply(status_bad_request, message)
 }
 
 pub fn not_found() -> Response {
-    return json_response(404, error_body(404, "not found"))
+    return error_reply(status_not_found, "not found")
 }
 
 pub fn method_not_allowed(allowed: [string]) -> Response {
-    return with_header(json_response(405, error_body(405, "method not allowed")), "Allow",
+    return with_header(error_reply(status_method_not_allowed, "method not allowed"), "Allow",
         join(separator: ", ", pieces: allowed))
 }
 
@@ -404,18 +436,18 @@ pub fn error_response(e: HttpError) -> Response {
         return bad_request(HttpError.unwrap_BadRequest(e))
     }
     if HttpError.is_BodyTooLarge(e) {
-        return json_response(413, error_body(413, "request body too large"))
+        return error_reply(status_payload_too_large, "request body too large")
     }
     if HttpError.is_HeadersTooLarge(e) {
-        return json_response(431, error_body(431, "request headers too large"))
+        return error_reply(status_header_fields_too_large, "request headers too large")
     }
     if HttpError.is_NotImplemented(e) {
-        return json_response(501, error_body(501, HttpError.unwrap_NotImplemented(e)))
+        return error_reply(status_not_implemented, HttpError.unwrap_NotImplemented(e))
     }
     return if HttpError.is_Timeout(e) {
-        json_response(408, error_body(408, "request timed out"))
+        error_reply(status_request_timeout, "request timed out")
     } else {
-        json_response(500, error_body(500, "internal error"))
+        error_reply(status_internal_server_error, "internal error")
     }
 }
 
@@ -430,7 +462,7 @@ fn connection_close_requested(req: Request) -> bool {
             return false
         }
     }
-    return req.version == "HTTP/1.0"
+    return req.version == http_1_0
 }
 
 // Serialises and sends `resp` (adding Content-Length and Connection), and
@@ -475,7 +507,7 @@ pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError> {
     if HttpError.is_Closed(e) || HttpError.is_Io(e) {
         return false
     }
-    val stub = Request { method: HttpMethod.Get, target: "/", path: "/", query: "", version: "HTTP/1.0", headers: [],
+    val stub = Request { method: HttpMethod.Get, target: "/", path: "/", query: "", version: http_1_0, headers: [],
         body: "" }
     return write_response(sock, stub, error_response(e))
 }
@@ -649,7 +681,7 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
             val slot = receive(slots)  // waits here while every slot is in use
             spawn serve_connection(unwrap(client), handler, options.idle_timeout_ms, options.log_requests, slots)
         } else if !os.shutdown_requested() {
-            clock.sleep_millis(10)  // an accept error must not become a busy loop
+            clock.sleep_millis(accept_error_backoff_ms)  // an accept error must not become a busy loop
         }
     }
     for i in 0..limit {
