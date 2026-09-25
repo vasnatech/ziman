@@ -23,9 +23,6 @@
 // `BadResponse` -- use `request_bytes`. Not yet:
 // request bodies of bytes, compression, proxies, cookies, HTTP/2, streaming.
 
-use bytes.bytes_concat
-use bytes.bytes_to_string
-use bytes.string_to_bytes
 use http.Header
 use http.HttpMethod
 use http.Response

@@ -681,6 +681,27 @@ static Value native_ab_append(Value *args, int argc, int line, int col) {
     return value_int(0); /* void return -- the caller never uses this */
 }
 
+static Value native_string_to_bytes(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *s = args[0].as.str.ptr;
+    size_t n = args[0].as.str.len;
+    return value_byte_array((const uint8_t *)s, n);
+}
+
+static Value native_bytes_to_string(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type str_type = type_scalar(TY_STRING);
+    ArrayObj *arr = args[0].as.arr;
+    int n = 0;
+    uint8_t *tmp = array_copy_bytes(arr, &n);
+    if (memchr(tmp, 0, (size_t)n) != NULL) {
+        free(tmp);
+        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(strdup("bytes contain a NUL byte and cannot be a string"))));
+    }
+    char *s = (char *)tmp; /* already NUL-terminated by array_copy_bytes */
+    return value_result(type_result(str_type, str_type), result_obj_new(1, value_string(s)));
+}
+
 static Value native_concat_arrays(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     ArrayObj *parts = args[0].as.arr;
@@ -785,6 +806,8 @@ void prelude_register(void) {
     native_register("to_lower", native_to_lower);
     native_register("join", native_join);
     native_register("concat_arrays", native_concat_arrays);
+    native_register("string_to_bytes", native_string_to_bytes);
+    native_register("bytes_to_string", native_bytes_to_string);
     native_register("slice", native_slice);
     native_register("sb_new", native_sb_new);
     native_register("sb_append", native_sb_append);

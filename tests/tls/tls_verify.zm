@@ -1,4 +1,3 @@
-use bytes
 use net
 use net.NetError
 use net.TlsVerify
@@ -9,7 +8,7 @@ use net.net_error_message
 // self-signed certificate, valid only for other.example.test. Each is its
 // own CA. Prints ok/fail plus, for a failure, which reason OpenSSL gave.
 fn get(s: net.Socket) -> string {
-    unwrap(net.write(s, bytes.bytes_concat(bytes.string_to_bytes("GET / HTTP/1.0"), [13b, 10b, 13b, 10b])))
+    unwrap(net.write(s, bytes_concat(string_to_bytes("GET / HTTP/1.0"), [13b, 10b, 13b, 10b])))
     return substring(unwrap(net.read_text(s, 200)), 0, 15)
 }
 

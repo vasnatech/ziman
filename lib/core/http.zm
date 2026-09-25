@@ -24,9 +24,6 @@
 // timeout on the socket (`net.set_timeout`) so an idle or stalled client
 // can't hold a thread forever: a timed-out read is `Err(Timeout)`.
 
-use bytes.bytes_concat
-use bytes.bytes_to_string
-use bytes.string_to_bytes
 use clock
 use json.JField
 use json.Json

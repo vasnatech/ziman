@@ -5,8 +5,6 @@
 // literal `@` in the password also works: the LAST `@` separates userinfo
 // from host).
 
-use bytes.bytes_to_string
-use bytes.string_to_bytes
 use number.byte_from_hex
 use sql.DbError
 

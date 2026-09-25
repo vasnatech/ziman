@@ -1,4 +1,3 @@
-use bytes
 use net
 use net.NetError
 use net.TlsVerify
@@ -11,7 +10,7 @@ fn ca() -> Option<string> {
 }
 
 fn request() -> [byte] {
-    return bytes.bytes_concat(bytes.string_to_bytes("GET / HTTP/1.0"), [13b, 10b, 13b, 10b])
+    return bytes_concat(string_to_bytes("GET / HTTP/1.0"), [13b, 10b, 13b, 10b])
 }
 
 // A plain (non-TLS) server that says hello and hangs up.

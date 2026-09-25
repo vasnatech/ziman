@@ -47,9 +47,6 @@
 // still per-connection state on the server: statements from other
 // threads interleave inside it, as documented for `db`.
 
-use bytes.bytes_concat
-use bytes.bytes_to_string
-use bytes.string_to_bytes
 use bytes.u16_from_bytes
 use bytes.u16_to_bytes
 use bytes.u32_from_bytes

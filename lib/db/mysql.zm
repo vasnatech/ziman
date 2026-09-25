@@ -48,12 +48,9 @@
 // channel of requests, exactly as in `pg`: the protocol is strictly
 // request/response, so a lone owner thread serialises concurrent callers.
 
-use bytes.bytes_concat
-use bytes.bytes_to_string
 use bytes.f32_from_bytes
 use bytes.f64_from_bytes
 use bytes.f64_to_bytes
-use bytes.string_to_bytes
 use crypto.bytes_xor
 use crypto.sha1
 use crypto.sha256

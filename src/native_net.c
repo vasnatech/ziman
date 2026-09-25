@@ -470,31 +470,6 @@ static Value native_net_close_raw(Value *args, int argc, int line, int col) {
     return value_int(0);
 }
 
-/* bytes.string_to_bytes / bytes.bytes_to_string -- in this file only
- * because they are the other half of what a socket carries. */
-static Value native_bytes_string_to_bytes(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
-    Type arr_type = byte_array_type();
-    const char *s = args[0].as.str.ptr;
-    size_t n = args[0].as.str.len;
-    (void)arr_type;
-    return value_byte_array((const uint8_t *)s, n);
-}
-
-static Value native_bytes_bytes_to_string(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
-    Type str_type = string_type();
-    ArrayObj *arr = args[0].as.arr;
-    int n = 0;
-    uint8_t *tmp = array_copy_bytes(arr, &n);
-    if (memchr(tmp, 0, (size_t)n) != NULL) {
-        free(tmp);
-        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(strdup("bytes contain a NUL byte and cannot be a string"))));
-    }
-    char *s = (char *)tmp; /* already NUL-terminated by array_copy_bytes */
-    return value_result(type_result(str_type, str_type), result_obj_new(1, value_string(s)));
-}
-
 void native_net_register(void) {
     signal(SIGPIPE, SIG_IGN);
     native_register("net::connect_raw", native_net_connect_raw);
@@ -509,6 +484,4 @@ void native_net_register(void) {
     native_register("net::set_timeout_raw", native_net_set_timeout_raw);
     native_register("net::start_tls_raw", native_net_start_tls_raw);
     native_register("net::close_raw", native_net_close_raw);
-    native_register("bytes::string_to_bytes", native_bytes_string_to_bytes);
-    native_register("bytes::bytes_to_string", native_bytes_bytes_to_string);
 }

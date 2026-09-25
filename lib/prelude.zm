@@ -28,6 +28,14 @@ native fn ceil(x: float) -> int
 native fn round(x: float) -> int
 native fn decimal_round(d: decimal, scale: int) -> decimal
 native fn concat(a: string, b: string) -> string
+// A string's UTF-8 bytes, and back (Err if the bytes hold a NUL). bytes_concat
+// joins any number of byte arrays in one pass.
+native fn string_to_bytes(s: string) -> [byte]
+native fn bytes_to_string(b: [byte]) -> Result<string, string>
+fn bytes_concat(parts: [byte]...) -> [byte] {
+    return concat_arrays<byte>(parts: parts)
+}
+
 native fn substring(s: string, start: int, end: int) -> string
 native fn split(s: string, sep: string) -> [string]
 native fn trim(s: string) -> string

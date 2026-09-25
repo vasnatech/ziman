@@ -1984,11 +1984,12 @@ fn main() {
   reads and writes; a call that waits longer fails with `Timeout`.
   Without one a read on a dead peer waits forever. There is no connect
   timeout beyond the OS default.
-- **`bytes`**: `string_to_bytes`/`bytes_to_string` (the latter a `Result`
-  -- a string can't hold a 0 byte), `bytes_concat(parts...)`,
-  (sub-ranges are the prelude's zero-copy `slice<byte>(b, start, end)`), and the big-endian `u16_to_bytes`/
-  `u32_to_bytes`/`u16_from_bytes`/`u32_from_bytes` network protocols are
-  built from.
+- **`string_to_bytes` / `bytes_to_string` / `bytes_concat`** are prelude builtins
+  (no `use`): `bytes_to_string` returns a `Result` -- a string can't hold a 0
+  byte -- and `bytes_concat(parts...)` joins any number of byte arrays in one
+  pass. Sub-ranges are the prelude's zero-copy `slice<byte>(b, start, end)`.
+- **`bytes`**: the big-endian `u16_to_bytes`/`u32_to_bytes`/`u16_from_bytes`/
+  `u32_from_bytes` and the float encodings that network protocols are built from.
 - **TLS (client side).** `net.connect_tls(host, port)` is `connect` plus
   `net.start_tls(sock, host)`, which upgrades a connected socket **in
   place** -- afterwards the same `read`/`read_exact`/`write`/`read_text`/

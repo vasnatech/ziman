@@ -22,17 +22,11 @@ are. See docs/SYNTAX.md's "Modules" section for what it contains.
 ## `bytes`
 
 ```
-pub native fn string_to_bytes(s: string) -> [byte]
-
-pub native fn bytes_to_string(b: [byte]) -> Result<string, string>
-
 pub native fn f64_from_bytes(b: [byte], offset: int) -> float
 
 pub native fn f32_from_bytes(b: [byte], offset: int) -> float
 
 pub native fn f64_to_bytes(f: float) -> [byte]
-
-pub fn bytes_concat(parts: [byte]...) -> [byte]
 
 pub fn u32_to_bytes(n: int) -> [byte]
 

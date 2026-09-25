@@ -1,8 +1,7 @@
 use crypto
-use bytes
 
 fn b(s: string) -> [byte] {
-    return bytes.string_to_bytes(s)
+    return string_to_bytes(s)
 }
 
 fn hex(x: [byte]) -> string {
@@ -22,8 +21,8 @@ fn main() {
     print(crypto.base64_encode(b("fo")))
     print(crypto.base64_encode(b("foo")))
     print(crypto.base64_encode(b("foobar")))
-    print(unwrap(bytes.bytes_to_string(unwrap(crypto.base64_decode("Zm9vYmE=")))))
-    print(unwrap(bytes.bytes_to_string(unwrap(crypto.base64_decode("Zg==")))))
+    print(unwrap(bytes_to_string(unwrap(crypto.base64_decode("Zm9vYmE=")))))
+    print(unwrap(bytes_to_string(unwrap(crypto.base64_decode("Zg==")))))
     print(is_ok(crypto.base64_decode("Zm9")))
     print(is_ok(crypto.base64_decode("Zm9v!A==")))
     print(hex(crypto.bytes_xor([1b, 2b, 255b], [3b, 2b, 15b])))
