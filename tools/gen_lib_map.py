@@ -35,7 +35,8 @@ for sweep in range(6):
         rows[ri].sort(key=lambda n:(sum(pos[u] for u in users[n])/len(users[n]) if users[n] else 0.5, n)); setpos()
     for ri in range(len(rows)-2,-1,-1):
         rows[ri].sort(key=lambda n:(sum(pos[d] for d in deps[n])/len(deps[n]) if deps[n] else 0.5, n)); setpos()
-NW,NH,GAPX,GAPY=92,32,14,120
+NW,NH,GAPX,GAPY=120,32,10,120
+full=lambda n: '%s.%s'%(mods[n],n)
 W=max(len(r) for r in rows)*(NW+GAPX)+GAPX+40
 X0=20
 xy={}
@@ -62,14 +63,14 @@ for n in sorted(mods):
         x1=xy[n][0]+NW/2; y1=xy[n][1]+NH; x2=xy[d][0]+NW/2; y2=xy[d][1]
         ym=(y1+y2)/2
         # spread endpoints a little by edge index to reduce overlap
-        svg.append('<path class="edge" data-from="%s" data-to="%s" d="M%.1f,%.1f C%.1f,%.1f %.1f,%.1f %.1f,%.1f" marker-end="url(#head)"/>'%(n,d,x1,y1,x1,ym,x2,ym,x2,y2-1))
+        svg.append('<path class="edge" data-from="%s" data-to="%s" d="M%.1f,%.1f C%.1f,%.1f %.1f,%.1f %.1f,%.1f" marker-end="url(#head)"/>'%(full(n),full(d),x1,y1,x1,ym,x2,ym,x2,y2-1))
 svg.append('</g><g id="nodes">')
 for n in sorted(mods):
     x,y=xy[n]
-    svg.append('<g class="node %s" data-name="%s" tabindex="0" role="button" aria-label="%s"><rect x="%.1f" y="%.1f" width="%d" height="%d" rx="4"/><text x="%.1f" y="%.1f" text-anchor="middle">%s</text></g>'%(mods[n],n,n,x,y,NW,NH,x+NW/2,y+NH/2+4.5,n))
+    svg.append('<g class="node %s" data-name="%s" tabindex="0" role="button" aria-label="%s"><rect x="%.1f" y="%.1f" width="%d" height="%d" rx="4"/><text x="%.1f" y="%.1f" text-anchor="middle">%s</text></g>'%(mods[n],full(n),full(n),x,y,NW,NH,x+NW/2,y+NH/2+4.5,full(n)))
 svg.append('</g></svg>')
 counts={n:(len(deps[n]),len(users[n])) for n in mods}
-data=json.dumps({n:{'uses':sorted(deps[n]),'usedBy':sorted(users[n]),'folder':mods[n]} for n in sorted(mods)})
+data=json.dumps({full(n):{'uses':sorted(full(d) for d in deps[n]),'usedBy':sorted(full(u) for u in users[n]),'folder':mods[n]} for n in sorted(mods)})
 html='''<title>Ziman Library Map</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
 <style>
@@ -83,7 +84,7 @@ html='''<title>Ziman Library Map</title>
 --core:#8fa8e6;--core-soft:#232d4a;--db:#57c7bd;--db-soft:#173a38;--http:#e8a463;--http-soft:#42301c;--time:#bf9be6;--time-soft:#35284a;--use:#ff8c66;--usedby:#6fb4f5;--focus:#e6e9f0}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font:14px/1.5 "IBM Plex Sans",system-ui,sans-serif;padding-inline:16px;padding-block:24px 40px}
-main{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+main{max-width:1680px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
 h1{font-size:26px;line-height:1.2;margin:0;font-weight:600;text-wrap:balance}
 .lede{margin:4px 0 0;color:var(--muted);max-width:68ch}
 header{display:flex;flex-wrap:wrap;gap:12px 32px;align-items:flex-end;justify-content:space-between}
@@ -94,11 +95,11 @@ header{display:flex;flex-wrap:wrap;gap:12px 32px;align-items:flex-end;justify-co
 .sw.http{border-color:var(--http);background:var(--http-soft)}.sw.time{border-color:var(--time);background:var(--time-soft)}
 .ln{width:22px;height:0;border-top:2.5px solid}.ln.use{border-color:var(--use)}.ln.usedby{border-color:var(--usedby)}
 .stage{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
-#graph{display:block;min-width:1080px;width:100%;height:auto}
+#graph{display:block;min-width:1500px;width:100%;height:auto}
 .edge{fill:none;stroke:var(--edge);stroke-width:1.1;opacity:.42;transition:opacity .15s,stroke .15s}
 .arrow{fill:var(--edge)}.arrow-use{fill:var(--use)}.arrow-by{fill:var(--usedby)}
 .node rect{stroke-width:1.5;transition:opacity .15s}
-.node text{font:500 12px "IBM Plex Mono",ui-monospace,monospace;fill:var(--ink);pointer-events:none}
+.node text{font:500 11.5px "IBM Plex Mono",ui-monospace,monospace;fill:var(--ink);pointer-events:none}
 .node{cursor:pointer;outline:none}
 .node.core rect{fill:var(--core-soft);stroke:var(--core)}.node.db rect{fill:var(--db-soft);stroke:var(--db)}
 .node.http rect{fill:var(--http-soft);stroke:var(--http)}.node.time rect{fill:var(--time-soft);stroke:var(--time)}
@@ -115,6 +116,7 @@ header{display:flex;flex-wrap:wrap;gap:12px 32px;align-items:flex-end;justify-co
 .detail h2{font:500 15px "IBM Plex Mono",ui-monospace,monospace;margin:0 0 2px}
 .detail h3{margin:0 0 4px;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
 .detail p{margin:0;font:400 13px/1.6 "IBM Plex Mono",ui-monospace,monospace}
+code{font:12px "IBM Plex Mono",ui-monospace,monospace}
 .hint{color:var(--muted);font-size:12.5px;margin:0}
 .notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px 28px;color:var(--muted);font-size:13px}
 .notes b{color:var(--ink);font-weight:600}
@@ -122,13 +124,13 @@ header{display:flex;flex-wrap:wrap;gap:12px 32px;align-items:flex-end;justify-co
 <main>
 <header>
 <div><h1>Ziman library map</h1>
-<p class="lede">Which bundled module uses which. Each arrow runs from a module to one it uses; every module in a layer depends only on layers below it. Select a module to trace it.</p></div>
+<p class="lede">Which bundled module uses which, named as folder.module (the folder under lib/; a program writes just the module, as in <code>use server</code>). Each arrow runs from a module to one it uses; every module in a layer depends only on layers below it. Select a module to trace it.</p></div>
 <div class="legend"><span><i class="sw core"></i>core</span><span><i class="sw db"></i>databases</span><span><i class="sw http"></i>HTTP</span><span><i class="sw time"></i>time</span>
 <span><i class="ln use"></i>it uses</span><span><i class="ln usedby"></i>uses it</span></div>
 </header>
 <div class="stage">'''+"".join(svg)+'''</div>
 <section class="detail" id="detail" aria-live="polite">
-<div><h2 id="d-name">db</h2><p class="hint" id="d-hint">The front door for databases: picks SQLite, Postgres or MySQL from the URL.</p></div>
+<div><h2 id="d-name">db.db</h2><p class="hint" id="d-hint">The front door for databases: picks SQLite, Postgres or MySQL from the URL.</p></div>
 <div><h3>Uses</h3><p id="d-uses"></p></div>
 <div><h3>Used by</h3><p id="d-by"></p></div>
 </section>
@@ -150,7 +152,7 @@ function show(name){
   nodes.forEach(function(n){var m=n.dataset.name;n.classList.toggle("on",m===name||d.uses.indexOf(m)>=0||d.usedBy.indexOf(m)>=0)});
   edges.forEach(function(e){e.classList.toggle("use",e.dataset.from===name);e.classList.toggle("usedby",e.dataset.to===name)});
   document.getElementById("d-name").textContent=name;
-  document.getElementById("d-hint").textContent=HINTS[name]||("In lib/"+d.folder+".");
+  document.getElementById("d-hint").textContent=HINTS[name.split('.').pop()]||("In lib/"+d.folder+".");
   document.getElementById("d-uses").textContent=fmt(d.uses);
   document.getElementById("d-by").textContent=fmtBy(d.usedBy);
 }
@@ -163,7 +165,7 @@ nodes.forEach(function(n){
   n.addEventListener("click",function(){pinned=(pinned===n.dataset.name)?null:n.dataset.name;pinned?show(pinned):clear()});
   n.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();n.dispatchEvent(new Event("click"))}});
 });
-show("db");pinned="db";
+show("db.db");pinned="db.db";
 </script>
 ''' % data
 out=sys.argv[1] if len(sys.argv)>1 else os.path.join(ROOT,'docs','lib','library-map.html')
