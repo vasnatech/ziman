@@ -38,17 +38,18 @@ use sql.Row
 use sql.SqlValue
 use sqlite
 
-// Which engine a connection talks to, or a pool of them. A pool holds
-// the channel of idle connections, how many were opened and the URL to
-// reopen one from (see `open_pool`); statements run on it borrow a connection for that one
-// statement, and `acquire` hands one out exclusively. The type is
-// recursive through a `Channel`, like `Json` is through an array.
+// The state of a pool: the channel of idle connections, how many were opened and the URL to
+// reopen one from (see `open_pool`). Statements run on the pool borrow a connection for that one
+// statement, and `acquire` hands one out exclusively. `Connection` is recursive through this
+// `Channel`, like `Json` is through an array.
 pub struct PoolState {
     idle: Channel<Connection>
     size: int
     url: string
 }
 
+// One database connection, or a pool of them; every `db` function takes this one type, so code
+// written against it does not care which engine is behind it or whether it is pooled.
 pub enum Connection {
     Sqlite(sqlite.Connection)
     Postgres(pg.Connection)

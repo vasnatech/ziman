@@ -30,12 +30,16 @@
 use fs
 use os
 
+// One setting: its `key`, its `value`, and `source`, where it came from (a file, the environment,
+// an override) for messages that say why a value is what it is.
 pub struct Entry {
     key: string
     value: string
     source: string
 }
 
+// The loaded configuration: every entry in lookup order, and the active `profile` (empty when
+// none).
 pub struct Properties {
     entries: [Entry]
     profile: string

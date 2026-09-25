@@ -109,6 +109,7 @@ struct PgUrl {
     sslrootcert: string
 }
 
+// A float as the shortest text that reads back as the same float, for binding as a parameter.
 pub native fn float_to_text(f: float) -> string
 
 // ---------------------------------------------------------------- helpers

@@ -711,6 +711,8 @@ pub struct Cookie {
     expires: int
 }
 
+// The cookies a client is holding, passed to `request_with_jar` and returned updated. Make an
+// empty one with `cookie_jar()`.
 pub struct CookieJar {
     cookies: [Cookie]
 }

@@ -25,6 +25,9 @@
 // expected to be built on top of it (see `json_object_get`, `json_get_path` and the
 // `json_require_*` helpers below, or `#[derive(Json)]`), not inside this module.
 
+// A JSON value: null, a boolean, an integer (`JInt`, a number written without a fraction or
+// exponent), any other number (`JNumber`), a string, an array, or an object (a `Map<string,
+// Json>`).
 pub enum Json {
     JNull
     JBool(bool)
@@ -137,6 +140,8 @@ pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
     return ok(Json.unwrap_JString(v))
 }
 
+// The integer in field `key` of object `j`; an Err naming the field when `j` is not an object,
+// lacks it, or it is not an integer.
 pub fn json_require_int_field(j: Json, key: string) -> Result<int, string> {
     val v = json_require_field(j, key)?
     val n = int_from_json(v)
@@ -146,6 +151,8 @@ pub fn json_require_int_field(j: Json, key: string) -> Result<int, string> {
     return n
 }
 
+// The number in field `key` of object `j` (an integer is widened); an Err naming the field when it
+// is missing or not a number.
 pub fn json_require_float_field(j: Json, key: string) -> Result<float, string> {
     val v = json_require_field(j, key)?
     val f = float_from_json(v)
@@ -155,6 +162,8 @@ pub fn json_require_float_field(j: Json, key: string) -> Result<float, string> {
     return f
 }
 
+// The boolean in field `key` of object `j`; an Err naming the field when it is missing or not a
+// boolean.
 pub fn json_require_bool_field(j: Json, key: string) -> Result<bool, string> {
     val v = json_require_field(j, key)?
     if !Json.is_JBool(v) {
@@ -261,6 +270,7 @@ pub fn json_to_json(j: Json) -> Json {
     return j
 }
 
+// `j` itself, so a `Json` field of a derived struct passes through unchanged.
 pub fn json_from_json(j: Json) -> Result<Json, string> {
     return j
 }
@@ -287,10 +297,12 @@ pub fn int_from_json(j: Json) -> Result<int, string> {
     return ok(f as int)
 }
 
+// `f` as a JSON number.
 pub fn float_to_json(f: float) -> Json {
     return Json.JNumber(f)
 }
 
+// A float from a JSON number, integers included; an Err otherwise.
 pub fn float_from_json(j: Json) -> Result<float, string> {
     if Json.is_JInt(j) {
         return ok(Json.unwrap_JInt(j) as float)
@@ -301,10 +313,12 @@ pub fn float_from_json(j: Json) -> Result<float, string> {
     return ok(Json.unwrap_JNumber(j))
 }
 
+// `b` as a JSON boolean.
 pub fn bool_to_json(b: bool) -> Json {
     return Json.JBool(b)
 }
 
+// A bool from a JSON boolean; an Err otherwise.
 pub fn bool_from_json(j: Json) -> Result<bool, string> {
     if !Json.is_JBool(j) {
         return err("expected a boolean")
@@ -312,10 +326,12 @@ pub fn bool_from_json(j: Json) -> Result<bool, string> {
     return ok(Json.unwrap_JBool(j))
 }
 
+// `s` as a JSON string.
 pub fn string_to_json(s: string) -> Json {
     return Json.JString(s)
 }
 
+// A string from a JSON string; an Err otherwise.
 pub fn string_from_json(j: Json) -> Result<string, string> {
     if !Json.is_JString(j) {
         return err("expected a string")

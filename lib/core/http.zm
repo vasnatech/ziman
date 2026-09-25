@@ -143,6 +143,10 @@ pub struct Params {
     values: [string]
 }
 
+// Why reading a request failed: malformed (`BadRequest`), too large (`BodyTooLarge`,
+// `HeadersTooLarge`), unsupported (`NotImplemented`), a stalled client (`Timeout`), a peer that
+// went away (`Closed`) or a socket error (`Io`). `serve` answers each with the matching status
+// where the peer is still there.
 pub enum HttpError {
     BadRequest(string)
     BodyTooLarge
@@ -162,6 +166,7 @@ pub struct Session {
     buffer: [byte]
 }
 
+// One request read from a connection, with the session to read the next one from.
 pub struct Exchange {
     request: Request
     session: Session
@@ -771,7 +776,6 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 // connection already being served has finished -- an idle keep-alive
 // connection ends at `idle_timeout_ms` at the latest. It does not close the
 // listener or install the signal handler; the caller owns both.
-
 pub struct ServeOptions {
     idle_timeout_ms: int
     max_connections: int
@@ -806,6 +810,8 @@ fn serve_connection(sock: Socket, handler: fn(Request) -> Response, idle_timeout
         }
     }
 
+// Serves `listener` until a shutdown is requested, answering each request with `handler`; see
+// `ServeOptions` for the limits and the description above for how connections and shutdown behave.
 pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions) {
     var limit = options.max_connections
     if limit < 1 {

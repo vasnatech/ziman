@@ -38,6 +38,8 @@
 // Server-side TLS is `listen_tls`. Not yet: client certificates, ALPN,
 // Unix-domain sockets, UDP, and a connect timeout beyond the OS default.
 
+// Why a network call failed; each carries the system's message. `Closed` is a peer that hung up,
+// `Timeout` a deadline set with `set_timeout`, `Tls` a handshake or certificate failure.
 pub enum NetError {
     ConnectionRefused(string)
     HostNotFound(string)
@@ -56,10 +58,14 @@ pub enum TlsVerify {
     Full
 }
 
+// A connected TCP (or TLS) socket. Opaque: use `read`, `write` and `close`. One that is never
+// closed is closed when it is garbage collected.
 pub struct Socket {
     handle: int
 }
 
+// A listening TCP socket from `listen` or `listen_tls`. Opaque: use `accept`, `listener_port` and
+// `close`.
 pub struct Listener {
     handle: int
 }
