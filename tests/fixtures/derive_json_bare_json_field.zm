@@ -1,5 +1,4 @@
 use json.Json
-use json.JField
 use json.json_to_string
 use json.json_require_field
 use json.json_to_json
@@ -27,6 +26,6 @@ fn main() {
 
     // The payload can be any Json shape at all, including an object --
     // it round-trips opaquely, exactly as written.
-    val e2 = Envelope { status: 400, payload: Json.JObject([JField { key: "type", value: Json.JString("Bad") }]) }
+    val e2 = Envelope { status: 400, payload: Json.JObject(Map<string, Json> { "type": Json.JString("Bad") }) }
     print(json_to_string(envelope_to_json(e2)))
 }

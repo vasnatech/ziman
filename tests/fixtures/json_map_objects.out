@@ -1,0 +1,39 @@
+{"b":3,"a":2}
+2
+Some(JInt(3))
+None
+duplicate key 'k' at position 9
+true
+[9007199254740993,-5,1.5,200,1e+20]
+true
+true
+true
+Ok(200)
+false
+Ok(-5)
+Some(JString(b))
+None
+None
+Some(JObject({items: JArray([JObject({name: JString(a)}), JObject({name: JString(b)})]), n: JInt(3)}))
+Ok(3)
+field 'n' must be a boolean
+missing field 'nope'
+15
+"a\tb\u0001\u001f"
+false
+false
+false
+{x: 1, y: 2}
+{"x":1,"y":2}
+false
+{p: q}
+{
+  "a": [
+    1,
+    {}
+  ],
+  "b": {
+    "c": []
+  },
+  "d": null
+}

@@ -273,29 +273,43 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
 A JSON parser/serializer (`Json`, a genuinely recursive enum), written in pure Ziman -- no native code needed. `\uXXXX` unicode escapes and `==`/`!=` on `Json` are the two known gaps.
 
 ```
-pub struct JField {
-    key: string
-    value: Json
-}
-
 pub enum Json {
     JNull
     JBool(bool)
+    JInt(int)
     JNumber(float)
     JString(string)
     JArray([Json])
-    JObject([JField])
+    JObject(Map<string, Json>)
 }
 
 pub fn parse_json(s: string) -> Result<Json, string>
+
+pub fn parse_json_strict(s: string) -> Result<Json, string>
 
 pub fn json_to_string(j: Json) -> string
 
 pub fn json_object_get(j: Json, key: string) -> Option<Json>
 
+pub fn json_get_path(j: Json, path: [string]) -> Option<Json>
+
 pub fn json_require_field(j: Json, key: string) -> Result<Json, string>
 
 pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
+
+pub fn json_require_int_field(j: Json, key: string) -> Result<int, string>
+
+pub fn json_require_float_field(j: Json, key: string) -> Result<float, string>
+
+pub fn json_require_bool_field(j: Json, key: string) -> Result<bool, string>
+
+pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string>
+
+pub fn json_from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json
+
+pub fn json_to_string_map(j: Json) -> Result<Map<string, string>, string>
+
+pub fn json_to_pretty_string(j: Json, indent: int) -> string
 
 pub fn json_to_json(j: Json) -> Json
 

@@ -25,7 +25,6 @@
 // can't hold a thread forever: a timed-out read is `Err(Timeout)`.
 
 use clock
-use json.JField
 use json.Json
 use json.json_to_string
 use net
@@ -381,10 +380,8 @@ pub fn text_response(status: int, body: string) -> Response {
 }
 
 fn error_body(status: int, message: string) -> string {
-    return json_to_string(Json.JObject([
-        JField { key: "status", value: Json.JNumber(status as float) },
-        JField { key: "error", value: Json.JString(message) }
-    ]))
+    return json_to_string(Json.JObject(Map<string, Json> { "status": Json.JInt(status),
+        "error": Json.JString(message) }))
 }
 
 pub fn bad_request(message: string) -> Response {

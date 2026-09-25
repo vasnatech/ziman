@@ -1375,7 +1375,7 @@ fn main() {
   reading OS entropy), `uuid` (`Uuid`, RFC 4122 v4, pure Ziman on top of
   `random`), `time` (see "Date and time"), `number` (see "Number formatting
   and parsing", which also holds the binary integer/float encodings for `[byte]`), `crypto`, `json` (a parser/serializer whose `Json`
-  is a genuinely recursive enum, `JArray([Json])`/`JObject([JField])`, plus
+  is a recursive enum, `JArray([Json])`/`JObject(Map<string, Json>)`, plus
   what `#[derive(Json)]` needs), `properties` and `log`, `net`, `http` and
   `httpclient`, and the database layer `sql`, `db`, `sqlite`, `pg`, `mysql`
   and `dburl`. Any project can `use` one of these with no local file of its
@@ -1686,38 +1686,29 @@ fn main() {
 }
 ```
 
-- **`Json`** is a genuinely recursive `enum` — `JNull`, `JBool(bool)`,
+- **`Json`** is a recursive `enum`: `JNull`, `JBool(bool)`, `JInt(int)`,
   `JNumber(float)`, `JString(string)`, `JArray([Json])`,
-  `JObject([JField])` where `JField { key: string, value: Json }` —
-  and this works today with *no new language feature*, despite an old
-  ROADMAP.md note that "a self-referential struct can't be
-  constructed." That limitation is about a *direct* self-reference with
-  no escape (`struct Node { next: Node }`, genuinely infinite); `Json`'s
-  recursion goes through `[Json]` (an array), which has a natural
-  finite base case (`[]`) — confirmed by direct testing before this
-  module was written, not assumed.
-- **`JNumber` holds a `float`**, matching how virtually every other
-  JSON implementation represents JSON numbers (including JavaScript's
-  own `Number`) — JSON's grammar technically allows arbitrary
-  precision, but nothing needs exact `decimal`/`bigint` precision for a
-  JSON number specifically (an ID needing exact precision, like a
-  `Uuid`, is always transmitted as a JSON *string* in practice).
-- **`parse_json(s: string) -> Result<Json, string>`** — a real
-  recursive-descent parser (not string-searching for field names, which
-  can't handle a field's own string value containing the same text, or
-  nested braces correctly). String escape handling covers `\" \\ \/ \n
-  \t \r`; `\b \f` and `\uXXXX` unicode escapes are rejected with a
-  clear parse error rather than silently mishandled — Ziman's own
-  string literal syntax has no way to write a literal `\b`/`\f`
-  character (see "Lexical rules" above), and `\uXXXX` needs a
-  codepoint-to-UTF-8 encoder nothing here has built.
-- **`json_to_string(j: Json) -> string`** — compact serialization (no
-  pretty-printing/indentation). Round-trips exactly through the escapes
-  `parse_json` supports.
-- **`json_object_get(j: Json, key: string) -> Option<Json>`** — the one
-  convenience lookup beyond parse/serialize, since every schema-specific
-  parser built on top of this module needs it at least once per field.
-  Not a general query language — deliberately just this one helper.
+  `JObject(Map<string, Json>)`.
+- **Objects are Maps.** A field lookup is near-O(1); iteration (and so
+  `json_to_string`) keeps the order keys first appeared in; a repeated key keeps its
+  first position with the last value (`parse_json_strict` makes it an error instead).
+  Build one with `Json.JObject(Map<string, Json> { "k": v })`.
+- **Numbers.** An integer literal that fits in 64 bits parses to `JInt` and is exact
+  (a large id no longer loses precision); a fraction, an exponent or an integer too big
+  for `int` parses to `JNumber(float)`. `int_from_json` accepts a `JInt` or a whole-valued
+  `JNumber` in range; `float_from_json` accepts either.
+- **`parse_json(s: string) -> Result<Json, string>`** — a recursive-descent parser.
+  All JSON string escapes are read (`\" \\ \/ \b \f \n \r \t` and `\uXXXX`, surrogate
+  pairs included, decoded to UTF-8); `\u0000` is an error (a string cannot hold a 0 byte).
+- **`json_to_string(j: Json) -> string`** — compact serialization, control characters
+  written as `\b \f \u00XX`. **`json_to_pretty_string(j, indent)`** indents.
+- **Lookups:** `json_object_get(j, key) -> Option<Json>`; `json_get_path(j, ["items", "0",
+  "name"]) -> Option<Json>` (an array segment is a decimal index); `json_require_field`,
+  `json_require_string_field`, `json_require_int_field`, `json_require_float_field`,
+  `json_require_bool_field` (all `Result`, with a message naming the field).
+- **Map helpers:** `json_to_map<V>(j, decode)` / `json_from_map<V>(m, encode)` convert
+  an object to and from a `Map<string, V>` (`json_to_map<int>(j, int_from_json)`);
+  `json_to_string_map(j)` is the `Map<string, string>` case.
 - **No `==`/`!=` on `Json`.** Array equality requires a *scalar*
   element type (see "Arrays" above); `[Json]`'s element (`Json` itself,
   an enum) isn't one. A real, known limitation, left alone since nothing
@@ -1792,7 +1783,6 @@ to change later) but have no effect yet.
 
 ```
 use json.Json
-use json.JField
 use json.json_to_string
 use json.json_require_field
 use json.json_object_get
@@ -1843,7 +1833,7 @@ fn main() {
   — it keeps its own `null`/unwrapped handling from the per-field rules
   even when it shows up as an enum variant's payload type.
 - **A derive imports what it generates code against.** `#[derive(Json)]`
-  brings in `json.Json`, `JField`, `json_object_get`, `json_require_field`
+  brings in `json.Json`, `json_object_get`, `json_require_field`
   and `json_require_string_field`; `#[derive(Row)]` brings in `sql.SqlValue`,
   `DbError`, `Row`, `row_get` and the `sql_as_*` readers;
   `#[derive(Properties)]` imports the `properties` module. A name is added

@@ -1,5 +1,4 @@
 use json.Json
-use json.JField
 use json.json_require_field
 
 #[derive(Json)]

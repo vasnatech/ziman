@@ -123,7 +123,7 @@ makes each of them `Ord`, so `compare` and `collections.sort` work on them).
 
 `json` is a JSON parser/serializer, also
 pure Ziman: `Json` is a genuinely recursive enum
-(`JArray([Json])`/`JObject([JField])`) that works with no new language
+(`JArray([Json])`/`JObject(Map<string, Json>)`) that works with no new language
 feature, since the recursion goes through an array (a natural finite
 base case, `[]`) rather than a bare self-reference — verified directly
 before the module was written, given an old, since-resolved ROADMAP.md

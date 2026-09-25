@@ -1,55 +1,36 @@
 // json.zm -- a JSON parser and serializer, written in pure Ziman.
-// `Json` is a genuinely recursive enum (`JArray([Json])`, and
-// `JObject([JField])` where `JField { key: string, value: Json }`) --
-// this works today with no new language feature, despite an old
-// ROADMAP.md note that "a self-referential struct can't be
-// constructed": that limitation is about a *direct* self-reference
-// with no escape (`struct Node { next: Node }`, genuinely infinite),
-// not recursion through an array, which has a natural finite base case
-// (`[]`). Verified directly before this module was written.
+// `Json` is a genuinely recursive enum: `JArray([Json])` and
+// `JObject(Map<string, Json>)`. An object is a built-in `Map`, so a field lookup is
+// near-O(1) (not a scan), a duplicate key has one defined meaning (the last one
+// wins; `parse_json_strict` rejects it instead), and iteration -- and so
+// `json_to_string` -- keeps the order keys first appeared in the document.
 //
-// `JNumber` holds a `float`, matching how virtually every other JSON
-// implementation represents JSON numbers (including JavaScript's own
-// `Number`) -- JSON's grammar technically allows arbitrary precision,
-// but nothing here needs exact decimal/bigint precision for a JSON
-// number specifically (an ID that needs exact precision, like a UUID,
-// is always transmitted as a JSON string in practice, never a number).
+// Numbers: `JInt(int)` for an integer literal that fits in 64 bits, `JNumber(float)`
+// for everything else (a fraction, an exponent, or an integer too large for `int`).
+// So a large id or count round-trips exactly instead of losing precision to a float.
+// `int_from_json` accepts either (a `JNumber` only if it is a whole number in range);
+// `float_from_json` accepts either.
 //
-// Deliberately narrower than a fully spec-compliant parser in one way:
-// string escape handling covers `\" \\ \/ \n \t \r`, not `\b \f` or
-// `\uXXXX` unicode escapes -- Ziman's own string literal syntax has no
-// way to write a literal `\b`/`\f` character (its lexer supports
-// `\n \t \r \" \\`, see src/lexer.c), and `\uXXXX` needs a
-// codepoint-to-UTF-8 encoder nothing here has built. An unsupported
-// string escape is a clear parse error, not silently mishandled. A CR
-// counts as structural whitespace between tokens, so a body with CRLF
-// line endings (what a Windows tool or an HTTP client may send) parses.
+// Strings: the full JSON escape set is read (`\" \\ \/ \b \f \n \r \t` and `\uXXXX`,
+// including surrogate pairs, decoded to UTF-8) and written (control characters as
+// `\u00XX`). `\u0000` is rejected: a Ziman string cannot hold a 0 byte. A CR counts
+// as structural whitespace between tokens, so a CRLF body parses.
 //
-// `Json` does NOT support `==`/`!=` -- array equality requires a
-// *scalar* element type (see docs/SYNTAX.md "Arrays"), and `[Json]`'s
-// element (`Json` itself, an enum) isn't scalar. A real, known
-// limitation, not fixed here since nothing currently needs to compare
-// two `Json` trees for equality.
+// `Json` does NOT support `==`/`!=` -- array equality requires a scalar element type
+// (see docs/SYNTAX.md "Arrays"), and `[Json]`'s element is an enum. A known limitation.
 //
-// This is the general parsing *engine*; a schema-specific parser for
-// one particular request shape (e.g. a `CreatePatientRequest`) is
-// expected to be built on top of it in application code (see
-// `json_object_get` below), not inside this module -- turning
-// arbitrary JSON into a specific already-known struct is business
-// logic, not language infrastructure.
-
-pub struct JField {
-    key: string
-    value: Json
-}
+// This is the general engine; a schema-specific parser for one request shape is
+// expected to be built on top of it (see `json_object_get`, `json_get_path` and the
+// `json_require_*` helpers below, or `#[derive(Json)]`), not inside this module.
 
 pub enum Json {
     JNull
     JBool(bool)
+    JInt(int)
     JNumber(float)
     JString(string)
     JArray([Json])
-    JObject([JField])
+    JObject(Map<string, Json>)
 }
 
 fn is_ws(c: string) -> bool {
@@ -116,6 +97,7 @@ fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
         p = p + 1
     }
     val int_start = p
+    var is_whole = true
     while p < len(s) && is_digit(char_at(s, p)) {
         p = p + 1
     }
@@ -123,6 +105,7 @@ fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
         return err(format("invalid number at position {}", pos))
     }
     if is_char_at(s, p, ".") {
+        is_whole = false
         p = p + 1
         val frac_start = p
         while p < len(s) && is_digit(char_at(s, p)) {
@@ -133,6 +116,7 @@ fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
         }
     }
     if is_char_at(s, p, "e") || is_char_at(s, p, "E") {
+        is_whole = false
         p = p + 1
         if is_char_at(s, p, "+") || is_char_at(s, p, "-") {
             p = p + 1
@@ -146,11 +130,82 @@ fn parse_number(s: string, pos: int) -> Result<ParseResult, string> {
         }
     }
     val text = substring(s, pos, p)
+    if is_whole {
+        val as_int = parse_int(text)
+        if is_ok(as_int) {
+            return ok(ParseResult { value: Json.JInt(unwrap(as_int)), next_pos: p })
+        }
+    }
     val parsed = parse_float(text)
     if !is_ok(parsed) {
         return err(format("invalid number '{}' at position {}", text, pos))
     }
     return ok(ParseResult { value: Json.JNumber(unwrap(parsed)), next_pos: p })
+}
+
+fn hex_digit(c: string) -> int {
+    if len(c) != 1 {
+        return -1
+    }
+    return index_of("0123456789abcdef", to_lower(c), 0)
+}
+
+// Four hex digits at `pos`, or -1.
+fn hex4(s: string, pos: int) -> int {
+    if pos + 4 > len(s) {
+        return -1
+    }
+    var n = 0
+    for i in 0..4 {
+        val d = hex_digit(char_at(s, pos + i))
+        if d < 0 {
+            return -1
+        }
+        n = n * 16 + d
+    }
+    return n
+}
+
+struct UnicodeEscape {
+    code_point: int
+    next_pos: int
+}
+
+// The `\uXXXX` (or a `\uD83D\uDE00` surrogate pair) whose backslash is at `pos`.
+fn read_unicode_escape(s: string, pos: int) -> Result<UnicodeEscape, string> {
+    val hi = hex4(s, pos + 2)
+    if hi < 0 {
+        return err(format("invalid \\u escape at position {}", pos))
+    }
+    if hi >= 55296 && hi <= 56319 {
+        if is_char_at(s, pos + 6, "\\") && is_char_at(s, pos + 7, "u") {
+            val lo = hex4(s, pos + 8)
+            if lo >= 56320 && lo <= 57343 {
+                return ok(UnicodeEscape { code_point: 65536 + (hi - 55296) * 1024 + (lo - 56320), next_pos: pos + 12 })
+            }
+        }
+        return err(format("unpaired surrogate in \\u escape at position {}", pos))
+    }
+    if hi >= 56320 && hi <= 57343 {
+        return err(format("unpaired surrogate in \\u escape at position {}", pos))
+    }
+    if hi == 0 {
+        return err(format("\\u0000 is not supported (a string cannot contain a 0 byte), at position {}", pos))
+    }
+    return ok(UnicodeEscape { code_point: hi, next_pos: pos + 6 })
+}
+
+fn append_utf8(out: StringBuilder, cp: int) {
+    if cp < 128 {
+        sb_append_byte(out, cp as byte)
+    } else if cp < 2048 {
+        sb_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
+    } else if cp < 65536 {
+        sb_append_byte(out, (224 + cp / 4096) as byte, (128 + cp / 64 % 64) as byte, (128 + cp % 64) as byte)
+    } else {
+        sb_append_byte(out, (240 + cp / 262144) as byte, (128 + cp / 4096 % 64) as byte, (128 + cp / 64 % 64) as byte,
+            (128 + cp % 64) as byte)
+    }
 }
 
 // Also used for an object's key, which is just a JSON string in key
@@ -188,6 +243,19 @@ fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
                 sb_append(out, "\t")
             } else if esc == "r" {
                 sb_append(out, "\r")
+            } else if esc == "b" {
+                sb_append_byte(out, 8b)
+            } else if esc == "f" {
+                sb_append_byte(out, 12b)
+            } else if esc == "u" {
+                val cp_result = read_unicode_escape(s, p)
+                if !is_ok(cp_result) {
+                    return err(unwrap_err(cp_result))
+                }
+                val decoded = unwrap(cp_result)
+                append_utf8(out, decoded.code_point)
+                p = decoded.next_pos
+                continue
             } else {
                 return err(format("unsupported escape '\\{}' at position {}", esc, p))
             }
@@ -203,14 +271,14 @@ fn parse_string(s: string, pos: int) -> Result<ParseResult, string> {
 // Built on ArrayBuilder<Json> rather than `push` in a loop -- same
 // reasoning as parse_string above, one level up: an arbitrary-length
 // JSON array used to mean one leaked, ever-growing array per element.
-fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
+fn parse_array(s: string, pos: int, strict: bool) -> Result<ParseResult, string> {
     var p = skip_ws(s, pos + 1)  // skip '['
     val items = ab_new<Json>()
     if is_char_at(s, p, "]") {
         return ok(ParseResult { value: Json.JArray(ab_to_array<Json>(items)), next_pos: p + 1 })
     }
     while true {
-        val r = parse_value(s, p)
+        val r = parse_value(s, p, strict)
         if !is_ok(r) {
             return err(unwrap_err(r))
         }
@@ -231,12 +299,13 @@ fn parse_array(s: string, pos: int) -> Result<ParseResult, string> {
     return err("unreachable")
 }
 
-// Same ArrayBuilder<JField> fix as parse_array, for an object's fields.
-fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
+// Fields go into a Map in document order; a repeated key overwrites (keeping its
+// first position) unless `strict`, where it is an error.
+fn parse_object(s: string, pos: int, strict: bool) -> Result<ParseResult, string> {
     var p = skip_ws(s, pos + 1)  // skip '{'
-    val fields = ab_new<JField>()
+    var fields = Map<string, Json> {}
     if is_char_at(s, p, "}") {
-        return ok(ParseResult { value: Json.JObject(ab_to_array<JField>(fields)), next_pos: p + 1 })
+        return ok(ParseResult { value: Json.JObject(fields), next_pos: p + 1 })
     }
     while true {
         if !is_char_at(s, p, "\"") {
@@ -248,17 +317,20 @@ fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
         }
         val key_pr = unwrap(key_result)
         val key = Json.unwrap_JString(key_pr.value)
+        if strict && contains(fields, key) {
+            return err(format("duplicate key '{}' at position {}", key, p))
+        }
         p = skip_ws(s, key_pr.next_pos)
         if !is_char_at(s, p, ":") {
             return err(format("expected ':' at position {}", p))
         }
         p = skip_ws(s, p + 1)
-        val val_result = parse_value(s, p)
+        val val_result = parse_value(s, p, strict)
         if !is_ok(val_result) {
             return err(unwrap_err(val_result))
         }
         val val_pr = unwrap(val_result)
-        ab_append<JField>(fields, JField { key: key, value: val_pr.value })
+        fields = set(fields, key, val_pr.value)
         p = skip_ws(s, val_pr.next_pos)
         if p >= len(s) {
             return err("unterminated object")
@@ -266,7 +338,7 @@ fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
         if is_char_at(s, p, ",") {
             p = skip_ws(s, p + 1)
         } else if is_char_at(s, p, "}") {
-            return ok(ParseResult { value: Json.JObject(ab_to_array<JField>(fields)), next_pos: p + 1 })
+            return ok(ParseResult { value: Json.JObject(fields), next_pos: p + 1 })
         } else {
             return err(format("expected ',' or a closing brace at position {}", p))
         }
@@ -274,17 +346,17 @@ fn parse_object(s: string, pos: int) -> Result<ParseResult, string> {
     return err("unreachable")
 }
 
-fn parse_value(s: string, pos: int) -> Result<ParseResult, string> {
+fn parse_value(s: string, pos: int, strict: bool) -> Result<ParseResult, string> {
     val p = skip_ws(s, pos)
     if p >= len(s) {
         return err("unexpected end of input")
     }
     val c = char_at(s, p)
     if c == "{" {
-        return parse_object(s, p)
+        return parse_object(s, p, strict)
     }
     if c == "[" {
-        return parse_array(s, p)
+        return parse_array(s, p, strict)
     }
     if c == "\"" {
         return parse_string(s, p)
@@ -301,8 +373,8 @@ fn parse_value(s: string, pos: int) -> Result<ParseResult, string> {
     return err(format("unexpected character '{}' at position {}", c, p))
 }
 
-pub fn parse_json(s: string) -> Result<Json, string> {
-    val r = parse_value(s, 0)
+fn parse_document(s: string, strict: bool) -> Result<Json, string> {
+    val r = parse_value(s, 0, strict)
     if !is_ok(r) {
         return err(unwrap_err(r))
     }
@@ -312,6 +384,17 @@ pub fn parse_json(s: string) -> Result<Json, string> {
         return err(format("trailing content at position {}", end))
     }
     return ok(pr.value)
+}
+
+// Parses one JSON document. A repeated key in an object is allowed: the last one wins.
+pub fn parse_json(s: string) -> Result<Json, string> {
+    return parse_document(s, false)
+}
+
+// parse_json, but a repeated key in any object is an error -- for input where a
+// duplicate means something is wrong (a signed or audited document, a config file).
+pub fn parse_json_strict(s: string) -> Result<Json, string> {
+    return parse_document(s, true)
 }
 
 // Built on StringBuilder rather than the concat-in-a-loop this
@@ -334,6 +417,16 @@ fn escape_json_string(s: string) -> string {
             sb_append(out, "\\t")
         } else if c == "\r" {
             sb_append(out, "\\r")
+        } else if compare(c, " ") < 0 {
+            val code = string_to_bytes(c)[0] as int
+            if code == 8 {
+                sb_append(out, "\\b")
+            } else if code == 12 {
+                sb_append(out, "\\f")
+            } else {
+                sb_append(out, "\\u00", substring("0123456789abcdef", code / 16, code / 16 + 1),
+                    substring("0123456789abcdef", code % 16, code % 16 + 1))
+            }
         } else {
             sb_append(out, c)
         }
@@ -358,6 +451,9 @@ pub fn json_to_string(j: Json) -> string {
         }
         return "false"
     }
+    if Json.is_JInt(j) {
+        return str(Json.unwrap_JInt(j))
+    }
     if Json.is_JNumber(j) {
         return str(Json.unwrap_JNumber(j))
     }
@@ -379,18 +475,15 @@ pub fn json_to_string(j: Json) -> string {
         sb_append(out, "]")
         return sb_to_string(out)
     }
-    val fields = Json.unwrap_JObject(j)
     val out = sb_new()
     sb_append(out, "{")
-    var i = 0
-    while i < len(fields) {
-        if i > 0 {
+    var first = true
+    for key, value in Json.unwrap_JObject(j) {
+        if !first {
             sb_append(out, ",")
         }
-        sb_append(out, escape_json_string(fields[i].key))
-        sb_append(out, ":")
-        sb_append(out, json_to_string(fields[i].value))
-        i = i + 1
+        first = false
+        sb_append(out, escape_json_string(key), ":", json_to_string(value))
     }
     sb_append(out, "}")
     return sb_to_string(out)
@@ -404,12 +497,37 @@ pub fn json_object_get(j: Json, key: string) -> Option<Json> {
     if !Json.is_JObject(j) {
         return Option<Json>.None
     }
-    for f in Json.unwrap_JObject(j) {
-        if f.key == key {
-            return Option<Json>.Some(f.value)
+    return map_get(Json.unwrap_JObject(j), key)
+}
+
+// Follows `path` down from `j`: each segment is an object key, or -- when the current
+// value is an array -- a decimal index. None if any step is missing or of the wrong
+// kind: `json_get_path(j, ["items", "0", "name"])`.
+pub fn json_get_path(j: Json, path: [string]) -> Option<Json> {
+    var cur = j
+    for segment in path {
+        if Json.is_JObject(cur) {
+            val next = map_get(Json.unwrap_JObject(cur), segment)
+            if !Option.is_Some(next) {
+                return Option<Json>.None
+            }
+            cur = Option.unwrap_Some(next)
+        } else if Json.is_JArray(cur) {
+            val index = parse_int(segment)
+            if !is_ok(index) {
+                return Option<Json>.None
+            }
+            val items = Json.unwrap_JArray(cur)
+            val i = unwrap(index)
+            if i < 0 || i >= len(items) {
+                return Option<Json>.None
+            }
+            cur = items[i]
+        } else {
+            return Option<Json>.None
         }
     }
-    return Option<Json>.None
+    return Option<Json>.Some(cur)
 }
 
 // json_object_get, treating a missing field as an error instead of
@@ -439,6 +557,113 @@ pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
     return ok(Json.unwrap_JString(v))
 }
 
+pub fn json_require_int_field(j: Json, key: string) -> Result<int, string> {
+    val v = json_require_field(j, key)?
+    val n = int_from_json(v)
+    if !is_ok(n) {
+        return err(format("field '{}' must be an integer", key))
+    }
+    return n
+}
+
+pub fn json_require_float_field(j: Json, key: string) -> Result<float, string> {
+    val v = json_require_field(j, key)?
+    val f = float_from_json(v)
+    if !is_ok(f) {
+        return err(format("field '{}' must be a number", key))
+    }
+    return f
+}
+
+pub fn json_require_bool_field(j: Json, key: string) -> Result<bool, string> {
+    val v = json_require_field(j, key)?
+    if !Json.is_JBool(v) {
+        return err(format("field '{}' must be a boolean", key))
+    }
+    return ok(Json.unwrap_JBool(v))
+}
+
+// An object as a Map, each value decoded by `decode`: `json_to_map<int>(j, int_from_json)`.
+pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string> {
+    if !Json.is_JObject(j) {
+        return err("expected an object")
+    }
+    var out = Map<string, V> {}
+    for key, value in Json.unwrap_JObject(j) {
+        val item = decode(value)?
+        out = set(out, key, item)
+    }
+    return ok(out)
+}
+
+// The other direction: a Map as a JSON object, each value encoded by `encode`.
+pub fn json_from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json {
+    var out = Map<string, Json> {}
+    for key, value in m {
+        out = set(out, key, encode(value))
+    }
+    return Json.JObject(out)
+}
+
+// A JSON object of strings as a Map<string, string>.
+pub fn json_to_string_map(j: Json) -> Result<Map<string, string>, string> {
+    return json_to_map<string>(j, string_from_json)
+}
+
+// Indented output: `indent` spaces per level, one array element or object field per
+// line; an empty array or object stays `[]` / `{}`.
+pub fn json_to_pretty_string(j: Json, indent: int) -> string {
+    val out = sb_new()
+    write_pretty(out, j, indent, 0)
+    return sb_to_string(out)
+}
+
+fn write_pretty(out: StringBuilder, j: Json, indent: int, level: int) {
+    val pad = repeat_spaces(indent * (level + 1))
+    val close_pad = repeat_spaces(indent * level)
+    if Json.is_JArray(j) {
+        val items = Json.unwrap_JArray(j)
+        if len(items) == 0 {
+            sb_append(out, "[]")
+            return
+        }
+        sb_append(out, "[\n")
+        var i = 0
+        while i < len(items) {
+            sb_append(out, pad)
+            write_pretty(out, items[i], indent, level + 1)
+            sb_append(out, if i + 1 < len(items) { ",\n" } else { "\n" })
+            i = i + 1
+        }
+        sb_append(out, close_pad, "]")
+    } else if Json.is_JObject(j) {
+        val fields = Json.unwrap_JObject(j)
+        if len(fields) == 0 {
+            sb_append(out, "{}")
+            return
+        }
+        sb_append(out, "{\n")
+        var n = 0
+        for key, value in fields {
+            n = n + 1
+            sb_append(out, pad, escape_json_string(key), ": ")
+            write_pretty(out, value, indent, level + 1)
+            sb_append(out, if n < len(fields) { ",\n" } else { "\n" })
+        }
+        sb_append(out, close_pad, "}")
+    } else {
+        sb_append(out, json_to_string(j))
+    }
+}
+
+fn repeat_spaces(n: int) -> string {
+    val out = sb_new()
+    for i in 0..n {
+        sb_append(out, " ")
+    }
+    return sb_to_string(out)
+}
+
 // Identity wrappers, named to match #[derive(Json)]'s own <type>_to_json/
 // <type>_from_json convention -- so a struct field declared plain `Json`
 // composes with derive like any other field type (tier 1 of its
@@ -464,14 +689,22 @@ pub fn json_from_json(j: Json) -> Result<Json, string> {
 // one converter per type parameter (`page_to_json<int>(page, int_to_json)`), and
 // a builtin type has no function of its own to pass -- these are those.
 pub fn int_to_json(n: int) -> Json {
-    return Json.JNumber(n as float)
+    return Json.JInt(n)
 }
 
+// A JInt, or a JNumber that is a whole number within int's range (`3.0`, `1e3`).
 pub fn int_from_json(j: Json) -> Result<int, string> {
+    if Json.is_JInt(j) {
+        return ok(Json.unwrap_JInt(j))
+    }
     if !Json.is_JNumber(j) {
         return err("expected a number")
     }
-    return ok(Json.unwrap_JNumber(j) as int)
+    val f = Json.unwrap_JNumber(j)
+    if f < -9223372036854775808.0 || f >= 9223372036854775808.0 || (f as int) as float != f {
+        return err("expected an integer")
+    }
+    return ok(f as int)
 }
 
 pub fn float_to_json(f: float) -> Json {
@@ -479,6 +712,9 @@ pub fn float_to_json(f: float) -> Json {
 }
 
 pub fn float_from_json(j: Json) -> Result<float, string> {
+    if Json.is_JInt(j) {
+        return ok(Json.unwrap_JInt(j) as float)
+    }
     if !Json.is_JNumber(j) {
         return err("expected a number")
     }

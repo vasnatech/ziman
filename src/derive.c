@@ -276,7 +276,7 @@ static void check_json_map_key(Type key, int line, int col) {
 static void emit_to_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
     switch (t.kind) {
         case TY_INT:
-            cb_appendf(cb, "    val %s = Json.JNumber(%s as float)\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = Json.JInt(%s)\n", dst_var, src_expr);
             return;
         case TY_FLOAT:
             cb_appendf(cb, "    val %s = Json.JNumber(%s)\n", dst_var, src_expr);
@@ -304,13 +304,13 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             char *k = gen_tmp(tmp, "key");
             char *v = gen_tmp(tmp, "entry");
             char *v_json = gen_tmp(tmp, "entry_json");
-            char *ab = gen_tmp(tmp, "ab");
-            cb_appendf(cb, "    val %s = ab_new<JField>()\n", ab);
+            char *acc = gen_tmp(tmp, "fields");
+            cb_appendf(cb, "    var %s = Map<string, Json> {}\n", acc);
             cb_appendf(cb, "    for %s, %s in %s {\n", k, v, src_expr);
             emit_to_json(*t.elem_err, v, v_json, cb, tmp, line, col);
-            cb_appendf(cb, "    ab_append<JField>(%s, JField { key: %s, value: %s })\n", ab, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
+            cb_appendf(cb, "    %s = set(%s, %s, %s)\n", acc, acc, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
             cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = Json.JObject(ab_to_array<JField>(%s))\n", dst_var, ab);
+            cb_appendf(cb, "    val %s = Json.JObject(%s)\n", dst_var, acc);
             return;
         }
         case TY_SET: {
@@ -371,12 +371,10 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
 static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
     switch (t.kind) {
         case TY_INT:
-            cb_appendf(cb, "    if !Json.is_JNumber(%s) { return err(\"expected a number\") }\n", src_expr);
-            cb_appendf(cb, "    val %s = Json.unwrap_JNumber(%s) as int\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = int_from_json(%s)?\n", dst_var, src_expr);
             return;
         case TY_FLOAT:
-            cb_appendf(cb, "    if !Json.is_JNumber(%s) { return err(\"expected a number\") }\n", src_expr);
-            cb_appendf(cb, "    val %s = Json.unwrap_JNumber(%s)\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = float_from_json(%s)?\n", dst_var, src_expr);
             return;
         case TY_BOOL:
             cb_appendf(cb, "    if !Json.is_JBool(%s) { return err(\"expected a boolean\") }\n", src_expr);
@@ -402,20 +400,20 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
         }
         case TY_MAP: {
             check_json_map_key(*t.elem, line, col);
-            char *field = gen_tmp(tmp, "field");
+            char *k = gen_tmp(tmp, "key");
+            char *v = gen_tmp(tmp, "raw");
             char *entry = gen_tmp(tmp, "entry");
-            char *key_n = gen_tmp(tmp, "key");
+            char *key_n = gen_tmp(tmp, "key_n");
             char *map_type_name = type_name(t);
             cb_appendf(cb, "    if !Json.is_JObject(%s) { return err(\"expected an object\") }\n", src_expr);
             cb_appendf(cb, "    var %s = %s {}\n", dst_var, map_type_name);
-            cb_appendf(cb, "    for %s in Json.unwrap_JObject(%s) {\n", field, src_expr);
-            char *value_src = fmt_str("%s.value", field);
-            emit_from_json(*t.elem_err, value_src, entry, cb, tmp, line, col);
+            cb_appendf(cb, "    for %s, %s in Json.unwrap_JObject(%s) {\n", k, v, src_expr);
+            emit_from_json(*t.elem_err, v, entry, cb, tmp, line, col);
             if (t.elem->kind == TY_INT) {
-                cb_appendf(cb, "    val %s = parse_int(%s.key)?\n", key_n, field);
+                cb_appendf(cb, "    val %s = parse_int(%s)?\n", key_n, k);
                 cb_appendf(cb, "    %s = set(%s, %s, %s)\n", dst_var, dst_var, key_n, entry);
             } else {
-                cb_appendf(cb, "    %s = set(%s, %s.key, %s)\n", dst_var, dst_var, field, entry);
+                cb_appendf(cb, "    %s = set(%s, %s, %s)\n", dst_var, dst_var, k, entry);
             }
             cb_appendf(cb, "    }\n");
             return;
@@ -489,11 +487,11 @@ static char *generate_struct_to_json(StructDecl *sd) {
         camel_keys[i] = snake_to_camel(f->name);
     }
 
-    cb_appendf(&cb, "    return Json.JObject([\n");
+    cb_appendf(&cb, "    return Json.JObject(Map<string, Json> {\n");
     for (int i = 0; i < sd->fields.count; i++) {
-        cb_appendf(&cb, "        JField { key: \"%s\", value: %s }%s\n", camel_keys[i], dst_vars[i], i + 1 < sd->fields.count ? "," : "");
+        cb_appendf(&cb, "        \"%s\": %s%s\n", camel_keys[i], dst_vars[i], i + 1 < sd->fields.count ? "," : "");
     }
-    cb_appendf(&cb, "    ])\n");
+    cb_appendf(&cb, "    })\n");
     cb_appendf(&cb, "}\n\n");
     return cb.data;
 }
@@ -581,15 +579,15 @@ static char *generate_enum_to_json(EnumDecl *ed) {
             cb_appendf(&cb, "    } else {\n");
         }
         if (!variant->has_payload) {
-            cb_appendf(&cb, "        return Json.JObject([JField { key: \"type\", value: Json.JString(\"%s\") }])\n", variant->name);
+            cb_appendf(&cb, "        return Json.JObject(Map<string, Json> { \"type\": Json.JString(\"%s\") })\n", variant->name);
         } else {
             char *unwrap_expr = fmt_str("%s.unwrap_%s(v)", ed->name, variant->name);
             char *dst = fmt_str("payload_json_%d", i);
             emit_to_json(variant->payload_type, unwrap_expr, dst, &cb, &tmp, variant->line, variant->col);
-            cb_appendf(&cb, "        return Json.JObject([\n");
-            cb_appendf(&cb, "            JField { key: \"type\", value: Json.JString(\"%s\") },\n", variant->name);
-            cb_appendf(&cb, "            JField { key: \"value\", value: %s }\n", dst);
-            cb_appendf(&cb, "        ])\n");
+            cb_appendf(&cb, "        return Json.JObject(Map<string, Json> {\n");
+            cb_appendf(&cb, "            \"type\": Json.JString(\"%s\"),\n", variant->name);
+            cb_appendf(&cb, "            \"value\": %s\n", dst);
+            cb_appendf(&cb, "        })\n");
         }
     }
     if (n > 1) cb_appendf(&cb, "    }\n");
@@ -956,7 +954,7 @@ static void ensure_module_import(Module *module, const char *path, int line, int
 
 static void import_for_derive(Module *module, const char *target, int line, int col) {
     if (strcmp(target, "Json") == 0) {
-        static const char *const names[] = {"Json", "JField", "json_object_get", "json_require_field", "json_require_string_field",
+        static const char *const names[] = {"Json", "json_object_get", "json_require_field", "json_require_string_field",
                                             "int_to_json", "int_from_json", "float_to_json", "float_from_json",
                                             "bool_to_json", "bool_from_json", "string_to_json", "string_from_json"};
         for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "json", names[i], line, col);

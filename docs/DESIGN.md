@@ -3501,3 +3501,17 @@ map the same API without duplicating every function. Making them built-in fixes 
   don't support them. **Not offered yet:** set algebra and other helpers (union,
   intersection, filter, ... -- see docs/ROADMAP.md), and a sorted `TreeMap`.
 
+## JSON on Map
+
+`Json.JObject` was `[JField]`, an array of `{key, value}`. It is now `Map<string, Json>`:
+lookup goes from a scan to near-O(1), a duplicate key gets a defined meaning (last wins,
+`parse_json_strict` rejects), building an object one key at a time no longer copies an
+array per key, and the insertion-order iteration of `Map` keeps document order so output
+is stable. `JField` is gone; derived code builds a `Map` literal and decodes through
+`map_get`. A `JInt(int)` variant was added so integers round-trip exactly (`JNumber` is a
+float, which loses precision above 2^53); `derive(Json)` writes `int` fields as `JInt`
+and reads them with `int_from_json` (which also accepts a whole-valued `JNumber`).
+Strings gained `\uXXXX`, `\b`, `\f` in both directions. Still true: `Json` has no `==`
+(arrays only compare scalar elements); a recursive-type equality would also need a
+cycle guard in the type checker's structural walk.
+
