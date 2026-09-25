@@ -60,7 +60,7 @@ This program is `tests/fixtures/readme_example.zm`, run by the test suite, so it
 
 - **Types:** `int`, `float`, `bool`, `string`, `byte`, arbitrary-precision
   `bigint` and `decimal`, arrays `[T]`, `struct`s, tagged-union `enum`s,
-  `Option<T>`, `Result<T, E>`, `Channel<T>`, and function types
+  `Option<T>`, `Result<T, E>`, `Map<K, V>`, `Set<T>`, `Channel<T>`, and function types
   `fn(A) -> R`. Values are immutable unless declared `var`.
 - **Control flow:** `if`/`else`, `while`, `for x in arr` / `for i in 0..n`,
   `break`/`continue`, an exhaustive `switch` over enums and results,
@@ -68,7 +68,7 @@ This program is `tests/fixtures/readme_example.zm`, run by the test suite, so it
 - **Errors are values:** `Result`/`Option` with a postfix `?` to propagate,
   and a narrow bare-value auto-wrap so `return x` works in a `Result`
   function.
-- **Generics:** explicit type arguments (`HashMap<string, int>`), with
+- **Generics:** explicit type arguments (`Box<int>`), with
   `Eq`, `Hash` and `Ord` bounds. No general traits.
 - **Derives:** `#[derive(Json)]`, `#[derive(Row)]` (SQL rows),
   `#[derive(Ord)]`, `#[derive(Properties)]`, on generic types too where it
@@ -91,7 +91,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 
 | Module | What it is |
 | --- | --- |
-| `collections` | `HashMap`, `HashSet`, sorting, `map`/`filter`/`fold` |
+| `collections` | sorting, searching, `map`/`filter`/`fold` |
 | `fs`, `os`, `clock`, `random` | files, environment and process, time source, entropy |
 | `time` | `java.time`-shaped dates, times, durations, instants |
 | `uuid`, `number`, `crypto` | UUIDs, number formatting/parsing and binary encodings, SHA-256/HMAC/PBKDF2/base64 |

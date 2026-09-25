@@ -1,1 +1,1 @@
-'for' can only iterate an array or a range, found int
+'for' can only iterate an array, a map, a set or a range, found int

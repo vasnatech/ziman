@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "value.h"
+#include "mapobj.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -287,6 +288,13 @@ EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Valu
     return e;
 }
 
+Value value_map(Type map_or_set_type, struct MapObj *m) {
+    Value v;
+    v.type = map_or_set_type;
+    v.as.map = m;
+    return v;
+}
+
 Value value_channel(Type channel_type, ChannelObj *ch) {
     Value v;
     v.type = channel_type;
@@ -440,6 +448,10 @@ int value_equals(Value a, Value b) {
         case TY_CHANNEL:
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on Channel should have been rejected by the type checker");
             return 0;
+        case TY_MAP:
+        case TY_SET:
+            ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on a Map or Set should have been rejected by the type checker");
+            return 0;
         case TY_FUNC:
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on a function value should have been rejected by the type checker");
             return 0;
@@ -553,6 +565,34 @@ char *value_display(Value v) {
             char *out = zalloc_atomic(len);
             snprintf(out, len, "%s(%s)", en->variant_name, inner);
             free(inner);
+            return out;
+        }
+        case TY_MAP:
+        case TY_SET: {
+            int is_map = v.type.kind == TY_MAP;
+            Value *keys, *vals = NULL;
+            mapobj_entries(v.as.map, &keys, is_map ? &vals : NULL);
+            size_t cap = 32, len = 0;
+            char *out = zalloc_atomic(cap);
+            out[len++] = '{';
+            for (int i = 0; i < v.as.map->count; i++) {
+                char *k = value_display(keys[i]);
+                char *val = is_map ? value_display(vals[i]) : NULL;
+                size_t need = strlen(k) + (val != NULL ? strlen(val) : 0) + 8;
+                while (len + need > cap) { cap *= 2; out = realloc(out, cap); }
+                if (i > 0) { out[len++] = ','; out[len++] = ' '; }
+                memcpy(out + len, k, strlen(k));
+                len += strlen(k);
+                if (val != NULL) {
+                    out[len++] = ':';
+                    out[len++] = ' ';
+                    memcpy(out + len, val, strlen(val));
+                    len += strlen(val);
+                }
+            }
+            if (len + 2 > cap) { cap += 2; out = realloc(out, cap); }
+            out[len++] = '}';
+            out[len] = '\0';
             return out;
         }
         case TY_CHANNEL:

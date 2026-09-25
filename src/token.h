@@ -40,6 +40,8 @@ typedef enum {
     TOK_NATIVE,
     TOK_RESULT,
     TOK_CHANNEL,
+    TOK_MAP,
+    TOK_SET,
     TOK_KW_INT,
     TOK_KW_FLOAT,
     TOK_KW_BOOL,

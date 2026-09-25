@@ -659,7 +659,9 @@ from source.
   rule for state that deliberately outlives one (the buffered `Session`
   carried between requests for pipelining) and for values sent over a
   channel (copy-on-send).
-- **`HashMap`/`HashSet`'s `set`/`add`/`remove` are O(bucket_count), not
+- **[Resolved: `Map`/`Set` are now built-in types on a persistent hash trie, O(log32 n)
+  writes -- see docs/DESIGN.md "Map and Set". The analysis below is the history.]**
+  **`HashMap`/`HashSet`'s `set`/`add`/`remove` are O(bucket_count), not
   O(1) — a genuine gap next to Java's `HashMap` (O(1) amortized `put`),
   and a trie-shaped bucket structure could close it without touching
   the language at all.** Surfaced comparing `collections.zm`'s

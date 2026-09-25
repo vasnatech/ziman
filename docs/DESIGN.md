@@ -3463,3 +3463,36 @@ what go-to-definition, hover and symbols read. Positions convert between Ziman's
 byte columns and LSP's UTF-16 units. Hover and definition resolve by identifier
 (plus a `module.` qualifier), not by scope, so a local shadowing a global name
 resolves to the global.
+
+## Map and Set
+
+`Map<K, V>` and `Set<T>` replaced `collections.HashMap`/`HashSet`. As pure-Ziman
+library types over immutable arrays every write copied the whole bucket array
+(O(bucket_count)), and with no traits there was no way to give a TreeMap or any other
+map the same API without duplicating every function. Making them built-in fixes both.
+
+- **Persistent, not mutable.** The storage (src/mapobj.c) is a 32-way hash trie with
+  bitmap-compressed nodes. `set`/`insert`/`remove` copy only the nodes on the path to the
+  entry and share the rest, so the collections keep value semantics exactly like arrays
+  (`val b = set(a, k, v)` leaves `a` alone) with near-O(1) writes. A mutable handle, like
+  `StringBuilder`, was rejected: it would have made `Map` the one data type whose copies
+  alias.
+- **Insertion order.** Each entry stores the sequence number it was first inserted with;
+  iteration collects and sorts by it (O(n log n), next to an O(n) loop body). Chosen over
+  hash order so `print`, `for` and the key/value arrays are deterministic and unsurprising.
+- **Surface.** Types are the reserved words `Map`/`Set` (like `Channel`, so
+  a user `struct Map` is now an error). Literals are `Map<K, V> { k: v }` and `Set<T> { a }`
+  with the type arguments written out -- consistent with "explicit over implicit", and it
+  makes the empty literal need no inference. They parse into calls to the internal builtins
+  `$map_lit`/`$set_lit`, so the loader and generic machinery needed no new node kinds.
+  `len`, `contains`, `set`, `insert`, `remove` were extended by argument type; `map_get`,
+  `map_keys`, `map_values` and `set_items` are builtins rather than prelude generics
+  because a generic native would need `map_get<string, int>(...)` (Ziman has no inference).
+  `for k, v in m` reuses the existing two-binder `for`.
+- **`for` walks a snapshot** (a sorted entry array taken when the loop starts), so the body
+  may rebind the collection without a hazard to define.
+- **Keys** must satisfy the `Hash` rule, checked wherever the type is written. **Not
+  offered yet:** `==` on maps/sets, maps as keys, `#[derive(Json/Row/Properties)]` fields
+  (a `Map<string, V>` <-> JSON object is the obvious next step), and set algebra
+  (union/intersection). A sorted `TreeMap` would still be a separate type.
+

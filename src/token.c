@@ -36,6 +36,8 @@ const char *token_type_name(TokenType type) {
         case TOK_NATIVE: return "'native'";
         case TOK_RESULT: return "'Result'";
         case TOK_CHANNEL: return "'Channel'";
+        case TOK_MAP: return "'Map'";
+        case TOK_SET: return "'Set'";
         case TOK_KW_INT: return "'int'";
         case TOK_KW_FLOAT: return "'float'";
         case TOK_KW_BOOL: return "'bool'";

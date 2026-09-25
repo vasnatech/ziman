@@ -43,6 +43,7 @@ static Type check_lambda(Module *module, Env *env, Expr *e);
 static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type *expected);
 static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type *expected);
 static void check_type_well_formed(Module *module, Type t, int line, int col);
+static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type expected);
 
 /* Rebuilds `t` with every TY_TYPEVAR named in `params` replaced by the
  * type argument at the same index in `args` -- the substitution-on-demand
@@ -66,6 +67,10 @@ static Type substitute_type(Type t, TypeParamList *params, TypeList *args) {
             return type_result(substitute_type(*t.elem, params, args), substitute_type(*t.elem_err, params, args));
         case TY_CHANNEL:
             return type_channel(substitute_type(*t.elem, params, args));
+        case TY_SET:
+            return type_set(substitute_type(*t.elem, params, args));
+        case TY_MAP:
+            return type_map(substitute_type(*t.elem, params, args), substitute_type(*t.elem_err, params, args));
         case TY_FUNC: {
             TypeList substituted = {0};
             for (int i = 0; i < t.type_args.count; i++) type_list_push(&substituted, substitute_type(t.type_args.items[i], params, args));
@@ -159,6 +164,11 @@ static int type_supports_equality(Module *module, Type t, int depth) {
              * aggregate -- "are two channels equal" doesn't have the
              * obvious structural meaning it does for an array/struct/enum,
              * so it's just not comparable at all in v0. */
+            return 0;
+        case TY_MAP:
+        case TY_SET:
+            /* Insertion-ordered, so structural equality would have to ignore
+             * the order; not offered. Compare `len` and `contains` instead. */
             return 0;
         case TY_TYPEVAR:
             /* A bare, unsubstituted type variable is comparable exactly
@@ -434,6 +444,10 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
                                 type_name(lt));
                 } else if (lt.kind == TY_CHANNEL) {
                     ziman_error("type", e->line, e->col, "%s cannot be compared with '=='/'!=' in v0", type_name(lt));
+                } else if (lt.kind == TY_MAP || lt.kind == TY_SET) {
+                    ziman_error("type", e->line, e->col,
+                                "%s cannot be compared with '=='/'!=' -- compare len() and contains() of the entries you care about",
+                                type_name(lt));
                 } else if (lt.kind == TY_FUNC) {
                     ziman_error("type", e->line, e->col,
                                 "function values (%s) cannot be compared with '=='/'!=' -- compare a name or an id you keep alongside the function instead",
@@ -683,7 +697,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", NULL,
 };
 
 /* A named call (`f(y: 2, x: 1)`) is reordered here, once, into the same
@@ -766,6 +780,64 @@ static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
     e->as.call.arg_names = NULL;
 }
 
+/* `set`/`insert`/`remove` on a Map or Set (`coll_type`, the already-checked first
+ * argument). Returns the collection's own type: like an array's, these build a new
+ * value and leave the argument untouched. */
+static Type check_collection_mutator(Module *module, Env *env, Expr *e, const char *name, Type coll_type) {
+    int is_map = coll_type.kind == TY_MAP;
+    int is_set_call = strcmp(name, "set") == 0;
+    int is_insert = strcmp(name, "insert") == 0;
+    if (is_map && is_insert) {
+        ziman_error("type", e->line, e->col, "a map has no 'insert' -- use set(map, key, value) to add or replace an entry");
+    }
+    if (!is_map && is_set_call) {
+        ziman_error("type", e->line, e->col, "a set has no 'set' -- use insert(set, item) to add an item");
+    }
+    int expected_argc = (is_map && is_set_call) ? 3 : 2;
+    if (e->as.call.args.count != expected_argc) {
+        ziman_error("type", e->line, e->col, "'%s' on %s takes exactly %d arguments, found %d", name, type_name(coll_type), expected_argc,
+                    e->as.call.args.count);
+    }
+    Type key_type = *coll_type.elem;
+    Type got = check_expr_expecting(module, env, &e->as.call.args.items[1], key_type);
+    if (!type_equals(got, key_type)) {
+        ziman_error("type", e->as.call.args.items[1]->line, e->as.call.args.items[1]->col, "argument 2 of '%s' expects %s (the %s's %s type), found %s", name,
+                    type_name(key_type), is_map ? "map" : "set", is_map ? "key" : "element", type_name(got));
+    }
+    if (is_map && is_set_call) {
+        Type value_type = *coll_type.elem_err;
+        Type vgot = check_expr_expecting(module, env, &e->as.call.args.items[2], value_type);
+        require_not_void(e->as.call.args.items[2], "as a map value");
+        if (!type_equals(vgot, value_type)) {
+            ziman_error("type", e->as.call.args.items[2]->line, e->as.call.args.items[2]->col,
+                        "argument 3 of 'set' expects %s (the map's value type), found %s", type_name(value_type), type_name(vgot));
+        }
+    }
+    return coll_type;
+}
+
+/* `Map<K, V> { k: v, ... }` and `Set<T> { a, ... }`, parsed into calls to `$map_lit`/`$set_lit`
+ * with the type arguments explicit, so the literal never needs inference. */
+static Type check_collection_literal(Module *module, Env *env, Expr *e, int is_map) {
+    TypeList *targs = &e->as.call.type_args;
+    for (int i = 0; i < targs->count; i++) check_type_well_formed(module, targs->items[i], e->line, e->col);
+    Type key_type = targs->items[0];
+    for (int i = 0; i < e->as.call.args.count; i++) {
+        int is_value = is_map && (i % 2 == 1);
+        Type want = is_value ? targs->items[1] : key_type;
+        Type got = check_expr_expecting(module, env, &e->as.call.args.items[i], want);
+        require_not_void(e->as.call.args.items[i], is_value ? "as a map value" : "as a collection element");
+        if (!type_equals(got, want)) {
+            Expr *bad = e->as.call.args.items[i];
+            ziman_error("type", bad->line, bad->col, "%s of this %s literal must be %s, found %s", is_value ? "a value" : (is_map ? "a key" : "an element"),
+                        is_map ? "map" : "set", type_name(want), type_name(got));
+        }
+    }
+    Type result = is_map ? type_map(key_type, targs->items[1]) : type_set(key_type);
+    check_type_well_formed(module, result, e->line, e->col);
+    return result;
+}
+
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
 
@@ -803,6 +875,35 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
         }
     }
+
+    if (strcmp(name, "map_get") == 0 || strcmp(name, "map_keys") == 0 || strcmp(name, "map_values") == 0 || strcmp(name, "set_items") == 0) {
+        int is_get = strcmp(name, "map_get") == 0;
+        int is_set = strcmp(name, "set_items") == 0;
+        int want = is_get ? 2 : 1;
+        if (e->as.call.args.count != want) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly %d argument(s), found %d", name, want, e->as.call.args.count);
+        }
+        Type coll = check_expr(module, env, e->as.call.args.items[0]);
+        if (coll.kind != (is_set ? TY_SET : TY_MAP)) {
+            ziman_error("type", e->as.call.args.items[0]->line, e->as.call.args.items[0]->col, "'%s' expects a %s, found %s", name,
+                        is_set ? "Set" : "Map", type_name(coll));
+        }
+        if (is_get) {
+            Type got = check_expr_expecting(module, env, &e->as.call.args.items[1], *coll.elem);
+            if (!type_equals(got, *coll.elem)) {
+                ziman_error("type", e->as.call.args.items[1]->line, e->as.call.args.items[1]->col,
+                            "argument 2 of 'map_get' expects %s (the map's key type), found %s", type_name(*coll.elem), type_name(got));
+            }
+            Type option = type_enum("Option");
+            type_list_push(&option.type_args, *coll.elem_err);
+            return option;
+        }
+        if (strcmp(name, "map_values") == 0) return type_array(*coll.elem_err);
+        return type_array(*coll.elem);
+    }
+
+    if (strcmp(name, "$map_lit") == 0) return check_collection_literal(module, env, e, 1);
+    if (strcmp(name, "$set_lit") == 0) return check_collection_literal(module, env, e, 0);
 
     if (strcmp(name, "print") == 0) {
         if (e->as.call.args.count != 1) {
@@ -859,8 +960,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_ARRAY && arg_type.kind != TY_STRING) {
-            ziman_error("type", arg->line, arg->col, "'len' expects an array or string, found %s", type_name(arg_type));
+        if (arg_type.kind != TY_ARRAY && arg_type.kind != TY_STRING && arg_type.kind != TY_MAP && arg_type.kind != TY_SET) {
+            ziman_error("type", arg->line, arg->col, "'len' expects an array, string, map or set, found %s", type_name(arg_type));
         }
         return type_scalar(TY_INT);
     }
@@ -880,6 +981,16 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
             return type_scalar(TY_BOOL);
         }
+        if (first_type.kind == TY_MAP || first_type.kind == TY_SET) {
+            Type key_type = *first_type.elem;
+            Type second_type = check_expr_expecting(module, env, &e->as.call.args.items[1], key_type);
+            if (!type_equals(second_type, key_type)) {
+                ziman_error("type", second_arg->line, second_arg->col, "argument 2 of 'contains' expects %s (the %s's %s type), found %s",
+                            type_name(key_type), first_type.kind == TY_MAP ? "map" : "set", first_type.kind == TY_MAP ? "key" : "element",
+                            type_name(second_type));
+            }
+            return type_scalar(TY_BOOL);
+        }
         if (first_type.kind == TY_ARRAY) {
             Type elem_type = *first_type.elem;
             if (!is_scalar_kind(elem_type.kind)) {
@@ -894,7 +1005,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
             return type_scalar(TY_BOOL);
         }
-        ziman_error("type", first_arg->line, first_arg->col, "'contains' expects a string or array as its first argument, found %s", type_name(first_type));
+        ziman_error("type", first_arg->line, first_arg->col, "'contains' expects a string, array, map or set as its first argument, found %s", type_name(first_type));
     }
 
     if (strcmp(name, "compare") == 0) {
@@ -965,14 +1076,20 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0) {
         int is_push = strcmp(name, "push") == 0;
         int expected_argc = is_push ? 2 : 3;
-        if (e->as.call.args.count != expected_argc) {
+        if (e->as.call.args.count < 1) {
             ziman_error("type", e->line, e->col, "'%s' takes exactly %d argument(s), found %d", name, expected_argc, e->as.call.args.count);
         }
 
         Expr *arr_arg = e->as.call.args.items[0];
         Type arr_type = check_expr(module, env, arr_arg);
+        if (!is_push && (arr_type.kind == TY_MAP || arr_type.kind == TY_SET)) {
+            return check_collection_mutator(module, env, e, name, arr_type);
+        }
+        if (e->as.call.args.count != expected_argc) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly %d argument(s), found %d", name, expected_argc, e->as.call.args.count);
+        }
         if (arr_type.kind != TY_ARRAY) {
-            ziman_error("type", arr_arg->line, arr_arg->col, "argument 1 of '%s' expects an array, found %s", name, type_name(arr_type));
+            ziman_error("type", arr_arg->line, arr_arg->col, "argument 1 of '%s' expects an array (or, for set/insert/remove, a map or set), found %s", name, type_name(arr_type));
         }
 
         int value_arg_index = is_push ? 1 : 2;
@@ -996,11 +1113,17 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     }
 
     if (strcmp(name, "remove") == 0) {
-        if (e->as.call.args.count != 2) {
+        if (e->as.call.args.count < 1) {
             ziman_error("type", e->line, e->col, "'remove' takes exactly 2 arguments, found %d", e->as.call.args.count);
         }
         Expr *arr_arg = e->as.call.args.items[0];
         Type arr_type = check_expr(module, env, arr_arg);
+        if (arr_type.kind == TY_MAP || arr_type.kind == TY_SET) {
+            return check_collection_mutator(module, env, e, name, arr_type);
+        }
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'remove' takes exactly 2 arguments, found %d", e->as.call.args.count);
+        }
         if (arr_type.kind != TY_ARRAY) {
             ziman_error("type", arr_arg->line, arr_arg->col, "argument 1 of 'remove' expects an array, found %s", type_name(arr_type));
         }
@@ -2692,11 +2815,19 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(0));
             } else {
                 Type iter_type = check_expr(module, env, s->as.for_stmt.iterable);
-                if (iter_type.kind != TY_ARRAY) {
+                if (iter_type.kind != TY_ARRAY && iter_type.kind != TY_MAP && iter_type.kind != TY_SET) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
-                                "'for' can only iterate an array or a range, found %s", type_name(iter_type));
+                                "'for' can only iterate an array, a map, a set or a range, found %s", type_name(iter_type));
                 }
-                if (s->as.for_stmt.binder2 == NULL) {
+                if (iter_type.kind == TY_SET && s->as.for_stmt.binder2 != NULL) {
+                    ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
+                                "a set has no index or value to bind: write 'for item in set'");
+                }
+                if (iter_type.kind == TY_MAP) {
+                    /* `for k in m` binds each key; `for k, v in m` each key and its value */
+                    env_define(scope, s->as.for_stmt.binder1, *iter_type.elem, 0, value_int(0));
+                    if (s->as.for_stmt.binder2 != NULL) env_define(scope, s->as.for_stmt.binder2, *iter_type.elem_err, 0, value_int(0));
+                } else if (s->as.for_stmt.binder2 == NULL) {
                     env_define(scope, s->as.for_stmt.binder1, *iter_type.elem, 0, value_int(0));
                 } else {
                     env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(0));
@@ -2709,7 +2840,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 if (s->as.for_stmt.binder2 != NULL) push_loop_binder(s->as.for_stmt.binder2, NULL);
             } else {
                 Expr *iterable = s->as.for_stmt.iterable;
-                push_loop_binder(s->as.for_stmt.binder1, iterable->kind == EXPR_IDENT ? iterable->as.ident_name : NULL);
+                push_loop_binder(s->as.for_stmt.binder1, iterable->kind == EXPR_IDENT && iterable->resolved_type.kind == TY_ARRAY ? iterable->as.ident_name : NULL);
             }
             check_stmts_in_scope(module, scope, s->as.for_stmt.body, fn_return_type, 1);
             g_loop_binder_count = binders_pushed_from;
@@ -2850,6 +2981,15 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
         check_type_args_satisfy_bounds(module, &decl->type_params, &t.type_args, line, col);
     } else if (t.kind == TY_CHANNEL) {
         check_type_well_formed(module, *t.elem, line, col);
+    } else if (t.kind == TY_MAP || t.kind == TY_SET) {
+        check_type_well_formed(module, *t.elem, line, col);
+        if (t.kind == TY_MAP) check_type_well_formed(module, *t.elem_err, line, col);
+        if (!type_supports_hashing(module, *t.elem, 0)) {
+            ziman_error("type", line, col,
+                        "%s keys must support '==' and hashing (int, float, bool, string, bigint, decimal, byte, arrays of scalars, "
+                        "structs/enums made of those, or a type parameter bounded by 'Hash'), found %s",
+                        t.kind == TY_MAP ? "map" : "set", type_name(*t.elem));
+        }
     } else if (t.kind == TY_FUNC) {
         for (int i = 0; i < t.type_args.count; i++) check_type_well_formed(module, t.type_args.items[i], line, col);
         check_type_well_formed(module, *t.elem, line, col);
@@ -2965,7 +3105,8 @@ void typecheck(Module *module) {
     static const char *builtins[] = {"print", "printf", "str", "format", "len", "push", "insert", "set",
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err",
                                       "contains", "abs", "min", "max", "remove",
-                                      "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "hash", "compare"};
+                                      "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "hash", "compare",
+                                      "map_get", "map_keys", "map_values", "set_items"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

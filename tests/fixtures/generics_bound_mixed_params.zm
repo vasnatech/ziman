@@ -1,10 +1,10 @@
-struct Map<K: Eq, V> {
+struct Table<K: Eq, V> {
     keys: [K]
     values: [V]
 }
 
 fn main() {
-    val m = Map<int, string> { keys: [1, 2], values: ["a", "b"] }
+    val m = Table<int, string> { keys: [1, 2], values: ["a", "b"] }
     print(m.keys)
     print(m.values)
 }

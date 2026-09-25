@@ -62,22 +62,15 @@ no inference, since `Value` is runtime-type-erased and nothing is ever
 monomorphized. A type parameter can be bounded with `Eq`, `Hash` and/or `Ord`
 (`<K: Eq + Hash>`) to use `==`/`hash()`/`compare()` on it inside a generic
 body (`hash` is structural, so a `Uuid`, an enum or a struct of hashable
-fields works as a `HashMap` key) (`collections.sort<T: Ord>` is a stable merge sort, and
+fields works as a `Map` key) (`collections.sort<T: Ord>` is a stable merge sort, and
 `#[derive(Ord)]` writes a struct's or enum's order); these are the only
 three bounds Ziman has — there's no general
 trait/interface system (see docs/DESIGN.md's Generics entry for why,
 and what's deliberately left undecided). A small `collections` module
-built on this (`lib/core/collections.zm`) provides
-`HashMap<K: Eq + Hash, V>` and `HashSet<T: Eq + Hash>` (bucket-array
-based with separate chaining, doubled and rehashed once the load factor
-crosses 0.75 so `get`/`has`/`contains` stay O(1) average regardless of
-size — `set`/`add`/`remove` stay O(bucket_count) either way, since
-Ziman's arrays are immutable value types and every mutation copies the
-whole outer bucket array; see docs/DESIGN.md's "Collections module"
-entry on growth for why that's a real constant-factor win, not an
-asymptotic one). `hashmap_size`/`hashmap_keys`/`hashmap_values` and
-`hashset_size`/`hashset_items` enumerate one without reaching into its
-private `buckets` field.
+built on this (`lib/core/collections.zm`) provides sorting, searching and the
+higher-order array helpers. (`Map<K, V>` and `Set<T>` were `HashMap`/`HashSet`
+there, bucket arrays with O(bucket_count) writes; they are now built-in types on
+a persistent hash trie -- see docs/SYNTAX.md "Maps and sets".)
 (`Option<T>` used to live here too — see the prelude paragraph below for
 where it moved and why. `Box<T>` also used to live here — removed
 outright, not moved, since nothing ever actually used it beyond being

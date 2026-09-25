@@ -1,4 +1,4 @@
-use collections.HashMap as box2
+use uuid.Uuid as box2
 
 fn main() {
     print(1)

@@ -1,5 +1,5 @@
-use collections.HashMap
-use collections.HashSet as HashMap
+use uuid.Uuid
+use time.LocalDate as Uuid
 
 fn main() {
     print(1)

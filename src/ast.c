@@ -54,6 +54,24 @@ Type type_channel(Type elem) {
     return t;
 }
 
+Type type_map(Type key, Type value) {
+    Type t = {0};
+    t.kind = TY_MAP;
+    t.elem = malloc(sizeof(Type));
+    *t.elem = key;
+    t.elem_err = malloc(sizeof(Type));
+    *t.elem_err = value;
+    return t;
+}
+
+Type type_set(Type elem) {
+    Type t = {0};
+    t.kind = TY_SET;
+    t.elem = malloc(sizeof(Type));
+    *t.elem = elem;
+    return t;
+}
+
 Type type_func(TypeList params, Type ret) {
     Type t = {0};
     t.kind = TY_FUNC;
@@ -92,7 +110,8 @@ int type_equals(Type a, Type b) {
      * types -- type_args has to match too, not just the declared name. */
     if (a.kind == TY_STRUCT) return strcmp(a.struct_name, b.struct_name) == 0 && type_args_equal(a.type_args, b.type_args);
     if (a.kind == TY_ENUM) return strcmp(a.enum_name, b.enum_name) == 0 && type_args_equal(a.type_args, b.type_args);
-    if (a.kind == TY_CHANNEL) return type_equals(*a.elem, *b.elem);
+    if (a.kind == TY_CHANNEL || a.kind == TY_SET) return type_equals(*a.elem, *b.elem);
+    if (a.kind == TY_MAP) return type_equals(*a.elem, *b.elem) && type_equals(*a.elem_err, *b.elem_err);
     if (a.kind == TY_TYPEVAR) return strcmp(a.type_var_name, b.type_var_name) == 0;
     if (a.kind == TY_FUNC) return type_args_equal(a.type_args, b.type_args) && type_equals(*a.elem, *b.elem);
     return 1;
@@ -184,6 +203,24 @@ char *type_name(Type type) {
             out[len] = '\0';
             free(ret);
             return out;
+        }
+        case TY_MAP: {
+            char *k = type_name(*type.elem);
+            char *v = type_name(*type.elem_err);
+            size_t len = strlen(k) + strlen(v) + 8; /* "Map<" + k + ", " + v + ">" + '\0' */
+            char *buf = malloc(len);
+            snprintf(buf, len, "Map<%s, %s>", k, v);
+            free(k);
+            free(v);
+            return buf;
+        }
+        case TY_SET: {
+            char *inner = type_name(*type.elem);
+            size_t len = strlen(inner) + 7; /* "Set<" + inner + ">" + '\0' */
+            char *buf = malloc(len);
+            snprintf(buf, len, "Set<%s>", inner);
+            free(inner);
+            return buf;
         }
         case TY_CHANNEL: {
             char *inner = type_name(*type.elem);

@@ -115,7 +115,7 @@ static int next_looks_like_generic_call(Parser *p) {
     switch (after_lt->type) {
         case TOK_KW_INT: case TOK_KW_FLOAT: case TOK_KW_BOOL: case TOK_KW_STRING: case TOK_KW_BIGINT: case TOK_KW_DECIMAL:
         case TOK_KW_BYTE:
-        case TOK_LBRACKET: case TOK_RESULT: case TOK_CHANNEL:
+        case TOK_LBRACKET: case TOK_RESULT: case TOK_CHANNEL: case TOK_MAP: case TOK_SET:
             return 1;
         case TOK_IDENT:
             if (starts_upper(after_lt->start)) return 1;
@@ -174,6 +174,20 @@ static Type parse_type(Parser *p) {
         Type elem = parse_type(p);
         expect(p, TOK_GT, "'>'");
         return type_channel(elem);
+    }
+    if (match(p, TOK_MAP)) {
+        expect(p, TOK_LT, "'<'");
+        Type key = parse_type(p);
+        expect(p, TOK_COMMA, "','");
+        Type value = parse_type(p);
+        expect(p, TOK_GT, "'>'");
+        return type_map(key, value);
+    }
+    if (match(p, TOK_SET)) {
+        expect(p, TOK_LT, "'<'");
+        Type elem = parse_type(p);
+        expect(p, TOK_GT, "'>'");
+        return type_set(elem);
     }
     if (check(p, TOK_IDENT)) {
         Token *t = advance_tok(p);
@@ -640,6 +654,39 @@ static Expr *parse_primary(Parser *p) {
         Expr *inner = parse_expr(p);
         expect(p, TOK_RPAREN, "')'");
         return inner;
+    }
+    /* `Map<K, V> { k: v, ... }` / `Set<T> { a, b, ... }` -- built as a call to the
+     * builtins `$map_lit`/`$set_lit` (no source identifier can contain `$`), with the
+     * explicit type arguments as the call's and the entries flattened (k1, v1, k2, ...)
+     * into its arguments. `Map<K, V> {}` is the empty map. */
+    if (check(p, TOK_MAP) || check(p, TOK_SET)) {
+        int is_map = check(p, TOK_MAP);
+        advance_tok(p);
+        TypeList type_args = parse_type_args(p);
+        int want = is_map ? 2 : 1;
+        if (type_args.count != want) {
+            ziman_error("syntax", t->line, t->col, "%s takes %d type argument(s), found %d", is_map ? "Map" : "Set", want, type_args.count);
+        }
+        expect(p, TOK_LBRACE, "'{'");
+        skip_newlines(p);
+        ExprList entries = {0};
+        while (!check(p, TOK_RBRACE)) {
+            expr_list_push(&entries, parse_expr(p));
+            if (is_map) {
+                expect(p, TOK_COLON, "':' between a map key and its value");
+                skip_newlines(p);
+                expr_list_push(&entries, parse_expr(p));
+            }
+            skip_newlines(p);
+            if (!match(p, TOK_COMMA)) break;
+            skip_newlines(p);
+        }
+        expect(p, TOK_RBRACE, "'}'");
+        Expr *e = expr_new(EXPR_CALL, t->line, t->col);
+        e->as.call.callee = is_map ? "$map_lit" : "$set_lit"; /* never freed or written through */
+        e->as.call.args = entries;
+        e->as.call.type_args = type_args;
+        return e;
     }
     if (match(p, TOK_LBRACKET)) {
         ExprList elements = parse_comma_separated(p, TOK_RBRACKET);
@@ -1379,7 +1426,12 @@ static void reclassify_type_params(Type *t, TypeParamList *type_params) {
         reclassify_type_params(t->elem_err, type_params);
         return;
     }
-    if (t->kind == TY_CHANNEL) { reclassify_type_params(t->elem, type_params); return; }
+    if (t->kind == TY_CHANNEL || t->kind == TY_SET) { reclassify_type_params(t->elem, type_params); return; }
+    if (t->kind == TY_MAP) {
+        reclassify_type_params(t->elem, type_params);
+        reclassify_type_params(t->elem_err, type_params);
+        return;
+    }
     if (t->kind == TY_FUNC) {
         for (int i = 0; i < t->type_args.count; i++) reclassify_type_params(&t->type_args.items[i], type_params);
         reclassify_type_params(t->elem, type_params);

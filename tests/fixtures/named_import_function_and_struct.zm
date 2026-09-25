@@ -1,13 +1,9 @@
-use collections.HashMap
-use collections.hashmap_new
-use collections.hashmap_set
-use collections.hashmap_get
+use uuid.Uuid
+use uuid.uuid_from_string
+use uuid.uuid_to_string
 
 fn main() {
-    var map: HashMap<int, string> = hashmap_new<int, string>()
-    map = hashmap_set<int, string>(map, 30, "alice")
-    val found: Option<string> = hashmap_get<int, string>(map, 30)
-    print(option_unwrap_or<string>(found, "not found"))
-    val missing = hashmap_get<int, string>(map, 99)
-    print(option_unwrap_or<string>(missing, "not found"))
+    val id: Uuid = unwrap(uuid_from_string("00000000-0000-4000-8000-000000000001"))
+    print(uuid_to_string(id))
+    print(is_ok(uuid_from_string("not a uuid")))
 }

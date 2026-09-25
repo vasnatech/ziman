@@ -111,7 +111,7 @@ static const Keyword KEYWORDS[] = {
     {"byte", TOK_KW_BYTE},
     {"struct", TOK_STRUCT}, {"enum", TOK_ENUM}, {"with", TOK_WITH},
     {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
-    {"Result", TOK_RESULT}, {"Channel", TOK_CHANNEL},
+    {"Result", TOK_RESULT}, {"Channel", TOK_CHANNEL}, {"Map", TOK_MAP}, {"Set", TOK_SET},
 };
 
 static TokenType ident_or_keyword(const char *start, int length) {

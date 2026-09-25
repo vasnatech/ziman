@@ -1,6 +1,6 @@
-use collections.hashmap_new
+use uuid.uuid_from_string
 
-fn hashmap_new() {
+fn uuid_from_string() {
 }
 
 fn main() {

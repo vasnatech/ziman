@@ -1,7 +1,6 @@
-use collections
 fn main() {
-    var m = collections.hashmap_new<bigint, string>()
-    m = collections.hashmap_set<bigint, string>(m, 123456789012345678901234567890n, "big-key")
-    print(collections.hashmap_has<bigint, string>(m, 123456789012345678901234567890n))
-    print(option_unwrap_or<string>(collections.hashmap_get<bigint, string>(m, 123456789012345678901234567890n), "MISSING"))
+    var m = Map<bigint, string> {}
+    m = set(m, 123456789012345678901234567890n, "big-key")
+    print(contains(m, 123456789012345678901234567890n))
+    print(option_unwrap_or<string>(map_get(m, 123456789012345678901234567890n), "MISSING"))
 }

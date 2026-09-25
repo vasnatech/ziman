@@ -1,5 +1,3 @@
-use collections
-
 fn main() {
     val some = Option<int>.Some(42)
     val none = Option<int>.None
@@ -7,28 +5,28 @@ fn main() {
     print(Option.unwrap_Some(some))
     print(option_unwrap_or<int>(none, -1))
 
-    var m = collections.hashmap_new<string, int>()
-    m = collections.hashmap_set<string, int>(m, "alice", 30)
-    m = collections.hashmap_set<string, int>(m, "bob", 25)
-    m = collections.hashmap_set<string, int>(m, "alice", 31) // overwrite
+    var m = Map<string, int> {}
+    m = set(m, "alice", 30)
+    m = set(m, "bob", 25)
+    m = set(m, "alice", 31) // overwrite
 
-    print(collections.hashmap_has<string, int>(m, "alice"))
-    print(option_unwrap_or<int>(collections.hashmap_get<string, int>(m, "alice"), -1))
-    print(option_unwrap_or<int>(collections.hashmap_get<string, int>(m, "bob"), -1))
-    print(collections.hashmap_has<string, int>(m, "carol"))
+    print(contains(m, "alice"))
+    print(option_unwrap_or<int>(map_get(m, "alice"), -1))
+    print(option_unwrap_or<int>(map_get(m, "bob"), -1))
+    print(contains(m, "carol"))
 
-    m = collections.hashmap_remove<string, int>(m, "bob")
-    print(collections.hashmap_has<string, int>(m, "bob"))
+    m = remove(m, "bob")
+    print(contains(m, "bob"))
 
-    var s = collections.hashset_new<int>()
-    s = collections.hashset_add<int>(s, 1)
-    s = collections.hashset_add<int>(s, 2)
-    s = collections.hashset_add<int>(s, 1) // duplicate, no-op
+    var s = Set<int> {}
+    s = insert(s, 1)
+    s = insert(s, 2)
+    s = insert(s, 1) // duplicate, no-op
 
-    print(collections.hashset_contains<int>(s, 1))
-    print(collections.hashset_contains<int>(s, 2))
-    print(collections.hashset_contains<int>(s, 3))
+    print(contains(s, 1))
+    print(contains(s, 2))
+    print(contains(s, 3))
 
-    s = collections.hashset_remove<int>(s, 1)
-    print(collections.hashset_contains<int>(s, 1))
+    s = remove(s, 1)
+    print(contains(s, 1))
 }

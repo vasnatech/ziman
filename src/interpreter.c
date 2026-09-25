@@ -12,6 +12,7 @@
 #include "derive.h"
 #include "env.h"
 #include "error.h"
+#include "mapobj.h"
 #include "native.h"
 #include "value.h"
 
@@ -194,12 +195,17 @@ static Value call_len(Value v) {
     if (v.type.kind == TY_STRING) {
         return value_int((int64_t)v.as.str.len);
     }
+    if (v.type.kind == TY_MAP || v.type.kind == TY_SET) return value_int(v.as.map->count);
     return value_int(v.as.arr->count);
 }
 
 static Value call_contains(Value first, Value second) {
     if (first.type.kind == TY_STRING) {
         return value_bool(value_str_find(first.as.str.ptr, first.as.str.len, second.as.str.ptr, second.as.str.len, 0) >= 0);
+    }
+    if (first.type.kind == TY_MAP || first.type.kind == TY_SET) {
+        Value ignored;
+        return value_bool(mapobj_get(first.as.map, second, &ignored));
     }
     ArrayObj *arr = first.as.arr;
     if (arr->bytes != NULL) {
@@ -220,7 +226,7 @@ static Value call_contains(Value first, Value second) {
  * a cryptographic hash, and not stable across a future language version
  * bumping this function's internals -- only ever used within a single
  * program run, never persisted. */
-static uint64_t hash_raw(Value v) {
+uint64_t value_hash(Value v) {
     uint64_t h;
     switch (v.type.kind) {
         case TY_INT:
@@ -241,7 +247,7 @@ static uint64_t hash_raw(Value v) {
         case TY_ARRAY: {
             h = 1469598103934665603ULL ^ (uint64_t)v.as.arr->count;
             for (int i = 0; i < v.as.arr->count; i++) {
-                h ^= hash_raw(array_get(v.as.arr, i));
+                h ^= value_hash(array_get(v.as.arr, i));
                 h *= 1099511628211ULL;
             }
             break;
@@ -250,14 +256,14 @@ static uint64_t hash_raw(Value v) {
             /* Field by field in declaration order: the same shape `==` compares. */
             h = 1469598103934665603ULL ^ (uint64_t)v.as.st->count;
             for (int i = 0; i < v.as.st->count; i++) {
-                h ^= hash_raw(v.as.st->fields[i]);
+                h ^= value_hash(v.as.st->fields[i]);
                 h *= 1099511628211ULL;
             }
             break;
         }
         case TY_RESULT:
             h = 1469598103934665603ULL ^ (uint64_t)(v.as.res->is_ok ? 1 : 2);
-            h ^= hash_raw(v.as.res->value);
+            h ^= value_hash(v.as.res->value);
             h *= 1099511628211ULL;
             break;
         case TY_ENUM: {
@@ -270,7 +276,7 @@ static uint64_t hash_raw(Value v) {
                 h *= 1099511628211ULL;
             }
             if (v.as.en->has_payload) {
-                h ^= hash_raw(v.as.en->payload);
+                h ^= value_hash(v.as.en->payload);
                 h *= 1099511628211ULL;
             }
             break;
@@ -322,7 +328,7 @@ static uint64_t hash_raw(Value v) {
 static Value call_hash(Value v) {
     /* Sign bit cleared so the result is always non-negative, safe to use directly
      * with '%' for bucket indexing. */
-    return value_int((int64_t)(hash_raw(v) & 0x7FFFFFFFFFFFFFFFULL));
+    return value_int((int64_t)(value_hash(v) & 0x7FFFFFFFFFFFFFFFULL));
 }
 
 /* Three-way comparison behind `compare` and `sort`: negative, zero or
@@ -776,6 +782,35 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_len(args[0]);
             } else if (strcmp(e->as.call.callee, "push") == 0) {
                 result = call_push(e->resolved_type, args[0], args[1]);
+            } else if ((strcmp(e->as.call.callee, "set") == 0 || strcmp(e->as.call.callee, "insert") == 0) &&
+                       (args[0].type.kind == TY_MAP || args[0].type.kind == TY_SET)) {
+                Value stored = args[0].type.kind == TY_MAP ? args[2] : value_int(0);
+                result = value_map(args[0].type, mapobj_set(args[0].as.map, args[1], stored));
+            } else if (strcmp(e->as.call.callee, "remove") == 0 && (args[0].type.kind == TY_MAP || args[0].type.kind == TY_SET)) {
+                result = value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
+            } else if (strcmp(e->as.call.callee, "map_get") == 0) {
+                Value found;
+                if (mapobj_get(args[0].as.map, args[1], &found)) {
+                    result = value_enum(e->resolved_type, enum_obj_new("Option", "Some", 1, found));
+                } else {
+                    result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                }
+            } else if (strcmp(e->as.call.callee, "map_keys") == 0 || strcmp(e->as.call.callee, "map_values") == 0 ||
+                       strcmp(e->as.call.callee, "set_items") == 0) {
+                int want_values = e->as.call.callee[4] == 'v';
+                Value *keys, *vals;
+                mapobj_entries(args[0].as.map, want_values ? NULL : &keys, want_values ? &vals : NULL);
+                int n = args[0].as.map->count;
+                Value *items = want_values ? vals : keys;
+                ArrayObj *packed = array_try_pack(items, n);
+                result = value_array(e->resolved_type, packed != NULL ? packed : array_obj_new(items, n));
+            } else if (strcmp(e->as.call.callee, "$map_lit") == 0 || strcmp(e->as.call.callee, "$set_lit") == 0) {
+                int is_map = e->as.call.callee[1] == 'm';
+                MapObj *m = mapobj_empty();
+                for (int i = 0; i < argc; i += is_map ? 2 : 1) {
+                    m = mapobj_set(m, args[i], is_map ? args[i + 1] : value_int(0));
+                }
+                result = value_map(e->resolved_type, m);
             } else if (strcmp(e->as.call.callee, "insert") == 0) {
                 result = call_insert(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "set") == 0) {
@@ -1127,6 +1162,23 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             }
 
             Value iterable = eval_expr(module, env, s->as.for_stmt.iterable);
+            if (iterable.type.kind == TY_MAP || iterable.type.kind == TY_SET) {
+                /* iterates a snapshot in insertion order, so the body may rebind the collection freely */
+                int is_map = iterable.type.kind == TY_MAP;
+                Value *keys, *vals = NULL;
+                mapobj_entries(iterable.as.map, &keys, is_map ? &vals : NULL);
+                Type key_type = *iterable.type.elem;
+                for (int i = 0; i < iterable.as.map->count; i++) {
+                    Env *scope = env_new(env);
+                    env_define(scope, s->as.for_stmt.binder1, key_type, 0, keys[i]);
+                    if (s->as.for_stmt.binder2 != NULL) env_define(scope, s->as.for_stmt.binder2, *iterable.type.elem_err, 0, vals[i]);
+                    ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
+                    env_free(scope);
+                    if (result.kind == CTRL_RETURN) return result;
+                    if (result.kind == CTRL_BREAK) break;
+                }
+                return no_ctrl();
+            }
             ArrayObj *arr = iterable.as.arr;
             Type elem_type = *iterable.type.elem;
             for (int i = 0; i < arr->count; i++) {

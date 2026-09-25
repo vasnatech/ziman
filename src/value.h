@@ -83,6 +83,7 @@ struct Value {
         struct ResultObj *res;
         struct EnumObj *en;
         struct ChannelObj *ch;
+        struct MapObj *map; /* TY_MAP / TY_SET */
         struct ClosureObj *clo; /* TY_FUNC: a function plus the values it captured */
     } as;
 };
@@ -173,6 +174,9 @@ Value value_struct(Type struct_type, StructObj *st);
 Value value_result(Type result_type, ResultObj *res);
 Value value_enum(Type enum_type, EnumObj *en);
 Value value_channel(Type channel_type, ChannelObj *ch);
+Value value_map(Type map_or_set_type, struct MapObj *m);
+/* The hash `hash()` returns before the sign bit is cleared: equal values hash equal. */
+uint64_t value_hash(Value v);
 
 ArrayObj *array_obj_new(Value *items, int count);
 /* A packed [byte]: `bytes` (one real byte per element, allocated by the caller

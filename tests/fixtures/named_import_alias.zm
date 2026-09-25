@@ -1,9 +1,8 @@
-use collections.HashMap
-use collections.hashmap_new as make_map
-use collections.hashmap_set as put
+use uuid.Uuid
+use uuid.uuid_from_string as parse_id
+use uuid.uuid_to_string as show
 
 fn main() {
-    var map: HashMap<int, string> = make_map<int, string>()
-    map = put<int, string>(map, 1, "one")
-    print(len(map.buckets))
+    val id: Uuid = unwrap(parse_id("00000000-0000-4000-8000-000000000007"))
+    print(show(id))
 }

@@ -1,31 +1,29 @@
-use collections
-
 fn main() {
-    var m = collections.hashmap_new<int, string>()
+    var m = Map<int, string> {}
     for i in 0..50 {
-        m = collections.hashmap_set<int, string>(m, i, concat("v", str(i)))
+        m = set(m, i, concat("v", str(i)))
     }
     var ok = true
     for i in 0..50 {
-        val v = option_unwrap_or<string>(collections.hashmap_get<int, string>(m, i), "MISSING")
+        val v = option_unwrap_or<string>(map_get(m, i), "MISSING")
         if v != concat("v", str(i)) {
             ok = false
         }
     }
     print(ok)
-    print(collections.hashmap_has<int, string>(m, 49))
-    print(collections.hashmap_has<int, string>(m, 50))
+    print(contains(m, 49))
+    print(contains(m, 50))
 
-    var s = collections.hashset_new<int>()
+    var s = Set<int> {}
     for i in 0..50 {
-        s = collections.hashset_add<int>(s, i)
+        s = insert(s, i)
     }
     var all_present = true
     for i in 0..50 {
-        if !collections.hashset_contains<int>(s, i) {
+        if !contains(s, i) {
             all_present = false
         }
     }
     print(all_present)
-    print(collections.hashset_contains<int>(s, 50))
+    print(contains(s, 50))
 }

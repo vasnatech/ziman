@@ -1,4 +1,3 @@
-use collections
 use uuid
 
 struct Key {
@@ -24,27 +23,27 @@ fn main() {
     print(hash(a) == hash(a2))
     print(hash(a) == hash(b))
 
-    var m = collections.hashmap_new<uuid.Uuid, string>()
-    m = collections.hashmap_set<uuid.Uuid, string>(m, a, "ada")
-    m = collections.hashmap_set<uuid.Uuid, string>(m, b, "bob")
-    print(collections.hashmap_get<uuid.Uuid, string>(m, a2))
-    print(collections.hashmap_size<uuid.Uuid, string>(m))
+    var m = Map<uuid.Uuid, string> {}
+    m = set(m, a, "ada")
+    m = set(m, b, "bob")
+    print(map_get(m, a2))
+    print(len(m))
 
-    var by_rank = collections.hashmap_new<Rank, int>()
-    by_rank = collections.hashmap_set<Rank, int>(by_rank, Rank.Low, 1)
-    by_rank = collections.hashmap_set<Rank, int>(by_rank, Rank.Mid(5), 2)
-    by_rank = collections.hashmap_set<Rank, int>(by_rank, Rank.High("x"), 3)
-    print(collections.hashmap_get<Rank, int>(by_rank, Rank.Mid(5)))
-    print(collections.hashmap_get<Rank, int>(by_rank, Rank.Mid(6)))
-    print(collections.hashmap_get<Rank, int>(by_rank, Rank.High("x")))
+    var by_rank = Map<Rank, int> {}
+    by_rank = set(by_rank, Rank.Low, 1)
+    by_rank = set(by_rank, Rank.Mid(5), 2)
+    by_rank = set(by_rank, Rank.High("x"), 3)
+    print(map_get(by_rank, Rank.Mid(5)))
+    print(map_get(by_rank, Rank.Mid(6)))
+    print(map_get(by_rank, Rank.High("x")))
 
-    var s = collections.hashset_new<Key>()
-    s = collections.hashset_add<Key>(s, Key { patient: a, year: 2024 })
-    s = collections.hashset_add<Key>(s, Key { patient: a2, year: 2024 })
-    s = collections.hashset_add<Key>(s, Key { patient: a, year: 2025 })
-    print(collections.hashset_size<Key>(s))
-    print(collections.hashset_contains<Key>(s, Key { patient: a2, year: 2025 }))
-    print(collections.hashset_contains<Key>(s, Key { patient: b, year: 2025 }))
+    var s = Set<Key> {}
+    s = insert(s, Key { patient: a, year: 2024 })
+    s = insert(s, Key { patient: a2, year: 2024 })
+    s = insert(s, Key { patient: a, year: 2025 })
+    print(len(s))
+    print(contains(s, Key { patient: a2, year: 2025 }))
+    print(contains(s, Key { patient: b, year: 2025 }))
 
     print(hash(Option<int>.Some(3)) == hash(Option<int>.Some(3)))
     print(hash([1, 2, 3]) == hash([1, 2, 3]))

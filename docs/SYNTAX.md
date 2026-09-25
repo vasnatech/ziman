@@ -263,7 +263,7 @@ fn main() {
   precision before the cast ever runs).
 - **Composes with everything else already built**: a `bigint` field in a
   struct, a `bigint` array element, a generic type argument
-  (`Box<bigint>`), and a `HashMap<bigint, V>` key (it satisfies both
+  (`Box<bigint>`), and a `Map<bigint, V>` key (it satisfies both
   `Eq` and `Hash`) all work.
 - Internally, arbitrary precision means a heap-allocated value (unlike
   `int`/`float`, which live directly inline) — see docs/DESIGN.md's
@@ -316,7 +316,7 @@ fn main() {
   decimal`/`bigint as decimal` are exact.
 - **Composes with everything else already built**: a `decimal` field in
   a struct, a `decimal` array element, a generic type argument
-  (`Box<decimal>`), and a `HashMap<K, decimal>` value all work.
+  (`Box<decimal>`), and a `Map<K, decimal>` value all work.
 
 `byte` is a fifth scalar type, but a deliberately different kind of one
 from the four numeric types above: unsigned, 0-255, and **not a number
@@ -359,7 +359,7 @@ fn main() {
 - **Composes with everything else already built**: a `byte` field in a
   struct, a `[byte]` array (`==`/`contains` work, since `byte` is
   scalar), a generic type argument (`Box<byte>`), and a
-  `HashMap<byte, V>` key (it satisfies both `Eq` and `Hash`) all work.
+  `Map<byte, V>` key (it satisfies both `Eq` and `Hash`) all work.
 
 ## Arrays
 
@@ -404,6 +404,40 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
 
 See "Builtins" below for `len`/`push`/`insert`/`set`/`remove`'s exact
 signatures.
+
+## Maps and sets
+
+`Map<K, V>` and `Set<T>` are built-in types. Keys must support `==` and hashing (the
+`Hash` rule: scalars, arrays of scalars, structs and enums made of those, a type
+parameter bounded by `Hash`); a value may be anything.
+
+```
+var stock = Map<string, int> { "apple": 4, "pear": 6 }    // the type arguments are always written
+var seen = Set<int> {}                                    // empty
+stock = set(stock, "fig", 9)             // add or replace; returns a new map
+stock = remove(stock, "pear")            // no-op if absent
+print(len(stock))                        // 2
+print(contains(stock, "apple"))          // true (a set: contains(seen, 3))
+print(map_get(stock, "apple"))           // Some(4); None if absent -- always an Option<V>
+seen = insert(seen, 3)                   // a set adds with insert, not set
+print(map_keys(stock))                   // [apple, fig]   (map_values, set_items likewise)
+for name, qty in stock { ... }           // key and value; `for name in stock` binds keys only
+for x in seen { ... }                    // a set has one binder
+```
+
+- **Values, like arrays.** `set`/`insert`/`remove` return a new collection and leave
+  their argument untouched. Internally a persistent hash trie, so an update copies only
+  a few nodes: building an n-entry map is O(n log n), not O(n^2).
+- **Insertion order.** `map_keys`, `map_values`, `set_items`, `for` and `print` all go
+  in the order keys were first inserted; overwriting a key keeps its place, removing and
+  re-adding sends it to the end.
+- **`for` walks a snapshot**, so rebinding the collection inside the body neither
+  changes what the loop visits nor is an error. `break`/`continue` work as usual.
+- **Not comparable.** `==` on two maps or sets is a type error; compare `len` and
+  `contains`. They are not valid keys or `#[derive(Json/Row/Properties)]` fields yet.
+- **Names.** `Map` and `Set` are reserved words (a user `struct Map` is a syntax error).
+  `map_get`, `map_keys`, `map_values` and `set_items` are builtins that take the
+  collection's type from their argument, so no type arguments are written on them.
 
 ## For loops
 
@@ -1228,7 +1262,7 @@ fn main() {
   casing-enforced lowercase, like every other value-like name.
 - **`use path/to/mod.Name [as alias]`** imports one specific
   function/struct/enum instead of the whole module, binding it to a bare
-  local name — `use collections.HashMap` then just `HashMap<int, string>`,
+  local name — `use uuid.Uuid` then just `Uuid`,
   no `collections.` prefix. One name per import, no `{A, B, C}` list
   form. The bare name is `Name` itself, or the `as` alias if one is
   given; either way its casing must match `Name`'s own (both uppercase
@@ -1320,8 +1354,7 @@ fn main() {
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
   name exists. There are 22 (docs/CORELIB.md lists every `pub` signature;
-  README.md has a table): `collections` (`HashMap<K, V>`, `HashSet<T>`,
-  sorting and `map`/`filter`/`fold` -- see "Generics" and "Ordering"), `fs`,
+  README.md has a table): `collections` (sorting, searching and `map`/`filter`/`fold` -- see "Generics" and "Ordering"), `fs`,
   `os`, `clock` (`now_raw() -> [int]`, the one native function reading the
   system clock) and `random` (`random_bytes(n)`, the one native function
   reading OS entropy), `uuid` (`Uuid`, RFC 4122 v4, pure Ziman on top of
@@ -1341,7 +1374,7 @@ fn main() {
   program the same way the entry file's own top-level names are, and never
   reachable through `use` (see docs/DESIGN.md's "Prelude" entry). `Uuid`
   satisfies `Eq`, `Hash` and `Ord`, so it works as a struct field, a
-  `HashMap` key and in `collections.sort`. `Json` satisfies none of them:
+  `Map` key and in `collections.sort`. `Json` satisfies none of them:
   array `==`/`!=` requires a *scalar* element type (see "Arrays" above),
   and `[Json]`'s element isn't one.
 
@@ -1363,7 +1396,7 @@ a naming rule. The bundled modules follow it; new ones should too.
    `method_name`, and everything `#[derive]` dispatches on
    (`<snake_type>_to_json`, `<snake_type>_compare`, `<snake_type>_to_sql`).
 3. **A module that defines types names their operations after the type.**
-   `hashmap_get`, `hashset_add`, `uuid_new`, `localdate_add_days`,
+   `uuid_new`, `localdate_add_days`,
    `duration_negate`: the type is the noun, so rule 2 applies and the same
    name is safe bare or qualified. The generic combinators on built-in types
    (`collections.map`, `filter`, `sort`, `find`) are rule 1.

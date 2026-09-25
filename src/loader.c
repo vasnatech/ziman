@@ -199,8 +199,13 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
         self_qualify_type(t->elem_err, ctx);
         return;
     }
-    if (t->kind == TY_CHANNEL) {
+    if (t->kind == TY_CHANNEL || t->kind == TY_SET) {
         self_qualify_type(t->elem, ctx);
+        return;
+    }
+    if (t->kind == TY_MAP) {
+        self_qualify_type(t->elem, ctx);
+        self_qualify_type(t->elem_err, ctx);
         return;
     }
     if (t->kind == TY_FUNC) {
@@ -885,8 +890,13 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
         resolve_type_refs(t->elem_err, ctx, line, col);
         return;
     }
-    if (t->kind == TY_CHANNEL) {
+    if (t->kind == TY_CHANNEL || t->kind == TY_SET) {
         resolve_type_refs(t->elem, ctx, line, col);
+        return;
+    }
+    if (t->kind == TY_MAP) {
+        resolve_type_refs(t->elem, ctx, line, col);
+        resolve_type_refs(t->elem_err, ctx, line, col);
         return;
     }
     if (t->kind == TY_FUNC) {

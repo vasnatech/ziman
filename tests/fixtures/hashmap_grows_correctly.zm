@@ -1,37 +1,29 @@
-// Forces several resizes (load factor 0.75, starting at 16 buckets:
-// grows at 13, 25, 49, 97, ... entries) and checks that every key is
-// still reachable, with the right value, after each one -- not just
-// that the final count is right.
-use collections.HashMap
-use collections.hashmap_new
-use collections.hashmap_set
-use collections.hashmap_get
-use collections.hashmap_size
-
+// Many inserts (the trie splits at every level) and every key still
+// reachable with the right value, then overwriting every key: the count
+// must not change.
 fn main() {
-    var m: HashMap<int, int> = hashmap_new<int, int>()
-    for i in 0..200 {
-        m = hashmap_set<int, int>(m, i, i * i)
+    var m = Map<int, int> {}
+    for i in 0..2000 {
+        m = set(m, i, i * i)
     }
-    print(hashmap_size<int, int>(m))
+    print(len(m))
 
     var ok = true
-    for i in 0..200 {
-        if option_unwrap_or<int>(hashmap_get<int, int>(m, i), -1) != i * i {
+    for i in 0..2000 {
+        if option_unwrap_or<int>(map_get(m, i), -1) != i * i {
             ok = false
         }
     }
     print(ok)
 
-    // Overwriting every key again must not change the count.
-    for i in 0..200 {
-        m = hashmap_set<int, int>(m, i, i)
+    for i in 0..2000 {
+        m = set(m, i, i)
     }
-    print(hashmap_size<int, int>(m))
+    print(len(m))
 
     var ok2 = true
-    for i in 0..200 {
-        if option_unwrap_or<int>(hashmap_get<int, int>(m, i), -1) != i {
+    for i in 0..2000 {
+        if option_unwrap_or<int>(map_get(m, i), -1) != i {
             ok2 = false
         }
     }

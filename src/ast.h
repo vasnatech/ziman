@@ -25,6 +25,8 @@ typedef enum {
     TY_CHANNEL,
     TY_TYPEVAR,
     TY_FUNC,
+    TY_MAP, /* Map<K, V>: `elem` is K, `elem_err` is V. A built-in persistent hash map (see docs/DESIGN.md "Map and Set"). */
+    TY_SET, /* Set<T>: `elem` is T. */
 } TypeKind;
 
 /* A Type is a small value (kind + optional payload), not a heap object in
@@ -108,6 +110,8 @@ Type type_struct(const char *name);
 Type type_result(Type ok_type, Type err_type);
 Type type_enum(const char *name);
 Type type_channel(Type elem);
+Type type_map(Type key, Type value);
+Type type_set(Type elem);
 Type type_typevar(const char *name);
 /* `fn(A, B) -> R`: the parameter types and the return type (TY_VOID for none). */
 Type type_func(TypeList params, Type ret);

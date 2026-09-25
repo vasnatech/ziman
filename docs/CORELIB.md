@@ -32,47 +32,9 @@ pub native fn sleep_millis(ms: int)
 
 ## `collections`
 
-`HashMap<K, V>`, `HashSet<T>` -- generic containers, written in pure Ziman on top of the language's own `Eq`/`Hash` bounds.
+Sorting, searching and the higher-order array helpers, written in pure Ziman. (`Map` and `Set` are built-in types, not part of this module.)
 
 ```
-pub struct HashMap<K: Eq + Hash, V> {
-    buckets: [[Entry<K, V>]]
-    count: int
-}
-
-pub fn hashmap_new<K: Eq + Hash, V>() -> HashMap<K, V>
-
-pub fn hashmap_size<K: Eq + Hash, V>(m: HashMap<K, V>) -> int
-
-pub fn hashmap_get<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> Option<V>
-
-pub fn hashmap_has<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> bool
-
-pub fn hashmap_keys<K: Eq + Hash, V>(m: HashMap<K, V>) -> [K]
-
-pub fn hashmap_values<K: Eq + Hash, V>(m: HashMap<K, V>) -> [V]
-
-pub fn hashmap_set<K: Eq + Hash, V>(m: HashMap<K, V>, key: K, value: V) -> HashMap<K, V>
-
-pub fn hashmap_remove<K: Eq + Hash, V>(m: HashMap<K, V>, key: K) -> HashMap<K, V>
-
-pub struct HashSet<T: Eq + Hash> {
-    buckets: [[T]]
-    count: int
-}
-
-pub fn hashset_new<T: Eq + Hash>() -> HashSet<T>
-
-pub fn hashset_size<T: Eq + Hash>(s: HashSet<T>) -> int
-
-pub fn hashset_contains<T: Eq + Hash>(s: HashSet<T>, item: T) -> bool
-
-pub fn hashset_items<T: Eq + Hash>(s: HashSet<T>) -> [T]
-
-pub fn hashset_add<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T>
-
-pub fn hashset_remove<T: Eq + Hash>(s: HashSet<T>, item: T) -> HashSet<T>
-
 pub fn sort_indices<K: Ord>(keys: [K]) -> [int]
 
 pub fn sort_indices_desc<K: Ord>(keys: [K]) -> [int]

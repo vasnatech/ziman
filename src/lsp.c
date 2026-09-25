@@ -801,13 +801,13 @@ static void handle_document_symbol(const JVal *id, const JVal *params) {
 }
 
 static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while", "for", "in", "break", "continue", "spawn", "defer", "switch",
-                                       "return", "true", "false", "as", "struct", "enum", "with", "pub", "use", "native", "Result", "Channel",
+                                       "return", "true", "false", "as", "struct", "enum", "with", "pub", "use", "native", "Result", "Channel", "Map", "Set",
                                        "int", "float", "bool", "string", "bigint", "decimal", "byte"};
 static const char *const BUILTINS[] = {"print", "printf", "format", "str", "len", "push", "insert", "set", "remove", "contains", "hash", "compare",
                                        "abs", "min", "max", "ok", "err", "is_ok", "unwrap", "unwrap_err", "channel_new", "send", "receive",
                                        "try_send", "try_receive", "channel_len", "concat", "substring", "split", "trim", "to_upper", "to_lower",
                                        "index_of", "replace", "starts_with", "ends_with", "parse_int", "parse_float", "join", "slice",
-                                       "concat_arrays", "string_to_bytes", "bytes_to_string", "bytes_concat", "sb_new", "sb_append", "sb_to_string", "ab_new", "ab_append", "ab_to_array"};
+                                       "concat_arrays", "map_get", "map_keys", "map_values", "set_items", "string_to_bytes", "bytes_to_string", "bytes_concat", "sb_new", "sb_append", "sb_to_string", "ab_new", "ab_append", "ab_to_array"};
 
 static void add_completion(SB *b, int *first, const char *label, int kind, const char *detail) {
     if (!*first) sb_puts(b, ",");
