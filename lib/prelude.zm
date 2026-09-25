@@ -187,6 +187,12 @@ struct ArrayBuilder<T> {
 // or `concat_arrays<int>(parts: arrays)`. The array counterpart of `join`
 // (`concat` is the two-string function).
 native fn concat_arrays<T>(parts: [T]...) -> [T]
+
+// Used by `collections`' sorts: true for a packed `[int]`/`[float]`/`[byte]` or an array of
+// strings; `sort_scalar_order` then returns the positions of `items` in stable sorted order
+// (ascending, or descending with `descending`) without calling back into the interpreter.
+native fn is_sortable_scalars<T>(items: [T]) -> bool
+native fn sort_scalar_order<T>(items: [T], descending: bool) -> [int]
 // slice<T>(a, start, end): the elements of `a` from `start` up to (not
 // including) `end` (`0 <= start <= end <= len(a)`, a runtime error
 // otherwise). It does not copy: arrays are immutable, so the result shares

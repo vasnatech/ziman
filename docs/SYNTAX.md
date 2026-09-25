@@ -600,8 +600,8 @@ fn main() {
 - **What they can't do:** be compared (`==`), hashed, ordered or serialised --
   a derive (`Json`, `Row`, ...) on a struct with a function field is an error.
   `print` shows `<function name>`.
-- **In the standard library:** `collections.map`, `filter`, `fold`, `any`, `all`,
-  `find`, `for_each` and `sort_with`, with the type arguments written out at the
+- **In the standard library:** `collections.map`, `filter`, `flat_map`, `fold`, `count`, `any`,
+  `all`, `find`, `first`, `last`, `min_by`, `max_by`, `distinct`, `group_by`, `for_each` and `sort_with`, with the type arguments written out at the
   call (`collections.map<int, string>(numbers, label)`). Pass a lambda when the
   function needs something from the enclosing scope --
   `collections.find<Route>(table, fn(r: Route) -> bool { return matches(req, r) })`
@@ -1815,8 +1815,11 @@ val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
   that is not a single key. Descending: **`sort_desc`** and
   **`sort_by_keys_desc`** (also `sort_indices_desc`) -- stable too, so equal
   keys keep their input order; that is not the same as reversing the ascending
-  result, which would flip ties. Also `sort_indices`, `is_sorted`,
-  `binary_search` (first match, `Option<int>`) and `reverse`. `Uuid`, `LocalDate`, `LocalTime`, `LocalDateTime`,
+  result, which would flip ties. Sorting a packed `[int]`/`[float]`/`[byte]` or an
+  array of strings runs natively (about 10x faster); anything else uses a merge
+  sort calling `compare`. Also `sort_indices`, `is_sorted`, `reverse`, and for
+  sorted arrays `lower_bound` / `upper_bound` (insertion points) and
+  `binary_search` (first match, `Option<int>`). `Uuid`, `LocalDate`, `LocalTime`, `LocalDateTime`,
   `Instant`, `Duration` and `ZoneOffset` are all `Ord`.
 
 ## Attributes and derive

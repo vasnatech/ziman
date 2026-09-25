@@ -47,9 +47,25 @@ pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string>
 
 pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string>
 
+pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
+
 pub fn is_sorted<T: Ord>(items: [T]) -> bool
 
+pub fn lower_bound<T: Ord>(sorted: [T], target: T) -> int
+
+pub fn upper_bound<T: Ord>(sorted: [T], target: T) -> int
+
 pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int>
+
+pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T>
+
+pub fn first<T>(items: [T]) -> Option<T>
+
+pub fn last<T>(items: [T]) -> Option<T>
+
+pub fn min_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T>
+
+pub fn max_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T>
 
 pub fn reverse<T>(items: [T]) -> [T]
 
@@ -57,17 +73,21 @@ pub fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]
 
 pub fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 
+pub fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
+
 pub fn fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A
+
+pub fn count<T>(items: [T], test: fn(T) -> bool) -> int
 
 pub fn any<T>(items: [T], test: fn(T) -> bool) -> bool
 
 pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool
 
-pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T>
-
 pub fn for_each<T>(items: [T], f: fn(T))
 
-pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
+pub fn distinct<T: Eq + Hash>(items: [T]) -> [T]
+
+pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]>
 
 ```
 

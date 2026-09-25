@@ -1,32 +1,43 @@
-// collections.zm -- sorting, searching and the higher-order array helpers, written
-// in ordinary Ziman with no native code. (`Map<K, V>` and `Set<T>` are built-in types,
-// not part of this module: see docs/SYNTAX.md "Maps and sets".) `Option<T>` lives in
-// lib/prelude.zm and is always available bare -- see docs/DESIGN.md's "Prelude" entry.
+// collections.zm -- sorting, searching and higher-order helpers for arrays, in ordinary
+// Ziman. `Map<K, V>` and `Set<T>` are built-in types, not part of this module (see
+// docs/SYNTAX.md "Maps and sets"); `Option<T>` lives in lib/prelude.zm and is always
+// available bare.
+//
+// Every function returns a new array and leaves its argument untouched (arrays are
+// immutable). Type arguments are written out at the call, since Ziman does not infer them:
+// `collections.map<int, string>(numbers, label)`. A function argument is a named function or
+// a lambda, and a lambda may use the enclosing function's immutable locals.
 
 // ---------------------------------------------------------------- sorting
-//
-// `sort` takes an `Ord` type (`compare` orders any number, string or byte, and
-// any struct/enum with a `<type>_compare` function -- `#[derive(Ord)]` writes
-// one). To sort by something other than a type's own order, compute the key
-// for each item and use `sort_by_keys`, or pass a comparator function value
-// to `sort_with`. All of these return a new array
-// (arrays are immutable) and the sort is stable: equal keys keep their order.
 
-// The positions of `keys` in ascending order: a stable bottom-up merge sort,
-// O(n log n) comparisons. `sort` and `sort_by_keys` are both "gather by this
-// permutation". Descending is the same merge with the comparison flipped, and
-// is stable too: equal keys keep their input order (it is NOT the ascending
-// result reversed, which would flip ties).
+// The positions of `keys` in ascending order: the array of indices that, read in order,
+// visits `keys` smallest first. Stable: equal keys keep their input order. `sort` and
+// `sort_by_keys` are built on this.
 pub fn sort_indices<K: Ord>(keys: [K]) -> [int] {
-    return merge_sort_indices<K>(keys, false)
+    return order_of<K>(keys, false)
 }
 
+// The positions of `keys` in descending order. Also stable: equal keys keep their input
+// order (this is not the ascending result reversed, which would flip ties).
 pub fn sort_indices_desc<K: Ord>(keys: [K]) -> [int] {
-    return merge_sort_indices<K>(keys, true)
+    return order_of<K>(keys, true)
 }
 
-fn merge_sort_indices<K: Ord>(keys: [K], descending: bool) -> [int] {
-    val n = len(keys)
+// Packed numbers and strings are sorted natively; anything else (a struct, an enum, a bigint)
+// by the merge sort below, calling `compare`.
+fn order_of<K: Ord>(keys: [K], descending: bool) -> [int] {
+    if is_sortable_scalars<K>(keys) {
+        return sort_scalar_order<K>(keys, descending)
+    }
+    if descending {
+        return merge_order(len(keys), fn(a, b) { compare(keys[b], keys[a]) })
+    }
+    return merge_order(len(keys), fn(a, b) { compare(keys[a], keys[b]) })
+}
+
+// A stable bottom-up merge sort of the positions 0..n by `cmp(a, b)` (negative, zero or
+// positive, like `compare`, over two positions): O(n log n) comparisons.
+fn merge_order(n: int, cmp: fn(int, int) -> int) -> [int] {
     val start = ab_new<int>()
     for i in 0..n {
         ab_append<int>(start, i)
@@ -42,12 +53,7 @@ fn merge_sort_indices<K: Ord>(keys: [K], descending: bool) -> [int] {
             var i = lo
             var j = mid
             while i < mid && j < hi {
-                val take_right = if descending {
-                    compare(keys[order[j]], keys[order[i]]) > 0
-                } else {
-                    compare(keys[order[j]], keys[order[i]]) < 0
-                }
-                if take_right {
+                if cmp(order[j], order[i]) < 0 {
                     ab_append<int>(merged, order[j])
                     j = j + 1
                 } else {
@@ -73,7 +79,8 @@ fn gather<T>(items: [T], order: [int]) -> [T] {
     return ab_to_array<T>(out)
 }
 
-// `items` in ascending order of their own `compare`.
+// `items` in ascending order of their own `compare`. `compare` orders any number, string or
+// byte, and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one).
 pub fn sort<T: Ord>(items: [T]) -> [T] {
     return gather<T>(items, sort_indices<T>(items))
 }
@@ -83,9 +90,9 @@ pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
     return gather<T>(items, sort_indices_desc<T>(items))
 }
 
-// `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a
-// caller sorts by a field or a computed value without a comparator function.
-// An Err if the two arrays differ in length.
+// `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a caller sorts by
+// a field or a computed value without a comparator function. An Err if the two arrays differ
+// in length.
 pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string> {
     if len(items) != len(keys) {
         return err(format("sort_by_keys: {} items but {} keys", len(items), len(keys)))
@@ -101,6 +108,14 @@ pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string
     return ok(gather<T>(items, sort_indices_desc<K>(keys)))
 }
 
+// `items` ordered by a comparator function (negative, zero or positive, like `compare`), for
+// an order that is neither the type's own nor a single key -- a two-field ordering, say.
+// Stable. `sort_by_keys` covers the single-key case.
+pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
+    return gather<T>(items, merge_order(len(items), fn(a, b) { cmp(items[a], items[b]) }))
+}
+
+// True when no element is greater than the one after it (an empty or one-element array is).
 pub fn is_sorted<T: Ord>(items: [T]) -> bool {
     for i in 1..len(items) {
         if compare(items[i - 1], items[i]) > 0 {
@@ -110,9 +125,12 @@ pub fn is_sorted<T: Ord>(items: [T]) -> bool {
     return true
 }
 
-// The position of the first element equal to `target` in an already sorted
-// array, or None. O(log n).
-pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int> {
+// ---------------------------------------------------------------- searching
+
+// In an already sorted array: the position of the first element that is not less than
+// `target` -- where `target` would be inserted to keep the order, before any equal
+// elements. `len(sorted)` when every element is smaller. O(log n).
+pub fn lower_bound<T: Ord>(sorted: [T], target: T) -> int {
     var lo = 0
     var hi = len(sorted)
     while lo < hi {
@@ -123,74 +141,34 @@ pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int> {
             hi = mid
         }
     }
-    return if lo < len(sorted) && compare(sorted[lo], target) == 0 {
-        Option<int>.Some(lo)
+    return lo
+}
+
+// In an already sorted array: the position of the first element greater than `target` --
+// just after any equal elements. `upper_bound - lower_bound` is how many equal `target`.
+pub fn upper_bound<T: Ord>(sorted: [T], target: T) -> int {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) <= 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+// The position of the first element equal to `target` in an already sorted array, or None.
+// O(log n).
+pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int> {
+    val at = lower_bound<T>(sorted, target)
+    return if at < len(sorted) && compare(sorted[at], target) == 0 {
+        Option<int>.Some(at)
     } else {
         Option<int>.None
     }
-}
-
-// The same elements, last to first -- with `sort`, a descending sort.
-pub fn reverse<T>(items: [T]) -> [T] {
-    val out = ab_new<T>()
-    var i = len(items) - 1
-    while i >= 0 {
-        ab_append<T>(out, items[i])
-        i = i - 1
-    }
-    return ab_to_array<T>(out)
-}
-
-// ------------------------------------------------- higher-order functions
-//
-// The function passed in is a named function or a lambda, and a lambda may use
-// the enclosing function's immutable locals. The type arguments are written
-// out at the call: `collections.map<int, string>(numbers, label)`, or
-// `collections.filter<Item>(items, fn(i: Item) -> bool { return i.qty > min })`.
-
-pub fn map<T, U>(items: [T], f: fn(T) -> U) -> [U] {
-    val out = ab_new<U>()
-    for item in items {
-        ab_append<U>(out, f(item))
-    }
-    return ab_to_array<U>(out)
-}
-
-pub fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T] {
-    val out = ab_new<T>()
-    for item in items {
-        if keep(item) {
-            ab_append<T>(out, item)
-        }
-    }
-    return ab_to_array<T>(out)
-}
-
-// Left to right: `f(f(initial, items[0]), items[1])` and so on.
-pub fn fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A {
-    var acc = initial
-    for item in items {
-        acc = f(acc, item)
-    }
-    return acc
-}
-
-pub fn any<T>(items: [T], test: fn(T) -> bool) -> bool {
-    for item in items {
-        if test(item) {
-            return true
-        }
-    }
-    return false
-}
-
-pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool {
-    for item in items {
-        if !test(item) {
-            return false
-        }
-    }
-    return true
 }
 
 // The first element for which `test` is true, or None.
@@ -203,46 +181,172 @@ pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T> {
     return Option<T>.None
 }
 
+// The first element, or None for an empty array.
+pub fn first<T>(items: [T]) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[0]) } else { Option<T>.None }
+}
+
+// The last element, or None for an empty array.
+pub fn last<T>(items: [T]) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[len(items) - 1]) } else { Option<T>.None }
+}
+
+// The element whose `key` is smallest (the first such, on a tie), or None for an empty array.
+pub fn min_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) < 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+// The element whose `key` is largest (the first such, on a tie), or None for an empty array.
+pub fn max_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) > 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+// ------------------------------------------------- transforming and testing
+
+// The same elements, last to first. (`sort_desc` is not `reverse(sort(..))`: it keeps equal
+// elements in their input order.)
+pub fn reverse<T>(items: [T]) -> [T] {
+    val out = ab_new<T>()
+    var i = len(items) - 1
+    while i >= 0 {
+        ab_append<T>(out, items[i])
+        i = i - 1
+    }
+    return ab_to_array<T>(out)
+}
+
+// `f` applied to every element, in order.
+pub fn map<T, U>(items: [T], f: fn(T) -> U) -> [U] {
+    val out = ab_new<U>()
+    for item in items {
+        ab_append<U>(out, f(item))
+    }
+    return ab_to_array<U>(out)
+}
+
+// The elements for which `keep` is true, in order.
+pub fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T] {
+    val out = ab_new<T>()
+    for item in items {
+        if keep(item) {
+            ab_append<T>(out, item)
+        }
+    }
+    return ab_to_array<T>(out)
+}
+
+// The arrays `f` returns for each element, joined into one: `flat_map` of a function
+// returning `[]` drops an element, returning several expands it.
+pub fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U] {
+    val out = ab_new<U>()
+    for item in items {
+        ab_append<U>(out, f(item))
+    }
+    return ab_to_array<U>(out)
+}
+
+// Left to right: `f(f(initial, items[0]), items[1])` and so on.
+pub fn fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A {
+    var acc = initial
+    for item in items {
+        acc = f(acc, item)
+    }
+    return acc
+}
+
+// How many elements `test` is true for.
+pub fn count<T>(items: [T], test: fn(T) -> bool) -> int {
+    var n = 0
+    for item in items {
+        if test(item) {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+// True when `test` holds for at least one element (false for an empty array).
+pub fn any<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if test(item) {
+            return true
+        }
+    }
+    return false
+}
+
+// True when `test` holds for every element (true for an empty array).
+pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if !test(item) {
+            return false
+        }
+    }
+    return true
+}
+
+// Calls `f` on every element, in order, for its effect.
 pub fn for_each<T>(items: [T], f: fn(T)) {
     for item in items {
         f(item)
     }
 }
 
-// A stable merge sort by a comparator function (negative / zero / positive,
-// like `compare`): for an order that is neither the type's own nor a single
-// key -- a two-field ordering, say. `sort_by_keys` covers the single-key case.
-pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
-    val n = len(items)
-    val start = ab_new<int>()
-    for i in 0..n {
-        ab_append<int>(start, i)
-    }
-    var order = ab_to_array<int>(start)
-    var width = 1
-    while width < n {
-        val merged = ab_new<int>()
-        var lo = 0
-        while lo < n {
-            val mid = min(lo + width, n)
-            val hi = min(lo + 2 * width, n)
-            var i = lo
-            var j = mid
-            while i < mid && j < hi {
-                if cmp(items[order[j]], items[order[i]]) < 0 {
-                    ab_append<int>(merged, order[j])
-                    j = j + 1
-                } else {
-                    ab_append<int>(merged, order[i])
-                    i = i + 1
-                }
-            }
-            ab_append<int>(ab: merged, pieces: slice<int>(order, i, mid))
-            ab_append<int>(ab: merged, pieces: slice<int>(order, j, hi))
-            lo = lo + 2 * width
+// The distinct elements, each at its first position: `distinct([3, 1, 3, 2, 1])` is `[3, 1, 2]`.
+pub fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
+    var seen = Set<T> {}
+    val out = ab_new<T>()
+    for item in items {
+        if !contains(seen, item) {
+            seen = insert(seen, item)
+            ab_append<T>(out, item)
         }
-        order = ab_to_array<int>(merged)
-        width = width * 2
     }
-    return gather<T>(items, order)
+    return ab_to_array<T>(out)
+}
+
+// The elements grouped by `key`: a map from each key to the elements that have it, in input
+// order, with the keys in the order they first appear.
+pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
+    var builders = Map<K, ArrayBuilder<T>> {}
+    for item in items {
+        val k = key(item)
+        val found = map_get(builders, k)
+        if Option.is_Some(found) {
+            ab_append<T>(Option.unwrap_Some(found), item)
+        } else {
+            val started = ab_new<T>()
+            ab_append<T>(started, item)
+            builders = set(builders, k, started)
+        }
+    }
+    var groups = Map<K, [T]> {}
+    for k, group in builders {
+        groups = set(groups, k, ab_to_array<T>(group))
+    }
+    return groups
 }

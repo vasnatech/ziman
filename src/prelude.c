@@ -702,6 +702,75 @@ static Value native_bytes_to_string(Value *args, int argc, int line, int col) {
     return value_result(type_result(str_type, str_type), result_obj_new(1, value_string(s)));
 }
 
+/* ---- sorting scalars natively (collections.sort and friends) -------------------------
+ * A packed [int] / [float] / [byte], or an array of strings, is sorted by a stable merge
+ * sort over positions, avoiding a per-comparison interpreter call. Anything else (a struct,
+ * an enum, bigint, ...) is left to collections' generic sort. */
+static int scalar_sortable(const ArrayObj *a) {
+    if (array_pack_kind(a) == PK_INT || array_pack_kind(a) == PK_FLOAT || array_pack_kind(a) == PK_BYTE) return 1;
+    if (array_pack_kind(a) != PK_NONE) return 0; /* [bool] has no order */
+    for (int i = 0; i < a->count; i++) {
+        if (a->boxed_items[i].type.kind != TY_STRING) return 0;
+    }
+    return 1;
+}
+
+/* Same order as `compare`: a NaN sorts after every other float and equals itself. */
+static int order_float(double x, double y) {
+    int nx = x != x, ny = y != y;
+    if (nx || ny) return nx == ny ? 0 : (nx ? 1 : -1);
+    return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+static int order_at(const ArrayObj *a, int i, int j) {
+    switch (array_pack_kind(a)) {
+        case PK_INT: return a->ints[i] < a->ints[j] ? -1 : (a->ints[i] > a->ints[j] ? 1 : 0);
+        case PK_FLOAT: return order_float(a->floats[i], a->floats[j]);
+        case PK_BYTE: return (int)a->bytes[i] - (int)a->bytes[j];
+        default: {
+            Value x = a->boxed_items[i], y = a->boxed_items[j];
+            uint32_t n = x.as.str.len < y.as.str.len ? x.as.str.len : y.as.str.len;
+            int c = n > 0 ? memcmp(x.as.str.ptr, y.as.str.ptr, n) : 0;
+            if (c != 0) return c < 0 ? -1 : 1;
+            return x.as.str.len < y.as.str.len ? -1 : (x.as.str.len > y.as.str.len ? 1 : 0);
+        }
+    }
+}
+
+static Value native_is_sortable_scalars(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_bool(scalar_sortable(args[0].as.arr));
+}
+
+/* The positions of the array's elements in sorted order. Stable: equal elements keep their
+ * input order, in descending order too (it is not the ascending result reversed). */
+static Value native_sort_scalar_order(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const ArrayObj *a = args[0].as.arr;
+    int desc = args[1].as.b;
+    int n = a->count;
+    int64_t *order = zalloc_atomic((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+    int64_t *tmp = zalloc_atomic((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+    for (int i = 0; i < n; i++) order[i] = i;
+    for (int width = 1; width < n; width *= 2) {
+        int k = 0;
+        for (int lo = 0; lo < n; lo += 2 * width) {
+            int mid = lo + width < n ? lo + width : n;
+            int hi = lo + 2 * width < n ? lo + 2 * width : n;
+            int i = lo, j = mid;
+            while (i < mid && j < hi) {
+                int c = order_at(a, (int)order[j], (int)order[i]);
+                if (desc ? c > 0 : c < 0) tmp[k++] = order[j++];
+                else tmp[k++] = order[i++];
+            }
+            while (i < mid) tmp[k++] = order[i++];
+            while (j < hi) tmp[k++] = order[j++];
+        }
+        int64_t *swap = order; order = tmp; tmp = swap;
+    }
+    return value_int_array(order, (size_t)n);
+}
+
 static Value native_concat_arrays(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     ArrayObj *parts = args[0].as.arr;
@@ -806,6 +875,8 @@ void prelude_register(void) {
     native_register("to_lower", native_to_lower);
     native_register("join", native_join);
     native_register("concat_arrays", native_concat_arrays);
+    native_register("is_sortable_scalars", native_is_sortable_scalars);
+    native_register("sort_scalar_order", native_sort_scalar_order);
     native_register("string_to_bytes", native_string_to_bytes);
     native_register("bytes_to_string", native_bytes_to_string);
     native_register("slice", native_slice);
