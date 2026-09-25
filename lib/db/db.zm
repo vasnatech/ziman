@@ -288,3 +288,135 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
     return DbUrl { user: user_decoded, password: password_decoded, host: host, port: port, database: db_name,
         params: ab_to_array<UrlParam>(params) }
 }
+
+// ---------------------------------------------------------------- what the network drivers share
+
+// `pg` and `mysql` each run a connection on one spawned thread that owns the socket, and talk to it through a
+// channel of `Request`s; the types and the client half of that (running a statement, reading a cursor as an
+// `Iter`) are here so the two drivers do not carry the same code twice.
+
+// What a statement produced: its rows and how many rows it changed.
+pub struct QueryResult {
+    rows: [Row]
+    affected: int
+}
+
+// A statement sent to the thread that owns the connection, with the channel to answer on.
+pub struct RunRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<QueryResult, DbError>>
+}
+
+// One batch of a cursor's rows, decoded, whether the server has no more, and the cursor's number (each
+// cursor a connection opens gets the next one, so a late message about a finished cursor cannot touch
+// the cursor that replaced it).
+pub struct Page {
+    rows: [Row]
+    finished: bool
+    cursor: int
+}
+
+// Starts a cursor on the owning thread: run `sql` and answer with its first page.
+pub struct OpenRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<Page, DbError>>
+}
+
+// Asks the owning thread for the next page of the open cursor.
+pub struct FetchRequest {
+    cursor: int
+    reply_to: Channel<Result<Page, DbError>>
+}
+
+// Asks the owning thread to end the open cursor, if there is one; answered when the connection is
+// ready for the next statement.
+pub struct EndRequest {
+    cursor: int
+    reply_to: Channel<int>
+}
+
+// A message to a connection's owning thread: run a statement, work a cursor, or close the connection.
+pub enum Request {
+    Run(RunRequest)
+    OpenCursor(OpenRequest)
+    FetchCursor(FetchRequest)
+    EndCursor(EndRequest)
+    Close
+}
+
+// Sends a statement to the connection's owning thread and waits for its answer.
+pub fn run_request(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+    val reply_to: Channel<Result<QueryResult, DbError>> = channel_new()
+    send(requests, Request.Run(RunRequest { sql: sql, params: params, reply_to: reply_to }))
+    return receive(reply_to)
+}
+
+// What a cursor iterator keeps: the channel to the owning thread and a guard that ends the cursor if the
+// iterator is dropped unfinished.
+struct CursorHandle {
+    cursor: int
+    requests: Channel<Request>
+    guard: Guard
+}
+
+fn end_cursor(handle: CursorHandle) {
+    val reply: Channel<int> = channel_new()
+    send(handle.requests, Request.EndCursor(EndRequest { cursor: handle.cursor, reply_to: reply }))
+    receive(reply)
+}
+
+fn buffer_page(buffer: Channel<Option<Row>>, page: Page) {
+    for row in page.rows {
+        send(buffer, Option<Row>.Some(row))
+    }
+    if page.finished {
+        send(buffer, Option<Row>.None)
+    }
+}
+
+// The next row from the buffer, fetching another page from the server when it is empty. A `None` in
+// the buffer marks the end and is put back, so asking again after the end is safe.
+fn next_item(handle: CursorHandle, buffer: Channel<Option<Row>>) -> Option<Result<Row, DbError>> {
+    val got = try_receive(buffer)
+    if Option.is_Some(got) {
+        val item = Option.unwrap_Some(got)
+        if Option.is_Some(item) {
+            val row: Result<Row, DbError> = Option.unwrap_Some(item)
+            return Option<Result<Row, DbError>>.Some(row)
+        }
+        send(buffer, item)
+        return Option<Result<Row, DbError>>.None
+    }
+    val reply: Channel<Result<Page, DbError>> = channel_new()
+    send(handle.requests, Request.FetchCursor(FetchRequest { cursor: handle.cursor, reply_to: reply }))
+    val page = receive(reply)
+    if !is_ok(page) {
+        send(buffer, Option<Row>.None)
+        val failure: Result<Row, DbError> = unwrap_err(page)
+        return Option<Result<Row, DbError>>.Some(failure)
+    }
+    buffer_page(buffer, unwrap(page))
+    return next_item(handle, buffer)
+}
+
+// Opens a cursor for `sql` on the connection whose owning thread reads `requests`, and returns its rows
+// lazily as an `Iter`: the first page is fetched before this returns (so a failing statement is an Err here),
+// and later pages as the loop asks for them. Each item is a `Result<Row, DbError>`: a row, or the error that
+// ended the result part-way (after which the iteration ends). Leaving the loop early or `iter_close` ends the
+// cursor, and a cursor dropped unfinished is ended when it is garbage collected.
+pub fn open_rows(requests: Channel<Request>, sql: string,
+    params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+        val reply: Channel<Result<Page, DbError>> = channel_new()
+        send(requests, Request.OpenCursor(OpenRequest { sql: sql, params: params, reply_to: reply }))
+        val first = receive(reply)?
+        val ender: Channel<int> = channel_new()
+        val handle = CursorHandle { cursor: first.cursor, requests: requests,
+            guard: guard_new<Request>(requests,
+                Request.EndCursor(EndRequest { cursor: first.cursor, reply_to: ender })) }
+        val buffer: Channel<Option<Row>> = channel_new()
+        buffer_page(buffer, first)
+        return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> { next_item(handle, buffer) },
+            fn() { end_cursor(handle) })
+    }

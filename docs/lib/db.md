@@ -234,3 +234,112 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
 
 `prefixes` are the accepted `scheme://` starts (e.g. "postgres://").
 The database defaults to the user name when the URL has none.
+
+## What the network drivers share
+
+### `QueryResult`
+
+```
+pub struct QueryResult {
+    rows: [Row]
+    affected: int
+}
+```
+
+What a statement produced: its rows and how many rows it changed.
+
+### `RunRequest`
+
+```
+pub struct RunRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<QueryResult, DbError>>
+}
+```
+
+A statement sent to the thread that owns the connection, with the channel to answer on.
+
+### `Page`
+
+```
+pub struct Page {
+    rows: [Row]
+    finished: bool
+    cursor: int
+}
+```
+
+One batch of a cursor's rows, decoded, whether the server has no more, and the cursor's number (each
+cursor a connection opens gets the next one, so a late message about a finished cursor cannot touch
+the cursor that replaced it).
+
+### `OpenRequest`
+
+```
+pub struct OpenRequest {
+    sql: string
+    params: [SqlValue]
+    reply_to: Channel<Result<Page, DbError>>
+}
+```
+
+Starts a cursor on the owning thread: run `sql` and answer with its first page.
+
+### `FetchRequest`
+
+```
+pub struct FetchRequest {
+    cursor: int
+    reply_to: Channel<Result<Page, DbError>>
+}
+```
+
+Asks the owning thread for the next page of the open cursor.
+
+### `EndRequest`
+
+```
+pub struct EndRequest {
+    cursor: int
+    reply_to: Channel<int>
+}
+```
+
+Asks the owning thread to end the open cursor, if there is one; answered when the connection is
+ready for the next statement.
+
+### `Request`
+
+```
+pub enum Request {
+    Run(RunRequest)
+    OpenCursor(OpenRequest)
+    FetchCursor(FetchRequest)
+    EndCursor(EndRequest)
+    Close
+}
+```
+
+A message to a connection's owning thread: run a statement, work a cursor, or close the connection.
+
+### `run_request`
+
+```
+pub fn run_request(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError>
+```
+
+Sends a statement to the connection's owning thread and waits for its answer.
+
+### `open_rows`
+
+```
+pub fn open_rows(requests: Channel<Request>, sql: string,
+    params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+```
+
+Opens a cursor for `sql` on the connection whose owning thread reads `requests`, and returns its rows
+lazily as an `Iter`: the first page is fetched before this returns (so a failing statement is an Err here),
+and later pages as the loop asks for them. Each item is a `Result<Row, DbError>`: a row, or the error that
+ended the result part-way (after which the iteration ends). Leaving the loop early or `iter_close` ends the
+cursor, and a cursor dropped unfinished is ended when it is garbage collected.

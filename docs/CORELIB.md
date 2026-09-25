@@ -738,11 +738,6 @@ pub fn url_param(u: DbUrl, name: string) -> Option<string>
 
 pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<DbUrl, DbError>
 
-```
-
-## `mysql`
-
-```
 pub struct QueryResult {
     rows: [Row]
     affected: int
@@ -784,6 +779,15 @@ pub enum Request {
     Close
 }
 
+pub fn run_request(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError>
+
+pub fn open_rows(requests: Channel<Request>, sql: string,
+
+```
+
+## `mysql`
+
+```
 pub struct Connection {
     requests: Channel<Request>
     guard: Guard
@@ -804,47 +808,6 @@ pub fn rows(conn: Connection, sql: string, params: [SqlValue]) -> Result<Iter<Re
 ## `pg`
 
 ```
-pub struct QueryResult {
-    rows: [Row]
-    affected: int
-}
-
-pub struct RunRequest {
-    sql: string
-    params: [SqlValue]
-    reply_to: Channel<Result<QueryResult, DbError>>
-}
-
-pub struct Page {
-    rows: [Row]
-    finished: bool
-    cursor: int
-}
-
-pub struct OpenRequest {
-    sql: string
-    params: [SqlValue]
-    reply_to: Channel<Result<Page, DbError>>
-}
-
-pub struct FetchRequest {
-    cursor: int
-    reply_to: Channel<Result<Page, DbError>>
-}
-
-pub struct EndRequest {
-    cursor: int
-    reply_to: Channel<int>
-}
-
-pub enum Request {
-    Run(RunRequest)
-    OpenCursor(OpenRequest)
-    FetchCursor(FetchRequest)
-    EndCursor(EndRequest)
-    Close
-}
-
 pub native fn float_to_text(f: float) -> string
 
 pub struct Connection {

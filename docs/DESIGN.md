@@ -700,6 +700,10 @@ several languages rather than inheriting any one of them wholesale.
   that wraps every driver and so cannot be shared with them. The point is the dependency direction:
   `sqlite`, `pg`, `mysql`, `uuid` and `time` use `db` and never `sql`, which uses them. The URL parser
   functions became `db.parse_url` and `db.url_param`, since a bare `parse` says nothing in a shared module.
+  `db` also holds what `pg` and `mysql` had each written out: the `Request` enum and its request and page
+  types, `run_request` (send a statement to the connection's thread and wait) and `open_rows` (open a cursor
+  and read it as an `Iter`, with its page buffer, cursor number and guard), about 150 lines that were
+  identical in the two drivers. Each driver's `rows` is now one line calling `db.open_rows`.
 - **Lazy iteration: `Iter<T>` and `fs.lines`.** `for` walked arrays, maps, sets and ranges, all
   fully in memory. A file of any size, a database cursor, a large CSV need to be read as the loop
   asks. `Iter<T>` is a prelude struct holding a native handle (the address of an `IterObj`: a
