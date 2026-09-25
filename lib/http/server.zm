@@ -38,7 +38,6 @@ use http.Request
 use http.Response
 use http.header
 use http.header_value
-use mime
 use http.method_name
 use http.method_parse
 use http.percent_decode
@@ -63,8 +62,9 @@ use http.status_payload_too_large
 use http.status_request_timeout
 use http.status_service_unavailable
 use http.status_unauthorized
-use http.status_unsupported_media_type
 use http.status_unprocessable_entity
+use http.status_unsupported_media_type
+use mime
 use net
 use net.Listener
 use net.NetError
