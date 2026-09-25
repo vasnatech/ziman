@@ -1,37 +1,48 @@
-// httpclient.zm -- an HTTP/1.1 *client*, written in Ziman on top of `net`, so a
-// Ziman program can call another service (the server side is `http`).
+// httpclient.zm -- an HTTP/1.1 *client*, written in Ziman on top of `net`, so a Ziman program can
+// call another service (the server side is `http`).
 //
 //   val r = httpclient.get("https://example.com/api/items?limit=5")
 //   val resp = httpclient.request(method: HttpMethod.Post, url: u, body: "{\"a\":1}",
 //                                 headers: [http.Header { name: "Content-Type", value: "application/json" }])
 //
-// `http://` and `https://` URLs (TLS with full certificate verification, via
-// `net.connect_tls`). One connection per request, closed afterwards
-// (`Connection: close`) -- simple, and correct for the occasional call to
-// another service; there is no connection pooling. Understands
-// `Content-Length`, `Transfer-Encoding: chunked` and bodies that end when the
-// server closes; follows 301/302/303/307/308 redirects (up to `max_redirects`,
-// default 5, 0 = don't follow; 303 and a 301/302 answering a POST are re-sent
-// as GET without a body).
+// `http://` and `https://` URLs (TLS with full certificate verification). What it does for you:
+//   * keep-alive: an idle connection is reused for the next request to the same place (and a request
+//     that finds the parked connection dead is sent again on a fresh one);
+//   * compression: it asks for `gzip`/`deflate` and decodes the body (see `compress`);
+//   * redirects: 301/302/303/307/308, up to `max_redirects` (default 5; 0 = don't follow); 303 and a
+//     301/302 answering a POST are re-sent as GET without a body, and an `Authorization` header is not
+//     sent to a different host;
+//   * proxies: `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment, or the `proxy` argument;
+//     https goes through a CONNECT tunnel;
+//   * cookies: with a `CookieJar` (`request_with_jar`), cookies a server sets are sent back;
+//   * credentials in the URL (`https://user:pass@host/`) become a Basic `Authorization` header.
+// Bodies are read by `Content-Length`, `Transfer-Encoding: chunked`, or until the server closes.
 //
-// A response comes back as an `http.Response` (text body) from `request`/`get`/
-// `post_json`, or as a `BytesResponse` (`[byte]` body) from `request_bytes`, the
-// one to use for images, files and other binary data. **Any** status, including 404 or
-// 500, is `Ok` -- an `Err` means the exchange itself failed (bad URL, network,
-// timeout, malformed response, too large). Bodies are strings, capped at 8 MiB
-// (`TooLarge`). A text-body function given a binary body (a NUL byte) fails with
-// `BadResponse` -- use `request_bytes`. Not yet:
-// request bodies of bytes, compression, proxies, cookies, HTTP/2, streaming.
+// A response comes back as an `http.Response` (text body) from `request`/`get`/`post_json`, or as a
+// `BytesResponse` (`[byte]` body) from `request_bytes`, the one to use for images, files and other binary
+// data. **Any** status, including 404 or 500, is `Ok` -- an `Err` means the exchange itself failed (bad
+// URL, network, timeout, malformed response, too large). Bodies are capped at 8 MiB after decompression
+// (`TooLarge`). A text-body function given a binary body (a NUL byte) fails with `BadResponse` -- use
+// `request_bytes`. Not yet: request bodies streamed from a file, HTTP/2, streaming responses.
 
+use clock.now_raw
+use compress.decompress
+use compress.inflate_raw
+use crypto.base64_encode
 use http.Header
 use http.HttpMethod
 use http.Response
 use http.method_name
+use http.percent_decode
+use http.percent_encode
 use net
 use net.NetError
 use net.Socket
 use net.net_error_message
 use number.int_from_hex
+use os
+use time.localdate_of
+use time.localdate_to_epoch_day
 
 // Like `http.Response`, but the body is raw bytes.
 pub struct BytesResponse {
@@ -40,6 +51,7 @@ pub struct BytesResponse {
     body: [byte]
 }
 
+// Why an exchange failed (any HTTP status, even 500, is a success).
 pub enum ClientError {
     BadUrl(string)
     Network(string)
@@ -49,6 +61,7 @@ pub enum ClientError {
     TooManyRedirects
 }
 
+// The error as one line of text, for logging or showing to a user.
 pub fn error_message(e: ClientError) -> string {
     if ClientError.is_BadUrl(e) {
         return concat("bad URL: ", ClientError.unwrap_BadUrl(e))
@@ -65,13 +78,15 @@ pub fn error_message(e: ClientError) -> string {
     return if ClientError.is_TooLarge(e) { "response body is too large" } else { "too many redirects" }
 }
 
-// A parsed `http://` or `https://` URL. `target` is the path and query as they
-// go on the request line ("/" if the URL has none); a #fragment is dropped.
+// A parsed `http://` or `https://` URL. `target` is the path and query as they go on the request line
+// ("/" if the URL has none); a #fragment is dropped; `userinfo` is the raw `user:password` before an
+// `@` in the authority ("" if none).
 pub struct Url {
     secure: bool
     host: string
     port: int
     target: string
+    userinfo: string
 }
 
 val max_body_bytes = 8388608
@@ -90,7 +105,11 @@ val status_see_other = 303
 val status_not_modified = 304
 val status_temporary_redirect = 307
 val status_permanent_redirect = 308
+val crlf: [byte] = [13b, 10b]
+val crlf_crlf: [byte] = [13b, 10b, 13b, 10b]
 
+// Parses an `http://` or `https://` URL. An Err says what is wrong: another scheme, a missing host, an
+// unterminated `[` in an IPv6 host, a bad port.
 pub fn parse_url(url: string) -> Result<Url, string> {
     var secure = false
     var rest = ""
@@ -120,17 +139,19 @@ pub fn parse_url(url: string) -> Result<Url, string> {
             target = concat("/", target)
         }
     }
+    var userinfo = ""
     val at = last_index_of(authority, "@")
     if at >= 0 {
+        userinfo = substring(authority, 0, at)
         authority = substring(authority, at + 1, len(authority))
     }
     if authority == "" {
         return err("missing host")
     }
     var host = authority
-    var port = 80
+    var port = default_http_port
     if secure {
-        port = 443
+        port = default_https_port
     }
     var port_text = ""
     if starts_with(authority, "[") {
@@ -163,7 +184,7 @@ pub fn parse_url(url: string) -> Result<Url, string> {
         }
         port = unwrap(p)
     }
-    return Url { secure: secure, host: host, port: port, target: target }
+    return ok(Url { secure: secure, host: host, port: port, target: target, userinfo: userinfo })
 }
 
 // ------------------------------------------------------------ reading
@@ -177,33 +198,6 @@ fn lift<T>(r: Result<T, NetError>) -> Result<T, ClientError> {
         return err(ClientError.Network(net_error_message(e)))
     }
     return unwrap(r)
-}
-
-fn is_closed(e: NetError) -> bool {
-    return NetError.is_Closed(e)
-}
-
-fn find_from(buf: [byte], a: byte, b: byte, from: int) -> int {
-    var i = from
-    while i + 1 < len(buf) {
-        if buf[i] == a && buf[i + 1] == b {
-            return i
-        }
-        i = i + 1
-    }
-    return -1
-}
-
-// Index just past the first CRLF CRLF, or -1.
-fn find_head_end(buf: [byte]) -> int {
-    var i = 0
-    while i + 3 < len(buf) {
-        if buf[i] == 13b && buf[i + 1] == 10b && buf[i + 2] == 13b && buf[i + 3] == 10b {
-            return i + 4
-        }
-        i = i + 1
-    }
-    return -1
 }
 
 fn text_of(b: [byte]) -> Result<string, ClientError> {
@@ -223,83 +217,45 @@ fn header_value(headers: [Header], name: string) -> Option<string> {
     return Option<string>.None
 }
 
-// Reads up to `n` more bytes' worth: at least one byte, appended to `buf`.
+// The first header called `name` (any case) of a response, or None.
+pub fn response_header(r: Response, name: string) -> Option<string> {
+    return header_value(r.headers, name)
+}
+
+// Reads at least one more byte from the socket onto `buf`.
 fn more(sock: Socket, buf: [byte]) -> Result<[byte], ClientError> {
     val chunk = lift<[byte]>(net.read(sock, read_chunk_bytes))?
     return bytes_concat(buf, chunk)
 }
 
-// The body of a chunked response; `buf` holds what was already read past the head.
-fn read_chunked(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
-    var buf = start
-    var body: [byte] = []
-    while true {
-        var eol = find_from(buf, 13b, 10b, 0)
-        while eol < 0 {
-            if len(buf) > max_chunk_size_line_bytes {
-                return err(ClientError.BadResponse("chunk size line is too long"))
-            }
-            val step1 = more(sock, buf)?
-            buf = step1
-            eol = find_from(buf, 13b, 10b, 0)
-        }
-        val line = text_of(slice<byte>(buf, 0, eol))?
-        val size_text = trim(split(line, ";")[0])
-        val size_parsed = int_from_hex(size_text)
-        if !is_ok(size_parsed) || unwrap(size_parsed) < 0 {
-            return err(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
-        }
-        val size = unwrap(size_parsed)
-        if size == 0 {
-            return body
-        }
-        if len(body) + size > max_body_bytes {
-            return err(ClientError.TooLarge)
-        }
-        buf = slice<byte>(buf, eol + 2, len(buf))
-        while len(buf) < size + 2 {
-            val step2 = more(sock, buf)?
-            buf = step2
-        }
-        body = bytes_concat(body, slice<byte>(buf, 0, size))
-        buf = slice<byte>(buf, size + 2, len(buf))
-    }
-    return body
+// A status line and headers, and the bytes read past them.
+struct Head {
+    status: int
+    status_line: string
+    headers: [Header]
+    rest: [byte]
 }
 
-// A body that runs until the server closes the connection.
-fn read_to_close(sock: Socket, start: [byte]) -> Result<[byte], ClientError> {
-    var body = start
-    while true {
-        if len(body) > max_body_bytes {
-            return err(ClientError.TooLarge)
-        }
-        val chunk = net.read(sock, read_chunk_bytes)
-        if !is_ok(chunk) {
-            val e = unwrap_err(chunk)
-            if is_closed(e) {
-                return body
-            }
-            if NetError.is_Timeout(e) {
-                return err(ClientError.Timeout)
-            }
-            return err(ClientError.Network(net_error_message(e)))
-        }
-        body = bytes_concat(body, unwrap(chunk))
-    }
-    return body
+// A body, and whether the connection can be reused afterwards (the body was framed by length, and
+// nothing is left unread).
+struct Body {
+    bytes: [byte]
+    clean: bool
 }
 
-fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientError> {
+// Reads a response head: everything up to the blank line, parsed. `first_byte_seen` is false until at
+// least one byte arrived (a reused connection that answers with a close before any byte is retried).
+fn read_head(sock: Socket) -> Result<Head, ClientError> {
     var buf: [byte] = []
-    var head_end = find_head_end(buf)
+    var head_end = -1
     while head_end < 0 {
         if len(buf) > max_header_bytes {
             return err(ClientError.BadResponse("response headers are too large"))
         }
-        val step3 = more(sock, buf)?
-        buf = step3
-        head_end = find_head_end(buf)
+        val step = more(sock, buf)?
+        buf = step
+        val at = bytes_index_of(buf, crlf_crlf, 0)
+        head_end = if at < 0 { -1 } else { at + 4 }
     }
     val head = text_of(slice<byte>(buf, 0, head_end - 4))?
     val lines = split(head, "\r\n")
@@ -311,7 +267,6 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
     if !is_ok(status_parsed) {
         return err(ClientError.BadResponse(concat("malformed status line: ", lines[0])))
     }
-    val status = unwrap(status_parsed)
     val headers = ab_new<Header>()
     var i = 1
     while i < len(lines) {
@@ -323,18 +278,103 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
             Header { name: Option.unwrap_Some(pair)[0], value: trim(Option.unwrap_Some(pair)[1]) })
         i = i + 1
     }
-    val header_list = ab_to_array<Header>(headers)
-    val rest = slice<byte>(buf, head_end, len(buf))
+    return ok(Head { status: unwrap(status_parsed), status_line: lines[0], headers: ab_to_array<Header>(headers),
+        rest: slice<byte>(buf, head_end, len(buf)) })
+}
 
+// The body of a chunked response, through the last chunk and the trailers, so the connection is left
+// at the start of whatever comes next. `start` holds what was already read past the head.
+fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
+    var buf = start
+    val body = ab_new<byte>()
+    var total = 0
+    while true {
+        var eol = bytes_index_of(buf, crlf, 0)
+        while eol < 0 {
+            if len(buf) > max_chunk_size_line_bytes {
+                return err(ClientError.BadResponse("chunk size line is too long"))
+            }
+            val step = more(sock, buf)?
+            buf = step
+            eol = bytes_index_of(buf, crlf, 0)
+        }
+        val line = text_of(slice<byte>(buf, 0, eol))?
+        val size_text = trim(split(line, ";")[0])
+        val size_parsed = int_from_hex(size_text)
+        if !is_ok(size_parsed) || unwrap(size_parsed) < 0 {
+            return err(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+        }
+        val size = unwrap(size_parsed)
+        buf = slice<byte>(buf, eol + 2, len(buf))
+        if size == 0 {
+            var trailer_end = bytes_index_of(buf, crlf, 0)
+            while trailer_end != 0 {
+                while trailer_end < 0 {
+                    if len(buf) > max_header_bytes {
+                        return err(ClientError.BadResponse("response trailers are too large"))
+                    }
+                    val step = more(sock, buf)?
+                    buf = step
+                    trailer_end = bytes_index_of(buf, crlf, 0)
+                }
+                if trailer_end != 0 {
+                    buf = slice<byte>(buf, trailer_end + 2, len(buf))
+                    trailer_end = bytes_index_of(buf, crlf, 0)
+                }
+            }
+            return ok(Body { bytes: ab_to_array<byte>(body), clean: len(buf) == 2 })
+        }
+        total = total + size
+        if total > max_body_bytes {
+            return err(ClientError.TooLarge)
+        }
+        while len(buf) < size + 2 {
+            val step = more(sock, buf)?
+            buf = step
+        }
+        ab_append<byte>(body, slice<byte>(buf, 0, size))
+        buf = slice<byte>(buf, size + 2, len(buf))
+    }
+    return ok(Body { bytes: [], clean: false })
+}
+
+// A body that runs until the server closes the connection (so the connection cannot be reused).
+fn read_to_close(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
+    val body = ab_new<byte>()
+    ab_append<byte>(body, start)
+    while true {
+        if ab_len<byte>(body) > max_body_bytes {
+            return err(ClientError.TooLarge)
+        }
+        val chunk = net.read(sock, read_chunk_bytes)
+        if !is_ok(chunk) {
+            val e = unwrap_err(chunk)
+            if NetError.is_Closed(e) {
+                return ok(Body { bytes: ab_to_array<byte>(body), clean: false })
+            }
+            if NetError.is_Timeout(e) {
+                return err(ClientError.Timeout)
+            }
+            return err(ClientError.Network(net_error_message(e)))
+        }
+        ab_append<byte>(body, unwrap(chunk))
+    }
+    return err(ClientError.Timeout)
+}
+
+// Reads the body the head announces.
+fn read_body(sock: Socket, head: Head, head_only: bool) -> Result<Body, ClientError> {
+    val status = head.status
     val no_body = head_only || status < 200 || status == status_no_content || status == status_not_modified
     if no_body {
-        return BytesResponse { status: status, headers: header_list, body: [] }
+        return ok(Body { bytes: [], clean: len(head.rest) == 0 })
     }
-    val te = header_value(header_list, "Transfer-Encoding")
-    val cl = header_value(header_list, "Content-Length")
-    val body_bytes = if Option.is_Some(te) && contains(to_lower(Option.unwrap_Some(te)), "chunked") {
-        read_chunked(sock, rest)?
-    } else if Option.is_Some(cl) {
+    val te = header_value(head.headers, "Transfer-Encoding")
+    val cl = header_value(head.headers, "Content-Length")
+    if Option.is_Some(te) && contains(to_lower(Option.unwrap_Some(te)), "chunked") {
+        return read_chunked(sock, head.rest)
+    }
+    if Option.is_Some(cl) {
         val n = parse_int(trim(Option.unwrap_Some(cl)))
         if !is_ok(n) || unwrap(n) < 0 {
             return err(ClientError.BadResponse("invalid Content-Length"))
@@ -342,16 +382,94 @@ fn read_response(sock: Socket, head_only: bool) -> Result<BytesResponse, ClientE
         if unwrap(n) > max_body_bytes {
             return err(ClientError.TooLarge)
         }
-        if unwrap(n) > len(rest) {
-            val tail = lift<[byte]>(net.read_exact(sock, unwrap(n) - len(rest)))?
-            bytes_concat(rest, tail)
-        } else {
-            slice<byte>(rest, 0, unwrap(n))
+        if unwrap(n) > len(head.rest) {
+            val tail = lift<[byte]>(net.read_exact(sock, unwrap(n) - len(head.rest)))?
+            return ok(Body { bytes: bytes_concat(head.rest, tail), clean: true })
         }
-    } else {
-        read_to_close(sock, rest)?
+        return ok(Body { bytes: slice<byte>(head.rest, 0, unwrap(n)), clean: len(head.rest) == unwrap(n) })
     }
-    return BytesResponse { status: status, headers: header_list, body: body_bytes }
+    return read_to_close(sock, head.rest)
+}
+
+// Undoes `Content-Encoding: gzip` / `deflate`, dropping the two headers the encoding made untrue. An
+// encoding this client does not know is left alone.
+fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<BytesResponse, ClientError> {
+    val enc = header_value(headers, "Content-Encoding")
+    if !Option.is_Some(enc) || len(body) == 0 {
+        return ok(BytesResponse { status: status, headers: headers, body: body })
+    }
+    val name = to_lower(trim(Option.unwrap_Some(enc)))
+    if name != "gzip" && name != "x-gzip" && name != "deflate" {
+        return ok(BytesResponse { status: status, headers: headers, body: body })
+    }
+    var decoded = decompress(body, max_body_bytes)
+    if !is_ok(decoded) && name == "deflate" && unwrap_err(decoded) == "compressed data is corrupt" {
+        decoded = inflate_raw(body, max_body_bytes)
+    }
+    if !is_ok(decoded) {
+        val why = unwrap_err(decoded)
+        if why == "decompressed data is too large" {
+            return err(ClientError.TooLarge)
+        }
+        return err(ClientError.BadResponse(format("cannot decode {} body: {}", name, why)))
+    }
+    val kept = ab_new<Header>()
+    for h in headers {
+        val lname = to_lower(h.name)
+        if lname != "content-encoding" && lname != "content-length" {
+            ab_append<Header>(kept, h)
+        }
+    }
+    return ok(BytesResponse { status: status, headers: ab_to_array<Header>(kept), body: unwrap(decoded) })
+}
+
+// ------------------------------------------------------------ proxies
+
+// The proxy to use for `u`: `explicit` if given ("" means none at all), else the environment
+// (`HTTPS_PROXY` for https, `HTTP_PROXY` for http, either case), skipped for hosts `NO_PROXY` lists.
+fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientError> {
+    var text = ""
+    if Option.is_Some(explicit) {
+        text = Option.unwrap_Some(explicit)
+    } else {
+        val upper = os.getenv(if u.secure { "HTTPS_PROXY" } else { "HTTP_PROXY" })
+        val lower = os.getenv(if u.secure { "https_proxy" } else { "http_proxy" })
+        text = if Option.is_Some(upper) { Option.unwrap_Some(upper) } else { option_unwrap_or<string>(lower, "") }
+        if len(text) > 0 && no_proxy_matches(u.host) {
+            text = ""
+        }
+    }
+    if len(text) == 0 {
+        return ok(Option<Url>.None)
+    }
+    val parsed = parse_url(if contains(text, "://") { text } else { concat("http://", text) })
+    if !is_ok(parsed) {
+        return err(ClientError.BadUrl(concat("proxy: ", unwrap_err(parsed))))
+    }
+    if unwrap(parsed).secure {
+        return err(ClientError.BadUrl("proxy: an https:// proxy is not supported (use http://)"))
+    }
+    return ok(Option<Url>.Some(unwrap(parsed)))
+}
+
+// True if `NO_PROXY` (a comma-separated list of hosts, `.suffixes` and `*`) covers `host`.
+fn no_proxy_matches(host: string) -> bool {
+    val upper = os.getenv("NO_PROXY")
+    val list = if Option.is_Some(upper) { Option.unwrap_Some(upper) } else { option_unwrap_or<string>(os.getenv("no_proxy"),
+        "") }
+    for raw in split(list, ",") {
+        val entry = to_lower(trim(raw))
+        if entry == "*" {
+            return true
+        }
+        if len(entry) > 0 {
+            val bare = if starts_with(entry, ".") { substring(entry, 1, len(entry)) } else { entry }
+            if to_lower(host) == bare || ends_with(to_lower(host), concat(".", bare)) {
+                return true
+            }
+        }
+    }
+    return false
 }
 
 // ------------------------------------------------------------ sending
@@ -368,32 +486,82 @@ fn host_header(u: Url) -> string {
     }
 }
 
-fn open_socket(u: Url, ca_file: Option<string>) -> Result<Socket, NetError> {
-    return if u.secure {
-        net.connect_tls_with(u.host, u.port, net.TlsVerify.Full, ca_file)
-    } else {
-        net.connect(u.host, u.port)
-    }
+// `Basic base64(user:password)` for the raw `user:password` of a URL or proxy (percent-decoded).
+fn basic_auth(userinfo: string) -> string {
+    val decoded = percent_decode(userinfo, false)
+    return concat("Basic ", base64_encode(string_to_bytes(if is_ok(decoded) { unwrap(decoded) } else { userinfo })))
 }
 
-fn send_once(method: HttpMethod, u: Url, headers: [Header], body: Option<[byte]>, timeout_ms: int,
-    ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
-        val sock = open_socket(u, ca_file)
-        if !is_ok(sock) {
-            val e = unwrap_err(sock)
-            if NetError.is_Timeout(e) {
-                return err(ClientError.Timeout)
-            }
-            return err(ClientError.Network(net_error_message(e)))
-        }
-        val s = unwrap(sock)
-        defer net.close(s)
-        lift<int>(net.set_timeout(s, timeout_ms))?
+// Where connections to `u` are parked for reuse: the scheme, host and port, and the proxy if any.
+fn cache_key(u: Url, proxy: Option<Url>) -> string {
+    val base = format("{}://{}:{}", if u.secure { "https" } else { "http" }, u.host, u.port)
+    return if Option.is_Some(proxy) { format("{} via {}:{}", base, Option.unwrap_Some(proxy).host,
+        Option.unwrap_Some(proxy).port) } else { base }
+}
 
+fn fail_closed(s: Socket, e: ClientError) -> Result<Socket, ClientError> {
+    net.close(s)
+    return err(e)
+}
+
+// Connects to `u`, directly or through `proxy` (an https target through a CONNECT tunnel).
+fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: int) -> Result<Socket, ClientError> {
+    if !Option.is_Some(proxy) {
+        val direct = lift<Socket>(if u.secure {
+            net.connect_tls_with(u.host, u.port, net.TlsVerify.Full, ca_file)
+        } else {
+            net.connect(u.host, u.port)
+        })?
+        return ok(direct)
+    }
+    val p = Option.unwrap_Some(proxy)
+    val sock = lift<Socket>(net.connect(p.host, p.port))?
+    if !u.secure {
+        return ok(sock)
+    }
+    val timeout_set = net.set_timeout(sock, timeout_ms)
+    val target = format("{}:{}", u.host, u.port)
+    val request = format("CONNECT {} HTTP/1.1\r\nHost: {}\r\n{}\r\n", target, target,
+        if len(p.userinfo) > 0 { format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)) } else { "" })
+    val sent = lift<int>(net.write_text(sock, request))
+    if !is_ok(sent) {
+        return fail_closed(sock, unwrap_err(sent))
+    }
+    val head = read_head(sock)
+    if !is_ok(head) {
+        return fail_closed(sock, unwrap_err(head))
+    }
+    if unwrap(head).status != 200 {
+        return fail_closed(sock, ClientError.Network(format("proxy refused the tunnel: {}", unwrap(head).status_line)))
+    }
+    val upgraded = lift<int>(net.start_tls_with(sock, u.host, net.TlsVerify.Full, ca_file))
+    if !is_ok(upgraded) {
+        return fail_closed(sock, unwrap_err(upgraded))
+    }
+    return ok(sock)
+}
+
+// What one exchange produced: the response, and whether the connection is fit for reuse.
+struct Reply {
+    response: BytesResponse
+    reusable: bool
+}
+
+// Writes the request on `s` and reads the response.
+fn exchange(s: Socket, method: HttpMethod, u: Url, proxy: Option<Url>, headers: [Header], body: Option<[byte]>,
+    want_compression: bool, keep_alive: bool) -> Result<Reply, ClientError> {
+        val via_http_proxy = Option.is_Some(proxy) && !u.secure
+        val request_target = if via_http_proxy {
+            format("http://{}{}", host_header(u), u.target)
+        } else {
+            u.target
+        }
         val out = ab_new<string>()
-        ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method_name(method), u.target))
+        ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method_name(method), request_target))
         var has_ua = false
         var has_accept = false
+        var has_encoding = false
+        var has_auth = false
         for h in headers {
             val lname = to_lower(h.name)
             if lname == "user-agent" {
@@ -401,6 +569,12 @@ fn send_once(method: HttpMethod, u: Url, headers: [Header], body: Option<[byte]>
             }
             if lname == "accept" {
                 has_accept = true
+            }
+            if lname == "accept-encoding" {
+                has_encoding = true
+            }
+            if lname == "authorization" {
+                has_auth = true
             }
             if lname != "host" && lname != "content-length" && lname != "connection" {
                 ab_append<string>(out, format("{}: {}\r\n", h.name, h.value))
@@ -413,7 +587,18 @@ fn send_once(method: HttpMethod, u: Url, headers: [Header], body: Option<[byte]>
         if !has_accept {
             ab_append<string>(out, "Accept: */*\r\n")
         }
-        ab_append<string>(out, "Accept-Encoding: identity\r\nConnection: close\r\n")
+        if !has_encoding {
+            ab_append<string>(out,
+                if want_compression { "Accept-Encoding: gzip, deflate\r\n" } else { "Accept-Encoding: identity\r\n" })
+        }
+        if !has_auth && len(u.userinfo) > 0 {
+            ab_append<string>(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
+        }
+        if via_http_proxy && Option.unwrap_Some(proxy).userinfo != "" {
+            ab_append<string>(out,
+                format("Proxy-Authorization: {}\r\n", basic_auth(Option.unwrap_Some(proxy).userinfo)))
+        }
+        ab_append<string>(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
         if Option.is_Some(body) {
             ab_append<string>(out, format("Content-Length: {}\r\n", len(Option.unwrap_Some(body))))
         } else {
@@ -426,15 +611,70 @@ fn send_once(method: HttpMethod, u: Url, headers: [Header], body: Option<[byte]>
         if Option.is_Some(body) && len(Option.unwrap_Some(body)) > 0 {
             lift<int>(net.write(s, Option.unwrap_Some(body)))?
         }
-        return read_response(s, method == HttpMethod.Head)
+        val head = read_head(s)?
+        val payload = read_body(s, head, method == HttpMethod.Head)?
+        val decoded = decode_body(head.status, head.headers, payload.bytes)?
+        val connection = header_value(head.headers, "Connection")
+        val server_closes = Option.is_Some(connection) && contains(to_lower(Option.unwrap_Some(connection)), "close")
+        val http_1_1 = starts_with(head.status_line, "HTTP/1.1")
+        return ok(Reply { response: decoded, reusable: payload.clean && !server_closes && http_1_1 && keep_alive })
     }
+
+fn take_or_open(parked: Option<Socket>, u: Url, proxy: Option<Url>, ca_file: Option<string>,
+    timeout_ms: int) -> Result<Socket, ClientError> {
+        if Option.is_Some(parked) {
+            return ok(Option.unwrap_Some(parked))
+        }
+        return open_socket(u, proxy, ca_file, timeout_ms)
+    }
+
+// One request on one connection: a parked one if `reuse` and there is one (retrying on a fresh
+// connection if it turns out to be dead), else a new one. The connection is parked again when the
+// exchange left it clean.
+fn send_once(method: HttpMethod, u: Url, proxy: Option<Url>, headers: [Header], body: Option<[byte]>, timeout_ms: int,
+    ca_file: Option<string>, want_compression: bool, reuse: bool) -> Result<BytesResponse, ClientError> {
+        val key = cache_key(u, proxy)
+        var attempt = 0
+        while attempt < 2 {
+            val parked = if reuse && attempt == 0 { net.idle_take(key) } else { Option<Socket>.None }
+            val reused = Option.is_Some(parked)
+            val sock = take_or_open(parked, u, proxy, ca_file, timeout_ms)
+            if !is_ok(sock) {
+                return err(unwrap_err(sock))
+            }
+            val s = unwrap(sock)
+            val timeout_set = net.set_timeout(s, timeout_ms)
+            val result = exchange(s, method, u, proxy, headers, body, want_compression, reuse)
+            if is_ok(result) {
+                val reply = unwrap(result)
+                if reply.reusable && reuse {
+                    net.idle_put(key, s)
+                } else {
+                    net.close(s)
+                }
+                return ok(reply.response)
+            }
+            net.close(s)
+            val why = unwrap_err(result)
+            if !(reused && ClientError.is_Network(why)) {
+                return err(why)
+            }
+            attempt = attempt + 1
+        }
+        return err(ClientError.Network("the connection was closed"))
+    }
+
+// Closes every parked keep-alive connection.
+pub fn close_idle() {
+    net.idle_clear()
+}
 
 fn location_of(r: BytesResponse) -> Option<string> {
     return header_value(r.headers, "Location")
 }
 
-// Resolves a redirect's Location against the URL it came from: an absolute URL,
-// a path ("/x"), or (rare) a relative one ("x", resolved against the directory).
+// Resolves a redirect's Location against the URL it came from: an absolute URL, a path ("/x"), or
+// (rare) a relative one ("x", resolved against the directory).
 fn resolve_location(base: Url, location: string) -> Result<Url, string> {
     if starts_with(location, "http://") || starts_with(location, "https://") {
         return parse_url(location)
@@ -452,33 +692,230 @@ fn resolve_location(base: Url, location: string) -> Result<Url, string> {
     return parse_url(format("{}://{}{}{}", scheme, authority, substring(path_only, 0, dir_end + 1), location))
 }
 
-// Sends one request and returns the (final) response.
-//   method        an `http.HttpMethod` (`HttpMethod.Get`, `HttpMethod.Post`, ...)
-//   headers       extra request headers; Host, Content-Length and Connection are
-//                 always set by the client
-//   body          the request body, if any
-//   timeout_ms    per read/write, default 30000
-//   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
-//   ca_file       a PEM file of trusted CAs for https, instead of the system store
-//                 (a private CA, a test certificate); the certificate is always verified
-pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
-    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>) -> Result<Response, ClientError> {
-        val bytes_body = if Option.is_Some(body) {
-            Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
-        } else {
-            Option<[byte]>.None
-        }
-        val r = request_bytes(method: method, url: url, headers: headers, body: bytes_body, timeout_ms: timeout_ms,
-            max_redirects: max_redirects, ca_file: ca_file)?
-        val text = text_of(r.body)?
-        return Response { status: r.status, headers: r.headers, body: text }
-    }
+// ------------------------------------------------------------ cookies
+//
+// A `CookieJar` is a value: `request_with_jar` takes one and returns the updated one (the jar you
+// passed is unchanged), so keep the newest. It follows RFC 6265 for what matters in practice: `Domain`
+// (a suffix match; without it the cookie is for that host only), `Path`, `Secure` (only sent over
+// https), `Max-Age` and `Expires` (an expired cookie removes the one it replaces), session cookies.
+// `HttpOnly` and `SameSite` are ignored (they govern browsers).
 
-// Sends one request and returns the (final) response, body as bytes -- the
-// general function; `request` is this with text bodies. Arguments as for `request`.
-pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
-    timeout_ms: Option<int>, max_redirects: Option<int>,
-    ca_file: Option<string>) -> Result<BytesResponse, ClientError> {
+// One stored cookie. `expires` is seconds since the epoch, -1 for a session cookie.
+pub struct Cookie {
+    name: string
+    value: string
+    domain: string
+    path: string
+    secure: bool
+    host_only: bool
+    expires: int
+}
+
+pub struct CookieJar {
+    cookies: [Cookie]
+}
+
+// A jar with no cookies.
+pub fn cookie_jar() -> CookieJar {
+    return CookieJar { cookies: [] }
+}
+
+// A response together with the cookie jar as the exchange left it.
+pub struct JarResponse {
+    response: Response
+    jar: CookieJar
+}
+
+// The directory of a request target: "/a/b?x" is "/a", "/x" is "/".
+fn default_path(target: string) -> string {
+    val path = split(target, "?")[0]
+    val slash = last_index_of(path, "/")
+    return if slash <= 0 { "/" } else { substring(path, 0, slash) }
+}
+
+val month_names: [string] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+// Seconds since the epoch of an HTTP date ("Thu, 24 Sep 2026 12:00:00 GMT", also with dashes), or -1.
+fn parse_http_date(text: string) -> int {
+    val parts = split(replace(trim(text), "-", " "), " ")
+    val fields = ab_new<string>()
+    for p in parts {
+        if len(p) > 0 {
+            ab_append<string>(fields, p)
+        }
+    }
+    val f = ab_to_array<string>(fields)
+    if len(f) < 5 {
+        return -1
+    }
+    val day = parse_int(f[1])
+    val year_parsed = parse_int(f[3])
+    val clock_parts = split(f[4], ":")
+    if !is_ok(day) || !is_ok(year_parsed) || len(clock_parts) != 3 {
+        return -1
+    }
+    var month = 0
+    for i in 0..12 {
+        if to_lower(substring(f[2], 0, 3)) == month_names[i] {
+            month = i + 1
+        }
+    }
+    val hh = parse_int(clock_parts[0])
+    val mm = parse_int(clock_parts[1])
+    val ss = parse_int(clock_parts[2])
+    if month == 0 || !is_ok(hh) || !is_ok(mm) || !is_ok(ss) {
+        return -1
+    }
+    var year = unwrap(year_parsed)
+    if year < 100 {
+        year = if year < 70 { 2000 + year } else { 1900 + year }
+    }
+    val date = localdate_of(year, month, unwrap(day))
+    if !is_ok(date) {
+        return -1
+    }
+    return localdate_to_epoch_day(unwrap(date)) * 86400 + unwrap(hh) * 3600 + unwrap(mm) * 60 + unwrap(ss)
+}
+
+// A `Set-Cookie` header value as a cookie set by the response to a request for `u` (None if it is
+// malformed or names another domain).
+fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
+    val pieces = split(value, ";")
+    val name_value = split_once(trim(pieces[0]), "=")
+    if !Option.is_Some(name_value) || len(Option.unwrap_Some(name_value)[0]) == 0 {
+        return Option<Cookie>.None
+    }
+    var domain = to_lower(u.host)
+    var host_only = true
+    var path = default_path(u.target)
+    var secure = false
+    var expires = -1
+    var max_age_seen = false
+    for i in 1..len(pieces) {
+        val attr = trim(pieces[i])
+        val kv = split_once(attr, "=")
+        val key = to_lower(if Option.is_Some(kv) { Option.unwrap_Some(kv)[0] } else { attr })
+        val val_text = if Option.is_Some(kv) { trim(Option.unwrap_Some(kv)[1]) } else { "" }
+        if key == "domain" && len(val_text) > 0 {
+            val wanted = to_lower(if starts_with(val_text,
+                ".") { substring(val_text, 1, len(val_text)) } else { val_text })
+            if wanted != domain && !ends_with(domain, concat(".", wanted)) {
+                return Option<Cookie>.None
+            }
+            domain = wanted
+            host_only = false
+        } else if key == "path" && starts_with(val_text, "/") {
+            path = val_text
+        } else if key == "secure" {
+            secure = true
+        } else if key == "max-age" {
+            val n = parse_int(val_text)
+            if is_ok(n) {
+                expires = now + unwrap(n)
+                max_age_seen = true
+            }
+        } else if key == "expires" && !max_age_seen {
+            expires = parse_http_date(val_text)
+        }
+    }
+    return Option<Cookie>.Some(Cookie { name: trim(Option.unwrap_Some(name_value)[0]),
+        value: trim(Option.unwrap_Some(name_value)[1]),
+        domain: domain, path: path, secure: secure, host_only: host_only, expires: expires })
+}
+
+fn same_cookie(a: Cookie, b: Cookie) -> bool {
+    return a.name == b.name && a.domain == b.domain && a.path == b.path
+}
+
+// The jar with the cookies in a response's `Set-Cookie` headers stored (replacing ones of the same
+// name, domain and path; an already expired one deletes it). `u` is the URL that was requested.
+pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar {
+    val now = now_raw()[0]
+    var current = jar.cookies
+    for h in headers {
+        if equals_ignore_case(h.name, "Set-Cookie") {
+            val parsed = parse_set_cookie(h.value, u, now)
+            if Option.is_Some(parsed) {
+                val c = Option.unwrap_Some(parsed)
+                val kept = ab_new<Cookie>()
+                for old in current {
+                    if !same_cookie(old, c) && (old.expires < 0 || old.expires > now) {
+                        ab_append<Cookie>(kept, old)
+                    }
+                }
+                if c.expires < 0 || c.expires > now {
+                    ab_append<Cookie>(kept, c)
+                }
+                current = ab_to_array<Cookie>(kept)
+            }
+        }
+    }
+    return CookieJar { cookies: current }
+}
+
+fn cookie_matches(c: Cookie, u: Url, now: int) -> bool {
+    if c.expires >= 0 && c.expires <= now {
+        return false
+    }
+    if c.secure && !u.secure {
+        return false
+    }
+    val host = to_lower(u.host)
+    val domain_ok = if c.host_only { host == c.domain } else { host == c.domain || ends_with(host,
+        concat(".", c.domain)) }
+    if !domain_ok {
+        return false
+    }
+    val path = split(u.target, "?")[0]
+    if c.path == path || c.path == "/" {
+        return true
+    }
+    return starts_with(path, c.path) && (ends_with(c.path, "/") || is_char_at(path, len(c.path), "/"))
+}
+
+// The `Cookie` header value for a request to `u` -- `a=1; b=2` -- from the jar's matching cookies (longer
+// paths first), or None if none match.
+pub fn jar_header(jar: CookieJar, u: Url) -> Option<string> {
+    val now = now_raw()[0]
+    val chosen = ab_new<Cookie>()
+    for c in jar.cookies {
+        if cookie_matches(c, u, now) {
+            ab_append<Cookie>(chosen, c)
+        }
+    }
+    val matched = ab_to_array<Cookie>(chosen)
+    if len(matched) == 0 {
+        return Option<string>.None
+    }
+    val ordered = sort_matches(matched)
+    val parts = ab_new<string>()
+    for c in ordered {
+        ab_append<string>(parts, format("{}={}", c.name, c.value))
+    }
+    return Option<string>.Some(join(separator: "; ", pieces: ab_to_array<string>(parts)))
+}
+
+// Stable order: longer paths first.
+fn sort_matches(cookies: [Cookie]) -> [Cookie] {
+    val lengths = ab_new<int>()
+    for c in cookies {
+        ab_append<int>(lengths, len(c.path))
+    }
+    return permute<Cookie>(cookies, sort_scalar_order<int>(ab_to_array<int>(lengths), true))
+}
+
+// ------------------------------------------------------------ requests
+
+// What a finished exchange (following redirects) produced.
+struct Outcome {
+    response: BytesResponse
+    jar: CookieJar
+}
+
+// The engine behind every request function: redirects, cookies, credentials, proxies.
+fn run(method: HttpMethod, url: string, headers: [Header], body: Option<[byte]>, timeout: int, limit: int,
+    ca_file: Option<string>,
+    proxy_arg: Option<string>, want_compression: bool, reuse: bool, jar: CookieJar) -> Result<Outcome, ClientError> {
         val parsed = parse_url(url)
         if !is_ok(parsed) {
             return err(ClientError.BadUrl(unwrap_err(parsed)))
@@ -486,17 +923,24 @@ pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>,
         var current = unwrap(parsed)
         var m = method
         var b = body
-        val hs = option_unwrap_or<[Header]>(headers, [])
-        val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
-        val limit = option_unwrap_or<int>(max_redirects, default_max_redirects)
+        var hs = headers
+        var cookies = jar
         var hops = 0
         while true {
-            val resp = send_once(m, current, hs, b, timeout, ca_file)?
+            val proxy = proxy_for(current, proxy_arg)?
+            val cookie_value = jar_header(cookies, current)
+            val sent_headers = if Option.is_Some(cookie_value) && !Option.is_Some(header_value(hs, "Cookie")) {
+                push(hs, Header { name: "Cookie", value: Option.unwrap_Some(cookie_value) })
+            } else {
+                hs
+            }
+            val resp = send_once(m, current, proxy, sent_headers, b, timeout, ca_file, want_compression, reuse)?
+            cookies = jar_store(cookies, current, resp.headers)
             val s = resp.status
             val redirect = s == status_moved_permanently || s == status_found || s == status_see_other || s == status_temporary_redirect ||
                 s == status_permanent_redirect
             if !redirect || limit == 0 || !Option.is_Some(location_of(resp)) {
-                return resp
+                return ok(Outcome { response: resp, jar: cookies })
             }
             if hops >= limit {
                 return err(ClientError.TooManyRedirects)
@@ -504,6 +948,16 @@ pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>,
             val next = resolve_location(current, Option.unwrap_Some(location_of(resp)))
             if !is_ok(next) {
                 return err(ClientError.BadResponse(concat("bad redirect location: ", unwrap_err(next))))
+            }
+            val moved_away = unwrap(next).host != current.host || unwrap(next).port != current.port || unwrap(next).secure != current.secure
+            if moved_away {
+                val kept = ab_new<Header>()
+                for h in hs {
+                    if !equals_ignore_case(h.name, "Authorization") && !equals_ignore_case(h.name, "Cookie") {
+                        ab_append<Header>(kept, h)
+                    }
+                }
+                hs = ab_to_array<Header>(kept)
             }
             current = unwrap(next)
             if s == status_see_other || ((s == status_moved_permanently || s == status_found) && m == HttpMethod.Post) {
@@ -515,12 +969,109 @@ pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>,
         return err(ClientError.TooManyRedirects)
     }
 
+fn text_response(r: BytesResponse) -> Result<Response, ClientError> {
+    val text = text_of(r.body)?
+    return ok(Response { status: r.status, headers: r.headers, body: text })
+}
+
+// Sends one request and returns the (final) response, body as text.
+//   method        an `http.HttpMethod` (`HttpMethod.Get`, `HttpMethod.Post`, ...)
+//   headers       extra request headers; Host, Content-Length and Connection are always set by the client
+//   body          the request body, if any
+//   timeout_ms    per read/write, default 30000
+//   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
+//   ca_file       a PEM file of trusted CAs for https, instead of the system store (a private CA, a test
+//                 certificate); the certificate is always verified
+//   proxy         a proxy URL (`http://host:port`, optionally `user:pass@`); "" for none; if omitted, the
+//                 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` environment variables decide
+//   compress      ask for gzip/deflate and decode the body (default true)
+//   reuse         keep the connection for the next request to the same place (default true)
+pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
+    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
+    compress: Option<bool>, reuse: Option<bool>) -> Result<Response, ClientError> {
+        val bytes_body = if Option.is_Some(body) {
+            Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
+        } else {
+            Option<[byte]>.None
+        }
+        val r = request_bytes(method: method, url: url, headers: headers, body: bytes_body, timeout_ms: timeout_ms,
+            max_redirects: max_redirects, ca_file: ca_file, proxy: proxy, compress: compress, reuse: reuse)?
+        return text_response(r)
+    }
+
+// Sends one request and returns the (final) response, body as bytes -- the general function; `request`
+// is this with text bodies. Arguments as for `request`.
+pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
+    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
+    compress: Option<bool>, reuse: Option<bool>) -> Result<BytesResponse, ClientError> {
+        val outcome = run(method, url, option_unwrap_or<[Header]>(headers, []), body,
+            option_unwrap_or<int>(timeout_ms, default_timeout_ms),
+            option_unwrap_or<int>(max_redirects, default_max_redirects), ca_file, proxy,
+            option_unwrap_or<bool>(compress, true),
+            option_unwrap_or<bool>(reuse, true), cookie_jar())?
+        return ok(outcome.response)
+    }
+
+// `request`, with cookies: the jar's matching cookies are sent (on every redirect hop too), and the
+// cookies the responses set are stored. Returns the response and the updated jar; pass that jar to the
+// next call to stay "logged in". Other arguments as for `request`.
+pub fn request_with_jar(jar: CookieJar, method: HttpMethod, url: string, headers: Option<[Header]>,
+    body: Option<string>,
+    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
+    compress: Option<bool>, reuse: Option<bool>) -> Result<JarResponse, ClientError> {
+        val bytes_body = if Option.is_Some(body) {
+            Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
+        } else {
+            Option<[byte]>.None
+        }
+        val outcome = run(method, url, option_unwrap_or<[Header]>(headers, []), bytes_body,
+            option_unwrap_or<int>(timeout_ms, default_timeout_ms),
+            option_unwrap_or<int>(max_redirects, default_max_redirects), ca_file, proxy,
+            option_unwrap_or<bool>(compress, true),
+            option_unwrap_or<bool>(reuse, true), jar)?
+        val response = text_response(outcome.response)?
+        return ok(JarResponse { response: response, jar: outcome.jar })
+    }
+
+// GET `url`.
 pub fn get(url: string) -> Result<Response, ClientError> {
     return request(method: HttpMethod.Get, url: url)
+}
+
+// HEAD `url`: the status and headers, no body.
+pub fn head(url: string) -> Result<Response, ClientError> {
+    return request(method: HttpMethod.Head, url: url)
+}
+
+// DELETE `url`.
+pub fn delete(url: string) -> Result<Response, ClientError> {
+    return request(method: HttpMethod.Delete, url: url)
 }
 
 // POST with a JSON body: sets `Content-Type: application/json`.
 pub fn post_json(url: string, body: string) -> Result<Response, ClientError> {
     return request(method: HttpMethod.Post, url: url, body: body,
         headers: [Header { name: "Content-Type", value: "application/json" }])
+}
+
+// PUT with a JSON body: sets `Content-Type: application/json`.
+pub fn put_json(url: string, body: string) -> Result<Response, ClientError> {
+    return request(method: HttpMethod.Put, url: url, body: body,
+        headers: [Header { name: "Content-Type", value: "application/json" }])
+}
+
+// The fields as an `application/x-www-form-urlencoded` body: `a=1&b=x+y`, names and values
+// percent-encoded, in the map's insertion order.
+pub fn form_encode(fields: Map<string, string>) -> string {
+    val parts = ab_new<string>()
+    for name, value in fields {
+        ab_append<string>(parts, format("{}={}", percent_encode(name, true), percent_encode(value, true)))
+    }
+    return join(separator: "&", pieces: ab_to_array<string>(parts))
+}
+
+// POST an HTML-form-style body built from `fields` (`Content-Type: application/x-www-form-urlencoded`).
+pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, ClientError> {
+    return request(method: HttpMethod.Post, url: url, body: form_encode(fields),
+        headers: [Header { name: "Content-Type", value: "application/x-www-form-urlencoded" }])
 }

@@ -1,0 +1,221 @@
+use compress
+use http
+use http.Header
+use http.HttpMethod
+use httpclient
+use net
+use number
+
+// A raw-socket server, so the client is tested against exact wire formats. It serves any number of
+// requests per connection (keep-alive) and reports each accepted connection on `opened`.
+
+fn read_head(s: net.Socket) -> Result<string, string> {
+    var acc = ""
+    while !contains(acc, "\r\n\r\n") {
+        val r = net.read_text(s, 4096)
+        if !is_ok(r) {
+            return err("closed")
+        }
+        acc = concat(acc, unwrap(r))
+    }
+    return ok(acc)
+}
+
+fn header_of(head: string, name: string) -> string {
+    for line in split(head, "\r\n") {
+        val kv = split_once(line, ":")
+        if Option.is_Some(kv) && equals_ignore_case(Option.unwrap_Some(kv)[0], name) {
+            return trim(Option.unwrap_Some(kv)[1])
+        }
+    }
+    return "-"
+}
+
+fn respond(s: net.Socket, status_line: string, extra: string, body: [byte]) {
+    unwrap(net.write_text(s, format("HTTP/1.1 {}\r\n{}Content-Length: {}\r\n\r\n", status_line, extra, len(body))))
+    if len(body) > 0 {
+        unwrap(net.write(s, body))
+    }
+}
+
+fn text(s: string) -> [byte] {
+    return string_to_bytes(s)
+}
+
+fn handle(s: net.Socket, port: int) {
+    unwrap(net.set_timeout(s, 3000))
+    var open = true
+    while open {
+        val h = read_head(s)
+        if !is_ok(h) {
+            open = false
+        } else {
+            val head = unwrap(h)
+            val first = split(split(head, "\r\n\r\n")[0], "\r\n")[0]
+            val path = split(first, " ")[1]
+            if path == "/plain" {
+                respond(s, "200 OK", "", text("hello"))
+            } else if path == "/gzip" {
+                respond(s, "200 OK", "Content-Encoding: gzip\r\n", compress.gzip(text("hello gzip")))
+            } else if path == "/deflate" {
+                respond(s, "200 OK", "Content-Encoding: deflate\r\n", compress.deflate(text("hello deflate")))
+            } else if path == "/badgzip" {
+                respond(s, "200 OK", "Content-Encoding: gzip\r\n", text("not gzip at all"))
+            } else if path == "/accept" {
+                respond(s, "200 OK", "", text(header_of(head, "Accept-Encoding")))
+            } else if path == "/cookie-set" {
+                respond(s, "200 OK",
+                    "Set-Cookie: sid=abc; Path=/\r\nSet-Cookie: scoped=1; Path=/only\r\nSet-Cookie: temp=x; Max-Age=3600\r\n",
+                    text("set"))
+            } else if path == "/cookie-clear" {
+                respond(s, "200 OK", "Set-Cookie: sid=; Max-Age=0; Path=/\r\n", text("cleared"))
+            } else if path == "/cookie-echo" || path == "/only/cookie-echo" {
+                respond(s, "200 OK", "", text(header_of(head, "Cookie")))
+            } else if path == "/auth" {
+                respond(s, "200 OK", "", text(header_of(head, "Authorization")))
+            } else if path == "/to-other-host" {
+                respond(s, "302 Found", format("Location: http://localhost:{}/auth\r\n", port), [])
+            } else if path == "/same-host-redirect" {
+                respond(s, "302 Found", "Location: /auth\r\n", [])
+            } else if path == "/close" {
+                respond(s, "200 OK", "Connection: close\r\n", text("bye"))
+                open = false
+            } else if path == "/flaky" {
+                respond(s, "200 OK", "", text("flaky"))
+                open = false
+            } else {
+                respond(s, "404 Not Found", "", text("nope"))
+            }
+        }
+    }
+    net.close(s)
+}
+
+fn accept_loop(l: net.Listener, port: int, opened: Channel<int>) {
+    while true {
+        val c = net.accept(l)
+        if is_ok(c) {
+            send(opened, 1)
+            spawn handle(unwrap(c), port)
+        }
+    }
+}
+
+// A forward proxy for plain http: echoes the request line and the proxy credentials it saw.
+fn proxy_handle(s: net.Socket) {
+    unwrap(net.set_timeout(s, 3000))
+    val head = unwrap(read_head(s))
+    val first = split(head, "\r\n")[0]
+    respond(s, "200 OK", "", text(format("{} | {}", first, header_of(head, "Proxy-Authorization"))))
+    net.close(s)
+}
+
+fn proxy_loop(l: net.Listener) {
+    while true {
+        val c = net.accept(l)
+        if is_ok(c) {
+            spawn proxy_handle(unwrap(c))
+        }
+    }
+}
+
+fn body_of(r: Result<http.Response, httpclient.ClientError>) -> string {
+    if is_ok(r) {
+        return format("{} {}", unwrap(r).status, unwrap(r).body)
+    }
+    return httpclient.error_message(unwrap_err(r))
+}
+
+fn count(ch: Channel<int>) -> int {
+    var n = 0
+    var more = true
+    while more {
+        val got = try_receive(ch)
+        if Option.is_Some(got) {
+            n = n + 1
+        } else {
+            more = false
+        }
+    }
+    return n
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    val opened: Channel<int> = channel_new()
+    spawn accept_loop(l, port, opened)
+    val base = format("http://127.0.0.1:{}", port)
+
+    // keep-alive: three requests, one connection; a server that closes ends the reuse
+    print(body_of(httpclient.get(concat(base, "/plain"))))
+    print(body_of(httpclient.get(concat(base, "/plain"))))
+    print(body_of(httpclient.get(concat(base, "/plain"))))
+    print(count(opened))
+    print(body_of(httpclient.get(concat(base, "/close"))))
+    print(body_of(httpclient.get(concat(base, "/plain"))))
+    print(count(opened))
+    // a parked connection the server has since closed is detected and the request is sent again
+    print(body_of(httpclient.get(concat(base, "/flaky"))))
+    print(body_of(httpclient.get(concat(base, "/plain"))))
+    // reuse can be turned off
+    httpclient.close_idle()
+    count(opened)
+    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/plain"), reuse: false)))
+    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/plain"), reuse: false)))
+    print(count(opened))
+
+    // compression
+    print(body_of(httpclient.get(concat(base, "/gzip"))))
+    print(body_of(httpclient.get(concat(base, "/deflate"))))
+    print(body_of(httpclient.get(concat(base, "/accept"))))
+    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/accept"), compress: false)))
+    print(body_of(httpclient.get(concat(base, "/badgzip"))))
+    val gz = unwrap(httpclient.get(concat(base, "/gzip")))
+    print(httpclient.response_header(gz, "Content-Encoding"))
+    print(httpclient.response_header(gz, "Content-Length"))
+
+    // credentials in the URL, and not sent to another host on a redirect
+    print(body_of(httpclient.get(format("http://user:p%40ss@127.0.0.1:{}/auth", port))))
+    print(body_of(httpclient.get(format("http://user:p%40ss@127.0.0.1:{}/to-other-host", port))))
+    print(body_of(httpclient.get(format("http://user:p%40ss@127.0.0.1:{}/same-host-redirect", port))))
+    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/to-other-host"),
+        headers: [Header { name: "Authorization", value: "Bearer tok" }])))
+    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/same-host-redirect"),
+        headers: [Header { name: "Authorization", value: "Bearer tok" }])))
+
+    // cookies
+    var jar = httpclient.cookie_jar()
+    var r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-set")))
+    print(r.response.body)
+    jar = r.jar
+    print(len(jar.cookies))
+    r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-echo")))
+    print(r.response.body)
+    r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/only/cookie-echo")))
+    print(r.response.body)
+    r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-clear")))
+    jar = r.jar
+    print(len(jar.cookies))
+    r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-echo")))
+    print(r.response.body)
+    // without a jar nothing is remembered
+    print(body_of(httpclient.get(concat(base, "/cookie-echo"))))
+    // the same host on another port, and another host, get none of them
+    val other = httpclient.jar_header(jar, unwrap(httpclient.parse_url("http://example.org/")))
+    print(other)
+
+    // a proxy: plain http goes to the proxy with the absolute URI and the proxy's credentials
+    val pl = unwrap(net.listen("127.0.0.1", 0))
+    val pport = net.listener_port(pl)
+    spawn proxy_loop(pl)
+    val proxy = format("http://pu:pw@127.0.0.1:{}", pport)
+    print(body_of(httpclient.request(method: HttpMethod.Get, url: "http://example.test:8081/a/b?x=1", proxy: proxy)))
+    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/plain"), proxy: "")))
+    print(body_of(httpclient.request(method: HttpMethod.Get, url: "http://example.test/", proxy: "https://x:1")))
+    print(body_of(httpclient.request(method: HttpMethod.Get, url: "http://example.test/", proxy: "http://127.0.0.1:1")))
+
+    // form bodies and URL parsing
+    print(httpclient.form_encode(Map<string, string> { "name": "Ada Lovelace", "q": "a&b=c", "é": "1" }))
+    print(unwrap(httpclient.parse_url("https://u:p@h.example:8443/x?y")).userinfo)
+}

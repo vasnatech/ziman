@@ -63,6 +63,7 @@ use net.NetError
 use net.Socket
 use net.net_error_message
 use number.byte_from_hex
+use number.byte_to_hex
 use number.int_from_hex
 use os
 
@@ -249,6 +250,25 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
     }
     sb_append(out, substring(s, run, len(s)))
     return ok(sb_to_string(out))
+}
+
+// The inverse of `percent_decode`: every byte except the unreserved characters (letters, digits,
+// `-` `_` `.` `~`) as `%XX` (uppercase hex). With `plus_for_space` a space is written `+` (form and query
+// encoding) instead of `%20`.
+pub fn percent_encode(s: string, plus_for_space: bool) -> string {
+    val out = sb_new()
+    for b in string_to_bytes(s) {
+        val c = b as int
+        val unreserved = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 45 || c == 95 || c == 46 || c == 126
+        if unreserved {
+            sb_append_byte(out, b)
+        } else if c == 32 && plus_for_space {
+            sb_append(out, "+")
+        } else {
+            sb_append(out, "%", to_upper(byte_to_hex(b)))
+        }
+    }
+    return sb_to_string(out)
 }
 
 // ------------------------------------------------------------- reading

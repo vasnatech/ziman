@@ -250,17 +250,59 @@ pub struct Url {
     host: string
     port: int
     target: string
+    userinfo: string
 }
 
 pub fn parse_url(url: string) -> Result<Url, string>
+
+pub fn response_header(r: Response, name: string) -> Option<string>
+
+pub fn close_idle()
+
+pub struct Cookie {
+    name: string
+    value: string
+    domain: string
+    path: string
+    secure: bool
+    host_only: bool
+    expires: int
+}
+
+pub struct CookieJar {
+    cookies: [Cookie]
+}
+
+pub fn cookie_jar() -> CookieJar
+
+pub struct JarResponse {
+    response: Response
+    jar: CookieJar
+}
+
+pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar
+
+pub fn jar_header(jar: CookieJar, u: Url) -> Option<string>
 
 pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
 
 pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
 
+pub fn request_with_jar(jar: CookieJar, method: HttpMethod, url: string, headers: Option<[Header]>,
+
 pub fn get(url: string) -> Result<Response, ClientError>
 
+pub fn head(url: string) -> Result<Response, ClientError>
+
+pub fn delete(url: string) -> Result<Response, ClientError>
+
 pub fn post_json(url: string, body: string) -> Result<Response, ClientError>
+
+pub fn put_json(url: string, body: string) -> Result<Response, ClientError>
+
+pub fn form_encode(fields: Map<string, string>) -> string
+
+pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, ClientError>
 
 ```
 
@@ -375,6 +417,8 @@ pub fn open_session(sock: Socket) -> Session
 pub fn header(req: Request, name: string) -> Option<string>
 
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string>
+
+pub fn percent_encode(s: string, plus_for_space: bool) -> string
 
 pub fn read_request(session: Session) -> Result<Exchange, HttpError>
 

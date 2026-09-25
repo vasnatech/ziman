@@ -1,0 +1,38 @@
+200 hello
+200 hello
+200 hello
+1
+200 bye
+200 hello
+1
+200 flaky
+200 hello
+200 hello
+200 hello
+2
+200 hello gzip
+200 hello deflate
+200 gzip, deflate
+200 identity
+bad response: cannot decode gzip body: compressed data is corrupt
+None
+None
+200 Basic dXNlcjpwQHNz
+200 -
+200 -
+200 -
+200 Bearer tok
+set
+3
+sid=abc; temp=x
+scoped=1; sid=abc; temp=x
+2
+temp=x
+200 -
+None
+200 GET http://example.test:8081/a/b?x=1 HTTP/1.1 | Basic cHU6cHc=
+200 hello
+bad URL: proxy: an https:// proxy is not supported (use http://)
+connection refused: Connection refused
+name=Ada+Lovelace&q=a%26b%3Dc&%C3%A9=1
+u:p

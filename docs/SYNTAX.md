@@ -2302,16 +2302,28 @@ arguments) return `Result<http.Response, ClientError>`. **Any** HTTP status,
 404 and 500 included, is `Ok`; `Err` means the exchange failed: `BadUrl`,
 `Network`, `Timeout`, `BadResponse`, `TooLarge` or `TooManyRedirects`
 (`error_message` renders one). `http://` and `https://` (certificate
-chain and host name verified; `ca_file` names a private CA's PEM file). One
-connection per request, closed afterwards. It reads `Content-Length`,
+chain and host name verified; `ca_file` names a private CA's PEM file). A
+keep-alive connection is parked after a response and reused by the next request
+to the same host (`reuse: false` turns that off, `close_idle()` drops them; a
+dead parked connection is detected and the request re-sent once). It reads `Content-Length`,
 chunked and until-close bodies, follows 301/302/303/307/308 up to
 `max_redirects` (default 5, 0 = return the 3xx; 303, and a POST answered
 301/302, is re-sent as a body-less GET), and caps a body at 8 MiB. For binary
 data (images, files, a body with a 0 byte) use `httpclient.request_bytes`,
 which takes `body: Option<[byte]>` and returns a `BytesResponse` with a
 `[byte]` body; the text functions are built on it, and a binary response
-through them is `BadResponse`. Not yet: compression, proxies, cookies,
-connection reuse, HTTP/2. `parse_url(url)` is public.
+through them is `BadResponse`.
+
+Also built in: `gzip`/`deflate` response decoding (`Accept-Encoding` is sent
+unless `compress: false`); proxies from the `proxy` argument (`""` = none) or
+`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`, with a `CONNECT` tunnel for `https://`
+targets (an `https://` proxy itself is not supported); Basic auth from
+`http://user:pass@host/` (Authorization and Cookie are dropped when a redirect
+moves to another host, port or scheme); cookies through
+`request_with_jar(jar, method, url, ...)`, which returns the updated jar
+(`cookie_jar()` makes an empty one; no jar means nothing is remembered);
+`post_form(url, Map)` and `form_encode`; `response_header`. Not yet: HTTP/2.
+`parse_url(url)` is public.
 
 ## Files (`fs`)
 
