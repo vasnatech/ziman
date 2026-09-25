@@ -15,6 +15,10 @@ static int g_error_count = 0;
 static jmp_buf *g_recovery[MAX_RECOVERY_DEPTH];
 static int g_recovery_depth = 0;
 
+static ZimanErrorSink g_sink = NULL;
+void ziman_set_error_sink(ZimanErrorSink sink) { g_sink = sink; }
+void ziman_reset_errors(void) { g_error_count = 0; g_recovery_depth = 0; g_error_file = NULL; g_error_context = NULL; }
+
 void ziman_set_error_file(const char *file) { g_error_file = file; }
 void ziman_set_entry_file(const char *file) { g_entry_file = file; }
 int ziman_error_count(void) { return g_error_count; }
@@ -41,8 +45,15 @@ void ziman_abort_quietly(void) {
     exit(1);
 }
 
+static void jump_to_outermost(void) {
+    if (g_recovery_depth > MAX_RECOVERY_DEPTH) g_recovery_depth = MAX_RECOVERY_DEPTH;
+    g_recovery_depth = 0;
+    longjmp(*g_recovery[0], 1);
+}
+
 void ziman_finish_errors(void) {
     if (g_error_count == 0) return;
+    if (g_sink != NULL && g_recovery_depth > 0) jump_to_outermost();
     if (g_error_count > 1 && !g_json_errors) fprintf(stderr, "ziman: %d errors\n", g_error_count);
     exit(1);
 }
@@ -88,6 +99,15 @@ void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
     vsnprintf(message, (size_t)(n > 0 ? n : 0) + 1, fmt, args);
     va_end(args);
 
+    if (g_sink != NULL) {
+        g_sink(phase, g_error_file, line, col, g_error_context, message);
+        g_error_count++;
+        if (g_recovery_depth > 0) {
+            if (g_error_count >= MAX_ERRORS) jump_to_outermost();
+            jump_to_recovery();
+        }
+        exit(1);
+    }
     int show_file = g_error_file != NULL && (g_entry_file == NULL || strcmp(g_error_file, g_entry_file) != 0);
     if (g_json_errors) {
         fprintf(stderr, "{\"severity\":\"error\",\"phase\":");

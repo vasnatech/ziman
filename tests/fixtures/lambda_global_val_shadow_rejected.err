@@ -1,1 +1,0 @@
-module error at 5:9: 'limit' is a global val in this module, so it can't also be used as a local name inside a lambda (rename one)

@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-bignum test-decimal corelib-reference
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal corelib-reference
 
 all: $(BIN)
 
@@ -112,6 +112,9 @@ test-mysql: $(BIN)
 # positions depend on their exact layout).
 fmt-check: $(BIN)
 	./$(BIN) --fmt --check $$(find lib tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm') ../health-record/health-record-backend-ziman/*.zm ../health-record/health-record-backend-ziman/*/*.zm
+
+test-lsp: $(BIN)
+	python3 tests/lsp/lsp_test.py ./$(BIN)
 
 test-tls: $(BIN)
 	./tests/run_tls_tests.sh

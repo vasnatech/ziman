@@ -12,4 +12,8 @@
  * module, missing file, circular use, private access) on failure. */
 Module *load_module_graph(const char *entry_path);
 
+/* Text to read in place of the file at each path (unsaved editor buffers). The
+ * arrays are borrowed, not copied. */
+void loader_set_overrides(const char **paths, const char **texts, int count);
+
 #endif

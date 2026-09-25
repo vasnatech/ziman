@@ -259,6 +259,8 @@ static int g_lint_active = 0;             /* the function being checked is user 
 static const char *g_lint_file = NULL;
 
 void typecheck_enable_lint(void) { g_lint_on = 1; }
+static int g_skip_main_check = 0;
+void typecheck_skip_main_check(int skip) { g_skip_main_check = skip; }
 int typecheck_lint_count(void) { return g_lint_count; }
 
 static int lint_register_var(const char *name, int line, int col) {
@@ -3130,10 +3132,10 @@ void typecheck(Module *module) {
     ziman_set_error_file(NULL);
 
     FunctionDecl *main_fn = find_function(module, "main");
-    if (main_fn == NULL) {
+    if (main_fn == NULL && !g_skip_main_check) {
         ziman_error("type", 0, 0, "no 'main' function found");
     }
-    if (main_fn->params.count != 0 || main_fn->return_type.kind != TY_VOID) {
+    if (main_fn != NULL && (main_fn->params.count != 0 || main_fn->return_type.kind != TY_VOID)) {
         ziman_error("type", main_fn->line, main_fn->col, "'main' must take no parameters and return nothing");
     }
     ziman_finish_errors();

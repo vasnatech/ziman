@@ -3448,3 +3448,18 @@ self-check compares against the sorted sequence.
 "format buffer". Still not done: joining lines that would now fit, wrapping at
 binary operators or `&&`/`||`, wrapping long `use` or `if` conditions, and an LSP
 "format document" (item 10).
+
+## The language server
+
+`ziman --lsp` (src/lsp.c) reuses the compiler front end rather than a second
+implementation. Three small hooks make that possible without `exit(1)`: an error
+sink (`ziman_set_error_sink`) that collects diagnostics instead of printing them
+and unwinds to an outermost recovery point; loader source overrides
+(`loader_set_overrides`) so unsaved editor buffers are what gets parsed; and
+`typecheck_skip_main_check` so a library file is not reported for lacking `main`.
+Each edit re-analyses the whole program (entry = nearest `main.zm`, else the file)
+and republishes per-file diagnostics; declarations carry `source_file`, which is
+what go-to-definition, hover and symbols read. Positions convert between Ziman's
+byte columns and LSP's UTF-16 units. Hover and definition resolve by identifier
+(plus a `module.` qualifier), not by scope, so a local shadowing a global name
+resolves to the global.

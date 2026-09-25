@@ -1,19 +1,26 @@
 {
   "name": "ziman",
   "displayName": "Ziman",
-  "description": "Syntax highlighting for the Ziman programming language (.zm files)",
+  "description": "Ziman language support: syntax highlighting and a language server client (.zm files)",
   "version": "0.1.0",
   "publisher": "ziman-lang",
   "engines": {
     "vscode": "^1.75.0"
   },
-  "categories": ["Programming Languages"],
+  "categories": [
+    "Programming Languages"
+  ],
   "contributes": {
     "languages": [
       {
         "id": "ziman",
-        "aliases": ["Ziman", "ziman"],
-        "extensions": [".zm"],
+        "aliases": [
+          "Ziman",
+          "ziman"
+        ],
+        "extensions": [
+          ".zm"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -23,6 +30,23 @@
         "scopeName": "source.ziman",
         "path": "./syntaxes/ziman.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Ziman",
+      "properties": {
+        "ziman.serverPath": {
+          "type": "string",
+          "default": "ziman",
+          "description": "Path to the ziman executable (run as `ziman --lsp`)."
+        }
+      }
+    }
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:ziman"
+  ],
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
   }
 }

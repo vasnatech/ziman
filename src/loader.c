@@ -13,7 +13,22 @@
 
 /* ---- small file/path helpers ---- */
 
+/* Unsaved editor buffers (the language server): a path listed here reads as this
+ * text instead of what is on disk. */
+static const char **g_override_paths = NULL;
+static const char **g_override_texts = NULL;
+static int g_override_count = 0;
+
+void loader_set_overrides(const char **paths, const char **texts, int count) {
+    g_override_paths = paths;
+    g_override_texts = texts;
+    g_override_count = count;
+}
+
 static char *read_all(const char *path) {
+    for (int i = 0; i < g_override_count; i++) {
+        if (strcmp(g_override_paths[i], path) == 0) return strdup(g_override_texts[i]);
+    }
     FILE *f = fopen(path, "rb");
     if (f == NULL) return NULL;
     fseek(f, 0, SEEK_END);
@@ -1263,15 +1278,21 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
         }
         source = strdup(core_source);
     }
+    ziman_set_error_file(from_disk ? file_path : NULL);
     Module *mod = parse_file_contents(source);
     if (from_disk) {
         for (int i = 0; i < mod->functions.count; i++) mod->functions.items[i]->source_file = file_path;
+        for (int i = 0; i < mod->structs.count; i++) mod->structs.items[i]->source_file = file_path;
+        for (int i = 0; i < mod->enums.count; i++) mod->enums.items[i]->source_file = file_path;
+        for (int i = 0; i < mod->vals.count; i++) mod->vals.items[i]->source_file = file_path;
     }
 
     for (int i = 0; i < mod->uses.count; i++) {
         UseDecl *u = &mod->uses.items[i];
+        ziman_set_error_file(from_disk ? file_path : NULL);
         load_module(ldr, u->path, u->line, u->col);
     }
+    ziman_set_error_file(from_disk ? file_path : NULL);
 
     int n_imports = 0;
     NamedImport *imports = resolve_named_imports(ldr, mod, &n_imports);
@@ -1301,15 +1322,20 @@ Module *load_module_graph(const char *entry_path) {
 
     char *entry_source = read_all(entry_path);
     if (entry_source == NULL) {
-        fprintf(stderr, "ziman: cannot open '%s'\n", entry_path);
-        exit(1);
+        ziman_error("module", 0, 0, "cannot open '%s'", entry_path);
     }
+    ziman_set_error_file(entry_path);
     Module *entry_mod = parse_file_contents(entry_source);
     for (int i = 0; i < entry_mod->functions.count; i++) entry_mod->functions.items[i]->source_file = entry_path;
+    for (int i = 0; i < entry_mod->structs.count; i++) entry_mod->structs.items[i]->source_file = entry_path;
+    for (int i = 0; i < entry_mod->enums.count; i++) entry_mod->enums.items[i]->source_file = entry_path;
+    for (int i = 0; i < entry_mod->vals.count; i++) entry_mod->vals.items[i]->source_file = entry_path;
     for (int i = 0; i < entry_mod->uses.count; i++) {
         UseDecl *u = &entry_mod->uses.items[i];
+        ziman_set_error_file(entry_path);
         load_module(&ldr, u->path, u->line, u->col);
     }
+    ziman_set_error_file(entry_path);
     /* The entry module is never a `use` target, so it keeps its own bare
      * names (no self-qualify *rename* pass) -- a program with no `use`
      * statements behaves exactly as it always has. Its named imports

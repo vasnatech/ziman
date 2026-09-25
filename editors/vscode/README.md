@@ -55,3 +55,22 @@ language indicator in the status bar and pick "Ziman".
   every highlighted construct, for eyeballing changes to the grammar.
   It's genuine, runnable Ziman, not just plausible-looking text: verified
   with `ziman editors/vscode/showcase.zm` from the repo root.
+
+## Language server
+
+`ziman --lsp` speaks the Language Server Protocol on stdin/stdout: diagnostics
+(every error the compiler finds, from the open, unsaved buffers), formatting
+(`ziman --fmt`, width 120), document symbols, go to definition (across files),
+hover (signatures), and completion (keywords, builtins, the file's declarations,
+`module.` members, enum variants).
+
+- **VS Code:** `cd editors/vscode && npm install`, then load the folder as an
+  extension. Set `ziman.serverPath` if `ziman` is not on `PATH`. The client
+  (`extension.js`) has not been exercised in a real VS Code here; the server is
+  covered by `make test-lsp`.
+- **Neovim:** `vim.lsp.start({ name = "ziman", cmd = { "ziman", "--lsp" }, root_dir = vim.fs.root(0, "main.zm") })` in a `FileType ziman` autocmd.
+- **Helix** (`languages.toml`): `[language-server.ziman]` `command = "ziman"`, `args = ["--lsp"]`, and a `[[language]] name = "ziman"` with `language-servers = ["ziman"]`.
+- **Emacs (eglot):** `(add-to-list 'eglot-server-programs '(ziman-mode "ziman" "--lsp"))`.
+
+A file is analysed as part of the program rooted at the nearest `main.zm` in its
+directory or up to six parents, else on its own. Documents use full-text sync.

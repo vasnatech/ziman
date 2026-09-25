@@ -31,6 +31,15 @@ void ziman_finish_errors(void);
 /* The file diagnostics are about, for the `file` field and for text output of an
  * error in a file other than the entry file. NULL when unknown. */
 void ziman_set_error_file(const char *file);
+
+/* The language server collects diagnostics instead of printing them: while a sink
+ * is set, ziman_error hands each one to it (nothing is written) and jumps to the
+ * innermost recovery point -- or, past the error limit or from
+ * ziman_finish_errors, to the outermost. The caller must have a recovery point
+ * active around the whole analysis. */
+typedef void (*ZimanErrorSink)(const char *phase, const char *file, int line, int col, const char *context, const char *message);
+void ziman_set_error_sink(ZimanErrorSink sink);
+void ziman_reset_errors(void);
 void ziman_set_entry_file(const char *file);
 
 /* While non-NULL, every error is reported as "... at L:C (in <context>): ..."

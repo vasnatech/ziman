@@ -4,6 +4,7 @@
 
 #include "derive.h"
 #include "format.h"
+#include "lsp.h"
 #include "error.h"
 #include "interpreter.h"
 #include "loader.h"
@@ -30,6 +31,8 @@ static void usage(FILE *out) {
           "                   (with --check, print {\"ok\":true} on success)\n"
           "  --lint           report style findings (a `var` never reassigned) in your own\n"
           "                   code instead of running it; exit 1 if there are any\n"
+          "  --lsp            run as a Language Server on stdin/stdout (diagnostics, formatting,\n"
+          "                   symbols, go to definition, hover, completion)\n"
           "  --fmt            print the source formatted (several files allowed, `-` is\n"
           "                   stdin); with --write rewrite the files in place, with\n"
           "                   --check list the files that would change and exit 1;\n"
@@ -108,7 +111,7 @@ int main(int argc, char **argv) {
     GC_INIT();
     (void)GC_expand_hp(32u * 1024 * 1024);
 #endif
-    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120;
+    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, lsp = 0;
     const char *file = NULL;
     char **files = malloc((size_t)argc * sizeof(char *));
     int n_files = 0;
@@ -118,6 +121,7 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--json") == 0) json = 1;
         else if (strcmp(a, "--lint") == 0) lint = 1;
         else if (strcmp(a, "--fmt") == 0) fmt = 1;
+        else if (strcmp(a, "--lsp") == 0) lsp = 1;
         else if (strcmp(a, "--write") == 0) fmt_write = 1;
         else if (strncmp(a, "--width=", 8) == 0) fmt_width = atoi(a + 8);
         else if (strcmp(a, "--emit-derived") == 0) g_emit_derived = 1;
@@ -125,6 +129,18 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) { usage(stdout); return 0; }
         else if (a[0] == '-' && a[1] == '-') { fprintf(stderr, "ziman: unknown option '%s'\n", a); usage(stderr); return 2; }
         else { files[n_files++] = (char *)a; if (file == NULL) file = a; }
+    }
+    if (lsp) {
+        native_fs_register();
+        native_regex_register();
+        native_random_register();
+        native_clock_register();
+        native_sqlite_register();
+        native_net_register();
+        native_os_register();
+        native_crypto_register();
+        prelude_register();
+        return lsp_main();
     }
     if (fmt) {
         if (n_files == 0) { usage(stderr); return 2; }

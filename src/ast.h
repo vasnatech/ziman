@@ -528,6 +528,7 @@ typedef struct {
     char **derives;
     int derive_count;
     int line, col;
+    const char *source_file; /* the file it was loaded from; NULL for a bundled module */
 } StructDecl;
 
 typedef struct {
@@ -573,6 +574,7 @@ typedef struct {
     char **derives;
     int derive_count;
     int line, col;
+    const char *source_file;
 } EnumDecl;
 
 typedef struct {
@@ -635,6 +637,7 @@ typedef struct {
     Expr *init;
     int is_public;
     int line, col;
+    const char *source_file;
 } GlobalValDecl;
 
 typedef struct {

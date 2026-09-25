@@ -159,6 +159,7 @@ Runs every fixture in `tests/fixtures/` — see `tests/run_tests.sh`.
 
 ## Editor support
 
-[editors/vscode/](editors/vscode/) — a VS Code syntax-highlighting
-extension (`.zm` files). Not published to the Marketplace; see its
-README for how to load it locally.
+[editors/vscode/](editors/vscode/) — a VS Code extension (`.zm` files):
+syntax highlighting plus a client for `ziman --lsp`, the built-in language
+server (diagnostics, formatting, symbols, go to definition, hover, completion;
+setup for other editors in its README). Not published to the Marketplace.

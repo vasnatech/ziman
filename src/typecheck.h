@@ -9,6 +9,9 @@
  * returns on all statically-reachable paths" rule. */
 void typecheck(Module *module);
 
+/* The language server checks any file, not just a program: no `main` is required. */
+void typecheck_skip_main_check(int skip);
+
 /* `--lint`: after this, typecheck() also reports style findings in the user's
  * own (non-bundled, non-derived) code through ziman_warning(), and counts them. */
 void typecheck_enable_lint(void);
