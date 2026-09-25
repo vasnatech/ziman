@@ -28,6 +28,8 @@ pub native fn now_raw() -> [int]
 
 pub native fn now_iso() -> string
 
+pub native fn now_http_date() -> string
+
 pub native fn sleep_millis(ms: int)
 
 ```
@@ -548,6 +550,8 @@ pub fn connect(host: string, port: int) -> Result<Socket, NetError>
 
 pub fn listen(host: string, port: int) -> Result<Listener, NetError>
 
+pub fn listen_tls(host: string, port: int, cert_file: string, key_file: string) -> Result<Listener, NetError>
+
 pub fn listener_port(l: Listener) -> int
 
 pub fn accept(l: Listener) -> Result<Socket, NetError>
@@ -655,6 +659,12 @@ pub native fn args() -> [string]
 pub fn cwd() -> Result<string, string>
 
 pub native fn pid() -> int
+
+pub native fn collect_garbage()
+
+pub native fn collector_enabled() -> bool
+
+pub native fn open_descriptors() -> int
 
 pub native fn exit(code: int)
 
@@ -1155,6 +1165,7 @@ pub enum Request {
 
 pub struct Connection {
     requests: Channel<Request>
+    guard: Guard
 }
 
 pub fn connect(url: string) -> Result<Connection, DbError>
@@ -1190,6 +1201,7 @@ pub native fn float_to_text(f: float) -> string
 
 pub struct Connection {
     requests: Channel<Request>
+    guard: Guard
 }
 
 pub fn connect(url: string) -> Result<Connection, DbError>

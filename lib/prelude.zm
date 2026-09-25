@@ -263,3 +263,7 @@ struct Guard {
 }
 
 native fn guard_new<T>(ch: Channel<T>, message: T) -> Guard
+
+// The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
+// empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes.
+native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int

@@ -15,6 +15,10 @@ pub native fn now_raw() -> [int]
 // fast way to stamp a log line; use `time.instant_now()` when you need to compute with the time.
 pub native fn now_iso() -> string
 
+// The current time as an HTTP date (RFC 7231), the form of a `Date` header:
+// "Thu, 24 Sep 2026 12:00:00 GMT".
+pub native fn now_http_date() -> string
+
 // Blocks the calling thread, and only that thread, for at least `ms` milliseconds; other
 // threads keep running. A signal cannot cut the sleep short. A `ms` of zero or less
 // returns at once.

@@ -50,6 +50,7 @@
 typedef struct {
     int fd;
     SSL *ssl;
+    SSL_CTX *server_ctx; /* non-NULL on a TLS listener: accept() completes a handshake with it */
     pthread_mutex_t tls_mu;
 } NetHandle;
 
@@ -61,6 +62,10 @@ typedef struct {
 static HandleSet g_live = HANDLE_SET_INIT;
 
 static void release_handle(NetHandle *h) {
+    if (h->server_ctx != NULL) {
+        SSL_CTX_free(h->server_ctx);
+        h->server_ctx = NULL;
+    }
     if (h->ssl != NULL) {
         SSL_free(h->ssl);
         h->ssl = NULL;
@@ -316,7 +321,58 @@ static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
     do { c = accept(fd, NULL, NULL); } while (c < 0 && errno == EINTR);
     if (c < 0 && (errno == EMFILE || errno == ENFILE) && reclaim_descriptors()) c = accept(fd, NULL, NULL);
     if (c < 0) return errno_result(int_type, errno);
-    return ok_result(int_type, value_int(handle_register(c)));
+    SSL_CTX *server_ctx = require_handle(args[0].as.i, "accept", line, col)->server_ctx;
+    if (server_ctx == NULL) return ok_result(int_type, value_int(handle_register(c)));
+
+    /* A TLS listener: finish the handshake before handing the socket out, but never wait
+     * long for a client that starts one and stalls. */
+    struct timeval limit = {10, 0};
+    setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof limit);
+    setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &limit, sizeof limit);
+    ERR_clear_error();
+    SSL *ssl = SSL_new(server_ctx);
+    if (ssl == NULL) { close(c); IoErr e; tls_error_message(&e, NULL); return err_result(int_type, "tls", e.message); }
+    SSL_set_fd(ssl, c);
+    if (SSL_accept(ssl) != 1) {
+        IoErr e;
+        tls_error_message(&e, ssl);
+        SSL_free(ssl);
+        close(c);
+        return err_result(int_type, "tls", e.message);
+    }
+    struct timeval none = {0, 0};
+    setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &none, sizeof none);
+    setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &none, sizeof none);
+    int64_t id = handle_register(c);
+    handle_get(id)->ssl = ssl;
+    return ok_result(int_type, value_int(id));
+}
+
+/* listen_tls_raw(host, port, cert_file, key_file): a listener whose accepted sockets are already
+ * TLS (TLS 1.2 or later, the certificate chain from a PEM file and its private key). */
+static Value native_net_listen_tls_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type int_type = type_scalar(TY_INT);
+    ERR_clear_error();
+    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
+    if (ctx == NULL) { IoErr e; tls_error_message(&e, NULL); return err_result(int_type, "tls", e.message); }
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    const char *cert = value_cstr(args[2]);
+    const char *key = value_cstr(args[3]);
+    if (SSL_CTX_use_certificate_chain_file(ctx, cert) != 1 || SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) != 1 ||
+        SSL_CTX_check_private_key(ctx) != 1) {
+        IoErr e;
+        tls_error_message(&e, NULL);
+        char msg[400];
+        snprintf(msg, sizeof msg, "cannot use certificate '%s' and key '%s': %s", cert, key, e.message);
+        SSL_CTX_free(ctx);
+        return err_result(int_type, "tls", msg);
+    }
+    Value opened = open_socket(value_cstr(args[0]), args[1].as.i, 1);
+    if (!opened.as.res->is_ok) { SSL_CTX_free(ctx); return opened; }
+    NetHandle *h = handle_get(opened.as.res->value.as.i);
+    h->server_ctx = ctx;
+    return opened;
 }
 
 /* Reads up to `max` bytes (at least one -- blocks until something is
@@ -504,6 +560,7 @@ void native_net_register(void) {
     native_register("net::listen_raw", native_net_listen_raw);
     native_register("net::listener_port_raw", native_net_listener_port_raw);
     native_register("net::accept_raw", native_net_accept_raw);
+    native_register("net::listen_tls_raw", native_net_listen_tls_raw);
     native_register("net::read_raw", native_net_read_raw);
     native_register("net::read_exact_raw", native_net_read_exact_raw);
     native_register("net::write_raw", native_net_write_raw);

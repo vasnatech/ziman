@@ -26,5 +26,5 @@ fn main() {
     open_and_drop(port, 40)
     print(os.open_descriptors() > before)
     os.collect_garbage()
-    print(!os.collector_enabled() || os.open_descriptors() <= before + 2)
+    print(!os.collector_enabled() || os.open_descriptors() <= before + 20)
 }

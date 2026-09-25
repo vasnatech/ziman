@@ -40,6 +40,21 @@ static Value native_clock_now_iso(Value *args, int argc, int line, int col) {
     return value_string(strdup(buf));
 }
 
+/* clock.now_http_date(): the current time as an HTTP date, "Thu, 24 Sep 2026 12:00:00 GMT". */
+static Value native_clock_now_http_date(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc;
+    time_t now = time(NULL);
+    struct tm tm;
+    gmtime_r(&now, &tm);
+    static const char *const days[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    static const char *const months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    char buf[48];
+    snprintf(buf, sizeof buf, "%s, %02d %s %04d %02d:%02d:%02d GMT", days[tm.tm_wday], tm.tm_mday, months[tm.tm_mon], tm.tm_year + 1900,
+             tm.tm_hour, tm.tm_min, tm.tm_sec);
+    (void)line; (void)col;
+    return value_string(strdup(buf));
+}
+
 static Value native_clock_sleep_millis(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     int64_t ms = args[0].as.i;
@@ -55,4 +70,5 @@ void native_clock_register(void) {
     native_register("clock::sleep_millis", native_clock_sleep_millis);
     native_register("clock::now_raw", native_clock_now_raw);
     native_register("clock::now_iso", native_clock_now_iso);
+    native_register("clock::now_http_date", native_clock_now_http_date);
 }

@@ -10,12 +10,12 @@
 // besides the request travels as an explicit context value.
 //
 // What it speaks: HTTP/1.1 and 1.0 requests with a request line, headers
-// and an optional `Content-Length` body; keep-alive across requests on one
-// connection (including pipelined requests already in the buffer);
-// `Expect: 100-continue`; `HEAD` (headers only). What it does not:
-// chunked *request* bodies (answered 501), TLS (a plain `net.Socket`
-// only, for now), HTTP/2, multipart bodies, compression, and request
-// trailers. Request and response bodies are `string`, so they can't carry
+// and an optional body (`Content-Length`, or `Transfer-Encoding: chunked`, decoded); keep-alive
+// across requests on one connection (including pipelined requests already in the buffer);
+// `Expect: 100-continue`; `HEAD` (headers only). Every response carries `Date` and `Server`. What it
+// does not: other transfer encodings (answered 501), HTTP/2, multipart bodies, compression, and
+// request trailers (read and ignored). TLS is the socket's business: hand `serve` a listener from
+// `net.listen_tls` and every connection is HTTPS. Request and response bodies are `string`, so they can't carry
 // a 0 byte (a request that tries gets a 400).
 //
 // Bounded by design: headers may total at most 16 KiB and a body at most
@@ -48,11 +48,13 @@ pub val status_not_implemented = 501
 pub val status_service_unavailable = 503
 val read_chunk_bytes = 4096
 val accept_error_backoff_ms = 10
+val server_name = "ziman"
 val http_1_0 = "HTTP/1.0"
 val http_1_1 = "HTTP/1.1"
 val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
 
 use clock
+use clock.now_http_date
 use json.Json
 use json.json_to_string
 use net
@@ -61,6 +63,7 @@ use net.NetError
 use net.Socket
 use net.net_error_message
 use number.byte_from_hex
+use number.int_from_hex
 use os
 
 // A request method. The common ones are variants (so a route's method is
@@ -78,6 +81,8 @@ pub enum HttpMethod {
     Other(string)
 }
 
+// The method named `name`: a known one (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) or
+// `Other(name)`. Case-sensitive.
 pub fn method_parse(name: string) -> HttpMethod {
     if name == "GET" { return HttpMethod.Get }
     if name == "HEAD" { return HttpMethod.Head }
@@ -103,6 +108,7 @@ pub fn method_name(m: HttpMethod) -> string {
     }
 }
 
+// One header line. `name` keeps the case it had; compare names with `equals_ignore_case`.
 pub struct Header {
     name: string
     value: string
@@ -122,6 +128,8 @@ pub struct Request {
     body: string
 }
 
+// What a handler returns: a status code, headers and a text body. `write_response` adds
+// `Content-Length`, `Connection`, and (unless set) `Date` and `Server`.
 pub struct Response {
     status: int
     headers: [Header]
@@ -160,6 +168,7 @@ pub struct Exchange {
 
 val max_header_bytes = 16384
 val max_body_bytes = 1048576
+val max_chunk_line_bytes = 1024
 
 // ------------------------------------------------------------ helpers
 
@@ -185,18 +194,16 @@ fn text_of(b: [byte], start: int, end: int) -> Result<string, HttpError> {
     return unwrap(s)
 }
 
+val crlf: [byte] = [13b, 10b]
+val crlf_crlf: [byte] = [13b, 10b, 13b, 10b]
+
 // Index just past the first CRLF CRLF, or -1.
 fn find_head_end(buf: [byte]) -> int {
-    var i = 0
-    while i + 3 < len(buf) {
-        if buf[i] == 13b && buf[i + 1] == 10b && buf[i + 2] == 13b && buf[i + 3] == 10b {
-            return i + 4
-        }
-        i = i + 1
-    }
-    return -1
+    val at = bytes_index_of(buf, crlf_crlf, 0)
+    return if at < 0 { -1 } else { at + 4 }
 }
 
+// A new connection's read state: the socket and nothing buffered yet.
 pub fn open_session(sock: Socket) -> Session {
     return Session { sock: sock, buffer: [] }
 }
@@ -271,6 +278,80 @@ fn header_value(headers: [Header], name: string) -> Option<string> {
     return Option<string>.None
 }
 
+// A request body sent with `Transfer-Encoding: chunked`, decoded, and the bytes read past its end
+// (the start of the next pipelined request).
+struct ChunkedBody {
+    body: [byte]
+    rest: [byte]
+}
+
+// Reads more bytes from the socket onto `buf`.
+fn fill(sock: Socket, buf: [byte]) -> Result<[byte], HttpError> {
+    val chunk = lift<[byte]>(net.read(sock, read_chunk_bytes))?
+    return bytes_concat(buf, chunk)
+}
+
+// Decodes a chunked body (RFC 7230 section 4.1): `size-in-hex [;extension] CRLF data CRLF`
+// repeated, a `0` chunk, optional trailer lines (skipped), and a final blank line. `start` holds
+// what was already read past the request head. The decoded body is limited to `max_body_bytes`.
+fn read_chunked(sock: Socket, start: [byte]) -> Result<ChunkedBody, HttpError> {
+    var buf = start
+    val body = ab_new<byte>()
+    var total = 0
+    while true {
+        var eol = bytes_index_of(buf, crlf, 0)
+        while eol < 0 {
+            if len(buf) > max_chunk_line_bytes {
+                return err(HttpError.BadRequest("chunk size line is too long"))
+            }
+            val more = fill(sock, buf)?
+            buf = more
+            eol = bytes_index_of(buf, crlf, 0)
+        }
+        val size_line = text_of(buf, 0, eol)?
+        val size_text = trim(split(size_line, ";")[0])
+        val size = int_from_hex(size_text)
+        if !is_ok(size) || unwrap(size) < 0 || len(size_text) > 8 {
+            return err(HttpError.BadRequest(format("invalid chunk size '{}'", size_line)))
+        }
+        val n = unwrap(size)
+        buf = slice<byte>(buf, eol + 2, len(buf))
+        if n == 0 {
+            // trailers: header lines up to a blank line, all ignored
+            var trailer_end = bytes_index_of(buf, crlf, 0)
+            while trailer_end != 0 {
+                while trailer_end < 0 {
+                    if len(buf) > max_header_bytes {
+                        return err(HttpError.HeadersTooLarge)
+                    }
+                    val more = fill(sock, buf)?
+                    buf = more
+                    trailer_end = bytes_index_of(buf, crlf, 0)
+                }
+                if trailer_end != 0 {
+                    buf = slice<byte>(buf, trailer_end + 2, len(buf))
+                    trailer_end = bytes_index_of(buf, crlf, 0)
+                }
+            }
+            return ChunkedBody { body: ab_to_array<byte>(body), rest: slice<byte>(buf, 2, len(buf)) }
+        }
+        total = total + n
+        if total > max_body_bytes {
+            return err(HttpError.BodyTooLarge)
+        }
+        while len(buf) < n + 2 {
+            val more = fill(sock, buf)?
+            buf = more
+        }
+        if buf[n] != 13b || buf[n + 1] != 10b {
+            return err(HttpError.BadRequest("a chunk is not followed by CRLF"))
+        }
+        ab_append<byte>(body, slice<byte>(buf, 0, n))
+        buf = slice<byte>(buf, n + 2, len(buf))
+    }
+    return err(HttpError.BadRequest("unreachable"))
+}
+
 // Reads the next request off the session. `Err(Closed)` when the client
 // closed the connection between requests (the normal way a keep-alive
 // connection ends); other errors mean the request itself was unusable --
@@ -331,8 +412,26 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         query = Option.unwrap_Some(tq)[1]
     }
 
-    if Option.is_Some(header_value(header_list, "Transfer-Encoding")) {
-        return err(HttpError.NotImplemented("chunked request bodies are not supported"))
+    val transfer_encoding = header_value(header_list, "Transfer-Encoding")
+    val is_chunked = Option.is_Some(transfer_encoding) && equals_ignore_case(trim(Option.unwrap_Some(transfer_encoding)),
+        "chunked")
+    if Option.is_Some(transfer_encoding) && !is_chunked {
+        return err(HttpError.NotImplemented(format("unsupported Transfer-Encoding '{}'",
+            Option.unwrap_Some(transfer_encoding))))
+    }
+    if is_chunked && Option.is_Some(header_value(header_list, "Content-Length")) {
+        return err(HttpError.BadRequest("both Transfer-Encoding and Content-Length are set"))
+    }
+    if is_chunked {
+        val expect_chunked = header_value(header_list, "Expect")
+        if Option.is_Some(expect_chunked) && equals_ignore_case(Option.unwrap_Some(expect_chunked), "100-continue") {
+            lift<int>(net.write_text(sock, continue_response))?
+        }
+        val decoded = read_chunked(sock, slice<byte>(buf, head_end, len(buf)))?
+        val chunked_body = text_of(decoded.body, 0, len(decoded.body))?
+        val chunked_request = Request { method: method_parse(method_text), target: target, path: path, query: query,
+            version: version, headers: header_list, body: chunked_body }
+        return Exchange { request: chunked_request, session: Session { sock: sock, buffer: decoded.rest } }
     }
     var content_length = 0
     val cl = header_value(header_list, "Content-Length")
@@ -391,18 +490,22 @@ fn reason(status: int) -> string {
     return "Status"
 }
 
+// A response with `status`, no headers and `body`.
 pub fn response(status: int, body: string) -> Response {
     return Response { status: status, headers: [], body: body }
 }
 
+// `r` with one more header (added after any it already has; nothing is replaced).
 pub fn with_header(r: Response, name: string, value: string) -> Response {
     return Response { status: r.status, headers: push(r.headers, Header { name: name, value: value }), body: r.body }
 }
 
+// A response with `status` and `body`, `Content-Type: application/json`.
 pub fn json_response(status: int, body: string) -> Response {
     return with_header(response(status, body), "Content-Type", "application/json")
 }
 
+// A response with `status` and `body`, `Content-Type: text/plain; charset=utf-8`.
 pub fn text_response(status: int, body: string) -> Response {
     return with_header(response(status, body), "Content-Type", "text/plain; charset=utf-8")
 }
@@ -416,14 +519,17 @@ fn error_reply(status: int, message: string) -> Response {
     return json_response(status, error_body(status, message))
 }
 
+// A 400 response with a JSON body `{"status":400,"error":message}`.
 pub fn bad_request(message: string) -> Response {
     return error_reply(status_bad_request, message)
 }
 
+// A 404 response with a JSON body `{"status":404,"error":"not found"}`.
 pub fn not_found() -> Response {
     return error_reply(status_not_found, "not found")
 }
 
+// A 405 response with an `Allow` header listing `allowed`, and a JSON error body.
 pub fn method_not_allowed(allowed: [string]) -> Response {
     return with_header(error_reply(status_method_not_allowed, "method not allowed"), "Allow",
         join(separator: ", ", pieces: allowed))
@@ -479,11 +585,25 @@ pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool
     }
     val sb = sb_new()
     sb_append(sb, format("HTTP/1.1 {} {}\r\n", resp.status, reason(resp.status)))
+    var has_date = false
+    var has_server = false
     for h in resp.headers {
         val lname = to_lower(h.name)
+        if lname == "date" {
+            has_date = true
+        }
+        if lname == "server" {
+            has_server = true
+        }
         if lname != "content-length" && lname != "connection" {
             sb_append(sb, h.name, ": ", h.value, "\r\n")
         }
+    }
+    if !has_date {
+        sb_append(sb, "Date: ", now_http_date(), "\r\n")
+    }
+    if !has_server {
+        sb_append(sb, "Server: ", server_name, "\r\n")
     }
     sb_append(sb, format("Content-Length: {}\r\n", len(resp.body)))
     if keep {

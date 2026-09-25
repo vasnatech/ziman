@@ -1038,6 +1038,29 @@ static void guard_finalizer(void *obj, void *client_data) {
 }
 #endif
 
+/* bytes_index_of(haystack, needle, from): the position of the first occurrence of `needle` in
+ * `haystack` at or after `from`, or -1. An empty needle is found at `from`. */
+static Value native_bytes_index_of(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    int hn = 0, nn = 0;
+    uint8_t *hay = array_copy_bytes(args[0].as.arr, &hn);
+    uint8_t *needle = array_copy_bytes(args[1].as.arr, &nn);
+    int64_t from = args[2].as.i;
+    int64_t at = -1;
+    if (from < 0) from = 0;
+    if (from <= hn) {
+        if (nn == 0) at = from;
+        else if (hn >= nn) {
+            for (int64_t i = from; i + nn <= hn; i++) {
+                if (hay[i] == needle[0] && memcmp(hay + i, needle, (size_t)nn) == 0) { at = i; break; }
+            }
+        }
+    }
+    free(hay);
+    free(needle);
+    return value_int(at);
+}
+
 static Value native_guard_new(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     GuardBuf *g = malloc(sizeof(GuardBuf));
@@ -1151,6 +1174,7 @@ void prelude_register(void) {
     native_register("setb_len", native_mb_len);
     native_register("setb_to_set", native_mb_snapshot);
     native_register("guard_new", native_guard_new);
+    native_register("bytes_index_of", native_bytes_index_of);
     native_register("array_map", native_array_map);
     native_register("array_filter", native_array_filter);
     native_register("array_flat_map", native_array_flat_map);
