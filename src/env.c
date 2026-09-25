@@ -11,6 +11,8 @@ Env *env_new(Env *parent) {
 }
 
 void env_free(Env *env) {
+    /* the names env_define copied; `caps` names are not freed -- the type checker keeps them */
+    for (int i = 0; i < env->count; i++) free(env->items[i].name);
     free(env->items);
     free(env->defers);
     free(env->caps);
