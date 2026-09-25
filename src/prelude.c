@@ -1,6 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "prelude.h"
 
+#ifdef ZIMAN_GC
+#include <gc.h>
+#endif
 #include <ctype.h>
 #include <errno.h>
 #include <math.h>
@@ -1013,6 +1016,43 @@ static Value native_mb_snapshot(Value *args, int argc, int line, int col) {
     return value_map(type_scalar(TY_VOID), mapobj_snapshot(buf->m));
 }
 
+/* --- Guard ------------------------------------------------------------------------------
+ * guard_new(channel, message): a value whose only job is to send `message` on `channel` once
+ * nothing references the guard any more (the garbage collector runs its finalizer). A database
+ * connection keeps one in its Connection struct, with `message` a "close" request: a Connection
+ * that is dropped without an explicit close then tells the thread that owns its socket to close it
+ * and exit, instead of that thread waiting forever. It is a no-op without the collector. The
+ * guard's address is the handle, as for the builders. */
+enum { GUARD_MAGIC = 0x47554152 };
+typedef struct {
+    uint32_t magic;
+    ChannelObj *ch;
+    Value message;
+} GuardBuf;
+
+#ifdef ZIMAN_GC
+static void guard_finalizer(void *obj, void *client_data) {
+    (void)client_data;
+    GuardBuf *g = obj;
+    channel_send(g->ch, g->message);
+}
+#endif
+
+static Value native_guard_new(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    GuardBuf *g = malloc(sizeof(GuardBuf));
+    g->magic = GUARD_MAGIC;
+    g->ch = args[0].as.ch;
+    g->message = args[1];
+#ifdef ZIMAN_GC
+    GC_REGISTER_FINALIZER_NO_ORDER(g, guard_finalizer, NULL, NULL, NULL);
+#endif
+    Value *fields = malloc(sizeof(Value));
+    fields[0] = value_int((int64_t)(intptr_t)g);
+    static char *names[] = {"handle"};
+    return value_struct(type_struct("Guard"), struct_obj_new(names, fields, 1));
+}
+
 /* ---- array_map / array_filter / array_flat_map / array_reverse (collections) ---------
  * One allocation for the result (packed when the elements are all byte/bool/int/float),
  * calling back into Ziman only for the user's function. */
@@ -1110,6 +1150,7 @@ void prelude_register(void) {
     native_register("setb_contains", native_mb_contains);
     native_register("setb_len", native_mb_len);
     native_register("setb_to_set", native_mb_snapshot);
+    native_register("guard_new", native_guard_new);
     native_register("array_map", native_array_map);
     native_register("array_filter", native_array_filter);
     native_register("array_flat_map", native_array_flat_map);

@@ -85,12 +85,7 @@ fn main() {
         i = i + 1
     }
     print(count(pool, "events"))
-    var distinct = 0
-    for h in 0..64 {
-        if contains(seen, h) {
-            distinct = distinct + 1
-        }
-    }
+    val distinct = len(set_from_array(seen))
     print(distinct <= 3)
     print(distinct >= 2)
 

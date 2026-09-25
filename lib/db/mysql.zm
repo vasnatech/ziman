@@ -1051,6 +1051,7 @@ fn serve(sock: Socket, requests: Channel<Request>) {
 // socket. Opaque to callers -- use `execute`/`query`/`close`.
 pub struct Connection {
     requests: Channel<Request>
+    guard: Guard
 }
 
 // Connects, authenticates, and starts the thread that owns the socket.
@@ -1064,7 +1065,7 @@ pub fn connect(url: string) -> Result<Connection, DbError> {
     }
     val requests: Channel<Request> = channel_new()
     spawn serve(sock, requests)
-    return Connection { requests: requests }
+    return Connection { requests: requests, guard: guard_new<Request>(requests, Request.Close) }
 }
 
 fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {

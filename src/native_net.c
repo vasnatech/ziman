@@ -1,6 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "native_net.h"
 
+#ifdef ZIMAN_GC
+#include <gc.h>
+#endif
 #include <errno.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -19,6 +22,7 @@
 #include <unistd.h>
 
 #include "error.h"
+#include "handles.h"
 #include "native.h"
 #include "native_os.h"
 
@@ -49,10 +53,31 @@ typedef struct {
     pthread_mutex_t tls_mu;
 } NetHandle;
 
-static NetHandle **g_handles = NULL;
-static int g_handle_count = 0;
-static int g_handle_capacity = 0;
-static pthread_mutex_t g_handle_mu = PTHREAD_MUTEX_INITIALIZER;
+/* The handle Ziman holds is the NetHandle's address; g_live says which addresses are open
+ * sockets. A handle that was closed, or forged, is not in it (an error, not a crash). Being in the
+ * set does not keep the NetHandle alive: one whose Socket value nobody holds any more is
+ * collected, and net_finalizer closes its descriptor -- so forgetting `net.close` no longer leaks
+ * the descriptor for good (close it promptly anyway: a collection may be far off). */
+static HandleSet g_live = HANDLE_SET_INIT;
+
+static void release_handle(NetHandle *h) {
+    if (h->ssl != NULL) {
+        SSL_free(h->ssl);
+        h->ssl = NULL;
+    }
+    if (h->fd >= 0) {
+        close(h->fd);
+        h->fd = -1;
+    }
+}
+
+#ifdef ZIMAN_GC
+static void net_finalizer(void *obj, void *client_data) {
+    (void)client_data;
+    NetHandle *h = obj;
+    if (handleset_remove(&g_live, h)) release_handle(h);
+}
+#endif
 
 static Type string_type(void) { return type_scalar(TY_STRING); }
 static Type byte_array_type(void) { return type_array(type_scalar(TY_BYTE)); }
@@ -77,27 +102,21 @@ static Value errno_result(Type ok_type, int e) {
     return err_result(ok_type, category, strerror(e));
 }
 
-static int handle_register(int fd) {
+static int64_t handle_register(int fd) {
     NetHandle *h = calloc(1, sizeof(NetHandle));
     h->fd = fd;
     pthread_mutex_init(&h->tls_mu, NULL);
-    pthread_mutex_lock(&g_handle_mu);
-    if (g_handle_count == g_handle_capacity) {
-        g_handle_capacity = g_handle_capacity == 0 ? 16 : g_handle_capacity * 2;
-        g_handles = realloc(g_handles, sizeof(NetHandle *) * (size_t)g_handle_capacity);
-    }
-    int id = g_handle_count;
-    g_handles[g_handle_count++] = h;
-    pthread_mutex_unlock(&g_handle_mu);
-    return id;
+    handleset_add(&g_live, h);
+#ifdef ZIMAN_GC
+    GC_REGISTER_FINALIZER_NO_ORDER(h, net_finalizer, NULL, NULL, NULL);
+#endif
+    return (int64_t)(intptr_t)h;
 }
 
 /* The handle for `id`, or NULL if it is unknown or closed. */
 static NetHandle *handle_get(int64_t id) {
-    pthread_mutex_lock(&g_handle_mu);
-    NetHandle *h = (id >= 0 && id < g_handle_count) ? g_handles[id] : NULL;
-    pthread_mutex_unlock(&g_handle_mu);
-    return h;
+    NetHandle *h = (NetHandle *)(intptr_t)id;
+    return handleset_has(&g_live, h) ? h : NULL;
 }
 
 static NetHandle *require_handle(int64_t id, const char *what, int line, int col) {
@@ -203,6 +222,19 @@ static Value io_error_result(Type ok_type, const IoErr *e) {
     return errno_result(ok_type, e->errno_val != 0 ? e->errno_val : EIO);
 }
 
+/* Out of descriptors: sockets that were dropped without `net.close` are only released when the
+ * collector next runs, which may be far off. Collect now and run their finalizers, then the caller
+ * retries once. Returns 0 (nothing to retry) when there is no collector. */
+static int reclaim_descriptors(void) {
+#ifdef ZIMAN_GC
+    GC_gcollect();
+    GC_invoke_finalizers();
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 /* Resolves host:port and returns a socket that either connected
  * (listener == 0) or is bound+listening (listener == 1), or a Result
  * error. */
@@ -224,6 +256,9 @@ static Value open_socket(const char *host, int64_t port, int listener) {
     int fd = -1;
     for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0 && (errno == EMFILE || errno == ENFILE) && reclaim_descriptors()) {
+            fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        }
         if (fd < 0) { last_errno = errno; continue; }
         if (listener) {
             int one = 1;
@@ -279,6 +314,7 @@ static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
         if (ready > 0) break;
     }
     do { c = accept(fd, NULL, NULL); } while (c < 0 && errno == EINTR);
+    if (c < 0 && (errno == EMFILE || errno == ENFILE) && reclaim_descriptors()) c = accept(fd, NULL, NULL);
     if (c < 0) return errno_result(int_type, errno);
     return ok_result(int_type, value_int(handle_register(c)));
 }
@@ -453,19 +489,11 @@ static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) 
 
 static Value native_net_close_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    int64_t id = args[0].as.i;
-    pthread_mutex_lock(&g_handle_mu);
-    NetHandle *h = (id >= 0 && id < g_handle_count) ? g_handles[id] : NULL;
-    if (h != NULL) g_handles[id] = NULL;
-    pthread_mutex_unlock(&g_handle_mu);
-    if (h != NULL) {
-        if (h->ssl != NULL) {
-            SSL_shutdown(h->ssl); /* sends close_notify; the peer's reply isn't awaited */
-            SSL_free(h->ssl);
-        }
-        shutdown(h->fd, SHUT_RDWR); /* wakes a thread blocked reading this socket */
-        close(h->fd);
-        free(h);
+    NetHandle *h = (NetHandle *)(intptr_t)args[0].as.i;
+    if (h != NULL && handleset_remove(&g_live, h)) {
+        if (h->ssl != NULL) SSL_shutdown(h->ssl); /* sends close_notify; the peer's reply isn't awaited */
+        if (h->fd >= 0) shutdown(h->fd, SHUT_RDWR); /* wakes a thread blocked reading this socket */
+        release_handle(h);
     }
     return value_int(0);
 }

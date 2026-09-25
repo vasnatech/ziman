@@ -3550,3 +3550,23 @@ The persistent `Map` stays the default for ordinary code and for anything that k
 versions; builders are for loops that only add. Used in `collections.distinct`/`group_by`, the
 `json`, `csv` and `yaml` object builders, and `#[derive(Json)]`'s map and set fields.
 
+## Native handles and finalizers
+
+A `Socket` or a SQLite `Connection` is an integer in Ziman code. It used to be an index into a
+global table, which kept every socket and connection ever opened reachable forever: forgetting
+`net.close` or `db.close` leaked the descriptor or the database for good (measured: 300 unclosed
+connects exhausted `ulimit -n 300`; each unclosed in-memory database held ~88 KB). The integer is
+now the native object's *address*, and a `HandleSet` (src/handles.c, a hash set in memory the
+collector does not scan) says which addresses are open, so a closed or made-up handle is still an
+error and not a crash, while being in the set does not keep the object alive. When nothing holds the
+Socket/Connection value any more the collector finalizes it (closing the descriptor, freeing the SSL
+object, closing the database), and out of descriptors (`EMFILE`) `net` collects at once and retries.
+`os.collect_garbage()` runs a collection and the finalizers on demand. The non-collecting build has
+no finalizers: it leaks by design.
+
+`pg` and `mysql` connections own a thread blocked on a request channel. Their `Connection` holds a
+`Guard` (prelude): a native whose finalizer sends the connection's "close" request when the
+Connection value is unreachable, so that thread closes the socket and exits instead of waiting
+forever. Still true: close promptly -- a collection may be far off, and a file database stays locked
+until it runs.
+

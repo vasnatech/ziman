@@ -1,0 +1,30 @@
+use net
+use os
+
+// A socket nobody references and nobody closed is closed by the collector, so forgetting
+// net.close does not leak the descriptor for good.
+
+fn serve(l: net.Listener, count: int) {
+    for i in 0..count {
+        val c = unwrap(net.accept(l))
+        net.close(c)
+    }
+}
+
+fn open_and_drop(port: int, n: int) {
+    for i in 0..n {
+        val s = unwrap(net.connect("127.0.0.1", port))
+    }
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn serve(l, 40)
+    os.collect_garbage()
+    val before = os.open_descriptors()
+    open_and_drop(port, 40)
+    print(os.open_descriptors() > before)
+    os.collect_garbage()
+    print(!os.collector_enabled() || os.open_descriptors() <= before + 2)
+}

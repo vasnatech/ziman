@@ -1,6 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "native_sqlite.h"
 
+#ifdef ZIMAN_GC
+#include <gc.h>
+#endif
 #include <pthread.h>
 #include <sqlite3.h>
 #include <stdio.h>
@@ -8,6 +11,7 @@
 #include <string.h>
 
 #include "error.h"
+#include "handles.h"
 #include "native.h"
 
 /* The SQLite driver behind lib/db/sqlite.zm. Everything crossing the native
@@ -41,10 +45,25 @@ typedef struct {
     pthread_mutex_t mu;
 } DbConn;
 
-static DbConn **g_conns = NULL;
-static int g_conn_count = 0;
-static int g_conn_capacity = 0;
-static pthread_mutex_t g_table_mu = PTHREAD_MUTEX_INITIALIZER;
+/* The handle Ziman holds is the DbConn's address; g_live says which addresses are open
+ * connections (a closed or forged handle is an error, not a crash). Being in the set does not keep
+ * the DbConn alive: one whose Connection value nobody holds any more is collected, and
+ * conn_finalizer closes the database -- so forgetting `db.close` no longer leaks it for good
+ * (close it promptly anyway: a collection may be far off, and a file database stays locked). */
+static HandleSet g_live = HANDLE_SET_INIT;
+
+#ifdef ZIMAN_GC
+static void conn_finalizer(void *obj, void *client_data) {
+    (void)client_data;
+    DbConn *c = obj;
+    if (handleset_remove(&g_live, c)) {
+        pthread_mutex_lock(&c->mu);
+        if (c->db != NULL) sqlite3_close(c->db);
+        c->db = NULL;
+        pthread_mutex_unlock(&c->mu);
+    }
+}
+#endif
 
 static Type string_type(void) { return type_scalar(TY_STRING); }
 
@@ -64,9 +83,8 @@ static const char *category_for(sqlite3 *db) {
 }
 
 static DbConn *conn_get(int64_t handle, int line, int col) {
-    pthread_mutex_lock(&g_table_mu);
-    DbConn *c = (handle >= 0 && handle < g_conn_count) ? g_conns[handle] : NULL;
-    pthread_mutex_unlock(&g_table_mu);
+    DbConn *c = (DbConn *)(intptr_t)handle;
+    if (!handleset_has(&g_live, c)) c = NULL;
     if (c == NULL) ziman_error("runtime", line, col, "db: invalid or closed connection handle %lld", (long long)handle);
     return c;
 }
@@ -102,14 +120,11 @@ static Value native_sqlite_open_raw(Value *args, int argc, int line, int col) {
     c->db = db;
     pthread_mutex_init(&c->mu, NULL);
 
-    pthread_mutex_lock(&g_table_mu);
-    if (g_conn_count == g_conn_capacity) {
-        g_conn_capacity = g_conn_capacity == 0 ? 8 : g_conn_capacity * 2;
-        g_conns = realloc(g_conns, sizeof(DbConn *) * (size_t)g_conn_capacity);
-    }
-    int handle = g_conn_count;
-    g_conns[g_conn_count++] = c;
-    pthread_mutex_unlock(&g_table_mu);
+    handleset_add(&g_live, c);
+#ifdef ZIMAN_GC
+    GC_REGISTER_FINALIZER_NO_ORDER(c, conn_finalizer, NULL, NULL, NULL);
+#endif
+    int64_t handle = (int64_t)(intptr_t)c;
     return ok_result(int_type, value_int(handle));
 }
 
@@ -120,9 +135,7 @@ static Value native_sqlite_close_raw(Value *args, int argc, int line, int col) {
     sqlite3_close(c->db);
     c->db = NULL;
     pthread_mutex_unlock(&c->mu);
-    pthread_mutex_lock(&g_table_mu);
-    g_conns[args[0].as.i] = NULL;
-    pthread_mutex_unlock(&g_table_mu);
+    handleset_remove(&g_live, c);
     return value_int(0);
 }
 

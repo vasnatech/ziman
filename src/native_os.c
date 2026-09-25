@@ -1,6 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
 #include "native_os.h"
 
+#ifdef ZIMAN_GC
+#include <gc.h>
+#endif
+#include <dirent.h>
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h>
@@ -63,6 +67,40 @@ static Value native_os_set_env(Value *args, int argc, int line, int col) {
     return value_bool(setenv(value_cstr(args[0]), value_cstr(args[1]), 1) == 0);
 }
 
+/* os.collect_garbage(): run a collection and the finalizers it queues (sockets and connections
+ * nobody references any more are closed). A no-op without the collector. */
+static Value native_os_collect_garbage(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+#ifdef ZIMAN_GC
+    GC_gcollect();
+    GC_invoke_finalizers();
+#endif
+    return value_int(0);
+}
+
+/* os.collector_enabled() -> bool: whether this build has the garbage collector. */
+static Value native_os_collector_enabled(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+#ifdef ZIMAN_GC
+    return value_bool(1);
+#else
+    return value_bool(0);
+#endif
+}
+
+/* os.open_descriptors() -> int: how many file descriptors this process has open (Linux: the
+ * entries of /proc/self/fd), or -1 where that cannot be counted. */
+static Value native_os_open_descriptors(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    DIR *d = opendir("/proc/self/fd");
+    if (d == NULL) return value_int(-1);
+    int n = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) if (e->d_name[0] != '.') n++;
+    closedir(d);
+    return value_int(n - 1); /* not counting the descriptor opendir itself used */
+}
+
 /* os.exit(code): flush stdout/stderr and leave the process with `code`. */
 static Value native_os_exit(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
@@ -117,6 +155,9 @@ void native_os_register(void) {
     native_register("os::args", native_os_args);
     native_register("os::cwd_raw", native_os_cwd);
     native_register("os::pid", native_os_pid);
+    native_register("os::collect_garbage", native_os_collect_garbage);
+    native_register("os::open_descriptors", native_os_open_descriptors);
+    native_register("os::collector_enabled", native_os_collector_enabled);
     native_register("os::set_env", native_os_set_env);
     native_register("os::write_stderr", native_os_write_stderr);
     native_register("os::install_shutdown_handler", native_os_install_shutdown_handler);

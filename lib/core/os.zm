@@ -38,6 +38,19 @@ pub fn cwd() -> Result<string, string> {
 // The process id.
 pub native fn pid() -> int
 
+// Runs the garbage collector now, and with it the finalizers of sockets and database connections
+// that nothing references any more (which close them). Ordinarily collections run on their own;
+// call this to reclaim descriptors promptly, or in a test. It does nothing in the non-collecting
+// build.
+pub native fn collect_garbage()
+
+// True in the normal build, false in `ziman-nogc` (which never frees anything).
+pub native fn collector_enabled() -> bool
+
+// How many file descriptors the process has open (counted from /proc/self/fd), or -1 where that
+// cannot be counted. For diagnostics and tests.
+pub native fn open_descriptors() -> int
+
 // Leaves the process with status `code` (0 = success), flushing stdout and stderr first. This
 // is how a program reports a fatal setup error with a non-zero status instead of crashing on an
 // `unwrap`. It ends the whole process, not one thread.

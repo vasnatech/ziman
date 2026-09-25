@@ -254,3 +254,12 @@ native fn setb_remove<T: Eq + Hash>(sb: SetBuilder<T>, item: T)
 native fn setb_contains<T: Eq + Hash>(sb: SetBuilder<T>, item: T) -> bool
 native fn setb_len<T: Eq + Hash>(sb: SetBuilder<T>) -> int
 native fn setb_to_set<T: Eq + Hash>(sb: SetBuilder<T>) -> Set<T>
+
+// A guard sends `message` on `channel` when nothing references it any more: a database
+// connection holds one whose message is its "close" request, so a connection dropped without an
+// explicit close still ends the thread that owns its socket (once the garbage collector notices).
+struct Guard {
+    handle: int
+}
+
+native fn guard_new<T>(ch: Channel<T>, message: T) -> Guard
