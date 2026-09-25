@@ -200,6 +200,12 @@ native fn permute<T>(items: [T], order: [int]) -> [T]
 // The positions 0..n ordered by `cmp(a, b)` (negative, zero or positive, like `compare`,
 // over two positions): a stable merge sort, in two reused buffers.
 native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
+// The array natives behind `collections.map`, `filter`, `flat_map` and `reverse`: one
+// allocation for the result instead of an ArrayBuilder's growing buffers.
+native fn array_map<T, U>(items: [T], f: fn(T) -> U) -> [U]
+native fn array_filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
+native fn array_flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
+native fn array_reverse<T>(items: [T]) -> [T]
 // slice<T>(a, start, end): the elements of `a` from `start` up to (not
 // including) `end` (`0 <= start <= end <= len(a)`, a runtime error
 // otherwise). It does not copy: arrays are immutable, so the result shares

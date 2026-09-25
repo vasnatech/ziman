@@ -924,6 +924,60 @@ static Value native_ab_len(Value *args, int argc, int line, int col) {
     return value_int((int64_t)buf->length);
 }
 
+/* ---- array_map / array_filter / array_flat_map / array_reverse (collections) ---------
+ * One allocation for the result (packed when the elements are all byte/bool/int/float),
+ * calling back into Ziman only for the user's function. */
+static Value native_array_map(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const ArrayObj *a = args[0].as.arr;
+    int n = a->count;
+    Value *out = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    for (int i = 0; i < n; i++) {
+        Value x = array_get(a, i);
+        out[i] = native_call_closure(args[1], &x, 1, line, col);
+    }
+    ArrayObj *packed = array_try_pack(out, n);
+    if (packed != NULL) {
+        free(out);
+        return value_array(type_scalar(TY_VOID), packed);
+    }
+    return value_array(type_scalar(TY_VOID), array_obj_new(out, n));
+}
+
+static Value native_array_filter(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const ArrayObj *a = args[0].as.arr;
+    int n = a->count, kept = 0;
+    int64_t *keep = zalloc_atomic((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+    for (int i = 0; i < n; i++) {
+        Value x = array_get(a, i);
+        if (native_call_closure(args[1], &x, 1, line, col).as.b) keep[kept++] = i;
+    }
+    return permute_array(args[0].type, a, keep, kept, line, col);
+}
+
+static Value native_array_flat_map(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const ArrayObj *a = args[0].as.arr;
+    int n = a->count;
+    Value *parts = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    for (int i = 0; i < n; i++) {
+        Value x = array_get(a, i);
+        parts[i] = native_call_closure(args[1], &x, 1, line, col);
+    }
+    Value all = value_array(type_scalar(TY_VOID), array_obj_new(parts, n));
+    return native_concat_arrays(&all, 1, line, col);
+}
+
+static Value native_array_reverse(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const ArrayObj *a = args[0].as.arr;
+    int n = a->count;
+    int64_t *order = zalloc_atomic((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+    for (int i = 0; i < n; i++) order[i] = n - 1 - i;
+    return permute_array(args[0].type, a, order, n, line, col);
+}
+
 void prelude_register(void) {
     native_register("parse_int", native_parse_int);
     native_register("parse_float", native_parse_float);
@@ -954,6 +1008,10 @@ void prelude_register(void) {
     native_register("sort_scalars", native_sort_scalars);
     native_register("permute", native_permute);
     native_register("sort_positions", native_sort_positions);
+    native_register("array_map", native_array_map);
+    native_register("array_filter", native_array_filter);
+    native_register("array_flat_map", native_array_flat_map);
+    native_register("array_reverse", native_array_reverse);
     native_register("string_to_bytes", native_string_to_bytes);
     native_register("bytes_to_string", native_bytes_to_string);
     native_register("slice", native_slice);

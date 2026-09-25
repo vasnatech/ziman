@@ -47,6 +47,21 @@ fn main() {
     print(collections.group_by<Item, int>(items, qty))
     print(len(collections.group_by<int, int>([], fn(x) { x })))
 
+    // map / filter / flat_map / reverse keep packed element kinds and handle empty arrays
+    print(collections.map<int, float>([1, 2, 3], fn(x) { x as float / 2.0 }))
+    print(collections.map<int, bool>([1, 2, 3], fn(x) { x > 1 }))
+    print(collections.map<int, string>([1, 2], fn(x) { concat("n", str(x)) }))
+    print(collections.map<string, int>(["a", "bcd"], fn(s) { len(s) }))
+    print(collections.filter<float>([0.5, 1.5, 2.5], fn(x) { x > 1.0 }))
+    print(collections.filter<string>(["a", "bb", "c"], fn(s) { len(s) == 1 }))
+    print(collections.filter<int>([1, 2, 3], fn(x) { x > 9 }))
+    print(collections.reverse<string>(["a", "b", "c"]))
+    print(collections.reverse<byte>([1b, 2b, 3b]))
+    print(collections.reverse<int>([]))
+    print(collections.map<int, int>([], fn(x) { x }))
+    print(collections.flat_map<int, string>([1, 2], fn(x) { ["a", "b"] }))
+    print(collections.flat_map<int, int>([], expand))
+
     // the native scalar sort and the generic merge sort agree, ties included
     print(collections.sort<int>([5, -2, 9, 5, 0]))
     print(collections.sort_desc<int>([5, -2, 9, 5, 0]))

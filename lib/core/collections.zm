@@ -192,43 +192,23 @@ pub fn max_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T> {
 // The same elements, last to first. (`sort_desc` is not `reverse(sort(..))`: it keeps equal
 // elements in their input order.)
 pub fn reverse<T>(items: [T]) -> [T] {
-    val out = ab_new<T>()
-    var i = len(items) - 1
-    while i >= 0 {
-        ab_append<T>(out, items[i])
-        i = i - 1
-    }
-    return ab_to_array<T>(out)
+    return array_reverse<T>(items)
 }
 
 // `f` applied to every element, in order.
 pub fn map<T, U>(items: [T], f: fn(T) -> U) -> [U] {
-    val out = ab_new<U>()
-    for item in items {
-        ab_append<U>(out, f(item))
-    }
-    return ab_to_array<U>(out)
+    return array_map<T, U>(items, f)
 }
 
 // The elements for which `keep` is true, in order.
 pub fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T] {
-    val out = ab_new<T>()
-    for item in items {
-        if keep(item) {
-            ab_append<T>(out, item)
-        }
-    }
-    return ab_to_array<T>(out)
+    return array_filter<T>(items, keep)
 }
 
 // The arrays `f` returns for each element, joined into one: `flat_map` of a function
 // returning `[]` drops an element, returning several expands it.
 pub fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U] {
-    val out = ab_new<U>()
-    for item in items {
-        ab_append<U>(out, f(item))
-    }
-    return ab_to_array<U>(out)
+    return array_flat_map<T, U>(items, f)
 }
 
 // Left to right: `f(f(initial, items[0]), items[1])` and so on.
