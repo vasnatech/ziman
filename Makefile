@@ -141,10 +141,12 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 corelib-reference:
 	./tools/gen_corelib_reference.sh > docs/CORELIB.md
 	python3 tools/gen_lib_manual.py
+	python3 tools/gen_lib_deps.py
 
 # Fails when docs/lib is not what the current lib/ sources generate (run `make corelib-reference`).
 lib-manual-check: $(BIN)
 	python3 tools/gen_lib_manual.py
+	python3 tools/gen_lib_deps.py
 	git diff --exit-code --stat -- docs/lib
 
 clean:
