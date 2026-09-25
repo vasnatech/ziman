@@ -14,7 +14,7 @@ LocalDateTime   a date and a time of day, with no zone
 Duration        a length of time: seconds and nanoseconds
 Instant         a point on the timeline: seconds and nanoseconds since 1970-01-01T00:00:00Z
 ZoneOffset      a fixed offset from UTC, such as `+05:30`
-ZoneId          a zone name; only `UTC` exists (no IANA zones or daylight saving yet)
+ZoneId          an IANA time zone such as `Europe/Paris`, with its daylight saving rules
 ```
 
 Build a value with its `_of` function, which checks the fields and returns a `Result`; add to it
@@ -25,6 +25,11 @@ types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
 width, anything else copied through as literal text. Every type has `_to_json` / `_from_json`
 and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
 types (an ISO string, and a TEXT column).
+
+Named zones (`zoneid_of("Europe/Paris")`) come from the system's IANA zone files (see `tzdata`), so
+they need the operating system's tzdata package; `zoneid_offset_at` gives the offset at an
+instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` convert with daylight
+saving applied.
 
 Limits: years are 0 or later (no BCE), and there is no locale, month name or weekday support.
 
@@ -684,13 +689,13 @@ zoneoffset_to_string never emits one either).
 ```
 pub struct ZoneId {
     name: string
+    rules: ZoneRules
 }
 ```
 
-The only zone that will ever exist here -- see the header comment
-for why a real IANA ZoneId isn't in scope. `zoneid_to_offset` always
-returns UTC's offset regardless of `z`'s own name, since "UTC" is
-the only value `zoneid_utc()` can ever produce.
+A time zone by its IANA name (`UTC`, `Europe/Paris`, `America/New_York`), carrying the rules that
+say which offset from UTC applies at each instant, daylight saving included. Get one with
+`zoneid_of`; `zoneid_utc()` needs no zone files. Its `name` is what is written to JSON and SQL.
 
 ### `zoneid_utc`
 
@@ -700,13 +705,40 @@ pub fn zoneid_utc() -> ZoneId
 
 The `UTC` zone.
 
-### `zoneid_to_offset`
+### `zoneid_of`
 
 ```
-pub fn zoneid_to_offset(z: ZoneId) -> ZoneOffset
+pub fn zoneid_of(name: string) -> Result<ZoneId, string>
 ```
 
-The offset of `z`, always UTC's, since `UTC` is the only zone there is.
+The zone called `name`, read from the system's IANA time zone files (see `tzdata`), or an Err
+when the name is unknown or the system has no zone database. `UTC` and `Z` always work.
+
+### `zoneid_offset_at`
+
+```
+pub fn zoneid_offset_at(z: ZoneId, i: Instant) -> ZoneOffset
+```
+
+The offset from UTC in force in `z` at the instant `i`: `-05:00` in New York in January,
+`-04:00` in July.
+
+### `zoneid_is_dst_at`
+
+```
+pub fn zoneid_is_dst_at(z: ZoneId, i: Instant) -> bool
+```
+
+True when `z` is on daylight saving time at the instant `i`.
+
+### `zoneid_abbreviation_at`
+
+```
+pub fn zoneid_abbreviation_at(z: ZoneId, i: Instant) -> string
+```
+
+The abbreviation `z` uses at the instant `i`: `EST`, `EDT`, `CET`, or `+03` where the zone has
+no letters.
 
 ### `zoneid_to_string`
 
@@ -722,9 +754,7 @@ The name of `z`.
 pub fn zoneid_from_string(s: string) -> Result<ZoneId, string>
 ```
 
-There being exactly one legal value ("UTC") makes this mostly a
-formality, but every other type here has a _parse, so this does too
-rather than being a silent exception to the pattern.
+The zone called `s`; the same as `zoneid_of`, named for the `_from_string` convention.
 
 ### `Instant`
 
@@ -804,6 +834,25 @@ pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instan
 ```
 
 The instant at which a clock in `offset` reads `dt`.
+
+### `instant_to_localdatetime_in`
+
+```
+pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime
+```
+
+The wall-clock date and time in zone `z` at the instant `i`, daylight saving applied.
+
+### `localdatetime_to_instant_in`
+
+```
+pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant
+```
+
+The instant at which a clock in zone `z` reads `dt`. Two readings need a rule. When the clocks
+go back, `dt` happens twice and the earlier instant is returned. When the clocks go forward,
+`dt` never happens (02:30 on the night the hour 02:00 to 03:00 is skipped) and the result is
+`dt` moved forward by the length of the gap (03:30), as `java.time` does.
 
 ### `instant_format`
 

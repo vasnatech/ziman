@@ -100,9 +100,8 @@ integer arithmetic rather than bitwise operators (Ziman has none).
 [int]`, reading the system clock — Ziman's other source of genuine
 non-determinism. `time` is pure Ziman on top of it: seven `java.time`-
 shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`,
-`Instant`, `ZoneOffset`, `ZoneId`), `ZoneOffset` only (no IANA-style
-named zones with DST — a data-maintenance problem, not a code-volume
-one), `Instant`/`Duration` as `{seconds: int, nanos: int}` rather than
+`Instant`, `ZoneOffset`, `ZoneId`; `ZoneId` reads the system's IANA
+zone files, see the `tzdata` module), `Instant`/`Duration` as `{seconds: int, nanos: int}` rather than
 a packed number (matching both C's `struct timespec` and `java.time`'s
 own shape), and calendar math via Howard Hinnant's public-domain
 days-from-civil algorithm. Every type has a fixed ISO-8601 `_to_string`/

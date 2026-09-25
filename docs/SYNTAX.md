@@ -1502,10 +1502,8 @@ val n = switch parse_int(text) {
 ## Date and time
 
 The `time` core module (`use time.Name`) provides seven types, modeled
-on `java.time` but scoped down in two deliberate ways: `ZoneOffset`
-only, no IANA-style `ZoneId` with historical/future DST rules (a
-different kind of problem than the rest of the module — see
-docs/DESIGN.md's "time" entry), and every type is `{ ...: int }`-shaped
+on `java.time` but scoped down: `ZoneId` reads the system's IANA
+zone files (see "Named time zones" below), and every type is `{ ...: int }`-shaped
 (plus `Instant`/`Duration`'s `bigint`-free `{ seconds: int, nanos: int
 }`), never a single packed number.
 
@@ -1669,15 +1667,22 @@ fn main() {
   `zoneoffset_compare`, `zoneoffset_to_string` (`"Z"` for UTC,
   `"+HH:MM"`/`"-HH:MM"` otherwise) and its exact inverse
   `zoneoffset_from_string`.
-- **`ZoneId { name: string }`** — a named zone, of which `"UTC"` is the
-  *only* value that exists. `zoneid_utc()` is the only constructor (no
-  `zoneid_of(name: string)` — there's nothing else valid to construct,
-  and inventing that validation surface ahead of a real second zone
-  would be speculative), `zoneid_to_offset(z) -> ZoneOffset` (always
-  returns UTC's offset — the only case that can ever occur),
-  `zoneid_to_string`/`zoneid_from_string` (the latter just validates its
-  argument is exactly `"UTC"` — a formality given there's only one
-  legal value, included anyway so every type here has the same pair).
+- **`ZoneId`** — an IANA time zone (`"UTC"`, `"Europe/Paris"`,
+  `"America/New_York"`) with its rules. `zoneid_of(name)` reads them from
+  the operating system's zone files (the `tzdata` module: `$TZDIR`, else
+  `/usr/share/zoneinfo`) and is an Err for an unknown name or a system with
+  no zone database; `zoneid_utc()` and `"UTC"` never need the files.
+  `zoneid_offset_at(z, instant)` is the offset in force then (`-05:00` in
+  New York in January, `-04:00` in July), with `zoneid_is_dst_at` and
+  `zoneid_abbreviation_at` (`EST`/`EDT`). `instant_to_localdatetime_in(i, z)`
+  and `localdatetime_to_instant_in(dt, z)` convert with daylight saving
+  applied; a wall-clock time that happens twice (clocks going back) is the
+  earlier instant, and one that never happens (clocks going forward) is moved
+  forward by the length of the gap, as `java.time` does. Past the last
+  transition listed in a zone file the rule string at its end (`EST5EDT,M3.2.0,M11.1.0`)
+  decides, so dates in 2100 are right. `zoneid_to_string`/`zoneid_from_string`
+  are the name, so JSON and SQL carry `"Europe/Paris"`. Two `ZoneId`s of the same
+  zone compare equal.
 - **No `<`/`>` operators on any of these seven types.** Ordering goes
   through `compare` and the `Ord` bound instead (see "Ordering"): every type
   has a `_compare(a, b) -> int` function (negative/zero/positive, the same

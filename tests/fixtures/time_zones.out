@@ -1,0 +1,42 @@
+-05:00
+-04:00
+Z
++01:00
++02:00
++05:30
++11:00
++10:30
++13:00
++12:00
+-03:00
+Z
+EST
+EDT
+true
+false
+-05:00
+-04:00
+-04:00
+-05:00
+-05:00
+-04:00
++11:00
+-00:01
+2026-07-15T08:00:00
+2026-03-08T07:30:00Z
+2026-11-01T05:30:00Z
+2026-07-15T03:30:00Z
+America/New_York
+true
+true
+unknown time zone 'America/Nowhere'
+invalid time zone name '../etc/passwd'
+invalid time zone name '/etc/passwd'
+unknown time zone 'America'
+true
+true
+true
+false
+false
+false
+false

@@ -1090,9 +1090,8 @@ from source.
   `ZoneOffset`, `ZoneId`), closing `health-record-backend-ziman`'s last
   remaining documented gap (a real date type).**~~ Implemented
   (docs/SYNTAX.md "Date and time", docs/DESIGN.md's "time/clock"
-  entry). `ZoneOffset` only, deliberately — no IANA-style `ZoneId` with
-  DST rules, a fundamentally different (data-maintenance, not
-  code-volume) problem, ruled out up front rather than attempted.
+  entry). `ZoneOffset` only at first; IANA named zones (`zoneid_of`, read from
+  the system's zone files by the `tzdata` module) came later.
   `Instant`/`Duration` are `{seconds: int, nanos: int}` (matching both
   C's `struct timespec` and `java.time`'s own internal shape) after a
   `bigint`-nanoseconds design was tried and dropped once nanosecond

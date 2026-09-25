@@ -73,5 +73,5 @@ fn main() {
     print(unwrap(zoneoffset_from_string("Z")) == zoneoffset_utc())
     print(unwrap(zoneoffset_from_string(zoneoffset_to_string(plus5))) == plus5)
     print(is_ok(zoneid_from_string("UTC")))
-    print(is_ok(zoneid_from_string("America/New_York")))
+    print(is_ok(zoneid_from_string("Not/AZone")))
 }

@@ -1,0 +1,488 @@
+// tzdata.zm -- the IANA time zone database, read from the operating system's compiled zone files
+// (`/usr/share/zoneinfo/America/New_York` and so on, in the TZif format), for `time`'s named
+// zones. Most programs use it through `time.zoneid_of`; this module is the reader.
+//
+// A zone's rules are a list of past transitions (each: from this UTC second, use that offset, DST
+// flag and abbreviation) plus, for the years after the last listed transition, the POSIX rule
+// string at the end of the file (`EST5EDT,M3.2.0,M11.1.0`: the second Sunday of March, the first
+// of November). The database directory is `$TZDIR` when that is set, else the first of
+// `/usr/share/zoneinfo`, `/usr/lib/zoneinfo` and `/usr/share/lib/zoneinfo` that exists. A system
+// with no zone files (a bare container, Windows) gets an Err from `load_rules`, never a wrong
+// answer; the zone `UTC` needs no files.
+//
+// Leap-second tables in the files are skipped: times here are Unix time, which has none.
+
+use fs
+use number.i32_from_bytes
+use number.i64_from_bytes
+use number.u16_from_bytes
+use number.u32_from_bytes
+use os
+
+// One kind of local time in a zone: its offset from UTC in seconds (east positive), whether it is
+// daylight saving time, and its abbreviation (`EST`, `EDT`, `+03`).
+pub struct ZoneType {
+    utoff: int
+    dst: bool
+    name: string
+}
+
+// A day in the year on which a rule fires, as the POSIX string writes it. `kind` is 0 for
+// month/week/weekday (`M3.2.0`), 1 for a day of the year ignoring leap days (`J60`), 2 for a
+// zero-based day counting them (`59`); `seconds` is the local time of day (2 hours by default).
+pub struct RuleDate {
+    kind: int
+    month: int
+    week: int
+    weekday: int
+    day: int
+    seconds: int
+}
+
+// The daylight-saving rule of the years after a zone's last listed transition. A zone with no
+// daylight saving has `has_dst` false and only the standard type.
+pub struct PosixRule {
+    standard: ZoneType
+    daylight: ZoneType
+    has_dst: bool
+    start: RuleDate
+    end: RuleDate
+}
+
+// A zone's rules: `transitions[i]` is a UTC second from which local time type `type_of[i]` applies,
+// and type `k` has offset `utoffs[k]`, daylight flag `dsts[k]` and abbreviation `names[k]`.
+// Before the first transition type 0 applies; after the last, `rule` when `has_rule`. (Parallel
+// arrays of scalars and a plain rule field, rather than a list of ZoneType and an Option, so that
+// two zones compare with `==`.)
+pub struct ZoneRules {
+    transitions: [int]
+    type_of: [int]
+    utoffs: [int]
+    dsts: [bool]
+    names: [string]
+    has_rule: bool
+    rule: PosixRule
+}
+
+val seconds_per_day = 86400
+val default_dirs: [string] = ["/usr/share/zoneinfo", "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo"]
+
+// ---------------------------------------------------------------- calendar arithmetic
+
+fn floor_div(a: int, b: int) -> int {
+    val q = a / b
+    return if a % b != 0 && (a < 0) != (b < 0) { q - 1 } else { q }
+}
+
+fn floor_mod(a: int, b: int) -> int {
+    return a - floor_div(a, b) * b
+}
+
+fn is_leap(year: int) -> bool {
+    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+fn days_in_month(year: int, month: int) -> int {
+    if month == 2 {
+        return if is_leap(year) { 29 } else { 28 }
+    }
+    return if month == 4 || month == 6 || month == 9 || month == 11 { 30 } else { 31 }
+}
+
+// Days from 1970-01-01 to the given date (Howard Hinnant's algorithm).
+fn days_from_civil(year: int, month: int, day: int) -> int {
+    val y = if month <= 2 { year - 1 } else { year }
+    val era = floor_div(y, 400)
+    val yoe = y - era * 400
+    val mp = if month > 2 { month - 3 } else { month + 9 }
+    val doy = (153 * mp + 2) / 5 + day - 1
+    val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+    return era * 146097 + doe - 719468
+}
+
+// The calendar year containing the day `epoch_day` days after 1970-01-01.
+fn year_of_day(epoch_day: int) -> int {
+    val z = epoch_day + 719468
+    val era = floor_div(z, 146097)
+    val doe = z - era * 146097
+    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp = (5 * doy + 2) / 153
+    val month = if mp < 10 { mp + 3 } else { mp - 9 }
+    return yoe + era * 400 + (if month <= 2 { 1 } else { 0 })
+}
+
+// ---------------------------------------------------------------- the POSIX rule string
+
+// A cursor over the rule string: the text and how far it has been read.
+struct Cursor {
+    text: string
+    pos: int
+}
+
+struct Parsed<T> {
+    value: T
+    next: int
+}
+
+fn at_end(text: string, pos: int) -> bool {
+    return pos >= len(text)
+}
+
+fn is_digit_at(text: string, pos: int) -> bool {
+    return pos < len(text) && char_at(text, pos) >= "0" && char_at(text, pos) <= "9"
+}
+
+fn bad_rule(text: string, why: string) -> string {
+    return format("bad time zone rule '{}': {}", text, why)
+}
+
+// A zone abbreviation: letters, or anything between `<` and `>`.
+fn parse_name(text: string, pos: int) -> Result<Parsed<string>, string> {
+    if is_char_at(text, pos, "<") {
+        val close = index_of(text, ">", pos)
+        if close < 0 {
+            return err(bad_rule(text, "unterminated <name>"))
+        }
+        return ok(Parsed<string> { value: substring(text, pos + 1, close), next: close + 1 })
+    }
+    var p = pos
+    while p < len(text) && ((char_at(text, p) >= "A" && char_at(text, p) <= "Z") || (char_at(text,
+        p) >= "a" && char_at(text, p) <= "z")) {
+            p = p + 1
+        }
+    if p - pos < 3 {
+        return err(bad_rule(text, "a zone name needs at least three letters"))
+    }
+    return ok(Parsed<string> { value: substring(text, pos, p), next: p })
+}
+
+fn parse_digits(text: string, pos: int) -> Result<Parsed<int>, string> {
+    var p = pos
+    while is_digit_at(text, p) {
+        p = p + 1
+    }
+    if p == pos {
+        return err(bad_rule(text, format("a number was expected at position {}", pos)))
+    }
+    return ok(Parsed<int> { value: unwrap(parse_int(substring(text, pos, p))), next: p })
+}
+
+// `[+-]hh[:mm[:ss]]` as seconds, keeping its sign.
+fn parse_hms(text: string, pos: int) -> Result<Parsed<int>, string> {
+    var p = pos
+    var sign = 1
+    if is_char_at(text, p, "-") {
+        sign = -1
+        p = p + 1
+    } else if is_char_at(text, p, "+") {
+        p = p + 1
+    }
+    val h = parse_digits(text, p)?
+    var total = h.value * 3600
+    p = h.next
+    if is_char_at(text, p, ":") {
+        val m = parse_digits(text, p + 1)?
+        total = total + m.value * 60
+        p = m.next
+        if is_char_at(text, p, ":") {
+            val sec = parse_digits(text, p + 1)?
+            total = total + sec.value
+            p = sec.next
+        }
+    }
+    return ok(Parsed<int> { value: sign * total, next: p })
+}
+
+fn parse_rule_date(text: string, pos: int) -> Result<Parsed<RuleDate>, string> {
+    var p = pos
+    var kind = 2
+    var month = 0
+    var week = 0
+    var weekday = 0
+    var day = 0
+    if is_char_at(text, p, "M") {
+        kind = 0
+        val m = parse_digits(text, p + 1)?
+        if !is_char_at(text, m.next, ".") {
+            return err(bad_rule(text, "expected Mm.w.d"))
+        }
+        val w = parse_digits(text, m.next + 1)?
+        if !is_char_at(text, w.next, ".") {
+            return err(bad_rule(text, "expected Mm.w.d"))
+        }
+        val d = parse_digits(text, w.next + 1)?
+        if m.value < 1 || m.value > 12 || w.value < 1 || w.value > 5 || d.value > 6 {
+            return err(bad_rule(text, "month, week or weekday out of range"))
+        }
+        month = m.value
+        week = w.value
+        weekday = d.value
+        p = d.next
+    } else if is_char_at(text, p, "J") {
+        kind = 1
+        val n = parse_digits(text, p + 1)?
+        if n.value < 1 || n.value > 365 {
+            return err(bad_rule(text, "day of year out of range"))
+        }
+        day = n.value
+        p = n.next
+    } else {
+        val n = parse_digits(text, p)?
+        if n.value > 365 {
+            return err(bad_rule(text, "day of year out of range"))
+        }
+        day = n.value
+        p = n.next
+    }
+    var seconds = 7200
+    if is_char_at(text, p, "/") {
+        val t = parse_hms(text, p + 1)?
+        seconds = t.value
+        p = t.next
+    }
+    return ok(Parsed<RuleDate> { value: RuleDate { kind: kind, month: month, week: week, weekday: weekday, day: day,
+        seconds: seconds }, next: p })
+}
+
+// The rule string at the end of a zone file: `std offset [dst [offset] [,start[/time],end[/time]]]`.
+// POSIX writes the offset as time WEST of UTC, so `EST5` is UTC-5.
+pub fn parse_posix_rule(text: string) -> Result<PosixRule, string> {
+    val std_name = parse_name(text, 0)?
+    val std_off = parse_hms(text, std_name.next)?
+    val standard = ZoneType { utoff: -std_off.value, dst: false, name: std_name.value }
+    val none = RuleDate { kind: 0, month: 1, week: 1, weekday: 0, day: 0, seconds: 0 }
+    if at_end(text, std_off.next) {
+        return ok(PosixRule { standard: standard, daylight: standard, has_dst: false, start: none, end: none })
+    }
+    val dst_name = parse_name(text, std_off.next)?
+    var dst_utoff = standard.utoff + 3600
+    var p = dst_name.next
+    if !at_end(text, p) && !is_char_at(text, p, ",") {
+        val dst_off = parse_hms(text, p)?
+        dst_utoff = -dst_off.value
+        p = dst_off.next
+    }
+    val daylight = ZoneType { utoff: dst_utoff, dst: true, name: dst_name.value }
+    if at_end(text, p) {
+        // no rule given: POSIX says to use the United States rule
+        return ok(PosixRule { standard: standard, daylight: daylight, has_dst: true,
+            start: RuleDate { kind: 0, month: 3, week: 2, weekday: 0, day: 0, seconds: 7200 },
+            end: RuleDate { kind: 0, month: 11, week: 1, weekday: 0, day: 0, seconds: 7200 } })
+    }
+    if !is_char_at(text, p, ",") {
+        return err(bad_rule(text, "expected ',' before the start rule"))
+    }
+    val start = parse_rule_date(text, p + 1)?
+    if !is_char_at(text, start.next, ",") {
+        return err(bad_rule(text, "expected ',' before the end rule"))
+    }
+    val end = parse_rule_date(text, start.next + 1)?
+    if !at_end(text, end.next) {
+        return err(bad_rule(text, format("unexpected text at position {}", end.next)))
+    }
+    return ok(PosixRule { standard: standard, daylight: daylight, has_dst: true, start: start.value, end: end.value })
+}
+
+// The local wall-clock time, as seconds from 1970-01-01T00:00 read as UTC, at which `d` fires in `year`.
+fn rule_local_seconds(d: RuleDate, year: int) -> int {
+    var day = 0
+    if d.kind == 0 {
+        val first = days_from_civil(year, d.month, 1)
+        val weekday_of_first = floor_mod(first + 4, 7)
+        var dom = 1 + floor_mod(d.weekday - weekday_of_first, 7) + (d.week - 1) * 7
+        if dom > days_in_month(year, d.month) {
+            dom = dom - 7
+        }
+        day = first + dom - 1
+    } else if d.kind == 1 {
+        val jan1 = days_from_civil(year, 1, 1)
+        day = jan1 + d.day - 1 + (if is_leap(year) && d.day >= 60 { 1 } else { 0 })
+    } else {
+        day = days_from_civil(year, 1, 1) + d.day
+    }
+    return day * seconds_per_day + d.seconds
+}
+
+// The type in force at UTC second `t` under a POSIX rule.
+fn rule_type_at(rule: PosixRule, t: int) -> ZoneType {
+    if !rule.has_dst {
+        return rule.standard
+    }
+    val year = year_of_day(floor_div(t + rule.standard.utoff, seconds_per_day))
+    val start = rule_local_seconds(rule.start, year) - rule.standard.utoff
+    val finish = rule_local_seconds(rule.end, year) - rule.daylight.utoff
+    val in_dst = if start < finish { t >= start && t < finish } else { !(t >= finish && t < start) }
+    return if in_dst { rule.daylight } else { rule.standard }
+}
+
+// ---------------------------------------------------------------- reading a zone file
+
+// The placeholder rule of a zone with none (`has_rule` is false).
+pub val no_rule = PosixRule { standard: ZoneType { utoff: 0, dst: false, name: "UTC" },
+    daylight: ZoneType { utoff: 0, dst: false, name: "UTC" }, has_dst: false,
+    start: RuleDate { kind: 0, month: 1, week: 1, weekday: 0, day: 0, seconds: 0 },
+    end: RuleDate { kind: 0, month: 1, week: 1, weekday: 0, day: 0, seconds: 0 } }
+
+// The data of one TZif block and where the next one starts.
+struct Block {
+    rules: ZoneRules
+    next: int
+}
+
+// NUL-terminated text starting at `pos` in `data`.
+fn c_string(data: [byte], pos: int, limit: int) -> string {
+    var end = pos
+    while end < limit && data[end] != 0b {
+        end = end + 1
+    }
+    return unwrap(bytes_to_string(slice<byte>(data, pos, end)))
+}
+
+// One block of the file whose header starts at `hdr`; `wide` when its times are 8 bytes (version 2+).
+fn parse_block(data: [byte], hdr: int, wide: bool) -> Result<Block, string> {
+    if hdr + 44 > len(data) {
+        return err("time zone file is truncated")
+    }
+    val isutcnt = u32_from_bytes(data, hdr + 20)
+    val isstdcnt = u32_from_bytes(data, hdr + 24)
+    val leapcnt = u32_from_bytes(data, hdr + 28)
+    val timecnt = u32_from_bytes(data, hdr + 32)
+    val typecnt = u32_from_bytes(data, hdr + 36)
+    val charcnt = u32_from_bytes(data, hdr + 40)
+    val tsize = if wide { 8 } else { 4 }
+    val body = hdr + 44
+    val chars_at = body + timecnt * tsize + timecnt + typecnt * 6
+    val next = chars_at + charcnt + leapcnt * (tsize + 4) + isstdcnt + isutcnt
+    if next > len(data) || typecnt < 1 {
+        return err("time zone file is truncated or has no local time types")
+    }
+    val utoffs = ab_new<int>()
+    val dsts = ab_new<bool>()
+    val names = ab_new<string>()
+    for i in 0..typecnt {
+        val at = body + timecnt * tsize + timecnt + i * 6
+        ab_append<int>(utoffs, i32_from_bytes(data, at))
+        ab_append<bool>(dsts, data[at + 4] != 0b)
+        ab_append<string>(names, c_string(data, chars_at + (data[at + 5] as int), chars_at + charcnt))
+    }
+    val transitions = ab_new<int>()
+    val type_of = ab_new<int>()
+    for i in 0..timecnt {
+        val t = if wide { i64_from_bytes(data, body + i * 8) } else { i32_from_bytes(data, body + i * 4) }
+        val index = data[body + timecnt * tsize + i] as int
+        if index >= typecnt {
+            return err("time zone file refers to a missing local time type")
+        }
+        ab_append<int>(transitions, t)
+        ab_append<int>(type_of, index)
+    }
+    return ok(Block { rules: ZoneRules { transitions: ab_to_array<int>(transitions), type_of: ab_to_array<int>(type_of),
+        utoffs: ab_to_array<int>(utoffs), dsts: ab_to_array<bool>(dsts), names: ab_to_array<string>(names),
+        has_rule: false, rule: no_rule },
+        next: next })
+}
+
+// The rules in the bytes of a zone file, or an Err when they are not a TZif file.
+pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string> {
+    if len(data) < 44 || data[0] != 84b || data[1] != 90b || data[2] != 105b || data[3] != 102b {
+        return err("not a time zone file (no TZif header)")
+    }
+    val version = data[4]
+    val first = parse_block(data, 0, false)?
+    if version == 0b {
+        return ok(first.rules)
+    }
+    val second = parse_block(data, first.next, true)?
+    // the footer is the rule string between two newlines after the second block
+    if second.next >= len(data) || data[second.next] != 10b {
+        return ok(second.rules)
+    }
+    var end = second.next + 1
+    while end < len(data) && data[end] != 10b {
+        end = end + 1
+    }
+    val text = unwrap(bytes_to_string(slice<byte>(data, second.next + 1, end)))
+    if len(text) == 0 {
+        return ok(second.rules)
+    }
+    val rule = parse_posix_rule(text)?
+    return ok(ZoneRules { transitions: second.rules.transitions, type_of: second.rules.type_of,
+        utoffs: second.rules.utoffs, dsts: second.rules.dsts, names: second.rules.names, has_rule: true, rule: rule })
+}
+
+// The directory holding the zone files, or an Err when there is none.
+fn zone_dir() -> Result<string, string> {
+    val configured = os.getenv("TZDIR")
+    if Option.is_Some(configured) && len(Option.unwrap_Some(configured)) > 0 {
+        return ok(Option.unwrap_Some(configured))
+    }
+    for dir in default_dirs {
+        if fs.is_dir(dir) {
+            return ok(dir)
+        }
+    }
+    return err("no time zone database found (looked in /usr/share/zoneinfo and TZDIR); install tzdata")
+}
+
+// True for a name that is safe to turn into a file path: letters, digits and `_ + - /`, no `..`, and
+// no leading slash.
+fn valid_zone_name(name: string) -> bool {
+    if len(name) == 0 || len(name) > 64 || starts_with(name, "/") || contains(name, "..") {
+        return false
+    }
+    for i in 0..len(name) {
+        val c = char_at(name, i)
+        val ok_char = (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c == "_" || c == "+" || c == "-" || c == "/"
+        if !ok_char {
+            return false
+        }
+    }
+    return true
+}
+
+// The rules of the zone called `name` (`Europe/Paris`), read from the system's zone files. An Err
+// says whether the name is unknown or the database is missing.
+pub fn load_rules(name: string) -> Result<ZoneRules, string> {
+    if !valid_zone_name(name) {
+        return err(format("invalid time zone name '{}'", name))
+    }
+    val dir = zone_dir()?
+    val path = fs.path_join(dir, name)
+    if !fs.exists(path) || fs.is_dir(path) {
+        return err(format("unknown time zone '{}'", name))
+    }
+    val data = fs.read_bytes(path)?
+    return parse_rules(data)
+}
+
+// ---------------------------------------------------------------- looking a time up
+
+fn local_type(rules: ZoneRules, k: int) -> ZoneType {
+    return ZoneType { utoff: rules.utoffs[k], dst: rules.dsts[k], name: rules.names[k] }
+}
+
+// The local time type in force at the UTC second `t` (seconds since 1970-01-01T00:00:00Z).
+pub fn type_at(rules: ZoneRules, t: int) -> ZoneType {
+    val n = len(rules.transitions)
+    if n == 0 || t < rules.transitions[0] {
+        if n == 0 && rules.has_rule {
+            return rule_type_at(rules.rule, t)
+        }
+        return local_type(rules, 0)
+    }
+    if t >= rules.transitions[n - 1] && rules.has_rule {
+        return rule_type_at(rules.rule, t)
+    }
+    var lo = 0
+    var hi = n - 1
+    while lo < hi {
+        val mid = lo + (hi - lo + 1) / 2
+        if rules.transitions[mid] <= t {
+            lo = mid
+        } else {
+            hi = mid - 1
+        }
+    }
+    return local_type(rules, rules.type_of[lo])
+}

@@ -295,6 +295,12 @@ pub native fn u16_from_bytes(b: [byte], offset: int) -> int
 // The unsigned big-endian integer of 4 bytes starting at `offset` in `b`.
 pub native fn u32_from_bytes(b: [byte], offset: int) -> int
 
+// The signed (two's complement) big-endian integer of 4 bytes starting at `offset` in `b`.
+pub native fn i32_from_bytes(b: [byte], offset: int) -> int
+
+// The signed (two's complement) big-endian integer of 8 bytes starting at `offset` in `b`.
+pub native fn i64_from_bytes(b: [byte], offset: int) -> int
+
 // The little-endian IEEE-754 double (8 bytes) at `offset`.
 pub native fn f64_from_bytes(b: [byte], offset: int) -> float
 

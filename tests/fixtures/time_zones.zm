@@ -1,0 +1,75 @@
+use time
+use time.Instant
+use tzdata
+
+fn offset(zone: string, at: Instant) -> string {
+    return time.zoneoffset_to_string(time.zoneid_offset_at(unwrap(time.zoneid_of(zone)), at))
+}
+
+fn main() {
+    val jan = time.instant_of(1768478400, 0)
+    val jul = time.instant_of(1784116800, 0)
+
+    // northern and southern hemisphere, half-hour and 45-minute style offsets, no daylight saving
+    print(offset("America/New_York", jan))
+    print(offset("America/New_York", jul))
+    print(offset("Europe/London", jan))
+    print(offset("Europe/London", jul))
+    print(offset("Europe/Paris", jul))
+    print(offset("Asia/Kolkata", jul))
+    print(offset("Australia/Lord_Howe", jan))
+    print(offset("Australia/Lord_Howe", jul))
+    print(offset("Pacific/Auckland", jan))
+    print(offset("Pacific/Auckland", jul))
+    print(offset("America/Sao_Paulo", jan))
+    print(offset("UTC", jul))
+
+    val ny = unwrap(time.zoneid_of("America/New_York"))
+    print(time.zoneid_abbreviation_at(ny, jan))
+    print(time.zoneid_abbreviation_at(ny, jul))
+    print(time.zoneid_is_dst_at(ny, jul))
+    print(time.zoneid_is_dst_at(ny, jan))
+
+    // the last second before, and the first second of, each change (07:00:00Z on 8 March, 06:00:00Z on 1 November)
+    print(offset("America/New_York", time.instant_of(1772953199, 0)))
+    print(offset("America/New_York", time.instant_of(1772953200, 0)))
+    print(offset("America/New_York", time.instant_of(1793512799, 0)))
+    print(offset("America/New_York", time.instant_of(1793512800, 0)))
+
+    // past the last listed transition (2037) the rule string decides
+    print(offset("America/New_York", time.instant_of(4103750400, 0)))
+    print(offset("America/New_York", time.instant_of(4118000000, 0)))
+    print(offset("Australia/Lord_Howe", time.instant_of(4103750400, 0)))
+
+    // before the first transition
+    print(offset("Europe/London", time.instant_of(-4000000000, 0)))
+
+    // wall-clock conversion both ways
+    print(time.localdatetime_to_string(time.instant_to_localdatetime_in(jul, ny)))
+    val d = unwrap(time.localdate_of(2026, 3, 8))
+    val gap = time.localdatetime_of(d, unwrap(time.localtime_of(2, 30, 0, 0)))
+    print(time.instant_to_string(time.localdatetime_to_instant_in(gap, ny)))
+    val e = unwrap(time.localdate_of(2026, 11, 1))
+    val dup = time.localdatetime_of(e, unwrap(time.localtime_of(1, 30, 0, 0)))
+    print(time.instant_to_string(time.localdatetime_to_instant_in(dup, ny)))
+    val plain = time.localdatetime_of(unwrap(time.localdate_of(2026, 7, 15)), unwrap(time.localtime_of(9, 0, 0, 0)))
+    print(time.instant_to_string(time.localdatetime_to_instant_in(plain, unwrap(time.zoneid_of("Asia/Kolkata")))))
+
+    // names: JSON and SQL forms, equality, and errors
+    print(time.zoneid_to_string(ny))
+    print(unwrap(time.zone_id_from_json(time.zone_id_to_json(ny))) == ny)
+    print(unwrap(time.zoneid_of("America/New_York")) == ny)
+    print(unwrap_err(time.zoneid_of("America/Nowhere")))
+    print(unwrap_err(time.zoneid_of("../etc/passwd")))
+    print(unwrap_err(time.zoneid_of("/etc/passwd")))
+    print(unwrap_err(time.zoneid_of("America")))
+
+    // the rule string on its own
+    print(is_ok(tzdata.parse_posix_rule("EST5EDT,M3.2.0,M11.1.0")))
+    print(is_ok(tzdata.parse_posix_rule("<+0330>-3:30")))
+    print(is_ok(tzdata.parse_posix_rule("CET-1CEST,M3.5.0,M10.5.0/3")))
+    print(is_ok(tzdata.parse_posix_rule("AB")))
+    print(is_ok(tzdata.parse_posix_rule("EST5EDT,M13.2.0,M11.1.0")))
+    print(is_ok(tzdata.parse_posix_rule("EST5EDT,M3.2.0")))
+    print(is_ok(tzdata.parse_rules(string_to_bytes("not a zone file at all, just some text that is long enough"))))
+}

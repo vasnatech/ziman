@@ -469,6 +469,10 @@ pub native fn u16_from_bytes(b: [byte], offset: int) -> int
 
 pub native fn u32_from_bytes(b: [byte], offset: int) -> int
 
+pub native fn i32_from_bytes(b: [byte], offset: int) -> int
+
+pub native fn i64_from_bytes(b: [byte], offset: int) -> int
+
 pub native fn f64_from_bytes(b: [byte], offset: int) -> float
 
 pub native fn f32_from_bytes(b: [byte], offset: int) -> float
@@ -603,7 +607,7 @@ pub fn escape(text: string) -> string
 
 ## `time`
 
-Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneOffset` only -- no IANA-style `ZoneId` with DST rules. Every type has a fixed ISO-8601 `_to_string`/`_parse` pair; `LocalDate`/`LocalTime`/`LocalDateTime`/`Instant` also get a general `_format`/`_parse_pattern` pair taking a `DateTimeFormat` -- a pattern compiled once by `datetime_format_of` (see the `iso_*_format` vals, each compiled exactly once at program start) rather than a raw pattern string re-scanned on every call.
+Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneId` reads the IANA zone files (see `tzdata`). Every type has a fixed ISO-8601 `_to_string`/`_parse` pair; `LocalDate`/`LocalTime`/`LocalDateTime`/`Instant` also get a general `_format`/`_parse_pattern` pair taking a `DateTimeFormat` -- a pattern compiled once by `datetime_format_of` (see the `iso_*_format` vals, each compiled exactly once at program start) rather than a raw pattern string re-scanned on every call.
 
 ```
 pub struct DateTimeFormat {
@@ -756,11 +760,18 @@ pub fn zoneoffset_from_string(s: string) -> Result<ZoneOffset, string>
 
 pub struct ZoneId {
     name: string
+    rules: ZoneRules
 }
 
 pub fn zoneid_utc() -> ZoneId
 
-pub fn zoneid_to_offset(z: ZoneId) -> ZoneOffset
+pub fn zoneid_of(name: string) -> Result<ZoneId, string>
+
+pub fn zoneid_offset_at(z: ZoneId, i: Instant) -> ZoneOffset
+
+pub fn zoneid_is_dst_at(z: ZoneId, i: Instant) -> bool
+
+pub fn zoneid_abbreviation_at(z: ZoneId, i: Instant) -> string
 
 pub fn zoneid_to_string(z: ZoneId) -> string
 
@@ -786,6 +797,10 @@ pub fn instant_compare(a: Instant, b: Instant) -> int
 pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
 
 pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant
+
+pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime
+
+pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant
 
 pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
 
@@ -861,6 +876,56 @@ TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected
 pub fn parse_toml(text: string) -> Result<Json, string>
 
 pub fn toml_to_string(j: Json) -> Result<string, string>
+
+```
+
+## `tzdata`
+
+The IANA time zone database, read from the operating system's zone files, for `time`'s named zones (`zoneid_of`).
+
+```
+pub struct ZoneType {
+    utoff: int
+    dst: bool
+    name: string
+}
+
+pub struct RuleDate {
+    kind: int
+    month: int
+    week: int
+    weekday: int
+    day: int
+    seconds: int
+}
+
+pub struct PosixRule {
+    standard: ZoneType
+    daylight: ZoneType
+    has_dst: bool
+    start: RuleDate
+    end: RuleDate
+}
+
+pub struct ZoneRules {
+    transitions: [int]
+    type_of: [int]
+    utoffs: [int]
+    dsts: [bool]
+    names: [string]
+    has_rule: bool
+    rule: PosixRule
+}
+
+pub fn parse_posix_rule(text: string) -> Result<PosixRule, string>
+
+pub val no_rule = PosixRule { standard: ZoneType { utoff: 0, dst: false, name: "UTC" },
+
+pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string>
+
+pub fn load_rules(name: string) -> Result<ZoneRules, string>
+
+pub fn type_at(rules: ZoneRules, t: int) -> ZoneType
 
 ```
 

@@ -19,7 +19,7 @@ OUT = os.path.join(ROOT, "docs", "lib")
 GROUPS = [
     ("Data and formats", "core", ["collections", "json", "ndjson", "csv", "toml", "yaml", "properties",
                                    "number", "uuid", "regex", "compress", "crypto"]),
-    ("Time", "core", ["time", "clock"]),
+    ("Time", "core", ["time", "tzdata", "clock"]),
     ("System", "core", ["fs", "os", "log", "random"]),
     ("Networking", "core", ["net"]),
     ("HTTP", "http", ["http", "server", "client"]),

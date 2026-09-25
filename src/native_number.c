@@ -212,6 +212,19 @@ static Value be_from_bytes(Value *args, int width, const char *name, int line, i
     return value_int(v);
 }
 
+static Value be_signed_from_bytes(Value *args, int width, const char *name, int line, int col) {
+    ArrayObj *arr = args[0].as.arr;
+    int64_t off = args[1].as.i;
+    if (off < 0 || off + width > arr->count) ziman_error("runtime", line, col, "%s: offset %lld out of range for an array of length %d", name, (long long)off, arr->count);
+    uint64_t v = 0;
+    for (int i = 0; i < width; i++) v = (v << 8) | array_get(arr, (int)(off + i)).as.by;
+    if (width == 4) return value_int((int32_t)(uint32_t)v);
+    return value_int((int64_t)v);
+}
+
+static Value native_i32_from_bytes(Value *args, int argc, int line, int col) { (void)argc; return be_signed_from_bytes(args, 4, "i32_from_bytes", line, col); }
+static Value native_i64_from_bytes(Value *args, int argc, int line, int col) { (void)argc; return be_signed_from_bytes(args, 8, "i64_from_bytes", line, col); }
+
 static Value native_u16_to_bytes(Value *args, int argc, int line, int col) { (void)argc; return be_to_bytes(args[0], 2, "u16_to_bytes", line, col); }
 static Value native_u32_to_bytes(Value *args, int argc, int line, int col) { (void)argc; return be_to_bytes(args[0], 4, "u32_to_bytes", line, col); }
 static Value native_u16_from_bytes(Value *args, int argc, int line, int col) { (void)argc; return be_from_bytes(args, 2, "u16_from_bytes", line, col); }
@@ -232,4 +245,6 @@ void native_number_register(void) {
     native_register("number::u32_to_bytes", native_u32_to_bytes);
     native_register("number::u16_from_bytes", native_u16_from_bytes);
     native_register("number::u32_from_bytes", native_u32_from_bytes);
+    native_register("number::i32_from_bytes", native_i32_from_bytes);
+    native_register("number::i64_from_bytes", native_i64_from_bytes);
 }

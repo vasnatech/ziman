@@ -22,7 +22,7 @@ use time.localdatetime_to_instant
 use time.instant_to_localdatetime
 use time.duration_of_seconds
 use time.zoneid_utc
-use time.zoneid_to_offset
+use time.zoneid_offset_at
 use time.zoneid_to_string
 
 fn main() {
@@ -56,7 +56,7 @@ fn main() {
 
     val z = zoneid_utc()
     print(zoneid_to_string(z))
-    print(zoneoffset_to_string(zoneid_to_offset(z)))
+    print(zoneoffset_to_string(zoneid_offset_at(z, instant_of(0, 0))))
 
     val now = instant_now()
     print(len(instant_to_string(now)) > 0)

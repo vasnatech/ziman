@@ -10,7 +10,7 @@
 //   Duration        a length of time: seconds and nanoseconds
 //   Instant         a point on the timeline: seconds and nanoseconds since 1970-01-01T00:00:00Z
 //   ZoneOffset      a fixed offset from UTC, such as `+05:30`
-//   ZoneId          a zone name; only `UTC` exists (no IANA zones or daylight saving yet)
+//   ZoneId          an IANA time zone such as `Europe/Paris`, with its daylight saving rules
 //
 // Build a value with its `_of` function, which checks the fields and returns a `Result`; add to it
 // with `_add_*`; compare with `_compare`. Every type reads and writes its ISO-8601 form with
@@ -21,17 +21,18 @@
 // and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
 // types (an ISO string, and a TEXT column).
 //
+// Named zones (`zoneid_of("Europe/Paris")`) come from the system's IANA zone files (see `tzdata`), so
+// they need the operating system's tzdata package; `zoneid_offset_at` gives the offset at an
+// instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` convert with daylight
+// saving applied.
+//
 // Limits: years are 0 or later (no BCE), and there is no locale, month name or weekday support.
 
 // Implementation notes. Modeled on java.time, scoped down in two deliberate ways:
 //
-// - ZoneOffset only, no IANA-style ZoneId with historical/future DST
-//   rules. A named political timezone ("America/New_York") encodes
-//   rules that change several times a year worldwide (the IANA tzdata
-//   database) -- embedding or maintaining that from scratch is a
-//   different kind of problem than the rest of this module, not just
-//   more code. `ZoneId` exists here as a thin wrapper, but "UTC" is
-//   the only zone it can ever name.
+// - Named zones read the operating system's zone files (module `tzdata`) instead of embedding the
+//   IANA database, which changes several times a year worldwide; a system without them can still
+//   use `UTC` and fixed `ZoneOffset`s, and gets an Err from `zoneid_of` for the rest.
 // - Instant/Duration are `{ seconds: int, nanos: int }`, matching both
 //   C's own `struct timespec` and java.time's internal shape -- not a
 //   single bigint-nanoseconds count, which is what this project tried
@@ -96,6 +97,10 @@ use sql.DbError
 use sql.SqlValue
 use sql.sql_as_text
 use sql.sql_lift
+use tzdata.ZoneRules
+use tzdata.load_rules
+use tzdata.no_rule
+use tzdata.type_at
 
 fn is_leap_year(year: int) -> bool {
     if year % 400 == 0 {
@@ -1008,22 +1013,47 @@ pub fn zoneoffset_from_string(s: string) -> Result<ZoneOffset, string> {
     return zoneoffset_of_hours_minutes(hours, minutes)
 }
 
-// The only zone that will ever exist here -- see the header comment
-// for why a real IANA ZoneId isn't in scope. `zoneid_to_offset` always
-// returns UTC's offset regardless of `z`'s own name, since "UTC" is
-// the only value `zoneid_utc()` can ever produce.
+// A time zone by its IANA name (`UTC`, `Europe/Paris`, `America/New_York`), carrying the rules that
+// say which offset from UTC applies at each instant, daylight saving included. Get one with
+// `zoneid_of`; `zoneid_utc()` needs no zone files. Its `name` is what is written to JSON and SQL.
 pub struct ZoneId {
     name: string
+    rules: ZoneRules
 }
+
+val utc_rules = ZoneRules { transitions: [], type_of: [], utoffs: [0], dsts: [false], names: ["UTC"], has_rule: false,
+    rule: no_rule }
 
 // The `UTC` zone.
 pub fn zoneid_utc() -> ZoneId {
-    return ZoneId { name: "UTC" }
+    return ZoneId { name: "UTC", rules: utc_rules }
 }
 
-// The offset of `z`, always UTC's, since `UTC` is the only zone there is.
-pub fn zoneid_to_offset(z: ZoneId) -> ZoneOffset {
-    return zoneoffset_utc()
+// The zone called `name`, read from the system's IANA time zone files (see `tzdata`), or an Err
+// when the name is unknown or the system has no zone database. `UTC` and `Z` always work.
+pub fn zoneid_of(name: string) -> Result<ZoneId, string> {
+    if name == "UTC" || name == "Z" {
+        return ok(zoneid_utc())
+    }
+    val rules = load_rules(name)?
+    return ok(ZoneId { name: name, rules: rules })
+}
+
+// The offset from UTC in force in `z` at the instant `i`: `-05:00` in New York in January,
+// `-04:00` in July.
+pub fn zoneid_offset_at(z: ZoneId, i: Instant) -> ZoneOffset {
+    return ZoneOffset { total_seconds: type_at(z.rules, i.seconds).utoff }
+}
+
+// True when `z` is on daylight saving time at the instant `i`.
+pub fn zoneid_is_dst_at(z: ZoneId, i: Instant) -> bool {
+    return type_at(z.rules, i.seconds).dst
+}
+
+// The abbreviation `z` uses at the instant `i`: `EST`, `EDT`, `CET`, or `+03` where the zone has
+// no letters.
+pub fn zoneid_abbreviation_at(z: ZoneId, i: Instant) -> string {
+    return type_at(z.rules, i.seconds).name
 }
 
 // The name of `z`.
@@ -1031,14 +1061,9 @@ pub fn zoneid_to_string(z: ZoneId) -> string {
     return z.name
 }
 
-// There being exactly one legal value ("UTC") makes this mostly a
-// formality, but every other type here has a _parse, so this does too
-// rather than being a silent exception to the pattern.
+// The zone called `s`; the same as `zoneid_of`, named for the `_from_string` convention.
 pub fn zoneid_from_string(s: string) -> Result<ZoneId, string> {
-    if s != "UTC" {
-        return err(format("invalid zone id '{}': only 'UTC' is supported", s))
-    }
-    return ok(zoneid_utc())
+    return zoneid_of(s)
 }
 
 // A point on the timeline, as `seconds` since 1970-01-01T00:00:00Z and `nanos` (0 to 999999999);
@@ -1102,6 +1127,34 @@ pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instan
     val sec_of_day = dt.time.hour * seconds_per_hour + dt.time.minute * 60 + dt.time.second
     val total_seconds = epoch_day * seconds_per_day + sec_of_day - offset.total_seconds
     return instant_of(total_seconds, dt.time.nano)
+}
+
+// The wall-clock date and time in zone `z` at the instant `i`, daylight saving applied.
+pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime {
+    return instant_to_localdatetime(i, zoneid_offset_at(z, i))
+}
+
+// The instant at which a clock in zone `z` reads `dt`. Two readings need a rule. When the clocks
+// go back, `dt` happens twice and the earlier instant is returned. When the clocks go forward,
+// `dt` never happens (02:30 on the night the hour 02:00 to 03:00 is skipped) and the result is
+// `dt` moved forward by the length of the gap (03:30), as `java.time` does.
+pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant {
+    val as_utc = localdatetime_to_instant(dt, zoneoffset_utc())
+    val before = zoneid_offset_at(z, instant_add(as_utc, duration_of_seconds(-seconds_per_day, 0)))
+    val after = zoneid_offset_at(z, instant_add(as_utc, duration_of_seconds(seconds_per_day, 0)))
+    var best = Option<Instant>.None
+    for offset in [before, after] {
+        val candidate = instant_add(as_utc, duration_of_seconds(-offset.total_seconds, 0))
+        if zoneid_offset_at(z, candidate) == offset {
+            if Option.is_None(best) || instant_compare(candidate, Option.unwrap_Some(best)) < 0 {
+                best = Option<Instant>.Some(candidate)
+            }
+        }
+    }
+    if Option.is_Some(best) {
+        return Option.unwrap_Some(best)
+    }
+    return instant_add(as_utc, duration_of_seconds(-before.total_seconds, 0))
 }
 
 // Formats `i` as wall-clock time under `offset` (via

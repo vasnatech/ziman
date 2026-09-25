@@ -266,6 +266,22 @@ pub native fn u32_from_bytes(b: [byte], offset: int) -> int
 
 The unsigned big-endian integer of 4 bytes starting at `offset` in `b`.
 
+### `i32_from_bytes`
+
+```
+pub native fn i32_from_bytes(b: [byte], offset: int) -> int
+```
+
+The signed (two's complement) big-endian integer of 4 bytes starting at `offset` in `b`.
+
+### `i64_from_bytes`
+
+```
+pub native fn i64_from_bytes(b: [byte], offset: int) -> int
+```
+
+The signed (two's complement) big-endian integer of 8 bytes starting at `offset` in `b`.
+
 ### `f64_from_bytes`
 
 ```

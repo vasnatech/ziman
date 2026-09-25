@@ -647,16 +647,8 @@ several languages rather than inheriting any one of them wholesale.
 - **`time`/`clock` — seven `java.time`-shaped types, one new native
   primitive, and a representation that changed twice during design.**
   The scope was deliberately narrowed once up front: `ZoneOffset` only,
-  no IANA-style `ZoneId` with historical/future DST rules. A named
-  political timezone encodes rules that change several times a year
-  worldwide (the IANA tzdata database) — embedding or maintaining that
-  from scratch is a different *kind* of problem than the rest of this
-  module (a one-time design-and-implement cost), not just more code, so
-  it was ruled out rather than attempted. `ZoneId` still exists as a
-  thin wrapper (`{ name: string }`), but `"UTC"` is the only value
-  `zoneid_utc()` can ever produce — `zoneid_to_offset` always returns
-  UTC's offset regardless of what `ZoneId` it's given, honestly, since
-  nothing else is possible yet.
+  with `ZoneId` a thin wrapper that could only name `"UTC"`. Named
+  political timezones were added later (see "Named time zones" below).
   `Instant`/`Duration`'s representation went through two designs before
   landing: first a single `bigint` nanoseconds-since-epoch/nanoseconds
   count (elegant — `bigint` already has full native `+ - * / < > <= >=
@@ -701,6 +693,26 @@ several languages rather than inheriting any one of them wholesale.
   types — every one gets an explicit `_compare(a, b) -> int` instead,
   same "don't reopen Ord/Cmp without a forcing case" posture held
   throughout this project.
+- **Named time zones (`zoneid_of`, module `tzdata`).** Read from the operating
+  system's compiled zone files (TZif, `$TZDIR` or `/usr/share/zoneinfo`)
+  rather than embedding the IANA database: the data changes several times a
+  year and is the operating system's to keep current, and a program that runs
+  where the files are absent gets an Err, never a wrong offset. `tzdata` parses
+  the version 2+ block (64-bit transitions), keeps the transition list and the
+  local time types as parallel arrays of scalars (Ziman compares arrays of
+  structs by reference-free `==` only for scalars, and `ZoneId` has to stay
+  comparable), and reads the POSIX rule string in the file footer (`M`, `J` and
+  day-number forms, offsets like `<+0330>-3:30`, an optional `/time`) for the
+  years after the last listed transition, so `2100-07-01` in New York is EDT
+  without a table. `localdatetime_to_instant_in` probes the offsets a day
+  before and after and keeps the valid ones: two mean an overlap (the earlier
+  instant wins), none a gap (moved forward by the gap, as `java.time`). Zone
+  names are checked before they become a path (letters, digits, `_+-/`, no
+  `..`, no leading slash). Tests use copies of seven zone files under
+  `tests/fixtures/tzdata` selected with `TZDIR`, so the suite does not depend on
+  the machine's tzdata. Not done: leap seconds (ignored), the historical
+  `Zone.Rules` API (`transitions`, next/previous transition), and a bundled
+  fallback for systems without zone files.
 - **`docs/CORELIB.md` — a generated reference, not a hand-written one,
   once the core-module surface got big enough to need one.** All
   following a strict `typename_verb` naming convention specifically so
