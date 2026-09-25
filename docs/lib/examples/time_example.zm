@@ -1,0 +1,23 @@
+use time
+
+// Dates, times, durations and instants. Constructors check their fields and return a Result.
+fn main() {
+    val d = unwrap(time.localdate_of(2026, 1, 31))
+    print(time.localdate_to_string(d))
+    print(time.localdate_to_string(time.localdate_add_months(d, 1)))  // clamped to the month's length
+    print(is_ok(time.localdate_of(2026, 2, 30)))
+    print(time.localdate_diff_days(unwrap(time.localdate_of(2026, 12, 25)), d))
+
+    val dt = time.localdatetime_of(d, unwrap(time.localtime_of(23, 30, 0, 0)))
+    print(time.localdatetime_to_string(time.localdatetime_add_minutes(dt, 45)))  // carries into the next day
+
+    // An instant is a point on the timeline; an offset says how a clock reads it.
+    val at = time.localdatetime_to_instant(dt, unwrap(time.zoneoffset_of_hours_minutes(5, 30)))
+    print(time.instant_to_string(at))
+    print(time.instant_to_string(time.instant_add(at, time.duration_of_seconds(90, 0))))
+
+    // Any type reads back its own text form; a pattern is compiled once and reused.
+    print(time.duration_to_string(unwrap(time.duration_from_string("PT1.5S"))))
+    val fmt = time.datetime_format_of("dd/MM/yyyy HH:mm")
+    print(time.localdatetime_format(dt, fmt))
+}

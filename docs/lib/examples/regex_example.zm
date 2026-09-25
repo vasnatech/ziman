@@ -1,0 +1,8 @@
+use regex
+
+fn main() {
+    val re = unwrap(regex.compile("(\\w+)@(\\w+)\\.com"))
+    print(Option.is_Some(regex.find(re, "mail bob@site.com now")))
+    print(regex.replace_all(re, "bob@site.com, amy@corp.com", "$2: $1"))
+    print(is_ok(regex.compile("(unclosed")))
+}

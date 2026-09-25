@@ -36,7 +36,7 @@ Auto-generated from each `lib/core/*.zm` or `lib/db/*.zm` file's own `pub` decla
 blocks below**; regenerate with `make corelib-reference` after changing
 any core module (adding, removing, or renaming a `pub struct`/`pub enum`/
 `pub fn`/`pub native fn`/`pub val`). This is a signature lookup, not an
-explanation -- see docs/SYNTAX.md for full semantics and docs/DESIGN.md
+explanation -- see the manual in docs/lib/ for how to use each module, docs/SYNTAX.md for full semantics and docs/DESIGN.md
 for why each module is shaped the way it is.
 
 `use <module>` resolves any of these with no local file needed (see

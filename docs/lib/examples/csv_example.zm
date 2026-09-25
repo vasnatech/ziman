@@ -1,0 +1,8 @@
+use csv
+use json
+use json.Json
+
+fn main() {
+    val table = unwrap(csv.parse_csv("name,age\nAda,36\nGrace,45\n"))
+    print(json.json_to_string(table))
+}

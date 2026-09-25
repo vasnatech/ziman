@@ -1,0 +1,327 @@
+# `client`
+
+An HTTP/1.1 *client*, written in Ziman on top of `net`, so a Ziman program can
+call another service (the server side is `server`; the types they share are in `http`).
+
+
+```
+val r = client.get("https://example.com/api/items?limit=5")
+val resp = client.request(method: HttpMethod.Post, url: u, body: "{\"a\":1}",
+                              headers: [http.Header { name: "Content-Type", value: "application/json" }])
+```
+
+`http://` and `https://` URLs (TLS with full certificate verification). What it does for you:
+  * keep-alive: an idle connection is reused for the next request to the same place (and a request
+    that finds the parked connection dead is sent again on a fresh one);
+  * compression: it asks for `gzip`/`deflate` and decodes the body (see `compress`);
+  * redirects: 301/302/303/307/308, up to `max_redirects` (default 5; 0 = don't follow); 303 and a
+    301/302 answering a POST are re-sent as GET without a body, and an `Authorization` header is not
+    sent to a different host;
+  * proxies: `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment, or the `proxy` argument;
+    https goes through a CONNECT tunnel;
+  * cookies: with a `CookieJar` (`request_with_jar`), cookies a server sets are sent back;
+  * credentials in the URL (`https://user:pass@host/`) become a Basic `Authorization` header.
+Bodies are read by `Content-Length`, `Transfer-Encoding: chunked`, or until the server closes.
+
+A response comes back as an `http.Response` (text body) from `request`/`get`/`post_json`, or as a
+`BytesResponse` (`[byte]` body) from `request_bytes`, the one to use for images, files and other binary
+data. **Any** status, including 404 or 500, is `Ok` -- an `Err` means the exchange itself failed (bad
+URL, network, timeout, malformed response, too large). Bodies are capped at 8 MiB after decompression
+(`TooLarge`). A text-body function given a binary body (a NUL byte) fails with `BadResponse` -- use
+`request_bytes`. Not yet: request bodies streamed from a file, HTTP/2, streaming responses.
+
+`use client` -- or `use client.Name` to bring one item in bare.
+
+## Example
+
+```
+use client
+use http
+use http.HttpMethod
+use net
+use server
+use server.ServeOptions
+
+// A tiny server and a client in one program, talking over the loopback interface.
+fn handle(req: http.Request) -> http.Response {
+    val hit = server.route(req, HttpMethod.Get, "/hello/{name}")
+    if Option.is_Some(hit) {
+        return server.text_response(200, concat("hello ", server.param(Option.unwrap_Some(hit), "name")))
+    }
+    return server.not_found()
+}
+
+fn main() {
+    val listener = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(listener)
+    val options = ServeOptions { idle_timeout_ms: 2000, max_connections: 4, log_requests: false }
+    spawn server.serve(listener, handle, options)
+
+    val base = format("http://127.0.0.1:{}", port)
+    val ok = unwrap(client.get(concat(base, "/hello/ada")))
+    print(ok.status)
+    print(ok.body)
+    // Any status is Ok; only a failed exchange is an Err.
+    print(unwrap(client.get(concat(base, "/nowhere"))).status)
+    print(is_ok(client.get("http://127.0.0.1:1/")))
+}
+```
+
+Output:
+
+```
+200
+hello ada
+404
+false
+```
+
+### `BytesResponse`
+
+```
+pub struct BytesResponse {
+    status: int
+    headers: [Header]
+    body: [byte]
+}
+```
+
+Like `http.Response`, but the body is raw bytes.
+
+### `ClientError`
+
+```
+pub enum ClientError {
+    BadUrl(string)
+    Network(string)
+    Timeout
+    BadResponse(string)
+    TooLarge
+    TooManyRedirects
+}
+```
+
+Why an exchange failed (any HTTP status, even 500, is a success).
+
+### `error_message`
+
+```
+pub fn error_message(e: ClientError) -> string
+```
+
+The error as one line of text, for logging or showing to a user.
+
+### `Url`
+
+```
+pub struct Url {
+    secure: bool
+    host: string
+    port: int
+    target: string
+    userinfo: string
+}
+```
+
+A parsed `http://` or `https://` URL. `target` is the path and query as they go on the request line
+("/" if the URL has none); a #fragment is dropped; `userinfo` is the raw `user:password` before an
+`@` in the authority ("" if none).
+
+### `parse_url`
+
+```
+pub fn parse_url(url: string) -> Result<Url, string>
+```
+
+Parses an `http://` or `https://` URL. An Err says what is wrong: another scheme, a missing host, an
+unterminated `[` in an IPv6 host, a bad port.
+
+## Reading
+
+### `response_header`
+
+```
+pub fn response_header(r: Response, name: string) -> Option<string>
+```
+
+The first header called `name` (any case) of a response, or None.
+
+## Sending
+
+### `close_idle`
+
+```
+pub fn close_idle()
+```
+
+Closes every parked keep-alive connection.
+
+## Cookies
+
+### `Cookie`
+
+```
+pub struct Cookie {
+    name: string
+    value: string
+    domain: string
+    path: string
+    secure: bool
+    host_only: bool
+    expires: int
+}
+```
+
+One stored cookie. `expires` is seconds since the epoch, -1 for a session cookie.
+
+### `CookieJar`
+
+```
+pub struct CookieJar {
+    cookies: [Cookie]
+}
+```
+
+The cookies a client is holding, passed to `request_with_jar` and returned updated. Make an
+empty one with `cookie_jar()`.
+
+### `cookie_jar`
+
+```
+pub fn cookie_jar() -> CookieJar
+```
+
+A jar with no cookies.
+
+### `JarResponse`
+
+```
+pub struct JarResponse {
+    response: Response
+    jar: CookieJar
+}
+```
+
+A response together with the cookie jar as the exchange left it.
+
+### `jar_store`
+
+```
+pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar
+```
+
+The jar with the cookies in a response's `Set-Cookie` headers stored (replacing ones of the same
+name, domain and path; an already expired one deletes it). `u` is the URL that was requested.
+
+### `jar_header`
+
+```
+pub fn jar_header(jar: CookieJar, u: Url) -> Option<string>
+```
+
+The `Cookie` header value for a request to `u` -- `a=1; b=2` -- from the jar's matching cookies (longer
+paths first), or None if none match.
+
+## Requests
+
+### `request`
+
+```
+pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
+    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
+    compress: Option<bool>, reuse: Option<bool>) -> Result<Response, ClientError>
+```
+
+Sends one request and returns the (final) response, body as text.
+  method        an `http.HttpMethod` (`HttpMethod.Get`, `HttpMethod.Post`, ...)
+  headers       extra request headers; Host, Content-Length and Connection are always set by the client
+  body          the request body, if any
+  timeout_ms    per read/write, default 30000
+  max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
+  ca_file       a PEM file of trusted CAs for https, instead of the system store (a private CA, a test
+                certificate); the certificate is always verified
+  proxy         a proxy URL (`http://host:port`, optionally `user:pass@`); "" for none; if omitted, the
+                `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` environment variables decide
+  compress      ask for gzip/deflate and decode the body (default true)
+  reuse         keep the connection for the next request to the same place (default true)
+
+### `request_bytes`
+
+```
+pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
+    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
+    compress: Option<bool>, reuse: Option<bool>) -> Result<BytesResponse, ClientError>
+```
+
+Sends one request and returns the (final) response, body as bytes -- the general function; `request`
+is this with text bodies. Arguments as for `request`.
+
+### `request_with_jar`
+
+```
+pub fn request_with_jar(jar: CookieJar, method: HttpMethod, url: string, headers: Option<[Header]>,
+    body: Option<string>,
+    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
+    compress: Option<bool>, reuse: Option<bool>) -> Result<JarResponse, ClientError>
+```
+
+`request`, with cookies: the jar's matching cookies are sent (on every redirect hop too), and the
+cookies the responses set are stored. Returns the response and the updated jar; pass that jar to the
+next call to stay "logged in". Other arguments as for `request`.
+
+### `get`
+
+```
+pub fn get(url: string) -> Result<Response, ClientError>
+```
+
+GET `url`.
+
+### `head`
+
+```
+pub fn head(url: string) -> Result<Response, ClientError>
+```
+
+HEAD `url`: the status and headers, no body.
+
+### `delete`
+
+```
+pub fn delete(url: string) -> Result<Response, ClientError>
+```
+
+DELETE `url`.
+
+### `post_json`
+
+```
+pub fn post_json(url: string, body: string) -> Result<Response, ClientError>
+```
+
+POST with a JSON body: sets `Content-Type: application/json`.
+
+### `put_json`
+
+```
+pub fn put_json(url: string, body: string) -> Result<Response, ClientError>
+```
+
+PUT with a JSON body: sets `Content-Type: application/json`.
+
+### `form_encode`
+
+```
+pub fn form_encode(fields: Map<string, string>) -> string
+```
+
+The fields as an `application/x-www-form-urlencoded` body: `a=1&b=x+y`, names and values
+percent-encoded, in the map's insertion order.
+
+### `post_form`
+
+```
+pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, ClientError>
+```
+
+POST an HTML-form-style body built from `fields` (`Content-Type: application/x-www-form-urlencoded`).

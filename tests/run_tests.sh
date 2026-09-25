@@ -108,6 +108,18 @@ for dir in tests/fixtures/*/; do
     fi
 done
 
+# The worked examples printed in the library manual (docs/lib/examples/<module>_example.zm) are real
+# programs: each must print exactly its <module>.out, which the manual shows beside it.
+for zm in docs/lib/examples/*_example.zm; do
+    [ -f "$zm" ] || continue
+    name=$(basename "$zm" .zm)
+    if [ "$(timeout 5 "$BIN" "$zm" 2>&1)" = "$(cat "${zm%.zm}.out")" ]; then
+        echo "PASS $name"; pass=$((pass + 1))
+    else
+        echo "FAIL $name (docs/lib/examples/$(basename "$zm") does not print its .out)"; fail=$((fail + 1))
+    fi
+done
+
 # Real-signal tests (a fixture can't signal its own process).
 while IFS= read -r line; do
     echo "$line"

@@ -1,0 +1,20 @@
+# `random`
+
+Randomness from the operating system.
+
+One native function, reading real entropy from the OS (`/dev/urandom`). It is the source of
+all non-determinism a program has besides the clock; there is deliberately no seedable
+pseudo-random generator (a program that wants one can build it on these bytes). `uuid` is
+built on it. See docs/DESIGN.md's "random" entry.
+
+`use random` -- or `use random.Name` to bring one item in bare.
+
+### `random_bytes`
+
+```
+pub native fn random_bytes(n: int) -> [byte]
+```
+
+`n` random bytes from the operating system's entropy pool, suitable for keys, tokens and
+salts. `n` is 0 or more (a negative `n` is a runtime error); the call fails with a runtime
+error if the entropy source cannot be read.

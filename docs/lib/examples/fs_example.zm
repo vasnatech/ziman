@@ -1,0 +1,22 @@
+use fs
+
+// Every call that can fail returns a Result carrying the operating system's message.
+fn main() {
+    val dir = "/tmp/ziman_manual_fs_example"
+    unwrap(fs.make_dirs(fs.path_join(dir, "notes")))
+    val path = fs.path_join(dir, "notes", "todo.txt")
+
+    unwrap(fs.write_text(path, "buy milk\n"))
+    unwrap(fs.append_text(path, "call Ada\n"))
+    print(trim(unwrap(fs.read_text(path))))
+    print(fs.file_name(path))
+    print(fs.extension(path))
+    print(unwrap(fs.list_dir(fs.parent_dir(path))))
+
+    print(is_ok(fs.read_text(fs.path_join(dir, "missing.txt"))))
+
+    unwrap(fs.remove(path))
+    unwrap(fs.remove(fs.parent_dir(path)))
+    unwrap(fs.remove(dir))
+    print(fs.exists(dir))
+}

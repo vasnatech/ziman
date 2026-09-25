@@ -1,8 +1,29 @@
-// time.zm -- LocalDate, LocalTime, LocalDateTime, Duration, Instant,
-// ZoneOffset, ZoneId, written in ordinary Ziman (no native code beyond
-// `clock.now_raw`, the one thing that genuinely can't be pure Ziman:
-// reading the system clock). Modeled on java.time, scoped down in two
-// deliberate ways:
+// time.zm -- dates, times, durations and instants, modeled on java.time and written in ordinary
+// Ziman (the only native code is `clock.now_raw`, which reads the system clock).
+//
+// Seven types, all plain structs with `==`/`!=` and a `_compare` function that makes them `Ord`
+// (so `compare` and `collections.sort` work on them):
+//
+//   LocalDate       a calendar date: year, month, day
+//   LocalTime       a time of day, to the nanosecond
+//   LocalDateTime   a date and a time of day, with no zone
+//   Duration        a length of time: seconds and nanoseconds
+//   Instant         a point on the timeline: seconds and nanoseconds since 1970-01-01T00:00:00Z
+//   ZoneOffset      a fixed offset from UTC, such as `+05:30`
+//   ZoneId          a zone name; only `UTC` exists (no IANA zones or daylight saving yet)
+//
+// Build a value with its `_of` function, which checks the fields and returns a `Result`; add to it
+// with `_add_*`; compare with `_compare`. Every type reads and writes its ISO-8601 form with
+// `_to_string` / `_from_string` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:30`). The calendar
+// types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
+// `datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), each fixed
+// width, anything else copied through as literal text. Every type has `_to_json` / `_from_json`
+// and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
+// types (an ISO string, and a TEXT column).
+//
+// Limits: years are 0 or later (no BCE), and there is no locale, month name or weekday support.
+
+// Implementation notes. Modeled on java.time, scoped down in two deliberate ways:
 //
 // - ZoneOffset only, no IANA-style ZoneId with historical/future DST
 //   rules. A named political timezone ("America/New_York") encodes

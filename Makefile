@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal corelib-reference
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal corelib-reference lib-manual-check
 
 all: $(BIN)
 
@@ -111,7 +111,7 @@ test-mysql: $(BIN)
 # formatted by `ziman --fmt` (tests/fixtures is not: fixtures that test error
 # positions depend on their exact layout).
 fmt-check: $(BIN)
-	./$(BIN) --fmt --check $$(find lib tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm') ../health-record/health-record-backend-ziman/*.zm ../health-record/health-record-backend-ziman/*/*.zm
+	./$(BIN) --fmt --check $$(find lib docs/lib/examples tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm') ../health-record/health-record-backend-ziman/*.zm ../health-record/health-record-backend-ziman/*/*.zm
 
 test-lsp: $(BIN)
 	python3 tests/lsp/lsp_test.py ./$(BIN)
@@ -132,7 +132,7 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	/tmp/ziman_decimal_test
 
-# docs/CORELIB.md is generated from the lib/core and lib/db modules' own `pub` declarations
+# docs/CORELIB.md and the manual in docs/lib/ are generated from the lib/core and lib/db modules' own `pub` declarations
 # (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make
 # all` since it's a doc, not a build input; run by hand after touching
 # any core module's public API. The generated file is still checked into
@@ -140,6 +140,12 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 # just consumed by the build.
 corelib-reference:
 	./tools/gen_corelib_reference.sh > docs/CORELIB.md
+	python3 tools/gen_lib_manual.py
+
+# Fails when docs/lib is not what the current lib/ sources generate (run `make corelib-reference`).
+lib-manual-check: $(BIN)
+	python3 tools/gen_lib_manual.py
+	git diff --exit-code --stat -- docs/lib
 
 clean:
 	rm -f $(BIN) ziman-nogc src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
