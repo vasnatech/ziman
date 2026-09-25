@@ -27,6 +27,9 @@ native fn group_names_raw(handle: int) -> [string]
 native fn search_raw(handle: int, text: string, from: int) -> [int]
 native fn search_all_raw(handle: int, text: string) -> [int]
 
+// (A pattern compiled before is looked up, not recompiled: the compiler keeps the last 256
+// distinct patterns, so `compile` in a loop or on every request is cheap.)
+//
 // A compiled pattern. Immutable and shareable between threads; compile once.
 pub struct Regex {
     handle: int
@@ -45,7 +48,9 @@ pub struct Match {
     names: [string]
 }
 
-// The error message names the position of the problem.
+// Compiles `pattern`. An Err names the position of the problem. (A pattern compiled before is
+// looked up, not recompiled: the last 256 distinct patterns are kept, so `compile` in a loop or
+// on every request is cheap.)
 pub fn compile(pattern: string) -> Result<Regex, string> {
     val handle = compile_raw(pattern)?
     return ok(Regex { handle: handle, groups: group_count_raw(handle), pattern: pattern,
@@ -71,6 +76,7 @@ fn match_of(re: Regex, text: string, caps: [int], at: int) -> Match {
     }
 }
 
+// True if the pattern matches anywhere in `text`.
 pub fn is_match(re: Regex, text: string) -> bool {
     return len(search_raw(re.handle, text, 0)) > 0
 }
@@ -84,6 +90,7 @@ pub fn find_from(re: Regex, text: string, from: int) -> Option<Match> {
     return Option<Match>.Some(match_of(re, text, caps, 0))
 }
 
+// The first match in `text`, or None.
 pub fn find(re: Regex, text: string) -> Option<Match> {
     return find_from(re, text, 0)
 }
@@ -224,6 +231,7 @@ pub fn replace(re: Regex, text: string, replacement: string) -> string {
     return replace_matches(re, text, replacement, true)
 }
 
+// Replaces every non-overlapping match; see `expand` for `$1`-style references.
 pub fn replace_all(re: Regex, text: string, replacement: string) -> string {
     return replace_matches(re, text, replacement, false)
 }

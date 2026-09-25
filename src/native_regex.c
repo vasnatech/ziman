@@ -7,6 +7,8 @@
 
 #include "error.h"
 #include "native.h"
+#include <pthread.h>
+
 #include "regex.h"
 #include "value.h"
 
@@ -26,16 +28,61 @@ static RegexHandle *handle_of(Value v, int line, int col) {
     return h;
 }
 
+/* A small cache of compiled patterns, so compiling the same pattern text again (in a loop, or
+ * on every request) costs a lookup instead of a compile. A compiled pattern is immutable, so
+ * sharing one handle between callers is safe; the oldest entry is replaced when the cache is
+ * full. Only successful compiles are cached. */
+enum { CACHE_SIZE = 256 };
+typedef struct {
+    char *pattern;
+    size_t len;
+    RegexHandle *handle;
+} CacheEntry;
+static CacheEntry g_cache[CACHE_SIZE];
+static int g_cache_next = 0;
+static pthread_mutex_t g_cache_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static RegexHandle *cache_lookup(const char *pattern, size_t len) {
+    RegexHandle *found = NULL;
+    pthread_mutex_lock(&g_cache_mu);
+    for (int i = 0; i < CACHE_SIZE; i++) {
+        if (g_cache[i].handle != NULL && g_cache[i].len == len && memcmp(g_cache[i].pattern, pattern, len) == 0) {
+            found = g_cache[i].handle;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_cache_mu);
+    return found;
+}
+
+static void cache_store(const char *pattern, size_t len, RegexHandle *h) {
+    pthread_mutex_lock(&g_cache_mu);
+    CacheEntry *slot = &g_cache[g_cache_next];
+    g_cache_next = (g_cache_next + 1) % CACHE_SIZE;
+    char *copy = malloc(len + 1);
+    memcpy(copy, pattern, len);
+    copy[len] = '\0';
+    slot->pattern = copy;
+    slot->len = len;
+    slot->handle = h;
+    pthread_mutex_unlock(&g_cache_mu);
+}
+
 static Value native_regex_compile_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type str = type_scalar(TY_STRING);
     Type rt = type_result(type_scalar(TY_INT), str);
+    const char *pattern = args[0].as.str.ptr;
+    size_t plen = args[0].as.str.len;
+    RegexHandle *cached = cache_lookup(pattern, plen);
+    if (cached != NULL) return value_result(rt, result_obj_new(1, value_int((int64_t)(intptr_t)cached)));
     char err[256];
-    Regex *re = regex_compile(args[0].as.str.ptr, args[0].as.str.len, err, sizeof err);
+    Regex *re = regex_compile(pattern, plen, err, sizeof err);
     if (re == NULL) return value_result(rt, result_obj_new(0, value_string(strdup(err))));
     RegexHandle *h = malloc(sizeof(RegexHandle));
     h->magic = REGEX_MAGIC;
     h->re = re;
+    cache_store(pattern, plen, h);
     return value_result(rt, result_obj_new(1, value_int((int64_t)(intptr_t)h)));
 }
 

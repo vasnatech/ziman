@@ -1,0 +1,24 @@
+use regex
+
+fn main() {
+    // compiling the same pattern again is a lookup: the handles are the same, results identical
+    var total = 0
+    for i in 0..3000 {
+        val re = unwrap(regex.compile("([a-z]+)([0-9]+)"))
+        val m = regex.find(re, "xx abc123 yy")
+        total = total + len(Option.unwrap_Some(m).text)
+    }
+    print(total)
+    print(is_ok(regex.compile("(")))
+    print(unwrap_err(regex.compile("(")))
+    print(unwrap_err(regex.compile("(")))
+    // more distinct patterns than the cache holds still all work
+    var ok_count = 0
+    for i in 0..600 {
+        val re = unwrap(regex.compile(concat("a", str(i))))
+        if regex.is_match(re, format("xa{}y", i)) {
+            ok_count = ok_count + 1
+        }
+    }
+    print(ok_count)
+}
