@@ -8,7 +8,10 @@
     { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#booleans" },
+    { "include": "#attributes" },
     { "include": "#primitive-types" },
+    { "include": "#builtin-types" },
+    { "include": "#builtin-functions" },
     { "include": "#declarations" },
     { "include": "#keywords" },
     { "include": "#function-calls" },
@@ -38,6 +41,11 @@
     "numbers": {
       "patterns": [
         {
+          "comment": "bigint (123n), decimal (19.99d) and byte (200b) literals",
+          "name": "constant.numeric.suffixed.ziman",
+          "match": "\\b[0-9]+(\\.[0-9]+)?[nd]\\b|\\b[0-9]+b\\b"
+        },
+        {
           "name": "constant.numeric.float.ziman",
           "match": "\\b[0-9]+\\.[0-9]+\\b"
         },
@@ -53,7 +61,22 @@
     },
     "primitive-types": {
       "name": "support.type.primitive.ziman",
-      "match": "\\b(int|float|bool|string)\\b"
+      "match": "\\b(int|float|bool|string|bigint|decimal|byte)\\b"
+    },
+    "attributes": {
+      "comment": "#[derive(Json, Ord, ...)]",
+      "name": "meta.attribute.ziman",
+      "match": "#\\[[^\\]]*\\]"
+    },
+    "builtin-types": {
+      "comment": "the language's built-in generic types",
+      "name": "support.type.builtin.ziman",
+      "match": "\\b(Result|Option|Channel|Map|Set)\\b"
+    },
+    "builtin-functions": {
+      "comment": "builtins available without a use; a call to one is highlighted as a builtin, not an ordinary function",
+      "name": "support.function.builtin.ziman",
+      "match": "\\b(print|printf|format|str|len|push|insert|set|remove|contains|hash|compare|abs|min|max|ok|err|is_ok|unwrap|unwrap_err|channel_new|send|receive|try_send|try_receive|channel_len|map_get|map_keys|map_values|set_items|map_get_or|map_merge|map_filter|map_remove_all|map_from_arrays|set_union|set_intersect|set_difference|set_is_subset|set_from_array|set_insert_all|set_filter|concat_arrays|sb_new|sb_append|sb_append_byte|sb_to_string|sb_len|ab_new|ab_append|ab_to_array|ab_len|string_to_bytes|bytes_to_string|bytes_concat)(?=\\s*[(<])"
     },
     "declarations": {
       "comment": "Captures the name at a fn/struct declaration site distinctly from an ordinary reference to it.",
