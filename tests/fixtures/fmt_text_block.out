@@ -1,0 +1,14 @@
+fn q(a: string, b: int, c: string) -> string { return concat(a, c) }
+
+fn main() {
+    val r = q("""
+        select 1
+          from t
+        """, 1, "tail")
+    print(r)
+    if true {
+        print(q("""
+    a
+    """, 2, "b"))
+    }
+}

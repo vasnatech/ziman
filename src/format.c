@@ -44,6 +44,22 @@ static int scan(const char *src, size_t len, Items *out, char *err, size_t err_s
             it.kind = K_COMMENT;
             it.len = (int)(j - i);
             i = j;
+        } else if (c == '"' && i + 2 < len && src[i + 1] == '"' && src[i + 2] == '"') {
+            /* a text block runs to its closing """ and is kept exactly as written */
+            size_t j = i + 3;
+            int start_line = line;
+            while (j + 2 < len && !(src[j] == '"' && src[j + 1] == '"' && src[j + 2] == '"')) {
+                if (src[j] == '\\' && j + 1 < len) j++;
+                else if (src[j] == '\n') line++;
+                j++;
+            }
+            if (j + 2 >= len) {
+                snprintf(err, err_size, "line %d: unterminated text block", start_line);
+                return 0;
+            }
+            it.kind = K_STRING;
+            it.len = (int)(j + 3 - i);
+            i = j + 3;
         } else if (c == '"') {
             size_t j = i + 1;
             while (j < len && src[j] != '"' && src[j] != '\n') {

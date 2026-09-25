@@ -5,6 +5,7 @@
   "fileTypes": ["zm"],
   "patterns": [
     { "include": "#comments" },
+    { "include": "#text-blocks" },
     { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#booleans" },
@@ -24,6 +25,17 @@
         {
           "name": "comment.line.double-slash.ziman",
           "match": "//.*$"
+        }
+      ]
+    },
+    "text-blocks": {
+      "name": "string.quoted.triple.ziman",
+      "begin": "\"\"\"",
+      "end": "\"\"\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ziman",
+          "match": "\\\\[ntr\"\\\\]"
         }
       ]
     },

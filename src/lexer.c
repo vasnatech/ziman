@@ -124,6 +124,111 @@ static TokenType ident_or_keyword(const char *start, int length) {
     return TOK_IDENT;
 }
 
+/* A text block: `"""`, a newline, the text, then `"""`. The first newline and the one before the
+ * closing delimiter are not part of the value; the indentation shared by every non-blank line (and
+ * by the closing delimiter's own line when it holds only whitespace) is removed, and trailing
+ * blanks are trimmed from each line. Escapes are the ordinary ones, decoded after that. */
+static int escape_value(char esc, char *out) {
+    switch (esc) {
+        case 'n': *out = '\n'; return 1;
+        case 't': *out = '\t'; return 1;
+        case 'r': *out = '\r'; return 1;
+        case '"': *out = '"'; return 1;
+        case '\\': *out = '\\'; return 1;
+        default: return 0;
+    }
+}
+
+static void lex_text_block(Lexer *lx) {
+    int line = lx->line, col = lx->col;
+    advance(lx); advance(lx); advance(lx); /* opening """ */
+    while (peek(lx) == ' ' || peek(lx) == '\t' || peek(lx) == '\r') advance(lx);
+    if (peek(lx) != '\n') {
+        ziman_error("lexical", line, col, "a text block's opening \"\"\" must end its line");
+    }
+    advance(lx);
+
+    /* the raw text up to the closing delimiter, escapes untouched */
+    size_t cap = 64, rawlen = 0;
+    char *raw = malloc(cap);
+    for (;;) {
+        char c = peek(lx);
+        if (c == '\0') ziman_error("lexical", line, col, "unterminated text block");
+        if (c == '"' && lx->src[lx->pos + 1] == '"' && lx->src[lx->pos + 2] == '"') {
+            advance(lx); advance(lx); advance(lx);
+            break;
+        }
+        if (rawlen + 2 >= cap) { cap *= 2; raw = realloc(raw, cap); }
+        raw[rawlen++] = advance(lx);
+        if (c == '\\') {
+            if (peek(lx) == '\0') ziman_error("lexical", line, col, "unterminated text block");
+            raw[rawlen++] = advance(lx);
+        }
+    }
+    raw[rawlen] = '\0';
+
+    /* split into lines; the last one is the text before the closing delimiter */
+    size_t nlines = 1;
+    for (size_t i = 0; i < rawlen; i++) if (raw[i] == '\n') nlines++;
+    char **ls = malloc(nlines * sizeof(char *));
+    size_t *ln = malloc(nlines * sizeof(size_t));
+    size_t k = 0, start = 0;
+    for (size_t i = 0; i <= rawlen; i++) {
+        if (i == rawlen || raw[i] == '\n') {
+            size_t end = i;
+            if (end > start && raw[end - 1] == '\r') end--;
+            ls[k] = raw + start;
+            ln[k] = end - start;
+            k++;
+            start = i + 1;
+        }
+    }
+    /* a closing line holding only blanks contributes its indent and is not a text line */
+    size_t last = nlines - 1;
+    int closer_alone = 1;
+    for (size_t i = 0; i < ln[last]; i++) if (ls[last][i] != ' ' && ls[last][i] != '\t') closer_alone = 0;
+    size_t nfull = closer_alone ? last : nlines;
+    size_t indent = (size_t)-1;
+    for (size_t i = 0; i < nlines; i++) {
+        int blank = 1;
+        size_t lead = 0;
+        for (size_t j = 0; j < ln[i]; j++) {
+            if (ls[i][j] == ' ' || ls[i][j] == '\t') { if (blank) lead++; }
+            else blank = 0;
+        }
+        if (blank && !(i == last && closer_alone)) continue;
+        if (blank) lead = ln[i];
+        if (lead < indent) indent = lead;
+    }
+    if (indent == (size_t)-1) indent = 0;
+
+    char *buf = malloc(rawlen + 1);
+    size_t len = 0;
+    for (size_t i = 0; i < nfull; i++) {
+        size_t from = ln[i] >= indent ? indent : ln[i];
+        size_t end = ln[i];
+        while (end > from && (ls[i][end - 1] == ' ' || ls[i][end - 1] == '\t')) end--;
+        for (size_t j = from; j < end; j++) {
+            char c = ls[i][j];
+            if (c == '\\') {
+                char v = 0;
+                j++;
+                if (j >= end || !escape_value(ls[i][j], &v)) {
+                    ziman_error("lexical", line, col, "unknown escape sequence in a text block");
+                }
+                buf[len++] = v;
+            } else {
+                buf[len++] = c;
+            }
+        }
+        if (i + 1 < nfull) buf[len++] = '\n';
+    }
+    buf[len] = '\0';
+    free(raw); free(ls); free(ln);
+    push_token(lx, TOK_STRING_LIT, buf, (int)len, line, col);
+    lx->prev_can_end_stmt = 1;
+}
+
 static void lex_string(Lexer *lx) {
     int line = lx->line, col = lx->col;
     advance(lx); /* opening quote */
@@ -264,7 +369,11 @@ TokenList lex(const char *source) {
         }
 
         if (c == '"') {
-            lex_string(&lx);
+            if (lx.src[lx.pos + 1] == '"' && lx.src[lx.pos + 2] == '"') {
+                lex_text_block(&lx);
+            } else {
+                lex_string(&lx);
+            }
             continue;
         }
 

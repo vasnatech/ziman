@@ -15,7 +15,25 @@ File extension: `.zm`.
 - Float literals: `[0-9]+\.[0-9]+` (a digit is required on both sides of
   the dot — `.5` and `5.` are not valid literals).
 - String literals: `"..."` with escapes `\n`, `\t`, `\r`, `\"`, `\\`. No
-  multi-line strings, no interpolation in v0.
+  interpolation in v0. A plain string cannot span lines.
+- Text blocks: `"""` at the end of a line opens a multi-line string, and the next `"""` closes it.
+
+  ```
+  val query = """
+      SELECT id, name
+        FROM person
+       WHERE name = "Ada"
+      """
+  ```
+
+  The newline after the opening `"""` and the one before the closing `"""` are not part of the
+  value, so `query` above is the three lines `SELECT id, name`, `  FROM person`,
+  `WHERE name = "Ada"` with no trailing newline (add a blank line before the closing `"""` for
+  one). The indentation shared by every non-blank line, and by the closing `"""` when it sits on a
+  line of its own, is removed, so the block can be indented with the code around it; a smaller
+  indent on the closing line strips less. Blank lines stay empty and trailing blanks on each
+  line are dropped. The escapes are the same as in a plain string (`\"""` puts three quotes in
+  the text); a `"` or `""` needs none. `ziman --fmt` leaves a text block exactly as written.
 - Booleans: `true`, `false`.
 - Statement termination: a newline ends a statement, **unless** the token
   before it can't end a statement (e.g. it's a binary operator, `,`, `(`,
