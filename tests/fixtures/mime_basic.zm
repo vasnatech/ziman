@@ -1,0 +1,80 @@
+use mime
+
+fn show(text: string) {
+    val r = mime.parse(text)
+    if is_ok(r) {
+        print(mime.to_string(unwrap(r)))
+    } else {
+        print(unwrap_err(r))
+    }
+}
+
+fn essence_of(m: Option<mime.MediaType>) -> string {
+    return if Option.is_Some(m) { mime.essence(Option.unwrap_Some(m)) } else { "-" }
+}
+
+fn main() {
+    // parsing: case, blanks, parameters, quoted values
+    show("application/json")
+    show("  Application/JSON  ")
+    show("text/html; charset=utf-8")
+    show("text/html ;charset=UTF-8;  q=0.8")
+    show("multipart/form-data; boundary=\"a b;c\"")
+    show("text/plain; note=\"say \\\"hi\\\"\"")
+    show("application/vnd.api+json; version=2; version=3")
+    show("text/html;")
+    show("*/*")
+    show("text/*")
+
+    // errors
+    show("json")
+    show("/json")
+    show("application/")
+    show("appli cation/json")
+    show("*/json")
+    show("text/plain; charset")
+    show("text/plain; =x")
+    show("text/plain; a=\"unclosed")
+
+    // reading
+    val m = unwrap(mime.parse("Text/HTML; Charset=UTF-8; Q=0.5"))
+    print(mime.essence(m))
+    print(mime.charset(m))
+    print(mime.param(m, "q"))
+    print(mime.param(m, "missing"))
+    print(mime.is_text(m))
+    print(mime.is_json(m))
+    print(mime.to_string(mime.with_param(m, "Charset", "iso-8859-1")))
+    print(mime.to_string(mime.with_param(mime.text_plain(), "format", "flowed; x")))
+
+    // suffixes and json
+    val api = unwrap(mime.parse("application/vnd.api+json"))
+    print(mime.suffix(api))
+    print(mime.is_json(api))
+    print(mime.is_json(mime.application_json()))
+    print(mime.is_json(mime.text_csv()))
+    print(mime.suffix(mime.application_json()))
+
+    // matching, parameters ignored
+    val any = unwrap(mime.parse("*/*"))
+    val texts = unwrap(mime.parse("text/*"))
+    print(mime.matches(any, mime.application_json()))
+    print(mime.matches(texts, mime.text_html()))
+    print(mime.matches(texts, mime.application_json()))
+    print(mime.matches(mime.application_json(), unwrap(mime.parse("application/json; charset=utf-8"))))
+    print(mime.matches(mime.application_json(), mime.application_yaml()))
+
+    // files
+    print(essence_of(mime.of_extension("json")))
+    print(essence_of(mime.of_extension(".PNG")))
+    print(essence_of(mime.of_extension("nosuch")))
+    print(essence_of(mime.of_path("/srv/data/report.CSV")))
+    print(essence_of(mime.of_path("archive.tar.gz")))
+    print(essence_of(mime.of_path("Makefile")))
+    print(essence_of(mime.of_path(".hidden")))
+    print(essence_of(mime.of_path("/dir.d/file")))
+
+    // constants
+    print(mime.essence(mime.application_form()))
+    print(mime.essence(mime.image_svg()))
+}

@@ -1425,7 +1425,7 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. There are 26 (docs/CORELIB.md lists every `pub` signature;
+  name exists. There are 27 (docs/CORELIB.md lists every `pub` signature;
   README.md has a table): `collections` (sorting, searching and `map`/`filter`/`fold` -- see "Generics" and "Ordering"), `fs`,
   `os`, `clock` (`now_raw() -> [int]`, the one native function reading the
   system clock) and `random` (`random_bytes(n)`, the one native function
@@ -1782,6 +1782,17 @@ fn main() {
   of this module in application code — `parse_json`, then
   `json_object_get` each expected field, then validate/convert each one
   — not something this module does itself.
+
+## Media types (`mime`)
+
+`mime` names a kind of content: `mime.parse("text/html; charset=utf-8")` reads a media type (a `MediaType`
+with `type`, `subtype` and `params`, all names lower-cased, an Err for a malformed one), `mime.to_string`
+writes it back (quoting a parameter value that is not a token), `mime.essence` is `type/subtype` alone,
+`mime.charset` and `mime.param` read parameters, and `mime.with_param` sets one. `mime.matches(pattern,
+candidate)` compares with wildcards and ignores parameters (`*/*`, `text/*`); `mime.is_json` is true for
+`application/json` and any `+json` type. `mime.of_extension("csv")` and `mime.of_path(path)` give the type of a
+file, or None for an extension it does not know. Well-known types are functions (`mime.application_json()`,
+`mime.text_csv()`, ...). The module has no HTTP in it: the `Accept` header and its weights are `http`'s.
 
 ## Serialization formats (`ndjson`, `csv`, `toml`, `yaml`)
 

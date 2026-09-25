@@ -1,0 +1,9 @@
+text/html
+Some(UTF-8)
+text/html; charset=iso-8859-1
+invalid media type 'json': there is no '/' between the type and the subtype
+true
+false
+true
+text/csv
+true

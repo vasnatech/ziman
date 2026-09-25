@@ -16,6 +16,7 @@ flowchart LR
         fs["fs"]
         json["json"]
         log["log"]
+        mime["mime"]
         ndjson["ndjson"]
         net["net"]
         number["number"]
@@ -108,7 +109,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `clock`, `collections`, `compress`, `crypto`, `fs`, `json`, `net`, `number`, `os`, `random`, `regex` |
+| 0 | `clock`, `collections`, `compress`, `crypto`, `fs`, `json`, `mime`, `net`, `number`, `os`, `random`, `regex` |
 | 1 | `csv`, `db`, `http`, `log`, `ndjson`, `properties`, `toml`, `yaml`, `zone` |
 | 2 | `mysql`, `pg`, `server`, `sqlite`, `time`, `uuid` |
 | 3 | `client`, `datasource` |
@@ -129,6 +130,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `http` | `number` | `client`, `server` |
 | `json` | - | `csv`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `log` | `clock`, `fs`, `os` | - |
+| `mime` | - | - |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |

@@ -1374,3 +1374,13 @@ from source.
   and what uses it; light and dark themes), read from the `use` lines so it cannot drift. It is not built by
   `make corelib-reference` and is not committed, so a site build would run it.
 
+- **Content types on routes -- `mime` done, the rest not started.** `mime` (media types: parse, write, wildcard
+  matching, type by file extension) is in. Still to do, in order: the `Accept` header with `q` weights and
+  `Content-Type` helpers in `http` on top of it; endpoints with `consumes`/`produces` and a
+  `server.dispatch<C>(endpoints, ctx, req)` that answers 404, 405, 415 and 406 itself and sets the response
+  `Content-Type`; typed input and output through an adapter such as `server.json_endpoint<I, O>` (a route
+  table cannot hold routes of different types, so the adapter erases them with a closure), possibly with a
+  codec value emitted by `#[derive(Json)]`; negotiation over the `Json` tree (one handler result written as
+  JSON, YAML, TOML or CSV by `Accept`); and `[byte]` request and response bodies for media types that are
+  not text.
+

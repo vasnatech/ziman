@@ -1,0 +1,46 @@
+application/json
+application/json
+text/html; charset=utf-8
+text/html; charset=UTF-8; q=0.8
+multipart/form-data; boundary="a b;c"
+text/plain; note="say \"hi\""
+application/vnd.api+json; version=2
+text/html
+*/*
+text/*
+invalid media type 'json': there is no '/' between the type and the subtype
+invalid media type '/json': the type and the subtype must each be a token
+invalid media type 'application/': the type and the subtype must each be a token
+invalid media type 'appli cation/json': the type and the subtype must each be a token
+invalid media type '*/json': '*/subtype' is not a media range
+invalid media type 'text/plain; charset': a parameter has no '='
+invalid media type 'text/plain; =x': '' is not a valid parameter name
+invalid media type 'text/plain; a="unclosed': a quoted parameter value is never closed
+text/html
+Some(UTF-8)
+Some(0.5)
+None
+true
+false
+text/html; charset=iso-8859-1; q=0.5
+text/plain; format="flowed; x"
+Some(json)
+true
+true
+false
+None
+true
+true
+false
+true
+false
+application/json
+image/png
+-
+text/csv
+application/gzip
+-
+-
+-
+application/x-www-form-urlencoded
+image/svg+xml

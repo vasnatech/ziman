@@ -349,6 +349,77 @@ pub fn error(l: Logger, message: string) { write(l, Level.Error, message) }
 
 ```
 
+## `mime`
+
+Media types (`type/subtype; name=value`): parse, write, match with wildcards, and the type of a file by its extension.
+
+```
+pub struct MediaType {
+    type: string
+    subtype: string
+    params: Map<string, string>
+}
+
+pub fn application_json() -> MediaType
+
+pub fn application_ndjson() -> MediaType
+
+pub fn application_yaml() -> MediaType
+
+pub fn application_toml() -> MediaType
+
+pub fn application_xml() -> MediaType
+
+pub fn application_form() -> MediaType
+
+pub fn application_octet_stream() -> MediaType
+
+pub fn application_pdf() -> MediaType
+
+pub fn application_zip() -> MediaType
+
+pub fn application_gzip() -> MediaType
+
+pub fn text_plain() -> MediaType
+
+pub fn text_html() -> MediaType
+
+pub fn text_csv() -> MediaType
+
+pub fn image_png() -> MediaType
+
+pub fn image_jpeg() -> MediaType
+
+pub fn image_gif() -> MediaType
+
+pub fn image_svg() -> MediaType
+
+pub fn parse(text: string) -> Result<MediaType, string>
+
+pub fn essence(m: MediaType) -> string
+
+pub fn to_string(m: MediaType) -> string
+
+pub fn param(m: MediaType, name: string) -> Option<string>
+
+pub fn charset(m: MediaType) -> Option<string>
+
+pub fn with_param(m: MediaType, name: string, value: string) -> MediaType
+
+pub fn suffix(m: MediaType) -> Option<string>
+
+pub fn is_json(m: MediaType) -> bool
+
+pub fn is_text(m: MediaType) -> bool
+
+pub fn matches(pattern: MediaType, candidate: MediaType) -> bool
+
+pub fn of_extension(extension: string) -> Option<MediaType>
+
+pub fn of_path(path: string) -> Option<MediaType>
+
+```
+
 ## `ndjson`
 
 Newline-delimited JSON (one value per line) on top of `json`.

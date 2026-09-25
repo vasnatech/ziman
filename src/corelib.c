@@ -30,6 +30,7 @@
 #include "mysql_source.h"
 #include "properties_source.h"
 #include "compress_source.h"
+#include "mime_source.h"
 #include "zone_source.h"
 #include "ndjson_source.h"
 #include "csv_source.h"
@@ -72,6 +73,7 @@ static const CoreModule CORE_MODULES[] = {
     {"mysql", MYSQL_SOURCE},
     {"properties", PROPERTIES_SOURCE},
     {"compress", COMPRESS_SOURCE},
+    {"mime", MIME_SOURCE},
     {"zone", ZONE_SOURCE},
     {"ndjson", NDJSON_SOURCE},
     {"csv", CSV_SOURCE},

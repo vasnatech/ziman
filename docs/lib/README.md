@@ -29,6 +29,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`regex`](regex.md) | Regular expressions: a native engine that runs in time linear in the text (no backreferences), with patterns compiled once and cached. |
 | [`compress`](compress.md) | Gzip and zlib (deflate) compression, on zlib. |
 | [`crypto`](crypto.md) | Hashes, message authentication, key derivation and base64, on OpenSSL's libcrypto. |
+| [`mime`](mime.md) | Media types (MIME types, RFC 6838): `application/json`, `text/html; charset=utf-8`. |
 
 ## Time
 

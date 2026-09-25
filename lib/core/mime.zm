@@ -1,0 +1,318 @@
+// mime.zm -- media types (MIME types, RFC 6838): `application/json`, `text/html; charset=utf-8`. A
+// `MediaType` is a type, a subtype and parameters; `parse` reads the text form, `to_string` writes it, and
+// `matches` compares one against a pattern with wildcards (`*/*`, `text/*`). `of_extension` and `of_path`
+// give the type of a file by its extension. The module knows nothing about HTTP: the `Accept` header with its
+// weights lives in `http`, which builds on this, and so can any other module that names a kind of content.
+//
+// Types, subtypes and parameter names are case-insensitive and are kept in lower case. A parameter value is
+// kept as written, so `charset=UTF-8` stays `UTF-8`. A `MediaType` has no `==` (its parameters are a `Map`);
+// compare `essence` for the type and subtype alone.
+
+// A media type: `type/subtype` and its parameters, in the order they were given.
+pub struct MediaType {
+    type: string
+    subtype: string
+    params: Map<string, string>
+}
+
+// ---------------------------------------------------------------- well-known types
+
+fn plain(type: string, subtype: string) -> MediaType {
+    return MediaType { type: type, subtype: subtype, params: Map<string, string> {} }
+}
+
+// `application/json`.
+pub fn application_json() -> MediaType {
+    return plain("application", "json")
+}
+
+// `application/x-ndjson`, newline-delimited JSON.
+pub fn application_ndjson() -> MediaType {
+    return plain("application", "x-ndjson")
+}
+
+// `application/yaml`.
+pub fn application_yaml() -> MediaType {
+    return plain("application", "yaml")
+}
+
+// `application/toml`.
+pub fn application_toml() -> MediaType {
+    return plain("application", "toml")
+}
+
+// `application/xml`.
+pub fn application_xml() -> MediaType {
+    return plain("application", "xml")
+}
+
+// `application/x-www-form-urlencoded`, an HTML form body.
+pub fn application_form() -> MediaType {
+    return plain("application", "x-www-form-urlencoded")
+}
+
+// `application/octet-stream`, bytes of no known kind.
+pub fn application_octet_stream() -> MediaType {
+    return plain("application", "octet-stream")
+}
+
+// `application/pdf`.
+pub fn application_pdf() -> MediaType {
+    return plain("application", "pdf")
+}
+
+// `application/zip`.
+pub fn application_zip() -> MediaType {
+    return plain("application", "zip")
+}
+
+// `application/gzip`.
+pub fn application_gzip() -> MediaType {
+    return plain("application", "gzip")
+}
+
+// `text/plain`.
+pub fn text_plain() -> MediaType {
+    return plain("text", "plain")
+}
+
+// `text/html`.
+pub fn text_html() -> MediaType {
+    return plain("text", "html")
+}
+
+// `text/csv`.
+pub fn text_csv() -> MediaType {
+    return plain("text", "csv")
+}
+
+// `image/png`.
+pub fn image_png() -> MediaType {
+    return plain("image", "png")
+}
+
+// `image/jpeg`.
+pub fn image_jpeg() -> MediaType {
+    return plain("image", "jpeg")
+}
+
+// `image/gif`.
+pub fn image_gif() -> MediaType {
+    return plain("image", "gif")
+}
+
+// `image/svg+xml`.
+pub fn image_svg() -> MediaType {
+    return plain("image", "svg+xml")
+}
+
+// The type of a file by its lower-case extension, without the dot.
+val extension_types: Map<string, string> = Map<string, string> {
+    "json": "application/json", "ndjson": "application/x-ndjson", "yaml": "application/yaml",
+    "yml": "application/yaml", "toml": "application/toml", "xml": "application/xml", "pdf": "application/pdf",
+    "zip": "application/zip", "gz": "application/gzip", "wasm": "application/wasm", "js": "text/javascript",
+    "txt": "text/plain", "html": "text/html", "htm": "text/html", "css": "text/css", "csv": "text/csv",
+    "tsv": "text/tab-separated-values", "md": "text/markdown", "png": "image/png", "jpg": "image/jpeg",
+    "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml",
+    "ico": "image/vnd.microsoft.icon", "woff2": "font/woff2", "mp3": "audio/mpeg", "mp4": "video/mp4"
+}
+
+// ---------------------------------------------------------------- parsing
+
+// The characters RFC 7230 allows in a token, besides letters and digits.
+val token_punctuation = "!#$%&'*+-.^_`|~"
+
+fn is_token_char(c: string) -> bool {
+    return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || index_of(token_punctuation, c,
+        0) >= 0
+}
+
+fn is_token(s: string) -> bool {
+    if len(s) == 0 {
+        return false
+    }
+    for i in 0..len(s) {
+        if !is_token_char(char_at(s, i)) {
+            return false
+        }
+    }
+    return true
+}
+
+fn bad(text: string, why: string) -> string {
+    return format("invalid media type '{}': {}", text, why)
+}
+
+// A parameter's value at `pos`: a token up to `;`, or a quoted string with `\` escapes. Returns the value and
+// the position just after it, as `[value, position]`.
+fn read_value(text: string, pos: int) -> Result<[string], string> {
+    if is_char_at(text, pos, "\"") {
+        val out = sb_new()
+        var p = pos + 1
+        while p < len(text) {
+            val c = char_at(text, p)
+            if c == "\\" && p + 1 < len(text) {
+                sb_append(out, char_at(text, p + 1))
+                p = p + 2
+            } else if c == "\"" {
+                return ok([sb_to_string(out), str(p + 1)])
+            } else {
+                sb_append(out, c)
+                p = p + 1
+            }
+        }
+        return err(bad(text, "a quoted parameter value is never closed"))
+    }
+    var p = pos
+    while p < len(text) && !is_char_at(text, p, ";") {
+        p = p + 1
+    }
+    return ok([trim(substring(text, pos, p)), str(p)])
+}
+
+// The media type in `text`: `type/subtype` optionally followed by `; name=value` parameters. Surrounding
+// blanks are ignored; type, subtype and parameter names are lower-cased. An Err says what is wrong.
+pub fn parse(text: string) -> Result<MediaType, string> {
+    val s = trim(text)
+    val slash = index_of(s, "/", 0)
+    val semi = index_of(s, ";", 0)
+    val head_end = if semi < 0 { len(s) } else { semi }
+    if slash < 0 || slash > head_end {
+        return err(bad(text, "there is no '/' between the type and the subtype"))
+    }
+    val type = to_lower(trim(substring(s, 0, slash)))
+    val subtype = to_lower(trim(substring(s, slash + 1, head_end)))
+    if !is_token(type) || !is_token(subtype) {
+        return err(bad(text, "the type and the subtype must each be a token"))
+    }
+    if type == "*" && subtype != "*" {
+        return err(bad(text, "'*/subtype' is not a media range"))
+    }
+    val params = mapb_new<string, string>()
+    var pos = head_end
+    while pos < len(s) {
+        // s[pos] is ';'
+        var p = pos + 1
+        while is_char_at(s, p, " ") || is_char_at(s, p, "\t") {
+            p = p + 1
+        }
+        if p >= len(s) {
+            pos = len(s)
+        } else {
+            val eq = index_of(s, "=", p)
+            val next_semi = index_of(s, ";", p)
+            if eq < 0 || (next_semi >= 0 && next_semi < eq) {
+                return err(bad(text, "a parameter has no '='"))
+            }
+            val name = to_lower(trim(substring(s, p, eq)))
+            if !is_token(name) {
+                return err(bad(text, format("'{}' is not a valid parameter name", name)))
+            }
+            val read = read_value(s, eq + 1)?
+            if !mapb_contains<string, string>(params, name) {
+                mapb_set<string, string>(params, name, read[0])
+            }
+            pos = unwrap(parse_int(read[1]))
+        }
+    }
+    return MediaType { type: type, subtype: subtype, params: mapb_to_map<string, string>(params) }
+}
+
+// ---------------------------------------------------------------- writing and reading
+
+// `type/subtype` alone, without parameters: `application/json`.
+pub fn essence(m: MediaType) -> string {
+    return concat(concat(m.type, "/"), m.subtype)
+}
+
+fn quote_if_needed(value: string) -> string {
+    if is_token(value) {
+        return value
+    }
+    return concat(concat("\"", replace(replace(value, "\\", "\\\\"), "\"", "\\\"")), "\"")
+}
+
+// The text form: `text/html; charset=utf-8`. A parameter value that is not a token is written quoted.
+pub fn to_string(m: MediaType) -> string {
+    val out = sb_new()
+    sb_append(out, essence(m))
+    for name, value in m.params {
+        sb_append(out, "; ", name, "=", quote_if_needed(value))
+    }
+    return sb_to_string(out)
+}
+
+// The value of parameter `name` (lower case), or None.
+pub fn param(m: MediaType, name: string) -> Option<string> {
+    return map_get(m.params, name)
+}
+
+// The `charset` parameter, or None.
+pub fn charset(m: MediaType) -> Option<string> {
+    return param(m, "charset")
+}
+
+// `m` with parameter `name` set to `value` (replacing any existing one); the name is lower-cased.
+pub fn with_param(m: MediaType, name: string, value: string) -> MediaType {
+    return MediaType { type: m.type, subtype: m.subtype, params: set(m.params, to_lower(name), value) }
+}
+
+// The structured-syntax suffix of the subtype, if it has one: `json` for `application/vnd.api+json`.
+pub fn suffix(m: MediaType) -> Option<string> {
+    val at = last_index_of(m.subtype, "+")
+    if at < 0 {
+        return Option<string>.None
+    }
+    return Option<string>.Some(substring(m.subtype, at + 1, len(m.subtype)))
+}
+
+// True for `application/json` and any `+json` type.
+pub fn is_json(m: MediaType) -> bool {
+    return essence(m) == "application/json" || (Option.is_Some(suffix(m)) && Option.unwrap_Some(suffix(m)) == "json")
+}
+
+// True for `text/*`.
+pub fn is_text(m: MediaType) -> bool {
+    return m.type == "text"
+}
+
+// ---------------------------------------------------------------- matching
+
+// True when `candidate` is an instance of `pattern`, ignoring parameters: `*/*` matches everything,
+// `text/*` any text type, and a full `type/subtype` only itself.
+pub fn matches(pattern: MediaType, candidate: MediaType) -> bool {
+    if pattern.type == "*" {
+        return true
+    }
+    if pattern.type != candidate.type {
+        return false
+    }
+    return pattern.subtype == "*" || pattern.subtype == candidate.subtype
+}
+
+// ---------------------------------------------------------------- files
+
+// The media type for a file extension (`json`, `.PNG`; case and a leading dot do not matter), or None when the
+// extension is not one of the common ones this module knows.
+pub fn of_extension(extension: string) -> Option<MediaType> {
+    var e = to_lower(extension)
+    if starts_with(e, ".") {
+        e = substring(e, 1, len(e))
+    }
+    val known = map_get(extension_types, e)
+    if Option.is_None(known) {
+        return Option<MediaType>.None
+    }
+    return Option<MediaType>.Some(unwrap(parse(Option.unwrap_Some(known))))
+}
+
+// The media type of the file at `path`, by its extension: `of_path("/srv/report.csv")` is `text/csv`.
+pub fn of_path(path: string) -> Option<MediaType> {
+    val slash = last_index_of(path, "/")
+    val name = substring(path, slash + 1, len(path))
+    val dot = last_index_of(name, ".")
+    if dot <= 0 {
+        return Option<MediaType>.None
+    }
+    return of_extension(substring(name, dot + 1, len(name)))
+}

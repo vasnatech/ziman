@@ -1,0 +1,24 @@
+use mime
+
+fn main() {
+    // Parse the text form; type, subtype and parameter names are lower-cased.
+    val m = unwrap(mime.parse("Text/HTML; Charset=UTF-8"))
+    print(mime.essence(m))
+    print(mime.charset(m))
+    print(mime.to_string(mime.with_param(m, "charset", "iso-8859-1")))
+
+    // A malformed type is an Err that says what is wrong.
+    print(unwrap_err(mime.parse("json")))
+
+    // Match against a range, ignoring parameters.
+    val texts = unwrap(mime.parse("text/*"))
+    print(mime.matches(texts, m))
+    print(mime.matches(texts, mime.application_json()))
+
+    // A `+json` suffix counts as JSON.
+    print(mime.is_json(unwrap(mime.parse("application/vnd.api+json"))))
+
+    // The type of a file, by its extension.
+    print(mime.essence(Option.unwrap_Some(mime.of_path("/srv/report.csv"))))
+    print(Option.is_None(mime.of_path("Makefile")))
+}
