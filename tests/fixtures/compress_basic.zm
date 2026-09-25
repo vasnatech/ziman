@@ -1,0 +1,37 @@
+use compress
+use number
+
+fn main() {
+    val gz = unwrap(number.bytes_from_hex("1f8b08000000000002ffcb48cdc9c957c8402701e3513d8d17000000"))
+    val zl = unwrap(number.bytes_from_hex("789ccb48cdc9c957c8402701680308b1"))
+    val raw = unwrap(number.bytes_from_hex("cb48cdc9c957c8402701"))
+    print(bytes_to_string(unwrap(compress.gunzip(gz, 1000))))
+    print(bytes_to_string(unwrap(compress.inflate(zl, 1000))))
+    print(bytes_to_string(unwrap(compress.inflate_raw(raw, 1000))))
+    print(bytes_to_string(unwrap(compress.decompress(gz, 1000))))
+    print(bytes_to_string(unwrap(compress.decompress(zl, 1000))))
+    // round trips
+    val text = string_to_bytes("the quick brown fox jumps over the lazy dog")
+    print(unwrap(compress.gunzip(compress.gzip(text), 1000)) == text)
+    print(unwrap(compress.inflate(compress.deflate(text), 1000)) == text)
+    print(unwrap(compress.decompress(compress.gzip(text), 1000)) == text)
+    print(len(compress.gzip(string_to_bytes(""))) > 0)
+    val nothing: [byte] = []
+    print(unwrap(compress.decompress(compress.gzip(nothing), 10)) == nothing)
+    // errors
+    print(unwrap_err(compress.gunzip(zl, 1000)))
+    print(unwrap_err(compress.gunzip([1b, 2b, 3b], 1000)))
+    print(unwrap_err(compress.gunzip(slice<byte>(gz, 0, 12), 1000)))
+    print(unwrap_err(compress.decompress(gz, 5)))
+    print(is_ok(compress.decompress(gz, -1)))
+    // a large, highly compressible input shrinks a lot and comes back exactly; the limit protects
+    val parts = ab_new<byte>()
+    for i in 0..30000 {
+        ab_append<byte>(parts, string_to_bytes("abc"))
+    }
+    val big = ab_to_array<byte>(parts)
+    val packed = compress.gzip(big)
+    print(len(packed) < 1000)
+    print(unwrap(compress.gunzip(packed, 100000)) == big)
+    print(unwrap_err(compress.gunzip(packed, 1000)))
+}

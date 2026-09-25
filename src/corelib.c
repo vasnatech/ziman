@@ -29,6 +29,7 @@
 #include "dburl_source.h"
 #include "mysql_source.h"
 #include "properties_source.h"
+#include "compress_source.h"
 #include "ndjson_source.h"
 #include "csv_source.h"
 #include "toml_source.h"
@@ -69,6 +70,7 @@ static const CoreModule CORE_MODULES[] = {
     {"dburl", DBURL_SOURCE},
     {"mysql", MYSQL_SOURCE},
     {"properties", PROPERTIES_SOURCE},
+    {"compress", COMPRESS_SOURCE},
     {"ndjson", NDJSON_SOURCE},
     {"csv", CSV_SOURCE},
     {"toml", TOML_SOURCE},

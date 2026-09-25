@@ -5,6 +5,7 @@
 #include "derive.h"
 #include "format.h"
 #include "lsp.h"
+#include "native_compress.h"
 #include "native_csv.h"
 #include "native_json.h"
 #include "native_number.h"
@@ -151,6 +152,7 @@ int main(int argc, char **argv) {
         native_number_register();
         native_csv_register();
         native_json_register();
+        native_compress_register();
         prelude_register();
         return lsp_main();
     }
@@ -183,6 +185,7 @@ int main(int argc, char **argv) {
     native_number_register();
     native_csv_register();
     native_json_register();
+    native_compress_register();
     prelude_register();
 
     Module *module = load_module_graph(file);

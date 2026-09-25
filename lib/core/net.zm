@@ -65,6 +65,9 @@ pub struct Listener {
 }
 
 native fn connect_raw(host: string, port: int) -> Result<int, string>
+native fn idle_put_raw(key: string, handle: int) -> bool
+native fn idle_take_raw(key: string) -> int
+native fn idle_clear_raw() -> int
 native fn listen_raw(host: string, port: int) -> Result<int, string>
 native fn listen_tls_raw(host: string, port: int, cert_file: string, key_file: string) -> Result<int, string>
 native fn listener_port_raw(handle: int) -> int
@@ -270,6 +273,30 @@ pub fn connect_tls_with(host: string, port: int, verify: TlsVerify,
         }
         return s
     }
+
+// ---------------------------------------------------------------- idle connections
+//
+// A small cache of open sockets, so a client can reuse a connection instead of opening a new one
+// (HTTP keep-alive). Parked sockets are keyed by any string the caller likes ("https://host:443").
+// At most 32 are kept, each for at most 30 seconds; the peer may still close one while it is parked,
+// so a user of `idle_take` must be ready to retry on a fresh connection.
+
+// Parks `s` under `key` for a later `idle_take`. Do not use `s` again yourself. False if `s` is not an
+// open socket.
+pub fn idle_put(key: string, s: Socket) -> bool {
+    return idle_put_raw(key, s.handle)
+}
+
+// A socket parked under `key`, the most recently parked one, or None. The caller owns it again.
+pub fn idle_take(key: string) -> Option<Socket> {
+    val h = idle_take_raw(key)
+    return if h < 0 { Option<Socket>.None } else { Option<Socket>.Some(Socket { handle: h }) }
+}
+
+// Closes every parked socket.
+pub fn idle_clear() {
+    idle_clear_raw()
+}
 
 // Closes the socket (and, for TLS, sends close_notify first). Safe to call once; a socket used after
 // this gives a runtime error. Another thread blocked reading it is woken with an error.

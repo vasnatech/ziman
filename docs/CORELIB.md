@@ -95,6 +95,23 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]>
 
 ```
 
+## `compress`
+
+```
+pub fn gzip(data: [byte]) -> [byte]
+
+pub fn deflate(data: [byte]) -> [byte]
+
+pub fn gunzip(data: [byte], max_size: int) -> Result<[byte], string>
+
+pub fn inflate(data: [byte], max_size: int) -> Result<[byte], string>
+
+pub fn decompress(data: [byte], max_size: int) -> Result<[byte], string>
+
+pub fn inflate_raw(data: [byte], max_size: int) -> Result<[byte], string>
+
+```
+
 ## `crypto`
 
 Hashes (SHA-1/256/512), HMAC, PBKDF2, a constant-time byte comparison, base64 and base64url, on OpenSSL. No ciphers or public-key operations.
@@ -575,6 +592,12 @@ pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Optio
 pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
 
 pub fn connect_tls_with(host: string, port: int, verify: TlsVerify,
+
+pub fn idle_put(key: string, s: Socket) -> bool
+
+pub fn idle_take(key: string) -> Option<Socket>
+
+pub fn idle_clear()
 
 pub fn close(s: Socket)
 

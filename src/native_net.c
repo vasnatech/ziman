@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "error.h"
@@ -543,6 +544,84 @@ static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) 
     return ok_result(int_type, value_int(0));
 }
 
+/* ---- an idle-connection cache, for HTTP keep-alive ------------------------------------------
+ * A few open sockets parked by key ("https://host:443") so the next request to the same place can
+ * reuse one instead of connecting again. The cache holds them strongly (so they are not
+ * collected while parked) and drops any that have been idle longer than IDLE_SECONDS. The peer may
+ * still have closed a parked socket; the caller (httpclient) retries on a fresh connection when
+ * that shows. */
+enum { IDLE_MAX = 32, IDLE_SECONDS = 30 };
+typedef struct {
+    char *key;
+    NetHandle *h;
+    time_t since;
+} IdleEntry;
+static IdleEntry g_idle[IDLE_MAX];
+static pthread_mutex_t g_idle_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static void idle_drop(IdleEntry *e) {
+    if (e->h != NULL && handleset_remove(&g_live, e->h)) {
+        if (e->h->ssl != NULL) SSL_shutdown(e->h->ssl);
+        if (e->h->fd >= 0) shutdown(e->h->fd, SHUT_RDWR);
+        release_handle(e->h);
+    }
+    e->h = NULL;
+    e->key = NULL;
+}
+
+static Value native_net_idle_put_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    NetHandle *h = handle_get(args[1].as.i);
+    if (h == NULL) return value_bool(0);
+    const char *key = value_cstr(args[0]);
+    time_t now = time(NULL);
+    pthread_mutex_lock(&g_idle_mu);
+    int slot = -1;
+    for (int i = 0; i < IDLE_MAX; i++) {
+        if (g_idle[i].h != NULL && now - g_idle[i].since > IDLE_SECONDS) idle_drop(&g_idle[i]);
+        if (g_idle[i].h == NULL && slot < 0) slot = i;
+    }
+    if (slot < 0) { /* full: replace the one parked longest */
+        slot = 0;
+        for (int i = 1; i < IDLE_MAX; i++) if (g_idle[i].since < g_idle[slot].since) slot = i;
+        idle_drop(&g_idle[slot]);
+    }
+    g_idle[slot].key = strdup(key);
+    g_idle[slot].h = h;
+    g_idle[slot].since = now;
+    pthread_mutex_unlock(&g_idle_mu);
+    return value_bool(1);
+}
+
+static Value native_net_idle_take_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *key = value_cstr(args[0]);
+    time_t now = time(NULL);
+    int64_t found = -1;
+    pthread_mutex_lock(&g_idle_mu);
+    int best = -1;
+    for (int i = 0; i < IDLE_MAX; i++) {
+        if (g_idle[i].h == NULL) continue;
+        if (now - g_idle[i].since > IDLE_SECONDS) { idle_drop(&g_idle[i]); continue; }
+        if (strcmp(g_idle[i].key, key) == 0 && (best < 0 || g_idle[i].since >= g_idle[best].since)) best = i;
+    }
+    if (best >= 0) {
+        found = (int64_t)(intptr_t)g_idle[best].h;
+        g_idle[best].h = NULL;
+        g_idle[best].key = NULL;
+    }
+    pthread_mutex_unlock(&g_idle_mu);
+    return value_int(found);
+}
+
+static Value native_net_idle_clear_raw(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    pthread_mutex_lock(&g_idle_mu);
+    for (int i = 0; i < IDLE_MAX; i++) if (g_idle[i].h != NULL) idle_drop(&g_idle[i]);
+    pthread_mutex_unlock(&g_idle_mu);
+    return value_int(0);
+}
+
 static Value native_net_close_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     NetHandle *h = (NetHandle *)(intptr_t)args[0].as.i;
@@ -560,6 +639,9 @@ void native_net_register(void) {
     native_register("net::listen_raw", native_net_listen_raw);
     native_register("net::listener_port_raw", native_net_listener_port_raw);
     native_register("net::accept_raw", native_net_accept_raw);
+    native_register("net::idle_put_raw", native_net_idle_put_raw);
+    native_register("net::idle_take_raw", native_net_idle_take_raw);
+    native_register("net::idle_clear_raw", native_net_idle_clear_raw);
     native_register("net::listen_tls_raw", native_net_listen_tls_raw);
     native_register("net::read_raw", native_net_read_raw);
     native_register("net::read_exact_raw", native_net_read_exact_raw);

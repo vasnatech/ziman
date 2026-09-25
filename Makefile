@@ -37,7 +37,7 @@ $(GC_LIB): $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/i
 	ar rcs $@ $(GC_DIR)/gc.o
 
 $(BIN): $(OBJ) $(GC_LIB)
-	$(CC) $(CFLAGS) -o $@ $(OBJ) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -pthread
+	$(CC) $(CFLAGS) -o $@ $(OBJ) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lz -pthread
 
 nogc: ziman-nogc
 
@@ -60,7 +60,7 @@ test-nogc: ziman-nogc
 # header directly, and it's merged bare into every program by
 # loader.c's load_module_graph (see lib/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
-CORELIB_MODULES := collections fs log regex httpclient random uuid clock time json number sql dburl sqlite mysql db net crypto pg http os properties ndjson csv toml yaml prelude
+CORELIB_MODULES := collections fs log regex httpclient random uuid clock time json number sql dburl sqlite mysql db net crypto pg http os properties ndjson csv toml yaml compress prelude
 # Bundled modules live in lib/core (general-purpose) and lib/db (SQL
 # drivers); `use` names are flat either way.
 vpath %.zm lib lib/core lib/db
@@ -70,7 +70,7 @@ CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
 $(OBJ): $(CORELIB_HEADERS)
 
 ziman-nogc: $(SRC) $(CORELIB_HEADERS)
-	$(CC) $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-nogc"' -o $@ $(SRC) -lm -lsqlite3 -lssl -lcrypto -pthread
+	$(CC) $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-nogc"' -o $@ $(SRC) -lm -lsqlite3 -lssl -lcrypto -lz -pthread
 
 # lib/core/<name>.zm -> src/<name>_source.h, a
 # `#define <NAME>_SOURCE "..."` (module name uppercased). A #define, not
