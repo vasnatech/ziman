@@ -1,7 +1,7 @@
-use http
 use net
 use net.NetError
 use net.TlsVerify
+use server
 
 // A TLS *listener* (net.listen_tls) served by this same program and reached with the TLS client.
 // Certificates come from tests/run_tls_tests.sh.
@@ -24,8 +24,9 @@ fn serve(l: net.Listener, done: Channel<int>) {
                 val got = unwrap(net.read(s, 100))
                 unwrap(net.write(s, got))
             } else {
-                val ex = unwrap(http.read_request(http.open_session(s)))
-                unwrap(http.write_response(s, ex.request, http.text_response(200, concat("hello ", ex.request.path))))
+                val ex = unwrap(server.read_request(server.open_session(s)))
+                unwrap(server.write_response(s, ex.request,
+                    server.text_response(200, concat("hello ", ex.request.path))))
             }
             net.close(s)
             handled = handled + 1

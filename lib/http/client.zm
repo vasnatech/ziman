@@ -1,8 +1,8 @@
-// httpclient.zm -- an HTTP/1.1 *client*, written in Ziman on top of `net`, so a Ziman program can
-// call another service (the server side is `http`).
+// client.zm -- an HTTP/1.1 *client*, written in Ziman on top of `net`, so a Ziman program can
+// call another service (the server side is `server`; the types they share are in `http`).
 //
-//   val r = httpclient.get("https://example.com/api/items?limit=5")
-//   val resp = httpclient.request(method: HttpMethod.Post, url: u, body: "{\"a\":1}",
+//   val r = client.get("https://example.com/api/items?limit=5")
+//   val resp = client.request(method: HttpMethod.Post, url: u, body: "{\"a\":1}",
 //                                 headers: [http.Header { name: "Content-Type", value: "application/json" }])
 //
 // `http://` and `https://` URLs (TLS with full certificate verification). What it does for you:

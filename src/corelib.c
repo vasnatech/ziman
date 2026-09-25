@@ -11,7 +11,7 @@
 #include "fs_source.h"
 #include "log_source.h"
 #include "regex_source.h"
-#include "httpclient_source.h"
+#include "client_source.h"
 #include "random_source.h"
 #include "uuid_source.h"
 #include "clock_source.h"
@@ -24,6 +24,7 @@
 #include "crypto_source.h"
 #include "pg_source.h"
 #include "http_source.h"
+#include "server_source.h"
 #include "os_source.h"
 #include "sqlite_source.h"
 #include "dburl_source.h"
@@ -52,7 +53,7 @@ static const CoreModule CORE_MODULES[] = {
     {"fs", FS_SOURCE},
     {"log", LOG_SOURCE},
     {"regex", REGEX_SOURCE},
-    {"httpclient", HTTPCLIENT_SOURCE},
+    {"client", CLIENT_SOURCE},
     {"random", RANDOM_SOURCE},
     {"uuid", UUID_SOURCE},
     {"clock", CLOCK_SOURCE},
@@ -65,6 +66,7 @@ static const CoreModule CORE_MODULES[] = {
     {"crypto", CRYPTO_SOURCE},
     {"pg", PG_SOURCE},
     {"http", HTTP_SOURCE},
+    {"server", SERVER_SOURCE},
     {"os", OS_SOURCE},
     {"sqlite", SQLITE_SOURCE},
     {"dburl", DBURL_SOURCE},

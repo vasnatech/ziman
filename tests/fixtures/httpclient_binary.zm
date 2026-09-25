@@ -1,5 +1,5 @@
 use net
-use httpclient
+use client
 use http.HttpMethod
 
 // An echo server that works on raw bytes, so a body may hold 0 bytes.
@@ -57,22 +57,22 @@ fn main() {
     spawn accept_loop(l)
 
     val payload = [1b, 0b, 255b, 10b, 0b]
-    val r = httpclient.request_bytes(method: HttpMethod.Post, url: url, body: payload)
+    val r = client.request_bytes(method: HttpMethod.Post, url: url, body: payload)
     val resp = unwrap(r)
     print(resp.status)
     print(resp.body == payload)
     print(len(resp.body))
 
-    val empty = unwrap(httpclient.request_bytes(method: HttpMethod.Get, url: url))
+    val empty = unwrap(client.request_bytes(method: HttpMethod.Get, url: url))
     print(len(empty.body))
 
-    val text = httpclient.request(method: HttpMethod.Post, url: url, body: "plain text")
+    val text = client.request(method: HttpMethod.Post, url: url, body: "plain text")
     print(unwrap(text).body)
 
     val bin_url = format("{}bin", url)
-    print(unwrap(httpclient.request_bytes(method: HttpMethod.Get, url: bin_url)).body == [104b, 0b, 105b])
-    val as_text = httpclient.get(bin_url)
+    print(unwrap(client.request_bytes(method: HttpMethod.Get, url: bin_url)).body == [104b, 0b, 105b])
+    val as_text = client.get(bin_url)
     print(is_ok(as_text))
-    print(httpclient.error_message(unwrap_err(as_text)))
+    print(client.error_message(unwrap_err(as_text)))
     net.close_listener(l)
 }

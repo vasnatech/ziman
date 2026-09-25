@@ -225,243 +225,6 @@ pub fn extension(path: string) -> string
 
 ```
 
-## `httpclient`
-
-```
-pub struct BytesResponse {
-    status: int
-    headers: [Header]
-    body: [byte]
-}
-
-pub enum ClientError {
-    BadUrl(string)
-    Network(string)
-    Timeout
-    BadResponse(string)
-    TooLarge
-    TooManyRedirects
-}
-
-pub fn error_message(e: ClientError) -> string
-
-pub struct Url {
-    secure: bool
-    host: string
-    port: int
-    target: string
-    userinfo: string
-}
-
-pub fn parse_url(url: string) -> Result<Url, string>
-
-pub fn response_header(r: Response, name: string) -> Option<string>
-
-pub fn close_idle()
-
-pub struct Cookie {
-    name: string
-    value: string
-    domain: string
-    path: string
-    secure: bool
-    host_only: bool
-    expires: int
-}
-
-pub struct CookieJar {
-    cookies: [Cookie]
-}
-
-pub fn cookie_jar() -> CookieJar
-
-pub struct JarResponse {
-    response: Response
-    jar: CookieJar
-}
-
-pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar
-
-pub fn jar_header(jar: CookieJar, u: Url) -> Option<string>
-
-pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
-
-pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
-
-pub fn request_with_jar(jar: CookieJar, method: HttpMethod, url: string, headers: Option<[Header]>,
-
-pub fn get(url: string) -> Result<Response, ClientError>
-
-pub fn head(url: string) -> Result<Response, ClientError>
-
-pub fn delete(url: string) -> Result<Response, ClientError>
-
-pub fn post_json(url: string, body: string) -> Result<Response, ClientError>
-
-pub fn put_json(url: string, body: string) -> Result<Response, ClientError>
-
-pub fn form_encode(fields: Map<string, string>) -> string
-
-pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, ClientError>
-
-```
-
-## `http`
-
-```
-pub val status_continue = 100
-
-pub val status_ok = 200
-
-pub val status_created = 201
-
-pub val status_accepted = 202
-
-pub val status_no_content = 204
-
-pub val status_moved_permanently = 301
-
-pub val status_found = 302
-
-pub val status_not_modified = 304
-
-pub val status_bad_request = 400
-
-pub val status_unauthorized = 401
-
-pub val status_forbidden = 403
-
-pub val status_not_found = 404
-
-pub val status_method_not_allowed = 405
-
-pub val status_request_timeout = 408
-
-pub val status_conflict = 409
-
-pub val status_payload_too_large = 413
-
-pub val status_unprocessable_entity = 422
-
-pub val status_header_fields_too_large = 431
-
-pub val status_internal_server_error = 500
-
-pub val status_not_implemented = 501
-
-pub val status_service_unavailable = 503
-
-pub enum HttpMethod {
-    Get
-    Head
-    Post
-    Put
-    Patch
-    Delete
-    Options
-    Other(string)
-}
-
-pub fn method_parse(name: string) -> HttpMethod
-
-pub fn method_name(m: HttpMethod) -> string
-
-pub struct Header {
-    name: string
-    value: string
-}
-
-pub struct Request {
-    method: HttpMethod
-    target: string
-    path: string
-    query: string
-    version: string
-    headers: [Header]
-    body: string
-}
-
-pub struct Response {
-    status: int
-    headers: [Header]
-    body: string
-}
-
-pub struct Params {
-    names: [string]
-    values: [string]
-}
-
-pub enum HttpError {
-    BadRequest(string)
-    BodyTooLarge
-    HeadersTooLarge
-    NotImplemented(string)
-    Timeout
-    Closed
-    Io(string)
-}
-
-pub struct Session {
-    sock: Socket
-    buffer: [byte]
-}
-
-pub struct Exchange {
-    request: Request
-    session: Session
-}
-
-pub fn open_session(sock: Socket) -> Session
-
-pub fn header(req: Request, name: string) -> Option<string>
-
-pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string>
-
-pub fn percent_encode(s: string, plus_for_space: bool) -> string
-
-pub fn read_request(session: Session) -> Result<Exchange, HttpError>
-
-pub fn response(status: int, body: string) -> Response
-
-pub fn with_header(r: Response, name: string, value: string) -> Response
-
-pub fn json_response(status: int, body: string) -> Response
-
-pub fn text_response(status: int, body: string) -> Response
-
-pub fn bad_request(message: string) -> Response
-
-pub fn not_found() -> Response
-
-pub fn method_not_allowed(allowed: [string]) -> Response
-
-pub fn error_response(e: HttpError) -> Response
-
-pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool, HttpError>
-
-pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError>
-
-pub fn path_params(pattern: string, path: string) -> Option<Params>
-
-pub fn route(req: Request, method: HttpMethod, pattern: string) -> Option<Params>
-
-pub fn param(p: Params, name: string) -> string
-
-pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Response
-
-pub fn query_param(req: Request, name: string) -> Option<string>
-
-pub struct ServeOptions {
-    idle_timeout_ms: int
-    max_connections: int
-    log_requests: bool
-}
-
-pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions)
-
-```
-
 ## `json`
 
 A JSON parser/serializer (`Json`, a genuinely recursive enum), written in pure Ziman -- no native code needed. `\uXXXX` unicode escapes and `==`/`!=` on `Json` are the two known gaps.
@@ -1340,5 +1103,249 @@ pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError>
 pub fn sql_as_float(v: SqlValue) -> Result<float, DbError>
 
 pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError>
+
+```
+
+## `client`
+
+```
+pub struct BytesResponse {
+    status: int
+    headers: [Header]
+    body: [byte]
+}
+
+pub enum ClientError {
+    BadUrl(string)
+    Network(string)
+    Timeout
+    BadResponse(string)
+    TooLarge
+    TooManyRedirects
+}
+
+pub fn error_message(e: ClientError) -> string
+
+pub struct Url {
+    secure: bool
+    host: string
+    port: int
+    target: string
+    userinfo: string
+}
+
+pub fn parse_url(url: string) -> Result<Url, string>
+
+pub fn response_header(r: Response, name: string) -> Option<string>
+
+pub fn close_idle()
+
+pub struct Cookie {
+    name: string
+    value: string
+    domain: string
+    path: string
+    secure: bool
+    host_only: bool
+    expires: int
+}
+
+pub struct CookieJar {
+    cookies: [Cookie]
+}
+
+pub fn cookie_jar() -> CookieJar
+
+pub struct JarResponse {
+    response: Response
+    jar: CookieJar
+}
+
+pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar
+
+pub fn jar_header(jar: CookieJar, u: Url) -> Option<string>
+
+pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
+
+pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
+
+pub fn request_with_jar(jar: CookieJar, method: HttpMethod, url: string, headers: Option<[Header]>,
+
+pub fn get(url: string) -> Result<Response, ClientError>
+
+pub fn head(url: string) -> Result<Response, ClientError>
+
+pub fn delete(url: string) -> Result<Response, ClientError>
+
+pub fn post_json(url: string, body: string) -> Result<Response, ClientError>
+
+pub fn put_json(url: string, body: string) -> Result<Response, ClientError>
+
+pub fn form_encode(fields: Map<string, string>) -> string
+
+pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, ClientError>
+
+```
+
+## `http`
+
+```
+pub val status_continue = 100
+
+pub val status_ok = 200
+
+pub val status_created = 201
+
+pub val status_accepted = 202
+
+pub val status_no_content = 204
+
+pub val status_moved_permanently = 301
+
+pub val status_found = 302
+
+pub val status_not_modified = 304
+
+pub val status_bad_request = 400
+
+pub val status_unauthorized = 401
+
+pub val status_forbidden = 403
+
+pub val status_not_found = 404
+
+pub val status_method_not_allowed = 405
+
+pub val status_request_timeout = 408
+
+pub val status_conflict = 409
+
+pub val status_payload_too_large = 413
+
+pub val status_unprocessable_entity = 422
+
+pub val status_header_fields_too_large = 431
+
+pub val status_internal_server_error = 500
+
+pub val status_not_implemented = 501
+
+pub val status_service_unavailable = 503
+
+pub enum HttpMethod {
+    Get
+    Head
+    Post
+    Put
+    Patch
+    Delete
+    Options
+    Other(string)
+}
+
+pub fn method_parse(name: string) -> HttpMethod
+
+pub fn method_name(m: HttpMethod) -> string
+
+pub struct Header {
+    name: string
+    value: string
+}
+
+pub struct Request {
+    method: HttpMethod
+    target: string
+    path: string
+    query: string
+    version: string
+    headers: [Header]
+    body: string
+}
+
+pub struct Response {
+    status: int
+    headers: [Header]
+    body: string
+}
+
+pub fn header(req: Request, name: string) -> Option<string>
+
+pub fn header_value(headers: [Header], name: string) -> Option<string>
+
+pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string>
+
+pub fn percent_encode(s: string, plus_for_space: bool) -> string
+
+```
+
+## `server`
+
+```
+pub struct Params {
+    names: [string]
+    values: [string]
+}
+
+pub enum HttpError {
+    BadRequest(string)
+    BodyTooLarge
+    HeadersTooLarge
+    NotImplemented(string)
+    Timeout
+    Closed
+    Io(string)
+}
+
+pub struct Session {
+    sock: Socket
+    buffer: [byte]
+}
+
+pub struct Exchange {
+    request: Request
+    session: Session
+}
+
+pub fn open_session(sock: Socket) -> Session
+
+pub fn read_request(session: Session) -> Result<Exchange, HttpError>
+
+pub fn response(status: int, body: string) -> Response
+
+pub fn with_header(r: Response, name: string, value: string) -> Response
+
+pub fn json_response(status: int, body: string) -> Response
+
+pub fn text_response(status: int, body: string) -> Response
+
+pub fn bad_request(message: string) -> Response
+
+pub fn not_found() -> Response
+
+pub fn method_not_allowed(allowed: [string]) -> Response
+
+pub fn error_response(e: HttpError) -> Response
+
+pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool, HttpError>
+
+pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError>
+
+pub fn path_params(pattern: string, path: string) -> Option<Params>
+
+pub fn route(req: Request, method: HttpMethod, pattern: string) -> Option<Params>
+
+pub fn param(p: Params, name: string) -> string
+
+pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Response
+
+pub fn query_param(req: Request, name: string) -> Option<string>
+
+pub struct ServeOptions {
+    idle_timeout_ms: int
+    max_connections: int
+    log_requests: bool
+}
+
+pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions)
 
 ```

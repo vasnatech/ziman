@@ -2,7 +2,7 @@ use compress
 use http
 use http.Header
 use http.HttpMethod
-use httpclient
+use client
 use net
 use number
 
@@ -119,11 +119,11 @@ fn proxy_loop(l: net.Listener) {
     }
 }
 
-fn body_of(r: Result<http.Response, httpclient.ClientError>) -> string {
+fn body_of(r: Result<http.Response, client.ClientError>) -> string {
     if is_ok(r) {
         return format("{} {}", unwrap(r).status, unwrap(r).body)
     }
-    return httpclient.error_message(unwrap_err(r))
+    return client.error_message(unwrap_err(r))
 }
 
 fn count(ch: Channel<int>) -> int {
@@ -148,61 +148,61 @@ fn main() {
     val base = format("http://127.0.0.1:{}", port)
 
     // keep-alive: three requests, one connection; a server that closes ends the reuse
-    print(body_of(httpclient.get(concat(base, "/plain"))))
-    print(body_of(httpclient.get(concat(base, "/plain"))))
-    print(body_of(httpclient.get(concat(base, "/plain"))))
+    print(body_of(client.get(concat(base, "/plain"))))
+    print(body_of(client.get(concat(base, "/plain"))))
+    print(body_of(client.get(concat(base, "/plain"))))
     print(count(opened))
-    print(body_of(httpclient.get(concat(base, "/close"))))
-    print(body_of(httpclient.get(concat(base, "/plain"))))
+    print(body_of(client.get(concat(base, "/close"))))
+    print(body_of(client.get(concat(base, "/plain"))))
     print(count(opened))
     // a parked connection the server has since closed is detected and the request is sent again
-    print(body_of(httpclient.get(concat(base, "/flaky"))))
-    print(body_of(httpclient.get(concat(base, "/plain"))))
+    print(body_of(client.get(concat(base, "/flaky"))))
+    print(body_of(client.get(concat(base, "/plain"))))
     // reuse can be turned off
-    httpclient.close_idle()
+    client.close_idle()
     count(opened)
-    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/plain"), reuse: false)))
-    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/plain"), reuse: false)))
+    print(body_of(client.request(method: HttpMethod.Get, url: concat(base, "/plain"), reuse: false)))
+    print(body_of(client.request(method: HttpMethod.Get, url: concat(base, "/plain"), reuse: false)))
     print(count(opened))
 
     // compression
-    print(body_of(httpclient.get(concat(base, "/gzip"))))
-    print(body_of(httpclient.get(concat(base, "/deflate"))))
-    print(body_of(httpclient.get(concat(base, "/accept"))))
-    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/accept"), compress: false)))
-    print(body_of(httpclient.get(concat(base, "/badgzip"))))
-    val gz = unwrap(httpclient.get(concat(base, "/gzip")))
-    print(httpclient.response_header(gz, "Content-Encoding"))
-    print(httpclient.response_header(gz, "Content-Length"))
+    print(body_of(client.get(concat(base, "/gzip"))))
+    print(body_of(client.get(concat(base, "/deflate"))))
+    print(body_of(client.get(concat(base, "/accept"))))
+    print(body_of(client.request(method: HttpMethod.Get, url: concat(base, "/accept"), compress: false)))
+    print(body_of(client.get(concat(base, "/badgzip"))))
+    val gz = unwrap(client.get(concat(base, "/gzip")))
+    print(client.response_header(gz, "Content-Encoding"))
+    print(client.response_header(gz, "Content-Length"))
 
     // credentials in the URL, and not sent to another host on a redirect
-    print(body_of(httpclient.get(format("http://user:p%40ss@127.0.0.1:{}/auth", port))))
-    print(body_of(httpclient.get(format("http://user:p%40ss@127.0.0.1:{}/to-other-host", port))))
-    print(body_of(httpclient.get(format("http://user:p%40ss@127.0.0.1:{}/same-host-redirect", port))))
-    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/to-other-host"),
+    print(body_of(client.get(format("http://user:p%40ss@127.0.0.1:{}/auth", port))))
+    print(body_of(client.get(format("http://user:p%40ss@127.0.0.1:{}/to-other-host", port))))
+    print(body_of(client.get(format("http://user:p%40ss@127.0.0.1:{}/same-host-redirect", port))))
+    print(body_of(client.request(method: HttpMethod.Get, url: concat(base, "/to-other-host"),
         headers: [Header { name: "Authorization", value: "Bearer tok" }])))
-    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/same-host-redirect"),
+    print(body_of(client.request(method: HttpMethod.Get, url: concat(base, "/same-host-redirect"),
         headers: [Header { name: "Authorization", value: "Bearer tok" }])))
 
     // cookies
-    var jar = httpclient.cookie_jar()
-    var r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-set")))
+    var jar = client.cookie_jar()
+    var r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-set")))
     print(r.response.body)
     jar = r.jar
     print(len(jar.cookies))
-    r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-echo")))
+    r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-echo")))
     print(r.response.body)
-    r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/only/cookie-echo")))
+    r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/only/cookie-echo")))
     print(r.response.body)
-    r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-clear")))
+    r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-clear")))
     jar = r.jar
     print(len(jar.cookies))
-    r = unwrap(httpclient.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-echo")))
+    r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-echo")))
     print(r.response.body)
     // without a jar nothing is remembered
-    print(body_of(httpclient.get(concat(base, "/cookie-echo"))))
+    print(body_of(client.get(concat(base, "/cookie-echo"))))
     // the same host on another port, and another host, get none of them
-    val other = httpclient.jar_header(jar, unwrap(httpclient.parse_url("http://example.org/")))
+    val other = client.jar_header(jar, unwrap(client.parse_url("http://example.org/")))
     print(other)
 
     // a proxy: plain http goes to the proxy with the absolute URI and the proxy's credentials
@@ -210,12 +210,12 @@ fn main() {
     val pport = net.listener_port(pl)
     spawn proxy_loop(pl)
     val proxy = format("http://pu:pw@127.0.0.1:{}", pport)
-    print(body_of(httpclient.request(method: HttpMethod.Get, url: "http://example.test:8081/a/b?x=1", proxy: proxy)))
-    print(body_of(httpclient.request(method: HttpMethod.Get, url: concat(base, "/plain"), proxy: "")))
-    print(body_of(httpclient.request(method: HttpMethod.Get, url: "http://example.test/", proxy: "https://x:1")))
-    print(body_of(httpclient.request(method: HttpMethod.Get, url: "http://example.test/", proxy: "http://127.0.0.1:1")))
+    print(body_of(client.request(method: HttpMethod.Get, url: "http://example.test:8081/a/b?x=1", proxy: proxy)))
+    print(body_of(client.request(method: HttpMethod.Get, url: concat(base, "/plain"), proxy: "")))
+    print(body_of(client.request(method: HttpMethod.Get, url: "http://example.test/", proxy: "https://x:1")))
+    print(body_of(client.request(method: HttpMethod.Get, url: "http://example.test/", proxy: "http://127.0.0.1:1")))
 
     // form bodies and URL parsing
-    print(httpclient.form_encode(Map<string, string> { "name": "Ada Lovelace", "q": "a&b=c", "é": "1" }))
-    print(unwrap(httpclient.parse_url("https://u:p@h.example:8443/x?y")).userinfo)
+    print(client.form_encode(Map<string, string> { "name": "Ada Lovelace", "q": "a&b=c", "é": "1" }))
+    print(unwrap(client.parse_url("https://u:p@h.example:8443/x?y")).userinfo)
 }

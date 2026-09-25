@@ -27,7 +27,7 @@ check_signal() {
     echo "FAIL shutdown_$sig (exit=$status)"; sed 's/^/  /' "$out"; rm -f "$out"; return 1
 }
 
-# http.serve: serves a request through the handler function value and context,
+# server.serve: serves a request through the handler function value and context,
 # then a SIGTERM drains it and it exits 0.
 check_serve() {
     local out

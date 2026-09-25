@@ -1644,7 +1644,7 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
-- **Using function values: `db.with_transaction` and `http.serve` (roadmap
+- **Using function values: `db.with_transaction` and `server.serve` (roadmap
   R13, 2026-09-24).** Stage 1 deliberately has no capture, so a callback cannot
   reach a value the caller has. The answer is an explicit **context parameter**
   threaded through a generic function, and it turned out to be enough for both of
@@ -1653,7 +1653,7 @@ several languages rather than inheriting any one of them wholesale.
   begin / `defer rollback` / commit / release dance -- the exact sequence that
   had to be written out (and could be got wrong: a `?` leaving a transaction
   open) at every call site -- and roll back on an `Err` from `work` or a failed
-  commit. `http.serve<C>(listener, ctx, handler, options)` owns the accept loop,
+  commit. `server.serve<C>(listener, ctx, handler, options)` owns the accept loop,
   thread per connection, the connection limit (a channel as a counting
   semaphore) and graceful shutdown, and calls `handler(ctx, request)`; the
   sample backend's `server.zm` lost its request loop and its semaphore and now
@@ -2744,7 +2744,7 @@ several languages rather than inheriting any one of them wholesale.
 
 - **`http`: an HTTP/1.1 server toolkit, and the `\r` string escape.**
   **A toolkit, because there were no function values.** (Superseded: with
-  R13's function values `http.serve(listener, ctx, handler, options)` now
+  R13's function values `server.serve(listener, ctx, handler, options)` now
   exists and a route table of handler values is possible; the reasoning below
   is the original one.) A framework's
   central move is `serve(listener, handler)` -- a library taking your
@@ -2752,7 +2752,7 @@ several languages rather than inheriting any one of them wholesale.
   first-class functions. So the application owns the two things that need
   its code (the accept loop and a `route` function), and `http` owns
   everything they call. This is the same constraint that shaped the
-  router: **a hand-written `route` with one-line matchers (`http.route(req,
+  router: **a hand-written `route` with one-line matchers (`server.route(req,
   "GET", "/patients/{id}")` returning `Option<Params>`), not a route table**
   -- a table can't hold the handler either, so it would only save the
   matching while forcing a stringly-typed name-based dispatch and a second
@@ -2848,7 +2848,7 @@ Properties stay non-generic: a row has a fixed column list.
 - `log` has no global logger because Ziman has no mutable globals; a `Logger`
   value is passed instead, which also makes per-component prefixes trivial.
   Named arguments + `Option` omission give it a small constructor.
-- `httpclient` is pure Ziman over `net` (so TLS comes free). It deliberately
+- `client` is pure Ziman over `net` (so TLS comes free). It deliberately
   treats every HTTP status as `Ok`: a 404 is an answer, not a failure of the
   exchange. One request per connection keeps it stateless. Building it found a
   real bug in its own first draft (connecting plain *and* TLS for https); the
@@ -2879,7 +2879,7 @@ because a string cannot hold a NUL, appends nothing and returns false if any is 
 Survey result: the two usage modes already sort the names. Everything another
 module imports bare (`byte_from_hex`, `string_to_bytes`, `net_error_message`,
 `sql_lift`, `random_bytes`) carries its noun, and every module's qualified-use
-API is short verbs. The review's collision (`use http.response`) is a
+API is short verbs. The review's collision (`use server.response`) is a
 consequence of importing a verb-style name bare, which the convention now says
 not to do. No mass rename: it would churn derive-generated code and every
 fixture for no gain. Rule 3 (type-prefixed operations for types a module
@@ -3003,7 +3003,7 @@ same way). A trailing `if`/`switch` in an arm is a value, never a statement
 
 **Effect on the code base.** Nine `var x = ...; if ... { x = ... }` patterns in
 the library and the sample backend became `val`s (the backend's
-`db_error_response` status, the pg/mysql decoders, `httpclient`'s body
+`db_error_response` status, the pg/mysql decoders, `client`'s body
 reading, `properties`' profile choice). The lint (`--lint`) counts an
 assignment made by a value block.
 
@@ -3093,7 +3093,7 @@ lambda can be an *argument* to a spawned function, as the fixture shows).
 Generic functions still cannot be used as values; a lambda inside a generic
 function may use its type parameters.
 
-**Not done.** Stage 2 does not make `db.with_transaction` or `http.serve` drop
+**Not done.** Stage 2 does not make `db.with_transaction` or `server.serve` drop
 their explicit context parameters: those APIs remain correct, and a caller can
 now also pass a lambda that closes over what it needs. Expression-bodied lambdas
 and inferring lambda parameter types are open.
@@ -3104,7 +3104,7 @@ The `_ctx` and generic-context APIs existed only because function values could
 not capture (DESIGN, R13 stage 1 "what this shows about stage 2"). With lambdas
 they are redundant, so they were removed rather than kept as a second way:
 `collections.map_ctx`/`filter_ctx`/`find_ctx`, `db.with_transaction_ctx`, and
-the `<C>` context parameter of `http.serve` (now
+the `<C>` context parameter of `server.serve` (now
 `serve(listener, handler: fn(Request) -> Response, options)`, whose per-
 connection function is no longer generic). The sample backend's route lookup is
 `collections.find<Route>(table, fn(r: Route) -> bool { ... })` capturing the
@@ -3335,7 +3335,7 @@ pointer.
 values are waiting, so a fast producer is held to the pace of a slow consumer
 instead of growing a queue without limit (the unbounded queue was the review's
 "a DoS primitive by design"). `channel_new()` is unchanged, since the connection
-semaphore in `http.serve` and the pool's idle list rely on unbounded, pre-filled
+semaphore in `server.serve` and the pool's idle list rely on unbounded, pre-filled
 channels, and a bounded default would break them. Also added: `try_send(ch, v) ->
 bool` and `try_receive(ch) -> Option<T>` (never block; the `Option` is built by
 the interpreter with the call's resolved type, the way `?` builds its propagated

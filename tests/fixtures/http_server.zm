@@ -1,60 +1,61 @@
 use http
-use http.HttpError
+use server
+use server.HttpError
 use http.HttpMethod
 use net
 
 // The server half is written the way an application writes it: its own
 // route function and its own accept loop, built from the raw pieces
-// (`http.serve`, which takes a handler function value, is covered by
+// (`server.serve`, which takes a handler function value, is covered by
 // tests/shutdown).
 
 fn route(req: http.Request) -> http.Response {
-    val health = http.route(req, HttpMethod.Get, "/health")
+    val health = server.route(req, HttpMethod.Get, "/health")
     if Option.is_Some(health) {
-        return http.text_response(200, "ok")
+        return server.text_response(200, "ok")
     }
-    val head = http.route(req, HttpMethod.Head, "/health")
+    val head = server.route(req, HttpMethod.Head, "/health")
     if Option.is_Some(head) {
-        return http.text_response(200, "ok")
+        return server.text_response(200, "ok")
     }
-    val item = http.route(req, HttpMethod.Get, "/items/{id}")
+    val item = server.route(req, HttpMethod.Get, "/items/{id}")
     if Option.is_Some(item) {
-        return http.text_response(200, concat("item=", http.param(Option.unwrap_Some(item), "id")))
+        return server.text_response(200, concat("item=", server.param(Option.unwrap_Some(item), "id")))
     }
-    val echo = http.route(req, HttpMethod.Post, "/echo")
+    val echo = server.route(req, HttpMethod.Post, "/echo")
     if Option.is_Some(echo) {
-        return http.json_response(201, req.body)
+        return server.json_response(201, req.body)
     }
-    val search = http.route(req, HttpMethod.Get, "/search")
+    val search = server.route(req, HttpMethod.Get, "/search")
     if Option.is_Some(search) {
-        val q = http.query_param(req, "q")
+        val q = server.query_param(req, "q")
         if Option.is_Some(q) {
-            return http.text_response(200, concat("q=", Option.unwrap_Some(q)))
+            return server.text_response(200, concat("q=", Option.unwrap_Some(q)))
         }
-        return http.bad_request("missing q")
+        return server.bad_request("missing q")
     }
     val ua = http.header(req, "User-Agent")
     if req.path == "/ua" && Option.is_Some(ua) {
-        return http.text_response(200, Option.unwrap_Some(ua))
+        return server.text_response(200, Option.unwrap_Some(ua))
     }
-    return http.not_found_or_method_not_allowed(req,
+    return server.not_found_or_method_not_allowed(req,
         ["GET /health", "HEAD /health", "GET /items/{id}", "POST /echo", "GET /search"])
 }
 
 fn serve_connection(sock: net.Socket) {
     defer net.close(sock)
     unwrap(net.set_timeout(sock, 400))
-    var session = http.open_session(sock)
+    var session = server.open_session(sock)
     var open = true
     while open {
-        val next = http.read_request(session)
+        val next = server.read_request(session)
         if !is_ok(next) {
-            http.write_error(sock, unwrap_err(next))
+            server.write_error(sock, unwrap_err(next))
             open = false
         } else {
             val ex = unwrap(next)
             session = ex.session
-            val keep = http.write_response(sock, ex.request, route(ex.request))
+            val keep = server.write_response(sock, ex.request, route(ex.request))
             if !is_ok(keep) || !unwrap(keep) {
                 open = false
             }

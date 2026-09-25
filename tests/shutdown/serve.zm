@@ -1,21 +1,22 @@
 use http
 use net
 use os
+use server
 
-// A tiny app on http.serve: the handler is a lambda capturing a greeting, and
+// A tiny app on server.serve: the handler is a lambda capturing a greeting, and
 // SIGTERM stops it cleanly.
 
 fn main() {
     os.install_shutdown_handler()
     val listener = unwrap(net.listen("127.0.0.1", 0))
     printf("listening {}\n", net.listener_port(listener))
-    val options = http.ServeOptions { idle_timeout_ms: 1000, max_connections: 4, log_requests: false }
+    val options = server.ServeOptions { idle_timeout_ms: 1000, max_connections: 4, log_requests: false }
     val greeting = "hi"
-    http.serve(listener, fn(req: http.Request) -> http.Response {
+    server.serve(listener, fn(req: http.Request) -> http.Response {
         if req.path == "/hello" {
-            return http.text_response(200, format("{} {}", greeting, http.method_name(req.method)))
+            return server.text_response(200, format("{} {}", greeting, http.method_name(req.method)))
         }
-        return http.not_found()
+        return server.not_found()
     }, options)
     net.close_listener(listener)
     print("stopped")

@@ -1,4 +1,4 @@
-// http.zm -- an HTTP/1.1 *server* toolkit, written in Ziman on top of
+// server.zm -- an HTTP/1.1 *server* toolkit, written in Ziman on top of
 // `net`: parse a request off a socket, route it, write a response.
 // Two ways to use it. `serve(listener, ctx, handler, options)` runs the accept
 // loop and the per-connection loop for you and calls your handler -- a
@@ -24,28 +24,6 @@
 // timeout on the socket (`net.set_timeout`) so an idle or stalled client
 // can't hold a thread forever: a timed-out read is `Err(Timeout)`.
 
-// HTTP status codes by name.
-pub val status_continue = 100
-pub val status_ok = 200
-pub val status_created = 201
-pub val status_accepted = 202
-pub val status_no_content = 204
-pub val status_moved_permanently = 301
-pub val status_found = 302
-pub val status_not_modified = 304
-pub val status_bad_request = 400
-pub val status_unauthorized = 401
-pub val status_forbidden = 403
-pub val status_not_found = 404
-pub val status_method_not_allowed = 405
-pub val status_request_timeout = 408
-pub val status_conflict = 409
-pub val status_payload_too_large = 413
-pub val status_unprocessable_entity = 422
-pub val status_header_fields_too_large = 431
-pub val status_internal_server_error = 500
-pub val status_not_implemented = 501
-pub val status_service_unavailable = 503
 val read_chunk_bytes = 4096
 val accept_error_backoff_ms = 10
 val server_name = "ziman"
@@ -55,6 +33,36 @@ val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
 
 use clock
 use clock.now_http_date
+use http.Header
+use http.HttpMethod
+use http.Request
+use http.Response
+use http.header
+use http.header_value
+use http.method_name
+use http.method_parse
+use http.percent_decode
+use http.status_accepted
+use http.status_bad_request
+use http.status_conflict
+use http.status_continue
+use http.status_created
+use http.status_forbidden
+use http.status_found
+use http.status_header_fields_too_large
+use http.status_internal_server_error
+use http.status_method_not_allowed
+use http.status_moved_permanently
+use http.status_no_content
+use http.status_not_found
+use http.status_not_implemented
+use http.status_not_modified
+use http.status_ok
+use http.status_payload_too_large
+use http.status_request_timeout
+use http.status_service_unavailable
+use http.status_unauthorized
+use http.status_unprocessable_entity
 use json.Json
 use json.json_to_string
 use net
@@ -66,76 +74,6 @@ use number.byte_from_hex
 use number.byte_to_hex
 use number.int_from_hex
 use os
-
-// A request method. The common ones are variants (so a route's method is
-// checked by the compiler and a `switch` over it is exhaustive); anything else
-// a client sends (PROPFIND, TRACE, a made-up verb) is `Other` with the text as
-// received. Method names are case-sensitive: "get" is `Other("get")`.
-pub enum HttpMethod {
-    Get
-    Head
-    Post
-    Put
-    Patch
-    Delete
-    Options
-    Other(string)
-}
-
-// The method named `name`: a known one (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) or
-// `Other(name)`. Case-sensitive.
-pub fn method_parse(name: string) -> HttpMethod {
-    if name == "GET" { return HttpMethod.Get }
-    if name == "HEAD" { return HttpMethod.Head }
-    if name == "POST" { return HttpMethod.Post }
-    if name == "PUT" { return HttpMethod.Put }
-    if name == "PATCH" { return HttpMethod.Patch }
-    if name == "DELETE" { return HttpMethod.Delete }
-    if name == "OPTIONS" { return HttpMethod.Options }
-    return HttpMethod.Other(name)
-}
-
-// The text that goes on the request line ("GET", "POST", ...).
-pub fn method_name(m: HttpMethod) -> string {
-    return switch m {
-        Get { "GET" }
-        Head { "HEAD" }
-        Post { "POST" }
-        Put { "PUT" }
-        Patch { "PATCH" }
-        Delete { "DELETE" }
-        Options { "OPTIONS" }
-        Other(name) { name }
-    }
-}
-
-// One header line. `name` keeps the case it had; compare names with `equals_ignore_case`.
-pub struct Header {
-    name: string
-    value: string
-}
-
-// `target` is the raw request target ("/patients/7?x=1"); `path` and
-// `query` are its two halves, still percent-encoded (`route` and
-// `query_param` decode what they hand back). `headers` keep their
-// original case; look one up with `header`, which ignores case.
-pub struct Request {
-    method: HttpMethod
-    target: string
-    path: string
-    query: string
-    version: string
-    headers: [Header]
-    body: string
-}
-
-// What a handler returns: a status code, headers and a text body. `write_response` adds
-// `Content-Length`, `Connection`, and (unless set) `Date` and `Server`.
-pub struct Response {
-    status: int
-    headers: [Header]
-    body: string
-}
 
 // The `{name}` captures of a matched route, by position.
 pub struct Params {
@@ -214,68 +152,6 @@ pub fn open_session(sock: Socket) -> Session {
     return Session { sock: sock, buffer: [] }
 }
 
-// Case-insensitive header lookup.
-pub fn header(req: Request, name: string) -> Option<string> {
-    for h in req.headers {
-        if equals_ignore_case(h.name, name) {
-            return Option<string>.Some(h.value)
-        }
-    }
-    return Option<string>.None
-}
-
-// %XX escapes; `plus_is_space` is for query strings ("a+b" is "a b"
-// there, but a literal plus in a path).
-pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> {
-    val out = sb_new()
-    var run = 0
-    var i = 0
-    while i < len(s) {
-        if is_char_at(s, i, "%") {
-            sb_append(out, substring(s, run, i))
-            if i + 3 > len(s) {
-                return err("truncated %-escape")
-            }
-            val b = byte_from_hex(substring(s, i + 1, i + 3))
-            if !is_ok(b) {
-                return err("bad %-escape")
-            }
-            if !sb_append_byte(out, unwrap(b)) {
-                return err("decodes to text containing a NUL byte")
-            }
-            i = i + 3
-            run = i
-        } else if plus_is_space && is_char_at(s, i, "+") {
-            sb_append(out, substring(s, run, i), " ")
-            i = i + 1
-            run = i
-        } else {
-            i = i + 1
-        }
-    }
-    sb_append(out, substring(s, run, len(s)))
-    return ok(sb_to_string(out))
-}
-
-// The inverse of `percent_decode`: every byte except the unreserved characters (letters, digits,
-// `-` `_` `.` `~`) as `%XX` (uppercase hex). With `plus_for_space` a space is written `+` (form and query
-// encoding) instead of `%20`.
-pub fn percent_encode(s: string, plus_for_space: bool) -> string {
-    val out = sb_new()
-    for b in string_to_bytes(s) {
-        val c = b as int
-        val unreserved = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 45 || c == 95 || c == 46 || c == 126
-        if unreserved {
-            sb_append_byte(out, b)
-        } else if c == 32 && plus_for_space {
-            sb_append(out, "+")
-        } else {
-            sb_append(out, "%", to_upper(byte_to_hex(b)))
-        }
-    }
-    return sb_to_string(out)
-}
-
 // ------------------------------------------------------------- reading
 
 fn parse_header_line(line: string) -> Result<Header, HttpError> {
@@ -292,15 +168,6 @@ fn parse_header_line(line: string) -> Result<Header, HttpError> {
         return err(HttpError.BadRequest("malformed header name"))
     }
     return Header { name: name, value: trim(parts[1]) }
-}
-
-fn header_value(headers: [Header], name: string) -> Option<string> {
-    for h in headers {
-        if equals_ignore_case(h.name, name) {
-            return Option<string>.Some(h.value)
-        }
-    }
-    return Option<string>.None
 }
 
 // A request body sent with `Transfer-Encoding: chunked`, decoded, and the bytes read past its end
@@ -702,7 +569,7 @@ pub fn path_params(pattern: string, path: string) -> Option<Params> {
 
 // `Some(params)` if the request's method is `method` and its path matches
 // `pattern`, else `None` -- the one-line test a route function is built
-// from: `val m = http.route(req, HttpMethod.Get, "/patients/{id}")`.
+// from: `val m = server.route(req, HttpMethod.Get, "/patients/{id}")`.
 pub fn route(req: Request, method: HttpMethod, pattern: string) -> Option<Params> {
     if req.method != method {
         return Option<Params>.None
@@ -767,7 +634,7 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 // supplies its handler. A handler is a *function value*: a named function, or a
 // lambda that captures what it needs (a database connection, a configuration):
 //
-//     http.serve(listener, fn(req) { route(conn, req) }, options)
+//     server.serve(listener, fn(req) { route(conn, req) }, options)
 //
 // One thread per connection, at most `max_connections` at once (the limit is a
 // channel used as a counting semaphore: a client past it waits in the kernel's

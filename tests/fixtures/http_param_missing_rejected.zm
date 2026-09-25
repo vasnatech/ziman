@@ -1,8 +1,8 @@
-use http
+use server
 
 // Asking for a parameter the pattern doesn't declare is a bug in the
 // route function, so it is fatal rather than a value to check.
 fn main() {
-    val m = http.path_params("/a/{id}", "/a/7")
-    print(http.param(Option.unwrap_Some(m), "nope"))
+    val m = server.path_params("/a/{id}", "/a/7")
+    print(server.param(Option.unwrap_Some(m), "nope"))
 }

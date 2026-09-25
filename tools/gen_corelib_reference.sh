@@ -51,7 +51,7 @@ unqualified in every program, the same way `print`/`str`/`parse_int`
 are. See docs/SYNTAX.md's "Modules" section for what it contains.
 EOF
 
-for f in lib/core/*.zm lib/db/*.zm; do
+for f in lib/core/*.zm lib/db/*.zm lib/http/*.zm; do
     name=$(basename "$f" .zm)
     if [ "$name" = "prelude" ]; then continue; fi
     desc=$(describe "$name")

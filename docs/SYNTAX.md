@@ -1386,8 +1386,8 @@ fn main() {
   `random`), `time` (see "Date and time"), `number` (see "Number formatting
   and parsing", which also holds the binary integer/float encodings for `[byte]`), `crypto`, `json` (a parser/serializer whose `Json`
   is a recursive enum, `JArray([Json])`/`JObject(Map<string, Json>)`, plus
-  what `#[derive(Json)]` needs), `properties` and `log`, `net`, `http` and
-  `httpclient`, and the database layer `sql`, `db`, `sqlite`, `pg`, `mysql`
+  what `#[derive(Json)]` needs), `properties` and `log`, `net`, the HTTP modules
+  `http` (the types they share), `server` and `client`, and the database layer `sql`, `db`, `sqlite`, `pg`, `mysql`
   and `dburl`. Any project can `use` one of these with no local file of its
   own. Each is still an ordinary, qualified module in every other respect --
   `use fs`, always `fs.read_text`, never a bare unqualified name the way the
@@ -1410,9 +1410,9 @@ Two usage modes exist (`use net` then `net.connect(...)`, or a per-name import
 a naming rule. The bundled modules follow it; new ones should too.
 
 1. **Called qualified: a short verb, no module prefix.** `net.connect`,
-   `fs.read_text`, `http.route`, `db.query`, `log.info`, `httpclient.get`.
+   `fs.read_text`, `server.route`, `db.query`, `log.info`, `client.get`.
    The qualifier already says where it comes from, so `net.net_connect` would
-   stutter. Don't import such names bare: `use http.response` makes a bare
+   stutter. Don't import such names bare: `use server.response` makes a bare
    `response` that collides with an application module or variable of that name.
 2. **Imported bare, or found by name: carry the noun.** A function another
    module imports by name, or one the compiler locates by a naming convention,
@@ -2125,13 +2125,13 @@ ready-made server loop:
 ```
 fn route(conn: db.Connection, req: http.Request) -> http.Response { ... }
 
-val options = http.ServeOptions { idle_timeout_ms: 30000, max_connections: 64, log_requests: true }
+val options = server.ServeOptions { idle_timeout_ms: 30000, max_connections: 64, log_requests: true }
 os.install_shutdown_handler()
-http.serve(listener, fn(req) { route(conn, req) }, options)   // the lambda captured `conn`
+server.serve(listener, fn(req) { route(conn, req) }, options)   // the lambda captured `conn`
                                             // returns after SIGINT/SIGTERM
 ```
 
-`http.serve(listener, handler: fn(Request) -> Response, options)`
+`server.serve(listener, handler: fn(Request) -> Response, options)`
 runs the accept loop and the per-connection request loop and calls `handler`
 for each request. The handler is a function value -- a named function, or a
 lambda capturing whatever it needs (a database connection, configuration); the
@@ -2151,32 +2151,32 @@ use net
 use http
 
 fn route(conn: db.Connection, req: http.Request) -> http.Response {
-    val create = http.route(req, HttpMethod.Post, "/patients")
+    val create = server.route(req, HttpMethod.Post, "/patients")
     if Option.is_Some(create) {
-        return http.json_response(201, req.body)
+        return server.json_response(201, req.body)
     }
-    val one = http.route(req, HttpMethod.Get, "/patients/{id}")
+    val one = server.route(req, HttpMethod.Get, "/patients/{id}")
     if Option.is_Some(one) {
-        val id = http.param(Option.unwrap_Some(one), "id")     // percent-decoded string
-        return http.json_response(200, lookup(conn, id))
+        val id = server.param(Option.unwrap_Some(one), "id")     // percent-decoded string
+        return server.json_response(200, lookup(conn, id))
     }
-    return http.not_found_or_method_not_allowed(req, ["POST /patients", "GET /patients/{id}"])
+    return server.not_found_or_method_not_allowed(req, ["POST /patients", "GET /patients/{id}"])
 }
 
 fn serve_connection(conn: db.Connection, sock: net.Socket) {
     defer net.close(sock)                       // closed on every way out
     unwrap(net.set_timeout(sock, 30000))        // an idle client can't hold the thread forever
-    var session = http.open_session(sock)
+    var session = server.open_session(sock)
     var open = true
     while open {
-        val next = http.read_request(session)
+        val next = server.read_request(session)
         if !is_ok(next) {
-            http.write_error(sock, unwrap_err(next))   // 400/408/413/431/501, or nothing if the peer is gone
+            server.write_error(sock, unwrap_err(next))   // 400/408/413/431/501, or nothing if the peer is gone
             open = false
         } else {
             val ex = unwrap(next)
             session = ex.session                       // carries any bytes read past this request
-            val keep = http.write_response(sock, ex.request, route(conn, ex.request))
+            val keep = server.write_response(sock, ex.request, route(conn, ex.request))
             if !is_ok(keep) || !unwrap(keep) {
                 open = false
             }
@@ -2206,7 +2206,7 @@ fn main() {
   make a handler buffer without limit. Set `net.set_timeout` on the
   socket; a stalled read is `Timeout` (408). Bodies are `string`s, so a
   request carrying a 0 byte gets a 400.
-- **Responses.** `http.response(status, body)`, `json_response`,
+- **Responses.** `server.response(status, body)`, `json_response`,
   `text_response`, `bad_request`, `not_found`, `method_not_allowed`, and
   `with_header`. `write_response(sock, req, resp)` adds `Content-Length`
   and `Connection`, and returns whether the connection stays open
@@ -2216,16 +2216,16 @@ fn main() {
   `Post`, `Put`, `Patch`, `Delete`, `Options`, or `Other(name)` for anything
   else (method names are case-sensitive, so `get` is `Other("get")`).
   `http.method_parse(text)` and `http.method_name(method)` convert; a route
-  or a `switch` over the method is checked by the compiler. `httpclient`
-  takes the same type: `httpclient.request(method: HttpMethod.Post, ...)`.
-- **Routing.** `http.route(req, method, pattern)` is `Some(params)` when
+  or a `switch` over the method is checked by the compiler. `client`
+  takes the same type: `client.request(method: HttpMethod.Post, ...)`.
+- **Routing.** `server.route(req, method, pattern)` is `Some(params)` when
   the method matches and the path matches the pattern, else `None`.
   `{name}` captures one non-empty, percent-decoded segment; a trailing
-  slash is ignored; `http.param(params, "name")` reads it (asking for a
+  slash is ignored; `server.param(params, "name")` reads it (asking for a
   name the pattern doesn't have is a fatal error -- it is a bug in your
   route function, not a value to check). `not_found_or_method_not_allowed`
   is 405 with an `Allow` header if the path matches some route under a
-  different method, else 404. `http.query_param(req, "q")` reads the query
+  different method, else 404. `server.query_param(req, "q")` reads the query
   string (percent-decoded, `+` is a space). A route in a `{id}` position is
   still a *string*: converting it (a `Uuid`, an `int`) and answering 400 on
   a bad one stays in the application.
@@ -2297,11 +2297,11 @@ count is limited to 1000 and a compiled pattern to 20,000 instructions.
 `find_all` steps one character past an empty match, and `split` ignores empty
 matches.
 
-## HTTP client (`httpclient`)
+## HTTP client (`client`)
 
-`httpclient` lets a program call another service. `httpclient.get(url)`,
-`httpclient.post_json(url, body)` and the general
-`httpclient.request(method, url, headers, body, timeout_ms, max_redirects,
+`client` lets a program call another service. `client.get(url)`,
+`client.post_json(url, body)` and the general
+`client.request(method, url, headers, body, timeout_ms, max_redirects,
 ca_file)` (everything after `url` is optional, so it is called with named
 arguments) return `Result<http.Response, ClientError>`. **Any** HTTP status,
 404 and 500 included, is `Ok`; `Err` means the exchange failed: `BadUrl`,
@@ -2314,7 +2314,7 @@ dead parked connection is detected and the request re-sent once). It reads `Cont
 chunked and until-close bodies, follows 301/302/303/307/308 up to
 `max_redirects` (default 5, 0 = return the 3xx; 303, and a POST answered
 301/302, is re-sent as a body-less GET), and caps a body at 8 MiB. For binary
-data (images, files, a body with a 0 byte) use `httpclient.request_bytes`,
+data (images, files, a body with a 0 byte) use `client.request_bytes`,
 which takes `body: Option<[byte]>` and returns a `BytesResponse` with a
 `[byte]` body; the text functions are built on it, and a binary response
 through them is `BadResponse`.

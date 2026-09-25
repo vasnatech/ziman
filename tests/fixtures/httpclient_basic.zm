@@ -2,7 +2,7 @@ use net
 use clock
 use http
 use http.Header
-use httpclient
+use client
 use http.HttpMethod
 
 // A raw-socket server with canned answers, so the client is tested against exact wire formats.
@@ -74,12 +74,12 @@ fn accept_loop(l: net.Listener) {
     }
 }
 
-fn show(r: Result<http.Response, httpclient.ClientError>) {
+fn show(r: Result<http.Response, client.ClientError>) {
     if is_ok(r) {
         val resp = unwrap(r)
         printf("{} [{}]\n", resp.status, resp.body)
     } else {
-        printf("error: {}\n", httpclient.error_message(unwrap_err(r)))
+        printf("error: {}\n", client.error_message(unwrap_err(r)))
     }
 }
 
@@ -88,22 +88,22 @@ fn main() {
     val base = format("http://127.0.0.1:{}", net.listener_port(l))
     spawn accept_loop(l)
 
-    show(httpclient.get(concat(base, "/plain")))
-    show(httpclient.get(concat(base, "/chunked")))
-    show(httpclient.get(concat(base, "/close")))
-    show(httpclient.get(concat(base, "/missing")))
-    show(httpclient.get(concat(base, "/redir")))
-    show(httpclient.request(method: HttpMethod.Get, url: concat(base, "/redir"), max_redirects: 0))
-    show(httpclient.get(concat(base, "/loop")))
-    show(httpclient.request(method: HttpMethod.Head, url: concat(base, "/head")))
-    show(httpclient.post_json(concat(base, "/echo"), "{\"a\":1}"))
-    show(httpclient.request(method: HttpMethod.Post, url: concat(base, "/redir-post"), body: "x"))
-    show(httpclient.get(concat(base, "/garbage")))
-    show(httpclient.request(method: HttpMethod.Get, url: concat(base, "/hang"), timeout_ms: 300))
-    show(httpclient.get("ftp://nope"))
-    show(httpclient.get("http://127.0.0.1:1/"))
+    show(client.get(concat(base, "/plain")))
+    show(client.get(concat(base, "/chunked")))
+    show(client.get(concat(base, "/close")))
+    show(client.get(concat(base, "/missing")))
+    show(client.get(concat(base, "/redir")))
+    show(client.request(method: HttpMethod.Get, url: concat(base, "/redir"), max_redirects: 0))
+    show(client.get(concat(base, "/loop")))
+    show(client.request(method: HttpMethod.Head, url: concat(base, "/head")))
+    show(client.post_json(concat(base, "/echo"), "{\"a\":1}"))
+    show(client.request(method: HttpMethod.Post, url: concat(base, "/redir-post"), body: "x"))
+    show(client.get(concat(base, "/garbage")))
+    show(client.request(method: HttpMethod.Get, url: concat(base, "/hang"), timeout_ms: 300))
+    show(client.get("ftp://nope"))
+    show(client.get("http://127.0.0.1:1/"))
 
-    val h = unwrap(httpclient.get(concat(base, "/plain")))
+    val h = unwrap(client.get(concat(base, "/plain")))
     print(http_header(h.headers, "content-type"))
     net.close_listener(l)
 }

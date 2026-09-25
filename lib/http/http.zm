@@ -1,0 +1,166 @@
+// http.zm -- what an HTTP server and an HTTP client have in common: the request and response
+// types, the method enum, status codes by name, header lookup and percent-encoding. `server`
+// builds on it to answer requests, `client` to make them.
+
+use number.byte_from_hex
+use number.byte_to_hex
+
+// HTTP status codes by name.
+pub val status_continue = 100
+pub val status_ok = 200
+pub val status_created = 201
+pub val status_accepted = 202
+pub val status_no_content = 204
+pub val status_moved_permanently = 301
+pub val status_found = 302
+pub val status_not_modified = 304
+pub val status_bad_request = 400
+pub val status_unauthorized = 401
+pub val status_forbidden = 403
+pub val status_not_found = 404
+pub val status_method_not_allowed = 405
+pub val status_request_timeout = 408
+pub val status_conflict = 409
+pub val status_payload_too_large = 413
+pub val status_unprocessable_entity = 422
+pub val status_header_fields_too_large = 431
+pub val status_internal_server_error = 500
+pub val status_not_implemented = 501
+pub val status_service_unavailable = 503
+
+// A request method. The common ones are variants (so a route's method is
+// checked by the compiler and a `switch` over it is exhaustive); anything else
+// a client sends (PROPFIND, TRACE, a made-up verb) is `Other` with the text as
+// received. Method names are case-sensitive: "get" is `Other("get")`.
+pub enum HttpMethod {
+    Get
+    Head
+    Post
+    Put
+    Patch
+    Delete
+    Options
+    Other(string)
+}
+
+// The method named `name`: a known one (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) or
+// `Other(name)`. Case-sensitive.
+pub fn method_parse(name: string) -> HttpMethod {
+    if name == "GET" { return HttpMethod.Get }
+    if name == "HEAD" { return HttpMethod.Head }
+    if name == "POST" { return HttpMethod.Post }
+    if name == "PUT" { return HttpMethod.Put }
+    if name == "PATCH" { return HttpMethod.Patch }
+    if name == "DELETE" { return HttpMethod.Delete }
+    if name == "OPTIONS" { return HttpMethod.Options }
+    return HttpMethod.Other(name)
+}
+
+// The text that goes on the request line ("GET", "POST", ...).
+pub fn method_name(m: HttpMethod) -> string {
+    return switch m {
+        Get { "GET" }
+        Head { "HEAD" }
+        Post { "POST" }
+        Put { "PUT" }
+        Patch { "PATCH" }
+        Delete { "DELETE" }
+        Options { "OPTIONS" }
+        Other(name) { name }
+    }
+}
+
+// One header line. `name` keeps the case it had; compare names with `equals_ignore_case`.
+pub struct Header {
+    name: string
+    value: string
+}
+
+// `target` is the raw request target ("/patients/7?x=1"); `path` and
+// `query` are its two halves, still percent-encoded (`route` and
+// `query_param` decode what they hand back). `headers` keep their
+// original case; look one up with `header`, which ignores case.
+pub struct Request {
+    method: HttpMethod
+    target: string
+    path: string
+    query: string
+    version: string
+    headers: [Header]
+    body: string
+}
+
+// What a handler returns: a status code, headers and a text body. `write_response` adds
+// `Content-Length`, `Connection`, and (unless set) `Date` and `Server`.
+pub struct Response {
+    status: int
+    headers: [Header]
+    body: string
+}
+
+// The value of the header called `name` in `req` (case-insensitive), or None.
+pub fn header(req: Request, name: string) -> Option<string> {
+    return header_value(req.headers, name)
+}
+
+// The value of the first header called `name` (case-insensitive), or None.
+pub fn header_value(headers: [Header], name: string) -> Option<string> {
+    for h in headers {
+        if equals_ignore_case(h.name, name) {
+            return Option<string>.Some(h.value)
+        }
+    }
+    return Option<string>.None
+}
+
+// %XX escapes; `plus_is_space` is for query strings ("a+b" is "a b"
+// there, but a literal plus in a path).
+pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> {
+    val out = sb_new()
+    var run = 0
+    var i = 0
+    while i < len(s) {
+        if is_char_at(s, i, "%") {
+            sb_append(out, substring(s, run, i))
+            if i + 3 > len(s) {
+                return err("truncated %-escape")
+            }
+            val b = byte_from_hex(substring(s, i + 1, i + 3))
+            if !is_ok(b) {
+                return err("bad %-escape")
+            }
+            if !sb_append_byte(out, unwrap(b)) {
+                return err("decodes to text containing a NUL byte")
+            }
+            i = i + 3
+            run = i
+        } else if plus_is_space && is_char_at(s, i, "+") {
+            sb_append(out, substring(s, run, i), " ")
+            i = i + 1
+            run = i
+        } else {
+            i = i + 1
+        }
+    }
+    sb_append(out, substring(s, run, len(s)))
+    return ok(sb_to_string(out))
+}
+
+// The inverse of `percent_decode`: every byte except the unreserved characters (letters, digits,
+// `-` `_` `.` `~`) as `%XX` (uppercase hex). With `plus_for_space` a space is written `+` (form and query
+// encoding) instead of `%20`.
+pub fn percent_encode(s: string, plus_for_space: bool) -> string {
+    val out = sb_new()
+    for b in string_to_bytes(s) {
+        val c = b as int
+        val unreserved = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 45 || c == 95 || c == 46 || c == 126
+        if unreserved {
+            sb_append_byte(out, b)
+        } else if c == 32 && plus_for_space {
+            sb_append(out, "+")
+        } else {
+            sb_append(out, "%", to_upper(byte_to_hex(b)))
+        }
+    }
+    return sb_to_string(out)
+}
