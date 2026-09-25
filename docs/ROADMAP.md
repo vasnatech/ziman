@@ -1348,3 +1348,21 @@ from source.
     as `Result`, naming, `use` forms); then a page per module, starting with the ones people reach for first
     (`json`, `http`/`httpclient`, `db`/`sql`, `time`, `fs`, `collections`, then the format modules).
 
+- **Platform support -- Linux only so far; nothing else has been tried.** The interpreter, the natives and
+  the test scripts were written and run on Linux only, and the docs said nothing about platforms until the
+  README gained a "Platforms" note. In order, cheapest first:
+  - **macOS and the BSDs:** the code uses POSIX interfaces (`pthread`, BSD sockets, `poll`, `dirent`,
+    `lstat`, `getline`, `clock_gettime`, `signal`), so a build probably works with small fixes (a
+    `_GNU_SOURCE`-only function here and there, `-lm`/`-lpthread` differences, the vendored collector's
+    platform flags). The first step is a CI job that builds and runs `make test` on macOS, so the README can
+    say what is actually true.
+  - **Windows through a POSIX layer (MSYS2 or Cygwin):** build there and record what breaks. Expect the
+    `Makefile` and the bash test scripts to work as they are and the socket and signal code to need attention.
+  - **A native Windows build:** a thin portability layer in C for threads (Windows threads, or a pthreads
+    port), sockets (Winsock: startup, `closesocket`, `WSAPoll`), directory access and the shutdown handler,
+    plus a build that does not need `make` and bash, and TLS/zlib/SQLite from a package manager. A few days of
+    work, and worth doing only if Windows users appear; WSL and containers cover them until then.
+  - **Zone data everywhere:** `zone` needs the system's zone files, which Windows and minimal containers
+    lack. A compact copy of the IANA rules bundled in the binary would be the fallback (100 to 400 KB, and it
+    has to be refreshed when the rules change). `UTC` and fixed offsets already work without any files.
+

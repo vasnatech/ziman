@@ -116,6 +116,14 @@ echo 'fn main() { print("hello, ziman") }' > hello.zm
 ./ziman hello.zm
 ```
 
+**Platforms.** Ziman is developed and tested on Linux (x86-64, Fedora); that is the only platform the test
+suite has been run on. It needs a C11 compiler, `make`, and the development files for SQLite, OpenSSL
+and zlib (it links `-lsqlite3 -lssl -lcrypto -lz`). macOS and the BSDs use the same POSIX interfaces
+and will probably build, but nobody has tried, so treat them as untested. Windows does not build natively
+(threads, sockets, directories and signals use POSIX calls directly); use WSL or a Linux container. The
+named time zones in `time` read the operating system's zone files (`/usr/share/zoneinfo`, or `$TZDIR`),
+so they also need a system that has them. See docs/ROADMAP.md, "Platform support".
+
 Options: `--check` loads and type-checks without running; `--json` reports each
 error as one JSON object on stderr (`{"severity":"error","phase":"type","file":"a.zm",
 "line":3,"col":18,"context":null,"message":"..."}`, with `--check` a clean
