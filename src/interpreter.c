@@ -816,9 +816,15 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 } else {
                     result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
-            } else if (strcmp(e->as.call.callee, "map_keys") == 0 || strcmp(e->as.call.callee, "map_values") == 0 ||
-                       strcmp(e->as.call.callee, "set_items") == 0) {
-                int want_values = e->as.call.callee[4] == 'v';
+            } else if (strcmp(e->as.call.callee, "map_keys") == 0) {
+                /* the key set, in the map's insertion order */
+                Value *keys;
+                mapobj_entries(args[0].as.map, &keys, NULL);
+                MapObj *ks = mapobj_empty();
+                for (int i = 0; i < args[0].as.map->count; i++) ks = mapobj_set(ks, keys[i], value_int(0));
+                result = value_map(e->resolved_type, ks);
+            } else if (strcmp(e->as.call.callee, "map_values") == 0 || strcmp(e->as.call.callee, "set_items") == 0) {
+                int want_values = e->as.call.callee[0] == 'm';
                 Value *keys, *vals;
                 mapobj_entries(args[0].as.map, want_values ? NULL : &keys, want_values ? &vals : NULL);
                 int n = args[0].as.map->count;

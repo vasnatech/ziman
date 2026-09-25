@@ -420,7 +420,8 @@ print(len(stock))                        // 2
 print(contains(stock, "apple"))          // true (a set: contains(seen, 3))
 print(map_get(stock, "apple"))           // Some(4); None if absent -- always an Option<V>
 seen = insert(seen, 3)                   // a set adds with insert, not set
-print(map_keys(stock))                   // [apple, fig]   (map_values, set_items likewise)
+print(map_keys(stock))                   // {apple, fig}, a Set<string>
+print(map_values(stock))                 // [4, 9]; set_items(s) is the array of a set
 for name, qty in stock { ... }           // key and value; `for name in stock` binds keys only
 for x in seen { ... }                    // a set has one binder
 ```
@@ -440,7 +441,7 @@ for x in seen { ... }                    // a set has one binder
   key becomes its decimal text) and a `Set<T>` as an array (duplicates collapse on decoding).
   Other key types are a derive error. `Row` and `Properties` do not support them.
 - **Names.** `Map` and `Set` are reserved words (a user `struct Map` is a syntax error).
-  `map_get`, `map_keys`, `map_values` and `set_items` are builtins that take the
+  `map_get`, `map_keys` (a `Set<K>`), `map_values` (a `[V]`) and `set_items` (a `[T]`) are builtins that take the
   collection's type from their argument, so no type arguments are written on them.
 
 ## For loops

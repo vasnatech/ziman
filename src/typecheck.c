@@ -903,6 +903,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             return option;
         }
         if (strcmp(name, "map_values") == 0) return type_array(*coll.elem_err);
+        if (strcmp(name, "map_keys") == 0) return type_set(*coll.elem);
         return type_array(*coll.elem);
     }
 

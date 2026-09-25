@@ -7,6 +7,8 @@ fn main() {
     print(base)
     print(changed)
     print(map_keys(changed))
+    print(set_items(map_keys(changed)))
+    print(contains(map_keys(changed), "z"))
     print(map_values(changed))
     for k, v in changed {
         printf("{}={}\n", k, v)

@@ -3486,7 +3486,7 @@ map the same API without duplicating every function. Making them built-in fixes 
   makes the empty literal need no inference. They parse into calls to the internal builtins
   `$map_lit`/`$set_lit`, so the loader and generic machinery needed no new node kinds.
   `len`, `contains`, `set`, `insert`, `remove` were extended by argument type; `map_get`,
-  `map_keys`, `map_values` and `set_items` are builtins rather than prelude generics
+  `map_keys` (returns a `Set<K>`), `map_values` and `set_items` are builtins rather than prelude generics
   because a generic native would need `map_get<string, int>(...)` (Ziman has no inference).
   `for k, v in m` reuses the existing two-binder `for`.
 - **`for` walks a snapshot** (a sorted entry array taken when the loop starts), so the body
