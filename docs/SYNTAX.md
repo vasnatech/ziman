@@ -1368,7 +1368,7 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. There are 22 (docs/CORELIB.md lists every `pub` signature;
+  name exists. There are 26 (docs/CORELIB.md lists every `pub` signature;
   README.md has a table): `collections` (sorting, searching and `map`/`filter`/`fold` -- see "Generics" and "Ordering"), `fs`,
   `os`, `clock` (`now_raw() -> [int]`, the one native function reading the
   system clock) and `random` (`random_bytes(n)`, the one native function
@@ -1719,6 +1719,51 @@ fn main() {
   of this module in application code — `parse_json`, then
   `json_object_get` each expected field, then validate/convert each one
   — not something this module does itself.
+
+## Serialization formats (`ndjson`, `csv`, `toml`, `yaml`)
+
+Each format is a pure-Ziman module that converts text to and from a `Json` tree, so
+`#[derive(Json)]` types decode from (and encode to) every format for free:
+
+```
+use toml
+use json.Json
+
+#[derive(Json)]
+struct Server { host: string  port: int  tags: [string]  limits: Map<string, int> }
+
+fn main() {
+    val tree = unwrap(toml.parse_toml("host = \"a\"\nport = 80\ntags = [\"x\"]\n[limits]\nrps = 10\n"))
+    val server = unwrap(server_from_json(tree))          // the same call for yaml.parse_yaml, csv rows, ...
+    print(unwrap(toml.toml_to_string(server_to_json(server))))
+}
+```
+
+| Module | Reads | Writes |
+| --- | --- | --- |
+| `ndjson` | `parse_ndjson(text) -> Result<[Json], string>` (one value per line, blank lines skipped) | `ndjson_to_string([Json])` |
+| `csv` | `parse_csv` / `parse_csv_typed` -> a `Json` array of objects keyed by the header row; `parse_csv_rows` -> `[[string]]`; `_with(text, delimiter)` variants for TSV etc. | `csv_to_string(Json)`, `csv_rows_to_string([[string]])` |
+| `toml` | `parse_toml(text) -> Result<Json, string>` | `toml_to_string(Json) -> Result<string, string>` |
+| `yaml` | `parse_yaml(text) -> Result<Json, string>` | `yaml_to_string(Json) -> string` |
+
+- **Errors** are `Err(String)` with a `line N:` prefix (CSV: `row N`).
+- **CSV:** RFC 4180 quoting; LF or CRLF; blank lines skipped. `parse_csv` keeps every cell a
+  string; `parse_csv_typed` reads an *unquoted* cell as a number (`42`, `-1.5`; not `007`), a
+  boolean or null (empty), and a quoted cell always stays a string. The writer takes the union
+  of the rows' keys as columns (first-seen order), flattens an object value one level into
+  `a.b` columns, rejects an array or deeper nesting, and quotes a string that would otherwise
+  read back typed -- so `parse_csv_typed(csv_to_string(x))` round-trips.
+- **TOML** 1.0: tables, arrays of tables, dotted keys, inline tables, all string forms and
+  escapes, hex/octal/binary/`_` integers, floats, booleans, comments. Dates and times stay
+  `JString` text; `inf`/`nan` are rejected; a duplicate key or table is an error. The writer
+  omits `JNull` fields (TOML has no null) and writes scalars, then sub-tables, then `[[arrays]]`.
+- **YAML** is a strict subset of 1.2: block maps and sequences, flow `[..]`/`{..}`, plain and
+  quoted scalars, `|` and `>` block scalars, comments, a leading `---`; core-schema typing
+  (`null`/`~`, `true`/`false`, numbers; `yes`/`no` are strings; `007` stays a string). Anchors,
+  aliases, tags, the `<<` merge key, `? ` keys, multiple documents and tab indentation are errors,
+  not misreadings. The writer quotes exactly the strings that would re-read as another type.
+- These parsers are ordinary Ziman on the tree-walking interpreter: fine for configuration and
+  export-sized data, slow for megabytes.
 
 ## Ordering (`Ord`, `compare`, sorting)
 

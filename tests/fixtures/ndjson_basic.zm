@@ -1,0 +1,9 @@
+use ndjson
+use json
+
+fn main() {
+    val items = unwrap(ndjson.parse_ndjson("{\"a\":1}\n\n[1,2]\r\n\"x\"\n"))
+    print(len(items))
+    print(ndjson.ndjson_to_string(items))
+    print(unwrap_err(ndjson.parse_ndjson("{\"a\":1}\n{oops}\n")))
+}

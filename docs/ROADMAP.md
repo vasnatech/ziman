@@ -319,16 +319,14 @@ against)**
   meant for bare import (`hashmap_get`); `http` uses bare names meant for
   qualified use (`header`, `response`), which then collide with
   application modules. Pick one convention per usage mode and document it.
-- [ ] **R22. More serialization formats, and maybe a `Serde` name.** (Idea,
-  not from the review.) `#[derive(Json)]` already writes both directions, and
-  the `Json` value tree is the format-neutral middle layer -- the role serde's
-  data model plays in Rust. So a separate `#[derive(Serde)]` buys nothing until
-  a second format exists. Plan: add formats (TOML, YAML, CBOR, CSV...) as
-  modules that convert a `Json` tree to and from that format, so every type that
-  derives `Json` works with them for free. Only if that proves clumsy (e.g. a
-  format needs more than the JSON data model can say) introduce a real
-  format-agnostic layer; if `Serde` is wanted as a name for readability sooner,
-  it can be an alias of `Json` in `derive.c` (a few lines).
+- [x] **R22. More serialization formats, and maybe a `Serde` name.** *Done: `ndjson`, `csv`,
+  `toml` and a strict `yaml` subset, each a pure-Ziman module converting text to and from a `Json`
+  tree, so every `#[derive(Json)]` type works with all of them (docs/SYNTAX.md "Serialization
+  formats"). `Json` gained `JInt` and Map-backed objects first (docs/DESIGN.md "JSON on Map").
+  No `Serde` alias: `derive(Json)` is the data-model derive and a second derive name would only
+  duplicate it -- revisit if that reads badly.* Still open: MessagePack/CBOR (binary; bytes have
+  no `Json` form), XML (needs an attribute/text convention), YAML anchors/aliases, TOML dates as
+  a real type, CSV nesting beyond one level.
 
 **F. Tooling and documentation**
 

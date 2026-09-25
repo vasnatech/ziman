@@ -1,0 +1,19 @@
+Ok([[name, age, note, ok], [Ada, 36, likes "math", tea, true], [Bob, 007, , false], [Cy
+Z, -1.5, x, ]])
+[{"name":"Ada","age":"36","note":"likes \"math\", tea","ok":"true"},{"name":"Bob","age":"007","note":"","ok":"false"},{"name":"Cy\nZ","age":"-1.5","note":"x","ok":""}]
+[{"name":"Ada","age":36,"note":"likes \"math\", tea","ok":true},{"name":"Bob","age":"007","note":null,"ok":false},{"name":"Cy\nZ","age":-1.5,"note":"x","ok":null}]
+Ok(name,age,note,ok
+Ada,36,"likes ""math"", tea",true
+Bob,007,,false
+"Cy
+Z",-1.5,x,
+)
+row 1 has 1 cells but the header has 2
+duplicate column name 'a'
+line 3: unterminated quoted field
+Ok(id,addr.city,addr.zip,tags,extra
+1,X,01234,,
+2,,,,"a,b"
+)
+Err(field 'a' is nested more than one level deep (or an array); CSV cannot hold it)
+Ok([[a, b], [1, 2]])

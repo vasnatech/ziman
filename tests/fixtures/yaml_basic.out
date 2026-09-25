@@ -1,0 +1,94 @@
+{
+  "name": "Ada L",
+  "age": 36,
+  "ratio": 1.5,
+  "zip": "01234",
+  "ok": true,
+  "none": null,
+  "empty": null,
+  "tags": [
+    "a",
+    "b c",
+    [
+      1,
+      2,
+      {
+        "x": "y"
+      }
+    ]
+  ],
+  "users": [
+    {
+      "name": "ann",
+      "roles": [
+        "admin",
+        "dev"
+      ]
+    },
+    {
+      "name": "bob",
+      "address": {
+        "city": "X"
+      }
+    }
+  ],
+  "same": [
+    "p",
+    "q"
+  ],
+  "lit": "line1\n  indented\n\nline3\n",
+  "fold": "a b\nc",
+  "flow": {
+    "a": 1,
+    "b": [
+      "x",
+      "y"
+    ]
+  },
+  "url": "http://x.y/z",
+  "long": "some plain text here"
+}
+name: Ada L
+age: 36
+ratio: 1.5
+zip: 01234
+ok: true
+none: null
+empty: null
+tags:
+  - a
+  - b c
+  -
+    - 1
+    - 2
+    - x: y
+users:
+  - name: ann
+    roles:
+      - admin
+      - dev
+  - name: bob
+    address:
+      city: X
+same:
+  - p
+  - q
+lit: "line1\n  indented\n\nline3\n"
+fold: "a b\nc"
+flow:
+  a: 1
+  b:
+    - x
+    - y
+url: http://x.y/z
+long: some plain text here
+
+true
+line 2: duplicate key 'a'
+line 1: anchors, aliases and tags are not supported
+line 2: tabs are not allowed for indentation
+line 2: multiple documents are not supported
+line 1: expected ',' or ']'
+[1,[2,3],{"k":"v","w":4}]
+"just text"
+null

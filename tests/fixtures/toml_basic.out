@@ -1,0 +1,84 @@
+{
+  "title": "Tést",
+  "port": 8080,
+  "ratio": 150,
+  "on": true,
+  "hex": 255,
+  "when": "1979-05-27T07:32:00Z",
+  "list": [
+    1,
+    2,
+    3
+  ],
+  "name": {
+    "first": "Ada"
+  },
+  "quoted key": "lit\\eral",
+  "ml": "line1\nline2 joined",
+  "server": {
+    "host": "h",
+    "opts": {
+      "a": 1,
+      "b": {
+        "c": [
+          true
+        ]
+      }
+    },
+    "tls": {
+      "enabled": false
+    }
+  },
+  "items": [
+    {
+      "id": 1
+    },
+    {
+      "id": 2,
+      "sub": {
+        "z": 3
+      }
+    }
+  ]
+}
+title = "Tést"
+port = 8080
+ratio = 150.0
+on = true
+hex = 255
+when = "1979-05-27T07:32:00Z"
+list = [1, 2, 3]
+"quoted key" = "lit\\eral"
+ml = "line1\nline2 joined"
+
+[name]
+first = "Ada"
+
+[server]
+host = "h"
+
+[server.opts]
+a = 1
+
+[server.opts.b]
+c = [true]
+
+[server.tls]
+enabled = false
+
+[[items]]
+id = 1
+
+[[items]]
+id = 2
+
+[items.sub]
+z = 3
+
+true
+line 2: duplicate key 'a'
+line 2: table [t] is defined more than once
+line 1: expected a value
+line 1: leading zeros are not allowed in '007'
+line 2: expected ',' or ']' in an array
+line 1: expected the end of the line

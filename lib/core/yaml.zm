@@ -1,0 +1,948 @@
+// yaml.zm -- a strict YAML 1.2 subset on top of `json`: a document is a `Json` tree, so any
+// `#[derive(Json)]` type decodes from it with its own `_from_json`. Written in pure Ziman.
+//
+// Reads: block mappings and sequences (indentation, spaces only), `- key: v` items, flow
+// `[a, b]` / `{a: b}` (nesting, multi-line), plain / 'single' / "double" quoted scalars,
+// literal `|` and folded `>` block scalars (with `-` and `+` chomping), comments, and an
+// optional leading `---`. Scalars follow the YAML 1.2 core schema: `null`/`~`/empty, `true`/`false`,
+// integers (`42`, `0x1f`, `0o17`), floats (`1.5`, `2e3`); anything else is a string. `yes`/`no`/`on`/`off`
+// are strings. A number with a leading zero (`007`, a zip code) stays a string.
+// Not supported, and reported as errors rather than misread: anchors and aliases (`&a`, `*a`),
+// tags (`!!str`), the `<<` merge key, complex keys (`? `), multiple documents, tab indentation,
+// block-scalar indentation indicators, `.inf` / `.nan`.
+//
+// Writes block style; a string that would read back as another type (`"42"`, `"true"`, `""`,
+// `"null"`) or that needs it is double-quoted, so the output re-reads as the same tree. A
+// `JNull` is written `null`; a whole-valued float keeps a `.0`.
+
+use json.Json
+
+struct Line {
+    no: int
+    indent: int
+    base: int
+    body: string
+    raw: string
+    cont: bool
+}
+
+struct NodeRes {
+    value: Json
+    next: int
+}
+
+struct KeyRes {
+    key: string
+    rest: string
+}
+
+struct Scalar {
+    value: Json
+    next: int
+}
+
+fn fail(no: int, message: string) -> string {
+    return format("line {}: {}", no, message)
+}
+
+fn is_digit_c(c: string) -> bool {
+    return len(c) == 1 && index_of("0123456789", c, 0) >= 0
+}
+
+fn hex_value(c: string) -> int {
+    if len(c) != 1 {
+        return -1
+    }
+    return index_of("0123456789abcdef", to_lower(c), 0)
+}
+
+fn read_hex(s: string, pos: int, n: int) -> int {
+    if pos + n > len(s) {
+        return -1
+    }
+    var v = 0
+    for i in 0..n {
+        val d = hex_value(char_at(s, pos + i))
+        if d < 0 {
+            return -1
+        }
+        v = v * 16 + d
+    }
+    return v
+}
+
+fn append_utf8(out: StringBuilder, cp: int) {
+    if cp < 128 {
+        sb_append_byte(out, cp as byte)
+    } else if cp < 2048 {
+        sb_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
+    } else if cp < 65536 {
+        sb_append_byte(out, (224 + cp / 4096) as byte, (128 + cp / 64 % 64) as byte, (128 + cp % 64) as byte)
+    } else {
+        sb_append_byte(out, (240 + cp / 262144) as byte, (128 + cp / 4096 % 64) as byte, (128 + cp / 64 % 64) as byte,
+            (128 + cp % 64) as byte)
+    }
+}
+
+// ------------------------------------------------------------------ lines
+
+// Splits into lines and lifts every leading `- ` into a line of its own, so `- a: 1` becomes
+// the lines `-` (at the dash's indent) and `a: 1` (at the indent of `a`). The extra pieces
+// share the original raw text and are marked `cont`.
+fn tokenize(text: string) -> Result<[Line], string> {
+    val out = ab_new<Line>()
+    var no = 0
+    for raw_line in split(text, "\n") {
+        no = no + 1
+        val raw = if is_char_at(raw_line, len(raw_line) - 1,
+            "\r") { substring(raw_line, 0, len(raw_line) - 1) } else { raw_line }
+        var indent = 0
+        while is_char_at(raw, indent, " ") {
+            indent = indent + 1
+        }
+        var body = substring(raw, indent, len(raw))
+        if is_char_at(body, 0, "\t") && len(trim(body)) > 0 {
+            return err(fail(no, "tabs are not allowed for indentation"))
+        }
+        val base = indent
+        var cont = false
+        var cur = indent
+        while body == "-" || starts_with(body, "- ") {
+            ab_append<Line>(out, Line { no: no, indent: cur, base: base, body: "-", raw: raw, cont: cont })
+            cont = true
+            var skip = 1
+            while is_char_at(body, skip, " ") {
+                skip = skip + 1
+            }
+            cur = cur + skip
+            body = substring(body, skip, len(body))
+        }
+        ab_append<Line>(out,
+            Line { no: no, indent: cur, base: if cont { base } else { cur }, body: body, raw: raw, cont: cont })
+    }
+    return ok(ab_to_array<Line>(out))
+}
+
+// The body without a trailing `# comment` (a `#` at the start or after a space, outside quotes), trimmed.
+fn strip_comment(body: string) -> string {
+    var in_single = false
+    var in_double = false
+    var i = 0
+    while i < len(body) {
+        val c = char_at(body, i)
+        if in_double {
+            if c == "\\" {
+                i = i + 1
+            } else if c == "\"" {
+                in_double = false
+            }
+        } else if in_single {
+            if c == "'" {
+                in_single = false
+            }
+        } else if c == "\"" && (i == 0 || contains(" \t[{,:", char_at(body, i - 1))) {
+            in_double = true
+        } else if c == "'" && (i == 0 || contains(" \t[{,:", char_at(body, i - 1))) {
+            in_single = true
+        } else if c == "#" && (i == 0 || contains(" \t", char_at(body, i - 1))) {
+            return trim(substring(body, 0, i))
+        }
+        i = i + 1
+    }
+    return trim(body)
+}
+
+fn content_of(ln: Line) -> string {
+    return strip_comment(ln.body)
+}
+
+// The first line at or after `i` that is neither blank nor a comment.
+fn next_sig(lines: [Line], i: int) -> int {
+    var j = i
+    while j < len(lines) && len(content_of(lines[j])) == 0 {
+        j = j + 1
+    }
+    return j
+}
+
+// ------------------------------------------------------------------ scalars
+
+fn looks_int(s: string) -> bool {
+    var i = 0
+    if is_char_at(s, 0, "-") || is_char_at(s, 0, "+") {
+        i = 1
+    }
+    if i >= len(s) {
+        return false
+    }
+    if char_at(s, i) == "0" && len(s) > i + 1 {
+        return false
+    }
+    while i < len(s) {
+        if !is_digit_c(char_at(s, i)) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fn looks_float(s: string) -> bool {
+    var i = 0
+    if is_char_at(s, 0, "-") || is_char_at(s, 0, "+") {
+        i = 1
+    }
+    if i >= len(s) {
+        return false
+    }
+    if char_at(s, i) == "0" && len(s) > i + 1 && is_digit_c(char_at(s, i + 1)) {
+        return false
+    }
+    var seen_dot = false
+    var seen_exp = false
+    var digits = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        if is_digit_c(c) {
+            digits = digits + 1
+        } else if c == "." && !seen_dot && !seen_exp {
+            seen_dot = true
+        } else if (c == "e" || c == "E") && !seen_exp && digits > 0 {
+            seen_exp = true
+            if is_char_at(s, i + 1, "+") || is_char_at(s, i + 1, "-") {
+                i = i + 1
+            }
+            if i + 1 >= len(s) {
+                return false
+            }
+        } else {
+            return false
+        }
+        i = i + 1
+    }
+    return digits > 0 && (seen_dot || seen_exp)
+}
+
+fn parse_radix(t: string, digits: string, base: int) -> Json {
+    var n = 0
+    for i in 0..len(t) {
+        val d = index_of(digits, to_lower(char_at(t, i)), 0)
+        if d < 0 {
+            return Json.JString(t)
+        }
+        n = n * base + d
+    }
+    return Json.JInt(n)
+}
+
+// A plain (unquoted) scalar, typed by the YAML 1.2 core schema.
+fn plain_scalar(t: string, no: int) -> Result<Json, string> {
+    if len(t) == 0 || t == "~" || t == "null" || t == "Null" || t == "NULL" {
+        return ok(Json.JNull)
+    }
+    if t == "true" || t == "True" || t == "TRUE" {
+        return ok(Json.JBool(true))
+    }
+    if t == "false" || t == "False" || t == "FALSE" {
+        return ok(Json.JBool(false))
+    }
+    val first = char_at(t, 0)
+    if first == "&" || first == "*" || first == "!" {
+        return err(fail(no, "anchors, aliases and tags are not supported"))
+    }
+    if first == "@" || first == "`" || first == "%" {
+        return err(fail(no, format("'{}' cannot start a plain scalar", first)))
+    }
+    if t == ".inf" || t == "-.inf" || t == "+.inf" || t == ".nan" || t == ".NaN" || t == ".Inf" {
+        return err(fail(no, ".inf and .nan are not supported"))
+    }
+    if starts_with(t, "0x") && len(t) > 2 {
+        return ok(parse_radix(substring(t, 2, len(t)), "0123456789abcdef", 16))
+    }
+    if starts_with(t, "0o") && len(t) > 2 {
+        return ok(parse_radix(substring(t, 2, len(t)), "01234567", 8))
+    }
+    if looks_int(t) {
+        val n = parse_int(if is_char_at(t, 0, "+") { substring(t, 1, len(t)) } else { t })
+        if is_ok(n) {
+            return ok(Json.JInt(unwrap(n)))
+        }
+    }
+    if looks_float(t) {
+        val f = parse_float(if is_char_at(t, 0, "+") { substring(t, 1, len(t)) } else { t })
+        if is_ok(f) {
+            return ok(Json.JNumber(unwrap(f)))
+        }
+    }
+    return ok(Json.JString(t))
+}
+
+// A double-quoted scalar starting at the quote in `s[pos]`; the text and the index after the closing quote.
+fn read_double(s: string, pos: int, no: int) -> Result<Scalar, string> {
+    val out = sb_new()
+    var p = pos + 1
+    while p < len(s) {
+        val c = char_at(s, p)
+        if c == "\"" {
+            return ok(Scalar { value: Json.JString(sb_to_string(out)), next: p + 1 })
+        }
+        if c == "\\" {
+            val e = char_at(s, p + 1)
+            if e == "n" {
+                sb_append(out, "\n")
+            } else if e == "t" {
+                sb_append(out, "\t")
+            } else if e == "r" {
+                sb_append(out, "\r")
+            } else if e == "b" {
+                sb_append_byte(out, 8b)
+            } else if e == "f" {
+                sb_append_byte(out, 12b)
+            } else if e == "\"" || e == "\\" || e == "/" || e == " " {
+                sb_append(out, e)
+            } else if e == "x" || e == "u" || e == "U" {
+                val digits = if e == "x" { 2 } else if e == "u" { 4 } else { 8 }
+                val cp = read_hex(s, p + 2, digits)
+                if cp <= 0 || cp > 1114111 || (cp >= 55296 && cp <= 57343) {
+                    return err(fail(no, "invalid unicode escape"))
+                }
+                append_utf8(out, cp)
+                p = p + 2 + digits
+                continue
+            } else {
+                return err(fail(no, format("unsupported escape '\\{}'", e)))
+            }
+            p = p + 2
+        } else {
+            sb_append(out, c)
+            p = p + 1
+        }
+    }
+    return err(fail(no, "unterminated double-quoted string"))
+}
+
+fn read_single(s: string, pos: int, no: int) -> Result<Scalar, string> {
+    val out = sb_new()
+    var p = pos + 1
+    while p < len(s) {
+        val c = char_at(s, p)
+        if c == "'" {
+            if is_char_at(s, p + 1, "'") {
+                sb_append(out, "'")
+                p = p + 2
+            } else {
+                return ok(Scalar { value: Json.JString(sb_to_string(out)), next: p + 1 })
+            }
+        } else {
+            sb_append(out, c)
+            p = p + 1
+        }
+    }
+    return err(fail(no, "unterminated single-quoted string"))
+}
+
+// ------------------------------------------------------------------ flow collections
+
+fn skip_sp(s: string, pos: int) -> int {
+    var p = pos
+    while p < len(s) && (is_char_at(s, p, " ") || is_char_at(s, p, "\t")) {
+        p = p + 1
+    }
+    return p
+}
+
+// One scalar inside `[...]` / `{...}`: quoted, or plain up to `,` `]` `}` (a key: also up to `: `).
+fn flow_scalar(s: string, pos: int, is_key: bool, no: int) -> Result<Scalar, string> {
+    if is_char_at(s, pos, "\"") {
+        return read_double(s, pos, no)
+    }
+    if is_char_at(s, pos, "'") {
+        return read_single(s, pos, no)
+    }
+    var p = pos
+    while p < len(s) {
+        val c = char_at(s, p)
+        if c == "," || c == "]" || c == "}" {
+            break
+        }
+        if is_key && c == ":" && (p + 1 >= len(s) || contains(" ,]}", char_at(s, p + 1))) {
+            break
+        }
+        p = p + 1
+    }
+    val value = plain_scalar(trim(substring(s, pos, p)), no)?
+    return ok(Scalar { value: value, next: p })
+}
+
+fn flow_node(s: string, pos: int, no: int) -> Result<Scalar, string> {
+    val p = skip_sp(s, pos)
+    if p >= len(s) {
+        return err(fail(no, "unexpected end of a flow collection"))
+    }
+    if is_char_at(s, p, "[") {
+        return flow_seq(s, p, no)
+    }
+    if is_char_at(s, p, "{") {
+        return flow_map(s, p, no)
+    }
+    return flow_scalar(s, p, false, no)
+}
+
+fn flow_seq(s: string, pos: int, no: int) -> Result<Scalar, string> {
+    val items = ab_new<Json>()
+    var p = skip_sp(s, pos + 1)
+    while true {
+        if p >= len(s) {
+            return err(fail(no, "unterminated '['"))
+        }
+        if is_char_at(s, p, "]") {
+            return ok(Scalar { value: Json.JArray(ab_to_array<Json>(items)), next: p + 1 })
+        }
+        val item = flow_node(s, p, no)?
+        ab_append<Json>(items, item.value)
+        p = skip_sp(s, item.next)
+        if is_char_at(s, p, ",") {
+            p = skip_sp(s, p + 1)
+        } else if !is_char_at(s, p, "]") {
+            return err(fail(no, "expected ',' or ']'"))
+        }
+    }
+    return err("unreachable")
+}
+
+fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
+    var fields = Map<string, Json> {}
+    var p = skip_sp(s, pos + 1)
+    while true {
+        if p >= len(s) {
+            return err(fail(no, "unterminated '{'"))
+        }
+        if is_char_at(s, p, "}") {
+            return ok(Scalar { value: Json.JObject(fields), next: p + 1 })
+        }
+        val key = flow_scalar(s, p, true, no)?
+        val key_text = if Json.is_JString(key.value) { Json.unwrap_JString(key.value) } else { trim(substring(s, p,
+            key.next)) }
+        if contains(fields, key_text) {
+            return err(fail(no, format("duplicate key '{}'", key_text)))
+        }
+        p = skip_sp(s, key.next)
+        var value = Json.JNull
+        if is_char_at(s, p, ":") {
+            val item = flow_node(s, skip_sp(s, p + 1), no)?
+            value = item.value
+            p = skip_sp(s, item.next)
+        }
+        fields = set(fields, key_text, value)
+        if is_char_at(s, p, ",") {
+            p = skip_sp(s, p + 1)
+        } else if !is_char_at(s, p, "}") {
+            return err(fail(no, "expected ',' or '}'"))
+        }
+    }
+    return err("unreachable")
+}
+
+// Net open brackets in `s`, ignoring quoted text; and whether a quote is left open.
+fn flow_depth(s: string) -> int {
+    var depth = 0
+    var in_single = false
+    var in_double = false
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        if in_double {
+            if c == "\\" {
+                i = i + 1
+            } else if c == "\"" {
+                in_double = false
+            }
+        } else if in_single {
+            if c == "'" {
+                in_single = false
+            }
+        } else if c == "\"" {
+            in_double = true
+        } else if c == "'" {
+            in_single = true
+        } else if c == "[" || c == "{" {
+            depth = depth + 1
+        } else if c == "]" || c == "}" {
+            depth = depth - 1
+        }
+        i = i + 1
+    }
+    return depth
+}
+
+fn quote_open(s: string, quote: string) -> bool {
+    // true when the scalar starting with `quote` has no closing quote yet
+    var i = 1
+    while i < len(s) {
+        val c = char_at(s, i)
+        if quote == "\"" && c == "\\" {
+            i = i + 2
+            continue
+        }
+        if c == quote {
+            if quote == "'" && is_char_at(s, i + 1, "'") {
+                i = i + 2
+                continue
+            }
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// ------------------------------------------------------------------ block structure
+
+// `key: rest` (rest may be empty) -- None when the text is not a mapping entry.
+fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
+    if len(content) == 0 {
+        return ok(Option<KeyRes>.None)
+    }
+    val first = char_at(content, 0)
+    if first == "[" || first == "{" || first == "|" || first == ">" {
+        return ok(Option<KeyRes>.None)
+    }
+    if first == "?" && (len(content) == 1 || is_char_at(content, 1, " ")) {
+        return err(fail(no, "complex keys ('? ') are not supported"))
+    }
+    if first == "\"" || first == "'" {
+        val quoted = if first == "\"" { read_double(content, 0, no)?} else { read_single(content, 0, no)?}
+        val after = skip_sp(content, quoted.next)
+        if is_char_at(content, after, ":") && (after + 1 >= len(content) || is_char_at(content, after + 1, " ")) {
+            return ok(Option<KeyRes>.Some(KeyRes { key: Json.unwrap_JString(quoted.value),
+                rest: trim(substring(content, after + 1, len(content))) }))
+        }
+        return ok(Option<KeyRes>.None)
+    }
+    var i = 0
+    while i < len(content) {
+        if char_at(content, i) == ":" && (i + 1 >= len(content) || is_char_at(content, i + 1, " ")) {
+            val key = trim(substring(content, 0, i))
+            if key == "<<" {
+                return err(fail(no, "the '<<' merge key is not supported"))
+            }
+            if starts_with(key, "&") || starts_with(key, "*") || starts_with(key, "!") {
+                return err(fail(no, "anchors, aliases and tags are not supported"))
+            }
+            return ok(Option<KeyRes>.Some(KeyRes { key: key, rest: trim(substring(content, i + 1, len(content))) }))
+        }
+        i = i + 1
+    }
+    return ok(Option<KeyRes>.None)
+}
+
+// A block scalar (`|` literal, `>` folded): the more-indented lines after line `j`.
+fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<NodeRes, string> {
+    val no = lines[j].no
+    var chomp = "clip"
+    for k in 1..len(header) {
+        val c = char_at(header, k)
+        if c == "-" {
+            chomp = "strip"
+        } else if c == "+" {
+            chomp = "keep"
+        } else {
+            return err(fail(no, "block scalar indentation indicators are not supported"))
+        }
+    }
+    val literal = char_at(header, 0) == "|"
+    val body_lines = ab_new<string>()
+    var indent = -1
+    var i = j + 1
+    var last_used = j
+    while i < len(lines) {
+        val ln = lines[i]
+        if ln.cont {
+            i = i + 1
+            continue
+        }
+        val blank = len(trim(ln.raw)) == 0
+        if !blank && ln.indent <= base {
+            break
+        }
+        if !blank && indent < 0 {
+            indent = ln.indent
+        }
+        if !blank && ln.indent < indent {
+            return err(fail(ln.no, "bad indentation in a block scalar"))
+        }
+        ab_append<string>(body_lines,
+            if blank { (if indent >= 0 && len(ln.raw) > indent { substring(ln.raw, indent,
+                len(ln.raw)) } else { "" }) } else { substring(ln.raw,
+                    indent, len(ln.raw)) })
+        i = i + 1
+        if !blank {
+            last_used = i
+        }
+    }
+    val all = ab_to_array<string>(body_lines)
+    // trailing blank lines belong to the chomping, not the text
+    var count = len(all)
+    while count > 0 && len(all[count - 1]) == 0 {
+        count = count - 1
+    }
+    val out = sb_new()
+    var k = 0
+    while k < count {
+        if k > 0 {
+            if literal {
+                sb_append(out, "\n")
+            } else if len(all[k]) == 0 {
+                sb_append(out, "\n")
+            } else if len(all[k - 1]) == 0 {
+                // a blank line already produced its own newline
+            } else {
+                sb_append(out, " ")
+            }
+        }
+        sb_append(out, all[k])
+        k = k + 1
+    }
+    var text = sb_to_string(out)
+    if count > 0 {
+        if chomp == "clip" {
+            text = concat(text, "\n")
+        } else if chomp == "keep" {
+            text = concat(text, "\n")
+            for t in 0..(len(all) - count) {
+                text = concat(text, "\n")
+            }
+        }
+    }
+    return ok(NodeRes { value: Json.JString(text), next: if chomp == "keep" { i } else { last_used } })
+}
+
+// The value written on the same line as its key / dash: a flow collection, a quoted or plain
+// scalar; continuation lines are gathered for an unbalanced flow / quote and folded for plain text.
+fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Result<NodeRes, string> {
+    val no = lines[j].no
+    var text = rest
+    var next = j + 1
+    val first = char_at(rest, 0)
+    if first == "[" || first == "{" {
+        while flow_depth(text) > 0 && next < len(lines) {
+            text = concat(text, concat(" ", content_of(lines[next])))
+            next = next + 1
+        }
+        val node = flow_node(text, 0, no)?
+        if skip_sp(text, node.next) < len(text) {
+            return err(fail(no, "unexpected text after a flow collection"))
+        }
+        return ok(NodeRes { value: node.value, next: next })
+    }
+    if first == "\"" || first == "'" {
+        while quote_open(text, first) && next < len(lines) {
+            text = concat(text, concat(" ", content_of(lines[next])))
+            next = next + 1
+        }
+        val node = if first == "\"" { read_double(text, 0, no)?} else { read_single(text, 0, no)?}
+        if skip_sp(text, node.next) < len(text) {
+            return err(fail(no, "unexpected text after a quoted scalar"))
+        }
+        return ok(NodeRes { value: node.value, next: next })
+    }
+    // plain: more-indented following lines continue it
+    while next < len(lines) && len(content_of(lines[next])) > 0 && lines[next].indent > parent_indent {
+        text = concat(text, concat(" ", content_of(lines[next])))
+        next = next + 1
+    }
+    val value = plain_scalar(text, no)?
+    return ok(NodeRes { value: value, next: next })
+}
+
+fn parse_node(lines: [Line], i: int, min_indent: int) -> Result<NodeRes, string> {
+    val j = next_sig(lines, i)
+    if j >= len(lines) || lines[j].indent < min_indent {
+        return ok(NodeRes { value: Json.JNull, next: j })
+    }
+    val ln = lines[j]
+    val content = content_of(ln)
+    if content == "-" {
+        return parse_seq(lines, j, ln.indent)
+    }
+    val kv = split_key(content, ln.no)?
+    if Option.is_Some(kv) {
+        return parse_map(lines, j, ln.indent)
+    }
+    if starts_with(content, "|") || starts_with(content, ">") {
+        return block_scalar(lines, j, content, ln.base - 1)
+    }
+    return inline_value(lines, j, content, ln.indent - 1)
+}
+
+fn parse_seq(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
+    val items = ab_new<Json>()
+    var j = i
+    while true {
+        j = next_sig(lines, j)
+        if j >= len(lines) || lines[j].indent != ind || content_of(lines[j]) != "-" {
+            break
+        }
+        val nxt = next_sig(lines, j + 1)
+        if nxt >= len(lines) || lines[nxt].indent <= ind {
+            ab_append<Json>(items, Json.JNull)
+            j = j + 1
+        } else {
+            val item = parse_node(lines, j + 1, ind + 1)?
+            ab_append<Json>(items, item.value)
+            j = item.next
+        }
+    }
+    if j < len(lines) && lines[j].indent > ind && len(content_of(lines[j])) > 0 {
+        return err(fail(lines[j].no, "unexpected indentation"))
+    }
+    return ok(NodeRes { value: Json.JArray(ab_to_array<Json>(items)), next: j })
+}
+
+fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
+    var fields = Map<string, Json> {}
+    var j = i
+    while true {
+        j = next_sig(lines, j)
+        if j >= len(lines) || lines[j].indent < ind {
+            break
+        }
+        val ln = lines[j]
+        if ln.indent > ind {
+            return err(fail(ln.no, "unexpected indentation"))
+        }
+        val content = content_of(ln)
+        if content == "-" {
+            break
+        }
+        val kv = split_key(content, ln.no)?
+        if !Option.is_Some(kv) {
+            return err(fail(ln.no, "expected 'key: value'"))
+        }
+        val entry = Option.unwrap_Some(kv)
+        if contains(fields, entry.key) {
+            return err(fail(ln.no, format("duplicate key '{}'", entry.key)))
+        }
+        var value = Json.JNull
+        var after = j + 1
+        if len(entry.rest) == 0 {
+            val nxt = next_sig(lines, j + 1)
+            if nxt < len(lines) && lines[nxt].indent > ind {
+                val node = parse_node(lines, j + 1, ind + 1)?
+                value = node.value
+                after = node.next
+            } else if nxt < len(lines) && lines[nxt].indent == ind && content_of(lines[nxt]) == "-" {
+                val node = parse_seq(lines, nxt, ind)?
+                value = node.value
+                after = node.next
+            }
+        } else if starts_with(entry.rest, "|") || starts_with(entry.rest, ">") {
+            val node = block_scalar(lines, j, entry.rest, ln.base)?
+            value = node.value
+            after = node.next
+        } else {
+            val node = inline_value(lines, j, entry.rest, ind)?
+            value = node.value
+            after = node.next
+        }
+        fields = set(fields, entry.key, value)
+        j = after
+    }
+    return ok(NodeRes { value: Json.JObject(fields), next: j })
+}
+
+pub fn parse_yaml(text: string) -> Result<Json, string> {
+    val all = tokenize(text)?
+    val kept = ab_new<Line>()
+    var seen_start = false
+    for ln in all {
+        val c = content_of(ln)
+        if !ln.cont && (c == "---" || starts_with(c, "--- ")) {
+            if seen_start || ab_len<Line>(kept) > 0 {
+                return err(fail(ln.no, "multiple documents are not supported"))
+            }
+            if c != "---" {
+                return err(fail(ln.no, "a value after '---' is not supported"))
+            }
+            seen_start = true
+        } else if !ln.cont && c == "..." {
+            // end of document marker
+        } else if !ln.cont && starts_with(c, "%") && ln.indent == 0 {
+            return err(fail(ln.no, "directives are not supported"))
+        } else {
+            ab_append<Line>(kept, ln)
+        }
+    }
+    val lines = ab_to_array<Line>(kept)
+    if next_sig(lines, 0) >= len(lines) {
+        return ok(Json.JNull)
+    }
+    val root = parse_node(lines, 0, 0)?
+    val rest = next_sig(lines, root.next)
+    if rest < len(lines) {
+        return err(fail(lines[rest].no, "unexpected content"))
+    }
+    return ok(root.value)
+}
+
+// ------------------------------------------------------------------ writing
+
+fn quote_double(s: string) -> string {
+    val out = sb_new()
+    sb_append(out, "\"")
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        if c == "\"" {
+            sb_append(out, "\\\"")
+        } else if c == "\\" {
+            sb_append(out, "\\\\")
+        } else if c == "\n" {
+            sb_append(out, "\\n")
+        } else if c == "\t" {
+            sb_append(out, "\\t")
+        } else if c == "\r" {
+            sb_append(out, "\\r")
+        } else if compare(c, " ") < 0 {
+            val code = string_to_bytes(c)[0] as int
+            sb_append(out, "\\x", substring("0123456789abcdef", code / 16, code / 16 + 1),
+                substring("0123456789abcdef", code % 16, code % 16 + 1))
+        } else {
+            sb_append(out, c)
+        }
+        i = i + 1
+    }
+    sb_append(out, "\"")
+    return sb_to_string(out)
+}
+
+// A string as YAML text: plain when it reads back as the same string, else double-quoted.
+fn string_text(s: string) -> string {
+    if len(s) == 0 {
+        return "\"\""
+    }
+    val parsed = plain_scalar(s, 0)
+    if !is_ok(parsed) || !Json.is_JString(unwrap(parsed)) || Json.unwrap_JString(unwrap(parsed)) != s {
+        return quote_double(s)
+    }
+    if is_char_at(s, 0, " ") || is_char_at(s, len(s) - 1, " ") || is_char_at(s, 0, "\t") || is_char_at(s, len(s) - 1,
+        "\t") {
+            return quote_double(s)
+        }
+    if contains("-?:,[]{}#&*!|>'\"%@`", char_at(s, 0)) {
+        return quote_double(s)
+    }
+    if contains(s, ": ") || contains(s, " #") || is_char_at(s, len(s) - 1, ":") {
+        return quote_double(s)
+    }
+    for i in 0..len(s) {
+        if compare(char_at(s, i), " ") < 0 {
+            return quote_double(s)
+        }
+    }
+    return s
+}
+
+fn key_text(k: string) -> string {
+    return string_text(k)
+}
+
+fn float_text(f: float) -> string {
+    val t = str(f)
+    if contains(t, ".") || contains(t, "e") {
+        return t
+    }
+    return concat(t, ".0")
+}
+
+fn scalar_text(j: Json) -> string {
+    if Json.is_JNull(j) {
+        return "null"
+    }
+    if Json.is_JBool(j) {
+        return if Json.unwrap_JBool(j) { "true" } else { "false" }
+    }
+    if Json.is_JInt(j) {
+        return str(Json.unwrap_JInt(j))
+    }
+    if Json.is_JNumber(j) {
+        return float_text(Json.unwrap_JNumber(j))
+    }
+    return string_text(Json.unwrap_JString(j))
+}
+
+fn is_container(j: Json) -> bool {
+    return Json.is_JArray(j) || Json.is_JObject(j)
+}
+
+fn is_empty_container(j: Json) -> bool {
+    if Json.is_JArray(j) {
+        return len(Json.unwrap_JArray(j)) == 0
+    }
+    return Json.is_JObject(j) && len(Json.unwrap_JObject(j)) == 0
+}
+
+fn empty_text(j: Json) -> string {
+    return if Json.is_JArray(j) { "[]" } else { "{}" }
+}
+
+fn pad_of(n: int) -> string {
+    val out = sb_new()
+    for i in 0..n {
+        sb_append(out, " ")
+    }
+    return sb_to_string(out)
+}
+
+// Writes the entries of an object at `indent`. `first_prefix` is written before the first
+// entry instead of the indentation (`- ` when the object is a sequence item).
+fn write_map(out: StringBuilder, obj: Json, indent: int, first_prefix: string) {
+    var first = true
+    for key, value in Json.unwrap_JObject(obj) {
+        sb_append(out, if first && len(first_prefix) > 0 { first_prefix } else { pad_of(indent) })
+        first = false
+        if is_container(value) && !is_empty_container(value) {
+            sb_append(out, key_text(key), ":\n")
+            write_node(out, value, indent + 2)
+        } else if is_container(value) {
+            sb_append(out, key_text(key), ": ", empty_text(value), "\n")
+        } else {
+            sb_append(out, key_text(key), ": ", scalar_text(value), "\n")
+        }
+    }
+}
+
+fn write_seq(out: StringBuilder, arr: Json, indent: int) {
+    for item in Json.unwrap_JArray(arr) {
+        if Json.is_JObject(item) && !is_empty_container(item) {
+            write_map(out, item, indent + 2, concat(pad_of(indent), "- "))
+        } else if is_container(item) && !is_empty_container(item) {
+            sb_append(out, pad_of(indent), "-\n")
+            write_node(out, item, indent + 2)
+        } else if is_container(item) {
+            sb_append(out, pad_of(indent), "- ", empty_text(item), "\n")
+        } else {
+            sb_append(out, pad_of(indent), "- ", scalar_text(item), "\n")
+        }
+    }
+}
+
+fn write_node(out: StringBuilder, j: Json, indent: int) {
+    if Json.is_JObject(j) {
+        write_map(out, j, indent, "")
+    } else {
+        write_seq(out, j, indent)
+    }
+}
+
+pub fn yaml_to_string(j: Json) -> string {
+    if is_container(j) && !is_empty_container(j) {
+        val out = sb_new()
+        write_node(out, j, 0)
+        return sb_to_string(out)
+    }
+    if is_container(j) {
+        return concat(empty_text(j), "\n")
+    }
+    return concat(scalar_text(j), "\n")
+}

@@ -1,0 +1,22 @@
+toml: a.example:8080 tls=true tags=[x, y] limits={rps: 10, burst: 20} note=None
+yaml: b.example:9090 tls=false tags=[z] limits={rps: 5} note=Some(hi)
+csv: c.example:1 tls=true
+csv: d.example:2 tls=false
+false
+host = "e"
+port = 7
+tls = true
+tags = ["a"]
+
+[limits]
+k = 1
+
+host: e
+port: 7
+tls: true
+tags:
+  - a
+limits:
+  k: 1
+note: null
+

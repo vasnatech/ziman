@@ -29,6 +29,10 @@
 #include "dburl_source.h"
 #include "mysql_source.h"
 #include "properties_source.h"
+#include "ndjson_source.h"
+#include "csv_source.h"
+#include "toml_source.h"
+#include "yaml_source.h"
 
 typedef struct {
     const char *name;
@@ -65,6 +69,10 @@ static const CoreModule CORE_MODULES[] = {
     {"dburl", DBURL_SOURCE},
     {"mysql", MYSQL_SOURCE},
     {"properties", PROPERTIES_SOURCE},
+    {"ndjson", NDJSON_SOURCE},
+    {"csv", CSV_SOURCE},
+    {"toml", TOML_SOURCE},
+    {"yaml", YAML_SOURCE},
 };
 #pragma GCC diagnostic pop
 

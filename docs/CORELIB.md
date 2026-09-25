@@ -92,6 +92,33 @@ pub fn bytes_to_hex(data: [byte]) -> string
 
 ```
 
+## `csv`
+
+RFC 4180 CSV as a `Json` array of objects keyed by the header row (typed or string cells; TSV via the `_with` variants); a table writer that flattens one level.
+
+```
+pub fn parse_csv_rows(text: string) -> Result<[[string]], string>
+
+pub fn parse_csv_rows_with(text: string, delimiter: string) -> Result<[[string]], string>
+
+pub fn parse_csv(text: string) -> Result<Json, string>
+
+pub fn parse_csv_with(text: string, delimiter: string) -> Result<Json, string>
+
+pub fn parse_csv_typed(text: string) -> Result<Json, string>
+
+pub fn parse_csv_typed_with(text: string, delimiter: string) -> Result<Json, string>
+
+pub fn csv_rows_to_string(rows: [[string]]) -> string
+
+pub fn csv_rows_to_string_with(rows: [[string]], sep: string) -> string
+
+pub fn csv_to_string(rows: Json) -> Result<string, string>
+
+pub fn csv_to_string_with(rows: Json, sep: string) -> Result<string, string>
+
+```
+
 ## `fs`
 
 ```
@@ -371,6 +398,17 @@ pub fn info(l: Logger, message: string) { write(l, Level.Info, message) }
 pub fn warn(l: Logger, message: string) { write(l, Level.Warn, message) }
 
 pub fn error(l: Logger, message: string) { write(l, Level.Error, message) }
+
+```
+
+## `ndjson`
+
+Newline-delimited JSON (one value per line) on top of `json`.
+
+```
+pub fn parse_ndjson(text: string) -> Result<[Json], string>
+
+pub fn ndjson_to_string(items: [Json]) -> string
 
 ```
 
@@ -857,6 +895,17 @@ pub fn instant_from_sql(v: SqlValue) -> Result<Instant, DbError>
 
 ```
 
+## `toml`
+
+TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.
+
+```
+pub fn parse_toml(text: string) -> Result<Json, string>
+
+pub fn toml_to_string(j: Json) -> Result<string, string>
+
+```
+
 ## `uuid`
 
 RFC 4122 v4 UUIDs, written in pure Ziman on top of `random` -- version/variant bits set with plain integer arithmetic, since Ziman has no bitwise operators.
@@ -881,6 +930,17 @@ pub fn uuid_to_sql(u: Uuid) -> SqlValue
 pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError>
 
 pub fn uuid_compare(a: Uuid, b: Uuid) -> int
+
+```
+
+## `yaml`
+
+A strict YAML 1.2 subset to and from a `Json` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors.
+
+```
+pub fn parse_yaml(text: string) -> Result<Json, string>
+
+pub fn yaml_to_string(j: Json) -> string
 
 ```
 

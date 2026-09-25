@@ -1,0 +1,51 @@
+// The same #[derive(Json)] type decodes from every format.
+use csv
+use json
+use toml
+use yaml
+
+#[derive(Json)]
+struct Server {
+    host: string
+    port: int
+    tls: bool
+    tags: [string]
+    limits: Map<string, int>
+    note: Option<string>
+}
+
+#[derive(Json)]
+struct Endpoint {
+    host: string
+    port: int
+    tls: bool
+}
+
+fn show(label: string, r: Result<Server, string>) {
+    if is_ok(r) {
+        val s = unwrap(r)
+        printf("{}: {}:{} tls={} tags={} limits={} note={}\n", label, s.host, s.port, s.tls, s.tags, s.limits, s.note)
+    } else {
+        printf("{}: error: {}\n", label, unwrap_err(r))
+    }
+}
+
+fn main() {
+    val from_toml = toml.parse_toml("host = \"a.example\"\nport = 8080\ntls = true\ntags = [\"x\", \"y\"]\n[limits]\nrps = 10\nburst = 20\n")
+    show("toml", server_from_json(unwrap(from_toml)))
+
+    val from_yaml = yaml.parse_yaml("host: b.example\nport: 9090\ntls: false\ntags:\n  - z\nlimits:\n  rps: 5\nnote: hi\n")
+    show("yaml", server_from_json(unwrap(from_yaml)))
+
+    val rows = unwrap(csv.parse_csv_typed("host,port,tls\nc.example,1,true\nd.example,2,false\n"))
+    for row in Json.unwrap_JArray(rows) {
+        val e = unwrap(endpoint_from_json(row))
+        printf("csv: {}:{} tls={}\n", e.host, e.port, e.tls)
+    }
+    print(is_ok(endpoint_from_json(Json.JObject(Map<string, Json> { "host": Json.JString("h"), "port": Json.JString("1"), "tls": Json.JBool(true) }))))
+
+    // and back out through a format
+    val s = Server { host: "e", port: 7, tls: true, tags: ["a"], limits: Map<string, int> { "k": 1 }, note: Option<string>.None }
+    print(unwrap(toml.toml_to_string(server_to_json(s))))
+    print(yaml.yaml_to_string(server_to_json(s)))
+}

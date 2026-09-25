@@ -3515,3 +3515,22 @@ Strings gained `\uXXXX`, `\b`, `\f` in both directions. Still true: `Json` has n
 (arrays only compare scalar elements); a recursive-type equality would also need a
 cycle guard in the type checker's structural walk.
 
+## Serialization formats
+
+`ndjson`, `csv`, `toml` and `yaml` are converters between text and the `Json` tree (which
+is the format-neutral data model; see "JSON on Map"), not new derives -- so a type's one
+`#[derive(Json)]` serves every format and adding a format never touches `derive.c`. They
+are explicit (`person_from_json(toml.parse_toml(text)?)`) rather than generated
+`person_from_toml`, which would multiply derive output per format.
+
+Choices worth recording. *Ambiguity is resolved toward safe:* a CSV or YAML number with a
+leading zero (`007`, a zip) stays a string; the writers quote exactly the strings that would
+re-read as another type, so text round-trips. *Unsupported syntax is an error, never a
+misreading:* YAML anchors/aliases/tags/merge keys/multiple documents/tab indentation, TOML
+`inf`/`nan`. *What the `Json` model cannot say is flattened or dropped, documented:* TOML/CSV
+`null` is omitted/empty, dates are strings, CSV nests one level as dotted columns. YAML block
+structure is parsed by first lifting each `- ` onto a line of its own, which turns "a sequence
+item that is a mapping" into ordinary nested indentation -- the parser never needs a
+special case for it. Speed is the interpreter's: these are for configuration and
+export-sized data.
+
