@@ -1241,6 +1241,12 @@ static void handle_formatting(const JVal *id, const JVal *params) {
 
 static int g_shutdown = 0;
 
+static int contains_ignore_case(const char *hay, const char *needle) {
+    size_t n = strlen(needle);
+    for (; *hay != '\0'; hay++) if (strncasecmp(hay, needle, n) == 0) return 1;
+    return n == 0;
+}
+
 /* Ctrl+T: every declaration whose name contains the query, the program's own before the bundled library's. */
 static void handle_workspace_symbol(const JVal *id, const JVal *params) {
     const char *query = jstr(jget(params, "query"));
@@ -1253,7 +1259,7 @@ static void handle_workspace_symbol(const JVal *id, const JVal *params) {
     for (int pass = 0; pass < 2 && emitted < 200; pass++) {
         for (int i = 0; i < nsyms && emitted < 200; i++) {
             if (syms[i].core != pass) continue;
-            if (strcasestr(bare_name(syms[i].name), query) == NULL) continue;
+            if (!contains_ignore_case(bare_name(syms[i].name), query)) continue;
             if (!first) sb_puts(&b, ",");
             first = 0;
             emitted++;
