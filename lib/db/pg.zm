@@ -1,5 +1,5 @@
-// pg.zm -- a PostgreSQL client, the second backend behind the `sql`
-// module (`sql.open("postgres://user:password@host:port/database")`).
+// pg.zm -- a PostgreSQL client, the second backend behind the `datasource`
+// module (`datasource.open("postgres://user:password@host:port/database")`).
 // Written in Ziman on top of `net` (TCP), byte arrays (message framing) and
 // `crypto` (SCRAM-SHA-256); nothing here is native but the exact float
 // formatting. It speaks protocol version 3.0.
@@ -47,7 +47,7 @@
 // callers (each blocks on its own reply channel). That also means there
 // is no lock a `?` returning early can leave held. A *transaction* is
 // still per-connection state on the server: statements from other
-// threads interleave inside it, as documented for `sql`.
+// threads interleave inside it, as documented for `datasource`.
 
 use crypto.base64_decode
 use crypto.base64_encode

@@ -4,7 +4,7 @@ use db.sql_as_int
 use fs
 use sqlite
 
-// The SQLite driver on its own. Most programs use it through `sql.open("sqlite:...")` instead.
+// The SQLite driver on its own. Most programs use it through `datasource.open("sqlite:...")` instead.
 fn main() {
     val path = "/tmp/ziman_manual_sqlite_example.db"
     val conn = unwrap(sqlite.open(path))

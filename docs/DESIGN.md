@@ -693,13 +693,14 @@ several languages rather than inheriting any one of them wholesale.
   types — every one gets an explicit `_compare(a, b) -> int` instead,
   same "don't reopen Ord/Cmp without a forcing case" posture held
   throughout this project.
-- **The database modules were renamed around what they are.** `db` is now the shared module, as `http` is for
-  `server` and `client`: the value, row and error types (`SqlValue`, `Row`, `DbError`), the `sql_as_*` readers
-  and the URL parser, which used to be `sql` and `url`. `sql` is the module a program calls (`sql.open`,
-  `sql.query`, `sql.rows`, pools, transactions), which used to be `db`; it holds the `Connection` enum
-  that wraps every driver and so cannot be shared with them. The point is the dependency direction:
-  `sqlite`, `pg`, `mysql`, `uuid` and `time` use `db` and never `sql`, which uses them. The URL parser
-  functions became `db.parse_url` and `db.url_param`, since a bare `parse` says nothing in a shared module.
+- **The database modules and their names.** `db` is the shared module, as `http` is for `server` and `client`:
+  the value, row and error types (`SqlValue`, `Row`, `DbError`), the `sql_as_*` readers and the URL parser
+  (`db.parse_url`, `db.url_param`; a bare `parse` says nothing in a shared module). `datasource` is the module
+  a program calls (`datasource.open`, `datasource.query`, `datasource.rows`, pools, transactions), named for the
+  Java term for where connections come from; it holds the `Connection` enum that wraps every driver and so
+  cannot be shared with them. The point is the dependency direction: `sqlite`, `pg`, `mysql`, `uuid` and
+  `time` use `db` and never `datasource`, which uses them. (These had been `sql` for the vocabulary, `url`
+  for the parser and `db` for the caller before.)
   `db` also holds what `pg` and `mysql` had each written out: the `Request` enum and its request and page
   types, `run_request` (send a statement to the connection's thread and wait) and `open_rows` (open a cursor
   and read it as an `Iter`, with its page buffer, cursor number and guard), about 150 lines that were
@@ -722,11 +723,11 @@ several languages rather than inheriting any one of them wholesale.
   handle) because a closure cannot mutate a captured variable, and it is deliberately excluded from
   the finalizer (`no_finalizer`), which must not run Ziman code. `fs.chunks` and `fs.walk` are native
   (a depth-first stack of sorted directory listings; `lstat` decides, so a symlink to a directory is
-  a path and cannot loop). `sql.rows` is a SQLite cursor (`cursor_open_raw`/`_next_raw`/`_close_raw`
+  a path and cannot loop). `datasource.rows` is a SQLite cursor (`cursor_open_raw`/`_next_raw`/`_close_raw`
   over `sqlite3_step`, its own handle set and finalizer) wrapped by `iter_from` in `sqlite.zm`;
-  `sql.rows` on a pool borrows a connection and wraps the iterator so closing it also releases the
-  connection. Measured on SQLite: a million-row SELECT through `sql.rows` used 72 MB and 16 s, through
-  `sql.query` 1.7 GB and 50 s.
+  `datasource.rows` on a pool borrows a connection and wraps the iterator so closing it also releases the
+  connection. Measured on SQLite: a million-row SELECT through `datasource.rows` used 72 MB and 16 s, through
+  `datasource.query` 1.7 GB and 50 s.
   **Postgres and MySQL cursors.** Both are protocol-level, run by the connection's owner thread, which now
   takes `OpenCursor`, `FetchCursor` and `EndCursor` requests next to `Run`; each cursor gets a number so a
   late message about a finished one (a garbage-collected guard) cannot end the one that replaced it. The
@@ -1731,11 +1732,11 @@ several languages rather than inheriting any one of them wholesale.
   manifest at runtime, under specific combinations (a global val's
   initializer reaching a defaulted parameter; a variadic element type
   that's itself an array) nothing had previously exercised.
-- **Using function values: `sql.with_transaction` and `server.serve` (roadmap
+- **Using function values: `datasource.with_transaction` and `server.serve` (roadmap
   R13, 2026-09-24).** Stage 1 deliberately has no capture, so a callback cannot
   reach a value the caller has. The answer is an explicit **context parameter**
   threaded through a generic function, and it turned out to be enough for both of
-  the things that had been out of reach. `sql.with_transaction<R>(conn, work)`
+  the things that had been out of reach. `datasource.with_transaction<R>(conn, work)`
   and `with_transaction_ctx<C, R>(conn, ctx, work)` do the whole acquire /
   begin / `defer rollback` / commit / release dance -- the exact sequence that
   had to be written out (and could be got wrong: a `?` leaving a transaction
@@ -2439,7 +2440,7 @@ several languages rather than inheriting any one of them wholesale.
   function is no different from `Uuid`/`LocalDate` satisfying it via a
   real conversion. See `tests/fixtures/derive_json_bare_json_field`.
 
-- **`db`/`sql` core modules, `#[derive(Row)]`, and SQLite as the first
+- **`db`/`datasource` core modules, `#[derive(Row)]`, and SQLite as the first
   backend.** Designed as a JDBC-shaped driver layer, not a document store:
   an earlier sketch (untyped `Json` rows keyed by table and id,
   equality-only queries, a hand-written in-memory actor) was dropped the
@@ -2447,7 +2448,7 @@ several languages rather than inheriting any one of them wholesale.
   tables, columns, SQL text, bound parameters, result sets and
   transactions are the vocabulary, so that's what the API speaks.
   **No interfaces, so dispatch is by URL.** Ziman has no traits, so
-  "pluggable backend" can't be an interface; `sql.open(url)` picks the
+  "pluggable backend" can't be an interface; `datasource.open(url)` picks the
   driver by scheme (`sqlite:` today, `postgres:` later over the `net`
   module) and returns the same `Connection` handle regardless, exactly the
   `handle: int` into a native-side table pattern `StringBuilder` already
@@ -2494,7 +2495,7 @@ several languages rather than inheriting any one of them wholesale.
   errors. Repository SQL is hand-written, deliberately: derive only maps
   rows to structs and back, it doesn't generate queries.
   **A small type-checker fix came out of it:** an empty array literal
-  passed straight to a call (`sql.execute(conn, sql, [])`) now takes its
+  passed straight to a call (`datasource.execute(conn, sql, [])`) now takes its
   type from the parameter, the same "expected type from context" trick a
   `val` annotation, struct field or `return` already had -- without it
   every parameterless query needed a separately annotated `val`.
@@ -2548,7 +2549,7 @@ several languages rather than inheriting any one of them wholesale.
   accept loop: see `tests/fixtures/net_*`.
 
 - **`crypto` and `pg`: SCRAM-SHA-256 and a PostgreSQL client in Ziman.**
-  The second backend behind `sql.open`, chosen by the same URL-scheme
+  The second backend behind `datasource.open`, chosen by the same URL-scheme
   dispatch as SQLite. **`crypto` is native and deliberately small**:
   SHA-256, HMAC, PBKDF2, base64 and a byte-wise XOR (no bitwise operators
   in Ziman), self-contained rather than linking libcrypto, verified
@@ -2560,7 +2561,7 @@ several languages rather than inheriting any one of them wholesale.
   **`pg` is pure Ziman** on `net`+`bytes`+`crypto` (only exact float
   formatting is native), speaking protocol 3.0: startup, trust/cleartext/
   SCRAM-SHA-256 authentication, the simple query protocol for
-  parameterless statements -- which is what lets `sql.execute` run a
+  parameterless statements -- which is what lets `datasource.execute` run a
   multi-statement DDL script -- and the extended protocol (Parse/Bind/
   Describe/Execute/Sync, pipelined into one write) for bound `$N`
   parameters. **SCRAM is checked both ways**: the client verifies the
@@ -2587,7 +2588,7 @@ several languages rather than inheriting any one of them wholesale.
   reply channel and block on it. That serialises concurrent callers with
   no lock -- so there is none for a `?` returning early to leave held --
   and it is the actor pattern, now living inside the driver rather than
-  the application. `pg.Connection` wraps the channel opaquely; `sql.Connection`
+  the application. `pg.Connection` wraps the channel opaquely; `datasource.Connection`
   is an enum (`Sqlite(sqlite.Connection) | Postgres(pg.Connection) |
   Mysql(mysql.Connection) | Pool(PoolState)`, see the pool entry below) and
   `execute`/`query`/`close` branch on the variant.
@@ -2609,7 +2610,7 @@ several languages rather than inheriting any one of them wholesale.
   container; it is not part of `make test` so the ordinary suite stays
   hermetic.
 
-- **`mysql`: a MySQL/MariaDB client, the third backend behind `sql.open`.**
+- **`mysql`: a MySQL/MariaDB client, the third backend behind `datasource.open`.**
   Pure Ziman on `net`+`bytes`+`crypto`, sharing URL parsing with `pg` via a
   new URL parser (first a `url` module, now part of `db`) (`scheme://user:password@host:port/database?k=v`,
   percent-decoded, last `@` splits userinfo from host so a password may
@@ -2625,7 +2626,7 @@ several languages rather than inheriting any one of them wholesale.
   protocol's little-endian IEEE-754 columns and parameters.
   **Two protocols, like `pg`'s simple/extended split**: a parameterless
   statement goes through the text protocol (COM_QUERY, which is what lets
-  `sql.execute` run a multi-statement script and return the last result);
+  `datasource.execute` run a multi-statement script and return the last result);
   a statement with `$N` parameters is rewritten to MySQL's positional `?`
   (skipping quoted strings, backtick identifiers and comments) and goes
   through prepare/execute/close, freshly for every call. **Result decoding**
@@ -2694,8 +2695,8 @@ several languages rather than inheriting any one of them wholesale.
   their type from context) can't be replayed and are rejected.
   **The return value is computed before the defers run**, and a deferred
   call's result is **discarded, a `Result` included** -- the one place Ziman
-  silently drops one. A deferred `net.close`/`sql.rollback` has nowhere to
-  report failure, and it is what makes `defer sql.rollback(conn)` harmless
+  silently drops one. A deferred `net.close`/`datasource.rollback` has nowhere to
+  report failure, and it is what makes `defer datasource.rollback(conn)` harmless
   after a successful `commit` (SQLite errors on a rollback with no
   transaction open; the discarded result swallows that). The cost is real:
   a failing cleanup call is invisible. **Fatal runtime errors skip defers**:
@@ -2760,7 +2761,7 @@ several languages rather than inheriting any one of them wholesale.
   **Not yet**: server-side TLS (`listen_tls` -- an HTTPS server will need
   it), client certificates, ALPN, and session resumption.
 
-- **Connection pool (`sql.open_pool`, `acquire`, `release`).** Built so a
+- **Connection pool (`datasource.open_pool`, `acquire`, `release`).** Built so a
   program isn't limited to one connection serialising every statement,
   and so a transaction can finally be safe.
   **The mechanism is a channel of idle connections**: borrowing is
@@ -2768,7 +2769,7 @@ several languages rather than inheriting any one of them wholesale.
   for free), returning is `send`. No mutex, no new primitive, and it works
   for both backends because a "connection" is already just a value.
   `defer` is what makes it usable rather than a leak waiting to happen:
-  `defer sql.release(pool, tx)` returns the connection on every way out,
+  `defer datasource.release(pool, tx)` returns the connection on every way out,
   including a `?` that propagates an error -- which is exactly the hazard
   that had to be solved first.
   **A pool-backed `Connection`, not a separate `Pool` type**, so repository
@@ -2796,7 +2797,7 @@ several languages rather than inheriting any one of them wholesale.
   one from the pool's URL (`PoolState.url`); if the server is still down the
   dead one goes back so the pool never shrinks. The failed statement is not
   re-sent, because it may have executed and a retried INSERT would repeat
-  it. `sql.discard` does the same for an `acquire`d connection, and
+  it. `datasource.discard` does the same for an `acquire`d connection, and
   `with_transaction` calls it on a connection-class failure. A `SELECT 1` on
   every borrow would cost a round trip per statement, so only a connection idle for `check_after`
   seconds (default 30; `open_pool_with` sets it, 0 disables) is tested when lent out: the idle channel
@@ -2807,10 +2808,10 @@ several languages rather than inheriting any one of them wholesale.
   timeout:** `acquire_timeout` polls `try_receive` every 2 ms, since channel
   `receive` has no timeout; a leaked borrow blocks plain `acquire` forever
   (`defer release` is the guard). **Still v1:** no min/max sizing or
-  idle timeout, connections open eagerly and fail fast, `sql.close(pool)`
+  idle timeout, connections open eagerly and fail fast, `datasource.close(pool)`
   waits for every borrow to come back before closing, and a connection
   released mid-transaction goes back dirty (roll it back first; a `defer
-  sql.rollback` registered after the release defer runs before it).
+  datasource.rollback` registered after the release defer runs before it).
   **A pool over `sqlite::memory:` is a single connection** whatever size is
   asked for, because every in-memory SQLite connection is its own private
   database -- N of them would be N different databases. (A shared-cache
@@ -3184,7 +3185,7 @@ lambda can be an *argument* to a spawned function, as the fixture shows).
 Generic functions still cannot be used as values; a lambda inside a generic
 function may use its type parameters.
 
-**Not done.** Stage 2 does not make `sql.with_transaction` or `server.serve` drop
+**Not done.** Stage 2 does not make `datasource.with_transaction` or `server.serve` drop
 their explicit context parameters: those APIs remain correct, and a caller can
 now also pass a lambda that closes over what it needs. Expression-bodied lambdas
 and inferring lambda parameter types are open.
@@ -3649,7 +3650,7 @@ versions; builders are for loops that only add. Used in `collections.distinct`/`
 
 A `Socket` or a SQLite `Connection` is an integer in Ziman code. It used to be an index into a
 global table, which kept every socket and connection ever opened reachable forever: forgetting
-`net.close` or `sql.close` leaked the descriptor or the database for good (measured: 300 unclosed
+`net.close` or `datasource.close` leaked the descriptor or the database for good (measured: 300 unclosed
 connects exhausted `ulimit -n 300`; each unclosed in-memory database held ~88 KB). The integer is
 now the native object's *address*, and a `HandleSet` (src/handles.c, a hash set in memory the
 collector does not scan) says which addresses are open, so a closed or made-up handle is still an

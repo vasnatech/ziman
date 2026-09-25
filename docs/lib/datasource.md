@@ -1,4 +1,4 @@
-# `sql`
+# `datasource`
 
 The module a program calls to use a database, the shape of JDBC: a connection
 handle plus execute/query taking SQL text and *bound* parameters (a
@@ -24,10 +24,10 @@ interleave inside it -- so run a transaction from one thread. Use
 
 
 ```
-sql.begin(conn)?
-defer sql.rollback(conn)
-sql.execute(conn, ...)?     // an early return rolls back
-sql.commit(conn)?           // after a commit the deferred rollback
+datasource.begin(conn)?
+defer datasource.rollback(conn)
+datasource.execute(conn, ...)?     // an early return rolls back
+datasource.commit(conn)?           // after a commit the deferred rollback
                            // finds nothing to undo (its error
                            // result is discarded, as `defer` does)
 ```
@@ -35,24 +35,24 @@ sql.commit(conn)?           // after a commit the deferred rollback
 Without the `defer`, a `?` that returns early from inside a
 transaction leaves it open.
 
-`use sql` -- or `use sql.Name` to bring one item in bare.
+`use datasource` -- or `use datasource.Name` to bring one item in bare.
 
 ## Example
 
 ```
+use datasource
 use db.DbError
 use db.SqlValue
 use db.db_error_message
 use db.row_get
 use db.sql_as_int
 use db.sql_as_text
-use sql
 
 // Bound parameters, rows, and a transaction that rolls back on an error. `sqlite::memory:` is a
 // private in-memory database; `postgres://...` and `mysql://...` URLs work the same way.
 fn main() {
-    val conn = unwrap(sql.open("sqlite::memory:"))
-    unwrap(sql.execute(conn,
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+    unwrap(datasource.execute(conn,
         """
         CREATE TABLE person (
             id INTEGER PRIMARY KEY,
@@ -60,30 +60,30 @@ fn main() {
         )
         """,
         []))
-    unwrap(sql.execute(conn, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Ada")]))
+    unwrap(datasource.execute(conn, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Ada")]))
 
-    val rows = unwrap(sql.query(conn, "SELECT id, name FROM person", []))
+    val rows = unwrap(datasource.query(conn, "SELECT id, name FROM person", []))
     print(len(rows))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))
 
     // A large result is read one row at a time with rows, instead of building the whole array.
-    val cursor = unwrap(sql.rows(conn, "SELECT id, name FROM person", []))
+    val cursor = unwrap(datasource.rows(conn, "SELECT id, name FROM person", []))
     for row in cursor {
         print(unwrap(sql_as_text(unwrap(row_get(unwrap(row), "name")))))
     }
 
     // A constraint violation is its own kind of error.
-    val bad = sql.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
+    val bad = datasource.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
     print(db_error_message(unwrap_err(bad)))
 
     // with_transaction commits when the work returns Ok and rolls back when it returns Err.
-    val failed = sql.with_transaction<int>(conn, fn(tx: sql.Connection) -> Result<int, DbError> {
-        sql.execute(tx, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Grace")])?
+    val failed = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
+        datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Grace")])?
         return err(DbError.Sql("changed my mind"))
     })
     print(is_ok(failed))
-    print(len(unwrap(sql.query(conn, "SELECT id FROM person", []))))
-    sql.close(conn)
+    print(len(unwrap(datasource.query(conn, "SELECT id FROM person", []))))
+    datasource.close(conn)
 }
 ```
 
@@ -137,7 +137,7 @@ pub enum Connection {
 }
 ```
 
-One database connection, or a pool of them; every `sql` function takes this one type, so code
+One database connection, or a pool of them; every `datasource` function takes this one type, so code
 written against it does not care which engine is behind it or whether it is pooled.
 
 ### `open`
@@ -160,7 +160,7 @@ pub fn close(conn: Connection)
 Closes a connection. For a pool, waits until every connection has been
 released (`receive` blocks until each is back), then closes them all --
 so a borrowed connection that was never released makes this wait
-forever; `defer sql.release(...)` is what prevents that.
+forever; `defer datasource.release(...)` is what prevents that.
 
 ### `execute`
 
@@ -190,7 +190,7 @@ Runs a query and returns its rows lazily, one at a time as a `for` loop asks for
 
 
 ```
-val rows = sql.rows(conn, "SELECT * FROM lab_result", [])?
+val rows = datasource.rows(conn, "SELECT * FROM lab_result", [])?
 for row in rows {
     val r = row?                       // Result<Row, DbError>
     ...
@@ -240,7 +240,7 @@ pub fn rollback(conn: Connection) -> Result<int, DbError>
 ```
 
 Rolls back the transaction open on `conn`. Called with none open it is harmless, which is what
-lets `defer sql.rollback(conn)` stand guard after a commit.
+lets `defer datasource.rollback(conn)` stand guard after a commit.
 
 ## Pooling
 
@@ -260,12 +260,12 @@ exclusively with `acquire`:
 
 
 ```
-val tx = sql.acquire(conn)?
-defer sql.release(conn, tx)
-sql.begin(tx)?
-defer sql.rollback(tx)
+val tx = datasource.acquire(conn)?
+defer datasource.release(conn, tx)
+datasource.begin(tx)?
+defer datasource.rollback(tx)
 ...
-sql.commit(tx)?
+datasource.commit(tx)?
 ```
 
 The pool is a channel of idle connections, so a borrow blocks while
@@ -326,8 +326,8 @@ pub fn release(conn: Connection, taken: Connection)
 ```
 
 Gives back a connection taken with `acquire`. Pair every `acquire` with
-a `defer sql.release(...)`. A connection released while a transaction is
-still open goes back dirty -- roll it back first (`defer sql.rollback`
+a `defer datasource.release(...)`. A connection released while a transaction is
+still open goes back dirty -- roll it back first (`defer datasource.rollback`
 registered *after* the release defer runs before it).
 
 ### `discard`
@@ -358,13 +358,13 @@ acquire / begin / rollback-on-error / commit / release dance:
 
 
 ```
-val moved = sql.with_transaction<int>(conn, fn(tx: sql.Connection) -> Result<int, DbError> {
-    sql.execute(tx, "UPDATE ...", [SqlValue.Int(amount)])?
+val moved = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
+    datasource.execute(tx, "UPDATE ...", [SqlValue.Int(amount)])?
     return ok(amount)
 })?
 ```
 
 `work` is a function value: a lambda capturing what it needs (`amount` above), or a named
 function. If the transaction ends in a connection error the connection is replaced rather than
-returned to the pool. A `work` that itself calls `sql.begin`/`sql.commit` on `tx` breaks the nesting -- it
+returned to the pool. A `work` that itself calls `datasource.begin`/`datasource.commit` on `tx` breaks the nesting -- it
 must not.

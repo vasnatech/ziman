@@ -1,4 +1,4 @@
-// sql.zm -- the module a program calls to use a database, the shape of JDBC: a connection
+// datasource.zm -- the module a program calls to use a database, the shape of JDBC: a connection
 // handle plus execute/query taking SQL text and *bound* parameters (a
 // value is never spliced into the SQL string), transactions as plain
 // begin/commit/rollback, and rows handed back as `db.Row`. Which
@@ -20,10 +20,10 @@
 // interleave inside it -- so run a transaction from one thread. Use
 // `with_transaction` (below), or by hand with `defer`:
 //
-//     sql.begin(conn)?
-//     defer sql.rollback(conn)
-//     sql.execute(conn, ...)?     // an early return rolls back
-//     sql.commit(conn)?           // after a commit the deferred rollback
+//     datasource.begin(conn)?
+//     defer datasource.rollback(conn)
+//     datasource.execute(conn, ...)?     // an early return rolls back
+//     datasource.commit(conn)?           // after a commit the deferred rollback
 //                                // finds nothing to undo (its error
 //                                // result is discarded, as `defer` does)
 //
@@ -57,7 +57,7 @@ pub struct IdleConnection {
     since: int
 }
 
-// One database connection, or a pool of them; every `sql` function takes this one type, so code
+// One database connection, or a pool of them; every `datasource` function takes this one type, so code
 // written against it does not care which engine is behind it or whether it is pooled.
 pub enum Connection {
     Sqlite(sqlite.Connection)
@@ -90,7 +90,7 @@ pub fn open(url: string) -> Result<Connection, DbError> {
 // Closes a connection. For a pool, waits until every connection has been
 // released (`receive` blocks until each is back), then closes them all --
 // so a borrowed connection that was never released makes this wait
-// forever; `defer sql.release(...)` is what prevents that.
+// forever; `defer datasource.release(...)` is what prevents that.
 pub fn close(conn: Connection) {
     if Connection.is_Pool(conn) {
         val pool = Connection.unwrap_Pool(conn)
@@ -146,7 +146,7 @@ pub fn query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row],
 
 // Runs a query and returns its rows lazily, one at a time as a `for` loop asks for them:
 //
-//     val rows = sql.rows(conn, "SELECT * FROM lab_result", [])?
+//     val rows = datasource.rows(conn, "SELECT * FROM lab_result", [])?
 //     for row in rows {
 //         val r = row?                       // Result<Row, DbError>
 //         ...
@@ -203,7 +203,7 @@ pub fn query_one(conn: Connection, sql: string, params: [SqlValue]) -> Result<Op
 // that.
 fn refuse_on_pool(conn: Connection) -> Result<int, DbError> {
     if Connection.is_Pool(conn) {
-        return err(DbError.Sql("a transaction needs an exclusive connection: sql.acquire(pool) one first"))
+        return err(DbError.Sql("a transaction needs an exclusive connection: datasource.acquire(pool) one first"))
     }
     return 0
 }
@@ -222,7 +222,7 @@ pub fn commit(conn: Connection) -> Result<int, DbError> {
 }
 
 // Rolls back the transaction open on `conn`. Called with none open it is harmless, which is what
-// lets `defer sql.rollback(conn)` stand guard after a commit.
+// lets `defer datasource.rollback(conn)` stand guard after a commit.
 pub fn rollback(conn: Connection) -> Result<int, DbError> {
     refuse_on_pool(conn)?
     return execute(conn, "ROLLBACK", [])
@@ -238,12 +238,12 @@ pub fn rollback(conn: Connection) -> Result<int, DbError> {
 // spans several statements -- a transaction above all -- borrows one
 // exclusively with `acquire`:
 //
-//     val tx = sql.acquire(conn)?
-//     defer sql.release(conn, tx)
-//     sql.begin(tx)?
-//     defer sql.rollback(tx)
+//     val tx = datasource.acquire(conn)?
+//     defer datasource.release(conn, tx)
+//     datasource.begin(tx)?
+//     defer datasource.rollback(tx)
 //     ...
-//     sql.commit(tx)?
+//     datasource.commit(tx)?
 //
 // The pool is a channel of idle connections, so a borrow blocks while
 // every connection is in use -- natural backpressure, no extra locking.
@@ -383,8 +383,8 @@ pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, 
 }
 
 // Gives back a connection taken with `acquire`. Pair every `acquire` with
-// a `defer sql.release(...)`. A connection released while a transaction is
-// still open goes back dirty -- roll it back first (`defer sql.rollback`
+// a `defer datasource.release(...)`. A connection released while a transaction is
+// still open goes back dirty -- roll it back first (`defer datasource.rollback`
 // registered *after* the release defer runs before it).
 pub fn release(conn: Connection, taken: Connection) {
     if Connection.is_Pool(conn) {
@@ -412,14 +412,14 @@ pub fn discard(conn: Connection, taken: Connection) {
 // pool on every way out (a `defer`), so this is the whole of the
 // acquire / begin / rollback-on-error / commit / release dance:
 //
-//     val moved = sql.with_transaction<int>(conn, fn(tx: sql.Connection) -> Result<int, DbError> {
-//         sql.execute(tx, "UPDATE ...", [SqlValue.Int(amount)])?
+//     val moved = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
+//         datasource.execute(tx, "UPDATE ...", [SqlValue.Int(amount)])?
 //         return ok(amount)
 //     })?
 //
 // `work` is a function value: a lambda capturing what it needs (`amount` above), or a named
 // function. If the transaction ends in a connection error the connection is replaced rather than
-// returned to the pool. A `work` that itself calls `sql.begin`/`sql.commit` on `tx` breaks the nesting -- it
+// returned to the pool. A `work` that itself calls `datasource.begin`/`datasource.commit` on `tx` breaks the nesting -- it
 // must not.
 pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError> {
     val tx = acquire(conn)?

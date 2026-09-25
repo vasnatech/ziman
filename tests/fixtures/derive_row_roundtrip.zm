@@ -1,3 +1,4 @@
+use datasource
 use db.DbError
 use db.Row
 use db.SqlValue
@@ -7,7 +8,6 @@ use db.sql_as_bool
 use db.sql_as_float
 use db.sql_as_int
 use db.sql_as_text
-use sql
 use time.Instant
 use time.LocalDate
 use time.instant_from_sql
@@ -34,8 +34,8 @@ pub struct Person {
 }
 
 fn main() {
-    val conn = unwrap(sql.open("sqlite::memory:"))
-    unwrap(sql.execute(conn,
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+    unwrap(datasource.execute(conn,
         "CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, born TEXT NOT NULL, age_hint INTEGER, active INTEGER NOT NULL, score REAL NOT NULL, created_at TEXT NOT NULL)",
         []))
     val p1 = Person { id: uuid_new(), name: "Ada", nickname: Option<string>.Some("A"),
@@ -45,9 +45,9 @@ fn main() {
         born: unwrap(localdate_from_string("1990-01-01")), age_hint: Option<int>.Some(30), active: false, score: 2.5,
         created_at: instant_now() }
     val ins = "INSERT INTO people (id, name, nickname, born, age_hint, active, score, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
-    unwrap(sql.execute(conn, ins, person_to_params(p1)))
-    unwrap(sql.execute(conn, ins, person_to_params(p2)))
-    val rows = unwrap(sql.query(conn, "SELECT * FROM people ORDER BY name", []))
+    unwrap(datasource.execute(conn, ins, person_to_params(p1)))
+    unwrap(datasource.execute(conn, ins, person_to_params(p2)))
+    val rows = unwrap(datasource.query(conn, "SELECT * FROM people ORDER BY name", []))
     val a = unwrap(person_from_row(rows[0]))
     val b = unwrap(person_from_row(rows[1]))
     print(a.id == p1.id)
@@ -61,7 +61,7 @@ fn main() {
     print(Option.is_Some(b.nickname))
     print(Option.unwrap_Some(b.age_hint))
     print(b.active)
-    val dup = sql.execute(conn, ins, person_to_params(p1))
+    val dup = datasource.execute(conn, ins, person_to_params(p1))
     print(db_error_message(unwrap_err(dup)))
     val short = person_from_row(Row { columns: ["id"], values: [SqlValue.Text("x")] })
     print(db_error_message(unwrap_err(short)))

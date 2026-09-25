@@ -1,16 +1,16 @@
+use datasource
 use db.DbError
 use db.SqlValue
 use db.db_error_message
 use db.row_get
 use db.sql_as_int
 use db.sql_as_text
-use sql
 
 // Bound parameters, rows, and a transaction that rolls back on an error. `sqlite::memory:` is a
 // private in-memory database; `postgres://...` and `mysql://...` URLs work the same way.
 fn main() {
-    val conn = unwrap(sql.open("sqlite::memory:"))
-    unwrap(sql.execute(conn,
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+    unwrap(datasource.execute(conn,
         """
         CREATE TABLE person (
             id INTEGER PRIMARY KEY,
@@ -18,28 +18,28 @@ fn main() {
         )
         """,
         []))
-    unwrap(sql.execute(conn, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Ada")]))
+    unwrap(datasource.execute(conn, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Ada")]))
 
-    val rows = unwrap(sql.query(conn, "SELECT id, name FROM person", []))
+    val rows = unwrap(datasource.query(conn, "SELECT id, name FROM person", []))
     print(len(rows))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))
 
     // A large result is read one row at a time with rows, instead of building the whole array.
-    val cursor = unwrap(sql.rows(conn, "SELECT id, name FROM person", []))
+    val cursor = unwrap(datasource.rows(conn, "SELECT id, name FROM person", []))
     for row in cursor {
         print(unwrap(sql_as_text(unwrap(row_get(unwrap(row), "name")))))
     }
 
     // A constraint violation is its own kind of error.
-    val bad = sql.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
+    val bad = datasource.execute(conn, "INSERT INTO person (name) VALUES (NULL)", [])
     print(db_error_message(unwrap_err(bad)))
 
     // with_transaction commits when the work returns Ok and rolls back when it returns Err.
-    val failed = sql.with_transaction<int>(conn, fn(tx: sql.Connection) -> Result<int, DbError> {
-        sql.execute(tx, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Grace")])?
+    val failed = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
+        datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", [SqlValue.Text("Grace")])?
         return err(DbError.Sql("changed my mind"))
     })
     print(is_ok(failed))
-    print(len(unwrap(sql.query(conn, "SELECT id FROM person", []))))
-    sql.close(conn)
+    print(len(unwrap(datasource.query(conn, "SELECT id FROM person", []))))
+    datasource.close(conn)
 }

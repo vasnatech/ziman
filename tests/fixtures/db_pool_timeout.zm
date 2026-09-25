@@ -1,31 +1,31 @@
+use datasource
 use db.db_error_message
-use sql
 
 fn main() {
     val url = "sqlite:/tmp/ziman_fixture_pool_timeout.db"
-    val pool = unwrap(sql.open_pool(url, 2))
-    val a = unwrap(sql.acquire_timeout(pool, 50))
-    val b = unwrap(sql.acquire_timeout(pool, 0))
-    val none = sql.acquire_timeout(pool, 40)
+    val pool = unwrap(datasource.open_pool(url, 2))
+    val a = unwrap(datasource.acquire_timeout(pool, 50))
+    val b = unwrap(datasource.acquire_timeout(pool, 0))
+    val none = datasource.acquire_timeout(pool, 40)
     print(is_ok(none))
     print(db_error_message(unwrap_err(none)))
-    print(is_ok(sql.acquire_timeout(pool, 0)))
-    sql.release(pool, a)
-    val again = sql.acquire_timeout(pool, 40)
+    print(is_ok(datasource.acquire_timeout(pool, 0)))
+    datasource.release(pool, a)
+    val again = datasource.acquire_timeout(pool, 40)
     print(is_ok(again))
-    sql.release(pool, unwrap(again))
-    sql.release(pool, b)
+    datasource.release(pool, unwrap(again))
+    datasource.release(pool, b)
     // discard puts a fresh connection back
-    val c = unwrap(sql.acquire(pool))
-    sql.discard(pool, c)
-    val d = unwrap(sql.acquire_timeout(pool, 0))
-    print(is_ok(sql.query(d, "SELECT 1 AS n", [])))
-    sql.release(pool, d)
+    val c = unwrap(datasource.acquire(pool))
+    datasource.discard(pool, c)
+    val d = unwrap(datasource.acquire_timeout(pool, 0))
+    print(is_ok(datasource.query(d, "SELECT 1 AS n", [])))
+    datasource.release(pool, d)
     // on a plain connection both are no-ops
-    val plain = unwrap(sql.open("sqlite::memory:"))
-    val same = unwrap(sql.acquire_timeout(plain, 10))
-    sql.discard(plain, same)
-    print(is_ok(sql.query(plain, "SELECT 1 AS n", [])))
-    sql.close(pool)
-    sql.close(plain)
+    val plain = unwrap(datasource.open("sqlite::memory:"))
+    val same = unwrap(datasource.acquire_timeout(plain, 10))
+    datasource.discard(plain, same)
+    print(is_ok(datasource.query(plain, "SELECT 1 AS n", [])))
+    datasource.close(pool)
+    datasource.close(plain)
 }

@@ -1,9 +1,9 @@
+use datasource
 use db.DbError
 use db.db_error_message
 use fs
-use sql
 
-fn show(r: Result<sql.Connection, DbError>) {
+fn show(r: Result<datasource.Connection, DbError>) {
     print(is_ok(r))
     print(db_error_message(unwrap_err(r)))
 }
@@ -11,22 +11,22 @@ fn show(r: Result<sql.Connection, DbError>) {
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/pg/.url")))
     // wrong password (SQLSTATE 28P01)
-    show(sql.open("postgres://ziman:wrong@127.0.0.1:55432/zimandb"))
+    show(datasource.open("postgres://ziman:wrong@127.0.0.1:55432/zimandb"))
     // unknown user, unknown database
-    show(sql.open("postgres://nobody:secret@127.0.0.1:55432/zimandb"))
-    show(sql.open("postgres://ziman:secret@127.0.0.1:55432/no_such_db"))
+    show(datasource.open("postgres://nobody:secret@127.0.0.1:55432/zimandb"))
+    show(datasource.open("postgres://ziman:secret@127.0.0.1:55432/no_such_db"))
     // nothing listening
-    show(sql.open("postgres://ziman:secret@127.0.0.1:1/zimandb"))
+    show(datasource.open("postgres://ziman:secret@127.0.0.1:1/zimandb"))
     // unsupported sslmode values are refused, not guessed at
-    show(sql.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=allow"))
-    show(sql.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=bogus"))
+    show(datasource.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=allow"))
+    show(datasource.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=bogus"))
     // malformed URLs
-    show(sql.open("postgres://@127.0.0.1/db"))
-    show(sql.open("postgres://u:p@127.0.0.1:notaport/db"))
+    show(datasource.open("postgres://@127.0.0.1/db"))
+    show(datasource.open("postgres://u:p@127.0.0.1:notaport/db"))
     // percent-encoded credentials decode ("s%65cret" == "secret")
-    val ok = sql.open("postgres://ziman:s%65cret@127.0.0.1:55432/zimandb?sslmode=disable")
+    val ok = datasource.open("postgres://ziman:s%65cret@127.0.0.1:55432/zimandb?sslmode=disable")
     print(is_ok(ok))
     if is_ok(ok) {
-        sql.close(unwrap(ok))
+        datasource.close(unwrap(ok))
     }
 }

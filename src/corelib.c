@@ -18,7 +18,7 @@
 #include "time_source.h"
 #include "json_source.h"
 #include "number_source.h"
-#include "sql_source.h"
+#include "datasource_source.h"
 #include "db_source.h"
 #include "net_source.h"
 #include "crypto_source.h"
@@ -60,7 +60,7 @@ static const CoreModule CORE_MODULES[] = {
     {"time", TIME_SOURCE},
     {"json", JSON_SOURCE},
     {"number", NUMBER_SOURCE},
-    {"sql", SQL_SOURCE},
+    {"datasource", DATASOURCE_SOURCE},
     {"db", DB_SOURCE},
     {"net", NET_SOURCE},
     {"crypto", CRYPTO_SOURCE},

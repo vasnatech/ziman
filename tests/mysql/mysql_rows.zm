@@ -1,3 +1,4 @@
+use datasource
 use db
 use db.DbError
 use db.Row
@@ -5,14 +6,13 @@ use db.SqlValue
 use db.row_get
 use db.sql_as_int
 use fs
-use sql
 
 fn n_of(row: Row) -> int {
     return unwrap(sql_as_int(unwrap(row_get(row, "n"))))
 }
 
-fn sum_rows(conn: sql.Connection, sql: string) -> Result<int, DbError> {
-    val rows = sql.rows(conn, sql, [])?
+fn sum_rows(conn: datasource.Connection, sql: string) -> Result<int, DbError> {
+    val rows = datasource.rows(conn, sql, [])?
     var total = 0
     for row in rows {
         val r = row?
@@ -24,15 +24,16 @@ fn sum_rows(conn: sql.Connection, sql: string) -> Result<int, DbError> {
 fn main() {
     val hp = trim(unwrap(fs.read_text("tests/mysql/.hostport")))
     val url = format("mysql://nat_user:natpw@{}/zimandb", hp)
-    val conn = unwrap(sql.open(url))
-    unwrap(sql.execute(conn, "DROP TABLE IF EXISTS my_rows", []))
-    unwrap(sql.execute(conn, "CREATE TABLE my_rows (n INT PRIMARY KEY, s VARCHAR(20), f DOUBLE, b BLOB) ENGINE=InnoDB",
+    val conn = unwrap(datasource.open(url))
+    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS my_rows", []))
+    unwrap(datasource.execute(conn,
+        "CREATE TABLE my_rows (n INT PRIMARY KEY, s VARCHAR(20), f DOUBLE, b BLOB) ENGINE=InnoDB",
         []))
-    unwrap(sql.execute(conn, "SET SESSION cte_max_recursion_depth = 10000", []))
-    unwrap(sql.execute(conn,
+    unwrap(datasource.execute(conn, "SET SESSION cte_max_recursion_depth = 10000", []))
+    unwrap(datasource.execute(conn,
         "INSERT INTO my_rows (n, s, f, b) WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 2000) SELECT n, CONCAT('row ', n), 1.5, x'0102' FROM c",
         []))
-    unwrap(sql.execute(conn, "INSERT INTO my_rows (n) VALUES (0)", []))
+    unwrap(datasource.execute(conn, "INSERT INTO my_rows (n) VALUES (0)", []))
 
     // more rows than one page (500), read a page at a time
     print(unwrap(sum_rows(conn, "SELECT n FROM my_rows WHERE n >= 1")))
@@ -41,66 +42,66 @@ fn main() {
     print(unwrap(sum_rows(conn, "SELECT n FROM my_rows WHERE n > 100000")))
 
     // bound parameters, and each kind of value including NULL
-    val typed = unwrap(sql.rows(conn, "SELECT n, s, f, b FROM my_rows WHERE n IN ($1, 0) ORDER BY n",
+    val typed = unwrap(datasource.rows(conn, "SELECT n, s, f, b FROM my_rows WHERE n IN ($1, 0) ORDER BY n",
         [SqlValue.Int(2)]))
     for row in typed {
         print(unwrap(row).values)
     }
 
     // other statements may run between fetches, but a second cursor may not open until the first is done
-    val open = unwrap(sql.rows(conn, "SELECT n FROM my_rows WHERE n >= 1 ORDER BY n", []))
-    print(is_ok(sql.query(conn, "SELECT 1", [])))
-    print(db.db_error_message(unwrap_err(sql.rows(conn, "SELECT 1", []))))
+    val open = unwrap(datasource.rows(conn, "SELECT n FROM my_rows WHERE n >= 1 ORDER BY n", []))
+    print(is_ok(datasource.query(conn, "SELECT 1", [])))
+    print(db.db_error_message(unwrap_err(datasource.rows(conn, "SELECT 1", []))))
     var seen = 0
     for row in open {
         seen = seen + 1
         if seen == 600 {
-            print(is_ok(sql.query(conn, "SELECT COUNT(*) AS n FROM my_rows", [])))
+            print(is_ok(datasource.query(conn, "SELECT COUNT(*) AS n FROM my_rows", [])))
         }
     }
     print(seen)
-    print(is_ok(sql.rows(conn, "SELECT 1", [])))
+    print(is_ok(datasource.rows(conn, "SELECT 1", [])))
 
     // leaving early releases the cursor, however the loop ends
     for round in 0..5 {
-        for row in unwrap(sql.rows(conn, "SELECT n FROM my_rows", [])) {
+        for row in unwrap(datasource.rows(conn, "SELECT n FROM my_rows", [])) {
             break
         }
-        unwrap(sql.query(conn, "SELECT 1", []))
+        unwrap(datasource.query(conn, "SELECT 1", []))
     }
-    val by_hand = unwrap(sql.rows(conn, "SELECT n FROM my_rows", []))
+    val by_hand = unwrap(datasource.rows(conn, "SELECT n FROM my_rows", []))
     print(Option.is_Some(iter_next<Result<Row, DbError>>(by_hand)))
     iter_close<Result<Row, DbError>>(by_hand)
     print(Option.is_None(iter_next<Result<Row, DbError>>(by_hand)))
-    print(is_ok(sql.rows(conn, "SELECT 1", [])))
+    print(is_ok(datasource.rows(conn, "SELECT 1", [])))
 
     // a statement with no rows is a finished cursor; errors come on the call
     var none = 0
-    for row in unwrap(sql.rows(conn, "INSERT INTO my_rows (n) VALUES (100000)", [])) {
+    for row in unwrap(datasource.rows(conn, "INSERT INTO my_rows (n) VALUES (100000)", [])) {
         none = none + 1
     }
     print(none)
-    print(is_ok(sql.rows(conn, "SELEC 1", [])))
-    print(is_ok(sql.rows(conn, "SELECT n FROM my_rows WHERE n = $1", [])))
-    print(is_ok(sql.query(conn, "SELECT 1", [])))
+    print(is_ok(datasource.rows(conn, "SELEC 1", [])))
+    print(is_ok(datasource.rows(conn, "SELECT n FROM my_rows WHERE n = $1", [])))
+    print(is_ok(datasource.query(conn, "SELECT 1", [])))
 
     // inside a transaction the cursor and the transaction both carry on
-    unwrap(sql.begin(conn))
+    unwrap(datasource.begin(conn))
     print(unwrap(sum_rows(conn, "SELECT n FROM my_rows WHERE n BETWEEN 1 AND 1000")))
-    unwrap(sql.rollback(conn))
+    unwrap(datasource.rollback(conn))
 
     // a pool: the connection is borrowed for the loop and returned however it ends
-    val pool = unwrap(sql.open_pool(url, 1))
+    val pool = unwrap(datasource.open_pool(url, 1))
     print(unwrap(sum_rows(pool, "SELECT n FROM my_rows WHERE n BETWEEN 1 AND 1200")))
     for round in 0..3 {
-        for row in unwrap(sql.rows(pool, "SELECT n FROM my_rows", [])) {
+        for row in unwrap(datasource.rows(pool, "SELECT n FROM my_rows", [])) {
             break
         }
     }
-    val back = sql.acquire_timeout(pool, 500)
+    val back = datasource.acquire_timeout(pool, 500)
     print(is_ok(back))
-    sql.release(pool, unwrap(back))
-    sql.close(pool)
-    unwrap(sql.execute(conn, "DROP TABLE my_rows", []))
-    sql.close(conn)
+    datasource.release(pool, unwrap(back))
+    datasource.close(pool)
+    unwrap(datasource.execute(conn, "DROP TABLE my_rows", []))
+    datasource.close(conn)
 }

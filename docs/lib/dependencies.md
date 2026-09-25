@@ -28,10 +28,10 @@ flowchart LR
         yaml["yaml"]
     end
     subgraph group_db["databases"]
+        datasource["db.datasource"]
         db["db"]
         mysql["db.mysql"]
         pg["db.pg"]
-        sql["db.sql"]
         sqlite["db.sqlite"]
     end
     subgraph group_http["HTTP"]
@@ -54,6 +54,11 @@ flowchart LR
     csv --> fs
     csv --> json
     csv --> number
+    datasource --> clock
+    datasource --> db
+    datasource --> mysql
+    datasource --> pg
+    datasource --> sqlite
     db --> number
     http --> number
     log --> clock
@@ -76,11 +81,6 @@ flowchart LR
     server --> net
     server --> number
     server --> os
-    sql --> clock
-    sql --> db
-    sql --> mysql
-    sql --> pg
-    sql --> sqlite
     sqlite --> db
     sqlite --> number
     time --> clock
@@ -111,35 +111,35 @@ otherwise: everything on a layer depends only on lower layers.
 | 0 | `clock`, `collections`, `compress`, `crypto`, `fs`, `json`, `net`, `number`, `os`, `random`, `regex` |
 | 1 | `csv`, `db`, `http`, `log`, `ndjson`, `properties`, `toml`, `yaml`, `zone` |
 | 2 | `mysql`, `pg`, `server`, `sqlite`, `time`, `uuid` |
-| 3 | `client`, `sql` |
+| 3 | `client`, `datasource` |
 
 ## Each module
 
 | Module | Uses | Used by |
 |---|---|---|
 | `client` | `clock`, `compress`, `crypto`, `http`, `net`, `number`, `os`, `time` | - |
-| `clock` | - | `client`, `log`, `server`, `sql`, `time`, `uuid` |
+| `clock` | - | `client`, `datasource`, `log`, `server`, `time`, `uuid` |
 | `collections` | - | - |
 | `compress` | - | `client` |
 | `crypto` | - | `client`, `mysql`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
-| `db` | `number` | `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
+| `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | - |
+| `db` | `number` | `datasource`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | - | `csv`, `log`, `properties`, `zone` |
 | `http` | `number` | `client`, `server` |
 | `json` | - | `csv`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `log` | `clock`, `fs`, `os` | - |
-| `mysql` | `crypto`, `db`, `net`, `number` | `sql` |
+| `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
 | `number` | - | `client`, `csv`, `db`, `http`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
 | `os` | - | `client`, `log`, `properties`, `server`, `zone` |
-| `pg` | `crypto`, `db`, `net`, `number`, `random` | `sql` |
+| `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `properties` | `fs`, `os` | - |
 | `random` | - | `pg`, `uuid` |
 | `regex` | - | - |
 | `server` | `clock`, `http`, `net`, `number`, `os` | - |
-| `sql` | `clock`, `db`, `mysql`, `pg`, `sqlite` | - |
-| `sqlite` | `db`, `number` | `sql` |
+| `sqlite` | `db`, `number` | `datasource` |
 | `time` | `clock`, `db`, `json`, `zone` | `client` |
 | `toml` | `json`, `number` | - |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | - |
@@ -149,7 +149,7 @@ otherwise: everything on a layer depends only on lower layers.
 ## Why some modules are separate
 
 - `db` holds what the database modules share (`SqlValue`, `Row`, `DbError`, the URL parser) so that `pg`,
-  `mysql`, `sqlite`, `time` and `uuid` can use it without using `sql`, which uses them.
+  `mysql`, `sqlite`, `time` and `uuid` can use it without using `datasource`, which uses them.
 - `http` holds what `server` and `client` share (`Request`, `Response`, `Header`, `HttpMethod`) so neither
   needs the other.
 - `zone` reads the operating system's zone files for `time`; it needs only `fs`, `number` and `os`.

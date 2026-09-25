@@ -1,3 +1,4 @@
+use datasource
 use db
 use db.DbError
 use db.Row
@@ -6,14 +7,13 @@ use db.row_get
 use db.sql_as_int
 use db.sql_as_text
 use fs
-use sql
 
 fn n_of(row: Row) -> int {
     return unwrap(sql_as_int(unwrap(row_get(row, "n"))))
 }
 
-fn sum_rows(conn: sql.Connection, sql: string) -> Result<int, DbError> {
-    val rows = sql.rows(conn, sql, [])?
+fn sum_rows(conn: datasource.Connection, sql: string) -> Result<int, DbError> {
+    val rows = datasource.rows(conn, sql, [])?
     var total = 0
     for row in rows {
         val r = row?
@@ -22,8 +22,8 @@ fn sum_rows(conn: sql.Connection, sql: string) -> Result<int, DbError> {
     return total
 }
 
-fn first_n(conn: sql.Connection) -> Result<int, DbError> {
-    val rows = sql.rows(conn, "SELECT n FROM t WHERE n IS NOT NULL ORDER BY n", [])?
+fn first_n(conn: datasource.Connection) -> Result<int, DbError> {
+    val rows = datasource.rows(conn, "SELECT n FROM t WHERE n IS NOT NULL ORDER BY n", [])?
     for row in rows {
         val r = row?
         return n_of(r)
@@ -31,21 +31,21 @@ fn first_n(conn: sql.Connection) -> Result<int, DbError> {
     return err(DbError.NotFound("no rows"))
 }
 
-fn fill(conn: sql.Connection) {
-    unwrap(sql.execute(conn, "CREATE TABLE t (n INTEGER, label TEXT, extra REAL, blob BLOB)", []))
+fn fill(conn: datasource.Connection) {
+    unwrap(datasource.execute(conn, "CREATE TABLE t (n INTEGER, label TEXT, extra REAL, blob BLOB)", []))
     for i in 1..11 {
-        unwrap(sql.execute(conn, "INSERT INTO t VALUES ($1, $2, $3, $4)",
+        unwrap(datasource.execute(conn, "INSERT INTO t VALUES ($1, $2, $3, $4)",
             [SqlValue.Int(i), SqlValue.Text(format("row {}", i)), SqlValue.Float(1.5), SqlValue.Bytes([1b, 2b])]))
     }
-    unwrap(sql.execute(conn, "INSERT INTO t VALUES (NULL, NULL, NULL, NULL)", []))
+    unwrap(datasource.execute(conn, "INSERT INTO t VALUES (NULL, NULL, NULL, NULL)", []))
 }
 
 fn main() {
-    val conn = unwrap(sql.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open("sqlite::memory:"))
     fill(conn)
 
     // every row, in order, with each kind of value; parameters bind like query's
-    val rows = unwrap(sql.rows(conn, "SELECT n, label, extra, blob FROM t WHERE n <= $1 OR n IS NULL ORDER BY n",
+    val rows = unwrap(datasource.rows(conn, "SELECT n, label, extra, blob FROM t WHERE n <= $1 OR n IS NULL ORDER BY n",
         [SqlValue.Int(2)]))
     for row in rows {
         val r = unwrap(row)
@@ -54,9 +54,9 @@ fn main() {
     print(unwrap(sum_rows(conn, "SELECT n FROM t WHERE n IS NOT NULL")))
 
     // the same rows as query gives, as text
-    val eager = unwrap(sql.query(conn, "SELECT n, label FROM t ORDER BY n", []))
+    val eager = unwrap(datasource.query(conn, "SELECT n, label FROM t ORDER BY n", []))
     var streamed: [Row] = []
-    for row in unwrap(sql.rows(conn, "SELECT n, label FROM t ORDER BY n", [])) {
+    for row in unwrap(datasource.rows(conn, "SELECT n, label FROM t ORDER BY n", [])) {
         streamed = push(streamed, unwrap(row))
     }
     print(len(eager) == len(streamed))
@@ -64,7 +64,7 @@ fn main() {
     print(streamed[0].columns)
 
     // leaving early, by break, return and ?, and finishing a statement that has no rows
-    for row in unwrap(sql.rows(conn, "SELECT n FROM t", [])) {
+    for row in unwrap(datasource.rows(conn, "SELECT n FROM t", [])) {
         break
     }
     print(unwrap(first_n(conn)))
@@ -72,55 +72,55 @@ fn main() {
     print(is_ok(sum_rows(conn, "SELECT n FROM t WHERE n = 1")))
 
     // updating while a cursor is open on the same connection is fine
-    val open = unwrap(sql.rows(conn, "SELECT n FROM t WHERE n IS NOT NULL ORDER BY n", []))
+    val open = unwrap(datasource.rows(conn, "SELECT n FROM t WHERE n IS NOT NULL ORDER BY n", []))
     var seen = 0
     for row in open {
         seen = seen + 1
         if seen == 2 {
-            unwrap(sql.execute(conn, "UPDATE t SET label = 'changed' WHERE n = 10", []))
+            unwrap(datasource.execute(conn, "UPDATE t SET label = 'changed' WHERE n = 10", []))
         }
     }
     print(seen)
-    val changed = Option.unwrap_Some(unwrap(sql.query_one(conn, "SELECT label FROM t WHERE n = 10", [])))
+    val changed = Option.unwrap_Some(unwrap(datasource.query_one(conn, "SELECT label FROM t WHERE n = 10", [])))
     print(unwrap(sql_as_text(unwrap(row_get(changed, "label")))))
 
     // errors: a bad statement fails on the call, a bad parameter count too
-    print(db.db_error_message(unwrap_err(sql.rows(conn, "SELEC 1", []))))
-    print(is_ok(sql.rows(conn, "SELECT n FROM t WHERE n = $1", [])))
+    print(db.db_error_message(unwrap_err(datasource.rows(conn, "SELEC 1", []))))
+    print(is_ok(datasource.rows(conn, "SELECT n FROM t WHERE n = $1", [])))
 
     // iter_close by hand; nothing more comes out
-    val by_hand = unwrap(sql.rows(conn, "SELECT n FROM t ORDER BY n", []))
+    val by_hand = unwrap(datasource.rows(conn, "SELECT n FROM t ORDER BY n", []))
     print(Option.is_Some(iter_next<Result<Row, DbError>>(by_hand)))
     iter_close<Result<Row, DbError>>(by_hand)
     print(Option.is_None(iter_next<Result<Row, DbError>>(by_hand)))
-    sql.close(conn)
+    datasource.close(conn)
 
     // a pool: the connection is borrowed for the loop and given back however it ends
     val path = "/tmp/ziman_fixture_db_rows.db"
     if fs.exists(path) {
         unwrap(fs.remove(path))
     }
-    val single = unwrap(sql.open(concat("sqlite:", path)))
+    val single = unwrap(datasource.open(concat("sqlite:", path)))
     fill(single)
-    sql.close(single)
-    val pool = unwrap(sql.open_pool(concat("sqlite:", path), 1))
+    datasource.close(single)
+    val pool = unwrap(datasource.open_pool(concat("sqlite:", path), 1))
     print(unwrap(sum_rows(pool, "SELECT n FROM t WHERE n IS NOT NULL")))
     print(unwrap(first_n(pool)))
     for round in 0..5 {
-        for row in unwrap(sql.rows(pool, "SELECT n FROM t", [])) {
+        for row in unwrap(datasource.rows(pool, "SELECT n FROM t", [])) {
             break
         }
     }
-    val late = sql.acquire_timeout(pool, 200)
+    val late = datasource.acquire_timeout(pool, 200)
     print(is_ok(late))
-    sql.release(pool, unwrap(late))
+    datasource.release(pool, unwrap(late))
     // a running iteration holds the pool's only connection
-    val held = unwrap(sql.rows(pool, "SELECT n FROM t", []))
-    print(is_ok(sql.acquire_timeout(pool, 50)))
+    val held = unwrap(datasource.rows(pool, "SELECT n FROM t", []))
+    print(is_ok(datasource.acquire_timeout(pool, 50)))
     iter_close<Result<Row, DbError>>(held)
-    val back = sql.acquire_timeout(pool, 50)
+    val back = datasource.acquire_timeout(pool, 50)
     print(is_ok(back))
-    sql.release(pool, unwrap(back))
-    sql.close(pool)
+    datasource.release(pool, unwrap(back))
+    datasource.close(pool)
     unwrap(fs.remove(path))
 }

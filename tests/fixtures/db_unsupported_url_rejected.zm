@@ -1,8 +1,8 @@
+use datasource
 use db.db_error_message
-use sql
 
 fn main() {
-    val r = sql.open("oracle://nope")
+    val r = datasource.open("oracle://nope")
     print(is_ok(r))
     print(db_error_message(unwrap_err(r)))
     unwrap(r)

@@ -23,7 +23,7 @@ GROUPS = [
     ("System", "core", ["fs", "os", "log", "random", "clock"]),
     ("Networking", "core", ["net"]),
     ("HTTP", "http", ["http", "server", "client"]),
-    ("Databases", "db", ["db", "sql", "sqlite", "pg", "mysql"]),
+    ("Databases", "db", ["db", "datasource", "sqlite", "pg", "mysql"]),
 ]
 
 
@@ -216,6 +216,10 @@ def main():
             p = os.path.join(ROOT, "lib", folder, fn)
             if fn.endswith(".zm") and p not in seen:
                 sys.exit("gen_lib_manual.py: %s is in no group; add it to GROUPS" % p)
+    wanted = {n + ".md" for _, _, names in GROUPS for n in names} | {"prelude.md", "README.md", "dependencies.md"}
+    for stale in sorted(os.listdir(OUT)):
+        if stale.endswith(".md") and stale not in wanted and stale != "library-map.md":
+            os.remove(os.path.join(OUT, stale))
     with open(os.path.join(OUT, "README.md"), "w") as f:
         f.write("\n".join(index).rstrip("\n") + "\n")
 

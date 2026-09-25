@@ -48,7 +48,7 @@ typedef struct {
 /* The handle Ziman holds is the DbConn's address; g_live says which addresses are open
  * connections (a closed or forged handle is an error, not a crash). Being in the set does not keep
  * the DbConn alive: one whose Connection value nobody holds any more is collected, and
- * conn_finalizer closes the database -- so forgetting `sql.close` no longer leaks it for good
+ * conn_finalizer closes the database -- so forgetting `datasource.close` no longer leaks it for good
  * (close it promptly anyway: a collection may be far off, and a file database stays locked). */
 static HandleSet g_live = HANDLE_SET_INIT;
 
@@ -378,7 +378,7 @@ done:
 
 
 /* ---- cursors ------------------------------------------------------------------------------
- * sql.rows walks a result one row at a time instead of building the whole array: `cursor_open_raw`
+ * datasource.rows walks a result one row at a time instead of building the whole array: `cursor_open_raw`
  * prepares and binds a statement, `cursor_next_raw` steps it, `cursor_close_raw` finalizes it. A
  * cursor is an address in the same pointer-as-handle scheme as a connection, and a cursor that is
  * dropped unfinished is finalized when it is collected. It holds its connection, so close cursors

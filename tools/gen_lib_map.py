@@ -135,14 +135,14 @@ code{font:12px "IBM Plex Mono",ui-monospace,monospace}
 <div><h3>Used by</h3><p id="d-by"></p></div>
 </section>
 <section class="notes">
-<div><b>Why db sits low.</b> It holds SqlValue, Row, DbError, the URL parser and the request types pg and mysql share, so sqlite, pg, mysql, time and uuid can use them without using sql, which uses them.</div>
+<div><b>Why db sits low.</b> It holds SqlValue, Row, DbError, the URL parser and the request types pg and mysql share, so sqlite, pg, mysql, time and uuid can use them without using datasource, which uses them.</div>
 <div><b>Why http is separate.</b> Request, Response, Header and HttpMethod live in http so server and client share them and neither needs the other.</div>
 <div><b>Not drawn.</b> The prelude (strings, Option, builders) is in every program, and natives such as net have no module dependencies.</div>
 </section>
 </main>
 <script>
 var DATA=%s;
-var HINTS={sql:"The front door for databases: picks SQLite, Postgres or MySQL from the URL, pools connections, runs transactions.",client:"HTTP and HTTPS client with cookies, proxies and streaming.",server:"HTTP server toolkit: parse, route, respond.",time:"Dates, times, durations, instants and named time zones.",zone:"Reads the system IANA time zone files.",db:"What the database modules share: SqlValue, Row, DbError, the readers, the URL parser and the request types of pg and mysql.",http:"Request, Response and the types server and client share.",json:"The Json tree, a native parser and helpers.",number:"Formatting, hex and binary encodings of numbers.",net:"Blocking TCP and TLS sockets.",fs:"Files, directories, lazy lines, chunks and walks."};
+var HINTS={datasource:"The front door for databases: picks SQLite, Postgres or MySQL from the URL, pools connections, runs transactions.",client:"HTTP and HTTPS client with cookies, proxies and streaming.",server:"HTTP server toolkit: parse, route, respond.",time:"Dates, times, durations, instants and named time zones.",zone:"Reads the system IANA time zone files.",db:"What the database modules share: SqlValue, Row, DbError, the readers, the URL parser and the request types of pg and mysql.",http:"Request, Response and the types server and client share.",json:"The Json tree, a native parser and helpers.",number:"Formatting, hex and binary encodings of numbers.",net:"Blocking TCP and TLS sockets.",fs:"Files, directories, lazy lines, chunks and walks."};
 var g=document.getElementById("graph"),edges=[].slice.call(g.querySelectorAll(".edge")),nodes=[].slice.call(g.querySelectorAll(".node"));
 var pinned=null;
 function fmt(a){return a.length?a.join("  "):"nothing (only the prelude and its own natives)"}
@@ -168,7 +168,7 @@ nodes.forEach(function(n){
 show("@@START@@");pinned="@@START@@";
 </script>
 ''' % data
-html=html.replace('@@START@@',full('sql'))
+html=html.replace('@@START@@',full('datasource'))
 out=sys.argv[1] if len(sys.argv)>1 else os.path.join(ROOT,'docs','lib','library-map.html')
 open(out,'w').write(html)
 print(W,H,[len(r) for r in rows])

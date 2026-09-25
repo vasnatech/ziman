@@ -1,7 +1,7 @@
 # `mysql`
 
-A MySQL / MariaDB client, the third engine behind the `sql`
-module (`sql.open("mysql://user:password@host:port/database")`). Written
+A MySQL / MariaDB client, the third engine behind the `datasource`
+module (`datasource.open("mysql://user:password@host:port/database")`). Written
 in Ziman on top of `net` (TCP + TLS), byte arrays (packet framing) and
 `crypto` (SHA-1 / SHA-256 for the login scramble); nothing here is
 native at all.

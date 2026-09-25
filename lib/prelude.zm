@@ -300,7 +300,7 @@ native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
 // ---------------------------------------------------------------- used by the bundled modules
 
 // These are the natives behind `collections` and the database drivers; call the module functions
-// (`collections.sort`, `collections.map`, `sql.open`) rather than these.
+// (`collections.sort`, `collections.map`, `datasource.open`) rather than these.
 
 // True for a packed `[int]`, `[float]` or `[byte]`, or an array of strings; `sort_scalar_order`
 // then returns the positions of `items` in stable sorted order (descending with `descending`)

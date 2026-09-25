@@ -1,21 +1,21 @@
+use datasource
 use db.SqlValue
 use db.db_error_message
 use db.row_get
 use db.sql_as_text
 use fs
-use sql
 
 // Same server, three authentication methods, chosen per role by pg_hba:
 // trust (no exchange), cleartext password, and SCRAM-SHA-256 (the
 // default, covered by every other test here).
 fn whoami(url: string) {
-    val conn = sql.open(url)
+    val conn = datasource.open(url)
     if !is_ok(conn) {
         print(db_error_message(unwrap_err(conn)))
     } else {
-        val rows = unwrap(sql.query(unwrap(conn), "SELECT current_user AS u", []))
+        val rows = unwrap(datasource.query(unwrap(conn), "SELECT current_user AS u", []))
         print(unwrap(sql_as_text(unwrap(row_get(rows[0], "u")))))
-        sql.close(unwrap(conn))
+        datasource.close(unwrap(conn))
     }
 }
 

@@ -1,9 +1,9 @@
+use datasource
 use db
 use db.DbError
 use db.Row
 use db.SqlValue
 use db.db_error_message
-use sql
 
 struct Transfer {
     from: int
@@ -11,37 +11,38 @@ struct Transfer {
     amount: int
 }
 
-fn setup(conn: sql.Connection) -> Result<int, DbError> {
-    sql.execute(conn, "CREATE TABLE acct (id INTEGER PRIMARY KEY, balance INTEGER NOT NULL CHECK (balance >= 0))", [])?
-    sql.execute(conn, "INSERT INTO acct (id, balance) VALUES (1, 100), (2, 50)", [])?
+fn setup(conn: datasource.Connection) -> Result<int, DbError> {
+    datasource.execute(conn,
+        "CREATE TABLE acct (id INTEGER PRIMARY KEY, balance INTEGER NOT NULL CHECK (balance >= 0))", [])?
+    datasource.execute(conn, "INSERT INTO acct (id, balance) VALUES (1, 100), (2, 50)", [])?
     return ok(0)
 }
 
-fn transfer(tx: sql.Connection, t: Transfer) -> Result<int, DbError> {
-    sql.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2",
+fn transfer(tx: datasource.Connection, t: Transfer) -> Result<int, DbError> {
+    datasource.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2",
         [SqlValue.Int(t.amount), SqlValue.Int(t.from)])?
-    sql.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2",
+    datasource.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2",
         [SqlValue.Int(t.amount), SqlValue.Int(t.to)])?
     return ok(t.amount)
 }
 
-fn just_fail(tx: sql.Connection) -> Result<int, DbError> {
-    sql.execute(tx, "UPDATE acct SET balance = 0 WHERE id = 1", [])?
+fn just_fail(tx: datasource.Connection) -> Result<int, DbError> {
+    datasource.execute(tx, "UPDATE acct SET balance = 0 WHERE id = 1", [])?
     return err(DbError.Sql("changed my mind"))
 }
 
-fn count_rich(tx: sql.Connection) -> Result<int, DbError> {
-    val rows = sql.query(tx, "SELECT id FROM acct WHERE balance > 60", [])?
+fn count_rich(tx: datasource.Connection) -> Result<int, DbError> {
+    val rows = datasource.query(tx, "SELECT id FROM acct WHERE balance > 60", [])?
     return ok(len(rows))
 }
 
-fn balances(conn: sql.Connection) -> string {
-    val rows = unwrap(sql.query(conn, "SELECT balance FROM acct ORDER BY id", []))
+fn balances(conn: datasource.Connection) -> string {
+    val rows = unwrap(datasource.query(conn, "SELECT balance FROM acct ORDER BY id", []))
     return format("{}", len(rows))
 }
 
-fn total(conn: sql.Connection, id: int) -> int {
-    val rows = unwrap(sql.query(conn, "SELECT balance FROM acct WHERE id = $1", [SqlValue.Int(id)]))
+fn total(conn: datasource.Connection, id: int) -> int {
+    val rows = unwrap(datasource.query(conn, "SELECT balance FROM acct WHERE id = $1", [SqlValue.Int(id)]))
     return unwrap(sql_as_int_of(rows[0]))
 }
 
@@ -50,27 +51,27 @@ fn sql_as_int_of(row: Row) -> Result<int, DbError> {
 }
 
 fn main() {
-    val conn = unwrap(sql.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open("sqlite::memory:"))
     unwrap(setup(conn))
     val first = Transfer { from: 1, to: 2, amount: 30 }
     val too_much = Transfer { from: 1, to: 2, amount: 500 }
     // success commits
-    print(unwrap(sql.with_transaction<int>(conn,
-        fn(tx: sql.Connection) -> Result<int, DbError> { return transfer(tx, first) })))
+    print(unwrap(datasource.with_transaction<int>(conn,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return transfer(tx, first) })))
     print(total(conn, 1))
     print(total(conn, 2))
     // an Err from work rolls back: the UPDATE inside it is undone
-    val failed = sql.with_transaction<int>(conn, just_fail)
+    val failed = datasource.with_transaction<int>(conn, just_fail)
     print(is_ok(failed))
     print(db_error_message(unwrap_err(failed)))
     print(total(conn, 1))
     // a constraint violation midway rolls the first UPDATE back too
-    val overdraw = sql.with_transaction<int>(conn,
-        fn(tx: sql.Connection) -> Result<int, DbError> { return transfer(tx, too_much) })
+    val overdraw = datasource.with_transaction<int>(conn,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return transfer(tx, too_much) })
     print(is_ok(overdraw))
     print(total(conn, 1))
     print(total(conn, 2))
     // read-only work returns its value
-    print(unwrap(sql.with_transaction<int>(conn, count_rich)))
-    sql.close(conn)
+    print(unwrap(datasource.with_transaction<int>(conn, count_rich)))
+    datasource.close(conn)
 }

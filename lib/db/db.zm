@@ -1,6 +1,6 @@
 // db.zm -- what every database module shares: the value, row and error types, the readers that turn a
 // `SqlValue` into an ordinary value, and the parser for database URLs. `sqlite`, `pg` and `mysql` are
-// built on it, and so is `sql`, the module a program calls (`sql.open`, `sql.query`, ...), which picks
+// built on it, and so is `datasource`, the module a program calls (`datasource.open`, `datasource.query`, ...), which picks
 // the driver and pools connections. Anything that maps its own types to and from SQL (`uuid`, `time`,
 // `#[derive(Row)]`-generated code) uses this module alone, so it needs no driver.
 //

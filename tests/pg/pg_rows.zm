@@ -1,17 +1,17 @@
+use datasource
 use db
 use db.DbError
 use db.Row
 use db.row_get
 use db.sql_as_int
 use fs
-use sql
 
 fn n_of(row: Row) -> int {
     return unwrap(sql_as_int(unwrap(row_get(row, "n"))))
 }
 
-fn sum_rows(conn: sql.Connection, sql: string) -> Result<int, DbError> {
-    val rows = sql.rows(conn, sql, [])?
+fn sum_rows(conn: datasource.Connection, sql: string) -> Result<int, DbError> {
+    val rows = datasource.rows(conn, sql, [])?
     var total = 0
     for row in rows {
         val r = row?
@@ -22,7 +22,7 @@ fn sum_rows(conn: sql.Connection, sql: string) -> Result<int, DbError> {
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/pg/.url")))
-    val conn = unwrap(sql.open(url))
+    val conn = unwrap(datasource.open(url))
 
     // more rows than one page (500), read a page at a time
     print(unwrap(sum_rows(conn, "SELECT g AS n FROM generate_series(1, 2000) AS g")))
@@ -31,7 +31,7 @@ fn main() {
     print(unwrap(sum_rows(conn, "SELECT g AS n FROM generate_series(1, 0) AS g")))
 
     // bound parameters, and every kind of value
-    val typed = unwrap(sql.rows(conn,
+    val typed = unwrap(datasource.rows(conn,
         "SELECT $1::int AS n, 'x'::text AS s, true AS b, 1.5::float8 AS f, NULL::int AS z",
         [db.SqlValue.Int(7)]))
     for row in typed {
@@ -39,33 +39,33 @@ fn main() {
     }
 
     // the connection carries one cursor at a time: another statement is an Err until it is done
-    val open = unwrap(sql.rows(conn, "SELECT g AS n FROM generate_series(1, 1200) AS g", []))
-    print(db.db_error_message(unwrap_err(sql.query(conn, "SELECT 1", []))))
-    print(is_ok(sql.rows(conn, "SELECT 1", [])))
+    val open = unwrap(datasource.rows(conn, "SELECT g AS n FROM generate_series(1, 1200) AS g", []))
+    print(db.db_error_message(unwrap_err(datasource.query(conn, "SELECT 1", []))))
+    print(is_ok(datasource.rows(conn, "SELECT 1", [])))
     var seen = 0
     for row in open {
         seen = seen + 1
     }
     print(seen)
-    print(is_ok(sql.query(conn, "SELECT 1", [])))
+    print(is_ok(datasource.query(conn, "SELECT 1", [])))
 
     // leaving early releases the connection for the next statement, however the loop ends
     for round in 0..5 {
-        for row in unwrap(sql.rows(conn, "SELECT g AS n FROM generate_series(1, 5000) AS g", [])) {
+        for row in unwrap(datasource.rows(conn, "SELECT g AS n FROM generate_series(1, 5000) AS g", [])) {
             break
         }
-        unwrap(sql.query(conn, "SELECT 1", []))
+        unwrap(datasource.query(conn, "SELECT 1", []))
     }
-    val by_hand = unwrap(sql.rows(conn, "SELECT g AS n FROM generate_series(1, 3000) AS g", []))
+    val by_hand = unwrap(datasource.rows(conn, "SELECT g AS n FROM generate_series(1, 3000) AS g", []))
     print(Option.is_Some(iter_next<Result<Row, DbError>>(by_hand)))
     iter_close<Result<Row, DbError>>(by_hand)
     print(Option.is_None(iter_next<Result<Row, DbError>>(by_hand)))
-    print(is_ok(sql.query(conn, "SELECT 1", [])))
+    print(is_ok(datasource.query(conn, "SELECT 1", [])))
 
     // an error on the call, and an error part-way through the rows
-    print(is_ok(sql.rows(conn, "SELEC 1", [])))
-    print(is_ok(sql.query(conn, "SELECT 1", [])))
-    val late = unwrap(sql.rows(conn, "SELECT 10 / (2 - g) AS n FROM generate_series(1, 3) AS g", []))
+    print(is_ok(datasource.rows(conn, "SELEC 1", [])))
+    print(is_ok(datasource.query(conn, "SELECT 1", [])))
+    val late = unwrap(datasource.rows(conn, "SELECT 10 / (2 - g) AS n FROM generate_series(1, 3) AS g", []))
     for row in late {
         if is_ok(row) {
             print(n_of(unwrap(row)))
@@ -73,24 +73,24 @@ fn main() {
             print(db.db_error_message(unwrap_err(row)))
         }
     }
-    print(is_ok(sql.query(conn, "SELECT 1", [])))
+    print(is_ok(datasource.query(conn, "SELECT 1", [])))
 
     // inside a transaction the cursor and the transaction both carry on
-    unwrap(sql.begin(conn))
+    unwrap(datasource.begin(conn))
     print(unwrap(sum_rows(conn, "SELECT g AS n FROM generate_series(1, 1000) AS g")))
-    unwrap(sql.rollback(conn))
+    unwrap(datasource.rollback(conn))
 
     // a pool: the connection is borrowed for the loop and returned however it ends
-    val pool = unwrap(sql.open_pool(url, 1))
+    val pool = unwrap(datasource.open_pool(url, 1))
     print(unwrap(sum_rows(pool, "SELECT g AS n FROM generate_series(1, 1200) AS g")))
     for round in 0..3 {
-        for row in unwrap(sql.rows(pool, "SELECT g AS n FROM generate_series(1, 5000) AS g", [])) {
+        for row in unwrap(datasource.rows(pool, "SELECT g AS n FROM generate_series(1, 5000) AS g", [])) {
             break
         }
     }
-    val back = sql.acquire_timeout(pool, 500)
+    val back = datasource.acquire_timeout(pool, 500)
     print(is_ok(back))
-    sql.release(pool, unwrap(back))
-    sql.close(pool)
-    sql.close(conn)
+    datasource.release(pool, unwrap(back))
+    datasource.close(pool)
+    datasource.close(conn)
 }

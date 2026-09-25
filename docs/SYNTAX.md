@@ -1450,7 +1450,7 @@ Two usage modes exist (`use net` then `net.connect(...)`, or a per-name import
 a naming rule. The bundled modules follow it; new ones should too.
 
 1. **Called qualified: a short verb, no module prefix.** `net.connect`,
-   `fs.read_text`, `server.route`, `sql.query`, `log.info`, `client.get`.
+   `fs.read_text`, `server.route`, `datasource.query`, `log.info`, `client.get`.
    The qualifier already says where it comes from, so `net.net_connect` would
    stutter. Don't import such names bare: `use server.response` makes a bare
    `response` that collides with an application module or variable of that name.
@@ -1956,7 +1956,7 @@ fn main() {
 ## Databases
 
 Two modules to know: `db` (what the drivers share -- `SqlValue`, `Row`,
-`DbError`, the `sql_as_*` readers and the URL parser) and `sql` (what a program calls: connections,
+`DbError`, the `sql_as_*` readers and the URL parser) and `datasource` (what a program calls: connections,
 `execute`, `query`, `rows`, pools, transactions). SQLite (`sqlite::memory:` or
 `sqlite:<path>`) and PostgreSQL (`postgres://user:password@host:port/database`)
 are the two backends, chosen by URL scheme behind the same calls.
@@ -1968,10 +1968,10 @@ use db.row_get
 use db.sql_as_text
 
 fn main() {
-    val conn = unwrap(sql.open("sqlite::memory:"))
-    unwrap(sql.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)", []))
-    unwrap(sql.execute(conn, "INSERT INTO t (id, name) VALUES ($1, $2)", [SqlValue.Int(1), SqlValue.Text("Ada")]))
-    val rows = unwrap(sql.query(conn, "SELECT name FROM t WHERE id = $1", [SqlValue.Int(1)]))
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+    unwrap(datasource.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)", []))
+    unwrap(datasource.execute(conn, "INSERT INTO t (id, name) VALUES ($1, $2)", [SqlValue.Int(1), SqlValue.Text("Ada")]))
+    val rows = unwrap(datasource.query(conn, "SELECT name FROM t WHERE id = $1", [SqlValue.Int(1)]))
     print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))   // Ada
 }
 ```
@@ -2019,7 +2019,7 @@ fn main() {
   Kerberos/GSS, client certificates, IPv6 literals in the URL, COPY,
   LISTEN/NOTIFY, prepared-statement reuse, and SASLprep of a non-ASCII
   password.
-- **`sql.rows(conn, sql, params)`** is `query` as a lazy `Iter<Result<Row, DbError>>`
+- **`datasource.rows(conn, sql, params)`** is `query` as a lazy `Iter<Result<Row, DbError>>`
   for a `for` loop: on SQLite the rows come from a cursor, so a million-row result
   uses memory for one row (72 MB against 1.7 GB in a test) and is closed when it is used up, when the loop
   is left early, or with `iter_close`. On a pool the connection is borrowed for the whole
@@ -2030,10 +2030,10 @@ fn main() {
   opened read-only and read with `COM_STMT_FETCH`), where other statements may run between fetches but a
   connection holds one cursor at a time. A cursor dropped unfinished is ended when it is garbage
   collected. A 300,000-row result used 51 MB against 609 MB on Postgres and 43 MB against 706 MB on MySQL.
-- **`sql.query`** returns `[Row]`; `sql.query_one` returns `Option<Row>`;
-  `sql.execute` returns the row count of the last statement, and takes a
+- **`datasource.query`** returns `[Row]`; `datasource.query_one` returns `Option<Row>`;
+  `datasource.execute` returns the row count of the last statement, and takes a
   `;`-separated script when there are no parameters (for DDL).
-- **Connection pools.** `sql.open_pool(url, size)` opens `size` connections
+- **Connection pools.** `datasource.open_pool(url, size)` opens `size` connections
   up front (failing fast, and closing any it opened, if one can't connect)
   and returns a pool-backed **`Connection` -- the same type `open`
   returns**, so repository code written against a `Connection` works
@@ -2043,12 +2043,12 @@ fn main() {
   one *exclusively*:
 
   ```
-  val tx = sql.acquire(conn)?
-  defer sql.release(conn, tx)      // returned on every path out
-  sql.begin(tx)?
-  defer sql.rollback(tx)           // runs before the release
+  val tx = datasource.acquire(conn)?
+  defer datasource.release(conn, tx)      // returned on every path out
+  datasource.begin(tx)?
+  defer datasource.rollback(tx)           // runs before the release
   ...
-  sql.commit(tx)?
+  datasource.commit(tx)?
   ```
 
   The pool is a channel of idle connections, so a borrow blocks while
@@ -2059,31 +2059,31 @@ fn main() {
   itself are **refused** (each statement would borrow a different
   connection and silently do the wrong thing). On a plain `Connection`,
   `acquire` returns it and `release` does nothing, so the same code runs
-  against either. `sql.close(pool)` waits for every connection to be
+  against either. `datasource.close(pool)` waits for every connection to be
   released, then closes them all -- a borrow that was never released makes
-  it wait forever, which is what `defer sql.release` prevents.
-  `sql.acquire_timeout(pool, ms)` gives up with a `DbError.Connection`
+  it wait forever, which is what `defer datasource.release` prevents.
+  `datasource.acquire_timeout(pool, ms)` gives up with a `DbError.Connection`
   instead of waiting for ever. **A connection that dies is replaced:** a
   statement on the pool that fails with `DbError.Connection` closes that
   connection and opens a fresh one from the same URL (the statement itself
   is not re-sent, since it may have run); after a failure on an acquired
-  connection, `sql.discard(pool, tx)` does the same instead of `release`, and
+  connection, `datasource.discard(pool, tx)` does the same instead of `release`, and
   `with_transaction` does it by itself. **Health check:** a connection idle for
   30 seconds or more is tested with `SELECT 1` when it is lent out, and replaced first if that fails with a
-  connection error (`sql.open_pool_with(url, size, check_after_seconds)` changes the time; 0 turns it off;
+  connection error (`datasource.open_pool_with(url, size, check_after_seconds)` changes the time; 0 turns it off;
   SQLite connections are never tested). **Limits:** no min/max sizing or idle timeout; a released connection isn't reset (release one with a
   transaction open and it goes back dirty); and a pool over
   `sqlite::memory:` is a **single** connection whatever `size` says, since
   every in-memory connection is its own private database. SQLite
   connections wait up to five seconds for the writer lock instead of
   failing at once, which is what makes a pool over a file usable.
-- **Transactions** are plain `sql.begin`/`sql.commit`/`sql.rollback` on the
+- **Transactions** are plain `datasource.begin`/`datasource.commit`/`datasource.rollback` on the
   connection. Every call takes the connection's own lock, so sharing one
   `Connection` across threads is safe *statement by statement*, but a
   transaction is not safe to share -- another thread's statements can
   interleave inside it. A `?` that returns early from inside a
-  transaction leaves it open unless the caller uses `defer sql.rollback(tx)`
-  or `sql.with_transaction` (see "Transactions").
+  transaction leaves it open unless the caller uses `defer datasource.rollback(tx)`
+  or `datasource.with_transaction` (see "Transactions").
 - **`#[derive(Row)]`** on a struct generates `<name>_from_row(row: Row)
   -> Result<Name, DbError>` and `<name>_to_params(v: Name) ->
   [SqlValue]` (field declaration order, the order a hand-written
@@ -2127,7 +2127,7 @@ fn main() {
   only its own thread; `spawn` a handler per connection. There is no
   event loop and no async.
 - **Handles.** `Socket` and `Listener` are `{ handle: int }` structs over
-  a native table, like `sql.Connection`. Closing is explicit (`net.close`,
+  a native table, like `datasource.Connection`. Closing is explicit (`net.close`,
   `net.close_listener`); there are no destructors, so a `?` that returns
   early between `connect` and `close` leaks the socket. Close a socket
   from the thread that owns it.
@@ -2186,7 +2186,7 @@ request off a socket, route it, write a response -- and, on top of that, a
 ready-made server loop:
 
 ```
-fn route(conn: sql.Connection, req: http.Request) -> http.Response { ... }
+fn route(conn: datasource.Connection, req: http.Request) -> http.Response { ... }
 
 val options = server.ServeOptions { idle_timeout_ms: 30000, max_connections: 64, log_requests: true }
 os.install_shutdown_handler()
@@ -2213,7 +2213,7 @@ need something `serve` doesn't do.
 use net
 use http
 
-fn route(conn: sql.Connection, req: http.Request) -> http.Response {
+fn route(conn: datasource.Connection, req: http.Request) -> http.Response {
     val create = server.route(req, HttpMethod.Post, "/patients")
     if Option.is_Some(create) {
         return server.json_response(201, req.body)
@@ -2226,7 +2226,7 @@ fn route(conn: sql.Connection, req: http.Request) -> http.Response {
     return server.not_found_or_method_not_allowed(req, ["POST /patients", "GET /patients/{id}"])
 }
 
-fn serve_connection(conn: sql.Connection, sock: net.Socket) {
+fn serve_connection(conn: datasource.Connection, sock: net.Socket) {
     defer net.close(sock)                       // closed on every way out
     unwrap(net.set_timeout(sock, 30000))        // an idle client can't hold the thread forever
     var session = server.open_session(sock)
@@ -2295,25 +2295,25 @@ fn main() {
 - **Not yet:** TLS (a plain `net.Socket` only), chunked request bodies,
   HTTP/2, multipart, compression, trailers, and `Date`/`Server` headers.
 
-## Transactions (`sql.with_transaction`)
+## Transactions (`datasource.with_transaction`)
 
-`sql.with_transaction<R>(conn, work: fn(Connection) -> Result<R, DbError>) ->
+`datasource.with_transaction<R>(conn, work: fn(Connection) -> Result<R, DbError>) ->
 Result<R, DbError>` runs `work` in a transaction on one exclusive connection:
 it borrows one from a pool, begins, calls `work(tx)`, commits if `work`
 returned `Ok`, and rolls back if it returned `Err` (or the commit failed),
 handing the connection back on every way out. The result of `work` is returned
 unchanged. `work` is a function value, usually a lambda capturing what it needs
-(the data to write, say). `work` must not call `sql.begin`/`sql.commit` itself.
+(the data to write, say). `work` must not call `datasource.begin`/`datasource.commit` itself.
 
 ```
-fn transfer(tx: sql.Connection, t: Transfer) -> Result<int, DbError> {
-    sql.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2", [...])?
-    sql.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2", [...])?
+fn transfer(tx: datasource.Connection, t: Transfer) -> Result<int, DbError> {
+    datasource.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2", [...])?
+    datasource.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2", [...])?
     return ok(t.amount)
 }
 
 val t = Transfer { ... }
-val moved = sql.with_transaction<int>(conn, fn(tx: sql.Connection) -> Result<int, DbError> {
+val moved = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
     return transfer(tx, t)
 })?
 ```
@@ -2669,11 +2669,11 @@ fn talk(port: int) -> Result<int, string> {
     return reply
 }
 
-fn transfer(conn: sql.Connection) -> Result<int, DbError> {
-    sql.begin(conn)?
-    defer sql.rollback(conn)            // undone unless we reach the commit
-    sql.execute(conn, "...", [])?
-    sql.commit(conn)?
+fn transfer(conn: datasource.Connection) -> Result<int, DbError> {
+    datasource.begin(conn)?
+    defer datasource.rollback(conn)            // undone unless we reach the commit
+    datasource.execute(conn, "...", [])?
+    datasource.commit(conn)?
     return 0
 }
 ```
@@ -2697,10 +2697,10 @@ fn transfer(conn: sql.Connection) -> Result<int, DbError> {
   builtins that read their argument *expressions* rather than values --
   `format`, `ok`, `err`, `channel_new` -- can't be deferred.
 - **The result is discarded, including a `Result`.** A deferred
-  `net.close` or `sql.rollback` has nowhere to report failure, and this is
+  `net.close` or `datasource.rollback` has nowhere to report failure, and this is
   the one place Ziman silently drops a `Result`. That is a real cost: an
   error from the cleanup call is invisible. It is deliberate, and it is
-  what lets `defer sql.rollback(conn)` be harmless after a successful
+  what lets `defer datasource.rollback(conn)` be harmless after a successful
   commit.
 - **A fatal runtime error skips defers.** `unwrap` on an `Err`, an
   out-of-bounds index and the like exit the process instead of unwinding,
