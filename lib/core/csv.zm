@@ -1,112 +1,69 @@
-// csv.zm -- CSV (RFC 4180) on top of `json`: a table is a `Json` array of objects, one per
-// data row, keyed by the header row, so any `#[derive(Json)]` type decodes from a row with
-// its own `_from_json`. Written in pure Ziman.
+// csv.zm -- CSV (RFC 4180) as `Json`: a table is a `Json` array of objects, one per data row and
+// keyed by the header row, so any `#[derive(Json)]` type decodes from a row with its own
+// `_from_json` and encodes back. Splitting the text into cells is a native scanner
+// (`scan_cells`); the rest is Ziman.
 //
-// Reading: quoted fields may hold the separator, doubled quotes (`""`) and newlines; rows may
-// end in LF or CRLF; blank lines are skipped. `parse_csv` keeps every cell as a `JString`;
-// `parse_csv_typed` also reads an *unquoted* cell as a number (`42`, `-1.5`, but not `007` --
-// a leading zero is an identifier, not a number), `true`/`false`, or null (empty), and a
-// quoted cell always stays a string -- so `csv_to_string` (which quotes exactly the strings
-// that would otherwise read back as something else) round-trips through `parse_csv_typed`.
+// Every function that takes text and returns a table comes in two forms: the plain one uses
+// the comma, and the `_with` form takes a one-character delimiter (`"\t"` for TSV). They are
+// separate functions because Ziman can only omit an optional parameter in a call that names
+// its arguments. A delimiter that is not exactly one character, or is a quote or a newline,
+// is an `Err`.
 //
-// Writing: columns are the union of the rows' keys in first-seen order. An object value is
-// flattened one level into dotted columns (`address.city`); an array, or a deeper object,
-// is an error (CSV cannot represent nesting). A key a row lacks is an empty cell.
-// Every writer line ends in "\n".
+// Cells are text. A reader returns them as strings (`parse_csv`), or infers a type for the
+// cells that look like one (`parse_csv_typed`); see each function. The writer quotes exactly
+// the strings that would otherwise read back as something else, so `parse_csv_typed` of what
+// `csv_to_string` wrote gives the same table.
 
 use json.Json
 
+// One cell as the scanner saw it, and one row with the line it started on (a quoted cell can
+// contain newlines, so a row's line is not its index).
 struct Cell {
     text: string
     quoted: bool
 }
 
-fn finish_field(row: ArrayBuilder<Cell>, field: StringBuilder, quoted: bool) {
-    ab_append<Cell>(row, Cell { text: sb_to_string(field), quoted: quoted })
+struct Row {
+    line: int
+    cells: [Cell]
 }
 
-// A row that is one empty unquoted cell is a blank line.
-fn finish_row(rows: ArrayBuilder<[Cell]>, row: ArrayBuilder<Cell>) {
-    val cells = ab_to_array<Cell>(row)
-    if len(cells) == 1 && len(cells[0].text) == 0 && !cells[0].quoted {
-        return
+// The UTF-8 byte order mark that spreadsheets put at the start of a file.
+val byte_order_mark = unwrap(bytes_to_string([239b, 187b, 191b]))
+
+// Splits `text` into cells. The result is a flat array: each cell is a one-character tag
+// (`q` for a quoted cell, `u` for an unquoted one) followed by its text, and each row is ended
+// by a string starting with the control character U+0001 followed by the row's line number.
+// Blank lines produce nothing. An Err names the line of a stray quote, of text after a
+// closing quote, or of an unterminated quote (and where that quote opened).
+native fn scan_cells(text: string, sep: string) -> Result<[string], string>
+
+// ---------------------------------------------------------------- reading
+
+fn check_delimiter(sep: string) -> Result<string, string> {
+    if len(sep) != 1 || sep == "\"" || sep == "\n" || sep == "\r" {
+        return err(format("invalid delimiter '{}': it must be one character and not a quote or a newline", sep))
     }
-    ab_append<[Cell]>(rows, cells)
+    return ok(sep)
 }
 
-fn parse_cells(text: string, sep: string) -> Result<[[Cell]], string> {
-    val rows = ab_new<[Cell]>()
-    var row = ab_new<Cell>()
-    var field = sb_new()
-    var quoted = false
-    var in_quotes = false
-    var started = false
-    var line = 1
-    var p = 0
-    val n = len(text)
-    while p < n {
-        val c = char_at(text, p)
-        if in_quotes {
-            if c == "\"" {
-                if is_char_at(text, p + 1, "\"") {
-                    sb_append(field, "\"")
-                    p = p + 2
-                } else {
-                    in_quotes = false
-                    p = p + 1
-                }
-            } else {
-                if c == "\n" {
-                    line = line + 1
-                }
-                sb_append(field, c)
-                p = p + 1
-            }
-            continue
-        }
-        if c == "\"" {
-            if started {
-                return err(format("line {}: a quote inside an unquoted field", line))
-            }
-            in_quotes = true
-            quoted = true
-            started = true
-            p = p + 1
-        } else if c == sep {
-            finish_field(row, field, quoted)
-            field = sb_new()
-            quoted = false
-            started = false
-            p = p + 1
-        } else if c == "\n" || c == "\r" {
-            if c == "\r" && is_char_at(text, p + 1, "\n") {
-                p = p + 1
-            }
-            finish_field(row, field, quoted)
-            finish_row(rows, row)
-            row = ab_new<Cell>()
-            field = sb_new()
-            quoted = false
-            started = false
-            line = line + 1
-            p = p + 1
+// The table as rows of cells, from the scanner's flat form.
+fn parse_rows(text: string, sep: string) -> Result<[Row], string> {
+    check_delimiter(sep)?
+    val body = if starts_with(text, byte_order_mark) { substring(text, len(byte_order_mark), len(text)) } else { text }
+    val flat = scan_cells(body, sep)?
+    val rows = ab_new<Row>()
+    var cells = ab_new<Cell>()
+    for item in flat {
+        if compare(char_at(item, 0), " ") < 0 {
+            val line = unwrap(parse_int(substring(item, 1, len(item))))
+            ab_append<Row>(rows, Row { line: line, cells: ab_to_array<Cell>(cells) })
+            cells = ab_new<Cell>()
         } else {
-            if quoted {
-                return err(format("line {}: text after a closing quote", line))
-            }
-            sb_append(field, c)
-            started = true
-            p = p + 1
+            ab_append<Cell>(cells, Cell { text: substring(item, 1, len(item)), quoted: char_at(item, 0) == "q" })
         }
     }
-    if in_quotes {
-        return err(format("line {}: unterminated quoted field", line))
-    }
-    if started || quoted || sb_len(field) > 0 || ab_len<Cell>(row) > 0 {
-        finish_field(row, field, quoted)
-        finish_row(rows, row)
-    }
-    return ok(ab_to_array<[Cell]>(rows))
+    return ok(ab_to_array<Row>(rows))
 }
 
 fn is_digit_char(c: string) -> bool {
@@ -199,50 +156,67 @@ fn typed_cell(cell: Cell) -> Json {
     return Json.JString(t)
 }
 
-fn rows_to_objects(rows: [[Cell]], typed: bool) -> Result<Json, string> {
-    val out = ab_new<Json>()
-    if len(rows) == 0 {
-        return ok(Json.JArray(ab_to_array<Json>(out)))
-    }
-    val header = rows[0]
+// Rows `from..` as objects keyed by `header`. Every row must have as many cells as the header.
+fn rows_to_objects(rows: [Row], header: [string], from: int, typed: bool) -> Result<Json, string> {
     val seen = setb_new<string>()
     for h in header {
-        if setb_contains<string>(seen, h.text) {
-            return err(format("duplicate column name '{}'", h.text))
+        if setb_contains<string>(seen, h) {
+            return err(format("duplicate column name '{}'", h))
         }
-        setb_add<string>(seen, h.text)
+        setb_add<string>(seen, h)
     }
-    var i = 1
-    while i < len(rows) {
+    val out = ab_new<Json>()
+    for i in from..len(rows) {
         val row = rows[i]
-        if len(row) != len(header) {
-            return err(format("row {} has {} cells but the header has {}", i, len(row), len(header)))
+        if len(row.cells) != len(header) {
+            return err(format("line {}: {} cells, but there are {} columns", row.line, len(row.cells), len(header)))
         }
         val obj = mapb_new<string, Json>()
-        var j = 0
-        while j < len(header) {
-            mapb_set<string, Json>(obj, header[j].text,
-                if typed { typed_cell(row[j]) } else { Json.JString(row[j].text) })
-            j = j + 1
+        for j in 0..len(header) {
+            val cell = row.cells[j]
+            mapb_set<string, Json>(obj, header[j], if typed { typed_cell(cell) } else { Json.JString(cell.text) })
         }
         ab_append<Json>(out, Json.JObject(mapb_to_map<string, Json>(obj)))
-        i = i + 1
     }
     return ok(Json.JArray(ab_to_array<Json>(out)))
 }
 
-// The raw table as strings, header row included: [["name", "age"], ["Ada", "36"]].
+fn header_of(rows: [Row]) -> [string] {
+    val names = ab_new<string>()
+    for cell in rows[0].cells {
+        ab_append<string>(names, cell.text)
+    }
+    return ab_to_array<string>(names)
+}
+
+fn table_of(text: string, sep: string, typed: bool) -> Result<Json, string> {
+    val rows = parse_rows(text, sep)?
+    if len(rows) == 0 {
+        val no_rows: [Json] = []
+        return ok(Json.JArray(no_rows))
+    }
+    return rows_to_objects(rows, header_of(rows), 1, typed)
+}
+
+fn table_with_columns(text: string, columns: [string], typed: bool) -> Result<Json, string> {
+    val rows = parse_rows(text, ",")?
+    return rows_to_objects(rows, columns, 0, typed)
+}
+
+// The raw table as strings, header row included: `[["name", "age"], ["Ada", "36"]]`. Quotes
+// are removed and doubled quotes collapsed; nothing else is interpreted. Blank lines are
+// skipped and a leading byte order mark is ignored.
 pub fn parse_csv_rows(text: string) -> Result<[[string]], string> {
     return parse_csv_rows_with(text, ",")
 }
 
-// parse_csv_rows with another separator, e.g. "\t" for TSV.
+// parse_csv_rows with another one-character delimiter, e.g. "\t" for TSV.
 pub fn parse_csv_rows_with(text: string, delimiter: string) -> Result<[[string]], string> {
-    val rows = parse_cells(text, delimiter)?
+    val rows = parse_rows(text, delimiter)?
     val out = ab_new<[string]>()
     for row in rows {
         val cells = ab_new<string>()
-        for cell in row {
+        for cell in row.cells {
             ab_append<string>(cells, cell.text)
         }
         ab_append<[string]>(out, ab_to_array<string>(cells))
@@ -250,25 +224,49 @@ pub fn parse_csv_rows_with(text: string, delimiter: string) -> Result<[[string]]
     return ok(ab_to_array<[string]>(out))
 }
 
-// The first row names the columns; each later row becomes a JSON object of strings.
+// The first row names the columns; every later row becomes a JSON object of strings keyed by
+// them, so `#[derive(Json)]` types with `string` fields decode straight from it. An Err for a
+// duplicate column name, or for a row whose cell count differs from the header's (the message
+// names the line). An empty file is an empty array.
 pub fn parse_csv(text: string) -> Result<Json, string> {
-    return parse_csv_with(text, ",")
+    return table_of(text, ",", false)
 }
 
+// parse_csv with another one-character delimiter.
 pub fn parse_csv_with(text: string, delimiter: string) -> Result<Json, string> {
-    val rows = parse_cells(text, delimiter)?
-    return rows_to_objects(rows, false)
+    return table_of(text, delimiter, false)
 }
 
-// parse_csv, reading an unquoted cell as a number, a boolean or null where it looks like one.
+// parse_csv, but an *unquoted* cell becomes a number (`42` an int, `-1.5` or `2e3` a float; not
+// `007`, `+1` or `1_000`, which stay strings), `true` / `false` a boolean, and an empty cell
+// null. A quoted cell is always a string. This is what lets `#[derive(Json)]` types with `int`,
+// `float`, `bool` and `Option` fields decode from a row.
 pub fn parse_csv_typed(text: string) -> Result<Json, string> {
-    return parse_csv_typed_with(text, ",")
+    return table_of(text, ",", true)
 }
 
+// parse_csv_typed with another one-character delimiter.
 pub fn parse_csv_typed_with(text: string, delimiter: string) -> Result<Json, string> {
-    val rows = parse_cells(text, delimiter)?
-    return rows_to_objects(rows, true)
+    return table_of(text, delimiter, true)
 }
+
+// For a file with no header row: every row is data, and `columns` names the cells. Each row
+// must have `len(columns)` cells.
+pub fn parse_csv_columns(text: string, columns: [string]) -> Result<Json, string> {
+    return table_with_columns(text, columns, false)
+}
+
+// parse_csv_columns with the cell typing of `parse_csv_typed`.
+pub fn parse_csv_columns_typed(text: string, columns: [string]) -> Result<Json, string> {
+    return table_with_columns(text, columns, true)
+}
+
+// ---------------------------------------------------------------- writing
+//
+// Every line ends in "\n" (RFC 4180 says CRLF, which the readers here accept and nearly every
+// tool does too). A cell is quoted when it contains the delimiter, a quote or a newline, or
+// starts or ends with a space; an empty string, and a string that looks like a number or
+// `true` / `false`, is quoted so it reads back as a string.
 
 fn needs_quotes(s: string, sep: string) -> bool {
     if len(s) == 0 {
@@ -296,17 +294,24 @@ fn write_row(out: StringBuilder, cells: [string], sep: string) {
     sb_append(out, "\n")
 }
 
-// A table of raw strings back to text (quoting where needed), one row per line.
+// A table of raw strings as text, one row per line, quoting where a cell needs it. Nothing
+// is inferred: an empty string is written as an empty cell.
 pub fn csv_rows_to_string(rows: [[string]]) -> string {
-    return csv_rows_to_string_with(rows, ",")
-}
-
-pub fn csv_rows_to_string_with(rows: [[string]], sep: string) -> string {
     val out = sb_new()
     for row in rows {
-        write_row(out, row, sep)
+        write_row(out, row, ",")
     }
     return sb_to_string(out)
+}
+
+// csv_rows_to_string with another one-character delimiter. An Err for an invalid delimiter.
+pub fn csv_rows_to_string_with(rows: [[string]], delimiter: string) -> Result<string, string> {
+    check_delimiter(delimiter)?
+    val out = sb_new()
+    for row in rows {
+        write_row(out, row, delimiter)
+    }
+    return ok(sb_to_string(out))
 }
 
 // A scalar as the text of its cell. A string that would read back as something else under
@@ -352,13 +357,17 @@ fn flatten_row(row: Json, sep: string) -> Result<Map<string, string>, string> {
     return ok(mapb_to_map<string, string>(cells))
 }
 
-// A JSON array of objects as CSV: a header row of the union of the keys, then one line per
-// object. Cells are already quoted by cell_text; the header is quoted where needed.
+// A JSON array of objects as CSV: a header row of the union of the rows' keys in first-seen
+// order, then one line per object; a key a row lacks is an empty cell. An object value is
+// flattened one level into dotted columns (`address.city`); an array, or an object nested
+// deeper, is an Err (CSV cannot hold it), as is a row that is not an object.
 pub fn csv_to_string(rows: Json) -> Result<string, string> {
     return csv_to_string_with(rows, ",")
 }
 
-pub fn csv_to_string_with(rows: Json, sep: string) -> Result<string, string> {
+// csv_to_string with another one-character delimiter.
+pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, string> {
+    check_delimiter(delimiter)?
     if !Json.is_JArray(rows) {
         return err("expected an array of objects")
     }
@@ -369,7 +378,7 @@ pub fn csv_to_string_with(rows: Json, sep: string) -> Result<string, string> {
         if !Json.is_JObject(row) {
             return err(format("row {} is not an object", i))
         }
-        val cells = flatten_row(row, sep)?
+        val cells = flatten_row(row, delimiter)?
         for name in map_keys(cells) {
             setb_add<string>(columns, name)
         }
@@ -378,12 +387,12 @@ pub fn csv_to_string_with(rows: Json, sep: string) -> Result<string, string> {
     }
     val names = set_items(setb_to_set<string>(columns))
     val out = sb_new()
-    write_row(out, names, sep)
+    write_row(out, names, delimiter)
     for cells in ab_to_array<Map<string, string>>(flat) {
         var first = true
         for name in names {
             if !first {
-                sb_append(out, sep)
+                sb_append(out, delimiter)
             }
             first = false
             sb_append(out, option_unwrap_or<string>(map_get(cells, name), ""))

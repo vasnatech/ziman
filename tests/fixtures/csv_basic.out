@@ -8,9 +8,9 @@ Bob,007,,false
 "Cy
 Z",-1.5,x,
 )
-row 1 has 1 cells but the header has 2
+line 2: 1 cells, but there are 2 columns
 duplicate column name 'a'
-line 3: unterminated quoted field
+line 3: unterminated quoted field (opened on line 2)
 Ok(id,addr.city,addr.zip,tags,extra
 1,X,01234,,
 2,,,,"a,b"

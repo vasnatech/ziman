@@ -1,0 +1,26 @@
+[{"id":"1","name":"Ada"}]
+line 4: 1 cells, but there are 2 columns
+line 5: unterminated quoted field (opened on line 3)
+line 2: a quote inside an unquoted field
+line 2: text after a closing quote
+[{"id":"1","name":"Ada"},{"id":"2","name":"Bob"}]
+[{"id":1,"name":"Ada"},{"id":2,"name":null}]
+line 1: 3 cells, but there are 2 columns
+invalid delimiter ';;': it must be one character and not a quote or a newline
+invalid delimiter '"': it must be one character and not a quote or a newline
+invalid delimiter '': it must be one character and not a quote or a newline
+invalid delimiter '
+': it must be one character and not a quote or a newline
+[{"a":"1","b":"2"}]
+a b	"c	d"
+	x
+
+a,n,z
+1,,
+2,,true
+
+[]
+[]
+[]
+[[a, b], [1, 2]]
+20000

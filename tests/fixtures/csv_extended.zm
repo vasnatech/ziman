@@ -1,0 +1,48 @@
+use csv
+use json
+use json.Json
+
+fn main() {
+    // a UTF-8 byte order mark before the header is ignored
+    val bom = unwrap(bytes_to_string([239b, 187b, 191b]))
+    print(json.json_to_string(unwrap(csv.parse_csv(concat(bom, "id,name\n1,Ada\n")))))
+
+    // errors name the line a row started on, even after a quoted cell with newlines
+    print(unwrap_err(csv.parse_csv("a,b\n\"x\ny\",1\n2\n")))
+    print(unwrap_err(csv.parse_csv("a,b\n1,2\n3,\"oops\n4,5\n")))
+    print(unwrap_err(csv.parse_csv("a\nx\"y\n")))
+    print(unwrap_err(csv.parse_csv("a\n\"x\"y\n")))
+
+    // no header row: the caller names the columns
+    print(json.json_to_string(unwrap(csv.parse_csv_columns("1,Ada\n2,Bob\n", ["id", "name"]))))
+    print(json.json_to_string(unwrap(csv.parse_csv_columns_typed("1,Ada\n2,\n", ["id", "name"]))))
+    print(unwrap_err(csv.parse_csv_columns("1,Ada,x\n", ["id", "name"])))
+
+    // delimiters are checked
+    print(unwrap_err(csv.parse_csv_with("a;b\n", ";;")))
+    print(unwrap_err(csv.parse_csv_with("a\n", "\"")))
+    print(unwrap_err(csv.parse_csv_with("a\n", "")))
+    print(unwrap_err(csv.csv_rows_to_string_with([["a"]], "\n")))
+    print(json.json_to_string(unwrap(csv.parse_csv_with("a\tb\n1\t2\n", "\t"))))
+    print(unwrap(csv.csv_rows_to_string_with([["a b", "c\td"], ["", "x"]], "\t")))
+
+    // an all-null column, and rows with different keys
+    val rows = unwrap(json.parse_json("[{\"a\": 1, \"n\": null}, {\"a\": 2, \"n\": null, \"z\": true}]"))
+    print(unwrap(csv.csv_to_string(rows)))
+
+    // empty input
+    print(json.json_to_string(unwrap(csv.parse_csv(""))))
+    print(json.json_to_string(unwrap(csv.parse_csv("\n\n"))))
+    print(unwrap(csv.parse_csv_rows("")))
+    // a file without a final newline, and a lone CR line ending
+    print(unwrap(csv.parse_csv_rows("a,b\r1,2")))
+
+    // a large file
+    val sb = sb_new()
+    sb_append(sb, "id,name\n")
+    for i in 0..20000 {
+        sb_append(sb, str(i), ",name", str(i), "\n")
+    }
+    val big = unwrap(csv.parse_csv_typed(sb_to_string(sb)))
+    print(len(Json.unwrap_JArray(big)))
+}

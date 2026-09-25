@@ -1757,12 +1757,15 @@ fn main() {
 | `yaml` | `parse_yaml(text) -> Result<Json, string>` | `yaml_to_string(Json) -> string` |
 
 - **Errors** are `Err(String)` with a `line N:` prefix (CSV: `row N`).
-- **CSV:** RFC 4180 quoting; LF or CRLF; blank lines skipped. `parse_csv` keeps every cell a
-  string; `parse_csv_typed` reads an *unquoted* cell as a number (`42`, `-1.5`; not `007`), a
-  boolean or null (empty), and a quoted cell always stays a string. The writer takes the union
-  of the rows' keys as columns (first-seen order), flattens an object value one level into
-  `a.b` columns, rejects an array or deeper nesting, and quotes a string that would otherwise
-  read back typed -- so `parse_csv_typed(csv_to_string(x))` round-trips.
+- **CSV:** RFC 4180 quoting (a native scanner splits the cells); LF, CRLF or lone-CR line endings; blank
+  lines skipped; a leading UTF-8 byte order mark ignored. `parse_csv` keeps every cell a string;
+  `parse_csv_typed` reads an *unquoted* cell as a number (`42`, `-1.5`; not `007`), a boolean or null (empty),
+  and a quoted cell always stays a string. `parse_csv_columns` / `_typed` take the column names for a file with
+  no header row. The `_with(text, delimiter)` variants take a one-character delimiter (`"\t"` for TSV); an
+  invalid delimiter is an `Err`. Errors name the *line* a row started on, including a quote left open (and where
+  it opened). The writer takes the union of the rows' keys as columns (first-seen order), flattens an object
+  value one level into `a.b` columns, rejects an array or deeper nesting, and quotes a string that would
+  otherwise read back typed -- so `parse_csv_typed(csv_to_string(x))` round-trips. Lines end in `\n`.
 - **TOML** 1.0: tables, arrays of tables, dotted keys, inline tables, all string forms and
   escapes, hex/octal/binary/`_` integers, floats, booleans, comments. Dates and times stay
   `JString` text; `inf`/`nan` are rejected; a duplicate key or table is an error. The writer

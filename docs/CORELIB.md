@@ -141,13 +141,17 @@ pub fn parse_csv_typed(text: string) -> Result<Json, string>
 
 pub fn parse_csv_typed_with(text: string, delimiter: string) -> Result<Json, string>
 
+pub fn parse_csv_columns(text: string, columns: [string]) -> Result<Json, string>
+
+pub fn parse_csv_columns_typed(text: string, columns: [string]) -> Result<Json, string>
+
 pub fn csv_rows_to_string(rows: [[string]]) -> string
 
-pub fn csv_rows_to_string_with(rows: [[string]], sep: string) -> string
+pub fn csv_rows_to_string_with(rows: [[string]], delimiter: string) -> Result<string, string>
 
 pub fn csv_to_string(rows: Json) -> Result<string, string>
 
-pub fn csv_to_string_with(rows: Json, sep: string) -> Result<string, string>
+pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, string>
 
 ```
 
