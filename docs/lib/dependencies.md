@@ -80,7 +80,6 @@ flowchart LR
     properties --> os
     server --> clock
     server --> http
-    server --> json
     server --> net
     server --> number
     server --> os
@@ -131,7 +130,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `db` | `clock`, `mysql`, `pg`, `sql`, `sqlite` | - |
 | `fs` | - | `csv`, `log`, `properties`, `zone` |
 | `http` | `number` | `client`, `server` |
-| `json` | - | `csv`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
+| `json` | - | `csv`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `log` | `clock`, `fs`, `os` | - |
 | `mysql` | `crypto`, `net`, `number`, `sql`, `url` | `db` |
 | `ndjson` | `json` | - |
@@ -142,7 +141,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `properties` | `fs`, `os` | - |
 | `random` | - | `pg`, `uuid` |
 | `regex` | - | - |
-| `server` | `clock`, `http`, `json`, `net`, `number`, `os` | - |
+| `server` | `clock`, `http`, `net`, `number`, `os` | - |
 | `sql` | - | `db`, `mysql`, `pg`, `sqlite`, `time`, `url`, `uuid` |
 | `sqlite` | `number`, `sql` | `db` |
 | `time` | `clock`, `json`, `sql`, `zone` | `client` |

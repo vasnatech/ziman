@@ -62,8 +62,6 @@ use http.status_request_timeout
 use http.status_service_unavailable
 use http.status_unauthorized
 use http.status_unprocessable_entity
-use json.Json
-use json.json_to_string
 use net
 use net.Listener
 use net.NetError
@@ -401,9 +399,38 @@ pub fn text_response(status: int, body: string) -> Response {
     return with_header(response(status, body), "Content-Type", "text/plain; charset=utf-8")
 }
 
+// `text` as a JSON string literal, quotes included: `"` and `\` and the control characters escaped, every
+// other byte (UTF-8 included) as it is. Written here so the server needs nothing but its own error replies.
+fn json_quoted(text: string) -> string {
+    val out = sb_new()
+    sb_append(out, "\"")
+    for b in string_to_bytes(text) {
+        if b == 34b {
+            sb_append(out, "\\\"")
+        } else if b == 92b {
+            sb_append(out, "\\\\")
+        } else if b == 10b {
+            sb_append(out, "\\n")
+        } else if b == 13b {
+            sb_append(out, "\\r")
+        } else if b == 9b {
+            sb_append(out, "\\t")
+        } else if b == 8b {
+            sb_append(out, "\\b")
+        } else if b == 12b {
+            sb_append(out, "\\f")
+        } else if (b as int) < 32 {
+            sb_append(out, "\\u00", byte_to_hex(b))
+        } else {
+            sb_append_byte(out, b)
+        }
+    }
+    sb_append(out, "\"")
+    return sb_to_string(out)
+}
+
 fn error_body(status: int, message: string) -> string {
-    return json_to_string(Json.JObject(Map<string, Json> { "status": Json.JInt(status),
-        "error": Json.JString(message) }))
+    return format("{}\"status\":{},\"error\":{}{}", "{", status, json_quoted(message), "}")
 }
 
 fn error_reply(status: int, message: string) -> Response {
