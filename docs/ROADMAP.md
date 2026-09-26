@@ -1396,3 +1396,20 @@ from source.
   use a small `test` module with `assert_equals`); and the language server, `ziman --check` and `ziman --fmt` taking
   their root from the same marker instead of hunting for `main.zm`. Until then a project stays flat, as the
   health-record backend is (`main.zm`, `routes.zm` and the layer folders side by side).
+
+- **Metrics and telemetry -- not started; a `metrics` module first, then tracing.** Ziman has `log`, `clock` and
+  threads but no way to count things across threads: a lambda cannot mutate what it captures, so shared state has to
+  live in a native handle, as `StringBuilder` and `Iter` do. Planned, in order:
+  1. **A `metrics` core module**: `counter`, `gauge` and `histogram` (fixed buckets), each with an optional
+     `Map<string, string>` of labels, thread-safe, and `metrics.render()` writing the Prometheus text format. A cap
+     on the distinct label sets per metric (documented), because a label that carries a user id would otherwise
+     grow without bound.
+  2. **`server` records its own metrics**: requests by method, route pattern and status, request latency, open
+     connections, bytes in and out, and serves them from a `/metrics` endpoint an application mounts with one line.
+     `dispatch` already knows the matched pattern, which is the low-cardinality label to use (never the raw path).
+  3. **Runtime metrics through the same module**: GC heap size and collections, live threads, channel depths.
+  4. **Trace context**: W3C `traceparent` read by `server`, passed on by `client`, and written into `log` lines, so a
+     request can be followed across services; then, if wanted, an OpenTelemetry (OTLP over HTTP/JSON) exporter on top
+     of `client` and `json`, which needs a background thread to batch.
+  5. **`log`**: an optional JSON line format carrying a request id.
+  Out of scope: an agent or collector of our own; the module only exposes numbers for one to scrape.
