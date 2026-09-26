@@ -306,6 +306,16 @@ static Value native_json_parse(Value *args, int argc, int line, int col) {
     return parse_json_text(args[0].as.str.ptr, args[0].as.str.len, args[1], args[2].as.b);
 }
 
+/* json.parse_bytes_native(data, proto, strict): the same parser over a `[byte]`, with no string made first. */
+static Value native_json_parse_bytes(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    int n = 0;
+    uint8_t *bytes = array_copy_bytes(args[0].as.arr, &n);
+    Value result = parse_json_text((const char *)bytes, (size_t)n, args[1], args[2].as.b);
+    free(bytes);
+    return result;
+}
+
 /* ndjson.records_raw(path, sample): a lazy iterator over the JSON values of a newline-delimited file,
  * each item a Result<Json, string>; blank lines are skipped and a bad line is an Err naming its number. */
 typedef struct {
@@ -464,5 +474,6 @@ static Value native_json_to_string(Value *args, int argc, int line, int col) {
 void native_json_register(void) {
     native_register("ndjson::records_raw", native_ndjson_records_raw);
     native_register("json::parse_native", native_json_parse);
+    native_register("json::parse_bytes_native", native_json_parse_bytes);
     native_register("json::to_string_native", native_json_to_string);
 }

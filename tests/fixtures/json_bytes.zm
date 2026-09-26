@@ -1,0 +1,13 @@
+use json
+
+fn main() {
+    val doc = "{\"name\": \"Ada\", \"tags\": [1, 2.5, true, null], \"note\": \"café \\u00e9\"}"
+    print(json.json_to_string(unwrap(json.parse_json_bytes(string_to_bytes(doc)))))
+    print(json.json_to_string(unwrap(json.parse_json_bytes(string_to_bytes(doc)))) == json.json_to_string(unwrap(json.parse_json(doc))))
+    print(unwrap_err(json.parse_json_bytes(string_to_bytes("{\"a\": }"))))
+    print(unwrap_err(json.parse_json_bytes(string_to_bytes("{\"a\":1} x"))))
+    print(unwrap_err(json.parse_json_bytes([])))
+    print(is_ok(json.parse_json_bytes_strict(string_to_bytes("{\"a\":1,\"b\":2}"))))
+    print(unwrap_err(json.parse_json_bytes_strict(string_to_bytes("{\"a\":1,\"a\":2}"))))
+    print(unwrap_err(json.parse_json_bytes([123b, 0b, 125b])))
+}

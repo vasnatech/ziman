@@ -1,0 +1,8 @@
+{"name":"Ada","tags":[1,2.5,true,null],"note":"café é"}
+true
+unexpected character '}' at position 6
+trailing content at position 8
+unexpected end of input
+true
+duplicate key 'a' at position 7
+expected string key at position 1

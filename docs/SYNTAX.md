@@ -1805,7 +1805,8 @@ fn main() {
   `JObject(Map<string, Json>)`.
 - **Objects are Maps.** A field lookup is near-O(1); iteration (and so
   `json_to_string`) keeps the order keys first appeared in; a repeated key keeps its
-  first position with the last value (`parse_json_strict` makes it an error instead).
+  first position with the last value (`parse_json_strict` makes it an error instead). `parse_json_bytes` and `parse_json_bytes_strict` are the same over a `[byte]`
+  (a file read with `fs.read_bytes`, a body read off a socket), with no string made first.
   Build one with `Json.JObject(Map<string, Json> { "k": v })`.
 - **Numbers.** An integer literal that fits in 64 bits parses to `JInt` and is exact
   (a large id no longer loses precision); a fraction, an exponent or an integer too big

@@ -122,6 +122,23 @@ pub fn parse_json_strict(s: string) -> Result<Json, string>
 parse_json, but a repeated key in any object is an error -- for input where a duplicate
 means something is wrong (a signed or audited document, a config file).
 
+### `parse_json_bytes`
+
+```
+pub fn parse_json_bytes(data: [byte]) -> Result<Json, string>
+```
+
+`parse_json` over the bytes of a document, with no string made first: what a file read with `fs.read_bytes` or a body read
+off a socket is. The same rules and the same errors (the position is a byte offset).
+
+### `parse_json_bytes_strict`
+
+```
+pub fn parse_json_bytes_strict(data: [byte]) -> Result<Json, string>
+```
+
+`parse_json_strict` over bytes.
+
 ## Writing
 
 ### `json_to_string`

@@ -44,6 +44,7 @@ pub enum Json {
 // native builds its values with the same enum type as `proto`, since a native cannot name the
 // loader's qualified `Json` type itself.
 native fn parse_native(text: string, proto: Json, strict: bool) -> Result<Json, string>
+native fn parse_bytes_native(data: [byte], proto: Json, strict: bool) -> Result<Json, string>
 native fn to_string_native(j: Json) -> string
 
 // Parses one JSON document. A repeated key in an object is allowed: the last one wins, keeping
@@ -58,6 +59,17 @@ pub fn parse_json(s: string) -> Result<Json, string> {
 // means something is wrong (a signed or audited document, a config file).
 pub fn parse_json_strict(s: string) -> Result<Json, string> {
     return parse_native(s, Json.JNull, true)
+}
+
+// `parse_json` over the bytes of a document, with no string made first: what a file read with `fs.read_bytes` or a body read
+// off a socket is. The same rules and the same errors (the position is a byte offset).
+pub fn parse_json_bytes(data: [byte]) -> Result<Json, string> {
+    return parse_bytes_native(data, Json.JNull, false)
+}
+
+// `parse_json_strict` over bytes.
+pub fn parse_json_bytes_strict(data: [byte]) -> Result<Json, string> {
+    return parse_bytes_native(data, Json.JNull, true)
 }
 
 // ---------------------------------------------------------------- writing

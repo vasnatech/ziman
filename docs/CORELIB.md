@@ -282,6 +282,10 @@ pub fn parse_json(s: string) -> Result<Json, string>
 
 pub fn parse_json_strict(s: string) -> Result<Json, string>
 
+pub fn parse_json_bytes(data: [byte]) -> Result<Json, string>
+
+pub fn parse_json_bytes_strict(data: [byte]) -> Result<Json, string>
+
 pub fn json_to_string(j: Json) -> string
 
 pub fn json_object_get(j: Json, key: string) -> Option<Json>
@@ -1300,11 +1304,27 @@ pub struct Writer<O> {
     write: fn(O) -> string
 }
 
-pub fn handler<C, O, E>(
+pub enum Denied {
+    Unauthenticated(string)
+    Forbidden(string)
+    Failed(string)
+}
 
-pub fn path_handler<C, P, O, E>(
+pub fn secure_handler<C, U, O, E>(
 
-pub fn body_handler<C, I, O, E>(
+pub fn secure_path_handler<C, U, P, O, E>(
+
+pub fn secure_body_handler<C, U, I, O, E>(
+
+pub fn secure_path_body_handler<C, U, P, I, O, E>(
+
+pub fn public_handler<C, O, E>(
+
+pub fn public_path_handler<C, P, O, E>(
+
+pub fn public_body_handler<C, I, O, E>(
+
+pub fn public_path_body_handler<C, P, I, O, E>(
 
 pub fn dispatch<C>(endpoints: [Endpoint<C>], ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
 
