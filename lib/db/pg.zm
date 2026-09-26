@@ -196,8 +196,15 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
             sslmode
         )))
     }
-    return PgUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database,
-        sslmode: sslmode, sslrootcert: sslrootcert }
+    return PgUrl {
+        user: u.user,
+        password: u.password,
+        host: u.host,
+        port: u.port,
+        database: u.database,
+        sslmode: sslmode,
+        sslrootcert: sslrootcert
+    }
 }
 
 // ---------------------------------------------------------------- SCRAM

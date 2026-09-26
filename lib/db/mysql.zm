@@ -366,8 +366,15 @@ fn parse_url(url: string) -> Result<MyUrl, DbError> {
             sslmode
         )))
     }
-    return MyUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database,
-        sslmode: sslmode, sslrootcert: sslrootcert }
+    return MyUrl {
+        user: u.user,
+        password: u.password,
+        host: u.host,
+        port: u.port,
+        database: u.database,
+        sslmode: sslmode,
+        sslrootcert: sslrootcert
+    }
 }
 
 // ------------------------------------------------------------- handshake
@@ -1139,8 +1146,13 @@ fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> Curso
         close_statement(sock, statement)
     }
     val page: Result<Page, DbError> = Page { rows: delivered, finished: last, cursor: id }
-    return CursorStep { page: page, open: !last, statement: statement, columns: columns,
-        deferred: Option<DbError>.None }
+    return CursorStep {
+        page: page,
+        open: !last,
+        statement: statement,
+        columns: columns,
+        deferred: Option<DbError>.None
+    }
 }
 
 // Prepares the statement and opens a server-side cursor on it, then reads the first page. A statement that

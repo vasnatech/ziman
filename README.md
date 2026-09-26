@@ -140,7 +140,9 @@ change and exits 1, `--fmt -` reads stdin, `--width=N` sets the wrap column,
 default 120, 0 = never); `--version`; `--help`. A function's parameter list, or a call's argument list, that is too wide or already wrapped between its
 arguments is laid out one to a line with the parentheses on lines of their own (`fn name(` / `    a: A,` /
 `    b: B` / `) -> R {`, and likewise `call(` / `    x: 1,` / `    y: 2` / `)`); the body is indented one level from
-`fn`. A call whose only line breaks are inside a lambda (`f(fn() {` ... `}, g)`) keeps that shape.
+`fn`. A struct or map literal (`Point { x: 1 }`, `Map<K, V> { "a": 1 }`) that is too wide or already wrapped between
+entries is laid out the same way, one entry per line with the closing brace on its own line. A call whose only line
+breaks are inside a lambda (`f(fn() {` ... `}, g)`) keeps that shape.
 
 The interpreter has a tracing garbage collector (the Boehm-Demers-Weiser
 collector, vendored in `vendor/bdwgc` and built by `make` -- no network, no

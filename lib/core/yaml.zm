@@ -534,8 +534,10 @@ fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
         val quoted = if first == "\"" { read_double(content, 0, no)?} else { read_single(content, 0, no)?}
         val after = skip_sp(content, quoted.next)
         if is_char_at(content, after, ":") && (after + 1 >= len(content) || is_char_at(content, after + 1, " ")) {
-            return ok(Option<KeyRes>.Some(KeyRes { key: Json.unwrap_JString(quoted.value),
-                rest: trim(substring(content, after + 1, len(content))) }))
+            return ok(Option<KeyRes>.Some(KeyRes {
+                key: Json.unwrap_JString(quoted.value),
+                rest: trim(substring(content, after + 1, len(content)))
+            }))
         }
         return ok(Option<KeyRes>.None)
     }

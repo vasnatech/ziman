@@ -243,8 +243,14 @@ fn parse_rule_date(text: string, pos: int) -> Result<Parsed<RuleDate>, string> {
         seconds = t.value
         p = t.next
     }
-    return ok(Parsed<RuleDate> { value: RuleDate { kind: kind, month: month, week: week, weekday: weekday, day: day,
-        seconds: seconds }, next: p })
+    return ok(Parsed<RuleDate> { value: RuleDate {
+        kind: kind,
+        month: month,
+        week: week,
+        weekday: weekday,
+        day: day,
+        seconds: seconds
+    }, next: p })
 }
 
 // The rule string at the end of a zone file: `std offset [dst [offset] [,start[/time],end[/time]]]`.
@@ -268,9 +274,13 @@ pub fn parse_posix_rule(text: string) -> Result<PosixRule, string> {
     val daylight = ZoneType { utoff: dst_utoff, dst: true, name: dst_name.value }
     if at_end(text, p) {
         // no rule given: POSIX says to use the United States rule
-        return ok(PosixRule { standard: standard, daylight: daylight, has_dst: true,
+        return ok(PosixRule {
+            standard: standard,
+            daylight: daylight,
+            has_dst: true,
             start: RuleDate { kind: 0, month: 3, week: 2, weekday: 0, day: 0, seconds: 7200 },
-            end: RuleDate { kind: 0, month: 11, week: 1, weekday: 0, day: 0, seconds: 7200 } })
+            end: RuleDate { kind: 0, month: 11, week: 1, weekday: 0, day: 0, seconds: 7200 }
+        })
     }
     if !is_char_at(text, p, ",") {
         return err(bad_rule(text, "expected ',' before the start rule"))
@@ -321,10 +331,13 @@ fn rule_type_at(rule: PosixRule, t: int) -> ZoneType {
 // ---------------------------------------------------------------- reading a zone file
 
 // The placeholder rule of a zone with none (`has_rule` is false).
-pub val no_rule = PosixRule { standard: ZoneType { utoff: 0, dst: false, name: "UTC" },
-    daylight: ZoneType { utoff: 0, dst: false, name: "UTC" }, has_dst: false,
+pub val no_rule = PosixRule {
+    standard: ZoneType { utoff: 0, dst: false, name: "UTC" },
+    daylight: ZoneType { utoff: 0, dst: false, name: "UTC" },
+    has_dst: false,
     start: RuleDate { kind: 0, month: 1, week: 1, weekday: 0, day: 0, seconds: 0 },
-    end: RuleDate { kind: 0, month: 1, week: 1, weekday: 0, day: 0, seconds: 0 } }
+    end: RuleDate { kind: 0, month: 1, week: 1, weekday: 0, day: 0, seconds: 0 }
+}
 
 // The data of one TZif block and where the next one starts.
 struct Block {
@@ -379,10 +392,18 @@ fn parse_block(data: [byte], hdr: int, wide: bool) -> Result<Block, string> {
         ab_append<int>(transitions, t)
         ab_append<int>(type_of, index)
     }
-    return ok(Block { rules: ZoneRules { transitions: ab_to_array<int>(transitions), type_of: ab_to_array<int>(type_of),
-        utoffs: ab_to_array<int>(utoffs), dsts: ab_to_array<bool>(dsts), names: ab_to_array<string>(names),
-        has_rule: false, rule: no_rule },
-        next: next })
+    return ok(Block {
+        rules: ZoneRules {
+            transitions: ab_to_array<int>(transitions),
+            type_of: ab_to_array<int>(type_of),
+            utoffs: ab_to_array<int>(utoffs),
+            dsts: ab_to_array<bool>(dsts),
+            names: ab_to_array<string>(names),
+            has_rule: false,
+            rule: no_rule
+        },
+        next: next
+    })
 }
 
 // The rules in the bytes of a zone file, or an Err when they are not a TZif file.
@@ -409,8 +430,15 @@ pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string> {
         return ok(second.rules)
     }
     val rule = parse_posix_rule(text)?
-    return ok(ZoneRules { transitions: second.rules.transitions, type_of: second.rules.type_of,
-        utoffs: second.rules.utoffs, dsts: second.rules.dsts, names: second.rules.names, has_rule: true, rule: rule })
+    return ok(ZoneRules {
+        transitions: second.rules.transitions,
+        type_of: second.rules.type_of,
+        utoffs: second.rules.utoffs,
+        dsts: second.rules.dsts,
+        names: second.rules.names,
+        has_rule: true,
+        rule: rule
+    })
 }
 
 // The directory holding the zone files, or an Err when there is none.

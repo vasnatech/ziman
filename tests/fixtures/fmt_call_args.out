@@ -20,3 +20,18 @@ fn g() {
         "must be greater than 0"
     )))
 }
+
+pub fn to_json(e: ApiError) -> Json {
+    if len(e.fields) > 0 {
+        return Json.JObject(Map<string, Json> {
+            "timestamp": Json.JString(timestamp()),
+            "status": Json.JInt(e.status),
+            "errors": json_from_map<string>(e.fields, string_to_json)
+        })
+    }
+    val p = Point { x: 1, y: 2 }
+    for i, x in items {
+        print(x)
+    }
+    return p
+}

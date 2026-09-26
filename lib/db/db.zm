@@ -285,8 +285,14 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
     if db_name == "" {
         db_name = user_decoded
     }
-    return DbUrl { user: user_decoded, password: password_decoded, host: host, port: port, database: db_name,
-        params: ab_to_array<UrlParam>(params) }
+    return DbUrl {
+        user: user_decoded,
+        password: password_decoded,
+        host: host,
+        port: port,
+        database: db_name,
+        params: ab_to_array<UrlParam>(params)
+    }
 }
 
 // ---------------------------------------------------------------- what the network drivers share
@@ -415,11 +421,14 @@ pub fn open_rows(
     send(requests, Request.OpenCursor(OpenRequest { sql: sql, params: params, reply_to: reply }))
     val first = receive(reply)?
     val ender: Channel<int> = channel_new()
-    val handle = CursorHandle { cursor: first.cursor, requests: requests,
+    val handle = CursorHandle {
+        cursor: first.cursor,
+        requests: requests,
         guard: guard_new<Request>(
             requests,
             Request.EndCursor(EndRequest { cursor: first.cursor, reply_to: ender })
-        ) }
+        )
+    }
     val buffer: Channel<Option<Row>> = channel_new()
     buffer_page(buffer, first)
     return iter_from<Result<Row, DbError>>(

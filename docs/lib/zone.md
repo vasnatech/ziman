@@ -97,7 +97,7 @@ POSIX writes the offset as time WEST of UTC, so `EST5` is UTC-5.
 ### `no_rule`
 
 ```
-pub val no_rule = PosixRule { standard: ZoneType { utoff: 0, dst: false, name: "UTC" },
+pub val no_rule = PosixRule
 ```
 
 The placeholder rule of a zone with none (`has_rule` is false).

@@ -415,8 +415,15 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
     if si != len(s) {
         return err(format("'{}' has trailing content after position {}", s, si))
     }
-    return ok(ParsedFields { year: year, month: month, day: day, hour: hour, minute: minute, second: second,
-        nano: nano })
+    return ok(ParsedFields {
+        year: year,
+        month: month,
+        day: day,
+        hour: hour,
+        minute: minute,
+        second: second,
+        nano: nano
+    })
 }
 
 // The fixed shapes every existing `_to_string` produces, now also the
@@ -1037,8 +1044,15 @@ pub struct ZoneId {
     rules: ZoneRules
 }
 
-val utc_rules = ZoneRules { transitions: [], type_of: [], utoffs: [0], dsts: [false], names: ["UTC"], has_rule: false,
-    rule: no_rule }
+val utc_rules = ZoneRules {
+    transitions: [],
+    type_of: [],
+    utoffs: [0],
+    dsts: [false],
+    names: ["UTC"],
+    has_rule: false,
+    rule: no_rule
+}
 
 // The `UTC` zone.
 pub fn zoneid_utc() -> ZoneId {
@@ -1133,8 +1147,10 @@ pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
         sec_of_day = sec_of_day + seconds_per_day
         epoch_day = epoch_day - 1
     }
-    return LocalDateTime { date: date_of_epoch_day(epoch_day),
-        time: time_of_nano_of_day(sec_of_day * nanos_per_second + i.nanos) }
+    return LocalDateTime {
+        date: date_of_epoch_day(epoch_day),
+        time: time_of_nano_of_day(sec_of_day * nanos_per_second + i.nanos)
+    }
 }
 
 // The instant at which a clock in `offset` reads `dt`.

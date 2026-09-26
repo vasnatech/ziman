@@ -281,8 +281,12 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
         )
         i = i + 1
     }
-    return ok(Head { status: unwrap(status_parsed), status_line: lines[0], headers: ab_to_array<Header>(headers),
-        rest: slice<byte>(buf, head_end, len(buf)) })
+    return ok(Head {
+        status: unwrap(status_parsed),
+        status_line: lines[0],
+        headers: ab_to_array<Header>(headers),
+        rest: slice<byte>(buf, head_end, len(buf))
+    })
 }
 
 // The body of a chunked response, through the last chunk and the trailers, so the connection is left
@@ -877,9 +881,15 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
             expires = parse_http_date(val_text)
         }
     }
-    return Option<Cookie>.Some(Cookie { name: trim(Option.unwrap_Some(name_value)[0]),
+    return Option<Cookie>.Some(Cookie {
+        name: trim(Option.unwrap_Some(name_value)[0]),
         value: trim(Option.unwrap_Some(name_value)[1]),
-        domain: domain, path: path, secure: secure, host_only: host_only, expires: expires })
+        domain: domain,
+        path: path,
+        secure: secure,
+        host_only: host_only,
+        expires: expires
+    })
 }
 
 fn same_cookie(a: Cookie, b: Cookie) -> bool {
@@ -1333,8 +1343,13 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
     if st.mode == 2 {
         left = 0
     }
-    send(cell, BodyState { buffer: rest, mode: st.mode, left: left, after_chunk: st.mode == 1 && left == 0,
-        finished: false })
+    send(cell, BodyState {
+        buffer: rest,
+        mode: st.mode,
+        left: left,
+        after_chunk: st.mode == 1 && left == 0,
+        finished: false
+    })
     return body_block(block)
 }
 

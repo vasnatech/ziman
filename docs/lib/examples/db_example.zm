@@ -10,8 +10,10 @@ use db.sql_as_text
 
 // What the database modules share: a value, a row, the error type, and the URL parser.
 fn main() {
-    val row = Row { columns: ["id", "name", "active"],
-        values: [SqlValue.Int(1), SqlValue.Text("Ada"), SqlValue.Int(1)] }
+    val row = Row {
+        columns: ["id", "name", "active"],
+        values: [SqlValue.Int(1), SqlValue.Text("Ada"), SqlValue.Int(1)]
+    }
 
     print(unwrap(sql_as_int(unwrap(row_get(row, "id")))))
     print(unwrap(sql_as_text(unwrap(row_get(row, "name")))))

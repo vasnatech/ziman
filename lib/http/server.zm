@@ -327,8 +327,15 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         }
         val decoded = read_chunked(sock, slice<byte>(buf, head_end, len(buf)))?
         val chunked_body = text_of(decoded.body, 0, len(decoded.body))?
-        val chunked_request = Request { method: method_parse(method_text), target: target, path: path, query: query,
-            version: version, headers: header_list, body: chunked_body }
+        val chunked_request = Request {
+            method: method_parse(method_text),
+            target: target,
+            path: path,
+            query: query,
+            version: version,
+            headers: header_list,
+            body: chunked_body
+        }
         return Exchange { request: chunked_request, session: Session { sock: sock, buffer: decoded.rest } }
     }
     var content_length = 0
@@ -356,8 +363,15 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     val body = text_of(rest, 0, content_length)?
     val leftover = slice<byte>(rest, content_length, len(rest))
 
-    val request = Request { method: method_parse(method_text), target: target, path: path, query: query,
-        version: version, headers: header_list, body: body }
+    val request = Request {
+        method: method_parse(method_text),
+        target: target,
+        path: path,
+        query: query,
+        version: version,
+        headers: header_list,
+        body: body
+    }
     return Exchange { request: request, session: Session { sock: sock, buffer: leftover } }
 }
 
@@ -564,8 +578,15 @@ pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError> {
     if HttpError.is_Closed(e) || HttpError.is_Io(e) {
         return false
     }
-    val stub = Request { method: HttpMethod.Get, target: "/", path: "/", query: "", version: http_1_0, headers: [],
-        body: "" }
+    val stub = Request {
+        method: HttpMethod.Get,
+        target: "/",
+        path: "/",
+        query: "",
+        version: http_1_0,
+        headers: [],
+        body: ""
+    }
     return write_response(sock, stub, error_response(e))
 }
 

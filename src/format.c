@@ -217,6 +217,27 @@ typedef struct {
 static int opens(const Item *t) { return is(t, "(") || is(t, "[") || is(t, "{"); }
 static int closes(const Item *t) { return is(t, ")") || is(t, "]") || is(t, "}"); }
 
+/* Whether the `{` at items[idx] opens a struct or map literal (`Point { x: 1 }`, `Map<K, V> { "a": 1 }`) and not a
+ * block: its first entry is not a keyword and has a `:` at the group's own level before any `,` or the closing brace. A
+ * block's first item is a statement, which starts with a keyword or has no such `:`. */
+static int is_literal_brace(const Items *items, int idx) {
+    if (idx + 1 >= items->n) return 0;
+    const Item *first = &items->v[idx + 1];
+    if (first->kind == K_COMMENT || is(first, "}") || is_keyword(first)) return 0;
+    int depth = 0;
+    for (int i = idx + 1; i < items->n; i++) {
+        const Item *t = &items->v[i];
+        if (t->kind == K_COMMENT) continue;
+        if (opens(t)) depth++;
+        else if (closes(t)) {
+            if (depth == 0) return 0;
+            depth--;
+        } else if (depth == 0 && is(t, ",")) return 0;
+        else if (depth == 0 && is(t, ":")) return 1;
+    }
+    return 0;
+}
+
 /* Where an item ended up in one emission pass, and what surrounds it. */
 typedef struct {
     size_t start, end;   /* the item's text in the output */
@@ -302,7 +323,7 @@ static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
                 {
                     int named = is(it, "(") && last_code != NULL && last_code->kind == K_WORD && !is_keyword(last_code);
                     int generic_call = is(it, "(") && last_code != NULL && is(last_code, ">") && it->spaces_before == 0 && it->nl_before == 0;
-                    stack[depth].vertical = named || generic_call;
+                    stack[depth].vertical = named || generic_call || (is(it, "{") && is_literal_brace(items, idx));
                 }
                 depth++;
             } else if (closes(it) && depth > 0) {
@@ -366,9 +387,11 @@ static int wrap_once(Items *items, const ItemPos *pos, const Buf *out, int width
                  *       a: A,
                  *       b: B
                  *   ) -> R { */
+                const char *open_tok = pos[at].innermost == '{' ? "{" : "(";
+                const char *close_tok = pos[at].innermost == '{' ? "}" : ")";
                 int open = at, close = at;
-                while (open > 0 && !(is(&items->v[open], "(") && pos[open].depth == pos[at].depth - 1)) open--;
-                while (close + 1 < items->n && !(is(&items->v[close], ")") && pos[close].depth == pos[at].depth)) close++;
+                while (open > 0 && !(is(&items->v[open], open_tok) && pos[open].depth == pos[at].depth - 1)) open--;
+                while (close + 1 < items->n && !(is(&items->v[close], close_tok) && pos[close].depth == pos[at].depth)) close++;
                 for (int k = open + 1; k <= close; k++) {
                     int starts_param = k == open + 1 || (is(&items->v[k - 1], ",") && pos[k - 1].depth == pos[at].depth && !pos[k - 1].angle_open) || k == close;
                     if (starts_param && items->v[k].nl_before == 0 && items->v[k].kind != K_COMMENT) {
@@ -393,10 +416,12 @@ static int wrap_once(Items *items, const ItemPos *pos, const Buf *out, int width
 static int normalize_vertical(Items *items, const ItemPos *pos) {
     int changed = 0;
     for (int i = 0; i + 1 < items->n; i++) {
-        if (!(is(&items->v[i], "(") && pos[i + 1].vertical && pos[i + 1].depth == pos[i].depth + 1 && !is(&items->v[i + 1], ")"))) continue;
+        int paren = is(&items->v[i], "(");
+        if (!((paren || is(&items->v[i], "{")) && pos[i + 1].vertical && pos[i + 1].depth == pos[i].depth + 1 &&
+              !is(&items->v[i + 1], paren ? ")" : "}"))) continue;
         int inner = pos[i].depth + 1;
         int close = i + 1;
-        while (close < items->n && !(is(&items->v[close], ")") && pos[close].depth == inner)) close++;
+        while (close < items->n && !(is(&items->v[close], paren ? ")" : "}") && pos[close].depth == inner)) close++;
         if (close >= items->n) continue;
         int multiline = 0, has_comment = 0;
         for (int k = i + 1; k <= close; k++) {

@@ -108,13 +108,34 @@ pub fn image_svg() -> MediaType {
 
 // The type of a file by its lower-case extension, without the dot.
 val extension_types: Map<string, string> = Map<string, string> {
-    "json": "application/json", "ndjson": "application/x-ndjson", "yaml": "application/yaml",
-    "yml": "application/yaml", "toml": "application/toml", "xml": "application/xml", "pdf": "application/pdf",
-    "zip": "application/zip", "gz": "application/gzip", "wasm": "application/wasm", "js": "text/javascript",
-    "txt": "text/plain", "html": "text/html", "htm": "text/html", "css": "text/css", "csv": "text/csv",
-    "tsv": "text/tab-separated-values", "md": "text/markdown", "png": "image/png", "jpg": "image/jpeg",
-    "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml",
-    "ico": "image/vnd.microsoft.icon", "woff2": "font/woff2", "mp3": "audio/mpeg", "mp4": "video/mp4"
+    "json": "application/json",
+    "ndjson": "application/x-ndjson",
+    "yaml": "application/yaml",
+    "yml": "application/yaml",
+    "toml": "application/toml",
+    "xml": "application/xml",
+    "pdf": "application/pdf",
+    "zip": "application/zip",
+    "gz": "application/gzip",
+    "wasm": "application/wasm",
+    "js": "text/javascript",
+    "txt": "text/plain",
+    "html": "text/html",
+    "htm": "text/html",
+    "css": "text/css",
+    "csv": "text/csv",
+    "tsv": "text/tab-separated-values",
+    "md": "text/markdown",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "svg": "image/svg+xml",
+    "ico": "image/vnd.microsoft.icon",
+    "woff2": "font/woff2",
+    "mp3": "audio/mpeg",
+    "mp4": "video/mp4"
 }
 
 // ---------------------------------------------------------------- parsing
