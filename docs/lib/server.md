@@ -336,14 +336,31 @@ How to encode an answer `O` as `media`.
 pub fn handler<C, O, E>(
     writers: [Writer<O>],
     status: int,
-    run: fn(C, Params) -> Result<O, E>,
+    run: fn(C) -> Result<O, E>,
     failure: fn(E) -> Response,
     fault: fn(int, string) -> Response
 ) -> fn(C, Request, Params) -> Response
 ```
 
-An endpoint with no request body: `run(ctx, params)` gets the path parameters and returns the answer or an
-error; the answer is written with the first of `writers` the client's `Accept` allows, with `status`.
+An endpoint with no input: `run(ctx)` returns the answer or an error; the answer is written with the first of
+`writers` the client's `Accept` allows, with `status`.
+
+### `path_handler`
+
+```
+pub fn path_handler<C, P, O, E>(
+    path: fn(Params) -> Result<P, string>,
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, P) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response
+```
+
+An endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
+answered 400, so a bad id never reaches `run`), and `run(ctx, input)` returns the answer or an error. The answer is
+negotiated (406) before anything runs.
 
 ### `body_handler`
 

@@ -1376,8 +1376,8 @@ from source.
 
 - **Content types on routes -- typed endpoints done, three follow-ups.** `mime` (media types: parse, write,
   wildcard matching, type by file extension) is in; `http` has `content_type`, `accepts` (wildcard ranges; `q=0`
-  refuses) and 406/415; `server` has typed endpoints (`Endpoint`, `Reader`, `Writer`, `handler`, `body_handler`,
-  `dispatch`), where a handler takes the decoded request and returns the resource or the application's own error,
+  refuses) and 406/415; `server` has typed endpoints (`Endpoint`, `Reader`, `Writer`, `handler`, `path_handler`,
+  `body_handler`, `dispatch`), where a handler takes the decoded request and returns the resource or the application's own error,
   and the library checks `Content-Type` (415), negotiates `Accept` (406), decodes (400) and encodes with the declared
   status. The health-record backend runs on it. Still to do: ranking by `q` weights (today the first writer the
   client allows wins, in the endpoint's own order); writers a derive emits (`#[derive(Json)]` already gives the

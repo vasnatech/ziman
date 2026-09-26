@@ -34,12 +34,23 @@ fn read_item(text: string) -> Result<Item, string> {
     return Item { id: unwrap(n) }
 }
 
-fn get_item(ctx: Ctx, params: server.Params) -> Result<Item, string> {
+fn read_id(params: server.Params) -> Result<int, string> {
     val n = parse_int(server.param(params, "id"))
     if !is_ok(n) {
         return err("bad id")
     }
-    return Item { id: unwrap(n) }
+    return unwrap(n)
+}
+
+fn get_item(ctx: Ctx, id: int) -> Result<Item, string> {
+    if id == 0 {
+        return err("no such item")
+    }
+    return Item { id: id }
+}
+
+fn newest_item(ctx: Ctx) -> Result<Item, string> {
+    return Item { id: 99 }
 }
 
 fn create_item(ctx: Ctx, item: Item) -> Result<Item, string> {
@@ -50,8 +61,15 @@ fn create_item(ctx: Ctx, item: Item) -> Result<Item, string> {
 }
 
 fn request(method: string, path: string, headers: [http.Header], body: string) -> http.Request {
-    return http.Request { method: http.method_parse(method), target: path, path: path, query: "", version: "HTTP/1.1",
-        headers: headers, body: body }
+    return http.Request {
+        method: http.method_parse(method),
+        target: path,
+        path: path,
+        query: "",
+        version: "HTTP/1.1",
+        headers: headers,
+        body: body
+    }
 }
 
 fn h(name: string, value: string) -> http.Header {
@@ -66,14 +84,37 @@ fn main() {
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/items/{id}",
-            handler: server.handler<Ctx, Item, string>(writers: [text_out, csv_out], status: 200, run: get_item,
-                failure: failure, fault: fault)
+            handler: server.path_handler<Ctx, int, Item, string>(
+                path: read_id,
+                writers: [text_out, csv_out],
+                status: 200,
+                run: get_item,
+                failure: failure,
+                fault: fault
+            )
+        },
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Get,
+            pattern: "/newest",
+            handler: server.handler<Ctx, Item, string>(
+                writers: [text_out],
+                status: 200,
+                run: newest_item,
+                failure: failure,
+                fault: fault
+            )
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/items",
-            handler: server.body_handler<Ctx, Item, Item, string>(reader: text_in, writers: [text_out], status: 201,
-                run: create_item, failure: failure, fault: fault)
+            handler: server.body_handler<Ctx, Item, Item, string>(
+                reader: text_in,
+                writers: [text_out],
+                status: 201,
+                run: create_item,
+                failure: failure,
+                fault: fault
+            )
         }
     ]
     val ctx = Ctx { prefix: "x" }
@@ -85,6 +126,9 @@ fn main() {
         request("GET", "/items/7", [h("Accept", "text/*, text/csv;q=0")], ""),
         request("GET", "/items/7", [h("Accept", "application/json")], ""),
         request("GET", "/items/x", [], ""),
+        request("GET", "/items/0", [], ""),
+        request("GET", "/newest", [], ""),
+        request("GET", "/newest", [h("Accept", "text/csv")], ""),
         request("POST", "/items", plain, "5"),
         request("POST", "/items", plain, "-5"),
         request("POST", "/items", plain, "five"),
@@ -98,8 +142,18 @@ fn main() {
         val r = server.dispatch<Ctx>(endpoints, ctx, c, fault)
         val kind = http.content_type(r.headers)
         val allow = http.header_value(r.headers, "Allow")
-        print(format("{} {} -> {} [{}] {}{}", http.method_name(c.method), c.path, r.status,
-            if Option.is_Some(kind) { mime.to_string(Option.unwrap_Some(kind)) } else { "-" }, replace(r.body, "\n", "|"),
-            if Option.is_Some(allow) { format(" Allow={}", Option.unwrap_Some(allow)) } else { "" }))
+        print(format(
+            "{} {} -> {} [{}] {}{}",
+            http.method_name(c.method),
+            c.path,
+            r.status,
+            if Option.is_Some(kind) { mime.to_string(Option.unwrap_Some(kind)) } else { "-" },
+            replace(
+                r.body,
+                "\n",
+                "|"
+            ),
+            if Option.is_Some(allow) { format(" Allow={}", Option.unwrap_Some(allow)) } else { "" }
+        ))
     }
 }

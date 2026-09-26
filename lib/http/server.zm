@@ -704,6 +704,7 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 // pair a media type with the function that decodes or encodes it, so this module knows no format: JSON, YAML
 // or CSV come from the application's own functions.
 //
+//     // no input: handler; input in the path: path_handler; a request body: body_handler
 //     val patients = [
 //         Endpoint<Ctx> { method: HttpMethod.Post, pattern: "/patients",
 //             handler: body_handler<Ctx, PatientRequest, Patient, ApiError>(reader: json_in, writers: [json_out],
@@ -759,24 +760,51 @@ fn answer<O, E>(result: Result<O, E>, writer: Writer<O>, status: int, failure: f
     }
 }
 
-// An endpoint with no request body: `run(ctx, params)` gets the path parameters and returns the answer or an
-// error; the answer is written with the first of `writers` the client's `Accept` allows, with `status`.
+// An endpoint with no input: `run(ctx)` returns the answer or an error; the answer is written with the first of
+// `writers` the client's `Accept` allows, with `status`.
 pub fn handler<C, O, E>(
     writers: [Writer<O>],
     status: int,
-    run: fn(C, Params) -> Result<O, E>,
+    run: fn(C) -> Result<O, E>,
     failure: fn(E) -> Response,
     fault: fn(int, string) -> Response
 ) -> fn(C, Request, Params) -> Response {
     return fn(ctx: C, req: Request, params: Params) -> Response {
         val writer = negotiate<O>(writers, req)
-        if !Option.is_Some(writer) {
+        if !is_Some(writer) {
             return fault(
                 status_not_acceptable,
                 format("not acceptable: this route produces {}", produced_types<O>(writers))
             )
         }
-        return answer<O, E>(run(ctx, params), Option.unwrap_Some(writer), status, failure)
+        return answer<O, E>(run(ctx), unwrap_Some(writer), status, failure)
+    }
+}
+
+// An endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
+// answered 400, so a bad id never reaches `run`), and `run(ctx, input)` returns the answer or an error. The answer is
+// negotiated (406) before anything runs.
+pub fn path_handler<C, P, O, E>(
+    path: fn(Params) -> Result<P, string>,
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, P) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response {
+    return fn(ctx: C, req: Request, params: Params) -> Response {
+        val writer = negotiate<O>(writers, req)
+        if !is_Some(writer) {
+            return fault(
+                status_not_acceptable,
+                format("not acceptable: this route produces {}", produced_types<O>(writers))
+            )
+        }
+        val decode = path
+        return switch decode(params) {
+            Ok(input) { answer<O, E>(run(ctx, input), unwrap_Some(writer), status, failure) }
+            Err(message) { fault(status_bad_request, message) }
+        }
     }
 }
 
@@ -800,7 +828,7 @@ pub fn body_handler<C, I, O, E>(
             )
         }
         val writer = negotiate<O>(writers, req)
-        if !Option.is_Some(writer) {
+        if !is_Some(writer) {
             return fault(
                 status_not_acceptable,
                 format("not acceptable: this route produces {}", produced_types<O>(writers))
