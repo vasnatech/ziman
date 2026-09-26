@@ -1384,3 +1384,15 @@ from source.
   function; a `Writer` for JSON, YAML or CSV from one declaration would shorten the table); and `[byte]` request
   and response bodies for media types that are not text.
 
+
+- **Project layout: a root, `src/` and `test/`, and `ziman test` -- not started.** Today a `use` path resolves
+  relative to the entry file's own directory (a folder may hold its own module under its own name, `use a` for
+  `a/a.zm`), and the language server finds a program by looking for the nearest `main.zm`. That leaves no place
+  for tests: a program under `test/` cannot `use` a module under `src/`, and there is no test runner, so a test is
+  an ordinary program run by hand. Planned: a project root marker (a `ziman.toml`, or just an empty file) whose
+  directory is where `use` paths start, so `src/` and `test/` sit side by side and both write `use patient/service`;
+  `ziman test`, which finds every `*_test.zm` under `test/`, runs each as its own program and reports the failures
+  with a non-zero exit code (test files could be plain programs that `print` and `unwrap`, as the fixtures are now, or
+  use a small `test` module with `assert_equals`); and the language server, `ziman --check` and `ziman --fmt` taking
+  their root from the same marker instead of hunting for `main.zm`. Until then a project stays flat, as the
+  health-record backend is (`main.zm`, `routes.zm` and the layer folders side by side).
