@@ -5,7 +5,7 @@ The filesystem: files, directories and paths.
 Every function that can fail returns a `Result` carrying the operating system's own message
 ("cannot write 'x/y': No such file or directory"), so a missing directory, a permission
 problem or a full disk is something a program handles, not a crash. An action with no value
-to report returns `Ok(0)` (or `Ok(bytes)` for the ones that write), the same shape `net`
+to report returns `Ok(unit)` (or `Ok(bytes)` for the ones that write), the same shape `net`
 uses. The path predicates (`exists`, `is_dir`, `is_file`) return a plain bool: false covers
 "does not exist" and "cannot be checked" alike.
 
@@ -234,7 +234,7 @@ The names in a directory, sorted (no "." or ".."). Names only, not paths: join t
 ### `remove`
 
 ```
-pub native fn remove(path: string) -> Result<int, string>
+pub native fn remove(path: string) -> Result<unit, string>
 ```
 
 Deletes a file or an *empty* directory.
@@ -242,7 +242,7 @@ Deletes a file or an *empty* directory.
 ### `make_dir`
 
 ```
-pub native fn make_dir(path: string) -> Result<int, string>
+pub native fn make_dir(path: string) -> Result<unit, string>
 ```
 
 Creates one directory; its parent must exist and it must not already exist.
@@ -250,16 +250,16 @@ Creates one directory; its parent must exist and it must not already exist.
 ### `make_dirs`
 
 ```
-pub native fn make_dirs(path: string) -> Result<int, string>
+pub native fn make_dirs(path: string) -> Result<unit, string>
 ```
 
-Creates a directory and any missing parents (like `mkdir -p`); `Ok(0)` if it already
+Creates a directory and any missing parents (like `mkdir -p`); `Ok(unit)` if it already
 exists as a directory.
 
 ### `rename`
 
 ```
-pub native fn rename(from: string, to: string) -> Result<int, string>
+pub native fn rename(from: string, to: string) -> Result<unit, string>
 ```
 
 Moves or renames `from` to `to`, replacing `to` if it is a file.

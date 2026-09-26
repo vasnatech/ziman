@@ -203,31 +203,34 @@ pub fn query_one(conn: Connection, sql: string, params: SqlValue...) -> Result<O
 // different connection and silently do the wrong thing, so they are
 // refused -- `acquire` an exclusive connection and run the transaction on
 // that.
-fn refuse_on_pool(conn: Connection) -> Result<int, DbError> {
+fn refuse_on_pool(conn: Connection) -> Result<unit, DbError> {
     if Connection.is_Pool(conn) {
         return err(DbError.Sql("a transaction needs an exclusive connection: datasource.acquire(pool) one first"))
     }
-    return 0
+    return unit
 }
 
 // Starts a transaction on `conn`. Refused on a pool: `acquire` an exclusive connection first, or
 // use `with_transaction`.
-pub fn begin(conn: Connection) -> Result<int, DbError> {
+pub fn begin(conn: Connection) -> Result<unit, DbError> {
     refuse_on_pool(conn)?
-    return execute(conn, "BEGIN")
+    execute(conn, "BEGIN")?
+    return unit
 }
 
 // Commits the transaction open on `conn`.
-pub fn commit(conn: Connection) -> Result<int, DbError> {
+pub fn commit(conn: Connection) -> Result<unit, DbError> {
     refuse_on_pool(conn)?
-    return execute(conn, "COMMIT")
+    execute(conn, "COMMIT")?
+    return unit
 }
 
 // Rolls back the transaction open on `conn`. Called with none open it is harmless, which is what
 // lets `defer datasource.rollback(conn)` stand guard after a commit.
-pub fn rollback(conn: Connection) -> Result<int, DbError> {
+pub fn rollback(conn: Connection) -> Result<unit, DbError> {
     refuse_on_pool(conn)?
-    return execute(conn, "ROLLBACK")
+    execute(conn, "ROLLBACK")?
+    return unit
 }
 
 // ---------------------------------------------------------------- pooling

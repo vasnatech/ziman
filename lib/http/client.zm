@@ -542,7 +542,7 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
     if unwrap(head).status != 200 {
         return fail_closed(sock, ClientError.Network(format("proxy refused the tunnel: {}", unwrap(head).status_line)))
     }
-    val upgraded = lift<int>(net.start_tls_with(sock, u.host, net.TlsVerify.Full, ca_file))
+    val upgraded = lift<unit>(net.start_tls_with(sock, u.host, net.TlsVerify.Full, ca_file))
     if !is_ok(upgraded) {
         return fail_closed(sock, unwrap_err(upgraded))
     }

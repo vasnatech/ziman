@@ -220,7 +220,7 @@ The common lookup-by-key shape: the first row, or None.
 ### `begin`
 
 ```
-pub fn begin(conn: Connection) -> Result<int, DbError>
+pub fn begin(conn: Connection) -> Result<unit, DbError>
 ```
 
 Starts a transaction on `conn`. Refused on a pool: `acquire` an exclusive connection first, or
@@ -229,7 +229,7 @@ use `with_transaction`.
 ### `commit`
 
 ```
-pub fn commit(conn: Connection) -> Result<int, DbError>
+pub fn commit(conn: Connection) -> Result<unit, DbError>
 ```
 
 Commits the transaction open on `conn`.
@@ -237,7 +237,7 @@ Commits the transaction open on `conn`.
 ### `rollback`
 
 ```
-pub fn rollback(conn: Connection) -> Result<int, DbError>
+pub fn rollback(conn: Connection) -> Result<unit, DbError>
 ```
 
 Rolls back the transaction open on `conn`. Called with none open it is harmless, which is what

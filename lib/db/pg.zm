@@ -336,16 +336,16 @@ fn sasl_offers(body: [byte], mechanism: string) -> bool {
 // SSLRequest (length 8, code 80877103) and the server's one-byte answer:
 // 'S' means go ahead with a TLS handshake on this same connection, 'N'
 // that the server has no TLS (fine for `prefer`, an error otherwise).
-fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<int, DbError> {
+fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<unit, DbError> {
     if url.sslmode == "disable" {
-        return 0
+        return unit
     }
     lift<int>(net.write(sock, bytes_concat(u32_to_bytes(startup_header_bytes), u32_to_bytes(ssl_request_code))))?
     val reply = lift<[byte]>(net.read_exact(sock, 1))?
     val answer = text_of(reply, 0, 1)
     if answer == "N" {
         if url.sslmode == "prefer" {
-            return 0
+            return unit
         }
         return err(conn_err(format("the server does not support TLS (sslmode={})", url.sslmode)))
     }
@@ -360,7 +360,7 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<int, DbError> {
         net.TlsVerify.Off
     }
     val root = if url.sslrootcert != "" { Option<string>.Some(url.sslrootcert) } else { Option<string>.None }
-    return lift<int>(net.start_tls_with(sock, url.host, verify, root))
+    return lift<unit>(net.start_tls_with(sock, url.host, verify, root))
 }
 
 fn handshake(sock: Socket, url: PgUrl) -> Result<int, DbError> {

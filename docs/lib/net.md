@@ -272,7 +272,7 @@ pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetErro
 ### `set_timeout`
 
 ```
-pub fn set_timeout(s: Socket, millis: int) -> Result<int, NetError>
+pub fn set_timeout(s: Socket, millis: int) -> Result<unit, NetError>
 ```
 
 Applies to reads and writes on this socket; a call that waits longer
@@ -281,7 +281,7 @@ fails with `Timeout`. Without one, a read on a dead peer waits forever.
 ### `start_tls`
 
 ```
-pub fn start_tls(s: Socket, host: string) -> Result<int, NetError>
+pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError>
 ```
 
 Upgrades a connected socket to TLS, verifying the server's certificate
@@ -290,7 +290,7 @@ fully (chain against the system CA store, and that it names `host`).
 ### `start_tls_with`
 
 ```
-pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<int, NetError>
+pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError>
 ```
 
 The same, choosing how much to verify and optionally a PEM file of

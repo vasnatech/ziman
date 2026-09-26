@@ -243,13 +243,13 @@ pub native fn modified_seconds(path: string) -> Result<int, string>
 
 pub native fn list_dir(path: string) -> Result<[string], string>
 
-pub native fn remove(path: string) -> Result<int, string>
+pub native fn remove(path: string) -> Result<unit, string>
 
-pub native fn make_dir(path: string) -> Result<int, string>
+pub native fn make_dir(path: string) -> Result<unit, string>
 
-pub native fn make_dirs(path: string) -> Result<int, string>
+pub native fn make_dirs(path: string) -> Result<unit, string>
 
-pub native fn rename(from: string, to: string) -> Result<int, string>
+pub native fn rename(from: string, to: string) -> Result<unit, string>
 
 pub native fn copy_file(from: string, to: string) -> Result<int, string>
 
@@ -546,11 +546,11 @@ pub fn lines(s: Socket) -> Iter<Result<string, NetError>>
 
 pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>>
 
-pub fn set_timeout(s: Socket, millis: int) -> Result<int, NetError>
+pub fn set_timeout(s: Socket, millis: int) -> Result<unit, NetError>
 
-pub fn start_tls(s: Socket, host: string) -> Result<int, NetError>
+pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError>
 
-pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<int, NetError>
+pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError>
 
 pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
 
@@ -850,11 +850,11 @@ pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<R
 
 pub fn query_one(conn: Connection, sql: string, params: SqlValue...) -> Result<Option<Row>, DbError>
 
-pub fn begin(conn: Connection) -> Result<int, DbError>
+pub fn begin(conn: Connection) -> Result<unit, DbError>
 
-pub fn commit(conn: Connection) -> Result<int, DbError>
+pub fn commit(conn: Connection) -> Result<unit, DbError>
 
-pub fn rollback(conn: Connection) -> Result<int, DbError>
+pub fn rollback(conn: Connection) -> Result<unit, DbError>
 
 pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
 

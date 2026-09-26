@@ -2935,8 +2935,8 @@ Properties stay non-generic: a row has a fixed column list.
 ## R15: stdlib gaps -- HTTP client, filesystem, logging
 
 - `fs` is a thin native layer; every failure is a `Result` with `strerror`
-  text. Actions return `Ok(0)` (the shape `net` uses) rather than inventing a
-  unit `Result`.
+  text. Actions with nothing to report return `Ok(unit)` (`remove`, `make_dir`,
+  `make_dirs`, `rename`; the writes return the bytes written).
 - `log` has no global logger because Ziman has no mutable globals; a `Logger`
   value is passed instead, which also makes per-component prefixes trivial.
   Named arguments + `Option` omission give it a small constructor.

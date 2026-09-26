@@ -313,12 +313,12 @@ pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetErro
 
 // Applies to reads and writes on this socket; a call that waits longer
 // fails with `Timeout`. Without one, a read on a dead peer waits forever.
-pub fn set_timeout(s: Socket, millis: int) -> Result<int, NetError> {
+pub fn set_timeout(s: Socket, millis: int) -> Result<unit, NetError> {
     val r = set_timeout_raw(s.handle, millis)
     if !is_ok(r) {
         return err(net_error_from_raw(unwrap_err(r)))
     }
-    return unwrap(r)
+    return unit
 }
 
 fn tls_verify_level(v: TlsVerify) -> int {
@@ -330,20 +330,20 @@ fn tls_verify_level(v: TlsVerify) -> int {
 
 // Upgrades a connected socket to TLS, verifying the server's certificate
 // fully (chain against the system CA store, and that it names `host`).
-pub fn start_tls(s: Socket, host: string) -> Result<int, NetError> {
+pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError> {
     return start_tls_with(s, host, TlsVerify.Full, Option<string>.None)
 }
 
 // The same, choosing how much to verify and optionally a PEM file of
 // trusted CAs to use instead of the system store (e.g. a private CA, or a
 // self-signed test certificate).
-pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<int, NetError> {
+pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError> {
     val ca = if Option.is_Some(ca_file) { Option.unwrap_Some(ca_file) } else { "" }
     val r = start_tls_raw(s.handle, host, tls_verify_level(verify), ca)
     if !is_ok(r) {
         return err(net_error_from_raw(unwrap_err(r)))
     }
-    return unwrap(r)
+    return unit
 }
 
 // connect + start_tls. The socket is closed if the handshake fails, so a

@@ -1,5 +1,5 @@
-Ok(0)
-Ok(0)
+Ok(unit)
+Ok(unit)
 true
 Ok(5)
 Ok(1)
@@ -20,12 +20,12 @@ false
 false
 false
 Err(cannot write '/nonexistent_dir/x': No such file or directory)
-Ok(0)
-Ok(0)
-Ok(0)
-Ok(0)
-Ok(0)
-Ok(0)
+Ok(unit)
+Ok(unit)
+Ok(unit)
+Ok(unit)
+Ok(unit)
+Ok(unit)
 a/b/c.txt
 /x
 a/b

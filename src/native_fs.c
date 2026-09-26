@@ -31,6 +31,10 @@ static Value fs_ok_int(int64_t n) {
     return value_result(type_result(type_scalar(TY_INT), string_type()), result_obj_new(1, value_int(n)));
 }
 
+static Value fs_ok_unit(void) {
+    return value_result(type_result(type_scalar(TY_UNIT), string_type()), result_obj_new(1, value_unit()));
+}
+
 static Value fs_write(Value *args, const char *mode, const char *what) {
     const char *path = value_cstr(args[0]);
     FILE *f = fopen(path, mode);
@@ -75,22 +79,22 @@ static Value native_fs_size(Value *args, int argc, int line, int col) {
 static Value native_fs_remove(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     const char *path = value_cstr(args[0]);
-    if (remove(path) != 0) return fs_err(type_scalar(TY_INT), "cannot remove", path);
-    return fs_ok_int(0);
+    if (remove(path) != 0) return fs_err(type_scalar(TY_UNIT), "cannot remove", path);
+    return fs_ok_unit();
 }
 
 static Value native_fs_make_dir(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     const char *path = value_cstr(args[0]);
-    if (mkdir(path, 0777) != 0) return fs_err(type_scalar(TY_INT), "cannot create directory", path);
-    return fs_ok_int(0);
+    if (mkdir(path, 0777) != 0) return fs_err(type_scalar(TY_UNIT), "cannot create directory", path);
+    return fs_ok_unit();
 }
 
 static Value native_fs_rename(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     const char *from = value_cstr(args[0]);
-    if (rename(from, value_cstr(args[1])) != 0) return fs_err(type_scalar(TY_INT), "cannot rename", from);
-    return fs_ok_int(0);
+    if (rename(from, value_cstr(args[1])) != 0) return fs_err(type_scalar(TY_UNIT), "cannot rename", from);
+    return fs_ok_unit();
 }
 
 /* Reads the whole file. A NUL byte can't live in a string, so a file that
@@ -237,25 +241,25 @@ static Value native_fs_is_file(Value *args, int argc, int line, int col) {
     return value_bool(stat(value_cstr(args[0]), &st) == 0 && S_ISREG(st.st_mode));
 }
 
-/* mkdir -p: creates every missing directory on the path; Ok(0) if it already exists as a directory. */
+/* mkdir -p: creates every missing directory on the path; Ok(unit) if it already exists as a directory. */
 static Value native_fs_make_dirs(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     const char *path = value_cstr(args[0]);
     char buf[4096];
-    if (strlen(path) >= sizeof buf) { errno = ENAMETOOLONG; return fs_err(type_scalar(TY_INT), "cannot create directory", path); }
+    if (strlen(path) >= sizeof buf) { errno = ENAMETOOLONG; return fs_err(type_scalar(TY_UNIT), "cannot create directory", path); }
     strcpy(buf, path);
     for (char *p = buf + 1; *p; p++) {
         if (*p != '/') continue;
         *p = '\0';
-        if (mkdir(buf, 0777) != 0 && errno != EEXIST) return fs_err(type_scalar(TY_INT), "cannot create directory", path);
+        if (mkdir(buf, 0777) != 0 && errno != EEXIST) return fs_err(type_scalar(TY_UNIT), "cannot create directory", path);
         *p = '/';
     }
     if (mkdir(buf, 0777) != 0) {
         struct stat st;
-        if (errno == EEXIST && stat(buf, &st) == 0 && S_ISDIR(st.st_mode)) return fs_ok_int(0);
-        return fs_err(type_scalar(TY_INT), "cannot create directory", path);
+        if (errno == EEXIST && stat(buf, &st) == 0 && S_ISDIR(st.st_mode)) return fs_ok_unit();
+        return fs_err(type_scalar(TY_UNIT), "cannot create directory", path);
     }
-    return fs_ok_int(0);
+    return fs_ok_unit();
 }
 
 static Value native_fs_copy_file(Value *args, int argc, int line, int col) {

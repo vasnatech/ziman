@@ -1,14 +1,14 @@
 false
-Ok(0)
+Ok(unit)
 true
 Ok(5)
 Ok(6)
 hello world
 Ok(11)
-Ok(0)
+Ok(unit)
 Ok([b.txt])
-Ok(0)
-Ok(0)
+Ok(unit)
+Ok(unit)
 false
 Err(cannot write '/nonexistent_dir/x': No such file or directory)
 Err(cannot list '/nonexistent_dir': No such file or directory)
