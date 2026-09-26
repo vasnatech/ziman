@@ -27,7 +27,7 @@ fn main() {
         query: "x=1",
         version: "HTTP/1.1",
         headers: [Header { name: "Content-Type", value: "text/plain" }],
-        body: ""
+        body: []
     }
     print(http.header(req, "content-type"))
     print(status_not_found)
@@ -247,7 +247,7 @@ pub struct Request {
     query: string
     version: string
     headers: [Header]
-    body: string
+    body: [byte]
 }
 ```
 
@@ -262,12 +262,28 @@ original case; look one up with `header`, which ignores case.
 pub struct Response {
     status: int
     headers: [Header]
-    body: string
+    body: [byte]
 }
 ```
 
-What a handler returns: a status code, headers and a text body. `write_response` adds
+What a handler returns: a status code, headers and a body of bytes. `write_response` adds
 `Content-Length`, `Connection`, and (unless set) `Date` and `Server`.
+
+### `response_text`
+
+```
+pub fn response_text(r: Response) -> Result<string, string>
+```
+
+The body of `r` as text: an Err when it holds a NUL byte (it is binary, not text).
+
+### `request_text`
+
+```
+pub fn request_text(req: Request) -> Result<string, string>
+```
+
+The body of `req` as text: an Err when it holds a NUL byte.
 
 ### `header`
 

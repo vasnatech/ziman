@@ -1,5 +1,6 @@
 use net
 use client
+use http
 use http.HttpMethod
 
 // An echo server that works on raw bytes, so a body may hold 0 bytes.
@@ -57,22 +58,24 @@ fn main() {
     spawn accept_loop(l)
 
     val payload = [1b, 0b, 255b, 10b, 0b]
-    val r = client.request_bytes(method: HttpMethod.Post, url: url, body: payload)
+    val r = client.request(method: HttpMethod.Post, url: url, body: payload)
     val resp = unwrap(r)
     print(resp.status)
     print(resp.body == payload)
     print(len(resp.body))
 
-    val empty = unwrap(client.request_bytes(method: HttpMethod.Get, url: url))
+    val empty = unwrap(client.request(method: HttpMethod.Get, url: url))
     print(len(empty.body))
 
-    val text = client.request(method: HttpMethod.Post, url: url, body: "plain text")
-    print(unwrap(text).body)
+    val text = client.request(method: HttpMethod.Post, url: url, body: string_to_bytes("plain text"))
+    print(unwrap(bytes_to_string(unwrap(text).body)))
 
     val bin_url = format("{}bin", url)
-    print(unwrap(client.request_bytes(method: HttpMethod.Get, url: bin_url)).body == [104b, 0b, 105b])
-    val as_text = client.get(bin_url)
+    print(unwrap(client.request(method: HttpMethod.Get, url: bin_url)).body == [104b, 0b, 105b])
+    // a binary body is not text: reading it as text says so, and http.response_text agrees
+    val as_text = bytes_to_string(unwrap(client.get(bin_url)).body)
     print(is_ok(as_text))
-    print(client.error_message(unwrap_err(as_text)))
+    print(unwrap_err(as_text))
+    print(is_ok(http.response_text(unwrap(client.get(bin_url)))))
     net.close_listener(l)
 }

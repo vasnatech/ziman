@@ -55,7 +55,7 @@ fn main() {
     spawn server.serve(listener, handle, options)
     val base = format("http://127.0.0.1:{}", net.listener_port(listener))
 
-    print(unwrap(client.get(concat(base, "/users/42"))).body)
+    print(unwrap(bytes_to_string(unwrap(client.get(concat(base, "/users/42"))).body)))
     print(unwrap(client.get(concat(base, "/other"))).status)
 }
 ```
@@ -150,7 +150,7 @@ connection ends); other errors mean the request itself was unusable --
 ### `response`
 
 ```
-pub fn response(status: int, body: string) -> Response
+pub fn response(status: int, body: [byte]) -> Response
 ```
 
 A response with `status`, no headers and `body`.
@@ -166,7 +166,7 @@ pub fn with_header(r: Response, name: string, value: string) -> Response
 ### `media_response`
 
 ```
-pub fn media_response(status: int, body: string, media: mime.MediaType) -> Response
+pub fn media_response(status: int, body: [byte], media: mime.MediaType) -> Response
 ```
 
 A response with `status` and `body`, `Content-Type` set to `media` (parameters such as a charset included).
@@ -308,27 +308,61 @@ pub struct Endpoint<C> {
 
 A route: the handler, already adapted to requests and responses, for `method` on `pattern`.
 
-### `Reader`
+### `Decoder`
 
 ```
-pub struct Reader<I> {
+pub struct Decoder<I> {
     media: mime.MediaType
-    read: fn(string) -> Result<I, string>
+    decode: fn([byte]) -> Result<I, string>
 }
 ```
 
-How to decode a request body of type `media` into an `I`; an `Err` message is answered 400.
+How to decode a request body of type `media` into an `I`; an `Err` message is answered 400. Build one with `decoder`
+(a function over the body's bytes) or `text_decoder` (over its text).
 
-### `Writer`
+### `Encoder`
 
 ```
-pub struct Writer<O> {
+pub struct Encoder<O> {
     media: mime.MediaType
-    write: fn(O) -> string
+    encode: fn(O) -> [byte]
 }
 ```
 
-How to encode an answer `O` as `media`.
+How to encode an answer `O` as `media`. Build one with `encoder` (to bytes) or `text_encoder` (to text).
+
+### `decoder`
+
+```
+pub fn decoder<I>(media: mime.MediaType, decode: fn([byte]) -> Result<I, string>) -> Decoder<I>
+```
+
+A decoder for bodies of `media`, from the body's bytes.
+
+### `text_decoder`
+
+```
+pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, string>) -> Decoder<I>
+```
+
+A decoder for bodies of `media` that are text: the body is turned into a string first (an `Err`, so a 400, when it
+holds a NUL byte) and `decode` reads that.
+
+### `encoder`
+
+```
+pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O>
+```
+
+An encoder for answers of `media`, to bytes.
+
+### `text_encoder`
+
+```
+pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encoder<O>
+```
+
+An encoder for answers of `media` that are text: `encode` writes a string and the encoder turns it into bytes.
 
 ### `Denied`
 
@@ -350,7 +384,7 @@ allowed (`Forbidden`, 403), or identifying them failed for a reason that is the 
 ```
 pub fn secure_handler<C, U, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
-    writers: [Writer<O>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, U) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -359,7 +393,7 @@ pub fn secure_handler<C, U, O, E>(
 ```
 
 A secured endpoint with no input: `run(ctx, caller)` returns the answer or an error; the answer is written with the
-first of `writers` the client's `Accept` allows, with `status`.
+first of `encoders` the client's `Accept` allows, with `status`.
 
 ### `secure_path_handler`
 
@@ -367,7 +401,7 @@ first of `writers` the client's `Accept` allows, with `status`.
 pub fn secure_path_handler<C, U, P, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
-    writers: [Writer<O>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, U, P) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -383,8 +417,8 @@ answered 400, so a bad id never reaches `run`), and `run(ctx, caller, input)` re
 ```
 pub fn secure_body_handler<C, U, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
-    readers: [Reader<I>],
-    writers: [Writer<O>],
+    decoders: [Decoder<I>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, U, I) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -392,8 +426,8 @@ pub fn secure_body_handler<C, U, I, O, E>(
 ) -> fn(C, Request, Params) -> Response
 ```
 
-A secured endpoint with a request body: it must arrive as one of `readers`' media types (else 415), the answer is
-negotiated (else 406), the body is decoded with the reader for its type (a failure is 400), and
+A secured endpoint with a request body: it must arrive as one of `decoders`' media types (else 415), the answer is
+negotiated (else 406), the body is decoded with the decoder for its type (a failure is 400), and
 `run(ctx, caller, input)` returns the answer or an error.
 
 ### `secure_path_body_handler`
@@ -402,8 +436,8 @@ negotiated (else 406), the body is decoded with the reader for its type (a failu
 pub fn secure_path_body_handler<C, U, P, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
-    readers: [Reader<I>],
-    writers: [Writer<O>],
+    decoders: [Decoder<I>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, U, P, I) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -412,14 +446,14 @@ pub fn secure_path_body_handler<C, U, P, I, O, E>(
 ```
 
 A secured endpoint with both an id in the path and a request body (a `PUT /things/{id}`): `path` decodes the parameters
-into a `P` and the body is decoded with the reader for its media type; `run(ctx, caller, path_input, body_input)`
+into a `P` and the body is decoded with the decoder for its media type; `run(ctx, caller, path_input, body_input)`
 returns the answer or an error. Either input failing to decode is a 400.
 
 ### `public_handler`
 
 ```
 pub fn public_handler<C, O, E>(
-    writers: [Writer<O>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -434,7 +468,7 @@ A public endpoint with no input: `run(ctx)`. Anyone may call it.
 ```
 pub fn public_path_handler<C, P, O, E>(
     path: fn(Params) -> Result<P, string>,
-    writers: [Writer<O>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, P) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -448,8 +482,8 @@ A public endpoint whose input is in the path: `run(ctx, input)`.
 
 ```
 pub fn public_body_handler<C, I, O, E>(
-    readers: [Reader<I>],
-    writers: [Writer<O>],
+    decoders: [Decoder<I>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, I) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -464,8 +498,8 @@ A public endpoint with a request body: `run(ctx, input)`.
 ```
 pub fn public_path_body_handler<C, P, I, O, E>(
     path: fn(Params) -> Result<P, string>,
-    readers: [Reader<I>],
-    writers: [Writer<O>],
+    decoders: [Decoder<I>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, P, I) -> Result<O, E>,
     failure: fn(E) -> Response,

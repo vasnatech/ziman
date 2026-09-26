@@ -1374,16 +1374,17 @@ from source.
   and what uses it; light and dark themes), read from the `use` lines so it cannot drift. It is not built by
   `make corelib-reference` and is not committed, so a site build would run it.
 
-- **Content types on routes -- typed endpoints done, three follow-ups.** `mime` (media types: parse, write,
+- **Content types on routes -- typed endpoints and `[byte]` bodies done, two follow-ups.** `mime` (media types: parse, write,
   wildcard matching, type by file extension) is in; `http` has `content_type`, `accepts` (wildcard ranges; `q=0`
-  refuses) and 406/415; `server` has typed endpoints (`Endpoint`, `Reader`, `Writer`, `handler`, `path_handler`,
-  `body_handler` in `public_` and `secure_` forms, `Denied`, `dispatch`), where a handler takes the decoded request and returns the resource or the application's own error,
-  and the library checks `Content-Type` (415), negotiates `Accept` (406), decodes (400) and encodes with the declared
-  status. The health-record backend runs on it. Still to do: ranking by `q` weights (today the first writer the
-  client allows wins, in the endpoint's own order); writers a derive emits (`#[derive(Json)]` already gives the
-  function; a `Writer` for JSON, YAML or CSV from one declaration would shorten the table); and `[byte]` request
-  and response bodies for media types that are not text.
-
+  refuses), 406/415, and request and response bodies as `[byte]`; `server` has typed endpoints (`Endpoint`, `Decoder`,
+  `Encoder` built with `decoder`/`encoder` over bytes or `text_decoder`/`text_encoder` over text, `handler`, `path_handler`,
+  `body_handler` in `public_` and `secure_` forms, `Denied`, `dispatch`), where a handler takes the decoded request and
+  returns the resource or the application's own error, and the library checks `Content-Type` (415), negotiates `Accept`
+  (406), decodes (400) and encodes with the declared status. The health-record backend runs on it. Still to do: ranking by
+  `q` weights (today the first encoder the client allows wins, in the endpoint's own order); and encoders a derive emits
+  (`#[derive(Json)]` already gives the function; an `Encoder` for JSON, YAML or CSV from one declaration would shorten the
+  table). Streaming bodies (an `InputStream`/`OutputStream` analogue: a request body read in blocks, a response written
+  as it is produced) are not planned until an endpoint needs them.
 
 - **Project layout: a root, `src/` and `test/`, and `ziman test` -- not started.** Today a `use` path resolves
   relative to the entry file's own directory (a folder may hold its own module under its own name, `use a` for

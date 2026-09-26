@@ -127,7 +127,22 @@ fn post_secret(ctx: Ctx, caller: Caller, item: Item) -> Result<Item, string> {
     return Item { id: item.id + 2000 }
 }
 
-fn request(method: string, path: string, headers: [http.Header], body: string) -> http.Request {
+// A binary media type goes through decoder/encoder directly, over the bytes: the body reversed, NUL bytes and all.
+fn reverse_bytes(data: [byte]) -> Result<[byte], string> {
+    val out = ab_new<byte>()
+    var i = len(data) - 1
+    while i >= 0 {
+        ab_append<byte>(out, data[i])
+        i = i - 1
+    }
+    return ab_to_array<byte>(out)
+}
+
+fn echo_binary(ctx: Ctx, data: [byte]) -> Result<[byte], string> {
+    return data
+}
+
+fn request_bytes(method: string, path: string, headers: [http.Header], body: [byte]) -> http.Request {
     return http.Request {
         method: http.method_parse(method),
         target: path,
@@ -139,23 +154,43 @@ fn request(method: string, path: string, headers: [http.Header], body: string) -
     }
 }
 
+fn request(method: string, path: string, headers: [http.Header], body: string) -> http.Request {
+    return http.Request {
+        method: http.method_parse(method),
+        target: path,
+        path: path,
+        query: "",
+        version: "HTTP/1.1",
+        headers: headers,
+        body: string_to_bytes(body)
+    }
+}
+
+// A body as text, with newlines shown as `|`; one that is not text (a NUL byte) as its bytes.
+fn shown(body: [byte]) -> string {
+    return switch bytes_to_string(body) {
+        Ok(text) { text }
+        Err(_) { format("{}", body) }
+    }
+}
+
 fn h(name: string, value: string) -> http.Header {
     return http.Header { name: name, value: value }
 }
 
 fn main() {
-    val text_out = server.Writer<Item> { media: mime.text_plain(), write: as_text }
-    val csv_out = server.Writer<Item> { media: mime.text_csv(), write: as_csv }
-    val text_in = server.Reader<Item> { media: mime.text_plain(), read: read_item }
-    val csv_in = server.Reader<Item> { media: mime.text_csv(), read: read_csv_item }
-    val caller_out = server.Writer<Caller> { media: mime.text_plain(), write: me_as_text }
+    val text_out = server.text_encoder<Item>(mime.text_plain(), as_text)
+    val csv_out = server.text_encoder<Item>(mime.text_csv(), as_csv)
+    val text_in = server.text_decoder<Item>(mime.text_plain(), read_item)
+    val csv_in = server.text_decoder<Item>(mime.text_csv(), read_csv_item)
+    val caller_out = server.text_encoder<Caller>(mime.text_plain(), me_as_text)
     val endpoints = [
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/items/{id}",
             handler: server.public_path_handler<Ctx, int, Item, string>(
                 path: read_id,
-                writers: [text_out, csv_out],
+                encoders: [text_out, csv_out],
                 status: 200,
                 run: get_item,
                 failure: failure,
@@ -166,7 +201,7 @@ fn main() {
             method: http.HttpMethod.Get,
             pattern: "/newest",
             handler: server.public_handler<Ctx, Item, string>(
-                writers: [text_out],
+                encoders: [text_out],
                 status: 200,
                 run: newest_item,
                 failure: failure,
@@ -178,7 +213,7 @@ fn main() {
             pattern: "/me",
             handler: server.secure_handler<Ctx, Caller, Caller, string>(
                 who: any_caller,
-                writers: [caller_out],
+                encoders: [caller_out],
                 status: 200,
                 run: whoami,
                 failure: failure,
@@ -191,7 +226,7 @@ fn main() {
             handler: server.secure_path_handler<Ctx, Caller, int, Item, string>(
                 who: admin_only,
                 path: read_id,
-                writers: [text_out],
+                encoders: [text_out],
                 status: 200,
                 run: get_secret,
                 failure: failure,
@@ -203,8 +238,8 @@ fn main() {
             pattern: "/secret",
             handler: server.secure_body_handler<Ctx, Caller, Item, Item, string>(
                 who: any_caller,
-                readers: [text_in],
-                writers: [text_out],
+                decoders: [text_in],
+                encoders: [text_out],
                 status: 201,
                 run: post_secret,
                 failure: failure,
@@ -216,8 +251,8 @@ fn main() {
             pattern: "/items/{id}",
             handler: server.public_path_body_handler<Ctx, int, Item, Item, string>(
                 path: read_id,
-                readers: [text_in],
-                writers: [text_out],
+                decoders: [text_in],
+                encoders: [text_out],
                 status: 200,
                 run: replace_item,
                 failure: failure,
@@ -230,7 +265,7 @@ fn main() {
             handler: server.secure_path_handler<Ctx, Caller, int, bool, string>(
                 who: any_caller,
                 path: read_id,
-                writers: [],
+                encoders: [],
                 status: 204,
                 run: delete_item,
                 failure: failure,
@@ -239,10 +274,22 @@ fn main() {
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
+            pattern: "/binary",
+            handler: server.public_body_handler<Ctx, [byte], [byte], string>(
+                decoders: [server.decoder<[byte]>(mime.application_octet_stream(), reverse_bytes)],
+                encoders: [server.encoder<[byte]>(mime.application_octet_stream(), fn(data) { return data })],
+                status: 200,
+                run: echo_binary,
+                failure: failure,
+                fault: fault
+            )
+        },
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Post,
             pattern: "/items",
             handler: server.public_body_handler<Ctx, Item, Item, string>(
-                readers: [text_in, csv_in],
-                writers: [text_out],
+                decoders: [text_in, csv_in],
+                encoders: [text_out],
                 status: 201,
                 run: create_item,
                 failure: failure,
@@ -296,7 +343,10 @@ fn main() {
         request("DELETE", "/items", [], ""),
         request("GET", "/nothing", [], "")
     ]
-    for c in cases {
+    val binary = request_bytes("POST", "/binary", [h("Content-Type", "application/octet-stream")], [1b, 0b, 2b, 255b])
+    val nul_text = request_bytes("POST", "/items", plain, [53b, 0b])
+    val all = concat_arrays<http.Request>(cases, [binary, nul_text])
+    for c in all {
         val r = server.dispatch<Ctx>(endpoints, ctx, c, fault)
         val kind = http.content_type(r.headers)
         val allow = http.header_value(r.headers, "Allow")
@@ -306,11 +356,7 @@ fn main() {
             c.path,
             r.status,
             if Option.is_Some(kind) { mime.to_string(Option.unwrap_Some(kind)) } else { "-" },
-            replace(
-                r.body,
-                "\n",
-                "|"
-            ),
+            replace(shown(r.body), "\n", "|"),
             if Option.is_Some(allow) { format(" Allow={}", Option.unwrap_Some(allow)) } else { "" }
         ))
     }

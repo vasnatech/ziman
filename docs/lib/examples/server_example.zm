@@ -22,6 +22,6 @@ fn main() {
     spawn server.serve(listener, handle, options)
     val base = format("http://127.0.0.1:{}", net.listener_port(listener))
 
-    print(unwrap(client.get(concat(base, "/users/42"))).body)
+    print(unwrap(bytes_to_string(unwrap(client.get(concat(base, "/users/42"))).body)))
     print(unwrap(client.get(concat(base, "/other"))).status)
 }

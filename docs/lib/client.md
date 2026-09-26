@@ -23,12 +23,10 @@ val resp = client.request(method: HttpMethod.Post, url: u, body: "{\"a\":1}",
   * credentials in the URL (`https://user:pass@host/`) become a Basic `Authorization` header.
 Bodies are read by `Content-Length`, `Transfer-Encoding: chunked`, or until the server closes.
 
-A response comes back as an `http.Response` (text body) from `request`/`get`/`post_json`, or as a
-`BytesResponse` (`[byte]` body) from `request_bytes`, the one to use for images, files and other binary
-data. **Any** status, including 404 or 500, is `Ok` -- an `Err` means the exchange itself failed (bad
-URL, network, timeout, malformed response, too large). Bodies are capped at 8 MiB after decompression
-(`TooLarge`). A text-body function given a binary body (a NUL byte) fails with `BadResponse` -- use
-`request_bytes`. Not yet: request bodies streamed from a file, HTTP/2, streaming responses.
+A response comes back as an `http.Response` whose `body` is `[byte]`: images, files and other binary data as they are,
+and text through `http.response_text` (or `bytes_to_string`). **Any** status, including 404 or 500, is `Ok` -- an `Err`
+means the exchange itself failed (bad URL, network, timeout, malformed response, too large). Bodies are capped at 8 MiB
+after decompression (`TooLarge`). Not yet: request bodies streamed from a file, HTTP/2, streaming responses.
 
 `use client` -- or `use client.Name` to bring one item in bare.
 
@@ -60,7 +58,7 @@ fn main() {
     val base = format("http://127.0.0.1:{}", port)
     val ok = unwrap(client.get(concat(base, "/hello/ada")))
     print(ok.status)
-    print(ok.body)
+    print(unwrap(bytes_to_string(ok.body)))
     // Any status is Ok; only a failed exchange is an Err.
     print(unwrap(client.get(concat(base, "/nowhere"))).status)
     print(is_ok(client.get("http://127.0.0.1:1/")))
@@ -84,18 +82,6 @@ hello ada
 false
 9
 ```
-
-### `BytesResponse`
-
-```
-pub struct BytesResponse {
-    status: int
-    headers: [Header]
-    body: [byte]
-}
-```
-
-Like `http.Response`, but the body is raw bytes.
 
 ### `ClientError`
 
@@ -240,7 +226,7 @@ pub fn request(
     method: HttpMethod,
     url: string,
     headers: Option<[Header]>,
-    body: Option<string>,
+    body: Option<[byte]>,
     timeout_ms: Option<int>,
     max_redirects: Option<int>,
     ca_file: Option<string>,
@@ -250,10 +236,10 @@ pub fn request(
 ) -> Result<Response, ClientError>
 ```
 
-Sends one request and returns the (final) response, body as text.
+Sends one request and returns the (final) response, its body as bytes.
   method        an `http.HttpMethod` (`HttpMethod.Get`, `HttpMethod.Post`, ...)
   headers       extra request headers; Host, Content-Length and Connection are always set by the client
-  body          the request body, if any
+  body          the request body, if any, as bytes (`string_to_bytes(text)` for text)
   timeout_ms    per read/write, default 30000
   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
   ca_file       a PEM file of trusted CAs for https, instead of the system store (a private CA, a test
@@ -263,26 +249,6 @@ Sends one request and returns the (final) response, body as text.
   compress      ask for gzip/deflate and decode the body (default true)
   reuse         keep the connection for the next request to the same place (default true)
 
-### `request_bytes`
-
-```
-pub fn request_bytes(
-    method: HttpMethod,
-    url: string,
-    headers: Option<[Header]>,
-    body: Option<[byte]>,
-    timeout_ms: Option<int>,
-    max_redirects: Option<int>,
-    ca_file: Option<string>,
-    proxy: Option<string>,
-    compress: Option<bool>,
-    reuse: Option<bool>
-) -> Result<BytesResponse, ClientError>
-```
-
-Sends one request and returns the (final) response, body as bytes -- the general function; `request`
-is this with text bodies. Arguments as for `request`.
-
 ### `request_with_jar`
 
 ```
@@ -291,7 +257,7 @@ pub fn request_with_jar(
     method: HttpMethod,
     url: string,
     headers: Option<[Header]>,
-    body: Option<string>,
+    body: Option<[byte]>,
     timeout_ms: Option<int>,
     max_redirects: Option<int>,
     ca_file: Option<string>,
@@ -400,5 +366,5 @@ as sent: this asks for no compression (`Accept-Encoding: identity`), and a serve
 is not decoded. No redirects are followed and no cookies are sent (a 3xx is returned as it is), nothing
 is limited to 8 MiB, and the connection is not reused: it is closed when the body is finished, when the
 loop is left early or with `iter_close(r.body)`, and a stream dropped unfinished is closed when its
-socket is collected. Arguments as for `request_bytes`: `headers`, `body`, `timeout_ms`, `ca_file`,
+socket is collected. Arguments as for `request`: `headers`, `body`, `timeout_ms`, `ca_file`,
 `proxy`.

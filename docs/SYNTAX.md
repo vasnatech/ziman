@@ -2291,7 +2291,7 @@ use http
 fn route(conn: datasource.Connection, req: http.Request) -> http.Response {
     val create = server.route(req, HttpMethod.Post, "/patients")
     if Option.is_Some(create) {
-        return server.json_response(201, req.body)
+        return server.json_response(201, unwrap(http.request_text(req)))
     }
     val one = server.route(req, HttpMethod.Get, "/patients/{id}")
     if Option.is_Some(one) {
@@ -2370,20 +2370,24 @@ fn main() {
 - **Typed endpoints.** `server.Endpoint<C> { method, pattern, handler }` with a handler built by one of eight builders:
   by where the input comes from -- `handler` (none, `run(ctx)`), `path_handler` (the path: `path` turns the captured
   `Params` into a `P`, an `Err` message being a 400, and `run(ctx, input)` gets it), `body_handler` (a request body:
-  `readers:`, `run(ctx, input)`) or `path_body_handler` (both, for a `PUT /things/{id}`: `run(ctx, path_input,
-  body_input)`) -- and by who may call, `public_` or `secure_`. Every builder also takes `writers:`,
+  `decoders:`, `run(ctx, input)`) or `path_body_handler` (both, for a `PUT /things/{id}`: `run(ctx, path_input,
+  body_input)`) -- and by who may call, `public_` or `secure_`. Every builder also takes `encoders:`,
   `status:`, `run:`, `failure:` and `fault:`. A `secure_` builder takes `who:`, a `fn(C, Request) -> Result<U, Denied>`
   that identifies the caller from the request, and passes the `U` to `run` as its second argument
   (`fn(ctx, caller, input)`), so an endpoint that needs a caller cannot be written without saying how to find one; a
   `public_` builder has no `who` and its `run` has no caller parameter. `Denied` is `Unauthenticated(message)` (401),
   `Forbidden(message)` (403) or `Failed(message)` (500), and is answered before anything else happens: before the
   answer is negotiated, the body is read or the path decoded. `run` returns `Result<O, E>`: the answer or an error of the
-  application's own type, so it can be an ordinary function that knows nothing about requests. An endpoint with no `writers` (`writers: []`) answers with an empty body and no `Content-Type` and does not negotiate,
-  which is what a `204` needs. A `Reader<I> { media,
-  read }` decodes a body of that media type (an `Err` is a 400) and a `Writer<O> { media, write }` encodes an answer; the
-  server knows no format, the application supplies the functions. An endpoint lists the readers it accepts (the
-  request's `Content-Type` picks one) and the writers it can answer with (`Accept` picks one); the handler answers 415
-  when there is no reader for the `Content-Type` and 406 when `Accept` allows no writer. `failure(e)` builds the
+  application's own type, so it can be an ordinary function that knows nothing about requests. An endpoint with no `encoders` (`encoders: []`) answers with an empty body and no `Content-Type` and does not negotiate,
+  which is what a `204` needs. A `Decoder<I> { media, decode }` turns the request body's bytes into an `I` (an `Err` is a
+  400) and an `Encoder<O> { media, encode }` turns an answer into bytes; the server knows no format, the application supplies
+  the functions. Build them with `server.decoder<I>(media, fn([byte]) -> Result<I, string>)` and
+  `server.encoder<O>(media, fn(O) -> [byte])` for bytes (JSON, binary media), or `server.text_decoder<I>(media,
+  fn(string) -> Result<I, string>)` and `server.text_encoder<O>(media, fn(O) -> string)` when the format is text (a body
+  with a NUL byte is a 400 there). An endpoint lists the decoders it accepts (the request's `Content-Type` picks one)
+  and the encoders it can answer with (`Accept` picks one); the handler answers 415 when there is no decoder for the
+  `Content-Type` and 406 when `Accept` allows no encoder. `http.Request.body` and `http.Response.body` are `[byte]`
+  (`http.request_text` / `http.response_text` give the text, or an Err for a NUL byte). `failure(e)` builds the
   response for an `Err`, and `fault(status, message)` the one for what the library itself rejects.
   `server.dispatch<C>(endpoints, ctx, req, fault)` calls the first endpoint that matches, or answers 404, or 405 with
   `Allow`. See `tests/fixtures/http_endpoints.zm`.
@@ -2477,11 +2481,10 @@ to the same host (`reuse: false` turns that off, `close_idle()` drops them; a
 dead parked connection is detected and the request re-sent once). It reads `Content-Length`,
 chunked and until-close bodies, follows 301/302/303/307/308 up to
 `max_redirects` (default 5, 0 = return the 3xx; 303, and a POST answered
-301/302, is re-sent as a body-less GET), and caps a body at 8 MiB. For binary
-data (images, files, a body with a 0 byte) use `client.request_bytes`,
-which takes `body: Option<[byte]>` and returns a `BytesResponse` with a
-`[byte]` body; the text functions are built on it, and a binary response
-through them is `BadResponse`.
+301/302, is re-sent as a body-less GET), and caps a body at 8 MiB. The
+body is `[byte]` both ways -- `request` takes `body: Option<[byte]>` and the `http.Response` it returns has a `[byte]`
+body, so images, files and a body with a 0 byte pass through untouched; `http.response_text(response)` reads it as
+text (an Err for a NUL byte), and `post_json`, `put_json` and `post_form` take their body as text.
 
 Also built in: `gzip`/`deflate` response decoding (`Accept-Encoding` is sent
 unless `compress: false`); proxies from the `proxy` argument (`""` = none) or

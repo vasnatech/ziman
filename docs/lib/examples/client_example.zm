@@ -23,7 +23,7 @@ fn main() {
     val base = format("http://127.0.0.1:{}", port)
     val ok = unwrap(client.get(concat(base, "/hello/ada")))
     print(ok.status)
-    print(ok.body)
+    print(unwrap(bytes_to_string(ok.body)))
     // Any status is Ok; only a failed exchange is an Err.
     print(unwrap(client.get(concat(base, "/nowhere"))).status)
     print(is_ok(client.get("http://127.0.0.1:1/")))

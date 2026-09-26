@@ -286,6 +286,8 @@ pub fn parse_json_bytes(data: [byte]) -> Result<Json, string>
 
 pub fn parse_json_bytes_strict(data: [byte]) -> Result<Json, string>
 
+pub fn json_to_bytes(j: Json) -> [byte]
+
 pub fn json_to_string(j: Json) -> string
 
 pub fn json_object_get(j: Json, key: string) -> Option<Json>
@@ -1039,12 +1041,6 @@ pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<R
 ## `client`
 
 ```
-pub struct BytesResponse {
-    status: int
-    headers: [Header]
-    body: [byte]
-}
-
 pub enum ClientError {
     BadUrl(string)
     Network(string)
@@ -1096,8 +1092,6 @@ pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar
 pub fn jar_header(jar: CookieJar, u: Url) -> Option<string>
 
 pub fn request(
-
-pub fn request_bytes(
 
 pub fn request_with_jar(
 
@@ -1201,14 +1195,18 @@ pub struct Request {
     query: string
     version: string
     headers: [Header]
-    body: string
+    body: [byte]
 }
 
 pub struct Response {
     status: int
     headers: [Header]
-    body: string
+    body: [byte]
 }
+
+pub fn response_text(r: Response) -> Result<string, string>
+
+pub fn request_text(req: Request) -> Result<string, string>
 
 pub fn header(req: Request, name: string) -> Option<string>
 
@@ -1256,11 +1254,11 @@ pub fn open_session(sock: Socket) -> Session
 
 pub fn read_request(session: Session) -> Result<Exchange, HttpError>
 
-pub fn response(status: int, body: string) -> Response
+pub fn response(status: int, body: [byte]) -> Response
 
 pub fn with_header(r: Response, name: string, value: string) -> Response
 
-pub fn media_response(status: int, body: string, media: mime.MediaType) -> Response
+pub fn media_response(status: int, body: [byte], media: mime.MediaType) -> Response
 
 pub fn json_response(status: int, body: string) -> Response
 
@@ -1294,15 +1292,23 @@ pub struct Endpoint<C> {
     handler: fn(C, Request, Params) -> Response
 }
 
-pub struct Reader<I> {
+pub struct Decoder<I> {
     media: mime.MediaType
-    read: fn(string) -> Result<I, string>
+    decode: fn([byte]) -> Result<I, string>
 }
 
-pub struct Writer<O> {
+pub struct Encoder<O> {
     media: mime.MediaType
-    write: fn(O) -> string
+    encode: fn(O) -> [byte]
 }
+
+pub fn decoder<I>(media: mime.MediaType, decode: fn([byte]) -> Result<I, string>) -> Decoder<I>
+
+pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, string>) -> Decoder<I>
+
+pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O>
+
+pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encoder<O>
 
 pub enum Denied {
     Unauthenticated(string)

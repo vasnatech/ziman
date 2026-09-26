@@ -24,7 +24,7 @@ fn route(req: http.Request) -> http.Response {
     }
     val echo = server.route(req, HttpMethod.Post, "/echo")
     if Option.is_Some(echo) {
-        return server.json_response(201, req.body)
+        return server.json_response(201, unwrap(bytes_to_string(req.body)))
     }
     val search = server.route(req, HttpMethod.Get, "/search")
     if Option.is_Some(search) {

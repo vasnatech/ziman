@@ -121,7 +121,7 @@ fn proxy_loop(l: net.Listener) {
 
 fn body_of(r: Result<http.Response, client.ClientError>) -> string {
     if is_ok(r) {
-        return format("{} {}", unwrap(r).status, unwrap(r).body)
+        return format("{} {}", unwrap(r).status, unwrap(bytes_to_string(unwrap(r).body)))
     }
     return client.error_message(unwrap_err(r))
 }
@@ -187,18 +187,18 @@ fn main() {
     // cookies
     var jar = client.cookie_jar()
     var r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-set")))
-    print(r.response.body)
+    print(unwrap(bytes_to_string(r.response.body)))
     jar = r.jar
     print(len(jar.cookies))
     r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-echo")))
-    print(r.response.body)
+    print(unwrap(bytes_to_string(r.response.body)))
     r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/only/cookie-echo")))
-    print(r.response.body)
+    print(unwrap(bytes_to_string(r.response.body)))
     r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-clear")))
     jar = r.jar
     print(len(jar.cookies))
     r = unwrap(client.request_with_jar(jar: jar, method: HttpMethod.Get, url: concat(base, "/cookie-echo")))
-    print(r.response.body)
+    print(unwrap(bytes_to_string(r.response.body)))
     // without a jar nothing is remembered
     print(body_of(client.get(concat(base, "/cookie-echo"))))
     // the same host on another port, and another host, get none of them

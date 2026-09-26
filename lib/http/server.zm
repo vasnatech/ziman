@@ -326,7 +326,6 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             lift<int>(net.write_text(sock, continue_response))?
         }
         val decoded = read_chunked(sock, slice<byte>(buf, head_end, len(buf)))?
-        val chunked_body = text_of(decoded.body, 0, len(decoded.body))?
         val chunked_request = Request {
             method: method_parse(method_text),
             target: target,
@@ -334,7 +333,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             query: query,
             version: version,
             headers: header_list,
-            body: chunked_body
+            body: decoded.body
         }
         return Exchange { request: chunked_request, session: Session { sock: sock, buffer: decoded.rest } }
     }
@@ -360,7 +359,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         val more = lift<[byte]>(net.read_exact(sock, content_length - len(rest)))?
         rest = bytes_concat(rest, more)
     }
-    val body = text_of(rest, 0, content_length)?
+    val body = slice<byte>(rest, 0, content_length)
     val leftover = slice<byte>(rest, content_length, len(rest))
 
     val request = Request {
@@ -405,7 +404,7 @@ fn reason(status: int) -> string {
 }
 
 // A response with `status`, no headers and `body`.
-pub fn response(status: int, body: string) -> Response {
+pub fn response(status: int, body: [byte]) -> Response {
     return Response { status: status, headers: [], body: body }
 }
 
@@ -415,18 +414,18 @@ pub fn with_header(r: Response, name: string, value: string) -> Response {
 }
 
 // A response with `status` and `body`, `Content-Type` set to `media` (parameters such as a charset included).
-pub fn media_response(status: int, body: string, media: mime.MediaType) -> Response {
+pub fn media_response(status: int, body: [byte], media: mime.MediaType) -> Response {
     return with_header(response(status, body), "Content-Type", mime.to_string(media))
 }
 
 // A response with `status` and `body`, `Content-Type: application/json`.
 pub fn json_response(status: int, body: string) -> Response {
-    return media_response(status, body, mime.application_json())
+    return media_response(status, string_to_bytes(body), mime.application_json())
 }
 
 // A response with `status` and `body`, `Content-Type: text/plain; charset=utf-8`.
 pub fn text_response(status: int, body: string) -> Response {
-    return media_response(status, body, mime.with_param(mime.text_plain(), "charset", "utf-8"))
+    return media_response(status, string_to_bytes(body), mime.with_param(mime.text_plain(), "charset", "utf-8"))
 }
 
 // `text` as a JSON string literal, quotes included: `"` and `\` and the control characters escaped, every
@@ -563,10 +562,9 @@ pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool
         sb_append(sb, "Connection: close\r\n")
     }
     sb_append(sb, "\r\n")
-    if !HttpMethod.is_Head(req.method) {
-        sb_append(sb, resp.body)
-    }
-    lift<int>(net.write_text(sock, sb_to_string(sb)))?
+    val head = string_to_bytes(sb_to_string(sb))
+    val sent = if HttpMethod.is_Head(req.method) { head } else { bytes_concat(head, resp.body) }
+    lift<int>(net.write(sock, sent))?
     return keep
 }
 
@@ -585,7 +583,7 @@ pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError> {
         query: "",
         version: http_1_0,
         headers: [],
-        body: ""
+        body: []
     }
     return write_response(sock, stub, error_response(e))
 }
@@ -708,7 +706,7 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 //     val patients = [
 //         Endpoint<Ctx> { method: HttpMethod.Post, pattern: "/patients",
 //             handler: secure_body_handler<Ctx, Principal, PatientRequest, Patient, ApiError>(who: bearer,
-//                 readers: [json_in], writers: [json_out], status: 201, run: create_patient, failure: api_error, fault: fault) }
+//                 decoders: [json_in], encoders: [json_out], status: 201, run: create_patient, failure: api_error, fault: fault) }
 //     ]
 //     server.dispatch<Ctx>(patients, ctx, req, fault)
 //
@@ -722,69 +720,106 @@ pub struct Endpoint<C> {
     handler: fn(C, Request, Params) -> Response
 }
 
-// How to decode a request body of type `media` into an `I`; an `Err` message is answered 400.
-pub struct Reader<I> {
+// How to decode a request body of type `media` into an `I`; an `Err` message is answered 400. Build one with `decoder`
+// (a function over the body's bytes) or `text_decoder` (over its text).
+pub struct Decoder<I> {
     media: mime.MediaType
-    read: fn(string) -> Result<I, string>
+    decode: fn([byte]) -> Result<I, string>
 }
 
-// How to encode an answer `O` as `media`.
-pub struct Writer<O> {
+// How to encode an answer `O` as `media`. Build one with `encoder` (to bytes) or `text_encoder` (to text).
+pub struct Encoder<O> {
     media: mime.MediaType
-    write: fn(O) -> string
+    encode: fn(O) -> [byte]
 }
 
-fn negotiate<O>(writers: [Writer<O>], req: Request) -> Option<Writer<O>> {
-    for w in writers {
-        if accepts(req.headers, w.media) {
-            return Option<Writer<O>>.Some(w)
+// A decoder for bodies of `media`, from the body's bytes.
+pub fn decoder<I>(media: mime.MediaType, decode: fn([byte]) -> Result<I, string>) -> Decoder<I> {
+    return Decoder<I> { media: media, decode: decode }
+}
+
+// A decoder for bodies of `media` that are text: the body is turned into a string first (an `Err`, so a 400, when it
+// holds a NUL byte) and `decode` reads that.
+pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, string>) -> Decoder<I> {
+    val go = decode
+    return Decoder<I> {
+        media: media,
+        decode: fn(data: [byte]) -> Result<I, string> {
+            return switch bytes_to_string(data) {
+                Ok(text) { go(text) }
+                Err(reason) { err(format("the body is not text ({})", reason)) }
+            }
         }
     }
-    return Option<Writer<O>>.None
 }
 
-// The first reader whose media type the request's `Content-Type` is.
-fn select_reader<I>(readers: [Reader<I>], req: Request) -> Option<Reader<I>> {
+// An encoder for answers of `media`, to bytes.
+pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O> {
+    return Encoder<O> { media: media, encode: encode }
+}
+
+// An encoder for answers of `media` that are text: `encode` writes a string and the encoder turns it into bytes.
+pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encoder<O> {
+    val go = encode
+    return Encoder<O> { media: media, encode: fn(value: O) -> [byte] { return string_to_bytes(go(value)) } }
+}
+
+fn negotiate<O>(encoders: [Encoder<O>], req: Request) -> Option<Encoder<O>> {
+    for w in encoders {
+        if accepts(req.headers, w.media) {
+            return Option<Encoder<O>>.Some(w)
+        }
+    }
+    return Option<Encoder<O>>.None
+}
+
+// The first decoder whose media type the request's `Content-Type` is.
+fn select_decoder<I>(decoders: [Decoder<I>], req: Request) -> Option<Decoder<I>> {
     val sent = content_type(req.headers)
     if !is_Some(sent) {
-        return Option<Reader<I>>.None
+        return Option<Decoder<I>>.None
     }
-    for r in readers {
+    for r in decoders {
         if mime.matches(r.media, unwrap_Some(sent)) {
-            return Option<Reader<I>>.Some(r)
+            return Option<Decoder<I>>.Some(r)
         }
     }
-    return Option<Reader<I>>.None
+    return Option<Decoder<I>>.None
 }
 
-fn consumed_types<I>(readers: [Reader<I>]) -> string {
+fn consumed_types<I>(decoders: [Decoder<I>]) -> string {
     val names = ab_new<string>()
-    for r in readers {
+    for r in decoders {
         ab_append<string>(names, mime.essence(r.media))
     }
     return join(separator: " or ", pieces: ab_to_array<string>(names))
 }
 
-fn produced_types<O>(writers: [Writer<O>]) -> string {
+fn produced_types<O>(encoders: [Encoder<O>]) -> string {
     val names = ab_new<string>()
-    for w in writers {
+    for w in encoders {
         ab_append<string>(names, mime.essence(w.media))
     }
     return join(separator: ", ", pieces: ab_to_array<string>(names))
 }
 
-// The answer for `result`: written with `writer` when there is one, or an empty body when the endpoint has no writers
+// The answer for `result`: written with `encoder` when there is one, or an empty body when the endpoint has no encoders
 // (a 204, say).
-fn answer<O, E>(result: Result<O, E>, writer: Option<Writer<O>>, status: int, failure: fn(E) -> Response) -> Response {
+fn answer<O, E>(
+    result: Result<O, E>,
+    encoder: Option<Encoder<O>>,
+    status: int,
+    failure: fn(E) -> Response
+) -> Response {
     val fail = failure
     if Err(e) = result {
         return fail(e)
     }
-    if Some(w) = writer {
-        val write = w.write
-        return media_response(status, write(unwrap(result)), w.media)
+    if Some(w) = encoder {
+        val encode = w.encode
+        return media_response(status, encode(unwrap(result)), w.media)
     }
-    return response(status, "")
+    return response(status, [])
 }
 
 // Why a caller was refused before an endpoint ran: not identified (`Unauthenticated`, answered 401), identified but not
@@ -817,10 +852,10 @@ struct Anonymous {
 // `public_*` builder is the explicit way to say nobody needs to be identified.
 
 // A secured endpoint with no input: `run(ctx, caller)` returns the answer or an error; the answer is written with the
-// first of `writers` the client's `Accept` allows, with `status`.
+// first of `encoders` the client's `Accept` allows, with `status`.
 pub fn secure_handler<C, U, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
-    writers: [Writer<O>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, U) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -832,14 +867,14 @@ pub fn secure_handler<C, U, O, E>(
         if Err(refusal) = caller {
             return denied_response(refusal, fault)
         }
-        val writer = negotiate<O>(writers, req)
-        if len(writers) > 0 && !is_Some(writer) {
+        val encoder = negotiate<O>(encoders, req)
+        if len(encoders) > 0 && !is_Some(encoder) {
             return fault(
                 status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(writers))
+                format("not acceptable: this route produces {}", produced_types<O>(encoders))
             )
         }
-        return answer<O, E>(run(ctx, unwrap(caller)), writer, status, failure)
+        return answer<O, E>(run(ctx, unwrap(caller)), encoder, status, failure)
     }
 }
 
@@ -848,7 +883,7 @@ pub fn secure_handler<C, U, O, E>(
 pub fn secure_path_handler<C, U, P, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
-    writers: [Writer<O>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, U, P) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -860,28 +895,28 @@ pub fn secure_path_handler<C, U, P, O, E>(
         if Err(refusal) = caller {
             return denied_response(refusal, fault)
         }
-        val writer = negotiate<O>(writers, req)
-        if len(writers) > 0 && !is_Some(writer) {
+        val encoder = negotiate<O>(encoders, req)
+        if len(encoders) > 0 && !is_Some(encoder) {
             return fault(
                 status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(writers))
+                format("not acceptable: this route produces {}", produced_types<O>(encoders))
             )
         }
         val decode = path
         return switch decode(params) {
-            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), writer, status, failure) }
+            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), encoder, status, failure) }
             Err(message) { fault(status_bad_request, message) }
         }
     }
 }
 
-// A secured endpoint with a request body: it must arrive as one of `readers`' media types (else 415), the answer is
-// negotiated (else 406), the body is decoded with the reader for its type (a failure is 400), and
+// A secured endpoint with a request body: it must arrive as one of `decoders`' media types (else 415), the answer is
+// negotiated (else 406), the body is decoded with the decoder for its type (a failure is 400), and
 // `run(ctx, caller, input)` returns the answer or an error.
 pub fn secure_body_handler<C, U, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
-    readers: [Reader<I>],
-    writers: [Writer<O>],
+    decoders: [Decoder<I>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, U, I) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -893,36 +928,36 @@ pub fn secure_body_handler<C, U, I, O, E>(
         if Err(refusal) = caller {
             return denied_response(refusal, fault)
         }
-        val reader = select_reader<I>(readers, req)
-        if !is_Some(reader) {
+        val decoder = select_decoder<I>(decoders, req)
+        if !is_Some(decoder) {
             return fault(
                 status_unsupported_media_type,
-                format("unsupported media type: send {}", consumed_types<I>(readers))
+                format("unsupported media type: send {}", consumed_types<I>(decoders))
             )
         }
-        val writer = negotiate<O>(writers, req)
-        if len(writers) > 0 && !is_Some(writer) {
+        val encoder = negotiate<O>(encoders, req)
+        if len(encoders) > 0 && !is_Some(encoder) {
             return fault(
                 status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(writers))
+                format("not acceptable: this route produces {}", produced_types<O>(encoders))
             )
         }
-        val read = unwrap_Some(reader).read
-        return switch read(req.body) {
-            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), writer, status, failure) }
+        val decode = unwrap_Some(decoder).decode
+        return switch decode(req.body) {
+            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), encoder, status, failure) }
             Err(message) { fault(status_bad_request, message) }
         }
     }
 }
 
 // A secured endpoint with both an id in the path and a request body (a `PUT /things/{id}`): `path` decodes the parameters
-// into a `P` and the body is decoded with the reader for its media type; `run(ctx, caller, path_input, body_input)`
+// into a `P` and the body is decoded with the decoder for its media type; `run(ctx, caller, path_input, body_input)`
 // returns the answer or an error. Either input failing to decode is a 400.
 pub fn secure_path_body_handler<C, U, P, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
-    readers: [Reader<I>],
-    writers: [Writer<O>],
+    decoders: [Decoder<I>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, U, P, I) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -934,38 +969,38 @@ pub fn secure_path_body_handler<C, U, P, I, O, E>(
         if Err(refusal) = caller {
             return denied_response(refusal, fault)
         }
-        val reader = select_reader<I>(readers, req)
-        if !is_Some(reader) {
+        val decoder = select_decoder<I>(decoders, req)
+        if !is_Some(decoder) {
             return fault(
                 status_unsupported_media_type,
-                format("unsupported media type: send {}", consumed_types<I>(readers))
+                format("unsupported media type: send {}", consumed_types<I>(decoders))
             )
         }
-        val writer = negotiate<O>(writers, req)
-        if len(writers) > 0 && !is_Some(writer) {
+        val encoder = negotiate<O>(encoders, req)
+        if len(encoders) > 0 && !is_Some(encoder) {
             return fault(
                 status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(writers))
+                format("not acceptable: this route produces {}", produced_types<O>(encoders))
             )
         }
-        val decode = path
-        val id = decode(params)
+        val locate = path
+        val id = locate(params)
         if Err(message) = id {
             return fault(status_bad_request, message)
         }
-        val read = unwrap_Some(reader).read
-        return switch read(req.body) {
-            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), unwrap(id), input), writer, status, failure) }
+        val decode = unwrap_Some(decoder).decode
+        return switch decode(req.body) {
+            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), unwrap(id), input), encoder, status, failure) }
             Err(message) { fault(status_bad_request, message) }
         }
     }
 }
 
-// An endpoint with no `writers` answers with an empty body and no `Content-Type` (for a 204), whatever `Accept` says.
+// An endpoint with no `encoders` answers with an empty body and no `Content-Type` (for a 204), whatever `Accept` says.
 
 // A public endpoint with no input: `run(ctx)`. Anyone may call it.
 pub fn public_handler<C, O, E>(
-    writers: [Writer<O>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -974,7 +1009,7 @@ pub fn public_handler<C, O, E>(
     val go = run
     return secure_handler<C, Anonymous, O, E>(
         who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
-        writers: writers,
+        encoders: encoders,
         status: status,
         run: fn(ctx: C, nobody: Anonymous) -> Result<O, E> { return go(ctx) },
         failure: failure,
@@ -985,7 +1020,7 @@ pub fn public_handler<C, O, E>(
 // A public endpoint whose input is in the path: `run(ctx, input)`.
 pub fn public_path_handler<C, P, O, E>(
     path: fn(Params) -> Result<P, string>,
-    writers: [Writer<O>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, P) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -995,7 +1030,7 @@ pub fn public_path_handler<C, P, O, E>(
     return secure_path_handler<C, Anonymous, P, O, E>(
         who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
         path: path,
-        writers: writers,
+        encoders: encoders,
         status: status,
         run: fn(ctx: C, nobody: Anonymous, input: P) -> Result<O, E> { return go(ctx, input) },
         failure: failure,
@@ -1005,8 +1040,8 @@ pub fn public_path_handler<C, P, O, E>(
 
 // A public endpoint with a request body: `run(ctx, input)`.
 pub fn public_body_handler<C, I, O, E>(
-    readers: [Reader<I>],
-    writers: [Writer<O>],
+    decoders: [Decoder<I>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, I) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -1015,8 +1050,8 @@ pub fn public_body_handler<C, I, O, E>(
     val go = run
     return secure_body_handler<C, Anonymous, I, O, E>(
         who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
-        readers: readers,
-        writers: writers,
+        decoders: decoders,
+        encoders: encoders,
         status: status,
         run: fn(ctx: C, nobody: Anonymous, input: I) -> Result<O, E> { return go(ctx, input) },
         failure: failure,
@@ -1027,8 +1062,8 @@ pub fn public_body_handler<C, I, O, E>(
 // A public endpoint with both an id in the path and a request body: `run(ctx, path_input, body_input)`.
 pub fn public_path_body_handler<C, P, I, O, E>(
     path: fn(Params) -> Result<P, string>,
-    readers: [Reader<I>],
-    writers: [Writer<O>],
+    decoders: [Decoder<I>],
+    encoders: [Encoder<O>],
     status: int,
     run: fn(C, P, I) -> Result<O, E>,
     failure: fn(E) -> Response,
@@ -1038,8 +1073,8 @@ pub fn public_path_body_handler<C, P, I, O, E>(
     return secure_path_body_handler<C, Anonymous, P, I, O, E>(
         who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
         path: path,
-        readers: readers,
-        writers: writers,
+        decoders: decoders,
+        encoders: encoders,
         status: status,
         run: fn(ctx: C, nobody: Anonymous, id: P, input: I) -> Result<O, E> { return go(ctx, id, input) },
         failure: failure,

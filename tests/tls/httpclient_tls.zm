@@ -11,7 +11,7 @@ fn main() {
     )
     if is_ok(ok) {
         print(unwrap(ok).status)
-        print(contains(unwrap(ok).body, "s_server"))
+        print(contains(unwrap(bytes_to_string(unwrap(ok).body)), "s_server"))
     } else {
         print(client.error_message(unwrap_err(ok)))
     }

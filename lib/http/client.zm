@@ -18,12 +18,10 @@
 //   * credentials in the URL (`https://user:pass@host/`) become a Basic `Authorization` header.
 // Bodies are read by `Content-Length`, `Transfer-Encoding: chunked`, or until the server closes.
 //
-// A response comes back as an `http.Response` (text body) from `request`/`get`/`post_json`, or as a
-// `BytesResponse` (`[byte]` body) from `request_bytes`, the one to use for images, files and other binary
-// data. **Any** status, including 404 or 500, is `Ok` -- an `Err` means the exchange itself failed (bad
-// URL, network, timeout, malformed response, too large). Bodies are capped at 8 MiB after decompression
-// (`TooLarge`). A text-body function given a binary body (a NUL byte) fails with `BadResponse` -- use
-// `request_bytes`. Not yet: request bodies streamed from a file, HTTP/2, streaming responses.
+// A response comes back as an `http.Response` whose `body` is `[byte]`: images, files and other binary data as they are,
+// and text through `http.response_text` (or `bytes_to_string`). **Any** status, including 404 or 500, is `Ok` -- an `Err`
+// means the exchange itself failed (bad URL, network, timeout, malformed response, too large). Bodies are capped at 8 MiB
+// after decompression (`TooLarge`). Not yet: request bodies streamed from a file, HTTP/2, streaming responses.
 
 use clock.now_raw
 use compress.decompress
@@ -44,13 +42,6 @@ use number.int_from_hex
 use os
 use time.localdate_of
 use time.localdate_to_epoch_day
-
-// Like `http.Response`, but the body is raw bytes.
-pub struct BytesResponse {
-    status: int
-    headers: [Header]
-    body: [byte]
-}
 
 // Why an exchange failed (any HTTP status, even 500, is a success).
 pub enum ClientError {
@@ -400,14 +391,14 @@ fn read_body(sock: Socket, head: Head, head_only: bool) -> Result<Body, ClientEr
 
 // Undoes `Content-Encoding: gzip` / `deflate`, dropping the two headers the encoding made untrue. An
 // encoding this client does not know is left alone.
-fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<BytesResponse, ClientError> {
+fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<Response, ClientError> {
     val enc = header_value(headers, "Content-Encoding")
     if !Option.is_Some(enc) || len(body) == 0 {
-        return ok(BytesResponse { status: status, headers: headers, body: body })
+        return ok(Response { status: status, headers: headers, body: body })
     }
     val name = to_lower(trim(Option.unwrap_Some(enc)))
     if name != "gzip" && name != "x-gzip" && name != "deflate" {
-        return ok(BytesResponse { status: status, headers: headers, body: body })
+        return ok(Response { status: status, headers: headers, body: body })
     }
     var decoded = decompress(body, max_body_bytes)
     if !is_ok(decoded) && name == "deflate" && unwrap_err(decoded) == "compressed data is corrupt" {
@@ -427,7 +418,7 @@ fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<BytesResp
             ab_append<Header>(kept, h)
         }
     }
-    return ok(BytesResponse { status: status, headers: ab_to_array<Header>(kept), body: unwrap(decoded) })
+    return ok(Response { status: status, headers: ab_to_array<Header>(kept), body: unwrap(decoded) })
 }
 
 // ------------------------------------------------------------ proxies
@@ -560,7 +551,7 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
 
 // What one exchange produced: the response, and whether the connection is fit for reuse.
 struct Reply {
-    response: BytesResponse
+    response: Response
     reusable: bool
 }
 
@@ -691,7 +682,7 @@ fn send_once(
     ca_file: Option<string>,
     want_compression: bool,
     reuse: bool
-) -> Result<BytesResponse, ClientError> {
+) -> Result<Response, ClientError> {
     val key = cache_key(u, proxy)
     var attempt = 0
     while attempt < 2 {
@@ -728,7 +719,7 @@ pub fn close_idle() {
     net.idle_clear()
 }
 
-fn location_of(r: BytesResponse) -> Option<string> {
+fn location_of(r: Response) -> Option<string> {
     return header_value(r.headers, "Location")
 }
 
@@ -979,7 +970,7 @@ fn sort_matches(cookies: [Cookie]) -> [Cookie] {
 
 // What a finished exchange (following redirects) produced.
 struct Outcome {
-    response: BytesResponse
+    response: Response
     jar: CookieJar
 }
 
@@ -1050,15 +1041,10 @@ fn run(
     return err(ClientError.TooManyRedirects)
 }
 
-fn text_response(r: BytesResponse) -> Result<Response, ClientError> {
-    val text = text_of(r.body)?
-    return ok(Response { status: r.status, headers: r.headers, body: text })
-}
-
-// Sends one request and returns the (final) response, body as text.
+// Sends one request and returns the (final) response, its body as bytes.
 //   method        an `http.HttpMethod` (`HttpMethod.Get`, `HttpMethod.Post`, ...)
 //   headers       extra request headers; Host, Content-Length and Connection are always set by the client
-//   body          the request body, if any
+//   body          the request body, if any, as bytes (`string_to_bytes(text)` for text)
 //   timeout_ms    per read/write, default 30000
 //   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
 //   ca_file       a PEM file of trusted CAs for https, instead of the system store (a private CA, a test
@@ -1071,40 +1057,6 @@ pub fn request(
     method: HttpMethod,
     url: string,
     headers: Option<[Header]>,
-    body: Option<string>,
-    timeout_ms: Option<int>,
-    max_redirects: Option<int>,
-    ca_file: Option<string>,
-    proxy: Option<string>,
-    compress: Option<bool>,
-    reuse: Option<bool>
-) -> Result<Response, ClientError> {
-    val bytes_body = if Option.is_Some(body) {
-        Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
-    } else {
-        Option<[byte]>.None
-    }
-    val r = request_bytes(
-        method: method,
-        url: url,
-        headers: headers,
-        body: bytes_body,
-        timeout_ms: timeout_ms,
-        max_redirects: max_redirects,
-        ca_file: ca_file,
-        proxy: proxy,
-        compress: compress,
-        reuse: reuse
-    )?
-    return text_response(r)
-}
-
-// Sends one request and returns the (final) response, body as bytes -- the general function; `request`
-// is this with text bodies. Arguments as for `request`.
-pub fn request_bytes(
-    method: HttpMethod,
-    url: string,
-    headers: Option<[Header]>,
     body: Option<[byte]>,
     timeout_ms: Option<int>,
     max_redirects: Option<int>,
@@ -1112,7 +1064,7 @@ pub fn request_bytes(
     proxy: Option<string>,
     compress: Option<bool>,
     reuse: Option<bool>
-) -> Result<BytesResponse, ClientError> {
+) -> Result<Response, ClientError> {
     val outcome = run(
         method,
         url,
@@ -1137,7 +1089,7 @@ pub fn request_with_jar(
     method: HttpMethod,
     url: string,
     headers: Option<[Header]>,
-    body: Option<string>,
+    body: Option<[byte]>,
     timeout_ms: Option<int>,
     max_redirects: Option<int>,
     ca_file: Option<string>,
@@ -1145,16 +1097,11 @@ pub fn request_with_jar(
     compress: Option<bool>,
     reuse: Option<bool>
 ) -> Result<JarResponse, ClientError> {
-    val bytes_body = if Option.is_Some(body) {
-        Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
-    } else {
-        Option<[byte]>.None
-    }
     val outcome = run(
         method,
         url,
         option_unwrap_or<[Header]>(headers, []),
-        bytes_body,
+        body,
         option_unwrap_or<int>(timeout_ms, default_timeout_ms),
         option_unwrap_or<int>(max_redirects, default_max_redirects),
         ca_file,
@@ -1163,8 +1110,7 @@ pub fn request_with_jar(
         option_unwrap_or<bool>(reuse, true),
         jar
     )?
-    val response = text_response(outcome.response)?
-    return ok(JarResponse { response: response, jar: outcome.jar })
+    return ok(JarResponse { response: outcome.response, jar: outcome.jar })
 }
 
 // GET `url`.
@@ -1187,7 +1133,7 @@ pub fn post_json(url: string, body: string) -> Result<Response, ClientError> {
     return request(
         method: HttpMethod.Post,
         url: url,
-        body: body,
+        body: string_to_bytes(body),
         headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }]
     )
 }
@@ -1197,7 +1143,7 @@ pub fn put_json(url: string, body: string) -> Result<Response, ClientError> {
     return request(
         method: HttpMethod.Put,
         url: url,
-        body: body,
+        body: string_to_bytes(body),
         headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }]
     )
 }
@@ -1217,7 +1163,7 @@ pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, C
     return request(
         method: HttpMethod.Post,
         url: url,
-        body: form_encode(fields),
+        body: string_to_bytes(form_encode(fields)),
         headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_form()) }]
     )
 }
@@ -1362,7 +1308,7 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
 // is not decoded. No redirects are followed and no cookies are sent (a 3xx is returned as it is), nothing
 // is limited to 8 MiB, and the connection is not reused: it is closed when the body is finished, when the
 // loop is left early or with `iter_close(r.body)`, and a stream dropped unfinished is closed when its
-// socket is collected. Arguments as for `request_bytes`: `headers`, `body`, `timeout_ms`, `ca_file`,
+// socket is collected. Arguments as for `request`: `headers`, `body`, `timeout_ms`, `ca_file`,
 // `proxy`.
 pub fn stream(
     method: HttpMethod,

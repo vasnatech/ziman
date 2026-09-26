@@ -141,6 +141,14 @@ pub fn parse_json_bytes_strict(data: [byte]) -> Result<Json, string>
 
 ## Writing
 
+### `json_to_bytes`
+
+```
+pub fn json_to_bytes(j: Json) -> [byte]
+```
+
+`j` as compact JSON text, as bytes: the body of an HTTP message, or what `fs.write_bytes` takes.
+
 ### `json_to_string`
 
 ```

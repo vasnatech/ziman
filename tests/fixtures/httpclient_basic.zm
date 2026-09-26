@@ -77,7 +77,7 @@ fn accept_loop(l: net.Listener) {
 fn show(r: Result<http.Response, client.ClientError>) {
     if is_ok(r) {
         val resp = unwrap(r)
-        printf("{} [{}]\n", resp.status, resp.body)
+        printf("{} [{}]\n", resp.status, unwrap(bytes_to_string(resp.body)))
     } else {
         printf("error: {}\n", client.error_message(unwrap_err(r)))
     }
@@ -97,7 +97,7 @@ fn main() {
     show(client.get(concat(base, "/loop")))
     show(client.request(method: HttpMethod.Head, url: concat(base, "/head")))
     show(client.post_json(concat(base, "/echo"), "{\"a\":1}"))
-    show(client.request(method: HttpMethod.Post, url: concat(base, "/redir-post"), body: "x"))
+    show(client.request(method: HttpMethod.Post, url: concat(base, "/redir-post"), body: string_to_bytes("x")))
     show(client.get(concat(base, "/garbage")))
     show(client.request(method: HttpMethod.Get, url: concat(base, "/hang"), timeout_ms: 300))
     show(client.get("ftp://nope"))
