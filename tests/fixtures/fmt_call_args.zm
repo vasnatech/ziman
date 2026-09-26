@@ -1,0 +1,17 @@
+fn f() {
+    switch v {
+        EmptyField(field) {
+            error(status: 400, message: "validation failed",
+                fields: Map<string, string> { field: "must not be blank" })
+        }
+    }
+    return iter_from<T>(fn() -> X {
+        body(s)
+    }, fn() {})
+    val short = add(1, 2)
+}
+
+fn g() {
+    return err(ServiceError.Validation(invalid_field("expectedIntervalHours",
+        "must be greater than 0")))
+}

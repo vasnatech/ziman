@@ -105,8 +105,11 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
             } else if colon >= 0 {
                 sb_append(sb, substring(inner, colon + 1, len(inner)))
             } else {
-                return err(format("{}: placeholder '{}' is neither a property nor an environment variable and has no default",
-                    source, name))
+                return err(format(
+                    "{}: placeholder '{}' is neither a property nor an environment variable and has no default",
+                    source,
+                    name
+                ))
             }
             p = end + 1
         }
@@ -142,8 +145,11 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
             return err(format("{}: empty key", where))
         }
         if to_lower(key) != key {
-            return err(format("{}: key '{}' must be lowercase (use dotted kebab-case, e.g. server.idle-timeout-ms)",
-                where, key))
+            return err(format(
+                "{}: key '{}' must be lowercase (use dotted kebab-case, e.g. server.idle-timeout-ms)",
+                where,
+                key
+            ))
         }
         if contains(key, " ") || contains(key, "\t") {
             return err(format("{}: key '{}' contains whitespace", where, key))
@@ -155,8 +161,12 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
     for e in entries {
         val earlier = mapb_get<string, string>(first_seen, e.key)
         if Option.is_Some(earlier) {
-            return err(format("{}: duplicate key '{}' (first defined at {})", e.source, e.key,
-                Option.unwrap_Some(earlier)))
+            return err(format(
+                "{}: duplicate key '{}' (first defined at {})",
+                e.source,
+                e.key,
+                Option.unwrap_Some(earlier)
+            ))
         }
         mapb_set<string, string>(first_seen, e.key, e.source)
     }
@@ -217,8 +227,11 @@ pub fn load(name: string) -> Result<Properties, string> {
 fn require(props: Properties, key: string) -> Result<Entry, string> {
     val found = lookup(props, key)
     if !Option.is_Some(found) {
-        return err(format("missing required property '{}' (set it in a .properties file or the {} environment variable)",
-            key, env_name(key)))
+        return err(format(
+            "missing required property '{}' (set it in a .properties file or the {} environment variable)",
+            key,
+            env_name(key)
+        ))
     }
     return ok(Option.unwrap_Some(found))
 }

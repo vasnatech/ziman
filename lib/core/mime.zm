@@ -123,8 +123,11 @@ val extension_types: Map<string, string> = Map<string, string> {
 val token_punctuation = "!#$%&'*+-.^_`|~"
 
 fn is_token_char(c: string) -> bool {
-    return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || index_of(token_punctuation, c,
-        0) >= 0
+    return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || index_of(
+        token_punctuation,
+        c,
+        0
+    ) >= 0
 }
 
 fn is_token(s: string) -> bool {

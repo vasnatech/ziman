@@ -416,10 +416,14 @@ pub fn open_rows(
     val first = receive(reply)?
     val ender: Channel<int> = channel_new()
     val handle = CursorHandle { cursor: first.cursor, requests: requests,
-        guard: guard_new<Request>(requests,
-            Request.EndCursor(EndRequest { cursor: first.cursor, reply_to: ender })) }
+        guard: guard_new<Request>(
+            requests,
+            Request.EndCursor(EndRequest { cursor: first.cursor, reply_to: ender })
+        ) }
     val buffer: Channel<Option<Row>> = channel_new()
     buffer_page(buffer, first)
-    return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> { next_item(handle, buffer) },
-        fn() { end_cursor(handle) })
+    return iter_from<Result<Row, DbError>>(
+        fn() -> Option<Result<Row, DbError>> { next_item(handle, buffer) },
+        fn() { end_cursor(handle) }
+    )
 }

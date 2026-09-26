@@ -211,7 +211,7 @@ typedef struct {
     int opener_level;
     int angle;     /* unmatched '<' at this bracket level (a generic list, or a comparison) */
     int after_fn;  /* the bracket was opened right after the keyword `fn` */
-    int decl_params; /* the bracket opens a function declaration's parameter list: `fn name(` */
+    int vertical;  /* the bracket opens a function declaration's parameters (`fn name(`) or a call's arguments (`name(`) */
 } Open;
 
 static int opens(const Item *t) { return is(t, "(") || is(t, "[") || is(t, "{"); }
@@ -225,7 +225,7 @@ typedef struct {
     char innermost;      /* innermost open bracket: '(' '[' '{' or 0 */
     int angle_open;
     int after_fn;
-    int decl_params;     /* inside a function declaration's parameter list */
+    int vertical;        /* inside a parameter list or an argument list */
     int in_attr;         /* on a line that starts with `#` (an attribute) */
 } ItemPos;
 
@@ -283,7 +283,7 @@ static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
         pos[idx].innermost = depth > 0 ? stack[depth - 1].kind : 0;
         pos[idx].angle_open = depth > 0 ? stack[depth - 1].angle > 0 : 0;
         pos[idx].after_fn = depth > 0 ? stack[depth - 1].after_fn : 0;
-        pos[idx].decl_params = depth > 0 ? stack[depth - 1].decl_params : 0;
+        pos[idx].vertical = depth > 0 ? stack[depth - 1].vertical : 0;
         pos[idx].in_attr = line_is_attr;
         wrote_any = 1;
 
@@ -299,8 +299,11 @@ static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
                 }
                 stack[depth].angle = 0;
                 stack[depth].after_fn = last_code != NULL && word_is(last_code, "fn");
-                stack[depth].decl_params = is(it, "(") && last_code != NULL && last_code->kind == K_WORD && !is_keyword(last_code) &&
-                                           before_last_code != NULL && word_is(before_last_code, "fn");
+                {
+                    int named = is(it, "(") && last_code != NULL && last_code->kind == K_WORD && !is_keyword(last_code);
+                    int generic_call = is(it, "(") && last_code != NULL && is(last_code, ">") && it->spaces_before == 0 && it->nl_before == 0;
+                    stack[depth].vertical = named || generic_call;
+                }
                 depth++;
             } else if (closes(it) && depth > 0) {
                 depth--;
@@ -357,7 +360,7 @@ static int wrap_once(Items *items, const ItemPos *pos, const Buf *out, int width
                 }
             }
             int at = best >= 0 ? best : first;
-            if (at >= 0 && pos[at].decl_params) {
+            if (at >= 0 && pos[at].vertical) {
                 /* a declaration's parameters go one per line, the parentheses on lines of their own:
                  *   fn name(
                  *       a: A,
@@ -367,7 +370,7 @@ static int wrap_once(Items *items, const ItemPos *pos, const Buf *out, int width
                 while (open > 0 && !(is(&items->v[open], "(") && pos[open].depth == pos[at].depth - 1)) open--;
                 while (close + 1 < items->n && !(is(&items->v[close], ")") && pos[close].depth == pos[at].depth)) close++;
                 for (int k = open + 1; k <= close; k++) {
-                    int starts_param = k == open + 1 || (is(&items->v[k - 1], ",") && pos[k - 1].depth == pos[at].depth) || k == close;
+                    int starts_param = k == open + 1 || (is(&items->v[k - 1], ",") && pos[k - 1].depth == pos[at].depth && !pos[k - 1].angle_open) || k == close;
                     if (starts_param && items->v[k].nl_before == 0 && items->v[k].kind != K_COMMENT) {
                         items->v[k].nl_before = 1;
                         changed = 1;
@@ -383,24 +386,27 @@ static int wrap_once(Items *items, const ItemPos *pos, const Buf *out, int width
     return changed;
 }
 
-/* A function declaration's parameter list that already spans several lines is laid out one parameter per line, the
- * parentheses on lines of their own (a list holding a comment is left as written). Returns whether anything changed. */
-static int normalize_decl_params(Items *items, const ItemPos *pos) {
+/* A parameter list or a call's argument list that is already wrapped between its arguments is laid out one to a line,
+ * the parentheses on lines of their own (a list holding a comment is left as written; a call whose only line breaks
+ * are inside a lambda or another bracket is not wrapped between arguments and stays as it is). Returns whether
+ * anything changed. */
+static int normalize_vertical(Items *items, const ItemPos *pos) {
     int changed = 0;
     for (int i = 0; i + 1 < items->n; i++) {
-        if (!(is(&items->v[i], "(") && pos[i + 1].decl_params && !is(&items->v[i + 1], ")"))) continue;
+        if (!(is(&items->v[i], "(") && pos[i + 1].vertical && pos[i + 1].depth == pos[i].depth + 1 && !is(&items->v[i + 1], ")"))) continue;
         int inner = pos[i].depth + 1;
         int close = i + 1;
         while (close < items->n && !(is(&items->v[close], ")") && pos[close].depth == inner)) close++;
         if (close >= items->n) continue;
         int multiline = 0, has_comment = 0;
         for (int k = i + 1; k <= close; k++) {
-            if (items->v[k].nl_before > 0) multiline = 1;
+            int starts = k == i + 1 || (is(&items->v[k - 1], ",") && pos[k - 1].depth == inner && !pos[k - 1].angle_open) || k == close;
+            if (starts && items->v[k].nl_before > 0) multiline = 1;
             if (items->v[k].kind == K_COMMENT) has_comment = 1;
         }
         if (!multiline || has_comment) continue;
         for (int k = i + 1; k <= close; k++) {
-            int starts = k == i + 1 || (is(&items->v[k - 1], ",") && pos[k - 1].depth == inner) || k == close;
+            int starts = k == i + 1 || (is(&items->v[k - 1], ",") && pos[k - 1].depth == inner && !pos[k - 1].angle_open) || k == close;
             if (starts && items->v[k].nl_before == 0) {
                 items->v[k].nl_before = 1;
                 changed = 1;
@@ -537,7 +543,7 @@ char *format_source(const char *src, size_t len, int width, char *err, size_t er
     Buf out = {0};
     for (int pass = 0; pass < 60; pass++) {
         emit_pass(&items, &out, pos);
-        int changed = normalize_decl_params(&items, pos);
+        int changed = normalize_vertical(&items, pos);
         if (width > 0 && wrap_once(&items, pos, &out, width)) changed = 1;
         if (!changed) break;
     }

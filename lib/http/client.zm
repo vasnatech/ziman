@@ -275,8 +275,10 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
         if !Option.is_Some(pair) {
             return err(ClientError.BadResponse(concat("malformed header line: ", lines[i])))
         }
-        ab_append<Header>(headers,
-            Header { name: Option.unwrap_Some(pair)[0], value: trim(Option.unwrap_Some(pair)[1]) })
+        ab_append<Header>(
+            headers,
+            Header { name: Option.unwrap_Some(pair)[0], value: trim(Option.unwrap_Some(pair)[1]) }
+        )
         i = i + 1
     }
     return ok(Head { status: unwrap(status_parsed), status_line: lines[0], headers: ab_to_array<Header>(headers),
@@ -456,8 +458,10 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
 // True if `NO_PROXY` (a comma-separated list of hosts, `.suffixes` and `*`) covers `host`.
 fn no_proxy_matches(host: string) -> bool {
     val upper = os.getenv("NO_PROXY")
-    val list = if Option.is_Some(upper) { Option.unwrap_Some(upper) } else { option_unwrap_or<string>(os.getenv("no_proxy"),
-        "") }
+    val list = if Option.is_Some(upper) { Option.unwrap_Some(upper) } else { option_unwrap_or<string>(
+        os.getenv("no_proxy"),
+        ""
+    ) }
     for raw in split(list, ",") {
         val entry = to_lower(trim(raw))
         if entry == "*" {
@@ -496,8 +500,12 @@ fn basic_auth(userinfo: string) -> string {
 // Where connections to `u` are parked for reuse: the scheme, host and port, and the proxy if any.
 fn cache_key(u: Url, proxy: Option<Url>) -> string {
     val base = format("{}://{}:{}", if u.secure { "https" } else { "http" }, u.host, u.port)
-    return if Option.is_Some(proxy) { format("{} via {}:{}", base, Option.unwrap_Some(proxy).host,
-        Option.unwrap_Some(proxy).port) } else { base }
+    return if Option.is_Some(proxy) { format(
+        "{} via {}:{}",
+        base,
+        Option.unwrap_Some(proxy).host,
+        Option.unwrap_Some(proxy).port
+    ) } else { base }
 }
 
 fn fail_closed(s: Socket, e: ClientError) -> Result<Socket, ClientError> {
@@ -522,8 +530,12 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
     }
     val timeout_set = net.set_timeout(sock, timeout_ms)
     val target = format("{}:{}", u.host, u.port)
-    val request = format("CONNECT {} HTTP/1.1\r\nHost: {}\r\n{}\r\n", target, target,
-        if len(p.userinfo) > 0 { format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)) } else { "" })
+    val request = format(
+        "CONNECT {} HTTP/1.1\r\nHost: {}\r\n{}\r\n",
+        target,
+        target,
+        if len(p.userinfo) > 0 { format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)) } else { "" }
+    )
     val sent = lift<int>(net.write_text(sock, request))
     if !is_ok(sent) {
         return fail_closed(sock, unwrap_err(sent))
@@ -598,15 +610,19 @@ fn write_request(
         ab_append<string>(out, "Accept: */*\r\n")
     }
     if !has_encoding {
-        ab_append<string>(out,
-            if want_compression { "Accept-Encoding: gzip, deflate\r\n" } else { "Accept-Encoding: identity\r\n" })
+        ab_append<string>(
+            out,
+            if want_compression { "Accept-Encoding: gzip, deflate\r\n" } else { "Accept-Encoding: identity\r\n" }
+        )
     }
     if !has_auth && len(u.userinfo) > 0 {
         ab_append<string>(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
     }
     if via_http_proxy && Option.unwrap_Some(proxy).userinfo != "" {
-        ab_append<string>(out,
-            format("Proxy-Authorization: {}\r\n", basic_auth(Option.unwrap_Some(proxy).userinfo)))
+        ab_append<string>(
+            out,
+            format("Proxy-Authorization: {}\r\n", basic_auth(Option.unwrap_Some(proxy).userinfo))
+        )
     }
     ab_append<string>(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
     if Option.is_Some(body) {
@@ -838,8 +854,10 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
         val key = to_lower(if Option.is_Some(kv) { Option.unwrap_Some(kv)[0] } else { attr })
         val val_text = if Option.is_Some(kv) { trim(Option.unwrap_Some(kv)[1]) } else { "" }
         if key == "domain" && len(val_text) > 0 {
-            val wanted = to_lower(if starts_with(val_text,
-                ".") { substring(val_text, 1, len(val_text)) } else { val_text })
+            val wanted = to_lower(if starts_with(
+                val_text,
+                "."
+            ) { substring(val_text, 1, len(val_text)) } else { val_text })
             if wanted != domain && !ends_with(domain, concat(".", wanted)) {
                 return Option<Cookie>.None
             }
@@ -902,8 +920,10 @@ fn cookie_matches(c: Cookie, u: Url, now: int) -> bool {
         return false
     }
     val host = to_lower(u.host)
-    val domain_ok = if c.host_only { host == c.domain } else { host == c.domain || ends_with(host,
-        concat(".", c.domain)) }
+    val domain_ok = if c.host_only { host == c.domain } else { host == c.domain || ends_with(
+        host,
+        concat(".", c.domain)
+    ) }
     if !domain_ok {
         return false
     }
@@ -1054,8 +1074,18 @@ pub fn request(
     } else {
         Option<[byte]>.None
     }
-    val r = request_bytes(method: method, url: url, headers: headers, body: bytes_body, timeout_ms: timeout_ms,
-        max_redirects: max_redirects, ca_file: ca_file, proxy: proxy, compress: compress, reuse: reuse)?
+    val r = request_bytes(
+        method: method,
+        url: url,
+        headers: headers,
+        body: bytes_body,
+        timeout_ms: timeout_ms,
+        max_redirects: max_redirects,
+        ca_file: ca_file,
+        proxy: proxy,
+        compress: compress,
+        reuse: reuse
+    )?
     return text_response(r)
 }
 
@@ -1073,11 +1103,19 @@ pub fn request_bytes(
     compress: Option<bool>,
     reuse: Option<bool>
 ) -> Result<BytesResponse, ClientError> {
-    val outcome = run(method, url, option_unwrap_or<[Header]>(headers, []), body,
+    val outcome = run(
+        method,
+        url,
+        option_unwrap_or<[Header]>(headers, []),
+        body,
         option_unwrap_or<int>(timeout_ms, default_timeout_ms),
-        option_unwrap_or<int>(max_redirects, default_max_redirects), ca_file, proxy,
+        option_unwrap_or<int>(max_redirects, default_max_redirects),
+        ca_file,
+        proxy,
         option_unwrap_or<bool>(compress, true),
-        option_unwrap_or<bool>(reuse, true), cookie_jar())?
+        option_unwrap_or<bool>(reuse, true),
+        cookie_jar()
+    )?
     return ok(outcome.response)
 }
 
@@ -1102,11 +1140,19 @@ pub fn request_with_jar(
     } else {
         Option<[byte]>.None
     }
-    val outcome = run(method, url, option_unwrap_or<[Header]>(headers, []), bytes_body,
+    val outcome = run(
+        method,
+        url,
+        option_unwrap_or<[Header]>(headers, []),
+        bytes_body,
         option_unwrap_or<int>(timeout_ms, default_timeout_ms),
-        option_unwrap_or<int>(max_redirects, default_max_redirects), ca_file, proxy,
+        option_unwrap_or<int>(max_redirects, default_max_redirects),
+        ca_file,
+        proxy,
         option_unwrap_or<bool>(compress, true),
-        option_unwrap_or<bool>(reuse, true), jar)?
+        option_unwrap_or<bool>(reuse, true),
+        jar
+    )?
     val response = text_response(outcome.response)?
     return ok(JarResponse { response: response, jar: outcome.jar })
 }
@@ -1128,14 +1174,22 @@ pub fn delete(url: string) -> Result<Response, ClientError> {
 
 // POST with a JSON body: sets `Content-Type: application/json`.
 pub fn post_json(url: string, body: string) -> Result<Response, ClientError> {
-    return request(method: HttpMethod.Post, url: url, body: body,
-        headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }])
+    return request(
+        method: HttpMethod.Post,
+        url: url,
+        body: body,
+        headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }]
+    )
 }
 
 // PUT with a JSON body: sets `Content-Type: application/json`.
 pub fn put_json(url: string, body: string) -> Result<Response, ClientError> {
-    return request(method: HttpMethod.Put, url: url, body: body,
-        headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }])
+    return request(
+        method: HttpMethod.Put,
+        url: url,
+        body: body,
+        headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }]
+    )
 }
 
 // The fields as an `application/x-www-form-urlencoded` body: `a=1&b=x+y`, names and values
@@ -1150,8 +1204,12 @@ pub fn form_encode(fields: Map<string, string>) -> string {
 
 // POST an HTML-form-style body built from `fields` (`Content-Type: application/x-www-form-urlencoded`).
 pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, ClientError> {
-    return request(method: HttpMethod.Post, url: url, body: form_encode(fields),
-        headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_form()) }])
+    return request(
+        method: HttpMethod.Post,
+        url: url,
+        body: form_encode(fields),
+        headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_form()) }]
+    )
 }
 
 // ---------------------------------------------------------------- streaming a response body

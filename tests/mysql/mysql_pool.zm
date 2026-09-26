@@ -8,8 +8,12 @@ use fs
 fn writer(pool: datasource.Connection, base: int, done: Channel<int>) {
     var ok = 0
     for i in 0..25 {
-        if is_ok(datasource.execute(pool, "INSERT INTO my_p (id, who) VALUES ($1, $2)",
-            SqlValue.Int(base + i), SqlValue.Int(base))) {
+        if is_ok(datasource.execute(
+            pool,
+            "INSERT INTO my_p (id, who) VALUES ($1, $2)",
+            SqlValue.Int(base + i),
+            SqlValue.Int(base)
+        )) {
             ok = ok + 1
         }
     }
@@ -32,8 +36,10 @@ fn main() {
         total = total + receive(done)
     }
     print(total)
-    print(unwrap(sql_as_int(unwrap(row_get(unwrap(datasource.query(pool, "SELECT COUNT(*) AS n FROM my_p"))[0],
-        "n")))))
+    print(unwrap(sql_as_int(unwrap(row_get(
+        unwrap(datasource.query(pool, "SELECT COUNT(*) AS n FROM my_p"))[0],
+        "n"
+    )))))
 
     // a transaction on one borrowed connection commits or rolls back as a unit
     val tx = unwrap(datasource.acquire(pool))

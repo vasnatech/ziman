@@ -266,8 +266,10 @@ fn write_lenenc(v: int) -> [byte] {
     if v < 65536 {
         return bytes_concat([lenenc_2_bytes as byte], le(v, 2))
     }
-    return if v < 16777216 { bytes_concat([lenenc_3_bytes as byte],
-        le(v, 3)) } else { bytes_concat([lenenc_8_bytes as byte], le(v, 8)) }
+    return if v < 16777216 { bytes_concat(
+        [lenenc_3_bytes as byte],
+        le(v, 3)
+    ) } else { bytes_concat([lenenc_8_bytes as byte], le(v, 8)) }
 }
 
 // The position just after a length-encoded string starting at `pos`.
@@ -359,8 +361,10 @@ fn parse_url(url: string) -> Result<MyUrl, DbError> {
         sslrootcert = Option.unwrap_Some(root)
     }
     if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
-        return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ",
-            sslmode)))
+        return err(conn_err(concat(
+            "unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ",
+            sslmode
+        )))
     }
     return MyUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database,
         sslmode: sslmode, sslrootcert: sslrootcert }
@@ -412,8 +416,10 @@ fn scramble(plugin: string, password: string, salt: [byte]) -> Result<[byte], Db
         val p1 = sha256(pw)
         return bytes_xor(p1, sha256(bytes_concat(sha256(p1), salt)))
     }
-    return err(conn_err(format("server asks for the '{}' authentication plugin, which this driver does not support (mysql_native_password and caching_sha2_password only)",
-        plugin)))
+    return err(conn_err(format(
+        "server asks for the '{}' authentication plugin, which this driver does not support (mysql_native_password and caching_sha2_password only)",
+        plugin
+    )))
 }
 
 fn client_caps(with_ssl: bool) -> int {
@@ -510,8 +516,14 @@ fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
         }
     }
     val reply = scramble(hello.plugin, url.password, hello.salt)?
-    val login = bytes_concat(login_prefix(client_caps(tls)), cstring(url.user), write_lenenc(len(reply)), reply,
-        cstring(url.database), cstring(hello.plugin))
+    val login = bytes_concat(
+        login_prefix(client_caps(tls)),
+        cstring(url.user),
+        write_lenenc(len(reply)),
+        reply,
+        cstring(url.database),
+        cstring(hello.plugin)
+    )
     send_packet(sock, seq, login)?
     return finish_auth(sock, seq + 1, hello.plugin, hello.salt, url.password, tls)
 }
@@ -713,8 +725,13 @@ fn decode_datetime(b: [byte], pos: int, date_only: bool) -> string {
         return out
     }
     if n >= 7 {
-        out = format("{} {}:{}:{}", out, pad(b[start + 4] as int, 2), pad(b[start + 5] as int, 2),
-            pad(b[start + 6] as int, 2))
+        out = format(
+            "{} {}:{}:{}",
+            out,
+            pad(b[start + 4] as int, 2),
+            pad(b[start + 5] as int, 2),
+            pad(b[start + 6] as int, 2)
+        )
     } else {
         out = concat(out, " 00:00:00")
     }
@@ -895,8 +912,11 @@ fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, Db
             }
             val index = unwrap(parse_int(substring(sql, i + 1, j)))
             if index < 1 || index > len(params) {
-                return err(DbError.Sql(format("placeholder ${} has no matching parameter ({} given)", index,
-                    len(params))))
+                return err(DbError.Sql(format(
+                    "placeholder ${} has no matching parameter ({} given)",
+                    index,
+                    len(params)
+                )))
             }
             sb_append(out, "?")
             ab_append<SqlValue>(ordered, params[index - 1])
@@ -993,8 +1013,13 @@ fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
         ab_append<[byte]>(types, param_type(p))
         ab_append<[byte]>(values, param_value(p))
     }
-    return bytes_concat(head, ab_to_array<byte>(bitmap), [1b], concat_arrays<byte>(parts: ab_to_array<[byte]>(types)),
-        concat_arrays<byte>(parts: ab_to_array<[byte]>(values)))
+    return bytes_concat(
+        head,
+        ab_to_array<byte>(bitmap),
+        [1b],
+        concat_arrays<byte>(parts: ab_to_array<[byte]>(types)),
+        concat_arrays<byte>(parts: ab_to_array<[byte]>(values))
+    )
 }
 
 // --------------------------------------------------------------- queries
@@ -1153,8 +1178,11 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
     }
     if param_count != len(statement_text.params) {
         close_statement(sock, statement)
-        return failed_step(DbError.Sql(format("statement takes {} parameters, {} given", param_count,
-            len(statement_text.params))))
+        return failed_step(DbError.Sql(format(
+            "statement takes {} parameters, {} given",
+            param_count,
+            len(statement_text.params)
+        )))
     }
     val executed = send_packet(sock, 0, execute_body(statement, statement_text.params, 1))
     if !is_ok(executed) {

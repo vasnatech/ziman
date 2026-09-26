@@ -26,11 +26,15 @@ fn main() {
     val url = format("mysql://nat_user:natpw@{}/zimandb", hp)
     val conn = unwrap(datasource.open(url))
     unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS my_rows"))
-    unwrap(datasource.execute(conn,
-        "CREATE TABLE my_rows (n INT PRIMARY KEY, s VARCHAR(20), f DOUBLE, b BLOB) ENGINE=InnoDB"))
+    unwrap(datasource.execute(
+        conn,
+        "CREATE TABLE my_rows (n INT PRIMARY KEY, s VARCHAR(20), f DOUBLE, b BLOB) ENGINE=InnoDB"
+    ))
     unwrap(datasource.execute(conn, "SET SESSION cte_max_recursion_depth = 10000"))
-    unwrap(datasource.execute(conn,
-        "INSERT INTO my_rows (n, s, f, b) WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 2000) SELECT n, CONCAT('row ', n), 1.5, x'0102' FROM c"))
+    unwrap(datasource.execute(
+        conn,
+        "INSERT INTO my_rows (n, s, f, b) WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 2000) SELECT n, CONCAT('row ', n), 1.5, x'0102' FROM c"
+    ))
     unwrap(datasource.execute(conn, "INSERT INTO my_rows (n) VALUES (0)"))
 
     // more rows than one page (500), read a page at a time
@@ -40,8 +44,11 @@ fn main() {
     print(unwrap(sum_rows(conn, "SELECT n FROM my_rows WHERE n > 100000")))
 
     // bound parameters, and each kind of value including NULL
-    val typed = unwrap(datasource.rows(conn, "SELECT n, s, f, b FROM my_rows WHERE n IN ($1, 0) ORDER BY n",
-        SqlValue.Int(2)))
+    val typed = unwrap(datasource.rows(
+        conn,
+        "SELECT n, s, f, b FROM my_rows WHERE n IN ($1, 0) ORDER BY n",
+        SqlValue.Int(2)
+    ))
     for row in typed {
         print(unwrap(row).values)
     }

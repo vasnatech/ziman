@@ -86,8 +86,13 @@ fn append_utf8(out: StringBuilder, cp: int) {
     } else if cp < 65536 {
         sb_append_byte(out, (224 + cp / 4096) as byte, (128 + cp / 64 % 64) as byte, (128 + cp % 64) as byte)
     } else {
-        sb_append_byte(out, (240 + cp / 262144) as byte, (128 + cp / 4096 % 64) as byte, (128 + cp / 64 % 64) as byte,
-            (128 + cp % 64) as byte)
+        sb_append_byte(
+            out,
+            (240 + cp / 262144) as byte,
+            (128 + cp / 4096 % 64) as byte,
+            (128 + cp / 64 % 64) as byte,
+            (128 + cp % 64) as byte
+        )
     }
 }
 
@@ -101,8 +106,11 @@ fn tokenize(text: string) -> Result<[Line], string> {
     var no = 0
     for raw_line in split(text, "\n") {
         no = no + 1
-        val raw = if is_char_at(raw_line, len(raw_line) - 1,
-            "\r") { substring(raw_line, 0, len(raw_line) - 1) } else { raw_line }
+        val raw = if is_char_at(
+            raw_line,
+            len(raw_line) - 1,
+            "\r"
+        ) { substring(raw_line, 0, len(raw_line) - 1) } else { raw_line }
         var indent = 0
         while is_char_at(raw, indent, " ") {
             indent = indent + 1
@@ -124,8 +132,10 @@ fn tokenize(text: string) -> Result<[Line], string> {
             cur = cur + skip
             body = substring(body, skip, len(body))
         }
-        ab_append<Line>(out,
-            Line { no: no, indent: cur, base: if cont { base } else { cur }, body: body, raw: raw, cont: cont })
+        ab_append<Line>(
+            out,
+            Line { no: no, indent: cur, base: if cont { base } else { cur }, body: body, raw: raw, cont: cont }
+        )
     }
     return ok(ab_to_array<Line>(out))
 }
@@ -428,8 +438,11 @@ fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
             return ok(Scalar { value: Json.JObject(mapb_to_map<string, Json>(fields)), next: p + 1 })
         }
         val key = flow_scalar(s, p, true, no)?
-        val key_text = if Json.is_JString(key.value) { Json.unwrap_JString(key.value) } else { trim(substring(s, p,
-            key.next)) }
+        val key_text = if Json.is_JString(key.value) { Json.unwrap_JString(key.value) } else { trim(substring(
+            s,
+            p,
+            key.next
+        )) }
         if mapb_contains<string, Json>(fields, key_text) {
             return err(fail(no, format("duplicate key '{}'", key_text)))
         }
@@ -578,10 +591,18 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
         if !blank && ln.indent < indent {
             return err(fail(ln.no, "bad indentation in a block scalar"))
         }
-        ab_append<string>(body_lines,
-            if blank { (if indent >= 0 && len(ln.raw) > indent { substring(ln.raw, indent,
-                len(ln.raw)) } else { "" }) } else { substring(ln.raw,
-                    indent, len(ln.raw)) })
+        ab_append<string>(
+            body_lines,
+            if blank { (if indent >= 0 && len(ln.raw) > indent { substring(
+                ln.raw,
+                indent,
+                len(ln.raw)
+            ) } else { "" }) } else { substring(
+                ln.raw,
+                indent,
+                len(ln.raw)
+            ) }
+        )
         i = i + 1
         if !blank {
             last_used = i
@@ -816,8 +837,12 @@ fn quote_double(s: string) -> string {
             sb_append(out, "\\r")
         } else if compare(c, " ") < 0 {
             val code = string_to_bytes(c)[0] as int
-            sb_append(out, "\\x", substring(hex_chars, code / 16, code / 16 + 1),
-                substring(hex_chars, code % 16, code % 16 + 1))
+            sb_append(
+                out,
+                "\\x",
+                substring(hex_chars, code / 16, code / 16 + 1),
+                substring(hex_chars, code % 16, code % 16 + 1)
+            )
         } else {
             sb_append(out, c)
         }
@@ -836,8 +861,11 @@ fn string_text(s: string) -> string {
     if !is_ok(parsed) || !Json.is_JString(unwrap(parsed)) || Json.unwrap_JString(unwrap(parsed)) != s {
         return quote_double(s)
     }
-    if is_char_at(s, 0, " ") || is_char_at(s, len(s) - 1, " ") || is_char_at(s, 0, "\t") || is_char_at(s, len(s) - 1,
-        "\t") {
+    if is_char_at(s, 0, " ") || is_char_at(s, len(s) - 1, " ") || is_char_at(s, 0, "\t") || is_char_at(
+        s,
+        len(s) - 1,
+        "\t"
+    ) {
         return quote_double(s)
     }
     if contains("-?:,[]{}#&*!|>'\"%@`", char_at(s, 0)) {

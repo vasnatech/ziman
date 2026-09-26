@@ -77,8 +77,13 @@ fn append_utf8(out: StringBuilder, cp: int) {
     } else if cp < 65536 {
         sb_append_byte(out, (224 + cp / 4096) as byte, (128 + cp / 64 % 64) as byte, (128 + cp % 64) as byte)
     } else {
-        sb_append_byte(out, (240 + cp / 262144) as byte, (128 + cp / 4096 % 64) as byte, (128 + cp / 64 % 64) as byte,
-            (128 + cp % 64) as byte)
+        sb_append_byte(
+            out,
+            (240 + cp / 262144) as byte,
+            (128 + cp / 4096 % 64) as byte,
+            (128 + cp / 64 % 64) as byte,
+            (128 + cp % 64) as byte
+        )
     }
 }
 
@@ -194,8 +199,11 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             } else if multi && (e == "\n" || e == "\r" || e == " " || e == "\t") {
                 // a line-ending backslash: drop it, the newline and all following whitespace
                 var q = p + 1
-                while q < len(s) && (is_char_at(s, q, " ") || is_char_at(s, q, "\t") || is_char_at(s, q,
-                    "\r") || is_char_at(s, q, "\n")) {
+                while q < len(s) && (is_char_at(s, q, " ") || is_char_at(s, q, "\t") || is_char_at(
+                    s,
+                    q,
+                    "\r"
+                ) || is_char_at(s, q, "\n")) {
                     q = q + 1
                 }
                 p = q
@@ -582,8 +590,12 @@ fn quote_basic(s: string) -> string {
             sb_append(out, "\\r")
         } else if compare(c, " ") < 0 {
             val code = string_to_bytes(c)[0] as int
-            sb_append(out, "\\u00", substring(hex_chars, code / 16, code / 16 + 1),
-                substring(hex_chars, code % 16, code % 16 + 1))
+            sb_append(
+                out,
+                "\\u00",
+                substring(hex_chars, code / 16, code / 16 + 1),
+                substring(hex_chars, code % 16, code % 16 + 1)
+            )
         } else {
             sb_append(out, c)
         }

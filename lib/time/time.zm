@@ -900,8 +900,16 @@ pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration {
 
 // `dt` rendered with a compiled pattern from `datetime_format_of`.
 pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string {
-    return format_fields(dt.date.year, dt.date.month, dt.date.day, dt.time.hour, dt.time.minute, dt.time.second,
-        dt.time.nano, fmt)
+    return format_fields(
+        dt.date.year,
+        dt.date.month,
+        dt.date.day,
+        dt.time.hour,
+        dt.time.minute,
+        dt.time.second,
+        dt.time.nano,
+        fmt
+    )
 }
 
 // Reads `s` with a compiled pattern; an Err says which part did not match or which field is out of

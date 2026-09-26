@@ -307,11 +307,15 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     }
 
     val transfer_encoding = header_value(header_list, "Transfer-Encoding")
-    val is_chunked = Option.is_Some(transfer_encoding) && equals_ignore_case(trim(Option.unwrap_Some(transfer_encoding)),
-        "chunked")
+    val is_chunked = Option.is_Some(transfer_encoding) && equals_ignore_case(
+        trim(Option.unwrap_Some(transfer_encoding)),
+        "chunked"
+    )
     if Option.is_Some(transfer_encoding) && !is_chunked {
-        return err(HttpError.NotImplemented(format("unsupported Transfer-Encoding '{}'",
-            Option.unwrap_Some(transfer_encoding))))
+        return err(HttpError.NotImplemented(format(
+            "unsupported Transfer-Encoding '{}'",
+            Option.unwrap_Some(transfer_encoding)
+        )))
     }
     if is_chunked && Option.is_Some(header_value(header_list, "Content-Length")) {
         return err(HttpError.BadRequest("both Transfer-Encoding and Content-Length are set"))
@@ -461,8 +465,11 @@ pub fn not_found() -> Response {
 
 // A 405 response with an `Allow` header listing `allowed`, and a JSON error body.
 pub fn method_not_allowed(allowed: string...) -> Response {
-    return with_header(error_reply(status_method_not_allowed, "method not allowed"), "Allow",
-        join(separator: ", ", pieces: allowed))
+    return with_header(
+        error_reply(status_method_not_allowed, "method not allowed"),
+        "Allow",
+        join(separator: ", ", pieces: allowed)
+    )
 }
 
 // The response to send for a request that couldn't be read. (`Closed` and
@@ -733,13 +740,20 @@ fn answer<O, E>(result: Result<O, E>, writer: Writer<O>, status: int, failure: f
 
 // An endpoint with no request body: `run(ctx, params)` gets the path parameters and returns the answer or an
 // error; the answer is written with the first of `writers` the client's `Accept` allows, with `status`.
-pub fn handler<C, O, E>(writers: [Writer<O>], status: int, run: fn(C, Params) -> Result<O, E>,
-    failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response {
+pub fn handler<C, O, E>(
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, Params) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response {
     return fn(ctx: C, req: Request, params: Params) -> Response {
         val writer = negotiate<O>(writers, req)
         if !Option.is_Some(writer) {
-            return fault(status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(writers)))
+            return fault(
+                status_not_acceptable,
+                format("not acceptable: this route produces {}", produced_types<O>(writers))
+            )
         }
         return answer<O, E>(run(ctx, params), Option.unwrap_Some(writer), status, failure)
     }
@@ -748,18 +762,28 @@ pub fn handler<C, O, E>(writers: [Writer<O>], status: int, run: fn(C, Params) ->
 // An endpoint with a request body: it must arrive as `reader.media` (else 415), the answer is negotiated (else
 // 406) before anything runs, the body is decoded with `reader` (a failure is 400), and `run(ctx, input)` returns
 // the answer or an error.
-pub fn body_handler<C, I, O, E>(reader: Reader<I>, writers: [Writer<O>], status: int, run: fn(C, I) -> Result<O, E>,
-    failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response {
+pub fn body_handler<C, I, O, E>(
+    reader: Reader<I>,
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, I) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response {
     return fn(ctx: C, req: Request, params: Params) -> Response {
         val sent = content_type(req.headers)
         if !Option.is_Some(sent) || !mime.matches(reader.media, Option.unwrap_Some(sent)) {
-            return fault(status_unsupported_media_type,
-                format("unsupported media type: send {}", mime.essence(reader.media)))
+            return fault(
+                status_unsupported_media_type,
+                format("unsupported media type: send {}", mime.essence(reader.media))
+            )
         }
         val writer = negotiate<O>(writers, req)
         if !Option.is_Some(writer) {
-            return fault(status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(writers)))
+            return fault(
+                status_not_acceptable,
+                format("not acceptable: this route produces {}", produced_types<O>(writers))
+            )
         }
         val read = reader.read
         val decoded = read(req.body)
@@ -838,8 +862,12 @@ fn serve_connection(
             session = exchange.session  // carries any bytes read past this request
             val response = handler(exchange.request)
             if log_requests {
-                printf("{} {} -> {}\n", method_name(exchange.request.method), exchange.request.target,
-                    response.status)
+                printf(
+                    "{} {} -> {}\n",
+                    method_name(exchange.request.method),
+                    exchange.request.target,
+                    response.status
+                )
             }
             val keep = write_response(sock, exchange.request, response)
             if !is_ok(keep) || !unwrap(keep) {

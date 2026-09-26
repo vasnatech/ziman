@@ -362,9 +362,13 @@ fn record_error(start_line: int, message: string) -> string {
         val close = index_of(detail, ")", at)
         val opened = parse_int(substring(detail, at + len(marker), close))
         if close >= 0 && is_ok(opened) {
-            detail = concat(concat(substring(detail, 0, at),
-                format("(opened on line {})", start_line + unwrap(opened) - 1)),
-                substring(detail, close + 1, len(detail)))
+            detail = concat(
+                concat(
+                    substring(detail, 0, at),
+                    format("(opened on line {})", start_line + unwrap(opened) - 1)
+                ),
+                substring(detail, close + 1, len(detail))
+            )
         }
     }
     return format("line {}: {}", line, detail)

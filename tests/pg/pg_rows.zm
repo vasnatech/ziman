@@ -31,9 +31,11 @@ fn main() {
     print(unwrap(sum_rows(conn, "SELECT g AS n FROM generate_series(1, 0) AS g")))
 
     // bound parameters, and every kind of value
-    val typed = unwrap(datasource.rows(conn,
+    val typed = unwrap(datasource.rows(
+        conn,
         "SELECT $1::int AS n, 'x'::text AS s, true AS b, 1.5::float8 AS f, NULL::int AS z",
-        db.SqlValue.Int(7)))
+        db.SqlValue.Int(7)
+    ))
     for row in typed {
         print(unwrap(row).values)
     }

@@ -28,23 +28,33 @@ fn main() {
     val pool = unwrap(datasource.open_pool(url, 3))
     unwrap(datasource.execute(pool, "DROP TABLE IF EXISTS pg_tx"))
     unwrap(datasource.execute(pool, "CREATE TABLE pg_tx (n INTEGER PRIMARY KEY)"))
-    print(unwrap(datasource.with_transaction<int>(pool,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 1) })))
+    print(unwrap(datasource.with_transaction<int>(
+        pool,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 1) }
+    )))
     print(is_ok(datasource.with_transaction<int>(pool, boom)))
     print(count(pool))
     // the second insert violates the primary key: the first is rolled back too
-    val dup = datasource.with_transaction<int>(pool,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return duplicate(tx, 7) })
+    val dup = datasource.with_transaction<int>(
+        pool,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return duplicate(tx, 7) }
+    )
     print(is_ok(dup))
     print(DbError.is_Constraint(unwrap_err(dup)))
     print(count(pool))
     // every borrowed connection came back: three more transactions do not block
-    print(unwrap(datasource.with_transaction<int>(pool,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 2) })))
-    print(unwrap(datasource.with_transaction<int>(pool,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 3) })))
-    print(unwrap(datasource.with_transaction<int>(pool,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 4) })))
+    print(unwrap(datasource.with_transaction<int>(
+        pool,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 2) }
+    )))
+    print(unwrap(datasource.with_transaction<int>(
+        pool,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 3) }
+    )))
+    print(unwrap(datasource.with_transaction<int>(
+        pool,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 4) }
+    )))
     print(count(pool))
     unwrap(datasource.execute(pool, "DROP TABLE pg_tx"))
     datasource.close(pool)

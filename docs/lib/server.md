@@ -333,8 +333,13 @@ How to encode an answer `O` as `media`.
 ### `handler`
 
 ```
-pub fn handler<C, O, E>(writers: [Writer<O>], status: int, run: fn(C, Params) -> Result<O, E>,
-    failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response
+pub fn handler<C, O, E>(
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, Params) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response
 ```
 
 An endpoint with no request body: `run(ctx, params)` gets the path parameters and returns the answer or an
@@ -343,8 +348,14 @@ error; the answer is written with the first of `writers` the client's `Accept` a
 ### `body_handler`
 
 ```
-pub fn body_handler<C, I, O, E>(reader: Reader<I>, writers: [Writer<O>], status: int, run: fn(C, I) -> Result<O, E>,
-    failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response
+pub fn body_handler<C, I, O, E>(
+    reader: Reader<I>,
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, I) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response
 ```
 
 An endpoint with a request body: it must arrive as `reader.media` (else 415), the answer is negotiated (else

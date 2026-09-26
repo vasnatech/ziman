@@ -83,8 +83,10 @@ pub fn open(url: string) -> Result<Connection, DbError> {
         val conn = mysql.connect(url)?
         return Connection.Mysql(conn)
     }
-    return err(DbError.Connection(concat("unsupported database URL (expected sqlite:, postgres:// or mysql://): ",
-        url)))
+    return err(DbError.Connection(concat(
+        "unsupported database URL (expected sqlite:, postgres:// or mysql://): ",
+        url
+    )))
 }
 
 // Closes a connection. For a pool, waits until every connection has been

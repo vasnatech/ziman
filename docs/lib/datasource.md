@@ -52,13 +52,15 @@ use db.sql_as_text
 // private in-memory database; `postgres://...` and `mysql://...` URLs work the same way.
 fn main() {
     val conn = unwrap(datasource.open("sqlite::memory:"))
-    unwrap(datasource.execute(conn,
+    unwrap(datasource.execute(
+        conn,
         """
         CREATE TABLE person (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL
         )
-        """))
+        """
+    ))
     unwrap(datasource.execute(conn, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Ada")))
 
     val rows = unwrap(datasource.query(conn, "SELECT id, name FROM person"))

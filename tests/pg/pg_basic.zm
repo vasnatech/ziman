@@ -20,14 +20,27 @@ fn main() {
 
     // ---- DDL script (several statements, no params) and every value kind
     unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS pg_t; DROP TABLE IF EXISTS pg_u"))
-    unwrap(datasource.execute(conn,
-        "CREATE TABLE pg_t (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, score DOUBLE PRECISION, ok BOOLEAN, flag INTEGER, note TEXT, blob BYTEA); CREATE TABLE pg_u (id INTEGER PRIMARY KEY, t_id INTEGER NOT NULL REFERENCES pg_t(id))"))
-    print(unwrap(datasource.execute(conn,
+    unwrap(datasource.execute(
+        conn,
+        "CREATE TABLE pg_t (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, score DOUBLE PRECISION, ok BOOLEAN, flag INTEGER, note TEXT, blob BYTEA); CREATE TABLE pg_u (id INTEGER PRIMARY KEY, t_id INTEGER NOT NULL REFERENCES pg_t(id))"
+    ))
+    print(unwrap(datasource.execute(
+        conn,
         "INSERT INTO pg_t (id, name, score, ok, flag, note, blob) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        SqlValue.Int(1), SqlValue.Text("Ada | 'x' \"q\" \\ line\nbreak"), SqlValue.Float(0.1), SqlValue.Bool(true),
-        SqlValue.Bool(false), SqlValue.Null, SqlValue.Bytes([0b, 1b, 255b, 16b]))))
-    print(unwrap(datasource.execute(conn, "INSERT INTO pg_t (id, name) VALUES ($1, $2)",
-        SqlValue.Int(2), SqlValue.Text("héllo wörld ✓"))))
+        SqlValue.Int(1),
+        SqlValue.Text("Ada | 'x' \"q\" \\ line\nbreak"),
+        SqlValue.Float(0.1),
+        SqlValue.Bool(true),
+        SqlValue.Bool(false),
+        SqlValue.Null,
+        SqlValue.Bytes([0b, 1b, 255b, 16b])
+    )))
+    print(unwrap(datasource.execute(
+        conn,
+        "INSERT INTO pg_t (id, name) VALUES ($1, $2)",
+        SqlValue.Int(2),
+        SqlValue.Text("héllo wörld ✓")
+    )))
 
     val rows = unwrap(datasource.query(conn, "SELECT * FROM pg_t ORDER BY id"))
     print(len(rows))
@@ -44,17 +57,27 @@ fn main() {
     print(unwrap(sql_as_int(field(a, "id"))))
 
     // ---- parameters bind by number, out of order
-    val ordered = unwrap(datasource.query(conn, "SELECT name FROM pg_t WHERE id = $2 AND name <> $1",
-        SqlValue.Text("nobody"), SqlValue.Int(2)))
+    val ordered = unwrap(datasource.query(
+        conn,
+        "SELECT name FROM pg_t WHERE id = $2 AND name <> $1",
+        SqlValue.Text("nobody"),
+        SqlValue.Int(2)
+    ))
     print(len(ordered))
     print(len(unwrap(datasource.query(conn, "SELECT * FROM pg_t WHERE id = $1", SqlValue.Int(99)))))
 
     // ---- error classification
-    print(db_error_message(unwrap_err(datasource.execute(conn, "INSERT INTO pg_t (id, name) VALUES (3, $1)",
-        SqlValue.Text("héllo wörld ✓")))))
+    print(db_error_message(unwrap_err(datasource.execute(
+        conn,
+        "INSERT INTO pg_t (id, name) VALUES (3, $1)",
+        SqlValue.Text("héllo wörld ✓")
+    ))))
     print(DbError.is_Constraint(unwrap_err(datasource.execute(conn, "INSERT INTO pg_u (id, t_id) VALUES (1, 99)"))))
-    print(DbError.is_Constraint(unwrap_err(datasource.execute(conn, "INSERT INTO pg_t (id, name) VALUES ($1, NULL)",
-        SqlValue.Int(5)))))
+    print(DbError.is_Constraint(unwrap_err(datasource.execute(
+        conn,
+        "INSERT INTO pg_t (id, name) VALUES ($1, NULL)",
+        SqlValue.Int(5)
+    ))))
     print(DbError.is_Sql(unwrap_err(datasource.query(conn, "SELEKT 1"))))
     print(DbError.is_Sql(unwrap_err(datasource.query(conn, "SELECT * FROM pg_t WHERE id = $1"))))
     // the connection is still in step after every one of those errors
@@ -73,8 +96,10 @@ fn main() {
     print(is_ok(datasource.query(conn, "SELECT 1")))
 
     // ---- a larger result set
-    unwrap(datasource.execute(conn,
-        "INSERT INTO pg_t (id, name) SELECT g, 'row' || g FROM generate_series(100, 299) AS g"))
+    unwrap(datasource.execute(
+        conn,
+        "INSERT INTO pg_t (id, name) SELECT g, 'row' || g FROM generate_series(100, 299) AS g"
+    ))
     print(len(unwrap(datasource.query(conn, "SELECT * FROM pg_t WHERE id >= 100"))))
     print(unwrap(datasource.execute(conn, "DELETE FROM pg_t WHERE id >= 100")))
 

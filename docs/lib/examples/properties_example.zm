@@ -2,13 +2,15 @@ use properties
 
 // Configuration as `key=value` lines. An error names the key and where its value came from.
 fn main() {
-    val props = unwrap(properties.parse("""
+    val props = unwrap(properties.parse(
+        """
         server.port=8080
         server.address=127.0.0.1
         greeting=hello ${server.address}
         debug=true
         """,
-        "example"))
+        "example"
+    ))
 
     print(unwrap(properties.get_int(props, "server.port")))
     print(unwrap(properties.get_string(props, "greeting")))

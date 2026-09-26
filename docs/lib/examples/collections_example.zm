@@ -8,8 +8,10 @@ fn main() {
     print(collections.sort_desc<int>([3, 1, 2]))
 
     // Sort by a computed key without writing a comparator.
-    val by_length = unwrap(collections.sort_by_keys<string, int>(words,
-        collections.map<string, int>(words, fn(w) { len(w) })))
+    val by_length = unwrap(collections.sort_by_keys<string, int>(
+        words,
+        collections.map<string, int>(words, fn(w) { len(w) })
+    ))
     print(by_length)
 
     print(collections.map<int, int>([1, 2, 3], fn(n) { n * n }))

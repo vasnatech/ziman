@@ -205,6 +205,8 @@ pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<R
     }
     val cursor = unwrap(opened)
     val names = cursor_columns_raw(cursor)
-    return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> { next_row(cursor, names) },
-        fn() { cursor_close_raw(cursor) })
+    return iter_from<Result<Row, DbError>>(
+        fn() -> Option<Result<Row, DbError>> { next_row(cursor, names) },
+        fn() { cursor_close_raw(cursor) }
+    )
 }

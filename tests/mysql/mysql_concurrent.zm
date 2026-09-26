@@ -10,8 +10,12 @@ fn worker(conn: datasource.Connection, base: int, done: Channel<int>) {
     var i = 0
     var ok = 0
     while i < 20 {
-        if is_ok(datasource.execute(conn, "INSERT INTO my_c (id, who) VALUES ($1, $2)",
-            SqlValue.Int(base + i), SqlValue.Int(base))) {
+        if is_ok(datasource.execute(
+            conn,
+            "INSERT INTO my_c (id, who) VALUES ($1, $2)",
+            SqlValue.Int(base + i),
+            SqlValue.Int(base)
+        )) {
             ok = ok + 1
         }
         i = i + 1

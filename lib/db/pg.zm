@@ -191,8 +191,10 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
         sslrootcert = Option.unwrap_Some(root)
     }
     if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
-        return err(conn_err(concat("unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ",
-            sslmode)))
+        return err(conn_err(concat(
+            "unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ",
+            sslmode
+        )))
     }
     return PgUrl { user: u.user, password: u.password, host: u.host, port: u.port, database: u.database,
         sslmode: sslmode, sslrootcert: sslrootcert }
@@ -228,8 +230,11 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
     val nonce = base64_encode(random_bytes(18))
     val client_first_bare = concat("n=,r=", nonce)
     val client_first = concat("n,,", client_first_bare)
-    send_message(sock, "p",
-        bytes_concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), string_to_bytes(client_first)))?
+    send_message(
+        sock,
+        "p",
+        bytes_concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), string_to_bytes(client_first))
+    )?
 
     val first = expect_auth(sock, 11)?
     val server_first = text_of(first.body, 4, len(first.body))
@@ -253,8 +258,10 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
     val client_key = hmac_sha256(salted, string_to_bytes("Client Key"))
     val stored_key = sha256(client_key)
     val client_final_without_proof = concat("c=biws,r=", combined_nonce)
-    val auth_message = string_to_bytes(join(separator: ",",
-        pieces: [client_first_bare, server_first, client_final_without_proof]))
+    val auth_message = string_to_bytes(join(
+        separator: ",",
+        pieces: [client_first_bare, server_first, client_final_without_proof]
+    ))
     val client_signature = hmac_sha256(stored_key, auth_message)
     val proof = bytes_xor(client_key, client_signature)
     val client_final = concat(client_final_without_proof, concat(",p=", base64_encode(proof)))
@@ -277,8 +284,15 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
 // ------------------------------------------------------------- handshake
 
 fn startup_message(url: PgUrl) -> [byte] {
-    val params = bytes_concat(cstring("user"), cstring(url.user), cstring("database"), cstring(url.database),
-        cstring("client_encoding"), cstring("UTF8"), [0b])
+    val params = bytes_concat(
+        cstring("user"),
+        cstring(url.user),
+        cstring("database"),
+        cstring(url.database),
+        cstring("client_encoding"),
+        cstring("UTF8"),
+        [0b]
+    )
     return bytes_concat(u32_to_bytes(len(params) + startup_header_bytes), u32_to_bytes(protocol_version_3), params)
 }
 
@@ -530,8 +544,14 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
     for p in params {
         ab_append<[byte]>(encoded, encode_param(p))
     }
-    val bind_body = bytes_concat(cstring(""), cstring(""), u16_to_bytes(0), u16_to_bytes(len(params)),
-        concat_arrays<byte>(parts: ab_to_array<[byte]>(encoded)), u16_to_bytes(0))
+    val bind_body = bytes_concat(
+        cstring(""),
+        cstring(""),
+        u16_to_bytes(0),
+        u16_to_bytes(len(params)),
+        concat_arrays<byte>(parts: ab_to_array<[byte]>(encoded)),
+        u16_to_bytes(0)
+    )
     val describe_body = bytes_concat(string_to_bytes("P"), cstring(""))
     val execute_body = bytes_concat(cstring(""), u32_to_bytes(0))
     val batch = bytes_concat(
@@ -539,7 +559,8 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
         frame("B", bind_body),
         frame("D", describe_body),
         frame("E", execute_body),
-        frame("S", []))
+        frame("S", [])
+    )
     lift<int>(net.write(sock, batch))?
     return collect_result(sock)
 }
@@ -666,14 +687,21 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
     for p in params {
         ab_append<[byte]>(encoded, encode_param(p))
     }
-    val bind_body = bytes_concat(cstring(""), cstring(""), u16_to_bytes(0), u16_to_bytes(len(params)),
-        concat_arrays<byte>(parts: ab_to_array<[byte]>(encoded)), u16_to_bytes(0))
+    val bind_body = bytes_concat(
+        cstring(""),
+        cstring(""),
+        u16_to_bytes(0),
+        u16_to_bytes(len(params)),
+        concat_arrays<byte>(parts: ab_to_array<[byte]>(encoded)),
+        u16_to_bytes(0)
+    )
     val batch = bytes_concat(
         frame("P", bytes_concat([0b], cstring(sql), u16_to_bytes(0))),
         frame("B", bind_body),
         frame("D", bytes_concat(string_to_bytes("P"), cstring(""))),
         frame("E", bytes_concat(cstring(""), u32_to_bytes(cursor_fetch_rows))),
-        frame("H", []))
+        frame("H", [])
+    )
     val sent = lift<int>(net.write(sock, batch))
     if !is_ok(sent) {
         return failed_step(unwrap_err(sent))
