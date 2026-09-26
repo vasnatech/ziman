@@ -1,0 +1,13 @@
+fn main() {
+    print(is_empty(""))
+    print(is_empty(" "))
+    print(is_empty("a"))
+    print(is_blank(""))
+    print(is_blank("   "))
+    print(is_blank(" \t\r\n "))
+    print(is_blank(" a "))
+    print(is_blank("é"))
+    val name = "  Ada "
+    print(is_blank(name) == (trim(name) == ""))
+    print(is_blank(substring(name, 0, 2)))
+}

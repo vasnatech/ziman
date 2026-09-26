@@ -1209,7 +1209,7 @@ static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while"
                                        "int", "float", "bool", "string", "bigint", "decimal", "byte"};
 static const char *const BUILTINS[] = {"print", "printf", "format", "str", "len", "push", "insert", "set", "remove", "contains", "hash", "compare",
                                        "abs", "min", "max", "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "channel_new", "send", "receive",
-                                       "try_send", "try_receive", "channel_len", "concat", "substring", "split", "trim", "to_upper", "to_lower",
+                                       "try_send", "try_receive", "channel_len", "concat", "substring", "split", "trim", "is_empty", "is_blank", "to_upper", "to_lower",
                                        "index_of", "replace", "starts_with", "ends_with", "parse_int", "parse_float", "join", "slice",
                                        "concat_arrays", "map_get", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "map_keys", "map_values", "set_items", "string_to_bytes", "bytes_to_string", "bytes_concat", "sb_new", "sb_append", "sb_to_string", "ab_new", "ab_append", "ab_to_array", "mapb_new", "mapb_set", "mapb_get", "mapb_remove", "mapb_contains", "mapb_len", "mapb_to_map", "setb_new", "setb_add", "setb_remove", "setb_contains", "setb_len", "setb_to_set"};
 

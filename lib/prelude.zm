@@ -70,6 +70,12 @@ native fn split(s: string, sep: string) -> [string]
 // `s` without leading and trailing blanks (space, tab, CR, LF).
 native fn trim(s: string) -> string
 
+// Whether `s` has no characters: `s == ""`.
+native fn is_empty(s: string) -> bool
+
+// Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, without making the trimmed string.
+native fn is_blank(s: string) -> bool
+
 // The one-byte string at position `i` (`0 <= i < len(s)`, a runtime error otherwise), so
 // `char_at(s, i) == "x"` replaces `substring(s, i, i + 1) == "x"`. It is a byte, not a character.
 native fn char_at(s: string, i: int) -> string

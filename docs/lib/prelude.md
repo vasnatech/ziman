@@ -193,6 +193,22 @@ native fn trim(s: string) -> string
 
 `s` without leading and trailing blanks (space, tab, CR, LF).
 
+### `is_empty`
+
+```
+native fn is_empty(s: string) -> bool
+```
+
+Whether `s` has no characters: `s == ""`.
+
+### `is_blank`
+
+```
+native fn is_blank(s: string) -> bool
+```
+
+Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, without making the trimmed string.
+
 ### `char_at`
 
 ```

@@ -3062,6 +3062,8 @@ a type error.
   unlike the `substring(s, i, i + n) == x` idiom they replace.
 - `trim(s: string) -> string` — `s` with leading/trailing whitespace
   removed.
+- `is_empty(s: string) -> bool` — `s == ""`; `is_blank(s: string) -> bool` —
+  `s` is empty or only whitespace (what `trim` removes).
 - `to_upper(s: string) -> string` / `to_lower(s: string) -> string` —
   ASCII case conversion.
 - `parse_int(s: string) -> Result<int, string>` / `parse_float(s: string)

@@ -292,6 +292,25 @@ static Value native_trim(Value *args, int argc, int line, int col) {
     return string_slice(args[0], start, end - start);
 }
 
+static Value native_is_empty(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return value_bool(SLEN(args[0]) == 0);
+}
+
+static Value native_is_blank(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    const char *str = SPTR(args[0]);
+    size_t len = SLEN(args[0]);
+    for (size_t i = 0; i < len; i++) {
+        if (!isspace((unsigned char)str[i])) return value_bool(0);
+    }
+    return value_bool(1);
+}
+
 static Value native_to_upper(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -1154,6 +1173,8 @@ void prelude_register(void) {
     native_register("ends_with", native_ends_with);
     native_register("replace", native_replace);
     native_register("trim", native_trim);
+    native_register("is_empty", native_is_empty);
+    native_register("is_blank", native_is_blank);
     native_register("to_upper", native_to_upper);
     native_register("to_lower", native_to_lower);
     native_register("join", native_join);
