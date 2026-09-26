@@ -838,8 +838,8 @@ fn string_text(s: string) -> string {
     }
     if is_char_at(s, 0, " ") || is_char_at(s, len(s) - 1, " ") || is_char_at(s, 0, "\t") || is_char_at(s, len(s) - 1,
         "\t") {
-            return quote_double(s)
-        }
+        return quote_double(s)
+    }
     if contains("-?:,[]{}#&*!|>'\"%@`", char_at(s, 0)) {
         return quote_double(s)
     }

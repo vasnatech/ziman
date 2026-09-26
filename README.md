@@ -137,7 +137,9 @@ mutable) as `file:line:col: warning: ...`, or JSON with `"severity":"warning"`,
 and exits 1 if there are any; `--fmt file.zm...` prints the source formatted
 (`--fmt --write` rewrites the files, `--fmt --check` lists the ones that would
 change and exits 1, `--fmt -` reads stdin, `--width=N` sets the wrap column,
-default 120, 0 = never); `--version`; `--help`.
+default 120, 0 = never); `--version`; `--help`. A function's parameter list that is too wide, or that
+already spans several lines, is laid out one parameter per line with the parentheses on lines of their own
+(`fn name(` / `    a: A,` / `    b: B` / `) -> R {`), and the body is indented one level from `fn`.
 
 The interpreter has a tracing garbage collector (the Boehm-Demers-Weiser
 collector, vendored in `vendor/bdwgc` and built by `make` -- no network, no

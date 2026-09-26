@@ -1,0 +1,23 @@
+pub fn get_medications_by_patient(ctx: Ctx,
+    patient_id: Uuid) -> Result<[model.MedicationResponse], ServiceError> {
+        val found = repository.find_by_patient_id(ctx.conn, patient_id)
+        return switch found {
+            Ok(value) { mapper.to_responses(value) }
+            Err(failure) { ServiceError.Storage(failure) }
+        }
+    }
+
+fn short(a: int, b: int) -> int {
+    return a + b
+}
+
+fn already(
+    a: int,
+    b: int
+) -> int {
+    return a + b
+}
+
+fn too_long_for_one_line(first_parameter: string, second_parameter: string, third_parameter: string, fourth: int) -> string {
+    return first_parameter
+}

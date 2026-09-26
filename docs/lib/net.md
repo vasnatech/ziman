@@ -309,8 +309,12 @@ failed call leaks nothing.
 ### `connect_tls_with`
 
 ```
-pub fn connect_tls_with(host: string, port: int, verify: TlsVerify,
-    ca_file: Option<string>) -> Result<Socket, NetError>
+pub fn connect_tls_with(
+    host: string,
+    port: int,
+    verify: TlsVerify,
+    ca_file: Option<string>
+) -> Result<Socket, NetError>
 ```
 
 `connect_tls` choosing how much of the certificate to verify and, optionally, a PEM file of

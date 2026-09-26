@@ -436,45 +436,51 @@ fn login_prefix(caps: int) -> [byte] {
 // After the login packet: OK, an error, a request to switch plugin, or
 // caching_sha2's more-data packets (fast-auth success, or "send the
 // password" which is only acceptable over TLS).
-fn finish_auth(sock: Socket, start_seq: int, plugin_in: string, salt_in: [byte], password: string,
-    tls: bool) -> Result<int, DbError> {
-        var plugin = plugin_in
-        var salt = salt_in
-        var seq = start_seq
-        while true {
-            val p = read_packet(sock)?
-            seq = p.seq + 1
-            val first = p.body[0] as int
-            if p.body[0] == pkt_ok {
-                return 0
-            }
-            if p.body[0] == pkt_err {
-                return err(conn_err(text_of(p.body, 9, len(p.body))))
-            }
-            if p.body[0] == pkt_eof {
-                plugin = text_of(p.body, 1, cstring_end(p.body, 1))
-                val data_start = cstring_end(p.body, 1) + 1
-                var data_end = len(p.body)
-                if data_end > data_start && p.body[data_end - 1] == 0b {
-                    data_end = data_end - 1
-                }
-                salt = slice<byte>(p.body, data_start, data_end)
-                val reply = scramble(plugin, password, salt)?
-                send_packet(sock, seq, reply)?
-            } else if first == 1 {
-                val sub = p.body[1] as int
-                if sub == 4 {
-                    if !tls {
-                        return err(conn_err("caching_sha2_password needs the full authentication exchange for this login, which requires TLS; connect with sslmode=require (or set it up once over TLS so the server caches the login)"))
-                    }
-                    send_packet(sock, seq, cstring(password))?
-                }
-            } else {
-                return err(conn_err(format("unexpected packet {} during authentication", first)))
-            }
+fn finish_auth(
+    sock: Socket,
+    start_seq: int,
+    plugin_in: string,
+    salt_in: [byte],
+    password: string,
+    tls: bool
+) -> Result<int, DbError> {
+    var plugin = plugin_in
+    var salt = salt_in
+    var seq = start_seq
+    while true {
+        val p = read_packet(sock)?
+        seq = p.seq + 1
+        val first = p.body[0] as int
+        if p.body[0] == pkt_ok {
+            return 0
         }
-        return 0
+        if p.body[0] == pkt_err {
+            return err(conn_err(text_of(p.body, 9, len(p.body))))
+        }
+        if p.body[0] == pkt_eof {
+            plugin = text_of(p.body, 1, cstring_end(p.body, 1))
+            val data_start = cstring_end(p.body, 1) + 1
+            var data_end = len(p.body)
+            if data_end > data_start && p.body[data_end - 1] == 0b {
+                data_end = data_end - 1
+            }
+            salt = slice<byte>(p.body, data_start, data_end)
+            val reply = scramble(plugin, password, salt)?
+            send_packet(sock, seq, reply)?
+        } else if first == 1 {
+            val sub = p.body[1] as int
+            if sub == 4 {
+                if !tls {
+                    return err(conn_err("caching_sha2_password needs the full authentication exchange for this login, which requires TLS; connect with sslmode=require (or set it up once over TLS so the server caches the login)"))
+                }
+                send_packet(sock, seq, cstring(password))?
+            }
+        } else {
+            return err(conn_err(format("unexpected packet {} during authentication", first)))
+        }
     }
+    return 0
+}
 
 fn tls_verify(sslmode: string) -> net.TlsVerify {
     if sslmode == "verify-ca" {

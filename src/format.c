@@ -211,6 +211,7 @@ typedef struct {
     int opener_level;
     int angle;     /* unmatched '<' at this bracket level (a generic list, or a comparison) */
     int after_fn;  /* the bracket was opened right after the keyword `fn` */
+    int decl_params; /* the bracket opens a function declaration's parameter list: `fn name(` */
 } Open;
 
 static int opens(const Item *t) { return is(t, "(") || is(t, "[") || is(t, "{"); }
@@ -224,6 +225,7 @@ typedef struct {
     char innermost;      /* innermost open bracket: '(' '[' '{' or 0 */
     int angle_open;
     int after_fn;
+    int decl_params;     /* inside a function declaration's parameter list */
     int in_attr;         /* on a line that starts with `#` (an attribute) */
 } ItemPos;
 
@@ -281,15 +283,24 @@ static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
         pos[idx].innermost = depth > 0 ? stack[depth - 1].kind : 0;
         pos[idx].angle_open = depth > 0 ? stack[depth - 1].angle > 0 : 0;
         pos[idx].after_fn = depth > 0 ? stack[depth - 1].after_fn : 0;
+        pos[idx].decl_params = depth > 0 ? stack[depth - 1].decl_params : 0;
         pos[idx].in_attr = line_is_attr;
         wrote_any = 1;
 
         if (it->kind != K_COMMENT) {
             if (opens(it)) {
                 stack[depth].kind = it->s[0];
+                /* a `{` opened on a continuation line (after a parameter list or condition that wrapped) still
+                 * indents its block from the statement's own level, not from the continuation's */
                 stack[depth].opener_level = cur_level;
+                if (is(it, "{")) {
+                    int base = depth == 0 ? 0 : stack[depth - 1].opener_level + 1;
+                    if (base < cur_level) stack[depth].opener_level = base;
+                }
                 stack[depth].angle = 0;
                 stack[depth].after_fn = last_code != NULL && word_is(last_code, "fn");
+                stack[depth].decl_params = is(it, "(") && last_code != NULL && last_code->kind == K_WORD && !is_keyword(last_code) &&
+                                           before_last_code != NULL && word_is(before_last_code, "fn");
                 depth++;
             } else if (closes(it) && depth > 0) {
                 depth--;
@@ -346,12 +357,55 @@ static int wrap_once(Items *items, const ItemPos *pos, const Buf *out, int width
                 }
             }
             int at = best >= 0 ? best : first;
-            if (at >= 0) {
+            if (at >= 0 && pos[at].decl_params) {
+                /* a declaration's parameters go one per line, the parentheses on lines of their own:
+                 *   fn name(
+                 *       a: A,
+                 *       b: B
+                 *   ) -> R { */
+                int open = at, close = at;
+                while (open > 0 && !(is(&items->v[open], "(") && pos[open].depth == pos[at].depth - 1)) open--;
+                while (close + 1 < items->n && !(is(&items->v[close], ")") && pos[close].depth == pos[at].depth)) close++;
+                for (int k = open + 1; k <= close; k++) {
+                    int starts_param = k == open + 1 || (is(&items->v[k - 1], ",") && pos[k - 1].depth == pos[at].depth) || k == close;
+                    if (starts_param && items->v[k].nl_before == 0 && items->v[k].kind != K_COMMENT) {
+                        items->v[k].nl_before = 1;
+                        changed = 1;
+                    }
+                }
+            } else if (at >= 0) {
                 items->v[at + 1].nl_before = 1;
                 changed = 1;
             }
         }
         idx = end;
+    }
+    return changed;
+}
+
+/* A function declaration's parameter list that already spans several lines is laid out one parameter per line, the
+ * parentheses on lines of their own (a list holding a comment is left as written). Returns whether anything changed. */
+static int normalize_decl_params(Items *items, const ItemPos *pos) {
+    int changed = 0;
+    for (int i = 0; i + 1 < items->n; i++) {
+        if (!(is(&items->v[i], "(") && pos[i + 1].decl_params && !is(&items->v[i + 1], ")"))) continue;
+        int inner = pos[i].depth + 1;
+        int close = i + 1;
+        while (close < items->n && !(is(&items->v[close], ")") && pos[close].depth == inner)) close++;
+        if (close >= items->n) continue;
+        int multiline = 0, has_comment = 0;
+        for (int k = i + 1; k <= close; k++) {
+            if (items->v[k].nl_before > 0) multiline = 1;
+            if (items->v[k].kind == K_COMMENT) has_comment = 1;
+        }
+        if (!multiline || has_comment) continue;
+        for (int k = i + 1; k <= close; k++) {
+            int starts = k == i + 1 || (is(&items->v[k - 1], ",") && pos[k - 1].depth == inner) || k == close;
+            if (starts && items->v[k].nl_before == 0) {
+                items->v[k].nl_before = 1;
+                changed = 1;
+            }
+        }
     }
     return changed;
 }
@@ -483,7 +537,9 @@ char *format_source(const char *src, size_t len, int width, char *err, size_t er
     Buf out = {0};
     for (int pass = 0; pass < 60; pass++) {
         emit_pass(&items, &out, pos);
-        if (width <= 0 || !wrap_once(&items, pos, &out, width)) break;
+        int changed = normalize_decl_params(&items, pos);
+        if (width > 0 && wrap_once(&items, pos, &out, width)) changed = 1;
+        if (!changed) break;
     }
     char *text = align_trailing_comments(&out, &items, pos);
     size_t text_len = strlen(text);

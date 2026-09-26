@@ -406,17 +406,20 @@ fn next_item(handle: CursorHandle, buffer: Channel<Option<Row>>) -> Option<Resul
 // and later pages as the loop asks for them. Each item is a `Result<Row, DbError>`: a row, or the error that
 // ended the result part-way (after which the iteration ends). Leaving the loop early or `iter_close` ends the
 // cursor, and a cursor dropped unfinished is ended when it is garbage collected.
-pub fn open_rows(requests: Channel<Request>, sql: string,
-    params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
-        val reply: Channel<Result<Page, DbError>> = channel_new()
-        send(requests, Request.OpenCursor(OpenRequest { sql: sql, params: params, reply_to: reply }))
-        val first = receive(reply)?
-        val ender: Channel<int> = channel_new()
-        val handle = CursorHandle { cursor: first.cursor, requests: requests,
-            guard: guard_new<Request>(requests,
-                Request.EndCursor(EndRequest { cursor: first.cursor, reply_to: ender })) }
-        val buffer: Channel<Option<Row>> = channel_new()
-        buffer_page(buffer, first)
-        return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> { next_item(handle, buffer) },
-            fn() { end_cursor(handle) })
-    }
+pub fn open_rows(
+    requests: Channel<Request>,
+    sql: string,
+    params: [SqlValue]
+) -> Result<Iter<Result<Row, DbError>>, DbError> {
+    val reply: Channel<Result<Page, DbError>> = channel_new()
+    send(requests, Request.OpenCursor(OpenRequest { sql: sql, params: params, reply_to: reply }))
+    val first = receive(reply)?
+    val ender: Channel<int> = channel_new()
+    val handle = CursorHandle { cursor: first.cursor, requests: requests,
+        guard: guard_new<Request>(requests,
+            Request.EndCursor(EndRequest { cursor: first.cursor, reply_to: ender })) }
+    val buffer: Channel<Option<Row>> = channel_new()
+    buffer_page(buffer, first)
+    return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> { next_item(handle, buffer) },
+        fn() { end_cursor(handle) })
+}

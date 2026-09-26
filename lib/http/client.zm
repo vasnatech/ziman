@@ -550,128 +550,158 @@ struct Reply {
 
 // Writes a request on `s`: the request line, the headers this client always sets, the caller's headers,
 // and the body.
-fn write_request(s: Socket, method: HttpMethod, u: Url, proxy: Option<Url>, headers: [Header], body: Option<[byte]>,
-    want_compression: bool, keep_alive: bool) -> Result<int, ClientError> {
-        val via_http_proxy = Option.is_Some(proxy) && !u.secure
-        val request_target = if via_http_proxy {
-            format("http://{}{}", host_header(u), u.target)
-        } else {
-            u.target
-        }
-        val out = ab_new<string>()
-        ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method_name(method), request_target))
-        var has_ua = false
-        var has_accept = false
-        var has_encoding = false
-        var has_auth = false
-        for h in headers {
-            val lname = to_lower(h.name)
-            if lname == "user-agent" {
-                has_ua = true
-            }
-            if lname == "accept" {
-                has_accept = true
-            }
-            if lname == "accept-encoding" {
-                has_encoding = true
-            }
-            if lname == "authorization" {
-                has_auth = true
-            }
-            if lname != "host" && lname != "content-length" && lname != "connection" {
-                ab_append<string>(out, format("{}: {}\r\n", h.name, h.value))
-            }
-        }
-        ab_append<string>(out, format("Host: {}\r\n", host_header(u)))
-        if !has_ua {
-            ab_append<string>(out, "User-Agent: ziman\r\n")
-        }
-        if !has_accept {
-            ab_append<string>(out, "Accept: */*\r\n")
-        }
-        if !has_encoding {
-            ab_append<string>(out,
-                if want_compression { "Accept-Encoding: gzip, deflate\r\n" } else { "Accept-Encoding: identity\r\n" })
-        }
-        if !has_auth && len(u.userinfo) > 0 {
-            ab_append<string>(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
-        }
-        if via_http_proxy && Option.unwrap_Some(proxy).userinfo != "" {
-            ab_append<string>(out,
-                format("Proxy-Authorization: {}\r\n", basic_auth(Option.unwrap_Some(proxy).userinfo)))
-        }
-        ab_append<string>(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
-        if Option.is_Some(body) {
-            ab_append<string>(out, format("Content-Length: {}\r\n", len(Option.unwrap_Some(body))))
-        } else {
-            if method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch {
-                ab_append<string>(out, "Content-Length: 0\r\n")
-            }
-        }
-        ab_append<string>(out, "\r\n")
-        lift<int>(net.write_text(s, join(pieces: ab_to_array<string>(out), separator: "")))?
-        if Option.is_Some(body) && len(Option.unwrap_Some(body)) > 0 {
-            lift<int>(net.write(s, Option.unwrap_Some(body)))?
-        }
-        return ok(0)
+fn write_request(
+    s: Socket,
+    method: HttpMethod,
+    u: Url,
+    proxy: Option<Url>,
+    headers: [Header],
+    body: Option<[byte]>,
+    want_compression: bool,
+    keep_alive: bool
+) -> Result<int, ClientError> {
+    val via_http_proxy = Option.is_Some(proxy) && !u.secure
+    val request_target = if via_http_proxy {
+        format("http://{}{}", host_header(u), u.target)
+    } else {
+        u.target
     }
+    val out = ab_new<string>()
+    ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method_name(method), request_target))
+    var has_ua = false
+    var has_accept = false
+    var has_encoding = false
+    var has_auth = false
+    for h in headers {
+        val lname = to_lower(h.name)
+        if lname == "user-agent" {
+            has_ua = true
+        }
+        if lname == "accept" {
+            has_accept = true
+        }
+        if lname == "accept-encoding" {
+            has_encoding = true
+        }
+        if lname == "authorization" {
+            has_auth = true
+        }
+        if lname != "host" && lname != "content-length" && lname != "connection" {
+            ab_append<string>(out, format("{}: {}\r\n", h.name, h.value))
+        }
+    }
+    ab_append<string>(out, format("Host: {}\r\n", host_header(u)))
+    if !has_ua {
+        ab_append<string>(out, "User-Agent: ziman\r\n")
+    }
+    if !has_accept {
+        ab_append<string>(out, "Accept: */*\r\n")
+    }
+    if !has_encoding {
+        ab_append<string>(out,
+            if want_compression { "Accept-Encoding: gzip, deflate\r\n" } else { "Accept-Encoding: identity\r\n" })
+    }
+    if !has_auth && len(u.userinfo) > 0 {
+        ab_append<string>(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
+    }
+    if via_http_proxy && Option.unwrap_Some(proxy).userinfo != "" {
+        ab_append<string>(out,
+            format("Proxy-Authorization: {}\r\n", basic_auth(Option.unwrap_Some(proxy).userinfo)))
+    }
+    ab_append<string>(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
+    if Option.is_Some(body) {
+        ab_append<string>(out, format("Content-Length: {}\r\n", len(Option.unwrap_Some(body))))
+    } else {
+        if method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch {
+            ab_append<string>(out, "Content-Length: 0\r\n")
+        }
+    }
+    ab_append<string>(out, "\r\n")
+    lift<int>(net.write_text(s, join(pieces: ab_to_array<string>(out), separator: "")))?
+    if Option.is_Some(body) && len(Option.unwrap_Some(body)) > 0 {
+        lift<int>(net.write(s, Option.unwrap_Some(body)))?
+    }
+    return ok(0)
+}
 
 // Writes the request on `s` and reads the response.
-fn exchange(s: Socket, method: HttpMethod, u: Url, proxy: Option<Url>, headers: [Header], body: Option<[byte]>,
-    want_compression: bool, keep_alive: bool) -> Result<Reply, ClientError> {
-        write_request(s, method, u, proxy, headers, body, want_compression, keep_alive)?
-        val head = read_head(s)?
-        val payload = read_body(s, head, method == HttpMethod.Head)?
-        val decoded = decode_body(head.status, head.headers, payload.bytes)?
-        val connection = header_value(head.headers, "Connection")
-        val server_closes = Option.is_Some(connection) && contains(to_lower(Option.unwrap_Some(connection)), "close")
-        val http_1_1 = starts_with(head.status_line, "HTTP/1.1")
-        return ok(Reply { response: decoded, reusable: payload.clean && !server_closes && http_1_1 && keep_alive })
-    }
+fn exchange(
+    s: Socket,
+    method: HttpMethod,
+    u: Url,
+    proxy: Option<Url>,
+    headers: [Header],
+    body: Option<[byte]>,
+    want_compression: bool,
+    keep_alive: bool
+) -> Result<Reply, ClientError> {
+    write_request(s, method, u, proxy, headers, body, want_compression, keep_alive)?
+    val head = read_head(s)?
+    val payload = read_body(s, head, method == HttpMethod.Head)?
+    val decoded = decode_body(head.status, head.headers, payload.bytes)?
+    val connection = header_value(head.headers, "Connection")
+    val server_closes = Option.is_Some(connection) && contains(to_lower(Option.unwrap_Some(connection)), "close")
+    val http_1_1 = starts_with(head.status_line, "HTTP/1.1")
+    return ok(Reply { response: decoded, reusable: payload.clean && !server_closes && http_1_1 && keep_alive })
+}
 
-fn take_or_open(parked: Option<Socket>, u: Url, proxy: Option<Url>, ca_file: Option<string>,
-    timeout_ms: int) -> Result<Socket, ClientError> {
-        if Option.is_Some(parked) {
-            return ok(Option.unwrap_Some(parked))
-        }
-        return open_socket(u, proxy, ca_file, timeout_ms)
+fn take_or_open(
+    parked: Option<Socket>,
+    u: Url,
+    proxy: Option<Url>,
+    ca_file: Option<string>,
+    timeout_ms: int
+) -> Result<Socket, ClientError> {
+    if Option.is_Some(parked) {
+        return ok(Option.unwrap_Some(parked))
     }
+    return open_socket(u, proxy, ca_file, timeout_ms)
+}
 
 // One request on one connection: a parked one if `reuse` and there is one (retrying on a fresh
 // connection if it turns out to be dead), else a new one. The connection is parked again when the
 // exchange left it clean.
-fn send_once(method: HttpMethod, u: Url, proxy: Option<Url>, headers: [Header], body: Option<[byte]>, timeout_ms: int,
-    ca_file: Option<string>, want_compression: bool, reuse: bool) -> Result<BytesResponse, ClientError> {
-        val key = cache_key(u, proxy)
-        var attempt = 0
-        while attempt < 2 {
-            val parked = if reuse && attempt == 0 { net.idle_take(key) } else { Option<Socket>.None }
-            val reused = Option.is_Some(parked)
-            val sock = take_or_open(parked, u, proxy, ca_file, timeout_ms)
-            if !is_ok(sock) {
-                return err(unwrap_err(sock))
-            }
-            val s = unwrap(sock)
-            val timeout_set = net.set_timeout(s, timeout_ms)
-            val result = exchange(s, method, u, proxy, headers, body, want_compression, reuse)
-            if is_ok(result) {
-                val reply = unwrap(result)
-                if reply.reusable && reuse {
-                    net.idle_put(key, s)
-                } else {
-                    net.close(s)
-                }
-                return ok(reply.response)
-            }
-            net.close(s)
-            val why = unwrap_err(result)
-            if !(reused && ClientError.is_Network(why)) {
-                return err(why)
-            }
-            attempt = attempt + 1
+fn send_once(
+    method: HttpMethod,
+    u: Url,
+    proxy: Option<Url>,
+    headers: [Header],
+    body: Option<[byte]>,
+    timeout_ms: int,
+    ca_file: Option<string>,
+    want_compression: bool,
+    reuse: bool
+) -> Result<BytesResponse, ClientError> {
+    val key = cache_key(u, proxy)
+    var attempt = 0
+    while attempt < 2 {
+        val parked = if reuse && attempt == 0 { net.idle_take(key) } else { Option<Socket>.None }
+        val reused = Option.is_Some(parked)
+        val sock = take_or_open(parked, u, proxy, ca_file, timeout_ms)
+        if !is_ok(sock) {
+            return err(unwrap_err(sock))
         }
-        return err(ClientError.Network("the connection was closed"))
+        val s = unwrap(sock)
+        val timeout_set = net.set_timeout(s, timeout_ms)
+        val result = exchange(s, method, u, proxy, headers, body, want_compression, reuse)
+        if is_ok(result) {
+            val reply = unwrap(result)
+            if reply.reusable && reuse {
+                net.idle_put(key, s)
+            } else {
+                net.close(s)
+            }
+            return ok(reply.response)
+        }
+        net.close(s)
+        val why = unwrap_err(result)
+        if !(reused && ClientError.is_Network(why)) {
+            return err(why)
+        }
+        attempt = attempt + 1
     }
+    return err(ClientError.Network("the connection was closed"))
+}
 
 // Closes every parked keep-alive connection.
 pub fn close_idle() {
@@ -924,61 +954,71 @@ struct Outcome {
 }
 
 // The engine behind every request function: redirects, cookies, credentials, proxies.
-fn run(method: HttpMethod, url: string, headers: [Header], body: Option<[byte]>, timeout: int, limit: int,
+fn run(
+    method: HttpMethod,
+    url: string,
+    headers: [Header],
+    body: Option<[byte]>,
+    timeout: int,
+    limit: int,
     ca_file: Option<string>,
-    proxy_arg: Option<string>, want_compression: bool, reuse: bool, jar: CookieJar) -> Result<Outcome, ClientError> {
-        val parsed = parse_url(url)
-        if !is_ok(parsed) {
-            return err(ClientError.BadUrl(unwrap_err(parsed)))
-        }
-        var current = unwrap(parsed)
-        var m = method
-        var b = body
-        var hs = headers
-        var cookies = jar
-        var hops = 0
-        while true {
-            val proxy = proxy_for(current, proxy_arg)?
-            val cookie_value = jar_header(cookies, current)
-            val sent_headers = if Option.is_Some(cookie_value) && !Option.is_Some(header_value(hs, "Cookie")) {
-                push(hs, Header { name: "Cookie", value: Option.unwrap_Some(cookie_value) })
-            } else {
-                hs
-            }
-            val resp = send_once(m, current, proxy, sent_headers, b, timeout, ca_file, want_compression, reuse)?
-            cookies = jar_store(cookies, current, resp.headers)
-            val s = resp.status
-            val redirect = s == status_moved_permanently || s == status_found || s == status_see_other || s == status_temporary_redirect ||
-                s == status_permanent_redirect
-            if !redirect || limit == 0 || !Option.is_Some(location_of(resp)) {
-                return ok(Outcome { response: resp, jar: cookies })
-            }
-            if hops >= limit {
-                return err(ClientError.TooManyRedirects)
-            }
-            val next = resolve_location(current, Option.unwrap_Some(location_of(resp)))
-            if !is_ok(next) {
-                return err(ClientError.BadResponse(concat("bad redirect location: ", unwrap_err(next))))
-            }
-            val moved_away = unwrap(next).host != current.host || unwrap(next).port != current.port || unwrap(next).secure != current.secure
-            if moved_away {
-                val kept = ab_new<Header>()
-                for h in hs {
-                    if !equals_ignore_case(h.name, "Authorization") && !equals_ignore_case(h.name, "Cookie") {
-                        ab_append<Header>(kept, h)
-                    }
-                }
-                hs = ab_to_array<Header>(kept)
-            }
-            current = unwrap(next)
-            if s == status_see_other || ((s == status_moved_permanently || s == status_found) && m == HttpMethod.Post) {
-                m = HttpMethod.Get
-                b = Option<[byte]>.None
-            }
-            hops = hops + 1
-        }
-        return err(ClientError.TooManyRedirects)
+    proxy_arg: Option<string>,
+    want_compression: bool,
+    reuse: bool,
+    jar: CookieJar
+) -> Result<Outcome, ClientError> {
+    val parsed = parse_url(url)
+    if !is_ok(parsed) {
+        return err(ClientError.BadUrl(unwrap_err(parsed)))
     }
+    var current = unwrap(parsed)
+    var m = method
+    var b = body
+    var hs = headers
+    var cookies = jar
+    var hops = 0
+    while true {
+        val proxy = proxy_for(current, proxy_arg)?
+        val cookie_value = jar_header(cookies, current)
+        val sent_headers = if Option.is_Some(cookie_value) && !Option.is_Some(header_value(hs, "Cookie")) {
+            push(hs, Header { name: "Cookie", value: Option.unwrap_Some(cookie_value) })
+        } else {
+            hs
+        }
+        val resp = send_once(m, current, proxy, sent_headers, b, timeout, ca_file, want_compression, reuse)?
+        cookies = jar_store(cookies, current, resp.headers)
+        val s = resp.status
+        val redirect = s == status_moved_permanently || s == status_found || s == status_see_other || s == status_temporary_redirect ||
+            s == status_permanent_redirect
+        if !redirect || limit == 0 || !Option.is_Some(location_of(resp)) {
+            return ok(Outcome { response: resp, jar: cookies })
+        }
+        if hops >= limit {
+            return err(ClientError.TooManyRedirects)
+        }
+        val next = resolve_location(current, Option.unwrap_Some(location_of(resp)))
+        if !is_ok(next) {
+            return err(ClientError.BadResponse(concat("bad redirect location: ", unwrap_err(next))))
+        }
+        val moved_away = unwrap(next).host != current.host || unwrap(next).port != current.port || unwrap(next).secure != current.secure
+        if moved_away {
+            val kept = ab_new<Header>()
+            for h in hs {
+                if !equals_ignore_case(h.name, "Authorization") && !equals_ignore_case(h.name, "Cookie") {
+                    ab_append<Header>(kept, h)
+                }
+            }
+            hs = ab_to_array<Header>(kept)
+        }
+        current = unwrap(next)
+        if s == status_see_other || ((s == status_moved_permanently || s == status_found) && m == HttpMethod.Post) {
+            m = HttpMethod.Get
+            b = Option<[byte]>.None
+        }
+        hops = hops + 1
+    }
+    return err(ClientError.TooManyRedirects)
+}
 
 fn text_response(r: BytesResponse) -> Result<Response, ClientError> {
     val text = text_of(r.body)?
@@ -997,52 +1037,79 @@ fn text_response(r: BytesResponse) -> Result<Response, ClientError> {
 //                 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` environment variables decide
 //   compress      ask for gzip/deflate and decode the body (default true)
 //   reuse         keep the connection for the next request to the same place (default true)
-pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
-    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
-    compress: Option<bool>, reuse: Option<bool>) -> Result<Response, ClientError> {
-        val bytes_body = if Option.is_Some(body) {
-            Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
-        } else {
-            Option<[byte]>.None
-        }
-        val r = request_bytes(method: method, url: url, headers: headers, body: bytes_body, timeout_ms: timeout_ms,
-            max_redirects: max_redirects, ca_file: ca_file, proxy: proxy, compress: compress, reuse: reuse)?
-        return text_response(r)
+pub fn request(
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
+    body: Option<string>,
+    timeout_ms: Option<int>,
+    max_redirects: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>,
+    compress: Option<bool>,
+    reuse: Option<bool>
+) -> Result<Response, ClientError> {
+    val bytes_body = if Option.is_Some(body) {
+        Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
+    } else {
+        Option<[byte]>.None
     }
+    val r = request_bytes(method: method, url: url, headers: headers, body: bytes_body, timeout_ms: timeout_ms,
+        max_redirects: max_redirects, ca_file: ca_file, proxy: proxy, compress: compress, reuse: reuse)?
+    return text_response(r)
+}
 
 // Sends one request and returns the (final) response, body as bytes -- the general function; `request`
 // is this with text bodies. Arguments as for `request`.
-pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
-    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
-    compress: Option<bool>, reuse: Option<bool>) -> Result<BytesResponse, ClientError> {
-        val outcome = run(method, url, option_unwrap_or<[Header]>(headers, []), body,
-            option_unwrap_or<int>(timeout_ms, default_timeout_ms),
-            option_unwrap_or<int>(max_redirects, default_max_redirects), ca_file, proxy,
-            option_unwrap_or<bool>(compress, true),
-            option_unwrap_or<bool>(reuse, true), cookie_jar())?
-        return ok(outcome.response)
-    }
+pub fn request_bytes(
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
+    body: Option<[byte]>,
+    timeout_ms: Option<int>,
+    max_redirects: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>,
+    compress: Option<bool>,
+    reuse: Option<bool>
+) -> Result<BytesResponse, ClientError> {
+    val outcome = run(method, url, option_unwrap_or<[Header]>(headers, []), body,
+        option_unwrap_or<int>(timeout_ms, default_timeout_ms),
+        option_unwrap_or<int>(max_redirects, default_max_redirects), ca_file, proxy,
+        option_unwrap_or<bool>(compress, true),
+        option_unwrap_or<bool>(reuse, true), cookie_jar())?
+    return ok(outcome.response)
+}
 
 // `request`, with cookies: the jar's matching cookies are sent (on every redirect hop too), and the
 // cookies the responses set are stored. Returns the response and the updated jar; pass that jar to the
 // next call to stay "logged in". Other arguments as for `request`.
-pub fn request_with_jar(jar: CookieJar, method: HttpMethod, url: string, headers: Option<[Header]>,
+pub fn request_with_jar(
+    jar: CookieJar,
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
     body: Option<string>,
-    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
-    compress: Option<bool>, reuse: Option<bool>) -> Result<JarResponse, ClientError> {
-        val bytes_body = if Option.is_Some(body) {
-            Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
-        } else {
-            Option<[byte]>.None
-        }
-        val outcome = run(method, url, option_unwrap_or<[Header]>(headers, []), bytes_body,
-            option_unwrap_or<int>(timeout_ms, default_timeout_ms),
-            option_unwrap_or<int>(max_redirects, default_max_redirects), ca_file, proxy,
-            option_unwrap_or<bool>(compress, true),
-            option_unwrap_or<bool>(reuse, true), jar)?
-        val response = text_response(outcome.response)?
-        return ok(JarResponse { response: response, jar: outcome.jar })
+    timeout_ms: Option<int>,
+    max_redirects: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>,
+    compress: Option<bool>,
+    reuse: Option<bool>
+) -> Result<JarResponse, ClientError> {
+    val bytes_body = if Option.is_Some(body) {
+        Option<[byte]>.Some(string_to_bytes(Option.unwrap_Some(body)))
+    } else {
+        Option<[byte]>.None
     }
+    val outcome = run(method, url, option_unwrap_or<[Header]>(headers, []), bytes_body,
+        option_unwrap_or<int>(timeout_ms, default_timeout_ms),
+        option_unwrap_or<int>(max_redirects, default_max_redirects), ca_file, proxy,
+        option_unwrap_or<bool>(compress, true),
+        option_unwrap_or<bool>(reuse, true), jar)?
+    val response = text_response(outcome.response)?
+    return ok(JarResponse { response: response, jar: outcome.jar })
+}
 
 // GET `url`.
 pub fn get(url: string) -> Result<Response, ClientError> {
@@ -1224,47 +1291,54 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
 // loop is left early or with `iter_close(r.body)`, and a stream dropped unfinished is closed when its
 // socket is collected. Arguments as for `request_bytes`: `headers`, `body`, `timeout_ms`, `ca_file`,
 // `proxy`.
-pub fn stream(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>,
-    ca_file: Option<string>, proxy: Option<string>) -> Result<StreamResponse, ClientError> {
-        val parsed = parse_url(url)
-        if !is_ok(parsed) {
-            return err(ClientError.BadUrl(unwrap_err(parsed)))
-        }
-        val u = unwrap(parsed)
-        val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
-        val via = proxy_for(u, proxy)?
-        val sock = open_socket(u, via, ca_file, timeout)?
-        net.set_timeout(sock, timeout)
-        val sent = write_request(sock, method, u, via, option_unwrap_or<[Header]>(headers, []), body, false, false)
-        if !is_ok(sent) {
-            net.close(sock)
-            return err(unwrap_err(sent))
-        }
-        val read = read_head(sock)
-        if !is_ok(read) {
-            net.close(sock)
-            return err(unwrap_err(read))
-        }
-        val head = unwrap(read)
-        val te = header_value(head.headers, "Transfer-Encoding")
-        val cl = header_value(head.headers, "Content-Length")
-        val status = head.status
-        val no_body = method == HttpMethod.Head || status < 200 || status == status_no_content || status == status_not_modified
-        var state = BodyState { buffer: head.rest, mode: 2, left: 0, after_chunk: false, finished: no_body }
-        if Option.is_Some(te) && contains(to_lower(Option.unwrap_Some(te)), "chunked") {
-            state = BodyState { buffer: head.rest, mode: 1, left: 0, after_chunk: false, finished: no_body }
-        } else if Option.is_Some(cl) {
-            val n = parse_int(trim(Option.unwrap_Some(cl)))
-            if !is_ok(n) || unwrap(n) < 0 {
-                net.close(sock)
-                return err(ClientError.BadResponse("invalid Content-Length"))
-            }
-            state = BodyState { buffer: head.rest, mode: 0, left: unwrap(n), after_chunk: false, finished: no_body }
-        }
-        val cell: Channel<BodyState> = channel_new()
-        send(cell, state)
-        val blocks = iter_from<Result<[byte], ClientError>>(fn() -> Option<Result<[byte], ClientError>> {
-            next_body_block(sock, cell)
-        }, fn() { net.close(sock) })
-        return ok(StreamResponse { status: head.status, headers: head.headers, body: blocks })
+pub fn stream(
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
+    body: Option<[byte]>,
+    timeout_ms: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>
+) -> Result<StreamResponse, ClientError> {
+    val parsed = parse_url(url)
+    if !is_ok(parsed) {
+        return err(ClientError.BadUrl(unwrap_err(parsed)))
     }
+    val u = unwrap(parsed)
+    val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
+    val via = proxy_for(u, proxy)?
+    val sock = open_socket(u, via, ca_file, timeout)?
+    net.set_timeout(sock, timeout)
+    val sent = write_request(sock, method, u, via, option_unwrap_or<[Header]>(headers, []), body, false, false)
+    if !is_ok(sent) {
+        net.close(sock)
+        return err(unwrap_err(sent))
+    }
+    val read = read_head(sock)
+    if !is_ok(read) {
+        net.close(sock)
+        return err(unwrap_err(read))
+    }
+    val head = unwrap(read)
+    val te = header_value(head.headers, "Transfer-Encoding")
+    val cl = header_value(head.headers, "Content-Length")
+    val status = head.status
+    val no_body = method == HttpMethod.Head || status < 200 || status == status_no_content || status == status_not_modified
+    var state = BodyState { buffer: head.rest, mode: 2, left: 0, after_chunk: false, finished: no_body }
+    if Option.is_Some(te) && contains(to_lower(Option.unwrap_Some(te)), "chunked") {
+        state = BodyState { buffer: head.rest, mode: 1, left: 0, after_chunk: false, finished: no_body }
+    } else if Option.is_Some(cl) {
+        val n = parse_int(trim(Option.unwrap_Some(cl)))
+        if !is_ok(n) || unwrap(n) < 0 {
+            net.close(sock)
+            return err(ClientError.BadResponse("invalid Content-Length"))
+        }
+        state = BodyState { buffer: head.rest, mode: 0, left: unwrap(n), after_chunk: false, finished: no_body }
+    }
+    val cell: Channel<BodyState> = channel_new()
+    send(cell, state)
+    val blocks = iter_from<Result<[byte], ClientError>>(fn() -> Option<Result<[byte], ClientError>> {
+        next_body_block(sock, cell)
+    }, fn() { net.close(sock) })
+    return ok(StreamResponse { status: head.status, headers: head.headers, body: blocks })
+}

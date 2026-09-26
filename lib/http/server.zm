@@ -735,40 +735,40 @@ fn answer<O, E>(result: Result<O, E>, writer: Writer<O>, status: int, failure: f
 // error; the answer is written with the first of `writers` the client's `Accept` allows, with `status`.
 pub fn handler<C, O, E>(writers: [Writer<O>], status: int, run: fn(C, Params) -> Result<O, E>,
     failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response {
-        return fn(ctx: C, req: Request, params: Params) -> Response {
-            val writer = negotiate<O>(writers, req)
-            if !Option.is_Some(writer) {
-                return fault(status_not_acceptable,
-                    format("not acceptable: this route produces {}", produced_types<O>(writers)))
-            }
-            return answer<O, E>(run(ctx, params), Option.unwrap_Some(writer), status, failure)
+    return fn(ctx: C, req: Request, params: Params) -> Response {
+        val writer = negotiate<O>(writers, req)
+        if !Option.is_Some(writer) {
+            return fault(status_not_acceptable,
+                format("not acceptable: this route produces {}", produced_types<O>(writers)))
         }
+        return answer<O, E>(run(ctx, params), Option.unwrap_Some(writer), status, failure)
     }
+}
 
 // An endpoint with a request body: it must arrive as `reader.media` (else 415), the answer is negotiated (else
 // 406) before anything runs, the body is decoded with `reader` (a failure is 400), and `run(ctx, input)` returns
 // the answer or an error.
 pub fn body_handler<C, I, O, E>(reader: Reader<I>, writers: [Writer<O>], status: int, run: fn(C, I) -> Result<O, E>,
     failure: fn(E) -> Response, fault: fn(int, string) -> Response) -> fn(C, Request, Params) -> Response {
-        return fn(ctx: C, req: Request, params: Params) -> Response {
-            val sent = content_type(req.headers)
-            if !Option.is_Some(sent) || !mime.matches(reader.media, Option.unwrap_Some(sent)) {
-                return fault(status_unsupported_media_type,
-                    format("unsupported media type: send {}", mime.essence(reader.media)))
-            }
-            val writer = negotiate<O>(writers, req)
-            if !Option.is_Some(writer) {
-                return fault(status_not_acceptable,
-                    format("not acceptable: this route produces {}", produced_types<O>(writers)))
-            }
-            val read = reader.read
-            val decoded = read(req.body)
-            return switch decoded {
-                Ok(input) { answer<O, E>(run(ctx, input), Option.unwrap_Some(writer), status, failure) }
-                Err(message) { fault(status_bad_request, message) }
-            }
+    return fn(ctx: C, req: Request, params: Params) -> Response {
+        val sent = content_type(req.headers)
+        if !Option.is_Some(sent) || !mime.matches(reader.media, Option.unwrap_Some(sent)) {
+            return fault(status_unsupported_media_type,
+                format("unsupported media type: send {}", mime.essence(reader.media)))
+        }
+        val writer = negotiate<O>(writers, req)
+        if !Option.is_Some(writer) {
+            return fault(status_not_acceptable,
+                format("not acceptable: this route produces {}", produced_types<O>(writers)))
+        }
+        val read = reader.read
+        val decoded = read(req.body)
+        return switch decoded {
+            Ok(input) { answer<O, E>(run(ctx, input), Option.unwrap_Some(writer), status, failure) }
+            Err(message) { fault(status_bad_request, message) }
         }
     }
+}
 
 fn describe<C>(e: Endpoint<C>) -> string {
     return format("{} {}", method_name(e.method), e.pattern)
@@ -816,33 +816,38 @@ pub struct ServeOptions {
     log_requests: bool
 }
 
-fn serve_connection(sock: Socket, handler: fn(Request) -> Response, idle_timeout_ms: int, log_requests: bool,
-    slots: Channel<int>) {
-        defer send(slots, 1)  // the slot is returned on every way out
-        defer net.close(sock)
-        unwrap(net.set_timeout(sock, idle_timeout_ms))  // an idle client can't hold this thread forever
-        var session = open_session(sock)
-        var open = true
-        while open {
-            val next = read_request(session)
-            if !is_ok(next) {
-                write_error(sock, unwrap_err(next))  // 400/408/413/431/501, or nothing if the peer is gone
+fn serve_connection(
+    sock: Socket,
+    handler: fn(Request) -> Response,
+    idle_timeout_ms: int,
+    log_requests: bool,
+    slots: Channel<int>
+) {
+    defer send(slots, 1)  // the slot is returned on every way out
+    defer net.close(sock)
+    unwrap(net.set_timeout(sock, idle_timeout_ms))  // an idle client can't hold this thread forever
+    var session = open_session(sock)
+    var open = true
+    while open {
+        val next = read_request(session)
+        if !is_ok(next) {
+            write_error(sock, unwrap_err(next))  // 400/408/413/431/501, or nothing if the peer is gone
+            open = false
+        } else {
+            val exchange = unwrap(next)
+            session = exchange.session  // carries any bytes read past this request
+            val response = handler(exchange.request)
+            if log_requests {
+                printf("{} {} -> {}\n", method_name(exchange.request.method), exchange.request.target,
+                    response.status)
+            }
+            val keep = write_response(sock, exchange.request, response)
+            if !is_ok(keep) || !unwrap(keep) {
                 open = false
-            } else {
-                val exchange = unwrap(next)
-                session = exchange.session  // carries any bytes read past this request
-                val response = handler(exchange.request)
-                if log_requests {
-                    printf("{} {} -> {}\n", method_name(exchange.request.method), exchange.request.target,
-                        response.status)
-                }
-                val keep = write_response(sock, exchange.request, response)
-                if !is_ok(keep) || !unwrap(keep) {
-                    open = false
-                }
             }
         }
     }
+}
 
 // Serves `listener` until a shutdown is requested, answering each request with `handler`; see
 // `ServeOptions` for the limits and the description above for how connections and shutdown behave.

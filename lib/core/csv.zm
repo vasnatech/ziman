@@ -293,52 +293,56 @@ fn unclosed_record(text: string, start_line: int, sep: string) -> Result<RecordT
 // The next record of a file being read line by line, or None at its end. Blank lines between records are
 // skipped; `cell` holds how many lines have been read. An Err item for a line that cannot be text, a
 // read error, or a quote that is never closed.
-fn read_record(lines: Iter<Result<string, string>>, cell: Channel<int>,
-    sep: string) -> Option<Result<RecordText, string>> {
-        var text = ""
-        var started = false
-        var start_line = 0
-        var quotes = 0
-        var result = Option<Result<RecordText, string>>.None
-        var done = false
-        while !done {
-            val item = iter_next<Result<string, string>>(lines)
-            val number = receive(cell) + 1
-            if Option.is_None(item) {
-                send(cell, number - 1)
+fn read_record(
+    lines: Iter<Result<string,
+    string>>,
+    cell: Channel<int>,
+    sep: string
+) -> Option<Result<RecordText, string>> {
+    var text = ""
+    var started = false
+    var start_line = 0
+    var quotes = 0
+    var result = Option<Result<RecordText, string>>.None
+    var done = false
+    while !done {
+        val item = iter_next<Result<string, string>>(lines)
+        val number = receive(cell) + 1
+        if Option.is_None(item) {
+            send(cell, number - 1)
+            done = true
+            if started {
+                result = Option<Result<RecordText, string>>.Some(unclosed_record(text, start_line, sep))
+            }
+        } else {
+            send(cell, number)
+            val line_result = Option.unwrap_Some(item)
+            if !is_ok(line_result) {
                 done = true
-                if started {
-                    result = Option<Result<RecordText, string>>.Some(unclosed_record(text, start_line, sep))
-                }
+                result = Option<Result<RecordText, string>>.Some(record_text_error(number, unwrap_err(line_result)))
             } else {
-                send(cell, number)
-                val line_result = Option.unwrap_Some(item)
-                if !is_ok(line_result) {
-                    done = true
-                    result = Option<Result<RecordText, string>>.Some(record_text_error(number, unwrap_err(line_result)))
+                val line = unwrap(line_result)
+                if !started && len(trim(line)) == 0 {
+                    continue
+                }
+                if started {
+                    text = concat(concat(text, "\n"), line)
                 } else {
-                    val line = unwrap(line_result)
-                    if !started && len(trim(line)) == 0 {
-                        continue
-                    }
-                    if started {
-                        text = concat(concat(text, "\n"), line)
-                    } else {
-                        started = true
-                        start_line = number
-                        text = line
-                    }
-                    quotes = quotes + quote_count(line)
-                    if quotes % 2 == 0 {
-                        done = true
-                        val record: Result<RecordText, string> = RecordText { text: text, line: start_line }
-                        result = Option<Result<RecordText, string>>.Some(record)
-                    }
+                    started = true
+                    start_line = number
+                    text = line
+                }
+                quotes = quotes + quote_count(line)
+                if quotes % 2 == 0 {
+                    done = true
+                    val record: Result<RecordText, string> = RecordText { text: text, line: start_line }
+                    result = Option<Result<RecordText, string>>.Some(record)
                 }
             }
         }
-        return result
     }
+    return result
+}
 
 // The scanner's message for one record, with its line numbers (relative to the record) turned into the
 // file's: the leading "line N: " becomes the record's first line plus N - 1, and so does an "(opened on
@@ -379,31 +383,37 @@ fn row_of_record(record: RecordText, sep: string, typed: bool) -> Result<Row, st
     return Row { line: record.line, cells: rows[0].cells }
 }
 
-fn next_object(lines: Iter<Result<string, string>>, cell: Channel<int>, names: [string], sep: string,
-    typed: bool) -> Option<Result<Json, string>> {
-        val record = read_record(lines, cell, sep)
-        if Option.is_None(record) {
-            return Option<Result<Json, string>>.None
-        }
-        val text = Option.unwrap_Some(record)
-        if !is_ok(text) {
-            val failure: Result<Json, string> = unwrap_err(text)
-            return Option<Result<Json, string>>.Some(failure)
-        }
-        val row = row_of_record(unwrap(text), sep, typed)
-        if !is_ok(row) {
-            val failure: Result<Json, string> = unwrap_err(row)
-            return Option<Result<Json, string>>.Some(failure)
-        }
-        val objects = rows_to_objects([unwrap(row)], names, 0, typed)
-        if !is_ok(objects) {
-            val failure: Result<Json, string> = unwrap_err(objects)
-            return Option<Result<Json, string>>.Some(failure)
-        }
-        val array = Json.unwrap_JArray(unwrap(objects))
-        val item: Result<Json, string> = array[0]
-        return Option<Result<Json, string>>.Some(item)
+fn next_object(
+    lines: Iter<Result<string,
+    string>>,
+    cell: Channel<int>,
+    names: [string],
+    sep: string,
+    typed: bool
+) -> Option<Result<Json, string>> {
+    val record = read_record(lines, cell, sep)
+    if Option.is_None(record) {
+        return Option<Result<Json, string>>.None
     }
+    val text = Option.unwrap_Some(record)
+    if !is_ok(text) {
+        val failure: Result<Json, string> = unwrap_err(text)
+        return Option<Result<Json, string>>.Some(failure)
+    }
+    val row = row_of_record(unwrap(text), sep, typed)
+    if !is_ok(row) {
+        val failure: Result<Json, string> = unwrap_err(row)
+        return Option<Result<Json, string>>.Some(failure)
+    }
+    val objects = rows_to_objects([unwrap(row)], names, 0, typed)
+    if !is_ok(objects) {
+        val failure: Result<Json, string> = unwrap_err(objects)
+        return Option<Result<Json, string>>.Some(failure)
+    }
+    val array = Json.unwrap_JArray(unwrap(objects))
+    val item: Result<Json, string> = array[0]
+    return Option<Result<Json, string>>.Some(item)
+}
 
 fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Json, string>>, string> {
     check_delimiter(sep)?

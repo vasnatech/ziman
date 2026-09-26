@@ -334,8 +334,11 @@ Sends a statement to the connection's owning thread and waits for its answer.
 ### `open_rows`
 
 ```
-pub fn open_rows(requests: Channel<Request>, sql: string,
-    params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn open_rows(
+    requests: Channel<Request>,
+    sql: string,
+    params: [SqlValue]
+) -> Result<Iter<Result<Row, DbError>>, DbError>
 ```
 
 Opens a cursor for `sql` on the connection whose owning thread reads `requests`, and returns its rows

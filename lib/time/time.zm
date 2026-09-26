@@ -294,30 +294,38 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
 // distinct pattern and reused), this runs once per *formatted value*,
 // so it's the hotter of the two -- every field in every formatted
 // date/time used to mean one more leaked, ever-growing string.
-fn format_fields(year: int, month: int, day: int, hour: int, minute: int, second: int, nano: int,
-    fmt: DateTimeFormat) -> string {
-        val out = sb_new()
-        for part in fmt.parts {
-            if DateTimePart.is_Year(part) {
-                sb_append(out, pad_left(year, 4))
-            } else if DateTimePart.is_Month(part) {
-                sb_append(out, pad_left(month, 2))
-            } else if DateTimePart.is_Day(part) {
-                sb_append(out, pad_left(day, 2))
-            } else if DateTimePart.is_Hour(part) {
-                sb_append(out, pad_left(hour, 2))
-            } else if DateTimePart.is_Minute(part) {
-                sb_append(out, pad_left(minute, 2))
-            } else if DateTimePart.is_Second(part) {
-                sb_append(out, pad_left(second, 2))
-            } else if DateTimePart.is_Nano(part) {
-                sb_append(out, pad_left(nano, 9))
-            } else {
-                sb_append(out, DateTimePart.unwrap_Literal(part))
-            }
+fn format_fields(
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    second: int,
+    nano: int,
+    fmt: DateTimeFormat
+) -> string {
+    val out = sb_new()
+    for part in fmt.parts {
+        if DateTimePart.is_Year(part) {
+            sb_append(out, pad_left(year, 4))
+        } else if DateTimePart.is_Month(part) {
+            sb_append(out, pad_left(month, 2))
+        } else if DateTimePart.is_Day(part) {
+            sb_append(out, pad_left(day, 2))
+        } else if DateTimePart.is_Hour(part) {
+            sb_append(out, pad_left(hour, 2))
+        } else if DateTimePart.is_Minute(part) {
+            sb_append(out, pad_left(minute, 2))
+        } else if DateTimePart.is_Second(part) {
+            sb_append(out, pad_left(second, 2))
+        } else if DateTimePart.is_Nano(part) {
+            sb_append(out, pad_left(nano, 9))
+        } else {
+            sb_append(out, DateTimePart.unwrap_Literal(part))
         }
-        return sb_to_string(out)
     }
+    return sb_to_string(out)
+}
 
 struct ParsedFields {
     year: int

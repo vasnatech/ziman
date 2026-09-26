@@ -149,8 +149,8 @@ fn parse_name(text: string, pos: int) -> Result<Parsed<string>, string> {
     var p = pos
     while p < len(text) && ((char_at(text, p) >= "A" && char_at(text, p) <= "Z") || (char_at(text,
         p) >= "a" && char_at(text, p) <= "z")) {
-            p = p + 1
-        }
+        p = p + 1
+    }
     if p - pos < 3 {
         return err(bad_rule(text, "a zone name needs at least three letters"))
     }

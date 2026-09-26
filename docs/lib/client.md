@@ -236,9 +236,18 @@ paths first), or None if none match.
 ### `request`
 
 ```
-pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
-    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
-    compress: Option<bool>, reuse: Option<bool>) -> Result<Response, ClientError>
+pub fn request(
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
+    body: Option<string>,
+    timeout_ms: Option<int>,
+    max_redirects: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>,
+    compress: Option<bool>,
+    reuse: Option<bool>
+) -> Result<Response, ClientError>
 ```
 
 Sends one request and returns the (final) response, body as text.
@@ -257,9 +266,18 @@ Sends one request and returns the (final) response, body as text.
 ### `request_bytes`
 
 ```
-pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
-    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
-    compress: Option<bool>, reuse: Option<bool>) -> Result<BytesResponse, ClientError>
+pub fn request_bytes(
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
+    body: Option<[byte]>,
+    timeout_ms: Option<int>,
+    max_redirects: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>,
+    compress: Option<bool>,
+    reuse: Option<bool>
+) -> Result<BytesResponse, ClientError>
 ```
 
 Sends one request and returns the (final) response, body as bytes -- the general function; `request`
@@ -268,10 +286,19 @@ is this with text bodies. Arguments as for `request`.
 ### `request_with_jar`
 
 ```
-pub fn request_with_jar(jar: CookieJar, method: HttpMethod, url: string, headers: Option<[Header]>,
+pub fn request_with_jar(
+    jar: CookieJar,
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
     body: Option<string>,
-    timeout_ms: Option<int>, max_redirects: Option<int>, ca_file: Option<string>, proxy: Option<string>,
-    compress: Option<bool>, reuse: Option<bool>) -> Result<JarResponse, ClientError>
+    timeout_ms: Option<int>,
+    max_redirects: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>,
+    compress: Option<bool>,
+    reuse: Option<bool>
+) -> Result<JarResponse, ClientError>
 ```
 
 `request`, with cookies: the jar's matching cookies are sent (on every redirect hop too), and the
@@ -353,8 +380,15 @@ of bytes read as a `for` loop asks for them.
 ### `stream`
 
 ```
-pub fn stream(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>,
-    ca_file: Option<string>, proxy: Option<string>) -> Result<StreamResponse, ClientError>
+pub fn stream(
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
+    body: Option<[byte]>,
+    timeout_ms: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>
+) -> Result<StreamResponse, ClientError>
 ```
 
 Sends one request and returns the status and headers as soon as they arrive, with the body left on the

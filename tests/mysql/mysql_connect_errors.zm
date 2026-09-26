@@ -22,10 +22,10 @@ fn show_unknown_user(r: Result<datasource.Connection, DbError>) {
     val message = db_error_message(unwrap_err(r))
     if contains(message, "Access denied") || contains(message, "authentication plugin") ||
         contains(message, "full authentication exchange") {
-            print("database connection error: login rejected")
-        } else {
-            print(message)
-        }
+        print("database connection error: login rejected")
+    } else {
+        print(message)
+    }
 }
 
 fn main() {

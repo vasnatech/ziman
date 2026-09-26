@@ -10,8 +10,8 @@ fn writer(pool: datasource.Connection, base: int, done: Channel<int>) {
     for i in 0..25 {
         if is_ok(datasource.execute(pool, "INSERT INTO my_p (id, who) VALUES ($1, $2)",
             SqlValue.Int(base + i), SqlValue.Int(base))) {
-                ok = ok + 1
-            }
+            ok = ok + 1
+        }
     }
     send(done, ok)
 }
