@@ -28,5 +28,14 @@ POST /secret -> 401 [text/plain; charset=utf-8] fault 401: missing token
 POST /secret -> 415 [text/plain; charset=utf-8] fault 415: unsupported media type: send text/plain
 POST /secret -> 201 [text/plain] item 2005
 POST /secret -> 400 [text/plain; charset=utf-8] fault 400: body is not a number
+PUT /items/2 -> 200 [text/plain] item 2003
+PUT /items/x -> 400 [text/plain; charset=utf-8] fault 400: bad id
+PUT /items/2 -> 400 [text/plain; charset=utf-8] fault 400: body is not a number
+PUT /items/2 -> 415 [text/plain; charset=utf-8] fault 415: unsupported media type: send text/plain
+DELETE /items/5 -> 401 [text/plain; charset=utf-8] fault 401: missing token
+DELETE /items/5 -> 204 [-] 
+DELETE /items/5 -> 204 [-] 
+DELETE /items/0 -> 422 [text/plain; charset=utf-8] failure: no such item
+DELETE /items/x -> 400 [text/plain; charset=utf-8] fault 400: bad id
 DELETE /items -> 405 [text/plain; charset=utf-8] fault 405: method not allowed Allow=POST
 GET /nothing -> 404 [text/plain; charset=utf-8] fault 404: not found

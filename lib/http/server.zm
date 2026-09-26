@@ -773,13 +773,18 @@ fn produced_types<O>(writers: [Writer<O>]) -> string {
     return join(separator: ", ", pieces: ab_to_array<string>(names))
 }
 
-fn answer<O, E>(result: Result<O, E>, writer: Writer<O>, status: int, failure: fn(E) -> Response) -> Response {
-    val write = writer.write
+// The answer for `result`: written with `writer` when there is one, or an empty body when the endpoint has no writers
+// (a 204, say).
+fn answer<O, E>(result: Result<O, E>, writer: Option<Writer<O>>, status: int, failure: fn(E) -> Response) -> Response {
     val fail = failure
-    return switch result {
-        Ok(value) { media_response(status, write(value), writer.media) }
-        Err(e) { fail(e) }
+    if Err(e) = result {
+        return fail(e)
     }
+    if Some(w) = writer {
+        val write = w.write
+        return media_response(status, write(unwrap(result)), w.media)
+    }
+    return response(status, "")
 }
 
 // Why a caller was refused before an endpoint ran: not identified (`Unauthenticated`, answered 401), identified but not
@@ -828,13 +833,13 @@ pub fn secure_handler<C, U, O, E>(
             return denied_response(refusal, fault)
         }
         val writer = negotiate<O>(writers, req)
-        if !is_Some(writer) {
+        if len(writers) > 0 && !is_Some(writer) {
             return fault(
                 status_not_acceptable,
                 format("not acceptable: this route produces {}", produced_types<O>(writers))
             )
         }
-        return answer<O, E>(run(ctx, unwrap(caller)), unwrap_Some(writer), status, failure)
+        return answer<O, E>(run(ctx, unwrap(caller)), writer, status, failure)
     }
 }
 
@@ -856,7 +861,7 @@ pub fn secure_path_handler<C, U, P, O, E>(
             return denied_response(refusal, fault)
         }
         val writer = negotiate<O>(writers, req)
-        if !is_Some(writer) {
+        if len(writers) > 0 && !is_Some(writer) {
             return fault(
                 status_not_acceptable,
                 format("not acceptable: this route produces {}", produced_types<O>(writers))
@@ -864,7 +869,7 @@ pub fn secure_path_handler<C, U, P, O, E>(
         }
         val decode = path
         return switch decode(params) {
-            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), unwrap_Some(writer), status, failure) }
+            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), writer, status, failure) }
             Err(message) { fault(status_bad_request, message) }
         }
     }
@@ -896,7 +901,7 @@ pub fn secure_body_handler<C, U, I, O, E>(
             )
         }
         val writer = negotiate<O>(writers, req)
-        if !is_Some(writer) {
+        if len(writers) > 0 && !is_Some(writer) {
             return fault(
                 status_not_acceptable,
                 format("not acceptable: this route produces {}", produced_types<O>(writers))
@@ -904,11 +909,59 @@ pub fn secure_body_handler<C, U, I, O, E>(
         }
         val read = unwrap_Some(reader).read
         return switch read(req.body) {
-            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), unwrap_Some(writer), status, failure) }
+            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), writer, status, failure) }
             Err(message) { fault(status_bad_request, message) }
         }
     }
 }
+
+// A secured endpoint with both an id in the path and a request body (a `PUT /things/{id}`): `path` decodes the parameters
+// into a `P` and the body is decoded with the reader for its media type; `run(ctx, caller, path_input, body_input)`
+// returns the answer or an error. Either input failing to decode is a 400.
+pub fn secure_path_body_handler<C, U, P, I, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    path: fn(Params) -> Result<P, string>,
+    readers: [Reader<I>],
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, U, P, I) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response {
+    return fn(ctx: C, req: Request, params: Params) -> Response {
+        val identify = who
+        val caller = identify(ctx, req)
+        if Err(refusal) = caller {
+            return denied_response(refusal, fault)
+        }
+        val reader = select_reader<I>(readers, req)
+        if !is_Some(reader) {
+            return fault(
+                status_unsupported_media_type,
+                format("unsupported media type: send {}", consumed_types<I>(readers))
+            )
+        }
+        val writer = negotiate<O>(writers, req)
+        if len(writers) > 0 && !is_Some(writer) {
+            return fault(
+                status_not_acceptable,
+                format("not acceptable: this route produces {}", produced_types<O>(writers))
+            )
+        }
+        val decode = path
+        val id = decode(params)
+        if Err(message) = id {
+            return fault(status_bad_request, message)
+        }
+        val read = unwrap_Some(reader).read
+        return switch read(req.body) {
+            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), unwrap(id), input), writer, status, failure) }
+            Err(message) { fault(status_bad_request, message) }
+        }
+    }
+}
+
+// An endpoint with no `writers` answers with an empty body and no `Content-Type` (for a 204), whatever `Accept` says.
 
 // A public endpoint with no input: `run(ctx)`. Anyone may call it.
 pub fn public_handler<C, O, E>(
@@ -966,6 +1019,29 @@ pub fn public_body_handler<C, I, O, E>(
         writers: writers,
         status: status,
         run: fn(ctx: C, nobody: Anonymous, input: I) -> Result<O, E> { return go(ctx, input) },
+        failure: failure,
+        fault: fault
+    )
+}
+
+// A public endpoint with both an id in the path and a request body: `run(ctx, path_input, body_input)`.
+pub fn public_path_body_handler<C, P, I, O, E>(
+    path: fn(Params) -> Result<P, string>,
+    readers: [Reader<I>],
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, P, I) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return secure_path_body_handler<C, Anonymous, P, I, O, E>(
+        who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
+        path: path,
+        readers: readers,
+        writers: writers,
+        status: status,
+        run: fn(ctx: C, nobody: Anonymous, id: P, input: I) -> Result<O, E> { return go(ctx, id, input) },
         failure: failure,
         fault: fault
     )

@@ -396,6 +396,25 @@ A secured endpoint with a request body: it must arrive as one of `readers`' medi
 negotiated (else 406), the body is decoded with the reader for its type (a failure is 400), and
 `run(ctx, caller, input)` returns the answer or an error.
 
+### `secure_path_body_handler`
+
+```
+pub fn secure_path_body_handler<C, U, P, I, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    path: fn(Params) -> Result<P, string>,
+    readers: [Reader<I>],
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, U, P, I) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response
+```
+
+A secured endpoint with both an id in the path and a request body (a `PUT /things/{id}`): `path` decodes the parameters
+into a `P` and the body is decoded with the reader for its media type; `run(ctx, caller, path_input, body_input)`
+returns the answer or an error. Either input failing to decode is a 400.
+
 ### `public_handler`
 
 ```
@@ -439,6 +458,22 @@ pub fn public_body_handler<C, I, O, E>(
 ```
 
 A public endpoint with a request body: `run(ctx, input)`.
+
+### `public_path_body_handler`
+
+```
+pub fn public_path_body_handler<C, P, I, O, E>(
+    path: fn(Params) -> Result<P, string>,
+    readers: [Reader<I>],
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, P, I) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response
+```
+
+A public endpoint with both an id in the path and a request body: `run(ctx, path_input, body_input)`.
 
 ### `dispatch`
 

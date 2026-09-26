@@ -112,6 +112,17 @@ fn get_secret(ctx: Ctx, caller: Caller, id: int) -> Result<Item, string> {
     return Item { id: id + 1000 }
 }
 
+fn replace_item(ctx: Ctx, id: int, item: Item) -> Result<Item, string> {
+    return Item { id: id * 1000 + item.id }
+}
+
+fn delete_item(ctx: Ctx, caller: Caller, id: int) -> Result<bool, string> {
+    if id == 0 {
+        return err("no such item")
+    }
+    return true
+}
+
 fn post_secret(ctx: Ctx, caller: Caller, item: Item) -> Result<Item, string> {
     return Item { id: item.id + 2000 }
 }
@@ -201,6 +212,32 @@ fn main() {
             )
         },
         server.Endpoint<Ctx> {
+            method: http.HttpMethod.Put,
+            pattern: "/items/{id}",
+            handler: server.public_path_body_handler<Ctx, int, Item, Item, string>(
+                path: read_id,
+                readers: [text_in],
+                writers: [text_out],
+                status: 200,
+                run: replace_item,
+                failure: failure,
+                fault: fault
+            )
+        },
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Delete,
+            pattern: "/items/{id}",
+            handler: server.secure_path_handler<Ctx, Caller, int, bool, string>(
+                who: any_caller,
+                path: read_id,
+                writers: [],
+                status: 204,
+                run: delete_item,
+                failure: failure,
+                fault: fault
+            )
+        },
+        server.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/items",
             handler: server.public_body_handler<Ctx, Item, Item, string>(
@@ -247,6 +284,15 @@ fn main() {
         request("POST", "/secret", [h("Authorization", "Bearer ada"), h("Content-Type", "application/json")], "5"),
         request("POST", "/secret", [h("Authorization", "Bearer ada"), h("Content-Type", "text/plain")], "5"),
         request("POST", "/secret", [h("Authorization", "Bearer ada"), h("Content-Type", "text/plain")], "five"),
+        request("PUT", "/items/2", plain, "3"),
+        request("PUT", "/items/x", plain, "3"),
+        request("PUT", "/items/2", plain, "three"),
+        request("PUT", "/items/2", [h("Content-Type", "application/json")], "3"),
+        request("DELETE", "/items/5", [], ""),
+        request("DELETE", "/items/5", [h("Authorization", "Bearer ada")], ""),
+        request("DELETE", "/items/5", [h("Authorization", "Bearer ada"), h("Accept", "application/json")], ""),
+        request("DELETE", "/items/0", [h("Authorization", "Bearer ada")], ""),
+        request("DELETE", "/items/x", [h("Authorization", "Bearer ada")], ""),
         request("DELETE", "/items", [], ""),
         request("GET", "/nothing", [], "")
     ]
