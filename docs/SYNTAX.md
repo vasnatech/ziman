@@ -1327,7 +1327,11 @@ fn main() {
   project file exists, resolution falls back to a bundled *core module*
   (`use collections` needs no local file — see below) before giving up;
   a project's own file of the same name always wins if one exists.
-  Slash, not dot: a module path never shares a token with `.field`
+  A folder may hold its own module under its own name: `use controller`
+  with no `controller.zm` but a `controller/controller.zm` is that module
+  (the way the bundled `http` is `lib/http/http.zm`), and
+  `use controller.ApiError` imports from it; the shorter file wins when both
+  exist. Slash, not dot: a module path never shares a token with `.field`
   access, which already means something else. The name a module is
   referenced by (`user` above) is the path's last segment by default, or
   the explicit `as` alias if one is given — either way it's

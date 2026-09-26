@@ -1264,6 +1264,33 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, int *out_cou
     return imports;
 }
 
+/* A folder may hold its own module under its own name: `use a/b` where a/b.zm does not exist but a/b/b.zm does
+ * names the module a/b/b. A file of the shorter name wins when both exist. The path is rewritten in place, before
+ * anything else reads it, so a module has one name however it was written. */
+static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
+    char *file = resolve_file_path(ldr->project_root, u->path);
+    char *found = read_all(file);
+    free(file);
+    if (found != NULL) {
+        free(found);
+        return;
+    }
+    const char *slash = strrchr(u->path, '/');
+    const char *last = slash != NULL ? slash + 1 : u->path;
+    size_t n = strlen(u->path) + strlen(last) + 2;
+    char *inner = malloc(n);
+    snprintf(inner, n, "%s/%s", u->path, last);
+    file = resolve_file_path(ldr->project_root, inner);
+    found = read_all(file);
+    free(file);
+    if (found != NULL) {
+        free(found);
+        u->path = inner;
+    } else {
+        free(inner);
+    }
+}
+
 static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int ref_col) {
     Module *existing = find_loaded(ldr, use_path);
     if (existing != NULL) return existing;
@@ -1300,6 +1327,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     for (int i = 0; i < mod->uses.count; i++) {
         UseDecl *u = &mod->uses.items[i];
         ziman_set_error_file(from_disk ? file_path : NULL);
+        canonicalize_use_path(ldr, u);
         load_module(ldr, u->path, u->line, u->col);
     }
     ziman_set_error_file(from_disk ? file_path : NULL);
@@ -1343,6 +1371,7 @@ Module *load_module_graph(const char *entry_path) {
     for (int i = 0; i < entry_mod->uses.count; i++) {
         UseDecl *u = &entry_mod->uses.items[i];
         ziman_set_error_file(entry_path);
+        canonicalize_use_path(&ldr, u);
         load_module(&ldr, u->path, u->line, u->col);
     }
     ziman_set_error_file(entry_path);

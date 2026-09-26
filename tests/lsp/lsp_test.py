@@ -136,6 +136,20 @@ check("workspace symbols by name", any(x["name"] == "double" and x["location"]["
 r = request("textDocument/documentHighlight", {"textDocument": {"uri": main_uri}, "position": {"line": 9, "character": 8}})
 check("document highlight finds every use of a name", len(r["result"]) >= 5, r)
 
+# a folder holds its own module under its own name: `use shapes` is shapes/shapes.zm
+os.makedirs(os.path.join(tmp, "shapes"))
+shapes_path = os.path.join(tmp, "shapes", "shapes.zm")
+open(shapes_path, "w").write("pub struct Point {\n    x: int\n}\n\npub fn origin() -> Point {\n    return Point { x: 0 }\n}\n")
+folder_main = "use shapes\nuse shapes.Point\n\nfn main() {\n    val p = shapes.origin()\n    print(p.x)\n}\n"
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 5}, "contentChanges": [{"text": folder_main}]})
+check("a folder module type-checks", diagnostics_for(main_uri) == [])
+r = goto(0, 6)
+check("ctrl+click on a folder module's path", r and r["uri"] == "file://" + shapes_path and r["range"]["start"]["line"] == 0, r)
+r = goto(1, 14)
+check("a name imported from a folder module", r and r["uri"] == "file://" + shapes_path and r["range"]["start"]["line"] == 0, r)
+r = goto(4, 21)
+check("a call into a folder module", r and r["uri"] == "file://" + shapes_path and r["range"]["start"]["line"] == 4, r)
+
 messy = 'fn main(){\nval x=1\nprint(x)\n}\n'
 notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 3}, "contentChanges": [{"text": messy}]})
 diagnostics_for(main_uri)

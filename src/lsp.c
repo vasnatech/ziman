@@ -413,6 +413,7 @@ static void diag_sink(const char *phase, const char *file, int line, int col, co
 
 static Module *g_module = NULL;
 static char *g_module_entry = NULL;
+static char *g_module_entry_path(void) { return g_module_entry; }
 
 static int file_exists(const char *path) {
     struct stat st;
@@ -835,7 +836,37 @@ static void for_each_use(const Doc *d, UseVisitor visit, void *ctx) {
     }
 }
 
-typedef struct { const char *word; UseLine found; int hit; int want_name; } UseQuery;
+static int file_exists(const char *path);
+static Doc *find_doc_by_path(const char *path);
+static char *g_module_entry_path(void);
+
+/* The module a `use` path names: a folder holds its own module under its own name, so `use a/b` with no a/b.zm
+ * but an a/b/b.zm is the module a/b/b (the same rule the loader applies). Returns a copy of `path` otherwise. */
+static char *canonical_module_path(const Doc *d, const char *path) {
+    const char *base = g_module_entry_path() != NULL ? g_module_entry_path() : d->path;
+    const char *slash = strrchr(base, '/');
+    int dirlen = slash != NULL ? (int)(slash - base) : 0;
+    SB direct = {0}, inner = {0};
+    const char *last = strrchr(path, '/');
+    last = last != NULL ? last + 1 : path;
+    if (dirlen > 0) {
+        sb_printf(&direct, "%.*s/%s.zm", dirlen, base, path);
+        sb_printf(&inner, "%.*s/%s/%s.zm", dirlen, base, path, last);
+    } else {
+        sb_printf(&direct, "%s.zm", path);
+        sb_printf(&inner, "%s/%s.zm", path, last);
+    }
+    int has_direct = file_exists(direct.s) || find_doc_by_path(direct.s) != NULL;
+    int has_inner = file_exists(inner.s) || find_doc_by_path(inner.s) != NULL;
+    if (!has_direct && has_inner) {
+        SB out = {0};
+        sb_printf(&out, "%s/%s", path, last);
+        return out.s;
+    }
+    return strdup(path);
+}
+
+typedef struct { const char *word; UseLine found; int hit; int want_name; const Doc *doc; } UseQuery;
 
 static int visit_by_local(const UseLine *u, void *ctx) {
     UseQuery *q = ctx;
@@ -861,7 +892,9 @@ static int visit_has_import(const UseLine *u, void *ctx) {
     UseQuery *q = ctx; /* q->word is "path::Name" */
     char key[400];
     if (!u->has_name) return 0;
-    snprintf(key, sizeof key, "%s::%s", u->path, u->name);
+    char *canon = canonical_module_path(q->doc, u->path);
+    snprintf(key, sizeof key, "%s::%s", canon, u->name);
+    free(canon);
     if (strcmp(key, q->word) == 0) { q->hit = 1; return 1; }
     return 0;
 }
@@ -870,9 +903,10 @@ static int visit_has_import(const UseLine *u, void *ctx) {
 static char *module_file(const Doc *d, const char *mod_path) {
     const char *base = g_module_entry != NULL ? g_module_entry : d->path;
     const char *slash = strrchr(base, '/');
+    char *canon = canonical_module_path(d, mod_path);
     SB b = {0};
-    if (slash != NULL) sb_printf(&b, "%.*s/%s.zm", (int)(slash - base), base, mod_path);
-    else sb_printf(&b, "%s.zm", mod_path);
+    if (slash != NULL) sb_printf(&b, "%.*s/%s.zm", (int)(slash - base), base, canon);
+    else sb_printf(&b, "%s.zm", canon);
     if (file_exists(b.s) || find_doc_by_path(b.s) != NULL) return b.s;
     return core_file(mod_path);
 }
@@ -886,7 +920,12 @@ static int matches_word(const Doc *d, const Sym *s, const Cursor *c) {
     if (strcmp(bare_name(s->name), c->word) != 0) return 0;
     if (c->qualifier[0] != '\0') {
         UseLine u;
-        if (find_use(d, c->qualifier, 0, &u)) return module_part_equals(s->name, u.path);
+        if (find_use(d, c->qualifier, 0, &u)) {
+            char *canon = canonical_module_path(d, u.path);
+            int same = module_part_equals(s->name, canon);
+            free(canon);
+            return same;
+        }
         char *seg = module_segment(s->name);
         int ok = strcmp(seg, c->qualifier) == 0;
         free(seg);
@@ -896,6 +935,7 @@ static int matches_word(const Doc *d, const Sym *s, const Cursor *c) {
         UseQuery q;
         memset(&q, 0, sizeof q);
         q.word = s->name;
+        q.doc = d;
         for_each_use(d, visit_has_import, &q);
         return q.hit;
     }
@@ -1052,7 +1092,8 @@ static void handle_definition(const JVal *id, const JVal *params) {
         } else if ((u.has_name && col >= u.name_start && col <= u.name_end) || (u.has_alias && col >= u.alias_start && col <= u.alias_end)) {
             int nsyms;
             Sym *syms = collect_symbols(&nsyms);
-            Sym *s = u.has_name ? find_qualified(syms, nsyms, u.path, u.name) : NULL;
+            char *canon = canonical_module_path(d, u.path);
+            Sym *s = u.has_name ? find_qualified(syms, nsyms, canon, u.name) : NULL;
             if (s != NULL) { send_location(id, s->file, s->line, s->col); return; }
             char *file = module_file(d, u.path);
             if (file != NULL) { send_location(id, file, 1, 1); return; }
@@ -1081,7 +1122,8 @@ static void handle_definition(const JVal *id, const JVal *params) {
     }
     /* a name imported with `use mod.Name [as alias]` */
     if (c.qualifier[0] == '\0' && find_use(d, c.word, 1, &use)) {
-        Sym *imported = find_qualified(syms, nsyms, use.path, use.name);
+        char *canon = canonical_module_path(d, use.path);
+        Sym *imported = find_qualified(syms, nsyms, canon, use.name);
         if (imported != NULL) { send_location(id, imported->file, imported->line, imported->col); return; }
     }
     /* an enum variant (`Shape.Circle`): point at its enum */

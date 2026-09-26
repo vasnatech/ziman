@@ -1,0 +1,13 @@
+use shapes
+use shapes.Point
+use shapes/circle
+use util
+
+// `use shapes` finds shapes/shapes.zm: a folder holds its own module under its own name.
+// `use util` finds util.zm: a file of the shorter name wins over util/util.zm.
+fn main() {
+    val p = Point { x: 3, y: 4 }
+    print(circle.describe(p, 5))
+    print(circle.describe(shapes.origin(), 1))
+    print(util.which())
+}

@@ -1,0 +1,5 @@
+use shapes.Point
+
+pub fn describe(center: Point, radius: int) -> string {
+    return format("circle at ({}, {}) radius {}", center.x, center.y, radius)
+}
