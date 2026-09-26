@@ -1377,7 +1377,7 @@ from source.
 - **Content types on routes -- typed endpoints done, three follow-ups.** `mime` (media types: parse, write,
   wildcard matching, type by file extension) is in; `http` has `content_type`, `accepts` (wildcard ranges; `q=0`
   refuses) and 406/415; `server` has typed endpoints (`Endpoint`, `Reader`, `Writer`, `handler`, `path_handler`,
-  `body_handler`, `dispatch`), where a handler takes the decoded request and returns the resource or the application's own error,
+  `body_handler` in `public_` and `secure_` forms, `Denied`, `dispatch`), where a handler takes the decoded request and returns the resource or the application's own error,
   and the library checks `Content-Type` (415), negotiates `Accept` (406), decodes (400) and encodes with the declared
   status. The health-record backend runs on it. Still to do: ranking by `q` weights (today the first writer the
   client allows wins, in the endpoint's own order); writers a derive emits (`#[derive(Json)]` already gives the
@@ -1417,8 +1417,7 @@ from source.
 - **Accounts and tokens for backends -- password hashing and JWT done; the request pipeline next.** `crypto` has bcrypt
   (through libxcrypt, so `$2a$`/`$2b$` hashes written by other systems verify) and Argon2id (OpenSSL), with
   `password_hash`, `password_verify` and `password_needs_rehash`; `jwt` signs and verifies HS256/384/512 tokens. The
-  health-record backend registers and logs in with them. Still to do, in order: a request pipeline in `server` (an
-  authenticate step that runs before the input is decoded, answers 401, and hands `run` a `Principal`; per-endpoint
-  roles; interceptors for CORS and request logging); an `otp` module (HOTP/TOTP and base32) for MFA; OAuth2 login
+  health-record backend registers and logs in with them. Still to do, in order: the authenticate step in `server` is done (`secure_*` builders: `who` runs first and hands `run` its caller); still to do are
+  interceptors for CORS and request logging, as a wrapper around `dispatch`, an `otp` module (HOTP/TOTP and base32) for MFA; OAuth2 login
   (Google, Microsoft) on `client`; and RS256/ES256 for tokens verified with a public key, which needs public-key
   operations in `crypto`.

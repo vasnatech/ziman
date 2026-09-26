@@ -14,5 +14,19 @@ POST /items -> 415 [text/plain; charset=utf-8] fault 415: unsupported media type
 POST /items -> 406 [text/plain; charset=utf-8] fault 406: not acceptable: this route produces text/plain
 POST /items -> 201 [text/plain] item 107
 POST /items -> 400 [text/plain; charset=utf-8] fault 400: csv body must be `id` and a number
+GET /me -> 401 [text/plain; charset=utf-8] fault 401: missing token
+GET /me -> 200 [text/plain] caller ada admin=false
+GET /me -> 401 [text/plain; charset=utf-8] fault 401: bad token
+GET /me -> 500 [text/plain; charset=utf-8] fault 500: token store down
+GET /me -> 406 [text/plain; charset=utf-8] fault 406: not acceptable: this route produces text/plain
+GET /admin/5 -> 403 [text/plain; charset=utf-8] fault 403: admins only
+GET /admin/5 -> 200 [text/plain] item 1005
+GET /admin/x -> 400 [text/plain; charset=utf-8] fault 400: bad id
+GET /admin/x -> 403 [text/plain; charset=utf-8] fault 403: admins only
+POST /secret -> 401 [text/plain; charset=utf-8] fault 401: missing token
+POST /secret -> 401 [text/plain; charset=utf-8] fault 401: missing token
+POST /secret -> 415 [text/plain; charset=utf-8] fault 415: unsupported media type: send text/plain
+POST /secret -> 201 [text/plain] item 2005
+POST /secret -> 400 [text/plain; charset=utf-8] fault 400: body is not a number
 DELETE /items -> 405 [text/plain; charset=utf-8] fault 405: method not allowed Allow=POST
 GET /nothing -> 404 [text/plain; charset=utf-8] fault 404: not found

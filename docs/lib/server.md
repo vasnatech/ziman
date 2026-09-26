@@ -330,10 +330,76 @@ pub struct Writer<O> {
 
 How to encode an answer `O` as `media`.
 
-### `handler`
+### `Denied`
 
 ```
-pub fn handler<C, O, E>(
+pub enum Denied {
+    Unauthenticated(string)
+    Forbidden(string)
+    Failed(string)
+}
+```
+
+Why a caller was refused before an endpoint ran: not identified (`Unauthenticated`, answered 401), identified but not
+allowed (`Forbidden`, 403), or identifying them failed for a reason that is the server's (`Failed`, 500).
+
+## The three input kinds, each in a `secure_` form (the caller is identified first) and a `public_` one.
+
+### `secure_handler`
+
+```
+pub fn secure_handler<C, U, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, U) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response
+```
+
+A secured endpoint with no input: `run(ctx, caller)` returns the answer or an error; the answer is written with the
+first of `writers` the client's `Accept` allows, with `status`.
+
+### `secure_path_handler`
+
+```
+pub fn secure_path_handler<C, U, P, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    path: fn(Params) -> Result<P, string>,
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, U, P) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response
+```
+
+A secured endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
+answered 400, so a bad id never reaches `run`), and `run(ctx, caller, input)` returns the answer or an error.
+
+### `secure_body_handler`
+
+```
+pub fn secure_body_handler<C, U, I, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    readers: [Reader<I>],
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, U, I) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response
+```
+
+A secured endpoint with a request body: it must arrive as one of `readers`' media types (else 415), the answer is
+negotiated (else 406), the body is decoded with the reader for its type (a failure is 400), and
+`run(ctx, caller, input)` returns the answer or an error.
+
+### `public_handler`
+
+```
+pub fn public_handler<C, O, E>(
     writers: [Writer<O>],
     status: int,
     run: fn(C) -> Result<O, E>,
@@ -342,13 +408,12 @@ pub fn handler<C, O, E>(
 ) -> fn(C, Request, Params) -> Response
 ```
 
-An endpoint with no input: `run(ctx)` returns the answer or an error; the answer is written with the first of
-`writers` the client's `Accept` allows, with `status`.
+A public endpoint with no input: `run(ctx)`. Anyone may call it.
 
-### `path_handler`
+### `public_path_handler`
 
 ```
-pub fn path_handler<C, P, O, E>(
+pub fn public_path_handler<C, P, O, E>(
     path: fn(Params) -> Result<P, string>,
     writers: [Writer<O>],
     status: int,
@@ -358,14 +423,12 @@ pub fn path_handler<C, P, O, E>(
 ) -> fn(C, Request, Params) -> Response
 ```
 
-An endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
-answered 400, so a bad id never reaches `run`), and `run(ctx, input)` returns the answer or an error. The answer is
-negotiated (406) before anything runs.
+A public endpoint whose input is in the path: `run(ctx, input)`.
 
-### `body_handler`
+### `public_body_handler`
 
 ```
-pub fn body_handler<C, I, O, E>(
+pub fn public_body_handler<C, I, O, E>(
     readers: [Reader<I>],
     writers: [Writer<O>],
     status: int,
@@ -375,9 +438,7 @@ pub fn body_handler<C, I, O, E>(
 ) -> fn(C, Request, Params) -> Response
 ```
 
-An endpoint with a request body: it must arrive as one of `readers`' media types (else 415), the answer is negotiated
-(else 406) before anything runs, the body is decoded with the reader for its type (a failure is 400), and
-`run(ctx, input)` returns the answer or an error.
+A public endpoint with a request body: `run(ctx, input)`.
 
 ### `dispatch`
 

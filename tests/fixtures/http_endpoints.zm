@@ -68,6 +68,54 @@ fn create_item(ctx: Ctx, item: Item) -> Result<Item, string> {
     return Item { id: item.id + 100 }
 }
 
+struct Caller {
+    name: string
+    admin: bool
+}
+
+// Who is calling, from `Authorization: Bearer <name>`: `ada` is a user, `root` an admin, `boom` makes the lookup itself fail.
+fn any_caller(ctx: Ctx, req: http.Request) -> Result<Caller, server.Denied> {
+    val header = http.header(req, "Authorization")
+    if !is_Some(header) {
+        return server.Denied.Unauthenticated("missing token")
+    }
+    val token = unwrap_Some(header)
+    if token == "Bearer ada" {
+        return Caller { name: "ada", admin: false }
+    }
+    if token == "Bearer root" {
+        return Caller { name: "root", admin: true }
+    }
+    if token == "Bearer boom" {
+        return server.Denied.Failed("token store down")
+    }
+    return server.Denied.Unauthenticated("bad token")
+}
+
+fn admin_only(ctx: Ctx, req: http.Request) -> Result<Caller, server.Denied> {
+    val caller = any_caller(ctx, req)?
+    if !caller.admin {
+        return server.Denied.Forbidden("admins only")
+    }
+    return caller
+}
+
+fn me_as_text(c: Caller) -> string {
+    return format("caller {} admin={}", c.name, c.admin)
+}
+
+fn whoami(ctx: Ctx, caller: Caller) -> Result<Caller, string> {
+    return caller
+}
+
+fn get_secret(ctx: Ctx, caller: Caller, id: int) -> Result<Item, string> {
+    return Item { id: id + 1000 }
+}
+
+fn post_secret(ctx: Ctx, caller: Caller, item: Item) -> Result<Item, string> {
+    return Item { id: item.id + 2000 }
+}
+
 fn request(method: string, path: string, headers: [http.Header], body: string) -> http.Request {
     return http.Request {
         method: http.method_parse(method),
@@ -89,11 +137,12 @@ fn main() {
     val csv_out = server.Writer<Item> { media: mime.text_csv(), write: as_csv }
     val text_in = server.Reader<Item> { media: mime.text_plain(), read: read_item }
     val csv_in = server.Reader<Item> { media: mime.text_csv(), read: read_csv_item }
+    val caller_out = server.Writer<Caller> { media: mime.text_plain(), write: me_as_text }
     val endpoints = [
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/items/{id}",
-            handler: server.path_handler<Ctx, int, Item, string>(
+            handler: server.public_path_handler<Ctx, int, Item, string>(
                 path: read_id,
                 writers: [text_out, csv_out],
                 status: 200,
@@ -105,7 +154,7 @@ fn main() {
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/newest",
-            handler: server.handler<Ctx, Item, string>(
+            handler: server.public_handler<Ctx, Item, string>(
                 writers: [text_out],
                 status: 200,
                 run: newest_item,
@@ -114,9 +163,47 @@ fn main() {
             )
         },
         server.Endpoint<Ctx> {
+            method: http.HttpMethod.Get,
+            pattern: "/me",
+            handler: server.secure_handler<Ctx, Caller, Caller, string>(
+                who: any_caller,
+                writers: [caller_out],
+                status: 200,
+                run: whoami,
+                failure: failure,
+                fault: fault
+            )
+        },
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Get,
+            pattern: "/admin/{id}",
+            handler: server.secure_path_handler<Ctx, Caller, int, Item, string>(
+                who: admin_only,
+                path: read_id,
+                writers: [text_out],
+                status: 200,
+                run: get_secret,
+                failure: failure,
+                fault: fault
+            )
+        },
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Post,
+            pattern: "/secret",
+            handler: server.secure_body_handler<Ctx, Caller, Item, Item, string>(
+                who: any_caller,
+                readers: [text_in],
+                writers: [text_out],
+                status: 201,
+                run: post_secret,
+                failure: failure,
+                fault: fault
+            )
+        },
+        server.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/items",
-            handler: server.body_handler<Ctx, Item, Item, string>(
+            handler: server.public_body_handler<Ctx, Item, Item, string>(
                 readers: [text_in, csv_in],
                 writers: [text_out],
                 status: 201,
@@ -146,6 +233,20 @@ fn main() {
         request("POST", "/items", [h("Content-Type", "text/plain"), h("Accept", "text/csv")], "5"),
         request("POST", "/items", [h("Content-Type", "text/csv; charset=utf-8")], "id\n7\n"),
         request("POST", "/items", [h("Content-Type", "text/csv")], "nope"),
+        request("GET", "/me", [], ""),
+        request("GET", "/me", [h("Authorization", "Bearer ada")], ""),
+        request("GET", "/me", [h("Authorization", "Bearer nope")], ""),
+        request("GET", "/me", [h("Authorization", "Bearer boom")], ""),
+        request("GET", "/me", [h("Authorization", "Bearer ada"), h("Accept", "application/json")], ""),
+        request("GET", "/admin/5", [h("Authorization", "Bearer ada")], ""),
+        request("GET", "/admin/5", [h("Authorization", "Bearer root")], ""),
+        request("GET", "/admin/x", [h("Authorization", "Bearer root")], ""),
+        request("GET", "/admin/x", [h("Authorization", "Bearer ada")], ""),
+        request("POST", "/secret", [], "5"),
+        request("POST", "/secret", [h("Content-Type", "application/json")], "5"),
+        request("POST", "/secret", [h("Authorization", "Bearer ada"), h("Content-Type", "application/json")], "5"),
+        request("POST", "/secret", [h("Authorization", "Bearer ada"), h("Content-Type", "text/plain")], "5"),
+        request("POST", "/secret", [h("Authorization", "Bearer ada"), h("Content-Type", "text/plain")], "five"),
         request("DELETE", "/items", [], ""),
         request("GET", "/nothing", [], "")
     ]

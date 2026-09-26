@@ -704,11 +704,11 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 // pair a media type with the function that decodes or encodes it, so this module knows no format: JSON, YAML
 // or CSV come from the application's own functions.
 //
-//     // no input: handler; input in the path: path_handler; a request body: body_handler
+//     // no input: handler; input in the path: path_handler; a request body: body_handler -- each `public_` or `secure_`
 //     val patients = [
 //         Endpoint<Ctx> { method: HttpMethod.Post, pattern: "/patients",
-//             handler: body_handler<Ctx, PatientRequest, Patient, ApiError>(readers: [json_in], writers: [json_out],
-//                 status: 201, run: create_patient, failure: api_error, fault: fault) }
+//             handler: secure_body_handler<Ctx, Principal, PatientRequest, Patient, ApiError>(who: bearer,
+//                 readers: [json_in], writers: [json_out], status: 201, run: create_patient, failure: api_error, fault: fault) }
 //     ]
 //     server.dispatch<Ctx>(patients, ctx, req, fault)
 //
@@ -782,16 +782,51 @@ fn answer<O, E>(result: Result<O, E>, writer: Writer<O>, status: int, failure: f
     }
 }
 
-// An endpoint with no input: `run(ctx)` returns the answer or an error; the answer is written with the first of
-// `writers` the client's `Accept` allows, with `status`.
-pub fn handler<C, O, E>(
+// Why a caller was refused before an endpoint ran: not identified (`Unauthenticated`, answered 401), identified but not
+// allowed (`Forbidden`, 403), or identifying them failed for a reason that is the server's (`Failed`, 500).
+pub enum Denied {
+    Unauthenticated(string)
+    Forbidden(string)
+    Failed(string)
+}
+
+fn denied_response(d: Denied, fault: fn(int, string) -> Response) -> Response {
+    return switch d {
+        Unauthenticated(message) { fault(status_unauthorized, message) }
+        Forbidden(message) { fault(status_forbidden, message) }
+        Failed(message) { fault(status_internal_server_error, message) }
+    }
+}
+
+// What an endpoint that anyone may call is given as its caller. Never seen by application code: the `public_*`
+// builders adapt a `run` that does not take one.
+struct Anonymous {
+    anonymous: bool
+}
+
+// ---- the three input kinds, each in a `secure_` form (the caller is identified first) and a `public_` one.
+//
+// `who(ctx, req)` identifies the caller from the request (its headers, usually) and returns a `U`, or a `Denied` that is
+// answered before anything else happens: before the answer is negotiated, before the body is read. `run` then takes that
+// `U` as its second argument, so an endpoint that needs a caller cannot be written without saying how to find one. A
+// `public_*` builder is the explicit way to say nobody needs to be identified.
+
+// A secured endpoint with no input: `run(ctx, caller)` returns the answer or an error; the answer is written with the
+// first of `writers` the client's `Accept` allows, with `status`.
+pub fn secure_handler<C, U, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
     writers: [Writer<O>],
     status: int,
-    run: fn(C) -> Result<O, E>,
+    run: fn(C, U) -> Result<O, E>,
     failure: fn(E) -> Response,
     fault: fn(int, string) -> Response
 ) -> fn(C, Request, Params) -> Response {
     return fn(ctx: C, req: Request, params: Params) -> Response {
+        val identify = who
+        val caller = identify(ctx, req)
+        if Err(refusal) = caller {
+            return denied_response(refusal, fault)
+        }
         val writer = negotiate<O>(writers, req)
         if !is_Some(writer) {
             return fault(
@@ -799,22 +834,27 @@ pub fn handler<C, O, E>(
                 format("not acceptable: this route produces {}", produced_types<O>(writers))
             )
         }
-        return answer<O, E>(run(ctx), unwrap_Some(writer), status, failure)
+        return answer<O, E>(run(ctx, unwrap(caller)), unwrap_Some(writer), status, failure)
     }
 }
 
-// An endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
-// answered 400, so a bad id never reaches `run`), and `run(ctx, input)` returns the answer or an error. The answer is
-// negotiated (406) before anything runs.
-pub fn path_handler<C, P, O, E>(
+// A secured endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
+// answered 400, so a bad id never reaches `run`), and `run(ctx, caller, input)` returns the answer or an error.
+pub fn secure_path_handler<C, U, P, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
     writers: [Writer<O>],
     status: int,
-    run: fn(C, P) -> Result<O, E>,
+    run: fn(C, U, P) -> Result<O, E>,
     failure: fn(E) -> Response,
     fault: fn(int, string) -> Response
 ) -> fn(C, Request, Params) -> Response {
     return fn(ctx: C, req: Request, params: Params) -> Response {
+        val identify = who
+        val caller = identify(ctx, req)
+        if Err(refusal) = caller {
+            return denied_response(refusal, fault)
+        }
         val writer = negotiate<O>(writers, req)
         if !is_Some(writer) {
             return fault(
@@ -824,24 +864,30 @@ pub fn path_handler<C, P, O, E>(
         }
         val decode = path
         return switch decode(params) {
-            Ok(input) { answer<O, E>(run(ctx, input), unwrap_Some(writer), status, failure) }
+            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), unwrap_Some(writer), status, failure) }
             Err(message) { fault(status_bad_request, message) }
         }
     }
 }
 
-// An endpoint with a request body: it must arrive as one of `readers`' media types (else 415), the answer is negotiated
-// (else 406) before anything runs, the body is decoded with the reader for its type (a failure is 400), and
-// `run(ctx, input)` returns the answer or an error.
-pub fn body_handler<C, I, O, E>(
+// A secured endpoint with a request body: it must arrive as one of `readers`' media types (else 415), the answer is
+// negotiated (else 406), the body is decoded with the reader for its type (a failure is 400), and
+// `run(ctx, caller, input)` returns the answer or an error.
+pub fn secure_body_handler<C, U, I, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
     readers: [Reader<I>],
     writers: [Writer<O>],
     status: int,
-    run: fn(C, I) -> Result<O, E>,
+    run: fn(C, U, I) -> Result<O, E>,
     failure: fn(E) -> Response,
     fault: fn(int, string) -> Response
 ) -> fn(C, Request, Params) -> Response {
     return fn(ctx: C, req: Request, params: Params) -> Response {
+        val identify = who
+        val caller = identify(ctx, req)
+        if Err(refusal) = caller {
+            return denied_response(refusal, fault)
+        }
         val reader = select_reader<I>(readers, req)
         if !is_Some(reader) {
             return fault(
@@ -858,10 +904,71 @@ pub fn body_handler<C, I, O, E>(
         }
         val read = unwrap_Some(reader).read
         return switch read(req.body) {
-            Ok(input) { answer<O, E>(run(ctx, input), unwrap_Some(writer), status, failure) }
+            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), unwrap_Some(writer), status, failure) }
             Err(message) { fault(status_bad_request, message) }
         }
     }
+}
+
+// A public endpoint with no input: `run(ctx)`. Anyone may call it.
+pub fn public_handler<C, O, E>(
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return secure_handler<C, Anonymous, O, E>(
+        who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
+        writers: writers,
+        status: status,
+        run: fn(ctx: C, nobody: Anonymous) -> Result<O, E> { return go(ctx) },
+        failure: failure,
+        fault: fault
+    )
+}
+
+// A public endpoint whose input is in the path: `run(ctx, input)`.
+pub fn public_path_handler<C, P, O, E>(
+    path: fn(Params) -> Result<P, string>,
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, P) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return secure_path_handler<C, Anonymous, P, O, E>(
+        who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
+        path: path,
+        writers: writers,
+        status: status,
+        run: fn(ctx: C, nobody: Anonymous, input: P) -> Result<O, E> { return go(ctx, input) },
+        failure: failure,
+        fault: fault
+    )
+}
+
+// A public endpoint with a request body: `run(ctx, input)`.
+pub fn public_body_handler<C, I, O, E>(
+    readers: [Reader<I>],
+    writers: [Writer<O>],
+    status: int,
+    run: fn(C, I) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return secure_body_handler<C, Anonymous, I, O, E>(
+        who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
+        readers: readers,
+        writers: writers,
+        status: status,
+        run: fn(ctx: C, nobody: Anonymous, input: I) -> Result<O, E> { return go(ctx, input) },
+        failure: failure,
+        fault: fault
+    )
 }
 
 fn describe<C>(e: Endpoint<C>) -> string {
