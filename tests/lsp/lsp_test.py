@@ -150,6 +150,20 @@ check("a name imported from a folder module", r and r["uri"] == "file://" + shap
 r = goto(4, 21)
 check("a call into a folder module", r and r["uri"] == "file://" + shapes_path and r["range"]["start"]["line"] == 4, r)
 
+# a name bound by `if Some(x) = ...` goes to its pattern
+bind_main = "fn main() {\n    val o: Option<int> = Option<int>.Some(1)\n    if Some(x) = o {\n        print(x)\n    }\n}\n"
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 6}, "contentChanges": [{"text": bind_main}]})
+check("an `if Some(x) = o` block type-checks", diagnostics_for(main_uri) == [])
+r = goto(3, 14)
+check("a name bound by `if Some(x) = o` goes to the pattern", r and r["uri"] == main_uri and r["range"]["start"]["line"] == 2, r)
+
+# and one bound by a switch arm
+arm_main = "fn main() {\n    val o: Option<int> = Option<int>.Some(1)\n    switch o {\n        Some(v) { print(v) }\n        None { print(0) }\n    }\n}\n"
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 7}, "contentChanges": [{"text": arm_main}]})
+diagnostics_for(main_uri)
+r = goto(3, 24)
+check("a switch arm binder goes to its arm", r and r["uri"] == main_uri and r["range"]["start"]["line"] == 3, r)
+
 messy = 'fn main(){\nval x=1\nprint(x)\n}\n'
 notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 3}, "contentChanges": [{"text": messy}]})
 diagnostics_for(main_uri)

@@ -990,6 +990,17 @@ static int line_declares(const char *ln, int len, const char *w, int upto) {
     for (int i = 0; i + wl <= len; i++) {
         if (i >= upto) break;
         if (ln[i] == '/' && ln[i + 1] == '/') break;
+        if (ln[i] == '(' && i > 0 && is_ident_char((unsigned char)ln[i - 1])) { /* `Variant(w) {` or `Variant(w) = e` */
+            int j = skip_blanks(ln, i + 1);
+            if (word_at(ln, j, w, wl)) {
+                int k = skip_blanks(ln, j + wl);
+                if (ln[k] == ')') {
+                    k = skip_blanks(ln, k + 1);
+                    if ((ln[k] == '{' || (ln[k] == '=' && ln[k + 1] != '=')) && j < upto) best = j;
+                }
+            }
+            continue;
+        }
         if (i > 0 && is_ident_char((unsigned char)ln[i - 1])) continue;
         if ((strncmp(ln + i, "val", 3) == 0 || strncmp(ln + i, "var", 3) == 0) && (ln[i + 3] == ' ')) {
             int j = skip_blanks(ln, i + 3);
@@ -1002,15 +1013,6 @@ static int line_declares(const char *ln, int len, const char *w, int upto) {
                 j = skip_blanks(ln, j);
                 if (ln[j] != ',') break;
                 j = skip_blanks(ln, j + 1);
-            }
-        } else if (ln[i] == '(' && i > 0 && is_ident_char((unsigned char)ln[i - 1])) {
-            int j = skip_blanks(ln, i + 1);
-            if (word_at(ln, j, w, wl)) {
-                int k = skip_blanks(ln, j + wl);
-                if (ln[k] == ')') {
-                    k = skip_blanks(ln, k + 1);
-                    if (ln[k] == '{' && j < upto) best = j;
-                }
             }
         } else if (strncmp(ln + i, "fn(", 3) == 0) { /* a lambda's parameters */
             int j = i + 3;

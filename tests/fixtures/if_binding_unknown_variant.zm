@@ -1,0 +1,6 @@
+fn main() {
+    val o: Option<int> = Option<int>.None
+    if Nope(x) = o {
+        print(x)
+    }
+}

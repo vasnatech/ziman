@@ -700,7 +700,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
  * declarations only. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "abs", "min", "max",
-    "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some",
+    "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
     "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", NULL,
 };
 
@@ -931,6 +931,7 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
 
 static Expr *mk_enum_call_expr(const char *enum_name, const char *prefix, const char *variant, Expr *arg, int line, int col);
 static Type check_enum_access(Module *module, Env *env, Expr *e);
+static Expr *mk_call_expr(const char *callee, Expr *arg, int line, int col);
 
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
@@ -1244,6 +1245,45 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         int is_unwrap = name[0] == 'u';
         const char *variant = strstr(name, "None") != NULL ? "None" : "Some";
         Expr *rewritten = mk_enum_call_expr("Option", is_unwrap ? "unwrap_" : "is_", variant, e->as.call.args.items[0], e->line, e->col);
+        *e = *rewritten;
+        return check_enum_access(module, env, e);
+    }
+
+    /* `$is_variant(x, "V")` / `$unwrap_variant(x, "V")`, written by the parser for `if V(y) = x { ... }`: rewritten in
+     * place to Result's is_ok/unwrap/unwrap_err, or to the enum's own `is_V`/`unwrap_V` helper, from the type of `x`. */
+    if (strcmp(name, "$is_variant") == 0 || strcmp(name, "$unwrap_variant") == 0) {
+        int is_test = strcmp(name, "$is_variant") == 0;
+        Expr *arg = e->as.call.args.items[0];
+        const char *variant = e->as.call.args.items[1]->as.string_val;
+        Type arg_type = check_expr(module, env, arg);
+        if (arg_type.kind == TY_RESULT) {
+            int is_ok_variant = strcmp(variant, "Ok") == 0;
+            if (!is_ok_variant && strcmp(variant, "Err") != 0) {
+                ziman_error("type", e->line, e->col, "a Result has variants 'Ok' and 'Err', not '%s'", variant);
+            }
+            Expr *inner = mk_call_expr(is_test ? "is_ok" : (is_ok_variant ? "unwrap" : "unwrap_err"), arg, e->line, e->col);
+            if (is_test && !is_ok_variant) {
+                Expr *neg = expr_new(EXPR_UNARY, e->line, e->col);
+                neg->as.unary.op = OP_NOT;
+                neg->as.unary.operand = inner;
+                *e = *neg;
+            } else {
+                *e = *inner;
+            }
+            return check_expr(module, env, e);
+        }
+        if (arg_type.kind != TY_ENUM) {
+            ziman_error("type", arg->line, arg->col, "'if %s ... = ...' needs an enum or a Result on the right, found %s", variant, type_name(arg_type));
+        }
+        EnumDecl *decl = find_enum(module, arg_type.enum_name);
+        int known = 0;
+        for (int i = 0; decl != NULL && i < decl->variants.count; i++) {
+            if (strcmp(decl->variants.items[i].name, variant) == 0) known = 1;
+        }
+        if (!known) {
+            ziman_error("type", e->line, e->col, "enum '%s' has no variant '%s'", arg_type.enum_name, variant);
+        }
+        Expr *rewritten = mk_enum_call_expr(arg_type.enum_name, is_test ? "is_" : "unwrap_", variant, arg, e->line, e->col);
         *e = *rewritten;
         return check_enum_access(module, env, e);
     }
@@ -3230,7 +3270,7 @@ void typecheck(Module *module) {
      * name check just below already rejects redefining one of those the
      * same way it rejects redefining any other function. */
     static const char *builtins[] = {"print", "printf", "str", "format", "len", "push", "insert", "set",
-                                      "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some",
+                                      "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "hash", "compare",
                                       "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter"};

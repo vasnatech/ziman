@@ -1,0 +1,7 @@
+fn main() {
+    val o: Option<int> = Option<int>.Some(1)
+    if Some(x) = o {
+        print(x)
+    }
+    print(x)
+}

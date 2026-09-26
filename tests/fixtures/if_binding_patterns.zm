@@ -1,0 +1,68 @@
+enum Shape {
+    Circle(int)
+    Rect(int)
+    Empty
+}
+
+fn area(s: Shape) -> int {
+    if Circle(r) = s {
+        return 3 * r * r
+    } else if Rect(w) = s {
+        return w * w
+    } else {
+        return 0
+    }
+}
+
+fn half(n: int) -> Result<int, string> {
+    if n % 2 != 0 {
+        return err("odd")
+    }
+    return n / 2
+}
+
+fn main() {
+    val a: Option<int> = Option<int>.Some(4)
+    val b: Option<int> = Option<int>.None
+    if Some(x) = a {
+        print(x)
+    }
+    if Some(x) = b {
+        print("never")
+    } else {
+        print("b is empty")
+    }
+    if Some(x) = a && Some(y) = a && x + y > 5 {
+        print(x + y)
+    } else {
+        print("no")
+    }
+    if Some(x) = a && Some(y) = b {
+        print("never")
+    } else {
+        print("one was missing")
+    }
+    if Ok(v) = half(8) {
+        print(v)
+    }
+    if Err(m) = half(7) {
+        print(m)
+    }
+    if None = b {
+        print("none")
+    }
+    if Some = a {
+        print("some")
+    }
+    print(area(Shape.Circle(2)))
+    print(area(Shape.Rect(3)))
+    print(area(Shape.Empty))
+    for i in 0..3 {
+        val o: Option<int> = if i == 1 { Option<int>.None } else { Option<int>.Some(i) }
+        if Some(k) = o {
+            print(k)
+        } else {
+            continue
+        }
+    }
+}

@@ -235,6 +235,7 @@ static Expr *parse_expr(Parser *p);
 static ParamList parse_params(Parser *p);
 static Stmt *parse_block(Parser *p);
 static Stmt *parse_if(Parser *p);
+static Stmt *parse_if_value(Parser *p);
 static Stmt *parse_switch(Parser *p);
 static void yieldify(Stmt *s);
 
@@ -746,7 +747,7 @@ static Expr *parse_primary(Parser *p) {
         advance_tok(p);
         Stmt *inner;
         if (t->type == TOK_IF) {
-            inner = parse_if(p);
+            inner = parse_if_value(p);
             if (inner->as.if_stmt.else_block == NULL) {
                 ziman_error("syntax", inner->line, inner->col, "an 'if' used as a value needs an 'else' (every path must produce a value)");
             }
@@ -907,6 +908,7 @@ static Stmt *parse_block(Parser *p) {
 }
 
 static Stmt *parse_if(Parser *p);
+static Stmt *parse_if_value(Parser *p);
 static Stmt *parse_switch(Parser *p);
 
 /* In an `if`/`switch` used as a value, each arm's last statement is its value:
@@ -947,7 +949,7 @@ static void yieldify(Stmt *s) {
 static Stmt *parse_value_block(Parser *p, StmtKind target, Token *start, char *name, int has_declared_type, Type declared_type) {
     Stmt *inner;
     if (match(p, TOK_IF)) {
-        inner = parse_if(p);
+        inner = parse_if_value(p);
         if (inner->as.if_stmt.else_block == NULL) {
             ziman_error("syntax", inner->line, inner->col, "an 'if' used as a value needs an 'else' (every path must produce a value)");
         }
@@ -1012,8 +1014,214 @@ static GlobalValDecl *parse_global_val_decl(Parser *p, int is_public) {
     return v;
 }
 
-static Stmt *parse_if(Parser *p) {
+/* ---- `if Some(x) = expr { ... }`: a condition that tests a variant and binds its payload ----
+ *
+ * The condition is a chain of `&&`-joined parts, each either an ordinary boolean or a pattern `Variant(name) = expr`
+ * (`Variant = expr` to test without binding, `_` to ignore the payload). It is desugared here, in the parser, to
+ * nested ordinary `if`s over two synthetic calls, `$is_variant(tmp, "Variant")` and `$unwrap_variant(tmp, "Variant")`,
+ * which the type checker resolves from the type of `tmp` (an enum, or Result's Ok/Err) -- so no later pass knows this
+ * construct exists. Each part is evaluated only if the parts before it held, and a name bound by one is visible in the
+ * parts after it and in the block. An `else` runs when any part failed, through a hidden flag set just before the block.
+ * It is a statement only: as a value (`val x = if Some(y) = z ...`) it is an error. */
+
+static char *dup_text(const char *text) {
+    size_t n = strlen(text) + 1;
+    char *out = malloc(n);
+    memcpy(out, text, n);
+    return out;
+}
+
+typedef struct {
+    int is_pattern;
+    char *variant;
+    char *binder; /* NULL when the pattern binds nothing */
+    Expr *expr;   /* the boolean, or the right-hand side of the pattern */
+    int line, col;
+} IfPart;
+
+static int g_if_bind_counter = 0;
+
+static Expr *parse_mk_string(const char *text, int line, int col) {
+    Expr *e = expr_new(EXPR_STRING, line, col);
+    e->as.string_val = dup_text(text);
+    return e;
+}
+
+static Expr *parse_mk_ident(const char *name, int line, int col) {
+    Expr *e = expr_new(EXPR_IDENT, line, col);
+    e->as.ident_name = dup_text(name);
+    return e;
+}
+
+static Expr *parse_mk_variant_call(const char *callee, const char *hidden, const char *variant, int line, int col) {
+    Expr *e = expr_new(EXPR_CALL, line, col);
+    e->as.call.callee = dup_text(callee);
+    expr_list_push(&e->as.call.args, parse_mk_ident(hidden, line, col));
+    expr_list_push(&e->as.call.args, parse_mk_string(variant, line, col));
+    return e;
+}
+
+/* Whether the tokens from here to the `{` that opens the block hold a lone `=` outside any brackets: the mark of a
+ * pattern, since an assignment is not an expression. */
+static int condition_has_pattern(Parser *p) {
+    int depth = 0;
+    for (int i = p->pos; i < p->tokens.count; i++) {
+        TokenType t = p->tokens.items[i].type;
+        if (t == TOK_EOF || t == TOK_NEWLINE) return 0;
+        if (t == TOK_LPAREN || t == TOK_LBRACKET) depth++;
+        else if (t == TOK_RPAREN || t == TOK_RBRACKET) depth--;
+        else if (t == TOK_LBRACE && depth == 0) return 0;
+        else if (t == TOK_EQ && depth == 0) return 1;
+    }
+    return 0;
+}
+
+static int at_pattern(Parser *p) {
+    Token *t = cur(p);
+    if (t->type != TOK_IDENT || t->length == 0 || !(t->start[0] >= 'A' && t->start[0] <= 'Z')) return 0;
+    Token *n = &p->tokens.items[p->pos + 1];
+    if (n->type == TOK_EQ) return 1;
+    return n->type == TOK_LPAREN && p->tokens.items[p->pos + 2].type == TOK_IDENT && p->tokens.items[p->pos + 3].type == TOK_RPAREN &&
+           p->tokens.items[p->pos + 4].type == TOK_EQ;
+}
+
+static Stmt *parse_if_mode(Parser *p, int allow_binding);
+
+static Stmt *parse_if_binding(Parser *p, Token *kw, int allow_binding) {
+    if (!allow_binding) {
+        ziman_error("syntax", kw->line, kw->col, "an 'if' that binds a pattern (`if Some(x) = ...`) is a statement; it cannot be used as a value");
+    }
+    IfPart *parts = NULL;
+    int n = 0;
+    for (;;) {
+        parts = realloc(parts, (size_t)(n + 1) * sizeof(IfPart));
+        IfPart *part = &parts[n++];
+        memset(part, 0, sizeof *part);
+        part->line = cur(p)->line;
+        part->col = cur(p)->col;
+        if (at_pattern(p)) {
+            Token *variant = advance_tok(p);
+            part->is_pattern = 1;
+            part->variant = dup_token_text(variant);
+            if (match(p, TOK_LPAREN)) {
+                Token *binder = advance_tok(p);
+                if (!(binder->length == 1 && binder->start[0] == '_')) part->binder = dup_token_text(binder);
+                expect(p, TOK_RPAREN, "')'");
+            }
+            expect(p, TOK_EQ, "'='");
+            part->expr = parse_equality(p);
+        } else {
+            part->expr = parse_equality(p);
+        }
+        if (!match(p, TOK_AMPAMP)) break;
+    }
+    if (check(p, TOK_PIPEPIPE)) {
+        ziman_error("syntax", cur(p)->line, cur(p)->col, "'||' cannot join a pattern condition; only '&&' can (or wrap the boolean in parentheses)");
+    }
+    Stmt *then_block = parse_block(p);
+    Stmt *else_stmt = NULL;
+    if (match(p, TOK_ELSE)) {
+        else_stmt = match(p, TOK_IF) ? parse_if_mode(p, allow_binding) : parse_block(p);
+    }
+
+    int id = g_if_bind_counter++;
+    if (n == 1 && else_stmt != NULL) {
+        /* one pattern with an else: `{ val tmp = e; if is(tmp) { val x = unwrap(tmp); then } else { else } }`, plain nested
+         * ifs, so the checks that every path returns see through it */
+        IfPart *part = &parts[0];
+        char hidden[48];
+        snprintf(hidden, sizeof hidden, "$ifb%d_0", id);
+        Stmt *body = stmt_new(STMT_BLOCK, part->line, part->col);
+        if (part->binder != NULL) {
+            Stmt *decl = stmt_new(STMT_VAL, part->line, part->col);
+            decl->as.decl.name = part->binder;
+            decl->as.decl.init = parse_mk_variant_call("$unwrap_variant", hidden, part->variant, part->line, part->col);
+            stmt_list_push(&body->as.block.stmts, decl);
+        }
+        stmt_list_push(&body->as.block.stmts, then_block);
+        Stmt *tmp = stmt_new(STMT_VAL, part->line, part->col);
+        tmp->as.decl.name = dup_text(hidden);
+        tmp->as.decl.init = part->expr;
+        Stmt *ifs = stmt_new(STMT_IF, part->line, part->col);
+        ifs->as.if_stmt.cond = parse_mk_variant_call("$is_variant", hidden, part->variant, part->line, part->col);
+        ifs->as.if_stmt.then_block = body;
+        ifs->as.if_stmt.else_block = else_stmt;
+        Stmt *block = stmt_new(STMT_BLOCK, part->line, part->col);
+        stmt_list_push(&block->as.block.stmts, tmp);
+        stmt_list_push(&block->as.block.stmts, ifs);
+        return block;
+    }
+    char flag[48];
+    snprintf(flag, sizeof flag, "$ifm%d", id);
+
+    /* the innermost block: the user's, after recording that every part held */
+    Stmt *inner = then_block;
+    if (else_stmt != NULL) {
+        Stmt *wrapped = stmt_new(STMT_BLOCK, then_block->line, then_block->col);
+        Stmt *mark = stmt_new(STMT_ASSIGN, then_block->line, then_block->col);
+        mark->as.assign.name = dup_text(flag);
+        Expr *yes = expr_new(EXPR_BOOL, then_block->line, then_block->col);
+        yes->as.bool_val = 1;
+        mark->as.assign.value = yes;
+        stmt_list_push(&wrapped->as.block.stmts, mark);
+        stmt_list_push(&wrapped->as.block.stmts, then_block);
+        inner = wrapped;
+    }
+    for (int i = n - 1; i >= 0; i--) {
+        IfPart *part = &parts[i];
+        if (!part->is_pattern) {
+            Stmt *ifs = stmt_new(STMT_IF, part->line, part->col);
+            ifs->as.if_stmt.cond = part->expr;
+            ifs->as.if_stmt.then_block = inner;
+            Stmt *block = stmt_new(STMT_BLOCK, part->line, part->col);
+            stmt_list_push(&block->as.block.stmts, ifs);
+            inner = block;
+            continue;
+        }
+        char hidden[48];
+        snprintf(hidden, sizeof hidden, "$ifb%d_%d", id, i);
+        Stmt *body = stmt_new(STMT_BLOCK, part->line, part->col);
+        if (part->binder != NULL) {
+            Stmt *decl = stmt_new(STMT_VAL, part->line, part->col);
+            decl->as.decl.name = part->binder;
+            decl->as.decl.init = parse_mk_variant_call("$unwrap_variant", hidden, part->variant, part->line, part->col);
+            stmt_list_push(&body->as.block.stmts, decl);
+        }
+        stmt_list_push(&body->as.block.stmts, inner);
+        Stmt *tmp = stmt_new(STMT_VAL, part->line, part->col);
+        tmp->as.decl.name = dup_text(hidden);
+        tmp->as.decl.init = part->expr;
+        Stmt *ifs = stmt_new(STMT_IF, part->line, part->col);
+        ifs->as.if_stmt.cond = parse_mk_variant_call("$is_variant", hidden, part->variant, part->line, part->col);
+        ifs->as.if_stmt.then_block = body;
+        Stmt *block = stmt_new(STMT_BLOCK, part->line, part->col);
+        stmt_list_push(&block->as.block.stmts, tmp);
+        stmt_list_push(&block->as.block.stmts, ifs);
+        inner = block;
+    }
+    if (else_stmt == NULL) return inner;
+
+    Stmt *outer = stmt_new(STMT_BLOCK, kw->line, kw->col);
+    Stmt *flag_decl = stmt_new(STMT_VAR, kw->line, kw->col);
+    flag_decl->as.decl.name = dup_text(flag);
+    Expr *no = expr_new(EXPR_BOOL, kw->line, kw->col);
+    no->as.bool_val = 0;
+    flag_decl->as.decl.init = no;
+    stmt_list_push(&outer->as.block.stmts, flag_decl);
+    stmt_list_push(&outer->as.block.stmts, inner);
+    Stmt *otherwise = stmt_new(STMT_IF, kw->line, kw->col);
+    Expr *neg = expr_new(EXPR_UNARY, kw->line, kw->col);
+    neg->as.unary.op = OP_NOT;
+    neg->as.unary.operand = parse_mk_ident(flag, kw->line, kw->col);
+    otherwise->as.if_stmt.cond = neg;
+    otherwise->as.if_stmt.then_block = else_stmt;
+    stmt_list_push(&outer->as.block.stmts, otherwise);
+    return outer;
+}
+
+static Stmt *parse_if_mode(Parser *p, int allow_binding) {
     Token *kw = previous(p);
+    if (condition_has_pattern(p)) return parse_if_binding(p, kw, allow_binding);
     Stmt *s = stmt_new(STMT_IF, kw->line, kw->col);
     s->as.if_stmt.cond = parse_expr(p);
     s->as.if_stmt.then_block = parse_block(p);
@@ -1021,13 +1229,16 @@ static Stmt *parse_if(Parser *p) {
      * line as the closing brace before them, so no newline-skipping here. */
     if (match(p, TOK_ELSE)) {
         if (match(p, TOK_IF)) {
-            s->as.if_stmt.else_block = parse_if(p);
+            s->as.if_stmt.else_block = parse_if_mode(p, allow_binding);
         } else {
             s->as.if_stmt.else_block = parse_block(p);
         }
     }
     return s;
 }
+
+static Stmt *parse_if(Parser *p) { return parse_if_mode(p, 1); }
+static Stmt *parse_if_value(Parser *p) { return parse_if_mode(p, 0); }
 
 static Stmt *parse_while(Parser *p) {
     Token *kw = previous(p);

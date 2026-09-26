@@ -1018,6 +1018,47 @@ fn first_positive_doubled(items: [int]) -> Option<int> {
   a fallible step whose success value isn't needed, only whether it
   succeeded.
 
+### `if Variant(name) = expr` — test and bind in one step
+
+```
+fn main() {
+    val a: Option<int> = Option<int>.Some(4)
+    val b: Option<int> = Option<int>.None
+
+    if Some(x) = a {
+        print(x)                        // 4
+    }
+    if Some(x) = b {
+        print("never")
+    } else {
+        print("b is empty")
+    }
+    // several parts, joined by &&: each runs only if the ones before it held,
+    // and a name bound by one is visible in the parts after it and in the block
+    if Some(x) = a && Some(y) = a && x + y > 5 {
+        print(x + y)                    // 8
+    }
+    if Ok(v) = parse_int("12") {
+        print(v)
+    }
+}
+```
+
+- **The variant is named bare and looked up from the type of the right-hand side**, exactly as a `switch` arm's
+  is, so it works for `Option`, `Result` (`Ok`/`Err`) and every enum you declare: `if Circle(r) = shape`,
+  `if Storage(d) = failure`. A variant with no payload is written without parentheses (`if None = o`), and
+  `Variant = expr` on one that has a payload only tests it. `_` ignores the payload: `if Some(_) = o`.
+- **The condition is a chain of `&&`-joined parts, each a boolean or a pattern.** `||` cannot join a pattern
+  (wrap a boolean in parentheses if you need one). The bound names live in the block and in the parts after
+  theirs, not in an `else`.
+- **`else` and `else if` work as usual.** An `else` runs when any part failed.
+- **It is a statement only**: `val n = if Some(x) = o { ... } else { ... }` is a syntax error; use `switch` for
+  a value.
+- **It is sugar**: the parser rewrites it to nested `if`s over the enum's `is_V`/`unwrap_V` helpers, so `--fmt`
+  keeps what you wrote and nothing else in the toolchain knows the form exists. One consequence: a chain of
+  several parts *with an* `else` is not seen by the check that every path returns a value (a single pattern with an
+  `else`, or any chain without one, is), so such a function may need a final `return`.
+
 ## Generics
 
 **Structs, enums, and functions, cross-module included** — see
