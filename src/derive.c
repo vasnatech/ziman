@@ -957,6 +957,42 @@ static void ensure_module_import(Module *module, const char *path, int line, int
     use_list_push(&module->uses, u);
 }
 
+/* The standard types a derive can convert without the consuming module importing their converters: the module each
+ * lives in and the snake_case stem of its `<stem>_to_json` / `_from_json` / `_to_sql` / `_from_sql` functions. */
+static const struct { const char *type; const char *module; const char *stem; } STANDARD_TYPES[] = {
+    {"Uuid", "uuid", "uuid"},
+    {"Instant", "time", "instant"},
+    {"LocalDate", "time", "local_date"},
+    {"LocalTime", "time", "local_time"},
+    {"LocalDateTime", "time", "local_date_time"},
+    {"Duration", "time", "duration"},
+    {"ZoneOffset", "time", "zone_offset"},
+    {"ZoneId", "time", "zone_id"},
+};
+
+static void ensure_named_import(Module *module, const char *path, const char *name, int line, int col);
+
+/* Imports the converters of every standard type found inside `t` (through arrays, Options, maps and type arguments),
+ * so a struct with an `Instant` or `Uuid` field derives without the file listing `use time.instant_to_sql` and the
+ * rest. A name the module already binds (its own function, or an import it wrote) is left alone. */
+static void import_field_converters(Module *module, const char *suffix, Type t, int line, int col) {
+    if (t.kind == TY_STRUCT || t.kind == TY_ENUM) {
+        const char *full = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
+        const char *dot = strrchr(full, '.');
+        const char *bare = dot != NULL ? dot + 1 : full;
+        for (size_t i = 0; i < sizeof STANDARD_TYPES / sizeof STANDARD_TYPES[0]; i++) {
+            if (strcmp(bare, STANDARD_TYPES[i].type) != 0) continue;
+            char *to = fmt_str("%s_to_%s", STANDARD_TYPES[i].stem, suffix);
+            char *from = fmt_str("%s_from_%s", STANDARD_TYPES[i].stem, suffix);
+            ensure_named_import(module, STANDARD_TYPES[i].module, to, line, col);
+            ensure_named_import(module, STANDARD_TYPES[i].module, from, line, col);
+        }
+    }
+    if (t.elem != NULL) import_field_converters(module, suffix, *t.elem, line, col);
+    if (t.elem_err != NULL) import_field_converters(module, suffix, *t.elem_err, line, col);
+    for (int i = 0; i < t.type_args.count; i++) import_field_converters(module, suffix, t.type_args.items[i], line, col);
+}
+
 static void import_for_derive(Module *module, const char *target, int line, int col) {
     if (strcmp(target, "Json") == 0) {
         static const char *const names[] = {"Json", "json_object_get", "json_require_field", "json_require_string_field",
@@ -993,6 +1029,11 @@ void generate_derived_functions(Module *module) {
             }
             const char *label = fmt_str("derive(%s) for '%s'", sd->derives[d], sd->name);
             import_for_derive(module, sd->derives[d], sd->line, sd->col);
+            if (is_json || is_row) {
+                for (int fi = 0; fi < sd->fields.count; fi++) {
+                    import_field_converters(module, is_json ? "json" : "sql", sd->fields.items[fi].type, sd->line, sd->col);
+                }
+            }
             if (is_ord) {
                 if (sd->fields.count == 0) {
                     ziman_error("syntax", sd->line, sd->col, "derive(Ord) needs at least one field to compare ('%s' has none)", sd->name);
@@ -1036,6 +1077,11 @@ void generate_derived_functions(Module *module) {
             }
             const char *label = fmt_str("derive(%s) for '%s'", ed->derives[d], ed->name);
             import_for_derive(module, ed->derives[d], ed->line, ed->col);
+            for (int vi = 0; vi < ed->variants.count; vi++) {
+                if (ed->variants.items[vi].has_payload) {
+                    import_field_converters(module, "json", ed->variants.items[vi].payload_type, ed->line, ed->col);
+                }
+            }
             parse_and_splice(module, generate_enum_to_json(ed), ed->line, ed->col, label);
             parse_and_splice(module, generate_enum_from_json(ed), ed->line, ed->col, label);
                 ziman_recovery_pop();

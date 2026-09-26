@@ -2017,10 +2017,13 @@ fn main() {
   `#[derive(Properties)]` imports the `properties` module. A name is added
   only if the module doesn't already bind it, so an explicit `use` (or a
   declaration of your own with that name) is left alone. What a derive can't
-  supply is a *field type's* own conversion -- each field type's
-  `_to_json`/`_from_json` (or `_to_sql`/`_from_sql`) still has to exist and
-  be imported, and a missing one says so ("give that type its own
-  #[derive(Json)] or write it by hand"). Names the derive imported are
+  supply is a field type's own conversion, with one exception: for `Uuid` and
+  the `time` types (`Instant`, `LocalDate`, `LocalTime`, `LocalDateTime`,
+  `Duration`, `ZoneOffset`, `ZoneId`) the derive also imports their
+  `_to_json`/`_from_json` (or `_to_sql`/`_from_sql`) from `uuid` and `time`,
+  so a struct with such a field derives with no extra `use`. For any other
+  field type the conversion still has to exist and be imported, and a missing
+  one says so ("give that type its own #[derive(Json)] or write it by hand"). Names the derive imported are
   visible to the rest of the module, so your own code may use them too.
 
 ## Databases
@@ -2163,9 +2166,10 @@ fn main() {
   dispatches to `<name>_to_sql`/`<name>_from_sql` (provided for `Uuid` and
   every `time` type); `Option<U>` is NULL-or-value. An enum, a generic
   struct, an array field, or `bigint`/`decimal`/`byte` is a compile-time
-  error. The consuming module must `use` what the generated code calls
-  (`db.SqlValue`, `db.DbError`, `db.Row`, `db.row_get`, the
-  `sql_as_*` readers, and each domain type's `_to_sql`/`_from_sql`).
+  error. The derive imports what the generated code calls (`db.SqlValue`,
+  `db.DbError`, `db.Row`, `db.row_get`, the `sql_as_*` readers, and the
+  `_to_sql`/`_from_sql` of `Uuid` and the `time` types); the conversion of a
+  field type of your own has to be imported by the module that derives.
 
 ## Networking
 

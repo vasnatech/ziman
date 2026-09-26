@@ -1,0 +1,35 @@
+use json.json_to_string
+use json.parse_json
+use time.Instant
+use time.LocalDate
+use time.instant_of
+use time.localdate_of
+use uuid.Uuid
+use uuid.uuid_from_string
+use uuid.uuid_to_string
+
+// No `use time.instant_to_sql`, `use uuid.uuid_from_json` and so on: the derives import the converters of the
+// standard types themselves.
+#[derive(Json)]
+#[derive(Row)]
+pub struct Visit {
+    id: Uuid
+    day: Option<LocalDate>
+    at: Instant
+}
+
+#[derive(Json)]
+pub enum Event {
+    Booked(LocalDate)
+    Cancelled
+}
+
+fn main() {
+    val id = unwrap(uuid_from_string("6f0c3b1e-1d5a-4c58-9f2a-3a1b2c3d4e5f"))
+    val v = Visit { id: id, day: Option<LocalDate>.Some(unwrap(localdate_of(2026, 9, 25))), at: instant_of(0, 0) }
+    print(json_to_string(visit_to_json(v)))
+    val back = unwrap(visit_from_json(unwrap(parse_json(json_to_string(visit_to_json(v))))))
+    print(uuid_to_string(back.id))
+    print(len(visit_to_params(v)))
+    print(json_to_string(event_to_json(Event.Booked(unwrap(localdate_of(2026, 1, 2))))))
+}
