@@ -366,7 +366,7 @@ negotiated (406) before anything runs.
 
 ```
 pub fn body_handler<C, I, O, E>(
-    reader: Reader<I>,
+    readers: [Reader<I>],
     writers: [Writer<O>],
     status: int,
     run: fn(C, I) -> Result<O, E>,
@@ -375,9 +375,9 @@ pub fn body_handler<C, I, O, E>(
 ) -> fn(C, Request, Params) -> Response
 ```
 
-An endpoint with a request body: it must arrive as `reader.media` (else 415), the answer is negotiated (else
-406) before anything runs, the body is decoded with `reader` (a failure is 400), and `run(ctx, input)` returns
-the answer or an error.
+An endpoint with a request body: it must arrive as one of `readers`' media types (else 415), the answer is negotiated
+(else 406) before anything runs, the body is decoded with the reader for its type (a failure is 400), and
+`run(ctx, input)` returns the answer or an error.
 
 ### `dispatch`
 

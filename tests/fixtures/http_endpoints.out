@@ -9,8 +9,10 @@ GET /newest -> 406 [text/plain; charset=utf-8] fault 406: not acceptable: this r
 POST /items -> 201 [text/plain] item 105
 POST /items -> 422 [text/plain; charset=utf-8] failure: negative id
 POST /items -> 400 [text/plain; charset=utf-8] fault 400: body is not a number
-POST /items -> 415 [text/plain; charset=utf-8] fault 415: unsupported media type: send text/plain
-POST /items -> 415 [text/plain; charset=utf-8] fault 415: unsupported media type: send text/plain
+POST /items -> 415 [text/plain; charset=utf-8] fault 415: unsupported media type: send text/plain or text/csv
+POST /items -> 415 [text/plain; charset=utf-8] fault 415: unsupported media type: send text/plain or text/csv
 POST /items -> 406 [text/plain; charset=utf-8] fault 406: not acceptable: this route produces text/plain
+POST /items -> 201 [text/plain] item 107
+POST /items -> 400 [text/plain; charset=utf-8] fault 400: csv body must be `id` and a number
 DELETE /items -> 405 [text/plain; charset=utf-8] fault 405: method not allowed Allow=POST
 GET /nothing -> 404 [text/plain; charset=utf-8] fault 404: not found

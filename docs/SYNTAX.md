@@ -2370,12 +2370,13 @@ fn main() {
   builders, by where the endpoint's input comes from: `server.handler<C, O, E>(writers:, status:, run:, failure:,
   fault:)` for none (`run(ctx)`), `server.path_handler<C, P, O, E>(path:, writers:, status:, run:, failure:,
   fault:)` for the path (`path` turns the captured `Params` into a `P`, an `Err` message being a 400, and
-  `run(ctx, input)` gets it), and `server.body_handler<C, I, O, E>(reader:, writers:, status:, run:, failure:,
+  `run(ctx, input)` gets it), and `server.body_handler<C, I, O, E>(readers:, writers:, status:, run:, failure:,
   fault:)` for a request body (`run(ctx, input)`). `run` returns `Result<O, E>`: the answer or an error of the
   application's own type, so it can be an ordinary function that knows nothing about requests. A `Reader<I>
   { media, read }` decodes a body of that media type (an `Err` is a 400) and a `Writer<O> { media, write }` encodes
-  an answer; the server knows no format, the application supplies the functions. The handler checks the
-  `Content-Type` (415), picks the first writer `Accept` allows (406), decodes, runs, and writes with the declared
+  an answer; an endpoint lists the readers it accepts (the request's `Content-Type` picks one) and the writers it can
+  answer with (`Accept` picks one); the server knows no format, the application supplies the functions. The handler picks the reader for
+  the `Content-Type` (415 if there is none), picks the first writer `Accept` allows (406), decodes, runs, and writes with the declared
   `status` and the writer's media type; `failure(e)` builds the response for an `Err`, and `fault(status, message)`
   the one for what the library itself rejects. `server.dispatch<C>(endpoints, ctx, req, fault)` calls the first
   endpoint that matches, or answers 404, or 405 with `Allow`. See `tests/fixtures/http_endpoints.zm`.

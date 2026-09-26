@@ -707,7 +707,7 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 //     // no input: handler; input in the path: path_handler; a request body: body_handler
 //     val patients = [
 //         Endpoint<Ctx> { method: HttpMethod.Post, pattern: "/patients",
-//             handler: body_handler<Ctx, PatientRequest, Patient, ApiError>(reader: json_in, writers: [json_out],
+//             handler: body_handler<Ctx, PatientRequest, Patient, ApiError>(readers: [json_in], writers: [json_out],
 //                 status: 201, run: create_patient, failure: api_error, fault: fault) }
 //     ]
 //     server.dispatch<Ctx>(patients, ctx, req, fault)
@@ -741,6 +741,28 @@ fn negotiate<O>(writers: [Writer<O>], req: Request) -> Option<Writer<O>> {
         }
     }
     return Option<Writer<O>>.None
+}
+
+// The first reader whose media type the request's `Content-Type` is.
+fn select_reader<I>(readers: [Reader<I>], req: Request) -> Option<Reader<I>> {
+    val sent = content_type(req.headers)
+    if !is_Some(sent) {
+        return Option<Reader<I>>.None
+    }
+    for r in readers {
+        if mime.matches(r.media, unwrap_Some(sent)) {
+            return Option<Reader<I>>.Some(r)
+        }
+    }
+    return Option<Reader<I>>.None
+}
+
+fn consumed_types<I>(readers: [Reader<I>]) -> string {
+    val names = ab_new<string>()
+    for r in readers {
+        ab_append<string>(names, mime.essence(r.media))
+    }
+    return join(separator: " or ", pieces: ab_to_array<string>(names))
 }
 
 fn produced_types<O>(writers: [Writer<O>]) -> string {
@@ -808,11 +830,11 @@ pub fn path_handler<C, P, O, E>(
     }
 }
 
-// An endpoint with a request body: it must arrive as `reader.media` (else 415), the answer is negotiated (else
-// 406) before anything runs, the body is decoded with `reader` (a failure is 400), and `run(ctx, input)` returns
-// the answer or an error.
+// An endpoint with a request body: it must arrive as one of `readers`' media types (else 415), the answer is negotiated
+// (else 406) before anything runs, the body is decoded with the reader for its type (a failure is 400), and
+// `run(ctx, input)` returns the answer or an error.
 pub fn body_handler<C, I, O, E>(
-    reader: Reader<I>,
+    readers: [Reader<I>],
     writers: [Writer<O>],
     status: int,
     run: fn(C, I) -> Result<O, E>,
@@ -820,11 +842,11 @@ pub fn body_handler<C, I, O, E>(
     fault: fn(int, string) -> Response
 ) -> fn(C, Request, Params) -> Response {
     return fn(ctx: C, req: Request, params: Params) -> Response {
-        val sent = content_type(req.headers)
-        if !Option.is_Some(sent) || !mime.matches(reader.media, Option.unwrap_Some(sent)) {
+        val reader = select_reader<I>(readers, req)
+        if !is_Some(reader) {
             return fault(
                 status_unsupported_media_type,
-                format("unsupported media type: send {}", mime.essence(reader.media))
+                format("unsupported media type: send {}", consumed_types<I>(readers))
             )
         }
         val writer = negotiate<O>(writers, req)
@@ -834,10 +856,9 @@ pub fn body_handler<C, I, O, E>(
                 format("not acceptable: this route produces {}", produced_types<O>(writers))
             )
         }
-        val read = reader.read
-        val decoded = read(req.body)
-        return switch decoded {
-            Ok(input) { answer<O, E>(run(ctx, input), Option.unwrap_Some(writer), status, failure) }
+        val read = unwrap_Some(reader).read
+        return switch read(req.body) {
+            Ok(input) { answer<O, E>(run(ctx, input), unwrap_Some(writer), status, failure) }
             Err(message) { fault(status_bad_request, message) }
         }
     }

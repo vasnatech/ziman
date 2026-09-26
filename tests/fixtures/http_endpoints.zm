@@ -42,6 +42,14 @@ fn read_id(params: server.Params) -> Result<int, string> {
     return unwrap(n)
 }
 
+fn read_csv_item(text: string) -> Result<Item, string> {
+    val lines = split(trim(text), "\n")
+    if len(lines) != 2 || lines[0] != "id" {
+        return err("csv body must be `id` and a number")
+    }
+    return read_item(lines[1])
+}
+
 fn get_item(ctx: Ctx, id: int) -> Result<Item, string> {
     if id == 0 {
         return err("no such item")
@@ -80,6 +88,7 @@ fn main() {
     val text_out = server.Writer<Item> { media: mime.text_plain(), write: as_text }
     val csv_out = server.Writer<Item> { media: mime.text_csv(), write: as_csv }
     val text_in = server.Reader<Item> { media: mime.text_plain(), read: read_item }
+    val csv_in = server.Reader<Item> { media: mime.text_csv(), read: read_csv_item }
     val endpoints = [
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
@@ -108,7 +117,7 @@ fn main() {
             method: http.HttpMethod.Post,
             pattern: "/items",
             handler: server.body_handler<Ctx, Item, Item, string>(
-                reader: text_in,
+                readers: [text_in, csv_in],
                 writers: [text_out],
                 status: 201,
                 run: create_item,
@@ -135,6 +144,8 @@ fn main() {
         request("POST", "/items", [h("Content-Type", "application/json")], "5"),
         request("POST", "/items", [], "5"),
         request("POST", "/items", [h("Content-Type", "text/plain"), h("Accept", "text/csv")], "5"),
+        request("POST", "/items", [h("Content-Type", "text/csv; charset=utf-8")], "id\n7\n"),
+        request("POST", "/items", [h("Content-Type", "text/csv")], "nope"),
         request("DELETE", "/items", [], ""),
         request("GET", "/nothing", [], "")
     ]
