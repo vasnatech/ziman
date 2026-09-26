@@ -977,6 +977,33 @@ pub fn open_rows(
 
 ```
 
+## `migrate`
+
+Versioned schema migrations: a directory of V<n>__<name>.sql files applied in order, once each, in one transaction, with checksums to catch an edited migration.
+
+```
+pub struct Migration {
+    version: int
+    name: string
+    file: string
+    sql: string
+    checksum: string
+}
+
+pub fn checksum(sql: string) -> string
+
+pub fn migration(version: int, name: string, sql: string) -> Migration
+
+pub fn split_statements(sql: string) -> [string]
+
+pub fn load(dir: string) -> Result<[Migration], DbError>
+
+pub fn apply(conn: Connection, migrations: [Migration]) -> Result<int, DbError>
+
+pub fn run(conn: Connection, dir: string) -> Result<int, DbError>
+
+```
+
 ## `mysql`
 
 ```

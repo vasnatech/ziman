@@ -69,6 +69,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 |---|---|
 | [`db`](db.md) | What every database module shares. |
 | [`datasource`](datasource.md) | The module a program calls to use a database, the shape of JDBC. |
+| [`migrate`](migrate.md) | Versioned schema migrations: a directory of plain `.sql` files, applied in order, once each. |
 | [`sqlite`](sqlite.md) | The SQLite driver behind `datasource`. |
 | [`pg`](pg.md) | A PostgreSQL client, the second backend behind the `datasource` module. |
 | [`mysql`](mysql.md) | A MySQL / MariaDB client, the third engine behind the `datasource` module. |

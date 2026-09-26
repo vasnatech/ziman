@@ -1,0 +1,294 @@
+// migrate.zm -- versioned schema migrations: a directory of plain `.sql` files, applied in order, once each.
+//
+// A migration is a file named `V<version>__<name>.sql` (`V001__create_users.sql`): the version is a whole number, the
+// name says what it does, and the versions of a directory run 1, 2, 3, ... with no gap and no repeat. The file holds
+// ordinary SQL, one or more statements separated by `;` (a `;` inside a quoted string, an identifier, a `--` or
+// `/* */` comment or a `$$ ... $$` body does not end one). Files in the directory that do not end in `.sql` are
+// ignored; a `.sql` file that does not fit the name is an error, so a typo cannot silently skip a migration.
+//
+//     val applied = migrate.run(conn, "migrations")?
+//
+// `run` keeps a table, `schema_migrations`, with a row per applied migration: its version, name, a checksum of its
+// text and when it ran. Each start it:
+//
+//   - refuses a database that has a migration the directory does not (the database is newer than the program);
+//   - refuses one whose stored checksum differs from the file's, because an applied migration has been edited: a
+//     database built from the edited file would differ from one that ran the original, and nothing would say so. To
+//     change a schema, add a migration; never edit one that has run somewhere;
+//   - applies the pending ones, in version order.
+//
+// All the pending migrations and their `schema_migrations` rows go in one transaction, so a failure leaves the
+// database as it was (on SQLite and PostgreSQL; MySQL commits DDL statement by statement, so there a failure in the
+// middle leaves the earlier statements done). On PostgreSQL the run also takes an advisory lock for the length of
+// the transaction, so several servers starting at once migrate one after the other, not all at once.
+//
+// There are no down migrations: a mistake is fixed by the next migration.
+
+use collections
+use crypto
+use datasource
+use datasource.Connection
+use db.DbError
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
+use db.sql_as_text
+use fs
+use time
+
+// One migration: its `version`, its `name`, the `file` it came from (for messages), its `sql` text and the
+// `checksum` of that text.
+pub struct Migration {
+    version: int
+    name: string
+    file: string
+    sql: string
+    checksum: string
+}
+
+// The number `pg_advisory_xact_lock` is asked for: any fixed number, the same in every program that uses this module.
+val lock_key = 727364
+
+fn problem(message: string) -> DbError {
+    return DbError.Sql(concat("migration: ", message))
+}
+
+// The checksum of a migration's text: SHA-256, base64, over the text with its line endings normalised, so a file
+// checked out with CRLF on another machine has the same checksum.
+pub fn checksum(sql: string) -> string {
+    return crypto.base64_encode(crypto.sha256(string_to_bytes(replace(sql, "\r", ""))))
+}
+
+// A migration made from its parts, with its checksum worked out: for migrations that are written in the program
+// rather than read from a directory.
+pub fn migration(version: int, name: string, sql: string) -> Migration {
+    return Migration {
+        version: version,
+        name: name,
+        file: format("V{}__{}.sql", version, name),
+        sql: sql,
+        checksum: checksum(sql)
+    }
+}
+
+// ---------------------------------------------------------------- splitting a file into statements
+
+fn is_tag_char(c: string) -> bool {
+    return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c == "_"
+}
+
+// The index after the quote that closes the one opened at `start` (a doubled quote does not close it, it is
+// two quotes in a row: the first closes and the second opens again), or the end of `sql` when it never closes.
+fn quote_end(sql: string, start: int, quote: string) -> int {
+    val close = index_of(sql, quote, start + 1)
+    return if close < 0 { len(sql) } else { close + 1 }
+}
+
+// The index after the end of the dollar-quoted body that starts at `start`, where `tag` (`$$`, `$body$`) opened it, or
+// the end of `sql` when it never closes.
+fn dollar_end(sql: string, start: int, tag: string) -> int {
+    val close = index_of(sql, tag, start + len(tag))
+    return if close < 0 { len(sql) } else { close + len(tag) }
+}
+
+// The statements of `sql`, without their `;`, comments or surrounding blanks; blank ones are dropped.
+pub fn split_statements(sql: string) -> [string] {
+    val out = ab_new<string>()
+    var current = sb_new()
+    val n = len(sql)
+    var i = 0
+    while i < n {
+        val c = char_at(sql, i)
+        if c == "'" || c == "\"" {
+            val end = quote_end(sql, i, c)
+            sb_append(current, substring(sql, i, end))
+            i = end
+        } else if c == "-" && is_char_at(sql, i + 1, "-") {
+            val end = index_of(sql, "\n", i)
+            i = if end < 0 { n } else { end }
+        } else if c == "/" && is_char_at(sql, i + 1, "*") {
+            val end = index_of(sql, "*/", i + 2)
+            i = if end < 0 { n } else { end + 2 }
+        } else if c == "$" {
+            var j = i + 1
+            while j < n && is_tag_char(char_at(sql, j)) {
+                j = j + 1
+            }
+            if j < n && is_char_at(sql, j, "$") {
+                val tag = substring(sql, i, j + 1)
+                val end = dollar_end(sql, i, tag)
+                sb_append(current, substring(sql, i, end))
+                i = end
+            } else {
+                sb_append(current, c)
+                i = i + 1
+            }
+        } else if c == ";" {
+            val statement = trim(sb_to_string(current))
+            if !is_empty(statement) {
+                ab_append<string>(out, statement)
+            }
+            current = sb_new()
+            i = i + 1
+        } else {
+            sb_append(current, c)
+            i = i + 1
+        }
+    }
+    val last = trim(sb_to_string(current))
+    if !is_empty(last) {
+        ab_append<string>(out, last)
+    }
+    return ab_to_array<string>(out)
+}
+
+// ---------------------------------------------------------------- reading a directory
+
+// `V001__create_users.sql` as a migration, reading the file at `path`.
+fn read_migration(dir: string, file: string) -> Result<Migration, DbError> {
+    val separator = index_of(file, "__", 0)
+    if !starts_with(file, "V") || separator < 2 || separator + 2 >= len(file) - 4 {
+        return err(problem(format("{} is not named V<version>__<name>.sql", file)))
+    }
+    val version = switch parse_int(substring(file, 1, separator)) {
+        Ok(number) { number }
+        Err(_) { return err(problem(format("{} does not start with a version number", file))) }
+    }
+    if version < 1 {
+        return err(problem(format("{}: versions start at 1", file)))
+    }
+    val text = switch fs.read_text(fs.path_join(dir, file)) {
+        Ok(contents) { contents }
+        Err(message) { return err(problem(message)) }
+    }
+    return Migration {
+        version: version,
+        name: substring(file, separator + 2, len(file) - 4),
+        file: file,
+        sql: text,
+        checksum: checksum(text)
+    }
+}
+
+// The migrations in `dir`, in version order. An Err for an unreadable directory, a `.sql` file with a bad name, or
+// versions that repeat or skip.
+pub fn load(dir: string) -> Result<[Migration], DbError> {
+    val names = switch fs.list_dir(dir) {
+        Ok(listed) { listed }
+        Err(message) { return err(problem(message)) }
+    }
+    val found = ab_new<Migration>()
+    for file in names {
+        if ends_with(file, ".sql") {
+            val one = read_migration(dir, file)?
+            ab_append<Migration>(found, one)
+        }
+    }
+    val items = ab_to_array<Migration>(found)
+    val versions = collections.map<Migration, int>(items, fn(m: Migration) -> int { return m.version })
+    return switch collections.sort_by_keys<Migration, int>(items, versions) {
+        Ok(sorted) { sorted }
+        Err(message) { err(problem(message)) }
+    }
+}
+
+// The versions must be 1, 2, 3, ... in order.
+fn check_sequence(migrations: [Migration]) -> Result<int, DbError> {
+    for i in 0..len(migrations) {
+        val m = migrations[i]
+        if i > 0 && migrations[i - 1].version == m.version {
+            return err(problem(format(
+                "version {} is used by both {} and {}",
+                m.version,
+                migrations[i - 1].file,
+                m.file
+            )))
+        }
+        if m.version != i + 1 {
+            return err(problem(format(
+                "versions must run 1, 2, 3, ... with no gap or repeat, but {} is where {} was expected",
+                m.file,
+                i + 1
+            )))
+        }
+    }
+    return 0
+}
+
+// ---------------------------------------------------------------- applying
+
+// Applied migrations are checked against the ones the program has: the same count or fewer, the same versions in
+// order, the same checksums. Returns how many are already applied.
+fn check_applied(tx: Connection, migrations: [Migration]) -> Result<int, DbError> {
+    val rows = datasource.query(tx, "SELECT version, name, checksum FROM schema_migrations ORDER BY version")?
+    for i in 0..len(rows) {
+        val version_value = row_get(rows[i], "version")?
+        val version = sql_as_int(version_value)?
+        val stored_value = row_get(rows[i], "checksum")?
+        val stored = sql_as_text(stored_value)?
+        if version != i + 1 || i >= len(migrations) {
+            return err(problem(format(
+                "the database has migration {} applied, which this program does not have (or not in this place)",
+                version
+            )))
+        }
+        if stored != migrations[i].checksum {
+            return err(problem(format(
+                "{} was changed after it was applied (its checksum is not the one stored); add a new migration instead of editing an applied one",
+                migrations[i].file
+            )))
+        }
+    }
+    return len(rows)
+}
+
+fn apply_one(tx: Connection, m: Migration) -> Result<int, DbError> {
+    for statement in split_statements(m.sql) {
+        datasource.execute(tx, statement)?
+    }
+    return datasource.execute(
+        tx,
+        "INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES ($1, $2, $3, $4)",
+        SqlValue.Int(m.version),
+        SqlValue.Text(m.name),
+        SqlValue.Text(m.checksum),
+        SqlValue.Text(time.instant_to_string(time.instant_now()))
+    )
+}
+
+fn apply_in(tx: Connection, migrations: [Migration]) -> Result<int, DbError> {
+    if Connection.is_Postgres(tx) {
+        datasource.query(tx, "SELECT pg_advisory_xact_lock($1)", SqlValue.Int(lock_key))?
+    }
+    datasource.execute(
+        tx,
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            checksum TEXT NOT NULL,
+            applied_at TEXT NOT NULL
+        )
+        """
+    )?
+    val done = check_applied(tx, migrations)?
+    for i in done..len(migrations) {
+        apply_one(tx, migrations[i])?
+    }
+    return len(migrations) - done
+}
+
+// Brings the database to the latest of `migrations`, given in version order; the number applied by this call. See
+// the top of this file for what it checks and how it is kept safe.
+pub fn apply(conn: Connection, migrations: [Migration]) -> Result<int, DbError> {
+    check_sequence(migrations)?
+    return datasource.with_transaction<int>(conn, fn(tx: Connection) -> Result<int, DbError> {
+        return apply_in(tx, migrations)
+    })
+}
+
+// `apply` for the migrations in the directory `dir`.
+pub fn run(conn: Connection, dir: string) -> Result<int, DbError> {
+    val migrations = load(dir)?
+    return apply(conn, migrations)
+}

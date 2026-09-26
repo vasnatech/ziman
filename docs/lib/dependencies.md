@@ -32,6 +32,7 @@ flowchart LR
     subgraph group_db["databases"]
         datasource["db.datasource"]
         db["db"]
+        migrate["db.migrate"]
         mysql["db.mysql"]
         pg["db.pg"]
         sqlite["db.sqlite"]
@@ -73,6 +74,12 @@ flowchart LR
     log --> clock
     log --> fs
     log --> os
+    migrate --> collections
+    migrate --> crypto
+    migrate --> datasource
+    migrate --> db
+    migrate --> fs
+    migrate --> time
     mysql --> crypto
     mysql --> db
     mysql --> net
@@ -122,6 +129,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 1 | `crypto`, `csv`, `db`, `http`, `log`, `ndjson`, `properties`, `toml`, `yaml`, `zone` |
 | 2 | `jwt`, `mysql`, `pg`, `server`, `sqlite`, `time`, `uuid` |
 | 3 | `client`, `datasource` |
+| 4 | `migrate` |
 
 ## Each module
 
@@ -129,17 +137,18 @@ otherwise: everything on a layer depends only on lower layers.
 |---|---|---|
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `server`, `time`, `uuid` |
-| `collections` | - | - |
+| `collections` | - | `migrate` |
 | `compress` | - | `client` |
-| `crypto` | `random` | `client`, `jwt`, `mysql`, `pg` |
+| `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
-| `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | - |
-| `db` | `number` | `datasource`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
-| `fs` | - | `csv`, `log`, `properties`, `zone` |
+| `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
+| `db` | `number` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
+| `fs` | - | `csv`, `log`, `migrate`, `properties`, `zone` |
 | `http` | `mime`, `number` | `client`, `server` |
 | `json` | - | `csv`, `jwt`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `os` | - |
+| `migrate` | `collections`, `crypto`, `datasource`, `db`, `fs`, `time` | - |
 | `mime` | - | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
@@ -152,7 +161,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `regex` | - | - |
 | `server` | `clock`, `http`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
-| `time` | `clock`, `db`, `json`, `zone` | `client` |
+| `time` | `clock`, `db`, `json`, `zone` | `client`, `migrate` |
 | `toml` | `json`, `number` | - |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | - |
 | `yaml` | `json`, `number` | - |

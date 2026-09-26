@@ -1,0 +1,112 @@
+use datasource
+use db.DbError
+use db.SqlValue
+use db.db_error_message
+use fs
+use migrate
+
+fn put(dir: string, name: string, text: string) {
+    unwrap(fs.write_text(fs.path_join(dir, name), text))
+}
+
+fn count(conn: datasource.Connection, table: string) -> int {
+    val rows = unwrap(datasource.query(conn, concat("SELECT * FROM ", table)))
+    return len(rows)
+}
+
+fn message(r: Result<int, DbError>) -> string {
+    return db_error_message(unwrap_err(r))
+}
+
+fn main() {
+    val dir = "/tmp/ziman_migrate_basic"
+    if fs.exists(dir) {
+        for name in unwrap(fs.list_dir(dir)) {
+            unwrap(fs.remove(fs.path_join(dir, name)))
+        }
+    } else {
+        unwrap(fs.make_dirs(dir))
+    }
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+
+    print(split_statements_demo())
+
+    // an empty directory applies nothing, but creates the bookkeeping table
+    print(unwrap(migrate.run(conn, dir)))
+    print(count(conn, "schema_migrations"))
+
+    put(
+        dir,
+        "V001__create_people.sql",
+        "CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\nINSERT INTO people (id, name) VALUES (1, 'a;b');\n"
+    )
+    put(
+        dir,
+        "V002__create_pets.sql",
+        "-- pets\nCREATE TABLE pets (id INTEGER PRIMARY KEY, owner INTEGER NOT NULL REFERENCES people(id));"
+    )
+    put(dir, "notes.txt", "not a migration")
+    print(unwrap(migrate.run(conn, dir)))
+    print(count(conn, "people"))
+    print(count(conn, "schema_migrations"))
+
+    // nothing pending the second time
+    print(unwrap(migrate.run(conn, dir)))
+
+    // a third one
+    put(dir, "V003__add_column.sql", "ALTER TABLE pets ADD COLUMN name TEXT")
+    print(unwrap(migrate.run(conn, dir)))
+    print(count(conn, "schema_migrations"))
+
+    // an applied migration that was edited
+    put(dir, "V002__create_pets.sql", "CREATE TABLE pets (id INTEGER PRIMARY KEY);")
+    print(message(migrate.run(conn, dir)))
+    put(
+        dir,
+        "V002__create_pets.sql",
+        "-- pets\nCREATE TABLE pets (id INTEGER PRIMARY KEY, owner INTEGER NOT NULL REFERENCES people(id));"
+    )
+    print(unwrap(migrate.run(conn, dir)))
+
+    // a database newer than the program
+    put(dir, "V004__more.sql", "CREATE TABLE more (id INTEGER PRIMARY KEY)")
+    print(unwrap(migrate.run(conn, dir)))
+    unwrap(fs.remove(fs.path_join(dir, "V004__more.sql")))
+    print(message(migrate.run(conn, dir)))
+
+    // a failing migration rolls the whole run back
+    val fresh = unwrap(datasource.open("sqlite::memory:"))
+    unwrap(fs.remove(fs.path_join(dir, "V003__add_column.sql")))
+    put(dir, "V003__bad.sql", "CREATE TABLE fine (id INTEGER); CREATE TABLE fine (id INTEGER)")
+    print(!is_ok(migrate.run(fresh, dir)))
+    print(!is_ok(datasource.query(fresh, "SELECT * FROM schema_migrations")))
+    print(!is_ok(datasource.query(fresh, "SELECT * FROM people")))
+
+    // a gap, a repeat, a bad name
+    unwrap(fs.remove(fs.path_join(dir, "V003__bad.sql")))
+    put(dir, "V005__gap.sql", "SELECT 1")
+    print(message(migrate.run(fresh, dir)))
+    unwrap(fs.remove(fs.path_join(dir, "V005__gap.sql")))
+    put(dir, "V002__again.sql", "SELECT 1")
+    print(message(migrate.run(fresh, dir)))
+    unwrap(fs.remove(fs.path_join(dir, "V002__again.sql")))
+    put(dir, "oops.sql", "SELECT 1")
+    print(message(migrate.run(fresh, dir)))
+
+    // migrations written in the program
+    val inline = unwrap(datasource.open("sqlite::memory:"))
+    val ms = [migrate.migration(1, "one", "CREATE TABLE one (x INTEGER)"),
+        migrate.migration(2, "two", "CREATE TABLE two (x INTEGER)")]
+    print(unwrap(migrate.apply(inline, ms)))
+    print(unwrap(migrate.apply(inline, ms)))
+
+    for name in unwrap(fs.list_dir(dir)) {
+        unwrap(fs.remove(fs.path_join(dir, name)))
+    }
+    unwrap(fs.remove(dir))
+}
+
+fn split_statements_demo() -> string {
+    val parts = migrate.split_statements("a; 'x;y' ; -- c;d\n b /* e;f */ ; $$ g;h $$; \"i;j\"; k")
+    return join(separator: " | ", pieces: parts)
+}

@@ -1253,8 +1253,9 @@ from source.
   `datasource.open_pool_with`), min/max sizing and
   idle timeouts, resetting a connection on release, and real pooling over
   in-memory SQLite (shared-cache); (4)
-  **schema management/migrations**, currently a plain `create_schema`
-  script per repository; (5) per-field `#[derive(Row)]` annotations
+  ~~**schema management/migrations**~~ (done: the `migrate` module, a
+  directory of `V<n>__<name>.sql` files applied once each with checksums; no
+  down migrations); (5) per-field `#[derive(Row)]` annotations
   (column-name override, primary key, generated columns) -- the same
   deferred per-field-annotation gap `#[derive(Json)]` documents; (6)
   Postgres gaps: MD5 authentication, prepared-statement reuse, COPY,

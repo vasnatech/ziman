@@ -1,0 +1,21 @@
+a | 'x;y' | b | $$ g;h $$ | "i;j" | k
+0
+0
+2
+1
+2
+0
+1
+3
+database error: migration: V002__create_pets.sql was changed after it was applied (its checksum is not the one stored); add a new migration instead of editing an applied one
+0
+1
+database error: migration: the database has migration 4 applied, which this program does not have (or not in this place)
+true
+true
+true
+database error: migration: versions must run 1, 2, 3, ... with no gap or repeat, but V005__gap.sql is where 3 was expected
+database error: migration: version 2 is used by both V002__again.sql and V002__create_pets.sql
+database error: migration: oops.sql is not named V<version>__<name>.sql
+2
+0
