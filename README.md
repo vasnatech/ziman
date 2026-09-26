@@ -118,7 +118,7 @@ echo 'fn main() { print("hello, ziman") }' > hello.zm
 
 **Platforms.** Ziman is developed and tested on Linux (x86-64, Fedora); that is the only platform the test
 suite has been run on. It needs a C11 compiler, `make`, and the development files for SQLite, OpenSSL
-and zlib (it links `-lsqlite3 -lssl -lcrypto -lz`). macOS and the BSDs use the same POSIX interfaces
+(3.2 or later, for Argon2id), libxcrypt (bcrypt) and zlib (it links `-lsqlite3 -lssl -lcrypto -lcrypt -lz`). macOS and the BSDs use the same POSIX interfaces
 and will probably build, but nobody has tried, so treat them as untested. Windows does not build natively
 (threads, sockets, directories and signals use POSIX calls directly); use WSL or a Linux container. The
 named time zones in `time` read the operating system's zone files (`/usr/share/zoneinfo`, or `$TZDIR`),

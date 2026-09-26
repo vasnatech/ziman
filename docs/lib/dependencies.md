@@ -53,6 +53,7 @@ flowchart LR
     client --> number
     client --> os
     client --> time
+    crypto --> random
     csv --> fs
     csv --> json
     csv --> number
@@ -112,8 +113,8 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `clock`, `collections`, `compress`, `crypto`, `fs`, `json`, `mime`, `net`, `number`, `os`, `random`, `regex` |
-| 1 | `csv`, `db`, `http`, `log`, `ndjson`, `properties`, `toml`, `yaml`, `zone` |
+| 0 | `clock`, `collections`, `compress`, `fs`, `json`, `mime`, `net`, `number`, `os`, `random`, `regex` |
+| 1 | `crypto`, `csv`, `db`, `http`, `log`, `ndjson`, `properties`, `toml`, `yaml`, `zone` |
 | 2 | `mysql`, `pg`, `server`, `sqlite`, `time`, `uuid` |
 | 3 | `client`, `datasource` |
 
@@ -125,7 +126,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `log`, `server`, `time`, `uuid` |
 | `collections` | - | - |
 | `compress` | - | `client` |
-| `crypto` | - | `client`, `mysql`, `pg` |
+| `crypto` | `random` | `client`, `mysql`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | - |
 | `db` | `number` | `datasource`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
@@ -141,7 +142,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `os` | - | `client`, `log`, `properties`, `server`, `zone` |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `properties` | `fs`, `os` | - |
-| `random` | - | `pg`, `uuid` |
+| `random` | - | `crypto`, `pg`, `uuid` |
 | `regex` | - | - |
 | `server` | `clock`, `http`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |

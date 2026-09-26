@@ -2511,12 +2511,18 @@ level is dropped. `with_prefix` makes a per-component logger,
 
 ## Cryptography
 
-The `crypto` core module is hashes, message authentication, key derivation and base64 on
-OpenSSL's libcrypto (already linked for TLS); all native, `[byte]` in and out.
+The `crypto` core module is hashes, message authentication, key derivation, password hashing and base64 on
+OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt; `[byte]` in and out.
 
 - **Hashes:** `sha1` (broken -- legacy formats and MySQL's login only), `sha256`, `sha512`.
 - **Keyed:** `hmac_sha256`, `hmac_sha512`, and `pbkdf2_hmac_sha256` / `pbkdf2_hmac_sha512(password,
   salt, iterations, length)` for turning a password into a key or a storable hash.
+- **Passwords:** `password_hash(password)` gives a string to store (Argon2id, PHC format, a fresh random salt inside
+  it), `password_verify(password, stored)` checks one of either scheme -- Argon2id, or bcrypt (`$2a$`/`$2b$`/`$2y$`,
+  the hashes Spring Security's `BCryptPasswordEncoder` writes) -- and `password_needs_rehash(stored)` says whether to
+  replace it with a fresh `password_hash` when the user next logs in (it is bcrypt, or weaker Argon2id). The parts are
+  public too: `bcrypt_hash(password:, cost:)` / `bcrypt_verify`, `argon2id_hash(password:, memory_kib:, iterations:,
+  parallelism:)` / `argon2id_verify`, and the raw `argon2id_raw`. Comparisons take the same time whatever the contents.
 - **Bytes:** `bytes_xor` (Ziman has no bitwise operators) and `bytes_equal`, a comparison that takes the
   same time whatever the contents -- use it for MACs and tokens, not `==`.
 - **base64:** `base64_encode` / `base64_decode` (standard, padded, strict) and `base64url_encode` /

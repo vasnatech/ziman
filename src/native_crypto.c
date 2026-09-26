@@ -6,16 +6,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <crypt.h>
+#include <openssl/core_names.h>
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
+#include <openssl/kdf.h>
+#include <openssl/params.h>
+#include <openssl/rand.h>
 
 #include "error.h"
 #include "native.h"
 
 /* The `crypto` core module's natives, on OpenSSL's libcrypto (already linked for TLS):
- * SHA-1 / SHA-256 / SHA-512, HMAC, PBKDF2, a constant-time comparison, base64 and base64url,
- * and a byte-wise XOR. See lib/core/crypto.zm. Hashing and PBKDF2 are native because a few
+ * SHA-1 / SHA-256 / SHA-512, HMAC, PBKDF2, Argon2id, a constant-time comparison, base64 and base64url,
+ * and a byte-wise XOR; and bcrypt, from libxcrypt (OpenSSL has none). See lib/core/crypto.zm. Hashing and PBKDF2 are native because a few
  * thousand iterations of a compression function is hopeless in a tree-walking interpreter. */
 
 static Type byte_array_type(void) { return type_array(type_scalar(TY_BYTE)); }
@@ -205,6 +210,102 @@ static Value native_base64url_decode(Value *args, int argc, int line, int col) {
     return base64_decode_with(args[0], B64_URL, 0);
 }
 
+/* ------------------------------------------------------------- password hashing */
+
+static Value string_result_ok(const char *text) {
+    return value_result(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)), result_obj_new(1, value_string(strdup(text))));
+}
+
+static Value string_result_err(const char *message) {
+    return value_result(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)), result_obj_new(0, value_string(strdup(message))));
+}
+
+static char *copy_cstring(Value v) {
+    char *out = malloc((size_t)v.as.str.len + 1);
+    memcpy(out, v.as.str.ptr, (size_t)v.as.str.len);
+    out[v.as.str.len] = '\0';
+    return out;
+}
+
+/* bcrypt_native(password, cost): a `$2b$` hash with a fresh random salt, or an Err. */
+static Value native_bcrypt(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    int64_t cost = args[1].as.i;
+    if (cost < 4 || cost > 31) return string_result_err("bcrypt cost must be between 4 and 31");
+    char *password = copy_cstring(args[0]);
+    unsigned char rnd[16];
+    if (RAND_bytes(rnd, (int)sizeof rnd) != 1) return string_result_err("bcrypt: no random bytes available");
+    char setting[64];
+    if (crypt_gensalt_rn("$2b$", (unsigned long)cost, (const char *)rnd, (int)sizeof rnd, setting, (int)sizeof setting) == NULL) {
+        return string_result_err("bcrypt: could not build a salt");
+    }
+    struct crypt_data *data = calloc(1, sizeof *data);
+    char *hash = crypt_r(password, setting, data);
+    Value out = (hash != NULL && hash[0] == '$') ? string_result_ok(hash) : string_result_err("bcrypt: hashing failed");
+    OPENSSL_cleanse(data, sizeof *data);
+    OPENSSL_cleanse(password, strlen(password));
+    free(data);
+    free(password);
+    return out;
+}
+
+/* bcrypt_verify(password, hash): whether `hash` (`$2a$`, `$2b$` or `$2y$`) is the bcrypt hash of `password`. */
+static Value native_bcrypt_verify(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    size_t hn = (size_t)args[1].as.str.len;
+    if (hn != 60) return value_bool(0);
+    char *password = copy_cstring(args[0]);
+    char *hash = copy_cstring(args[1]);
+    int ok = 0;
+    if (hash[0] == '$' && hash[1] == '2') {
+        struct crypt_data *data = calloc(1, sizeof *data);
+        char *computed = crypt_r(password, hash, data);
+        ok = computed != NULL && strlen(computed) == hn && CRYPTO_memcmp(computed, hash, hn) == 0;
+        OPENSSL_cleanse(data, sizeof *data);
+        free(data);
+    }
+    OPENSSL_cleanse(password, strlen(password));
+    free(password);
+    free(hash);
+    return value_bool(ok);
+}
+
+/* argon2id_raw(password, salt, memory_kib, iterations, parallelism, length): the raw Argon2id output (RFC 9106). */
+static Value native_argon2id_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type result_type = type_result(byte_array_type(), type_scalar(TY_STRING));
+    int64_t memory = args[2].as.i, iterations = args[3].as.i, lanes = args[4].as.i, length = args[5].as.i;
+    if (memory < 8 || memory > (1 << 22) || iterations < 1 || iterations > 1000 || lanes < 1 || lanes > 64 || length < 4 || length > 1024) {
+        return value_result(result_type, result_obj_new(0, value_string(strdup("argon2id: parameters out of range"))));
+    }
+    int pn = 0, sn = 0;
+    uint8_t *pw = array_copy_bytes(args[0].as.arr, &pn);
+    uint8_t *salt = array_copy_bytes(args[1].as.arr, &sn);
+    uint32_t iter = (uint32_t)iterations, lane = (uint32_t)lanes, mem = (uint32_t)memory, threads = 1;
+    unsigned char *out = malloc((size_t)length);
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, pw, (size_t)pn),
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, salt, (size_t)sn),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &iter),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &lane),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &threads),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &mem),
+        OSSL_PARAM_construct_end(),
+    };
+    EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
+    EVP_KDF_CTX *ctx = kdf != NULL ? EVP_KDF_CTX_new(kdf) : NULL;
+    int ok = ctx != NULL && EVP_KDF_derive(ctx, out, (size_t)length, params) == 1;
+    Value v = ok ? value_result(result_type, result_obj_new(1, value_byte_array(out, (size_t)length)))
+                 : value_result(result_type, result_obj_new(0, value_string(strdup("argon2id: the derivation failed (a salt of at least 8 bytes is required)"))));
+    EVP_KDF_CTX_free(ctx);
+    EVP_KDF_free(kdf);
+    OPENSSL_cleanse(pw, (size_t)pn);
+    free(pw);
+    free(salt);
+    free(out);
+    return v;
+}
+
 void native_crypto_register(void) {
     native_register("crypto::sha1", native_sha1);
     native_register("crypto::sha256", native_sha256);
@@ -213,6 +314,9 @@ void native_crypto_register(void) {
     native_register("crypto::hmac_sha512", native_hmac_sha512);
     native_register("crypto::pbkdf2_hmac_sha256", native_pbkdf2_sha256);
     native_register("crypto::pbkdf2_hmac_sha512", native_pbkdf2_sha512);
+    native_register("crypto::bcrypt_native", native_bcrypt);
+    native_register("crypto::bcrypt_verify", native_bcrypt_verify);
+    native_register("crypto::argon2id_raw", native_argon2id_raw);
     native_register("crypto::bytes_xor", native_bytes_xor);
     native_register("crypto::bytes_equal", native_bytes_equal);
     native_register("crypto::base64_encode", native_base64_encode);

@@ -135,6 +135,22 @@ pub native fn pbkdf2_hmac_sha256(password: [byte], salt: [byte], iterations: int
 
 pub native fn pbkdf2_hmac_sha512(password: [byte], salt: [byte], iterations: int, length: int) -> [byte]
 
+pub fn bcrypt_hash(password: string, cost: Option<int> = 10) -> Result<string, string>
+
+pub native fn bcrypt_verify(password: string, hash: string) -> bool
+
+pub native fn argon2id_raw(
+
+pub fn argon2id_hash(
+
+pub fn argon2id_verify(password: string, encoded: string) -> bool
+
+pub fn password_hash(password: string) -> Result<string, string>
+
+pub fn password_verify(password: string, stored: string) -> bool
+
+pub fn password_needs_rehash(stored: string) -> bool
+
 pub native fn bytes_xor(a: [byte], b: [byte]) -> [byte]
 
 pub native fn bytes_equal(a: [byte], b: [byte]) -> bool
@@ -493,7 +509,7 @@ pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Optio
 
 pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
 
-pub fn connect_tls_with(host: string, port: int, verify: TlsVerify,
+pub fn connect_tls_with(
 
 pub fn idle_put(key: string, s: Socket) -> bool
 
@@ -912,7 +928,7 @@ pub enum Request {
 
 pub fn run_request(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError>
 
-pub fn open_rows(requests: Channel<Request>, sql: string,
+pub fn open_rows(
 
 ```
 
@@ -1036,11 +1052,11 @@ pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar
 
 pub fn jar_header(jar: CookieJar, u: Url) -> Option<string>
 
-pub fn request(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<string>,
+pub fn request(
 
-pub fn request_bytes(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>,
+pub fn request_bytes(
 
-pub fn request_with_jar(jar: CookieJar, method: HttpMethod, url: string, headers: Option<[Header]>,
+pub fn request_with_jar(
 
 pub fn get(url: string) -> Result<Response, ClientError>
 
@@ -1062,7 +1078,7 @@ pub struct StreamResponse {
     body: Iter<Result<[byte], ClientError>>
 }
 
-pub fn stream(method: HttpMethod, url: string, headers: Option<[Header]>, body: Option<[byte]>, timeout_ms: Option<int>,
+pub fn stream(
 
 ```
 
@@ -1245,9 +1261,11 @@ pub struct Writer<O> {
     write: fn(O) -> string
 }
 
-pub fn handler<C, O, E>(writers: [Writer<O>], status: int, run: fn(C, Params) -> Result<O, E>,
+pub fn handler<C, O, E>(
 
-pub fn body_handler<C, I, O, E>(reader: Reader<I>, writers: [Writer<O>], status: int, run: fn(C, I) -> Result<O, E>,
+pub fn path_handler<C, P, O, E>(
+
+pub fn body_handler<C, I, O, E>(
 
 pub fn dispatch<C>(endpoints: [Endpoint<C>], ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
 
@@ -1570,7 +1588,7 @@ pub struct ZoneRules {
 
 pub fn parse_posix_rule(text: string) -> Result<PosixRule, string>
 
-pub val no_rule = PosixRule { standard: ZoneType { utoff: 0, dst: false, name: "UTC" },
+pub val no_rule = PosixRule {
 
 pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string>
 

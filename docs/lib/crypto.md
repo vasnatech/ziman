@@ -1,13 +1,14 @@
 # `crypto`
 
-Hashes, message authentication, key derivation and base64, on OpenSSL's
-libcrypto (already linked for TLS). Every function is native. Byte data is `[byte]`; a
-digest or key is returned as `[byte]` (use `number.bytes_to_hex` for hex text).
+Hashes, message authentication, key derivation, password hashing and base64, on
+OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt. The primitives are
+native. Byte data is `[byte]`; a digest or key is returned as `[byte]` (use `number.bytes_to_hex`
+for hex text).
 
-The module is deliberately small: no ciphers, no public-key operations, no randomness (use
-`random.random_bytes`). It exists so the database drivers can authenticate (SCRAM-SHA-256
-for Postgres, the SHA-1 / SHA-256 login scrambles for MySQL) and so programs can sign and
-verify data; it grows when a real consumer needs more.
+The module is deliberately small: no ciphers, no public-key operations. It exists so the
+database drivers can authenticate (SCRAM-SHA-256 for Postgres, the SHA-1 / SHA-256 login
+scrambles for MySQL), so programs can sign and verify data (see `jwt`), and so they can store
+passwords (`password_hash`, `password_verify`); it grows when a real consumer needs more.
 
 Error convention: a wrong *argument* (mismatched lengths, an out-of-range iteration count)
 is a runtime error, like any other misuse; malformed *data* (`base64_decode` of text that is
@@ -114,6 +115,94 @@ pub native fn pbkdf2_hmac_sha512(password: [byte], salt: [byte], iterations: int
 ```
 
 The same with HMAC-SHA-512.
+
+## Password hashing
+
+### `bcrypt_hash`
+
+```
+pub fn bcrypt_hash(password: string, cost: Option<int> = 10) -> Result<string, string>
+```
+
+A bcrypt hash of `password`: 60 characters starting `$2b$`, with a fresh random salt in it. `cost` is the base-2
+logarithm of the rounds (4 to 31; 10 is the usual default, each step doubles the time). bcrypt reads only the first
+72 bytes of the password.
+
+### `bcrypt_verify`
+
+```
+pub native fn bcrypt_verify(password: string, hash: string) -> bool
+```
+
+Whether `hash` (a `$2a$`, `$2b$` or `$2y$` bcrypt hash, such as Spring Security's `BCryptPasswordEncoder` writes) is the
+bcrypt hash of `password`. False for anything that is not a well-formed bcrypt hash. The comparison takes the same time
+whatever the contents.
+
+### `argon2id_raw`
+
+```
+pub native fn argon2id_raw(
+    password: [byte],
+    salt: [byte],
+    memory_kib: int,
+    iterations: int,
+    parallelism: int,
+    length: int
+) -> Result<[byte], string>
+```
+
+Argon2id (RFC 9106) of `password` and `salt` (at least 8 bytes): `length` bytes (4 to 1024) using `memory_kib` KiB of
+memory, `iterations` passes and `parallelism` lanes. The raw building block; `argon2id_hash` is the one to use.
+
+### `argon2id_hash`
+
+```
+pub fn argon2id_hash(
+    password: string,
+    memory_kib: Option<int> = 19456,
+    iterations: Option<int> = 2,
+    parallelism: Option<int> = 1
+) -> Result<string, string>
+```
+
+An Argon2id hash of `password` in the PHC string format (`$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`, the format
+every Argon2 implementation reads and writes), with a fresh random salt. The defaults are OWASP's minimum for
+Argon2id (19 MiB, 2 passes, 1 lane); raise `memory_kib` where the server can afford it.
+
+### `argon2id_verify`
+
+```
+pub fn argon2id_verify(password: string, encoded: string) -> bool
+```
+
+Whether `encoded` (a PHC-format Argon2id string) is the hash of `password`. False for anything malformed. The
+comparison takes the same time whatever the contents.
+
+### `password_hash`
+
+```
+pub fn password_hash(password: string) -> Result<string, string>
+```
+
+A hash of `password` to store: Argon2id with the defaults of `argon2id_hash`.
+
+### `password_verify`
+
+```
+pub fn password_verify(password: string, stored: string) -> bool
+```
+
+Whether `stored` (as `password_hash` or `bcrypt_hash` wrote it, or a Spring `BCryptPasswordEncoder` hash) is the hash
+of `password`. The scheme is read from the text, so hashes of both kinds can live in one column.
+
+### `password_needs_rehash`
+
+```
+pub fn password_needs_rehash(stored: string) -> bool
+```
+
+Whether `stored` should be replaced by a fresh `password_hash` (do it when the user has just logged in and their
+password is in hand): it is a bcrypt hash, or an Argon2id one with weaker settings than today's defaults.
 
 ## Byte arrays
 
