@@ -1,0 +1,27 @@
+ok {"iss":"joe","exp":1300819380,"http://example.com/is_root":true}
+the token has expired
+ok {"iss":"joe","exp":1300819380,"http://example.com/is_root":true}
+the signature does not match
+the signature does not match
+the signature does not match
+HS256
+{"alg":"HS512","typ":"JWT"}
+ada@example.com "admin"
+{"alg":"HS384","typ":"JWT"}
+ada@example.com "admin"
+{"alg":"HS512","typ":"JWT"}
+ada@example.com "admin"
+true
+unsupported algorithm 'none': use HS256, HS384 or HS512
+the claims of a token must be a JSON object
+the token is not valid yet
+ok {"sub":"t","nbf":1000,"exp":2000}
+ok {"sub":"t","nbf":1000,"exp":2000}
+the token has expired
+true
+the token has expired
+malformed token: a token has three parts separated by dots
+malformed token: a token has three parts separated by dots
+malformed token: the header is not base64url (invalid base64: bad character)
+unsupported algorithm 'none'
+unsupported algorithm 'RS256'

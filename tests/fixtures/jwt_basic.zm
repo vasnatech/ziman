@@ -1,0 +1,69 @@
+use random.random_bytes
+use crypto
+use json.Json
+use json.json_object_get
+use json.json_to_string
+use jwt
+
+fn show(r: Result<Json, jwt.JwtError>) {
+    switch r {
+        Ok(claims) { print(format("ok {}", json_to_string(claims))) }
+        Err(e) { print(jwt.jwt_error_message(e)) }
+    }
+}
+
+fn main() {
+    // RFC 7515, appendix A.1: the HS256 example token and its key
+    val key = unwrap(crypto.base64url_decode("AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"))
+    val rfc = "eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    show(jwt.verify_at(rfc, key, 1300819379, 0))
+    // exp is 1300819380: a second later it has expired, unless a leeway forgives it
+    show(jwt.verify_at(rfc, key, 1300819380, 0))
+    show(jwt.verify_at(rfc, key, 1300819390, 30))
+    // the wrong key, a changed payload, a changed signature
+    show(jwt.verify_at(rfc, string_to_bytes("another key entirely"), 1300819379, 0))
+    val parts = split(rfc, ".")
+    val forged = join(separator: ".", pieces: [parts[0], crypto.base64url_encode(string_to_bytes("{\"iss\":\"mallory\"}")), parts[2]])
+    show(jwt.verify_at(forged, key, 1300819379, 0))
+    show(jwt.verify_at(join(separator: ".", pieces: [parts[0], parts[1], "AAAA"]), key, 1300819379, 0))
+
+    // signing: the algorithm follows the key's size, and a token verifies with the key that signed it
+    print(jwt.algorithm_for_key(string_to_bytes("0123456789012345678901234567890123456789")))
+    val long_key = random_bytes(64)
+    val mid_key = random_bytes(48)
+    for k in [key, mid_key, long_key] {
+        val token = unwrap(jwt.sign(jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JString("admin")), k))
+        val header = unwrap(crypto.base64url_decode(split(token, ".")[0]))
+        print(unwrap(bytes_to_string(header)))
+        switch jwt.verify(token, k) {
+            Ok(c) { print(format("{} {}", unwrap_Some(jwt.subject(c)), json_to_string(unwrap_Some(json_object_get(c, "role"))))) }
+            Err(e) { print(jwt.jwt_error_message(e)) }
+        }
+    }
+    // an algorithm can be chosen, but only the three HMAC ones
+    print(is_ok(jwt.sign_with(jwt.claims("a", 60), key, "HS512")))
+    print(unwrap_err(jwt.sign_with(jwt.claims("a", 60), key, "none")))
+    print(unwrap_err(jwt.sign(Json.JString("x"), key)))
+
+    // expiry and not-before, checked at a chosen time
+    val timed = Json.JObject(Map<string, Json> { "sub": Json.JString("t"), "nbf": Json.JInt(1000), "exp": Json.JInt(2000) })
+    val token = unwrap(jwt.sign(timed, key))
+    show(jwt.verify_at(token, key, 999, 0))
+    show(jwt.verify_at(token, key, 999, 5))
+    show(jwt.verify_at(token, key, 1500, 0))
+    show(jwt.verify_at(token, key, 2000, 0))
+    // a token that has just been issued for an hour is valid now, one for -1 second is not
+    print(is_ok(jwt.verify(unwrap(jwt.sign(jwt.claims("a", 3600), key)), key)))
+    show(jwt.verify(unwrap(jwt.sign(jwt.claims("a", -1), key)), key))
+
+    // what is not a token
+    show(jwt.verify_at("", key, 0, 0))
+    show(jwt.verify_at("a.b", key, 0, 0))
+    show(jwt.verify_at("!!!.b.c", key, 0, 0))
+    // `alg: none` and algorithms that need a public key are refused
+    val none_header = crypto.base64url_encode(string_to_bytes("{\"alg\":\"none\"}"))
+    val body = crypto.base64url_encode(string_to_bytes("{\"sub\":\"admin\"}"))
+    show(jwt.verify_at(format("{}.{}.", none_header, body), key, 0, 0))
+    val rs_header = crypto.base64url_encode(string_to_bytes("{\"alg\":\"RS256\"}"))
+    show(jwt.verify_at(format("{}.{}.AAAA", rs_header, body), key, 0, 0))
+}

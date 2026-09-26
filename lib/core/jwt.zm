@@ -1,0 +1,209 @@
+// jwt.zm -- JSON Web Tokens (RFC 7519) signed with a shared secret: HS256, HS384 and HS512 (RFC 7518), the
+// algorithms that need only a key. `sign` makes a token from a claims object, `verify` checks one and gives the
+// claims back. Built on `crypto` (HMAC, base64url, a constant-time comparison), `json` and `clock`.
+//
+//     val key = unwrap(base64_decode(secret))
+//     val token = unwrap(jwt.sign(jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JString("admin")), key))
+//     switch jwt.verify(token, key) {
+//         Ok(claims) { ... jwt.subject(claims) ... }
+//         Err(e) { print(jwt.jwt_error_message(e)) }
+//     }
+//
+// What `verify` checks: the token has three parts and a JSON header and payload; the header's `alg` is one of the three
+// HMAC algorithms (never `none`, and never an algorithm this module cannot use with a shared key); the signature matches,
+// compared in constant time; `exp` is not past and `nbf` is not in the future, each with an optional leeway. It does
+// not check `iss`, `aud` or `sub`: read them from the claims. Only the signature of the token as issued protects it, so
+// keep the key secret and long (32 bytes or more for HS256).
+
+use clock
+use crypto
+use json.Json
+use json.json_object_get
+use json.json_require_string_field
+use json.json_to_string
+use json.parse_json
+use number.bytes_to_hex
+
+// Why a token was rejected.
+pub enum JwtError {
+    Malformed(string)
+    UnsupportedAlgorithm(string)
+    BadSignature
+    Expired
+    NotYetValid
+}
+
+// The text for a JwtError.
+pub fn jwt_error_message(e: JwtError) -> string {
+    return switch e {
+        Malformed(reason) { format("malformed token: {}", reason) }
+        UnsupportedAlgorithm(name) { format("unsupported algorithm '{}'", name) }
+        BadSignature { "the signature does not match" }
+        Expired { "the token has expired" }
+        NotYetValid { "the token is not valid yet" }
+    }
+}
+
+// The HMAC algorithm that matches a key's size, as the common libraries choose it: HS512 for 64 bytes or more, HS384 for 48
+// or more, otherwise HS256.
+pub fn algorithm_for_key(key: [byte]) -> string {
+    if len(key) >= 64 {
+        return "HS512"
+    }
+    if len(key) >= 48 {
+        return "HS384"
+    }
+    return "HS256"
+}
+
+fn mac(algorithm: string, key: [byte], data: [byte]) -> Option<[byte]> {
+    if algorithm == "HS256" {
+        return Option<[byte]>.Some(crypto.hmac_sha256(key, data))
+    }
+    if algorithm == "HS384" {
+        return Option<[byte]>.Some(crypto.hmac_sha384(key, data))
+    }
+    if algorithm == "HS512" {
+        return Option<[byte]>.Some(crypto.hmac_sha512(key, data))
+    }
+    return Option<[byte]>.None
+}
+
+fn now_seconds() -> int {
+    return clock.now_raw()[0]
+}
+
+// A claims object for `subject` (the `sub` claim) issued now (`iat`) and expiring `expires_in_seconds` from now (`exp`).
+pub fn claims(subject: string, expires_in_seconds: int) -> Json {
+    val now = now_seconds()
+    return Json.JObject(Map<string, Json> {
+        "sub": Json.JString(subject),
+        "iat": Json.JInt(now),
+        "exp": Json.JInt(now + expires_in_seconds)
+    })
+}
+
+// `claims` with one more claim (or `name` replaced): `with_claim(c, "role", Json.JString("admin"))`. `claims` that is not a
+// JSON object is returned as it is.
+pub fn with_claim(claims: Json, name: string, value: Json) -> Json {
+    if JObject(fields) = claims {
+        return Json.JObject(set(fields, name, value))
+    }
+    return claims
+}
+
+// A token for `claims` (a JSON object), signed with `key` and the HMAC algorithm that matches its size
+// (`algorithm_for_key`). An Err for claims that are not an object.
+pub fn sign(claims: Json, key: [byte]) -> Result<string, string> {
+    return sign_with(claims, key, algorithm_for_key(key))
+}
+
+// The same with `algorithm` chosen: HS256, HS384 or HS512, an Err for anything else.
+pub fn sign_with(claims: Json, key: [byte], algorithm: string) -> Result<string, string> {
+    if !Json.is_JObject(claims) {
+        return err("the claims of a token must be a JSON object")
+    }
+    val header = Json.JObject(Map<string, Json> {
+        "alg": Json.JString(algorithm),
+        "typ": Json.JString("JWT")
+    })
+    val signing_input = format(
+        "{}.{}",
+        crypto.base64url_encode(string_to_bytes(json_to_string(header))),
+        crypto.base64url_encode(string_to_bytes(json_to_string(claims)))
+    )
+    if Some(signature) = mac(algorithm, key, string_to_bytes(signing_input)) {
+        return ok(format("{}.{}", signing_input, crypto.base64url_encode(signature)))
+    }
+    return err(format("unsupported algorithm '{}': use HS256, HS384 or HS512", algorithm))
+}
+
+fn decode_part(part: string, what: string) -> Result<Json, JwtError> {
+    val raw = crypto.base64url_decode(part)
+    if Err(reason) = raw {
+        return JwtError.Malformed(format("{} is not base64url ({})", what, reason))
+    }
+    val text = bytes_to_string(unwrap(raw))
+    if Err(reason) = text {
+        return JwtError.Malformed(format("{} is not text ({})", what, reason))
+    }
+    val tree = parse_json(unwrap(text))
+    if Err(reason) = tree {
+        return JwtError.Malformed(format("{} is not JSON ({})", what, reason))
+    }
+    return unwrap(tree)
+}
+
+// The numeric claim `name` in seconds, when it is there and is a number.
+fn seconds_claim(payload: Json, name: string) -> Option<int> {
+    if Some(value) = json_object_get(payload, name) {
+        if JInt(n) = value {
+            return Option<int>.Some(n)
+        }
+        if JNumber(f) = value {
+            return Option<int>.Some(f as int)
+        }
+    }
+    return Option<int>.None
+}
+
+// Checks `token` against `key` as of `now_seconds` (Unix time) with `leeway_seconds` of allowed clock difference on `exp`
+// and `nbf`, and gives back its claims. `verify` is this with the current time; this one exists so a token can be checked at a
+// chosen time.
+pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: int) -> Result<Json, JwtError> {
+    val parts = split(token, ".")
+    if len(parts) != 3 {
+        return JwtError.Malformed("a token has three parts separated by dots")
+    }
+    val header = decode_part(parts[0], "the header")?
+    val algorithm = json_require_string_field(header, "alg")
+    if Err(reason) = algorithm {
+        return JwtError.Malformed("the header has no 'alg'")
+    }
+    val expected = mac(unwrap(algorithm), key, string_to_bytes(format("{}.{}", parts[0], parts[1])))
+    if !is_Some(expected) {
+        return JwtError.UnsupportedAlgorithm(unwrap(algorithm))
+    }
+    val given = crypto.base64url_decode(parts[2])
+    if Err(reason) = given {
+        return JwtError.Malformed(format("the signature is not base64url ({})", reason))
+    }
+    if !crypto.bytes_equal(unwrap_Some(expected), unwrap(given)) {
+        return JwtError.BadSignature
+    }
+    val payload = decode_part(parts[1], "the payload")?
+    if !Json.is_JObject(payload) {
+        return JwtError.Malformed("the payload is not a JSON object")
+    }
+    if Some(exp) = seconds_claim(payload, "exp") {
+        if now_seconds - leeway_seconds >= exp {
+            return JwtError.Expired
+        }
+    }
+    if Some(nbf) = seconds_claim(payload, "nbf") {
+        if now_seconds + leeway_seconds < nbf {
+            return JwtError.NotYetValid
+        }
+    }
+    return payload
+}
+
+// Checks `token` against `key` now and gives back its claims.
+pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError> {
+    return verify_at(token, key, now_seconds(), 0)
+}
+
+// The same, forgiving `leeway_seconds` of clock difference between the issuer and this machine on `exp` and `nbf`.
+pub fn verify_leeway(token: string, key: [byte], leeway_seconds: int) -> Result<Json, JwtError> {
+    return verify_at(token, key, now_seconds(), leeway_seconds)
+}
+
+// The `sub` claim, when it is a string.
+pub fn subject(claims: Json) -> Option<string> {
+    if Some(value) = json_object_get(claims, "sub") {
+        if JString(text) = value {
+            return Option<string>.Some(text)
+        }
+    }
+    return Option<string>.None
+}

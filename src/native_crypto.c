@@ -45,6 +45,11 @@ static Value native_sha256(Value *args, int argc, int line, int col) {
     return hash_value(EVP_sha256(), args[0], line, col);
 }
 
+static Value native_sha384(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return hash_value(EVP_sha384(), args[0], line, col);
+}
+
 static Value native_sha512(Value *args, int argc, int line, int col) {
     (void)argc;
     return hash_value(EVP_sha512(), args[0], line, col);
@@ -65,6 +70,11 @@ static Value hmac_value(const EVP_MD *md, Value key, Value data, int line, int c
 static Value native_hmac_sha256(Value *args, int argc, int line, int col) {
     (void)argc;
     return hmac_value(EVP_sha256(), args[0], args[1], line, col);
+}
+
+static Value native_hmac_sha384(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return hmac_value(EVP_sha384(), args[0], args[1], line, col);
 }
 
 static Value native_hmac_sha512(Value *args, int argc, int line, int col) {
@@ -309,8 +319,10 @@ static Value native_argon2id_raw(Value *args, int argc, int line, int col) {
 void native_crypto_register(void) {
     native_register("crypto::sha1", native_sha1);
     native_register("crypto::sha256", native_sha256);
+    native_register("crypto::sha384", native_sha384);
     native_register("crypto::sha512", native_sha512);
     native_register("crypto::hmac_sha256", native_hmac_sha256);
+    native_register("crypto::hmac_sha384", native_hmac_sha384);
     native_register("crypto::hmac_sha512", native_hmac_sha512);
     native_register("crypto::pbkdf2_hmac_sha256", native_pbkdf2_sha256);
     native_register("crypto::pbkdf2_hmac_sha512", native_pbkdf2_sha512);

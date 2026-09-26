@@ -118,16 +118,20 @@ pub fn inflate_raw(data: [byte], max_size: int) -> Result<[byte], string>
 
 ## `crypto`
 
-Hashes (SHA-1/256/512), HMAC, PBKDF2, a constant-time byte comparison, base64 and base64url, on OpenSSL. No ciphers or public-key operations.
+Hashes (SHA-1/256/384/512), HMAC, PBKDF2, password hashing (bcrypt, Argon2id), a constant-time byte comparison, base64 and base64url, on OpenSSL. No ciphers or public-key operations.
 
 ```
 pub native fn sha1(data: [byte]) -> [byte]
 
 pub native fn sha256(data: [byte]) -> [byte]
 
+pub native fn sha384(data: [byte]) -> [byte]
+
 pub native fn sha512(data: [byte]) -> [byte]
 
 pub native fn hmac_sha256(key: [byte], data: [byte]) -> [byte]
+
+pub native fn hmac_sha384(key: [byte], data: [byte]) -> [byte]
 
 pub native fn hmac_sha512(key: [byte], data: [byte]) -> [byte]
 
@@ -321,6 +325,41 @@ pub fn bool_from_json(j: Json) -> Result<bool, string>
 pub fn string_to_json(s: string) -> Json
 
 pub fn string_from_json(j: Json) -> Result<string, string>
+
+```
+
+## `jwt`
+
+JSON Web Tokens signed with a shared secret (HS256/384/512): sign, and verify with expiry checks.
+
+```
+pub enum JwtError {
+    Malformed(string)
+    UnsupportedAlgorithm(string)
+    BadSignature
+    Expired
+    NotYetValid
+}
+
+pub fn jwt_error_message(e: JwtError) -> string
+
+pub fn algorithm_for_key(key: [byte]) -> string
+
+pub fn claims(subject: string, expires_in_seconds: int) -> Json
+
+pub fn with_claim(claims: Json, name: string, value: Json) -> Json
+
+pub fn sign(claims: Json, key: [byte]) -> Result<string, string>
+
+pub fn sign_with(claims: Json, key: [byte], algorithm: string) -> Result<string, string>
+
+pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: int) -> Result<Json, JwtError>
+
+pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError>
+
+pub fn verify_leeway(token: string, key: [byte], leeway_seconds: int) -> Result<Json, JwtError>
+
+pub fn subject(claims: Json) -> Option<string>
 
 ```
 

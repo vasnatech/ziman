@@ -15,6 +15,7 @@ flowchart LR
         csv["csv"]
         fs["fs"]
         json["json"]
+        jwt["jwt"]
         log["log"]
         mime["mime"]
         ndjson["ndjson"]
@@ -65,6 +66,10 @@ flowchart LR
     db --> number
     http --> mime
     http --> number
+    jwt --> clock
+    jwt --> crypto
+    jwt --> json
+    jwt --> number
     log --> clock
     log --> fs
     log --> os
@@ -115,7 +120,7 @@ otherwise: everything on a layer depends only on lower layers.
 |---|---|
 | 0 | `clock`, `collections`, `compress`, `fs`, `json`, `mime`, `net`, `number`, `os`, `random`, `regex` |
 | 1 | `crypto`, `csv`, `db`, `http`, `log`, `ndjson`, `properties`, `toml`, `yaml`, `zone` |
-| 2 | `mysql`, `pg`, `server`, `sqlite`, `time`, `uuid` |
+| 2 | `jwt`, `mysql`, `pg`, `server`, `sqlite`, `time`, `uuid` |
 | 3 | `client`, `datasource` |
 
 ## Each module
@@ -123,22 +128,23 @@ otherwise: everything on a layer depends only on lower layers.
 | Module | Uses | Used by |
 |---|---|---|
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
-| `clock` | - | `client`, `datasource`, `log`, `server`, `time`, `uuid` |
+| `clock` | - | `client`, `datasource`, `jwt`, `log`, `server`, `time`, `uuid` |
 | `collections` | - | - |
 | `compress` | - | `client` |
-| `crypto` | `random` | `client`, `mysql`, `pg` |
+| `crypto` | `random` | `client`, `jwt`, `mysql`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | - |
 | `db` | `number` | `datasource`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | - | `csv`, `log`, `properties`, `zone` |
 | `http` | `mime`, `number` | `client`, `server` |
-| `json` | - | `csv`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
+| `json` | - | `csv`, `jwt`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
+| `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `os` | - |
 | `mime` | - | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
-| `number` | - | `client`, `csv`, `db`, `http`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
+| `number` | - | `client`, `csv`, `db`, `http`, `jwt`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
 | `os` | - | `client`, `log`, `properties`, `server`, `zone` |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `properties` | `fs`, `os` | - |

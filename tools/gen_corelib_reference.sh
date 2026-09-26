@@ -21,7 +21,8 @@ describe() {
         mime) echo "Media types (\`type/subtype; name=value\`): parse, write, match with wildcards, and the type of a file by its extension." ;;
         json) echo "A JSON parser/serializer (\`Json\`, a genuinely recursive enum), written in pure Ziman -- no native code needed. \`\\uXXXX\` unicode escapes and \`==\`/\`!=\` on \`Json\` are the two known gaps." ;;
         number) echo "Shared formatting/parsing across \`int\`/\`float\`/\`bigint\`/\`decimal\`/\`byte\`, written in pure Ziman on top of each type's own \`str()\`. \`NumberFormat\`/\`parse_pattern\` cover thousands separators and forced decimal places (a small subset of DecimalFormat-style patterns); \`byte_to_hex\`/\`int_to_hex\`/\`bigint_to_hex\` (and their \`_from_hex\` inverses) cover hex for the three integral types." ;;
-        crypto) echo "Hashes (SHA-1/256/512), HMAC, PBKDF2, a constant-time byte comparison, base64 and base64url, on OpenSSL. No ciphers or public-key operations." ;;
+        crypto) echo "Hashes (SHA-1/256/384/512), HMAC, PBKDF2, password hashing (bcrypt, Argon2id), a constant-time byte comparison, base64 and base64url, on OpenSSL. No ciphers or public-key operations." ;;
+        jwt) echo "JSON Web Tokens signed with a shared secret (HS256/384/512): sign, and verify with expiry checks." ;;
         ndjson) echo "Newline-delimited JSON (one value per line) on top of \`json\`." ;;
         csv) echo "RFC 4180 CSV as a \`Json\` array of objects keyed by the header row (typed or string cells; TSV via the \`_with\` variants); a table writer that flattens one level." ;;
         toml) echo "TOML 1.0 to and from a \`Json\` tree. Dates stay strings; \`inf\`/\`nan\` are rejected." ;;

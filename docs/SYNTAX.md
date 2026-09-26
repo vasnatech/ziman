@@ -2530,8 +2530,30 @@ OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt; `[byte]
 - **Hex** text of byte arrays is in `number`: `bytes_to_hex` and `bytes_from_hex`.
 - **Errors:** a wrong argument (mismatched lengths, an out-of-range iteration count) is a runtime error;
   malformed data (`base64_decode`, `bytes_from_hex`) is an `Err(string)`.
-- **Not a general crypto library:** no ciphers, no public-key operations, no randomness (use
-  `random.random_bytes`).
+- **Not a general crypto library:** no ciphers and no public-key operations.
+
+### JSON Web Tokens (`jwt`)
+
+`jwt` signs and verifies tokens with a shared secret (HS256, HS384, HS512), on `crypto`, `json` and `clock`.
+
+```
+val key = unwrap(base64_decode(secret))                      // a long random key
+val claims = jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JString("admin"))
+val token = unwrap(jwt.sign(claims, key))
+switch jwt.verify(token, key) {
+    Ok(c) { print(unwrap_Some(jwt.subject(c))) }
+    Err(e) { print(jwt.jwt_error_message(e)) }
+}
+```
+
+- **`claims(subject, expires_in_seconds)`** is an object with `sub`, `iat` and `exp`; `with_claim` adds more.
+  `sign` chooses the algorithm from the key's size as the common libraries do (32 bytes HS256, 48 HS384, 64
+  HS512); `sign_with(claims, key, "HS512")` picks one.
+- **`verify(token, key)`** returns the claims or a `JwtError` (`Malformed`, `UnsupportedAlgorithm`, `BadSignature`,
+  `Expired`, `NotYetValid`). It refuses `alg: none` and any algorithm that is not one of the three, compares the
+  signature in constant time, and checks `exp` and `nbf`; `verify_leeway` forgives a clock difference, and
+  `verify_at(token, key, now, leeway)` checks at a chosen time. It does not look at `iss`, `aud` or `sub`.
+- Tokens from other libraries verify (checked against RFC 7515's example), and the reverse.
 
 ## Configuration (`properties`, `os`)
 

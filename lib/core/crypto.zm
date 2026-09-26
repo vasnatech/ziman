@@ -23,6 +23,9 @@ pub native fn sha1(data: [byte]) -> [byte]
 // The SHA-256 digest (32 bytes) of `data`.
 pub native fn sha256(data: [byte]) -> [byte]
 
+// The SHA-384 digest (48 bytes) of `data`.
+pub native fn sha384(data: [byte]) -> [byte]
+
 // The SHA-512 digest (64 bytes) of `data`.
 pub native fn sha512(data: [byte]) -> [byte]
 
@@ -31,6 +34,9 @@ pub native fn sha512(data: [byte]) -> [byte]
 // HMAC-SHA-256 of `data` under `key` (32 bytes): a keyed digest that proves `data` came from
 // someone holding the key. Compare two MACs with `bytes_equal`, never with `==`.
 pub native fn hmac_sha256(key: [byte], data: [byte]) -> [byte]
+
+// HMAC-SHA-384 of `data` under `key` (48 bytes).
+pub native fn hmac_sha384(key: [byte], data: [byte]) -> [byte]
 
 // HMAC-SHA-512 of `data` under `key` (64 bytes).
 pub native fn hmac_sha512(key: [byte], data: [byte]) -> [byte]
