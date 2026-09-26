@@ -1413,3 +1413,12 @@ from source.
      of `client` and `json`, which needs a background thread to batch.
   5. **`log`**: an optional JSON line format carrying a request id.
   Out of scope: an agent or collector of our own; the module only exposes numbers for one to scrape.
+
+- **Accounts and tokens for backends -- password hashing and JWT done; the request pipeline next.** `crypto` has bcrypt
+  (through libxcrypt, so `$2a$`/`$2b$` hashes written by other systems verify) and Argon2id (OpenSSL), with
+  `password_hash`, `password_verify` and `password_needs_rehash`; `jwt` signs and verifies HS256/384/512 tokens. The
+  health-record backend registers and logs in with them. Still to do, in order: a request pipeline in `server` (an
+  authenticate step that runs before the input is decoded, answers 401, and hands `run` a `Principal`; per-endpoint
+  roles; interceptors for CORS and request logging); an `otp` module (HOTP/TOTP and base32) for MFA; OAuth2 login
+  (Google, Microsoft) on `client`; and RS256/ES256 for tokens verified with a public key, which needs public-key
+  operations in `crypto`.
