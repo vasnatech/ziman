@@ -700,7 +700,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
  * declarations only. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "abs", "min", "max",
-    "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err",
+    "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some",
     "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", NULL,
 };
 
@@ -928,6 +928,9 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
     }
     return 1;
 }
+
+static Expr *mk_enum_call_expr(const char *enum_name, const char *prefix, const char *variant, Expr *arg, int line, int col);
+static Type check_enum_access(Module *module, Env *env, Expr *e);
 
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
@@ -1232,6 +1235,19 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return arr_type;
     }
 
+    /* `is_Some(o)`, `is_None(o)` and `unwrap_Some(o)`: Option's own helpers without the `Option.`, rewritten in
+     * place into the enum call they abbreviate (so the interpreter never sees these names). */
+    if (strcmp(name, "is_Some") == 0 || strcmp(name, "is_None") == 0 || strcmp(name, "unwrap_Some") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
+        }
+        int is_unwrap = name[0] == 'u';
+        const char *variant = strstr(name, "None") != NULL ? "None" : "Some";
+        Expr *rewritten = mk_enum_call_expr("Option", is_unwrap ? "unwrap_" : "is_", variant, e->as.call.args.items[0], e->line, e->col);
+        *e = *rewritten;
+        return check_enum_access(module, env, e);
+    }
+
     if (strcmp(name, "is_ok") == 0) {
         if (e->as.call.args.count != 1) {
             ziman_error("type", e->line, e->col, "'is_ok' takes exactly 1 argument, found %d", e->as.call.args.count);
@@ -1251,6 +1267,12 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
+        if (is_unwrap && arg_type.kind == TY_ENUM && strcmp(arg_type.enum_name, "Option") == 0 && arg_type.type_args.count == 1) {
+            /* `unwrap(option)` is `Option.unwrap_Some(option)`: rewritten in place, the argument already checked */
+            Expr *rewritten = mk_enum_call_expr("Option", "unwrap_", "Some", arg, e->line, e->col);
+            *e = *rewritten;
+            return arg_type.type_args.items[0];
+        }
         if (arg_type.kind != TY_RESULT) {
             ziman_error("type", arg->line, arg->col, "'%s' expects a Result, found %s", name, type_name(arg_type));
         }
@@ -3208,7 +3230,7 @@ void typecheck(Module *module) {
      * name check just below already rejects redefining one of those the
      * same way it rejects redefining any other function. */
     static const char *builtins[] = {"print", "printf", "str", "format", "len", "push", "insert", "set",
-                                      "ok", "err", "is_ok", "unwrap", "unwrap_err",
+                                      "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "hash", "compare",
                                       "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter"};

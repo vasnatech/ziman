@@ -1114,6 +1114,12 @@ fn main() {
   arguments"). The concrete type is already fully known from `a`'s own
   value, so restating it would be pure redundancy — unlike construction,
   where there's no existing value to read it from.
+- **`Option` has bare shorthands**: `is_Some(a)`, `is_None(a)` and
+  `unwrap_Some(a)` are `Option.is_Some(a)` and so on, and `unwrap(a)` on an
+  `Option` is `unwrap_Some(a)` (`unwrap` on a `Result` is unchanged). They are
+  rewritten to the qualified calls when the program is checked, so both forms
+  behave the same; other enums have only the qualified helpers. The names are
+  reserved, like `is_ok`.
 - Two different instantiations of the same generic enum
   (`Option<int>.Some(1)` vs `Option<string>.Some("x")`) are different
   types: `==`/`!=` between them is rejected the same way a generic

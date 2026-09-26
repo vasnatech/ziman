@@ -1,0 +1,24 @@
+fn first(items: [int]) -> Option<int> {
+    if len(items) == 0 {
+        return Option<int>.None
+    }
+    return items[0]
+}
+
+fn main() {
+    val some = first([7, 8])
+    val none = first([])
+    print(is_Some(some))
+    print(is_None(some))
+    print(is_Some(none))
+    print(is_None(none))
+    print(unwrap_Some(some))
+    // unwrap works on an Option as it does on a Result
+    print(unwrap(some))
+    val text: string = unwrap(Option<string>.Some("x"))
+    print(text)
+    val result: Result<int, string> = ok(3)
+    print(unwrap(result))
+    // the qualified forms are the same calls
+    print(Option.is_Some(some) == is_Some(some))
+}
