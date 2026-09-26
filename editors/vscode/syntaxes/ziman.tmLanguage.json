@@ -73,7 +73,7 @@
     },
     "primitive-types": {
       "name": "support.type.primitive.ziman",
-      "match": "\\b(int|float|bool|string|bigint|decimal|byte)\\b"
+      "match": "\\b(int|float|bool|string|bigint|decimal|byte|unit)\\b"
     },
     "attributes": {
       "comment": "#[derive(Json, Ord, ...)]",

@@ -45,6 +45,7 @@ const char *token_type_name(TokenType type) {
         case TOK_KW_BIGINT: return "'bigint'";
         case TOK_KW_DECIMAL: return "'decimal'";
         case TOK_KW_BYTE: return "'byte'";
+        case TOK_KW_UNIT: return "'unit'";
         case TOK_LPAREN: return "'('";
         case TOK_RPAREN: return "')'";
         case TOK_LBRACE: return "'{'";

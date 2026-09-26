@@ -1,0 +1,42 @@
+fn touch(n: int) -> unit {
+    if n > 0 {
+        return
+    }
+    return unit
+}
+
+fn falls() -> unit {
+    print("falls")
+}
+
+fn ok_bare(n: int) -> Result<unit, string> {
+    if n < 0 {
+        return err("negative")
+    }
+    if n == 0 {
+        return
+    }
+    return unit
+}
+
+fn generic<T>(x: T) -> T {
+    return x
+}
+
+fn main() {
+    val a = touch(1)
+    val b = falls()
+    print(a == b)
+    print(a)
+    print(unit)
+    print(ok_bare(0))
+    print(is_ok(ok_bare(2)))
+    print(is_ok(ok_bare(-1)))
+    val r: Result<unit, string> = unit
+    print(unwrap(r))
+    print(generic<unit>(unit) == unit)
+    val f = fn() -> unit { return }
+    print(f() == unit)
+    val xs: [unit] = [unit, unit]
+    print(len(xs))
+}

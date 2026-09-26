@@ -193,7 +193,7 @@ pub fn load(dir: string) -> Result<[Migration], DbError> {
 }
 
 // The versions must be 1, 2, 3, ... in order.
-fn check_sequence(migrations: [Migration]) -> Result<int, DbError> {
+fn check_sequence(migrations: [Migration]) -> Result<unit, DbError> {
     for i in 0..len(migrations) {
         val m = migrations[i]
         if i > 0 && migrations[i - 1].version == m.version {
@@ -212,7 +212,7 @@ fn check_sequence(migrations: [Migration]) -> Result<int, DbError> {
             )))
         }
     }
-    return 0
+    return unit
 }
 
 // ---------------------------------------------------------------- applying

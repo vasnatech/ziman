@@ -195,6 +195,18 @@ through a local name -- see "Function values"; `make()(x)` isn't valid), no inde
   arithmetic, no `abs`/`min`/`max`, just construction, `==`/`!=`,
   `hash`, `str`/`print`/`format`, and a cast to/from `int`. See
   "Numbers" below.
+- `unit` — the type with exactly one value, also written `unit`. It is
+  what "nothing to give back" looks like when a value is required: the
+  success type of a `Result` that only says it worked
+  (`Result<unit, DbError>`), a generic argument (`with_transaction<unit>`),
+  a function declared `-> unit`. In a function that returns `unit` or
+  `Result<unit, E>`, a bare `return` is `return unit` (and, being a bare
+  value, `return unit` in a `Result<unit, E>` function is `Ok(unit)`, like
+  any other auto-wrap); a `-> unit` function that runs off its end returns
+  `unit`. A function declared with *no* return type still has no value,
+  so `val x = f()` on one is an error: write `-> unit` when the caller
+  may want one. `unit` is `==`-comparable, hashable and prints as `unit`;
+  it is reserved, like `int`.
 - `[T]` — a growable, homogeneous, indexed array of `T`; nests freely
   (`[[int]]` is an array of arrays of `int`). Value semantics, like every
   other type in Ziman: assigning or passing an array always yields an

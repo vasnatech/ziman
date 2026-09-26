@@ -145,6 +145,7 @@ typedef struct ChannelObj {
 } ChannelObj;
 
 Value value_int(int64_t i);
+Value value_unit(void);
 Value value_float(double f);
 Value value_bool(int b);
 /* Takes ownership of a NUL-terminated heap buffer. */

@@ -8,6 +8,7 @@
 
 typedef enum {
     TY_VOID,
+    TY_UNIT, /* `unit`: the type with exactly one value, also written `unit`. What a function that has nothing to give back returns when it must be a value (`Result<unit, E>`, `fn f() -> unit`, a generic `T` = unit). TY_VOID stays "no type": a function declared with no return type. */
     TY_INT,
     TY_FLOAT,
     TY_BOOL,
@@ -136,6 +137,7 @@ typedef enum {
     EXPR_FLOAT,
     EXPR_STRING,
     EXPR_BOOL,
+    EXPR_UNIT,
     EXPR_BIGINT,
     EXPR_DECIMAL,
     EXPR_BYTE,

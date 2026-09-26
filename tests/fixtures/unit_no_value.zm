@@ -1,0 +1,7 @@
+fn nothing() {
+    print("x")
+}
+
+fn main() {
+    val x = nothing()
+}

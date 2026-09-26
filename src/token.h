@@ -49,6 +49,7 @@ typedef enum {
     TOK_KW_BIGINT,
     TOK_KW_DECIMAL,
     TOK_KW_BYTE,
+    TOK_KW_UNIT,
 
     /* punctuation */
     TOK_LPAREN,

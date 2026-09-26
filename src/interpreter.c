@@ -157,7 +157,8 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
     }
     run_defers(module, env);
     env_free(env);
-    return result.kind == CTRL_RETURN ? result.value : value_int(0);
+    if (result.kind == CTRL_RETURN) return result.value;
+    return fn->return_type.kind == TY_UNIT ? value_unit() : value_int(0);
 }
 
 /* `spawn`'s payload: `args` is heap-allocated by the spawning thread (it
@@ -238,6 +239,9 @@ uint64_t value_hash(Value v) {
             break;
         case TY_BYTE:
             h = (uint64_t)v.as.by;
+            break;
+        case TY_UNIT:
+            h = 0;
             break;
         case TY_FLOAT: {
             /* -0.0 == 0.0, so they must hash alike. */
@@ -389,6 +393,7 @@ static int value_compare(Module *module, Value a, Value b, int line, int col) {
         case TY_FLOAT: return cmp_float_values(a.as.f, b.as.f);
         case TY_STRING: return cmp_string_values(a, b);
         case TY_BYTE: return a.as.by < b.as.by ? -1 : (a.as.by > b.as.by ? 1 : 0);
+        case TY_UNIT: return 0;
         case TY_BIGINT: { int c = bignum_compare(*a.as.bi, *b.as.bi); return c < 0 ? -1 : (c > 0 ? 1 : 0); }
         case TY_DECIMAL: { int c = decimal_compare(*a.as.dec, *b.as.dec); return c < 0 ? -1 : (c > 0 ? 1 : 0); }
         case TY_ARRAY: {
@@ -744,6 +749,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_FLOAT: return value_float(e->as.float_val);
         case EXPR_STRING: return value_string(e->as.string_val);
         case EXPR_BOOL: return value_bool(e->as.bool_val);
+        case EXPR_UNIT: return value_unit();
         case EXPR_BIGINT: return value_bigint(e->as.bigint_val);
         case EXPR_DECIMAL: return value_decimal(e->as.decimal_val);
         case EXPR_BYTE: return value_byte(e->as.byte_val);

@@ -132,7 +132,7 @@ static TypeParamList *current_decl_type_params = NULL;
 static int type_supports_equality(Module *module, Type t, int depth) {
     if (depth > 64) return 0;
     switch (t.kind) {
-        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE:
+        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE: case TY_UNIT:
             return 1;
         case TY_ARRAY:
             return is_scalar_kind(t.elem->kind);
@@ -206,7 +206,7 @@ static int type_supports_equality(Module *module, Type t, int depth) {
 static int type_supports_hashing(Module *module, Type t, int depth) {
     if (depth > 64) return 0;
     switch (t.kind) {
-        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE:
+        case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE: case TY_UNIT:
             return 1;
         case TY_ARRAY:
             return is_scalar_kind(t.elem->kind);
@@ -2037,6 +2037,7 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
         case EXPR_FLOAT: t = type_scalar(TY_FLOAT); break;
         case EXPR_STRING: t = type_scalar(TY_STRING); break;
         case EXPR_BOOL: t = type_scalar(TY_BOOL); break;
+        case EXPR_UNIT: t = type_scalar(TY_UNIT); break;
         case EXPR_BIGINT: t = type_scalar(TY_BIGINT); break;
         case EXPR_DECIMAL: t = type_scalar(TY_DECIMAL); break;
         case EXPR_BYTE: t = type_scalar(TY_BYTE); break;
@@ -2731,7 +2732,7 @@ static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type
         lam->return_omitted = 0;
     }
     g_value_ctx = saved_value_ctx;
-    if (lam->return_type.kind != TY_VOID && !stmt_always_returns(lam->body)) {
+    if (lam->return_type.kind != TY_VOID && lam->return_type.kind != TY_UNIT && !stmt_always_returns(lam->body)) {
         ziman_error("type", lam->line, lam->col, "this lambda does not return a value on every path");
     }
 
@@ -3063,6 +3064,11 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             break;
         }
         case STMT_RETURN: {
+            if (s->as.ret.value == NULL && (fn_return_type.kind == TY_UNIT ||
+                                            (fn_return_type.kind == TY_RESULT && fn_return_type.elem->kind == TY_UNIT))) {
+                /* `return` in a function that gives back `unit` (or `Result<unit, E>`) is `return unit` */
+                s->as.ret.value = expr_new(EXPR_UNIT, s->line, s->col);
+            }
             if (s->as.ret.value == NULL) {
                 if (fn_return_type.kind != TY_VOID) {
                     ziman_error("type", s->line, s->col, "bare 'return' in a function declared to return %s", type_name(fn_return_type));
@@ -3253,7 +3259,7 @@ static void check_function(Module *module, FunctionDecl *fn) {
         }
         if (g_lint_active) lint_finish_function(lint_first_var);
         g_lint_active = 0;
-        if (fn->return_type.kind != TY_VOID && !stmt_always_returns(fn->body)) {
+        if (fn->return_type.kind != TY_VOID && fn->return_type.kind != TY_UNIT && !stmt_always_returns(fn->body)) {
             ziman_error("type", fn->line, fn->col, "function '%s' does not return a value on every path", fn->name);
         }
     }
