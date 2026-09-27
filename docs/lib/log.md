@@ -68,6 +68,7 @@ pub struct Logger {
     file: Option<string>
     timestamps: bool
     prefix: string
+    console: bool
 }
 ```
 
@@ -76,13 +77,21 @@ A logger's settings; build one with `logger`, and use `with_prefix` for per-comp
 ### `logger`
 
 ```
-pub fn logger(level: Level, file: Option<string>, timestamps: Option<bool>, prefix: Option<string>) -> Logger
+pub fn logger(
+    level: Level,
+    file: Option<string>,
+    timestamps: Option<bool>,
+    prefix: Option<string>,
+    console: Option<bool>
+) -> Logger
 ```
 
 A logger for messages at `level` and above. Without `file` it writes to
 stderr; with one it appends to that file (a failed write falls back to
 stderr, so a log line is never silently lost). `timestamps: false` leaves the
-time off, for output that is compared in tests.
+time off, for output that is compared in tests. With `console: true` a logger that has a `file` also
+writes every line to stderr, as a server does that logs to a file for the record and to the console for whoever
+is watching.
 
 ### `with_prefix`
 
@@ -133,7 +142,7 @@ pub fn write(l: Logger, level: Level, message: string)
 
 Writes `message` at `level` if the logger's level allows it: a line of the form
 `<timestamp> <LEVEL> <prefix><message>`. To stderr, or appended to the logger's file (falling back
-to stderr if the file cannot be written).
+to stderr if the file cannot be written, and also written to stderr when the logger is a `console` one).
 
 ### `debug`
 

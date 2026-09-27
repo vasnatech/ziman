@@ -390,9 +390,10 @@ pub struct Logger {
     file: Option<string>
     timestamps: bool
     prefix: string
+    console: bool
 }
 
-pub fn logger(level: Level, file: Option<string>, timestamps: Option<bool>, prefix: Option<string>) -> Logger
+pub fn logger(
 
 pub fn with_prefix(l: Logger, prefix: string) -> Logger
 

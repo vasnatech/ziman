@@ -1,0 +1,14 @@
+use fs
+use log
+
+fn main() {
+    val path = "/tmp/ziman_log_console.log"
+    if fs.exists(path) {
+        unwrap(fs.remove(path))
+    }
+    val l = log.logger(level: log.Level.Info, file: path, timestamps: false, console: true)
+    log.info(l, "both places")
+    log.debug(l, "dropped")
+    print(unwrap(fs.read_text(path)))
+    unwrap(fs.remove(path))
+}

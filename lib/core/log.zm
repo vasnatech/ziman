@@ -27,24 +27,34 @@ pub struct Logger {
     file: Option<string>
     timestamps: bool
     prefix: string
+    console: bool
 }
 
 // A logger for messages at `level` and above. Without `file` it writes to
 // stderr; with one it appends to that file (a failed write falls back to
 // stderr, so a log line is never silently lost). `timestamps: false` leaves the
-// time off, for output that is compared in tests.
-pub fn logger(level: Level, file: Option<string>, timestamps: Option<bool>, prefix: Option<string>) -> Logger {
+// time off, for output that is compared in tests. With `console: true` a logger that has a `file` also
+// writes every line to stderr, as a server does that logs to a file for the record and to the console for whoever
+// is watching.
+pub fn logger(
+    level: Level,
+    file: Option<string>,
+    timestamps: Option<bool>,
+    prefix: Option<string>,
+    console: Option<bool>
+) -> Logger {
     return Logger {
         level: level,
         file: file,
         timestamps: option_unwrap_or<bool>(timestamps, true),
-        prefix: option_unwrap_or<string>(prefix, "")
+        prefix: option_unwrap_or<string>(prefix, ""),
+        console: option_unwrap_or<bool>(console, false)
     }
 }
 
 // The same logger with `prefix` in front of every message -- one per component.
 pub fn with_prefix(l: Logger, prefix: string) -> Logger {
-    return Logger { level: l.level, file: l.file, timestamps: l.timestamps, prefix: prefix }
+    return Logger { level: l.level, file: l.file, timestamps: l.timestamps, prefix: prefix, console: l.console }
 }
 
 // 0 for Debug up to 3 for Error: the order of severity.
@@ -85,7 +95,7 @@ pub fn enabled(l: Logger, level: Level) -> bool {
 
 // Writes `message` at `level` if the logger's level allows it: a line of the form
 // `<timestamp> <LEVEL> <prefix><message>`. To stderr, or appended to the logger's file (falling back
-// to stderr if the file cannot be written).
+// to stderr if the file cannot be written, and also written to stderr when the logger is a `console` one).
 pub fn write(l: Logger, level: Level, message: string) {
     if !enabled(l, level) {
         return
@@ -98,7 +108,7 @@ pub fn write(l: Logger, level: Level, message: string) {
     switch l.file {
         Some(path) {
             val r = fs.append_text(path, line)
-            if !is_ok(r) {
+            if !is_ok(r) || l.console {
                 os.write_stderr(line)
             }
         }
