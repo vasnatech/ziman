@@ -1,0 +1,20 @@
+Ok(42)
+Err(cannot parse 'x' as int)
+first
+second
+third
+Ok(66)
+first
+second
+Err(cannot parse 'bad' as int)
+Ok(14)
+Err(cannot parse 'q' as int)
+Ok(5)
+Err(cannot parse 'z' as int)
+Some(3)
+None
+Ok(big)
+Ok(small)
+Err(cannot parse 'no' as int)
+Ok(10)
+Err(cannot parse 'no' as int)

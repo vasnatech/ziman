@@ -3700,3 +3700,14 @@ and whose `used == n` (it is the newest version, the "tip") claims slot n with a
 over the same buffer; a losing thread, or a `push` on an older version, copies into a fresh buffer of twice the size instead. Slots below an array's length are never written
 again, so arrays stay immutable values and threads need no lock. Literals, slices and builder results have no store: their first `push` copies. Loops that rebuild a value with
 `concat`/`concat_arrays` stay quadratic; `--lint` flags them.
+
+## `try` hoisting (2026-09)
+
+`try expr` is the prefix spelling of `expr?` and, unlike it, may be nested. It is a parser rewrite, so the type checker and the interpreter keep the statement-level `?` only: `parse_block` runs `hoist_stmt` on
+each statement it parses, which replaces every prefix `try` in the positions that run once and unconditionally (val/var initializer, assignment, return value, `if` condition, `switch` subject, `for` range or
+iterable) by a hidden `val $tN = inner?` placed in front. So that the order of effects stays the written one, everything the statement evaluates before a `try` and that is not pure (any call, an index, a
+division) is hoisted into a temporary as well; `hoist_expr` carries a `later` flag for a subtree that some later part of the statement's `try` has to wait for. Literals, identifiers, lambdas and arithmetic on
+them stay put. A `try` in a position the hoister does not handle (`else if` and `while` conditions, the right of `&&`/`||`, `defer`/`spawn` arguments, an `if` or `switch` used as a value) is left in the tree and
+refused by the type checker, so no conditional evaluation is ever changed. A lambda body is its own function and hoists on its own. Named arguments are hoisted in the order written, though `check_call`
+later reorders them into parameter order. The formatter and the language server work on tokens and are not affected. The postfix `?` deliberately stays statement-level: the eye finds `try` at the left of the
+line, and there is one spelling of each early exit per position, not two ways to nest.

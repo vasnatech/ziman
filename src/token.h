@@ -27,6 +27,7 @@ typedef enum {
     TOK_CONTINUE,
     TOK_SPAWN,
     TOK_DEFER,
+    TOK_TRY,
     TOK_SWITCH,
     TOK_RETURN,
     TOK_TRUE,

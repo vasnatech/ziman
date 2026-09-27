@@ -116,7 +116,7 @@ static int word_is(const Item *t, const char *w) {
     return t->kind == K_WORD && (int)strlen(w) == t->len && memcmp(t->s, w, (size_t)t->len) == 0;
 }
 
-static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while", "for", "in", "break", "continue", "spawn", "defer",
+static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while", "for", "in", "break", "continue", "spawn", "defer", "try",
                                        "switch", "return", "as", "struct", "enum", "with", "pub", "use", "native"};
 
 static int is_keyword(const Item *t) {

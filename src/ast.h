@@ -289,7 +289,10 @@ struct Expr {
          * enforced by check_expr's own EXPR_TRY_UNWRAP case, which is
          * only ever reached when it wasn't already intercepted by one
          * of those two statement forms. */
-        struct { Expr *inner; Type propagated_type; } try_unwrap;
+        struct { Expr *inner; Type propagated_type; int prefix; } try_unwrap;
+        /* `prefix` marks the `try inner` spelling. Unlike the postfix `?`, it may be nested in an expression: the parser hoists it, and whatever is evaluated before it, into
+         * hidden `val $tN = inner?` statements in front of the statement (see hoist_stmt in parser.c), so the type checker and the interpreter only ever see the
+         * statement-level form. A prefix `try` the parser could not hoist reaches the type checker and is refused. */
         /* `if`/`switch` used as an operand or argument: `f(if c { 1 } else { 2 })`,
          * `1 + (switch e { ... })`. `inner` is the same STMT_IF/STMT_SWITCH with
          * yielding arms that STMT_VALUE_BLOCK wraps; here no arm may leave

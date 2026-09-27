@@ -1,0 +1,64 @@
+fn parse(s: string) -> Result<int, string> {
+    return parse_int(s)
+}
+
+fn noisy(label: string, n: int) -> int {
+    print(label)
+    return n
+}
+
+fn plus_one(s: string) -> Result<int, string> {
+    return ok(try parse(s) + 1)
+}
+
+fn sum3(a: string, b: string, c: string) -> Result<int, string> {
+    val total = noisy("first", 1) + try parse(a) + noisy("second", 2) + try parse(b) + noisy("third", 3) + try parse(c)
+    return ok(total)
+}
+
+fn nested(s: string) -> Result<int, string> {
+    return ok(try parse(str(try parse(s))) * 2)
+}
+
+fn direct(s: string) -> Result<int, string> {
+    val x = try parse(s)
+    try parse("1")
+    return ok(x)
+}
+
+fn opt(a: Option<int>, b: Option<int>) -> Option<int> {
+    return Option<int>.Some(try a + try b)
+}
+
+fn cond(s: string) -> Result<string, string> {
+    if try parse(s) > 5 {
+        return ok("big")
+    }
+    return ok("small")
+}
+
+fn loop_range(s: string) -> Result<int, string> {
+    var total = 0
+    for i in 0..try parse(s) {
+        total = total + i
+    }
+    return ok(total)
+}
+
+fn main() {
+    print(plus_one("41"))
+    print(plus_one("x"))
+    print(sum3("10", "20", "30"))
+    print(sum3("10", "bad", "30"))
+    print(nested("7"))
+    print(nested("q"))
+    print(direct("5"))
+    print(direct("z"))
+    print(opt(Option<int>.Some(1), Option<int>.Some(2)))
+    print(opt(Option<int>.Some(1), Option<int>.None))
+    print(cond("9"))
+    print(cond("2"))
+    print(cond("no"))
+    print(loop_range("5"))
+    print(loop_range("no"))
+}

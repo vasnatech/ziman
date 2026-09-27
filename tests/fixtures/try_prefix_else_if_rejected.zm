@@ -1,0 +1,16 @@
+fn check(n: int) -> Result<bool, string> {
+    return ok(n > 0)
+}
+
+fn run(a: bool) -> Result<int, string> {
+    if a {
+        return ok(1)
+    } else if try check(2) {
+        return ok(2)
+    }
+    return ok(3)
+}
+
+fn main() {
+    print(run(false))
+}

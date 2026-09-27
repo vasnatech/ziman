@@ -1204,7 +1204,7 @@ static void handle_document_symbol(const JVal *id, const JVal *params) {
     send_result(id, b.s);
 }
 
-static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while", "for", "in", "break", "continue", "spawn", "defer", "switch",
+static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while", "for", "in", "break", "continue", "spawn", "defer", "try", "switch",
                                        "return", "true", "false", "unit", "as", "struct", "enum", "with", "pub", "use", "native", "Result", "Channel", "Map", "Set",
                                        "int", "float", "bool", "string", "bigint", "decimal", "byte", "unit"};
 static const char *const BUILTINS[] = {"print", "printf", "format", "str", "len", "push", "insert", "set", "remove", "contains", "hash", "compare",

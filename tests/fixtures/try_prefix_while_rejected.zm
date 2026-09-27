@@ -1,0 +1,15 @@
+fn check(n: int) -> Result<bool, string> {
+    return ok(n > 0)
+}
+
+fn run() -> Result<int, string> {
+    var i = 0
+    while try check(i) {
+        i = i + 1
+    }
+    return ok(i)
+}
+
+fn main() {
+    print(run())
+}

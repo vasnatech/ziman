@@ -2180,8 +2180,13 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
              * one of the two statement forms it's legal in (a val/var's
              * entire initializer, or its own bare statement) -- see
              * check_try_unwrap and its two callers. */
-            ziman_error("type", e->line, e->col,
-                        "'?' can only be used as a val/var's entire initializer or as its own statement, not nested inside another expression");
+            if (e->as.try_unwrap.prefix) {
+                ziman_error("type", e->line, e->col,
+                            "'try' cannot be used here: it must run exactly once and unconditionally (not in an 'else if' or 'while' condition, on the right of '&&' or '||', in a 'defer' or 'spawn' argument, or inside an 'if' or 'switch' used as a value); put it in its own 'val' first");
+            } else {
+                ziman_error("type", e->line, e->col,
+                            "'?' can only be used as a val/var's entire initializer or as its own statement, not nested inside another expression (write 'try <expression>' to nest it)");
+            }
             t = type_scalar(TY_VOID);
             break;
         default:

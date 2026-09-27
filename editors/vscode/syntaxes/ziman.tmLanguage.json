@@ -120,7 +120,7 @@
       "patterns": [
         {
           "name": "keyword.control.ziman",
-          "match": "\\b(if|else|while|for|in|break|continue|spawn|return|switch|defer)\\b"
+          "match": "\\b(if|else|while|for|in|break|continue|spawn|return|switch|defer|try)\\b"
         },
         {
           "name": "keyword.control.import.ziman",

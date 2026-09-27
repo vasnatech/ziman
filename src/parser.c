@@ -833,6 +833,14 @@ static Expr *parse_postfix(Parser *p) {
 
 static Expr *parse_unary(Parser *p) {
     ZIMAN_STACK_CHECK();
+    if (check(p, TOK_TRY)) {
+        Token *t = advance_tok(p);
+        Expr *operand = parse_unary(p);
+        Expr *e = expr_new(EXPR_TRY_UNWRAP, t->line, t->col);
+        e->as.try_unwrap.inner = operand;
+        e->as.try_unwrap.prefix = 1;
+        return e;
+    }
     if (check(p, TOK_BANG) || check(p, TOK_MINUS)) {
         Token *t = advance_tok(p);
         Op op = t->type == TOK_BANG ? OP_NOT : OP_NEG;
@@ -921,6 +929,165 @@ static Expr *parse_logic_or(Parser *p) {
 
 static Expr *parse_expr(Parser *p) { return parse_logic_or(p); }
 
+/* ---- hoisting `try` out of expressions ------------------------------------------------------------------------------------------------------------------
+ * `ok(try parse_int(s) + 1)` becomes `val $t1 = parse_int(s)?` followed by `ok($t1 + 1)`. Whatever the statement evaluates before the `try` (a call, an index that
+ * may fail) moves into a temporary ahead of it too, so the order of effects is the one written. Only the positions that run exactly once and unconditionally are
+ * handled: a val/var initializer, an assignment, an expression statement, a return value, an `if` condition, a `switch` subject and a `for` range or iterable. A
+ * `try` anywhere else (an `else if` or `while` condition, the right side of `&&`/`||`, a `defer`/`spawn` argument, an `if` or `switch` used as a value) stays put and
+ * the type checker refuses it. A lambda is its own function: its body is hoisted on its own. */
+
+static int g_try_temp_counter = 0;
+static char *dup_text(const char *text);
+
+static int expr_has_try(const Expr *e);
+
+static int fields_have_try(const FieldInitList *fields) {
+    for (int i = 0; i < fields->count; i++) {
+        if (expr_has_try(fields->items[i].value)) return 1;
+    }
+    return 0;
+}
+
+static int expr_has_try(const Expr *e) {
+    switch (e->kind) {
+        case EXPR_TRY_UNWRAP: return e->as.try_unwrap.prefix || expr_has_try(e->as.try_unwrap.inner);
+        case EXPR_UNARY: return expr_has_try(e->as.unary.operand);
+        case EXPR_BINARY: return expr_has_try(e->as.binary.left) || expr_has_try(e->as.binary.right);
+        case EXPR_CAST: return expr_has_try(e->as.cast.operand);
+        case EXPR_FIELD_ACCESS: return expr_has_try(e->as.field_access.base);
+        case EXPR_INDEX: return expr_has_try(e->as.index.array) || expr_has_try(e->as.index.index);
+        case EXPR_CALL:
+            for (int i = 0; i < e->as.call.args.count; i++) if (expr_has_try(e->as.call.args.items[i])) return 1;
+            return 0;
+        case EXPR_ENUM_ACCESS:
+            for (int i = 0; i < e->as.enum_access.args.count; i++) if (expr_has_try(e->as.enum_access.args.items[i])) return 1;
+            return 0;
+        case EXPR_ARRAY_LIT:
+            for (int i = 0; i < e->as.array_lit.elements.count; i++) if (expr_has_try(e->as.array_lit.elements.items[i])) return 1;
+            return 0;
+        case EXPR_STRUCT_LIT: return fields_have_try(&e->as.struct_lit.fields);
+        case EXPR_WITH: return expr_has_try(e->as.with_expr.base) || fields_have_try(&e->as.with_expr.overrides);
+        default: return 0;
+    }
+}
+
+/* True when evaluating `e` cannot fail or have an effect, so it may stay where it is while a later `try` runs first. */
+static int expr_is_pure(const Expr *e) {
+    switch (e->kind) {
+        case EXPR_INT: case EXPR_FLOAT: case EXPR_STRING: case EXPR_BOOL: case EXPR_UNIT: case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_BYTE:
+        case EXPR_IDENT: case EXPR_LAMBDA:
+            return 1;
+        case EXPR_UNARY: return expr_is_pure(e->as.unary.operand);
+        case EXPR_BINARY:
+            return e->as.binary.op != OP_DIV && e->as.binary.op != OP_MOD && expr_is_pure(e->as.binary.left) && expr_is_pure(e->as.binary.right);
+        case EXPR_FIELD_ACCESS: return expr_is_pure(e->as.field_access.base);
+        case EXPR_ARRAY_LIT:
+            for (int i = 0; i < e->as.array_lit.elements.count; i++) if (!expr_is_pure(e->as.array_lit.elements.items[i])) return 0;
+            return 1;
+        case EXPR_STRUCT_LIT:
+            for (int i = 0; i < e->as.struct_lit.fields.count; i++) if (!expr_is_pure(e->as.struct_lit.fields.items[i].value)) return 0;
+            return 1;
+        case EXPR_ENUM_ACCESS: return e->as.enum_access.args.count == 0;
+        default: return 0;
+    }
+}
+
+/* Puts every child of `e` that is evaluated, in order, into `slots`; returns how many. `&&` and `||` contribute only their left operand: the right one runs
+ * conditionally, so a `try` in it is not hoisted. */
+static int expr_child_slots(Expr *e, Expr ****slots) {
+    int n = 0, cap = 4;
+    Expr ***v = malloc((size_t)cap * sizeof(Expr **));
+#define ADD_SLOT(s) do { if (n == cap) { cap *= 2; v = realloc(v, (size_t)cap * sizeof(Expr **)); } v[n++] = (s); } while (0)
+    switch (e->kind) {
+        case EXPR_TRY_UNWRAP: ADD_SLOT(&e->as.try_unwrap.inner); break;
+        case EXPR_UNARY: ADD_SLOT(&e->as.unary.operand); break;
+        case EXPR_BINARY:
+            ADD_SLOT(&e->as.binary.left);
+            if (e->as.binary.op != OP_AND && e->as.binary.op != OP_OR) ADD_SLOT(&e->as.binary.right);
+            break;
+        case EXPR_CAST: ADD_SLOT(&e->as.cast.operand); break;
+        case EXPR_FIELD_ACCESS: ADD_SLOT(&e->as.field_access.base); break;
+        case EXPR_INDEX: ADD_SLOT(&e->as.index.array); ADD_SLOT(&e->as.index.index); break;
+        case EXPR_CALL: for (int i = 0; i < e->as.call.args.count; i++) ADD_SLOT(&e->as.call.args.items[i]); break;
+        case EXPR_ENUM_ACCESS: for (int i = 0; i < e->as.enum_access.args.count; i++) ADD_SLOT(&e->as.enum_access.args.items[i]); break;
+        case EXPR_ARRAY_LIT: for (int i = 0; i < e->as.array_lit.elements.count; i++) ADD_SLOT(&e->as.array_lit.elements.items[i]); break;
+        case EXPR_STRUCT_LIT: for (int i = 0; i < e->as.struct_lit.fields.count; i++) ADD_SLOT(&e->as.struct_lit.fields.items[i].value); break;
+        case EXPR_WITH:
+            ADD_SLOT(&e->as.with_expr.base);
+            for (int i = 0; i < e->as.with_expr.overrides.count; i++) ADD_SLOT(&e->as.with_expr.overrides.items[i].value);
+            break;
+        default: break;
+    }
+#undef ADD_SLOT
+    *slots = v;
+    return n;
+}
+
+/* `val $tN = init` appended to `out`; returns the identifier that now stands for `init`. */
+static Expr *hoist_into_temp(StmtList *out, Expr *init) {
+    char name[32];
+    snprintf(name, sizeof name, "$t%d", ++g_try_temp_counter);
+    Stmt *decl = stmt_new(STMT_VAL, init->line, init->col);
+    decl->as.decl.name = dup_text(name);
+    decl->as.decl.init = init;
+    stmt_list_push(out, decl);
+    Expr *ref = expr_new(EXPR_IDENT, init->line, init->col);
+    ref->as.ident_name = dup_text(name);
+    return ref;
+}
+
+/* Rewrites `*slot` so that no prefix `try` is left in it, appending what has to run first to `out`. `whole` is true when `*slot` is the entire initializer of a
+ * val/var or a whole expression statement, where a `try` needs no temporary of its own: `val x = try f()` is `val x = f()?`. `later` is true when something that
+ * the statement evaluates after `*slot` holds a `try`: then all of `*slot` runs before it, so what is left of it that is not pure moves into a temporary too. */
+static void hoist_expr(Expr **slot, StmtList *out, int whole, int later) {
+    Expr *e = *slot;
+    if (!expr_has_try(e)) return;
+    Expr ***kids;
+    int n = expr_child_slots(e, &kids);
+    int last_try = -1;
+    for (int i = 0; i < n; i++) {
+        if (expr_has_try(*kids[i])) last_try = i;
+    }
+    int last = later ? n - 1 : last_try;
+    for (int i = 0; i <= last; i++) {
+        int child_later = later || i < last_try;
+        if (expr_has_try(*kids[i])) hoist_expr(kids[i], out, 0, child_later);
+        else if (!expr_is_pure(*kids[i])) *kids[i] = hoist_into_temp(out, *kids[i]);
+    }
+    free(kids);
+    if (e->kind == EXPR_TRY_UNWRAP && e->as.try_unwrap.prefix) {
+        if (!whole) *slot = hoist_into_temp(out, e);
+    } else if (later && !expr_is_pure(e)) {
+        *slot = hoist_into_temp(out, e);
+    }
+}
+
+/* `*slot` is evaluated before something that holds a `try` (`later`): hoist what it holds. */
+static void hoist_operand(Expr **slot, StmtList *out, int later) {
+    if (expr_has_try(*slot)) hoist_expr(slot, out, 0, later);
+    else if (later && !expr_is_pure(*slot)) *slot = hoist_into_temp(out, *slot);
+}
+
+static void hoist_stmt(Stmt *s, StmtList *out) {
+    switch (s->kind) {
+        case STMT_VAL: case STMT_VAR: hoist_expr(&s->as.decl.init, out, 1, 0); break;
+        case STMT_EXPR: hoist_expr(&s->as.expr_stmt.expr, out, 1, 0); break;
+        case STMT_ASSIGN: hoist_expr(&s->as.assign.value, out, 0, 0); break;
+        case STMT_RETURN: if (s->as.ret.value != NULL) hoist_expr(&s->as.ret.value, out, 0, 0); break;
+        case STMT_IF: hoist_expr(&s->as.if_stmt.cond, out, 0, 0); break;
+        case STMT_SWITCH: hoist_expr(&s->as.switch_stmt.scrutinee, out, 0, 0); break;
+        case STMT_FOR:
+            if (s->as.for_stmt.is_range) {
+                hoist_operand(&s->as.for_stmt.range_start, out, expr_has_try(s->as.for_stmt.range_end));
+                hoist_expr(&s->as.for_stmt.range_end, out, 0, 0);
+            } else {
+                hoist_expr(&s->as.for_stmt.iterable, out, 0, 0);
+            }
+            break;
+        default: break;
+    }
+}
+
 static Stmt *parse_statement(Parser *p);
 
 static Stmt *parse_block(Parser *p) {
@@ -929,7 +1096,9 @@ static Stmt *parse_block(Parser *p) {
     Stmt *block = stmt_new(STMT_BLOCK, open->line, open->col);
     skip_newlines(p);
     while (!check(p, TOK_RBRACE)) {
-        stmt_list_push(&block->as.block.stmts, parse_statement(p));
+        Stmt *s = parse_statement(p);
+        hoist_stmt(s, &block->as.block.stmts);
+        stmt_list_push(&block->as.block.stmts, s);
         skip_newlines(p);
     }
     expect(p, TOK_RBRACE, "'}'");

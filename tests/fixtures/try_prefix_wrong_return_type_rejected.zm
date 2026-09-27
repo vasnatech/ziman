@@ -1,0 +1,11 @@
+fn parse(s: string) -> Result<int, string> {
+    return parse_int(s)
+}
+
+fn run(s: string) -> int {
+    return try parse(s) + 1
+}
+
+fn main() {
+    print(run("1"))
+}

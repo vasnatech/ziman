@@ -1,0 +1,11 @@
+fn check(n: int) -> Result<bool, string> {
+    return ok(n > 0)
+}
+
+fn run(a: bool) -> Result<bool, string> {
+    return ok(a && try check(1))
+}
+
+fn main() {
+    print(run(true))
+}

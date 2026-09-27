@@ -1037,6 +1037,25 @@ fn first_positive_doubled(items: [int]) -> Option<int> {
   propagates**, discarding the unwrapped value on success — useful for
   a fallible step whose success value isn't needed, only whether it
   succeeded.
+- **`try expr` is the same thing written in front, and it may be nested.**
+  `try` covers the call or access chain after it, as `-` and `!` do:
+  `ok(try parse_int(s) + 1)` is `ok((try parse_int(s)) + 1)`, and
+  `try parse(str(try parse(s))) * 2` nests. Where `expr?` may only be a whole
+  statement, a `try` may sit anywhere an expression that runs exactly once,
+  unconditionally, can: a `val`/`var` initializer, an assignment, a `return`
+  value, an `if` condition, a `switch` subject, a `for` range or iterable, an
+  operand or an argument. The early exit is marked at the left, where it is hard
+  to miss. It follows the same typing rules as `?`. The parser rewrites it into
+  `val $t1 = expr?` statements ahead of the statement, and also moves whatever
+  the statement evaluates *before* the `try` (a call, an index that may fail)
+  into temporaries, so effects happen in the order written:
+  `noisy("a") + try f() + noisy("b")` runs `noisy("a")`, then `f()`, and returns
+  before `noisy("b")` if `f()` fails.
+- **Where `try` is refused:** an `else if` or `while` condition (evaluated
+  conditionally or repeatedly), the right side of `&&` and `||`, a `defer` or
+  `spawn` argument, and an `if`/`switch` used as a value. Put it in its own `val`
+  first. The postfix `?` is unchanged and stays statement-level; both spellings
+  are accepted.
 
 ### `if Variant(name) = expr` — test and bind in one step
 
