@@ -1,0 +1,9 @@
+enum HasChannel {
+    C(Channel<int>)
+}
+
+fn main() {
+    val a: Channel<int> = channel_new()
+    val b: Channel<int> = channel_new()
+    print(HasChannel.C(a) == HasChannel.C(b))
+}

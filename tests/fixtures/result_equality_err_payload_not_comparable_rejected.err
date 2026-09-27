@@ -1,1 +1,0 @@
-Result<int, [Point]> cannot be compared with '=='/'!=' because its Ok or Err type is not a comparable type

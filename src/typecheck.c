@@ -152,24 +152,46 @@ static Type substitute_type(Type t, TypeParamList *params, TypeList *args) {
     }
 }
 
-static int is_scalar_kind(TypeKind kind) {
-    return kind == TY_INT || kind == TY_FLOAT || kind == TY_BOOL || kind == TY_STRING || kind == TY_BIGINT || kind == TY_DECIMAL || kind == TY_BYTE;
-}
-
 /* Whether '=='/'!=' is legal for a value of type `t`: scalars always,
- * `[T]` only when T is itself scalar (an array's own equality, not
- * generalized to "any comparable T" -- see docs/SYNTAX.md "Arrays"),
- * a struct only when every one of its fields is (recursively) comparable,
- * a `Result<T, E>` only when both `T` and `E` are (recursively)
- * comparable -- a runtime value only ever holds one of the two, but which
- * one isn't known until the value exists, so both branches have to type-check
- * as comparable for the type itself to be -- and a user-declared `enum`
- * only when every variant that carries a payload has a (recursively)
- * comparable payload type, same reasoning as Result. `depth` guards the still-open
- * "self-referential struct can't be constructed" gap (docs/ROADMAP.md) -- a
- * directly or mutually self-referential struct declaration would otherwise
- * send this into unbounded recursion just from its *shape*, even though no
- * value of that shape can ever actually exist yet. */
+ * `[T]` when `T` is itself (recursively) comparable -- not scalar-only,
+ * since an array of a comparable struct/enum is exactly as comparable as
+ * the struct/enum itself -- a struct only when every one of its fields
+ * is (recursively) comparable, a `Result<T, E>` only when both `T` and
+ * `E` are (recursively) comparable -- a runtime value only ever holds one
+ * of the two, but which one isn't known until the value exists, so both
+ * branches have to type-check as comparable for the type itself to be --
+ * and a user-declared `enum` only when every variant that carries a
+ * payload has a (recursively) comparable payload type, same reasoning as
+ * Result. A struct/enum that refers back to itself while this is being
+ * worked out (`Json`'s own `JArray([Json])`/`JObject(Map<string, Json>)`,
+ * or a user's own `enum Tree<T: Eq> { Leaf(T) Node([Tree<T>]) }`) is
+ * assumed comparable rather than re-entered -- see type_check_cycle_seen,
+ * which every TY_STRUCT/TY_ENUM case here (and in type_supports_hashing)
+ * consults first. This is sound: a real *value* of a recursive type is
+ * always finite no matter how its type refers to itself, so the only
+ * thing that would otherwise recurse forever is checking the *type's
+ * own shape*, and once every payload not of the same type has already
+ * checked out comparable, the recursive occurrence contributes nothing
+ * further to verify. `depth` remains only as a backstop against a
+ * non-cyclic but very deep chain -- see docs/ROADMAP.md's still-open
+ * "self-referential struct can't be constructed" gap. */
+enum { MAX_TYPE_CHECK_DEPTH = 64, MAX_TYPE_CHECK_STACK = 128 };
+
+/* The struct/enum types currently being asked whether they support `==`/`hash`, for type_supports_equality and
+ * type_supports_hashing's own cycle detection (see their shared comment above) -- two separate stacks since a
+ * type may need one property checked while already mid-check for the other (`Hash` bounds are checked alongside
+ * `Eq` ones in check_type_args_satisfy_bounds). Single-threaded, like current_decl_type_params. */
+static Type g_eq_check_stack[MAX_TYPE_CHECK_STACK];
+static int g_eq_check_depth = 0;
+static Type g_hash_check_stack[MAX_TYPE_CHECK_STACK];
+static int g_hash_check_depth = 0;
+
+static int type_check_cycle_seen(Type *stack, int depth, Type t) {
+    for (int i = 0; i < depth; i++) {
+        if (type_equals(stack[i], t)) return 1;
+    }
+    return 0;
+}
 /* The type parameters of whichever generic declaration is currently being
  * validated or type-checked -- a struct's own fields, an enum's own
  * variant payloads, a function's own params/return type, or (separately)
@@ -191,34 +213,42 @@ static int is_scalar_kind(TypeKind kind) {
 static TypeParamList *current_decl_type_params = NULL;
 
 static int type_supports_equality(Module *module, Type t, int depth) {
-    if (depth > 64) return 0;
+    if (depth > MAX_TYPE_CHECK_DEPTH) return 0;
     switch (t.kind) {
         case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE: case TY_UNIT:
             return 1;
         case TY_ARRAY:
-            return is_scalar_kind(t.elem->kind);
+            return type_supports_equality(module, *t.elem, depth + 1);
         case TY_STRUCT: {
+            if (type_check_cycle_seen(g_eq_check_stack, g_eq_check_depth, t)) return 1;
             StructDecl *decl = find_struct(module, t.struct_name);
             if (decl == NULL) return 0;
+            g_eq_check_stack[g_eq_check_depth++] = t;
+            int ok = 1;
             for (int i = 0; i < decl->fields.count; i++) {
                 Type field_type = substitute_type(decl->fields.items[i].type, &decl->type_params, &t.type_args);
-                if (!type_supports_equality(module, field_type, depth + 1)) return 0;
+                if (!type_supports_equality(module, field_type, depth + 1)) { ok = 0; break; }
             }
-            return 1;
+            g_eq_check_depth--;
+            return ok;
         }
         case TY_RESULT:
             return type_supports_equality(module, *t.elem, depth + 1) &&
                    type_supports_equality(module, *t.elem_err, depth + 1);
         case TY_ENUM: {
+            if (type_check_cycle_seen(g_eq_check_stack, g_eq_check_depth, t)) return 1;
             EnumDecl *decl = find_enum(module, t.enum_name);
             if (decl == NULL) return 0;
+            g_eq_check_stack[g_eq_check_depth++] = t;
+            int ok = 1;
             for (int i = 0; i < decl->variants.count; i++) {
                 EnumVariant *v = &decl->variants.items[i];
                 if (!v->has_payload) continue;
                 Type payload_type = substitute_type(v->payload_type, &decl->type_params, &t.type_args);
-                if (!type_supports_equality(module, payload_type, depth + 1)) return 0;
+                if (!type_supports_equality(module, payload_type, depth + 1)) { ok = 0; break; }
             }
-            return 1;
+            g_eq_check_depth--;
+            return ok;
         }
         case TY_CHANNEL:
             /* A channel is a stateful, identity-based handle, not a data
@@ -265,20 +295,24 @@ static int type_supports_equality(Module *module, Type t, int depth) {
  * are not hashable. Needed for `HashMap<K, V>`'s bucket index -- see the
  * `collections` module. */
 static int type_supports_hashing(Module *module, Type t, int depth) {
-    if (depth > 64) return 0;
+    if (depth > MAX_TYPE_CHECK_DEPTH) return 0;
     switch (t.kind) {
         case TY_INT: case TY_FLOAT: case TY_BOOL: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE: case TY_UNIT:
             return 1;
         case TY_ARRAY:
-            return is_scalar_kind(t.elem->kind);
+            return type_supports_hashing(module, *t.elem, depth + 1);
         case TY_STRUCT: {
+            if (type_check_cycle_seen(g_hash_check_stack, g_hash_check_depth, t)) return 1;
             StructDecl *decl = find_struct(module, t.struct_name);
             if (decl == NULL) return 0;
+            g_hash_check_stack[g_hash_check_depth++] = t;
+            int ok = 1;
             for (int i = 0; i < decl->fields.count; i++) {
                 Type field_type = substitute_type(decl->fields.items[i].type, &decl->type_params, &t.type_args);
-                if (!type_supports_hashing(module, field_type, depth + 1)) return 0;
+                if (!type_supports_hashing(module, field_type, depth + 1)) { ok = 0; break; }
             }
-            return 1;
+            g_hash_check_depth--;
+            return ok;
         }
         case TY_RESULT:
             return type_supports_hashing(module, *t.elem, depth + 1) && type_supports_hashing(module, *t.elem_err, depth + 1);
@@ -287,15 +321,19 @@ static int type_supports_hashing(Module *module, Type t, int depth) {
         case TY_SET:
             return 1;
         case TY_ENUM: {
+            if (type_check_cycle_seen(g_hash_check_stack, g_hash_check_depth, t)) return 1;
             EnumDecl *decl = find_enum(module, t.enum_name);
             if (decl == NULL) return 0;
+            g_hash_check_stack[g_hash_check_depth++] = t;
+            int ok = 1;
             for (int i = 0; i < decl->variants.count; i++) {
                 EnumVariant *v = &decl->variants.items[i];
                 if (!v->has_payload) continue;
                 Type payload_type = substitute_type(v->payload_type, &decl->type_params, &t.type_args);
-                if (!type_supports_hashing(module, payload_type, depth + 1)) return 0;
+                if (!type_supports_hashing(module, payload_type, depth + 1)) { ok = 0; break; }
             }
-            return 1;
+            g_hash_check_depth--;
+            return ok;
         }
         case TY_TYPEVAR:
             if (current_decl_type_params != NULL) {
@@ -526,7 +564,7 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
                                 type_name(lt));
                 } else if (lt.kind == TY_ARRAY) {
                     ziman_error("type", e->line, e->col,
-                                "array '=='/'!=' requires an array of a comparable (scalar) type, found %s", type_name(lt));
+                                "array '=='/'!=' requires an array of a comparable ('==') element type, found %s", type_name(lt));
                 } else if (lt.kind == TY_ENUM) {
                     ziman_error("type", e->line, e->col,
                                 "enum '%s' cannot be compared with '=='/'!=' because one of its variants' payload is not a comparable type",
@@ -1391,9 +1429,9 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         if (first_type.kind == TY_ARRAY) {
             Type elem_type = *first_type.elem;
-            if (!is_scalar_kind(elem_type.kind)) {
+            if (!type_supports_equality(module, elem_type, 0)) {
                 ziman_error("type", first_arg->line, first_arg->col,
-                            "'contains' requires an array of a comparable (scalar) type, found %s", type_name(first_type));
+                            "'contains' requires an array of a comparable ('==') element type, found %s", type_name(first_type));
             }
             Type second_type = check_expr(module, env, second_arg);
             if (!type_equals(second_type, elem_type)) {
@@ -1435,8 +1473,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Type arg_type = check_expr(module, env, arg);
         if (!type_supports_hashing(module, arg_type, 0)) {
             ziman_error("type", arg->line, arg->col,
-                        "'hash' expects a type that supports '==' with hashable parts (int, float, bool, string, bigint, decimal, byte, arrays of those, "
-                        "structs/enums/Option/Result made of them) or a type parameter bounded by 'Hash', found %s",
+                        "'hash' expects a type that supports '==' with hashable parts (int, float, bool, string, bigint, decimal, byte, an array/Option/Result/struct/"
+                        "enum of hashable parts, however deeply, including one that refers back to itself) or a type parameter bounded by 'Hash', found %s",
                         type_name(arg_type));
         }
         return type_scalar(TY_INT);

@@ -1,0 +1,12 @@
+enum Tree<T: Eq> {
+    Leaf(T)
+    Node([Tree<T>])
+}
+
+fn main() {
+    val a = Tree<int>.Node([Tree<int>.Leaf(1), Tree<int>.Leaf(2)])
+    val b = Tree<int>.Node([Tree<int>.Leaf(1), Tree<int>.Leaf(2)])
+    val c = Tree<int>.Node([Tree<int>.Leaf(1), Tree<int>.Leaf(3)])
+    print(a == b)
+    print(a == c)
+}

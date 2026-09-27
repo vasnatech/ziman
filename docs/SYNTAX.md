@@ -434,11 +434,12 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   out of range is a runtime error, reported the same way as division by
   zero. `insert`'s valid range is `[0, len(arr)]` inclusive (`len` itself
   means "append"); `set`'s and indexing's valid range is `[0, len(arr))`.
-- **`==`/`!=` on arrays is allowed only when the element type is scalar**
-  (`int`/`float`/`bool`/`string`) — compares length then elements
-  pairwise. An array of structs, Results, or nested arrays is still a
-  type error, same reasoning as scalar-only `contains` below: those
-  element types don't have a well-defined equality of their own yet.
+- **`==`/`!=` on arrays is allowed whenever the element type itself
+  supports `==`** (a scalar, or a struct/enum/Result/another array made of
+  comparable parts, recursively — see `contains` below and "Equality" in
+  the operators table) — compares length then elements pairwise. An array
+  of `Channel`s, or of anything else that isn't itself comparable, is
+  still a type error.
 
 See "Builtins" below for `len`/`push`/`insert`/`set`/`remove`'s exact
 signatures.
@@ -446,8 +447,9 @@ signatures.
 ## Maps and sets
 
 `Map<K, V>` and `Set<T>` are built-in types. Keys must support `==` and hashing (the
-`Hash` rule: scalars, arrays of scalars, structs and enums made of those, a type
-parameter bounded by `Hash`); a value may be anything.
+`Hash` rule: scalars, and an array/struct/enum/Result made of hashable parts, however deeply, including one that
+refers back to itself (`Json`, or a recursive `enum Tree<T: Eq> { Leaf(T) Node([Tree<T>]) }`); a type
+parameter bounded by `Hash`; a value may be anything.
 
 ```
 var stock = Map<string, int> { "apple": 4, "pear": 6 }    // the type arguments are always written
@@ -734,11 +736,15 @@ fn main() {
   short-circuiting on the first mismatch. Both sides must be the same
   declared struct type, same rule as any other `==`. This only works
   when *every* field's own type supports `==` — recursively, so a
-  struct nested inside another struct, or containing a `Result<T, E>` or
-  an `enum`, is fine as long as that field's own type is itself
-  comparable this same way, but an array field of anything but a scalar
-  (see "Arrays" above) makes the whole struct a type error to compare,
-  naming the struct.
+  struct nested inside another struct, an array field, or a field
+  containing a `Result<T, E>` or an `enum`, is fine as long as that
+  field's own type is itself comparable this same way (see "Arrays"
+  above); a field of anything that isn't comparable at all (a `Channel`,
+  for instance) makes the whole struct a type error to compare, naming
+  the struct. A struct that refers back to its own type, directly or
+  through an array (`enum Tree<T: Eq> { Leaf(T) Node([Tree<T>]) }`), is
+  assumed comparable rather than checked forever — see docs/DESIGN.md's
+  "Recursive Eq/Hash" entry.
 - Field types can reference another struct (`struct Line { start: Point
   end: Point }`) and structs can be declared in any order — a field type
   can name a struct declared later in the file. Referencing a struct name
@@ -1156,9 +1162,9 @@ fn main() {
   functions" below). A bound name other than `Eq`/`Hash`/`Ord` is
   a compile-time error. `Eq` works the same way `==` already does
   everywhere else (recursively, for a struct/enum whose fields/payloads
-  are themselves comparable), but `Hash` is scalar-only — no struct or
-  enum has a derived/structural hash, so a `Map`/`Set` key is effectively
-  restricted to `int`/`float`/`bool`/`string`/`bigint`/`decimal` for now.
+  are themselves comparable), and `Hash` follows the identical rule (see
+  "Maps and sets" above) — a struct or enum made of hashable parts is
+  itself hashable, so a `Map`/`Set` key is not restricted to scalars.
 - `Box<int>` and `Box<string>` are different types: a mismatched
   instantiation is a type error at construction, and `==`/`!=` between
   two different instantiations of the same generic struct is rejected
@@ -1567,9 +1573,12 @@ fn main() {
   program the same way the entry file's own top-level names are, and never
   reachable through `use` (see docs/DESIGN.md's "Prelude" entry). `Uuid`
   satisfies `Eq`, `Hash` and `Ord`, so it works as a struct field, a
-  `Map` key and in `collections.sort`. `Json` satisfies none of them:
-  array `==`/`!=` requires a *scalar* element type (see "Arrays" above),
-  and `[Json]`'s element isn't one.
+  `Map` key and in `collections.sort`. `Json` satisfies `Eq` and `Hash`
+  (its own `JArray([Json])`/`JObject(Map<string, Json>)` refer back to
+  `Json` itself, resolved the same way any other recursive type is — see
+  docs/DESIGN.md's "Recursive Eq/Hash" entry) but not `Ord`: there is no
+  `json_compare`, so `compare(a, b)`/`collections.sort` on `Json` values
+  is still a type error.
 
 ### Naming conventions for module functions
 
@@ -3086,7 +3095,7 @@ violates one of these never executes any code, it's rejected up front:
 |------------------------|-----------------------------|--------------------------|---------|
 | Arithmetic             | `+ - * / %`                 | `int,int` or `float,float`* | same type |
 | Comparison             | `< > <= >=`                 | `int,int` or `float,float` | `bool`  |
-| Equality               | `== !=`                     | any two of the same type, provided that type is "comparable": a scalar always, `[T]` only for scalar `T`, a struct only if every field is (recursively) comparable, `Result<T, E>` only if both `T` and `E` are (recursively) comparable, an `enum` only if every payload-carrying variant's payload type is (recursively) comparable, never a `Channel` | `bool`  |
+| Equality               | `== !=`                     | any two of the same type, provided that type is "comparable": a scalar always, `[T]` whenever `T` itself is (recursively) comparable, a struct only if every field is (recursively) comparable, `Result<T, E>` only if both `T` and `E` are (recursively) comparable, an `enum` only if every payload-carrying variant's payload type is (recursively) comparable, never a `Channel` — a type that refers back to itself while this is being worked out (`Json`, a recursive `enum Tree<T: Eq> { Leaf(T) Node([Tree<T>]) }`) is assumed comparable rather than checked forever | `bool`  |
 | Logical                | `&& \|\|`                   | `bool, bool`             | `bool`  |
 | Unary negate           | `-`                          | `int` or `float`         | same type |
 | Unary not              | `!`                          | `bool`                   | `bool`  |
@@ -3223,20 +3232,21 @@ a type error.
   leading/trailing junk or doesn't parse at all.
 - `contains(s: string, needle: string) -> bool` / `contains(arr: [T], x:
   T) -> bool` — substring test, or array membership test via `==`. The
-  array form requires `T` to be a scalar
-  (`int`/`float`/`bool`/`string`/`bigint`/`decimal`/`byte`) — same
-  restriction as array `==`/`!=`, since only scalars have a well-defined
-  equality in v0.
+  array form requires `T` to support `==` — same rule as array `==`/`!=`
+  itself (see "Arrays" above).
 - `compare(a: T, b: T) -> int` — negative, zero or positive (only the sign
   means anything); `T` is any type with a
   total order (see "Ordering" below). The way to order a struct or enum;
   `<`, `>`, `<=`, `>=` are for numbers, strings and bytes only.
 - `hash(x: T) -> int` — a hash of `x`. **`T` is any type that supports `==`
   and has only hashable parts**: `int`, `float`, `bool`, `string`, `bigint`,
-  `decimal`, `byte`; an array of those; a struct, enum, `Option` or `Result`
-  built from hashable types (so `Uuid`, a `(patient, year)` struct or a
-  `Rank` enum all work); or a type parameter bounded by `Hash` (see
-  "Generics" above). The hash is structural -- the same shape `==` compares
+  `decimal`, `byte`; an array, `Option`, `Result`, struct or enum built
+  from hashable types, however deeply, including one that refers back to
+  itself (`Json`, a recursive `enum Tree<T: Eq> { Leaf(T) Node([Tree<T>]) }`
+  — see docs/DESIGN.md's "Recursive Eq/Hash" entry) — so `Uuid`, a
+  `(patient, year)` struct, a `Rank` enum and `Json` itself all work; or a
+  type parameter bounded by `Hash` (see "Generics" above). The hash is
+  structural -- the same shape `==` compares
   -- so `a == b` implies `hash(a) == hash(b)` with no function to write; a
   channel, or anything `==` rejects, is not hashable. `-0.0` and `0.0` hash
   alike (they are equal); a `NaN` key is never found, since it does not equal

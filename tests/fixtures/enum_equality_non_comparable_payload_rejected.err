@@ -1,1 +1,0 @@
-enum 'Shape' cannot be compared with '=='/'!=' because one of its variants' payload is not a comparable type

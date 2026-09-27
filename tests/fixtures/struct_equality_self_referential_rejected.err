@@ -1,1 +1,0 @@
-struct 'Node' cannot be compared with '=='/'!=' because one of its fields is not a comparable type
