@@ -1,1 +1,1 @@
-error at 2:1 (in derive(Ord) for 'Bad'): 'compare' expects
+ziman: type error at 2:1 in tests/fixtures/ord_derive_field_not_ordered.zm (in derive(Ord) for 'Bad'): 'compare' expects int, float, bigint, decimal, byte, string, an array/Option/Result of those, a struct/enum with a '<type>_compare' function ('#[derive(Ord)]' writes one), or a type parameter bounded by 'Ord', found bool

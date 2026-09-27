@@ -1,26 +1,101 @@
-ziman: type error at 1:25: returned string but function is declared to return int
-ziman: type error at 2:25: returned string but function is declared to return int
-ziman: type error at 3:25: returned string but function is declared to return int
-ziman: type error at 4:25: returned string but function is declared to return int
-ziman: type error at 5:25: returned string but function is declared to return int
-ziman: type error at 6:25: returned string but function is declared to return int
-ziman: type error at 7:25: returned string but function is declared to return int
-ziman: type error at 8:25: returned string but function is declared to return int
-ziman: type error at 9:25: returned string but function is declared to return int
-ziman: type error at 10:25: returned string but function is declared to return int
-ziman: type error at 11:26: returned string but function is declared to return int
-ziman: type error at 12:26: returned string but function is declared to return int
-ziman: type error at 13:26: returned string but function is declared to return int
-ziman: type error at 14:26: returned string but function is declared to return int
-ziman: type error at 15:26: returned string but function is declared to return int
-ziman: type error at 16:26: returned string but function is declared to return int
-ziman: type error at 17:26: returned string but function is declared to return int
-ziman: type error at 18:26: returned string but function is declared to return int
-ziman: type error at 19:26: returned string but function is declared to return int
-ziman: type error at 20:26: returned string but function is declared to return int
-ziman: type error at 21:26: returned string but function is declared to return int
-ziman: type error at 22:26: returned string but function is declared to return int
-ziman: type error at 23:26: returned string but function is declared to return int
-ziman: type error at 24:26: returned string but function is declared to return int
-ziman: type error at 25:26: returned string but function is declared to return int
+ziman: type error at 1:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+  |
+1 | fn f0() -> int { return "x" }
+  |                         ^
+ziman: type error at 2:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+  |
+2 | fn f1() -> int { return "x" }
+  |                         ^
+ziman: type error at 3:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+  |
+3 | fn f2() -> int { return "x" }
+  |                         ^
+ziman: type error at 4:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+  |
+4 | fn f3() -> int { return "x" }
+  |                         ^
+ziman: type error at 5:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+  |
+5 | fn f4() -> int { return "x" }
+  |                         ^
+ziman: type error at 6:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+  |
+6 | fn f5() -> int { return "x" }
+  |                         ^
+ziman: type error at 7:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+  |
+7 | fn f6() -> int { return "x" }
+  |                         ^
+ziman: type error at 8:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+  |
+8 | fn f7() -> int { return "x" }
+  |                         ^
+ziman: type error at 9:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+  |
+9 | fn f8() -> int { return "x" }
+  |                         ^
+ziman: type error at 10:25 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+10 | fn f9() -> int { return "x" }
+   |                         ^
+ziman: type error at 11:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+11 | fn f10() -> int { return "x" }
+   |                          ^
+ziman: type error at 12:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+12 | fn f11() -> int { return "x" }
+   |                          ^
+ziman: type error at 13:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+13 | fn f12() -> int { return "x" }
+   |                          ^
+ziman: type error at 14:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+14 | fn f13() -> int { return "x" }
+   |                          ^
+ziman: type error at 15:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+15 | fn f14() -> int { return "x" }
+   |                          ^
+ziman: type error at 16:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+16 | fn f15() -> int { return "x" }
+   |                          ^
+ziman: type error at 17:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+17 | fn f16() -> int { return "x" }
+   |                          ^
+ziman: type error at 18:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+18 | fn f17() -> int { return "x" }
+   |                          ^
+ziman: type error at 19:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+19 | fn f18() -> int { return "x" }
+   |                          ^
+ziman: type error at 20:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+20 | fn f19() -> int { return "x" }
+   |                          ^
+ziman: type error at 21:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+21 | fn f20() -> int { return "x" }
+   |                          ^
+ziman: type error at 22:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+22 | fn f21() -> int { return "x" }
+   |                          ^
+ziman: type error at 23:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+23 | fn f22() -> int { return "x" }
+   |                          ^
+ziman: type error at 24:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+24 | fn f23() -> int { return "x" }
+   |                          ^
+ziman: type error at 25:26 in tests/fixtures/errors_limit.zm: returned string but function is declared to return int
+   |
+25 | fn f24() -> int { return "x" }
+   |                          ^
 ziman: too many errors (25); stopping

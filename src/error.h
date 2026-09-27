@@ -41,9 +41,22 @@ int ziman_error_count(void);
 /* If any error was recorded: prints "ziman: N errors" (when more than one) and
  * exits 1. Call after a phase that may have recovered. */
 void ziman_finish_errors(void);
-/* The file diagnostics are about, for the `file` field and for text output of an
- * error in a file other than the entry file. NULL when unknown. */
+/* The file diagnostics are about, for the `file` field and, in text output, always
+ * named alongside the position (this used to be omitted for the entry file; now
+ * every file is named the same way, so which file an error is in never depends on
+ * which one happened to be given on the command line). NULL when unknown (a
+ * bundled core-library module has no real file of its own, so its errors stay
+ * unnamed on purpose -- see docs/DESIGN.md). */
 void ziman_set_error_file(const char *file);
+
+/* Registers `text` as `file`'s source, so a later error at a line in `file`
+ * (`ziman_flush_errors`, text mode only) can print that line with a caret under
+ * the reported column. Called once per real project file as it is read
+ * (`load_module_graph`/`load_module` in loader.c); a file never registered (a
+ * bundled core module, whose errors carry no file at all) just prints without an
+ * excerpt, unchanged. `text` is kept for the life of the process, matching every
+ * other compile-time buffer here -- see ast.h's own no-free-policy note. */
+void ziman_register_source(const char *file, const char *text);
 
 /* The language server collects diagnostics instead of printing them: while a sink
  * is set, ziman_error hands each one to it (nothing is written) and jumps to the
@@ -53,7 +66,6 @@ void ziman_set_error_file(const char *file);
 typedef void (*ZimanErrorSink)(const char *phase, const char *file, int line, int col, const char *context, const char *message);
 void ziman_set_error_sink(ZimanErrorSink sink);
 void ziman_reset_errors(void);
-void ziman_set_entry_file(const char *file);
 
 /* While non-NULL, every error is reported as "... at L:C (in <context>): ..."
  * -- how code the compiler generated (a #[derive] expansion) says which

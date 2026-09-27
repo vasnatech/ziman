@@ -1,1 +1,1 @@
-type error at 3:23: argument 2 of 'try_send' expects int (the channel's element type), found string
+ziman: type error at 3:23 in tests/fixtures/channel_try_send_type_rejected.zm: argument 2 of 'try_send' expects int (the channel's element type), found string

@@ -1,1 +1,4 @@
-type error at 6:13: 'identity' takes 1 type argument(s), found 2
+ziman: type error at 6:13 in tests/fixtures/generic_value_wrong_type_arg_count_rejected.zm: 'identity' takes 1 type argument(s), found 2
+  |
+6 |     val f = identity<int, string>
+  |             ^

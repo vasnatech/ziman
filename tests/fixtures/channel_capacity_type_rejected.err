@@ -1,1 +1,1 @@
-type error at 2:39: the capacity of 'channel_new' must be an int, found string
+ziman: type error at 2:39 in tests/fixtures/channel_capacity_type_rejected.zm: the capacity of 'channel_new' must be an int, found string

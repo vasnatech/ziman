@@ -1276,6 +1276,14 @@ static Type check_call(Module *module, Env *env, Expr *e) {
      * and type arguments don't apply -- the value carries only a parameter list. */
     if (e->as.call.local_name != NULL && e->as.call.type_args.count == 0) {
         Binding *fb = env_lookup(env, e->as.call.local_name);
+        /* A poisoned local (its own declaration already failed -- see poison_declaration) has a placeholder
+         * TY_VOID type, so it never matches the `TY_FUNC` check just below and falls through to `find_function`,
+         * which reports "call to undefined function" for a name that is, in fact, declared right here: an
+         * accurate-sounding but nonsensical follow-on error about the real one already raised. Every *other*
+         * reference to a poisoned binding already aborts quietly the same way (see check_expr's EXPR_IDENT
+         * case); a call through one, going through this earlier, local-name-specific path instead, needs its
+         * own check. See docs/DESIGN.md's "No cascades" entry. */
+        if (fb != NULL && fb->poisoned) ziman_abort_quietly();
         if (fb != NULL && fb->type.kind == TY_FUNC) {
             Type ft = fb->type;
             if (e->as.call.arg_names != NULL) {
@@ -3707,12 +3715,19 @@ static void check_function(Module *module, FunctionDecl *fn) {
         int lint_first_var = g_lint_var_count;
         g_lint_active = g_lint_on && fn->source_file != NULL && fn->derived_from == NULL;
         g_lint_file = fn->source_file;
+        int errors_before_body = ziman_error_count();
         for (int i = 0; i < fn->body->as.block.stmts.count; i++) {
             check_stmt_recovering(module, env, fn->body->as.block.stmts.items[i], fn->return_type, 0);
         }
         if (g_lint_active) lint_finish_function(lint_first_var);
         g_lint_active = 0;
-        if (fn->return_type.kind != TY_VOID && fn->return_type.kind != TY_UNIT && !stmt_always_returns(fn->body)) {
+        /* Skipped once any statement in the body already errored (a non-exhaustive `switch` is the common
+         * case): that statement's own AST is left exactly as written, unrewritten, so a purely structural
+         * "does every path return" walk over it is often truthfully "no" -- an accurate but redundant second
+         * finding about the very statement whose real problem was already reported (see docs/DESIGN.md's
+         * "No cascades" entry). */
+        if (fn->return_type.kind != TY_VOID && fn->return_type.kind != TY_UNIT && !stmt_always_returns(fn->body) &&
+            ziman_error_count() == errors_before_body) {
             ziman_error("type", fn->line, fn->col, "function '%s' does not return a value on every path", fn->name);
         }
     }

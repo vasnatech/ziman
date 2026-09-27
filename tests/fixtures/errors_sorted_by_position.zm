@@ -1,0 +1,12 @@
+fn b() {
+    val x: int = "bad in b"
+}
+
+fn a() {
+    val y: int = "bad in a"
+}
+
+fn main() {
+    a()
+    b()
+}

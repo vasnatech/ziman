@@ -1,1 +1,1 @@
-type error at 6:13: 'add' is not generic, so it takes no type arguments
+ziman: type error at 6:13 in tests/fixtures/generic_value_not_generic_rejected.zm: 'add' is not generic, so it takes no type arguments

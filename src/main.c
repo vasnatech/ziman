@@ -228,7 +228,6 @@ int main(int argc, char **argv) {
         return 1;
     }
     ziman_set_json_errors(json);
-    ziman_set_entry_file(file);
     ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
     RunOptions options = {file, json, lint, check_only};
     ziman_run_on_big_stack(run_program, &options);

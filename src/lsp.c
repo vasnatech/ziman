@@ -487,7 +487,6 @@ static void run_analysis(char *entry) {
 
     ziman_reset_errors();
     ziman_set_error_sink(diag_sink);
-    ziman_set_entry_file(entry);
     typecheck_skip_main_check(1);
     g_ndiags = 0;
 

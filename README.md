@@ -129,7 +129,9 @@ error as one JSON object on stderr (`{"severity":"error","phase":"type","file":"
 "line":3,"col":18,"context":null,"message":"..."}`, with `--check` a clean
 run prints `{"ok":true}`); a run reports **every** error it can find, not
 just the first (up to 25): all syntax errors in a file, then type errors in every
-function and statement, with a "N errors" line at the end; `--emit-derived` prints the code each
+function and statement, sorted by file and position, each named after its own file (never only the ones in a
+file other than the one given on the command line) and, in text mode, shown with the source line and a caret
+under the column, with a "N errors" line at the end; `--emit-derived` prints the code each
 `#[derive]` generates; `--lint` reports style findings in your own code
 instead of running it (today: a `var` that is never reassigned, and `x = concat(x, ..)` / `x = concat_arrays(x, ..)` in a loop, which copies all of `x` on every pass -- use a StringBuilder or ArrayBuilder -- `var` and
 `val` differ by one letter, so it is the typo that silently makes something

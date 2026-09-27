@@ -1,0 +1,7 @@
+fn main() {
+    var n = 1
+    val f = fn() -> int {
+        return n
+    }
+    print(f())
+}

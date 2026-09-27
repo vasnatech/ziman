@@ -1,1 +1,4 @@
-type error at 2:13: 'slice' is a generic native function, so it can't be used as a value -- wrap it in a lambda: fn(...) { slice<...>(...) }
+ziman: type error at 2:13 in tests/fixtures/generic_value_native_rejected.zm: 'slice' is a generic native function, so it can't be used as a value -- wrap it in a lambda: fn(...) { slice<...>(...) }
+  |
+2 |     val f = slice<int>
+  |             ^

@@ -1,1 +1,4 @@
-type error at 2:13: cannot infer the return type of a lambda that uses 'return' -- write `-> T` after the parameters
+ziman: type error at 2:13 in tests/fixtures/lambda_infer_return_rejected.zm: cannot infer the return type of a lambda that uses 'return' -- write `-> T` after the parameters
+  |
+2 |     val f = fn(x: int) { return x }
+  |             ^

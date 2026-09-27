@@ -1,1 +1,1 @@
-syntax error at 2:13: an 'if' used as a value needs an 'else' (every path must produce a value)
+ziman: syntax error at 2:13 in tests/fixtures/value_if_needs_else.zm: an 'if' used as a value needs an 'else' (every path must produce a value)

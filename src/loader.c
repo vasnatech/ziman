@@ -1318,6 +1318,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
         source = strdup(core_source);
     }
     ziman_set_error_file(from_disk ? file_path : NULL);
+    if (from_disk) ziman_register_source(file_path, source);
     Module *mod = parse_file_contents(source);
     if (from_disk) {
         for (int i = 0; i < mod->functions.count; i++) mod->functions.items[i]->source_file = file_path;
@@ -1365,6 +1366,7 @@ Module *load_module_graph(const char *entry_path) {
         ziman_error("module", 0, 0, "cannot open '%s'", entry_path);
     }
     ziman_set_error_file(entry_path);
+    ziman_register_source(entry_path, entry_source);
     Module *entry_mod = parse_file_contents(entry_source);
     for (int i = 0; i < entry_mod->functions.count; i++) entry_mod->functions.items[i]->source_file = entry_path;
     for (int i = 0; i < entry_mod->structs.count; i++) entry_mod->structs.items[i]->source_file = entry_path;

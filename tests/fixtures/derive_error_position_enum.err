@@ -1,1 +1,9 @@
-error at 9:1 (in derive(Json) for 'Kind'): call to undefined function 'inner_to_json'
+ziman: type error at 9:1 in tests/fixtures/derive_error_position_enum.zm (in derive(Json) for 'Kind'): call to undefined function 'inner_to_json' -- a derived conversion needs one for every field type: give that type its own #[derive(Json)] (or write 'inner_to_json' by hand and import it with 'use')
+  |
+9 | enum Kind {
+  | ^
+ziman: type error at 9:1 in tests/fixtures/derive_error_position_enum.zm (in derive(Json) for 'Kind'): call to undefined function 'inner_from_json' -- a derived conversion needs one for every field type: give that type its own #[derive(Json)] (or write 'inner_from_json' by hand and import it with 'use')
+  |
+9 | enum Kind {
+  | ^
+ziman: 2 errors
