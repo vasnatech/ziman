@@ -1636,6 +1636,16 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                     "function's returned value");
     }
 
+    if (strcmp(name, "Some") == 0) {
+        /* Reachable only when nothing gave check_bare_option_call() (via check_expr_expecting) an expected
+         * Option<T> to work with -- e.g. `print(Some(5))` or a bare `Some(5)` statement. Same reasoning as
+         * ok/err above: `Some(x)`'s argument alone doesn't say this is an Option rather than something else. */
+        ziman_error("type", e->line, e->col,
+                    "cannot infer the type of 'Some(...)' here; only legal as a val/var initializer with an "
+                    "explicit Option<T> annotation, a struct literal field, a 'with' override, or a "
+                    "function's returned value");
+    }
+
     if (strcmp(name, "send") == 0) {
         if (e->as.call.args.count != 2) {
             ziman_error("type", e->line, e->col, "'send' takes exactly 2 arguments, found %d", e->as.call.args.count);
@@ -1862,6 +1872,45 @@ static int check_channel_new_call(Module *module, Env *env, Expr *e, Type expect
     return 1;
 }
 
+/* `Some(x)`/`None` used bare -- not qualified `Option<T>.Some(x)`/`Option<T>.None` -- where an `Option<T>` is
+ * already expected: the same set of legal positions ok/err/channel_new get (see check_ok_err_call), and for the
+ * same reason -- `None` carries no `T` at all, and a bare `Some(x)`'s argument only pins down `T` when there is
+ * nowhere else for it to come from either. `Some` and `None` can never be a real function or variable name (both
+ * start uppercase, which only a struct, enum, or type-parameter name may -- see require_lower_start), so there is
+ * no shadowing to consider: this always wins over check_call/plain identifier resolution once `expected` is an
+ * Option<T>. Returns 1 and sets `e->resolved_type` if `e` is exactly one of the two forms and `expected` is an
+ * Option<T>; returns 0 otherwise, meaning the caller should fall back to plain check_expr() (an `Option<T>.Some(x)`/
+ * `Option<T>.None` already written out reaches check_enum_access unaffected, as does the bare-value auto-wrap of an
+ * ordinary `T` via check_value_against_param_type). */
+static int check_bare_option_call(Module *module, Env *env, Expr *e, Type expected) {
+    if (!is_option_type(expected)) return 0;
+    Type elem = option_elem_type(expected);
+    if (e->kind == EXPR_IDENT && strcmp(e->as.ident_name, "None") == 0) {
+        /* Rewritten into a zero-argument call the interpreter already knows how to evaluate (same
+         * `strcmp(callee, ...)` dispatch as `ok`/`err`/`Some`) rather than special-cased by name in
+         * EXPR_IDENT's own (hot -- every identifier reference goes through it) evaluation path; see
+         * `unit`'s identical EXPR_IDENT -> EXPR_UNIT rewrite for the same "resolve once here, zero
+         * runtime cost after" reasoning, one node kind up. */
+        Expr *rewritten = expr_new(EXPR_CALL, e->line, e->col);
+        rewritten->as.call.callee = "None";
+        *e = *rewritten;
+        e->resolved_type = expected;
+        return 1;
+    }
+    if (e->kind != EXPR_CALL || e->as.call.type_args.count > 0 || strcmp(e->as.call.callee, "Some") != 0) return 0;
+    if (e->as.call.args.count != 1) {
+        ziman_error("type", e->line, e->col, "'Some' takes exactly 1 argument, found %d", e->as.call.args.count);
+    }
+    Expr *arg = e->as.call.args.items[0];
+    Type arg_type = check_expr(module, env, arg);
+    require_not_void(arg, "as an Option value");
+    if (!type_equals(arg_type, elem)) {
+        ziman_error("type", arg->line, arg->col, "'Some' expects %s, found %s", type_name(elem), type_name(arg_type));
+    }
+    e->resolved_type = expected;
+    return 1;
+}
+
 static Type check_cast(Module *module, Env *env, Expr *e) {
     Type from = check_expr(module, env, e->as.cast.operand);
     require_not_void(e->as.cast.operand, "as a cast operand");
@@ -2030,6 +2079,9 @@ static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type e
         return expected;
     }
     if (check_channel_new_call(module, env, e, expected)) {
+        return expected;
+    }
+    if (check_bare_option_call(module, env, e, expected)) {
         return expected;
     }
     if (is_option_type(expected) || expected.kind == TY_RESULT) {
@@ -2359,6 +2411,14 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
                     e->kind = EXPR_UNIT;
                     t = type_scalar(TY_UNIT);
                     break;
+                }
+                if (strcmp(e->as.ident_name, "None") == 0) {
+                    /* Reachable only when nothing gave check_bare_option_call() (via check_expr_expecting) an
+                     * expected Option<T> to work with -- `None` alone carries no `T` at all to infer. */
+                    ziman_error("type", e->line, e->col,
+                                "cannot infer the type of 'None' here; only legal as a val/var initializer with an "
+                                "explicit Option<T> annotation, a struct literal field, a 'with' override, or a "
+                                "function's returned value");
                 }
                 for (size_t k = 0; k < sizeof BUILTINS_NO_NAMED_ARGS / sizeof BUILTINS_NO_NAMED_ARGS[0] && BUILTINS_NO_NAMED_ARGS[k] != NULL; k++) {
                     if (strcmp(e->as.ident_name, BUILTINS_NO_NAMED_ARGS[k]) == 0) {
@@ -2862,6 +2922,9 @@ static Type check_initializer(Module *module, Env *env, Expr **init_slot, int ha
     } else if (has_declared && check_channel_new_call(module, env, init, declared_type)) {
         /* channel_new() resolved against the declared type -- same
          * reasoning as ok(...)/err(...) above. */
+        declared = declared_type;
+    } else if (has_declared && check_bare_option_call(module, env, init, declared_type)) {
+        /* bare Some(x)/None resolved against the declared type -- same reasoning as ok(...)/err(...) above. */
         declared = declared_type;
     } else if (has_declared && (is_option_type(declared_type) || declared_type.kind == TY_RESULT)) {
         /* A bare Option<T>/Result<T, E> auto-wrap against the

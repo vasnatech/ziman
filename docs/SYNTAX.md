@@ -1048,6 +1048,20 @@ fn plus_one(s: string) -> Result<int, string> {
   step (the result is not converted again further out). `Option<T>`'s `try` only
   requires the enclosing function to return `Option<T2>` for *any* `T2` — `None`
   carries nothing to propagate.
+- **`Some(x)` and `None` may be written bare** (not `Option<T>.Some(x)`/
+  `Option<T>.None`) wherever an `Option<T>` is already expected — the same
+  four positions `ok`/`err`/`channel_new` get: a `val`/`var`'s declared
+  type, a struct literal field, a `with` override, or a function's
+  declared return type. `return None` and `notes: Some(text)` work without
+  naming `Option<string>`. Outside those positions (a bare `print(Some(5))`,
+  a function-call argument, or anywhere else with no expected type already
+  in hand) the fully qualified `Option<T>.Some(x)`/`Option<T>.None` is
+  still required, with the same reasoning `ok`/`err` have: there is
+  nothing here to infer the type from. This is separate from — and,
+  unlike — the existing bare-value auto-wrap (`Option<T>` accepts a bare
+  `T`, wrapped in `Some` automatically): auto-wrap never sees something
+  already shaped like `Some(...)`/`None`, which is exactly what this
+  covers instead.
 - **A bare `try expr` statement (no `val`/`var`)** still fully checks and
   propagates, discarding the unwrapped value on success — useful for a fallible
   step whose success value isn't needed, only whether it succeeded.

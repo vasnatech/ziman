@@ -1,0 +1,7 @@
+fn takes(o: Option<int>) {
+    print(o)
+}
+
+fn main() {
+    takes(Some(5))
+}

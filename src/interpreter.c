@@ -625,6 +625,10 @@ static Value call_err(Type result_type, Value e) {
     return value_result(result_type, result_obj_new(0, e));
 }
 
+static Value call_some(Type option_type, Value x) {
+    return value_enum(option_type, enum_obj_new("Option", "Some", 1, x));
+}
+
 static Value call_is_ok(Value r) {
     return value_bool(r.as.res->is_ok);
 }
@@ -1013,6 +1017,10 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_ok(e->resolved_type, args[0]);
             } else if (strcmp(e->as.call.callee, "err") == 0) {
                 result = call_err(e->resolved_type, args[0]);
+            } else if (strcmp(e->as.call.callee, "Some") == 0) {
+                result = call_some(e->resolved_type, args[0]);
+            } else if (strcmp(e->as.call.callee, "None") == 0) {
+                result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
             } else if (strcmp(e->as.call.callee, "is_ok") == 0) {
                 result = call_is_ok(args[0]);
             } else if (strcmp(e->as.call.callee, "unwrap") == 0) {

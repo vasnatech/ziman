@@ -1,0 +1,3 @@
+fn main() {
+    val a: Option<int> = Some(1, 2)
+}

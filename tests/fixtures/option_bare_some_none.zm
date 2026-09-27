@@ -1,0 +1,31 @@
+struct Holder {
+    value: Option<int>
+}
+
+fn find(items: [int], target: int) -> Option<int> {
+    for x in items {
+        if x == target {
+            return Some(x)
+        }
+    }
+    return None
+}
+
+fn main() {
+    val a: Option<int> = Some(5)
+    val b: Option<int> = None
+    print(a)
+    print(b)
+    val h = Holder { value: Some(9) }
+    print(h.value)
+    val h2 = with h { value: None }
+    print(h2.value)
+    print(find([1, 2, 3], 2))
+    print(find([1, 2, 3], 9))
+    print(Option<int>.Some(3))
+    print(Option<int>.None)
+    switch a {
+        Some(x) { print(x) }
+        None { print("none") }
+    }
+}
