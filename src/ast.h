@@ -536,6 +536,10 @@ typedef struct {
      * struct with no attribute at all. See src/derive.c. */
     char **derives;
     int derive_count;
+    /* `#[thread_bound]`: values of this type belong to the thread that made them (a builder is a mutable handle). Sharing one is refused: at compile time when
+     * a type containing it is a Channel's element, a `spawn` argument or a module-level `val`, and at run time (the native that owns the handle checks
+     * the calling thread) for every other way it could get to another thread. */
+    int thread_bound;
     int line, col;
     const char *source_file; /* the file it was loaded from; NULL for a bundled module */
 } StructDecl;

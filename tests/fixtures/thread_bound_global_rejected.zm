@@ -1,0 +1,5 @@
+val shared = sb_new()
+
+fn main() {
+    print(1)
+}

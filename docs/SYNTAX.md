@@ -1976,9 +1976,24 @@ val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
 ## Attributes and derive
 
 `#[...]`, written directly above a `struct`/`enum` declaration, attaches
-compile-time metadata to it. The only attribute anything currently
-interprets is `derive`; other names parse (so the grammar doesn't need
-to change later) but have no effect yet.
+compile-time metadata to it. Two are interpreted: `derive` (below) and
+`thread_bound`; other names parse (so the grammar doesn't need to change
+later) but have no effect yet.
+
+`#[thread_bound]` on a struct marks a value that belongs to the thread that
+made it, as `StringBuilder`, `ArrayBuilder`, `MapBuilder`, `SetBuilder` and `Iter`
+are (mutable handles that are not safe to share). A type that contains one
+-- an array of them, a struct with one in a field, `Option<StringBuilder>` --
+is refused where it would be shared: as a `Channel` element, as a `spawn`
+argument, and as the type of a module-level `val`. Everything else that could
+carry one to another thread (a closure that captured it, say) is caught when
+the builder is used: each builder remembers its thread and a use from any
+other is a runtime error. Hand the finished value over (`sb_to_string`,
+`ab_to_array`, `mapb_to_map`, or the items of an iterator as an array), not the builder
+or the iterator. The attribute is for the
+prelude's builders and any future one of the kind; on a struct written in
+Ziman it gives the compile-time refusals only (there is no native to check the
+thread).
 
 ```
 use json.Json
@@ -2910,6 +2925,11 @@ fn main() {
 }
 ```
 
+- **Builders and iterators stay in their thread.** `StringBuilder`, `ArrayBuilder`,
+  `MapBuilder`, `SetBuilder` and `Iter` are mutable, so each belongs to the thread that
+  made it: not a `Channel` element, not a `spawn` argument, not a module-level
+  `val` (compile errors), and any other use from another thread is a runtime
+  error. See "Attributes and derive" (`#[thread_bound]`).
 - **`Channel<T>` is a queue, thread-safe by construction, holding values
   of one element type `T`** — unified, not split into separate
   sender/receiver types the way Rust's `mpsc` is: any `Channel<T>` value

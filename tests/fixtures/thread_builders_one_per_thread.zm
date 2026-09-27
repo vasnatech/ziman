@@ -1,0 +1,24 @@
+fn work(id: int, out: Channel<string>) {
+    val sb = sb_new()
+    for i in 0..3 {
+        sb_append(sb, str(id), ":", str(i), " ")
+    }
+    val ab = ab_new<int>()
+    ab_append<int>(ab, id)
+    send(out, sb_to_string(sb))
+}
+
+fn main() {
+    val out: Channel<string> = channel_new()
+    for id in 0..4 {
+        spawn work(id, out)
+    }
+    var total = 0
+    for _ in 0..4 {
+        total = total + len(receive(out))
+    }
+    print(total)
+    val sb = sb_new()
+    sb_append(sb, "main ok")
+    print(sb_to_string(sb))
+}

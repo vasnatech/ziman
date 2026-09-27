@@ -1,0 +1,22 @@
+use fs
+
+fn count(path: string, out: Channel<int>) {
+    var n = 0
+    for line in unwrap(fs.lines(path)) {
+        n = n + 1
+    }
+    send(out, n)
+}
+
+fn main() {
+    val path = "/tmp/ziman_iter_threads.txt"
+    unwrap(fs.write_text(path, "a\nb\nc\n"))
+    val out: Channel<int> = channel_new()
+    spawn count(path, out)
+    spawn count(path, out)
+    print(receive(out) + receive(out))
+    for line in unwrap(fs.lines(path)) {
+        print(unwrap(line))
+    }
+    unwrap(fs.remove(path))
+}

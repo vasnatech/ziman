@@ -425,11 +425,24 @@ static Value native_join(Value *args, int argc, int line, int col) {
  * as long as the StringBuilder value that names it. `magic` catches a
  * forged or stale handle with a clear error instead of a wild read (not
  * airtight -- the docs already say "don't construct one by hand").
- * Appending is unsynchronized between callers, same as Java's own
- * StringBuilder: one is built up by a single thread at a time. */
+ * A builder belongs to the thread that made it (`owner`): every operation
+ * checks the calling thread, so sharing one -- by a channel, a closure, a
+ * global -- is a clear runtime error and never a data race (the compiler
+ * refuses the obvious ways first: see `#[thread_bound]` in prelude.zm). */
 enum { SB_MAGIC = 0x53424c44 };
+
+/* The check every builder operation makes: `what` names the builder type for the message. */
+static void builder_owner_check(pthread_t owner, const char *what) {
+    if (!pthread_equal(owner, pthread_self())) {
+        ziman_error("runtime", 0, 0,
+                    "%s belongs to the thread that made it and was used from another thread (a builder cannot be shared between threads; hand over the finished value instead)",
+                    what);
+    }
+}
+
 typedef struct {
     uint32_t magic;
+    pthread_t owner;
     char *data;
     size_t length;
     size_t capacity;
@@ -438,12 +451,14 @@ typedef struct {
 
 static int64_t sb_table_register(StringBuilderBuf *buf) {
     buf->magic = SB_MAGIC;
+    buf->owner = pthread_self();
     return (int64_t)(intptr_t)buf;
 }
 
 static StringBuilderBuf *sb_table_get(int64_t handle) {
     StringBuilderBuf *buf = (StringBuilderBuf *)(intptr_t)handle;
     if (buf == NULL || buf->magic != SB_MAGIC) ziman_error("runtime", 0, 0, "not a valid StringBuilder handle");
+    builder_owner_check(buf->owner, "a StringBuilder");
     return buf;
 }
 
@@ -595,6 +610,7 @@ static Value native_sb_len(Value *args, int argc, int line, int col) {
 enum { AB_MAGIC = 0x41424c44 };
 typedef struct {
     uint32_t magic;
+    pthread_t owner;
     Value *items;
     size_t length;
     size_t capacity;
@@ -610,12 +626,14 @@ typedef struct {
 /* Same pointer-as-handle scheme as StringBuilder above, for the same reason. */
 static int64_t ab_table_register(ArrayBuilderBuf *buf) {
     buf->magic = AB_MAGIC;
+    buf->owner = pthread_self();
     return (int64_t)(intptr_t)buf;
 }
 
 static ArrayBuilderBuf *ab_table_get(int64_t handle) {
     ArrayBuilderBuf *buf = (ArrayBuilderBuf *)(intptr_t)handle;
     if (buf == NULL || buf->magic != AB_MAGIC) ziman_error("runtime", 0, 0, "not a valid ArrayBuilder handle");
+    builder_owner_check(buf->owner, "an ArrayBuilder");
     return buf;
 }
 
@@ -956,6 +974,7 @@ static Value native_ab_len(Value *args, int argc, int line, int col) {
 enum { MB_MAGIC = 0x4d424c44 };
 typedef struct {
     uint32_t magic;
+    pthread_t owner;
     MapObj *m;
     int shared; /* a snapshot exists: overwritten leaves must be replaced, not updated */
 } MapBuilderBuf;
@@ -965,12 +984,14 @@ static char *MAPBUILDER_FIELD_NAMES[] = {"handle"};
 static MapBuilderBuf *mb_get_buf(Value b) {
     MapBuilderBuf *buf = (MapBuilderBuf *)(intptr_t)b.as.st->fields[0].as.i;
     if (buf == NULL || buf->magic != MB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MapBuilder/SetBuilder handle");
+    builder_owner_check(buf->owner, "a MapBuilder/SetBuilder");
     return buf;
 }
 
 static Value mb_new_value(const char *type_name) {
     MapBuilderBuf *buf = malloc(sizeof(MapBuilderBuf));
     buf->magic = MB_MAGIC;
+    buf->owner = pthread_self();
     buf->m = mapobj_mut_new();
     buf->shared = 0;
     Value *fields = malloc(sizeof(Value));

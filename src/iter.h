@@ -1,6 +1,7 @@
 #ifndef ZIMAN_ITER_H
 #define ZIMAN_ITER_H
 
+#include <pthread.h>
 #include <stdint.h>
 
 #include "value.h"
@@ -20,6 +21,9 @@ typedef struct IterObj {
     /* nonzero: the garbage collector must not run `release` (it runs Ziman code, which is not safe from
      * a finalizer), so the source is released only when finished or closed */
     int no_finalizer;
+    /* the thread that made it: an Iter is a mutable cursor and belongs to that thread (`#[thread_bound]` in prelude.zm), so walking or closing it from
+     * another thread is a runtime error. Set by iter_make. The collector's finalizer releases a dropped one from its own thread and is exempt. */
+    pthread_t owner;
 } IterObj;
 
 /* Wraps `it` as an `Iter<T>` value. */

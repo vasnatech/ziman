@@ -1,0 +1,13 @@
+fn run(job: fn(), done: Channel<int>) {
+    job()
+    send(done, 1)
+}
+
+fn main() {
+    val sb = sb_new()
+    sb_append(sb, "main ")
+    val done: Channel<int> = channel_new()
+    spawn run(fn() { sb_append(sb, "thread") }, done)
+    print(receive(done))
+    print(sb_to_string(sb))
+}

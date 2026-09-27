@@ -1,0 +1,13 @@
+#[thread_bound]
+struct Cursor {
+    position: int
+}
+
+fn work(c: Cursor) {
+    print(c.position)
+}
+
+fn main() {
+    val c = Cursor { position: 0 }
+    spawn work(c)
+}

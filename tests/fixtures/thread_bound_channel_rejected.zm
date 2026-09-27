@@ -1,0 +1,4 @@
+fn main() {
+    val c: Channel<StringBuilder> = channel_new()
+    print(1)
+}

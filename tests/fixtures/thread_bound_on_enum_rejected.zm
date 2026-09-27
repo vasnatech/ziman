@@ -1,0 +1,9 @@
+#[thread_bound]
+enum Mode {
+    A
+    B
+}
+
+fn main() {
+    print(1)
+}

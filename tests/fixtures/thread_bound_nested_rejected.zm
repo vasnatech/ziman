@@ -1,0 +1,12 @@
+struct Holder {
+    items: [ArrayBuilder<int>]
+}
+
+fn work(h: Holder) {
+    print(1)
+}
+
+fn main() {
+    val h = Holder { items: [] }
+    spawn work(h)
+}

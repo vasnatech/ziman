@@ -1,0 +1,14 @@
+use fs
+
+fn run(job: fn(), done: Channel<int>) {
+    job()
+    send(done, 1)
+}
+
+fn main() {
+    unwrap(fs.write_text("/tmp/ziman_iter_thread.txt", "one\ntwo\n"))
+    val lines = unwrap(fs.lines("/tmp/ziman_iter_thread.txt"))
+    val done: Channel<int> = channel_new()
+    spawn run(fn() { print(iter_next<Result<string, string>>(lines)) }, done)
+    print(receive(done))
+}

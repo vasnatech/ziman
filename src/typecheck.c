@@ -46,6 +46,58 @@ static int same_source(const char *a, const char *b) {
     return strcmp(a, b) == 0;
 }
 
+/* Whether a value of type `t` can hold a `#[thread_bound]` value (a builder): it is one, or an array, map, set, Result, Option or other generic instance with one
+ * among its parts, or a struct or enum with one in a field or variant. A function type does not count (what a closure captured is not in its type; the
+ * run-time owner check covers that). */
+static int type_holds_thread_bound(Module *module, Type t, int depth) {
+    if (depth > 12) return 0;
+    switch (t.kind) {
+        case TY_ARRAY:
+        case TY_SET:
+        case TY_CHANNEL:
+            return type_holds_thread_bound(module, *t.elem, depth + 1);
+        case TY_RESULT:
+        case TY_MAP:
+            return type_holds_thread_bound(module, *t.elem, depth + 1) || type_holds_thread_bound(module, *t.elem_err, depth + 1);
+        case TY_STRUCT: {
+            StructDecl *sd = find_struct(module, t.struct_name);
+            if (sd != NULL && sd->thread_bound) return 1;
+            for (int i = 0; i < t.type_args.count; i++) {
+                if (type_holds_thread_bound(module, t.type_args.items[i], depth + 1)) return 1;
+            }
+            if (sd != NULL) {
+                for (int i = 0; i < sd->fields.count; i++) {
+                    if (type_holds_thread_bound(module, sd->fields.items[i].type, depth + 1)) return 1;
+                }
+            }
+            return 0;
+        }
+        case TY_ENUM: {
+            for (int i = 0; i < t.type_args.count; i++) {
+                if (type_holds_thread_bound(module, t.type_args.items[i], depth + 1)) return 1;
+            }
+            EnumDecl *ed = find_enum(module, t.enum_name);
+            if (ed != NULL) {
+                for (int v = 0; v < ed->variants.count; v++) {
+                    if (ed->variants.items[v].has_payload && type_holds_thread_bound(module, ed->variants.items[v].payload_type, depth + 1)) return 1;
+                }
+            }
+            return 0;
+        }
+        default:
+            return 0;
+    }
+}
+
+/* The message for a thread-bound type where it may not go: `what` says where ("sent over a channel"). */
+static void reject_thread_bound(Module *module, Type t, const char *what, int line, int col) {
+    if (type_holds_thread_bound(module, t, 0)) {
+        ziman_error("type", line, col,
+                    "%s cannot be %s: it belongs to the thread that made it, as a builder or an iterator does (send the finished value instead -- sb_to_string, ab_to_array, mapb_to_map, the items as an array)",
+                    type_name(t), what);
+    }
+}
+
 static Type check_expr(Module *module, Env *env, Expr *e);
 static Type check_lambda(Module *module, Env *env, Expr *e);
 static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type *expected);
@@ -3077,6 +3129,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 Expr *arg = s->as.spawn_stmt.args.items[i];
                 Type arg_type = check_expr(module, env, arg);
                 require_not_void(arg, "as an argument");
+                reject_thread_bound(module, arg_type, "passed to another thread with 'spawn'", arg->line, arg->col);
                 Type expected = fn->params.items[i].type;
                 if (fn->type_params.count > 0) expected = substitute_type(expected, &fn->type_params, spawn_type_args);
                 if (!type_equals(arg_type, expected)) {
@@ -3178,6 +3231,7 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
         check_type_args_satisfy_bounds(module, &decl->type_params, &t.type_args, line, col);
     } else if (t.kind == TY_CHANNEL) {
         check_type_well_formed(module, *t.elem, line, col);
+        reject_thread_bound(module, *t.elem, "sent over a channel", line, col);
     } else if (t.kind == TY_MAP || t.kind == TY_SET) {
         check_type_well_formed(module, *t.elem, line, col);
         if (t.kind == TY_MAP) check_type_well_formed(module, *t.elem_err, line, col);
@@ -3216,6 +3270,8 @@ static void check_global_vals(Module *module) {
         synthetic.as.decl.has_declared_type = v->has_declared_type;
         synthetic.as.decl.init = v->init;
         check_stmt(module, g_global_env, &synthetic, type_scalar(TY_VOID), 0);
+        Binding *made = env_lookup(g_global_env, v->name);
+        if (made != NULL) reject_thread_bound(module, made->type, "the type of a module-level val (every thread would share it)", v->line, v->col);
     }
 }
 

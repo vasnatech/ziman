@@ -1,0 +1,8 @@
+fn worker(sb: StringBuilder) {
+    sb_append(sb, "x")
+}
+
+fn main() {
+    val sb = sb_new()
+    spawn worker(sb)
+}

@@ -1984,6 +1984,7 @@ typedef struct {
     char **names;
     int count;
     int capacity;
+    int thread_bound; /* `#[thread_bound]` was among the attributes */
 } DeriveList;
 
 static void derive_list_push(DeriveList *list, char *name) {
@@ -2008,6 +2009,8 @@ static DeriveList parse_attributes(Parser *p) {
                     if (is_derive) derive_list_push(&derives, dup_token_text(arg));
                 } while (match(p, TOK_COMMA));
                 expect(p, TOK_RPAREN, "')'");
+            } else if (item_name->length == 12 && strncmp(item_name->start, "thread_bound", 12) == 0) {
+                derives.thread_bound = 1;
             }
         } while (match(p, TOK_COMMA));
         expect(p, TOK_RBRACKET, "']'");
@@ -2056,14 +2059,18 @@ Module *parse(TokenList tokens) {
             sd->is_public = is_public;
             sd->derives = derives.names;
             sd->derive_count = derives.count;
+            sd->thread_bound = derives.thread_bound;
             struct_list_push(&module->structs, sd);
         } else if (check(&p, TOK_ENUM)) {
             EnumDecl *ed = parse_enum_decl(&p);
             ed->is_public = is_public;
             ed->derives = derives.names;
             ed->derive_count = derives.count;
+            if (derives.thread_bound) {
+                ziman_error("syntax", ed->line, ed->col, "#[thread_bound] applies to a struct, not to enum '%s'", ed->name);
+            }
             enum_list_push(&module->enums, ed);
-        } else if (derives.count > 0) {
+        } else if (derives.count > 0 || derives.thread_bound) {
             ziman_error("syntax", cur(&p)->line, cur(&p)->col,
                         "an attribute must be followed by a struct or enum declaration");
         } else if (check(&p, TOK_NATIVE)) {

@@ -1487,7 +1487,11 @@ several languages rather than inheriting any one of them wholesale.
   fetched `StringBuilderBuf` happens outside that lock, entirely
   unsynchronized between callers -- matching Java's own (non-thread-
   safe) `StringBuilder`: meant to be built up by one thread at a time,
-  not shared, not a design gap specific to this implementation.
+  not shared, not a design gap specific to this implementation. (That
+  was made a rule, not a convention, in 2026-09: a builder records the
+  thread that made it, every native operation checks it, and the
+  compiler refuses the obvious ways of sharing one -- `#[thread_bound]`
+  in prelude.zm, see SYNTAX.md "Attributes and derive".)
   `option_int_or`/`option_float_or` unwrap `capacity`/`grow_factor`
   (already-resolved `Option<T>` values by the time a native function
   ever sees them, per `join`'s own precedent) -- deliberately checking

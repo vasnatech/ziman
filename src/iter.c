@@ -24,7 +24,17 @@ static void iter_finalizer(void *obj, void *client_data) {
 }
 #endif
 
+/* Every walk or close of an Iter checks the calling thread: a cursor moved from a thread to another (through a closure, a global) would be walked by
+ * two at once. */
+static void iter_owner_check(const IterObj *it) {
+    if (!pthread_equal(it->owner, pthread_self())) {
+        ziman_error("runtime", 0, 0,
+                    "an Iter belongs to the thread that made it and was used from another thread (an iterator cannot be shared between threads; hand over the items instead)");
+    }
+}
+
 Value iter_make(IterObj *it) {
+    it->owner = pthread_self();
     handleset_add(&g_iters, it);
 #ifdef ZIMAN_GC
     if (!it->no_finalizer) GC_REGISTER_FINALIZER_NO_ORDER(it, iter_finalizer, NULL, NULL, NULL);
@@ -39,6 +49,7 @@ int64_t iter_handle_of(Value iter) { return iter.as.st->fields[0].as.i; }
 int iter_advance(int64_t handle, Value *out, int line, int col) {
     IterObj *it = (IterObj *)(intptr_t)handle;
     if (!handleset_has(&g_iters, it)) return 0; /* closed early: nothing more to give */
+    iter_owner_check(it);
     it->line = line;
     it->col = col;
     if (it->next(it, out)) return 1;
@@ -48,6 +59,7 @@ int iter_advance(int64_t handle, Value *out, int line, int col) {
 
 void iter_close_handle(int64_t handle) {
     IterObj *it = (IterObj *)(intptr_t)handle;
+    if (handleset_has(&g_iters, it)) iter_owner_check(it);
     if (handleset_remove(&g_iters, it)) it->release(it);
 }
 

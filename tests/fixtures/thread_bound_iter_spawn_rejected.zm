@@ -1,0 +1,12 @@
+use fs
+
+fn reader(lines: Iter<Result<string, string>>) {
+    for line in lines {
+        print(line)
+    }
+}
+
+fn main() {
+    val lines = unwrap(fs.lines("/etc/hostname"))
+    spawn reader(lines)
+}
