@@ -1221,8 +1221,31 @@ fn main() {
 }
 ```
 
-- **Call sites spell out type arguments too**: `identity<int>(5)`, never
-  bare `identity(5)` when the declaration is generic.
+- **A call site may leave the type arguments out; they are inferred from
+  the arguments' own checked types when they can be.** `identity(5)` works
+  without `identity<int>(5)`, and so does a named call
+  (`pick(a: 1, b: 2)`). This only ever changes an ordinary call — a
+  struct's construction, an enum's construction, `ok`/`err`/
+  `channel_new()`, and `spawn` of a generic function are unchanged, still
+  always explicit (see above and "`try`" and "Concurrency"). Only a fixed
+  parameter whose *declared* type
+  actually mentions one of the function's own type parameters
+  contributes: `fn wrap<T>(items: [T], label: string) -> Option<T>`
+  infers `T` from `items`, and `label`'s concrete `string` type
+  contributes nothing (and needs nothing — it is checked normally either
+  way). A generic function whose type parameters only ever appear in its
+  *return* type (`fn make<T>() -> [T]`) has nothing to infer from and
+  still requires `make<int>()`, exactly as before; the error is now more
+  specific about *which* type argument is missing.
+  An argument that needs its own expected type first (an empty array
+  literal, `ok(...)`/`err(...)`/`channel_new()`, an unannotated lambda, an
+  `if`/`switch` used as a value) contributes nothing to inference either
+  — there is no expected type yet to give it one — and is checked
+  normally, against the now-fully-known parameter type, once inference is
+  done. Two arguments that would bind the same type parameter to two
+  different types is a compile-time error naming both. Explicit type
+  arguments (`identity<int>(5)`) still work exactly as before, and are
+  used as given without any inference.
 - **A bound is usable inside the function's own body**, unlike a struct
   or enum's — a struct/enum has no body to use it in. `a == b` inside
   `are_equal<T: Eq>` type-checks specifically because `T` carries the

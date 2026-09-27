@@ -1018,6 +1018,218 @@ static Expr *mk_enum_call_expr(const char *enum_name, const char *prefix, const 
 static Type check_enum_access(Module *module, Env *env, Expr *e);
 static Expr *mk_call_expr(const char *callee, Expr *arg, int line, int col);
 
+/* True when `t` names one of `params` anywhere in its shape -- whether a generic call's type argument for this
+ * parameter can be learned from an argument checked against `t`. */
+static int type_mentions_any(Type t, TypeParamList *params) {
+    switch (t.kind) {
+        case TY_TYPEVAR:
+            for (int i = 0; i < params->count; i++) {
+                if (strcmp(params->items[i].name, t.type_var_name) == 0) return 1;
+            }
+            return 0;
+        case TY_ARRAY:
+        case TY_CHANNEL:
+        case TY_SET:
+            return type_mentions_any(*t.elem, params);
+        case TY_RESULT:
+        case TY_MAP:
+            return type_mentions_any(*t.elem, params) || type_mentions_any(*t.elem_err, params);
+        case TY_FUNC: {
+            if (type_mentions_any(*t.elem, params)) return 1;
+            for (int i = 0; i < t.type_args.count; i++) {
+                if (type_mentions_any(t.type_args.items[i], params)) return 1;
+            }
+            return 0;
+        }
+        case TY_STRUCT:
+        case TY_ENUM:
+            for (int i = 0; i < t.type_args.count; i++) {
+                if (type_mentions_any(t.type_args.items[i], params)) return 1;
+            }
+            return 0;
+        default:
+            return 0;
+    }
+}
+
+/* An argument this shape can only be checked with an expected type already in hand (an empty array literal, `ok`/
+ * `err`/`channel_new`, a lambda, an `if`/`switch` used as a value) -- exactly the forms check_value_against_param_type
+ * special-cases. Inference has no expected type to offer yet, so these are left for the ordinary argument-checking
+ * loop to handle once every type argument is known, rather than forced here (which would just be today's "cannot
+ * infer" error, for an argument that may not even matter to inference). */
+static int expr_needs_expected_type(const Expr *e) {
+    if (e->kind == EXPR_ARRAY_LIT && e->as.array_lit.elements.count == 0) return 1;
+    if (e->kind == EXPR_LAMBDA) return 1;
+    if (e->kind == EXPR_VALUE_BLOCK) return 1;
+    if (e->kind == EXPR_CALL) {
+        const char *callee = e->as.call.callee;
+        if (strcmp(callee, "ok") == 0 || strcmp(callee, "err") == 0 || strcmp(callee, "channel_new") == 0) return 1;
+    }
+    return 0;
+}
+
+/* Matches a generic function's declared parameter type (`pattern`, which may mention `params`) against one checked
+ * argument's own type (`actual`), for C3 inference (see infer_call_type_args). A structural mismatch is not raised
+ * here -- check_value_against_param_type gives the real, argument-specific error once every type argument is
+ * known -- but two arguments disagreeing about the same type parameter is a genuine inference conflict, reported at
+ * `at`. */
+static void unify_type(Type pattern, Type actual, TypeParamList *params, Type *bindings, int *bound, const Expr *at) {
+    if (pattern.kind == TY_TYPEVAR) {
+        for (int i = 0; i < params->count; i++) {
+            if (strcmp(params->items[i].name, pattern.type_var_name) != 0) continue;
+            if (bound[i] && !type_equals(bindings[i], actual)) {
+                ziman_error("type", at->line, at->col,
+                            "cannot infer type argument '%s': one argument requires %s, another requires %s",
+                            pattern.type_var_name, type_name(bindings[i]), type_name(actual));
+            }
+            bindings[i] = actual;
+            bound[i] = 1;
+            return;
+        }
+        return;
+    }
+    if (pattern.kind != actual.kind) return;
+    switch (pattern.kind) {
+        case TY_ARRAY:
+        case TY_CHANNEL:
+        case TY_SET:
+            unify_type(*pattern.elem, *actual.elem, params, bindings, bound, at);
+            return;
+        case TY_RESULT:
+        case TY_MAP:
+            unify_type(*pattern.elem, *actual.elem, params, bindings, bound, at);
+            unify_type(*pattern.elem_err, *actual.elem_err, params, bindings, bound, at);
+            return;
+        case TY_FUNC:
+            if (pattern.type_args.count != actual.type_args.count) return;
+            for (int i = 0; i < pattern.type_args.count; i++) {
+                unify_type(pattern.type_args.items[i], actual.type_args.items[i], params, bindings, bound, at);
+            }
+            unify_type(*pattern.elem, *actual.elem, params, bindings, bound, at);
+            return;
+        case TY_STRUCT:
+            if (strcmp(pattern.struct_name, actual.struct_name) != 0 || pattern.type_args.count != actual.type_args.count) return;
+            for (int i = 0; i < pattern.type_args.count; i++) {
+                unify_type(pattern.type_args.items[i], actual.type_args.items[i], params, bindings, bound, at);
+            }
+            return;
+        case TY_ENUM:
+            if (strcmp(pattern.enum_name, actual.enum_name) != 0 || pattern.type_args.count != actual.type_args.count) return;
+            for (int i = 0; i < pattern.type_args.count; i++) {
+                unify_type(pattern.type_args.items[i], actual.type_args.items[i], params, bindings, bound, at);
+            }
+            return;
+        default:
+            return;
+    }
+}
+
+/* Whether every type parameter `pattern` mentions is already bound, so `pattern`'s own concrete shape can be read
+ * off `bindings` right now (see infer_call_type_args's variadic-tail case, the one place a pattern is needed before
+ * every argument has been visited). */
+static int type_fully_bound(Type t, TypeParamList *params, const int *bound) {
+    switch (t.kind) {
+        case TY_TYPEVAR:
+            for (int i = 0; i < params->count; i++) {
+                if (strcmp(params->items[i].name, t.type_var_name) == 0) return bound[i];
+            }
+            return 1;
+        case TY_ARRAY:
+        case TY_CHANNEL:
+        case TY_SET:
+            return type_fully_bound(*t.elem, params, bound);
+        case TY_RESULT:
+        case TY_MAP:
+            return type_fully_bound(*t.elem, params, bound) && type_fully_bound(*t.elem_err, params, bound);
+        case TY_FUNC: {
+            if (!type_fully_bound(*t.elem, params, bound)) return 0;
+            for (int i = 0; i < t.type_args.count; i++) {
+                if (!type_fully_bound(t.type_args.items[i], params, bound)) return 0;
+            }
+            return 1;
+        }
+        case TY_STRUCT:
+        case TY_ENUM:
+            for (int i = 0; i < t.type_args.count; i++) {
+                if (!type_fully_bound(t.type_args.items[i], params, bound)) return 0;
+            }
+            return 1;
+        default:
+            return 1;
+    }
+}
+
+/* C3: `fn`'s omitted type arguments, worked out from the checked types of `e`'s own arguments instead of requiring
+ * them written out. Only a fixed parameter whose declared type actually mentions one of `fn`'s type parameters is
+ * used (a wholly concrete parameter has nothing to contribute and is left to the ordinary checking loop, which
+ * handles its own "needs an expected type" forms correctly once inference is done); of those, only an argument
+ * `expr_needs_expected_type` says can be checked without one is used. The variadic tail (if any) is tried both as
+ * a spread (a single argument whose own type is an array of the element type) and as individual element values,
+ * since which of the two a lone trailing argument means isn't decided until the element type is known -- exactly
+ * check_call's own "variadic_tail_is_array_spread" ambiguity, resolved the same way, from the argument's own static
+ * type. A type parameter no argument could bind is the same "requires explicit type arguments" situation as
+ * before, just with a more specific message naming which one. */
+static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, FunctionDecl *fn) {
+    int n_params = fn->type_params.count;
+    Type *bindings = calloc((size_t)n_params, sizeof(Type));
+    int *bound = calloc((size_t)n_params, sizeof(int));
+
+    int is_variadic = fn->params.count > 0 && fn->params.items[fn->params.count - 1].is_variadic;
+    int fixed_count = is_variadic ? fn->params.count - 1 : fn->params.count;
+    int given = e->as.call.args.count;
+    int n = given < fixed_count ? given : fixed_count;
+
+    for (int i = 0; i < n; i++) {
+        Type pattern = fn->params.items[i].type;
+        if (!type_mentions_any(pattern, &fn->type_params)) continue;
+        Expr *arg = e->as.call.args.items[i];
+        if (expr_needs_expected_type(arg)) continue;
+        Type actual = check_expr(module, env, arg);
+        unify_type(pattern, actual, &fn->type_params, bindings, bound, arg);
+    }
+    if (is_variadic && given > fixed_count) {
+        Type pattern = fn->params.items[fixed_count].type;
+        if (type_mentions_any(pattern, &fn->type_params)) {
+            int tail_count = given - fixed_count;
+            for (int i = fixed_count; i < given; i++) {
+                Expr *arg = e->as.call.args.items[i];
+                if (expr_needs_expected_type(arg)) continue;
+                Type actual = check_expr(module, env, arg);
+                if (tail_count != 1) {
+                    /* Several trailing arguments are always individual element values (`concat_arrays(a, b)`). */
+                    unify_type(pattern, actual, &fn->type_params, bindings, bound, arg);
+                } else if (type_fully_bound(pattern, &fn->type_params, bound)) {
+                    /* The element type is already known from an earlier parameter (`ab_append<T>(ab: ArrayBuilder<T>,
+                     * pieces: T...)` binds T from `ab`) -- so, unlike the guess below, there is nothing left to infer
+                     * from this argument at all. This is what makes `ab_append(out, [x, y])` push the one `[string]`
+                     * value `[x, y]` rather than spreading two `string`s into it: the ordinary argument check, run
+                     * once every type argument is known, applies call_function's own real spread-vs-individual test
+                     * against the now-fully-substituted element type and reports a mismatch if `actual` fits neither. */
+                } else if (actual.kind == TY_ARRAY) {
+                    /* Nothing bound the element type yet (`concat_arrays<T>(parts: [T]...)` has no other parameter):
+                     * a lone array-typed argument is read as the spread shape, same as before. */
+                    unify_type(pattern, *actual.elem, &fn->type_params, bindings, bound, arg);
+                } else {
+                    unify_type(pattern, actual, &fn->type_params, bindings, bound, arg);
+                }
+            }
+        }
+    }
+
+    TypeList out = {0};
+    for (int i = 0; i < n_params; i++) {
+        if (!bound[i]) {
+            ziman_error("type", e->line, e->col,
+                        "cannot infer type argument '%s' of '%s' from its arguments; write it explicitly, e.g. '%s<...>(...)'",
+                        fn->type_params.items[i].name, fn->name, fn->name);
+        }
+        type_list_push(&out, bindings[i]);
+    }
+    free(bindings);
+    free(bound);
+    return out;
+}
+
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
 
@@ -1504,15 +1716,15 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     }
     canonicalize_named_args(e, fn);
     TypeList *type_args = &e->as.call.type_args;
-    /* Explicit type arguments everywhere, no inference -- same rules as
-     * a generic struct literal or enum construction. */
+    /* A generic call with no type arguments written infers them from the checked arguments (C3); one written
+     * explicitly is used as given, unchanged from before. */
     if (fn->type_params.count == 0 && type_args->count > 0) {
         ziman_error("type", e->line, e->col, "'%s' is not generic, but was given %d type argument(s)", name, type_args->count);
     }
     if (fn->type_params.count > 0 && type_args->count == 0) {
-        ziman_error("type", e->line, e->col, "'%s' is generic and requires explicit type arguments, e.g. '%s<...>(...)'", name, name);
-    }
-    if (fn->type_params.count != type_args->count) {
+        e->as.call.type_args = infer_call_type_args(module, env, e, fn);
+        type_args = &e->as.call.type_args;
+    } else if (fn->type_params.count != type_args->count) {
         ziman_error("type", e->line, e->col, "'%s' takes %d type argument(s), found %d", name, fn->type_params.count, type_args->count);
     }
     for (int i = 0; i < type_args->count; i++) {

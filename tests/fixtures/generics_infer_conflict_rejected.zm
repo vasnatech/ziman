@@ -1,0 +1,7 @@
+fn combine<A, B>(a: A, b: A) -> A {
+    return a
+}
+
+fn main() {
+    print(combine(1, "x"))
+}

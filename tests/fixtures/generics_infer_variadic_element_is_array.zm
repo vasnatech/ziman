@@ -1,0 +1,12 @@
+fn main() {
+    val out = ab_new<[string]>()
+    ab_append(out, ["a", "b"])
+    ab_append(out, ["c"])
+    print(ab_to_array(out))
+
+    val letters = ab_new<string>()
+    ab_append(letters, "x", "y")
+    print(ab_to_array(letters))
+
+    print(concat_arrays([1, 2], [3, 4]))
+}

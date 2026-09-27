@@ -28,7 +28,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 
 - [x] **C1** Nested `?` by parser-level hoisting into temporaries (`ok(parse_int(s)? + 1)`), preserving evaluation order and short-circuit rules. (L P1-1, D; M). Decided with the "`?` is easy to miss" concern: the postfix `?` stays statement-level; the new prefix `try expr` nests (parser hoists it and what runs before it into `val $tN` temporaries, order of effects kept). Fixtures `try_prefix_*`. Afterwards the postfix `?` was removed altogether: `try` is the only spelling (about 570 uses migrated).
 - [x] **C2** Error conversion in `?` without traits, for example `expr? as ServiceError.Storage`, or a `map_err`; removes the 76 or 158 hand-written wrapping blocks in the backend. (L P1-2, D item 9; M). Done as `#[from]` on an enum variant (`try` converts the error); the backend marks `Storage(DbError)` and `Validation(ValidationError)` and drops about 160 wrapping blocks. `map_err` and constructors as function values remain (E2). Fixtures `error_from_*`.
-- [ ] **C3** Infer generic type arguments from arguments (591 explicit generic calls in the backend). (L P1-3; M-L)
+- [x] **C3** Infer generic type arguments from arguments (591 explicit generic calls in the backend). (L P1-3; M-L). Part 1 done: infer from plain arguments and named function references (`identity(5)`); part 2 (an unannotated lambda argument) still to do.
 - [ ] **C4** Bare `Some(x)` and `None` where the expected type is known. (L P1-4; S-M)
 - [ ] **C5** `==` and `contains` on arrays of any `Eq` element type, and `==` on `Json`. (L P1-5; S)
 - [ ] **C6** Must-use `Result` statements (type error or lint error). (L P1-8; S)

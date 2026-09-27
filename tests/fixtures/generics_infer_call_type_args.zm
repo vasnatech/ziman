@@ -1,0 +1,51 @@
+struct Box<T> {
+    value: T
+}
+
+fn identity<T>(x: T) -> T {
+    return x
+}
+
+fn first<T>(items: [T]) -> T {
+    return items[0]
+}
+
+fn unwrap_or<T>(o: Option<T>, default: T) -> T {
+    return switch o {
+        Some(x) { x }
+        None { default }
+    }
+}
+
+fn pair_first<A, B>(a: A, b: B) -> A {
+    return a
+}
+
+fn box_value<T>(b: Box<T>) -> T {
+    return b.value
+}
+
+fn apply<A, B>(x: A, f: fn(A) -> B) -> B {
+    return f(x)
+}
+
+fn double(n: int) -> int {
+    return n * 2
+}
+
+fn variadic_sum<T>(items: T...) -> int {
+    return len(items)
+}
+
+fn main() {
+    print(identity(5))
+    print(identity("hi"))
+    print(first([1, 2, 3]))
+    print(unwrap_or(Option<int>.Some(9), 0))
+    print(pair_first(1, "x"))
+    print(box_value(Box<int> { value: 7 }))
+    print(apply(5, double))
+    print(variadic_sum(1, 2, 3))
+    print(variadic_sum([1, 2, 3]))
+    print(identity<int>(9))
+}

@@ -1,0 +1,7 @@
+fn make<T>() -> [T] {
+    return []
+}
+
+fn main() {
+    print(make())
+}

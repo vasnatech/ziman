@@ -1,0 +1,1 @@
+cannot infer type argument 'A': one argument requires int, another requires string

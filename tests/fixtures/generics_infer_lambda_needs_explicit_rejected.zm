@@ -1,0 +1,7 @@
+fn apply<A, B>(x: A, f: fn(A) -> B) -> B {
+    return f(x)
+}
+
+fn main() {
+    print(apply(5, fn(n) { return n * 2 }))
+}

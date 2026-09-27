@@ -1,0 +1,18 @@
+fn largest<T: Ord>(items: [T]) -> T {
+    var best = items[0]
+    for x in items {
+        if compare(x, best) > 0 {
+            best = x
+        }
+    }
+    return best
+}
+
+struct Bad {
+    x: int
+}
+
+fn main() {
+    print(largest([3, 1, 2]))
+    print(largest([Bad { x: 1 }]))
+}
