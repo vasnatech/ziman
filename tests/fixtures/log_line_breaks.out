@@ -1,0 +1,5 @@
+WARN  LOGIN_FAIL email=x\nINFO  LOGIN_OK email=ceo@victim.com
+WARN  LOGIN_FAIL email=y\r\nINFO  LOGIN_OK
+INFO  plain message
+
+4

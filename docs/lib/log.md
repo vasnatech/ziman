@@ -141,7 +141,8 @@ pub fn write(l: Logger, level: Level, message: string)
 ```
 
 Writes `message` at `level` if the logger's level allows it: a line of the form
-`<timestamp> <LEVEL> <prefix><message>`. To stderr, or appended to the logger's file (falling back
+`<timestamp> <LEVEL> <prefix><message>`. Line breaks in `message` are written as `\n` and `\r`, so
+one call is always one line. To stderr, or appended to the logger's file (falling back
 to stderr if the file cannot be written, and also written to stderr when the logger is a `console` one).
 
 ### `debug`

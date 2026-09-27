@@ -93,8 +93,15 @@ pub fn enabled(l: Logger, level: Level) -> bool {
     return level_rank(level) >= level_rank(l.level)
 }
 
+// `message` with each line break written as the two characters `\n` or `\r`, so text that came from a
+// user (an email address in a failed login) cannot end the log line and start a forged one.
+fn single_line(message: string) -> string {
+    return replace(replace(message, "\n", "\\n"), "\r", "\\r")
+}
+
 // Writes `message` at `level` if the logger's level allows it: a line of the form
-// `<timestamp> <LEVEL> <prefix><message>`. To stderr, or appended to the logger's file (falling back
+// `<timestamp> <LEVEL> <prefix><message>`. Line breaks in `message` are written as `\n` and `\r`, so
+// one call is always one line. To stderr, or appended to the logger's file (falling back
 // to stderr if the file cannot be written, and also written to stderr when the logger is a `console` one).
 pub fn write(l: Logger, level: Level, message: string) {
     if !enabled(l, level) {
@@ -104,7 +111,7 @@ pub fn write(l: Logger, level: Level, message: string) {
     if l.timestamps {
         line = format("{} ", now_iso())
     }
-    line = format("{}{} {}{}\n", line, level_name(level), l.prefix, message)
+    line = format("{}{} {}{}\n", line, level_name(level), l.prefix, single_line(message))
     switch l.file {
         Some(path) {
             val r = fs.append_text(path, line)
