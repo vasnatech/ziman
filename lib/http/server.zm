@@ -1161,6 +1161,22 @@ pub struct ServeOptions {
     log_requests: bool
 }
 
+// What a connection's thread does when a runtime error in the handler (or anywhere in the thread) ends it: the error goes to stderr, and the client is answered
+// `500` with a generic body, as best it can be (the connection may be half way through a response) -- nothing about the error reaches the client. The thread's
+// own deferred calls (giving its slot back, closing the socket) run after this, and the server goes on serving everyone else.
+fn fail_connection(sock: Socket, message: string) {
+    os.write_stderr(format(
+        "ziman: {}\nziman: a request handler failed; the client is answered 500 and the server goes on\n",
+        message
+    ))
+    val body = "{\"status\":500,\"message\":\"An unexpected error occurred\"}"
+    val head = format(
+        "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        len(body)
+    )
+    net.write_text(sock, concat(head, body))
+}
+
 fn serve_connection(
     sock: Socket,
     handler: fn(Request) -> Response,
@@ -1213,7 +1229,12 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
         val client = net.accept(listener)
         if is_ok(client) {
             val slot = receive(slots)  // waits here while every slot is in use
-            spawn serve_connection(unwrap(client), handler, options.idle_timeout_ms, options.log_requests, slots)
+            val accepted = unwrap(client)
+            spawn serve_connection(accepted, handler, options.idle_timeout_ms, options.log_requests, slots) on_error fn(
+                message: string
+            ) {
+                fail_connection(accepted, message)
+            }
         } else if !os.shutdown_requested() {
             clock.sleep_millis(accept_error_backoff_ms)  // an accept error must not become a busy loop
         }

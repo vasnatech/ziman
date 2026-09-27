@@ -3142,6 +3142,18 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                                 i + 1, callee, type_name(expected), type_name(arg_type));
                 }
             }
+            if (s->as.spawn_stmt.on_error != NULL) {
+                /* the handler: a function of one string (the error message), returning nothing */
+                TypeList handler_params = {0};
+                type_list_push(&handler_params, type_scalar(TY_STRING));
+                Type handler_type = type_func(handler_params, type_scalar(TY_VOID));
+                Type given = check_expr_expecting(module, env, &s->as.spawn_stmt.on_error, handler_type);
+                if (!type_equals(given, handler_type)) {
+                    ziman_error("type", s->as.spawn_stmt.on_error->line, s->as.spawn_stmt.on_error->col,
+                                "the 'on_error' handler of spawn must be fn(string) (it is called with the message of the error that ended the thread), found %s",
+                                type_name(given));
+                }
+            }
             break;
         }
         case STMT_RETURN: {

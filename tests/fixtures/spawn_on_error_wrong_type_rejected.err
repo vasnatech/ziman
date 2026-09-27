@@ -1,0 +1,1 @@
+the 'on_error' handler of spawn must be fn(string)

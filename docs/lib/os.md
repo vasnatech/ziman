@@ -121,6 +121,15 @@ Leaves the process with status `code` (0 = success), flushing stdout and stderr 
 is how a program reports a fatal setup error with a non-zero status instead of crashing on an
 `unwrap`. It ends the whole process, not one thread.
 
+### `fatal`
+
+```
+pub fn fatal(message: string)
+```
+
+A handler for `spawn f(x) on_error os.fatal`: writes the message of the runtime error that ended the thread to stderr and ends the whole
+program with status 1, as an error in the main thread does. (Without an `on_error` clause only the failed thread ends.)
+
 ### `write_stderr`
 
 ```

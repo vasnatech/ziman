@@ -1,0 +1,18 @@
+fn boom(id: int, out: Channel<int>) {
+    val a: [int] = []
+    defer send(out, 100 + id)
+    print(a[id])
+}
+
+fn fine(id: int, out: Channel<int>) {
+    send(out, id)
+}
+
+fn main() {
+    val out: Channel<int> = channel_new()
+    spawn boom(1, out)
+    print(receive(out))
+    spawn fine(7, out)
+    print(receive(out))
+    print("main goes on")
+}

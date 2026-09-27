@@ -1,0 +1,7 @@
+fn work() {
+    print(1)
+}
+
+fn main() {
+    spawn work() on_error 3
+}

@@ -10,6 +10,19 @@
  */
 void ziman_error(const char *phase, int line, int col, const char *fmt, ...);
 
+/* --- a runtime error that ends one thread, not the program ---------------------
+ * A `spawn`ed thread arms a boundary before it runs: while one is armed on the calling thread, a *runtime* error is not printed and does not exit -- it is stored as
+ * text in `message` ("runtime error at 3:5: index 1 out of bounds ...") and the thread jumps to `jb`, where the caller decides what to do (call an `on_error`
+ * handler, print it, run the thread's deferred calls). The boundary is disarmed by the jump, so an error while handling it is fatal unless the handler arms
+ * another. `setjmp(b.jb) == 0` is the normal path; `ziman_thread_boundary_leave()` must be called on a normal finish. Errors of other phases, and errors on a
+ * thread with no boundary (the main one), behave as before. */
+typedef struct ThreadBoundary {
+    jmp_buf jb;
+    char *message;
+} ThreadBoundary;
+void ziman_thread_boundary_enter(ThreadBoundary *b);
+void ziman_thread_boundary_leave(void);
+
 /* --- reporting several errors in one run -------------------------------------
  * While a recovery point is active (the parser between declarations, the type
  * checker around each statement and function), ziman_error prints the

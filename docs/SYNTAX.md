@@ -2966,6 +2966,25 @@ fn main() {
   observed except through a `Channel` it's explicitly given — `spawn` is
   a statement, not an expression, and requiring `void` makes that
   discipline a compile-time rule instead of a convention.
+- **A runtime error in a spawned thread ends that thread, not the program.**
+  The error is written to stderr (`ziman: runtime error at 5:12: index 3 out of
+  bounds ...`, then a line naming the `spawn` that started the thread), the
+  thread's pending `defer`red calls run (innermost first, so what it opened is
+  closed and what it held is given back), and everything else goes on. An
+  error in the main thread still ends the program with status 1. To do
+  something else, add an `on_error` clause: `spawn worker(x) on_error
+  handler`, where `handler` is a `fn(string)` (a function or a lambda)
+  called in the failed thread with the error's text. The handler runs first,
+  while the thread's resources are still open, then the deferred calls;
+  an error in the handler is reported and does not stop the cleanup. `on_error
+  os.fatal` makes a failure in that thread end the whole program, with status 1,
+  as one in the main thread does. `server.serve` uses this for every
+  connection: a handler that crashes is answered `500` with a generic body, its
+  slot and socket are released, and the next request is served. What the jump
+  out of the failed thread does not do: it does not run anything but the
+  `defer`s (no other cleanup), and a lock a native was holding at the moment of
+  the error stays held (none of the library's natives raise errors while
+  holding one).
 - **Sharing a `Value` across threads needs no locking of its own.**
   Nothing in the interpreter ever frees an `ArrayObj`/`StructObj`/
   `EnumObj`/`ResultObj` (see docs/DESIGN.md), and nothing mutates one

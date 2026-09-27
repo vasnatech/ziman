@@ -1,0 +1,13 @@
+use os
+
+fn boom(out: Channel<int>) {
+    val a: [int] = []
+    print(a[3])
+}
+
+fn main() {
+    val out: Channel<int> = channel_new()
+    spawn boom(out) on_error os.fatal
+    val never = receive(out)
+    print("not reached")
+}

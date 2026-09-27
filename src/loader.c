@@ -490,6 +490,7 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
             }
             for (int i = 0; i < s->as.spawn_stmt.type_args.count; i++) self_qualify_type(&s->as.spawn_stmt.type_args.items[i], ctx);
             for (int i = 0; i < s->as.spawn_stmt.args.count; i++) self_qualify_expr(s->as.spawn_stmt.args.items[i], ctx);
+            if (s->as.spawn_stmt.on_error != NULL) self_qualify_expr(s->as.spawn_stmt.on_error, ctx);
             break;
         case STMT_RETURN:
             if (s->as.ret.value != NULL) self_qualify_expr(s->as.ret.value, ctx);
@@ -1095,6 +1096,7 @@ static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx) {
             }
             for (int i = 0; i < s->as.spawn_stmt.type_args.count; i++) resolve_type_refs(&s->as.spawn_stmt.type_args.items[i], ctx, s->line, s->col);
             for (int i = 0; i < s->as.spawn_stmt.args.count; i++) resolve_expr_refs(s->as.spawn_stmt.args.items[i], ctx);
+            if (s->as.spawn_stmt.on_error != NULL) resolve_expr_refs(s->as.spawn_stmt.on_error, ctx);
             break;
         case STMT_RETURN:
             if (s->as.ret.value != NULL) resolve_expr_refs(s->as.ret.value, ctx);

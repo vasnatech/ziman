@@ -1,0 +1,5 @@
+caught: runtime error at 5:12: index 3 out of bounds (array length 0)
+cleanup ran
+caught, stack error: true
+cleanup ran
+main still fine

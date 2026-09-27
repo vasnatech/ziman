@@ -3682,3 +3682,13 @@ The stack sizes are decided at run time (`stack.h`): the main interpreter thread
 the memory the process may use, split by the threads it plans for, with options to override. The 768 MB cap is the garbage collector's: Boehm aborted once a thread's stack
 was near 1 GB. Deeper causes are not investigated (a `GC_allocobj` failure with a huge reserved stack); the cap keeps every accepted configuration on the working side.
 Not done: a fatal error in a spawned thread still ends the whole process (task A2).
+
+## A runtime error ends the thread it happened in (2026-09)
+
+`ziman_error` used to exit the process, so one bad request in a thread-per-connection server was an outage. A spawned thread now arms a `ThreadBoundary` (error.h) before it
+runs: a *runtime* error on that thread is not printed and does not exit, it is stored as text and the thread `longjmp`s back to its entry, where `thread_failed` (interpreter.c)
+calls the optional `on_error` handler -- a `fn(string)` value, chosen per spawn: `spawn f(x) on_error handler` -- or, with none, writes the error to stderr; then runs the
+deferred calls the thread had pending. The jump skips the block exits that would have run them, so scopes are put on a thread-local list at their first `defer` and removed when
+their calls have run normally. The handler runs before the deferred calls, while the thread's resources are still open (the server writes the 500 to a socket its own `defer`
+has not closed yet). Errors of other phases, and errors on the main thread, are unchanged. `os.fatal` is the handler that keeps the old behaviour for a thread.
+Not done: nothing catches a *native* crash (a segfault); and an error while a native holds a lock would leave it held (none does).

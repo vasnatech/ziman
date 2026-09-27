@@ -367,7 +367,9 @@ struct Stmt {
          * function value -- see docs/SYNTAX.md "Concurrency". */
         /* `type_args` is non-empty for `spawn f<T>(args)` -- spawning a generic
          * function, with its type arguments written out like any generic call. */
-        struct { char *callee; ExprList args; TypeList type_args; } spawn_stmt;
+        /* `on_error` is the optional `on_error <handler>` clause: a `fn(string)` called, in the thread that failed, with the message of the runtime error that
+         * ended it (NULL: the error is written to stderr and only that thread ends). */
+        struct { char *callee; ExprList args; TypeList type_args; Expr *on_error; } spawn_stmt;
         struct { Expr *expr; } expr_stmt;
         /* `defer f(args)` -- runs the call when the enclosing *block* exits,
          * by any path (falling off the end, return, `?`, break, continue),

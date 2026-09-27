@@ -1,0 +1,13 @@
+// Without on_error, a runtime error in a spawned thread is written to stderr, that thread ends, and the program goes on.
+fn boom(out: Channel<int>) {
+    val a: [int] = []
+    defer send(out, 100)
+    print(a[1])
+}
+
+fn main() {
+    val out: Channel<int> = channel_new()
+    spawn boom(out)
+    print(receive(out))
+    print("main goes on")
+}

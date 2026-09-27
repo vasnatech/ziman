@@ -89,6 +89,15 @@ static void print_json_string(FILE *out, const char *s) {
     fputc('"', out);
 }
 
+static __thread ThreadBoundary *t_boundary = NULL;
+
+void ziman_thread_boundary_enter(ThreadBoundary *b) {
+    b->message = NULL;
+    t_boundary = b;
+}
+
+void ziman_thread_boundary_leave(void) { t_boundary = NULL; }
+
 void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
     va_list args, copy;
     va_start(args, fmt);
@@ -99,6 +108,17 @@ void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
     vsnprintf(message, (size_t)(n > 0 ? n : 0) + 1, fmt, args);
     va_end(args);
 
+    if (t_boundary != NULL && g_sink == NULL && strcmp(phase, "runtime") == 0) {
+        ThreadBoundary *b = t_boundary;
+        t_boundary = NULL;
+        int in_other_file = g_error_file != NULL && (g_entry_file == NULL || strcmp(g_error_file, g_entry_file) != 0);
+        size_t room = strlen(message) + (g_error_file != NULL ? strlen(g_error_file) : 0) + 96;
+        char *text = malloc(room);
+        snprintf(text, room, "runtime error at %d:%d%s%s: %s", line, col, in_other_file ? " in " : "", in_other_file ? g_error_file : "", message);
+        free(message);
+        b->message = text;
+        longjmp(b->jb, 1);
+    }
     if (g_sink != NULL) {
         g_sink(phase, g_error_file, line, col, g_error_context, message);
         g_error_count++;

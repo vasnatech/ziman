@@ -1,0 +1,40 @@
+// `spawn f(x) on_error handler`: the handler gets the message of the runtime error that ended the thread; then the thread's deferred calls run.
+fn boom(out: Channel<string>) {
+    defer send(out, "cleanup ran")
+    val a: [int] = []
+    print(a[3])
+}
+
+fn deep(n: int) -> int {
+    return 1 + deep(n + 1)
+}
+
+fn recurse(out: Channel<string>) {
+    print(deep(0))
+}
+
+fn report(out: Channel<string>, message: string) {
+    send(out, format("reported: {}", message))
+}
+
+fn main() {
+    val out: Channel<string> = channel_new()
+    spawn boom(out) on_error fn(message: string) { send(out, format("caught: {}", message)) }
+    print(receive(out))
+    print(receive(out))
+    spawn recurse(out) on_error fn(message: string) { send(
+        out,
+        format(
+            "caught, stack error: {}",
+            starts_with(message, "runtime error at 0:0: stack depth exceeded: this spawned thread")
+        )
+    ) }
+    print(receive(out))
+    // the handler itself fails: reported on stderr, the thread ends, the program goes on
+    spawn boom(out) on_error fn(message: string) {
+        val a: [int] = []
+        print(a[9])
+    }
+    print(receive(out))
+    print("main still fine")
+}

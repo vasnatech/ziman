@@ -37,6 +37,7 @@ typedef struct Env {
     struct Expr **defers;
     int defer_count;
     int defer_capacity;
+    int defers_tracked; /* interpreter: this scope is on the thread's list of scopes with pending defers (see interpreter.c, thread errors) */
     /* Type checker only. A lambda's own root scope is a boundary: a name that
      * env_lookup finds *beyond* it, in an enclosing function's scopes, is
      * recorded in `caps` (once) -- that is how the checker learns what the body

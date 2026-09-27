@@ -137,11 +137,39 @@ static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, in
  * through it, and nothing else needs to know defer exists. A deferred
  * call's result is discarded. A fatal runtime error exits the process
  * instead of unwinding, so it never gets here (documented shortcoming). */
+/* The scopes of this thread that have deferred calls pending, innermost last. A runtime error that ends a spawned thread unwinds the C stack with a jump, which
+ * skips the block exits that would have run those calls -- so the thread's boundary runs them from this list (see thread_failed). A scope is on the list from its first
+ * `defer` until its calls have run. */
+static __thread Env **t_defer_envs = NULL;
+static __thread int t_defer_env_count = 0;
+static __thread int t_defer_env_capacity = 0;
+
+static void defer_env_track(Env *env) {
+    if (t_defer_env_count == t_defer_env_capacity) {
+        t_defer_env_capacity = t_defer_env_capacity == 0 ? 8 : t_defer_env_capacity * 2;
+        t_defer_envs = realloc(t_defer_envs, sizeof(Env *) * (size_t)t_defer_env_capacity);
+    }
+    t_defer_envs[t_defer_env_count++] = env;
+    env->defers_tracked = 1;
+}
+
+static void defer_env_untrack(Env *env) {
+    for (int i = t_defer_env_count - 1; i >= 0; i--) {
+        if (t_defer_envs[i] == env) {
+            memmove(t_defer_envs + i, t_defer_envs + i + 1, sizeof(Env *) * (size_t)(t_defer_env_count - i - 1));
+            t_defer_env_count--;
+            break;
+        }
+    }
+    env->defers_tracked = 0;
+}
+
 static void run_defers(Module *module, Env *env) {
     while (env->defer_count > 0) {
         Expr *call = env->defers[--env->defer_count];
         eval_expr(module, env, call);
     }
+    if (env->defers_tracked) defer_env_untrack(env);
 }
 
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
@@ -178,17 +206,72 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
  * `args`, which is freed before the call even returns -- see EXPR_CALL
  * below) and is owned by the new thread from here on, freed once that
  * thread is done with it. */
-typedef struct {
+typedef struct SpawnArgs {
     Module *module;
     FunctionDecl *fn;
     Value *args;
     int argc;
     int line, col;
+    Value handler; /* the `on_error` function value, when has_handler */
+    int has_handler;
 } SpawnArgs;
+
+/* A function value (a named function or a lambda with what it captured) called from C with `args`. */
+static Value call_closure_value(Module *module, Value closure, Value *args, int argc) {
+    ClosureObj *clo = closure.as.clo;
+    if (clo->ncaptured == 0) return call_function(module, clo->fn, args, argc, 0, 0, 0);
+    Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
+    memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
+    memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
+    Value result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, 0, 0);
+    free(all);
+    return result;
+}
+
+/* What a spawned thread does when a runtime error ends it (the C stack has been unwound to the thread's entry): the `on_error` handler gets the message, or, with none,
+ * the message goes to stderr; then the deferred calls the thread had pending run (innermost first), so what it opened is closed and what it held is given back. An error
+ * in the handler or in a deferred call is reported and does not stop the rest. The program goes on. */
+static void thread_failed(struct SpawnArgs *sa, const char *message) {
+    if (sa->has_handler) {
+        ThreadBoundary inner;
+        ziman_thread_boundary_enter(&inner);
+        if (setjmp(inner.jb) == 0) {
+            Value arg = value_string(strdup(message));
+            call_closure_value(sa->module, sa->handler, &arg, 1);
+            ziman_thread_boundary_leave();
+        } else {
+            fprintf(stderr, "ziman: the on_error handler failed: %s\n", inner.message);
+        }
+    } else {
+        fprintf(stderr, "ziman: %s\nziman: the thread started by 'spawn %s' at %d:%d ended; the program goes on\n", message, sa->fn->name, sa->line, sa->col);
+    }
+    while (t_defer_env_count > 0) {
+        Env *env = t_defer_envs[--t_defer_env_count];
+        env->defers_tracked = 0;
+        while (env->defer_count > 0) {
+            Expr *call = env->defers[--env->defer_count];
+            ThreadBoundary inner;
+            ziman_thread_boundary_enter(&inner);
+            if (setjmp(inner.jb) == 0) {
+                eval_expr(sa->module, env, call);
+                ziman_thread_boundary_leave();
+            } else {
+                fprintf(stderr, "ziman: an error in a deferred call was ignored: %s\n", inner.message);
+            }
+        }
+    }
+}
 
 static void *spawn_thread_entry(void *raw) {
     SpawnArgs *sa = (SpawnArgs *)raw;
-    call_function(sa->module, sa->fn, sa->args, sa->argc, 0, sa->line, sa->col);
+    ThreadBoundary boundary;
+    ziman_thread_boundary_enter(&boundary);
+    if (setjmp(boundary.jb) == 0) {
+        call_function(sa->module, sa->fn, sa->args, sa->argc, 0, sa->line, sa->col);
+        ziman_thread_boundary_leave();
+    } else {
+        thread_failed(sa, boundary.message);
+    }
     free(sa->args);
     free(sa);
     return NULL;
@@ -1362,6 +1445,8 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             sa->argc = argc;
             sa->line = s->line;
             sa->col = s->col;
+            sa->has_handler = s->as.spawn_stmt.on_error != NULL;
+            if (sa->has_handler) sa->handler = eval_expr(module, env, s->as.spawn_stmt.on_error);
             if (ziman_spawn_thread(spawn_thread_entry, sa) != 0) {
                 ziman_error("runtime", s->line, s->col, "cannot start a thread (%s)", strerror(errno));
             }
@@ -1401,6 +1486,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 env->defers = realloc(env->defers, sizeof(Expr *) * (size_t)env->defer_capacity);
             }
             env->defers[env->defer_count++] = s->as.defer_stmt.replay;
+            if (!env->defers_tracked) defer_env_track(env);
             return no_ctrl();
         }
         case STMT_BLOCK:

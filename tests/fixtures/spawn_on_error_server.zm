@@ -1,0 +1,47 @@
+use http
+use net
+use server
+
+// A request handler that crashes (an index out of bounds) is answered 500; the server, and the next request, are unaffected.
+
+fn handle(req: http.Request) -> http.Response {
+    if req.path == "/boom" {
+        val none: [int] = []
+        return server.text_response(200, str(none[1]))
+    }
+    return server.text_response(200, "fine")
+}
+
+fn run_server(listener: net.Listener) {
+    val options = server.ServeOptions { idle_timeout_ms: 2000, max_connections: 2, log_requests: false }
+    server.serve(listener, handle, options)
+}
+
+fn ask(port: int, path: string) -> string {
+    val sock = unwrap(net.connect("127.0.0.1", port))
+    net.write_text(sock, format("GET {} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", path))
+    val out = sb_new()
+    var more = true
+    while more {
+        val chunk = net.read_text(sock, 4096)
+        if is_ok(chunk) && len(unwrap(chunk)) > 0 {
+            sb_append(out, unwrap(chunk))
+        } else {
+            more = false
+        }
+    }
+    net.close(sock)
+    val text = sb_to_string(out)
+    return substring(text, 0, index_of(text, "\r\n", 0))
+}
+
+fn main() {
+    val listener = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(listener)
+    spawn run_server(listener)
+    print(ask(port, "/ok"))
+    print(ask(port, "/boom"))
+    print(ask(port, "/boom"))
+    print(ask(port, "/boom"))
+    print(ask(port, "/ok"))
+}

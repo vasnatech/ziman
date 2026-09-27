@@ -665,6 +665,8 @@ pub native fn open_descriptors() -> int
 
 pub native fn exit(code: int)
 
+pub fn fatal(message: string)
+
 pub native fn write_stderr(text: string)
 
 pub native fn install_shutdown_handler()
