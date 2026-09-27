@@ -2385,7 +2385,8 @@ fn main() {
   by where the input comes from -- `handler` (none, `run(ctx)`), `path_handler` (the path: `path` turns the captured
   `Params` into a `P`, an `Err` message being a 400, and `run(ctx, input)` gets it), `body_handler` (a request body:
   `decoders:`, `run(ctx, input)`) or `path_body_handler` (both, for a `PUT /things/{id}`: `run(ctx, path_input,
-  body_input)`) -- and by who may call, `public_` or `secure_`. Every builder also takes `encoders:`,
+  body_input)`) -- and by who may call, `public_` or `secure_`. (`secure_query_handler` is the one builder with the input in the query string: `query` reads the
+  request, `query_param` being the tool, and an `Err` message is a 400; `run(ctx, caller, input)`.) Every builder also takes `encoders:`,
   `status:`, `run:`, `failure:` and `fault:`. A `secure_` builder takes `who:`, a `fn(C, Request) -> Result<U, Denied>`
   that identifies the caller from the request, and passes the `U` to `run` as its second argument
   (`fn(ctx, caller, input)`), so an endpoint that needs a caller cannot be written without saying how to find one; a

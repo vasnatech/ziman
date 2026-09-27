@@ -412,6 +412,24 @@ pub fn secure_path_handler<C, U, P, O, E>(
 A secured endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
 answered 400, so a bad id never reaches `run`), and `run(ctx, caller, input)` returns the answer or an error.
 
+### `secure_query_handler`
+
+```
+pub fn secure_query_handler<C, U, Q, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    query: fn(Request) -> Result<Q, string>,
+    encoders: [Encoder<O>],
+    status: int,
+    run: fn(C, U, Q) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response
+```
+
+A secured endpoint whose input is in the query string (`GET /things?type=x`): `query` reads what it wants from the request, for
+which `query_param` is the tool, and turns it into a `Q` (an `Err` message is answered 400, so a bad value never reaches `run`);
+`run(ctx, caller, input)` returns the answer or an error.
+
 ### `secure_body_handler`
 
 ```

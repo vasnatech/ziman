@@ -1,0 +1,6 @@
+/things -> 200 ada lists everything
+/things?kind=a -> 200 ada lists kind a
+/things?kind=b&x=1 -> 200 ada lists kind b
+/things?kind=c -> 400 fault 400: kind must be a or b, not c
+/things?other=1 -> 200 ada lists everything
+no token -> 401 fault 401: missing token

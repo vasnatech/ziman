@@ -1,0 +1,84 @@
+use http
+use mime
+use server
+
+struct Ctx {
+    tag: string
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, format("fault {}: {}", status, message))
+}
+
+fn failure(e: string) -> http.Response {
+    return server.text_response(422, format("failure: {}", e))
+}
+
+fn caller(ctx: Ctx, req: http.Request) -> Result<string, server.Denied> {
+    if Some(header) = http.header(req, "Authorization") {
+        return header
+    }
+    return server.Denied.Unauthenticated("missing token")
+}
+
+// `?kind=` is optional but must be a word from a short list when it is there.
+fn read_kind(req: http.Request) -> Result<Option<string>, string> {
+    if Some(kind) = server.query_param(req, "kind") {
+        if kind != "a" && kind != "b" {
+            return err(format("kind must be a or b, not {}", kind))
+        }
+        return Option<string>.Some(kind)
+    }
+    return Option<string>.None
+}
+
+fn list(ctx: Ctx, who: string, kind: Option<string>) -> Result<string, string> {
+    if Some(k) = kind {
+        return ok(format("{} lists kind {}", who, k))
+    }
+    return ok(format("{} lists everything", who))
+}
+
+fn show(text: string) -> string {
+    return text
+}
+
+fn request(target: string, headers: [http.Header]) -> http.Request {
+    val parts = split(target, "?")
+    return http.Request {
+        method: http.HttpMethod.Get,
+        target: target,
+        path: parts[0],
+        query: if len(parts) > 1 { parts[1] } else { "" },
+        version: "HTTP/1.1",
+        headers: headers,
+        body: []
+    }
+}
+
+fn main() {
+    val out = server.text_encoder<string>(mime.text_plain(), show)
+    val endpoints = [
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Get,
+            pattern: "/things",
+            handler: server.secure_query_handler<Ctx, string, Option<string>, string, string>(
+                who: caller,
+                query: read_kind,
+                encoders: [out],
+                status: 200,
+                run: list,
+                failure: failure,
+                fault: fault
+            )
+        }
+    ]
+    val ctx = Ctx { tag: "t" }
+    val auth = [http.Header { name: "Authorization", value: "ada" }]
+    for target in ["/things", "/things?kind=a", "/things?kind=b&x=1", "/things?kind=c", "/things?other=1"] {
+        val r = server.dispatch<Ctx>(endpoints, ctx, request(target, auth), fault)
+        print(format("{} -> {} {}", target, r.status, unwrap(bytes_to_string(r.body))))
+    }
+    val r = server.dispatch<Ctx>(endpoints, ctx, request("/things", []), fault)
+    print(format("no token -> {} {}", r.status, unwrap(bytes_to_string(r.body))))
+}

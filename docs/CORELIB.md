@@ -1376,6 +1376,8 @@ pub fn secure_handler<C, U, O, E>(
 
 pub fn secure_path_handler<C, U, P, O, E>(
 
+pub fn secure_query_handler<C, U, Q, O, E>(
+
 pub fn secure_body_handler<C, U, I, O, E>(
 
 pub fn secure_path_body_handler<C, U, P, I, O, E>(

@@ -910,6 +910,39 @@ pub fn secure_path_handler<C, U, P, O, E>(
     }
 }
 
+// A secured endpoint whose input is in the query string (`GET /things?type=x`): `query` reads what it wants from the request, for
+// which `query_param` is the tool, and turns it into a `Q` (an `Err` message is answered 400, so a bad value never reaches `run`);
+// `run(ctx, caller, input)` returns the answer or an error.
+pub fn secure_query_handler<C, U, Q, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    query: fn(Request) -> Result<Q, string>,
+    encoders: [Encoder<O>],
+    status: int,
+    run: fn(C, U, Q) -> Result<O, E>,
+    failure: fn(E) -> Response,
+    fault: fn(int, string) -> Response
+) -> fn(C, Request, Params) -> Response {
+    return fn(ctx: C, req: Request, params: Params) -> Response {
+        val identify = who
+        val caller = identify(ctx, req)
+        if Err(refusal) = caller {
+            return denied_response(refusal, fault)
+        }
+        val encoder = negotiate<O>(encoders, req)
+        if len(encoders) > 0 && !is_Some(encoder) {
+            return fault(
+                status_not_acceptable,
+                format("not acceptable: this route produces {}", produced_types<O>(encoders))
+            )
+        }
+        val read = query
+        return switch read(req) {
+            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), encoder, status, failure) }
+            Err(message) { fault(status_bad_request, message) }
+        }
+    }
+}
+
 // A secured endpoint with a request body: it must arrive as one of `decoders`' media types (else 415), the answer is
 // negotiated (else 406), the body is decoded with the decoder for its type (a failure is 400), and
 // `run(ctx, caller, input)` returns the answer or an error.
