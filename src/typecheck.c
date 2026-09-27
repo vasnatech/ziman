@@ -2049,6 +2049,12 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
                     t = ft;
                     break;
                 }
+                if (strcmp(e->as.ident_name, "unit") == 0) {
+                    /* the value of the type `unit`, where no variable of that name is in scope */
+                    e->kind = EXPR_UNIT;
+                    t = type_scalar(TY_UNIT);
+                    break;
+                }
                 for (size_t k = 0; k < sizeof BUILTINS_NO_NAMED_ARGS / sizeof BUILTINS_NO_NAMED_ARGS[0] && BUILTINS_NO_NAMED_ARGS[k] != NULL; k++) {
                     if (strcmp(e->as.ident_name, BUILTINS_NO_NAMED_ARGS[k]) == 0) {
                         ziman_error("type", e->line, e->col,

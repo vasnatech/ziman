@@ -1,0 +1,21 @@
+struct Reading {
+    value: int
+    unit: string
+}
+
+fn describe(unit: string) -> string {
+    return unit
+}
+
+fn nothing() -> unit {
+    return unit
+}
+
+fn main() {
+    val r = Reading { value: 3, unit: "kg" }
+    print(r.unit)
+    val unit = "m"
+    print(unit)
+    print(describe(unit: "cm"))
+    print(nothing() == nothing())
+}

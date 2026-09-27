@@ -206,7 +206,8 @@ through a local name -- see "Function values"; `make()(x)` isn't valid), no inde
   `unit`. A function declared with *no* return type still has no value,
   so `val x = f()` on one is an error: write `-> unit` when the caller
   may want one. `unit` is `==`-comparable, hashable and prints as `unit`;
-  it is reserved, like `int`.
+  it is a word, not a reserved keyword: it is the type wherever a type is written, and the value wherever no variable, parameter or
+  field of that name is in scope, so a JSON field called `unit` is fine.
 - `[T]` — a growable, homogeneous, indexed array of `T`; nests freely
   (`[[int]]` is an array of arrays of `int`). Value semantics, like every
   other type in Ziman: assigning or passing an array always yields an

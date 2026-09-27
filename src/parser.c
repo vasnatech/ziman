@@ -114,11 +114,12 @@ static int next_looks_like_generic_call(Parser *p) {
     Token *after_lt = &p->tokens.items[p->pos + 1];
     switch (after_lt->type) {
         case TOK_KW_INT: case TOK_KW_FLOAT: case TOK_KW_BOOL: case TOK_KW_STRING: case TOK_KW_BIGINT: case TOK_KW_DECIMAL:
-        case TOK_KW_BYTE: case TOK_KW_UNIT:
+        case TOK_KW_BYTE:
         case TOK_LBRACKET: case TOK_RESULT: case TOK_CHANNEL: case TOK_MAP: case TOK_SET:
             return 1;
         case TOK_IDENT:
             if (starts_upper(after_lt->start)) return 1;
+            if (after_lt->length == 4 && memcmp(after_lt->start, "unit", 4) == 0) return 1;
             if (p->pos + 3 < p->tokens.count) {
                 Token *dot = &p->tokens.items[p->pos + 2];
                 Token *type_name = &p->tokens.items[p->pos + 3];
@@ -138,7 +139,6 @@ static Type parse_type(Parser *p) {
     if (match(p, TOK_KW_BIGINT)) return type_scalar(TY_BIGINT);
     if (match(p, TOK_KW_DECIMAL)) return type_scalar(TY_DECIMAL);
     if (match(p, TOK_KW_BYTE)) return type_scalar(TY_BYTE);
-    if (match(p, TOK_KW_UNIT)) return type_scalar(TY_UNIT);
     if (match(p, TOK_LBRACKET)) {
         Type elem = parse_type(p);
         expect(p, TOK_RBRACKET, "']'");
@@ -189,6 +189,12 @@ static Type parse_type(Parser *p) {
         Type elem = parse_type(p);
         expect(p, TOK_GT, "'>'");
         return type_set(elem);
+    }
+    /* `unit` is a word, not a reserved keyword: a variable, field or parameter may be called `unit`, so it means the type only where a type
+     * is expected (and the value only where no `unit` is in scope, see typecheck.c) */
+    if (check(p, TOK_IDENT) && cur(p)->length == 4 && memcmp(cur(p)->start, "unit", 4) == 0) {
+        advance_tok(p);
+        return type_scalar(TY_UNIT);
     }
     if (check(p, TOK_IDENT)) {
         Token *t = advance_tok(p);
@@ -433,9 +439,6 @@ static Expr *parse_primary(Parser *p) {
         Expr *e = expr_new(EXPR_BOOL, t->line, t->col);
         e->as.bool_val = 0;
         return e;
-    }
-    if (match(p, TOK_KW_UNIT)) {
-        return expr_new(EXPR_UNIT, t->line, t->col);
     }
     if (match(p, TOK_IDENT)) {
         char *name = dup_token_text(t);

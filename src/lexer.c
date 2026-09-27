@@ -109,7 +109,6 @@ static const Keyword KEYWORDS[] = {
     {"as", TOK_AS},         {"int", TOK_KW_INT},    {"float", TOK_KW_FLOAT},
     {"bool", TOK_KW_BOOL},  {"string", TOK_KW_STRING}, {"bigint", TOK_KW_BIGINT}, {"decimal", TOK_KW_DECIMAL},
     {"byte", TOK_KW_BYTE},
-    {"unit", TOK_KW_UNIT},
     {"struct", TOK_STRUCT}, {"enum", TOK_ENUM}, {"with", TOK_WITH},
     {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
     {"Result", TOK_RESULT}, {"Channel", TOK_CHANNEL}, {"Map", TOK_MAP}, {"Set", TOK_SET},
