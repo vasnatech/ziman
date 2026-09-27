@@ -1,0 +1,8 @@
+fn cleanup(n: int) -> Result<int, string> {
+    return ok(n)
+}
+
+fn main() {
+    defer cleanup(1)
+    print("ok")
+}

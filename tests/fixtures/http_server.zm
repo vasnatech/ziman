@@ -50,7 +50,7 @@ fn serve_connection(sock: net.Socket) {
     while open {
         val next = server.read_request(session)
         if !is_ok(next) {
-            server.write_error(sock, unwrap_err(next))
+            val _ = server.write_error(sock, unwrap_err(next))
             open = false
         } else {
             val ex = unwrap(next)

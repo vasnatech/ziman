@@ -1328,7 +1328,7 @@ pub fn stream(
     val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
     val via = try proxy_for(u, proxy)
     val sock = try open_socket(u, via, ca_file, timeout)
-    net.set_timeout(sock, timeout)
+    val _ = net.set_timeout(sock, timeout)
     val sent = write_request(sock, method, u, via, option_unwrap_or<[Header]>(headers, []), body, false, false)
     if !is_ok(sent) {
         net.close(sock)

@@ -783,11 +783,11 @@ fn serve(sock: Socket, requests: Channel<Request>) {
             val r = Request.unwrap_EndCursor(req)
             if cursor_open && r.cursor == cursor_id {
                 cursor_open = false
-                sync_and_drain(sock)
+                val _ = sync_and_drain(sock)
             }
             send(r.reply_to, 0)
         } else {
-            send_message(sock, "X", [])
+            val _ = send_message(sock, "X", [])
             net.close(sock)
             open = false
         }

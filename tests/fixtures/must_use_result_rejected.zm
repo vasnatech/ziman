@@ -1,0 +1,11 @@
+fn risky(n: int) -> Result<int, string> {
+    if n < 0 {
+        return err("negative")
+    }
+    return ok(n)
+}
+
+fn main() {
+    risky(-1)
+    print("done")
+}

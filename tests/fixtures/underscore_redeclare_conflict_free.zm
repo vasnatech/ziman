@@ -1,0 +1,6 @@
+fn main() {
+    val x = 1
+    val _ = x
+    val _ = x + 1
+    print("ok")
+}

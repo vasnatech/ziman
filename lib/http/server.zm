@@ -1173,7 +1173,7 @@ fn fail_connection(sock: Socket, message: string) {
         "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         len(body)
     )
-    net.write_text(sock, concat(head, body))
+    val _ = net.write_text(sock, concat(head, body))
 }
 
 fn serve_connection(
@@ -1191,7 +1191,7 @@ fn serve_connection(
     while open {
         val next = read_request(session)
         if !is_ok(next) {
-            write_error(sock, unwrap_err(next))  // 400/408/413/431/501, or nothing if the peer is gone
+            val _ = write_error(sock, unwrap_err(next))  // 400/408/413/431/501, or nothing if the peer is gone
             open = false
         } else {
             val exchange = unwrap(next)

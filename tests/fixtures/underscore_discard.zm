@@ -1,0 +1,17 @@
+fn risky(n: int) -> Result<int, string> {
+    return ok(n)
+}
+
+fn main() {
+    val _ = risky(1)
+    val _ = risky(2)
+    var _ = 5
+    val _ = 6
+    for _ in 0..3 {
+        val _ = risky(3)
+    }
+    if Some(_) = Option<int>.Some(9) {
+        print("matched")
+    }
+    print("done")
+}

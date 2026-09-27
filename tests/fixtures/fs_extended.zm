@@ -2,12 +2,12 @@ use fs
 
 fn main() {
     val d = "/tmp/ziman_fixture_fs_extended"
-    fs.remove(fs.path_join(d, "a", "b", "f.bin"))
-    fs.remove(fs.path_join(d, "a", "b"))
-    fs.remove(fs.path_join(d, "a"))
-    fs.remove(fs.path_join(d, "copy.bin"))
-    fs.remove(fs.path_join(d, "atomic.txt"))
-    fs.remove(d)
+    val _ = fs.remove(fs.path_join(d, "a", "b", "f.bin"))
+    val _ = fs.remove(fs.path_join(d, "a", "b"))
+    val _ = fs.remove(fs.path_join(d, "a"))
+    val _ = fs.remove(fs.path_join(d, "copy.bin"))
+    val _ = fs.remove(fs.path_join(d, "atomic.txt"))
+    val _ = fs.remove(d)
     print(fs.make_dirs(fs.path_join(d, "a", "b")))
     print(fs.make_dirs(fs.path_join(d, "a", "b")))
     print(fs.is_dir(fs.path_join(d, "a", "b")))

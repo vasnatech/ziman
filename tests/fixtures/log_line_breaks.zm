@@ -4,7 +4,7 @@ use log.Level
 
 fn main() {
     val path = "/tmp/ziman_fixture_log_line_breaks.log"
-    fs.remove(path)
+    val _ = fs.remove(path)
     val l = log.logger(level: Level.Info, file: path, timestamps: false)
     log.warn(l, "LOGIN_FAIL email=x\nINFO  LOGIN_OK email=ceo@victim.com")
     log.warn(l, "LOGIN_FAIL email=y\r\nINFO  LOGIN_OK")
@@ -12,5 +12,5 @@ fn main() {
     val lines = unwrap(fs.read_text(path))
     print(lines)
     print(len(split(lines, "\n")))
-    fs.remove(path)
+    val _ = fs.remove(path)
 }

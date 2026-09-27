@@ -3538,7 +3538,16 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             if (s->as.expr_stmt.expr->kind == EXPR_TRY_UNWRAP) {
                 check_try_unwrap(module, env, s->as.expr_stmt.expr, fn_return_type);
             } else {
-                check_expr(module, env, s->as.expr_stmt.expr);
+                Type t = check_expr(module, env, s->as.expr_stmt.expr);
+                /* A Result discarded as a bare statement throws away a real Err along with an Ok, silently --
+                 * `defer` is the one place that is still allowed (a deliberate, documented choice, checked by
+                 * check_defer instead of here, since a defer'd call has nowhere left to report failure to).
+                 * `val _ = ...`/`try ...` say the same discard on purpose; see env_define's own comment on `_`. */
+                if (t.kind == TY_RESULT) {
+                    ziman_error("type", s->as.expr_stmt.expr->line, s->as.expr_stmt.expr->col,
+                                "this %s is discarded, silently dropping a possible error -- bind it ('val _ = ...' "
+                                "to discard on purpose), or use 'try' to propagate the error", type_name(t));
+                }
             }
             break;
         }

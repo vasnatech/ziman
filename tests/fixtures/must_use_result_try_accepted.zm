@@ -1,0 +1,16 @@
+fn risky(n: int) -> Result<int, string> {
+    if n < 0 {
+        return err("negative")
+    }
+    return ok(n)
+}
+
+fn go(n: int) -> Result<unit, string> {
+    try risky(n)
+    return ok(unit)
+}
+
+fn main() {
+    print(go(5))
+    print(go(-1))
+}

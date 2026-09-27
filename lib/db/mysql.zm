@@ -1028,7 +1028,7 @@ fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
 // --------------------------------------------------------------- queries
 
 fn close_statement(sock: Socket, stmt_id: int) {
-    send_packet(sock, 0, bytes_concat([25b], le(stmt_id, 4)))
+    val _ = send_packet(sock, 0, bytes_concat([25b], le(stmt_id, 4)))
 }
 
 fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
@@ -1275,7 +1275,7 @@ fn serve(sock: Socket, requests: Channel<Request>) {
             }
             send(r.reply_to, 0)
         } else {
-            send_packet(sock, 0, [1b])
+            val _ = send_packet(sock, 0, [1b])
             net.close(sock)
             open = false
         }

@@ -4,7 +4,7 @@ use log.Level
 
 fn main() {
     val path = "/tmp/ziman_fixture_log_basic.log"
-    fs.remove(path)
+    val _ = fs.remove(path)
     val l = log.logger(level: Level.Info, file: path, timestamps: false, prefix: "app: ")
     log.debug(l, "hidden")
     log.info(l, "shown")
@@ -16,7 +16,7 @@ fn main() {
     print(log.level_parse("WARNING"))
     print(log.level_parse(" Debug "))
     print(log.level_parse("loud"))
-    fs.remove(path)
+    val _ = fs.remove(path)
 }
 
 fn with_prefix_demo(l: log.Logger) -> log.Logger {

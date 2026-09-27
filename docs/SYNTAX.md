@@ -1072,6 +1072,40 @@ fn plus_one(s: string) -> Result<int, string> {
   propagates, discarding the unwrapped value on success — useful for a fallible
   step whose success value isn't needed, only whether it succeeded.
 
+### Must-use `Result`
+
+```
+fn risky(n: int) -> Result<int, string> {
+    if n < 0 { return err("negative") }
+    return ok(n)
+}
+
+fn main() {
+    risky(-1)          // type error: this Result<int, string> is discarded
+    val _ = risky(-1)  // fine: discarded on purpose
+    try risky(-1)       // fine: propagates a real Err
+}
+```
+
+- **A bare expression statement whose type is `Result<T, E>` is a
+  compile-time error.** Nothing else marks the difference between "this
+  call's outcome doesn't matter" and "the `Err` case was forgotten," so a
+  real error — a failed write, a bad row, a closed connection — used to
+  vanish exactly like a success would. `defer` is the one exception (see
+  its own entry above): a deferred call has nowhere left to bind or
+  propagate to by the time it runs, and this was already deliberate there.
+- **`val _ = expr` says the discard is on purpose.** `_` is not an
+  ordinary variable name: it is never actually bound, so it never
+  conflicts with an earlier `_` in the same scope (`val _ = a(); val _ =
+  b()` is fine, unlike any other name), and reading `_` back afterward is
+  the same "use of undefined variable" any other never-declared name
+  gets. This is the one place in the language `_` is special — a `val`,
+  `var`, function parameter, loop binder, or `switch`/`if` payload binder
+  named `_` all behave the same way, so `for _ in 0..n { ... }` and `if
+  Some(_) = o { ... }` (already legal before this) work for the same
+  reason a discarded `Result` now does.
+- **`try expr`** also satisfies this, propagating instead of discarding.
+
 ### `if Variant(name) = expr` — test and bind in one step
 
 ```
@@ -2934,11 +2968,13 @@ fn transfer(conn: datasource.Connection) -> Result<int, DbError> {
   builtins that read their argument *expressions* rather than values --
   `format`, `ok`, `err`, `channel_new` -- can't be deferred.
 - **The result is discarded, including a `Result`.** A deferred
-  `net.close` or `datasource.rollback` has nowhere to report failure, and this is
-  the one place Ziman silently drops a `Result`. That is a real cost: an
-  error from the cleanup call is invisible. It is deliberate, and it is
-  what lets `defer datasource.rollback(conn)` be harmless after a successful
-  commit.
+  `net.close` or `datasource.rollback` has nowhere to report failure. Every
+  other bare statement whose value is a `Result` is a compile-time error
+  (see "Must-use `Result`" below); `defer` is the one exception, checked
+  separately, since there is nowhere left to bind or propagate to by the
+  time it runs. That is a real cost: an error from the cleanup call is
+  invisible. It is deliberate, and it is what lets
+  `defer datasource.rollback(conn)` be harmless after a successful commit.
 - **A fatal runtime error skips defers.** `unwrap` on an `Err`, an
   out-of-bounds index and the like exit the process instead of unwinding,
   so nothing deferred runs. The operating system closes the sockets, and a

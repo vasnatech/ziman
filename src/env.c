@@ -20,6 +20,13 @@ void env_free(Env *env) {
 }
 
 int env_define(Env *env, const char *name, Type type, int is_mutable, Value value) {
+    /* `_` is a true discard, not a binding: it never actually goes into `env` (so it never collides with an
+     * earlier `_`, and never needs freeing), and reading it back later is the ordinary "use of undefined
+     * variable '_'" every other never-declared name gets -- exactly right, since a discarded value has nothing
+     * left to read. This is the one place in the whole type checker that treats the name `_` specially: no
+     * parser or check_* code needs its own case for it -- a `val`/`var`, a parameter, a loop binder, and a
+     * switch or `if` payload binder all go through here. */
+    if (strcmp(name, "_") == 0) return 1;
     for (int i = 0; i < env->count; i++) {
         if (strcmp(env->items[i].name, name) == 0) return 0;
     }

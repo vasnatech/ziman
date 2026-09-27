@@ -19,7 +19,7 @@ fn run_server(listener: net.Listener) {
 
 fn ask(port: int, path: string) -> string {
     val sock = unwrap(net.connect("127.0.0.1", port))
-    net.write_text(sock, format("GET {} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", path))
+    val _ = net.write_text(sock, format("GET {} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", path))
     val out = sb_new()
     var more = true
     while more {

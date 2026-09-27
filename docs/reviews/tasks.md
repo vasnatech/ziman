@@ -31,7 +31,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [x] **C3** Infer generic type arguments from arguments (591 explicit generic calls in the backend). (L P1-3; M-L). Part 1 done: infer from plain arguments and named function references (`identity(5)`); part 2 (an unannotated lambda argument) still to do.
 - [x] **C4** Bare `Some(x)` and `None` where the expected type is known. (L P1-4; S-M). Same four positions ok/err/channel_new get (val/var declared type, struct field, with override, return); not in a call argument, matching them. Fixtures `option_bare_*`.
 - [x] **C5** `==` and `contains` on arrays of any `Eq` element type, and `==` on `Json`. (L P1-5; S). Also relaxed `Hash` the same way (was already meant to work per docs, code did not); added cycle detection (a "currently checking" Type stack) so a self-referential type (`Json`, a recursive user enum) resolves correctly instead of hitting the old depth-64 guard. Fixed a stale "Hash is scalar-only" doc line along the way.
-- [ ] **C6** Must-use `Result` statements (type error or lint error). (L P1-8; S)
+- [x] **C6** Must-use `Result` statements (type error or lint error). (L P1-8; S). Chose a type error, matching `defer`'s own already-documented exemption; also made `_` a real discard (never bound, never conflicts, unusable) so there is an explicit way to say a Result is ignored on purpose. Fixed 17 real sites across lib/ and test fixtures found via an audit run over the whole test suite. Fixtures `must_use_result_*`, `underscore_*`.
 - [ ] **C7** Better errors: source excerpt and caret, always the file name, stack frames, sorted by position, no cascades. (L P1-12, D item 15; M)
 
 ## D. Ziman library (P1)
