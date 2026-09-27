@@ -31,6 +31,9 @@ pub native fn sha512(data: [byte]) -> [byte]
 
 // ------------------------------------------------ message authentication and keys
 
+// HMAC-SHA-1 of `data` under `key` (20 bytes): what one-time passwords (`otp`) are built on. Do not choose it for anything new.
+pub native fn hmac_sha1(key: [byte], data: [byte]) -> [byte]
+
 // HMAC-SHA-256 of `data` under `key` (32 bytes): a keyed digest that proves `data` came from
 // someone holding the key. Compare two MACs with `bytes_equal`, never with `==`.
 pub native fn hmac_sha256(key: [byte], data: [byte]) -> [byte]

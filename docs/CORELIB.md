@@ -129,6 +129,8 @@ pub native fn sha384(data: [byte]) -> [byte]
 
 pub native fn sha512(data: [byte]) -> [byte]
 
+pub native fn hmac_sha1(key: [byte], data: [byte]) -> [byte]
+
 pub native fn hmac_sha256(key: [byte], data: [byte]) -> [byte]
 
 pub native fn hmac_sha384(key: [byte], data: [byte]) -> [byte]
@@ -663,6 +665,27 @@ pub native fn write_stderr(text: string)
 pub native fn install_shutdown_handler()
 
 pub native fn shutdown_requested() -> bool
+
+```
+
+## `otp`
+
+Time-based one-time passwords (RFC 6238): the six-digit codes of an authenticator app -- generate a secret, a provisioning URI, and check a code.
+
+```
+pub fn generate_secret() -> string
+
+pub fn base32_encode(data: [byte]) -> string
+
+pub fn base32_decode(text: string) -> Result<[byte], string>
+
+pub fn hotp(key: [byte], counter: int, digits: int) -> string
+
+pub fn totp(key: [byte], unix_seconds: int) -> string
+
+pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> bool
+
+pub fn provisioning_uri(issuer: string, account: string, secret: string) -> string
 
 ```
 

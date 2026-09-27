@@ -1,0 +1,158 @@
+// otp.zm -- time-based one-time passwords (RFC 6238, over RFC 4226's HOTP) of the kind authenticator apps show: six digits that
+// change every 30 seconds, from a secret shared once, by QR code or by typing it. Pure Ziman on top of `crypto` and `random`.
+//
+//     val secret = otp.generate_secret()                       // "JBSWY3DPEHPK3PXP..." to show the user, base32
+//     val uri = otp.provisioning_uri("My App", "ada@example.com", secret)   // otpauth://totp/... for a QR code
+//     val key = otp.base32_decode(secret)?                     // the bytes a code is computed from
+//     otp.totp_valid(key, typed_code, now_seconds, 1)          // true for this 30-second step and one either side
+//
+// Only the parameters every authenticator app supports: HMAC-SHA-1, six digits, a 30-second step.
+
+use crypto
+use random
+
+// The secret of 20 random bytes (the size RFC 4226 recommends) as base32 text, 32 characters, the way it is shown to a user and stored.
+pub fn generate_secret() -> string {
+    return base32_encode(random.random_bytes(20))
+}
+
+val base32_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+// `data` as base32 (RFC 4648) without `=` padding.
+pub fn base32_encode(data: [byte]) -> string {
+    val out = sb_new()
+    var buffer = 0
+    var bits = 0
+    for b in data {
+        buffer = buffer * 256 + (b as int)
+        bits = bits + 8
+        while bits >= 5 {
+            var divisor = 1
+            for _ in 0..(bits - 5) {
+                divisor = divisor * 2
+            }
+            val index = buffer / divisor
+            sb_append(out, char_at(base32_alphabet, index))
+            buffer = buffer - index * divisor
+            bits = bits - 5
+        }
+    }
+    if bits > 0 {
+        var shift = 1
+        for _ in 0..(5 - bits) {
+            shift = shift * 2
+        }
+        sb_append(out, char_at(base32_alphabet, buffer * shift))
+    }
+    return sb_to_string(out)
+}
+
+// base32 text as bytes: upper or lower case, with or without `=` padding, spaces and dashes ignored (as people write a secret down). An Err
+// for any other character.
+pub fn base32_decode(text: string) -> Result<[byte], string> {
+    val out = ab_new<byte>()
+    var buffer = 0
+    var bits = 0
+    for i in 0..len(text) {
+        val c = to_upper(char_at(text, i))
+        if c == "=" || c == " " || c == "-" {
+            continue
+        }
+        val index = index_of(base32_alphabet, c, 0)
+        if index < 0 {
+            return err(format("not base32: '{}' at {}", c, i))
+        }
+        buffer = buffer * 32 + index
+        bits = bits + 5
+        if bits >= 8 {
+            var divisor = 1
+            for _ in 0..(bits - 8) {
+                divisor = divisor * 2
+            }
+            val value = buffer / divisor
+            ab_append<byte>(out, value as byte)
+            buffer = buffer - value * divisor
+            bits = bits - 8
+        }
+    }
+    return ab_to_array<byte>(out)
+}
+
+// The counter as the 8 big-endian bytes HOTP signs.
+fn counter_bytes(counter: int) -> [byte] {
+    val out = ab_new<byte>()
+    var digits: [int] = []
+    var rest = counter
+    for _ in 0..8 {
+        digits = push<int>(digits, rest % 256)
+        rest = rest / 256
+    }
+    for i in 0..8 {
+        ab_append<byte>(out, digits[7 - i] as byte)
+    }
+    return ab_to_array<byte>(out)
+}
+
+// The HOTP value (RFC 4226) for `counter`, `digits` (6 to 9) long with leading zeros: HMAC-SHA-1, then the "dynamic truncation".
+pub fn hotp(key: [byte], counter: int, digits: int) -> string {
+    val mac = crypto.hmac_sha1(key, counter_bytes(counter))
+    val offset = (mac[19] as int) % 16
+    val number = ((mac[offset] as int) % 128) * 16777216 + (mac[offset + 1] as int) * 65536 + (mac[offset + 2] as int) * 256 + (mac[offset + 3] as int)
+    var modulus = 1
+    for _ in 0..digits {
+        modulus = modulus * 10
+    }
+    val text = str(number % modulus)
+    val padding = sb_new()
+    for _ in 0..(digits - len(text)) {
+        sb_append(padding, "0")
+    }
+    sb_append(padding, text)
+    return sb_to_string(padding)
+}
+
+// The six-digit code an authenticator app shows at `unix_seconds` (30-second steps from the epoch).
+pub fn totp(key: [byte], unix_seconds: int) -> string {
+    return hotp(key, unix_seconds / 30, 6)
+}
+
+// Whether `code` is the code at `unix_seconds` or within `window` 30-second steps of it either way (1 allows for a clock a few seconds
+// off). The comparison takes the same time whatever the code.
+pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> bool {
+    var found = false
+    val typed = string_to_bytes(trim(code))
+    for step in (0 - window)..(window + 1) {
+        val expected = string_to_bytes(totp(key, unix_seconds + step * 30))
+        if len(expected) == len(typed) && crypto.bytes_equal(expected, typed) {
+            found = true
+        }
+    }
+    return found
+}
+
+// `text` percent-encoded for a URI component: letters, digits and `-_.~` stay, every other byte becomes `%XX`.
+fn uri_encode(text: string) -> string {
+    val out = sb_new()
+    val hex = "0123456789ABCDEF"
+    for b in string_to_bytes(text) {
+        val v = b as int
+        if (v >= 48 && v <= 57) || (v >= 65 && v <= 90) || (v >= 97 && v <= 122) || v == 45 || v == 95 || v == 46 || v == 126 {
+            sb_append_byte(out, b)
+        } else {
+            sb_append(out, "%", char_at(hex, v / 16), char_at(hex, v % 16))
+        }
+    }
+    return sb_to_string(out)
+}
+
+// The `otpauth://` address an authenticator app takes as a QR code to add the account: `issuer` (the name of your service) and
+// `account` (the user's email) label it, `secret` is the base32 secret.
+pub fn provisioning_uri(issuer: string, account: string, secret: string) -> string {
+    return format(
+        "otpauth://totp/{}:{}?secret={}&issuer={}&algorithm=SHA1&digits=6&period=30",
+        uri_encode(issuer),
+        uri_encode(account),
+        secret,
+        uri_encode(issuer)
+    )
+}

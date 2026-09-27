@@ -2577,6 +2577,19 @@ switch jwt.verify(token, key) {
   `verify_at(token, key, now, leeway)` checks at a chosen time. It does not look at `iss`, `aud` or `sub`.
 - Tokens from other libraries verify (checked against RFC 7515's example), and the reverse.
 
+### One-time passwords (`otp`)
+
+`otp` makes and checks the six-digit codes of an authenticator app (TOTP, RFC 6238: HMAC-SHA-1, 30-second steps), in pure Ziman on `crypto`.
+
+```
+val secret = otp.generate_secret()                                   // base32, to show the user once
+val uri = otp.provisioning_uri("My App", "ada@example.com", secret)  // otpauth://totp/... for a QR code
+val key = unwrap(otp.base32_decode(secret))
+otp.totp_valid(key, typed_code, now_seconds, 1)                      // this step and one either side
+```
+`hotp(key, counter, digits)` and `totp(key, unix_seconds)` give the codes themselves; `base32_encode` / `base32_decode` are public too.
+The check compares in constant time. The library's tests use the RFC 4226 and 6238 test vectors.
+
 ## Configuration (`properties`, `os`)
 
 `os.getenv(name) -> Option<string>` reads an environment variable

@@ -67,6 +67,11 @@ static Value hmac_value(const EVP_MD *md, Value key, Value data, int line, int c
     return value_byte_array(out, out_len);
 }
 
+static Value native_hmac_sha1(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return hmac_value(EVP_sha1(), args[0], args[1], line, col);
+}
+
 static Value native_hmac_sha256(Value *args, int argc, int line, int col) {
     (void)argc;
     return hmac_value(EVP_sha256(), args[0], args[1], line, col);
@@ -321,6 +326,7 @@ void native_crypto_register(void) {
     native_register("crypto::sha256", native_sha256);
     native_register("crypto::sha384", native_sha384);
     native_register("crypto::sha512", native_sha512);
+    native_register("crypto::hmac_sha1", native_hmac_sha1);
     native_register("crypto::hmac_sha256", native_hmac_sha256);
     native_register("crypto::hmac_sha384", native_hmac_sha384);
     native_register("crypto::hmac_sha512", native_hmac_sha512);

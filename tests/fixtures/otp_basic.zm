@@ -1,0 +1,22 @@
+use crypto
+use otp
+
+fn main() {
+    val key = string_to_bytes("12345678901234567890")
+    print(otp.hotp(key, 0, 6))
+    print(otp.hotp(key, 1, 6))
+    print(otp.hotp(key, 9, 6))
+    print(otp.hotp(key, 37037036, 8))
+    print(otp.totp(key, 59))
+    print(otp.totp_valid(key, "287082", 59, 0))
+    print(otp.totp_valid(key, "287082", 70, 1))
+    print(otp.totp_valid(key, "287082", 100, 1))
+    print(otp.totp_valid(key, "287082", 200, 1))
+    val enc = otp.base32_encode(key)
+    print(enc)
+    print(unwrap(bytes_to_string(unwrap(otp.base32_decode(enc)))) == "12345678901234567890")
+    print(otp.base32_encode(string_to_bytes("foobar")))
+    print(len(otp.generate_secret()))
+    print(otp.hotp(key, 0, 8))
+    print(otp.provisioning_uri("Health Record", "ada+x@example.com", "JBSWY3DPEHPK3PXP"))
+}

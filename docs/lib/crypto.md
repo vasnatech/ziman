@@ -89,6 +89,14 @@ The SHA-512 digest (64 bytes) of `data`.
 
 ## Message authentication and keys
 
+### `hmac_sha1`
+
+```
+pub native fn hmac_sha1(key: [byte], data: [byte]) -> [byte]
+```
+
+HMAC-SHA-1 of `data` under `key` (20 bytes): what one-time passwords (`otp`) are built on. Do not choose it for anything new.
+
 ### `hmac_sha256`
 
 ```

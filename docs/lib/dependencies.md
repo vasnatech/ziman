@@ -22,6 +22,7 @@ flowchart LR
         net["net"]
         number["number"]
         os["os"]
+        otp["otp"]
         properties["properties"]
         random["random"]
         regex["regex"]
@@ -85,6 +86,8 @@ flowchart LR
     mysql --> net
     mysql --> number
     ndjson --> json
+    otp --> crypto
+    otp --> random
     pg --> crypto
     pg --> db
     pg --> net
@@ -127,7 +130,7 @@ otherwise: everything on a layer depends only on lower layers.
 |---|---|
 | 0 | `clock`, `collections`, `compress`, `fs`, `json`, `mime`, `net`, `number`, `os`, `random`, `regex` |
 | 1 | `crypto`, `csv`, `db`, `http`, `log`, `ndjson`, `properties`, `toml`, `yaml`, `zone` |
-| 2 | `jwt`, `mysql`, `pg`, `server`, `sqlite`, `time`, `uuid` |
+| 2 | `jwt`, `mysql`, `otp`, `pg`, `server`, `sqlite`, `time`, `uuid` |
 | 3 | `client`, `datasource` |
 | 4 | `migrate` |
 
@@ -139,7 +142,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `server`, `time`, `uuid` |
 | `collections` | - | `migrate` |
 | `compress` | - | `client` |
-| `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `pg` |
+| `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
 | `db` | `number` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
@@ -155,9 +158,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `net` | - | `client`, `mysql`, `pg`, `server` |
 | `number` | - | `client`, `csv`, `db`, `http`, `jwt`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
 | `os` | - | `client`, `log`, `properties`, `server`, `zone` |
+| `otp` | `crypto`, `random` | - |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `properties` | `fs`, `os` | - |
-| `random` | - | `crypto`, `pg`, `uuid` |
+| `random` | - | `crypto`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |
 | `server` | `clock`, `http`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
