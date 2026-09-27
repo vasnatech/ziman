@@ -1,0 +1,16 @@
+use test
+
+fn broken_cases() -> [int] {
+    val arr: [int] = []
+    return [arr[0]]
+}
+
+#[test(cases: broken_cases)]
+fn test_never_runs(x: int) {
+    test.assert_eq(0, x)
+}
+
+#[test]
+fn test_still_runs_after() {
+    test.assert(true)
+}

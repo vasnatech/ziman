@@ -2,7 +2,10 @@
 # Runs every fixture in tests/fixtures/.
 #
 # Single-file fixtures: for each name.zm:
-#   - if name.out exists, the program must exit 0 and print exactly that on stdout.
+#   - if name.out exists, the program must exit 0 (or the code in a sibling name.exit,
+#     for a fixture whose successful, exact-stdout-checked output -- `ziman test`'s
+#     PASS/FAIL report, say -- comes with a non-zero exit, such as one or more failed
+#     tests) and print exactly that on stdout.
 #   - if name.err exists, the program must exit non-zero and that file's content
 #     must appear as a substring somewhere in stderr.
 #
@@ -65,13 +68,15 @@ check_fixture() {
     fi
 
     if [ -f "$out_file" ]; then
-        local expected
+        local expected expected_status
         expected=$(cat "$out_file")
-        if [ "$status" -eq 0 ] && [ "$stdout" = "$expected" ]; then
+        expected_status=0
+        [ -f "tests/fixtures/$name.exit" ] && expected_status=$(cat "tests/fixtures/$name.exit")
+        if [ "$status" -eq "$expected_status" ] && [ "$stdout" = "$expected" ]; then
             echo "PASS $name"
             pass=$((pass + 1))
         else
-            echo "FAIL $name (expected success with matching stdout)"
+            echo "FAIL $name (expected exit $expected_status with matching stdout)"
             echo "  exit=$status"
             echo "  --- expected stdout ---"; echo "$expected" | sed 's/^/  /'
             echo "  --- actual stdout ---"; echo "$stdout" | sed 's/^/  /'

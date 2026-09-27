@@ -1,0 +1,3 @@
+PASS test_basic_pass.zm::test_add_two_positives
+PASS test_basic_pass.zm::test_add_returns_result
+2 passed, 0 failed

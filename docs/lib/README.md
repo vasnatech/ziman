@@ -75,6 +75,12 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`pg`](pg.md) | A PostgreSQL client, the second backend behind the `datasource` module. |
 | [`mysql`](mysql.md) | A MySQL / MariaDB client, the third engine behind the `datasource` module. |
 
+## Testing
+
+| Module | What it is |
+|---|---|
+| [`test`](test.md) | Assertions for #[test] functions. |
+
 ## Always available
 
 | Module | What it is |

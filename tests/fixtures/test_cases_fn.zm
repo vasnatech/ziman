@@ -1,0 +1,16 @@
+use test
+
+struct AddCase {
+    a: int
+    b: int
+    expected: int
+}
+
+fn boundary_cases() -> [AddCase] {
+    return [AddCase { a: -1, b: 1, expected: 0 }, AddCase { a: 0, b: 0, expected: 0 }]
+}
+
+#[test(cases: boundary_cases)]
+fn test_add_boundary(c: AddCase) {
+    test.assert_eq(c.expected, c.a + c.b)
+}

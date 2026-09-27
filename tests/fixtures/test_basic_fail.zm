@@ -1,0 +1,16 @@
+use test
+
+#[test]
+fn test_passes() {
+    test.assert_eq(4, 2 + 2)
+}
+
+#[test]
+fn test_fails_assert_eq() {
+    test.assert_eq(5, 2 + 2)
+}
+
+#[test]
+fn test_fails_via_err() -> Result<unit, string> {
+    return err("deliberate failure")
+}

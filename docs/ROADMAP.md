@@ -1387,17 +1387,21 @@ from source.
   table). Streaming bodies (an `InputStream`/`OutputStream` analogue: a request body read in blocks, a response written
   as it is produced) are not planned until an endpoint needs them.
 
-- **Project layout: a root, `src/` and `test/`, and `ziman test` -- not started.** Today a `use` path resolves
-  relative to the entry file's own directory (a folder may hold its own module under its own name, `use a` for
-  `a/a.zm`), and the language server finds a program by looking for the nearest `main.zm`. That leaves no place
-  for tests: a program under `test/` cannot `use` a module under `src/`, and there is no test runner, so a test is
-  an ordinary program run by hand. Planned: a project root marker (a `ziman.toml`, or just an empty file) whose
-  directory is where `use` paths start, so `src/` and `test/` sit side by side and both write `use patient/service`;
-  `ziman test`, which finds every `*_test.zm` under `test/`, runs each as its own program and reports the failures
-  with a non-zero exit code (test files could be plain programs that `print` and `unwrap`, as the fixtures are now, or
-  use a small `test` module with `assert_equals`); and the language server, `ziman --check` and `ziman --fmt` taking
-  their root from the same marker instead of hunting for `main.zm`. Until then a project stays flat, as the
-  health-record backend is (`main.zm`, `routes.zm` and the layer folders side by side).
+- **`ziman test` and a `test` assertion module -- done; a project-root marker -- not started.** `#[test]` on a
+  zero-parameter function (or `#[test(cases: NAME)]` on a one-parameter one, run once per element of `NAME`'s
+  array -- `NAME` a val or a zero-parameter function, in the same file) marks it for `ziman test file.zm
+  [file2.zm ...]` to run, each inside its own per-thread runtime-error boundary so one failing test doesn't stop
+  the run; a `Result<unit, E>` return lets a test body `try` a fallible call. `lib/core/test.zm` is the small
+  `test` module: `assert`, `assert_eq`/`assert_ne`, `assert_lt`/`assert_le`/`assert_gt`/`assert_ge`,
+  `assert_some`/`assert_none`, `assert_ok`/`assert_err`, all built on `unwrap` (no new interpreter primitive
+  needed for the assertions themselves). What's still not started: a project root marker (a `ziman.toml`, or
+  just an empty file) whose directory is where `use` paths start instead of the entry file's own directory, so a
+  test file under a separate `test/` tree could `use` a module under `src/` by the same path a sibling file
+  would. Not yet needed in practice -- `use` already resolves relative to the entry file, which is enough for a
+  test file that lives anywhere and `use`s its subject by a relative path (see
+  `health-record-backend-ziman`'s `src/test/ziman/`, reserved for exactly this, alongside `src/main/ziman/`) --
+  but a marker would still let the language server, `ziman --check` and `ziman --fmt` find a project's root
+  without hunting for `main.zm`.
 
 - **Metrics and telemetry -- not started; a `metrics` module first, then tracing.** Ziman has `log`, `clock` and
   threads but no way to count things across threads: a lambda cannot mutate what it captures, so shared state has to

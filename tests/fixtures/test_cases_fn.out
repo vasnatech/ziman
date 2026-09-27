@@ -1,0 +1,3 @@
+PASS test_cases_fn.zm::test_add_boundary[0]
+PASS test_cases_fn.zm::test_add_boundary[1]
+2 passed, 0 failed

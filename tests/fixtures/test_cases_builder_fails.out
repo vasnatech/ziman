@@ -1,0 +1,3 @@
+FAIL test_cases_builder_fails.zm::test_never_runs  could not build cases from 'broken_cases': runtime error at 5:16: index 0 out of bounds (array length 0)
+PASS test_cases_builder_fails.zm::test_still_runs_after
+1 passed, 1 failed

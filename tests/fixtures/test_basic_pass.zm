@@ -1,0 +1,18 @@
+use test
+
+fn add(a: int, b: int) -> int {
+    return a + b
+}
+
+#[test]
+fn test_add_two_positives() {
+    test.assert_eq(4, add(2, 2))
+}
+
+#[test]
+fn test_add_returns_result() -> Result<unit, string> {
+    val r: Result<int, string> = ok(add(1, 1))
+    val v = try r
+    test.assert_eq(2, v)
+    return ok(unit)
+}

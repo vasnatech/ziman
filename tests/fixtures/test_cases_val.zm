@@ -1,0 +1,18 @@
+use test
+
+struct AddCase {
+    a: int
+    b: int
+    expected: int
+}
+
+val add_cases = [
+    AddCase { a: 1, b: 1, expected: 2 },
+    AddCase { a: 2, b: 2, expected: 4 },
+    AddCase { a: 2, b: 2, expected: 999 }
+]
+
+#[test(cases: add_cases)]
+fn test_add_case(c: AddCase) {
+    test.assert_eq(c.expected, c.a + c.b)
+}

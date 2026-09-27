@@ -1,0 +1,1 @@
+#[test] applies to a function, not to struct 'Foo'

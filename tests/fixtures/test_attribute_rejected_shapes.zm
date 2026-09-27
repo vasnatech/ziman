@@ -1,0 +1,23 @@
+use test
+
+#[test]
+fn test_with_param(x: int) {
+    test.assert(x > 0)
+}
+
+#[test]
+fn test_bad_return() -> int {
+    return 1
+}
+
+#[test(cases: nonexistent)]
+fn test_missing_cases(x: int) {
+    test.assert(x > 0)
+}
+
+val wrong_type_cases = [1, 2, 3]
+
+#[test(cases: wrong_type_cases)]
+fn test_wrong_case_type(x: string) {
+    test.assert(len(x) > 0)
+}

@@ -60,7 +60,7 @@ test-nogc: ziman-nogc
 # header directly, and it's merged bare into every program by
 # loader.c's load_module_graph (see lib/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
-CORELIB_MODULES := collections fs log regex client random uuid clock time json number datasource sqlite mysql db net crypto pg http server os properties ndjson csv toml yaml compress zone mime jwt migrate otp prelude
+CORELIB_MODULES := collections fs log regex client random uuid clock time json number datasource sqlite mysql db net crypto pg http server os properties ndjson csv toml yaml compress zone mime jwt migrate otp test prelude
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL
 # drivers) lib/http (http, server, client) and lib/time (time, zone); `use` names are flat either way.
 vpath %.zm lib lib/core lib/db lib/http lib/time

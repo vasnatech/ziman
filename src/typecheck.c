@@ -3942,5 +3942,67 @@ void typecheck(Module *module) {
     if (main_fn != NULL && (main_fn->params.count != 0 || main_fn->return_type.kind != TY_VOID)) {
         ziman_error("type", main_fn->line, main_fn->col, "'main' must take no parameters and return nothing");
     }
+
+    /* `#[test]` (see ast.h's FunctionDecl.is_test/test_cases and docs/SYNTAX.md
+     * "Testing"): a plain one takes no parameters; a `#[test(cases: NAME)]`
+     * one takes exactly the element type of NAME's array, NAME being a val or
+     * zero-parameter function declared in this same file (env_lookup on
+     * g_global_env only ever matches this file's own, unqualified globals --
+     * see its own comment above -- so there is no accidental cross-module
+     * hit). Either way the return type is nothing or `Result<unit, E>`, so a
+     * body can freely `try` a fallible call and still be run by `ziman test`. */
+    for (volatile int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *fn = module->functions.items[i];
+        if (!fn->is_test) continue;
+        ziman_set_error_file(fn->source_file);
+        jmp_buf jb;
+        ziman_recovery_push(&jb);
+        if (setjmp(jb) != 0) {
+            ziman_set_error_file(NULL);
+            continue;
+        }
+        int return_ok = fn->return_type.kind == TY_VOID ||
+                        (fn->return_type.kind == TY_RESULT && fn->return_type.elem->kind == TY_UNIT);
+        if (!return_ok) {
+            ziman_error("type", fn->line, fn->col,
+                        "#[test] function '%s' must return nothing or 'Result<unit, E>', not '%s'",
+                        fn->name, type_name(fn->return_type));
+        }
+        if (fn->test_cases == NULL) {
+            if (fn->params.count != 0) {
+                ziman_error("type", fn->line, fn->col,
+                            "#[test] function '%s' must take no parameters (use #[test(cases: ...)] for one)", fn->name);
+            }
+            ziman_recovery_pop();
+            ziman_set_error_file(NULL);
+            continue;
+        }
+        if (fn->params.count != 1) {
+            ziman_error("type", fn->line, fn->col, "#[test(cases: ...)] function '%s' must take exactly one parameter", fn->name);
+        } else {
+            Type want = fn->params.items[0].type;
+            Binding *cases_val = env_lookup(g_global_env, fn->test_cases);
+            if (cases_val != NULL) {
+                if (cases_val->type.kind != TY_ARRAY || !type_equals(*cases_val->type.elem, want)) {
+                    ziman_error("type", fn->line, fn->col, "#[test(cases: %s)]: '%s' is '%s', not '[%s]'",
+                                fn->test_cases, fn->test_cases, type_name(cases_val->type), type_name(want));
+                }
+            } else {
+                FunctionDecl *cases_fn = find_function(module, fn->test_cases);
+                if (cases_fn == NULL) {
+                    ziman_error("type", fn->line, fn->col,
+                                "#[test(cases: %s)]: no val or zero-parameter function named '%s' in this file",
+                                fn->test_cases, fn->test_cases);
+                } else if (cases_fn->params.count != 0 || cases_fn->return_type.kind != TY_ARRAY ||
+                           !type_equals(*cases_fn->return_type.elem, want)) {
+                    ziman_error("type", fn->line, fn->col, "#[test(cases: %s)]: '%s' must take no parameters and return '[%s]'",
+                                fn->test_cases, fn->test_cases, type_name(want));
+                }
+            }
+        }
+        ziman_recovery_pop();
+        ziman_set_error_file(NULL);
+    }
+
     ziman_finish_errors();
 }

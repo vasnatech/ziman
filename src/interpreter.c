@@ -1616,3 +1616,90 @@ void interpret(Module *module) {
     FunctionDecl *main_fn = find_function(module, "main");
     call_function(module, main_fn, NULL, 0, 0, main_fn->line, main_fn->col);
 }
+
+/* One #[test] invocation, already-evaluated `args`/`argc`, inside its own
+ * ThreadBoundary -- the same per-thread runtime-error isolation `spawn`
+ * already uses (see spawn_thread_entry above), so a runtime error (an
+ * assertion failure included -- test.assert* is built on `unwrap`, see
+ * lib/core/test.zm) fails only this one test, not the whole `ziman test`
+ * run. A `Result<unit, E>` return that comes back `Err` (no runtime error
+ * raised) is also a failure, its message the same value_display every other
+ * fatal-error message already uses. Prints "PASS <label>" or
+ * "FAIL <label>  message" (deliberately no elapsed time -- this project's
+ * own tests/fixtures harness checks stdout byte-for-byte, and a duration
+ * would make every fixture for this feature flaky) and returns 1 on
+ * failure, 0 on pass. */
+static int run_one_test(Module *module, FunctionDecl *fn, Value *args, int argc, const char *label) {
+    ThreadBoundary boundary;
+    ziman_thread_boundary_enter(&boundary);
+    const char *fail_message = NULL;
+    if (setjmp(boundary.jb) == 0) {
+        Value result = call_function(module, fn, args, argc, 0, fn->line, fn->col);
+        ziman_thread_boundary_leave();
+        if (fn->return_type.kind == TY_RESULT && !result.as.res->is_ok) {
+            fail_message = value_display(result.as.res->value);
+        }
+    } else {
+        fail_message = boundary.message;
+    }
+    if (fail_message == NULL) {
+        printf("PASS %s\n", label);
+        return 0;
+    }
+    printf("FAIL %s  %s\n", label, fail_message);
+    return 1;
+}
+
+/* Runs every #[test] function declared in `module`'s own entry file (see
+ * ast.h's FunctionDecl.is_test/test_cases; typecheck.c already rejected any
+ * other shape). A plain `#[test]` runs once, labelled "<file_label>::name". A
+ * `#[test(cases: NAME)]` one runs once per element of NAME's array (NAME
+ * itself a global val, already evaluated by init_global_vals below, or a
+ * zero-parameter function called here to build it -- also inside its own
+ * boundary, so a broken case-builder is one reported failure, not a crash),
+ * labelled "<file_label>::name[i]". Adds to out_run and out_failed rather
+ * than resetting them, so `ziman test a.zm b.zm` can tally one summary
+ * across every file. */
+void interpret_tests(Module *module, const char *file_label, int *out_run, int *out_failed) {
+    g_program = module;
+    g_global_env = env_new(NULL);
+    init_param_defaults(module);
+    init_global_vals(module);
+    char label[512];
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *fn = module->functions.items[i];
+        if (!fn->is_test) continue;
+        if (fn->test_cases == NULL) {
+            snprintf(label, sizeof label, "%s::%s", file_label, fn->name);
+            (*out_run)++;
+            *out_failed += run_one_test(module, fn, NULL, 0, label);
+            continue;
+        }
+        ArrayObj *cases;
+        Binding *cases_val = env_lookup(g_global_env, fn->test_cases);
+        if (cases_val != NULL) {
+            cases = cases_val->value.as.arr;
+        } else {
+            FunctionDecl *volatile cases_fn = find_function(module, fn->test_cases);
+            ThreadBoundary boundary;
+            ziman_thread_boundary_enter(&boundary);
+            if (setjmp(boundary.jb) == 0) {
+                Value cases_value = call_function(module, cases_fn, NULL, 0, 0, cases_fn->line, cases_fn->col);
+                ziman_thread_boundary_leave();
+                cases = cases_value.as.arr;
+            } else {
+                snprintf(label, sizeof label, "%s::%s", file_label, fn->name);
+                printf("FAIL %s  could not build cases from '%s': %s\n", label, fn->test_cases, boundary.message);
+                (*out_run)++;
+                (*out_failed)++;
+                continue;
+            }
+        }
+        for (int c = 0; c < cases->count; c++) {
+            snprintf(label, sizeof label, "%s::%s[%d]", file_label, fn->name, c);
+            Value arg = array_get(cases, c);
+            (*out_run)++;
+            *out_failed += run_one_test(module, fn, &arg, 1, label);
+        }
+    }
+}

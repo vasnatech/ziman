@@ -32,7 +32,11 @@
 
 static void usage(FILE *out) {
     fputs("usage: ziman [options] <file.zm>\n"
+          "       ziman test <file.zm> [file2.zm ...]\n"
           "\n"
+          "  test             run every #[test] function in the given files (see\n"
+          "                   docs/SYNTAX.md \"Testing\"); PASS/FAIL per test, then a\n"
+          "                   summary; exit 1 if any failed\n"
           "  --check          load and type-check only; do not run the program\n"
           "  --json           report errors as one JSON object per error on stderr\n"
           "                   (with --check, print {\"ok\":true} on success)\n"
@@ -113,6 +117,26 @@ static int run_format(char **files, int n_files, int write, int check, int width
     return check && changed > 0 ? 1 : 0;
 }
 
+/* Every native module a `.zm` program can `use`, registered once before
+ * loading/running anything -- shared by ordinary execution, `--lsp` and
+ * `ziman test`, so the three can never drift out of sync with each other. */
+static void register_all_natives(void) {
+    native_fs_register();
+    native_iter_register();
+    native_regex_register();
+    native_random_register();
+    native_clock_register();
+    native_sqlite_register();
+    native_net_register();
+    native_os_register();
+    native_crypto_register();
+    native_number_register();
+    native_csv_register();
+    native_json_register();
+    native_compress_register();
+    prelude_register();
+}
+
 /* Everything `ziman file.zm` does after the options: load, check, and run. It runs on a thread with a stack sized for deep recursion (see stack.h). */
 typedef struct {
     const char *file;
@@ -131,20 +155,7 @@ static void *run_program(void *raw) {
      * happens, not when 4 KiB have accumulated or the process exits. */
     setvbuf(stdout, NULL, _IOLBF, 0);
 
-    native_fs_register();
-    native_iter_register();
-    native_regex_register();
-    native_random_register();
-    native_clock_register();
-    native_sqlite_register();
-    native_net_register();
-    native_os_register();
-    native_crypto_register();
-    native_number_register();
-    native_csv_register();
-    native_json_register();
-    native_compress_register();
-    prelude_register();
+    register_all_natives();
 
     Module *module = load_module_graph(file);
     if (lint) typecheck_enable_lint();
@@ -163,6 +174,51 @@ static void *run_program(void *raw) {
     return NULL;
 }
 
+/* The last path segment of `path`, for a #[test] label ("dir/foo_test.zm" -> "foo_test.zm"). */
+static const char *base_name(const char *path) {
+    const char *slash = strrchr(path, '/');
+    return slash != NULL ? slash + 1 : path;
+}
+
+/* `ziman test file.zm [file2.zm ...]`: loads and type-checks each file with
+ * `main` optional (a test file need not have one -- the same relaxation
+ * `--lsp` already uses, see typecheck_skip_main_check), runs every #[test]
+ * function in it (interpreter.c's interpret_tests), and tallies one
+ * PASS/FAIL report across every file. Runs on a thread with a stack sized
+ * for deep recursion, same as run_program. */
+typedef struct {
+    char **files;
+    int n_files;
+} TestOptions;
+
+static void *run_tests_program(void *raw) {
+    TestOptions *o = raw;
+    ziman_stack_mark_main();
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    register_all_natives();
+    typecheck_skip_main_check(1);
+
+    int total_run = 0, total_failed = 0;
+    for (int i = 0; i < o->n_files; i++) {
+        Module *module = load_module_graph(o->files[i]);
+        typecheck(module);
+        interpret_tests(module, base_name(o->files[i]), &total_run, &total_failed);
+    }
+    printf("%d passed, %d failed\n", total_run - total_failed, total_failed);
+    exit(total_failed == 0 ? 0 : 1);
+}
+
+static int run_tests_main(int argc, char **argv) {
+    if (argc == 0) {
+        fprintf(stderr, "usage: ziman test <file.zm> [file2.zm ...]\n");
+        return 2;
+    }
+    ziman_stack_configure(0, 0, 0);
+    TestOptions options = {argv, argc};
+    ziman_run_on_big_stack(run_tests_program, &options);
+    return 0;
+}
+
 int main(int argc, char **argv) {
 #ifdef ZIMAN_GC
     /* Before the first allocation: the first one initialises the collector with defaults. */
@@ -174,6 +230,9 @@ int main(int argc, char **argv) {
     GC_INIT();
     (void)GC_expand_hp(32u * 1024 * 1024);
 #endif
+    if (argc >= 2 && strcmp(argv[1], "test") == 0) {
+        return run_tests_main(argc - 2, argv + 2);
+    }
     int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, lsp = 0;
     long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0;
     const char *file = NULL;
@@ -202,20 +261,7 @@ int main(int argc, char **argv) {
         else { files[n_files++] = (char *)a; if (file == NULL) file = a; }
     }
     if (lsp) {
-        native_fs_register();
-        native_iter_register();
-        native_regex_register();
-        native_random_register();
-        native_clock_register();
-        native_sqlite_register();
-        native_net_register();
-        native_os_register();
-        native_crypto_register();
-        native_number_register();
-        native_csv_register();
-        native_json_register();
-        native_compress_register();
-        prelude_register();
+        register_all_natives();
         return lsp_main();
     }
     if (fmt) {

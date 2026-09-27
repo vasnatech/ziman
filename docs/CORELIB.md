@@ -834,6 +834,37 @@ pub fn escape(text: string) -> string
 
 ```
 
+## `test`
+
+```
+pub fn fail(message: string)
+
+pub fn assert(cond: bool)
+
+pub fn assert_false(cond: bool)
+
+pub fn assert_eq<T: Eq>(expected: T, actual: T)
+
+pub fn assert_ne<T: Eq>(unexpected: T, actual: T)
+
+pub fn assert_lt<T: Ord>(actual: T, bound: T)
+
+pub fn assert_le<T: Ord>(actual: T, bound: T)
+
+pub fn assert_gt<T: Ord>(actual: T, bound: T)
+
+pub fn assert_ge<T: Ord>(actual: T, bound: T)
+
+pub fn assert_some<T>(opt: Option<T>) -> T
+
+pub fn assert_none<T>(opt: Option<T>)
+
+pub fn assert_ok<T, E>(r: Result<T, E>) -> T
+
+pub fn assert_err<T, E>(r: Result<T, E>) -> E
+
+```
+
 ## `toml`
 
 TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.

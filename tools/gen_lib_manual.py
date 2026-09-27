@@ -24,6 +24,7 @@ GROUPS = [
     ("Networking", "core", ["net"]),
     ("HTTP", "http", ["http", "server", "client"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql"]),
+    ("Testing", "core", ["test"]),
 ]
 
 

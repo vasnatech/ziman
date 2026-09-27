@@ -34,6 +34,7 @@
 #include "jwt_source.h"
 #include "migrate_source.h"
 #include "otp_source.h"
+#include "test_source.h"
 #include "zone_source.h"
 #include "ndjson_source.h"
 #include "csv_source.h"
@@ -80,6 +81,7 @@ static const CoreModule CORE_MODULES[] = {
     {"jwt", JWT_SOURCE},
     {"migrate", MIGRATE_SOURCE},
     {"otp", OTP_SOURCE},
+    {"test", TEST_SOURCE},
     {"zone", ZONE_SOURCE},
     {"ndjson", NDJSON_SOURCE},
     {"csv", CSV_SOURCE},

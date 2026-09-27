@@ -2150,12 +2150,15 @@ static UseDecl parse_use_decl(Parser *p) {
 }
 
 /* `#[ item { , item } ]`, one or more bracketed groups, each written on
- * its own line directly above the struct/enum it applies to -- e.g.
- * `#[derive(Json)]`, `#[derive(Json, Hash)]`. `item` is `IDENT` alone
- * (a bare flag, unused by anything yet) or `IDENT ( IDENT { , IDENT } )`
- * (`derive(...)`'s own shape). This is a general, reusable mechanism --
- * only the `derive` item name is actually interpreted right now (by
- * src/derive.c, which reads `StructDecl.derives`/`EnumDecl.derives|);
+ * its own line directly above the struct/enum/fn it applies to -- e.g.
+ * `#[derive(Json)]`, `#[derive(Json, Hash)]`, `#[test]`,
+ * `#[test(cases: add_cases)]`. `item` is `IDENT` alone (a bare flag,
+ * unused by anything yet unless it's `thread_bound` or `test`) or
+ * `IDENT ( IDENT { , IDENT } )` (`derive(...)`'s own shape) except for
+ * `test(...)`, whose one argument is `cases: IDENT` rather than a bare
+ * ident list. This is a general, reusable mechanism -- only `derive`,
+ * `thread_bound` and `test` are actually interpreted right now (`derive`
+ * by src/derive.c, which reads `StructDecl.derives`/`EnumDecl.derives`);
  * any other item name is parsed (so the grammar doesn't need to change
  * later) but silently has no effect yet. See docs/DESIGN.md's
  * "Attributes and derive" entry. */
@@ -2164,6 +2167,8 @@ typedef struct {
     int count;
     int capacity;
     int thread_bound; /* `#[thread_bound]` was among the attributes */
+    int is_test;       /* `#[test]` or `#[test(cases: ...)]` was among the attributes */
+    char *test_cases;  /* `#[test(cases: NAME)]`'s NAME, or NULL for a plain `#[test]` */
 } DeriveList;
 
 static void derive_list_push(DeriveList *list, char *name) {
@@ -2182,7 +2187,21 @@ static DeriveList parse_attributes(Parser *p) {
         do {
             Token *item_name = expect(p, TOK_IDENT, "an attribute name");
             int is_derive = item_name->length == 6 && strncmp(item_name->start, "derive", 6) == 0;
-            if (match(p, TOK_LPAREN)) {
+            int is_test = item_name->length == 4 && strncmp(item_name->start, "test", 4) == 0;
+            if (is_test) {
+                derives.is_test = 1;
+                if (match(p, TOK_LPAREN)) {
+                    Token *key = expect(p, TOK_IDENT, "'cases'");
+                    if (key->length != 5 || strncmp(key->start, "cases", 5) != 0) {
+                        ziman_error("syntax", key->line, key->col,
+                                    "unknown #[test(...)] argument '%.*s' (the only one is 'cases')", key->length, key->start);
+                    }
+                    expect(p, TOK_COLON, "':'");
+                    Token *cases_name = expect(p, TOK_IDENT, "the name of the cases array or function");
+                    derives.test_cases = dup_token_text(cases_name);
+                    expect(p, TOK_RPAREN, "')'");
+                }
+            } else if (match(p, TOK_LPAREN)) {
                 do {
                     Token *arg = expect(p, TOK_IDENT, "an attribute argument");
                     if (is_derive) derive_list_push(&derives, dup_token_text(arg));
@@ -2239,6 +2258,9 @@ Module *parse(TokenList tokens) {
             sd->derives = derives.names;
             sd->derive_count = derives.count;
             sd->thread_bound = derives.thread_bound;
+            if (derives.is_test) {
+                ziman_error("syntax", sd->line, sd->col, "#[test] applies to a function, not to struct '%s'", sd->name);
+            }
             struct_list_push(&module->structs, sd);
         } else if (check(&p, TOK_ENUM)) {
             EnumDecl *ed = parse_enum_decl(&p);
@@ -2248,6 +2270,9 @@ Module *parse(TokenList tokens) {
             if (derives.thread_bound) {
                 ziman_error("syntax", ed->line, ed->col, "#[thread_bound] applies to a struct, not to enum '%s'", ed->name);
             }
+            if (derives.is_test) {
+                ziman_error("syntax", ed->line, ed->col, "#[test] applies to a function, not to enum '%s'", ed->name);
+            }
             enum_list_push(&module->enums, ed);
         } else if (derives.count > 0 || derives.thread_bound) {
             ziman_error("syntax", cur(&p)->line, cur(&p)->col,
@@ -2255,13 +2280,21 @@ Module *parse(TokenList tokens) {
         } else if (check(&p, TOK_NATIVE)) {
             FunctionDecl *fn = parse_native_function(&p);
             fn->is_public = is_public;
+            if (derives.is_test) {
+                ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a native function ('%s')", fn->name);
+            }
             function_list_push(&module->functions, fn);
         } else if (check(&p, TOK_VAL)) {
             GlobalValDecl *v = parse_global_val_decl(&p, is_public);
+            if (derives.is_test) {
+                ziman_error("syntax", v->line, v->col, "#[test] applies to a function, not to a val ('%s')", v->name);
+            }
             global_val_list_push(&module->vals, v);
         } else {
             FunctionDecl *fn = parse_function(&p);
             fn->is_public = is_public;
+            fn->is_test = derives.is_test;
+            fn->test_cases = derives.test_cases;
             function_list_push(&module->functions, fn);
         }
         ziman_recovery_pop();

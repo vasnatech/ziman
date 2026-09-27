@@ -502,6 +502,16 @@ typedef struct {
     /* A lambda written without `->`: its return type comes from the function
      * type it is used as, or else from its final expression. */
     int return_omitted;
+    /* `#[test]`: `ziman test` runs this function (see docs/SYNTAX.md
+     * "Testing"). Must take no parameters (or, with `test_cases` set,
+     * exactly one) and return nothing or `Result<unit, E>`. */
+    int is_test;
+    /* `#[test(cases: NAME)]`'s `NAME`: a `[T]` val or a zero-parameter
+     * function producing one, declared in the same file (no cross-module
+     * lookup, same restriction a global val's own bare reference has).
+     * `ziman test` runs this function once per element, labelled
+     * "name[i]". NULL for a plain `#[test]`, run once with no arguments. */
+    const char *test_cases;
 } FunctionDecl;
 
 /* The `fn(P1, P2) -> R` type of a (non-generic, non-variadic) function used as

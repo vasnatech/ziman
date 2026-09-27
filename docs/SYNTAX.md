@@ -2158,6 +2158,67 @@ fn main() {
   one says so ("give that type its own #[derive(Json)] or write it by hand"). Names the derive imported are
   visible to the rest of the module, so your own code may use them too.
 
+## Testing
+
+`#[test]` on a function marks it for `ziman test file.zm [file2.zm ...]` to run -- a separate CLI
+mode from ordinary `ziman file.zm`, listed with `ziman --help`. A `#[test]` function takes no
+parameters and returns either nothing or `Result<unit, E>` for any `E` (so a test body can freely
+`try` a fallible call); anything else is a type error at the declaration. The file it's in needs
+no `main` function, the same relaxation the language server already gets for a file with no entry
+point.
+
+`ziman test` loads and type-checks each file given, finds every `#[test]` function declared
+directly in it, and runs each inside its own per-thread runtime-error boundary -- the same
+mechanism `spawn` already uses to keep one thread's failure from ending the process (see
+"Concurrency" below) -- so one failing test doesn't stop the run. A runtime error (an assertion
+failure included, see `test` below) or a `Result` that comes back `Err` both count as a failure,
+its message shown; anything else is a pass. Each test prints `PASS <file>::<name>` or
+`FAIL <file>::<name>  <message>`, then a `N passed, M failed` summary once every file is done;
+the exit code is 0 only if every test in every file passed.
+
+**Parametrized tests: `#[test(cases: NAME)]`.** A function taking exactly one parameter can be
+run once per element of an array instead of once with no arguments:
+
+```
+struct AddCase { a: int, b: int, expected: int }
+
+val add_cases = [AddCase { a: 1, b: 1, expected: 2 }, AddCase { a: 2, b: 2, expected: 4 }]
+
+#[test(cases: add_cases)]
+fn test_add(c: AddCase) {
+    test.assert_eq(c.expected, c.a + c.b)
+}
+```
+
+`NAME` is looked up in the same file only (no `mod.NAME` cross-module form, the same restriction
+a global val's own bare reference already has) as either a val or a zero-parameter function, both
+of type `[T]` where `T` is the `#[test]` function's own parameter type -- checked at compile time,
+same as everything else here. A val's array is used as already evaluated; a function is called
+once, before any case runs, to build it (also inside its own boundary, so a broken case-builder is
+one reported failure, `could not build cases from 'NAME': ...`, not a crash). Each case is reported
+independently, `<file>::name[i]`, so one failing case doesn't hide whether the others passed --
+unlike an ordinary `for` loop over the cases inside a plain `#[test]` function, where the first
+failure ends the whole test via the same fatal-error mechanism `test.assert*` always uses.
+
+**The `test` module.** `lib/core/test.zm`'s assertions all fail through `unwrap` on a manufactured
+`Err` -- the same explicit, opt-in escape hatch to a fatal error every Ziman program already has
+(see "Result" below) -- so no new interpreter primitive was needed for any of them:
+
+- `fail(message: string)` -- fails unconditionally.
+- `assert(cond: bool)` / `assert_false(cond: bool)`.
+- `assert_eq<T: Eq>(expected: T, actual: T)` / `assert_ne<T: Eq>(unexpected: T, actual: T)` --
+  structural equality (see "Equality"), the failure message showing both values.
+- `assert_lt`/`assert_le`/`assert_gt`/`assert_ge`, each `<T: Ord>(actual: T, bound: T)`.
+- `assert_some<T>(opt: Option<T>) -> T` / `assert_none<T>(opt: Option<T>)`.
+- `assert_ok<T, E>(r: Result<T, E>) -> T` / `assert_err<T, E>(r: Result<T, E>) -> E`.
+
+`assert_some`/`assert_ok` return the unwrapped value on success, so a test can chain straight into
+using it. Failure messages use `format`'s `{}` placeholder, not `str` -- `str` is deliberately
+narrower (int/float/bool/bigint/decimal/byte only, see "Builtins") and, being a fixed allowlist
+checked before a generic function's own type parameters are known, rejects a plain `T` outright;
+`format`'s placeholder displays any value the same way `print` does, so `assert_eq`'s only
+requirement is the `T: Eq` bound `==`/`!=` already need, nothing extra for the message.
+
 ## Databases
 
 Two modules to know: `db` (what the drivers share -- `SqlValue`, `Row`,

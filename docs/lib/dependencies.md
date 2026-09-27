@@ -26,6 +26,7 @@ flowchart LR
         properties["properties"]
         random["random"]
         regex["regex"]
+        test["test"]
         toml["toml"]
         uuid["uuid"]
         yaml["yaml"]
@@ -131,7 +132,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `clock`, `collections`, `compress`, `json`, `mime`, `net`, `number`, `random`, `regex` |
+| 0 | `clock`, `collections`, `compress`, `json`, `mime`, `net`, `number`, `random`, `regex`, `test` |
 | 1 | `crypto`, `db`, `http`, `ndjson`, `os`, `toml`, `yaml` |
 | 2 | `fs`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sqlite`, `uuid` |
 | 3 | `csv`, `datasource`, `log`, `properties`, `zone` |
@@ -169,6 +170,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `regex` | - | - |
 | `server` | `clock`, `http`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
+| `test` | - | - |
 | `time` | `clock`, `db`, `json`, `zone` | `client`, `migrate` |
 | `toml` | `json`, `number` | - |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | - |
