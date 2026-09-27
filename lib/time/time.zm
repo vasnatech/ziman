@@ -676,17 +676,34 @@ pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTi
     return localtime_of(f.hour, f.minute, f.second, f.nano)
 }
 
+// The fraction of a second in `s`, widened to the nine digits the `.SSSSSSSSS` pattern needs:
+// `13:05:09.5Z` and `13:05:09.500Z` both become `13:05:09.500000000Z`. An Err when the fraction has
+// no digits or more than nine.
+fn widen_fraction(s: string) -> Result<string, string> {
+    val dot = index_of(s, ".", 0)
+    var end = dot + 1
+    while end < len(s) && contains("0123456789", char_at(s, end)) {
+        end = end + 1
+    }
+    val digits = end - dot - 1
+    if digits < 1 || digits > 9 {
+        return err(format("'{}': the fraction of a second needs 1 to 9 digits, found {}", s, digits))
+    }
+    val zeros = substring("000000000", 0, 9 - digits)
+    return ok(concat(concat(substring(s, 0, end), zeros), substring(s, end, len(s))))
+}
+
 // `to_string`'s own output only includes the fractional part when
 // `nano != 0` (see localtime_to_string below), so parsing has to
 // detect which of the two fixed shapes it's looking at the same way --
 // checking for "." is safe here since neither shape ever contains one
 // otherwise.
 pub fn localtime_from_string(s: string) -> Result<LocalTime, string> {
-    return if contains(s, ".") {
-        localtime_parse_pattern(s, iso_time_nanos_format)
-    } else {
-        localtime_parse_pattern(s, iso_time_format)
+    if contains(s, ".") {
+        val widened = widen_fraction(s)?
+        return localtime_parse_pattern(widened, iso_time_nanos_format)
     }
+    return localtime_parse_pattern(s, iso_time_format)
 }
 
 // `t` as ISO text, `13:05:09`, with `.nnnnnnnnn` after the seconds only when the nanoseconds are not
@@ -938,14 +955,14 @@ pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Loc
     return ok(LocalDateTime { date: unwrap(date_r), time: unwrap(time_r) })
 }
 
-// Reads an ISO date-time, `2026-09-24T13:05:09` with an optional `.nnnnnnnnn` fraction; an Err
+// Reads an ISO date-time, `2026-09-24T13:05:09` with an optional fraction of 1 to 9 digits; an Err
 // otherwise.
 pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string> {
-    return if contains(s, ".") {
-        localdatetime_parse_pattern(s, iso_datetime_nanos_format)
-    } else {
-        localdatetime_parse_pattern(s, iso_datetime_format)
+    if contains(s, ".") {
+        val widened = widen_fraction(s)?
+        return localdatetime_parse_pattern(widened, iso_datetime_nanos_format)
     }
+    return localdatetime_parse_pattern(s, iso_datetime_format)
 }
 
 // `dt` as ISO text, `2026-09-24T13:05:09`, with the fraction only when the nanoseconds are not zero.
@@ -1247,11 +1264,11 @@ pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, 
 // output) may carry a genuine offset, and there's no extra cost to
 // accepting it.
 pub fn instant_from_string(s: string) -> Result<Instant, string> {
-    return if contains(s, ".") {
-        instant_parse_pattern(s, iso_datetime_nanos_format)
-    } else {
-        instant_parse_pattern(s, iso_datetime_format)
+    if contains(s, ".") {
+        val widened = widen_fraction(s)?
+        return instant_parse_pattern(widened, iso_datetime_nanos_format)
     }
+    return instant_parse_pattern(s, iso_datetime_format)
 }
 
 // `i` in UTC as `2026-09-24T13:05:09Z`, with a `.nnnnnnnnn` fraction when the nanoseconds are not

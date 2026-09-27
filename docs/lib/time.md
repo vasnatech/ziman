@@ -610,7 +610,7 @@ range.
 pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string>
 ```
 
-Reads an ISO date-time, `2026-09-24T13:05:09` with an optional `.nnnnnnnnn` fraction; an Err
+Reads an ISO date-time, `2026-09-24T13:05:09` with an optional fraction of 1 to 9 digits; an Err
 otherwise.
 
 ### `localdatetime_to_string`
