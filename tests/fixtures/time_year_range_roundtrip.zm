@@ -1,0 +1,22 @@
+use time.localdate_add_days
+use time.localdate_from_string
+use time.localdate_of
+use time.localdate_to_string
+
+fn main() {
+    val d = unwrap(localdate_from_string("9999-06-01"))
+    val due = localdate_add_days(d, 280)
+    print(localdate_to_string(due))
+    switch localdate_from_string(localdate_to_string(due)) {
+        Ok(x) { print(localdate_to_string(x)) }
+        Err(e) { print(e) }
+    }
+    val early = localdate_add_days(unwrap(localdate_of(1, 1, 1)), -800000)
+    print(localdate_to_string(early))
+    for s in ["-0044-03-15", "+9999-01-01", "+123-01-01", "+1234567890-01-01", "0000-01-01", "abcd-01-01"] {
+        switch localdate_from_string(s) {
+            Ok(x) { print(format("{} -> {}", s, localdate_to_string(x))) }
+            Err(e) { print(e) }
+        }
+    }
+}

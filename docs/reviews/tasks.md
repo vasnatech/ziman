@@ -18,7 +18,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 ## B. Backend bugs and security (P0)
 
 - [x] **B1** `Instant` parsing: accept 0-9 fractional digits (`.000Z` from the web frontend returns 400 today); add fixtures for 0, 3, 6 and 9 digits; improve the message. (D B1; S). `localtime/localdatetime/instant_from_string` take 1 to 9 fraction digits (`.5`, `.000`, `.123456`); 0 or over 9 digits gets a clear message; fixture `time_instant_fraction_digits`, backend checks in `resources_test.py`.
-- [ ] **B2** Date range: a year near 9999 stores `10000-..` that cannot be read back, which permanently breaks that user's list and DELETE. Make `localdate_to_string` and `_from_string` symmetric and validate the range. (D B2; S)
+- [x] **B2** Date range: a year near 9999 stores `10000-..` that cannot be read back, which permanently breaks that user's list and DELETE. Make `localdate_to_string` and `_from_string` symmetric and validate the range. (D B2; S). Chose symmetry: a year outside 0-9999 is written with a sign and read back (`+10000-03-07`, `-0044-03-15`, 4 to 9 digits) by every date, date-time and instant format; fixture `time_year_range_roundtrip`, backend checks in `resources_test.py`.
 - [ ] **B3** Audit-log forgery through a newline in the login email: escape control characters in `log.write`, and stop rebuilding the audit trail from free text (use a table or JSON lines). (D S1; M)
 - [ ] **B4** Remove the public default JWT secret: fail startup, or refuse the known constant. (D S2; S)
 - [ ] **B5** CORS: answer preflight requests and add `Access-Control-Allow-*` headers, configurable like Spring's `app.cors.allowed-origins`. (D B3; S)

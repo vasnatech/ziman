@@ -1,0 +1,9 @@
++10000-03-07
++10000-03-07
+-2190-09-05
+-0044-03-15 -> -0044-03-15
++9999-01-01 -> 9999-01-01
+invalid year in '+123-01-01': a signed year needs 4 to 9 digits, found 3
+invalid year in '+1234567890-01-01': a signed year needs 4 to 9 digits, found 10
+0000-01-01 -> 0000-01-01
+invalid year in 'abcd-01-01': cannot parse 'abcd' as int

@@ -294,6 +294,18 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
 // distinct pattern and reused), this runs once per *formatted value*,
 // so it's the hotter of the two -- every field in every formatted
 // date/time used to mean one more leaked, ever-growing string.
+// The year as four digits, `2026`; outside 0-9999 it carries a sign and keeps at least four digits
+// (`+10000`, `-0044`), so that `parse_year` reads back everything `format_year` writes.
+fn format_year(year: int) -> string {
+    if year >= 0 && year <= 9999 {
+        return pad_left(year, 4)
+    }
+    if year > 0 {
+        return concat("+", pad_left(year, 4))
+    }
+    return concat("-", pad_left(0 - year, 4))
+}
+
 fn format_fields(
     year: int,
     month: int,
@@ -307,7 +319,7 @@ fn format_fields(
     val out = sb_new()
     for part in fmt.parts {
         if DateTimePart.is_Year(part) {
-            sb_append(out, pad_left(year, 4))
+            sb_append(out, format_year(year))
         } else if DateTimePart.is_Month(part) {
             sb_append(out, pad_left(month, 2))
         } else if DateTimePart.is_Day(part) {
@@ -344,6 +356,31 @@ fn parse_fixed_width_int(s: string, start: int, width: int) -> Result<int, strin
     return parse_int(substring(s, start, start + width))
 }
 
+// Reads the year at `start`: four digits, or a `+`/`-` followed by four to nine digits (what
+// `format_year` writes outside 0-9999). Returns the year and the position after it.
+fn parse_year(s: string, start: int) -> Result<[int], string> {
+    if !is_char_at(s, start, "+") && !is_char_at(s, start, "-") {
+        val r = parse_fixed_width_int(s, start, 4)
+        if !is_ok(r) {
+            return err(unwrap_err(r))
+        }
+        return ok([unwrap(r), start + 4])
+    }
+    var end = start + 1
+    while end < len(s) && contains("0123456789", char_at(s, end)) {
+        end = end + 1
+    }
+    val digits = end - start - 1
+    if digits < 4 || digits > 9 {
+        return err(format("a signed year needs 4 to 9 digits, found {}", digits))
+    }
+    val magnitude = parse_int(substring(s, start + 1, end))
+    if !is_ok(magnitude) {
+        return err(unwrap_err(magnitude))
+    }
+    return ok([if is_char_at(s, start, "-") { 0 - unwrap(magnitude) } else { unwrap(magnitude) }, end])
+}
+
 fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> {
     var year = 0
     var month = 0
@@ -355,12 +392,12 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
     var si = 0
     for part in fmt.parts {
         if DateTimePart.is_Year(part) {
-            val r = parse_fixed_width_int(s, si, 4)
+            val r = parse_year(s, si)
             if !is_ok(r) {
                 return err(format("invalid year in '{}': {}", s, unwrap_err(r)))
             }
-            year = unwrap(r)
-            si = si + 4
+            year = unwrap(r)[0]
+            si = unwrap(r)[1]
         } else if DateTimePart.is_Month(part) {
             val r = parse_fixed_width_int(s, si, 2)
             if !is_ok(r) {
