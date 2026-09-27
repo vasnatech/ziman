@@ -2005,8 +2005,10 @@ fn main() {
   in `time`/`uuid` does — each gets a thin `_to_json`/`_from_json`
   wrapper over its own `_to_string`/`_from_string`, so this is really
   tier (1) one level of indirection out); (3) a plain scalar
-  (`int`/`float`/`bool`/`string`); (4) `Option<U>`/`[U]`, recursing into
-  `U`. A field whose type is none of these (`bigint`, `decimal`, `byte`,
+  (`int`/`float`/`bool`/`string`), or a `decimal` (a JSON number: written as
+  the nearest float, read as the number's shortest text, so `0.1` is `0.1`; `#[derive(Row)]`
+  stores it as TEXT, keeping its scale); (4) `Option<U>`/`[U]`, recursing into
+  `U`. A field whose type is none of these (`bigint`, `byte`,
   `Result<T, E>`, `Channel<T>`, or a generic struct/enum) is a
   compile-time error, not a silently wrong answer.
 - **Field names map `snake_case` -> `camelCase`** for the JSON key

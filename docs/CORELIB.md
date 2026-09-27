@@ -326,6 +326,10 @@ pub fn float_to_json(f: float) -> Json
 
 pub fn float_from_json(j: Json) -> Result<float, string>
 
+pub fn decimal_to_json(d: decimal) -> Json
+
+pub fn decimal_from_json(j: Json) -> Result<decimal, string>
+
 pub fn bool_to_json(b: bool) -> Json
 
 pub fn bool_from_json(j: Json) -> Result<bool, string>
@@ -930,6 +934,8 @@ pub fn sql_as_int(v: SqlValue) -> Result<int, DbError>
 pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError>
 
 pub fn sql_as_float(v: SqlValue) -> Result<float, DbError>
+
+pub fn sql_as_decimal(v: SqlValue) -> Result<decimal, DbError>
 
 pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError>
 

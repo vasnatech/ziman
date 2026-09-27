@@ -330,6 +330,23 @@ pub fn float_from_json(j: Json) -> Result<float, string>
 
 A float from a JSON number, integers included; an Err otherwise.
 
+### `decimal_to_json`
+
+```
+pub fn decimal_to_json(d: decimal) -> Json
+```
+
+`d` as a JSON number: the float nearest it, so a decimal with more than about 15 significant digits loses the rest.
+
+### `decimal_from_json`
+
+```
+pub fn decimal_from_json(j: Json) -> Result<decimal, string>
+```
+
+A decimal from a JSON number, integers included: a number is read as its shortest text (`0.1` is `0.1`, not the float's exact
+binary value). An Err otherwise.
+
 ### `bool_to_json`
 
 ```

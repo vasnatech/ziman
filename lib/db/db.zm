@@ -140,6 +140,21 @@ pub fn sql_as_float(v: SqlValue) -> Result<float, DbError> {
     return err(sql_mismatch("FLOAT", v))
 }
 
+// A decimal column: TEXT holding decimal text (how `#[derive(Row)]` writes one, keeping its scale), or a whole-number or float
+// column read as a decimal.
+pub fn sql_as_decimal(v: SqlValue) -> Result<decimal, DbError> {
+    if SqlValue.is_Text(v) {
+        return sql_lift<decimal>(parse_decimal(SqlValue.unwrap_Text(v)), "decimal")
+    }
+    if SqlValue.is_Int(v) {
+        return SqlValue.unwrap_Int(v) as decimal
+    }
+    if SqlValue.is_Float(v) {
+        return SqlValue.unwrap_Float(v) as decimal
+    }
+    return err(sql_mismatch("DECIMAL", v))
+}
+
 // Lifts a domain type's own parse result (Result<T, string>, e.g.
 // uuid_from_string) into the DbError error type a from_sql needs.
 pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError> {

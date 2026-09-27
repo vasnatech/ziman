@@ -230,6 +230,7 @@ static char *converter_for_type_arg(Type arg, int is_to, int line, int col) {
         case TY_TYPEVAR: return converter_param_name(arg.type_var_name, is_to);
         case TY_INT: return fmt_str("int_%s_json", dir);
         case TY_FLOAT: return fmt_str("float_%s_json", dir);
+        case TY_DECIMAL: return fmt_str("decimal_%s_json", dir);
         case TY_BOOL: return fmt_str("bool_%s_json", dir);
         case TY_STRING: return fmt_str("string_%s_json", dir);
         case TY_STRUCT:
@@ -280,6 +281,9 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             return;
         case TY_FLOAT:
             cb_appendf(cb, "    val %s = Json.JNumber(%s)\n", dst_var, src_expr);
+            return;
+        case TY_DECIMAL:
+            cb_appendf(cb, "    val %s = decimal_to_json(%s)\n", dst_var, src_expr);
             return;
         case TY_BOOL:
             cb_appendf(cb, "    val %s = Json.JBool(%s)\n", dst_var, src_expr);
@@ -375,6 +379,9 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             return;
         case TY_FLOAT:
             cb_appendf(cb, "    val %s = float_from_json(%s)?\n", dst_var, src_expr);
+            return;
+        case TY_DECIMAL:
+            cb_appendf(cb, "    val %s = decimal_from_json(%s)?\n", dst_var, src_expr);
             return;
         case TY_BOOL:
             cb_appendf(cb, "    if !Json.is_JBool(%s) { return err(\"expected a boolean\") }\n", src_expr);
@@ -655,6 +662,9 @@ static void emit_to_sql(Type t, const char *src_expr, const char *dst_var, CodeB
         case TY_FLOAT:
             cb_appendf(cb, "    val %s = SqlValue.Float(%s)\n", dst_var, src_expr);
             return;
+        case TY_DECIMAL:
+            cb_appendf(cb, "    val %s = SqlValue.Text(str(%s))\n", dst_var, src_expr);
+            return;
         case TY_BOOL:
             cb_appendf(cb, "    val %s = SqlValue.Bool(%s)\n", dst_var, src_expr);
             return;
@@ -691,6 +701,9 @@ static void emit_from_sql(Type t, const char *src_expr, const char *dst_var, Cod
             return;
         case TY_FLOAT:
             cb_appendf(cb, "    val %s = sql_as_float(%s)?\n", dst_var, src_expr);
+            return;
+        case TY_DECIMAL:
+            cb_appendf(cb, "    val %s = sql_as_decimal(%s)?\n", dst_var, src_expr);
             return;
         case TY_BOOL:
             cb_appendf(cb, "    val %s = sql_as_bool(%s)?\n", dst_var, src_expr);
@@ -996,11 +1009,11 @@ static void import_field_converters(Module *module, const char *suffix, Type t, 
 static void import_for_derive(Module *module, const char *target, int line, int col) {
     if (strcmp(target, "Json") == 0) {
         static const char *const names[] = {"Json", "json_object_get", "json_require_field", "json_require_string_field",
-                                            "int_to_json", "int_from_json", "float_to_json", "float_from_json",
+                                            "int_to_json", "int_from_json", "float_to_json", "float_from_json", "decimal_to_json", "decimal_from_json",
                                             "bool_to_json", "bool_from_json", "string_to_json", "string_from_json"};
         for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "json", names[i], line, col);
     } else if (strcmp(target, "Row") == 0) {
-        static const char *const names[] = {"SqlValue", "DbError", "Row", "row_get", "sql_as_text", "sql_as_int", "sql_as_bool", "sql_as_float"};
+        static const char *const names[] = {"SqlValue", "DbError", "Row", "row_get", "sql_as_text", "sql_as_int", "sql_as_bool", "sql_as_float", "sql_as_decimal"};
         for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "db", names[i], line, col);
     } else if (strcmp(target, "Properties") == 0) {
         ensure_module_import(module, "properties", line, col);

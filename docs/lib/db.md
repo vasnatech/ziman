@@ -174,6 +174,15 @@ pub fn sql_as_float(v: SqlValue) -> Result<float, DbError>
 
 A whole-number column read as a float, or a float column as itself.
 
+### `sql_as_decimal`
+
+```
+pub fn sql_as_decimal(v: SqlValue) -> Result<decimal, DbError>
+```
+
+A decimal column: TEXT holding decimal text (how `#[derive(Row)]` writes one, keeping its scale), or a whole-number or float
+column read as a decimal.
+
 ### `sql_lift`
 
 ```

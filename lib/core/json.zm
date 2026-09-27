@@ -330,6 +330,23 @@ pub fn float_from_json(j: Json) -> Result<float, string> {
     return ok(Json.unwrap_JNumber(j))
 }
 
+// `d` as a JSON number: the float nearest it, so a decimal with more than about 15 significant digits loses the rest.
+pub fn decimal_to_json(d: decimal) -> Json {
+    return Json.JNumber(d as float)
+}
+
+// A decimal from a JSON number, integers included: a number is read as its shortest text (`0.1` is `0.1`, not the float's exact
+// binary value). An Err otherwise.
+pub fn decimal_from_json(j: Json) -> Result<decimal, string> {
+    if Json.is_JInt(j) {
+        return ok(Json.unwrap_JInt(j) as decimal)
+    }
+    if !Json.is_JNumber(j) {
+        return err("expected a number")
+    }
+    return ok(Json.unwrap_JNumber(j) as decimal)
+}
+
 // `b` as a JSON boolean.
 pub fn bool_to_json(b: bool) -> Json {
     return Json.JBool(b)

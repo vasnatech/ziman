@@ -1,0 +1,29 @@
+use datasource
+use json.json_to_string
+use json.parse_json
+
+#[derive(Json)]
+#[derive(Row)]
+pub struct Price {
+    id: int
+    amount: Option<decimal>
+    total: decimal
+}
+
+fn main() {
+    val tree = unwrap(parse_json("{\"id\": 1, \"amount\": 12.50, \"total\": 3}"))
+    val p = unwrap(price_from_json(tree))
+    print(p.amount)
+    print(p.total)
+    print(json_to_string(price_to_json(p)))
+    print(is_ok(price_from_json(unwrap(parse_json("{\"id\": 1, \"total\": \"x\"}")))))
+    print(unwrap(price_from_json(unwrap(parse_json("{\"id\": 2, \"total\": 0.1}")))).total)
+
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+    unwrap(datasource.execute(conn, "CREATE TABLE price (id INTEGER, amount TEXT, total TEXT NOT NULL)"))
+    unwrap(datasource.execute(conn, "INSERT INTO price VALUES ($1, $2, $3)", price_to_params(p)))
+    val rows = unwrap(datasource.query(conn, "SELECT * FROM price"))
+    val back = unwrap(price_from_row(rows[0]))
+    print(back.amount)
+    print(back.total)
+}
