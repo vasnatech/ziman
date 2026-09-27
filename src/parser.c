@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "derive.h"
+#include "stack.h"
 #include "error.h"
 
 typedef struct {
@@ -831,6 +832,7 @@ static Expr *parse_postfix(Parser *p) {
 }
 
 static Expr *parse_unary(Parser *p) {
+    ZIMAN_STACK_CHECK();
     if (check(p, TOK_BANG) || check(p, TOK_MINUS)) {
         Token *t = advance_tok(p);
         Op op = t->type == TOK_BANG ? OP_NOT : OP_NEG;
@@ -922,6 +924,7 @@ static Expr *parse_expr(Parser *p) { return parse_logic_or(p); }
 static Stmt *parse_statement(Parser *p);
 
 static Stmt *parse_block(Parser *p) {
+    ZIMAN_STACK_CHECK();
     Token *open = expect(p, TOK_LBRACE, "'{'");
     Stmt *block = stmt_new(STMT_BLOCK, open->line, open->col);
     skip_newlines(p);

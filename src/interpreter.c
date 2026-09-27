@@ -1,7 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "interpreter.h"
 #include "iter.h"
+#include "stack.h"
 
+#include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -143,6 +145,7 @@ static void run_defers(Module *module, Env *env) {
 }
 
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
+    ZIMAN_STACK_CHECK();
     int argc;
     Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);
     if (fn->is_native) {
@@ -238,6 +241,7 @@ static Value call_contains(Value first, Value second) {
  * bumping this function's internals -- only ever used within a single
  * program run, never persisted. */
 uint64_t value_hash(Value v) {
+    ZIMAN_STACK_CHECK();
     uint64_t h;
     switch (v.type.kind) {
         case TY_INT:
@@ -389,6 +393,7 @@ static int cmp_float_values(double x, double y) {
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col);
 
 static int value_compare(Module *module, Value a, Value b, int line, int col) {
+    ZIMAN_STACK_CHECK();
     /* Option<T>: None before every Some, Somes by payload. */
     if (a.type.kind == TY_ENUM && a.type.enum_name != NULL && strcmp(a.type.enum_name, "Option") == 0) {
         int a_some = strcmp(a.as.en->variant_name, "Some") == 0;
@@ -753,6 +758,7 @@ static Value eval_enum_access(Module *module, Env *env, Expr *e) {
 }
 
 static Value eval_expr(Module *module, Env *env, Expr *e) {
+    ZIMAN_STACK_CHECK();
     switch (e->kind) {
         case EXPR_INT: return value_int(e->as.int_val);
         case EXPR_FLOAT: return value_float(e->as.float_val);
@@ -1214,6 +1220,7 @@ static ExecResult exec_block(Module *module, Env *parent, Stmt *block) {
 }
 
 static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
+    ZIMAN_STACK_CHECK();
     switch (s->kind) {
         case STMT_VAL:
         case STMT_VAR: {
@@ -1355,9 +1362,9 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             sa->argc = argc;
             sa->line = s->line;
             sa->col = s->col;
-            pthread_t thread;
-            pthread_create(&thread, NULL, spawn_thread_entry, sa);
-            pthread_detach(thread);
+            if (ziman_spawn_thread(spawn_thread_entry, sa) != 0) {
+                ziman_error("runtime", s->line, s->col, "cannot start a thread (%s)", strerror(errno));
+            }
             return no_ctrl();
         }
         case STMT_RETURN: {

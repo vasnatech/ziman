@@ -1,0 +1,18 @@
+fn down(n: int) -> int {
+    if n == 0 {
+        return 0
+    }
+    return 1 + down(n - 1)
+}
+
+fn work(n: int, out: Channel<int>) {
+    send(out, down(n))
+}
+
+fn main() {
+    val out: Channel<int> = channel_new()
+    spawn work(200, out)
+    print(receive(out))
+    spawn work(100000000, out)
+    print(receive(out))
+}

@@ -1,0 +1,11 @@
+fn down(n: int) -> int {
+    if n == 0 {
+        return 0
+    }
+    return 1 + down(n - 1)
+}
+
+fn main() {
+    print(down(500))
+    print(down(100000000))
+}

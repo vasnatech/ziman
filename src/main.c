@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "derive.h"
+#include "stack.h"
 #include "format.h"
 #include "lsp.h"
 #include "native_compress.h"
@@ -45,6 +46,11 @@ static void usage(FILE *out) {
           "                   --check list the files that would change and exit 1;\n"
           "                   --width=N wraps longer lines (default 120, 0 = never)\n"
           "  --emit-derived   print the code each #[derive] generates, then continue\n"
+          "  --stack-mb=N     the main thread's stack in MB (1-768; default: computed from the memory available)\n"
+          "  --thread-stack-mb=N  the stack of each `spawn`ed thread in MB (default: computed)\n"
+          "  --threads=N      how many threads to plan stacks for (default 64)\n"
+          "                   (the environment variables ZIMAN_STACK_MB, ZIMAN_THREAD_STACK_MB and\n"
+          "                   ZIMAN_THREADS do the same; a flag wins)\n"
           "  --version        print the version and exit\n"
           "  --help           print this help and exit\n", out);
 }
@@ -107,6 +113,56 @@ static int run_format(char **files, int n_files, int write, int check, int width
     return check && changed > 0 ? 1 : 0;
 }
 
+/* Everything `ziman file.zm` does after the options: load, check, and run. It runs on a thread with a stack sized for deep recursion (see stack.h). */
+typedef struct {
+    const char *file;
+    int json, lint, check_only;
+} RunOptions;
+
+static void *run_program(void *raw) {
+    RunOptions *o = raw;
+    const char *file = o->file;
+    int json = o->json, lint = o->lint, check_only = o->check_only;
+    ziman_stack_mark_main();
+
+    /* Line-buffered stdout even when redirected to a file or a pipe (C's
+     * default there is fully buffered). A long-running program -- a
+     * server logging each request -- needs its output to appear as it
+     * happens, not when 4 KiB have accumulated or the process exits. */
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
+    native_fs_register();
+    native_iter_register();
+    native_regex_register();
+    native_random_register();
+    native_clock_register();
+    native_sqlite_register();
+    native_net_register();
+    native_os_register();
+    native_crypto_register();
+    native_number_register();
+    native_csv_register();
+    native_json_register();
+    native_compress_register();
+    prelude_register();
+
+    Module *module = load_module_graph(file);
+    if (lint) typecheck_enable_lint();
+    typecheck(module);
+    if (lint) {
+        int n = typecheck_lint_count();
+        if (json && n == 0) printf("{\"ok\":true}\n");
+        exit(n == 0 ? 0 : 1);
+    }
+    if (check_only) {
+        if (json) printf("{\"ok\":true}\n");
+        return NULL;
+    }
+    interpret(module);
+
+    return NULL;
+}
+
 int main(int argc, char **argv) {
 #ifdef ZIMAN_GC
     /* Before the first allocation: the first one initialises the collector with defaults. */
@@ -119,6 +175,7 @@ int main(int argc, char **argv) {
     (void)GC_expand_hp(32u * 1024 * 1024);
 #endif
     int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, lsp = 0;
+    long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0;
     const char *file = NULL;
     char **files = malloc((size_t)argc * sizeof(char *));
     int n_files = 0;
@@ -136,6 +193,9 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--write") == 0) fmt_write = 1;
         else if (strncmp(a, "--width=", 8) == 0) fmt_width = atoi(a + 8);
         else if (strcmp(a, "--emit-derived") == 0) g_emit_derived = 1;
+        else if (strncmp(a, "--stack-mb=", 11) == 0) stack_main_mb = atol(a + 11);
+        else if (strncmp(a, "--thread-stack-mb=", 18) == 0) stack_thread_mb = atol(a + 18);
+        else if (strncmp(a, "--threads=", 10) == 0) stack_threads = atol(a + 10);
         else if (strcmp(a, "--version") == 0 || strcmp(a, "-V") == 0) { printf("ziman %s\n", ZIMAN_VERSION); return 0; }
         else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) { usage(stdout); return 0; }
         else if (a[0] == '-' && a[1] == '-') { fprintf(stderr, "ziman: unknown option '%s'\n", a); usage(stderr); return 2; }
@@ -169,41 +229,8 @@ int main(int argc, char **argv) {
     }
     ziman_set_json_errors(json);
     ziman_set_entry_file(file);
-
-    /* Line-buffered stdout even when redirected to a file or a pipe (C's
-     * default there is fully buffered). A long-running program -- a
-     * server logging each request -- needs its output to appear as it
-     * happens, not when 4 KiB have accumulated or the process exits. */
-    setvbuf(stdout, NULL, _IOLBF, 0);
-
-    native_fs_register();
-    native_iter_register();
-    native_regex_register();
-    native_random_register();
-    native_clock_register();
-    native_sqlite_register();
-    native_net_register();
-    native_os_register();
-    native_crypto_register();
-    native_number_register();
-    native_csv_register();
-    native_json_register();
-    native_compress_register();
-    prelude_register();
-
-    Module *module = load_module_graph(file);
-    if (lint) typecheck_enable_lint();
-    typecheck(module);
-    if (lint) {
-        int n = typecheck_lint_count();
-        if (json && n == 0) printf("{\"ok\":true}\n");
-        return n == 0 ? 0 : 1;
-    }
-    if (check_only) {
-        if (json) printf("{\"ok\":true}\n");
-        return 0;
-    }
-    interpret(module);
-
+    ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
+    RunOptions options = {file, json, lint, check_only};
+    ziman_run_on_big_stack(run_program, &options);
     return 0;
 }

@@ -3028,6 +3028,30 @@ are runtime errors, reported the same way as compile-time errors (see
 `src/error.c`): `ziman: <phase> error at <line>:<col>: <message>`, then
 exit code 1.
 
+### Stack depth
+
+Recursion is limited by the stack the thread has, not by a fixed number of calls. Every thread knows where its stack ends
+and each call and each nested expression checks how much is left; a program that runs it out stops with the runtime error
+`stack depth exceeded: this main thread's N MB stack is used up` (never a crash). A Ziman call costs between about 3.5 and 11 KB of
+stack depending on the shape of the code, so an 8 MB stack holds about 1,000-2,000 calls and a 256 MB one about 25,000-70,000.
+
+The sizes are chosen when the program starts, from the machine: an eighth of the memory the process may still use (the smaller of
+what the machine has available and what its container allows) is the budget for stacks. The main thread (the one that runs `main`)
+takes a quarter of it, between 8 and 512 MB; the rest is shared between the threads the program plans for (64 unless told
+otherwise), 1 to 64 MB for each `spawn`ed thread. Stacks are reserved address space and only the pages a thread touches use memory,
+so these are ceilings. The spawned-thread size is recomputed at most once a second, since memory changes and a thread's stack cannot
+once it exists. Override any of it:
+
+| Option | Environment variable | Meaning |
+|---|---|---|
+| `--stack-mb=N` | `ZIMAN_STACK_MB` | the main thread's stack, 1 to 768 MB |
+| `--thread-stack-mb=N` | `ZIMAN_THREAD_STACK_MB` | the stack of each `spawn`ed thread, 1 to 768 MB |
+| `--threads=N` | `ZIMAN_THREADS` | how many threads to plan the memory for (default 64; a server with `max_connections` of 500 says 500) |
+
+A flag wins over its variable, which wins over the computed size. The limit is 768 MB because the bundled garbage collector aborts
+with stacks near 1 GB. The parser, the type checker and the comparison, hashing and printing of deeply nested values are checked the
+same way, so a pathologically nested source file or value is an error and not a crash.
+
 ## Builtins
 
 Builtin names are reserved — redefining any of them as a user function is

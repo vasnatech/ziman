@@ -8,7 +8,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 
 ## A. Ziman runtime and safety (P0)
 
-- [ ] **A1** Stack-depth guard: raise a clean "stack depth exceeded" error instead of segfaulting (about 1,300-1,450 frames), and run the interpreter and spawned threads on an explicit large stack. (L P0-1, D B4; S-M)
+- [x] **A1** Stack-depth guard: a clean "stack depth exceeded" error instead of a segfault, from a per-thread limit read at run time (`src/stack.c`); the main interpreter thread and each `spawn` run on stacks sized from usable memory, thread count and `--stack-mb`/`--thread-stack-mb`/`--threads` (or the `ZIMAN_*` variables); parser, checker and deep values are guarded too. (L P0-1, D B4; S-M)
 - [ ] **A2** Fatal-error boundary per thread and per request: a runtime error in a handler becomes a 500 plus a log line, and the process stays up. (L P0-4, D B5; M)
 - [x] **A3** Builders stay in their thread (chosen over locking): `#[thread_bound]` marks the type; compile errors for a `Channel` element, a `spawn` argument and a module-level `val`; a runtime owner check on every builder operation; docs corrected. `Iter<T>` is thread-bound too. (L P0-2; S)
 - [x] **A4** Numeric holes: range-check int literals (including the negated minimum), saturate `float as int`, convert `float as bigint` exactly, reject `%` on floats in the checker. (L P0-3, D B6; S)

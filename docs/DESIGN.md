@@ -3670,3 +3670,15 @@ Connection value is unreachable, so that thread closes the socket and exits inst
 forever. Still true: close promptly -- a collection may be far off, and a file database stays locked
 until it runs.
 
+## Stack depth (2026-09)
+
+Deep recursion used to run off the end of the C stack and crash with no message (about 1,450 calls on the default 8 MB). The interpreter is tree-walking and
+recurses in C, so the fix is not to count Ziman calls but to guard the C stack: `src/stack.c` reads each thread's real bounds once (`pthread_getattr_np`), keeps
+the low limit plus a margin in a thread-local, and `ZIMAN_STACK_CHECK()` (one compare against the address of a local) runs at every call, statement, expression
+and parse/check step. Measured on the prototype: within noise on call-, loop- and mixed-heavy programs, and no cost per spawn. A Ziman call costs 3.5-11 KB of C stack
+depending on its shape, which is why a frame count would have been the wrong limit.
+
+The stack sizes are decided at run time (`stack.h`): the main interpreter thread runs on a created thread whose stack, and the stack of each `spawn`, come from an eighth of
+the memory the process may use, split by the threads it plans for, with options to override. The 768 MB cap is the garbage collector's: Boehm aborted once a thread's stack
+was near 1 GB. Deeper causes are not investigated (a `GC_allocobj` failure with a huge reserved stack); the cap keeps every accepted configuration on the working side.
+Not done: a fatal error in a spawned thread still ends the whole process (task A2).

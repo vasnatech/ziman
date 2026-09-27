@@ -8,6 +8,7 @@
 #include "env.h"
 #include "derive.h"
 #include "error.h"
+#include "stack.h"
 
 static FunctionDecl *find_function(Module *module, const char *name) {
     for (int i = 0; i < module->functions.count; i++) {
@@ -1777,6 +1778,7 @@ static Param *resolve_field_init(StructDecl *decl, FieldInitList *inits, int ind
  * simpler than teaching four different messages that wording, and no
  * worse than what the mismatch case already said. */
 static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type expected) {
+    ZIMAN_STACK_CHECK();
     Expr *e = *e_slot;
     if (e->kind == EXPR_ARRAY_LIT && e->as.array_lit.elements.count == 0 && expected.kind == TY_ARRAY) {
         e->resolved_type = expected;
@@ -2095,6 +2097,7 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
 }
 
 static Type check_expr(Module *module, Env *env, Expr *e) {
+    ZIMAN_STACK_CHECK();
     Type t;
     switch (e->kind) {
         case EXPR_INT:
@@ -2902,6 +2905,7 @@ static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type
 }
 
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
+    ZIMAN_STACK_CHECK();
     switch (s->kind) {
         case STMT_SWITCH:
             check_switch(module, env, s, fn_return_type, in_loop);

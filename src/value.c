@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "value.h"
+#include "stack.h"
 #include "mapobj.h"
 
 #include <stdio.h>
@@ -382,6 +383,7 @@ int channel_length(ChannelObj *ch) {
 }
 
 int value_equals(Value a, Value b) {
+    ZIMAN_STACK_CHECK();
     /* Callers only compare same-typed values, and only when the type checker
      * (type_supports_equality in typecheck.c) has already established that
      * type is comparable: arrays only for a scalar element type, a struct
@@ -475,6 +477,7 @@ int value_equals(Value a, Value b) {
 }
 
 char *value_display(Value v) {
+    ZIMAN_STACK_CHECK();
     char buf[64];
     switch (v.type.kind) {
         case TY_INT:
