@@ -1022,11 +1022,32 @@ fn plus_one(s: string) -> Result<int, string> {
   `spawn` argument, and an `if`/`switch` used as a value (its arms may not
   leave). Put it in its own `val` first.
 - **`Result<T, E>`'s `try` requires the enclosing function to return
-  `Result<T2, E>` with the *same* `E`** — propagating `Err(e)` means handing the
-  caller a real value, so the error type has to match exactly; there is no
-  `From`-style conversion (Ziman has no trait/conversion system). `Option<T>`'s
-  `try` only requires the enclosing function to return `Option<T2>` for *any*
-  `T2` — `None` carries nothing to propagate.
+  `Result<T2, E>` with the *same* `E`, unless the function's error type declares
+  a conversion.** Propagating `Err(e)` means handing the caller a real value, so
+  the error type has to match. An enum may mark one variant `#[from]` (it must
+  have a payload): a `try` on a `Result<_, P>`, in a function returning
+  `Result<_, Enum>` where a `#[from]` variant of `Enum` has payload type `P`,
+  wraps the error in that variant:
+
+  ```
+  enum ServiceError {
+      #[from] Storage(DbError)
+      #[from] Validation(ValidationError)
+      Internal(string)
+  }
+
+  fn get(ctx: Ctx, id: Uuid) -> Result<Response, ServiceError> {
+      val row = try repository.find_by_id(ctx.conn, id)   // Err(db) returns Err(Storage(db))
+      return mapper.to_response(row)
+  }
+  ```
+
+  At most one variant of an enum may be `#[from]` for a given payload type, so the
+  conversion never depends on the order of the variants; `#[from]` is not
+  supported on a generic enum. The conversion applies only to `try`, and only one
+  step (the result is not converted again further out). `Option<T>`'s `try` only
+  requires the enclosing function to return `Option<T2>` for *any* `T2` — `None`
+  carries nothing to propagate.
 - **A bare `try expr` statement (no `val`/`var`)** still fully checks and
   propagates, discarding the unwrapped value on success — useful for a fallible
   step whose success value isn't needed, only whether it succeeded.

@@ -1,0 +1,7 @@
+enum ServiceError {
+    #[into] Other(string)
+}
+
+fn main() {
+    print("x")
+}

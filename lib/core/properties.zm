@@ -175,8 +175,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
 
 // Parses one properties text, resolving placeholders within it.
 pub fn parse(text: string, source: string) -> Result<Properties, string> {
-    val raw = try parse_raw(text, source)
-    return resolve_all(raw)
+    return resolve_all(try parse_raw(text, source))
 }
 
 fn read_source(file: string) -> Result<string, string> {
@@ -220,8 +219,7 @@ pub fn load(name: string) -> Result<Properties, string> {
     }
     val profile_file = format("{}-{}.properties", name, profile)
     val profile_text = try read_source(profile_file)
-    val over = try parse_raw(profile_text, profile_file)
-    return resolve_all(merge(base, over, profile))
+    return resolve_all(merge(base, try parse_raw(profile_text, profile_file), profile))
 }
 
 fn require(props: Properties, key: string) -> Result<Entry, string> {
@@ -278,27 +276,23 @@ pub fn entry_bool(e: Entry) -> Result<bool, string> {
 // The value of the required property `key` (environment variable first, then the files) as a
 // string. An Err if it is missing; the message names the key and the environment variable.
 pub fn get_string(props: Properties, key: string) -> Result<string, string> {
-    val e = try require(props, key)
-    return entry_string(e)
+    return entry_string(try require(props, key))
 }
 
 // The value of the required property `key` (environment variable first, then the files) as an
 // int. An Err if it is missing or not an integer; the message names the key and where to set it.
 pub fn get_int(props: Properties, key: string) -> Result<int, string> {
-    val e = try require(props, key)
-    return entry_int(e)
+    return entry_int(try require(props, key))
 }
 
 // The required property `key` as a float; same lookup and errors as `get_int`.
 pub fn get_float(props: Properties, key: string) -> Result<float, string> {
-    val e = try require(props, key)
-    return entry_float(e)
+    return entry_float(try require(props, key))
 }
 
 // The required property `key` as a bool (`true` / `false`); same lookup and errors as `get_int`.
 pub fn get_bool(props: Properties, key: string) -> Result<bool, string> {
-    val e = try require(props, key)
-    return entry_bool(e)
+    return entry_bool(try require(props, key))
 }
 
 // "server" + "port" -> "server.port"; an empty prefix leaves the name alone.

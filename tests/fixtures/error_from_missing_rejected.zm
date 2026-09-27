@@ -1,0 +1,16 @@
+enum ServiceError {
+    Other(string)
+}
+
+fn find(id: int) -> Result<int, int> {
+    return ok(id)
+}
+
+fn get(id: int) -> Result<int, ServiceError> {
+    val row = try find(id)
+    return ok(row)
+}
+
+fn main() {
+    print(get(1))
+}

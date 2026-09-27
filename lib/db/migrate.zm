@@ -325,6 +325,5 @@ pub fn apply(conn: Connection, migrations: [Migration]) -> Result<int, DbError> 
 
 // `apply` for the migrations in the directory `dir`.
 pub fn run(conn: Connection, dir: string) -> Result<int, DbError> {
-    val migrations = try load_for(dir, datasource.dialect(conn))
-    return apply(conn, migrations)
+    return apply(conn, try load_for(dir, datasource.dialect(conn)))
 }

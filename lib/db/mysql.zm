@@ -791,20 +791,16 @@ fn decode_binary_value(c: Column, b: [byte], pos: int) -> Result<SqlValue, DbErr
     val t = c.type_code
     val unsigned = bit_set(c.flags, 5)
     if t == type_tiny {
-        val v = try read_int(b, pos, 1, unsigned)
-        return SqlValue.Int(v)
+        return SqlValue.Int(try read_int(b, pos, 1, unsigned))
     }
     if t == type_short || t == type_year {
-        val v = try read_int(b, pos, 2, unsigned)
-        return SqlValue.Int(v)
+        return SqlValue.Int(try read_int(b, pos, 2, unsigned))
     }
     if t == type_long || t == type_int24 {
-        val v = try read_int(b, pos, 4, unsigned)
-        return SqlValue.Int(v)
+        return SqlValue.Int(try read_int(b, pos, 4, unsigned))
     }
     if t == type_longlong {
-        val v = try read_int(b, pos, 8, unsigned)
-        return SqlValue.Int(v)
+        return SqlValue.Int(try read_int(b, pos, 8, unsigned))
     }
     if t == type_float {
         return SqlValue.Float(f32_from_bytes(b, pos))
@@ -1052,15 +1048,13 @@ fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
         return err(DbError.Sql(format("statement takes {} parameters, {} given", param_count, len(rewritten.params))))
     }
     try send_packet(sock, 0, execute_body(stmt_id, rewritten.params, 0))
-    val rs = try read_all_results(sock)
-    return to_result(rs, true)
+    return to_result(try read_all_results(sock), true)
 }
 
 fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     if len(params) == 0 {
         try send_packet(sock, 0, bytes_concat([3b], string_to_bytes(sql)))
-        val rs = try read_all_results(sock)
-        return to_result(rs, false)
+        return to_result(try read_all_results(sock), false)
     }
     return prepared_query(sock, sql, params)
 }
@@ -1315,14 +1309,12 @@ fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult,
 
 // The number of rows the last statement changed.
 pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
-    val result = try run(conn, sql, params)
-    return result.affected
+    return (try run(conn, sql, params)).affected
 }
 
 // Runs a statement and returns its rows.
 pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
-    val result = try run(conn, sql, params)
-    return result.rows
+    return (try run(conn, sql, params)).rows
 }
 
 // Asks the connection's thread to say goodbye to the server and close the socket. Returns at once;

@@ -181,8 +181,7 @@ struct ChunkedBody {
 
 // Reads more bytes from the socket onto `buf`.
 fn fill(sock: Socket, buf: [byte]) -> Result<[byte], HttpError> {
-    val chunk = try lift<[byte]>(net.read(sock, read_chunk_bytes))
-    return bytes_concat(buf, chunk)
+    return bytes_concat(buf, try lift<[byte]>(net.read(sock, read_chunk_bytes)))
 }
 
 // Decodes a chunked body (RFC 7230 section 4.1): `size-in-hex [;extension] CRLF data CRLF`

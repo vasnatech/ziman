@@ -2311,10 +2311,24 @@ static Type check_try_unwrap(Module *module, Env *env, Expr *e, Type fn_return_t
         return t;
     }
     if (inner_type.kind == TY_RESULT) {
-        if (fn_return_type.kind != TY_RESULT || !type_equals(*inner_type.elem_err, *fn_return_type.elem_err)) {
+        e->as.try_unwrap.convert_variant = NULL;
+        if (fn_return_type.kind == TY_RESULT && !type_equals(*inner_type.elem_err, *fn_return_type.elem_err) && fn_return_type.elem_err->kind == TY_ENUM) {
+            EnumDecl *target = find_enum(module, fn_return_type.elem_err->enum_name);
+            for (int v = 0; target != NULL && v < target->variants.count; v++) {
+                EnumVariant *cand = &target->variants.items[v];
+                if (cand->is_from && type_equals(cand->payload_type, *inner_type.elem_err)) {
+                    e->as.try_unwrap.convert_variant = cand->name;
+                    break;
+                }
+            }
+        }
+        if (fn_return_type.kind != TY_RESULT ||
+            (e->as.try_unwrap.convert_variant == NULL && !type_equals(*inner_type.elem_err, *fn_return_type.elem_err))) {
             ziman_error("type", e->line, e->col,
-                        "'try' on a Result<T, E> value requires the enclosing function to return Result<..., %s>, found %s",
-                        type_name(*inner_type.elem_err), type_name(fn_return_type));
+                        "'try' on a Result<T, E> value requires the enclosing function to return Result<..., %s>, found %s%s",
+                        type_name(*inner_type.elem_err), type_name(fn_return_type),
+                        fn_return_type.kind == TY_RESULT && fn_return_type.elem_err->kind == TY_ENUM
+                            ? " (or mark a variant of that enum `#[from]` to convert the error)" : "");
         }
         e->as.try_unwrap.propagated_type = fn_return_type;
         Type t = *inner_type.elem;
@@ -3503,6 +3517,22 @@ void typecheck(Module *module) {
             if (ed->variants.items[v].has_payload) {
                 check_type_well_formed(module, ed->variants.items[v].payload_type,
                                         ed->variants.items[v].line, ed->variants.items[v].col);
+            }
+            if (ed->variants.items[v].is_from) {
+                EnumVariant *fv = &ed->variants.items[v];
+                if (!fv->has_payload) {
+                    ziman_error("type", fv->line, fv->col, "#[from] variant '%s' has no payload: it converts an error of its payload type", fv->name);
+                }
+                if (ed->type_params.count > 0) {
+                    ziman_error("type", fv->line, fv->col, "#[from] is not supported on a generic enum ('%s')", ed->name);
+                }
+                for (int w = 0; w < v; w++) {
+                    EnumVariant *other = &ed->variants.items[w];
+                    if (other->is_from && type_equals(other->payload_type, fv->payload_type)) {
+                        ziman_error("type", fv->line, fv->col, "#[from] on '%s' and '%s' both convert %s: at most one variant of an enum may be #[from] for a payload type",
+                                    other->name, fv->name, type_name(fv->payload_type));
+                    }
+                }
             }
         }
         current_decl_type_params = NULL;

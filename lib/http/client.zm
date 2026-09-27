@@ -216,8 +216,7 @@ pub fn response_header(r: Response, name: string) -> Option<string> {
 
 // Reads at least one more byte from the socket onto `buf`.
 fn more(sock: Socket, buf: [byte]) -> Result<[byte], ClientError> {
-    val chunk = try lift<[byte]>(net.read(sock, read_chunk_bytes))
-    return bytes_concat(buf, chunk)
+    return bytes_concat(buf, try lift<[byte]>(net.read(sock, read_chunk_bytes)))
 }
 
 // A status line and headers, and the bytes read past them.
@@ -381,8 +380,10 @@ fn read_body(sock: Socket, head: Head, head_only: bool) -> Result<Body, ClientEr
             return err(ClientError.TooLarge)
         }
         if unwrap(n) > len(head.rest) {
-            val tail = try lift<[byte]>(net.read_exact(sock, unwrap(n) - len(head.rest)))
-            return ok(Body { bytes: bytes_concat(head.rest, tail), clean: true })
+            return ok(Body {
+                bytes: bytes_concat(head.rest, try lift<[byte]>(net.read_exact(sock, unwrap(n) - len(head.rest)))),
+                clean: true
+            })
         }
         return ok(Body { bytes: slice<byte>(head.rest, 0, unwrap(n)), clean: len(head.rest) == unwrap(n) })
     }

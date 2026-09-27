@@ -1,0 +1,3 @@
+Ok(row)
+Err(Storage(NotFound(no such row)))
+Err(Validation(Empty(name)))

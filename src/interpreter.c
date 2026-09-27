@@ -1261,7 +1261,11 @@ static int eval_try_unwrap(Module *module, Env *env, Expr *e, Value *unwrapped, 
             return 1;
         }
         propagated->kind = CTRL_RETURN;
-        propagated->value = value_result(propagated_type, result_obj_new(0, v.as.res->value));
+        Value failure = v.as.res->value;
+        if (e->as.try_unwrap.convert_variant != NULL) {
+            failure = value_enum(*propagated_type.elem_err, enum_obj_new(propagated_type.elem_err->enum_name, e->as.try_unwrap.convert_variant, 1, failure));
+        }
+        propagated->value = value_result(propagated_type, result_obj_new(0, failure));
         return 0;
     }
     /* Option<T> -- the only other type check_try_unwrap ever allows. */

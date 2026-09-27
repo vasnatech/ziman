@@ -1,0 +1,7 @@
+enum Wrapped<T> {
+    #[from] Boxed(T)
+}
+
+fn main() {
+    print("x")
+}

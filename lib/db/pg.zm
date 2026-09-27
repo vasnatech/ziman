@@ -821,14 +821,12 @@ fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult,
 
 // The number of rows the last statement changed.
 pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
-    val result = try run(conn, sql, params)
-    return result.affected
+    return (try run(conn, sql, params)).affected
 }
 
 // Runs a statement and returns its rows.
 pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
-    val result = try run(conn, sql, params)
-    return result.rows
+    return (try run(conn, sql, params)).rows
 }
 
 // Asks the connection's thread to say goodbye to the server and close the socket. Returns at once;

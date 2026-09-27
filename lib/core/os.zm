@@ -161,8 +161,7 @@ pub fn cpu_usage_between(before: CpuTimes, after: CpuTimes) -> float {
 pub fn cpu_usage(sample_millis: int) -> Result<float, string> {
     val before = try cpu_times()
     sleep_millis(sample_millis)
-    val after = try cpu_times()
-    return cpu_usage_between(before, after)
+    return cpu_usage_between(before, try cpu_times())
 }
 
 // The CPU time this process has used so far, in seconds, all its threads together.

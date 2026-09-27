@@ -482,8 +482,7 @@ pub fn load_rules(name: string) -> Result<ZoneRules, string> {
     if !fs.exists(path) || fs.is_dir(path) {
         return err(format("unknown time zone '{}'", name))
     }
-    val data = try fs.read_bytes(path)
-    return parse_rules(data)
+    return parse_rules(try fs.read_bytes(path))
 }
 
 // ---------------------------------------------------------------- looking a time up

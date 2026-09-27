@@ -276,7 +276,9 @@ struct Expr {
          * once at type-check time and reused to build the propagated None/Err value at runtime. The interpreter and the checker only accept it as the entire
          * initializer of a val/var or as its own statement; the parser hoists a `try` written anywhere else in an expression into such a `val $tN = try inner`
          * in front of the statement (hoist_stmt in parser.c), and a `try` it could not hoist reaches check_expr's EXPR_TRY_UNWRAP case and is refused. */
-        struct { Expr *inner; Type propagated_type; } try_unwrap;
+        struct { Expr *inner; Type propagated_type; char *convert_variant; } try_unwrap;
+        /* `convert_variant` is set by check_try_unwrap when the error of `inner` is not the enclosing function's error type but converts into the
+         * `#[from]` variant of that type (an enum) of this name: the propagated `Err` then holds `Enum.Variant(error)`. */
         /* `if`/`switch` used as an operand or argument: `f(if c { 1 } else { 2 })`,
          * `1 + (switch e { ... })`. `inner` is the same STMT_IF/STMT_SWITCH with
          * yielding arms that STMT_VALUE_BLOCK wraps; here no arm may leave
@@ -553,6 +555,7 @@ typedef struct {
     char *name;
     int has_payload;
     Type payload_type; /* only meaningful when has_payload */
+    int is_from;       /* `#[from]`: a `try` on a Result whose error is `payload_type` converts it into this variant */
     int line, col;
 } EnumVariant;
 

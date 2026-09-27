@@ -1,0 +1,8 @@
+enum ServiceError {
+    #[from] A(string)
+    #[from] B(string)
+}
+
+fn main() {
+    print("x")
+}

@@ -737,8 +737,7 @@ fn widen_fraction(s: string) -> Result<string, string> {
 // otherwise.
 pub fn localtime_from_string(s: string) -> Result<LocalTime, string> {
     if contains(s, ".") {
-        val widened = try widen_fraction(s)
-        return localtime_parse_pattern(widened, iso_time_nanos_format)
+        return localtime_parse_pattern(try widen_fraction(s), iso_time_nanos_format)
     }
     return localtime_parse_pattern(s, iso_time_format)
 }
@@ -996,8 +995,7 @@ pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Loc
 // otherwise.
 pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string> {
     if contains(s, ".") {
-        val widened = try widen_fraction(s)
-        return localdatetime_parse_pattern(widened, iso_datetime_nanos_format)
+        return localdatetime_parse_pattern(try widen_fraction(s), iso_datetime_nanos_format)
     }
     return localdatetime_parse_pattern(s, iso_datetime_format)
 }
@@ -1302,8 +1300,7 @@ pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, 
 // accepting it.
 pub fn instant_from_string(s: string) -> Result<Instant, string> {
     if contains(s, ".") {
-        val widened = try widen_fraction(s)
-        return instant_parse_pattern(widened, iso_datetime_nanos_format)
+        return instant_parse_pattern(try widen_fraction(s), iso_datetime_nanos_format)
     }
     return instant_parse_pattern(s, iso_datetime_format)
 }
@@ -1427,8 +1424,7 @@ pub fn local_date_to_sql(v: LocalDate) -> SqlValue {
 
 // A `LocalDate` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn local_date_from_sql(v: SqlValue) -> Result<LocalDate, DbError> {
-    val text = try sql_as_text(v)
-    return sql_lift<LocalDate>(localdate_from_string(text), "LocalDate")
+    return sql_lift<LocalDate>(localdate_from_string(try sql_as_text(v)), "LocalDate")
 }
 
 // `LocalTime` as a SQL text value in its ISO form.
@@ -1438,8 +1434,7 @@ pub fn local_time_to_sql(v: LocalTime) -> SqlValue {
 
 // A `LocalTime` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn local_time_from_sql(v: SqlValue) -> Result<LocalTime, DbError> {
-    val text = try sql_as_text(v)
-    return sql_lift<LocalTime>(localtime_from_string(text), "LocalTime")
+    return sql_lift<LocalTime>(localtime_from_string(try sql_as_text(v)), "LocalTime")
 }
 
 // `Duration` as a SQL text value in its ISO form.
@@ -1449,8 +1444,7 @@ pub fn duration_to_sql(v: Duration) -> SqlValue {
 
 // A `Duration` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn duration_from_sql(v: SqlValue) -> Result<Duration, DbError> {
-    val text = try sql_as_text(v)
-    return sql_lift<Duration>(duration_from_string(text), "Duration")
+    return sql_lift<Duration>(duration_from_string(try sql_as_text(v)), "Duration")
 }
 
 // `LocalDateTime` as a SQL text value in its ISO form.
@@ -1460,8 +1454,7 @@ pub fn local_date_time_to_sql(v: LocalDateTime) -> SqlValue {
 
 // A `LocalDateTime` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn local_date_time_from_sql(v: SqlValue) -> Result<LocalDateTime, DbError> {
-    val text = try sql_as_text(v)
-    return sql_lift<LocalDateTime>(localdatetime_from_string(text), "LocalDateTime")
+    return sql_lift<LocalDateTime>(localdatetime_from_string(try sql_as_text(v)), "LocalDateTime")
 }
 
 // `ZoneOffset` as a SQL text value in its ISO form.
@@ -1471,8 +1464,7 @@ pub fn zone_offset_to_sql(v: ZoneOffset) -> SqlValue {
 
 // A `ZoneOffset` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn zone_offset_from_sql(v: SqlValue) -> Result<ZoneOffset, DbError> {
-    val text = try sql_as_text(v)
-    return sql_lift<ZoneOffset>(zoneoffset_from_string(text), "ZoneOffset")
+    return sql_lift<ZoneOffset>(zoneoffset_from_string(try sql_as_text(v)), "ZoneOffset")
 }
 
 // `ZoneId` as a SQL text value in its ISO form.
@@ -1482,8 +1474,7 @@ pub fn zone_id_to_sql(v: ZoneId) -> SqlValue {
 
 // A `ZoneId` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn zone_id_from_sql(v: SqlValue) -> Result<ZoneId, DbError> {
-    val text = try sql_as_text(v)
-    return sql_lift<ZoneId>(zoneid_from_string(text), "ZoneId")
+    return sql_lift<ZoneId>(zoneid_from_string(try sql_as_text(v)), "ZoneId")
 }
 
 // `Instant` as a SQL text value in its ISO form.
@@ -1493,6 +1484,5 @@ pub fn instant_to_sql(v: Instant) -> SqlValue {
 
 // A `Instant` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
 pub fn instant_from_sql(v: SqlValue) -> Result<Instant, DbError> {
-    val text = try sql_as_text(v)
-    return sql_lift<Instant>(instant_from_string(text), "Instant")
+    return sql_lift<Instant>(instant_from_string(try sql_as_text(v)), "Instant")
 }

@@ -2039,9 +2039,22 @@ static EnumDecl *parse_enum_decl(Parser *p) {
     expect(p, TOK_LBRACE, "'{'");
     skip_newlines(p);
     while (!check(p, TOK_RBRACE)) {
+        int is_from = 0;
+        while (check(p, TOK_HASH)) {
+            expect(p, TOK_HASH, "'#'");
+            expect(p, TOK_LBRACKET, "'['");
+            Token *attr = expect(p, TOK_IDENT, "an attribute name");
+            if (attr->length != 4 || strncmp(attr->start, "from", 4) != 0) {
+                ziman_error("syntax", attr->line, attr->col, "unknown variant attribute '%.*s' (the only one is #[from])", attr->length, attr->start);
+            }
+            is_from = 1;
+            expect(p, TOK_RBRACKET, "']'");
+            skip_newlines(p);
+        }
         Token *variant_tok = expect(p, TOK_IDENT, "a variant name");
         require_upper_start(variant_tok, "a variant name");
         EnumVariant variant = {0};
+        variant.is_from = is_from;
         variant.name = dup_token_text(variant_tok);
         variant.line = variant_tok->line;
         variant.col = variant_tok->col;

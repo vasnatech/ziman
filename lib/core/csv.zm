@@ -198,8 +198,7 @@ fn table_of(text: string, sep: string, typed: bool) -> Result<Json, string> {
 }
 
 fn table_with_columns(text: string, columns: [string], typed: bool) -> Result<Json, string> {
-    val rows = try parse_rows(text, ",", typed)
-    return rows_to_objects(rows, columns, 0, typed)
+    return rows_to_objects(try parse_rows(text, ",", typed), columns, 0, typed)
 }
 
 // The raw table as strings, header row included: `[["name", "age"], ["Ada", "36"]]`. Quotes

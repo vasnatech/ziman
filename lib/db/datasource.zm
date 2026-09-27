@@ -91,16 +91,13 @@ pub fn dialect(conn: Connection) -> string {
 // no TLS yet -- a `sslmode=require` URL is refused, not downgraded).
 pub fn open(url: string) -> Result<Connection, DbError> {
     if starts_with(url, "sqlite:") {
-        val conn = try sqlite.open(substring(url, 7, len(url)))
-        return Connection.Sqlite(conn)
+        return Connection.Sqlite(try sqlite.open(substring(url, 7, len(url))))
     }
     if starts_with(url, "postgres://") || starts_with(url, "postgresql://") {
-        val conn = try pg.connect(url)
-        return Connection.Postgres(conn)
+        return Connection.Postgres(try pg.connect(url))
     }
     if starts_with(url, "mysql://") {
-        val conn = try mysql.connect(url)
-        return Connection.Mysql(conn)
+        return Connection.Mysql(try mysql.connect(url))
     }
     return err(DbError.Connection(concat(
         "unsupported database URL (expected sqlite:, postgres:// or mysql://): ",

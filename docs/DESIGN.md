@@ -3718,3 +3718,12 @@ The postfix `?` is gone; `try expr` is the only spelling (the earlier entries ab
 miss when reading, above all once nesting made it possible in the middle of an expression; a prefix keyword marks the early exit at the left of the line. The rewrite of the existing code (`lib/`, the tests, the
 backend and the doc examples) was mechanical: `val x = f()?` became `val x = try f()` and a bare `f()?` became `try f()`. The AST node (`EXPR_TRY_UNWRAP`), the type check and the interpreter are unchanged, and
 the generated code of `#[derive]` uses `try` too.
+
+## `#[from]`: error conversion in `try` (2026-09)
+
+`try` on a `Result<_, P>` inside a function returning `Result<_, E>` with `P != E` used to be a type error, which left the backend with about 160 hand-written `Err(failure) { ServiceError.Storage(failure) }`
+blocks. A variant of an enum can now be marked `#[from]` (parsed in `parse_enum_decl`, stored as `EnumVariant.is_from`): `check_try_unwrap` looks for a `#[from]` variant of the function's error enum whose
+payload type is `P`, records its name on the node (`try_unwrap.convert_variant`) and `eval_try_unwrap` wraps the error in it when it propagates. It is a declaration on the enum, not an inference at the call site: a
+second `#[from]` for the same payload type, one without a payload and one on a generic enum are refused, and the error message of an unconverted `try` names the option. Only `try` converts: `return err(x)`,
+the auto-wrap positions and `switch` arms are unchanged, and there is no chaining (`A` into `B` into `C`). `Result<_, string>` stays explicit on purpose: marking a `string` variant would turn every string
+error inside a service into that variant. A `map_err` in the prelude, and enum constructors usable as function values, are left for later.

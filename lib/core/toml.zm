@@ -492,14 +492,16 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
         if last < 0 || !Json.is_JObject(items[last]) {
             return err(format("'{}' is not a table", name))
         }
-        val updated_last = try descend(items[last], path, i + 1, op, value)
-        return ok(Json.JObject(set(fields, name, Json.JArray(set(items, last, updated_last)))))
+        return ok(Json.JObject(set(
+            fields,
+            name,
+            Json.JArray(set(items, last, try descend(items[last], path, i + 1, op, value)))
+        )))
     }
     if !Json.is_JObject(child) {
         return err(format("'{}' is already defined as a value, not a table", name))
     }
-    val updated = try descend(child, path, i + 1, op, value)
-    return ok(Json.JObject(set(fields, name, updated)))
+    return ok(Json.JObject(set(fields, name, try descend(child, path, i + 1, op, value))))
 }
 
 // After a statement: optional blanks and comment, then a newline or the end.

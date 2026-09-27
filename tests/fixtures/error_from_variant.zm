@@ -1,0 +1,40 @@
+enum DbError {
+    NotFound(string)
+    Broken(string)
+}
+
+enum Invalid {
+    Empty(string)
+}
+
+enum ServiceError {
+    #[from] Storage(DbError)
+    #[from] Validation(Invalid)
+    Other(string)
+}
+
+fn find(id: int) -> Result<string, DbError> {
+    if id == 0 {
+        return err(DbError.NotFound("no such row"))
+    }
+    return ok("row")
+}
+
+fn check(name: string) -> Result<unit, Invalid> {
+    if name == "" {
+        return err(Invalid.Empty("name"))
+    }
+    return ok(unit)
+}
+
+fn get(id: int, name: string) -> Result<string, ServiceError> {
+    try check(name)
+    val row = try find(id)
+    return ok(row)
+}
+
+fn main() {
+    print(get(1, "a"))
+    print(get(0, "a"))
+    print(get(1, ""))
+}
