@@ -86,6 +86,7 @@ flowchart LR
     mysql --> net
     mysql --> number
     ndjson --> json
+    os --> clock
     otp --> crypto
     otp --> random
     pg --> crypto
@@ -128,18 +129,18 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `clock`, `collections`, `compress`, `fs`, `json`, `mime`, `net`, `number`, `os`, `random`, `regex` |
-| 1 | `crypto`, `csv`, `db`, `http`, `log`, `ndjson`, `properties`, `toml`, `yaml`, `zone` |
-| 2 | `jwt`, `mysql`, `otp`, `pg`, `server`, `sqlite`, `time`, `uuid` |
-| 3 | `client`, `datasource` |
-| 4 | `migrate` |
+| 0 | `clock`, `collections`, `compress`, `fs`, `json`, `mime`, `net`, `number`, `random`, `regex` |
+| 1 | `crypto`, `csv`, `db`, `http`, `ndjson`, `os`, `toml`, `yaml` |
+| 2 | `jwt`, `log`, `mysql`, `otp`, `pg`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
+| 3 | `datasource`, `time` |
+| 4 | `client`, `migrate` |
 
 ## Each module
 
 | Module | Uses | Used by |
 |---|---|---|
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
-| `clock` | - | `client`, `datasource`, `jwt`, `log`, `server`, `time`, `uuid` |
+| `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `server`, `time`, `uuid` |
 | `collections` | - | `migrate` |
 | `compress` | - | `client` |
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
@@ -157,7 +158,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
 | `number` | - | `client`, `csv`, `db`, `http`, `jwt`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
-| `os` | - | `client`, `log`, `properties`, `server`, `zone` |
+| `os` | `clock` | `client`, `log`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `properties` | `fs`, `os` | - |

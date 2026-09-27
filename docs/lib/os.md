@@ -1,10 +1,13 @@
 # `os`
 
 The process and its environment: environment variables, command-line arguments,
-the working directory, and ending or shutting down the program.
+the working directory, ending or shutting down the program, and what can be asked of the machine
+it runs on (CPUs, memory, disks, load, uptime).
 
-Nothing here can fail in a way a program needs to handle except reading the working
-directory, which returns a `Result`; the rest are plain values or actions.
+Reading the working directory and the machine figures can fail, so they return a `Result`; the
+rest are plain values or actions. The machine figures come from `/proc` and `statvfs` (Linux;
+on another system a figure that cannot be read is an `Err("not supported here: ...")`, never a
+made-up number). Sizes are in bytes.
 
 `use os` -- or `use os.Name` to bring one item in bare.
 
@@ -144,3 +147,172 @@ pub native fn shutdown_requested() -> bool
 ```
 
 True once SIGINT or SIGTERM has arrived (after `install_shutdown_handler`).
+
+## The machine
+
+### `cpu_count`
+
+```
+pub native fn cpu_count() -> int
+```
+
+How many logical CPUs are online (at least 1).
+
+### `hostname`
+
+```
+pub native fn hostname() -> string
+```
+
+The machine's name.
+
+### `os_name`
+
+```
+pub native fn os_name() -> string
+```
+
+The operating system: `linux`, `macos`, ... (lower case).
+
+### `os_arch`
+
+```
+pub native fn os_arch() -> string
+```
+
+The processor architecture: `x86_64`, `aarch64`, ...
+
+### `load_average`
+
+```
+pub native fn load_average() -> Result<[float], string>
+```
+
+The load averages over the last 1, 5 and 15 minutes: how many tasks were running or waiting for a CPU, on average.
+
+### `uptime_seconds`
+
+```
+pub native fn uptime_seconds() -> Result<int, string>
+```
+
+How long the machine has been up, in whole seconds.
+
+## Memory
+
+### `memory_total`
+
+```
+pub native fn memory_total() -> Result<int, string>
+```
+
+The machine's memory, in bytes.
+
+### `memory_available`
+
+```
+pub native fn memory_available() -> Result<int, string>
+```
+
+The memory that could be given to a program now without swapping, in bytes (Linux's `MemAvailable`: free memory plus what can be
+reclaimed from caches).
+
+### `process_memory`
+
+```
+pub native fn process_memory() -> Result<int, string>
+```
+
+This process's resident memory, in bytes.
+
+## Disks
+
+### `disk_total`
+
+```
+pub native fn disk_total(path: string) -> Result<int, string>
+```
+
+The size of the filesystem that `path` is on, in bytes. An Err when `path` does not exist.
+
+### `disk_free`
+
+```
+pub native fn disk_free(path: string) -> Result<int, string>
+```
+
+What an ordinary user can still write to the filesystem `path` is on, in bytes.
+
+### `disk_used`
+
+```
+pub native fn disk_used(path: string) -> Result<int, string>
+```
+
+What is in use on the filesystem `path` is on, in bytes (the total less what is free to anyone).
+
+## CPU
+
+### `CpuTimes`
+
+```
+pub struct CpuTimes {
+    busy: int
+    total: int
+}
+```
+
+How much CPU time all CPUs have spent, in ticks since boot: `busy` (working) out of `total` (working and idle). One reading means little; the
+difference of two is what `cpu_usage_between` turns into a rate.
+
+### `cpu_times`
+
+```
+pub fn cpu_times() -> Result<CpuTimes, string>
+```
+
+A reading of the CPU counters, to be compared with a later one by `cpu_usage_between`.
+
+### `cpu_usage_between`
+
+```
+pub fn cpu_usage_between(before: CpuTimes, after: CpuTimes) -> float
+```
+
+The fraction of the CPU (0.0 to 1.0, over all CPUs together) that was busy between two readings `before` and `after`. 0.0 when no time passed
+between them.
+
+### `cpu_usage`
+
+```
+pub fn cpu_usage(sample_millis: int) -> Result<float, string>
+```
+
+The fraction of the CPU that was busy over the next `sample_millis` milliseconds: it reads the counters, waits, reads them again. It blocks the
+caller that long; take two `cpu_times` readings yourself to sample without waiting.
+
+### `process_cpu_seconds`
+
+```
+pub native fn process_cpu_seconds() -> Result<float, string>
+```
+
+The CPU time this process has used so far, in seconds, all its threads together.
+
+## This process
+
+### `process_uptime_seconds`
+
+```
+pub native fn process_uptime_seconds() -> Result<int, string>
+```
+
+How long this process has been running, in whole seconds.
+
+### `thread_count`
+
+```
+pub native fn thread_count() -> int
+```
+
+How many threads this process has (-1 where that cannot be read).

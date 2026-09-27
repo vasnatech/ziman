@@ -5,6 +5,9 @@
 #include <gc.h>
 #endif
 #include <dirent.h>
+#include <sys/statvfs.h>
+#include <sys/utsname.h>
+#include <time.h>
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h>
@@ -149,12 +152,250 @@ static Value native_os_shutdown_requested(Value *args, int argc, int line, int c
     return value_bool(g_shutdown_requested);
 }
 
+
+/* ---------------------------------------------------------------------
+ * The machine and the process: CPUs, memory, disks, load, uptime. Linux reads /proc; where a
+ * file is missing the function answers Err("not supported here: ..."), never a made-up number.
+ * --------------------------------------------------------------------- */
+
+static Value os_ok_int(int64_t n) {
+    return value_result(type_result(type_scalar(TY_INT), type_scalar(TY_STRING)), result_obj_new(1, value_int(n)));
+}
+
+static Value os_err_int(const char *message) {
+    return value_result(type_result(type_scalar(TY_INT), type_scalar(TY_STRING)), result_obj_new(0, value_string(strdup(message))));
+}
+
+static Value os_ok_float(double x) {
+    return value_result(type_result(type_scalar(TY_FLOAT), type_scalar(TY_STRING)), result_obj_new(1, value_float(x)));
+}
+
+static Value os_err_float(const char *message) {
+    return value_result(type_result(type_scalar(TY_FLOAT), type_scalar(TY_STRING)), result_obj_new(0, value_string(strdup(message))));
+}
+
+/* The whole of a small /proc file into `buf` (NUL-terminated); 0 when it cannot be read. */
+static int os_read_small(const char *path, char *buf, size_t size) {
+    FILE *f = fopen(path, "r");
+    if (f == NULL) return 0;
+    size_t n = fread(buf, 1, size - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    return 1;
+}
+
+/* The number after `key` (`VmRSS:`, `MemTotal:`) in a /proc text, times `scale`; -1 when the key is absent. */
+static int64_t os_proc_value(const char *text, const char *key, int64_t scale) {
+    const char *at = strstr(text, key);
+    if (at == NULL) return -1;
+    at += strlen(key);
+    while (*at == ' ' || *at == '\t') at++;
+    return (int64_t)strtoll(at, NULL, 10) * scale;
+}
+
+/* os.cpu_count() -> int: the logical CPUs online (at least 1). */
+static Value native_os_cpu_count(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return value_int(n < 1 ? 1 : (int64_t)n);
+}
+
+/* os.hostname() -> string ("" when it cannot be read). */
+static Value native_os_hostname(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    char buf[256];
+    if (gethostname(buf, sizeof buf) != 0) return value_string(strdup(""));
+    buf[sizeof buf - 1] = '\0';
+    return value_string(strdup(buf));
+}
+
+/* os.os_name() -> string: `linux`, `macos`, ... (the kernel's name, lower case, `darwin` as `macos`). */
+static Value native_os_os_name(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    struct utsname u;
+    if (uname(&u) != 0) return value_string(strdup("unknown"));
+    char name[64];
+    size_t i = 0;
+    for (; u.sysname[i] != '\0' && i < sizeof name - 1; i++) {
+        char c = u.sysname[i];
+        name[i] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+    }
+    name[i] = '\0';
+    if (strcmp(name, "darwin") == 0) return value_string(strdup("macos"));
+    return value_string(strdup(name));
+}
+
+/* os.os_arch() -> string: `x86_64`, `aarch64`, ... */
+static Value native_os_os_arch(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    struct utsname u;
+    if (uname(&u) != 0) return value_string(strdup("unknown"));
+    return value_string(strdup(u.machine));
+}
+
+/* os.load_average() -> Result<[float], string>: the 1, 5 and 15 minute load averages. */
+static Value native_os_load_average(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    Type result_type = type_result(type_array(type_scalar(TY_FLOAT)), type_scalar(TY_STRING));
+    char buf[256];
+    double a = 0, b = 0, c = 0;
+    if (!os_read_small("/proc/loadavg", buf, sizeof buf) || sscanf(buf, "%lf %lf %lf", &a, &b, &c) != 3) {
+        return value_result(result_type, result_obj_new(0, value_string(strdup("not supported here: cannot read /proc/loadavg"))));
+    }
+    Value *items = malloc(3 * sizeof(Value));
+    items[0] = value_float(a);
+    items[1] = value_float(b);
+    items[2] = value_float(c);
+    return value_result(result_type, result_obj_new(1, value_array(type_array(type_scalar(TY_FLOAT)), array_obj_new(items, 3))));
+}
+
+/* os.memory_total() / os.memory_available() -> Result<int, string>: the machine's memory, in bytes. */
+static Value os_meminfo(const char *key) {
+    char buf[8192];
+    if (!os_read_small("/proc/meminfo", buf, sizeof buf)) return os_err_int("not supported here: cannot read /proc/meminfo");
+    int64_t v = os_proc_value(buf, key, 1024);
+    return v < 0 ? os_err_int("not supported here: no such line in /proc/meminfo") : os_ok_int(v);
+}
+
+static Value native_os_memory_total(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    return os_meminfo("MemTotal:");
+}
+
+static Value native_os_memory_available(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    return os_meminfo("MemAvailable:");
+}
+
+/* os.process_memory() -> Result<int, string>: this process's resident memory, in bytes. */
+static Value native_os_process_memory(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    char buf[8192];
+    if (!os_read_small("/proc/self/status", buf, sizeof buf)) return os_err_int("not supported here: cannot read /proc/self/status");
+    int64_t v = os_proc_value(buf, "VmRSS:", 1024);
+    return v < 0 ? os_err_int("not supported here: no VmRSS in /proc/self/status") : os_ok_int(v);
+}
+
+/* os.thread_count() -> int: this process's threads (-1 where that cannot be read). */
+static Value native_os_thread_count(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    char buf[8192];
+    if (!os_read_small("/proc/self/status", buf, sizeof buf)) return value_int(-1);
+    return value_int(os_proc_value(buf, "Threads:", 1));
+}
+
+/* os.disk_total / disk_free / disk_used(path) -> Result<int, string>: the filesystem `path` is on, in bytes. `free` is what an
+ * ordinary user can still use, `used` is total minus what is free to anyone. */
+static Value os_disk(Value *args, int which) {
+    struct statvfs st;
+    const char *path = value_cstr(args[0]);
+    if (statvfs(path, &st) != 0) {
+        char msg[1024];
+        snprintf(msg, sizeof msg, "cannot read the disk of '%s': %s", path, strerror(errno));
+        return os_err_int(msg);
+    }
+    int64_t unit = (int64_t)st.f_frsize;
+    if (which == 0) return os_ok_int((int64_t)st.f_blocks * unit);
+    if (which == 1) return os_ok_int((int64_t)st.f_bavail * unit);
+    return os_ok_int(((int64_t)st.f_blocks - (int64_t)st.f_bfree) * unit);
+}
+
+static Value native_os_disk_total(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return os_disk(args, 0);
+}
+
+static Value native_os_disk_free(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return os_disk(args, 1);
+}
+
+static Value native_os_disk_used(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return os_disk(args, 2);
+}
+
+/* os.cpu_times_raw() -> Result<[int], string>: `[busy, total]` CPU ticks of all CPUs since boot (from /proc/stat). */
+static Value native_os_cpu_times_raw(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    Type result_type = type_result(type_array(type_scalar(TY_INT)), type_scalar(TY_STRING));
+    char buf[4096];
+    long long v[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    if (!os_read_small("/proc/stat", buf, sizeof buf) ||
+        sscanf(buf, "cpu %lld %lld %lld %lld %lld %lld %lld %lld", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7]) < 4) {
+        return value_result(result_type, result_obj_new(0, value_string(strdup("not supported here: cannot read /proc/stat"))));
+    }
+    long long total = 0;
+    for (int i = 0; i < 8; i++) total += v[i];
+    long long idle = v[3] + v[4]; /* idle and iowait */
+    Value *items = malloc(2 * sizeof(Value));
+    items[0] = value_int((int64_t)(total - idle));
+    items[1] = value_int((int64_t)total);
+    return value_result(result_type, result_obj_new(1, value_array(type_array(type_scalar(TY_INT)), array_obj_new(items, 2))));
+}
+
+/* os.process_cpu_seconds() -> Result<float, string>: the CPU time this process has used, all threads. */
+static Value native_os_process_cpu_seconds(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    struct timespec ts;
+    if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0) return os_err_float("not supported here: no process CPU clock");
+    return os_ok_float((double)ts.tv_sec + (double)ts.tv_nsec / 1e9);
+}
+
+/* os.uptime_seconds() -> Result<int, string>: how long the machine has been up. */
+static Value native_os_uptime_seconds(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    char buf[256];
+    double up = 0;
+    if (!os_read_small("/proc/uptime", buf, sizeof buf) || sscanf(buf, "%lf", &up) != 1) return os_err_int("not supported here: cannot read /proc/uptime");
+    return os_ok_int((int64_t)up);
+}
+
+/* os.process_uptime_seconds() -> Result<int, string>: how long this process has been running (start time from /proc/self/stat). */
+static Value native_os_process_uptime_seconds(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    char buf[4096], up_buf[256];
+    double up = 0;
+    if (!os_read_small("/proc/uptime", up_buf, sizeof up_buf) || sscanf(up_buf, "%lf", &up) != 1 ||
+        !os_read_small("/proc/self/stat", buf, sizeof buf)) {
+        return os_err_int("not supported here: cannot read /proc");
+    }
+    const char *after = strrchr(buf, ')'); /* the command name may hold spaces; the fields follow its `)` */
+    if (after == NULL) return os_err_int("not supported here: unexpected /proc/self/stat");
+    after++;
+    unsigned long long start_ticks = 0;
+    /* the fields after `)` start at field 3 (state); the start time is field 22, the 20th of them */
+    if (sscanf(after, " %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %*u %*u %*d %*d %*d %*d %*d %*d %llu", &start_ticks) != 1) {
+        return os_err_int("not supported here: unexpected /proc/self/stat");
+    }
+    long hz = sysconf(_SC_CLK_TCK);
+    if (hz < 1) hz = 100;
+    double running = up - (double)start_ticks / (double)hz;
+    return os_ok_int(running < 0 ? 0 : (int64_t)running);
+}
+
 void native_os_register(void) {
     native_register("os::getenv_raw", native_os_getenv_raw);
     native_register("os::exit", native_os_exit);
     native_register("os::args", native_os_args);
     native_register("os::cwd_raw", native_os_cwd);
     native_register("os::pid", native_os_pid);
+    native_register("os::process_uptime_seconds", native_os_process_uptime_seconds);
+    native_register("os::uptime_seconds", native_os_uptime_seconds);
+    native_register("os::process_cpu_seconds", native_os_process_cpu_seconds);
+    native_register("os::cpu_times_raw", native_os_cpu_times_raw);
+    native_register("os::disk_used", native_os_disk_used);
+    native_register("os::disk_free", native_os_disk_free);
+    native_register("os::disk_total", native_os_disk_total);
+    native_register("os::thread_count", native_os_thread_count);
+    native_register("os::process_memory", native_os_process_memory);
+    native_register("os::memory_available", native_os_memory_available);
+    native_register("os::memory_total", native_os_memory_total);
+    native_register("os::load_average", native_os_load_average);
+    native_register("os::os_arch", native_os_os_arch);
+    native_register("os::os_name", native_os_os_name);
+    native_register("os::hostname", native_os_hostname);
+    native_register("os::cpu_count", native_os_cpu_count);
     native_register("os::collect_garbage", native_os_collect_garbage);
     native_register("os::open_descriptors", native_os_open_descriptors);
     native_register("os::collector_enabled", native_os_collector_enabled);

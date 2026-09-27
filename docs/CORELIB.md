@@ -671,6 +671,47 @@ pub native fn install_shutdown_handler()
 
 pub native fn shutdown_requested() -> bool
 
+pub native fn cpu_count() -> int
+
+pub native fn hostname() -> string
+
+pub native fn os_name() -> string
+
+pub native fn os_arch() -> string
+
+pub native fn load_average() -> Result<[float], string>
+
+pub native fn uptime_seconds() -> Result<int, string>
+
+pub native fn memory_total() -> Result<int, string>
+
+pub native fn memory_available() -> Result<int, string>
+
+pub native fn process_memory() -> Result<int, string>
+
+pub native fn disk_total(path: string) -> Result<int, string>
+
+pub native fn disk_free(path: string) -> Result<int, string>
+
+pub native fn disk_used(path: string) -> Result<int, string>
+
+pub struct CpuTimes {
+    busy: int
+    total: int
+}
+
+pub fn cpu_times() -> Result<CpuTimes, string>
+
+pub fn cpu_usage_between(before: CpuTimes, after: CpuTimes) -> float
+
+pub fn cpu_usage(sample_millis: int) -> Result<float, string>
+
+pub native fn process_cpu_seconds() -> Result<float, string>
+
+pub native fn process_uptime_seconds() -> Result<int, string>
+
+pub native fn thread_count() -> int
+
 ```
 
 ## `otp`

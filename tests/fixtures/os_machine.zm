@@ -1,0 +1,36 @@
+use os
+
+fn main() {
+    print(os.cpu_count() >= 1)
+    print(len(os.hostname()) > 0)
+    print(os.os_name() == "linux" || os.os_name() == "macos")
+    print(len(os.os_arch()) > 0)
+    val load = unwrap(os.load_average())
+    print(len(load))
+    print(unwrap(os.uptime_seconds()) > 0)
+    val total = unwrap(os.memory_total())
+    val avail = unwrap(os.memory_available())
+    print(total > avail && avail > 0)
+    print(unwrap(os.process_memory()) > 0)
+    print(unwrap(os.process_memory()) < total)
+    val disk = unwrap(os.disk_total("/"))
+    print(disk > 0 && unwrap(os.disk_free("/")) <= disk && unwrap(os.disk_used("/")) <= disk)
+    print(is_ok(os.disk_total("/no/such/place")))
+    print(starts_with(unwrap_err(os.disk_total("/no/such/place")), "cannot read the disk of"))
+    val a = unwrap(os.cpu_times())
+    var x = 0
+    for i in 0..3000000 {
+        x = x + i
+    }
+    val b = unwrap(os.cpu_times())
+    print(b.total >= a.total && b.busy >= a.busy)
+    val rate = os.cpu_usage_between(a, b)
+    print(rate >= 0.0 && rate <= 1.0)
+    print(os.cpu_usage_between(a, a))
+    val sampled = unwrap(os.cpu_usage(100))
+    print(sampled >= 0.0 && sampled <= 1.0)
+    print(unwrap(os.process_cpu_seconds()) > 0.0)
+    print(unwrap(os.process_uptime_seconds()) >= 0)
+    print(os.thread_count() >= 1)
+    print(x > 0)
+}

@@ -1,8 +1,12 @@
 // os.zm -- the process and its environment: environment variables, command-line arguments,
-// the working directory, and ending or shutting down the program.
+// the working directory, ending or shutting down the program, and what can be asked of the machine
+// it runs on (CPUs, memory, disks, load, uptime).
 //
-// Nothing here can fail in a way a program needs to handle except reading the working
-// directory, which returns a `Result`; the rest are plain values or actions.
+// Reading the working directory and the machine figures can fail, so they return a `Result`; the
+// rest are plain values or actions. The machine figures come from `/proc` and `statvfs` (Linux;
+// on another system a figure that cannot be read is an `Err("not supported here: ...")`, never a
+// made-up number). Sizes are in bytes.
+use clock.sleep_millis
 
 native fn getenv_raw(name: string) -> Result<string, string>
 native fn cwd_raw() -> Result<string, string>
@@ -72,3 +76,95 @@ pub native fn install_shutdown_handler()
 
 // True once SIGINT or SIGTERM has arrived (after `install_shutdown_handler`).
 pub native fn shutdown_requested() -> bool
+
+// ---------------------------------------------------------------- the machine
+
+// How many logical CPUs are online (at least 1).
+pub native fn cpu_count() -> int
+
+// The machine's name.
+pub native fn hostname() -> string
+
+// The operating system: `linux`, `macos`, ... (lower case).
+pub native fn os_name() -> string
+
+// The processor architecture: `x86_64`, `aarch64`, ...
+pub native fn os_arch() -> string
+
+// The load averages over the last 1, 5 and 15 minutes: how many tasks were running or waiting for a CPU, on average.
+pub native fn load_average() -> Result<[float], string>
+
+// How long the machine has been up, in whole seconds.
+pub native fn uptime_seconds() -> Result<int, string>
+
+// ---------------------------------------------------------------- memory
+
+// The machine's memory, in bytes.
+pub native fn memory_total() -> Result<int, string>
+
+// The memory that could be given to a program now without swapping, in bytes (Linux's `MemAvailable`: free memory plus what can be
+// reclaimed from caches).
+pub native fn memory_available() -> Result<int, string>
+
+// This process's resident memory, in bytes.
+pub native fn process_memory() -> Result<int, string>
+
+// ---------------------------------------------------------------- disks
+
+// The size of the filesystem that `path` is on, in bytes. An Err when `path` does not exist.
+pub native fn disk_total(path: string) -> Result<int, string>
+
+// What an ordinary user can still write to the filesystem `path` is on, in bytes.
+pub native fn disk_free(path: string) -> Result<int, string>
+
+// What is in use on the filesystem `path` is on, in bytes (the total less what is free to anyone).
+pub native fn disk_used(path: string) -> Result<int, string>
+
+// ---------------------------------------------------------------- CPU
+
+// How much CPU time all CPUs have spent, in ticks since boot: `busy` (working) out of `total` (working and idle). One reading means little; the
+// difference of two is what `cpu_usage_between` turns into a rate.
+pub struct CpuTimes {
+    busy: int
+    total: int
+}
+
+native fn cpu_times_raw() -> Result<[int], string>
+
+// A reading of the CPU counters, to be compared with a later one by `cpu_usage_between`.
+pub fn cpu_times() -> Result<CpuTimes, string> {
+    val raw = cpu_times_raw()?
+    return CpuTimes { busy: raw[0], total: raw[1] }
+}
+
+// The fraction of the CPU (0.0 to 1.0, over all CPUs together) that was busy between two readings `before` and `after`. 0.0 when no time passed
+// between them.
+pub fn cpu_usage_between(before: CpuTimes, after: CpuTimes) -> float {
+    val total = after.total - before.total
+    if total <= 0 {
+        return 0.0
+    }
+    val busy = after.busy - before.busy
+    val fraction = (busy as float) / (total as float)
+    return if fraction < 0.0 { 0.0 } else if fraction > 1.0 { 1.0 } else { fraction }
+}
+
+// The fraction of the CPU that was busy over the next `sample_millis` milliseconds: it reads the counters, waits, reads them again. It blocks the
+// caller that long; take two `cpu_times` readings yourself to sample without waiting.
+pub fn cpu_usage(sample_millis: int) -> Result<float, string> {
+    val before = cpu_times()?
+    sleep_millis(sample_millis)
+    val after = cpu_times()?
+    return cpu_usage_between(before, after)
+}
+
+// The CPU time this process has used so far, in seconds, all its threads together.
+pub native fn process_cpu_seconds() -> Result<float, string>
+
+// ---------------------------------------------------------------- this process
+
+// How long this process has been running, in whole seconds.
+pub native fn process_uptime_seconds() -> Result<int, string>
+
+// How many threads this process has (-1 where that cannot be read).
+pub native fn thread_count() -> int
