@@ -116,7 +116,7 @@ pub fn argon2id_hash(
     val m = unwrap_Some(memory_kib)
     val t = unwrap_Some(iterations)
     val p = unwrap_Some(parallelism)
-    val raw = argon2id_raw(string_to_bytes(password), salt, m, t, p, argon2_hash_bytes)?
+    val raw = try argon2id_raw(string_to_bytes(password), salt, m, t, p, argon2_hash_bytes)
     return ok(format(
         "$argon2id$v={}$m={},t={},p={}${}${}",
         argon2_version,

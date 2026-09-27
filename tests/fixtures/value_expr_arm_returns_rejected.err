@@ -1,1 +1,1 @@
-type error at 2:16: an arm of an 'if'/'switch' used inside an expression cannot 'return', 'break', 'continue' or use '?' -- bind it to a 'val' (or return it) first, where an arm may leave
+type error at 2:16: an arm of an 'if'/'switch' used inside an expression cannot 'return', 'break', 'continue' or use 'try' -- bind it to a 'val' (or return it) first, where an arm may leave

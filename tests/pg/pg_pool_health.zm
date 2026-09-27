@@ -7,7 +7,7 @@ use db.sql_as_int
 use fs
 
 fn pid_of(conn: datasource.Connection) -> Result<int, db.DbError> {
-    val rows = datasource.query(conn, "SELECT pg_backend_pid() AS pid")?
+    val rows = try datasource.query(conn, "SELECT pg_backend_pid() AS pid")
     return unwrap(sql_as_int(unwrap(row_get(rows[0], "pid"))))
 }
 

@@ -270,29 +270,13 @@ struct Expr {
          * concrete type straight off the argument's own already-known
          * type instead (see check_enum_access in typecheck.c). */
         struct { char *enum_name; char *member_name; ExprList args; int has_parens; TypeList type_args; } enum_access;
-        /* `inner?` -- postfix Option<T>/Result<T, E> unwrap-or-propagate
-         * (see docs/DESIGN.md's "? operator" entry). `inner`'s own type
-         * decides which of the two this is at type-check time; nothing
-         * here records that choice, since the interpreter re-derives it
-         * cheaply from the runtime value itself (an Option's EnumObj vs.
-         * a Result's ResultObj, exactly like is_ok/Option.is_Some
-         * already do). `propagated_type` is check_try_unwrap's one real
-         * output beyond `inner`'s own checking: the *enclosing
-         * function's* full, concrete Option<T2>/Result<T2, E> return
-         * type, filled in once at type-check time and reused verbatim
-         * to build the propagated None/Err value at runtime -- since
-         * NativeFn-style plumbing to hand the interpreter that context
-         * some other way doesn't exist, and doesn't need to: it's
-         * already known, and already static, right here. Only ever
-         * legal as the entire initializer of a `val`/`var` or as its
-         * own bare statement, never nested inside another expression --
-         * enforced by check_expr's own EXPR_TRY_UNWRAP case, which is
-         * only ever reached when it wasn't already intercepted by one
-         * of those two statement forms. */
-        struct { Expr *inner; Type propagated_type; int prefix; } try_unwrap;
-        /* `prefix` marks the `try inner` spelling. Unlike the postfix `?`, it may be nested in an expression: the parser hoists it, and whatever is evaluated before it, into
-         * hidden `val $tN = inner?` statements in front of the statement (see hoist_stmt in parser.c), so the type checker and the interpreter only ever see the
-         * statement-level form. A prefix `try` the parser could not hoist reaches the type checker and is refused. */
+        /* `try inner` -- Option<T>/Result<T, E> unwrap-or-propagate (see docs/DESIGN.md's "try" entries). `inner`'s own type decides which of the two it is at
+         * type-check time; the interpreter re-derives that from the runtime value (an Option's EnumObj vs. a Result's ResultObj). `propagated_type` is
+         * check_try_unwrap's one real output beyond `inner`'s own checking: the enclosing function's full, concrete Option<T2>/Result<T2, E> return type, filled in
+         * once at type-check time and reused to build the propagated None/Err value at runtime. The interpreter and the checker only accept it as the entire
+         * initializer of a val/var or as its own statement; the parser hoists a `try` written anywhere else in an expression into such a `val $tN = try inner`
+         * in front of the statement (hoist_stmt in parser.c), and a `try` it could not hoist reaches check_expr's EXPR_TRY_UNWRAP case and is refused. */
+        struct { Expr *inner; Type propagated_type; } try_unwrap;
         /* `if`/`switch` used as an operand or argument: `f(if c { 1 } else { 2 })`,
          * `1 + (switch e { ... })`. `inner` is the same STMT_IF/STMT_SWITCH with
          * yielding arms that STMT_VALUE_BLOCK wraps; here no arm may leave

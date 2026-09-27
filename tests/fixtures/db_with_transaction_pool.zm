@@ -6,12 +6,12 @@ use db.SqlValue
 // and returns it on every way out: after a commit and after a rollback the
 // pool is whole again (a second transaction must not block).
 fn add(tx: datasource.Connection, n: int) -> Result<int, DbError> {
-    datasource.execute(tx, "INSERT INTO t (n) VALUES ($1)", SqlValue.Int(n))?
+    try datasource.execute(tx, "INSERT INTO t (n) VALUES ($1)", SqlValue.Int(n))
     return ok(n)
 }
 
 fn boom(tx: datasource.Connection) -> Result<int, DbError> {
-    datasource.execute(tx, "INSERT INTO t (n) VALUES (99)")?
+    try datasource.execute(tx, "INSERT INTO t (n) VALUES (99)")
     return err(DbError.Sql("nope"))
 }
 

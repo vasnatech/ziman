@@ -1,5 +1,5 @@
 fn foo(o: Option<int>) -> int {
-    val x = o?
+    val x = try o
     return x
 }
 

@@ -1,8 +1,8 @@
 // Postfix `?` on Result<T, E> and Option<T> -- restricted to appearing
 // only as a val/var's entire initializer or as its own bare statement.
 fn parse_two_numbers(a: string, b: string) -> Result<int, string> {
-    val x = parse_int(a)?
-    val y = parse_int(b)?
+    val x = try parse_int(a)
+    val y = try parse_int(b)
     return x + y
 }
 
@@ -18,7 +18,7 @@ fn first_positive_index(items: [int]) -> Option<int> {
 }
 
 fn first_positive_doubled(items: [int]) -> Option<int> {
-    val idx = first_positive_index(items)?
+    val idx = try first_positive_index(items)
     return items[idx] * 2
 }
 
@@ -33,7 +33,7 @@ fn maybe_name(present: bool) -> Option<string> {
 }
 
 fn name_length(present: bool) -> Option<int> {
-    val name = maybe_name(present)?
+    val name = try maybe_name(present)
     return len(name)
 }
 
@@ -47,7 +47,7 @@ fn step1(ok: bool) -> Result<int, string> {
 }
 
 fn run(ok: bool) -> Result<int, string> {
-    step1(ok)?
+    try step1(ok)
     return 99
 }
 

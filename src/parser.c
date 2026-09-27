@@ -811,19 +811,8 @@ static Expr *parse_postfix(Parser *p) {
             access->as.field_access.field_name = dup_token_text(field_tok);
             e = access;
         } else if (check(p, TOK_QUESTION)) {
-            /* `inner?` -- parsed here, as an ordinary postfix operator,
-             * with no restriction on where it may appear syntactically.
-             * Legality (only as a val/var's entire initializer or as
-             * its own bare statement) is enforced in typecheck.c
-             * instead -- check_expr's own EXPR_TRY_UNWRAP case raises a
-             * clear, dedicated error for any other position, once
-             * type-checking actually reaches this node (which only
-             * happens when it *wasn't* already intercepted by one of
-             * those two statement forms). */
-            Token *q = advance_tok(p);
-            Expr *try_unwrap = expr_new(EXPR_TRY_UNWRAP, q->line, q->col);
-            try_unwrap->as.try_unwrap.inner = e;
-            e = try_unwrap;
+            Token *q = cur(p);
+            ziman_error("syntax", q->line, q->col, "there is no postfix '?': write 'try <expression>' in front of the Option or Result instead (e.g. 'val x = try parse(s)')");
         } else {
             break;
         }
@@ -838,7 +827,6 @@ static Expr *parse_unary(Parser *p) {
         Expr *operand = parse_unary(p);
         Expr *e = expr_new(EXPR_TRY_UNWRAP, t->line, t->col);
         e->as.try_unwrap.inner = operand;
-        e->as.try_unwrap.prefix = 1;
         return e;
     }
     if (check(p, TOK_BANG) || check(p, TOK_MINUS)) {
@@ -950,7 +938,7 @@ static int fields_have_try(const FieldInitList *fields) {
 
 static int expr_has_try(const Expr *e) {
     switch (e->kind) {
-        case EXPR_TRY_UNWRAP: return e->as.try_unwrap.prefix || expr_has_try(e->as.try_unwrap.inner);
+        case EXPR_TRY_UNWRAP: return 1;
         case EXPR_UNARY: return expr_has_try(e->as.unary.operand);
         case EXPR_BINARY: return expr_has_try(e->as.binary.left) || expr_has_try(e->as.binary.right);
         case EXPR_CAST: return expr_has_try(e->as.cast.operand);
@@ -1055,7 +1043,7 @@ static void hoist_expr(Expr **slot, StmtList *out, int whole, int later) {
         else if (!expr_is_pure(*kids[i])) *kids[i] = hoist_into_temp(out, *kids[i]);
     }
     free(kids);
-    if (e->kind == EXPR_TRY_UNWRAP && e->as.try_unwrap.prefix) {
+    if (e->kind == EXPR_TRY_UNWRAP) {
         if (!whole) *slot = hoist_into_temp(out, e);
     } else if (later && !expr_is_pure(e)) {
         *slot = hoist_into_temp(out, e);

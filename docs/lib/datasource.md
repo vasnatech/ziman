@@ -24,15 +24,15 @@ interleave inside it -- so run a transaction from one thread. Use
 
 
 ```
-datasource.begin(conn)?
+try datasource.begin(conn)
 defer datasource.rollback(conn)
-datasource.execute(conn, ...)?     // an early return rolls back
-datasource.commit(conn)?           // after a commit the deferred rollback
+try datasource.execute(conn, ...)     // an early return rolls back
+try datasource.commit(conn)           // after a commit the deferred rollback
                            // finds nothing to undo (its error
                            // result is discarded, as `defer` does)
 ```
 
-Without the `defer`, a `?` that returns early from inside a
+Without the `defer`, a `try` that returns early from inside a
 transaction leaves it open.
 
 `use datasource` -- or `use datasource.Name` to bring one item in bare.
@@ -79,7 +79,7 @@ fn main() {
 
     // with_transaction commits when the work returns Ok and rolls back when it returns Err.
     val failed = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
-        datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Grace"))?
+        try datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Grace"))
         return err(DbError.Sql("changed my mind"))
     })
     print(is_ok(failed))
@@ -200,9 +200,9 @@ Runs a query and returns its rows lazily, one at a time as a `for` loop asks for
 
 
 ```
-val rows = datasource.rows(conn, "SELECT * FROM lab_result")?
+val rows = try datasource.rows(conn, "SELECT * FROM lab_result")
 for row in rows {
-    val r = row?                       // Result<Row, DbError>
+    val r = try row                       // Result<Row, DbError>
     ...
 }
 ```
@@ -270,12 +270,12 @@ exclusively with `acquire`:
 
 
 ```
-val tx = datasource.acquire(conn)?
+val tx = try datasource.acquire(conn)
 defer datasource.release(conn, tx)
-datasource.begin(tx)?
+try datasource.begin(tx)
 defer datasource.rollback(tx)
 ...
-datasource.commit(tx)?
+try datasource.commit(tx)
 ```
 
 The pool is a channel of idle connections, so a borrow blocks while
@@ -368,10 +368,10 @@ acquire / begin / rollback-on-error / commit / release dance:
 
 
 ```
-val moved = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
-    datasource.execute(tx, "UPDATE ...", SqlValue.Int(amount))?
+val moved = try datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
+    try datasource.execute(tx, "UPDATE ...", SqlValue.Int(amount))
     return ok(amount)
-})?
+})
 ```
 
 `work` is a function value: a lambda capturing what it needs (`amount` above), or a named

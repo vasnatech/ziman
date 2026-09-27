@@ -145,8 +145,8 @@ pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string>
 ```
 
 A CSV file read lazily, one record at a time as a `for` loop asks for them, so a file of any size uses
-memory for one record: `val records = csv.records(path)?` then `for record in records { val row =
-record? ... }`. The first record names the columns and every later one is a JSON object of strings keyed
+memory for one record: `val records = try csv.records(path)` then `for record in records { val row =
+try record ... }`. The first record names the columns and every later one is a JSON object of strings keyed
 by them, as in `parse_csv`. Each item is a `Result<Json, string>`: an object, or an Err for a record
 with the wrong number of cells, a stray quote, a quote never closed, a line with a NUL byte or a read
 error; each message names the line the record started on, and the iteration carries on after all but a

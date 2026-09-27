@@ -155,7 +155,7 @@ pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: i
     if len(parts) != 3 {
         return JwtError.Malformed("a token has three parts separated by dots")
     }
-    val header = decode_part(parts[0], "the header")?
+    val header = try decode_part(parts[0], "the header")
     val algorithm = json_require_string_field(header, "alg")
     if Err(reason) = algorithm {
         return JwtError.Malformed("the header has no 'alg'")
@@ -171,7 +171,7 @@ pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: i
     if !crypto.bytes_equal(unwrap_Some(expected), unwrap(given)) {
         return JwtError.BadSignature
     }
-    val payload = decode_part(parts[1], "the payload")?
+    val payload = try decode_part(parts[1], "the payload")
     if !Json.is_JObject(payload) {
         return JwtError.Malformed("the payload is not a JSON object")
     }

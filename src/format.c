@@ -131,7 +131,7 @@ static int is_keyword(const Item *t) {
 static int ends_operand(const Item *t) {
     if (t->kind == K_NUMBER || t->kind == K_STRING) return 1;
     if (t->kind == K_WORD) return !is_keyword(t);
-    return is(t, ")") || is(t, "]") || is(t, "}") || is(t, "?");
+    return is(t, ")") || is(t, "]") || is(t, "}");
 }
 
 static int is_binary_op(const Item *t) {
@@ -156,9 +156,8 @@ static int need_space(const Item *p, const Item *c, const Item *pp, int in_use_l
     /* `string...` (a variadic type) ends in '.', but what follows it is not a member name */
     if (is(p, ".") && pp != NULL && is(pp, "..") ) return !is(c, ")") && !is(c, ",");
     /* nothing before these */
-    if (is(c, ",") || is(c, ")") || is(c, "]") || is(c, "?") || is(c, ":") || is(c, ".") || is(c, "..")) return 0;
+    if (is(c, ",") || is(c, ")") || is(c, "]") || is(c, ":") || is(c, ".") || is(c, "..")) return 0;
     if (is(p, "(") || is(p, "[") || is(p, ".") || is(p, "..") || is(p, "#") || is(p, "!")) return 0;
-    if (is(p, "?")) return !(is(c, "}"));
     /* braces */
     if (is(p, "{")) return !is(c, "}");
     if (is(c, "}")) return !is(p, "{");

@@ -255,7 +255,7 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
         for pair in split(Option.unwrap_Some(q)[1], "&") {
             val kv = split_once(pair, "=")
             if Option.is_Some(kv) {
-                val value = percent_decode(Option.unwrap_Some(kv)[1])?
+                val value = try percent_decode(Option.unwrap_Some(kv)[1])
                 ab_append<UrlParam>(params, UrlParam { name: Option.unwrap_Some(kv)[0], value: value })
             }
         }
@@ -287,9 +287,9 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
         }
         port = unwrap(parsed_port)
     }
-    val user_decoded = percent_decode(user)?
-    val password_decoded = percent_decode(password)?
-    val database_decoded = percent_decode(database)?
+    val user_decoded = try percent_decode(user)
+    val password_decoded = try percent_decode(password)
+    val database_decoded = try percent_decode(database)
     if user_decoded == "" {
         return err(bad("database URL has no user name"))
     }
@@ -434,7 +434,7 @@ pub fn open_rows(
 ) -> Result<Iter<Result<Row, DbError>>, DbError> {
     val reply: Channel<Result<Page, DbError>> = channel_new()
     send(requests, Request.OpenCursor(OpenRequest { sql: sql, params: params, reply_to: reply }))
-    val first = receive(reply)?
+    val first = try receive(reply)
     val ender: Channel<int> = channel_new()
     val handle = CursorHandle {
         cursor: first.cursor,

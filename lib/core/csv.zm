@@ -53,9 +53,9 @@ fn check_delimiter(sep: string) -> Result<string, string> {
 
 // The table as rows of cells, from the scanner's flat form.
 fn parse_rows(text: string, sep: string, typed: bool) -> Result<[Row], string> {
-    check_delimiter(sep)?
+    try check_delimiter(sep)
     val body = if starts_with(text, byte_order_mark) { substring(text, len(byte_order_mark), len(text)) } else { text }
-    val flat = scan_cells(body, sep, typed)?
+    val flat = try scan_cells(body, sep, typed)
     val rows = ab_new<Row>()
     var cells = ab_new<Cell>()
     for item in flat {
@@ -189,7 +189,7 @@ fn header_of(rows: [Row]) -> [string] {
 }
 
 fn table_of(text: string, sep: string, typed: bool) -> Result<Json, string> {
-    val rows = parse_rows(text, sep, typed)?
+    val rows = try parse_rows(text, sep, typed)
     if len(rows) == 0 {
         val no_rows: [Json] = []
         return ok(Json.JArray(no_rows))
@@ -198,7 +198,7 @@ fn table_of(text: string, sep: string, typed: bool) -> Result<Json, string> {
 }
 
 fn table_with_columns(text: string, columns: [string], typed: bool) -> Result<Json, string> {
-    val rows = parse_rows(text, ",", typed)?
+    val rows = try parse_rows(text, ",", typed)
     return rows_to_objects(rows, columns, 0, typed)
 }
 
@@ -211,7 +211,7 @@ pub fn parse_csv_rows(text: string) -> Result<[[string]], string> {
 
 // parse_csv_rows with another one-character delimiter, e.g. "\t" for TSV.
 pub fn parse_csv_rows_with(text: string, delimiter: string) -> Result<[[string]], string> {
-    val rows = parse_rows(text, delimiter, false)?
+    val rows = try parse_rows(text, delimiter, false)
     val out = ab_new<[string]>()
     for row in rows {
         val cells = ab_new<string>()
@@ -420,8 +420,8 @@ fn next_object(
 }
 
 fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Json, string>>, string> {
-    check_delimiter(sep)?
-    val lines = fs.lines(path)?
+    try check_delimiter(sep)
+    val lines = try fs.lines(path)
     val cell: Channel<int> = channel_new()
     send(cell, 0)
     val first = read_record(lines, cell, sep)
@@ -452,8 +452,8 @@ fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Js
 }
 
 // A CSV file read lazily, one record at a time as a `for` loop asks for them, so a file of any size uses
-// memory for one record: `val records = csv.records(path)?` then `for record in records { val row =
-// record? ... }`. The first record names the columns and every later one is a JSON object of strings keyed
+// memory for one record: `val records = try csv.records(path)` then `for record in records { val row =
+// try record ... }`. The first record names the columns and every later one is a JSON object of strings keyed
 // by them, as in `parse_csv`. Each item is a `Result<Json, string>`: an object, or an Err for a record
 // with the wrong number of cells, a stray quote, a quote never closed, a line with a NUL byte or a read
 // error; each message names the line the record started on, and the iteration carries on after all but a
@@ -524,7 +524,7 @@ pub fn csv_rows_to_string(rows: [[string]]) -> string {
 
 // csv_rows_to_string with another one-character delimiter. An Err for an invalid delimiter.
 pub fn csv_rows_to_string_with(rows: [[string]], delimiter: string) -> Result<string, string> {
-    check_delimiter(delimiter)?
+    try check_delimiter(delimiter)
     val out = sb_new()
     for row in rows {
         write_row(out, row, delimiter)
@@ -564,11 +564,11 @@ fn flatten_row(row: Json, sep: string) -> Result<Map<string, string>, string> {
         if Json.is_JObject(value) {
             for inner_key, inner in Json.unwrap_JObject(value) {
                 val name = concat(key, concat(".", inner_key))
-                val text = cell_text(inner, name, sep)?
+                val text = try cell_text(inner, name, sep)
                 mapb_set<string, string>(cells, name, text)
             }
         } else {
-            val text = cell_text(value, key, sep)?
+            val text = try cell_text(value, key, sep)
             mapb_set<string, string>(cells, key, text)
         }
     }
@@ -585,7 +585,7 @@ pub fn csv_to_string(rows: Json) -> Result<string, string> {
 
 // csv_to_string with another one-character delimiter.
 pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, string> {
-    check_delimiter(delimiter)?
+    try check_delimiter(delimiter)
     if !Json.is_JArray(rows) {
         return err("expected an array of objects")
     }
@@ -596,7 +596,7 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
         if !Json.is_JObject(row) {
             return err(format("row {} is not an object", i))
         }
-        val cells = flatten_row(row, delimiter)?
+        val cells = try flatten_row(row, delimiter)
         for name in map_keys(cells) {
             setb_add<string>(columns, name)
         }

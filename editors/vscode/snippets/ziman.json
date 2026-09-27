@@ -72,9 +72,9 @@
     "prefix": "val",
     "body": ["val ${1:name} = $0"]
   },
-  "val with ?": {
-    "prefix": "valq",
-    "body": ["val ${1:name} = ${2:call()}?"],
+  "val with try": {
+    "prefix": "valt",
+    "body": ["val ${1:name} = try ${2:call()}"],
     "description": "Unwrap a Result or Option, returning early on the failure"
   },
   "use": {

@@ -10,11 +10,11 @@ use db.sql_as_int
 // successful commit the deferred rollback finds nothing to roll back;
 // its error result is discarded, which is the point of the shape.
 fn insert_two(conn: datasource.Connection, a: int, b: int) -> Result<int, DbError> {
-    datasource.begin(conn)?
+    try datasource.begin(conn)
     defer datasource.rollback(conn)
-    datasource.execute(conn, "INSERT INTO t (id) VALUES ($1)", SqlValue.Int(a))?
-    datasource.execute(conn, "INSERT INTO t (id) VALUES ($1)", SqlValue.Int(b))?
-    datasource.commit(conn)?
+    try datasource.execute(conn, "INSERT INTO t (id) VALUES ($1)", SqlValue.Int(a))
+    try datasource.execute(conn, "INSERT INTO t (id) VALUES ($1)", SqlValue.Int(b))
+    try datasource.commit(conn)
     return 0
 }
 

@@ -232,7 +232,7 @@ pub fn parse(text: string) -> Result<MediaType, string> {
             if !is_token(name) {
                 return err(bad(text, format("'{}' is not a valid parameter name", name)))
             }
-            val read = read_value(s, eq + 1)?
+            val read = try read_value(s, eq + 1)
             if !mapb_contains<string, string>(params, name) {
                 mapb_set<string, string>(params, name, read[0])
             }

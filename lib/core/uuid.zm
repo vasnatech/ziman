@@ -121,7 +121,7 @@ pub fn uuid_to_sql(u: Uuid) -> SqlValue {
 
 // A `Uuid` from a TEXT value. An Err if the value is not text or not a valid UUID.
 pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError> {
-    val text = sql_as_text(v)?
+    val text = try sql_as_text(v)
     return sql_lift<Uuid>(uuid_from_string(text), "Uuid")
 }
 

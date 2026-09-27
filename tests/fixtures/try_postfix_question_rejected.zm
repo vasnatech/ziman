@@ -1,5 +1,6 @@
 fn foo(a: string) -> Result<int, string> {
-    return parse_int(a)? + 1
+    val n = parse_int(a)?
+    return n + 1
 }
 
 fn main() {

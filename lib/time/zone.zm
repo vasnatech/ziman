@@ -180,15 +180,15 @@ fn parse_hms(text: string, pos: int) -> Result<Parsed<int>, string> {
     } else if is_char_at(text, p, "+") {
         p = p + 1
     }
-    val h = parse_digits(text, p)?
+    val h = try parse_digits(text, p)
     var total = h.value * 3600
     p = h.next
     if is_char_at(text, p, ":") {
-        val m = parse_digits(text, p + 1)?
+        val m = try parse_digits(text, p + 1)
         total = total + m.value * 60
         p = m.next
         if is_char_at(text, p, ":") {
-            val sec = parse_digits(text, p + 1)?
+            val sec = try parse_digits(text, p + 1)
             total = total + sec.value
             p = sec.next
         }
@@ -205,15 +205,15 @@ fn parse_rule_date(text: string, pos: int) -> Result<Parsed<RuleDate>, string> {
     var day = 0
     if is_char_at(text, p, "M") {
         kind = 0
-        val m = parse_digits(text, p + 1)?
+        val m = try parse_digits(text, p + 1)
         if !is_char_at(text, m.next, ".") {
             return err(bad_rule(text, "expected Mm.w.d"))
         }
-        val w = parse_digits(text, m.next + 1)?
+        val w = try parse_digits(text, m.next + 1)
         if !is_char_at(text, w.next, ".") {
             return err(bad_rule(text, "expected Mm.w.d"))
         }
-        val d = parse_digits(text, w.next + 1)?
+        val d = try parse_digits(text, w.next + 1)
         if m.value < 1 || m.value > 12 || w.value < 1 || w.value > 5 || d.value > 6 {
             return err(bad_rule(text, "month, week or weekday out of range"))
         }
@@ -223,14 +223,14 @@ fn parse_rule_date(text: string, pos: int) -> Result<Parsed<RuleDate>, string> {
         p = d.next
     } else if is_char_at(text, p, "J") {
         kind = 1
-        val n = parse_digits(text, p + 1)?
+        val n = try parse_digits(text, p + 1)
         if n.value < 1 || n.value > 365 {
             return err(bad_rule(text, "day of year out of range"))
         }
         day = n.value
         p = n.next
     } else {
-        val n = parse_digits(text, p)?
+        val n = try parse_digits(text, p)
         if n.value > 365 {
             return err(bad_rule(text, "day of year out of range"))
         }
@@ -239,7 +239,7 @@ fn parse_rule_date(text: string, pos: int) -> Result<Parsed<RuleDate>, string> {
     }
     var seconds = 7200
     if is_char_at(text, p, "/") {
-        val t = parse_hms(text, p + 1)?
+        val t = try parse_hms(text, p + 1)
         seconds = t.value
         p = t.next
     }
@@ -256,18 +256,18 @@ fn parse_rule_date(text: string, pos: int) -> Result<Parsed<RuleDate>, string> {
 // The rule string at the end of a zone file: `std offset [dst [offset] [,start[/time],end[/time]]]`.
 // POSIX writes the offset as time WEST of UTC, so `EST5` is UTC-5.
 pub fn parse_posix_rule(text: string) -> Result<PosixRule, string> {
-    val std_name = parse_name(text, 0)?
-    val std_off = parse_hms(text, std_name.next)?
+    val std_name = try parse_name(text, 0)
+    val std_off = try parse_hms(text, std_name.next)
     val standard = ZoneType { utoff: -std_off.value, dst: false, name: std_name.value }
     val none = RuleDate { kind: 0, month: 1, week: 1, weekday: 0, day: 0, seconds: 0 }
     if at_end(text, std_off.next) {
         return ok(PosixRule { standard: standard, daylight: standard, has_dst: false, start: none, end: none })
     }
-    val dst_name = parse_name(text, std_off.next)?
+    val dst_name = try parse_name(text, std_off.next)
     var dst_utoff = standard.utoff + 3600
     var p = dst_name.next
     if !at_end(text, p) && !is_char_at(text, p, ",") {
-        val dst_off = parse_hms(text, p)?
+        val dst_off = try parse_hms(text, p)
         dst_utoff = -dst_off.value
         p = dst_off.next
     }
@@ -285,11 +285,11 @@ pub fn parse_posix_rule(text: string) -> Result<PosixRule, string> {
     if !is_char_at(text, p, ",") {
         return err(bad_rule(text, "expected ',' before the start rule"))
     }
-    val start = parse_rule_date(text, p + 1)?
+    val start = try parse_rule_date(text, p + 1)
     if !is_char_at(text, start.next, ",") {
         return err(bad_rule(text, "expected ',' before the end rule"))
     }
-    val end = parse_rule_date(text, start.next + 1)?
+    val end = try parse_rule_date(text, start.next + 1)
     if !at_end(text, end.next) {
         return err(bad_rule(text, format("unexpected text at position {}", end.next)))
     }
@@ -412,11 +412,11 @@ pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string> {
         return err("not a time zone file (no TZif header)")
     }
     val version = data[4]
-    val first = parse_block(data, 0, false)?
+    val first = try parse_block(data, 0, false)
     if version == 0b {
         return ok(first.rules)
     }
-    val second = parse_block(data, first.next, true)?
+    val second = try parse_block(data, first.next, true)
     // the footer is the rule string between two newlines after the second block
     if second.next >= len(data) || data[second.next] != 10b {
         return ok(second.rules)
@@ -429,7 +429,7 @@ pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string> {
     if len(text) == 0 {
         return ok(second.rules)
     }
-    val rule = parse_posix_rule(text)?
+    val rule = try parse_posix_rule(text)
     return ok(ZoneRules {
         transitions: second.rules.transitions,
         type_of: second.rules.type_of,
@@ -477,12 +477,12 @@ pub fn load_rules(name: string) -> Result<ZoneRules, string> {
     if !valid_zone_name(name) {
         return err(format("invalid time zone name '{}'", name))
     }
-    val dir = zone_dir()?
+    val dir = try zone_dir()
     val path = fs.path_join(dir, name)
     if !fs.exists(path) || fs.is_dir(path) {
         return err(format("unknown time zone '{}'", name))
     }
-    val data = fs.read_bytes(path)?
+    val data = try fs.read_bytes(path)
     return parse_rules(data)
 }
 

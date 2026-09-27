@@ -98,7 +98,7 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
             val env = os.getenv(name)
             if Option.is_Some(referenced) {
                 val r = Option.unwrap_Some(referenced)
-                val expanded = resolve(props, r.value, r.source, push(seen, name))?
+                val expanded = try resolve(props, r.value, r.source, push(seen, name))
                 sb_append(sb, expanded)
             } else if Option.is_Some(env) {
                 sb_append(sb, Option.unwrap_Some(env))
@@ -121,7 +121,7 @@ fn resolve_all(props: Properties) -> Result<Properties, string> {
     val out = ab_new<Entry>()
     for i in 0..len(props.entries) {
         val e = props.entries[i]
-        val value = resolve(props, e.value, e.source, [e.key])?
+        val value = try resolve(props, e.value, e.source, [e.key])
         ab_append<Entry>(out, Entry { key: e.key, value: value, source: e.source })
     }
     return ok(Properties { entries: ab_to_array<Entry>(out), profile: props.profile })
@@ -175,7 +175,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
 
 // Parses one properties text, resolving placeholders within it.
 pub fn parse(text: string, source: string) -> Result<Properties, string> {
-    val raw = parse_raw(text, source)?
+    val raw = try parse_raw(text, source)
     return resolve_all(raw)
 }
 
@@ -204,8 +204,8 @@ fn merge(base: Properties, over: Properties, profile: string) -> Properties {
 // functions read.
 pub fn load(name: string) -> Result<Properties, string> {
     val base_file = concat(name, ".properties")
-    val text = read_source(base_file)?
-    val base = parse_raw(text, base_file)?
+    val text = try read_source(base_file)
+    val base = try parse_raw(text, base_file)
     val from_env = os.getenv("PROFILE_ACTIVE")
     val declared = find_file_entry(base.entries, "profile.active")
     val profile = if Option.is_Some(from_env) {
@@ -219,8 +219,8 @@ pub fn load(name: string) -> Result<Properties, string> {
         return resolve_all(base)
     }
     val profile_file = format("{}-{}.properties", name, profile)
-    val profile_text = read_source(profile_file)?
-    val over = parse_raw(profile_text, profile_file)?
+    val profile_text = try read_source(profile_file)
+    val over = try parse_raw(profile_text, profile_file)
     return resolve_all(merge(base, over, profile))
 }
 
@@ -278,26 +278,26 @@ pub fn entry_bool(e: Entry) -> Result<bool, string> {
 // The value of the required property `key` (environment variable first, then the files) as a
 // string. An Err if it is missing; the message names the key and the environment variable.
 pub fn get_string(props: Properties, key: string) -> Result<string, string> {
-    val e = require(props, key)?
+    val e = try require(props, key)
     return entry_string(e)
 }
 
 // The value of the required property `key` (environment variable first, then the files) as an
 // int. An Err if it is missing or not an integer; the message names the key and where to set it.
 pub fn get_int(props: Properties, key: string) -> Result<int, string> {
-    val e = require(props, key)?
+    val e = try require(props, key)
     return entry_int(e)
 }
 
 // The required property `key` as a float; same lookup and errors as `get_int`.
 pub fn get_float(props: Properties, key: string) -> Result<float, string> {
-    val e = require(props, key)?
+    val e = try require(props, key)
     return entry_float(e)
 }
 
 // The required property `key` as a bool (`true` / `false`); same lookup and errors as `get_int`.
 pub fn get_bool(props: Properties, key: string) -> Result<bool, string> {
-    val e = require(props, key)?
+    val e = try require(props, key)
     return entry_bool(e)
 }
 

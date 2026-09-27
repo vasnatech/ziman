@@ -367,7 +367,7 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
 /* Mirror of emit_to_json: appends statements binding `dst_var` (a
  * `val`) to a Ziman value of type `t`, decoded from `src_expr` (an
  * already-valid Ziman expression of type `Json`). Every branch either
- * binds `dst_var` or returns an `err(...)`/propagates via `?` -- never
+ * binds `dst_var` or returns an `err(...)`/propagates via `try` -- never
  * falls through -- so the emitted code always leaves `dst_var` usable
  * afterward. Lenient by construction: nothing here ever inspects a
  * JObject's *other* keys, so unrecognized extra fields are silently
@@ -375,13 +375,13 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
 static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
     switch (t.kind) {
         case TY_INT:
-            cb_appendf(cb, "    val %s = int_from_json(%s)?\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = try int_from_json(%s)\n", dst_var, src_expr);
             return;
         case TY_FLOAT:
-            cb_appendf(cb, "    val %s = float_from_json(%s)?\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = try float_from_json(%s)\n", dst_var, src_expr);
             return;
         case TY_DECIMAL:
-            cb_appendf(cb, "    val %s = decimal_from_json(%s)?\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = try decimal_from_json(%s)\n", dst_var, src_expr);
             return;
         case TY_BOOL:
             cb_appendf(cb, "    if !Json.is_JBool(%s) { return err(\"expected a boolean\") }\n", src_expr);
@@ -419,7 +419,7 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             cb_appendf(cb, "    for %s, %s in Json.unwrap_JObject(%s) {\n", k, v, src_expr);
             emit_from_json(*t.elem_err, v, entry, cb, tmp, line, col);
             if (t.elem->kind == TY_INT) {
-                cb_appendf(cb, "    val %s = parse_int(%s)?\n", key_n, k);
+                cb_appendf(cb, "    val %s = try parse_int(%s)\n", key_n, k);
                 cb_appendf(cb, "    mapb_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, key_n, entry);
             } else {
                 cb_appendf(cb, "    mapb_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, k, entry);
@@ -462,14 +462,14 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
                     for (int i = 0; i < t.type_args.count; i++) {
                         convs = fmt_str("%s, %s", convs, converter_for_type_arg(t.type_args.items[i], 0, line, col));
                     }
-                    cb_appendf(cb, "    val %s = %s_from_json%s(%s%s)?\n", dst_var, fn, type_args_text(t), src_expr, convs);
+                    cb_appendf(cb, "    val %s = try %s_from_json%s(%s%s)\n", dst_var, fn, type_args_text(t), src_expr, convs);
                 } else {
-                    cb_appendf(cb, "    val %s = %s_from_json(%s)?\n", dst_var, fn, src_expr);
+                    cb_appendf(cb, "    val %s = try %s_from_json(%s)\n", dst_var, fn, src_expr);
                 }
                 return;
             }
         case TY_TYPEVAR:
-            cb_appendf(cb, "    val %s = %s(%s)?\n", dst_var, converter_param_name(t.type_var_name, 0), src_expr);
+            cb_appendf(cb, "    val %s = try %s(%s)\n", dst_var, converter_param_name(t.type_var_name, 0), src_expr);
             return;
         default:
             ziman_error("syntax", line, col, "derive(Json) does not support field type '%s' yet", type_name(t));
@@ -543,7 +543,7 @@ static char *generate_struct_from_json(StructDecl *sd) {
             cb_appendf(&cb, "    }\n");
         } else {
             char *raw = fmt_str("field_%s_raw", f->name);
-            cb_appendf(&cb, "    val %s = json_require_field(j, \"%s\")?\n", raw, camel);
+            cb_appendf(&cb, "    val %s = try json_require_field(j, \"%s\")\n", raw, camel);
             emit_from_json(f->type, raw, dst, &cb, &tmp, f->line, f->col);
         }
         field_vars[i] = dst;
@@ -614,7 +614,7 @@ static char *generate_enum_from_json(EnumDecl *ed) {
     cb_appendf(&cb, "pub fn %s_from_json%s(j: Json%s) -> Result<%s, string> {\n", fn_name, type_param_decl_text(&ed->type_params, ""),
                converter_params_text(&ed->type_params, 0), decl_type_text(ed->name, &ed->type_params));
     cb_appendf(&cb, "    if !Json.is_JObject(j) { return err(\"expected a JSON object for %s\") }\n", ed->name);
-    cb_appendf(&cb, "    val __derive_tag = json_require_string_field(j, \"type\")?\n");
+    cb_appendf(&cb, "    val __derive_tag = try json_require_string_field(j, \"type\")\n");
 
     int tmp = 0;
     int n = ed->variants.count;
@@ -626,7 +626,7 @@ static char *generate_enum_from_json(EnumDecl *ed) {
             if (ed->type_params.count > 0) cb_appendf(&cb, "        return %s.%s\n", decl_type_text(ed->name, &ed->type_params), variant->name);
             else cb_appendf(&cb, "        return %s.%s\n", ed->name, variant->name);
         } else {
-            cb_appendf(&cb, "        val __derive_payload_raw = json_require_field(j, \"value\")?\n");
+            cb_appendf(&cb, "        val __derive_payload_raw = try json_require_field(j, \"value\")\n");
             char *dst = fmt_str("payload_%d", i);
             emit_from_json(variant->payload_type, "__derive_payload_raw", dst, &cb, &tmp, variant->line, variant->col);
             cb_appendf(&cb, "        return %s.%s(%s)\n", decl_type_text(ed->name, &ed->type_params), variant->name, dst);
@@ -697,19 +697,19 @@ static void emit_to_sql(Type t, const char *src_expr, const char *dst_var, CodeB
 static void emit_from_sql(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
     switch (t.kind) {
         case TY_INT:
-            cb_appendf(cb, "    val %s = sql_as_int(%s)?\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = try sql_as_int(%s)\n", dst_var, src_expr);
             return;
         case TY_FLOAT:
-            cb_appendf(cb, "    val %s = sql_as_float(%s)?\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = try sql_as_float(%s)\n", dst_var, src_expr);
             return;
         case TY_DECIMAL:
-            cb_appendf(cb, "    val %s = sql_as_decimal(%s)?\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = try sql_as_decimal(%s)\n", dst_var, src_expr);
             return;
         case TY_BOOL:
-            cb_appendf(cb, "    val %s = sql_as_bool(%s)?\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = try sql_as_bool(%s)\n", dst_var, src_expr);
             return;
         case TY_STRING:
-            cb_appendf(cb, "    val %s = sql_as_text(%s)?\n", dst_var, src_expr);
+            cb_appendf(cb, "    val %s = try sql_as_text(%s)\n", dst_var, src_expr);
             return;
         case TY_STRUCT:
         case TY_ENUM:
@@ -726,7 +726,7 @@ static void emit_from_sql(Type t, const char *src_expr, const char *dst_var, Cod
             } else {
                 const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
                 char *fn = pascal_to_snake(name);
-                cb_appendf(cb, "    val %s = %s_from_sql(%s)?\n", dst_var, fn, src_expr);
+                cb_appendf(cb, "    val %s = try %s_from_sql(%s)\n", dst_var, fn, src_expr);
                 return;
             }
         default:
@@ -745,7 +745,7 @@ static char *generate_struct_from_row(StructDecl *sd) {
         Param *f = &sd->fields.items[i];
         char *raw = fmt_str("field_%s_raw", f->name);
         char *dst = fmt_str("field_%s", f->name);
-        cb_appendf(&cb, "    val %s = row_get(row, \"%s\")?\n", raw, f->name);
+        cb_appendf(&cb, "    val %s = try row_get(row, \"%s\")\n", raw, f->name);
         emit_from_sql(f->type, raw, dst, &cb, &tmp, f->line, f->col);
         field_vars[i] = dst;
     }
@@ -823,11 +823,11 @@ static char *generate_struct_properties(StructDecl *sd) {
             cb_appendf(&cb, "    var field_%s = Option<%s>.None\n", f->name, g);
             cb_appendf(&cb, "    val found_%s = properties.lookup(props, properties.key(prefix, \"%s\"))\n", f->name, kebab);
             cb_appendf(&cb, "    if Option.is_Some(found_%s) {\n", f->name);
-            cb_appendf(&cb, "        val value_%s = properties.entry_%s(Option.unwrap_Some(found_%s))?\n", f->name, g, f->name);
+            cb_appendf(&cb, "        val value_%s = try properties.entry_%s(Option.unwrap_Some(found_%s))\n", f->name, g, f->name);
             cb_appendf(&cb, "        field_%s = Option<%s>.Some(value_%s)\n    }\n", f->name, g, f->name);
         } else {
             const char *g = properties_getter_suffix(f->type, f->line, f->col);
-            cb_appendf(&cb, "    val field_%s = properties.get_%s(props, properties.key(prefix, \"%s\"))?\n", f->name, g, kebab);
+            cb_appendf(&cb, "    val field_%s = try properties.get_%s(props, properties.key(prefix, \"%s\"))\n", f->name, g, kebab);
         }
     }
     cb_appendf(&cb, "    return %s {\n", sd->name);

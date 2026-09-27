@@ -293,11 +293,11 @@ fn read_packet(sock: Socket) -> Result<Packet, DbError> {
     var seq = 0
     var more = true
     while more {
-        val header = lift<[byte]>(net.read_exact(sock, 4))?
+        val header = try lift<[byte]>(net.read_exact(sock, 4))
         val length = read_le(header, 0, 3)
         seq = header[3] as int
         if length > 0 {
-            val body = lift<[byte]>(net.read_exact(sock, length))?
+            val body = try lift<[byte]>(net.read_exact(sock, length))
             ab_append<[byte]>(parts, body)
         }
         more = length == 16777215
@@ -338,7 +338,7 @@ fn parse_error(body: [byte]) -> DbError {
 }
 
 fn expect_ok(sock: Socket) -> Result<int, DbError> {
-    val p = read_packet(sock)?
+    val p = try read_packet(sock)
     if is_err_packet(p.body) {
         return err(parse_error(p.body))
     }
@@ -349,7 +349,7 @@ fn expect_ok(sock: Socket) -> Result<int, DbError> {
 
 // mysql://user[:password]@host[:port]/database[?sslmode=...&sslrootcert=...]
 fn parse_url(url: string) -> Result<MyUrl, DbError> {
-    val u = db.parse_url(url, ["mysql://"], 3306)?
+    val u = try db.parse_url(url, ["mysql://"], 3306)
     var sslmode = "disable"
     var sslrootcert = ""
     val mode = db.url_param(u, "sslmode")
@@ -461,7 +461,7 @@ fn finish_auth(
     var salt = salt_in
     var seq = start_seq
     while true {
-        val p = read_packet(sock)?
+        val p = try read_packet(sock)
         seq = p.seq + 1
         val first = p.body[0] as int
         if p.body[0] == pkt_ok {
@@ -478,15 +478,15 @@ fn finish_auth(
                 data_end = data_end - 1
             }
             salt = slice<byte>(p.body, data_start, data_end)
-            val reply = scramble(plugin, password, salt)?
-            send_packet(sock, seq, reply)?
+            val reply = try scramble(plugin, password, salt)
+            try send_packet(sock, seq, reply)
         } else if first == 1 {
             val sub = p.body[1] as int
             if sub == 4 {
                 if !tls {
                     return err(conn_err("caching_sha2_password needs the full authentication exchange for this login, which requires TLS; connect with sslmode=require (or set it up once over TLS so the server caches the login)"))
                 }
-                send_packet(sock, seq, cstring(password))?
+                try send_packet(sock, seq, cstring(password))
             }
         } else {
             return err(conn_err(format("unexpected packet {} during authentication", first)))
@@ -503,26 +503,26 @@ fn tls_verify(sslmode: string) -> net.TlsVerify {
 }
 
 fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
-    val first = read_packet(sock)?
-    val hello = parse_hello(first.body)?
+    val first = try read_packet(sock)
+    val hello = try parse_hello(first.body)
     var seq = first.seq + 1
     var tls = false
     if url.sslmode != "disable" {
         if bit_set(hello.caps, 11) {
-            send_packet(sock, seq, login_prefix(client_caps(true)))?
+            try send_packet(sock, seq, login_prefix(client_caps(true)))
             seq = seq + 1
             val root = if url.sslrootcert != "" {
                 Option<string>.Some(url.sslrootcert)
             } else {
                 Option<string>.None
             }
-            lift<unit>(net.start_tls_with(sock, url.host, tls_verify(url.sslmode), root))?
+            try lift<unit>(net.start_tls_with(sock, url.host, tls_verify(url.sslmode), root))
             tls = true
         } else if url.sslmode != "prefer" {
             return err(conn_err(format("the server does not support TLS (sslmode={})", url.sslmode)))
         }
     }
-    val reply = scramble(hello.plugin, url.password, hello.salt)?
+    val reply = try scramble(hello.plugin, url.password, hello.salt)
     val login = bytes_concat(
         login_prefix(client_caps(tls)),
         cstring(url.user),
@@ -531,7 +531,7 @@ fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
         cstring(url.database),
         cstring(hello.plugin)
     )
-    send_packet(sock, seq, login)?
+    try send_packet(sock, seq, login)
     return finish_auth(sock, seq + 1, hello.plugin, hello.salt, url.password, tls)
 }
 
@@ -560,14 +560,14 @@ fn parse_column(b: [byte]) -> Column {
 fn read_columns(sock: Socket, count: int) -> Result<[Column], DbError> {
     val columns = ab_new<Column>()
     for i in 0..count {
-        val p = read_packet(sock)?
+        val p = try read_packet(sock)
         if is_err_packet(p.body) {
             return err(parse_error(p.body))
         }
         ab_append<Column>(columns, parse_column(p.body))
     }
     if count > 0 {
-        val eof = read_packet(sock)?
+        val eof = try read_packet(sock)
         if is_err_packet(eof.body) {
             return err(parse_error(eof.body))
         }
@@ -585,7 +585,7 @@ fn more_results(status: int) -> bool {
 // decoded once the whole result has been read, so a value that can't be
 // decoded never leaves unread packets on the wire.
 fn read_result(sock: Socket) -> Result<ResultSet, DbError> {
-    val first = read_packet(sock)?
+    val first = try read_packet(sock)
     val b = first.body
     val no_columns: [Column] = []
     val no_rows: [[byte]] = []
@@ -602,12 +602,12 @@ fn read_result(sock: Socket) -> Result<ResultSet, DbError> {
         return err(DbError.Sql("LOCAL INFILE is not supported"))
     }
     val count = read_lenenc(b, 0).value
-    val columns = read_columns(sock, count)?
+    val columns = try read_columns(sock, count)
     val rows = ab_new<[byte]>()
     var more = false
     var done = false
     while !done {
-        val p = read_packet(sock)?
+        val p = try read_packet(sock)
         if is_err_packet(p.body) {
             return err(parse_error(p.body))
         }
@@ -623,9 +623,9 @@ fn read_result(sock: Socket) -> Result<ResultSet, DbError> {
 
 // A `;`-separated script yields several results; the last one is returned.
 fn read_all_results(sock: Socket) -> Result<ResultSet, DbError> {
-    var current = read_result(sock)?
+    var current = try read_result(sock)
     while current.more {
-        val next = read_result(sock)?
+        val next = try read_result(sock)
         current = next
     }
     return current
@@ -791,19 +791,19 @@ fn decode_binary_value(c: Column, b: [byte], pos: int) -> Result<SqlValue, DbErr
     val t = c.type_code
     val unsigned = bit_set(c.flags, 5)
     if t == type_tiny {
-        val v = read_int(b, pos, 1, unsigned)?
+        val v = try read_int(b, pos, 1, unsigned)
         return SqlValue.Int(v)
     }
     if t == type_short || t == type_year {
-        val v = read_int(b, pos, 2, unsigned)?
+        val v = try read_int(b, pos, 2, unsigned)
         return SqlValue.Int(v)
     }
     if t == type_long || t == type_int24 {
-        val v = read_int(b, pos, 4, unsigned)?
+        val v = try read_int(b, pos, 4, unsigned)
         return SqlValue.Int(v)
     }
     if t == type_longlong {
-        val v = read_int(b, pos, 8, unsigned)?
+        val v = try read_int(b, pos, 8, unsigned)
         return SqlValue.Int(v)
     }
     if t == type_float {
@@ -837,7 +837,7 @@ fn decode_binary_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbEr
         if bit_set(flag_byte, (i + 2) % 8) {
             ab_append<SqlValue>(values, SqlValue.Null)
         } else {
-            val v = decode_binary_value(columns[i], body, pos)?
+            val v = try decode_binary_value(columns[i], body, pos)
             ab_append<SqlValue>(values, v)
             pos = pos + binary_value_size(columns[i], body, pos)
         }
@@ -854,10 +854,10 @@ fn to_result(rs: ResultSet, binary: bool) -> Result<QueryResult, DbError> {
     val rows = ab_new<Row>()
     for body in rs.rows {
         if binary {
-            val values = decode_binary_row(body, rs.columns)?
+            val values = try decode_binary_row(body, rs.columns)
             ab_append<Row>(rows, Row { columns: column_names, values: values })
         } else {
-            val values = decode_text_row(body, rs.columns)?
+            val values = try decode_text_row(body, rs.columns)
             ab_append<Row>(rows, Row { columns: column_names, values: values })
         }
     }
@@ -1036,9 +1036,9 @@ fn close_statement(sock: Socket, stmt_id: int) {
 }
 
 fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
-    val rewritten = rewrite_placeholders(sql, params)?
-    send_packet(sock, 0, bytes_concat([22b], string_to_bytes(rewritten.sql)))?
-    val reply = read_packet(sock)?
+    val rewritten = try rewrite_placeholders(sql, params)
+    try send_packet(sock, 0, bytes_concat([22b], string_to_bytes(rewritten.sql)))
+    val reply = try read_packet(sock)
     if is_err_packet(reply.body) {
         return err(parse_error(reply.body))
     }
@@ -1046,20 +1046,20 @@ fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
     defer close_statement(sock, stmt_id)
     val column_count = read_le(reply.body, 5, 2)
     val param_count = read_le(reply.body, 7, 2)
-    read_columns(sock, param_count)?
-    read_columns(sock, column_count)?
+    try read_columns(sock, param_count)
+    try read_columns(sock, column_count)
     if param_count != len(rewritten.params) {
         return err(DbError.Sql(format("statement takes {} parameters, {} given", param_count, len(rewritten.params))))
     }
-    send_packet(sock, 0, execute_body(stmt_id, rewritten.params, 0))?
-    val rs = read_all_results(sock)?
+    try send_packet(sock, 0, execute_body(stmt_id, rewritten.params, 0))
+    val rs = try read_all_results(sock)
     return to_result(rs, true)
 }
 
 fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     if len(params) == 0 {
-        send_packet(sock, 0, bytes_concat([3b], string_to_bytes(sql)))?
-        val rs = read_all_results(sock)?
+        try send_packet(sock, 0, bytes_concat([3b], string_to_bytes(sql)))
+        val rs = try read_all_results(sock)
         return to_result(rs, false)
     }
     return prepared_query(sock, sql, params)
@@ -1297,8 +1297,8 @@ pub struct Connection {
 
 // Connects, authenticates, and starts the thread that owns the socket.
 pub fn connect(url: string) -> Result<Connection, DbError> {
-    val parsed = parse_url(url)?
-    val sock = lift<Socket>(net.connect(parsed.host, parsed.port))?
+    val parsed = try parse_url(url)
+    val sock = try lift<Socket>(net.connect(parsed.host, parsed.port))
     val ready = handshake(sock, parsed)
     if !is_ok(ready) {
         net.close(sock)
@@ -1315,13 +1315,13 @@ fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult,
 
 // The number of rows the last statement changed.
 pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
-    val result = run(conn, sql, params)?
+    val result = try run(conn, sql, params)
     return result.affected
 }
 
 // Runs a statement and returns its rows.
 pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
-    val result = run(conn, sql, params)?
+    val result = try run(conn, sql, params)
     return result.rows
 }
 

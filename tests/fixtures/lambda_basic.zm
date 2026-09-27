@@ -24,7 +24,7 @@ fn keep_first<T>(items: [T], marker: T) -> [T] {
 
 fn parse_plus_one(s: string) -> Result<int, string> {
     val f = fn(t: string) -> Result<int, string> {
-        val n = parse_int(t)?
+        val n = try parse_int(t)
         return ok(n + 1)
     }
     return f(s)

@@ -387,7 +387,7 @@ fn flow_scalar(s: string, pos: int, is_key: bool, no: int) -> Result<Scalar, str
         }
         p = p + 1
     }
-    val value = plain_scalar(trim(substring(s, pos, p)), no)?
+    val value = try plain_scalar(trim(substring(s, pos, p)), no)
     return ok(Scalar { value: value, next: p })
 }
 
@@ -415,7 +415,7 @@ fn flow_seq(s: string, pos: int, no: int) -> Result<Scalar, string> {
         if is_char_at(s, p, "]") {
             return ok(Scalar { value: Json.JArray(ab_to_array<Json>(items)), next: p + 1 })
         }
-        val item = flow_node(s, p, no)?
+        val item = try flow_node(s, p, no)
         ab_append<Json>(items, item.value)
         p = skip_sp(s, item.next)
         if is_char_at(s, p, ",") {
@@ -437,7 +437,7 @@ fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
         if is_char_at(s, p, "}") {
             return ok(Scalar { value: Json.JObject(mapb_to_map<string, Json>(fields)), next: p + 1 })
         }
-        val key = flow_scalar(s, p, true, no)?
+        val key = try flow_scalar(s, p, true, no)
         val key_text = if Json.is_JString(key.value) { Json.unwrap_JString(key.value) } else { trim(substring(
             s,
             p,
@@ -449,7 +449,7 @@ fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
         p = skip_sp(s, key.next)
         var value = Json.JNull
         if is_char_at(s, p, ":") {
-            val item = flow_node(s, skip_sp(s, p + 1), no)?
+            val item = try flow_node(s, skip_sp(s, p + 1), no)
             value = item.value
             p = skip_sp(s, item.next)
         }
@@ -531,7 +531,7 @@ fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
         return err(fail(no, "complex keys ('? ') are not supported"))
     }
     if first == "\"" || first == "'" {
-        val quoted = if first == "\"" { read_double(content, 0, no)?} else { read_single(content, 0, no)?}
+        val quoted = if first == "\"" { try read_double(content, 0, no) } else { try read_single(content, 0, no) }
         val after = skip_sp(content, quoted.next)
         if is_char_at(content, after, ":") && (after + 1 >= len(content) || is_char_at(content, after + 1, " ")) {
             return ok(Option<KeyRes>.Some(KeyRes {
@@ -659,7 +659,7 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
             text = concat(text, concat(" ", content_of(lines[next])))
             next = next + 1
         }
-        val node = flow_node(text, 0, no)?
+        val node = try flow_node(text, 0, no)
         if skip_sp(text, node.next) < len(text) {
             return err(fail(no, "unexpected text after a flow collection"))
         }
@@ -670,7 +670,7 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
             text = concat(text, concat(" ", content_of(lines[next])))
             next = next + 1
         }
-        val node = if first == "\"" { read_double(text, 0, no)?} else { read_single(text, 0, no)?}
+        val node = if first == "\"" { try read_double(text, 0, no) } else { try read_single(text, 0, no) }
         if skip_sp(text, node.next) < len(text) {
             return err(fail(no, "unexpected text after a quoted scalar"))
         }
@@ -681,7 +681,7 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
         text = concat(text, concat(" ", content_of(lines[next])))
         next = next + 1
     }
-    val value = plain_scalar(text, no)?
+    val value = try plain_scalar(text, no)
     return ok(NodeRes { value: value, next: next })
 }
 
@@ -695,7 +695,7 @@ fn parse_node(lines: [Line], i: int, min_indent: int) -> Result<NodeRes, string>
     if content == "-" {
         return parse_seq(lines, j, ln.indent)
     }
-    val kv = split_key(content, ln.no)?
+    val kv = try split_key(content, ln.no)
     if Option.is_Some(kv) {
         return parse_map(lines, j, ln.indent)
     }
@@ -718,7 +718,7 @@ fn parse_seq(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
             ab_append<Json>(items, Json.JNull)
             j = j + 1
         } else {
-            val item = parse_node(lines, j + 1, ind + 1)?
+            val item = try parse_node(lines, j + 1, ind + 1)
             ab_append<Json>(items, item.value)
             j = item.next
         }
@@ -745,7 +745,7 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
         if content == "-" {
             break
         }
-        val kv = split_key(content, ln.no)?
+        val kv = try split_key(content, ln.no)
         if !Option.is_Some(kv) {
             return err(fail(ln.no, "expected 'key: value'"))
         }
@@ -758,20 +758,20 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
         if len(entry.rest) == 0 {
             val nxt = next_sig(lines, j + 1)
             if nxt < len(lines) && lines[nxt].indent > ind {
-                val node = parse_node(lines, j + 1, ind + 1)?
+                val node = try parse_node(lines, j + 1, ind + 1)
                 value = node.value
                 after = node.next
             } else if nxt < len(lines) && lines[nxt].indent == ind && content_of(lines[nxt]) == "-" {
-                val node = parse_seq(lines, nxt, ind)?
+                val node = try parse_seq(lines, nxt, ind)
                 value = node.value
                 after = node.next
             }
         } else if starts_with(entry.rest, "|") || starts_with(entry.rest, ">") {
-            val node = block_scalar(lines, j, entry.rest, ln.base)?
+            val node = try block_scalar(lines, j, entry.rest, ln.base)
             value = node.value
             after = node.next
         } else {
-            val node = inline_value(lines, j, entry.rest, ind)?
+            val node = try inline_value(lines, j, entry.rest, ind)
             value = node.value
             after = node.next
         }
@@ -786,7 +786,7 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
 // something unsupported (anchors, aliases, tags, the `<<` merge key, multiple documents, tab
 // indentation), so nothing is silently misread.
 pub fn parse_yaml(text: string) -> Result<Json, string> {
-    val all = tokenize(text)?
+    val all = try tokenize(text)
     val kept = ab_new<Line>()
     var seen_start = false
     for ln in all {
@@ -811,7 +811,7 @@ pub fn parse_yaml(text: string) -> Result<Json, string> {
     if next_sig(lines, 0) >= len(lines) {
         return ok(Json.JNull)
     }
-    val root = parse_node(lines, 0, 0)?
+    val root = try parse_node(lines, 0, 0)
     val rest = next_sig(lines, root.next)
     if rest < len(lines) {
         return err(fail(lines[rest].no, "unexpected content"))

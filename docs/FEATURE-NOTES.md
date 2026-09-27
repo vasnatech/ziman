@@ -159,7 +159,7 @@ empty read) — blocking on purpose, since `spawn` gives every connection its ow
 OS thread — and the `[byte]` helpers that go with it are prelude builtins (string
 conversion) and `number` (big-endian integers).
 
-`defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `?`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer datasource.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error.
+`defer f(args)` runs a call when the enclosing block exits by any path (`return`, a propagating `try`, `break`, `continue`, falling off the end), last-in first-out, with arguments evaluated when the `defer` statement runs — how a socket or transaction is released without destructors (`defer net.close(sock)`, `defer datasource.rollback(conn)`). Block-scoped, a single call only, its result discarded, and skipped by a fatal runtime error.
 
 `http` is an HTTP/1.1 server toolkit on `net` (request parsing with keep-alive and pipelining, bounded headers and bodies, response framing, and route matching with path parameters) — a toolkit rather than a framework (function values don't capture, so a handler can't reach the application's database connection unless it is passed in as an explicit context value); `server.serve(listener, ctx, handler, options)` runs the accept and connection loops around a handler function value, or an application can write its own loops and `route` function; strings now have a `\r` escape.
 
@@ -265,13 +265,14 @@ parameter can never be omitted — there's no natural "absent" state an
 outcome type could fall back to — so this sugar is only ever about
 what a supplied value looks like, never about leaving one out (see
 docs/DESIGN.md's "Result\<T, E\> bare-value auto-wrap" entry). A
-postfix `expr?` unwraps a `Result<T, E>`/`Option<T>` success value and
+prefix `try expr` unwraps a `Result<T, E>`/`Option<T>` success value and
 keeps going, or immediately returns the failure from the enclosing
-function (`Ok`/`Some` → the value; `Err`/`None` → an early `return`) —
-only legal as a `val`/`var`'s entire initializer or as its own bare
-statement, never nested inside a larger expression, a deliberate v0
-scope cut that avoids needing the interpreter to unwind out of an
-arbitrary expression tree (see docs/DESIGN.md's "? operator" entry).
+function (`Ok`/`Some` → the value; `Err`/`None` → an early `return`).
+The interpreter only knows it as a `val`/`var`'s entire initializer or a
+bare statement; the parser hoists a `try` written inside a larger
+expression into such a statement (see docs/DESIGN.md's "try" entries).
+It was first a postfix `expr?`, replaced by `try` (2026-09) so that the
+early exit is written where it is hard to miss.
 
 ## `StringBuilder` and `ArrayBuilder<T>`
 

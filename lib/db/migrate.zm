@@ -6,7 +6,7 @@
 // `/* */` comment or a `$$ ... $$` body does not end one). Files in the directory that do not end in `.sql` are
 // ignored; a `.sql` file that does not fit the name is an error, so a typo cannot silently skip a migration.
 //
-//     val applied = migrate.run(conn, "migrations")?
+//     val applied = try migrate.run(conn, "migrations")
 //
 // SQL that has to differ by engine (`ALTER TABLE ... ADD CONSTRAINT`, which SQLite lacks; a native `UUID` or `TIMESTAMPTZ`; a key length on MySQL) goes in
 // a subdirectory named for the engine, `migrations/postgres/`, `migrations/sqlite/` or `migrations/mysql/`. `run` applies the files of the directory and of the
@@ -185,7 +185,7 @@ pub fn load(dir: string) -> Result<[Migration], DbError> {
     val found = ab_new<Migration>()
     for file in names {
         if ends_with(file, ".sql") {
-            val one = read_migration(dir, file)?
+            val one = try read_migration(dir, file)
             ab_append<Migration>(found, one)
         }
     }
@@ -202,12 +202,12 @@ pub fn load(dir: string) -> Result<[Migration], DbError> {
 // database must be 1, 2, 3, ... whichever engine it is, so each dialect directory holds its own file for a version the shared directory leaves out. A
 // missing dialect directory is no migrations of its own.
 pub fn load_for(dir: string, dialect: string) -> Result<[Migration], DbError> {
-    val shared = load(dir)?
+    val shared = try load(dir)
     val own = fs.path_join(dir, dialect)
     if !fs.is_dir(own) {
         return shared
     }
-    val specific = load(own)?
+    val specific = try load(own)
     for m in specific {
         for other in shared {
             if other.version == m.version {
@@ -256,12 +256,12 @@ fn check_sequence(migrations: [Migration]) -> Result<unit, DbError> {
 // Applied migrations are checked against the ones the program has: the same count or fewer, the same versions in
 // order, the same checksums. Returns how many are already applied.
 fn check_applied(tx: Connection, migrations: [Migration]) -> Result<int, DbError> {
-    val rows = datasource.query(tx, "SELECT version, name, checksum FROM schema_migrations ORDER BY version")?
+    val rows = try datasource.query(tx, "SELECT version, name, checksum FROM schema_migrations ORDER BY version")
     for i in 0..len(rows) {
-        val version_value = row_get(rows[i], "version")?
-        val version = sql_as_int(version_value)?
-        val stored_value = row_get(rows[i], "checksum")?
-        val stored = sql_as_text(stored_value)?
+        val version_value = try row_get(rows[i], "version")
+        val version = try sql_as_int(version_value)
+        val stored_value = try row_get(rows[i], "checksum")
+        val stored = try sql_as_text(stored_value)
         if version != i + 1 || i >= len(migrations) {
             return err(problem(format(
                 "the database has migration {} applied, which this program does not have (or not in this place)",
@@ -280,7 +280,7 @@ fn check_applied(tx: Connection, migrations: [Migration]) -> Result<int, DbError
 
 fn apply_one(tx: Connection, m: Migration) -> Result<int, DbError> {
     for statement in split_statements(m.sql) {
-        datasource.execute(tx, statement)?
+        try datasource.execute(tx, statement)
     }
     return datasource.execute(
         tx,
@@ -294,9 +294,9 @@ fn apply_one(tx: Connection, m: Migration) -> Result<int, DbError> {
 
 fn apply_in(tx: Connection, migrations: [Migration]) -> Result<int, DbError> {
     if Connection.is_Postgres(tx) {
-        datasource.query(tx, "SELECT pg_advisory_xact_lock($1)", SqlValue.Int(lock_key))?
+        try datasource.query(tx, "SELECT pg_advisory_xact_lock($1)", SqlValue.Int(lock_key))
     }
-    datasource.execute(
+    try datasource.execute(
         tx,
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -306,10 +306,10 @@ fn apply_in(tx: Connection, migrations: [Migration]) -> Result<int, DbError> {
             applied_at TEXT NOT NULL
         )
         """
-    )?
-    val done = check_applied(tx, migrations)?
+    )
+    val done = try check_applied(tx, migrations)
     for i in done..len(migrations) {
-        apply_one(tx, migrations[i])?
+        try apply_one(tx, migrations[i])
     }
     return len(migrations) - done
 }
@@ -317,7 +317,7 @@ fn apply_in(tx: Connection, migrations: [Migration]) -> Result<int, DbError> {
 // Brings the database to the latest of `migrations`, given in version order; the number applied by this call. See
 // the top of this file for what it checks and how it is kept safe.
 pub fn apply(conn: Connection, migrations: [Migration]) -> Result<int, DbError> {
-    check_sequence(migrations)?
+    try check_sequence(migrations)
     return datasource.with_transaction<int>(conn, fn(tx: Connection) -> Result<int, DbError> {
         return apply_in(tx, migrations)
     })
@@ -325,6 +325,6 @@ pub fn apply(conn: Connection, migrations: [Migration]) -> Result<int, DbError> 
 
 // `apply` for the migrations in the directory `dir`.
 pub fn run(conn: Connection, dir: string) -> Result<int, DbError> {
-    val migrations = load_for(dir, datasource.dialect(conn))?
+    val migrations = try load_for(dir, datasource.dialect(conn))
     return apply(conn, migrations)
 }

@@ -1,7 +1,7 @@
 // regex.zm -- regular expressions: a native engine that runs in time linear in the text (no
 // backreferences), with patterns compiled once and cached.
 //
-//   val re = regex.compile("(\\w+)@(\\w+)\\.com")?
+//   val re = try regex.compile("(\\w+)@(\\w+)\\.com")
 //   val m = regex.find(re, "mail bob@site.com now")     // Option<Match>
 //   regex.replace_all(re, text, "$2: $1")
 //
@@ -53,7 +53,7 @@ pub struct Match {
 // looked up, not recompiled: the last 256 distinct patterns are kept, so `compile` in a loop or
 // on every request is cheap.)
 pub fn compile(pattern: string) -> Result<Regex, string> {
-    val handle = compile_raw(pattern)?
+    val handle = try compile_raw(pattern)
     return ok(Regex {
         handle: handle,
         groups: group_count_raw(handle),

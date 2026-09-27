@@ -22,13 +22,13 @@ fn make(x: int) -> int {
 // `?` propagation still runs defers
 fn fails() -> Result<int, string> {
     defer say("cleanup on ? exit")
-    val n = parse_int("not a number")?
+    val n = try parse_int("not a number")
     return n
 }
 
 fn succeeds() -> Result<int, string> {
     defer say("cleanup on normal exit")
-    val n = parse_int("42")?
+    val n = try parse_int("42")
     return n
 }
 

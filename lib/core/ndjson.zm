@@ -28,8 +28,8 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
 }
 
 // The JSON values of a newline-delimited file, read lazily as a `for` loop asks for them, so a log
-// of any size uses memory for one record: `val records = ndjson.records(path)?` then
-// `for record in records { val value = record? ... }`. Each item is a `Result<Json, string>`; blank
+// of any size uses memory for one record: `val records = try ndjson.records(path)` then
+// `for record in records { val value = try record ... }`. Each item is a `Result<Json, string>`; blank
 // lines are skipped, a line that is not valid JSON is an Err item naming its (1-based) line number
 // (`line 3: unexpected character ...`) and the iteration carries on, and a read error is a last Err
 // item. The Err on the call itself is the file failing to open. Leaving the loop early closes the file.

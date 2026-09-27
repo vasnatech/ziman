@@ -47,7 +47,7 @@ One connection is owned by one spawned thread and driven through a
 channel of requests -- Ziman has no mutex, and the protocol is strictly
 request/response, so a lone owner thread is what serialises concurrent
 callers (each blocks on its own reply channel). That also means there
-is no lock a `?` returning early can leave held. A *transaction* is
+is no lock a `try` returning early can leave held. A *transaction* is
 still per-connection state on the server: statements from other
 threads interleave inside it, as documented for `datasource`.
 

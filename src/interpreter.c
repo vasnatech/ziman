@@ -1223,7 +1223,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
              * `?` found outside the two statement forms that intercept
              * it directly, before ever calling eval_expr on it (see
              * exec_stmt's own STMT_VAL/STMT_VAR/STMT_EXPR cases below). */
-            ziman_error("runtime", e->line, e->col, "internal error: '?' reached eval_expr directly");
+            ziman_error("runtime", e->line, e->col, "internal error: 'try' reached eval_expr directly");
             return value_int(0);
     }
     ziman_error("runtime", e->line, e->col, "internal error: unhandled expression kind");

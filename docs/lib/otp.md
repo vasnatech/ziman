@@ -7,7 +7,7 @@ change every 30 seconds, from a secret shared once, by QR code or by typing it. 
 ```
 val secret = otp.generate_secret()                       // "JBSWY3DPEHPK3PXP..." to show the user, base32
 val uri = otp.provisioning_uri("My App", "ada@example.com", secret)   // otpauth://totp/... for a QR code
-val key = otp.base32_decode(secret)?                     // the bytes a code is computed from
+val key = try otp.base32_decode(secret)                     // the bytes a code is computed from
 otp.totp_valid(key, typed_code, now_seconds, 1)          // true for this 30-second step and one either side
 ```
 

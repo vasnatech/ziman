@@ -2180,13 +2180,8 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
              * one of the two statement forms it's legal in (a val/var's
              * entire initializer, or its own bare statement) -- see
              * check_try_unwrap and its two callers. */
-            if (e->as.try_unwrap.prefix) {
-                ziman_error("type", e->line, e->col,
-                            "'try' cannot be used here: it must run exactly once and unconditionally (not in an 'else if' or 'while' condition, on the right of '&&' or '||', in a 'defer' or 'spawn' argument, or inside an 'if' or 'switch' used as a value); put it in its own 'val' first");
-            } else {
-                ziman_error("type", e->line, e->col,
-                            "'?' can only be used as a val/var's entire initializer or as its own statement, not nested inside another expression (write 'try <expression>' to nest it)");
-            }
+            ziman_error("type", e->line, e->col,
+                        "'try' cannot be used here: it must run exactly once and unconditionally (not in an 'else if' or 'while' condition, on the right of '&&' or '||', in a 'defer' or 'spawn' argument, or inside an 'if' or 'switch' used as a value); put it in its own 'val' first");
             t = type_scalar(TY_VOID);
             break;
         default:
@@ -2302,12 +2297,12 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
 static Type check_try_unwrap(Module *module, Env *env, Expr *e, Type fn_return_type) {
     Expr *inner = e->as.try_unwrap.inner;
     Type inner_type = check_expr(module, env, inner);
-    require_not_void(inner, "with '?'");
+    require_not_void(inner, "with 'try'");
 
     if (is_option_type(inner_type)) {
         if (!is_option_type(fn_return_type)) {
             ziman_error("type", e->line, e->col,
-                        "'?' on an Option<T> value requires the enclosing function to return Option<...>, found %s",
+                        "'try' on an Option<T> value requires the enclosing function to return Option<...>, found %s",
                         type_name(fn_return_type));
         }
         e->as.try_unwrap.propagated_type = fn_return_type;
@@ -2318,7 +2313,7 @@ static Type check_try_unwrap(Module *module, Env *env, Expr *e, Type fn_return_t
     if (inner_type.kind == TY_RESULT) {
         if (fn_return_type.kind != TY_RESULT || !type_equals(*inner_type.elem_err, *fn_return_type.elem_err)) {
             ziman_error("type", e->line, e->col,
-                        "'?' on a Result<T, E> value requires the enclosing function to return Result<..., %s>, found %s",
+                        "'try' on a Result<T, E> value requires the enclosing function to return Result<..., %s>, found %s",
                         type_name(*inner_type.elem_err), type_name(fn_return_type));
         }
         e->as.try_unwrap.propagated_type = fn_return_type;
@@ -2327,7 +2322,7 @@ static Type check_try_unwrap(Module *module, Env *env, Expr *e, Type fn_return_t
         return t;
     }
     ziman_error("type", inner->line, inner->col,
-                "'?' can only be used on an Option<T> or Result<T, E> value, found %s", type_name(inner_type));
+                "'try' can only be used on an Option<T> or Result<T, E> value, found %s", type_name(inner_type));
     return type_scalar(TY_VOID); /* unreachable */
 }
 
@@ -2913,7 +2908,7 @@ static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type
     }
     if (arm_may_leave(inner, 0)) {
         ziman_error("type", inner->line, inner->col,
-                    "an arm of an 'if'/'switch' used inside an expression cannot 'return', 'break', 'continue' or use '?' -- "
+                    "an arm of an 'if'/'switch' used inside an expression cannot 'return', 'break', 'continue' or use 'try' -- "
                     "bind it to a 'val' (or return it) first, where an arm may leave");
     }
     ValueCtx ctx;

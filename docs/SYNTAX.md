@@ -521,7 +521,7 @@ for i, x in arr { ... }       // index + value together
 
 - **`for x in iter`** also walks an `Iter<T>`, a lazy source that produces one item
   at a time, such as `fs.lines(path)`. It has one binder (no index). Nothing is read ahead, so
-  the source can be far larger than memory, and `break`, `return` or a `?` inside the loop
+  the source can be far larger than memory, and `break`, `return` or a `try` inside the loop
   closes it; one that is never finished is closed when it is garbage collected. Take the items by
   hand with `iter_next(it)` (an `Option`) and release early with `iter_close(it)`. An `Iter` is
   walked once: a second `for` over it carries on where the first stopped. `iter_of_array(items)`
@@ -629,7 +629,7 @@ fn main() {
   val add = fn(x: int) -> int { return x + base }
   val doubled = collections.map<int, int>(numbers, fn(n: int) -> int { return n * 2 })
   ```
-  It is an expression, usable anywhere one is. `return`, `?` and `defer` inside
+  It is an expression, usable anywhere one is. `return`, `try` and `defer` inside
   it belong to the lambda, and `break`/`continue` cannot leave it.
 - **Shorter forms.** The final bare expression of a lambda with a known
   non-void return type is its result, so `return` is only for early exits:
@@ -977,85 +977,59 @@ fn main() {
   reason — defaults exist to fill in for an omission, and this
   parameter is never omittable to begin with.
 
-### `?` — Option\<T\>/Result\<T, E\> unwrap-or-propagate
+### `try` — Option\<T\>/Result\<T, E\> unwrap-or-propagate
 
 ```
 fn parse_two_numbers(a: string, b: string) -> Result<int, string> {
-    val x = parse_int(a)?
-    val y = parse_int(b)?
+    val x = try parse_int(a)
+    val y = try parse_int(b)
     return x + y
 }
 
-fn first_positive_index(items: [int]) -> Option<int> {
-    var i = 0
-    while i < len(items) {
-        if items[i] > 0 {
-            return i
-        }
-        i = i + 1
-    }
-    return Option<int>.None
+fn first_positive_doubled(items: [int]) -> Option<int> {
+    val idx = try first_positive_index(items)
+    return items[idx] * 2
 }
 
-fn first_positive_doubled(items: [int]) -> Option<int> {
-    val idx = first_positive_index(items)?
-    return items[idx] * 2
+fn plus_one(s: string) -> Result<int, string> {
+    return ok(try parse_int(s) + 1)
 }
 ```
 
-- **`expr?`, where `expr: Result<T, E>` or `expr: Option<T>`, unwraps
-  the success value and keeps going, or immediately returns the
-  failure from the *enclosing function* — no boilerplate `if is_err(r)
-  { return err_of(r) }`/`if Option.is_None(o) { return None }` needed.**
-  `Ok(v)`/`Some(v)` → the whole `expr?` evaluates to `v`; `Err(e)` →
-  immediately `return e` (auto-wrapped to `Err(e)` by the enclosing
-  function's own bare-value auto-wrap); `None` → immediately returns a
-  fresh `None`, of the *enclosing function's* own `Option<T2>` type.
-- **Only legal as the entire initializer of a `val`/`var` declaration,
-  or as its own bare statement** — never nested inside a larger
-  expression (`return str(foo()?)`, `bar(foo()?, baz()?)` are both
-  syntax errors). The reason is an implementation constraint, stated
-  plainly: full nesting would need the tree-walking interpreter to unwind
-  out of an arbitrary expression tree, not just a statement. It also
-  happens to be reasonable style (each fallible step sits on its own
-  line), but that is a side benefit, not the motive; restricting `?` to
-  these two positions covers the common case (unwrap once, keep using the
-  value) with no new interpreter control-flow mechanism.
-- **`Result<T, E>`'s `?` requires the enclosing function to return
-  `Result<T2, E>` with the *same* `E`** — propagating `Err(e)` means
-  handing the caller a real value, so the error type has to match
-  exactly; there's no `From`-based conversion the way Rust's `?` has
-  (Ziman has no trait/conversion system at all). `Option<T>`'s `?` only
-  requires the enclosing function to return `Option<T2>` for *any*
-  `T2` — `None` carries nothing to propagate, so the inner `T` and the
-  enclosing `T2` never need any relationship (`first_positive_doubled`
-  above works despite `first_positive_index` and it having unrelated
-  return types in general — here they're both `Option<int>`, but a
-  `Option<string>`-returning helper feeding an `Option<int>`-returning
-  caller would work exactly the same way).
-- **A bare `expr?` statement (no `val`/`var`) still fully checks and
-  propagates**, discarding the unwrapped value on success — useful for
-  a fallible step whose success value isn't needed, only whether it
-  succeeded.
-- **`try expr` is the same thing written in front, and it may be nested.**
-  `try` covers the call or access chain after it, as `-` and `!` do:
+- **`try expr`, where `expr: Result<T, E>` or `expr: Option<T>`, unwraps the
+  success value and keeps going, or immediately returns the failure from the
+  *enclosing function*** — no boilerplate `if is_err(r) { return err_of(r) }`.
+  `Ok(v)`/`Some(v)` → the whole `try expr` evaluates to `v`; `Err(e)` →
+  immediately `return e` (auto-wrapped to `Err(e)` by the enclosing function's
+  own bare-value auto-wrap); `None` → immediately returns a fresh `None`, of the
+  *enclosing function's* own `Option<T2>` type. There is no postfix `?`: the
+  early exit is written in front, where it is hard to miss when reading.
+- **`try` covers the call or access chain after it**, as `-` and `!` do:
   `ok(try parse_int(s) + 1)` is `ok((try parse_int(s)) + 1)`, and
-  `try parse(str(try parse(s))) * 2` nests. Where `expr?` may only be a whole
-  statement, a `try` may sit anywhere an expression that runs exactly once,
-  unconditionally, can: a `val`/`var` initializer, an assignment, a `return`
-  value, an `if` condition, a `switch` subject, a `for` range or iterable, an
-  operand or an argument. The early exit is marked at the left, where it is hard
-  to miss. It follows the same typing rules as `?`. The parser rewrites it into
-  `val $t1 = expr?` statements ahead of the statement, and also moves whatever
-  the statement evaluates *before* the `try` (a call, an index that may fail)
-  into temporaries, so effects happen in the order written:
-  `noisy("a") + try f() + noisy("b")` runs `noisy("a")`, then `f()`, and returns
-  before `noisy("b")` if `f()` fails.
+  `try parse(str(try parse(s))) * 2` nests.
+- **It may sit anywhere an expression that runs exactly once, unconditionally,
+  can:** a `val`/`var` initializer, an assignment, a `return` value, an `if`
+  condition, a `switch` subject, a `for` range or iterable, an operand or an
+  argument. The interpreter only knows the statement-level form (the whole
+  initializer of a `val`/`var`, or a whole statement); the parser rewrites any
+  other `try` into `val $t1 = try expr` statements ahead of the statement, and
+  also moves whatever the statement evaluates *before* the `try` (a call, an
+  index that may fail) into temporaries, so effects happen in the order
+  written: `noisy("a") + try f() + noisy("b")` runs `noisy("a")`, then `f()`, and
+  returns before `noisy("b")` if `f()` fails.
 - **Where `try` is refused:** an `else if` or `while` condition (evaluated
   conditionally or repeatedly), the right side of `&&` and `||`, a `defer` or
-  `spawn` argument, and an `if`/`switch` used as a value. Put it in its own `val`
-  first. The postfix `?` is unchanged and stays statement-level; both spellings
-  are accepted.
+  `spawn` argument, and an `if`/`switch` used as a value (its arms may not
+  leave). Put it in its own `val` first.
+- **`Result<T, E>`'s `try` requires the enclosing function to return
+  `Result<T2, E>` with the *same* `E`** — propagating `Err(e)` means handing the
+  caller a real value, so the error type has to match exactly; there is no
+  `From`-style conversion (Ziman has no trait/conversion system). `Option<T>`'s
+  `try` only requires the enclosing function to return `Option<T2>` for *any*
+  `T2` — `None` carries nothing to propagate.
+- **A bare `try expr` statement (no `val`/`var`)** still fully checks and
+  propagates, discarding the unwrapped value on success — useful for a fallible
+  step whose success value isn't needed, only whether it succeeded.
 
 ### `if Variant(name) = expr` — test and bind in one step
 
@@ -1591,10 +1565,10 @@ val n = switch parse_int(text) {
 
 - **Where:** as the entire right-hand side of a `val`/`var`, an assignment
   (`x = if ...`) or `return` -- in those an arm may `return`, `break`, `continue`
-  or use `?` to leave. Anywhere else an expression can appear -- a call
+  or use `try` to leave. Anywhere else an expression can appear -- a call
   argument (`print(if c { 1 } else { 2 })`), an operand (`1 + switch e { ... }`),
   an array element, a struct field -- it is also allowed, but **no arm may leave**
-  (no `return`/`break`/`continue`/`?`; a `break` inside a loop the arm itself
+  (no `return`/`break`/`continue`/`try`; a `break` inside a loop the arm itself
   contains is fine): the interpreter can leave a statement, not the middle of an
   expression, so it says so and points you at `val x = if ...` where an arm may
   leave. As an operand it must be parenthesised when anything follows it on the
@@ -2211,7 +2185,7 @@ fn main() {
   connection. Every call takes the connection's own lock, so sharing one
   `Connection` across threads is safe *statement by statement*, but a
   transaction is not safe to share -- another thread's statements can
-  interleave inside it. A `?` that returns early from inside a
+  interleave inside it. A `try` that returns early from inside a
   transaction leaves it open unless the caller uses `defer datasource.rollback(tx)`
   or `datasource.with_transaction` (see "Transactions").
 - **`#[derive(Row)]`** on a struct generates `<name>_from_row(row: Row)
@@ -2259,7 +2233,7 @@ fn main() {
   event loop and no async.
 - **Handles.** `Socket` and `Listener` are `{ handle: int }` structs over
   a native table, like `datasource.Connection`. Closing is explicit (`net.close`,
-  `net.close_listener`); there are no destructors, so a `?` that returns
+  `net.close_listener`); there are no destructors, so a `try` that returns
   early between `connect` and `close` leaks the socket. Close a socket
   from the thread that owns it.
 - **Reading.** `read(s, max)` blocks until at least one byte is there and
@@ -2463,21 +2437,21 @@ unchanged. `work` is a function value, usually a lambda capturing what it needs
 
 ```
 fn transfer(tx: datasource.Connection, t: Transfer) -> Result<int, DbError> {
-    datasource.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2", ...)?
-    datasource.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2", ...)?
+    try datasource.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2", ...)
+    try datasource.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2", ...)
     return ok(t.amount)
 }
 
 val t = Transfer { ... }
-val moved = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
+val moved = try datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
     return transfer(tx, t)
-})?
+})
 ```
 
 ## Regular expressions (`regex`)
 
 ```
-val re = regex.compile("(\\w+)@(\\w+)\\.com")?           // Result<Regex, string>
+val re = try regex.compile("(\\w+)@(\\w+)\\.com")           // Result<Regex, string>
 val m = regex.find(re, "mail bob@site.com now")             // Option<Match>
 regex.replace_all(re, "bob@site.com", "$2: $1")             // "site: bob"
 ```
@@ -2673,8 +2647,8 @@ struct ServerConfig {
     banner: Option<string>
 }
 
-val props = properties.load("application")?          // application.properties (+ -<profile>)
-val cfg = server_config_from_properties(props, "server")?
+val props = try properties.load("application")          // application.properties (+ -<profile>)
+val cfg = try server_config_from_properties(props, "server")
 ```
 
 - **Format.** `key=value` lines, `#` comments only at line start, lowercase
@@ -2854,22 +2828,22 @@ fn main() {
 ## Defer
 
 `defer f(args)` runs a call when the enclosing *block* exits, by any path:
-falling off the end, `return`, a `?` that propagates an error, `break`, or
+falling off the end, `return`, a `try` that propagates an error, `break`, or
 `continue`. It is how a resource is released without destructors.
 
 ```
 fn talk(port: int) -> Result<int, string> {
     val sock = unwrap(net.connect("127.0.0.1", port))
     defer net.close(sock)              // closed on every path out of talk
-    val reply = parse_int(read_reply(sock))?   // an early return still closes it
+    val reply = try parse_int(read_reply(sock))   // an early return still closes it
     return reply
 }
 
 fn transfer(conn: datasource.Connection) -> Result<int, DbError> {
-    datasource.begin(conn)?
+    try datasource.begin(conn)
     defer datasource.rollback(conn)            // undone unless we reach the commit
-    datasource.execute(conn, "...")?
-    datasource.commit(conn)?
+    try datasource.execute(conn, "...")
+    try datasource.commit(conn)
     return 0
 }
 ```
@@ -2885,7 +2859,7 @@ fn transfer(conn: datasource.Connection) -> Result<int, DbError> {
   is postponed.
 - **The return value is computed first.** `return x * 2` evaluates `x * 2`,
   then runs the defers, then returns -- so a deferred call can't change what
-  the function returns, and a `?` propagates the same way.
+  the function returns, and a `try` propagates the same way.
 - **A single call only** -- not a block, and not `f()?`. Cleanup that needs
   logic goes in a helper function you defer a call to. (A block form could
   be added later without breaking anything; it would need a second rule for

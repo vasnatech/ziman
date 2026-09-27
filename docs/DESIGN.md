@@ -3711,3 +3711,10 @@ them stay put. A `try` in a position the hoister does not handle (`else if` and 
 refused by the type checker, so no conditional evaluation is ever changed. A lambda body is its own function and hoists on its own. Named arguments are hoisted in the order written, though `check_call`
 later reorders them into parameter order. The formatter and the language server work on tokens and are not affected. The postfix `?` deliberately stays statement-level: the eye finds `try` at the left of the
 line, and there is one spelling of each early exit per position, not two ways to nest.
+
+## `try` replaces the postfix `?` (2026-09)
+
+The postfix `?` is gone; `try expr` is the only spelling (the earlier entries above describe `?` as it was designed). `?` is now a syntax error that says to write `try`. Reason: a trailing `?` is easy to
+miss when reading, above all once nesting made it possible in the middle of an expression; a prefix keyword marks the early exit at the left of the line. The rewrite of the existing code (`lib/`, the tests, the
+backend and the doc examples) was mechanical: `val x = f()?` became `val x = try f()` and a bare `f()?` became `try f()`. The AST node (`EXPR_TRY_UNWRAP`), the type check and the interpreter are unchanged, and
+the generated code of `#[derive]` uses `try` too.

@@ -270,7 +270,7 @@ fn parse_key_path(s: string, pos: int) -> Result<PPath, string> {
     val parts = ab_new<string>()
     var p = skip_blank(s, pos)
     while true {
-        val part = parse_key_part(s, p)?
+        val part = try parse_key_part(s, p)
         ab_append<string>(parts, part.text)
         p = skip_blank(s, part.next)
         if is_char_at(s, p, ".") {
@@ -384,7 +384,7 @@ fn parse_array_value(s: string, pos: int) -> Result<Parsed, string> {
         if is_char_at(s, p, "]") {
             return ok(Parsed { value: Json.JArray(ab_to_array<Json>(items)), next: p + 1 })
         }
-        val item = parse_value(s, p)?
+        val item = try parse_value(s, p)
         ab_append<Json>(items, item.value)
         p = skip_all(s, item.next)
         if is_char_at(s, p, ",") {
@@ -403,12 +403,12 @@ fn parse_inline_table(s: string, pos: int) -> Result<Parsed, string> {
         return ok(Parsed { value: table, next: p + 1 })
     }
     while true {
-        val key = parse_key_path(s, p)?
+        val key = try parse_key_path(s, p)
         p = skip_blank(s, key.next)
         if !is_char_at(s, p, "=") {
             return err(fail(s, p, "expected '=' after a key"))
         }
-        val value = parse_value(s, skip_blank(s, p + 1))?
+        val value = try parse_value(s, skip_blank(s, p + 1))
         val updated = descend(table, key.path, 0, 0, value.value)
         if !is_ok(updated) {
             return err(fail(s, p, unwrap_err(updated)))
@@ -432,11 +432,11 @@ fn parse_value(s: string, pos: int) -> Result<Parsed, string> {
     }
     val c = char_at(s, pos)
     if c == "\"" {
-        val str_result = parse_basic(s, pos)?
+        val str_result = try parse_basic(s, pos)
         return ok(Parsed { value: Json.JString(str_result.text), next: str_result.next })
     }
     if c == "'" {
-        val str_result = parse_literal(s, pos)?
+        val str_result = try parse_literal(s, pos)
         return ok(Parsed { value: Json.JString(str_result.text), next: str_result.next })
     }
     if c == "[" {
@@ -492,13 +492,13 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
         if last < 0 || !Json.is_JObject(items[last]) {
             return err(format("'{}' is not a table", name))
         }
-        val updated_last = descend(items[last], path, i + 1, op, value)?
+        val updated_last = try descend(items[last], path, i + 1, op, value)
         return ok(Json.JObject(set(fields, name, Json.JArray(set(items, last, updated_last)))))
     }
     if !Json.is_JObject(child) {
         return err(format("'{}' is already defined as a value, not a table", name))
     }
-    val updated = descend(child, path, i + 1, op, value)?
+    val updated = try descend(child, path, i + 1, op, value)
     return ok(Json.JObject(set(fields, name, updated)))
 }
 
@@ -529,7 +529,7 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
     while p < len(text) {
         if is_char_at(text, p, "[") {
             val is_array = is_char_at(text, p + 1, "[")
-            val header = parse_key_path(text, p + (if is_array { 2 } else { 1 }))?
+            val header = try parse_key_path(text, p + (if is_array { 2 } else { 1 }))
             var q = skip_blank(text, header.next)
             if !is_char_at(text, q, "]") || (is_array && !is_char_at(text, q + 1, "]")) {
                 return err(fail(text, q, "expected ']' to close the table header"))
@@ -548,21 +548,21 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
             }
             root = unwrap(updated)
             current = header.path
-            val after_header = expect_line_end(text, q)?
+            val after_header = try expect_line_end(text, q)
             p = after_header
         } else {
-            val key = parse_key_path(text, p)?
+            val key = try parse_key_path(text, p)
             var q = skip_blank(text, key.next)
             if !is_char_at(text, q, "=") {
                 return err(fail(text, q, "expected '=' after a key"))
             }
-            val value = parse_value(text, skip_blank(text, q + 1))?
+            val value = try parse_value(text, skip_blank(text, q + 1))
             val updated = descend(root, concat_arrays<string>(current, key.path), 0, 0, value.value)
             if !is_ok(updated) {
                 return err(fail(text, p, unwrap_err(updated)))
             }
             root = unwrap(updated)
-            val after_value = expect_line_end(text, value.next)?
+            val after_value = try expect_line_end(text, value.next)
             p = after_value
         }
         p = skip_all(text, p)
@@ -653,7 +653,7 @@ fn inline_value(j: Json) -> Result<string, string> {
     if Json.is_JArray(j) {
         val parts = ab_new<string>()
         for item in Json.unwrap_JArray(j) {
-            val text = inline_value(item)?
+            val text = try inline_value(item)
             ab_append<string>(parts, text)
         }
         return ok(concat("[", concat(join(separator: ", ", pieces: ab_to_array<string>(parts)), "]")))
@@ -663,7 +663,7 @@ fn inline_value(j: Json) -> Result<string, string> {
         if Json.is_JNull(value) {
             continue
         }
-        val text = inline_value(value)?
+        val text = try inline_value(value)
         ab_append<string>(parts, concat(key_text(key), concat(" = ", text)))
     }
     if ab_len<string>(parts) == 0 {
@@ -694,18 +694,18 @@ fn write_table(out: StringBuilder, table: Json, path: [string]) -> Result<int, s
         if Json.is_JNull(value) || Json.is_JObject(value) || is_table_array(value) {
             continue
         }
-        val text = inline_value(value)?
+        val text = try inline_value(value)
         sb_append(out, key_text(key), " = ", text, "\n")
     }
     for key, value in fields {
         val sub_path = concat_arrays<string>(path, [key])
         if Json.is_JObject(value) {
             sb_append(out, "\n[", path_text(sub_path), "]\n")
-            write_table(out, value, sub_path)?
+            try write_table(out, value, sub_path)
         } else if is_table_array(value) {
             for item in Json.unwrap_JArray(value) {
                 sb_append(out, "\n[[", path_text(sub_path), "]]\n")
-                write_table(out, item, sub_path)?
+                try write_table(out, item, sub_path)
             }
         }
     }
@@ -721,7 +721,7 @@ pub fn toml_to_string(j: Json) -> Result<string, string> {
         return err("a TOML document must be an object")
     }
     val out = sb_new()
-    write_table(out, j, [])?
+    try write_table(out, j, [])
     val text = sb_to_string(out)
     return ok(if starts_with(text, "\n") { substring(text, 1, len(text)) } else { text })
 }

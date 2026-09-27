@@ -7,8 +7,8 @@ the natural model here, with no event loop or async needed, and it is
 exactly what the `pg` and `mysql` drivers want (blocking reads inside a wire protocol).
 
 A `Socket`/`Listener` is an int handle to a native object. Close it explicitly -- and `defer`
-makes that safe: write `val s = net.connect(host, port)?` then `defer net.close(s)`, and the
-socket is closed on every way out of the block (a `?` that returns early, a `return`, falling off
+makes that safe: write `val s = try net.connect(host, port)` then `defer net.close(s)`, and the
+socket is closed on every way out of the block (a `try` that returns early, a `return`, falling off
 the end). A socket you forget to close is not lost for good: once nothing references it, the
 garbage collector closes its descriptor (and when the process runs out of descriptors it
 collects at once and retries) -- but that is a safety net, not a plan, since a collection may be
@@ -253,7 +253,7 @@ pub fn lines(s: Socket) -> Iter<Result<string, NetError>>
 ```
 
 The lines a peer sends, read lazily as a `for` loop asks for them: `for line in net.lines(socket) { val
-text = line? ... }`. Each item is a `Result<string, NetError>`: a line without its `\n` or `\r\n` (a last
+text = try line ... }`. Each item is a `Result<string, NetError>`: a line without its `\n` or `\r\n` (a last
 line the peer ends the connection on counts), or an Err for a line with a NUL byte, one longer than 1 MiB,
 or a read error (`Timeout`, `Closed` mid-line, ...); after a read error or an over-long line the
 iteration ends. It ends normally when the peer closes the connection. It reads ahead in blocks of up to

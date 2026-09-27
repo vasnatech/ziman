@@ -2,10 +2,10 @@ use fs
 use os
 
 fn count_matching(path: string, needle: string) -> Result<int, string> {
-    val lines = fs.lines(path)?
+    val lines = try fs.lines(path)
     var n = 0
     for line in lines {
-        val text = line?
+        val text = try line
         if contains(text, needle) {
             n = n + 1
         }
@@ -14,7 +14,7 @@ fn count_matching(path: string, needle: string) -> Result<int, string> {
 }
 
 fn first(path: string) -> Result<string, string> {
-    val lines = fs.lines(path)?
+    val lines = try fs.lines(path)
     for line in lines {
         return line
     }

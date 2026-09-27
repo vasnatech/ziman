@@ -37,7 +37,7 @@ fn main() {
 
     // with_transaction commits when the work returns Ok and rolls back when it returns Err.
     val failed = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
-        datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Grace"))?
+        try datasource.execute(tx, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Grace"))
         return err(DbError.Sql("changed my mind"))
     })
     print(is_ok(failed))

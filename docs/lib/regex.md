@@ -5,7 +5,7 @@ backreferences), with patterns compiled once and cached.
 
 
 ```
-val re = regex.compile("(\\w+)@(\\w+)\\.com")?
+val re = try regex.compile("(\\w+)@(\\w+)\\.com")
 val m = regex.find(re, "mail bob@site.com now")     // Option<Match>
 regex.replace_all(re, text, "$2: $1")
 ```

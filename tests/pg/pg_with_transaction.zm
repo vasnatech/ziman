@@ -4,18 +4,18 @@ use db.SqlValue
 use fs
 
 fn add(tx: datasource.Connection, n: int) -> Result<int, DbError> {
-    datasource.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", SqlValue.Int(n))?
+    try datasource.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", SqlValue.Int(n))
     return ok(n)
 }
 
 fn boom(tx: datasource.Connection) -> Result<int, DbError> {
-    datasource.execute(tx, "INSERT INTO pg_tx (n) VALUES (99)")?
+    try datasource.execute(tx, "INSERT INTO pg_tx (n) VALUES (99)")
     return err(DbError.Sql("nope"))
 }
 
 fn duplicate(tx: datasource.Connection, n: int) -> Result<int, DbError> {
-    datasource.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", SqlValue.Int(n))?
-    datasource.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", SqlValue.Int(n))?
+    try datasource.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", SqlValue.Int(n))
+    try datasource.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", SqlValue.Int(n))
     return ok(n)
 }
 

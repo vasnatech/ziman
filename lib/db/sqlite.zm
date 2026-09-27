@@ -161,7 +161,7 @@ pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row]
     while pos < len(flat) {
         val values = ab_new<SqlValue>()
         for k in 0..ncols {
-            val cell = decode_cell(flat[pos + k])?
+            val cell = try decode_cell(flat[pos + k])
             ab_append<SqlValue>(values, cell)
         }
         ab_append<Row>(rows, Row { columns: names, values: ab_to_array<SqlValue>(values) })
@@ -173,7 +173,7 @@ pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row]
 fn row_from_cells(names: [string], cells: [string]) -> Result<Row, DbError> {
     val values = ab_new<SqlValue>()
     for cell in cells {
-        val v = decode_cell(cell)?
+        val v = try decode_cell(cell)
         ab_append<SqlValue>(values, v)
     }
     return Row { columns: names, values: ab_to_array<SqlValue>(values) }

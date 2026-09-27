@@ -10,7 +10,7 @@ fn talk(port: int) -> Result<int, string> {
     }
     val sock = unwrap(s)
     defer net.close(sock)
-    val bad = parse_int("not a number")?
+    val bad = try parse_int("not a number")
     return bad
 }
 

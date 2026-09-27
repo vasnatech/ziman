@@ -93,7 +93,7 @@ fn any_caller(ctx: Ctx, req: http.Request) -> Result<Caller, server.Denied> {
 }
 
 fn admin_only(ctx: Ctx, req: http.Request) -> Result<Caller, server.Denied> {
-    val caller = any_caller(ctx, req)?
+    val caller = try any_caller(ctx, req)
     if !caller.admin {
         return server.Denied.Forbidden("admins only")
     }

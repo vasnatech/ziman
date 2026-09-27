@@ -39,7 +39,7 @@ fn main() {
     val z = arr[0].name
     val e = Empty {}
     val g: Result<int, string> = ok(1)
-    val v = parse_int(s)?
+    val v = try parse_int(s)
     switch s {
         Circle(r) { print(r) }
         Empty {

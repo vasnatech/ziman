@@ -10,7 +10,7 @@ ignored; a `.sql` file that does not fit the name is an error, so a typo cannot 
 
 
 ```
-val applied = migrate.run(conn, "migrations")?
+val applied = try migrate.run(conn, "migrations")
 ```
 
 SQL that has to differ by engine (`ALTER TABLE ... ADD CONSTRAINT`, which SQLite lacks; a native `UUID` or `TIMESTAMPTZ`; a key length on MySQL) goes in

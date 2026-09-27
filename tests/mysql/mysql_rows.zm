@@ -12,10 +12,10 @@ fn n_of(row: Row) -> int {
 }
 
 fn sum_rows(conn: datasource.Connection, sql: string) -> Result<int, DbError> {
-    val rows = datasource.rows(conn, sql)?
+    val rows = try datasource.rows(conn, sql)
     var total = 0
     for row in rows {
-        val r = row?
+        val r = try row
         total = total + n_of(r)
     }
     return total

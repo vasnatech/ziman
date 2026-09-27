@@ -1,5 +1,5 @@
 fn f(s: string) -> Result<int, string> {
-    print(if true { parse_int(s)? } else { 0 })
+    print(if true { try parse_int(s) } else { 0 })
     return ok(1)
 }
 

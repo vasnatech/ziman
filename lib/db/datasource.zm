@@ -20,14 +20,14 @@
 // interleave inside it -- so run a transaction from one thread. Use
 // `with_transaction` (below), or by hand with `defer`:
 //
-//     datasource.begin(conn)?
+//     try datasource.begin(conn)
 //     defer datasource.rollback(conn)
-//     datasource.execute(conn, ...)?     // an early return rolls back
-//     datasource.commit(conn)?           // after a commit the deferred rollback
+//     try datasource.execute(conn, ...)     // an early return rolls back
+//     try datasource.commit(conn)           // after a commit the deferred rollback
 //                                // finds nothing to undo (its error
 //                                // result is discarded, as `defer` does)
 //
-// Without the `defer`, a `?` that returns early from inside a
+// Without the `defer`, a `try` that returns early from inside a
 // transaction leaves it open.
 
 use clock.now_raw
@@ -91,15 +91,15 @@ pub fn dialect(conn: Connection) -> string {
 // no TLS yet -- a `sslmode=require` URL is refused, not downgraded).
 pub fn open(url: string) -> Result<Connection, DbError> {
     if starts_with(url, "sqlite:") {
-        val conn = sqlite.open(substring(url, 7, len(url)))?
+        val conn = try sqlite.open(substring(url, 7, len(url)))
         return Connection.Sqlite(conn)
     }
     if starts_with(url, "postgres://") || starts_with(url, "postgresql://") {
-        val conn = pg.connect(url)?
+        val conn = try pg.connect(url)
         return Connection.Postgres(conn)
     }
     if starts_with(url, "mysql://") {
-        val conn = mysql.connect(url)?
+        val conn = try mysql.connect(url)
         return Connection.Mysql(conn)
     }
     return err(DbError.Connection(concat(
@@ -131,7 +131,7 @@ pub fn close(conn: Connection) {
 // number of rows the last statement changed.
 pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
     if Connection.is_Pool(conn) {
-        val inner = acquire(conn)?
+        val inner = try acquire(conn)
         val result = execute(inner, sql, params)
         settle<int>(conn, inner, result)
         return result
@@ -150,7 +150,7 @@ pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int
 // (`?` for SQLite and MySQL, `$1`, `$2` for Postgres), never spliced into `sql`.
 pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
     if Connection.is_Pool(conn) {
-        val inner = acquire(conn)?
+        val inner = try acquire(conn)
         val result = query(inner, sql, params)
         settle<[Row]>(conn, inner, result)
         return result
@@ -167,9 +167,9 @@ pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row]
 
 // Runs a query and returns its rows lazily, one at a time as a `for` loop asks for them:
 //
-//     val rows = datasource.rows(conn, "SELECT * FROM lab_result")?
+//     val rows = try datasource.rows(conn, "SELECT * FROM lab_result")
 //     for row in rows {
-//         val r = row?                       // Result<Row, DbError>
+//         val r = try row                       // Result<Row, DbError>
 //         ...
 //     }
 //
@@ -185,7 +185,7 @@ pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row]
 // failing to run.
 pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError> {
     if Connection.is_Pool(conn) {
-        val inner = acquire(conn)?
+        val inner = try acquire(conn)
         val opened = rows(inner, sql, params)
         if !is_ok(opened) {
             release(conn, inner)
@@ -210,7 +210,7 @@ pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<R
 
 // The common lookup-by-key shape: the first row, or None.
 pub fn query_one(conn: Connection, sql: string, params: SqlValue...) -> Result<Option<Row>, DbError> {
-    val rows = query(conn, sql, params)?
+    val rows = try query(conn, sql, params)
     if len(rows) == 0 {
         return Option<Row>.None
     }
@@ -232,23 +232,23 @@ fn refuse_on_pool(conn: Connection) -> Result<unit, DbError> {
 // Starts a transaction on `conn`. Refused on a pool: `acquire` an exclusive connection first, or
 // use `with_transaction`.
 pub fn begin(conn: Connection) -> Result<unit, DbError> {
-    refuse_on_pool(conn)?
-    execute(conn, "BEGIN")?
+    try refuse_on_pool(conn)
+    try execute(conn, "BEGIN")
     return unit
 }
 
 // Commits the transaction open on `conn`.
 pub fn commit(conn: Connection) -> Result<unit, DbError> {
-    refuse_on_pool(conn)?
-    execute(conn, "COMMIT")?
+    try refuse_on_pool(conn)
+    try execute(conn, "COMMIT")
     return unit
 }
 
 // Rolls back the transaction open on `conn`. Called with none open it is harmless, which is what
 // lets `defer datasource.rollback(conn)` stand guard after a commit.
 pub fn rollback(conn: Connection) -> Result<unit, DbError> {
-    refuse_on_pool(conn)?
-    execute(conn, "ROLLBACK")?
+    try refuse_on_pool(conn)
+    try execute(conn, "ROLLBACK")
     return unit
 }
 
@@ -262,12 +262,12 @@ pub fn rollback(conn: Connection) -> Result<unit, DbError> {
 // spans several statements -- a transaction above all -- borrows one
 // exclusively with `acquire`:
 //
-//     val tx = datasource.acquire(conn)?
+//     val tx = try datasource.acquire(conn)
 //     defer datasource.release(conn, tx)
-//     datasource.begin(tx)?
+//     try datasource.begin(tx)
 //     defer datasource.rollback(tx)
 //     ...
-//     datasource.commit(tx)?
+//     try datasource.commit(tx)
 //
 // The pool is a channel of idle connections, so a borrow blocks while
 // every connection is in use -- natural backpressure, no extra locking.
@@ -436,29 +436,29 @@ pub fn discard(conn: Connection, taken: Connection) {
 // pool on every way out (a `defer`), so this is the whole of the
 // acquire / begin / rollback-on-error / commit / release dance:
 //
-//     val moved = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
-//         datasource.execute(tx, "UPDATE ...", SqlValue.Int(amount))?
+//     val moved = try datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
+//         try datasource.execute(tx, "UPDATE ...", SqlValue.Int(amount))
 //         return ok(amount)
-//     })?
+//     })
 //
 // `work` is a function value: a lambda capturing what it needs (`amount` above), or a named
 // function. If the transaction ends in a connection error the connection is replaced rather than
 // returned to the pool. A `work` that itself calls `datasource.begin`/`datasource.commit` on `tx` breaks the nesting -- it
 // must not.
 pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError> {
-    val tx = acquire(conn)?
+    val tx = try acquire(conn)
     val result = run_transaction<R>(tx, work)
     settle<R>(conn, tx, result)
     return result
 }
 
 fn run_transaction<R>(tx: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError> {
-    begin(tx)?
+    try begin(tx)
     defer rollback(tx)
     val result = work(tx)
     if !is_ok(result) {
         return result
     }
-    commit(tx)?
+    try commit(tx)
     return result
 }

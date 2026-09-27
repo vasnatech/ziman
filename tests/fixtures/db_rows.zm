@@ -13,19 +13,19 @@ fn n_of(row: Row) -> int {
 }
 
 fn sum_rows(conn: datasource.Connection, sql: string) -> Result<int, DbError> {
-    val rows = datasource.rows(conn, sql)?
+    val rows = try datasource.rows(conn, sql)
     var total = 0
     for row in rows {
-        val r = row?
+        val r = try row
         total = total + n_of(r)
     }
     return total
 }
 
 fn first_n(conn: datasource.Connection) -> Result<int, DbError> {
-    val rows = datasource.rows(conn, "SELECT n FROM t WHERE n IS NOT NULL ORDER BY n")?
+    val rows = try datasource.rows(conn, "SELECT n FROM t WHERE n IS NOT NULL ORDER BY n")
     for row in rows {
-        val r = row?
+        val r = try row
         return n_of(r)
     }
     return err(DbError.NotFound("no rows"))

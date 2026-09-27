@@ -6,7 +6,7 @@ fn parse_all(strs: [string]) -> Result<int, string> {
     var i = 0
     while i < len(strs) {
         if i == 2 {
-            val bad = parse_int(strs[i])?
+            val bad = try parse_int(strs[i])
             total = total + bad
         } else {
             total = total + unwrap(parse_int(strs[i]))

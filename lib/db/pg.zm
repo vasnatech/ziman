@@ -45,7 +45,7 @@
 // channel of requests -- Ziman has no mutex, and the protocol is strictly
 // request/response, so a lone owner thread is what serialises concurrent
 // callers (each blocks on its own reply channel). That also means there
-// is no lock a `?` returning early can leave held. A *transaction* is
+// is no lock a `try` returning early can leave held. A *transaction* is
 // still per-connection state on the server: statements from other
 // threads interleave inside it, as documented for `datasource`.
 
@@ -139,9 +139,9 @@ fn send_message(sock: Socket, kind: string, body: [byte]) -> Result<int, DbError
 }
 
 fn read_message(sock: Socket) -> Result<Message, DbError> {
-    val header = lift<[byte]>(net.read_exact(sock, 5))?
+    val header = try lift<[byte]>(net.read_exact(sock, 5))
     val length = u32_from_bytes(header, 1)
-    val body = lift<[byte]>(net.read_exact(sock, length - 4))?
+    val body = try lift<[byte]>(net.read_exact(sock, length - 4))
     return Message { kind: text_of(header, 0, 1), body: body }
 }
 
@@ -179,7 +179,7 @@ fn parse_error(body: [byte]) -> DbError {
 
 // postgres://user[:password]@host[:port]/database[?sslmode=...&sslrootcert=...]
 fn parse_url(url: string) -> Result<PgUrl, DbError> {
-    val u = db.parse_url(url, ["postgres://", "postgresql://"], 5432)?
+    val u = try db.parse_url(url, ["postgres://", "postgresql://"], 5432)
     var sslmode = "disable"
     var sslrootcert = ""
     val mode = db.url_param(u, "sslmode")
@@ -220,7 +220,7 @@ fn scram_attr(message: string, key: string) -> Option<string> {
 }
 
 fn expect_auth(sock: Socket, code: int) -> Result<Message, DbError> {
-    val m = read_message(sock)?
+    val m = try read_message(sock)
     if m.kind == "E" {
         return err(parse_error(m.body))
     }
@@ -237,13 +237,13 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
     val nonce = base64_encode(random_bytes(18))
     val client_first_bare = concat("n=,r=", nonce)
     val client_first = concat("n,,", client_first_bare)
-    send_message(
+    try send_message(
         sock,
         "p",
         bytes_concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), string_to_bytes(client_first))
-    )?
+    )
 
-    val first = expect_auth(sock, 11)?
+    val first = try expect_auth(sock, 11)
     val server_first = text_of(first.body, 4, len(first.body))
     val server_nonce = scram_attr(server_first, "r")
     val salt_b64 = scram_attr(server_first, "s")
@@ -272,9 +272,9 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
     val client_signature = hmac_sha256(stored_key, auth_message)
     val proof = bytes_xor(client_key, client_signature)
     val client_final = concat(client_final_without_proof, concat(",p=", base64_encode(proof)))
-    send_message(sock, "p", string_to_bytes(client_final))?
+    try send_message(sock, "p", string_to_bytes(client_final))
 
-    val final = expect_auth(sock, 12)?
+    val final = try expect_auth(sock, 12)
     val server_final = text_of(final.body, 4, len(final.body))
     val verifier = scram_attr(server_final, "v")
     if !Option.is_Some(verifier) {
@@ -308,7 +308,7 @@ fn startup_message(url: PgUrl) -> [byte] {
 // ignored.
 fn await_ready(sock: Socket) -> Result<int, DbError> {
     while true {
-        val m = read_message(sock)?
+        val m = try read_message(sock)
         if m.kind == "Z" {
             return 0
         }
@@ -340,8 +340,8 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<unit, DbError> {
     if url.sslmode == "disable" {
         return unit
     }
-    lift<int>(net.write(sock, bytes_concat(u32_to_bytes(startup_header_bytes), u32_to_bytes(ssl_request_code))))?
-    val reply = lift<[byte]>(net.read_exact(sock, 1))?
+    try lift<int>(net.write(sock, bytes_concat(u32_to_bytes(startup_header_bytes), u32_to_bytes(ssl_request_code))))
+    val reply = try lift<[byte]>(net.read_exact(sock, 1))
     val answer = text_of(reply, 0, 1)
     if answer == "N" {
         if url.sslmode == "prefer" {
@@ -364,9 +364,9 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<unit, DbError> {
 }
 
 fn handshake(sock: Socket, url: PgUrl) -> Result<int, DbError> {
-    negotiate_tls(sock, url)?
-    lift<int>(net.write(sock, startup_message(url)))?
-    val first = read_message(sock)?
+    try negotiate_tls(sock, url)
+    try lift<int>(net.write(sock, startup_message(url)))
+    val first = try read_message(sock)
     if first.kind == "E" {
         return err(parse_error(first.body))
     }
@@ -375,14 +375,14 @@ fn handshake(sock: Socket, url: PgUrl) -> Result<int, DbError> {
     }
     val code = u32_from_bytes(first.body, 0)
     if code == 3 {
-        send_message(sock, "p", cstring(url.password))?
-        expect_auth(sock, 0)?
+        try send_message(sock, "p", cstring(url.password))
+        try expect_auth(sock, 0)
     } else if code == 10 {
         if !sasl_offers(first.body, "SCRAM-SHA-256") {
             return err(conn_err("server offers no SASL mechanism this driver supports (only SCRAM-SHA-256)"))
         }
-        scram_sha256(sock, url.password)?
-        expect_auth(sock, 0)?
+        try scram_sha256(sock, url.password)
+        try expect_auth(sock, 0)
     } else if code == 5 {
         return err(conn_err("server requires MD5 password authentication, which this driver does not support"))
     } else if code != 0 {
@@ -466,7 +466,7 @@ fn parse_data_row(body: [byte], oids: [int]) -> Result<[SqlValue], DbError> {
         if length == 4294967295 {
             ab_append<SqlValue>(values, SqlValue.Null)
         } else {
-            val v = decode_value(oids[i], slice<byte>(body, pos, pos + length))?
+            val v = try decode_value(oids[i], slice<byte>(body, pos, pos + length))
             ab_append<SqlValue>(values, v)
             pos = pos + length
         }
@@ -494,7 +494,7 @@ fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
     var failure = Option<DbError>.None
     var done = false
     while !done {
-        val m = read_message(sock)?
+        val m = try read_message(sock)
         if m.kind == "Z" {
             done = true
         } else if m.kind == "T" {
@@ -568,7 +568,7 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
         frame("E", execute_body),
         frame("S", [])
     )
-    lift<int>(net.write(sock, batch))?
+    try lift<int>(net.write(sock, batch))
     return collect_result(sock)
 }
 
@@ -578,7 +578,7 @@ fn frame(kind: string, body: [byte]) -> [byte] {
 
 fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     if len(params) == 0 {
-        send_message(sock, "Q", cstring(sql))?
+        try send_message(sock, "Q", cstring(sql))
         return collect_result(sock)
     }
     return extended_query(sock, sql, params)
@@ -619,7 +619,7 @@ fn read_page(sock: Socket, names0: [string], oids0: [int]) -> Result<PageRead, D
     var failure = Option<DbError>.None
     var done = false
     while !done {
-        val m = read_message(sock)?
+        val m = try read_message(sock)
         if m.kind == "T" {
             val desc = parse_row_description(m.body)
             names = desc.names
@@ -646,10 +646,10 @@ fn read_page(sock: Socket, names0: [string], oids0: [int]) -> Result<PageRead, D
 
 // Ends the implicit transaction, which destroys the portal, and reads up to ReadyForQuery.
 fn sync_and_drain(sock: Socket) -> Result<int, DbError> {
-    lift<int>(net.write(sock, frame("S", [])))?
+    try lift<int>(net.write(sock, frame("S", [])))
     var ready = false
     while !ready {
-        val m = read_message(sock)?
+        val m = try read_message(sock)
         if m.kind == "Z" {
             ready = true
         }
@@ -803,8 +803,8 @@ pub struct Connection {
 
 // Connects, authenticates, and starts the thread that owns the socket.
 pub fn connect(url: string) -> Result<Connection, DbError> {
-    val parsed = parse_url(url)?
-    val sock = lift<Socket>(net.connect(parsed.host, parsed.port))?
+    val parsed = try parse_url(url)
+    val sock = try lift<Socket>(net.connect(parsed.host, parsed.port))
     val ready = handshake(sock, parsed)
     if !is_ok(ready) {
         net.close(sock)
@@ -821,13 +821,13 @@ fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult,
 
 // The number of rows the last statement changed.
 pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
-    val result = run(conn, sql, params)?
+    val result = try run(conn, sql, params)
     return result.affected
 }
 
 // Runs a statement and returns its rows.
 pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
-    val result = run(conn, sql, params)?
+    val result = try run(conn, sql, params)
     return result.rows
 }
 

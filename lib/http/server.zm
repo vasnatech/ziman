@@ -181,7 +181,7 @@ struct ChunkedBody {
 
 // Reads more bytes from the socket onto `buf`.
 fn fill(sock: Socket, buf: [byte]) -> Result<[byte], HttpError> {
-    val chunk = lift<[byte]>(net.read(sock, read_chunk_bytes))?
+    val chunk = try lift<[byte]>(net.read(sock, read_chunk_bytes))
     return bytes_concat(buf, chunk)
 }
 
@@ -198,11 +198,11 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<ChunkedBody, HttpError> {
             if len(buf) > max_chunk_line_bytes {
                 return err(HttpError.BadRequest("chunk size line is too long"))
             }
-            val more = fill(sock, buf)?
+            val more = try fill(sock, buf)
             buf = more
             eol = bytes_index_of(buf, crlf, 0)
         }
-        val size_line = text_of(buf, 0, eol)?
+        val size_line = try text_of(buf, 0, eol)
         val size_text = trim(split(size_line, ";")[0])
         val size = int_from_hex(size_text)
         if !is_ok(size) || unwrap(size) < 0 || len(size_text) > 8 {
@@ -218,7 +218,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<ChunkedBody, HttpError> {
                     if len(buf) > max_header_bytes {
                         return err(HttpError.HeadersTooLarge)
                     }
-                    val more = fill(sock, buf)?
+                    val more = try fill(sock, buf)
                     buf = more
                     trailer_end = bytes_index_of(buf, crlf, 0)
                 }
@@ -234,7 +234,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<ChunkedBody, HttpError> {
             return err(HttpError.BodyTooLarge)
         }
         while len(buf) < n + 2 {
-            val more = fill(sock, buf)?
+            val more = try fill(sock, buf)
             buf = more
         }
         if buf[n] != 13b || buf[n + 1] != 10b {
@@ -258,7 +258,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         if len(buf) > max_header_bytes {
             return err(HttpError.HeadersTooLarge)
         }
-        val chunk = lift<[byte]>(net.read(sock, read_chunk_bytes))?
+        val chunk = try lift<[byte]>(net.read(sock, read_chunk_bytes))
         buf = bytes_concat(buf, chunk)
         head_end = find_head_end(buf)
     }
@@ -266,7 +266,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         return err(HttpError.HeadersTooLarge)
     }
 
-    val head_text = text_of(buf, 0, head_end - 4)?
+    val head_text = try text_of(buf, 0, head_end - 4)
     val lines = split(head_text, "\r\n")
     var first = 0
     while first < len(lines) && lines[first] == "" {
@@ -292,7 +292,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     val headers = ab_new<Header>()
     var i = first + 1
     while i < len(lines) {
-        val h = parse_header_line(lines[i])?
+        val h = try parse_header_line(lines[i])
         ab_append<Header>(headers, h)
         i = i + 1
     }
@@ -323,9 +323,9 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     if is_chunked {
         val expect_chunked = header_value(header_list, "Expect")
         if Option.is_Some(expect_chunked) && equals_ignore_case(Option.unwrap_Some(expect_chunked), "100-continue") {
-            lift<int>(net.write_text(sock, continue_response))?
+            try lift<int>(net.write_text(sock, continue_response))
         }
-        val decoded = read_chunked(sock, slice<byte>(buf, head_end, len(buf)))?
+        val decoded = try read_chunked(sock, slice<byte>(buf, head_end, len(buf)))
         val chunked_request = Request {
             method: method_parse(method_text),
             target: target,
@@ -354,9 +354,9 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     if content_length > len(rest) {
         val expect = header_value(header_list, "Expect")
         if Option.is_Some(expect) && equals_ignore_case(Option.unwrap_Some(expect), "100-continue") {
-            lift<int>(net.write_text(sock, continue_response))?
+            try lift<int>(net.write_text(sock, continue_response))
         }
-        val more = lift<[byte]>(net.read_exact(sock, content_length - len(rest)))?
+        val more = try lift<[byte]>(net.read_exact(sock, content_length - len(rest)))
         rest = bytes_concat(rest, more)
     }
     val body = slice<byte>(rest, 0, content_length)
@@ -564,7 +564,7 @@ pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool
     sb_append(sb, "\r\n")
     val head = string_to_bytes(sb_to_string(sb))
     val sent = if HttpMethod.is_Head(req.method) { head } else { bytes_concat(head, resp.body) }
-    lift<int>(net.write(sock, sent))?
+    try lift<int>(net.write(sock, sent))
     return keep
 }
 

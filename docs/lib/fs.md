@@ -93,7 +93,7 @@ pub native fn lines(path: string) -> Result<Iter<Result<string, string>>, string
 ```
 
 The lines of a file, read lazily as a `for` loop asks for them, so a file of any size uses memory
-for one line: `val lines = fs.lines(path)?` then `for line in lines { val text = line? ... }`. Each item is a
+for one line: `val lines = try fs.lines(path)` then `for line in lines { val text = try line ... }`. Each item is a
 `Result<string, string>`: the line without its `\n` or `\r\n` (a final line with no newline counts,
 an empty file has no lines), or an Err for a line with a NUL byte (a string cannot hold one) or a read
 error, after which the iteration ends. The Err on the call itself is the file failing to open.
@@ -118,7 +118,7 @@ pub native fn walk(dir: string) -> Result<Iter<Result<string, string>>, string>
 ```
 
 The files under a directory, found lazily and depth first, each directory's entries in sorted order:
-`val files = fs.walk(dir)?` then `for file in files { val path = file? ... }`. Each item is a
+`val files = try fs.walk(dir)` then `for file in files { val path = try file ... }`. Each item is a
 `Result<string, string>`: a path made of `dir` and the names below it, for anything that is not a
 directory (a file, a link, a device); a subdirectory that cannot be read is an Err item and the walk
 carries on. Directories themselves are not listed, and a symbolic link to a directory is a path, not

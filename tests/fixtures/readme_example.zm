@@ -15,8 +15,8 @@ fn total(items: [Item]) -> int {
 }
 
 fn summarize(text: string) -> Result<string, string> {
-    val parsed = json.parse_json(text)?
-    val item = item_from_json(parsed)?
+    val parsed = try json.parse_json(text)
+    val item = try item_from_json(parsed)
     return ok(format("{} x{}", item.name, item.qty))
 }
 

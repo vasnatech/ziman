@@ -33,8 +33,8 @@ fn total(items: [Item]) -> int {
 }
 
 fn summarize(text: string) -> Result<string, string> {
-    val parsed = json.parse_json(text)?
-    val item = item_from_json(parsed)?
+    val parsed = try json.parse_json(text)
+    val item = try item_from_json(parsed)
     return ok(format("{} x{}", item.name, item.qty))
 }
 
@@ -65,7 +65,7 @@ This program is `tests/fixtures/readme_example.zm`, run by the test suite, so it
 - **Control flow:** `if`/`else`, `while`, `for x in arr` / `for i in 0..n`,
   `break`/`continue`, an exhaustive `switch` over enums and results,
   `defer` for cleanup.
-- **Errors are values:** `Result`/`Option` with a postfix `?` to propagate,
+- **Errors are values:** `Result`/`Option` with a prefix `try` to propagate,
   and a narrow bare-value auto-wrap so `return x` works in a `Result`
   function.
 - **Generics:** explicit type arguments (`Box<int>`), with
