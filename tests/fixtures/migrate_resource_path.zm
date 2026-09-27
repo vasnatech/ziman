@@ -1,0 +1,8 @@
+use datasource
+use migrate
+
+fn main() {
+    val conn = unwrap(datasource.open_pool("sqlite::memory:", 1))
+    val n = unwrap(migrate.run(conn, "migrations"))
+    print(n)
+}

@@ -2641,6 +2641,17 @@ first (`Iter<Result<string, string>>`; directories are not listed, a symlink to 
 string>` carrying the OS message. (There used to be a separate `io` module
 with a fatal-on-failure `write_file`; it was folded into `fs`.)
 
+`fs.resolve(name) -> Option<string>` finds `name` (a file or a directory) by searching
+`ZIMAN_RESOURCE_PATH` -- a colon-separated list of directories, checked in order, the first one
+that has `name` winning, the same idea as `PATH` or a Java classpath. With the environment
+variable unset, `resolve` returns `Some(name)` unchanged, so code that never sets it is unaffected;
+with it set and no directory having `name`, `None`. `properties.load` and `migrate.run` both
+resolve their file/directory argument through this, so e.g. a Maven-style project can set
+`ZIMAN_RESOURCE_PATH=src/main/resources` for its app and
+`ZIMAN_RESOURCE_PATH=src/test/resources:src/main/resources` for its tests, and
+`properties.load("application")` finds the right `application.properties` in either case with no
+code change.
+
 ## Logging (`log`)
 
 There is no global logger (no mutable globals): build a `Logger` with
@@ -2760,7 +2771,11 @@ val cfg = try server_config_from_properties(props, "server")
   (required) from the working directory, then
   `application-<profile>.properties` if a profile is active: env
   `PROFILE_ACTIVE`, else `profile.active` in the base file. A missing
-  profile file is an error. `parse(text, source)` is the pure form.
+  profile file is an error. `parse(text, source)` is the pure form. `load`
+  resolves the base and profile file names through `fs.resolve` (below)
+  first, so a project that sets `ZIMAN_RESOURCE_PATH` finds
+  `application.properties` wherever that variable points, unchanged code;
+  a project that never sets it sees no difference from before.
 - **Precedence.** environment (`server.port` -> `SERVER_PORT`) > profile
   file > base file.
 - **Placeholders.** (resolved once at load/parse, so a bad one fails startup) `${name}` / `${name:default}` resolve against

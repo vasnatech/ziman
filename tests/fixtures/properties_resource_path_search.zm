@@ -1,0 +1,6 @@
+use properties
+
+fn main() {
+    val p = unwrap(properties.load("shared"))
+    print(unwrap(properties.get_string(p, "from")))
+}

@@ -66,6 +66,7 @@ flowchart LR
     datasource --> pg
     datasource --> sqlite
     db --> number
+    fs --> os
     http --> mime
     http --> number
     jwt --> clock
@@ -80,6 +81,7 @@ flowchart LR
     migrate --> datasource
     migrate --> db
     migrate --> fs
+    migrate --> os
     migrate --> time
     mysql --> crypto
     mysql --> db
@@ -129,11 +131,12 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `clock`, `collections`, `compress`, `fs`, `json`, `mime`, `net`, `number`, `random`, `regex` |
-| 1 | `crypto`, `csv`, `db`, `http`, `ndjson`, `os`, `toml`, `yaml` |
-| 2 | `jwt`, `log`, `mysql`, `otp`, `pg`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
-| 3 | `datasource`, `time` |
-| 4 | `client`, `migrate` |
+| 0 | `clock`, `collections`, `compress`, `json`, `mime`, `net`, `number`, `random`, `regex` |
+| 1 | `crypto`, `db`, `http`, `ndjson`, `os`, `toml`, `yaml` |
+| 2 | `fs`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sqlite`, `uuid` |
+| 3 | `csv`, `datasource`, `log`, `properties`, `zone` |
+| 4 | `time` |
+| 5 | `client`, `migrate` |
 
 ## Each module
 
@@ -147,18 +150,18 @@ otherwise: everything on a layer depends only on lower layers.
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
 | `db` | `number` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
-| `fs` | - | `csv`, `log`, `migrate`, `properties`, `zone` |
+| `fs` | `os` | `csv`, `log`, `migrate`, `properties`, `zone` |
 | `http` | `mime`, `number` | `client`, `server` |
 | `json` | - | `csv`, `jwt`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `os` | - |
-| `migrate` | `collections`, `crypto`, `datasource`, `db`, `fs`, `time` | - |
+| `migrate` | `collections`, `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
 | `mime` | - | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
 | `number` | - | `client`, `csv`, `db`, `http`, `jwt`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
-| `os` | `clock` | `client`, `log`, `properties`, `server`, `zone` |
+| `os` | `clock` | `client`, `fs`, `log`, `migrate`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `properties` | `fs`, `os` | - |

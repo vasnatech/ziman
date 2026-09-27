@@ -229,6 +229,21 @@ pub native fn list_dir(path: string) -> Result<[string], string>
 The names in a directory, sorted (no "." or ".."). Names only, not paths: join them with
 `path_join`.
 
+### `resolve`
+
+```
+pub fn resolve(name: string) -> Option<string>
+```
+
+`name` (a file or a directory), found by searching `ZIMAN_RESOURCE_PATH` -- a colon-separated list of
+directories, checked in order, the first one that has `name` winning -- the same idea as `PATH`, or a
+Java classpath. With `ZIMAN_RESOURCE_PATH` unset, `name` is returned exactly as given, unchecked, so a
+program that never sets it behaves exactly as if this function did not exist: whatever it does next
+with the path (`read_text`, `exists`, `list_dir`, ...) fails or succeeds precisely as it always did.
+With it set and no listed directory having `name`, `None`. `properties.load` and `migrate.run` both
+resolve their own file/directory argument through this, so `application.properties` and a migrations
+directory follow the same convention as anything else that calls this directly.
+
 ## Changing
 
 ### `remove`

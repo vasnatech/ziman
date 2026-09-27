@@ -121,4 +121,5 @@ the top of this file for what it checks and how it is kept safe.
 pub fn run(conn: Connection, dir: string) -> Result<int, DbError>
 ```
 
-`apply` for the migrations in the directory `dir`.
+`apply` for the migrations in the directory `dir`, resolved through `ZIMAN_RESOURCE_PATH` first (see
+`fs.resolve`) -- with the variable unset, `dir` is used exactly as given, unchanged.

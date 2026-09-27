@@ -39,6 +39,7 @@ use db.row_get
 use db.sql_as_int
 use db.sql_as_text
 use fs
+use os
 use time
 
 // One migration: its `version`, its `name`, the `file` it came from (for messages), its `sql` text and the
@@ -323,7 +324,16 @@ pub fn apply(conn: Connection, migrations: [Migration]) -> Result<int, DbError> 
     })
 }
 
-// `apply` for the migrations in the directory `dir`.
+// `apply` for the migrations in the directory `dir`, resolved through `ZIMAN_RESOURCE_PATH` first (see
+// `fs.resolve`) -- with the variable unset, `dir` is used exactly as given, unchanged.
 pub fn run(conn: Connection, dir: string) -> Result<int, DbError> {
-    return apply(conn, try load_for(dir, datasource.dialect(conn)))
+    val resolved = switch fs.resolve(dir) {
+        Some(path) { path }
+        None { return err(problem(format(
+            "'{}' is not in ZIMAN_RESOURCE_PATH ({})",
+            dir,
+            unwrap(os.getenv("ZIMAN_RESOURCE_PATH"))
+        ))) }
+    }
+    return apply(conn, try load_for(resolved, datasource.dialect(conn)))
 }

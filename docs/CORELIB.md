@@ -245,6 +245,8 @@ pub native fn modified_seconds(path: string) -> Result<int, string>
 
 pub native fn list_dir(path: string) -> Result<[string], string>
 
+pub fn resolve(name: string) -> Option<string>
+
 pub native fn remove(path: string) -> Result<unit, string>
 
 pub native fn make_dir(path: string) -> Result<unit, string>

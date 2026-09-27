@@ -1,0 +1,6 @@
+use properties
+
+fn main() {
+    val p = unwrap(properties.load("tests/fixtures/resource_path_a/shared"))
+    print(unwrap(properties.get_string(p, "from")))
+}

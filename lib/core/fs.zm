@@ -10,6 +10,8 @@
 // Text is UTF-8 in a `string`, which cannot hold a NUL byte; anything else -- images, archives,
 // files that might contain NUL -- is read and written as `[byte]`.
 
+use os
+
 // ---------------------------------------------------------------- text files
 
 // The whole file as a string. An Err if it cannot be read or contains a NUL byte.
@@ -82,6 +84,28 @@ pub native fn modified_seconds(path: string) -> Result<int, string>
 // The names in a directory, sorted (no "." or ".."). Names only, not paths: join them with
 // `path_join`.
 pub native fn list_dir(path: string) -> Result<[string], string>
+
+// `name` (a file or a directory), found by searching `ZIMAN_RESOURCE_PATH` -- a colon-separated list of
+// directories, checked in order, the first one that has `name` winning -- the same idea as `PATH`, or a
+// Java classpath. With `ZIMAN_RESOURCE_PATH` unset, `name` is returned exactly as given, unchecked, so a
+// program that never sets it behaves exactly as if this function did not exist: whatever it does next
+// with the path (`read_text`, `exists`, `list_dir`, ...) fails or succeeds precisely as it always did.
+// With it set and no listed directory having `name`, `None`. `properties.load` and `migrate.run` both
+// resolve their own file/directory argument through this, so `application.properties` and a migrations
+// directory follow the same convention as anything else that calls this directly.
+pub fn resolve(name: string) -> Option<string> {
+    val search = os.getenv("ZIMAN_RESOURCE_PATH")
+    if !Option.is_Some(search) {
+        return Some(name)
+    }
+    for dir in split(Option.unwrap_Some(search), ":") {
+        val candidate = path_join(dir, name)
+        if exists(candidate) {
+            return Some(candidate)
+        }
+    }
+    return None
+}
 
 // ---------------------------------------------------------------- changing
 

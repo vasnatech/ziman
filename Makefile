@@ -111,7 +111,7 @@ test-mysql: $(BIN)
 # formatted by `ziman --fmt` (tests/fixtures is not: fixtures that test error
 # positions depend on their exact layout).
 fmt-check: $(BIN)
-	./$(BIN) --fmt --check $$(find lib docs/lib/examples tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm') ../health-record/health-record-backend-ziman/*.zm ../health-record/health-record-backend-ziman/*/*.zm
+	./$(BIN) --fmt --check $$(find lib docs/lib/examples tests/pg tests/mysql tests/tls tests/shutdown tests/bench ../health-record/health-record-backend-ziman/src -name '*.zm')
 
 test-lsp: $(BIN)
 	python3 tests/lsp/lsp_test.py ./$(BIN)

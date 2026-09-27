@@ -1,0 +1,6 @@
+use properties
+
+fn main() {
+    val p = unwrap(properties.load("nope"))
+    print(p)
+}

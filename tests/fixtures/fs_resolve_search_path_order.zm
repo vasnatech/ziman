@@ -1,0 +1,5 @@
+use fs
+
+fn main() {
+    print(fs.resolve("shared.properties"))
+}

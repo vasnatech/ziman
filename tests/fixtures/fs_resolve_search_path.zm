@@ -1,0 +1,7 @@
+use fs
+
+fn main() {
+    print(fs.resolve("shared.properties"))
+    print(fs.resolve("onlyb.txt"))
+    print(fs.resolve("missing.txt"))
+}

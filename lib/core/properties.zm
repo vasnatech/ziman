@@ -178,8 +178,19 @@ pub fn parse(text: string, source: string) -> Result<Properties, string> {
     return resolve_all(try parse_raw(text, source))
 }
 
+// Resolves `file` through `ZIMAN_RESOURCE_PATH` (see `fs.resolve`) before reading it, so `load`
+// follows the same convention as anything else built on `fs.resolve` -- with the variable unset,
+// this is exactly `fs.read_text(file)`, unchanged.
 fn read_source(file: string) -> Result<string, string> {
-    return fs.read_text(file)
+    val resolved = switch fs.resolve(file) {
+        Some(path) { path }
+        None { return err(format(
+            "'{}' is not in ZIMAN_RESOURCE_PATH ({})",
+            file,
+            unwrap(os.getenv("ZIMAN_RESOURCE_PATH"))
+        )) }
+    }
+    return fs.read_text(resolved)
 }
 
 // `over` wins on a key present in both.
