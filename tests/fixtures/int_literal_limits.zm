@@ -1,0 +1,22 @@
+// The smallest and largest int literals, and the casts that used to overflow silently.
+fn main() {
+    print(9223372036854775807)
+    print(-9223372036854775808)
+    print(-9223372036854775808 + 1)
+    print(-9223372036854775808 as float)
+    val big = 1000000000000000000000000000000.0
+    print(big as int)
+    print((0.0 - big) as int)
+    print(big as bigint)
+    print((0.0 - big) as bigint)
+    print(big as decimal)
+    print(-1.5 as int)
+    print(1.9 as int)
+    print(2.5 as bigint)
+    print(9223372036854775807.0 as int)
+    val nan = unwrap(parse_float("nan"))
+    val inf = unwrap(parse_float("inf"))
+    print(nan as int)
+    print(inf as int)
+    print((0.0 - inf) as int)
+}

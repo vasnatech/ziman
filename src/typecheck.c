@@ -38,6 +38,14 @@ static EnumDecl *find_enum(Module *module, const char *name) {
  * body is checked; never mutated afterward. */
 static Env *g_global_env = NULL;
 
+/* Whether two declarations were written in the same source: both in one file, or both in bundled (built-in) modules. A type parameter can only be confused with a
+ * struct or enum declared alongside it -- the parser reclassifies parameter names per declaration -- so a user's `struct T` does not collide with the prelude's
+ * `ArrayBuilder<T>`, which the user never sees. */
+static int same_source(const char *a, const char *b) {
+    if (a == NULL || b == NULL) return a == b;
+    return strcmp(a, b) == 0;
+}
+
 static Type check_expr(Module *module, Env *env, Expr *e);
 static Type check_lambda(Module *module, Env *env, Expr *e);
 static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type *expected);
@@ -410,6 +418,10 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
                 ziman_error("type", e->line, e->col,
                             "'+' doesn't join arrays (found %s and %s) -- use push(arr, item) to add one element or concat_arrays<T>(a, b) to join two",
                             type_name(lt), type_name(rt));
+            }
+            if (e->as.binary.op == OP_MOD && lt.kind == TY_FLOAT && rt.kind == TY_FLOAT) {
+                ziman_error("type", e->line, e->col,
+                            "'%%' is not defined for float (there is no float remainder); use it on int, bigint or decimal, or cast to int first if a whole-number remainder is what you mean");
             }
             if (lt.kind != rt.kind || (lt.kind != TY_INT && lt.kind != TY_FLOAT && lt.kind != TY_BIGINT && lt.kind != TY_DECIMAL)) {
                 ziman_error("type", e->line, e->col,
@@ -2033,7 +2045,13 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
 static Type check_expr(Module *module, Env *env, Expr *e) {
     Type t;
     switch (e->kind) {
-        case EXPR_INT: t = type_scalar(TY_INT); break;
+        case EXPR_INT:
+            if (e->int_min_literal) {
+                ziman_error("type", e->line, e->col,
+                            "integer literal 9223372036854775808 is out of range for int (the largest is 9223372036854775807; write 9223372036854775808n for a bigint)");
+            }
+            t = type_scalar(TY_INT);
+            break;
         case EXPR_FLOAT: t = type_scalar(TY_FLOAT); break;
         case EXPR_STRING: t = type_scalar(TY_STRING); break;
         case EXPR_BOOL: t = type_scalar(TY_BOOL); break;
@@ -3319,10 +3337,12 @@ void typecheck(Module *module) {
                     ziman_error("type", sd->line, sd->col, "type parameter '%s' is already defined in struct '%s'", param_name, sd->name);
                 }
             }
-            if (find_struct(module, param_name) != NULL) {
+            StructDecl *clash_struct = find_struct(module, param_name);
+            if (clash_struct != NULL && same_source(clash_struct->source_file, sd->source_file)) {
                 ziman_error("type", sd->line, sd->col, "type parameter '%s' in struct '%s' collides with an existing struct name", param_name, sd->name);
             }
-            if (find_enum(module, param_name) != NULL) {
+            EnumDecl *clash_enum = find_enum(module, param_name);
+            if (clash_enum != NULL && same_source(clash_enum->source_file, sd->source_file)) {
                 ziman_error("type", sd->line, sd->col, "type parameter '%s' in struct '%s' collides with an existing enum name", param_name, sd->name);
             }
         }
@@ -3373,10 +3393,12 @@ void typecheck(Module *module) {
                     ziman_error("type", ed->line, ed->col, "type parameter '%s' is already defined in enum '%s'", param_name, ed->name);
                 }
             }
-            if (find_struct(module, param_name) != NULL) {
+            StructDecl *clash_struct = find_struct(module, param_name);
+            if (clash_struct != NULL && same_source(clash_struct->source_file, ed->source_file)) {
                 ziman_error("type", ed->line, ed->col, "type parameter '%s' in enum '%s' collides with an existing struct name", param_name, ed->name);
             }
-            if (find_enum(module, param_name) != NULL) {
+            EnumDecl *clash_enum = find_enum(module, param_name);
+            if (clash_enum != NULL && same_source(clash_enum->source_file, ed->source_file)) {
                 ziman_error("type", ed->line, ed->col, "type parameter '%s' in enum '%s' collides with an existing enum name", param_name, ed->name);
             }
         }
@@ -3415,10 +3437,12 @@ void typecheck(Module *module) {
                     ziman_error("type", fn->line, fn->col, "type parameter '%s' is already defined in function '%s'", param_name, fn->name);
                 }
             }
-            if (find_struct(module, param_name) != NULL) {
+            StructDecl *clash_struct = find_struct(module, param_name);
+            if (clash_struct != NULL && same_source(clash_struct->source_file, fn->source_file)) {
                 ziman_error("type", fn->line, fn->col, "type parameter '%s' in function '%s' collides with an existing struct name", param_name, fn->name);
             }
-            if (find_enum(module, param_name) != NULL) {
+            EnumDecl *clash_enum = find_enum(module, param_name);
+            if (clash_enum != NULL && same_source(clash_enum->source_file, fn->source_file)) {
                 ziman_error("type", fn->line, fn->col, "type parameter '%s' in function '%s' collides with an existing enum name", param_name, fn->name);
             }
         }

@@ -177,7 +177,12 @@ through a local name -- see "Function values"; `make()(x)` isn't valid), no inde
   `-`, `/` (`MIN / -1`) and `abs(MIN)` that overflow are a runtime error
   ("integer overflow in '+'"), consistent with `bigint as int` and `int as
   byte` clamping instead of wrapping silently. Use `bigint` when a value
-  can outgrow 64 bits.**
+  can outgrow 64 bits.** An integer literal must fit: `9223372036854775807` is the
+  largest and `-9223372036854775808` the smallest (a literal that overflows is
+  a compile error naming the `n` suffix for a bigint, not a silently
+  saturated value). `float as int` truncates toward zero and saturates to
+  `INT64_MAX`/`INT64_MIN` (NaN is 0), the same clamp-don't-wrap rule as
+  `bigint as int`.
 - `float` — double-precision IEEE 754.
 - `bool` — `true`/`false`.
 - `string` — immutable text.
@@ -291,7 +296,9 @@ fn main() {
   the value doesn't fit — never silently wrap around. `int as
   bigint`/`float as bigint` are exact for `int`, but `float as bigint`
   truncates the fractional part first (a `float` may already have lost
-  precision before the cast ever runs).
+  precision before the cast ever runs); it converts the float's exact
+  value, so a float too large for `int` becomes the exact (huge) bigint,
+  and NaN or infinity is a runtime error (`float as decimal` the same).
 - **Composes with everything else already built**: a `bigint` field in a
   struct, a `bigint` array element, a generic type argument
   (`Box<bigint>`), and a `Map<bigint, V>` key (it satisfies both
@@ -2994,7 +3001,7 @@ violates one of these never executes any code, it's rejected up front:
 | Unary negate           | `-`                          | `int` or `float`         | same type |
 | Unary not              | `!`                          | `bool`                   | `bool`  |
 
-\* `%` is only defined for `int, int` in v0 (no float modulo).
+\* `%` is defined for `int`, `bigint` and `decimal` (both operands the same type); on `float` it is a compile error, there being no float remainder.
 
 Errors that can only be detected while running (division/modulo by zero)
 are runtime errors, reported the same way as compile-time errors (see

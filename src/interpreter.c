@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,6 +26,14 @@ typedef struct {
     CtrlKind kind;
     Value value;
 } ExecResult;
+
+/* `float as int`: truncates toward zero and saturates to INT64_MIN / INT64_MAX (the same "clamp, don't wrap" rule as `bigint as int`); NaN is 0. */
+static int64_t float_to_int_saturating(double f) {
+    if (isnan(f)) return 0;
+    if (f >= 9223372036854775808.0) return INT64_MAX;
+    if (f <= -9223372036854775808.0) return INT64_MIN;
+    return (int64_t)f;
+}
 
 static FunctionDecl *find_function(Module *module, const char *name) {
     for (int i = 0; i < module->functions.count; i++) {
@@ -1000,6 +1009,11 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         }
         case EXPR_CAST: {
             Value v = eval_expr(module, env, e->as.cast.operand);
+            if ((e->as.cast.target_type.kind == TY_BIGINT || e->as.cast.target_type.kind == TY_DECIMAL) && v.type.kind == TY_FLOAT &&
+                (isnan(v.as.f) || isinf(v.as.f))) {
+                ziman_error("runtime", e->line, e->col, "cannot convert %s to %s", isnan(v.as.f) ? "NaN" : "infinity",
+                            e->as.cast.target_type.kind == TY_BIGINT ? "bigint" : "decimal");
+            }
             TypeKind to = e->as.cast.target_type.kind;
             if (to == TY_FLOAT) {
                 if (v.type.kind == TY_INT) return value_float((double)v.as.i);
@@ -1015,7 +1029,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             }
             if (to == TY_BIGINT) {
                 if (v.type.kind == TY_INT) return value_bigint(bignum_from_i64(v.as.i));
-                if (v.type.kind == TY_FLOAT) return value_bigint(bignum_from_i64((int64_t)v.as.f));
+                if (v.type.kind == TY_FLOAT) return value_bigint(decimal_to_bignum_trunc(decimal_from_double_trunc(v.as.f)));
                 if (v.type.kind == TY_DECIMAL) return value_bigint(decimal_to_bignum_trunc(*v.as.dec));
                 return value_bigint(*v.as.bi); /* bigint as bigint: no-op */
             }
@@ -1035,7 +1049,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 return value_byte((int)iv);
             }
             /* target is TY_INT */
-            if (v.type.kind == TY_FLOAT) return value_int((int64_t)v.as.f);
+            if (v.type.kind == TY_FLOAT) return value_int(float_to_int_saturating(v.as.f));
             if (v.type.kind == TY_BIGINT) return value_int(bignum_to_i64_saturating(*v.as.bi));
             if (v.type.kind == TY_DECIMAL) return value_int(bignum_to_i64_saturating(decimal_to_bignum_trunc(*v.as.dec)));
             if (v.type.kind == TY_BYTE) return value_int((int64_t)v.as.by);

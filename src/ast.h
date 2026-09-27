@@ -183,6 +183,9 @@ struct Expr {
     ExprKind kind;
     int line, col;
     Type resolved_type; /* filled in by the type checker */
+    /* EXPR_INT only: the literal 9223372036854775808, which is one more than INT64_MAX and only legal directly under a unary minus (that is `-9223372036854775808`, the
+     * smallest int). parse_unary clears the flag when it folds the minus in; a literal that still has it reaches the type checker as an out-of-range error. */
+    unsigned char int_min_literal;
     /* A bare identifier (EXPR_IDENT) or `module.name` (EXPR_FIELD_ACCESS) that
      * names a top-level function, used as a value. The loader records the
      * fully-qualified candidate in `fn_ref_name` without deciding (it cannot see

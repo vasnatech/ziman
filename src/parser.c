@@ -1,6 +1,8 @@
 #include "parser.h"
 
 #include <stdio.h>
+#include <errno.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -364,7 +366,18 @@ static Expr *parse_primary(Parser *p) {
 
     if (match(p, TOK_INT_LIT)) {
         Expr *e = expr_new(EXPR_INT, t->line, t->col);
+        errno = 0;
         e->as.int_val = strtoll(t->start, NULL, 10);
+        if (errno == ERANGE) {
+            if (strtoull(t->start, NULL, 10) == 9223372036854775808ULL) {
+                e->as.int_val = INT64_MIN;
+                e->int_min_literal = 1;
+            } else {
+                ziman_error("syntax", t->line, t->col,
+                            "integer literal %.*s is out of range for int (the largest is 9223372036854775807; write %.*sn for a bigint)",
+                            t->length, t->start, t->length, t->start);
+            }
+        }
         return e;
     }
     if (match(p, TOK_FLOAT_LIT)) {
@@ -822,6 +835,12 @@ static Expr *parse_unary(Parser *p) {
         Token *t = advance_tok(p);
         Op op = t->type == TOK_BANG ? OP_NOT : OP_NEG;
         Expr *operand = parse_unary(p);
+        if (op == OP_NEG && operand->kind == EXPR_INT && operand->int_min_literal) {
+            operand->int_min_literal = 0; /* `-9223372036854775808`: the smallest int, not a negated overflow */
+            operand->line = t->line;
+            operand->col = t->col;
+            return operand;
+        }
         Expr *e = expr_new(EXPR_UNARY, t->line, t->col);
         e->as.unary.op = op;
         e->as.unary.operand = operand;

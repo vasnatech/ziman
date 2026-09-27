@@ -1,0 +1,4 @@
+fn main() {
+    val inf = unwrap(parse_float("inf"))
+    print(inf as bigint)
+}

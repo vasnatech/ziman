@@ -1,0 +1,11 @@
+struct T {
+    x: int
+}
+
+struct Box<T> {
+    item: T
+}
+
+fn main() {
+    print(1)
+}
