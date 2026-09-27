@@ -571,15 +571,7 @@ static Value call_max(Value a, Value b) {
  * plain struct copy into the new buffer is safe precisely because ArrayObj
  * is immutable once built (see value.h) -- there's nothing to alias into. */
 static Value call_push(Type array_type, Value arr, Value x) {
-    ArrayObj *old = arr.as.arr;
-    if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 0, 0, x));
-    int new_count = old->count + 1;
-    Value *items = malloc((size_t)new_count * sizeof(Value));
-    memcpy(items, old->boxed_items, (size_t)old->count * sizeof(Value));
-    items[old->count] = x;
-    /* a `[]` that grows by push becomes packed on its first element */
-    ArrayObj *packed = old->count == 0 ? array_try_pack(items, new_count) : NULL;
-    return value_array(array_type, packed != NULL ? packed : array_obj_new(items, new_count));
+    return value_array(array_type, array_push(arr.as.arr, x));
 }
 
 static Value call_insert(Type array_type, Value arr, Value idx, Value x, int line, int col) {

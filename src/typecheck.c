@@ -358,6 +358,26 @@ static void lint_finish_function(int first_var) {
     g_lint_var_count = first_var;
 }
 
+/* `x = concat(x, ..)` or `x = concat_arrays(x, ..)` inside a loop copies all of x on every pass: quadratic. */
+static void lint_quadratic_accumulation(const Stmt *s) {
+    const Expr *v = s->as.assign.value;
+    const char *name = s->as.assign.name;
+    const char *fix = NULL;
+    if (v->kind == EXPR_CALL && v->as.call.args.count > 0) {
+        const char *callee = v->as.call.callee;
+        const char *dot = strrchr(callee, '.');
+        if (dot != NULL) callee = dot + 1;
+        const Expr *first = v->as.call.args.items[0];
+        if (first->kind != EXPR_IDENT || strcmp(first->as.ident_name, name) != 0) return;
+        if (strcmp(callee, "concat") == 0) fix = "a StringBuilder (sb_new, sb_append, sb_to_string)";
+        else if (strcmp(callee, "concat_arrays") == 0) fix = "an ArrayBuilder (ab_new, ab_append, ab_to_array)";
+    }
+    if (fix == NULL) return;
+    ziman_warning(g_lint_file, s->line, s->col,
+                  "'%s' is rebuilt from a copy of itself on every pass of this loop (quadratic); collect the pieces in %s", name, fix);
+    g_lint_count++;
+}
+
 static int type_supports_ordering(Module *module, Type t);
 static FunctionDecl *find_compare_function(Module *module, Type t) {
     const char *type_name_str = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
@@ -3014,6 +3034,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                             "cannot assign a value of type %s to '%s' (declared as %s)",
                             type_name(value_type), s->as.assign.name, type_name(b->type));
             }
+            if (in_loop && g_lint_active) lint_quadratic_accumulation(s);
             break;
         }
         case STMT_IF: {

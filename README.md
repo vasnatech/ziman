@@ -131,7 +131,7 @@ run prints `{"ok":true}`); a run reports **every** error it can find, not
 just the first (up to 25): all syntax errors in a file, then type errors in every
 function and statement, with a "N errors" line at the end; `--emit-derived` prints the code each
 `#[derive]` generates; `--lint` reports style findings in your own code
-instead of running it (today: a `var` that is never reassigned -- `var` and
+instead of running it (today: a `var` that is never reassigned, and `x = concat(x, ..)` / `x = concat_arrays(x, ..)` in a loop, which copies all of `x` on every pass -- use a StringBuilder or ArrayBuilder -- `var` and
 `val` differ by one letter, so it is the typo that silently makes something
 mutable) as `file:line:col: warning: ...`, or JSON with `"severity":"warning"`,
 and exits 1 if there are any; `--fmt file.zm...` prints the source formatted

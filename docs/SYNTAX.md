@@ -3207,7 +3207,11 @@ a type error.
   actually is. `decimal_round(d: decimal, scale: int) -> decimal` is
   `decimal`'s equivalent — see "Numbers" above for why it's a separate
   name rather than an overload of `round`.
-- `push(arr: [T], x: T) -> [T]` — a new array with `x` appended.
+- `push(arr: [T], x: T) -> [T]` — a new array with `x` appended. `arr = push(arr, x)` in
+  a loop is amortised O(1) per call: the result keeps up to twice its length in spare
+  room, and the next `push` on the *newest* version of that array writes into it
+  instead of copying (a `push` on an older version still copies, so no version ever
+  changes under another). `insert`, `set`, `remove` and `concat_arrays` always copy.
 - `insert(arr: [T], i: int, x: T) -> [T]` — a new array with `x` inserted
   at index `i`; `i` must be in `[0, len(arr)]`, a runtime error otherwise.
 - `set(arr: [T], i: int, x: T) -> [T]` — a new array with the element at

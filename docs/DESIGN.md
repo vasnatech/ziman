@@ -3692,3 +3692,11 @@ deferred calls the thread had pending. The jump skips the block exits that would
 their calls have run normally. The handler runs before the deferred calls, while the thread's resources are still open (the server writes the 500 to a socket its own `defer`
 has not closed yet). Errors of other phases, and errors on the main thread, are unchanged. `os.fatal` is the handler that keeps the old behaviour for a thread.
 Not done: nothing catches a *native* crash (a segfault); and an error while a native holds a lock would leave it held (none does).
+
+## `push` is amortised O(1) (2026-09)
+
+An `ArrayObj` built by `push` carries an `ArrayStore { capacity, used }` shared by every array that views the same buffer. `push` on an array of length n whose store has room
+and whose `used == n` (it is the newest version, the "tip") claims slot n with a compare-and-swap on `used`, writes the element there and returns a new `ArrayObj` of length n+1
+over the same buffer; a losing thread, or a `push` on an older version, copies into a fresh buffer of twice the size instead. Slots below an array's length are never written
+again, so arrays stay immutable values and threads need no lock. Literals, slices and builder results have no store: their first `push` copies. Loops that rebuild a value with
+`concat`/`concat_arrays` stay quadratic; `--lint` flags them.

@@ -27,6 +27,14 @@ typedef struct Value Value;
  * exactly like Ziman's strings already do (also shared by pointer, safe for
  * the same reason: nothing can mutate one through an alias). push/insert/set
  * never mutate their input; they always build a brand new ArrayObj. */
+/* Room to grow that arrays made by `push` share: the buffer is `capacity` elements long and `used` of them are taken. An array whose length equals `used` is the
+ * *tip* of the buffer, and pushing to it takes the next slot in place (a compare-and-swap on `used`, so two threads pushing to the same array cannot both win); any
+ * other array over the buffer -- an older one, or a second push to the same one -- copies instead. Nothing ever changes an element an array can see. */
+typedef struct ArrayStore {
+    int capacity;
+    int used; /* accessed with atomic operations */
+} ArrayStore;
+
 typedef struct ArrayObj {
     Value *boxed_items; /* one Value per element, or NULL when one of the packed buffers is used */
     /* Packed storage for an array of one scalar type: at most one of these is
@@ -37,6 +45,7 @@ typedef struct ArrayObj {
     int64_t *ints;     /* [int] */
     double *floats;    /* [float] */
     int count;
+    ArrayStore *store; /* spare room shared with the arrays pushed from this one, or NULL (a literal, a slice, a builder's result: no room, push copies) */
 } ArrayObj;
 
 typedef enum { PK_NONE = 0, PK_BYTE, PK_BOOL, PK_INT, PK_FLOAT } PackKind;
@@ -180,6 +189,8 @@ Value value_map(Type map_or_set_type, struct MapObj *m);
 uint64_t value_hash(Value v);
 
 ArrayObj *array_obj_new(Value *items, int count);
+/* `old` with `x` added at the end. Amortised O(1) when pushes follow one another (`a = push(a, x)` in a loop): see ArrayStore. */
+ArrayObj *array_push(const ArrayObj *old, Value x);
 /* A packed [byte]: `bytes` (one real byte per element, allocated by the caller
  * with zalloc_atomic or pointing into another packed array) is used as is. */
 ArrayObj *array_obj_new_bytes(uint8_t *bytes, int count);

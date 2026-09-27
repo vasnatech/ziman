@@ -1,0 +1,13 @@
+fn main() {
+    var s = ""
+    var a: [int] = []
+    var pushed: [int] = []
+    for i in 0..3 {
+        s = concat(s, "x")
+        a = concat_arrays<int>(a, [i])
+        pushed = push(pushed, i)
+    }
+    print(s)
+    print(a)
+    print(pushed)
+}

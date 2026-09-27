@@ -1,0 +1,52 @@
+struct P {
+    n: int
+}
+
+fn main() {
+    // branching pushes must not see each other
+    val base = push<int>([1, 2, 3], 4)
+    val a = push<int>(base, 5)
+    val b = push<int>(base, 6)
+    val c = push<int>(a, 7)
+    print(base)
+    print(a)
+    print(b)
+    print(c)
+    // pushing to an older array after a newer one exists
+    var x: [int] = []
+    for i in 0..10 {
+        x = push<int>(x, i)
+    }
+    val early = slice<int>(x, 0, 5)
+    val later = push<int>(x, 100)
+    val other = push<int>(x, 200)
+    print(later)
+    print(other)
+    print(x)
+    print(push<int>(early, 55))
+    // boxed elements, strings, floats, bytes, bools
+    var ps: [P] = []
+    for i in 0..5 {
+        ps = push<P>(ps, P { n: i })
+    }
+    val ps2 = push<P>(ps, P { n: 99 })
+    val ps3 = push<P>(ps, P { n: 98 })
+    print(len(ps))
+    print(ps2[5].n)
+    print(ps3[5].n)
+    var fs: [float] = []
+    var bs: [byte] = []
+    var os: [bool] = []
+    var ss: [string] = []
+    for i in 0..20 {
+        fs = push<float>(fs, (i as float) / 2.0)
+        bs = push<byte>(bs, (i * 3) as byte)
+        os = push<bool>(os, i % 2 == 0)
+        ss = push<string>(ss, str(i))
+    }
+    print(fs[19])
+    print(bs[19])
+    print(os[18])
+    print(ss[19])
+    print(len(fs) + len(bs) + len(os) + len(ss))
+}

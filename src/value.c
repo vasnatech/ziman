@@ -160,6 +160,46 @@ ArrayObj *array_obj_view(const ArrayObj *a, int start, int end) {
     return v;
 }
 
+ArrayObj *array_push(const ArrayObj *old, Value x) {
+    PackKind k = array_pack_kind(old);
+    if (old->count == 0 && k == PK_NONE) k = pack_kind_of_type(x.type.kind); /* a `[]` that grows by push becomes packed on its first element */
+    size_t esz = k == PK_NONE ? sizeof(Value) : pack_elem_size(k);
+    int n = old->count;
+    /* take the next slot of the buffer in place, when `old` is the tip and there is room */
+    if (old->store != NULL && n < old->store->capacity) {
+        int expected = n;
+        if (__atomic_compare_exchange_n(&old->store->used, &expected, n + 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            ArrayObj *grown = calloc(1, sizeof(ArrayObj));
+            *grown = *old;
+            grown->count = n + 1;
+            if (k == PK_NONE) grown->boxed_items[n] = x;
+            else pack_store(k, k == PK_BYTE ? (void *)grown->bytes : k == PK_BOOL ? (void *)grown->bools : k == PK_INT ? (void *)grown->ints : (void *)grown->floats, n, x);
+            return grown;
+        }
+    }
+    /* copy into a buffer with room for about as many again */
+    int capacity = n < 4 ? 8 : (n <= 1073741823 ? n * 2 : n + 1);
+    unsigned char *buf = k == PK_NONE ? calloc((size_t)capacity, esz) : zalloc_atomic(esz * (size_t)capacity);
+    if (n > 0) {
+        const void *src = k == PK_NONE ? (const void *)old->boxed_items : k == PK_BYTE ? (const void *)old->bytes : k == PK_BOOL ? (const void *)old->bools
+                          : k == PK_INT ? (const void *)old->ints : (const void *)old->floats;
+        memcpy(buf, src, esz * (size_t)n);
+    }
+    ArrayObj *grown = calloc(1, sizeof(ArrayObj));
+    switch (k) {
+        case PK_NONE: grown->boxed_items = (Value *)buf; grown->boxed_items[n] = x; break;
+        case PK_BYTE: grown->bytes = buf; pack_store(k, buf, n, x); break;
+        case PK_BOOL: grown->bools = buf; pack_store(k, buf, n, x); break;
+        case PK_INT: grown->ints = (int64_t *)buf; pack_store(k, buf, n, x); break;
+        case PK_FLOAT: grown->floats = (double *)buf; pack_store(k, buf, n, x); break;
+    }
+    grown->count = n + 1;
+    grown->store = calloc(1, sizeof(ArrayStore));
+    grown->store->capacity = capacity;
+    grown->store->used = n + 1;
+    return grown;
+}
+
 PackKind pack_kind_of_type(TypeKind k) {
     switch (k) {
         case TY_BYTE: return PK_BYTE;

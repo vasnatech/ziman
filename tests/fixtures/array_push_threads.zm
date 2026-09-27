@@ -1,0 +1,38 @@
+fn worker(id: int, base: [int], out: Channel<[int]>) {
+    var mine = base
+    for i in 0..2000 {
+        mine = push<int>(mine, id * 100000 + i)
+    }
+    send(out, mine)
+}
+
+fn main() {
+    var base: [int] = []
+    for i in 0..10 {
+        base = push<int>(base, i)
+    }
+    val out: Channel<[int]> = channel_new()
+    for id in 1..9 {
+        spawn worker(id, base, out)
+    }
+    var bad = 0
+    for k in 0..8 {
+        val r = receive(out)
+        if len(r) != 2010 {
+            bad = bad + 1
+        }
+        val first = r[10] / 100000
+        for i in 0..10 {
+            if r[i] != i {
+                bad = bad + 1
+            }
+        }
+        for i in 10..2010 {
+            if r[i] != first * 100000 + (i - 10) {
+                bad = bad + 1
+            }
+        }
+    }
+    print(bad)
+    print(len(base))
+}
