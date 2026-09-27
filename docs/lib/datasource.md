@@ -141,6 +141,15 @@ pub enum Connection {
 One database connection, or a pool of them; every `datasource` function takes this one type, so code
 written against it does not care which engine is behind it or whether it is pooled.
 
+### `dialect`
+
+```
+pub fn dialect(conn: Connection) -> string
+```
+
+Which engine `conn` is on: `sqlite`, `postgres` or `mysql`; for a pool, the one its URL names. For SQL that has to be written differently per engine
+(see `migrate`).
+
 ### `open`
 
 ```

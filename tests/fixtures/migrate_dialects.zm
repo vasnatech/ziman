@@ -1,0 +1,73 @@
+use datasource
+use db.DbError
+use db.db_error_message
+use fs
+use migrate
+
+fn put(path: string, text: string) {
+    unwrap(fs.write_text(path, text))
+}
+
+fn names(r: Result<[migrate.Migration], DbError>) -> string {
+    return switch r {
+        Ok(items) { join(separator: ", ", pieces: collect_names(items)) }
+        Err(e) { db_error_message(e) }
+    }
+}
+
+fn collect_names(items: [migrate.Migration]) -> [string] {
+    val out = ab_new<string>()
+    for m in items {
+        ab_append<string>(out, m.file)
+    }
+    return ab_to_array<string>(out)
+}
+
+fn main() {
+    val dir = "/tmp/ziman_migrate_dialects"
+    if fs.exists(dir) {
+        for name in unwrap(fs.list_dir(dir)) {
+            val path = fs.path_join(dir, name)
+            if fs.is_dir(path) {
+                for inner in unwrap(fs.list_dir(path)) {
+                    unwrap(fs.remove(fs.path_join(path, inner)))
+                }
+            }
+            unwrap(fs.remove(path))
+        }
+    } else {
+        unwrap(fs.make_dirs(dir))
+    }
+    unwrap(fs.make_dirs(fs.path_join(dir, "sqlite")))
+    unwrap(fs.make_dirs(fs.path_join(dir, "postgres")))
+    put(fs.path_join(dir, "V001__people.sql"), "CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT)")
+    put(
+        fs.path_join(dir, "sqlite/V002__events.sql"),
+        "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT)"
+    )
+    put(fs.path_join(dir, "postgres/V002__events.sql"), "CREATE TABLE events (id SERIAL PRIMARY KEY, at TIMESTAMPTZ)")
+    put(fs.path_join(dir, "V003__more.sql"), "CREATE TABLE more (id INTEGER)")
+
+    print(names(migrate.load(dir)))
+    print(names(migrate.load_for(dir, "sqlite")))
+    print(names(migrate.load_for(dir, "postgres")))
+    print(names(migrate.load_for(dir, "mysql")))
+
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+    print(datasource.dialect(conn))
+    print(unwrap(migrate.run(conn, dir)))
+    print(len(unwrap(datasource.query(conn, "SELECT * FROM sqlite_master WHERE name = 'events'"))))
+    val pool = unwrap(datasource.open_pool("sqlite::memory:", 2))
+    print(datasource.dialect(pool))
+
+    // a version in both places is refused
+    put(fs.path_join(dir, "V002__events.sql"), "CREATE TABLE events (id INTEGER)")
+    print(names(migrate.load_for(dir, "sqlite")))
+    print(names(migrate.load_for(dir, "mysql")))
+    unwrap(fs.remove(fs.path_join(dir, "V002__events.sql")))
+
+    // a dialect that leaves a gap is refused when applied
+    unwrap(fs.remove(fs.path_join(dir, "sqlite/V002__events.sql")))
+    val fresh = unwrap(datasource.open("sqlite::memory:"))
+    print(db_error_message(unwrap_err(migrate.run(fresh, dir))))
+}

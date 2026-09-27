@@ -66,6 +66,25 @@ pub enum Connection {
     Pool(PoolState)
 }
 
+// Which engine `conn` is on: `sqlite`, `postgres` or `mysql`; for a pool, the one its URL names. For SQL that has to be written differently per engine
+// (see `migrate`).
+pub fn dialect(conn: Connection) -> string {
+    return switch conn {
+        Sqlite(_) { "sqlite" }
+        Postgres(_) { "postgres" }
+        Mysql(_) { "mysql" }
+        Pool(state) {
+            if starts_with(state.url, "sqlite:") {
+                "sqlite"
+            } else if starts_with(state.url, "mysql://") {
+                "mysql"
+            } else {
+                "postgres"
+            }
+        }
+    }
+}
+
 // `sqlite::memory:` (a private in-memory database, gone when the
 // process exits), `sqlite:<path>` (a file, created if missing), or
 // `postgres://user:password@host:port/database` (`postgresql://` too;

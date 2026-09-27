@@ -1,0 +1,11 @@
+V001__people.sql, V003__more.sql
+V001__people.sql, V002__events.sql, V003__more.sql
+V001__people.sql, V002__events.sql, V003__more.sql
+V001__people.sql, V003__more.sql
+sqlite
+3
+1
+sqlite
+database error: migration: version 2 is in both V002__events.sql and sqlite/V002__events.sql
+V001__people.sql, V002__events.sql, V003__more.sql
+database error: migration: versions must run 1, 2, 3, ... with no gap or repeat, but V003__more.sql is where 2 was expected

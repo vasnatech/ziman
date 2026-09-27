@@ -866,6 +866,8 @@ pub enum Connection {
     Pool(PoolState)
 }
 
+pub fn dialect(conn: Connection) -> string
+
 pub fn open(url: string) -> Result<Connection, DbError>
 
 pub fn close(conn: Connection)
@@ -1027,6 +1029,8 @@ pub fn migration(version: int, name: string, sql: string) -> Migration
 pub fn split_statements(sql: string) -> [string]
 
 pub fn load(dir: string) -> Result<[Migration], DbError>
+
+pub fn load_for(dir: string, dialect: string) -> Result<[Migration], DbError>
 
 pub fn apply(conn: Connection, migrations: [Migration]) -> Result<int, DbError>
 

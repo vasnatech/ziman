@@ -8,6 +8,11 @@
 //
 //     val applied = migrate.run(conn, "migrations")?
 //
+// SQL that has to differ by engine (`ALTER TABLE ... ADD CONSTRAINT`, which SQLite lacks; a native `UUID` or `TIMESTAMPTZ`; a key length on MySQL) goes in
+// a subdirectory named for the engine, `migrations/postgres/`, `migrations/sqlite/` or `migrations/mysql/`. `run` applies the files of the directory and of the
+// subdirectory of the engine the connection is on, as one list: each version is in the shared directory or in the engine's, never both, so every engine's
+// database has 1, 2, 3, ... and a version whose SQL differs has one file in each engine's directory.
+//
 // `run` keeps a table, `schema_migrations`, with a row per applied migration: its version, name, a checksum of its
 // text and when it ran. Each start it:
 //
@@ -192,6 +197,37 @@ pub fn load(dir: string) -> Result<[Migration], DbError> {
     }
 }
 
+// The migrations for a database on `dialect` (`sqlite`, `postgres`, `mysql`): those in `dir`, which run everywhere, and those in `dir/<dialect>/`, which
+// run only there, as one list in version order. A version may be in the shared directory or in a dialect's, never in both -- the versions of one
+// database must be 1, 2, 3, ... whichever engine it is, so each dialect directory holds its own file for a version the shared directory leaves out. A
+// missing dialect directory is no migrations of its own.
+pub fn load_for(dir: string, dialect: string) -> Result<[Migration], DbError> {
+    val shared = load(dir)?
+    val own = fs.path_join(dir, dialect)
+    if !fs.is_dir(own) {
+        return shared
+    }
+    val specific = load(own)?
+    for m in specific {
+        for other in shared {
+            if other.version == m.version {
+                return err(problem(format(
+                    "version {} is in both {} and {}",
+                    m.version,
+                    other.file,
+                    fs.path_join(dialect, m.file)
+                )))
+            }
+        }
+    }
+    val all = concat_arrays<Migration>(shared, specific)
+    val versions = collections.map<Migration, int>(all, fn(m: Migration) -> int { return m.version })
+    return switch collections.sort_by_keys<Migration, int>(all, versions) {
+        Ok(sorted) { sorted }
+        Err(message) { err(problem(message)) }
+    }
+}
+
 // The versions must be 1, 2, 3, ... in order.
 fn check_sequence(migrations: [Migration]) -> Result<unit, DbError> {
     for i in 0..len(migrations) {
@@ -289,6 +325,6 @@ pub fn apply(conn: Connection, migrations: [Migration]) -> Result<int, DbError> 
 
 // `apply` for the migrations in the directory `dir`.
 pub fn run(conn: Connection, dir: string) -> Result<int, DbError> {
-    val migrations = load(dir)?
+    val migrations = load_for(dir, datasource.dialect(conn))?
     return apply(conn, migrations)
 }

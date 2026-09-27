@@ -13,6 +13,11 @@ ignored; a `.sql` file that does not fit the name is an error, so a typo cannot 
 val applied = migrate.run(conn, "migrations")?
 ```
 
+SQL that has to differ by engine (`ALTER TABLE ... ADD CONSTRAINT`, which SQLite lacks; a native `UUID` or `TIMESTAMPTZ`; a key length on MySQL) goes in
+a subdirectory named for the engine, `migrations/postgres/`, `migrations/sqlite/` or `migrations/mysql/`. `run` applies the files of the directory and of the
+subdirectory of the engine the connection is on, as one list: each version is in the shared directory or in the engine's, never both, so every engine's
+database has 1, 2, 3, ... and a version whose SQL differs has one file in each engine's directory.
+
 `run` keeps a table, `schema_migrations`, with a row per applied migration: its version, name, a checksum of its
 text and when it ran. Each start it:
 
@@ -87,6 +92,17 @@ pub fn load(dir: string) -> Result<[Migration], DbError>
 
 The migrations in `dir`, in version order. An Err for an unreadable directory, a `.sql` file with a bad name, or
 versions that repeat or skip.
+
+### `load_for`
+
+```
+pub fn load_for(dir: string, dialect: string) -> Result<[Migration], DbError>
+```
+
+The migrations for a database on `dialect` (`sqlite`, `postgres`, `mysql`): those in `dir`, which run everywhere, and those in `dir/<dialect>/`, which
+run only there, as one list in version order. A version may be in the shared directory or in a dialect's, never in both -- the versions of one
+database must be 1, 2, 3, ... whichever engine it is, so each dialect directory holds its own file for a version the shared directory leaves out. A
+missing dialect directory is no migrations of its own.
 
 ## Applying
 
