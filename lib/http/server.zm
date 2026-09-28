@@ -708,37 +708,78 @@ pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError> {
 // `{name}` segment captures any non-empty segment (percent-decoded). A
 // trailing slash is ignored on both sides. `None` if it doesn't match.
 pub fn path_params(pattern: string, path: string) -> Option<Params> {
-    var p = pattern
-    var q = path
+    return capture(compile_pattern(pattern), segments_of(path))
+}
+
+// A route pattern split into its segments once, so matching never splits or re-parses it: `parts[i]` is a
+// literal segment's text, or a `{name}` segment's name, and `is_param[i]` says which.
+struct Pattern {
+    parts: [string]
+    is_param: [bool]
+}
+
+// `path` without a trailing slash (the bare "/" stays) split on "/": what a path and a pattern are both
+// matched as.
+fn segments_of(path: string) -> [string] {
+    var p = path
     if len(p) > 1 && ends_with(p, "/") {
         p = substring(p, 0, len(p) - 1)
     }
-    if len(q) > 1 && ends_with(q, "/") {
-        q = substring(q, 0, len(q) - 1)
+    return split(p, "/")
+}
+
+fn compile_pattern(pattern: string) -> Pattern {
+    val parts = ab_new<string>()
+    val is_param = ab_new<bool>()
+    for segment in segments_of(pattern) {
+        if len(segment) >= 3 && starts_with(segment, "{") && ends_with(segment, "}") {
+            ab_append<string>(parts, substring(segment, 1, len(segment) - 1))
+            ab_append<bool>(is_param, true)
+        } else {
+            ab_append<string>(parts, segment)
+            ab_append<bool>(is_param, false)
+        }
     }
-    val pattern_parts = split(p, "/")
-    val path_parts = split(q, "/")
-    if len(pattern_parts) != len(path_parts) {
+    return Pattern { parts: ab_to_array<string>(parts), is_param: ab_to_array<bool>(is_param) }
+}
+
+// Whether the split path `got` has this pattern's shape: as many segments, every literal equal, every
+// `{name}` segment non-empty. Allocates nothing; percent-decoding a captured segment waits for `capture`.
+fn shape_matches(p: Pattern, got: [string]) -> bool {
+    if len(p.parts) != len(got) {
+        return false
+    }
+    var i = 0
+    while i < len(got) {
+        if p.is_param[i] {
+            if got[i] == "" {
+                return false
+            }
+        } else if p.parts[i] != got[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// The captures of the split path `got` under `p`, percent-decoded, or None if it does not match (a
+// captured segment that is not valid percent-encoding is no match).
+fn capture(p: Pattern, got: [string]) -> Option<Params> {
+    if !shape_matches(p, got) {
         return Option<Params>.None
     }
     val names = ab_new<string>()
     val values = ab_new<string>()
     var i = 0
-    while i < len(pattern_parts) {
-        val want = pattern_parts[i]
-        val got = path_parts[i]
-        if len(want) >= 3 && starts_with(want, "{") && ends_with(want, "}") {
-            if got == "" {
-                return Option<Params>.None
-            }
-            val decoded = percent_decode(got, false)
+    while i < len(got) {
+        if p.is_param[i] {
+            val decoded = percent_decode(got[i], false)
             if !is_ok(decoded) {
                 return Option<Params>.None
             }
-            ab_append<string>(names, substring(want, 1, len(want) - 1))
+            ab_append<string>(names, p.parts[i])
             ab_append<string>(values, unwrap(decoded))
-        } else if want != got {
-            return Option<Params>.None
         }
         i = i + 1
     }
@@ -817,12 +858,15 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 // or CSV come from the application's own functions.
 //
 //     // no input: handler; input in the path: path_handler; a request body: body_handler -- each `public_` or `secure_`
-//     val patients = [
+//     val patients = server.routes<Ctx>([
 //         Endpoint<Ctx> { method: HttpMethod.Post, pattern: "/patients",
 //             handler: secure_body_handler<Ctx, Principal, PatientRequest, Patient, ApiError>(who: bearer,
 //                 decoders: [json_in], encoders: [json_out], status: 201, run: create_patient, failure: api_error, fault: fault) }
-//     ]
+//     ])
 //     server.dispatch<Ctx>(patients, ctx, req, fault)
+//
+// `routes` compiles the table once (build it as a module-level `val`); `dispatch` then does no per-request
+// parsing of patterns and looks at only the endpoints with the request's method and number of path segments.
 //
 // `fault(status, message)` builds the response for what the library itself rejects (400, 404, 405, 406, 415),
 // so an application's error bodies have one shape.
@@ -1229,25 +1273,76 @@ pub fn public_path_body_handler<C, P, I, O, E>(
     )
 }
 
-fn describe<C>(e: Endpoint<C>) -> string {
-    return format("{} {}", method_name(e.method), e.pattern)
+// A table of endpoints compiled for dispatching: each pattern split once, and the endpoints grouped by method
+// and number of path segments (in the order they were given) so a request only meets the ones that could match.
+// Build it once with `routes`.
+pub struct Routes<C> {
+    endpoints: [Endpoint<C>]
+    patterns: [Pattern]
+    by_method: Map<string, [int]>
+    by_length: Map<int, [int]>
+}
+
+fn method_key(m: HttpMethod, length: int) -> string {
+    return format("{} {}", method_name(m), length)
+}
+
+// Compiles `endpoints` for `dispatch`. Do it once, at start-up (a module-level `val`), not per request. The order
+// is what `dispatch` tries them in: the first endpoint that matches wins, so a `/items/{id}` listed before
+// `/items/new` answers for `/items/new`.
+pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
+    val patterns = ab_new<Pattern>()
+    val methods = mapb_new<string, [int]>()
+    val lengths = mapb_new<int, [int]>()
+    val none: [int] = []
+    var i = 0
+    for e in endpoints {
+        val p = compile_pattern(e.pattern)
+        ab_append<Pattern>(patterns, p)
+        val key = method_key(e.method, len(p.parts))
+        mapb_set<string, [int]>(
+            methods,
+            key,
+            push(option_unwrap_or<[int]>(mapb_get<string, [int]>(methods, key), none), i)
+        )
+        mapb_set<int, [int]>(
+            lengths,
+            len(p.parts),
+            push(option_unwrap_or<[int]>(mapb_get<int, [int]>(lengths, len(p.parts)), none), i)
+        )
+        i = i + 1
+    }
+    return Routes<C> {
+        endpoints: endpoints,
+        patterns: ab_to_array<Pattern>(patterns),
+        by_method: mapb_to_map<string, [int]>(methods),
+        by_length: mapb_to_map<int, [int]>(lengths)
+    }
 }
 
 // Calls the handler of the first endpoint whose method and pattern match `req`. When none does, the answer is
 // `fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
-pub fn dispatch<C>(endpoints: [Endpoint<C>], ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
-    for e in endpoints {
-        val matched = route(req, e.method, e.pattern)
-        if Option.is_Some(matched) {
-            val h = e.handler
-            return h(ctx, req, Option.unwrap_Some(matched))
+pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
+    val got = segments_of(req.path)
+    val none: [int] = []
+    for i in map_get_or(table.by_method, method_key(req.method, len(got)), none) {
+        val e = table.endpoints[i]
+        if e.method == req.method {
+            val matched = capture(table.patterns[i], got)
+            if Option.is_Some(matched) {
+                val h = e.handler
+                return h(ctx, req, Option.unwrap_Some(matched))
+            }
         }
     }
-    val routes = ab_new<string>()
-    for e in endpoints {
-        ab_append<string>(routes, describe<C>(e))
+    val allowed = ab_new<string>()
+    for i in map_get_or(table.by_length, len(got), none) {
+        if Option.is_Some(capture(table.patterns[i], got)) {
+            ab_append<string>(allowed, method_name(table.endpoints[i].method))
+        }
     }
-    val unmatched = not_found_or_method_not_allowed(req, ab_to_array<string>(routes))
+    val methods = ab_to_array<string>(allowed)
+    val unmatched = if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
     val message = if unmatched.status == status_method_not_allowed { "method not allowed" } else { "not found" }
     val reply = fault(unmatched.status, message)
     val allow = header_value(unmatched.headers, "Allow")

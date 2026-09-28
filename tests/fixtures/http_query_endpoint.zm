@@ -73,12 +73,13 @@ fn main() {
             )
         }
     ]
+    val table = server.routes<Ctx>(endpoints)
     val ctx = Ctx { tag: "t" }
     val auth = [http.Header { name: "Authorization", value: "ada" }]
     for target in ["/things", "/things?kind=a", "/things?kind=b&x=1", "/things?kind=c", "/things?other=1"] {
-        val r = server.dispatch<Ctx>(endpoints, ctx, request(target, auth), fault)
+        val r = server.dispatch<Ctx>(table, ctx, request(target, auth), fault)
         print(format("{} -> {} {}", target, r.status, unwrap(bytes_to_string(r.body))))
     }
-    val r = server.dispatch<Ctx>(endpoints, ctx, request("/things", []), fault)
+    val r = server.dispatch<Ctx>(table, ctx, request("/things", []), fault)
     print(format("no token -> {} {}", r.status, unwrap(bytes_to_string(r.body))))
 }

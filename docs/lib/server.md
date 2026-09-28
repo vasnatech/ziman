@@ -553,10 +553,35 @@ pub fn public_path_body_handler<C, P, I, O, E>(
 
 A public endpoint with both an id in the path and a request body: `run(ctx, path_input, body_input)`.
 
+### `Routes`
+
+```
+pub struct Routes<C> {
+    endpoints: [Endpoint<C>]
+    patterns: [Pattern]
+    by_method: Map<string, [int]>
+    by_length: Map<int, [int]>
+}
+```
+
+A table of endpoints compiled for dispatching: each pattern split once, and the endpoints grouped by method
+and number of path segments (in the order they were given) so a request only meets the ones that could match.
+Build it once with `routes`.
+
+### `routes`
+
+```
+pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C>
+```
+
+Compiles `endpoints` for `dispatch`. Do it once, at start-up (a module-level `val`), not per request. The order
+is what `dispatch` tries them in: the first endpoint that matches wins, so a `/items/{id}` listed before
+`/items/new` answers for `/items/new`.
+
 ### `dispatch`
 
 ```
-pub fn dispatch<C>(endpoints: [Endpoint<C>], ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
+pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
 ```
 
 Calls the handler of the first endpoint whose method and pattern match `req`. When none does, the answer is

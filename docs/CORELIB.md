@@ -1555,7 +1555,16 @@ pub fn public_body_handler<C, I, O, E>(
 
 pub fn public_path_body_handler<C, P, I, O, E>(
 
-pub fn dispatch<C>(endpoints: [Endpoint<C>], ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
+pub struct Routes<C> {
+    endpoints: [Endpoint<C>]
+    patterns: [Pattern]
+    by_method: Map<string, [int]>
+    by_length: Map<int, [int]>
+}
+
+pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C>
+
+pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
 
 pub struct ServeOptions {
     idle_timeout_ms: int

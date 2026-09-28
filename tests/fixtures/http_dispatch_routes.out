@@ -1,0 +1,17 @@
+GET / -> 200 root
+GET /health -> 200 health
+GET /health/ -> 200 health
+GET /items/7/ -> 200 id=7
+GET /items/new -> 200 id=new
+GET /items/a%20b -> 200 id=a b
+GET /pairs/x%2Fy/z -> 200 x/y/z
+GET /items// -> 404 not found
+GET /pairs//z -> 404 not found
+GET /items/%zz -> 404 not found
+PATCH /items/7 -> 405 method not allowed  Allow: GET, DELETE, PUT
+GET /items -> 405 method not allowed  Allow: POST
+POST /items/7 -> 405 method not allowed  Allow: GET, DELETE, PUT
+GET /nope -> 404 not found
+GET /items/7/extra -> 404 not found
+GET /pairs/only -> 404 not found
+HEAD / -> 405 method not allowed  Allow: GET

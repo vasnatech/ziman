@@ -297,6 +297,7 @@ fn main() {
             )
         }
     ]
+    val table = server.routes<Ctx>(endpoints)
     val ctx = Ctx { prefix: "x" }
     val plain = [h("Content-Type", "text/plain; charset=utf-8")]
 
@@ -347,7 +348,7 @@ fn main() {
     val nul_text = request_bytes("POST", "/items", plain, [53b, 0b])
     val all = concat_arrays<http.Request>(cases, [binary, nul_text])
     for c in all {
-        val r = server.dispatch<Ctx>(endpoints, ctx, c, fault)
+        val r = server.dispatch<Ctx>(table, ctx, c, fault)
         val kind = http.content_type(r.headers)
         val allow = http.header_value(r.headers, "Allow")
         print(format(
