@@ -237,4 +237,14 @@ int value_equals(Value a, Value b);
  * the caller. */
 char *value_display(Value v);
 
+/* The shortest decimal text that reads back as the same double, in plain notation for
+ * magnitudes from 1e-7 up to 1e21 and in scientific notation (1.5e+300) outside that;
+ * "nan"/"inf"/"-inf" for the non-finite values. Shared by value_display's TY_FLOAT case
+ * (str/print/format) and number.float_to_text -- see docs/DESIGN.md's entry on the two
+ * no longer disagreeing. Whole-number magnitudes come back with no '.' or 'e' at all
+ * ("10", not "10.0"): float_to_text's own contract, unchanged; value_display adds its
+ * own ".0" on top when it wants a float to always look like one. Returns a
+ * heap-allocated, NUL-terminated string owned by the caller. */
+char *float_shortest_text(double d);
+
 #endif

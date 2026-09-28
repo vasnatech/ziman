@@ -10,7 +10,7 @@ true
 true
 Ok(200)
 false
-Ok(-5)
+Ok(-5.0)
 Some(JString(b))
 None
 None

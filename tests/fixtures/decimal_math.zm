@@ -1,0 +1,22 @@
+fn main() {
+    // decimal_pow: exact repeated multiplication.
+    print(decimal_pow(1.5d, 2))
+    print(decimal_pow(2d, 10))
+    print(decimal_pow(2.5d, 0))
+    print(decimal_pow(0d, 5))
+
+    // A scale-0 dividend divides down to a whole number (ordinary decimal_div behavior);
+    // a scale-4 one keeps the fraction -- decimal_pow doesn't pick the scale, `/` does.
+    print(1d / decimal_pow(2d, 3))
+    print(1.0000d / decimal_pow(2d, 3))
+
+    // decimal_floor/decimal_ceil: decimal_round's one-directional cousins.
+    print(decimal_floor(1.29d, 1))
+    print(decimal_ceil(1.21d, 1))
+    print(decimal_floor(-1.21d, 1))
+    print(decimal_ceil(-1.29d, 1))
+    print(decimal_floor(2d, 0))
+    print(decimal_ceil(2d, 0))
+    print(decimal_floor(1.5d, 4))
+    print(decimal_ceil(1.5d, 4))
+}

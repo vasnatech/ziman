@@ -133,6 +133,36 @@ native fn decimal_round(d: decimal, scale: int) -> decimal
 
 `d` rounded to `scale` decimal places, halves away from zero: `decimal_round(1.235d, 2)` is 1.24.
 
+### `decimal_floor`
+
+```
+native fn decimal_floor(d: decimal, scale: int) -> decimal
+```
+
+`d` rounded down to `scale` decimal places, toward negative infinity: `decimal_floor(1.29d, 1)`
+is 1.2, `decimal_floor(-1.21d, 1)` is -1.3.
+
+### `decimal_ceil`
+
+```
+native fn decimal_ceil(d: decimal, scale: int) -> decimal
+```
+
+`d` rounded up to `scale` decimal places, toward positive infinity: `decimal_ceil(1.21d, 1)`
+is 1.3, `decimal_ceil(-1.29d, 1)` is -1.2.
+
+### `decimal_pow`
+
+```
+native fn decimal_pow(base: decimal, exponent: int) -> decimal
+```
+
+`base` to a non-negative integer `exponent`, exact: `decimal_pow(1.5d, 2)` is 2.25. A runtime
+error if `exponent` is negative -- there's no one right scale to round a negative power's
+division to (see docs/DESIGN.md); `numerator / decimal_pow(base, -exponent)` gets it,
+`numerator`'s own scale picking `/`'s target the same way it does for any other division
+(e.g. `1.0000d / decimal_pow(2d, 3)` is `0.1250`; a bare `1d`, scale 0, would round to `0`).
+
 ## Strings
 
 ### `concat`

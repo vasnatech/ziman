@@ -1,0 +1,48 @@
+// math.zm -- floating-point math beyond the four basic operators and the three rounding
+// builtins (`floor`/`ceil`/`round`, which take a float but return an int -- see docs/SYNTAX.md
+// "Numbers"). Everything here is a `float` in, `float` out, one-line wrapper over libm.
+//
+// A domain error (`sqrt` of a negative number, `log` of zero or a negative number) is NaN, the
+// same as C, Java and JavaScript, and the same value `parse_float("nan")` already produces --
+// `compare<T: Ord>` already gives NaN a total order, so it is an ordinary float value to check
+// for (`is_nan`) rather than something wrapped in a `Result`. (Unlike a domain error, `1.0 / 0.0`
+// itself is a runtime error in Ziman, not an IEEE-754 infinity -- `/` checks for a zero divisor
+// on `float` the same as it does on `int`.)
+
+// The ratio of a circle's circumference to its diameter. A global val has no `math.pi` dotted
+// access (see docs/DESIGN.md's "Global val" entry) -- bring it in with `use math.pi`.
+pub val pi = 3.14159265358979323846
+
+// The base of the natural logarithm. Same as `pi`: `use math.e` to use it bare.
+pub val e = 2.71828182845904523536
+
+// The non-negative square root of `x`, or NaN if `x` is negative.
+pub native fn sqrt(x: float) -> float
+
+// `base` raised to `exponent`.
+pub native fn pow(base: float, exponent: float) -> float
+
+// `e` raised to `x`.
+pub native fn exp(x: float) -> float
+
+// The natural (base-`e`) logarithm of `x`, or NaN if `x` is zero or negative.
+pub native fn log(x: float) -> float
+
+// Sine, cosine and tangent of `x`, in radians.
+pub native fn sin(x: float) -> float
+pub native fn cos(x: float) -> float
+pub native fn tan(x: float) -> float
+
+// `floor`/`ceil`/`round`'s own float-preserving counterparts: the bare builtins convert to
+// `int`, which loses magnitude past 2^63 and can't represent NaN or infinity -- these round the
+// same three ways (down, up, nearest with ties away from zero) but keep the value a `float`.
+pub native fn floor(x: float) -> float
+pub native fn ceil(x: float) -> float
+pub native fn round(x: float) -> float
+
+// True for NaN ("not a number": the result of `sqrt(-1.0)`, `log(-1.0)`, `parse_float("nan")`,
+// ...), which is the only float that does not equal itself -- the IEEE-754 definition, used
+// here directly.
+pub fn is_nan(x: float) -> bool {
+    return x != x
+}

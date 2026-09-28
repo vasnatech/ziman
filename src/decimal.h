@@ -40,6 +40,10 @@ Decimal decimal_sub(Decimal a, Decimal b);
  * scales directly, always exact (1.5 * 0.25 = 0.375, scale 3). */
 Decimal decimal_mul(Decimal a, Decimal b);
 
+/* `base` raised to a non-negative integer `exponent`, exact (repeated multiplication, by
+ * squaring). `exponent < 0` is the caller's job to reject -- see decimal.c's own comment. */
+Decimal decimal_pow(Decimal base, int exponent);
+
 /* Decimal division doesn't always terminate, so this can't be exact the
  * way add/subtract/multiply are: rounds to a target scale of
  * max(a.scale, b.scale), half-up (the "how humans round money"
@@ -78,6 +82,11 @@ Decimal decimal_normalize(Decimal a);
  * to represent the same kind of value in, not fixing up binary
  * imprecision. */
 Decimal decimal_round(Decimal a, int scale);
+
+/* decimal_round's two one-directional cousins: rounds toward negative/positive infinity
+ * instead of to the nearest, same as float's own floor/ceil relative to round. */
+Decimal decimal_floor(Decimal a, int scale);
+Decimal decimal_ceil(Decimal a, int scale);
 
 double decimal_to_double(Decimal a);            /* used by `as float` */
 Decimal decimal_from_double_trunc(double v);    /* used by `as decimal`, fixed at 10 decimal places */

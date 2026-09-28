@@ -1,0 +1,28 @@
+fn main() {
+    // A whole-number float always shows a decimal point, unlike an int of the same value.
+    print(1.0)
+    print(2.5 * 4.0)
+    print(-5.0)
+    print(0.0)
+    print(-0.0)
+
+    // Shortest text that reads back exactly -- no six-significant-digit truncation.
+    print(0.1)
+    print(98765.4321)
+    print(1234567.891)
+    print(-9223372036854775808.0)
+
+    // Scientific notation only outside the plain-notation range (1e-7 to 1e21).
+    print(0.0000001)
+    print(0.00000001)
+    print(100000000000000000000000.0)
+
+    // str and format's `{}` use the same display as print.
+    print(str(2.5 * 4.0))
+    print(format("{}", 1.0))
+
+    // Non-finite values.
+    print(unwrap(parse_float("nan")))
+    print(unwrap(parse_float("inf")))
+    print(unwrap(parse_float("-inf")))
+}

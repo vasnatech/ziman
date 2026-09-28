@@ -1403,6 +1403,24 @@ from source.
   but a marker would still let the language server, `ziman --check` and `ziman --fmt` find a project's root
   without hunting for `main.zm`.
 
+- **`format`/`str` follow-ups -- shortest-round-trip floats and a `math` module done; three pieces not started.**
+  (D2, language review P1-7/S7/S8.) Done: `str`/`print`/`format` now display a `float` as the shortest
+  round-trip text (matching `number.float_to_text`/JSON, and always with a `.` or `e` so it never reads like an
+  `int`); a `math` module (`sqrt`/`pow`/`exp`/`log`/`sin`/`cos`/`tan`/`is_nan`/`pi`/`e`, float-preserving
+  `floor`/`ceil`/`round`); `decimal_pow`/`decimal_floor`/`decimal_ceil` alongside the existing `decimal_round`.
+  Not started:
+  1. **`format` precision specifiers** (`{:.2}`) -- today a placeholder is exactly `{}`, untyped; money-style
+     output has to reach for `decimal`/`number.format_*` instead.
+  2. **`{{`/`}}` brace escapes** -- a stray `{` not followed by `}` is a hard compile error today
+     (`count_placeholders` in typecheck.c), so there is no way to print a literal `{` through `format` at all;
+     blocks any i18n/message-catalog-style template containing one.
+  3. **`format_dynamic(template: string, args: [string])`** -- a `format` whose template is a runtime value, not
+     a compile-time string literal, for message-catalog code where the template itself is looked up rather than
+     written at the call site; a genuinely different function from `format`, not an extension of it, since
+     `format`'s placeholder-count check is deliberately a compile-time, literal-only thing.
+  4. **Float exponent literals** (`1e3`, `1.5e-10`) -- `lex_number` has no `e`/`E` handling at all today; `1e3`
+     lexes as the int `1` followed by the identifier `e3`.
+
 - **Metrics and telemetry -- not started; a `metrics` module first, then tracing.** Ziman has `log`, `clock` and
   threads but no way to count things across threads: a lambda cannot mutate what it captures, so shared state has to
   live in a native handle, as `StringBuilder` and `Iter` do. Planned, in order:

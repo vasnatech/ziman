@@ -9,6 +9,7 @@
 #include "native_compress.h"
 #include "native_csv.h"
 #include "native_json.h"
+#include "native_math.h"
 #include "native_number.h"
 #include "native_os.h"
 #include "error.h"
@@ -131,6 +132,7 @@ static void register_all_natives(void) {
     native_os_register();
     native_crypto_register();
     native_number_register();
+    native_math_register();
     native_csv_register();
     native_json_register();
     native_compress_register();

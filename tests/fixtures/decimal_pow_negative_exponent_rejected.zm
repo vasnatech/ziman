@@ -1,0 +1,3 @@
+fn main() {
+    print(decimal_pow(2d, -1))
+}

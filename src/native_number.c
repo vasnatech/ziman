@@ -94,45 +94,12 @@ static Value err_result_of(Type ok_type, const char *message) {
     return value_result(type_result(ok_type, type_scalar(TY_STRING)), result_obj_new(0, value_string(strdup(message))));
 }
 
-/* The shortest decimal text that reads back as the same double, in plain notation for
- * magnitudes from 1e-7 up to 1e21 and in scientific notation (1.5e+300) outside that. */
+/* The shortest decimal text that reads back as the same double -- see value.c's
+ * float_shortest_text, which value_display (str/print/format) shares this with, so the
+ * same float never has two different textual forms in one program. */
 static Value native_float_to_text(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    double d = args[0].as.f;
-    if (d != d) return value_string(strdup("nan"));
-    if (isinf(d)) return value_string(strdup(d < 0 ? "-inf" : "inf"));
-    if (d == 0) return value_string(strdup(signbit(d) ? "-0" : "0"));
-    char e[48];
-    for (int p = 0; p <= 16; p++) {
-        snprintf(e, sizeof e, "%.*e", p, d);
-        if (strtod(e, NULL) == d) break;
-    }
-    /* e is like "-1.2345e+05": sign, digit, optional ".digits", e, exponent */
-    char digits[24];
-    int nd = 0, neg = 0;
-    const char *q = e;
-    if (*q == '-') { neg = 1; q++; }
-    for (; *q && *q != 'e'; q++) if (*q != '.') digits[nd++] = *q;
-    digits[nd] = '\0';
-    while (nd > 1 && digits[nd - 1] == '0') digits[--nd] = '\0';
-    int exp10 = atoi(q + 1);
-    char out[96];
-    size_t o = 0;
-    if (neg) out[o++] = '-';
-    if (exp10 >= 21 || exp10 < -7) {
-        out[o++] = digits[0];
-        if (nd > 1) { out[o++] = '.'; memcpy(out + o, digits + 1, (size_t)nd - 1); o += (size_t)nd - 1; }
-        o += (size_t)snprintf(out + o, sizeof out - o, "e%c%02d", exp10 < 0 ? '-' : '+', abs(exp10));
-    } else if (exp10 >= 0) {
-        for (int i = 0; i <= exp10; i++) out[o++] = i < nd ? digits[i] : '0';
-        if (nd > exp10 + 1) { out[o++] = '.'; memcpy(out + o, digits + exp10 + 1, (size_t)(nd - exp10 - 1)); o += (size_t)(nd - exp10 - 1); }
-    } else {
-        out[o++] = '0'; out[o++] = '.';
-        for (int i = 0; i < -exp10 - 1; i++) out[o++] = '0';
-        memcpy(out + o, digits, (size_t)nd); o += (size_t)nd;
-    }
-    out[o] = '\0';
-    return value_string(strdup(out));
+    return value_string(float_shortest_text(args[0].as.f));
 }
 
 static int hex_digit_at(char c) { return hex_nibble(c); }

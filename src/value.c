@@ -3,6 +3,7 @@
 #include "stack.h"
 #include "mapobj.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -516,6 +517,43 @@ int value_equals(Value a, Value b) {
     return 0;
 }
 
+char *float_shortest_text(double d) {
+    if (d != d) return strdup("nan");
+    if (isinf(d)) return strdup(d < 0 ? "-inf" : "inf");
+    if (d == 0) return strdup(signbit(d) ? "-0" : "0");
+    char e[48];
+    for (int p = 0; p <= 16; p++) {
+        snprintf(e, sizeof e, "%.*e", p, d);
+        if (strtod(e, NULL) == d) break;
+    }
+    /* e is like "-1.2345e+05": sign, digit, optional ".digits", e, exponent. */
+    char digits[24];
+    int nd = 0, neg = 0;
+    const char *q = e;
+    if (*q == '-') { neg = 1; q++; }
+    for (; *q && *q != 'e'; q++) if (*q != '.') digits[nd++] = *q;
+    digits[nd] = '\0';
+    while (nd > 1 && digits[nd - 1] == '0') digits[--nd] = '\0';
+    int exp10 = atoi(q + 1);
+    char out[96];
+    size_t o = 0;
+    if (neg) out[o++] = '-';
+    if (exp10 >= 21 || exp10 < -7) {
+        out[o++] = digits[0];
+        if (nd > 1) { out[o++] = '.'; memcpy(out + o, digits + 1, (size_t)nd - 1); o += (size_t)nd - 1; }
+        o += (size_t)snprintf(out + o, sizeof out - o, "e%c%02d", exp10 < 0 ? '-' : '+', abs(exp10));
+    } else if (exp10 >= 0) {
+        for (int i = 0; i <= exp10; i++) out[o++] = i < nd ? digits[i] : '0';
+        if (nd > exp10 + 1) { out[o++] = '.'; memcpy(out + o, digits + exp10 + 1, (size_t)(nd - exp10 - 1)); o += (size_t)(nd - exp10 - 1); }
+    } else {
+        out[o++] = '0'; out[o++] = '.';
+        for (int i = 0; i < -exp10 - 1; i++) out[o++] = '0';
+        memcpy(out + o, digits, (size_t)nd); o += (size_t)nd;
+    }
+    out[o] = '\0';
+    return strdup(out);
+}
+
 char *value_display(Value v) {
     ZIMAN_STACK_CHECK();
     char buf[64];
@@ -523,9 +561,25 @@ char *value_display(Value v) {
         case TY_INT:
             snprintf(buf, sizeof(buf), "%lld", (long long)v.as.i);
             return strdup(buf);
-        case TY_FLOAT:
-            snprintf(buf, sizeof(buf), "%g", v.as.f);
-            return strdup(buf);
+        case TY_FLOAT: {
+            /* float_shortest_text's own contract leaves a whole-number magnitude with no
+             * '.' or 'e' ("10"), same text an int of the same value would have; a value
+             * displayed this way -- unlike float_to_text's, meant for exact numeric
+             * round-tripping -- should always still look like a float, so one is added
+             * here when the text wouldn't otherwise have one. */
+            char *text = float_shortest_text(v.as.f);
+            if (strpbrk(text, ".e") == NULL && strcmp(text, "nan") != 0 && strcmp(text, "inf") != 0 &&
+                strcmp(text, "-inf") != 0) {
+                size_t len = strlen(text);
+                char *with_point = zalloc_atomic(len + 3);
+                memcpy(with_point, text, len);
+                with_point[len] = '.';
+                with_point[len + 1] = '0';
+                with_point[len + 2] = '\0';
+                return with_point;
+            }
+            return text;
+        }
         case TY_BOOL:
             return strdup(v.as.b ? "true" : "false");
         case TY_UNIT:

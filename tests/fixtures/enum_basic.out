@@ -1,8 +1,8 @@
-Circle(5)
-Rectangle(2)
+Circle(5.0)
+Rectangle(2.0)
 Point
 true
 false
 true
-5
-2
+5.0
+2.0

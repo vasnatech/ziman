@@ -419,6 +419,37 @@ pub fn error(l: Logger, message: string) { write(l, Level.Error, message) }
 
 ```
 
+## `math`
+
+```
+pub val pi = 3.14159265358979323846
+
+pub val e = 2.71828182845904523536
+
+pub native fn sqrt(x: float) -> float
+
+pub native fn pow(base: float, exponent: float) -> float
+
+pub native fn exp(x: float) -> float
+
+pub native fn log(x: float) -> float
+
+pub native fn sin(x: float) -> float
+
+pub native fn cos(x: float) -> float
+
+pub native fn tan(x: float) -> float
+
+pub native fn floor(x: float) -> float
+
+pub native fn ceil(x: float) -> float
+
+pub native fn round(x: float) -> float
+
+pub fn is_nan(x: float) -> bool
+
+```
+
 ## `mime`
 
 Media types (`type/subtype; name=value`): parse, write, match with wildcards, and the type of a file by its extension.

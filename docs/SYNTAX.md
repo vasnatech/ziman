@@ -2935,6 +2935,44 @@ fn main() {
   parser until this module; delegates to `parse_int` and range-checks
   the result (0–255).
 
+## The `math` module
+
+`sqrt`, `pow`, `exp`, `log` (natural), `sin`/`cos`/`tan` (radians), and the constants `pi`/`e`
+(global vals — `use math.pi`/`use math.e` to bring them in bare, same as any other global val,
+no `math.pi` dotted access; see "Modules" above). All `float` in, `float` out, one-line wrappers
+over libm.
+
+```
+use math
+
+fn main() {
+    print(math.sqrt(2.0))          // 1.4142135623730951
+    print(math.pow(2.0, 10.0))     // 1024.0
+    print(math.sqrt(-1.0))         // nan
+    print(math.is_nan(math.sqrt(-1.0)))  // true
+}
+```
+
+- **A domain error is NaN**, not a `Result` — `sqrt` of a negative number, `log` of zero or a
+  negative number, same as C, Java and JavaScript. Ziman's own `compare<T: Ord>` already gives
+  NaN a total order (see "Ordering" above), so it's an ordinary float value to check with
+  `math.is_nan(x)` (`x != x`, the IEEE-754 definition) rather than something that needs
+  unwrapping. (This is unlike `1.0 / 0.0`, which is a runtime error in Ziman, not an infinity —
+  `/` checks for a zero divisor on `float` the same as it does on `int`, so `math` never
+  produces a value your own arithmetic couldn't already have produced some other way.)
+- **`math.floor`/`math.ceil`/`math.round`** are the float-preserving counterparts of the bare
+  `floor`/`ceil`/`round` builtins (which convert to `int`, above): same three rounding rules —
+  down, up, nearest with ties away from zero — but the result stays a `float`, for a magnitude
+  too large for `int` or a value that needs to stay `float` for further arithmetic.
+- **No decimal equivalent for the irrational ones.** `sqrt`/`exp`/`log`/`sin`/`cos`/`tan` are
+  irrational for almost every input, so there's no exact `decimal` answer to compute — casting
+  through `float` (`math.sqrt(x as float) as decimal`, rounded to a scale of your choosing with
+  `decimal_round`) is the practical route, the same tradeoff `decimal_to_double`/`as float` /
+  `as decimal` already make explicit elsewhere. `decimal_pow`, `decimal_floor` and
+  `decimal_ceil` (a non-negative integer power, and rounding to a given scale) *are* exact,
+  since a whole-number power and a rounding are not irrational the way the others are — see
+  "Builtins" above.
+
 ## Result
 
 ```
@@ -3249,15 +3287,24 @@ Builtin names are reserved — redefining any of them as a user function is
 a type error.
 
 - `print(x)` — takes exactly one argument of any non-void type, writes its
-  display form followed by a newline to stdout, returns nothing.
+  display form followed by a newline to stdout, returns nothing. A `float`'s display form is the
+  shortest decimal text that reads back as the same value — never a fixed number of significant
+  digits — and always has a `.` or an `e` in it even at a whole-number magnitude (`1.0`, not
+  `1`, so it's never confusable with an `int`'s own text); plain notation for magnitudes from
+  `1e-7` up to `1e21`, scientific notation (`1.5e+300`) outside that. `format`'s `{}` placeholder
+  displays a `float` argument the same way.
 - `concat(a: string, b: string) -> string` — joins two strings. Both
   arguments must already be `string`; there's no auto-stringify (that
   would be the same implicit-coercion problem `+` avoids, just moved to a
   function). Use `str` to convert first.
 - `str(x) -> string` — converts an `int`, `float`, `bool`, `bigint`,
-  `decimal`, or `byte` to its display string. Rejects an argument that's
-  already a `string` (there should be exactly one way to get a string
-  from a value, not two).
+  `decimal`, or `byte` to its display string (a `float` the same shortest-round-trip way
+  `print` does). Rejects an argument that's already a `string` (there should be exactly one way
+  to get a string from a value, not two) — and, being a fixed allowlist of concrete types
+  checked before a generic function's own type parameters are resolved, also rejects a plain
+  type-parameter `T` even when every type it could be instantiated with would be fine.
+  `format`'s `{}` placeholder has no such restriction (same display code, checked per call site
+  instead of per declaration), so a generic function wanting to display a `T` uses that instead.
 - `printf(fmt, args...)` — `format`, written straight to standard output
   with **no newline added** (put `\n` in the format if you want one) and
   flushed, so a prompt or a progress line appears immediately. Same rules as
@@ -3377,9 +3424,19 @@ a type error.
   -> int` — round towards negative infinity / positive infinity /
   nearest (ties away from zero). All three take only `float` (an `int`
   is already rounded) and return `int`, since that's the type the result
-  actually is. `decimal_round(d: decimal, scale: int) -> decimal` is
-  `decimal`'s equivalent — see "Numbers" above for why it's a separate
-  name rather than an overload of `round`.
+  actually is. `math.floor`/`math.ceil`/`math.round` (see "The `math`
+  module" below) are the float-preserving versions, for a value too
+  large to fit `int` or that needs to stay a `float` for later
+  arithmetic. `decimal_round(d: decimal, scale: int) -> decimal`,
+  `decimal_floor(d: decimal, scale: int) -> decimal` and
+  `decimal_ceil(d: decimal, scale: int) -> decimal` are `decimal`'s
+  equivalents (rounding to `scale` places, not to a whole number) — see
+  "Numbers" above for why they're separate names rather than overloads.
+  `decimal_pow(base: decimal, exponent: int) -> decimal` raises `base`
+  to a non-negative integer `exponent`, exact (a fractional exponent has
+  no exact decimal answer — see "The `math` module"); a negative one is
+  a runtime error naming the `numerator / decimal_pow(base, -exponent)`
+  composition instead, since there's no scale to pick for the division on `decimal_pow`'s own.
 - `push(arr: [T], x: T) -> [T]` — a new array with `x` appended. `arr = push(arr, x)` in
   a loop is amortised O(1) per call: the result keeps up to twice its length in spare
   room, and the next `push` on the *newest* version of that array writes into it

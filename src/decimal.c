@@ -165,6 +165,28 @@ Decimal decimal_mul(Decimal a, Decimal b) {
     return d;
 }
 
+/* `base` raised to a non-negative integer `exponent` -- exact, the same way `decimal_mul`
+ * is: unlike a fractional exponent (which is `sqrt`-shaped and irrational for almost every
+ * input, so has no exact decimal answer at all), a whole-number power is repeated
+ * multiplication, computed here by squaring (O(log exponent) multiplications) rather than a
+ * plain loop. `exponent < 0` is the caller's job to reject (see prelude.c's wrapper) -- it
+ * would need a division, which, like `decimal_div` itself, has to round to some scale, and
+ * there's no one right scale to pick here the way `decimal_div`'s own two operands supply
+ * one; composing `numerator / decimal_pow(base, -exponent)` already works today, `/`
+ * picking its own target scale (max of its two operands', see decimal_div) from whatever
+ * scale `numerator` was given -- e.g. `1.0000d / decimal_pow(2d, 3)` is `0.1250`, but a bare
+ * `1d` (scale 0) would round the same division down to a whole number, `0`. */
+Decimal decimal_pow(Decimal base, int exponent) {
+    Decimal result = decimal_from_i64(1);
+    Decimal b = base;
+    while (exponent > 0) {
+        if (exponent & 1) result = decimal_mul(result, b);
+        b = decimal_mul(b, b);
+        exponent >>= 1;
+    }
+    return result;
+}
+
 /* Shared core for decimal_div/decimal_mod/decimal_round: divides
  * `numerator`/`denominator` (already scaled so the quotient comes out
  * at the intended scale) and rounds the truncating quotient half-up
@@ -259,6 +281,50 @@ Decimal decimal_round(Decimal a, int scale) {
     BigNum divisor = bignum_pow10(a.scale - scale);
     Decimal d;
     d.unscaled = divide_rounding_half_up(a.unscaled, divisor, a.unscaled.sign);
+    d.scale = scale;
+    return d;
+}
+
+/* decimal_round's own two one-directional cousins: `bignum_divmod` truncates toward zero
+ * (see its own comment), so a nonzero remainder means the truncated quotient overshot
+ * toward zero from the true value -- floor corrects that only when `a` is negative (where
+ * truncating already rounded up, toward zero, and floor wants the more negative neighbor);
+ * ceil only when `a` is positive (truncating already rounded down, and ceil wants the more
+ * positive neighbor). Scaling up (`scale >= a.scale`) is exact either way, same as round's. */
+Decimal decimal_floor(Decimal a, int scale) {
+    if (scale >= a.scale) {
+        Decimal d;
+        d.unscaled = bignum_mul(a.unscaled, bignum_pow10(scale - a.scale));
+        d.scale = scale;
+        return d;
+    }
+    BigNum divisor = bignum_pow10(a.scale - scale);
+    BigNum quot, rem;
+    bignum_divmod(a.unscaled, divisor, &quot, &rem);
+    if (!bignum_is_zero(rem) && a.unscaled.sign < 0) {
+        quot = bignum_sub(quot, bignum_from_i64(1));
+    }
+    Decimal d;
+    d.unscaled = quot;
+    d.scale = scale;
+    return d;
+}
+
+Decimal decimal_ceil(Decimal a, int scale) {
+    if (scale >= a.scale) {
+        Decimal d;
+        d.unscaled = bignum_mul(a.unscaled, bignum_pow10(scale - a.scale));
+        d.scale = scale;
+        return d;
+    }
+    BigNum divisor = bignum_pow10(a.scale - scale);
+    BigNum quot, rem;
+    bignum_divmod(a.unscaled, divisor, &quot, &rem);
+    if (!bignum_is_zero(rem) && a.unscaled.sign > 0) {
+        quot = bignum_add(quot, bignum_from_i64(1));
+    }
+    Decimal d;
+    d.unscaled = quot;
     d.scale = scale;
     return d;
 }
