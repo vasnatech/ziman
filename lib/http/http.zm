@@ -6,6 +6,15 @@ use mime
 use number.byte_from_hex
 use number.byte_to_hex
 
+// True if `s` is a non-empty run of the characters RFC 7230 allows in a "token": letters, digits and
+// ``!#$%&'*+-.^_`|~``. What a header name or a method must be; a space, a colon, a control character
+// or anything else makes it false.
+pub native fn is_token(s: string) -> bool
+
+// True if `s` holds no control character except a tab (so no CR or LF, which would end a header
+// line and let the rest of the value pass for another header) and no DEL. What a header value must be.
+pub native fn is_field_value(s: string) -> bool
+
 // HTTP status codes by name.
 pub val status_continue = 100
 pub val status_ok = 200

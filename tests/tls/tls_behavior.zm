@@ -16,7 +16,7 @@ fn request() -> [byte] {
 // A plain (non-TLS) server that says hello and hangs up.
 fn plain_server(l: net.Listener) {
     val c = unwrap(net.accept(l))
-    net.write_text(c, "hello, no TLS here")
+    val _ = net.write_text(c, "hello, no TLS here")
     net.close(c)
 }
 

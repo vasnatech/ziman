@@ -66,7 +66,20 @@ static Value native_clock_sleep_millis(Value *args, int argc, int line, int col)
     return value_int(0); /* void return -- the caller never uses this */
 }
 
+/* clock.monotonic_millis(): milliseconds from an arbitrary fixed start that only moves forward, for
+ * measuring how long something took -- the wall clock can jump when the system time is adjusted. */
+static Value native_clock_monotonic_millis(Value *args, int argc, int line, int col) {
+    (void)args;
+    (void)argc;
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        ziman_error("runtime", line, col, "clock.monotonic_millis: clock_gettime failed");
+    }
+    return value_int((int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000));
+}
+
 void native_clock_register(void) {
+    native_register("clock::monotonic_millis", native_clock_monotonic_millis);
     native_register("clock::sleep_millis", native_clock_sleep_millis);
     native_register("clock::now_raw", native_clock_now_raw);
     native_register("clock::now_iso", native_clock_now_iso);

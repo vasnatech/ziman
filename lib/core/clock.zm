@@ -19,6 +19,11 @@ pub native fn now_iso() -> string
 // "Thu, 24 Sep 2026 12:00:00 GMT".
 pub native fn now_http_date() -> string
 
+// Milliseconds since an arbitrary fixed start, and only ever forward: the clock to measure how long
+// something took (`val start = clock.monotonic_millis()` ... `clock.monotonic_millis() - start`). The
+// number means nothing by itself, and unlike `now_raw` it does not jump when the system time changes.
+pub native fn monotonic_millis() -> int
+
 // Blocks the calling thread, and only that thread, for at least `ms` milliseconds; other
 // threads keep running. A signal cannot cut the sleep short. A `ms` of zero or less
 // returns at once.

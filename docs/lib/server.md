@@ -24,7 +24,20 @@ Bounded by design: headers may total at most 16 KiB and a body at most
 1 MiB, so a client can't make a handler thread buffer without limit;
 exceeding them is `HeadersTooLarge`/`BodyTooLarge` (431/413). Set a read
 timeout on the socket (`net.set_timeout`) so an idle or stalled client
-can't hold a thread forever: a timed-out read is `Err(Timeout)`.
+can't hold a thread forever: a timed-out read is `Err(Timeout)`. A per-read
+timeout alone does not stop a client that sends a byte just inside it, again
+and again (slowloris), so `open_session_with_timeout` (which `serve` uses,
+with `idle_timeout_ms`) also bounds the whole request -- head and body --
+from its first byte.
+
+Strict where a proxy in front might be lenient, because a difference between the
+two is how requests get smuggled: a request whose `Content-Length` values differ,
+or is not plain digits (`+5`), or that has two `Transfer-Encoding` or `Host`
+headers, or an HTTP/1.1 request with no `Host`, or a header name that is not a
+token, or a header line with a bare CR or LF or another control character, is a
+400. Response headers are checked on the way out: `write_response` refuses a
+header whose name is not a token or whose value has a control character (CRLF
+injection through a value an application took from a client) and sends a 500.
 
 `use server` -- or `use server.Name` to bring one item in bare.
 
@@ -103,6 +116,7 @@ where the peer is still there.
 pub struct Session {
     sock: Socket
     buffer: [byte]
+    timeout_ms: int
 }
 ```
 
@@ -130,7 +144,19 @@ One request read from a connection, with the session to read the next one from.
 pub fn open_session(sock: Socket) -> Session
 ```
 
-A new connection's read state: the socket and nothing buffered yet.
+A new connection's read state: the socket and nothing buffered yet. Reads are bounded only by
+the socket's own timeout, one read at a time.
+
+### `open_session_with_timeout`
+
+```
+pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session
+```
+
+Like `open_session`, and the whole of each request (head and body, from its first byte) must
+arrive within `timeout_ms` (a stalled or dripping client gets `Err(Timeout)`, answered 408), on top
+of the socket's per-read timeout, which it sets and resets itself: set none yourself. `serve` opens
+its sessions this way with `idle_timeout_ms`.
 
 ## Reading
 
@@ -223,7 +249,7 @@ The response to send for a request that couldn't be read. (`Closed` and
 ### `write_response`
 
 ```
-pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool, HttpError>
+pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<bool, HttpError>
 ```
 
 Serialises and sends `resp` (adding Content-Length and Connection), and

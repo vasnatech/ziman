@@ -49,6 +49,25 @@ a%20b%26c%2F%C3%A9
 a b&c
 ```
 
+### `is_token`
+
+```
+pub native fn is_token(s: string) -> bool
+```
+
+True if `s` is a non-empty run of the characters RFC 7230 allows in a "token": letters, digits and
+``!#$%&'*+-.^_`|~``. What a header name or a method must be; a space, a colon, a control character
+or anything else makes it false.
+
+### `is_field_value`
+
+```
+pub native fn is_field_value(s: string) -> bool
+```
+
+True if `s` holds no control character except a tab (so no CR or LF, which would end a header
+line and let the rest of the value pass for another header) and no DEL. What a header value must be.
+
 ### `status_continue`
 
 ```

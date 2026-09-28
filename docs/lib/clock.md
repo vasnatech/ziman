@@ -63,6 +63,16 @@ pub native fn now_http_date() -> string
 The current time as an HTTP date (RFC 7231), the form of a `Date` header:
 "Thu, 24 Sep 2026 12:00:00 GMT".
 
+### `monotonic_millis`
+
+```
+pub native fn monotonic_millis() -> int
+```
+
+Milliseconds since an arbitrary fixed start, and only ever forward: the clock to measure how long
+something took (`val start = clock.monotonic_millis()` ... `clock.monotonic_millis() - start`). The
+number means nothing by itself, and unlike `now_raw` it does not jump when the system time changes.
+
 ### `sleep_millis`
 
 ```

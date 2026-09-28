@@ -22,7 +22,20 @@
 // 1 MiB, so a client can't make a handler thread buffer without limit;
 // exceeding them is `HeadersTooLarge`/`BodyTooLarge` (431/413). Set a read
 // timeout on the socket (`net.set_timeout`) so an idle or stalled client
-// can't hold a thread forever: a timed-out read is `Err(Timeout)`.
+// can't hold a thread forever: a timed-out read is `Err(Timeout)`. A per-read
+// timeout alone does not stop a client that sends a byte just inside it, again
+// and again (slowloris), so `open_session_with_timeout` (which `serve` uses,
+// with `idle_timeout_ms`) also bounds the whole request -- head and body --
+// from its first byte.
+//
+// Strict where a proxy in front might be lenient, because a difference between the
+// two is how requests get smuggled: a request whose `Content-Length` values differ,
+// or is not plain digits (`+5`), or that has two `Transfer-Encoding` or `Host`
+// headers, or an HTTP/1.1 request with no `Host`, or a header name that is not a
+// token, or a header line with a bare CR or LF or another control character, is a
+// 400. Response headers are checked on the way out: `write_response` refuses a
+// header whose name is not a token or whose value has a control character (CRLF
+// injection through a value an application took from a client) and sends a 500.
 
 val read_chunk_bytes = 4096
 val accept_error_backoff_ms = 10
@@ -40,6 +53,8 @@ use http.accepts
 use http.content_type
 use http.header
 use http.header_value
+use http.is_field_value
+use http.is_token
 use http.method_name
 use http.method_parse
 use http.percent_decode
@@ -104,6 +119,7 @@ pub enum HttpError {
 pub struct Session {
     sock: Socket
     buffer: [byte]
+    timeout_ms: int
 }
 
 // One request read from a connection, with the session to read the next one from.
@@ -149,9 +165,18 @@ fn find_head_end(buf: [byte]) -> int {
     return if at < 0 { -1 } else { at + 4 }
 }
 
-// A new connection's read state: the socket and nothing buffered yet.
+// A new connection's read state: the socket and nothing buffered yet. Reads are bounded only by
+// the socket's own timeout, one read at a time.
 pub fn open_session(sock: Socket) -> Session {
-    return Session { sock: sock, buffer: [] }
+    return Session { sock: sock, buffer: [], timeout_ms: 0 }
+}
+
+// Like `open_session`, and the whole of each request (head and body, from its first byte) must
+// arrive within `timeout_ms` (a stalled or dripping client gets `Err(Timeout)`, answered 408), on top
+// of the socket's per-read timeout, which it sets and resets itself: set none yourself. `serve` opens
+// its sessions this way with `idle_timeout_ms`.
+pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session {
+    return Session { sock: sock, buffer: [], timeout_ms: timeout_ms }
 }
 
 // ------------------------------------------------------------- reading
@@ -166,8 +191,11 @@ fn parse_header_line(line: string) -> Result<Header, HttpError> {
     }
     val parts = Option.unwrap_Some(split_line)
     val name = parts[0]
-    if len(name) == 0 || contains(name, " ") {
+    if !is_token(name) {
         return err(HttpError.BadRequest("malformed header name"))
+    }
+    if !is_field_value(parts[1]) {
+        return err(HttpError.BadRequest("a header value has a control character"))
     }
     return Header { name: name, value: trim(parts[1]) }
 }
@@ -179,15 +207,38 @@ struct ChunkedBody {
     rest: [byte]
 }
 
+// One read of at most `max` bytes. With a `limit_ms` and a `started` (the monotonic time the request's
+// first byte arrived; -1 before that) the read is held to what is left of the request's time -- the socket's
+// timeout is lowered to it -- and a request already past it is `Err(Timeout)`.
+fn read_within(sock: Socket, max: int, limit_ms: int, started: int) -> Result<[byte], HttpError> {
+    if limit_ms > 0 && started >= 0 {
+        val left = limit_ms - (clock.monotonic_millis() - started)
+        if left <= 0 {
+            return err(HttpError.Timeout)
+        }
+        try lift<unit>(net.set_timeout(sock, left))
+    }
+    return lift<[byte]>(net.read(sock, max))
+}
+
+// Puts the socket's timeout back to `limit_ms` after `read_within` lowered it, so the response write and
+// the wait for the next request get the full timeout again.
+fn restore_timeout(sock: Socket, limit_ms: int, lowered: bool) -> Result<unit, HttpError> {
+    if lowered && limit_ms > 0 {
+        try lift<unit>(net.set_timeout(sock, limit_ms))
+    }
+    return ok(unit)
+}
+
 // Reads more bytes from the socket onto `buf`.
-fn fill(sock: Socket, buf: [byte]) -> Result<[byte], HttpError> {
-    return bytes_concat(buf, try lift<[byte]>(net.read(sock, read_chunk_bytes)))
+fn fill(sock: Socket, buf: [byte], limit_ms: int, started: int) -> Result<[byte], HttpError> {
+    return bytes_concat(buf, try read_within(sock, read_chunk_bytes, limit_ms, started))
 }
 
 // Decodes a chunked body (RFC 7230 section 4.1): `size-in-hex [;extension] CRLF data CRLF`
 // repeated, a `0` chunk, optional trailer lines (skipped), and a final blank line. `start` holds
 // what was already read past the request head. The decoded body is limited to `max_body_bytes`.
-fn read_chunked(sock: Socket, start: [byte]) -> Result<ChunkedBody, HttpError> {
+fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Result<ChunkedBody, HttpError> {
     var buf = start
     val body = ab_new<byte>()
     var total = 0
@@ -197,7 +248,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<ChunkedBody, HttpError> {
             if len(buf) > max_chunk_line_bytes {
                 return err(HttpError.BadRequest("chunk size line is too long"))
             }
-            val more = try fill(sock, buf)
+            val more = try fill(sock, buf, limit_ms, started)
             buf = more
             eol = bytes_index_of(buf, crlf, 0)
         }
@@ -217,7 +268,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<ChunkedBody, HttpError> {
                     if len(buf) > max_header_bytes {
                         return err(HttpError.HeadersTooLarge)
                     }
-                    val more = try fill(sock, buf)
+                    val more = try fill(sock, buf, limit_ms, started)
                     buf = more
                     trailer_end = bytes_index_of(buf, crlf, 0)
                 }
@@ -233,7 +284,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<ChunkedBody, HttpError> {
             return err(HttpError.BodyTooLarge)
         }
         while len(buf) < n + 2 {
-            val more = try fill(sock, buf)
+            val more = try fill(sock, buf, limit_ms, started)
             buf = more
         }
         if buf[n] != 13b || buf[n + 1] != 10b {
@@ -251,13 +302,22 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<ChunkedBody, HttpError> {
 // `error_response` maps one to the HTTP response to send before closing.
 pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     val sock = session.sock
+    val limit_ms = session.timeout_ms
     var buf = session.buffer
+    var lowered = false
+    var started = if len(buf) > 0 { clock.monotonic_millis() } else { -1 }
     var head_end = find_head_end(buf)
     while head_end < 0 {
         if len(buf) > max_header_bytes {
             return err(HttpError.HeadersTooLarge)
         }
-        val chunk = try lift<[byte]>(net.read(sock, read_chunk_bytes))
+        val continuing = started >= 0
+        val chunk = try read_within(sock, read_chunk_bytes, limit_ms, started)
+        if continuing {
+            lowered = true
+        } else {
+            started = clock.monotonic_millis()
+        }
         buf = bytes_concat(buf, chunk)
         head_end = find_head_end(buf)
     }
@@ -274,6 +334,9 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     if first >= len(lines) {
         return err(HttpError.BadRequest("empty request"))
     }
+    if !is_field_value(lines[first]) {
+        return err(HttpError.BadRequest("the request line has a control character"))
+    }
     val request_line = split(lines[first], " ")
     if len(request_line) != 3 {
         return err(HttpError.BadRequest("malformed request line"))
@@ -284,7 +347,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     if version != http_1_1 && version != http_1_0 {
         return err(HttpError.BadRequest(concat("unsupported HTTP version: ", version)))
     }
-    if method_text == "" || (!starts_with(target, "/") && target != "*") {
+    if !is_token(method_text) || (!starts_with(target, "/") && target != "*") {
         return err(HttpError.BadRequest("malformed request target"))
     }
 
@@ -296,6 +359,35 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         i = i + 1
     }
     val header_list = ab_to_array<Header>(headers)
+
+    // What a proxy in front might read differently from this server is what request smuggling uses:
+    // so a request that says the same thing twice, or two different things, is refused outright.
+    var host_count = 0
+    var length_count = 0
+    var length_text = ""
+    var encoding_count = 0
+    for h in header_list {
+        if equals_ignore_case(h.name, "Host") {
+            host_count = host_count + 1
+        } else if equals_ignore_case(h.name, "Content-Length") {
+            if length_count > 0 && h.value != length_text {
+                return err(HttpError.BadRequest("conflicting Content-Length headers"))
+            }
+            length_text = h.value
+            length_count = length_count + 1
+        } else if equals_ignore_case(h.name, "Transfer-Encoding") {
+            encoding_count = encoding_count + 1
+        }
+    }
+    if host_count > 1 {
+        return err(HttpError.BadRequest("more than one Host header"))
+    }
+    if host_count == 0 && version == http_1_1 {
+        return err(HttpError.BadRequest("an HTTP/1.1 request needs a Host header"))
+    }
+    if encoding_count > 1 {
+        return err(HttpError.BadRequest("more than one Transfer-Encoding header"))
+    }
 
     var path = target
     var query = ""
@@ -324,7 +416,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         if Option.is_Some(expect_chunked) && equals_ignore_case(Option.unwrap_Some(expect_chunked), "100-continue") {
             try lift<int>(net.write_text(sock, continue_response))
         }
-        val decoded = try read_chunked(sock, slice<byte>(buf, head_end, len(buf)))
+        val decoded = try read_chunked(sock, slice<byte>(buf, head_end, len(buf)), limit_ms, started)
+        try restore_timeout(sock, limit_ms, true)
         val chunked_request = Request {
             method: method_parse(method_text),
             target: target,
@@ -334,13 +427,17 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             headers: header_list,
             body: decoded.body
         }
-        return Exchange { request: chunked_request, session: Session { sock: sock, buffer: decoded.rest } }
+        return Exchange {
+            request: chunked_request,
+            session: Session { sock: sock, buffer: decoded.rest, timeout_ms: limit_ms }
+        }
     }
     var content_length = 0
     val cl = header_value(header_list, "Content-Length")
     if Option.is_Some(cl) {
-        val parsed = parse_int(trim(Option.unwrap_Some(cl)))
-        if !is_ok(parsed) || unwrap(parsed) < 0 {
+        val cl_text = trim(Option.unwrap_Some(cl))
+        val parsed = parse_int(cl_text)
+        if starts_with(cl_text, "+") || starts_with(cl_text, "-") || !is_ok(parsed) {
             return err(HttpError.BadRequest("invalid Content-Length"))
         }
         content_length = unwrap(parsed)
@@ -355,9 +452,13 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         if Option.is_Some(expect) && equals_ignore_case(Option.unwrap_Some(expect), "100-continue") {
             try lift<int>(net.write_text(sock, continue_response))
         }
-        val more = try lift<[byte]>(net.read_exact(sock, content_length - len(rest)))
-        rest = bytes_concat(rest, more)
+        while len(rest) < content_length {
+            val more = try read_within(sock, content_length - len(rest), limit_ms, started)
+            lowered = true
+            rest = bytes_concat(rest, more)
+        }
     }
+    try restore_timeout(sock, limit_ms, lowered)
     val body = slice<byte>(rest, 0, content_length)
     val leftover = slice<byte>(rest, content_length, len(rest))
 
@@ -370,7 +471,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         headers: header_list,
         body: body
     }
-    return Exchange { request: request, session: Session { sock: sock, buffer: leftover } }
+    return Exchange { request: request, session: Session { sock: sock, buffer: leftover, timeout_ms: limit_ms } }
 }
 
 // ------------------------------------------------------------ responses
@@ -525,8 +626,22 @@ fn connection_close_requested(req: Request) -> bool {
 // keeps alive unless either side asked to close, HTTP/1.0 only if the
 // client asked to keep it. A `HEAD` request gets the headers, with the
 // Content-Length the body would have had, and no body.
-pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool, HttpError> {
-    var keep = !connection_close_requested(req)
+pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<bool, HttpError> {
+    var resp = response
+    var refused = false
+    for h in response.headers {
+        if !is_token(h.name) || !is_field_value(h.value) {
+            refused = true
+        }
+    }
+    if refused {
+        // A CR, LF or other control character in a header name or value would end the header line and
+        // let the rest pass for another header or a body (an application putting client text in a
+        // header without checking it). Fail closed; say so on stderr, without the offending text.
+        os.write_stderr("ziman: a response header has a name that is not a token or a value with a control character; the response is replaced by a 500\n")
+        resp = error_reply(status_internal_server_error, "internal error")
+    }
+    var keep = !refused && !connection_close_requested(req)
     for h in resp.headers {
         if equals_ignore_case(h.name, "connection") && contains(to_lower(h.value), "close") {
             keep = false
@@ -1185,8 +1300,8 @@ fn serve_connection(
 ) {
     defer send(slots, 1)  // the slot is returned on every way out
     defer net.close(sock)
-    unwrap(net.set_timeout(sock, idle_timeout_ms))  // an idle client can't hold this thread forever
-    var session = open_session(sock)
+    unwrap(net.set_timeout(sock, idle_timeout_ms))                  // an idle client can't hold this thread forever
+    var session = open_session_with_timeout(sock, idle_timeout_ms)  // nor one that drips a request in
     var open = true
     while open {
         val next = read_request(session)

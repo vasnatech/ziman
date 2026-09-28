@@ -2529,13 +2529,35 @@ fn main() {
   of a keep-alive connection. Keep-alive works across requests, including
   pipelined ones already in the buffer, and `Expect: 100-continue` is
   answered. A request line, headers and a `Content-Length` body are
-  supported; **chunked request bodies are refused (501)**, and `HEAD` gets
-  headers with the `Content-Length` and no body.
+  supported, and so is a `Transfer-Encoding: chunked` body (decoded; any other
+  transfer encoding is answered 501), and `HEAD` gets headers with the
+  `Content-Length` and no body.
 - **Bounded.** Headers may total 16 KiB and a body 1 MiB
   (`HeadersTooLarge`/`BodyTooLarge`, answered 431/413), so a client can't
   make a handler buffer without limit. Set `net.set_timeout` on the
   socket; a stalled read is `Timeout` (408). Bodies are `string`s, so a
-  request carrying a 0 byte gets a 400.
+  request carrying a 0 byte gets a 400. A per-read timeout does not stop a
+  client that sends a byte just inside it, again and again (slowloris), so
+  `server.open_session_with_timeout(sock, ms)` also bounds the whole request --
+  head and body, from its first byte -- to `ms` (`Timeout`, 408); `serve` opens
+  its sessions this way with `idle_timeout_ms`, so that one number is both how
+  long a connection may sit idle and how long a request may take to arrive.
+- **Strict about what a proxy in front might read differently**, since a
+  difference between the two is how requests are smuggled. A request is a 400
+  if it has `Content-Length` headers that differ (identical repeats are fine),
+  a `Content-Length` that is not plain digits (`+5`, `-1`, `5, 5`, `0x5`), two
+  `Transfer-Encoding` headers or two `Host` headers, no `Host` at all on
+  HTTP/1.1 (HTTP/1.0 needs none), a header name that is not a token
+  (`http.is_token`), a header value or request line with a control character
+  other than a tab (`http.is_field_value`) -- a bare CR or LF included, which
+  would otherwise let one header line pass for two -- or a method that is not a token.
+- **Response headers are checked on the way out.** `write_response` refuses a
+  header whose name is not a token or whose value has a control character (an
+  application putting text from a client into a header without checking it:
+  CRLF injection). It sends a `500` in place of the response, closes the
+  connection and writes a line to stderr, never the offending text. `with_header`
+  itself does not fail -- a `Response` can also be built as a struct literal, so the
+  check is where every response passes.
 - **Responses.** `server.response(status, body)`, `json_response`,
   `text_response`, `bad_request`, `not_found`, `method_not_allowed`, and
   `with_header`. `write_response(sock, req, resp)` adds `Content-Length`

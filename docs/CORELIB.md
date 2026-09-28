@@ -30,6 +30,8 @@ pub native fn now_iso() -> string
 
 pub native fn now_http_date() -> string
 
+pub native fn monotonic_millis() -> int
+
 pub native fn sleep_millis(ms: int)
 
 ```
@@ -1334,6 +1336,10 @@ pub fn stream(
 ## `http`
 
 ```
+pub native fn is_token(s: string) -> bool
+
+pub native fn is_field_value(s: string) -> bool
+
 pub val status_continue = 100
 
 pub val status_ok = 200
@@ -1455,6 +1461,7 @@ pub enum HttpError {
 pub struct Session {
     sock: Socket
     buffer: [byte]
+    timeout_ms: int
 }
 
 pub struct Exchange {
@@ -1463,6 +1470,8 @@ pub struct Exchange {
 }
 
 pub fn open_session(sock: Socket) -> Session
+
+pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session
 
 pub fn read_request(session: Session) -> Result<Exchange, HttpError>
 
@@ -1484,7 +1493,7 @@ pub fn method_not_allowed(allowed: string...) -> Response
 
 pub fn error_response(e: HttpError) -> Response
 
-pub fn write_response(sock: Socket, req: Request, resp: Response) -> Result<bool, HttpError>
+pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<bool, HttpError>
 
 pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError>
 

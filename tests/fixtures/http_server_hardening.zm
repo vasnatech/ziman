@@ -1,0 +1,198 @@
+use clock
+use http
+use server
+use http.HttpMethod
+use net
+
+// Raw-socket checks that the server refuses what a proxy in front of it might read differently
+// (request smuggling), refuses to write a header that would split the response (CRLF injection),
+// and bounds how long a client may take to send a request (slowloris).
+
+fn route(req: http.Request) -> http.Response {
+    if req.path == "/health" {
+        return server.text_response(200, "ok")
+    }
+    if req.path == "/echo" {
+        return server.text_response(200, format("body={}", unwrap(bytes_to_string(req.body))))
+    }
+    if req.path == "/value" {
+        val v = server.query_param(req, "v")
+        return server.with_header(server.text_response(200, "set"), "X-Echo", Option.unwrap_Some(v))
+    }
+    if req.path == "/name" {
+        val n = server.query_param(req, "n")
+        return server.with_header(server.text_response(200, "set"), Option.unwrap_Some(n), "v")
+    }
+    return server.not_found()
+}
+
+fn serve_connection(sock: net.Socket) {
+    defer net.close(sock)
+    unwrap(net.set_timeout(sock, 500))
+    var session = server.open_session_with_timeout(sock, 500)
+    var open = true
+    while open {
+        val next = server.read_request(session)
+        if !is_ok(next) {
+            val _ = server.write_error(sock, unwrap_err(next))
+            open = false
+        } else {
+            val ex = unwrap(next)
+            session = ex.session
+            val keep = server.write_response(sock, ex.request, route(ex.request))
+            if !is_ok(keep) || !unwrap(keep) {
+                open = false
+            }
+        }
+    }
+}
+
+fn accept_loop(l: net.Listener) {
+    while true {
+        val c = net.accept(l)
+        if !is_ok(c) {
+            return
+        }
+        spawn serve_connection(unwrap(c))
+    }
+}
+
+// A control character (SOH) -- Ziman string literals have no escape for one.
+fn ctl() -> string {
+    return unwrap(bytes_to_string([1b]))
+}
+
+fn connect(port: int) -> net.Socket {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.set_timeout(s, 3000))
+    return s
+}
+
+// The client may be cut off part way through a write by the server closing on it: ignore that.
+fn put(s: net.Socket, text: string) {
+    val _ = net.write_text(s, text)
+}
+
+fn read_response(s: net.Socket) -> string {
+    var acc = ""
+    while !contains(acc, "\r\n\r\n") {
+        val more = net.read_text(s, 4096)
+        if !is_ok(more) {
+            return acc
+        }
+        acc = concat(acc, unwrap(more))
+    }
+    val parts = split(acc, "\r\n\r\n")
+    val lines = split(to_lower(parts[0]), "content-length: ")
+    if len(lines) < 2 {
+        return acc
+    }
+    val want = unwrap(parse_int(trim(split(lines[1], "\r\n")[0])))
+    var body = parts[1]
+    while len(body) < want {
+        val more = net.read_text(s, 4096)
+        if !is_ok(more) {
+            return acc
+        }
+        body = concat(body, unwrap(more))
+    }
+    return concat(concat(parts[0], "\r\n\r\n"), body)
+}
+
+fn status_of(port: int, raw: string) -> string {
+    val s = connect(port)
+    put(s, raw)
+    val r = read_response(s)
+    net.close(s)
+    return split(r, "\r\n")[0]
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn accept_loop(l)
+    val post = "POST /echo HTTP/1.1\r\nHost: x\r\n"
+
+    // Content-Length: the same twice is fine, two different ones is not, and only plain digits count.
+    print(status_of(port, concat(post, "Content-Length: 2\r\nContent-Length: 2\r\n\r\nab")))
+    print(status_of(port, concat(post, "Content-Length: 2\r\nContent-Length: 5\r\n\r\nabcde")))
+    print(status_of(port, concat(post, "Content-Length: +2\r\n\r\nab")))
+    print(status_of(port, concat(post, "Content-Length: -2\r\n\r\nab")))
+    print(status_of(port, concat(post, "Content-Length: 2, 2\r\n\r\nab")))
+    print(status_of(port, concat(post, "Content-Length: 0x2\r\n\r\nab")))
+    print(status_of(port, concat(post, "Content-Length: \r\n\r\nab")))
+    print(status_of(port, concat(post, "Content-Length: 99999999999999999999\r\n\r\nab")))
+    print(status_of(port, concat(post, "Content-Length: 2\r\n\r\nab")))
+
+    // One Transfer-Encoding at most.
+    print(status_of(port, concat(post, "Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n")))
+
+    // Host: required for HTTP/1.1, at most one, optional for HTTP/1.0.
+    print(status_of(port, "GET /health HTTP/1.1\r\n\r\n"))
+    print(status_of(port, "GET /health HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n"))
+    print(status_of(port, "GET /health HTTP/1.1\r\nHost: a\r\n\r\n"))
+    print(status_of(port, "GET /health HTTP/1.0\r\n\r\n"))
+
+    // A bare LF or CR, or another control character, in a header line, a header name or the request line.
+    print(status_of(port, "GET /health HTTP/1.1\r\nHost: a\r\nX-A: b\nX-B: c\r\n\r\n"))
+    print(status_of(port, "GET /health HTTP/1.1\r\nHost: a\r\nX-A: b\rX-B: c\r\n\r\n"))
+    print(status_of(port, concat("GET /health HTTP/1.1\r\nHost: a\r\nX-", concat(ctl(), "A: b\r\n\r\n"))))
+    print(status_of(port, concat("GET /health HTTP/1.1\r\nHost: a\r\nX-A: b", concat(ctl(), "c\r\n\r\n"))))
+    print(status_of(port, concat("GET /he", concat(ctl(), "alth HTTP/1.1\r\nHost: a\r\n\r\n"))))
+    print(status_of(port, "GE T /health HTTP/1.1\r\nHost: a\r\n\r\n"))
+    print(status_of(port, "GET /health HTTP/1.1\r\nHost: a\r\nX-Tab: a\tb\r\n\r\n"))
+
+    // A response header is refused if it would split the response: the client gets a 500 and nothing
+    // the client sent reaches the wire as a header of its own.
+    var s = connect(port)
+    put(s, "GET /value?v=fine HTTP/1.1\r\nHost: a\r\n\r\n")
+    var r = read_response(s)
+    print(split(r, "\r\n")[0])
+    print(contains(r, "X-Echo: fine"))
+    put(s, "GET /value?v=a%0d%0aSet-Cookie:%20x=1 HTTP/1.1\r\nHost: a\r\n\r\n")
+    r = read_response(s)
+    print(split(r, "\r\n")[0])
+    print(contains(r, "Set-Cookie"))
+    print(contains(r, "Connection: close"))
+    net.close(s)
+    print(status_of(port, "GET /name?n=Bad%20Name HTTP/1.1\r\nHost: a\r\n\r\n"))
+    print(status_of(port, "GET /name?n=X-Fine HTTP/1.1\r\nHost: a\r\n\r\n"))
+
+    // Slowloris: a head that trickles in, each piece inside the per-read timeout, is cut off once the
+    // whole has taken longer than the limit -- answered 408, not held open for as long as the client likes.
+    s = connect(port)
+    put(s, "GET /health HTTP/1.1\r\n")
+    for i in 0..5 {
+        clock.sleep_millis(150)
+        put(s, format("X-Pad-{}: 1\r\n", i))
+    }
+    r = read_response(s)
+    print(split(r, "\r\n")[0])
+    net.close(s)
+
+    // The same for a body dripped a byte at a time.
+    s = connect(port)
+    put(s, "POST /echo HTTP/1.1\r\nHost: a\r\nContent-Length: 10\r\n\r\n")
+    for i in 0..5 {
+        clock.sleep_millis(150)
+        put(s, "x")
+    }
+    r = read_response(s)
+    print(split(r, "\r\n")[0])
+    net.close(s)
+
+    // A request that is slow but inside the limit works, and the connection's timeout is back to the full
+    // limit afterwards: the next request comes after an idle wait longer than what was left of the first (about 200 ms
+    // of the 500, once the third piece was being waited for).
+    s = connect(port)
+    put(s, "GET /health HTTP/1.1\r\n")
+    clock.sleep_millis(300)
+    put(s, "Host: a\r\n")
+    clock.sleep_millis(50)
+    put(s, "\r\n")
+    print(split(read_response(s), "\r\n")[0])
+    clock.sleep_millis(300)
+    put(s, "GET /health HTTP/1.1\r\nHost: a\r\n\r\n")
+    print(split(read_response(s), "\r\n")[0])
+    net.close(s)
+}
