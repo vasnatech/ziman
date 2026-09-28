@@ -2581,13 +2581,17 @@ fn main() {
   string (percent-decoded, `+` is a space). A route in a `{id}` position is
   still a *string*: converting it (a `Uuid`, an `int`) and answering 400 on
   a bad one stays in the application.
-- **Typed endpoints.** `server.Endpoint<C> { method, pattern, handler }` with a handler built by one of eight builders:
+- **Typed endpoints.** `server.Endpoint<C> { method, pattern, handler }` with a handler built by one of nine builders:
   by where the input comes from -- `handler` (none, `run(ctx)`), `path_handler` (the path: `path` turns the captured
   `Params` into a `P`, an `Err` message being a 400, and `run(ctx, input)` gets it), `body_handler` (a request body:
   `decoders:`, `run(ctx, input)`) or `path_body_handler` (both, for a `PUT /things/{id}`: `run(ctx, path_input,
   body_input)`) -- and by who may call, `public_` or `secure_`. (`secure_query_handler` is the one builder with the input in the query string: `query` reads the
   request, `query_param` being the tool, and an `Err` message is a 400; `run(ctx, caller, input)`.) Every builder also takes `encoders:`,
-  `status:`, `run:`, `failure:` and `fault:`. A `secure_` builder takes `who:`, a `fn(C, Request) -> Result<U, Denied>`
+  `run:`, `api:` and, optionally, `status:` (the status of a successful answer; 200 when left out of the named call).
+  `api:` is a `server.Api<E> { failure, fault }` written once for the application and passed to every builder --
+  `failure(e)` builds the response for an `Err` of the endpoint's own error type `E`, `fault(status, message)` the one for
+  what the library itself rejects. The type arguments (`<Ctx, Principal, Uuid, ...>`) can be left off: they come from the
+  arguments. A `secure_` builder takes `who:`, a `fn(C, Request) -> Result<U, Denied>`
   that identifies the caller from the request, and passes the `U` to `run` as its second argument
   (`fn(ctx, caller, input)`), so an endpoint that needs a caller cannot be written without saying how to find one; a
   `public_` builder has no `who` and its `run` has no caller parameter. `Denied` is `Unauthenticated(message)` (401),
@@ -2602,8 +2606,7 @@ fn main() {
   with a NUL byte is a 400 there). An endpoint lists the decoders it accepts (the request's `Content-Type` picks one)
   and the encoders it can answer with (`Accept` picks one); the handler answers 415 when there is no decoder for the
   `Content-Type` and 406 when `Accept` allows no encoder. `http.Request.body` and `http.Response.body` are `[byte]`
-  (`http.request_text` / `http.response_text` give the text, or an Err for a NUL byte). `failure(e)` builds the
-  response for an `Err`, and `fault(status, message)` the one for what the library itself rejects.
+  (`http.request_text` / `http.response_text` give the text, or an Err for a NUL byte).
   `server.routes<C>(endpoints)` compiles the table once -- build it as a module-level `val`, not per request -- and
   `server.dispatch<C>(table, ctx, req, fault)` calls the first endpoint that matches, or answers 404, or 405 with
   `Allow` naming the methods the path does have, in table order. Compiling splits each pattern into its segments once

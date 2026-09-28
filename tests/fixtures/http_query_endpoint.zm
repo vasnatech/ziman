@@ -58,18 +58,18 @@ fn request(target: string, headers: [http.Header]) -> http.Request {
 
 fn main() {
     val out = server.text_encoder<string>(mime.text_plain(), show)
+    val api = server.Api<string> { failure: failure, fault: fault }
     val endpoints = [
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/things",
-            handler: server.secure_query_handler<Ctx, string, Option<string>, string, string>(
+            handler: server.secure_query_handler(
                 who: caller,
                 query: read_kind,
                 encoders: [out],
                 status: 200,
                 run: list,
-                failure: failure,
-                fault: fault
+                api: api
             )
         }
     ]

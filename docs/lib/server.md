@@ -403,7 +403,23 @@ pub enum Denied {
 Why a caller was refused before an endpoint ran: not identified (`Unauthenticated`, answered 401), identified but not
 allowed (`Forbidden`, 403), or identifying them failed for a reason that is the server's (`Failed`, 500).
 
-## The three input kinds, each in a `secure_` form (the caller is identified first) and a `public_` one.
+## What every endpoint of an application shares
+
+### `Api`
+
+```
+pub struct Api<E> {
+    failure: fn(E) -> Response
+    fault: fn(int, string) -> Response
+}
+```
+
+How an application answers what goes wrong, given once and passed to every builder below as `api:`. `failure(e)` builds
+the response for an `Err` of the endpoint's own error type `E`, and `fault(status, message)` the one for what the library
+itself rejects (400, 404, 405, 406, 415), so an application's error bodies have one shape:
+`val api = server.Api<ApiError> { failure: failure, fault: fault }`.
+
+## The input kinds, each in a `secure_` form (the caller is identified first) and a `public_` one.
 
 ### `secure_handler`
 
@@ -411,10 +427,9 @@ allowed (`Forbidden`, 403), or identifying them failed for a reason that is the 
 pub fn secure_handler<C, U, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, U) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response
 ```
 
@@ -428,10 +443,9 @@ pub fn secure_path_handler<C, U, P, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, U, P) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response
 ```
 
@@ -445,10 +459,9 @@ pub fn secure_query_handler<C, U, Q, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     query: fn(Request) -> Result<Q, string>,
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, U, Q) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response
 ```
 
@@ -463,10 +476,9 @@ pub fn secure_body_handler<C, U, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     decoders: [Decoder<I>],
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, U, I) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response
 ```
 
@@ -482,10 +494,9 @@ pub fn secure_path_body_handler<C, U, P, I, O, E>(
     path: fn(Params) -> Result<P, string>,
     decoders: [Decoder<I>],
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, U, P, I) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response
 ```
 
@@ -498,10 +509,9 @@ returns the answer or an error. Either input failing to decode is a 400.
 ```
 pub fn public_handler<C, O, E>(
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response
 ```
 
@@ -513,10 +523,9 @@ A public endpoint with no input: `run(ctx)`. Anyone may call it.
 pub fn public_path_handler<C, P, O, E>(
     path: fn(Params) -> Result<P, string>,
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, P) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response
 ```
 
@@ -528,10 +537,9 @@ A public endpoint whose input is in the path: `run(ctx, input)`.
 pub fn public_body_handler<C, I, O, E>(
     decoders: [Decoder<I>],
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, I) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response
 ```
 
@@ -544,10 +552,9 @@ pub fn public_path_body_handler<C, P, I, O, E>(
     path: fn(Params) -> Result<P, string>,
     decoders: [Decoder<I>],
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, P, I) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response
 ```
 

@@ -184,116 +184,103 @@ fn main() {
     val text_in = server.text_decoder<Item>(mime.text_plain(), read_item)
     val csv_in = server.text_decoder<Item>(mime.text_csv(), read_csv_item)
     val caller_out = server.text_encoder<Caller>(mime.text_plain(), me_as_text)
+    val api = server.Api<string> { failure: failure, fault: fault }
     val endpoints = [
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/items/{id}",
-            handler: server.public_path_handler<Ctx, int, Item, string>(
+            handler: server.public_path_handler(
                 path: read_id,
                 encoders: [text_out, csv_out],
                 status: 200,
                 run: get_item,
-                failure: failure,
-                fault: fault
+                api: api
             )
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/newest",
-            handler: server.public_handler<Ctx, Item, string>(
+            handler: server.public_handler(
                 encoders: [text_out],
-                status: 200,
                 run: newest_item,
-                failure: failure,
-                fault: fault
+                api: api
             )
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/me",
-            handler: server.secure_handler<Ctx, Caller, Caller, string>(
+            handler: server.secure_handler(
                 who: any_caller,
                 encoders: [caller_out],
-                status: 200,
                 run: whoami,
-                failure: failure,
-                fault: fault
+                api: api
             )
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/admin/{id}",
-            handler: server.secure_path_handler<Ctx, Caller, int, Item, string>(
+            handler: server.secure_path_handler(
                 who: admin_only,
                 path: read_id,
                 encoders: [text_out],
-                status: 200,
                 run: get_secret,
-                failure: failure,
-                fault: fault
+                api: api
             )
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/secret",
-            handler: server.secure_body_handler<Ctx, Caller, Item, Item, string>(
+            handler: server.secure_body_handler(
                 who: any_caller,
                 decoders: [text_in],
                 encoders: [text_out],
                 status: 201,
                 run: post_secret,
-                failure: failure,
-                fault: fault
+                api: api
             )
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Put,
             pattern: "/items/{id}",
-            handler: server.public_path_body_handler<Ctx, int, Item, Item, string>(
+            handler: server.public_path_body_handler(
                 path: read_id,
                 decoders: [text_in],
                 encoders: [text_out],
-                status: 200,
                 run: replace_item,
-                failure: failure,
-                fault: fault
+                api: api
             )
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Delete,
             pattern: "/items/{id}",
-            handler: server.secure_path_handler<Ctx, Caller, int, bool, string>(
+            handler: server.secure_path_handler(
                 who: any_caller,
                 path: read_id,
                 encoders: [],
                 status: 204,
                 run: delete_item,
-                failure: failure,
-                fault: fault
+                api: api
             )
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/binary",
-            handler: server.public_body_handler<Ctx, [byte], [byte], string>(
+            handler: server.public_body_handler(
                 decoders: [server.decoder<[byte]>(mime.application_octet_stream(), reverse_bytes)],
                 encoders: [server.encoder<[byte]>(mime.application_octet_stream(), fn(data) { return data })],
-                status: 200,
                 run: echo_binary,
-                failure: failure,
-                fault: fault
+                api: api
             )
         },
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/items",
-            handler: server.public_body_handler<Ctx, Item, Item, string>(
+            handler: server.public_body_handler(
                 decoders: [text_in, csv_in],
                 encoders: [text_out],
                 status: 201,
                 run: create_item,
-                failure: failure,
-                fault: fault
+                api: api
             )
         }
     ]

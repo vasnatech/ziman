@@ -861,7 +861,7 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
 //     val patients = server.routes<Ctx>([
 //         Endpoint<Ctx> { method: HttpMethod.Post, pattern: "/patients",
 //             handler: secure_body_handler<Ctx, Principal, PatientRequest, Patient, ApiError>(who: bearer,
-//                 decoders: [json_in], encoders: [json_out], status: 201, run: create_patient, failure: api_error, fault: fault) }
+//                 decoders: [json_in], encoders: [json_out], status: 201, run: create_patient, api: api) }
 //     ])
 //     server.dispatch<Ctx>(patients, ctx, req, fault)
 //
@@ -1002,28 +1002,74 @@ struct Anonymous {
     anonymous: bool
 }
 
-// ---- the three input kinds, each in a `secure_` form (the caller is identified first) and a `public_` one.
+// The `who` of every `public_*` builder: nobody is asked who they are.
+fn anyone<C>(ctx: C, req: Request) -> Result<Anonymous, Denied> {
+    return ok(Anonymous { anonymous: true })
+}
+
+// ---- what every endpoint of an application shares
+
+// How an application answers what goes wrong, given once and passed to every builder below as `api:`. `failure(e)` builds
+// the response for an `Err` of the endpoint's own error type `E`, and `fault(status, message)` the one for what the library
+// itself rejects (400, 404, 405, 406, 415), so an application's error bodies have one shape:
+// `val api = server.Api<ApiError> { failure: failure, fault: fault }`.
+pub struct Api<E> {
+    failure: fn(E) -> Response
+    fault: fn(int, string) -> Response
+}
+
+// ---- the input kinds, each in a `secure_` form (the caller is identified first) and a `public_` one.
 //
 // `who(ctx, req)` identifies the caller from the request (its headers, usually) and returns a `U`, or a `Denied` that is
 // answered before anything else happens: before the answer is negotiated, before the body is read. `run` then takes that
 // `U` as its second argument, so an endpoint that needs a caller cannot be written without saying how to find one. A
-// `public_*` builder is the explicit way to say nobody needs to be identified.
+// `public_*` builder is the explicit way to say nobody needs to be identified. `status` is the status of a successful
+// answer and may be left out of a named call: it is then 200.
+//
+// The nine builders are the combinations of three independent choices -- a caller, an input from the path or the query,
+// an input from the body -- and each is a few lines over one private `endpoint_core`, which does the steps in one order:
+// identify the caller, check the body's media type (415), negotiate the answer (406), read the path or query input (400),
+// decode the body (400), run. A builder cannot be one function with optional parts, because `run`'s own parameter list
+// (and the type parameters behind it) differs with which parts there are.
 
-// A secured endpoint with no input: `run(ctx, caller)` returns the answer or an error; the answer is written with the
-// first of `encoders` the client's `Accept` allows, with `status`.
-pub fn secure_handler<C, U, O, E>(
+fn no_path(params: Params) -> Result<unit, string> {
+    return ok(unit)
+}
+
+fn no_query(req: Request) -> Result<unit, string> {
+    return ok(unit)
+}
+
+// Every builder's one implementation. The parts an endpoint does not have are `unit`: `no_path`/`no_query` read `unit`
+// from nothing, `decoders: None` means no body is read and `blank` (`Some(unit)`) is what `run` gets in its place, and
+// `run` is the builder's own `run` wrapped to ignore the `unit`s. With a body, `decoders` is `Some` and `blank` `None`.
+fn endpoint_core<C, U, P, Q, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
+    path: fn(Params) -> Result<P, string>,
+    query: fn(Request) -> Result<Q, string>,
+    decoders: Option<[Decoder<I>]>,
+    blank: Option<I>,
     encoders: [Encoder<O>],
     status: int,
-    run: fn(C, U) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    run: fn(C, U, P, Q, I) -> Result<O, E>,
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response {
+    val fault = api.fault
     return fn(ctx: C, req: Request, params: Params) -> Response {
         val identify = who
         val caller = identify(ctx, req)
         if Err(refusal) = caller {
             return denied_response(refusal, fault)
+        }
+        var decoder = Option<Decoder<I>>.None
+        if Some(all) = decoders {
+            decoder = select_decoder<I>(all, req)
+            if !is_Some(decoder) {
+                return fault(
+                    status_unsupported_media_type,
+                    format("unsupported media type: send {}", consumed_types<I>(all))
+                )
+            }
         }
         val encoder = negotiate<O>(encoders, req)
         if len(encoders) > 0 && !is_Some(encoder) {
@@ -1032,8 +1078,55 @@ pub fn secure_handler<C, U, O, E>(
                 format("not acceptable: this route produces {}", produced_types<O>(encoders))
             )
         }
-        return answer<O, E>(run(ctx, unwrap(caller)), encoder, status, failure)
+        val locate = path
+        val located = locate(params)
+        if Err(message) = located {
+            return fault(status_bad_request, message)
+        }
+        val read = query
+        val queried = read(req)
+        if Err(message) = queried {
+            return fault(status_bad_request, message)
+        }
+        var input = blank
+        if Some(chosen) = decoder {
+            val decode = chosen.decode
+            val decoded = decode(req.body)
+            if Err(message) = decoded {
+                return fault(status_bad_request, message)
+            }
+            input = Option<I>.Some(unwrap(decoded))
+        }
+        return answer<O, E>(
+            run(ctx, unwrap(caller), unwrap(located), unwrap(queried), unwrap_Some(input)),
+            encoder,
+            status,
+            api.failure
+        )
     }
+}
+
+// A secured endpoint with no input: `run(ctx, caller)` returns the answer or an error; the answer is written with the
+// first of `encoders` the client's `Accept` allows, with `status`.
+pub fn secure_handler<C, U, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    encoders: [Encoder<O>],
+    status: Option<int>,
+    run: fn(C, U) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return endpoint_core<C, U, unit, unit, unit, O, E>(
+        who: who,
+        path: no_path,
+        query: no_query,
+        decoders: Option<[Decoder<unit>]>.None,
+        blank: Option<unit>.Some(unit),
+        encoders: encoders,
+        status: option_unwrap_or<int>(status, 200),
+        run: fn(ctx: C, caller: U, id: unit, filter: unit, input: unit) -> Result<O, E> { return go(ctx, caller) },
+        api: api
+    )
 }
 
 // A secured endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
@@ -1042,30 +1135,22 @@ pub fn secure_path_handler<C, U, P, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, U, P) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response {
-    return fn(ctx: C, req: Request, params: Params) -> Response {
-        val identify = who
-        val caller = identify(ctx, req)
-        if Err(refusal) = caller {
-            return denied_response(refusal, fault)
-        }
-        val encoder = negotiate<O>(encoders, req)
-        if len(encoders) > 0 && !is_Some(encoder) {
-            return fault(
-                status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(encoders))
-            )
-        }
-        val decode = path
-        return switch decode(params) {
-            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), encoder, status, failure) }
-            Err(message) { fault(status_bad_request, message) }
-        }
-    }
+    val go = run
+    return endpoint_core<C, U, P, unit, unit, O, E>(
+        who: who,
+        path: path,
+        query: no_query,
+        decoders: Option<[Decoder<unit>]>.None,
+        blank: Option<unit>.Some(unit),
+        encoders: encoders,
+        status: option_unwrap_or<int>(status, 200),
+        run: fn(ctx: C, caller: U, id: P, filter: unit, input: unit) -> Result<O, E> { return go(ctx, caller, id) },
+        api: api
+    )
 }
 
 // A secured endpoint whose input is in the query string (`GET /things?type=x`): `query` reads what it wants from the request, for
@@ -1075,30 +1160,22 @@ pub fn secure_query_handler<C, U, Q, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     query: fn(Request) -> Result<Q, string>,
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, U, Q) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response {
-    return fn(ctx: C, req: Request, params: Params) -> Response {
-        val identify = who
-        val caller = identify(ctx, req)
-        if Err(refusal) = caller {
-            return denied_response(refusal, fault)
-        }
-        val encoder = negotiate<O>(encoders, req)
-        if len(encoders) > 0 && !is_Some(encoder) {
-            return fault(
-                status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(encoders))
-            )
-        }
-        val read = query
-        return switch read(req) {
-            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), encoder, status, failure) }
-            Err(message) { fault(status_bad_request, message) }
-        }
-    }
+    val go = run
+    return endpoint_core<C, U, unit, Q, unit, O, E>(
+        who: who,
+        path: no_path,
+        query: query,
+        decoders: Option<[Decoder<unit>]>.None,
+        blank: Option<unit>.Some(unit),
+        encoders: encoders,
+        status: option_unwrap_or<int>(status, 200),
+        run: fn(ctx: C, caller: U, id: unit, filter: Q, input: unit) -> Result<O, E> { return go(ctx, caller, filter) },
+        api: api
+    )
 }
 
 // A secured endpoint with a request body: it must arrive as one of `decoders`' media types (else 415), the answer is
@@ -1108,37 +1185,22 @@ pub fn secure_body_handler<C, U, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     decoders: [Decoder<I>],
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, U, I) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response {
-    return fn(ctx: C, req: Request, params: Params) -> Response {
-        val identify = who
-        val caller = identify(ctx, req)
-        if Err(refusal) = caller {
-            return denied_response(refusal, fault)
-        }
-        val decoder = select_decoder<I>(decoders, req)
-        if !is_Some(decoder) {
-            return fault(
-                status_unsupported_media_type,
-                format("unsupported media type: send {}", consumed_types<I>(decoders))
-            )
-        }
-        val encoder = negotiate<O>(encoders, req)
-        if len(encoders) > 0 && !is_Some(encoder) {
-            return fault(
-                status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(encoders))
-            )
-        }
-        val decode = unwrap_Some(decoder).decode
-        return switch decode(req.body) {
-            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), input), encoder, status, failure) }
-            Err(message) { fault(status_bad_request, message) }
-        }
-    }
+    val go = run
+    return endpoint_core<C, U, unit, unit, I, O, E>(
+        who: who,
+        path: no_path,
+        query: no_query,
+        decoders: Option<[Decoder<I>]>.Some(decoders),
+        blank: Option<I>.None,
+        encoders: encoders,
+        status: option_unwrap_or<int>(status, 200),
+        run: fn(ctx: C, caller: U, id: unit, filter: unit, input: I) -> Result<O, E> { return go(ctx, caller, input) },
+        api: api
+    )
 }
 
 // A secured endpoint with both an id in the path and a request body (a `PUT /things/{id}`): `path` decodes the parameters
@@ -1149,62 +1211,38 @@ pub fn secure_path_body_handler<C, U, P, I, O, E>(
     path: fn(Params) -> Result<P, string>,
     decoders: [Decoder<I>],
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, U, P, I) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response {
-    return fn(ctx: C, req: Request, params: Params) -> Response {
-        val identify = who
-        val caller = identify(ctx, req)
-        if Err(refusal) = caller {
-            return denied_response(refusal, fault)
-        }
-        val decoder = select_decoder<I>(decoders, req)
-        if !is_Some(decoder) {
-            return fault(
-                status_unsupported_media_type,
-                format("unsupported media type: send {}", consumed_types<I>(decoders))
-            )
-        }
-        val encoder = negotiate<O>(encoders, req)
-        if len(encoders) > 0 && !is_Some(encoder) {
-            return fault(
-                status_not_acceptable,
-                format("not acceptable: this route produces {}", produced_types<O>(encoders))
-            )
-        }
-        val locate = path
-        val id = locate(params)
-        if Err(message) = id {
-            return fault(status_bad_request, message)
-        }
-        val decode = unwrap_Some(decoder).decode
-        return switch decode(req.body) {
-            Ok(input) { answer<O, E>(run(ctx, unwrap(caller), unwrap(id), input), encoder, status, failure) }
-            Err(message) { fault(status_bad_request, message) }
-        }
-    }
+    val go = run
+    return endpoint_core<C, U, P, unit, I, O, E>(
+        who: who,
+        path: path,
+        query: no_query,
+        decoders: Option<[Decoder<I>]>.Some(decoders),
+        blank: Option<I>.None,
+        encoders: encoders,
+        status: option_unwrap_or<int>(status, 200),
+        run: fn(ctx: C, caller: U, id: P, filter: unit, input: I) -> Result<O, E> { return go(ctx, caller, id, input) },
+        api: api
+    )
 }
-
-// An endpoint with no `encoders` answers with an empty body and no `Content-Type` (for a 204), whatever `Accept` says.
 
 // A public endpoint with no input: `run(ctx)`. Anyone may call it.
 pub fn public_handler<C, O, E>(
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response {
     val go = run
     return secure_handler<C, Anonymous, O, E>(
-        who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
+        who: anyone<C>,
         encoders: encoders,
         status: status,
         run: fn(ctx: C, nobody: Anonymous) -> Result<O, E> { return go(ctx) },
-        failure: failure,
-        fault: fault
+        api: api
     )
 }
 
@@ -1212,20 +1250,18 @@ pub fn public_handler<C, O, E>(
 pub fn public_path_handler<C, P, O, E>(
     path: fn(Params) -> Result<P, string>,
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, P) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response {
     val go = run
     return secure_path_handler<C, Anonymous, P, O, E>(
-        who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
+        who: anyone<C>,
         path: path,
         encoders: encoders,
         status: status,
-        run: fn(ctx: C, nobody: Anonymous, input: P) -> Result<O, E> { return go(ctx, input) },
-        failure: failure,
-        fault: fault
+        run: fn(ctx: C, nobody: Anonymous, id: P) -> Result<O, E> { return go(ctx, id) },
+        api: api
     )
 }
 
@@ -1233,20 +1269,18 @@ pub fn public_path_handler<C, P, O, E>(
 pub fn public_body_handler<C, I, O, E>(
     decoders: [Decoder<I>],
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, I) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response {
     val go = run
     return secure_body_handler<C, Anonymous, I, O, E>(
-        who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
+        who: anyone<C>,
         decoders: decoders,
         encoders: encoders,
         status: status,
         run: fn(ctx: C, nobody: Anonymous, input: I) -> Result<O, E> { return go(ctx, input) },
-        failure: failure,
-        fault: fault
+        api: api
     )
 }
 
@@ -1255,21 +1289,19 @@ pub fn public_path_body_handler<C, P, I, O, E>(
     path: fn(Params) -> Result<P, string>,
     decoders: [Decoder<I>],
     encoders: [Encoder<O>],
-    status: int,
+    status: Option<int>,
     run: fn(C, P, I) -> Result<O, E>,
-    failure: fn(E) -> Response,
-    fault: fn(int, string) -> Response
+    api: Api<E>
 ) -> fn(C, Request, Params) -> Response {
     val go = run
     return secure_path_body_handler<C, Anonymous, P, I, O, E>(
-        who: fn(ctx: C, req: Request) -> Result<Anonymous, Denied> { return Anonymous { anonymous: true } },
+        who: anyone<C>,
         path: path,
         decoders: decoders,
         encoders: encoders,
         status: status,
         run: fn(ctx: C, nobody: Anonymous, id: P, input: I) -> Result<O, E> { return go(ctx, id, input) },
-        failure: failure,
-        fault: fault
+        api: api
     )
 }
 

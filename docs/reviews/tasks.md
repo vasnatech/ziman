@@ -41,7 +41,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [x] **D3** Channel additions: `channel_close`, `receive_timeout` and a two-channel `select`. (L P1-10; M)
 - [x] **D4** HTTP server hardening: reject duplicate or differing `Content-Length` and `+N` (request smuggling), require `Host`, validate response header values (CRLF injection), add a total header-read deadline. (D B7, B8, item 13; M)
 - [x] **D5** Compile route patterns once and dispatch by method and first segment (25 microseconds per endpoint today). (D item 14; S)
-- [ ] **D6** Consolidate the eight `public_`/`secure_` endpoint builders into one with optional named parameters. (L P1-11; M)
+- [x] **D6** Consolidate the eight `public_`/`secure_` endpoint builders into one with optional named parameters. (L P1-11; M) Done differently from the wording: one builder with optional parts cannot be written (`run`'s parameters differ with the parts), so the nine typed builders stay over one private `endpoint_core`, `failure:`+`fault:` become one shared `api: Api<E>`, `status:` is optional (200), and the explicit type arguments are dropped at 118 call sites.
 - [ ] **D7** Parsing strictness: `parse_json("01")`, `parse_int(" 5")` and `"+5"` are accepted against the docs, and JSON big integers become floats. (D B14, L; S)
 - [ ] **D8** JWT: `require_exp` (a token without `exp` never expires), plus `iss` and `aud`. (D S9; S)
 

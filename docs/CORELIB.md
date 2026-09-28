@@ -1537,6 +1537,11 @@ pub enum Denied {
     Failed(string)
 }
 
+pub struct Api<E> {
+    failure: fn(E) -> Response
+    fault: fn(int, string) -> Response
+}
+
 pub fn secure_handler<C, U, O, E>(
 
 pub fn secure_path_handler<C, U, P, O, E>(
