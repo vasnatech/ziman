@@ -1459,6 +1459,18 @@ from source.
   `net.peer_address(sock)` to throttle by, and behind a reverse proxy every connection has the proxy's address anyway, so it would need
   trusting a forwarded-for header from a configured proxy, not just an address. A firewall or the proxy in front does it until then.
 
+- **health-record-backend-ziman: migrate the Python test suite to Ziman -- not started, revisit once Ziman is stable enough.**
+  `src/test/other/*_test.py` (about 800 checks) is Python for two reasons, not just convenience, and both would need to still hold after a
+  move: Ziman had no test framework at all when the suite was written (the language-design review's "no `assert`, no test runner" finding,
+  since addressed for new code by `ziman test`/`lib/core/test.zm`, but never retrofitted here), and several checks are deliberately verified
+  against an *independent* implementation in a different language (a foreign HMAC over the JWT, a hand-written TOTP/HOTP) so that a bug in
+  `lib/core/crypto.zm`/`otp.zm` cannot validate itself by checking its own output. A rewrite in Ziman would need to keep that independence
+  somehow (a second, deliberately separate implementation of HMAC/TOTP inside the same suite, or leaving just those checks in Python even
+  after the rest moves), and would need `ziman test` to drive a real subprocess about as easily as Python's `subprocess`/`urllib.request`/
+  `sqlite3` do today: spawn `serve.zm`, wait on `/health`, make real HTTP requests, and inspect the SQLite/Postgres rows directly afterward.
+  Not worth doing while the interpreter and its library are both still moving targets -- the point of the exercise is confidence in Ziman,
+  and a self-hosted test suite is weaker evidence of that than an external one until Ziman itself needs less looking-over.
+
 - **Metrics and telemetry -- not started; a `metrics` module first, then tracing.** Ziman has `log`, `clock` and
   threads but no way to count things across threads: a lambda cannot mutate what it captures, so shared state has to
   live in a native handle, as `StringBuilder` and `Iter` do. Planned, in order:
