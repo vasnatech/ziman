@@ -1279,6 +1279,26 @@ from source.
   values -- a real `serve(listener, handler)` and route table on top of
   the same matcher.
 
+- **A `Row` bound, generalizing `Eq`/`Hash`/`Ord`'s mechanism to a fourth case** (see
+  docs/DESIGN.md "The traits/interfaces stance", F1). `Crud<E, Req, Res>` (E9,
+  `health-record-backend-ziman`'s `service/crud.zm`) needs `from_row: fn(Row) ->
+  Result<E, DbError>` and `to_params: fn(E) -> [SqlValue]` as explicit function-value
+  fields on every literal, because there is no way to say "`E` already has a
+  `#[derive(Row)]` pair" as a bound, the way `<T: Ord>` already says "`T` already has
+  a `_compare`." A `Row` bound (`fn crud_find_by_id_and_patient_id<E: Row, Req,
+  Res>(...)`) would resolve `<snake_type>_from_row`/`<snake_type>_to_params` the same
+  way `compare<T: Ord>` already resolves `<snake_type>_compare`
+  (`find_compare_function` in the type checker), and the two fields would drop out of
+  every `Crud` literal -- nine of them today, growing as more resources migrate.
+  Not started, not designed in detail -- needs its own pass: extending the bound
+  grammar/checker to a fourth name (`Eq`/`Hash`/`Ord`/`Row`), teaching it a two-
+  function signature pair rather than the one-function shape every existing bound
+  has, deciding whether `#[derive(Row)]` alone satisfies it or a hand-written pair
+  matching the naming convention also counts (`Ord` accepts both today), and a
+  fixture proving `Crud<E: Row, Req, Res>` resolves the right pair for two different
+  `E`s in the same file -- the exact copy-paste-mismatch class this bound exists to
+  rule out at compile time, not just tidy up.
+
 ## Explicitly out of scope for now (see DESIGN.md "Non-goals")
 
 - Tree-native/structural source of truth — Ziman's source of truth is
