@@ -1,0 +1,11 @@
+use service
+
+// A generic enum imported by name, instantiated in a return type with a type argument written through a module alias (`Listing<model.Thing>`), is a
+// type another module can use: the alias is resolved where it is written, not where the type is next used.
+
+fn main() {
+    val whole = unwrap(service.list(false))
+    val paged = unwrap(service.list(true))
+    print(service.describe(whole))
+    print(service.describe(paged))
+}

@@ -1,0 +1,18 @@
+use model/paging.Listing
+use model/paging.Page
+use model/thing as model
+
+pub fn list(paged: bool) -> Result<Listing<model.Thing>, string> {
+    val items = [model.Thing { name: "a" }, model.Thing { name: "b" }]
+    if paged {
+        return Listing<model.Thing>.Paged(Page<model.Thing> { content: items, total: 10 })
+    }
+    return Listing<model.Thing>.All(items)
+}
+
+pub fn describe(l: Listing<model.Thing>) -> string {
+    return switch l {
+        All(items) { format("all {}", len(items)) }
+        Paged(page) { format("page of {} of {}", len(page.content), page.total) }
+    }
+}

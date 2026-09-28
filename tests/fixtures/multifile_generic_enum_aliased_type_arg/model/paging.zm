@@ -1,0 +1,9 @@
+pub struct Page<T> {
+    content: [T]
+    total: int
+}
+
+pub enum Listing<T> {
+    All([T])
+    Paged(Page<T>)
+}

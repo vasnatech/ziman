@@ -905,6 +905,12 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
         resolve_type_refs(t->elem, ctx, line, col);
         return;
     }
+    /* An enum reclassified by pass (a) (a same-module or named-import `Listing<mod.Item>`) still has type arguments
+     * that may be dotted: they are resolved here, or the alias `mod` is looked up later in a module that does not have it. */
+    if (t->kind == TY_ENUM) {
+        for (int i = 0; i < t->type_args.count; i++) resolve_type_refs(&t->type_args.items[i], ctx, line, col);
+        return;
+    }
     if (t->kind != TY_STRUCT) return;
     /* Same reasoning as self_qualify_type: a generic reference's own type
      * arguments need resolving independent of whether the base name does. */
