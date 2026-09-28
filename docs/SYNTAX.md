@@ -172,9 +172,10 @@ field_init     := IDENT ":" expr
 Notes on things this deliberately leaves out of v0 (tracked in ROADMAP.md):
 function calls as a primary only chain off a plain or single-qualified
 identifier, never an arbitrary expression (a function *value* is called
-through a local name -- see "Function values"; `make()(x)` isn't valid), no indexed/field
+through a local name -- see "Function values"; `make()(x)` isn't valid), and no indexed/field
 *assignment* (`arr[i] = x` and `p.x = 1` aren't valid — see "Arrays" and
-"Structs" below), and no expression-level `if`.
+"Structs" below). `if` and `switch` *are* usable as expressions in a
+restricted set of positions -- see "`if` and `switch` as values" below.
 
 ## Types
 
@@ -336,8 +337,11 @@ fn main() {
   `parse_decimal(s: string) -> Result<decimal, string>`.
   `math.decimal_round(d: decimal, scale: int) -> decimal` (in the `math` module, so `use math`)
   is `decimal`'s equivalent of `math.floor`/`ceil`/`round` — a separate name, not an
-  overload of `round`, since Ziman has no argument-based overloading
-  anywhere (every name maps to exactly one signature).
+  overload of `round`. A closed set of builtins (`abs`, `min`/`max`, `len`,
+  `contains`, `set`, `remove`, `insert`, ...) is overloaded across a few
+  compiler-known types; user code gets none of that power, so a *user*
+  function name still maps to exactly one signature, which is why
+  `decimal_round` needs its own name rather than a fourth `round`.
 - **`+`/`-` align scales first and are always exact**: `1.5d + 0.25d` is
   `1.75d`, never rounded. **`*` needs no alignment and is always
   exact**: `1.5d * 0.25d` is `0.375d` (scale 3). **`/` doesn't always
@@ -445,6 +449,14 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   the operators table) — compares length then elements pairwise. An array
   of `Channel`s, or of anything else that isn't itself comparable, is
   still a type error.
+
+- **Growing an array with `push` in a loop costs what you'd expect; `insert`/`set`/`remove` don't.**
+  `arr = push(arr, x)` is amortised O(1) per call (the result keeps spare room, and the next `push`
+  on that *exact* array writes into it instead of copying) — the same shape as the example above.
+  `insert`, `set` and `remove` always copy the whole array, so replacing every element of an
+  `n`-element array one `set` at a time is O(n²), not O(n); `ArrayBuilder<T>`'s `ab_new`/`ab_append`/
+  `ab_to_array` is the right tool for building or editing a large array piece by piece instead. See
+  "Builtins" below for the exact mechanism.
 
 See "Builtins" below for `len`/`push`/`insert`/`set`/`remove`'s exact
 signatures.
@@ -1592,8 +1604,8 @@ fn main() {
 - **A bundled *core module* is ordinary `.zm` source embedded in the
   `ziman` binary at build time** (see docs/DESIGN.md's "Bundled core
   modules"), resolved by `use` when no project-relative file by that
-  name exists. There are 27 (docs/CORELIB.md lists every `pub` signature;
-  README.md has a table): `collections` (sorting, searching and `map`/`filter`/`fold` -- see "Generics" and "Ordering"), `fs`,
+  name exists. docs/CORELIB.md lists every one and every `pub` signature
+  (README.md has a shorter table, grouped): `collections` (sorting, searching and `map`/`filter`/`fold` -- see "Generics" and "Ordering"), `fs`,
   `os`, `clock` (`now_raw() -> [int]`, the one native function reading the
   system clock) and `random` (`random_bytes(n)`, the one native function
   reading OS entropy), `uuid` (`Uuid`, RFC 4122 v4, pure Ziman on top of
@@ -2464,10 +2476,10 @@ fn main() {
   `NetError.Tls(message)` with OpenSSL's reason, and `connect_tls` closes
   its socket if the handshake fails. A receive timeout still surfaces as
   `Timeout`, and a peer's close as `Closed`, over TLS.
-- **Not yet:** server-side TLS (`listen_tls`), client certificates, ALPN,
-  Unix-domain sockets, UDP, and a packed byte-buffer type (`[byte]` is an
-  array of interpreter values -- fine for protocol messages, wasteful for
-  bulk data).
+- **Server-side TLS is `listen_tls(host, port, cert_file, key_file)`**,
+  the counterpart of `connect_tls`/`connect_tls_with`, for accepting HTTPS
+  connections. **Not yet:** client certificates, ALPN, Unix-domain sockets,
+  UDP, and a connect timeout beyond the OS default.
 
 ## HTTP
 
@@ -2558,8 +2570,11 @@ fn main() {
 - **Bounded.** Headers may total 16 KiB and a body 1 MiB
   (`HeadersTooLarge`/`BodyTooLarge`, answered 431/413), so a client can't
   make a handler buffer without limit. Set `net.set_timeout` on the
-  socket; a stalled read is `Timeout` (408). Bodies are `string`s, so a
-  request carrying a 0 byte gets a 400. A per-read timeout does not stop a
+  socket; a stalled read is `Timeout` (408). `Request`/`Response.body` is
+  `[byte]` and may hold any byte including a NUL; the request line and
+  headers are read as text, so a NUL there (not in the body) is a 400
+  ("request contains a NUL byte" -- a Ziman `string` cannot hold one). A
+  per-read timeout does not stop a
   client that sends a byte just inside it, again and again (slowloris), so
   `server.open_session_with_timeout(sock, ms)` also bounds the whole request --
   head and body, from its first byte -- to `ms` (`Timeout`, 408). `serve` uses
@@ -3323,13 +3338,19 @@ fn main() {
   long as a connection, not the whole run -- right for per-request context and scratch space, not
   for a cache that must outlive connections (an actor thread owning the cache, reached over a
   channel, is the tool for that).
-- **Sharing a `Value` across threads needs no locking of its own.**
-  Nothing in the interpreter ever frees an `ArrayObj`/`StructObj`/
-  `EnumObj`/`ResultObj` (see docs/DESIGN.md), and nothing mutates one
-  after construction — so a value that crosses a channel is just a
-  pointer copy: no use-after-free (nothing's ever freed) and no data
-  race (nothing mutates it after it's built). Only the channel's own
-  queue needs real synchronization.
+- **Sharing a `Value` across threads needs no locking of its own** for
+  anything that is actually allowed to cross a channel. An
+  `ArrayObj`/`StructObj`/`EnumObj`/`ResultObj` is immutable once built and
+  never mutated after construction, so a value that crosses a channel is
+  just a pointer copy: no data race, since nothing mutates it once it's
+  built. The collector (see docs/DESIGN.md's "Memory reclamation" entries)
+  only ever reclaims memory nothing can still reach, so this holds whether
+  or not the value is still reachable elsewhere too — no use-after-free
+  either. The one thing that *would* break this, a mutable handle
+  (`StringBuilder`/`ArrayBuilder`/`MapBuilder`/`SetBuilder`/`Iter`), is
+  refused wherever it could cross a thread boundary (`#[thread_bound]`,
+  above) rather than being allowed to race. Only the channel's own queue
+  needs real synchronization.
 
 ## Semantic rules enforced before a program runs
 
@@ -3408,6 +3429,26 @@ once it exists. Override any of it:
 A flag wins over its variable, which wins over the computed size. The limit is 768 MB because the bundled garbage collector aborts
 with stacks near 1 GB. The parser, the type checker and the comparison, hashing and printing of deeply nested values are checked the
 same way, so a pathologically nested source file or value is an error and not a crash.
+
+### Other limits
+
+A quick reference for the numeric ceilings scattered through this document, each a runtime error rather than
+undefined behaviour or a crash:
+
+| What | Limit | Where it's enforced |
+|---|---|---|
+| Recursion / call depth | machine- and config-dependent (see "Stack depth" above) | every call and nested expression |
+| `int`/`bigint` arithmetic overflow | traps, never silently wraps or saturates (`+`/`-`/`*`/`/`, `abs(MIN)`) | the interpreter |
+| An `int` literal past `int`'s range | a compile-time error, not silent saturation | the parser |
+| `bigint`/exact-`decimal` digit count (`parse_json_exact`, literals) | 1,000 digits | `json`'s number parser |
+| A parsed number's exponent size | 100,000 | `json`'s number parser |
+| `parse_json` nesting depth | 512 levels | `json` |
+| HTTP request headers | 16 KiB total, fixed | `server` (`HeadersTooLarge`, 431) |
+| HTTP request body | 1 MiB, fixed | `server` (`BodyTooLarge`, 413) |
+| Server connections | whatever `ServeOptions.max_connections` says, no built-in default | `server`'s `serve` |
+
+This list is illustrative, not exhaustive -- each module's own header comment and docs/CORELIB.md
+document a module's own limits in full; see "JSON" and "HTTP" elsewhere in this file for the ones above.
 
 ## Builtins
 

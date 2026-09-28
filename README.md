@@ -174,6 +174,7 @@ Runs every fixture in `tests/fixtures/` — see `tests/run_tests.sh`.
 
 | | |
 | --- | --- |
+| [docs/TUTORIAL.md](docs/TUTORIAL.md) | a guided first hour: one small program, built up feature by feature |
 | [docs/SYNTAX.md](docs/SYNTAX.md) | the language reference: grammar and semantic rules |
 | [docs/DESIGN.md](docs/DESIGN.md) | the principles and the reasoning behind each decision |
 | [docs/lib/](docs/lib/README.md) | the library manual: one page per bundled module (generated from the source, with runnable examples) |

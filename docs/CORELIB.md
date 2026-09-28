@@ -275,7 +275,7 @@ pub fn extension(path: string) -> string
 
 ## `json`
 
-A JSON parser/serializer (`Json`, a genuinely recursive enum), written in pure Ziman -- no native code needed. `\uXXXX` unicode escapes and `==`/`!=` on `Json` are the two known gaps.
+A JSON parser/serializer (`Json`, a genuinely recursive enum), written in pure Ziman -- no native code needed. `\uXXXX` unicode escapes are read; `==`/`!=` on `Json` is the one known gap.
 
 ```
 pub enum Number {
