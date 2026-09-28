@@ -2150,6 +2150,15 @@ fn main() {
   required — a missing key is a decode error.
 - **Deserialization is lenient**: an unrecognized extra key in the input
   JSON object is silently ignored.
+- **A field's own decode error names the field**: `{"email": 5}` against
+  a `struct { email: string }` reports `"email: expected a string"`, not
+  bare `"expected a string"` — the camelCase JSON key, a colon, and the
+  underlying message, whatever it is (a scalar's fixed text, a nested
+  type's own runtime message, composing one level per nesting: a bad
+  `address.zipCode` reads `"address: zipCode: expected a string"`). Only
+  a struct's own direct field is named this way; an element inside an
+  array, set or map value decodes with the bare message, since it has no
+  field name of its own, only a position.
 - **An enum derives an externally tagged shape**: `{"type":
   "<Variant>"}` for a unit variant, `{"type": "<Variant>", "value":
   ...}` for a payload one (the variant's payload follows the same

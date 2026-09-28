@@ -166,7 +166,36 @@ static int is_option_type_here(Type t) {
 }
 
 static void emit_to_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col);
-static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col);
+static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col, const char *field_ctx);
+
+/* A shape check whose failure message is known at codegen time (`"expected a string"`):
+ * named with the JSON key when `field_ctx` is the struct field this check is for (the direct
+ * field of the struct being decoded, never a recursive element/entry a level down, so an error
+ * never names more than one field), plain otherwise. */
+static void emit_type_check(CodeBuf *cb, const char *cond_expr, const char *field_ctx, const char *msg) {
+    if (field_ctx != NULL) {
+        cb_appendf(cb, "    if !%s { return err(\"%s: %s\") }\n", cond_expr, field_ctx, msg);
+    } else {
+        cb_appendf(cb, "    if !%s { return err(\"%s\") }\n", cond_expr, msg);
+    }
+}
+
+/* A `try`-shaped call (`int_from_json(x)`, `<type>_from_json(x)`, a generic converter) whose
+ * failure message is only known at run time: named the same way as emit_type_check, by catching
+ * the `Err` and prefixing it (`concat`, the same device already used for an unknown enum tag)
+ * rather than propagating it bare through `try`. */
+static void emit_try_call(CodeBuf *cb, int *tmp, const char *dst_var, const char *call_expr, const char *field_ctx) {
+    if (field_ctx == NULL) {
+        cb_appendf(cb, "    val %s = try %s\n", dst_var, call_expr);
+        return;
+    }
+    char *ok_v = gen_tmp(tmp, "ok");
+    char *err_v = gen_tmp(tmp, "err");
+    cb_appendf(cb, "    val %s = switch %s {\n", dst_var, call_expr);
+    cb_appendf(cb, "        Ok(%s) { %s }\n", ok_v, ok_v);
+    cb_appendf(cb, "        Err(%s) { return err(concat(\"%s: \", %s)) }\n", err_v, field_ctx, err_v);
+    cb_appendf(cb, "    }\n");
+}
 
 /* ---- generic declarations ------------------------------------------------
  * `struct Page<T> { ... }` / `enum Either<L, R> { ... }` derive too. `params`
@@ -376,26 +405,26 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
  * afterward. Lenient by construction: nothing here ever inspects a
  * JObject's *other* keys, so unrecognized extra fields are silently
  * ignored, matching the design's lenient-deserialization decision. */
-static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
+static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col, const char *field_ctx) {
     switch (t.kind) {
         case TY_INT:
-            cb_appendf(cb, "    val %s = try int_from_json(%s)\n", dst_var, src_expr);
+            emit_try_call(cb, tmp, dst_var, fmt_str("int_from_json(%s)", src_expr), field_ctx);
             return;
         case TY_FLOAT:
-            cb_appendf(cb, "    val %s = try float_from_json(%s)\n", dst_var, src_expr);
+            emit_try_call(cb, tmp, dst_var, fmt_str("float_from_json(%s)", src_expr), field_ctx);
             return;
         case TY_BIGINT:
-            cb_appendf(cb, "    val %s = try bigint_from_json(%s)\n", dst_var, src_expr);
+            emit_try_call(cb, tmp, dst_var, fmt_str("bigint_from_json(%s)", src_expr), field_ctx);
             return;
         case TY_DECIMAL:
-            cb_appendf(cb, "    val %s = try decimal_from_json(%s)\n", dst_var, src_expr);
+            emit_try_call(cb, tmp, dst_var, fmt_str("decimal_from_json(%s)", src_expr), field_ctx);
             return;
         case TY_BOOL:
-            cb_appendf(cb, "    if !Json.is_JBool(%s) { return err(\"expected a boolean\") }\n", src_expr);
+            emit_type_check(cb, fmt_str("Json.is_JBool(%s)", src_expr), field_ctx, "expected a boolean");
             cb_appendf(cb, "    val %s = Json.unwrap_JBool(%s)\n", dst_var, src_expr);
             return;
         case TY_STRING:
-            cb_appendf(cb, "    if !Json.is_JString(%s) { return err(\"expected a string\") }\n", src_expr);
+            emit_type_check(cb, fmt_str("Json.is_JString(%s)", src_expr), field_ctx, "expected a string");
             cb_appendf(cb, "    val %s = Json.unwrap_JString(%s)\n", dst_var, src_expr);
             return;
         case TY_ARRAY: {
@@ -403,10 +432,10 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             char *item = gen_tmp(tmp, "item");
             char *item_val = gen_tmp(tmp, "item_val");
             char *elem_type_name = type_name(*t.elem);
-            cb_appendf(cb, "    if !Json.is_JArray(%s) { return err(\"expected an array\") }\n", src_expr);
+            emit_type_check(cb, fmt_str("Json.is_JArray(%s)", src_expr), field_ctx, "expected an array");
             cb_appendf(cb, "    val %s = ab_new<%s>()\n", ab, elem_type_name);
             cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
-            emit_from_json(*t.elem, item, item_val, cb, tmp, line, col);
+            emit_from_json(*t.elem, item, item_val, cb, tmp, line, col, NULL);
             cb_appendf(cb, "    ab_append<%s>(%s, %s)\n", elem_type_name, ab, item_val);
             cb_appendf(cb, "    }\n");
             cb_appendf(cb, "    val %s = ab_to_array<%s>(%s)\n", dst_var, elem_type_name, ab);
@@ -421,10 +450,10 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             char *bld = gen_tmp(tmp, "builder");
             char *kt = type_name(*t.elem);
             char *vt = type_name(*t.elem_err);
-            cb_appendf(cb, "    if !Json.is_JObject(%s) { return err(\"expected an object\") }\n", src_expr);
+            emit_type_check(cb, fmt_str("Json.is_JObject(%s)", src_expr), field_ctx, "expected an object");
             cb_appendf(cb, "    val %s = mapb_new<%s, %s>()\n", bld, kt, vt);
             cb_appendf(cb, "    for %s, %s in Json.unwrap_JObject(%s) {\n", k, v, src_expr);
-            emit_from_json(*t.elem_err, v, entry, cb, tmp, line, col);
+            emit_from_json(*t.elem_err, v, entry, cb, tmp, line, col, NULL);
             if (t.elem->kind == TY_INT) {
                 cb_appendf(cb, "    val %s = try parse_int(%s)\n", key_n, k);
                 cb_appendf(cb, "    mapb_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, key_n, entry);
@@ -440,10 +469,10 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             char *item_val = gen_tmp(tmp, "item_val");
             char *bld = gen_tmp(tmp, "builder");
             char *et = type_name(*t.elem);
-            cb_appendf(cb, "    if !Json.is_JArray(%s) { return err(\"expected an array\") }\n", src_expr);
+            emit_type_check(cb, fmt_str("Json.is_JArray(%s)", src_expr), field_ctx, "expected an array");
             cb_appendf(cb, "    val %s = setb_new<%s>()\n", bld, et);
             cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
-            emit_from_json(*t.elem, item, item_val, cb, tmp, line, col);
+            emit_from_json(*t.elem, item, item_val, cb, tmp, line, col, NULL);
             cb_appendf(cb, "    setb_add<%s>(%s, %s)\n", et, bld, item_val);
             cb_appendf(cb, "    }\n");
             cb_appendf(cb, "    val %s = setb_to_set<%s>(%s)\n", dst_var, et, bld);
@@ -457,7 +486,7 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
                 char *inner = gen_tmp(tmp, "opt_inner");
                 cb_appendf(cb, "    var %s = Option<%s>.None\n", dst_var, elem_type_name);
                 cb_appendf(cb, "    if !Json.is_JNull(%s) {\n", src_expr);
-                emit_from_json(elem, src_expr, inner, cb, tmp, line, col);
+                emit_from_json(elem, src_expr, inner, cb, tmp, line, col, NULL);
                 cb_appendf(cb, "    %s = Option<%s>.Some(%s)\n", dst_var, elem_type_name, inner);
                 cb_appendf(cb, "    }\n");
                 return;
@@ -469,14 +498,14 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
                     for (int i = 0; i < t.type_args.count; i++) {
                         convs = fmt_str("%s, %s", convs, converter_for_type_arg(t.type_args.items[i], 0, line, col));
                     }
-                    cb_appendf(cb, "    val %s = try %s_from_json%s(%s%s)\n", dst_var, fn, type_args_text(t), src_expr, convs);
+                    emit_try_call(cb, tmp, dst_var, fmt_str("%s_from_json%s(%s%s)", fn, type_args_text(t), src_expr, convs), field_ctx);
                 } else {
-                    cb_appendf(cb, "    val %s = try %s_from_json(%s)\n", dst_var, fn, src_expr);
+                    emit_try_call(cb, tmp, dst_var, fmt_str("%s_from_json(%s)", fn, src_expr), field_ctx);
                 }
                 return;
             }
         case TY_TYPEVAR:
-            cb_appendf(cb, "    val %s = try %s(%s)\n", dst_var, converter_param_name(t.type_var_name, 0), src_expr);
+            emit_try_call(cb, tmp, dst_var, fmt_str("%s(%s)", converter_param_name(t.type_var_name, 0), src_expr), field_ctx);
             return;
         default:
             ziman_error("syntax", line, col, "derive(Json) does not support field type '%s' yet", type_name(t));
@@ -544,14 +573,14 @@ static char *generate_struct_from_json(StructDecl *sd) {
             cb_appendf(&cb, "    if Option.is_Some(%s) {\n", found);
             cb_appendf(&cb, "    val %s = Option.unwrap_Some(%s)\n", raw, found);
             cb_appendf(&cb, "    if !Json.is_JNull(%s) {\n", raw);
-            emit_from_json(elem, raw, inner, &cb, &tmp, f->line, f->col);
+            emit_from_json(elem, raw, inner, &cb, &tmp, f->line, f->col, camel);
             cb_appendf(&cb, "    %s = Option<%s>.Some(%s)\n", dst, elem_type_name, inner);
             cb_appendf(&cb, "    }\n");
             cb_appendf(&cb, "    }\n");
         } else {
             char *raw = fmt_str("field_%s_raw", f->name);
             cb_appendf(&cb, "    val %s = try json_require_field(j, \"%s\")\n", raw, camel);
-            emit_from_json(f->type, raw, dst, &cb, &tmp, f->line, f->col);
+            emit_from_json(f->type, raw, dst, &cb, &tmp, f->line, f->col, camel);
         }
         field_vars[i] = dst;
     }
@@ -635,7 +664,7 @@ static char *generate_enum_from_json(EnumDecl *ed) {
         } else {
             cb_appendf(&cb, "        val __derive_payload_raw = try json_require_field(j, \"value\")\n");
             char *dst = fmt_str("payload_%d", i);
-            emit_from_json(variant->payload_type, "__derive_payload_raw", dst, &cb, &tmp, variant->line, variant->col);
+            emit_from_json(variant->payload_type, "__derive_payload_raw", dst, &cb, &tmp, variant->line, variant->col, NULL);
             cb_appendf(&cb, "        return %s.%s(%s)\n", decl_type_text(ed->name, &ed->type_params), variant->name, dst);
         }
     }

@@ -10,7 +10,10 @@ pub fn p_to_json(v: P) -> Json {
 pub fn p_from_json(j: Json) -> Result<P, string> {
     if !Json.is_JObject(j) { return err("expected a JSON object for P") }
     val field_x_raw = try json_require_field(j, "x")
-    val field_x = try int_from_json(field_x_raw)
+    val field_x = switch int_from_json(field_x_raw) {
+        Ok(__derive_ok_0) { __derive_ok_0 }
+        Err(__derive_err_1) { return err(concat("x: ", __derive_err_1)) }
+    }
     return P {
         x: field_x
     }

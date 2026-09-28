@@ -51,7 +51,7 @@ which prints
 ```
 total units: 7
 Ok(cup x2)
-Err(expected a string)
+Err(name: expected a string)
 ```
 
 This program is `tests/fixtures/readme_example.zm`, run by the test suite, so it stays true. More examples are the other fixtures in `tests/fixtures/`.
