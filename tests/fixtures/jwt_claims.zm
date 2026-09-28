@@ -1,0 +1,79 @@
+use crypto
+use json.Json
+use json.int_to_json
+use jwt
+
+// verify refuses a token with no `exp` (it would never expire) and one whose `exp`/`nbf` is not a number; verify_claims
+// can allow an open-ended token, and require the issuer and the audience a service expects.
+
+fn show(r: Result<Json, jwt.JwtError>) {
+    switch r {
+        Ok(claims) { print("ok") }
+        Err(e) { print(jwt.jwt_error_message(e)) }
+    }
+}
+
+fn token(claims: Json) -> string {
+    return unwrap(jwt.sign(claims, string_to_bytes("a shared secret of some length")))
+}
+
+fn obj(fields: Map<string, Json>) -> Json {
+    return Json.JObject(fields)
+}
+
+fn main() {
+    val key = string_to_bytes("a shared secret of some length")
+    val now = 1000
+
+    // exp: required by default, checked, and a number
+    val no_exp = token(obj(Map<string, Json> { "sub": Json.JString("a") }))
+    show(jwt.verify_at(no_exp, key, now, 0))
+    show(jwt.verify_claims(token: no_exp, key: key, now: now))
+    show(jwt.verify_claims(token: no_exp, key: key, now: now, require_exp: false))
+    val live = token(obj(Map<string, Json> { "exp": int_to_json(2000) }))
+    show(jwt.verify_at(live, key, now, 0))
+    show(jwt.verify_at(live, key, 2000, 0))
+    show(jwt.verify_claims(token: live, key: key, now: 2005, leeway_seconds: 10))
+    val words = token(obj(Map<string, Json> { "exp": Json.JString("never") }))
+    show(jwt.verify_at(words, key, now, 0))
+    show(jwt.verify_claims(token: words, key: key, now: now, require_exp: false))
+    val words_nbf = token(obj(Map<string, Json> { "exp": int_to_json(2000), "nbf": Json.JString("soon") }))
+    show(jwt.verify_at(words_nbf, key, now, 0))
+    val early = token(obj(Map<string, Json> { "exp": int_to_json(2000), "nbf": int_to_json(1500) }))
+    show(jwt.verify_at(early, key, now, 0))
+    show(jwt.verify_at(early, key, now, 600))
+
+    // iss: only checked when one is asked for; then it must be there and equal
+    val issued = token(obj(Map<string, Json> { "exp": int_to_json(2000), "iss": Json.JString("health-record") }))
+    show(jwt.verify_claims(token: issued, key: key, now: now))
+    show(jwt.verify_claims(token: issued, key: key, now: now, issuer: "health-record"))
+    show(jwt.verify_claims(token: issued, key: key, now: now, issuer: "elsewhere"))
+    show(jwt.verify_claims(token: live, key: key, now: now, issuer: "health-record"))
+    val odd_iss = token(obj(Map<string, Json> { "exp": int_to_json(2000), "iss": int_to_json(5) }))
+    show(jwt.verify_claims(token: odd_iss, key: key, now: now, issuer: "5"))
+
+    // aud: a string, or one of an array of strings
+    val one = token(obj(Map<string, Json> { "exp": int_to_json(2000), "aud": Json.JString("web") }))
+    val many = token(obj(Map<string, Json> {
+        "exp": int_to_json(2000),
+        "aud": Json.JArray([Json.JString("mobile"), int_to_json(3), Json.JString("web")])
+    }))
+    show(jwt.verify_claims(token: one, key: key, now: now, audience: "web"))
+    show(jwt.verify_claims(token: one, key: key, now: now, audience: "mobile"))
+    show(jwt.verify_claims(token: many, key: key, now: now, audience: "web"))
+    show(jwt.verify_claims(token: many, key: key, now: now, audience: "admin"))
+    show(jwt.verify_claims(token: live, key: key, now: now, audience: "web"))
+    show(jwt.verify_claims(token: many, key: key, now: now))
+
+    // all together, and the signature is still checked first
+    show(jwt.verify_claims(token: issued, key: key, now: now, issuer: "health-record", audience: "web"))
+    show(jwt.verify_claims(token: one, key: string_to_bytes("another secret"), now: now, audience: "web"))
+
+    // reading the claims
+    val claims = unwrap(jwt.verify_claims(token: many, key: key, now: now))
+    print(jwt.audience(claims))
+    print(jwt.audience(unwrap(jwt.verify_claims(token: one, key: key, now: now))))
+    print(jwt.audience(unwrap(jwt.verify_claims(token: live, key: key, now: now))))
+    print(jwt.issuer(unwrap(jwt.verify_claims(token: issued, key: key, now: now))))
+    print(jwt.issuer(unwrap(jwt.verify_claims(token: live, key: key, now: now))))
+}

@@ -16,9 +16,18 @@ switch jwt.verify(token, key) {
 
 What `verify` checks: the token has three parts and a JSON header and payload; the header's `alg` is one of the three
 HMAC algorithms (never `none`, and never an algorithm this module cannot use with a shared key); the signature matches,
-compared in constant time; `exp` is not past and `nbf` is not in the future, each with an optional leeway. It does
-not check `iss`, `aud` or `sub`: read them from the claims. Only the signature of the token as issued protects it, so
-keep the key secret and long (32 bytes or more for HS256).
+compared in constant time; the token HAS an `exp` claim and it is not past; `nbf`, when there is one, is not in the future
+(each with an optional leeway); and an `exp` or `nbf` that is there but is not a number is an error, not "no expiry". A
+token without `exp` never expires, so `verify` refuses one unless `verify_claims(require_exp: false)` says a token may be
+open-ended. `verify_claims` can also require the issuer (`iss`) and audience (`aud`) to be the ones this service expects,
+which matters when several services share a key: without it a token issued for one is accepted by all. It does not check
+`sub`: read it from the claims. Only the signature of the token as issued protects it, so keep the key secret and long
+(32 bytes or more for HS256).
+
+
+```
+jwt.verify_claims(token: t, key: key, issuer: "health-record", audience: "web")
+```
 
 `use jwt` -- or `use jwt.Name` to bring one item in bare.
 
@@ -31,6 +40,9 @@ pub enum JwtError {
     BadSignature
     Expired
     NotYetValid
+    MissingClaim(string)
+    WrongIssuer
+    WrongAudience
 }
 ```
 
@@ -95,7 +107,7 @@ pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: i
 
 Checks `token` against `key` as of `now_seconds` (Unix time) with `leeway_seconds` of allowed clock difference on `exp`
 and `nbf`, and gives back its claims. `verify` is this with the current time; this one exists so a token can be checked at a
-chosen time.
+chosen time. The token must have an `exp`.
 
 ### `verify`
 
@@ -103,7 +115,7 @@ chosen time.
 pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError>
 ```
 
-Checks `token` against `key` now and gives back its claims.
+Checks `token` against `key` now and gives back its claims. The token must have an `exp` that is not past.
 
 ### `verify_leeway`
 
@@ -113,6 +125,27 @@ pub fn verify_leeway(token: string, key: [byte], leeway_seconds: int) -> Result<
 
 The same, forgiving `leeway_seconds` of clock difference between the issuer and this machine on `exp` and `nbf`.
 
+### `verify_claims`
+
+```
+pub fn verify_claims(
+    token: string,
+    key: [byte],
+    leeway_seconds: Option<int>,
+    now: Option<int>,
+    require_exp: Option<bool>,
+    issuer: Option<string>,
+    audience: Option<string>
+) -> Result<Json, JwtError>
+```
+
+`verify` with every check chosen, in a named call that leaves out what it does not need. `leeway_seconds` (default 0) is the
+clock difference forgiven on `exp` and `nbf`; `now` (default the current time) is the Unix time to check as of;
+`require_exp` (default true) says a token with no `exp` is refused (`MissingClaim("exp")`) -- pass false only for a token
+that is meant never to expire; `issuer`, when given, must be the token's `iss` (`WrongIssuer`, or `MissingClaim("iss")` when
+there is none); and `audience`, when given, must be the token's `aud` -- a string, or one of an array of strings
+(`WrongAudience`, or `MissingClaim("aud")`). An `exp` or `nbf` that is not a number is `Malformed` whatever `require_exp` says.
+
 ### `subject`
 
 ```
@@ -120,3 +153,20 @@ pub fn subject(claims: Json) -> Option<string>
 ```
 
 The `sub` claim, when it is a string.
+
+### `issuer`
+
+```
+pub fn issuer(claims: Json) -> Option<string>
+```
+
+The `iss` claim, when it is a string.
+
+### `audience`
+
+```
+pub fn audience(claims: Json) -> [string]
+```
+
+The audiences the `aud` claim names, in order: `["web"]` for `"aud": "web"`, the strings of an array, and `[]` when there is
+no `aud` (or it is neither).

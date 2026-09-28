@@ -43,7 +43,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [x] **D5** Compile route patterns once and dispatch by method and first segment (25 microseconds per endpoint today). (D item 14; S)
 - [x] **D6** Consolidate the eight `public_`/`secure_` endpoint builders into one with optional named parameters. (L P1-11; M) Done differently from the wording: one builder with optional parts cannot be written (`run`'s parameters differ with the parts), so the nine typed builders stay over one private `endpoint_core`, `failure:`+`fault:` become one shared `api: Api<E>`, `status:` is optional (200), and the explicit type arguments are dropped at 118 call sites.
 - [x] **D7** Parsing strictness: `parse_json("01")`, `parse_int(" 5")` and `"+5"` are accepted against the docs, and JSON big integers become floats. (D B14, L; S) Done: `01` is refused, `parse_int`/`parse_float` take no blanks or `+` (all four parsers agree), and `Json` numbers are `JNumber(Number)` with `Int`/`Float`/`Bigint`/`Decimal` (an integer past 64 bits is an exact `Bigint`; `parse_json_exact` reads fractions as `Decimal`).
-- [ ] **D8** JWT: `require_exp` (a token without `exp` never expires), plus `iss` and `aud`. (D S9; S)
+- [x] **D8** JWT: `require_exp` (a token without `exp` never expires), plus `iss` and `aud`. (D S9; S) Done: `verify` requires `exp` (and refuses an `exp`/`nbf` that is not a number); `verify_claims(issuer:, audience:, require_exp:, leeway_seconds:, now:)` checks `iss` and `aud`. The backend does not use `iss`/`aud` yet.
 
 ## E. Backend hardening and features (P1)
 

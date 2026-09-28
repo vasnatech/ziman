@@ -1,0 +1,29 @@
+the token has no 'exp' claim
+the token has no 'exp' claim
+ok
+ok
+the token has expired
+ok
+malformed token: the 'exp' claim is not a number
+malformed token: the 'exp' claim is not a number
+malformed token: the 'nbf' claim is not a number
+the token is not valid yet
+ok
+ok
+ok
+the token was issued by someone else
+the token has no 'iss' claim
+the token was issued by someone else
+ok
+the token is not for this audience
+ok
+the token is not for this audience
+the token has no 'aud' claim
+ok
+the token has no 'aud' claim
+the signature does not match
+[mobile, web]
+[web]
+[]
+Some(health-record)
+None

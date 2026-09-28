@@ -371,6 +371,9 @@ pub enum JwtError {
     BadSignature
     Expired
     NotYetValid
+    MissingClaim(string)
+    WrongIssuer
+    WrongAudience
 }
 
 pub fn jwt_error_message(e: JwtError) -> string
@@ -391,7 +394,13 @@ pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError>
 
 pub fn verify_leeway(token: string, key: [byte], leeway_seconds: int) -> Result<Json, JwtError>
 
+pub fn verify_claims(
+
 pub fn subject(claims: Json) -> Option<string>
+
+pub fn issuer(claims: Json) -> Option<string>
+
+pub fn audience(claims: Json) -> [string]
 
 ```
 

@@ -11,9 +11,15 @@
 //
 // What `verify` checks: the token has three parts and a JSON header and payload; the header's `alg` is one of the three
 // HMAC algorithms (never `none`, and never an algorithm this module cannot use with a shared key); the signature matches,
-// compared in constant time; `exp` is not past and `nbf` is not in the future, each with an optional leeway. It does
-// not check `iss`, `aud` or `sub`: read them from the claims. Only the signature of the token as issued protects it, so
-// keep the key secret and long (32 bytes or more for HS256).
+// compared in constant time; the token HAS an `exp` claim and it is not past; `nbf`, when there is one, is not in the future
+// (each with an optional leeway); and an `exp` or `nbf` that is there but is not a number is an error, not "no expiry". A
+// token without `exp` never expires, so `verify` refuses one unless `verify_claims(require_exp: false)` says a token may be
+// open-ended. `verify_claims` can also require the issuer (`iss`) and audience (`aud`) to be the ones this service expects,
+// which matters when several services share a key: without it a token issued for one is accepted by all. It does not check
+// `sub`: read it from the claims. Only the signature of the token as issued protects it, so keep the key secret and long
+// (32 bytes or more for HS256).
+//
+//     jwt.verify_claims(token: t, key: key, issuer: "health-record", audience: "web")
 
 use clock
 use crypto
@@ -33,6 +39,9 @@ pub enum JwtError {
     BadSignature
     Expired
     NotYetValid
+    MissingClaim(string)
+    WrongIssuer
+    WrongAudience
 }
 
 // The text for a JwtError.
@@ -43,6 +52,9 @@ pub fn jwt_error_message(e: JwtError) -> string {
         BadSignature { "the signature does not match" }
         Expired { "the token has expired" }
         NotYetValid { "the token is not valid yet" }
+        MissingClaim(name) { format("the token has no '{}' claim", name) }
+        WrongIssuer { "the token was issued by someone else" }
+        WrongAudience { "the token is not for this audience" }
     }
 }
 
@@ -136,8 +148,9 @@ fn decode_part(part: string, what: string) -> Result<Json, JwtError> {
     return unwrap(tree)
 }
 
-// The numeric claim `name` in seconds, when it is there and is a number.
-fn seconds_claim(payload: Json, name: string) -> Option<int> {
+// The numeric claim `name` in seconds: None when it is not there, an Err when it is there and is not a number (so a
+// token cannot pass as open-ended by saying `"exp": "never"`).
+fn seconds_claim(payload: Json, name: string) -> Result<Option<int>, JwtError> {
     if Some(value) = json_object_get(payload, name) {
         if Some(number) = json_number(value) {
             switch number {
@@ -147,14 +160,63 @@ fn seconds_claim(payload: Json, name: string) -> Option<int> {
                 Decimal(d) { return Option<int>.Some(d as int) }
             }
         }
+        return JwtError.Malformed(format("the '{}' claim is not a number", name))
     }
     return Option<int>.None
 }
 
 // Checks `token` against `key` as of `now_seconds` (Unix time) with `leeway_seconds` of allowed clock difference on `exp`
 // and `nbf`, and gives back its claims. `verify` is this with the current time; this one exists so a token can be checked at a
-// chosen time.
+// chosen time. The token must have an `exp`.
 pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: int) -> Result<Json, JwtError> {
+    return check(token, key, now_seconds, leeway_seconds, true, Option<string>.None, Option<string>.None)
+}
+
+// Checks `token` against `key` now and gives back its claims. The token must have an `exp` that is not past.
+pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError> {
+    return check(token, key, now_seconds(), 0, true, Option<string>.None, Option<string>.None)
+}
+
+// The same, forgiving `leeway_seconds` of clock difference between the issuer and this machine on `exp` and `nbf`.
+pub fn verify_leeway(token: string, key: [byte], leeway_seconds: int) -> Result<Json, JwtError> {
+    return check(token, key, now_seconds(), leeway_seconds, true, Option<string>.None, Option<string>.None)
+}
+
+// `verify` with every check chosen, in a named call that leaves out what it does not need. `leeway_seconds` (default 0) is the
+// clock difference forgiven on `exp` and `nbf`; `now` (default the current time) is the Unix time to check as of;
+// `require_exp` (default true) says a token with no `exp` is refused (`MissingClaim("exp")`) -- pass false only for a token
+// that is meant never to expire; `issuer`, when given, must be the token's `iss` (`WrongIssuer`, or `MissingClaim("iss")` when
+// there is none); and `audience`, when given, must be the token's `aud` -- a string, or one of an array of strings
+// (`WrongAudience`, or `MissingClaim("aud")`). An `exp` or `nbf` that is not a number is `Malformed` whatever `require_exp` says.
+pub fn verify_claims(
+    token: string,
+    key: [byte],
+    leeway_seconds: Option<int>,
+    now: Option<int>,
+    require_exp: Option<bool>,
+    issuer: Option<string>,
+    audience: Option<string>
+) -> Result<Json, JwtError> {
+    return check(
+        token,
+        key,
+        option_unwrap_or<int>(now, now_seconds()),
+        option_unwrap_or<int>(leeway_seconds, 0),
+        option_unwrap_or<bool>(require_exp, true),
+        issuer,
+        audience
+    )
+}
+
+fn check(
+    token: string,
+    key: [byte],
+    now: int,
+    leeway: int,
+    require_exp: bool,
+    issuer: Option<string>,
+    audience: Option<string>
+) -> Result<Json, JwtError> {
     val parts = split(token, ".")
     if len(parts) != 3 {
         return JwtError.Malformed("a token has three parts separated by dots")
@@ -179,27 +241,69 @@ pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: i
     if !Json.is_JObject(payload) {
         return JwtError.Malformed("the payload is not a JSON object")
     }
-    if Some(exp) = seconds_claim(payload, "exp") {
-        if now_seconds - leeway_seconds >= exp {
+    val exp = try seconds_claim(payload, "exp")
+    if Some(at) = exp {
+        if now - leeway >= at {
             return JwtError.Expired
         }
+    } else if require_exp {
+        return JwtError.MissingClaim("exp")
     }
-    if Some(nbf) = seconds_claim(payload, "nbf") {
-        if now_seconds + leeway_seconds < nbf {
+    val nbf = try seconds_claim(payload, "nbf")
+    if Some(from) = nbf {
+        if now + leeway < from {
             return JwtError.NotYetValid
+        }
+    }
+    if Some(wanted) = issuer {
+        val found = json_object_get(payload, "iss")
+        if !is_Some(found) {
+            return JwtError.MissingClaim("iss")
+        }
+        val actual = issuer_of(unwrap_Some(found))
+        if !is_Some(actual) || unwrap_Some(actual) != wanted {
+            return JwtError.WrongIssuer
+        }
+    }
+    if Some(wanted) = audience {
+        val found = json_object_get(payload, "aud")
+        if !is_Some(found) {
+            return JwtError.MissingClaim("aud")
+        }
+        var listed = false
+        for name in audiences_of(unwrap_Some(found)) {
+            if name == wanted {
+                listed = true
+            }
+        }
+        if !listed {
+            return JwtError.WrongAudience
         }
     }
     return payload
 }
 
-// Checks `token` against `key` now and gives back its claims.
-pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError> {
-    return verify_at(token, key, now_seconds(), 0)
+fn issuer_of(value: Json) -> Option<string> {
+    if JString(text) = value {
+        return Option<string>.Some(text)
+    }
+    return Option<string>.None
 }
 
-// The same, forgiving `leeway_seconds` of clock difference between the issuer and this machine on `exp` and `nbf`.
-pub fn verify_leeway(token: string, key: [byte], leeway_seconds: int) -> Result<Json, JwtError> {
-    return verify_at(token, key, now_seconds(), leeway_seconds)
+// The audiences an `aud` claim names: the string itself, or the strings of an array (anything else in it is ignored).
+fn audiences_of(value: Json) -> [string] {
+    if JString(text) = value {
+        return [text]
+    }
+    val names = ab_new<string>()
+    if JArray(items) = value {
+        for item in items {
+            if JString(text) = item {
+                ab_append<string>(names, text)
+            }
+        }
+    }
+    return ab_to_array<string>(names)
 }
 
 // The `sub` claim, when it is a string.
@@ -210,4 +314,22 @@ pub fn subject(claims: Json) -> Option<string> {
         }
     }
     return Option<string>.None
+}
+
+// The `iss` claim, when it is a string.
+pub fn issuer(claims: Json) -> Option<string> {
+    if Some(value) = json_object_get(claims, "iss") {
+        return issuer_of(value)
+    }
+    return Option<string>.None
+}
+
+// The audiences the `aud` claim names, in order: `["web"]` for `"aud": "web"`, the strings of an array, and `[]` when there is
+// no `aud` (or it is neither).
+pub fn audience(claims: Json) -> [string] {
+    if Some(value) = json_object_get(claims, "aud") {
+        return audiences_of(value)
+    }
+    val none: [string] = []
+    return none
 }

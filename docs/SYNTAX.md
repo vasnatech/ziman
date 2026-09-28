@@ -2804,9 +2804,18 @@ switch jwt.verify(token, key) {
   `sign` chooses the algorithm from the key's size as the common libraries do (32 bytes HS256, 48 HS384, 64
   HS512); `sign_with(claims, key, "HS512")` picks one.
 - **`verify(token, key)`** returns the claims or a `JwtError` (`Malformed`, `UnsupportedAlgorithm`, `BadSignature`,
-  `Expired`, `NotYetValid`). It refuses `alg: none` and any algorithm that is not one of the three, compares the
-  signature in constant time, and checks `exp` and `nbf`; `verify_leeway` forgives a clock difference, and
-  `verify_at(token, key, now, leeway)` checks at a chosen time. It does not look at `iss`, `aud` or `sub`.
+  `Expired`, `NotYetValid`, `MissingClaim(name)`, `WrongIssuer`, `WrongAudience`). It refuses `alg: none` and any
+  algorithm that is not one of the three, compares the signature in constant time, and checks `exp` and `nbf`;
+  `verify_leeway` forgives a clock difference, and `verify_at(token, key, now, leeway)` checks at a chosen time.
+  **A token must have an `exp`**: one without would never expire, so it is `MissingClaim("exp")`; and an `exp` or
+  `nbf` that is there but is not a number (`"exp": "never"`) is `Malformed`, never taken as "no expiry".
+- **`verify_claims`** is `verify` with every check chosen, in a named call that leaves out what it does not need:
+  `jwt.verify_claims(token: t, key: k, issuer: "health-record", audience: "web")`. `leeway_seconds` (default 0), `now`
+  (default the current time), `require_exp` (default true; `false` only for a token meant to be open-ended),
+  `issuer` and `audience`. A given `issuer` must equal the token's `iss` and a given `audience` must equal its `aud`
+  (a string) or be one of its `aud` (an array of strings); a token without the claim is `MissingClaim("iss")` or
+  `MissingClaim("aud")`. This is what stops a token issued for one service being accepted by another that shares
+  the key. `jwt.issuer(claims)` and `jwt.audience(claims)` (always a list) read them; `sub` is still `jwt.subject`.
 - Tokens from other libraries verify (checked against RFC 7515's example), and the reverse.
 
 ### One-time passwords (`otp`)
