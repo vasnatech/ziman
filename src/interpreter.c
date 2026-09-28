@@ -146,11 +146,36 @@ static __thread Env **t_defer_envs = NULL;
 static __thread int t_defer_env_count = 0;
 static __thread int t_defer_env_capacity = 0;
 
-static void defer_env_track(Env *env) {
-    if (t_defer_env_count == t_defer_env_capacity) {
-        t_defer_env_capacity = t_defer_env_capacity == 0 ? 8 : t_defer_env_capacity * 2;
-        t_defer_envs = realloc(t_defer_envs, sizeof(Env *) * (size_t)t_defer_env_capacity);
+/* The list is reachable only through the `__thread` pointer above, and the collector does not reliably scan thread-local storage: a list allocated with
+ * malloc (the collector's) can be collected under a running thread, and the next `defer` or block exit then writes into memory that has become something
+ * else -- an Env, say. So it is allocated uncollectable (a root the collector scans, which also keeps the tracked Envs alive) and given back when the thread ends. */
+static void defer_envs_grow(int capacity) {
+#ifdef ZIMAN_GC
+    Env **fresh = GC_MALLOC_UNCOLLECTABLE(sizeof(Env *) * (size_t)capacity);
+    if (t_defer_envs != NULL) {
+        memcpy(fresh, t_defer_envs, sizeof(Env *) * (size_t)t_defer_env_count);
+        GC_FREE(t_defer_envs);
     }
+#else
+    Env **fresh = realloc(t_defer_envs, sizeof(Env *) * (size_t)capacity);
+#endif
+    t_defer_envs = fresh;
+    t_defer_env_capacity = capacity;
+}
+
+static void defer_envs_release(void) {
+#ifdef ZIMAN_GC
+    if (t_defer_envs != NULL) GC_FREE(t_defer_envs);
+#else
+    free(t_defer_envs);
+#endif
+    t_defer_envs = NULL;
+    t_defer_env_count = 0;
+    t_defer_env_capacity = 0;
+}
+
+static void defer_env_track(Env *env) {
+    if (t_defer_env_count == t_defer_env_capacity) defer_envs_grow(t_defer_env_capacity == 0 ? 8 : t_defer_env_capacity * 2);
     t_defer_envs[t_defer_env_count++] = env;
     env->defers_tracked = 1;
 }
@@ -275,6 +300,7 @@ static void *spawn_thread_entry(void *raw) {
     } else {
         thread_failed(sa, boundary.message);
     }
+    defer_envs_release();
     ziman_thread_end();
     free(sa->args);
     free(sa);

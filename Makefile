@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal corelib-reference lib-manual-check
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles corelib-reference lib-manual-check
 
 all: $(BIN)
 
@@ -127,6 +127,10 @@ test-tls: $(BIN)
 test-bignum: src/bignum.c tests/unit/bignum_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_bignum_test src/bignum.c tests/unit/bignum_test.c
 	/tmp/ziman_bignum_test
+
+test-handles: src/handles.c tests/unit/handles_test.c
+	$(CC) $(PLAIN_CFLAGS) -Wl,--wrap=malloc -Wl,--wrap=calloc -o /tmp/ziman_handles_test src/handles.c tests/unit/handles_test.c
+	/tmp/ziman_handles_test
 
 test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c

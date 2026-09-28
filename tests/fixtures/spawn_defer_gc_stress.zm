@@ -1,0 +1,38 @@
+// Several threads that use `defer` while allocating heavily, so collections run under them. The list of scopes with a pending `defer` is kept per
+// thread; it must survive those collections (it once did not, and a later `defer` wrote into memory that had become an unrelated scope).
+
+fn leaf(n: int) -> int {
+    defer send_noop(n)
+    val text = format("{}-{}-{}", n, n * 2, n * 3)
+    return len(text)
+}
+
+fn send_noop(n: int) {
+    val pad = format("{}", n)
+}
+
+fn work(id: int, rounds: int, out: Channel<int>) {
+    defer send(out, id)
+    var total = 0
+    for i in 0..rounds {
+        val pieces = ab_new<string>()
+        for j in 0..40 {
+            ab_append(pieces, format("piece {} {} {}", id, i, j))
+        }
+        val joined = join(separator: ",", pieces: ab_to_array(pieces))
+        total = total + len(joined) + leaf(i)
+    }
+}
+
+fn main() {
+    val out: Channel<int> = channel_new()
+    val threads = 8
+    for id in 0..threads {
+        spawn work(id, 3000, out)
+    }
+    var sum = 0
+    for id in 0..threads {
+        sum = sum + receive(out)
+    }
+    print(sum)
+}
