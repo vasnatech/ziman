@@ -1,0 +1,97 @@
+use fs
+use log
+use log.Level
+
+// A log with `max_bytes` is rotated: the full file becomes `<file>.1`, the older ones move up, the oldest past `keep_files` is deleted.
+
+fn clean(path: string, keep: int) {
+    val _ = fs.remove(path)
+    for i in 1..(keep + 2) {
+        val _ = fs.remove(format("{}.{}", path, i))
+    }
+}
+
+fn show(path: string) {
+    if fs.exists(path) {
+        print(format("{}: {}", fs.file_name(path), replace(trim(unwrap(fs.read_text(path))), "\n", " | ")))
+    } else {
+        print(format("{}: none", fs.file_name(path)))
+    }
+}
+
+fn count_lines(path: string) -> int {
+    if !fs.exists(path) {
+        return 0
+    }
+    var n = 0
+    for line in unwrap(fs.lines(path)) {
+        if is_ok(line) {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+fn writer(l: log.Logger, id: int, count: int, done: Channel<int>) {
+    for i in 0..count {
+        log.info(l, format("w{}-{}", id, i))
+    }
+    send(done, id)
+}
+
+fn main() {
+    // Three files are kept (the live one and two old ones): 16 lines of 10 bytes, rotated at 32 bytes (after four lines), so the first four are gone.
+    val path = "/tmp/ziman_fixture_log_rotation.log"
+    clean(path, 3)
+    val l = log.logger(level: Level.Info, file: path, timestamps: false, max_bytes: 32, keep_files: 2)
+    for i in 10..26 {
+        log.info(l, format("n{}", i))
+    }
+    show(path)
+    show(format("{}.1", path))
+    show(format("{}.2", path))
+    show(format("{}.3", path))
+    clean(path, 3)
+
+    // Without max_bytes nothing is rotated.
+    val plain = log.logger(level: Level.Info, file: path, timestamps: false)
+    for i in 10..22 {
+        log.info(plain, format("n{}", i))
+    }
+    print(count_lines(path))
+    print(fs.exists(format("{}.1", path)))
+    clean(path, 3)
+
+    // keep_files: 0 just starts a fresh file.
+    val none = log.logger(level: Level.Info, file: path, timestamps: false, max_bytes: 32, keep_files: 0)
+    for i in 10..15 {
+        log.info(none, format("n{}", i))
+    }
+    show(path)
+    print(fs.exists(format("{}.1", path)))
+    clean(path, 3)
+
+    // Several threads writing while it rotates lose and repeat no line (all the files are kept, so every line can be counted).
+    val busy = log.logger(level: Level.Info, file: path, timestamps: false, max_bytes: 2000, keep_files: 500)
+    val done: Channel<int> = channel_new()
+    for id in 0..4 {
+        spawn writer(busy, id, 250, done)
+    }
+    for id in 0..4 {
+        val _ = receive(done)
+    }
+    var total = count_lines(path)
+    var rotated = 0
+    for i in 1..501 {
+        val n = count_lines(format("{}.{}", path, i))
+        total = total + n
+        if n > 0 {
+            rotated = rotated + 1
+        }
+    }
+    print(total)
+    print(rotated > 5)
+    for i in 0..501 {
+        val _ = fs.remove(if i == 0 { path } else { format("{}.{}", path, i) })
+    }
+}

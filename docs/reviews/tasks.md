@@ -57,7 +57,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [ ] **E8** Close the account-enumeration gap on wrong-provider login and correct the README claim. (D S6; S)
 - [ ] **E9** Extract a shared CRUD helper to cut the six-layer copy per resource. (D item 16; M-L)
 - [ ] **E10** Fill the Spring gaps clients need: `/api/users/me*`, medication `color`, codes, doses and refills. (D item 17; L)
-- [ ] **E11** Small ones: `interaction-check` captured by `/{id}`, timestamp text ordering when nanos is 0, pagination and log rotation for high-volume lists. (D B9, B11, item 21; S-M)
+- [x] **E11** Small ones: `interaction-check` captured by `/{id}`, timestamp text ordering when nanos is 0, pagination and log rotation for high-volume lists. (D B9, B11, item 21; S-M) Done: `GET /api/me/medications/interaction-check` is a route ahead of `/{id}` answering 501 (the feature is Spring's, not built here); `instant_to_sql` always writes the nine-digit fraction (so text order is time order) with a backend migration V026 that rewrites stored whole-second values; `?page=&size=` on health-events, vital-signs and body-measurements answers a Spring-shaped `Page` (no `page`/`size`: the array as before); `log` rotates a file at `max_bytes` keeping `keep_files` (backend `logging.max-bytes`/`logging.keep-files`), and the admin log/audit reads stream the tail instead of loading the file. Found on the way: a loader bug with aliased type arguments of a generic enum (fixed, fixture).
 
 ## F. Longer term and documentation (P2)
 

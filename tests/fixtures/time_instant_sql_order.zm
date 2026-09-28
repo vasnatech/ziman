@@ -1,0 +1,47 @@
+use collections
+use db.SqlValue
+use time
+
+// `instant_to_sql` always writes the nine-digit fraction, so text order (what a TEXT column sorts by) is time order; the short form of
+// `instant_to_string` would put a whole second after a fraction of the same second, because `Z` sorts after `.`.
+
+fn text_of(v: SqlValue) -> string {
+    return switch v {
+        Text(t) { t }
+        Int(n) { str(n) }
+        Float(f) { str(f) }
+        Bool(b) { str(b) }
+        Bytes(b) { "bytes" }
+        Null { "null" }
+    }
+}
+
+fn at(seconds: int, nanos: int) -> time.Instant {
+    return time.instant_of(seconds, nanos)
+}
+
+fn main() {
+    val whole = at(1600000000, 0)
+    val half = at(1600000000, 500000000)
+    val tiny = at(1600000000, 1)
+    val before = at(1599999999, 999999999)
+    print(time.instant_to_string(whole))
+    print(time.instant_to_string(half))
+    print(text_of(time.instant_to_sql(whole)))
+    print(text_of(time.instant_to_sql(half)))
+    print(text_of(time.instant_to_sql(tiny)))
+    val texts = [
+        text_of(time.instant_to_sql(half)),
+        text_of(time.instant_to_sql(whole)),
+        text_of(time.instant_to_sql(before)),
+        text_of(time.instant_to_sql(tiny))
+    ]
+    for t in collections.sort<string>(texts) {
+        print(t)
+    }
+    print(is_ok(time.instant_from_sql(time.instant_to_sql(half))))
+    val short = time.instant_from_sql(SqlValue.Text("2020-09-13T12:26:40Z"))
+    val long = time.instant_from_sql(SqlValue.Text("2020-09-13T12:26:40.000000000Z"))
+    print(unwrap(short) == unwrap(long))
+    print(unwrap(short) == whole)
+}

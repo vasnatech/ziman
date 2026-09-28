@@ -1147,7 +1147,10 @@ A `ZoneId` from a SQL text column in its ISO form; a DbError for NULL, a non-tex
 pub fn instant_to_sql(v: Instant) -> SqlValue
 ```
 
-`Instant` as a SQL text value in its ISO form.
+`Instant` as a SQL text value in its ISO form, always with the nine-digit fraction (`2026-09-24T13:05:09.000000000Z`), which `instant_to_string` leaves off for a
+whole second. A column of text is sorted as text, and `Z` sorts after `.`, so with the short form a whole second would sort after a fraction of the same
+second (`...:09Z` after `...:09.5Z`); every value the same width sorts in time order. `instant_from_sql` (and `instant_from_string`) read either form, so a
+column that already holds short values still reads back; `ORDER BY` on one that mixes the two is only right once the old values are rewritten.
 
 ### `instant_from_sql`
 

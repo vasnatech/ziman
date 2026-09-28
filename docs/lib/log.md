@@ -15,6 +15,11 @@ log.debug(logger, "not printed: below the Info threshold")
 A line looks like `2026-09-24T12:00:00.123Z INFO  listening on port 8080`.
 Messages below the logger's level are dropped without being written.
 
+A logger with a `file` can rotate it (`max_bytes`, `keep_files`): a file that has reached `max_bytes` is renamed `<file>.1`, the older `<file>.1` becoming `<file>.2`
+and so on up to `<file>.<keep_files>`, and the oldest is deleted, before the next line is written to a fresh `<file>`. So a log never grows past about
+`max_bytes` (plus one line) in the file that is written, nor past `keep_files` more of them. Without `max_bytes` a log is never rotated (the operator's `logrotate`
+does it, or nothing does).
+
 `use log` -- or `use log.Name` to bring one item in bare.
 
 ## Example
@@ -69,6 +74,8 @@ pub struct Logger {
     timestamps: bool
     prefix: string
     console: bool
+    max_bytes: int
+    keep_files: int
 }
 ```
 
@@ -82,7 +89,9 @@ pub fn logger(
     file: Option<string>,
     timestamps: Option<bool>,
     prefix: Option<string>,
-    console: Option<bool>
+    console: Option<bool>,
+    max_bytes: Option<int>,
+    keep_files: Option<int>
 ) -> Logger
 ```
 
@@ -91,7 +100,7 @@ stderr; with one it appends to that file (a failed write falls back to
 stderr, so a log line is never silently lost). `timestamps: false` leaves the
 time off, for output that is compared in tests. With `console: true` a logger that has a `file` also
 writes every line to stderr, as a server does that logs to a file for the record and to the console for whoever
-is watching.
+is watching. `max_bytes` (0 or left out: never) rotates the file when it reaches that size, keeping `keep_files` old ones (default 5; 0 keeps none).
 
 ### `with_prefix`
 

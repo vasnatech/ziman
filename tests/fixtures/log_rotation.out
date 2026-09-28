@@ -1,0 +1,10 @@
+ziman_fixture_log_rotation.log: INFO  n22 | INFO  n23 | INFO  n24 | INFO  n25
+ziman_fixture_log_rotation.log.1: INFO  n18 | INFO  n19 | INFO  n20 | INFO  n21
+ziman_fixture_log_rotation.log.2: INFO  n14 | INFO  n15 | INFO  n16 | INFO  n17
+ziman_fixture_log_rotation.log.3: none
+12
+false
+ziman_fixture_log_rotation.log: INFO  n14
+false
+1000
+true

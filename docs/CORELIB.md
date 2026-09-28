@@ -420,6 +420,8 @@ pub struct Logger {
     timestamps: bool
     prefix: string
     console: bool
+    max_bytes: int
+    keep_files: int
 }
 
 pub fn logger(

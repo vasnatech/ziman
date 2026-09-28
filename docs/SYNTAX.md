@@ -2781,6 +2781,11 @@ back to stderr if the file can't be written); anything below the logger's
 level is dropped. `with_prefix` makes a per-component logger,
 `level_parse("warn")` reads a level from configuration.
 
+A logger with a `file` can rotate it: `log.logger(..., max_bytes: 10485760, keep_files: 5)`. A file that has reached
+`max_bytes` is renamed `<file>.1` before the next line is written to a fresh `<file>`; the older `.1` becomes `.2`, and so on up to
+`.<keep_files>`, and the one past that is deleted (`keep_files: 0` just deletes it). Without `max_bytes` (the default) nothing is
+rotated. It is safe with several threads logging to one file: rotating takes a lock, and the size is checked again under it.
+
 ## Cryptography
 
 The `crypto` core module is hashes, message authentication, key derivation, password hashing and base64 on
