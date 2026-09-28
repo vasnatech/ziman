@@ -3428,6 +3428,49 @@ returned to the OS; sockets, SQLite connections and TLS sessions are closed by
 hand as before; and conservative scanning can retain garbage that looks like a
 pointer.
 
+**The collector, not the connection pool, is why throughput does not scale with
+client threads (2026-09-28, F2/P2-1).** The developer review measured
+`GET /api/me/allergies` at 496/654/506 req/s across 1/4/8 client threads on a
+16-core box -- flat, not climbing with concurrency -- and named two suspects
+without testing either: "GC allocation lock or the single connection-owner
+thread per DB connection." Both are now checked. **Ruled out: the connection
+pool.** `open_pool` collapses `sqlite::memory:` to one raw connection whatever
+`pool-size` says (`lib/db/datasource.zm`'s own comment: "every in-memory
+connection is its own private database"), which matches the "single
+connection-owner thread" description exactly -- but giving the same benchmark
+a real 4-connection pool (a file-backed SQLite database instead of `:memory:`)
+did not help: 334/500/379 req/s across 1/4/8, the same flat shape. **Confirmed:
+the collector.** `tests/bench/server_concurrency.sh` (new; registers one
+account against the real backend, `serve.zm`, then runs `ab` at each
+concurrency level) run against `./ziman` (the collector build) and
+`./ziman-nogc` (never frees, leaks unboundedly, kept only for measuring) on
+identical in-memory-SQLite config:
+
+| build | c=1 | c=4 | c=8 | c=16 |
+| --- | --- | --- | --- | --- |
+| `ziman` (collector) | 347 | 584 | 429 | 361 |
+| `ziman-nogc` | 500 | 1,319 | 1,711 | 2,552 |
+
+The collector build is flat-to-declining past c=4 -- c=16 is *worse* than c=1 --
+while the no-collector build keeps climbing through c=16 and is 7x faster
+there. Single-threaded (c=1), the gap is small (347 vs 500, the ordinary cost
+of `GC_MALLOC` per allocation already measured above); the gap opens
+specifically as concurrent request-handling threads increase, which is the
+signature of a lock every allocating thread contends on, not a per-allocation
+constant cost -- consistent with a stop-the-world pause (every other thread
+must halt while one collects) becoming more frequent and more disruptive the
+more concurrently-allocating threads there are to halt. The 2-marker,
+32 MB-initial-heap tuning above was chosen for RSS and single-request latency;
+it was never tuned against concurrent throughput, which is a different
+objective. **Not done:** finding a collector configuration (marker count,
+incremental mode, a larger initial heap to push the first collection later,
+`GC_MALLOC` call frequency in the interpreter's own hot paths) that keeps the
+flat RSS win without the scaling collapse -- that is follow-up work, not this
+measurement. This does not touch F2/P2-1's other half (raw single-threaded
+dispatch speed, `strcmp` identifier lookup) at all; slot resolution or
+compiling to closures would still be needed for that independently of
+whatever the collector ends up costing under concurrency.
+
 ## Bounded channels and backpressure (R10 remainder)
 
 `channel_new(capacity)` makes a bounded channel: `send` blocks while `capacity`
