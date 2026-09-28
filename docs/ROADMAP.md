@@ -524,6 +524,40 @@ from source.
 - **A real test harness beyond tests/run_tests.sh's stdout/substring
   matching** — fine for now, will need line/col assertions once
   diagnostics get richer.
+- **`#[deprecated]` and `#[experimental]` as interpreted attributes, not just
+  prose.** F4 (2026-09-28) just labeled `pg`/`mysql`/`toml`/`yaml`
+  "experimental" the only way available today: a sentence in each module's
+  header comment, the README's module table and DESIGN.md, all hand-written,
+  none of it checked by the compiler or visible to an editor. The grammar
+  already has room for this — `#[...]` above a `pub fn`/`struct`/`enum`/`val`
+  is a general, reusable mechanism (`src/parser.c`'s `parse_attributes`); any
+  name not already interpreted (`derive`, `thread_bound`, `thread_key`,
+  `test`) "is parsed ... but silently has no effect yet" by design, so
+  `#[deprecated]`/`#[deprecated("use X instead")]` and `#[experimental]`
+  already parse today with zero grammar work. What's missing is giving them
+  meaning: at minimum, `ziman --lint` (or the type checker itself) flags a
+  cross-module use of a `#[deprecated]` item, with the attribute's message if
+  it gave one — same-module use is left alone, since the author obviously
+  already knows. `open_session_with_timeout` (superseded by
+  `open_session_with_timeouts`, kept only for its existing callers, see
+  DESIGN.md's E7 entry) is a real, already-in-the-library candidate.
+  `#[experimental]` is the softer case F4 actually needed: probably no
+  warning by default, but a natural place for `tools/gen_lib_manual.py` and
+  `tools/gen_corelib_reference.sh` to generate the "Experimental" callout
+  automatically instead of it being hand-copied into each module's
+  `describe()` entry and header comment separately, which is exactly the
+  kind of drift-prone duplication `derive`'s own "can't silently drift from
+  the code" argument was made for elsewhere in this project's own tooling.
+  Not designed in detail: a **module-level** attribute (F4 flagged whole
+  modules, not individual functions) is new grammar surface, since `#[...]`
+  today always precedes one specific declaration, never stands alone at the
+  top of a file — needs its own decision on syntax and on what a module-level
+  `#[deprecated]` even warns about (every `use` of the module? every call
+  into it?); whether a deprecation warning is a `--lint`-only opt-in or a
+  compiler warning by default (needs "warnings/notes as a separate severity"
+  from the `--json` entry above, itself still open); and whether
+  `#[deprecated]` should ever become a hard error (a "deny" policy) once a
+  removal is actually scheduled, or stay a warning forever.
 
 ## Larger, needs its own design pass
 
