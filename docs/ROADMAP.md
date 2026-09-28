@@ -1274,7 +1274,7 @@ from source.
   (local Postgres often uses one), UDP, and a connect timeout beyond the
   OS default. ~~An `http` module (server first, pure Ziman on `net`)~~
   **done as a toolkit** (docs/DESIGN.md's `http` entry); still open there:
-  TLS (`listen_tls`), chunked request bodies, HTTP/2, multipart,
+  ~~TLS (`listen_tls`), chunked request bodies~~ **done**, HTTP/2 (its own entry below), multipart,
   compression, `Date`/`Server` headers, and -- once Ziman has function
   values -- a real `serve(listener, handler)` and route table on top of
   the same matcher.
@@ -1386,6 +1386,43 @@ from source.
   (`#[derive(Json)]` already gives the function; an `Encoder` for JSON, YAML or CSV from one declaration would shorten the
   table). Streaming bodies (an `InputStream`/`OutputStream` analogue: a request body read in blocks, a response written
   as it is produced) are not planned until an endpoint needs them.
+
+- **HTTP/2 -- not started; worth doing when something needs to serve browsers or gRPC directly.** `server` and `client`
+  speak HTTP/1.1 (and 1.0), `server` in pure Ziman on `net`, over TLS from the system OpenSSL, with no ALPN. Behind a reverse
+  proxy that terminates HTTP/2 and talks HTTP/1.1 upstream (the usual deployment, and the health-record backend's) nothing is
+  missing, so this waits for a direct-exposure or gRPC need. What it takes, in order:
+  1. **ALPN in `net`.** The server side offers `h2` and `http/1.1` on `listen_tls` (`SSL_CTX_set_alpn_select_cb`) and the
+     accepted socket says which was chosen (something like `net.negotiated_protocol(sock) -> Option<string>`); the client side
+     offers a list on `connect_tls_with`. Small, and useful on its own. Cleartext HTTP/2 would be prior-knowledge only: the
+     `Upgrade: h2c` route was dropped from the standard (RFC 9113) and is not planned.
+  2. **Framing and HPACK, and the bit operations they need.** A 9-byte frame header (24-bit length, type, flags, 31-bit stream
+     id), `DATA`/`HEADERS`/`CONTINUATION`/`SETTINGS`/`PING`/`GOAWAY`/`RST_STREAM`/`WINDOW_UPDATE` (`PRIORITY` read and
+     ignored), and HPACK: the static and dynamic tables, prefix-coded integers and Huffman decoding. All of it is bit work, and
+     Ziman has no bitwise operators (`bytes_xor` is the only bit primitive; see the bitwise-operator question above). Three
+     ways, to decide when this starts: a small set of bit primitives in `number` (`bit_and`/`bit_or`/`shift_left`/...), which
+     also opens CRCs and flag words to everyone; HPACK as natives in C (encode and decode over `[byte]` and header arrays,
+     roughly 500 lines) with framing left in Ziman; or linking nghttp2 (a new system dependency and a much larger surface
+     than the rest of the natives, in exchange for a conformant implementation). The first two keep the current "system
+     libraries plus one vendored collector" footprint.
+  3. **A server that multiplexes.** `serve` is a thread per connection with a slot channel bounding them. HTTP/2 carries many
+     concurrent streams on one connection, so a connection gets a reader thread that parses frames and hands each finished
+     request to a handler thread for that stream, and every write goes through one writer (an actor thread reached over a
+     channel, which `channel_close`, `receive_timeout` and `select2` now make workable). `Request`/`Response` stay as they are,
+     so `Endpoint`, `dispatch` and every handler are untouched, and `SETTINGS_MAX_CONCURRENT_STREAMS` reuses the slot idea per
+     connection. Per-stream and per-connection flow-control windows are new state to keep; a body is still buffered whole
+     (up to 1 MiB), so `DATA` frames just accumulate. Response trailers, which gRPC needs and HTTP/1.1 chunked responses never
+     had here, are a separate addition.
+  4. **The hardening again, plus HTTP/2's own.** Everything D4 added applies per stream (the bounded head and body, the
+     whole-request deadline, refusing a header value with a control character), and HTTP/2 brings its own floods to cap:
+     rapid reset (`RST_STREAM` after `HEADERS`, CVE-2023-44487), `CONTINUATION` floods, `SETTINGS` and `PING` floods, an HPACK
+     dynamic table sized by the peer, and the header list size. These are the reason to be careful about this being a
+     conformant implementation and not a quick one: the h2spec suite is the reference to run it against.
+  5. **The client.** `client` would negotiate `h2` over TLS and multiplex requests to one host on one connection; its
+     idle-connection pool (`net.idle_put`/`idle_take`, keyed by host, one request per connection) is HTTP/1-shaped and would
+     need a per-connection stream table instead.
+  Not planned: server push (removed by the browsers that made it worth having), the priority tree (replaced by RFC 9218), and
+  HTTP/3 (QUIC is its own UDP transport, not a framing layer on `net`'s TCP sockets, and OpenSSL only gained QUIC in 3.5). Testing has two halves: curl (`--http2`) against the server, and a
+  frame-level test client written in Ziman, which doubles as the start of the client half.
 
 - **`ziman test` and a `test` assertion module -- done; a project-root marker -- not started.** `#[test]` on a
   zero-parameter function (or `#[test(cases: NAME)]` on a one-parameter one, run once per element of `NAME`'s
