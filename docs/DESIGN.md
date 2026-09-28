@@ -3471,6 +3471,55 @@ dispatch speed, `strcmp` identifier lookup) at all; slot resolution or
 compiling to closures would still be needed for that independently of
 whatever the collector ends up costing under concurrency.
 
+**A tuning pass on the follow-up above (2026-09-28): a bigger initial heap
+helps a lot, nothing else tried does, and the scaling collapse is not fully
+fixable by configuration alone.** All four levers are plain environment
+variables the collector already reads (`GC_INITIAL_HEAP_SIZE`, `GC_MARKERS`,
+`GC_ENABLE_INCREMENTAL`), so none of this needed a rebuild. `GET
+/api/me/allergies`, `ab -k` (keep-alive, so a thread serves many requests
+instead of one, matching how `server.zm` is actually used):
+
+| configuration | c=1 | c=8 | c=16 |
+| --- | --- | --- | --- |
+| shipped (32 MB heap, 2 markers) | 389 | 609 | 473 |
+| `GC_INITIAL_HEAP_SIZE=512M` | 509 | 897 | 633 |
+| `GC_INITIAL_HEAP_SIZE=2G` | 483 | 964 | 661 |
+| `GC_INITIAL_HEAP_SIZE=512M` `GC_MARKERS=8` | 520 | 931 | 638 |
+| `GC_INITIAL_HEAP_SIZE=512M`, with `-k` | 596 | 1,176 | 831 |
+| `GC_INITIAL_HEAP_SIZE=512M` `GC_ENABLE_INCREMENTAL=1`, with `-k` | 365 | 143 | 144 |
+| `ziman-nogc`, with `-k` (ceiling reference) | 687 | 3,384 | 3,996 (c=32: 3,989) |
+
+A bigger initial heap is a real, free win at every concurrency level (30-80%
+over shipped) with no downside found in this test -- **except the one the
+32 MB default exists for**: the collector became the default build
+specifically to keep RSS flat and low (the measured "42 MB flat" result
+above), and a 512 MB-or-larger initial heap spends that budget up front
+whether or not the workload ever needs it, which is a real cost for a small
+deployment even though it is invisible to a throughput benchmark. More marker
+threads add nothing once the heap is bigger (confirms the existing 2-marker
+choice, made to avoid a many-core machine's markers competing with request
+threads, was not leaving throughput on the table). Incremental mode is not
+just slower on a single-threaded micro-benchmark as already measured -- it is
+*catastrophic* under this concurrent workload (about 8x slower at c=8, worse
+than useless), almost certainly its write-barrier/dirty-page tracking
+fighting the same many-threads-mutating-concurrently shape that makes
+stop-the-world expensive here in the first place; reject it for this
+workload, not just deprioritise it. **None of it removes the ceiling**: even
+the best configuration found (bigger heap plus keep-alive) still peaks around
+c=8 and *declines* by c=16, while `ziman-nogc` keeps climbing past c=32 --
+the gap between them (3,996 vs 831 at c=16, 4.8x) is only a little smaller
+than the untuned gap was. Closing it needs either less garbage generated per
+request (fewer `GC_MALLOC` calls in the interpreter's hot paths -- ties back
+to F2's other half, since a slot-resolved or closure-compiled interpreter
+plausibly also allocates less per call) or the deeper memory-reclamation
+redesign already on the roadmap ("Larger, needs its own design pass":
+refcounting or per-thread/per-request arenas), not a configuration change.
+**Not done, and a real decision for whoever picks this up:** whether the
+bigger initial heap is worth shipping as the new default given the RSS
+trade-off, possibly as a `datasource`/`server`-style configurable rather than
+a hardcoded constant in `main.c`, so a deployment can choose its own point on
+the throughput/RSS trade-off instead of the project picking one for everyone.
+
 ## Bounded channels and backpressure (R10 remainder)
 
 `channel_new(capacity)` makes a bounded channel: `send` blocks while `capacity`
@@ -3975,4 +4024,16 @@ The language-design review (P2-2) named a real inconsistency: `Eq`, `Hash` and `
 **`?`'s missing error conversion (P1-2) is unrelated and already solved a different way** -- `#[from]` on an enum variant (C2, done), a closed per-variant attribute, not a bound. It does not need this mechanism, and this decision does not touch it.
 
 The set stays closed and compiler-known (`Eq`, `Hash`, `Ord`, and now `Row`) -- a user still cannot declare their own bound. That is the traits stance: narrow, purpose-built extensions to one existing mechanism when a concrete program hits a wall, never a general, user-extensible protocol system.
+
+## Experimental modules: `pg`, `mysql`, `toml`, `yaml` (2026-09-28, F4)
+
+The language-design review's risk 3 (§6) named a real tension: one project owns a tree-walking interpreter, a type checker, an LSP, a linear-time regex engine, TLS/SCRAM clients, three database drivers, four data formats, JWT, OTP and a migration tool, and every one of them is surface the core language's own changes must keep green. P2-9's fix is policy, not code: freeze the modules that carry the most of that risk as "experimental" until the core is hardened, rather than implicitly promising the same stability for all of them.
+
+**Why these four, and not the rest of the library.** Two different reasons land on the same four modules. `pg` and `mysql` each reimplement a real wire protocol end to end in Ziman -- authentication, TLS negotiation, the extended/binary protocol, error mapping -- by far the largest, most externally-specified surface in the library; each module's own "what it does not" paragraph is long enough (MD5/Kerberos/COPY/LISTEN-NOTIFY for `pg`; the RSA exchange, the compressed protocol, LOCAL INFILE, multiple result sets for `mysql`) that neither is a small, closed problem the way `uuid` or `csv` are. `toml` and `yaml` are format converters of the same shape as `json`, but unlike `json` -- which the entire reference backend speaks for every request and response, so every edge case is exercised constantly -- neither is used anywhere in `health-record-backend-ziman`: each has its own test suite, but no real program has ever depended on either one in a load-bearing way. `sqlite` stays out of "experimental" on purpose: it is the reference backend's actual, constantly-exercised database, has by far the fewest open gaps of the three engines, and flagging it would leave the North Star application with nothing to run on.
+
+**What "experimental" means, concretely.** Not "broken" or "do not use" -- all four pass their own test suites and are already documented as honestly as any other module, each with its own "what it does not support" list. It means: a protocol-conformance bug is more likely to still be hiding in these four than elsewhere in the library, simply because they have had less real usage to find one, and the project makes no special effort to avoid a breaking change to one of them ahead of hardening the core -- the same posture the language itself already takes pre-1.0. Someone picking Postgres for production, or reading a config file with `toml`, should know that going in.
+
+**What graduates a module out of experimental.** The same test this project already applies to language decisions (see "The traits/interfaces stance" above): sustained real use by a concrete program, not a calendar date or a feature checklist. If the reference backend, or another real Ziman program, comes to depend on `toml`/`yaml`/`mysql` the way it already depends on `json`/`sqlite`/`pg`, that module's flag comes off then.
+
+**Where the label lives.** Each of the four modules' own header comment (so `docs/lib/toml.md`, `docs/lib/yaml.md`, `docs/lib/pg.md` and `docs/lib/mysql.md`, generated from it, carry the label too), README.md's module table, and `docs/CORELIB.md`'s per-module description (`tools/gen_corelib_reference.sh`'s `describe()`, which had no entry for `pg`/`mysql` at all before this -- added along with the label).
 

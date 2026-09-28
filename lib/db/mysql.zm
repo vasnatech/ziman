@@ -4,6 +4,10 @@
 // `crypto` (SHA-1 / SHA-256 for the login scramble); nothing here is
 // native at all.
 //
+// Experimental (see docs/DESIGN.md "Experimental modules: pg, mysql, toml, yaml"): a real
+// wire protocol reimplemented end to end, the largest externally-specified surface in the
+// library, so treat a protocol-conformance gap as more likely here than elsewhere.
+//
 // What it supports:
 //   * Authentication: `mysql_native_password` and `caching_sha2_password`
 //     (the MySQL 8 default), including the server's request to switch

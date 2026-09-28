@@ -977,7 +977,7 @@ pub fn reset<T>(key: ThreadLocal<T>)
 
 ## `toml`
 
-TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.
+**Experimental** (see docs/DESIGN.md "Experimental modules"). TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.
 
 ```
 pub fn parse_toml(text: string) -> Result<Json, string>
@@ -1021,7 +1021,7 @@ pub fn uuid_compare(a: Uuid, b: Uuid) -> int
 
 ## `yaml`
 
-A strict YAML 1.2 subset to and from a `Json` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors.
+**Experimental** (see docs/DESIGN.md "Experimental modules"). A strict YAML 1.2 subset to and from a `Json` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors.
 
 ```
 pub fn parse_yaml(text: string) -> Result<Json, string>
@@ -1226,6 +1226,8 @@ pub fn run(conn: Connection, dir: string) -> Result<int, DbError>
 
 ## `mysql`
 
+**Experimental** (see docs/DESIGN.md "Experimental modules"). A MySQL/MariaDB client, the third engine behind `datasource`: the text and binary protocols, `mysql_native_password`/`caching_sha2_password` authentication, TLS. No compressed protocol, LOCAL INFILE, the RSA key exchange, or prepared-statement reuse.
+
 ```
 pub struct Connection {
     requests: Channel<Request>
@@ -1245,6 +1247,8 @@ pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<R
 ```
 
 ## `pg`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). A PostgreSQL client, the second engine behind `datasource`: the simple and extended query protocols, trust/cleartext/SCRAM-SHA-256 authentication, TLS. No MD5 auth, Kerberos, client certificates, COPY or LISTEN/NOTIFY.
 
 ```
 pub native fn float_to_text(f: float) -> string

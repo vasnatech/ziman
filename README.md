@@ -95,10 +95,14 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `fs`, `os`, `clock`, `random` | files, environment and process, time source, entropy |
 | `time` | `java.time`-shaped dates, times, durations, instants |
 | `uuid`, `number`, `crypto` | UUIDs, number formatting/parsing and binary encodings, SHA-256/HMAC/PBKDF2/base64 |
-| `json`, `ndjson`, `csv`, `toml`, `yaml` | JSON, and the other formats as converters to and from the same `Json` tree |
+| `json`, `ndjson`, `csv`, `toml`\*, `yaml`\* | JSON, and the other formats as converters to and from the same `Json` tree |
 | `properties`, `log`, `regex` | configuration files, levelled logging, regular expressions |
 | `net`, `http`, `server`, `client` | TCP and TLS, the types HTTP shares, an HTTP/1.1 server toolkit, an HTTP/HTTPS client |
-| `db`, `sql`, `sqlite`, `pg`, `mysql` | one database API over SQLite, PostgreSQL and MySQL, with pooling |
+| `db`, `sql`, `sqlite`, `pg`\*, `mysql`\* | one database API over SQLite, PostgreSQL and MySQL, with pooling |
+
+\* Experimental: less real-world use than the rest of the library, so treat a gap or a
+protocol-conformance bug as more likely here. See [docs/DESIGN.md](docs/DESIGN.md)
+"Experimental modules".
 
 Builtins available without `use`: `print`, `printf`, `format`, `str`, `len`,
 `push`, `insert`, `set`, `remove`, `contains`, `hash`, `compare`, `abs`,

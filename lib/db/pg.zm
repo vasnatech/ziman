@@ -4,6 +4,10 @@
 // `crypto` (SCRAM-SHA-256); nothing here is native but the exact float
 // formatting. It speaks protocol version 3.0.
 //
+// Experimental (see docs/DESIGN.md "Experimental modules: pg, mysql, toml, yaml"): a real
+// wire protocol reimplemented end to end, the largest externally-specified surface in the
+// library, so treat a protocol-conformance gap as more likely here than elsewhere.
+//
 // What it supports: trust, cleartext-password and SCRAM-SHA-256
 // authentication (the default since Postgres 14); the simple query
 // protocol for parameterless statements (which also lets `execute` take a
