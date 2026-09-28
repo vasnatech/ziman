@@ -1,6 +1,7 @@
-// math.zm -- floating-point math beyond the four basic operators and the three rounding
-// builtins (`floor`/`ceil`/`round`, which take a float but return an int -- see docs/SYNTAX.md
-// "Numbers"). Everything here is a `float` in, `float` out, one-line wrapper over libm.
+// math.zm -- floating-point math beyond the four basic operators, the rounding functions
+// (`floor`/`ceil`/`round` to an `int`, and `floor_float`/`ceil_float`/`round_float` that keep a
+// `float`), and `decimal`'s own rounding and integer power. The transcendental functions are
+// `float` in, `float` out, one-line wrappers over libm.
 //
 // A domain error (`sqrt` of a negative number, `log` of zero or a negative number) is NaN, the
 // same as C, Java and JavaScript, and the same value `parse_float("nan")` already produces --
@@ -33,12 +34,38 @@ pub native fn sin(x: float) -> float
 pub native fn cos(x: float) -> float
 pub native fn tan(x: float) -> float
 
-// `floor`/`ceil`/`round`'s own float-preserving counterparts: the bare builtins convert to
-// `int`, which loses magnitude past 2^63 and can't represent NaN or infinity -- these round the
-// same three ways (down, up, nearest with ties away from zero) but keep the value a `float`.
-pub native fn floor(x: float) -> float
-pub native fn ceil(x: float) -> float
-pub native fn round(x: float) -> float
+// The largest whole number not above `x`: `floor(-1.5)` is -2.
+pub native fn floor(x: float) -> int
+
+// The smallest whole number not below `x`: `ceil(-1.5)` is -1.
+pub native fn ceil(x: float) -> int
+
+// `x` to the nearest whole number, halves away from zero: `round(2.5)` is 3, `round(-2.5)` is -3.
+pub native fn round(x: float) -> int
+
+// The same three roundings, but the result stays a `float`: `floor` and friends convert to `int`,
+// which loses magnitude past 2^63 and can't represent NaN or infinity.
+pub native fn floor_float(x: float) -> float
+pub native fn ceil_float(x: float) -> float
+pub native fn round_float(x: float) -> float
+
+// `d` rounded to `scale` decimal places, halves away from zero: `decimal_round(1.235d, 2)` is 1.24.
+pub native fn decimal_round(d: decimal, scale: int) -> decimal
+
+// `d` rounded down to `scale` decimal places, toward negative infinity: `decimal_floor(1.29d, 1)`
+// is 1.2, `decimal_floor(-1.21d, 1)` is -1.3.
+pub native fn decimal_floor(d: decimal, scale: int) -> decimal
+
+// `d` rounded up to `scale` decimal places, toward positive infinity: `decimal_ceil(1.21d, 1)`
+// is 1.3, `decimal_ceil(-1.29d, 1)` is -1.2.
+pub native fn decimal_ceil(d: decimal, scale: int) -> decimal
+
+// `base` to a non-negative integer `exponent`, exact: `decimal_pow(1.5d, 2)` is 2.25. A runtime
+// error if `exponent` is negative -- there's no one right scale to round a negative power's
+// division to (see docs/DESIGN.md); `numerator / decimal_pow(base, -exponent)` gets it,
+// `numerator`'s own scale picking `/`'s target the same way it does for any other division
+// (e.g. `1.0000d / decimal_pow(2d, 3)` is `0.1250`; a bare `1d`, scale 0, would round to `0`).
+pub native fn decimal_pow(base: decimal, exponent: int) -> decimal
 
 // True for NaN ("not a number": the result of `sqrt(-1.0)`, `log(-1.0)`, `parse_float("nan")`,
 // ...), which is the only float that does not equal itself -- the IEEE-754 definition, used

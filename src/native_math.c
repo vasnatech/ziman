@@ -3,6 +3,8 @@
 
 #include <math.h>
 
+#include "decimal.h"
+#include "error.h"
 #include "native.h"
 #include "value.h"
 
@@ -48,19 +50,64 @@ static Value native_math_tan(Value *args, int argc, int line, int col) {
     return value_float(tan(args[0].as.f));
 }
 
-static Value native_math_floor(Value *args, int argc, int line, int col) {
+static Value native_math_floor_float(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     return value_float(floor(args[0].as.f));
 }
 
-static Value native_math_ceil(Value *args, int argc, int line, int col) {
+static Value native_math_ceil_float(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     return value_float(ceil(args[0].as.f));
 }
 
-static Value native_math_round(Value *args, int argc, int line, int col) {
+static Value native_math_round_float(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     return value_float(round(args[0].as.f));
+}
+
+/* The int-returning roundings and `decimal`'s directional roundings and integer power. They lived in
+ * the prelude (bare, no `use`) before this module; see docs/DESIGN.md. */
+static Value native_math_floor(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_int((int64_t)floor(args[0].as.f));
+}
+
+static Value native_math_ceil(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_int((int64_t)ceil(args[0].as.f));
+}
+
+static Value native_math_round(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_int((int64_t)round(args[0].as.f));
+}
+
+static Value native_math_decimal_round(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_decimal(decimal_round(*args[0].as.dec, (int)args[1].as.i));
+}
+
+static Value native_math_decimal_floor(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_decimal(decimal_floor(*args[0].as.dec, (int)args[1].as.i));
+}
+
+static Value native_math_decimal_ceil(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_decimal(decimal_ceil(*args[0].as.dec, (int)args[1].as.i));
+}
+
+static Value native_math_decimal_pow(Value *args, int argc, int line, int col) {
+    (void)argc;
+    int64_t exponent = args[1].as.i;
+    if (exponent < 0) {
+        ziman_error("runtime", line, col,
+                    "decimal_pow: exponent must be non-negative, found %lld (for a negative one, divide "
+                    "a decimal of your target scale by decimal_pow(base, -exponent) instead, e.g. "
+                    "1.0000d / math.decimal_pow(base, -exponent))",
+                    (long long)exponent);
+    }
+    return value_decimal(decimal_pow(*args[0].as.dec, (int)exponent));
 }
 
 void native_math_register(void) {
@@ -71,7 +118,14 @@ void native_math_register(void) {
     native_register("math::sin", native_math_sin);
     native_register("math::cos", native_math_cos);
     native_register("math::tan", native_math_tan);
+    native_register("math::floor_float", native_math_floor_float);
+    native_register("math::ceil_float", native_math_ceil_float);
+    native_register("math::round_float", native_math_round_float);
     native_register("math::floor", native_math_floor);
     native_register("math::ceil", native_math_ceil);
     native_register("math::round", native_math_round);
+    native_register("math::decimal_round", native_math_decimal_round);
+    native_register("math::decimal_floor", native_math_decimal_floor);
+    native_register("math::decimal_ceil", native_math_decimal_ceil);
+    native_register("math::decimal_pow", native_math_decimal_pow);
 }

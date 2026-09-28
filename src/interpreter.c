@@ -1049,10 +1049,19 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 }
                 result = value_channel(e->resolved_type, channel_obj_new(limit));
             } else if (strcmp(e->as.call.callee, "send") == 0) {
-                channel_send(args[0].as.ch, args[1]);
+                if (channel_send(args[0].as.ch, args[1])) {
+                    ziman_error("runtime", e->line, e->col, "send on a closed channel");
+                }
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "try_send") == 0) {
-                result = value_bool(channel_try_send(args[0].as.ch, args[1]));
+                int status = channel_try_send_status(args[0].as.ch, args[1]);
+                if (status == 2) {
+                    ziman_error("runtime", e->line, e->col, "try_send on a closed channel");
+                }
+                result = value_bool(status == 0);
+            } else if (strcmp(e->as.call.callee, "channel_close") == 0) {
+                channel_close(args[0].as.ch);
+                result = value_int(0);
             } else if (strcmp(e->as.call.callee, "channel_len") == 0) {
                 result = value_int(channel_length(args[0].as.ch));
             } else if (strcmp(e->as.call.callee, "try_receive") == 0) {
@@ -1063,7 +1072,31 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
             } else if (strcmp(e->as.call.callee, "receive") == 0) {
-                result = channel_receive(args[0].as.ch);
+                Value got;
+                if (!channel_receive(args[0].as.ch, &got)) {
+                    ziman_error("runtime", e->line, e->col,
+                                "receive on a closed, empty channel (use receive_option to handle a channel being closed)");
+                }
+                result = got;
+            } else if (strcmp(e->as.call.callee, "receive_option") == 0) {
+                Value got;
+                if (channel_receive(args[0].as.ch, &got)) {
+                    result = value_enum(e->resolved_type, enum_obj_new("Option", "Some", 1, got));
+                } else {
+                    result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                }
+            } else if (strcmp(e->as.call.callee, "receive_timeout") == 0) {
+                Value got;
+                if (channel_receive_timeout(args[0].as.ch, args[1].as.i, &got)) {
+                    result = value_enum(e->resolved_type, enum_obj_new("Option", "Some", 1, got));
+                } else {
+                    result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                }
+            } else if (strcmp(e->as.call.callee, "select2") == 0) {
+                Value got;
+                int first;
+                channel_select2(args[0].as.ch, args[1].as.ch, &first, &got);
+                result = value_enum(e->resolved_type, enum_obj_new("Selected", first ? "First" : "Second", 1, got));
             } else {
                 FunctionDecl *fn = find_function(module, e->as.call.callee);
                 result = call_function(module, fn, args, argc, e->as.call.variadic_tail_is_array_spread, e->line, e->col);

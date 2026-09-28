@@ -1,0 +1,21 @@
+use clock
+
+fn late(ch: Channel<string>) {
+    clock.sleep_millis(30)
+    send(ch, "arrived")
+}
+
+fn main() {
+    val ch: Channel<string> = channel_new()
+    print(receive_timeout(ch, 20))
+    send(ch, "now")
+    print(receive_timeout(ch, 20))
+
+    // Given long enough, a value that is still on its way is delivered.
+    spawn late(ch)
+    print(receive_timeout(ch, 5000))
+
+    // A closed, empty channel ends the wait early with None rather than running out the clock.
+    channel_close(ch)
+    print(receive_timeout(ch, 5000))
+}

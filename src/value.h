@@ -151,6 +151,7 @@ typedef struct ChannelObj {
     int count;
     int capacity;  /* size of `items` */
     int limit;     /* 0 = unbounded; otherwise `send` blocks while `count == limit` */
+    int closed;    /* set by channel_close; see its own comment */
 } ChannelObj;
 
 Value value_int(int64_t i);
@@ -223,12 +224,37 @@ StructObj *struct_obj_new(char **field_names, Value *fields, int count);
 ResultObj *result_obj_new(int is_ok, Value value);
 EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Value payload);
 ChannelObj *channel_obj_new(int limit);
-void channel_send(ChannelObj *ch, Value v);
-Value channel_receive(ChannelObj *ch);
-/* Non-blocking: 1 on success, 0 if the channel is full / empty. */
-int channel_try_send(ChannelObj *ch, Value v);
+/* Blocks until sent or the channel is closed. Returns 1 if it was closed (nothing sent), 0 on
+ * success -- the caller (interpreter.c) turns 1 into a runtime error, same as `channel_new`'s
+ * own capacity check does for its argument. */
+int channel_send(ChannelObj *ch, Value v);
+/* Blocks until a value arrives or the channel is closed and drained (already-queued values are
+ * still delivered after close -- closing only means no *more* will be sent). Returns 1 with
+ * *out set, or 0 if closed and empty. */
+int channel_receive(ChannelObj *ch, Value *out);
+/* Same as channel_receive, but gives up after `millis` milliseconds: 0 either way (timed out, or
+ * closed and empty) -- the two aren't distinguished, the same blur a `select` with a timeout
+ * case has elsewhere. */
+int channel_receive_timeout(ChannelObj *ch, int64_t millis, Value *out);
+/* Non-blocking: 1 = sent, 0 = full or closed (channel_try_send distinguishes the two so
+ * interpreter.c can raise on closed but return `false` on full, same reasoning `channel_send`
+ * has for `send` vs a plain runtime error). */
+int channel_try_send_status(ChannelObj *ch, Value v); /* 0 = sent, 1 = full, 2 = closed */
 int channel_try_receive(ChannelObj *ch, Value *out);
 int channel_length(ChannelObj *ch);
+/* No more values will ever be sent. Idempotent (closing twice is harmless, unlike Go's channels).
+ * Wakes every blocked send/receive so none of them wait forever for something that will never
+ * come. */
+void channel_close(ChannelObj *ch);
+/* Waits on two channels of possibly different element types at once, whichever gets a value
+ * first: *out_first is set to 1 for `a`, 0 for `b`, and *out to the value. Built by polling both
+ * with channel_try_receive and a short sleep between rounds -- Ziman's channels are plain
+ * userspace mutex+condvar, with no OS-level or interpreter-runtime primitive to block on either
+ * of two independent ones at once the way a real `select` needs to -- so this has the same
+ * unbounded-wait characteristic `channel_receive` already has (if both channels are closed and
+ * stay empty forever, this polls forever) plus a small, bounded scheduling latency (up to the
+ * poll interval) that a from-scratch runtime-level select would not have. */
+void channel_select2(ChannelObj *a, ChannelObj *b, int *out_first, Value *out);
 
 int value_equals(Value a, Value b);
 

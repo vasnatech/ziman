@@ -1,0 +1,35 @@
+use clock
+
+fn later(ch: Channel<string>) {
+    clock.sleep_millis(30)
+    send(ch, "word")
+}
+
+fn describe(r: Selected<int, string>) -> string {
+    if Selected.is_First(r) {
+        return format("number {}", Selected.unwrap_First(r))
+    }
+    return format("word {}", Selected.unwrap_Second(r))
+}
+
+fn main() {
+    val nums: Channel<int> = channel_new()
+    val words: Channel<string> = channel_new()
+
+    // Whichever channel already has a value is the one selected, and the two may differ in type.
+    send(nums, 5)
+    print(describe(select2(nums, words)))
+    send(words, "hello")
+    print(describe(select2(nums, words)))
+
+    // Both empty: waits for the first to arrive.
+    spawn later(words)
+    print(describe(select2(nums, words)))
+
+    // A closed channel with values still queued is selectable; both ready -> the first is preferred.
+    send(nums, 1)
+    send(words, "w")
+    channel_close(nums)
+    print(describe(select2(nums, words)))
+    print(describe(select2(nums, words)))
+}

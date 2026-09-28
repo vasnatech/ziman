@@ -3,8 +3,6 @@ fn main() {
     // Parsing returns a Result, so bad text is a value you handle.
     print(parse_int("42"))
     print(parse_int("4x2"))
-    print(round(2.5))
-    print(decimal_round(1.235d, 2))
 
     // Strings are UTF-8 and positions are bytes.
     print(split("a,b,,c", ","))

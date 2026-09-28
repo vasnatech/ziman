@@ -143,7 +143,7 @@ pub fn parse_byte(s: string) -> Result<byte, string> {
 // shape. The pattern support is a deliberate subset: no `0`-versus-`#` distinction (both force a
 // decimal place), no percent, no scientific notation, no positive/negative subpatterns, no
 // literal prefix or suffix, and only groups of three. Forcing fewer decimal places than a value
-// has *truncates*: rounding is `round` / `decimal_round`'s job, and a formatter that also rounded
+// has *truncates*: rounding is `math.round` / `math.decimal_round`'s job, and a formatter that also rounded
 // would show one value two ways depending on what touched it last.
 
 // How a number is written: the character between groups of three integer digits ("" for none),

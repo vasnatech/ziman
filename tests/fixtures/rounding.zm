@@ -1,8 +1,10 @@
+use math
+
 fn main() {
-    print(floor(3.7))
-    print(ceil(3.2))
-    print(round(3.5))
-    print(round(3.4))
-    print(floor(-3.2))
-    print(ceil(-3.7))
+    print(math.floor(3.7))
+    print(math.ceil(3.2))
+    print(math.round(3.5))
+    print(math.round(3.4))
+    print(math.floor(-3.2))
+    print(math.ceil(-3.7))
 }

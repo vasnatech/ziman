@@ -1,0 +1,20 @@
+use math
+use math.pi
+
+fn main() {
+    // Transcendental functions are float in, float out; a domain error is NaN, not a Result.
+    print(math.sqrt(2.0))
+    print(math.pow(2.0, 10.0))
+    print(math.sin(pi / 2.0))
+    print(math.is_nan(math.sqrt(-1.0)))
+
+    // floor/ceil/round give an int; the _float versions keep a float.
+    print(math.round(2.5))
+    print(math.floor(-1.5))
+    print(math.ceil_float(1.2))
+
+    // decimal rounds to a scale, exactly, and raises to a whole-number power exactly.
+    print(math.decimal_round(1.235d, 2))
+    print(math.decimal_floor(-1.21d, 1))
+    print(math.decimal_pow(1.5d, 2))
+}

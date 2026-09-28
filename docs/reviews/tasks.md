@@ -38,7 +38,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 
 - [x] **D1** `ziman test` with `assert` and `assert_eq`. (L P1-6, D item 15; M)
 - [ ] **D2** `str(float)` as shortest round-trip; `format` precision and `{{` escapes; a small `math` module; float exponent literals. (L P1-7, D; M). Part done: `str`/`print`/`format` shortest-round-trip floats, and a `math` module (plus `decimal_pow`/`decimal_floor`/`decimal_ceil`, added on request). Not done: `format` precision specifiers, `{{`/`}}` escapes, `format_dynamic`, float exponent literals -- see ROADMAP.md.
-- [ ] **D3** Channel additions: `channel_close`, `receive_timeout` and a two-channel `select`. (L P1-10; M)
+- [x] **D3** Channel additions: `channel_close`, `receive_timeout` and a two-channel `select`. (L P1-10; M)
 - [ ] **D4** HTTP server hardening: reject duplicate or differing `Content-Length` and `+N` (request smuggling), require `Host`, validate response header values (CRLF injection), add a total header-read deadline. (D B7, B8, item 13; M)
 - [ ] **D5** Compile route patterns once and dispatch by method and first segment (25 microseconds per endpoint today). (D item 14; S)
 - [ ] **D6** Consolidate the eight `public_`/`secure_` endpoint builders into one with optional named parameters. (L P1-11; M)

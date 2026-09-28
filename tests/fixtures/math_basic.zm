@@ -12,13 +12,16 @@ fn main() {
     print(math.sin(0.0))
     print(math.cos(0.0))
     print(math.tan(0.0))
+    print(math.floor_float(2.7))
+    print(math.ceil_float(2.1))
+    print(math.round_float(2.5))
+    print(math.round_float(-2.5))
+    print(math.is_nan(1.0))
+    print(math.is_nan(pi))
+
+    // floor/ceil/round give an int; the _float versions above keep a float.
     print(math.floor(2.7))
     print(math.ceil(2.1))
     print(math.round(2.5))
     print(math.round(-2.5))
-    print(math.is_nan(1.0))
-    print(math.is_nan(pi))
-
-    // math.floor/ceil/round are distinct from the bare, int-returning builtins.
-    print(floor(2.7))
 }

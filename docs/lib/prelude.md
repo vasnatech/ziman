@@ -21,8 +21,6 @@ fn main() {
     // Parsing returns a Result, so bad text is a value you handle.
     print(parse_int("42"))
     print(parse_int("4x2"))
-    print(round(2.5))
-    print(decimal_round(1.235d, 2))
 
     // Strings are UTF-8 and positions are bytes.
     print(split("a,b,,c", ","))
@@ -53,8 +51,6 @@ Output:
 ```
 Ok(42)
 Err(cannot parse '4x2' as int)
-3
-1.24
 [a, b, , c]
 Some([key, a=b])
 bbb
@@ -100,68 +96,6 @@ native fn parse_decimal(s: string) -> Result<decimal, string>
 
 A decimal from digits with an optional fraction, keeping the scale as written (`"1.50"` stays
 `1.50`), or an Err.
-
-### `floor`
-
-```
-native fn floor(x: float) -> int
-```
-
-The largest whole number not above `x`: `floor(-1.5)` is -2.
-
-### `ceil`
-
-```
-native fn ceil(x: float) -> int
-```
-
-The smallest whole number not below `x`: `ceil(-1.5)` is -1.
-
-### `round`
-
-```
-native fn round(x: float) -> int
-```
-
-`x` to the nearest whole number, halves away from zero: `round(2.5)` is 3, `round(-2.5)` is -3.
-
-### `decimal_round`
-
-```
-native fn decimal_round(d: decimal, scale: int) -> decimal
-```
-
-`d` rounded to `scale` decimal places, halves away from zero: `decimal_round(1.235d, 2)` is 1.24.
-
-### `decimal_floor`
-
-```
-native fn decimal_floor(d: decimal, scale: int) -> decimal
-```
-
-`d` rounded down to `scale` decimal places, toward negative infinity: `decimal_floor(1.29d, 1)`
-is 1.2, `decimal_floor(-1.21d, 1)` is -1.3.
-
-### `decimal_ceil`
-
-```
-native fn decimal_ceil(d: decimal, scale: int) -> decimal
-```
-
-`d` rounded up to `scale` decimal places, toward positive infinity: `decimal_ceil(1.21d, 1)`
-is 1.3, `decimal_ceil(-1.29d, 1)` is -1.2.
-
-### `decimal_pow`
-
-```
-native fn decimal_pow(base: decimal, exponent: int) -> decimal
-```
-
-`base` to a non-negative integer `exponent`, exact: `decimal_pow(1.5d, 2)` is 2.25. A runtime
-error if `exponent` is negative -- there's no one right scale to round a negative power's
-division to (see docs/DESIGN.md); `numerator / decimal_pow(base, -exponent)` gets it,
-`numerator`'s own scale picking `/`'s target the same way it does for any other division
-(e.g. `1.0000d / decimal_pow(2d, 3)` is `0.1250`; a bare `1d`, scale 0, would round to `0`).
 
 ## Strings
 
@@ -361,6 +295,19 @@ enum Option<T> {
 A value that may be absent: `Some(value)` or `None`. Test with `Option.is_Some(o)` and read
 with `Option.unwrap_Some(o)`, or with a `switch`. Available bare, like `Result`; unlike
 `Result` it is ordinary Ziman source, an enum with one helper function.
+
+### `Selected`
+
+```
+enum Selected<A, B> {
+    First(A)
+    Second(B)
+}
+```
+
+Which of `select2`'s two channels had a value first, and the value: `First(a)` or `Second(b)`.
+Named for what it is rather than a general `Either`, which programs commonly declare themselves
+and a bare prelude `Either` would then collide with. Available bare, like `Option`.
 
 ### `option_unwrap_or`
 

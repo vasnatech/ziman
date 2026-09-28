@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "bignum.h"
 #include "decimal.h"
@@ -355,6 +356,7 @@ ChannelObj *channel_obj_new(int limit) {
     ch->count = 0;
     ch->capacity = 0;
     ch->limit = limit;
+    ch->closed = 0;
     return ch;
 }
 
@@ -381,31 +383,70 @@ static Value channel_pop_locked(ChannelObj *ch) {
     return v;
 }
 
-void channel_send(ChannelObj *ch, Value v) {
+int channel_send(ChannelObj *ch, Value v) {
     pthread_mutex_lock(&ch->mutex);
-    while (ch->limit > 0 && ch->count >= ch->limit) {
+    while (!ch->closed && ch->limit > 0 && ch->count >= ch->limit) {
         pthread_cond_wait(&ch->not_full, &ch->mutex);
+    }
+    if (ch->closed) {
+        pthread_mutex_unlock(&ch->mutex);
+        return 1;
     }
     channel_push_locked(ch, v);
     pthread_mutex_unlock(&ch->mutex);
+    return 0;
 }
 
-int channel_try_send(ChannelObj *ch, Value v) {
+int channel_try_send_status(ChannelObj *ch, Value v) {
     pthread_mutex_lock(&ch->mutex);
-    int ok = !(ch->limit > 0 && ch->count >= ch->limit);
-    if (ok) channel_push_locked(ch, v);
+    int status;
+    if (ch->closed) {
+        status = 2;
+    } else if (ch->limit > 0 && ch->count >= ch->limit) {
+        status = 1;
+    } else {
+        channel_push_locked(ch, v);
+        status = 0;
+    }
     pthread_mutex_unlock(&ch->mutex);
-    return ok;
+    return status;
 }
 
-Value channel_receive(ChannelObj *ch) {
+int channel_receive(ChannelObj *ch, Value *out) {
     pthread_mutex_lock(&ch->mutex);
-    while (ch->count == 0) {
+    while (ch->count == 0 && !ch->closed) {
         pthread_cond_wait(&ch->not_empty, &ch->mutex);
     }
-    Value v = channel_pop_locked(ch);
+    if (ch->count == 0) {
+        pthread_mutex_unlock(&ch->mutex);
+        return 0;
+    }
+    *out = channel_pop_locked(ch);
     pthread_mutex_unlock(&ch->mutex);
-    return v;
+    return 1;
+}
+
+int channel_receive_timeout(ChannelObj *ch, int64_t millis, Value *out) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    if (millis < 0) millis = 0;
+    deadline.tv_sec += (time_t)(millis / 1000);
+    deadline.tv_nsec += (long)(millis % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000L;
+    }
+    pthread_mutex_lock(&ch->mutex);
+    while (ch->count == 0 && !ch->closed) {
+        if (pthread_cond_timedwait(&ch->not_empty, &ch->mutex, &deadline) != 0) break;
+    }
+    if (ch->count == 0) {
+        pthread_mutex_unlock(&ch->mutex);
+        return 0;
+    }
+    *out = channel_pop_locked(ch);
+    pthread_mutex_unlock(&ch->mutex);
+    return 1;
 }
 
 int channel_try_receive(ChannelObj *ch, Value *out) {
@@ -414,6 +455,23 @@ int channel_try_receive(ChannelObj *ch, Value *out) {
     if (ok) *out = channel_pop_locked(ch);
     pthread_mutex_unlock(&ch->mutex);
     return ok;
+}
+
+void channel_close(ChannelObj *ch) {
+    pthread_mutex_lock(&ch->mutex);
+    ch->closed = 1;
+    pthread_cond_broadcast(&ch->not_empty);
+    pthread_cond_broadcast(&ch->not_full);
+    pthread_mutex_unlock(&ch->mutex);
+}
+
+void channel_select2(ChannelObj *a, ChannelObj *b, int *out_first, Value *out) {
+    for (;;) {
+        if (channel_try_receive(a, out)) { *out_first = 1; return; }
+        if (channel_try_receive(b, out)) { *out_first = 0; return; }
+        struct timespec pause = {0, 1000000L}; /* 1 ms */
+        nanosleep(&pause, NULL);
+    }
 }
 
 int channel_length(ChannelObj *ch) {

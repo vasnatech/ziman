@@ -440,11 +440,25 @@ pub native fn cos(x: float) -> float
 
 pub native fn tan(x: float) -> float
 
-pub native fn floor(x: float) -> float
+pub native fn floor(x: float) -> int
 
-pub native fn ceil(x: float) -> float
+pub native fn ceil(x: float) -> int
 
-pub native fn round(x: float) -> float
+pub native fn round(x: float) -> int
+
+pub native fn floor_float(x: float) -> float
+
+pub native fn ceil_float(x: float) -> float
+
+pub native fn round_float(x: float) -> float
+
+pub native fn decimal_round(d: decimal, scale: int) -> decimal
+
+pub native fn decimal_floor(d: decimal, scale: int) -> decimal
+
+pub native fn decimal_ceil(d: decimal, scale: int) -> decimal
+
+pub native fn decimal_pow(base: decimal, exponent: int) -> decimal
 
 pub fn is_nan(x: float) -> bool
 

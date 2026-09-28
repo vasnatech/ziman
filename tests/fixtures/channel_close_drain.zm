@@ -1,0 +1,48 @@
+use clock
+
+fn producer(ch: Channel<int>) {
+    send(ch, 1)
+    send(ch, 2)
+    channel_close(ch)
+}
+
+fn closer(ch: Channel<int>) {
+    clock.sleep_millis(50)
+    channel_close(ch)
+}
+
+fn main() {
+    // Values queued before the close are still delivered; then receive_option says None.
+    val ch: Channel<int> = channel_new()
+    send(ch, 10)
+    send(ch, 20)
+    channel_close(ch)
+    print(receive_option(ch))
+    print(receive_option(ch))
+    print(receive_option(ch))
+    print(try_receive(ch))
+    print(channel_len(ch))
+
+    // A producer thread that closes when done: a consumer loop needs no sentinel value.
+    val work: Channel<int> = channel_new()
+    spawn producer(work)
+    var total = 0
+    var open = true
+    while open {
+        val got = receive_option(work)
+        if Option.is_Some(got) {
+            total = total + Option.unwrap_Some(got)
+        } else {
+            open = false
+        }
+    }
+    print(total)
+
+    // A receiver already blocked when the channel is closed is woken, not left waiting forever.
+    val idle: Channel<int> = channel_new()
+    spawn closer(idle)
+    print(receive_option(idle))
+
+    // Closing twice is harmless.
+    channel_close(idle)
+}

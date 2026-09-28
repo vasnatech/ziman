@@ -320,7 +320,7 @@ fn main() {
     print(total)                        // 21.639175 -- exact, no binary rounding drift
 
     print(10d / 3d)                     // 3 -- rounds half-up to the operands' own scale
-    print(decimal_round(1.2345d, 2))    // 1.23
+    print(math.decimal_round(1.2345d, 2))  // 1.23 (needs `use math`)
 }
 ```
 
@@ -329,10 +329,10 @@ fn main() {
 - **All of `float`'s operators/builtins work**: `+ - * / %`, unary `-`,
   `< > <= >= == !=`, `str`, `abs`, `min`/`max`, `hash`, and
   `parse_decimal(s: string) -> Result<decimal, string>`.
-  `decimal_round(d: decimal, scale: int) -> decimal` is `decimal`'s
-  equivalent of `floor`/`ceil`/`round` — a separate name, not an
+  `math.decimal_round(d: decimal, scale: int) -> decimal` (in the `math` module, so `use math`)
+  is `decimal`'s equivalent of `math.floor`/`ceil`/`round` — a separate name, not an
   overload of `round`, since Ziman has no argument-based overloading
-  anywhere (every builtin name maps to exactly one signature).
+  anywhere (every name maps to exactly one signature).
 - **`+`/`-` align scales first and are always exact**: `1.5d + 0.25d` is
   `1.75d`, never rounded. **`*` needs no alignment and is always
   exact**: `1.5d * 0.25d` is `0.375d` (scale 3). **`/` doesn't always
@@ -2902,7 +2902,7 @@ fn main() {
   positive/negative subpatterns, no literal prefix/suffix text or
   escaping, no custom (e.g. Indian-style) grouping sizes.
 - **Forcing fewer decimal places than a value has truncates, never
-  rounds** — rounding is `round`/`decimal_round`'s job, not a
+  rounds** — rounding is `math.round`/`math.decimal_round`'s job, not a
   formatter's; a formatter that also rounded would mean the same value
   could display differently depending on what last touched it.
 - **A value already in scientific notation is passed through
@@ -2960,18 +2960,26 @@ fn main() {
   unwrapping. (This is unlike `1.0 / 0.0`, which is a runtime error in Ziman, not an infinity —
   `/` checks for a zero divisor on `float` the same as it does on `int`, so `math` never
   produces a value your own arithmetic couldn't already have produced some other way.)
-- **`math.floor`/`math.ceil`/`math.round`** are the float-preserving counterparts of the bare
-  `floor`/`ceil`/`round` builtins (which convert to `int`, above): same three rounding rules —
-  down, up, nearest with ties away from zero — but the result stays a `float`, for a magnitude
-  too large for `int` or a value that needs to stay `float` for further arithmetic.
+- **`math.floor`/`math.ceil`/`math.round`** round a `float` to an `int` — down, up, nearest with
+  ties away from zero (`math.round(2.5)` is 3, `math.round(-2.5)` is -3) — and take only a
+  `float` (an `int` is already rounded). **`math.floor_float`/`ceil_float`/`round_float`** apply
+  the same three rules but keep the result a `float`, for a magnitude too large for `int` (they
+  are not limited to 2^63, and can hold NaN or infinity) or a value that needs to stay `float`
+  for further arithmetic. These used to be bare prelude builtins (`floor(x)` with no `use`); they
+  moved into `math` together with the `decimal_*` functions below, so `floor(x)` alone is now an
+  undefined function — write `use math` and `math.floor(x)`.
 - **No decimal equivalent for the irrational ones.** `sqrt`/`exp`/`log`/`sin`/`cos`/`tan` are
   irrational for almost every input, so there's no exact `decimal` answer to compute — casting
   through `float` (`math.sqrt(x as float) as decimal`, rounded to a scale of your choosing with
-  `decimal_round`) is the practical route, the same tradeoff `decimal_to_double`/`as float` /
-  `as decimal` already make explicit elsewhere. `decimal_pow`, `decimal_floor` and
-  `decimal_ceil` (a non-negative integer power, and rounding to a given scale) *are* exact,
-  since a whole-number power and a rounding are not irrational the way the others are — see
-  "Builtins" above.
+  `math.decimal_round`) is the practical route, the same tradeoff `decimal_to_double`/`as float` /
+  `as decimal` already make explicit elsewhere. `math.decimal_round`, `math.decimal_floor`,
+  `math.decimal_ceil` (rounding to a given number of decimal places: to nearest with halves away
+  from zero, toward negative infinity, toward positive infinity) and `math.decimal_pow(base,
+  exponent)` (a non-negative integer power) *are* exact, since a whole-number power and a
+  rounding are not irrational the way the others are. A negative `exponent` is a runtime error
+  naming the `numerator / math.decimal_pow(base, -exponent)` composition instead, since there is
+  no scale to pick for that division on `decimal_pow`'s own (`1.0000d / math.decimal_pow(2d, 3)`
+  is `0.1250`; a bare `1d`, scale 0, would divide down to `0`).
 
 ## Result
 
@@ -3152,6 +3160,25 @@ fn main() {
   Option<T>` never block (`false`/`None` when full/empty), and
   `channel_len(chan) -> int` is how many values are waiting. A bounded `send`
   with nobody receiving waits forever; there is no deadlock detection.
+- **Closing, timed receives, and waiting on two channels.** `channel_close(chan)` says no more
+  values will ever be sent (closing twice is harmless). Values already queued are still
+  delivered after a close; it only stops new ones. `send`/`try_send` on a closed channel is a
+  runtime error (the producer broke its own promise), and a `send` blocked on a full bounded
+  channel is woken by the close and fails the same way. Plain `receive` on a channel that is
+  closed *and* empty is a runtime error too, instead of waiting forever -- a code path that
+  expects to see a close uses `receive_option(chan) -> Option<T>`, which blocks like `receive`
+  but returns `None` once the channel is closed and drained, so a consumer loop needs no
+  sentinel value. `receive_timeout(chan, millis) -> Option<T>` gives up after `millis`
+  milliseconds with `None`; a timeout and a closed-and-empty channel both give `None` (they are
+  not told apart). `select2(a, b) -> Selected<A, B>` waits on two channels, possibly of
+  different element types, and returns whichever has a value first: `Selected.First(x)` from
+  `a`, `Selected.Second(y)` from `b` (test with `Selected.is_First(r)` and read with
+  `Selected.unwrap_First(r)`; `Selected` is a bare prelude enum like `Option`). If both are
+  ready `a` wins. It is built by polling both channels with a 1 ms pause between rounds, so it
+  can add up to about a millisecond of latency, and it has `receive`'s no-deadlock-detection
+  property: two channels that are never sent to wait forever. The names avoid a general
+  `Either`, which programs commonly declare themselves and a bare prelude `Either` would then
+  collide with.
 - **`channel_new()` can't infer its own type** (the call itself, zero
   arguments, carries no information about what it's a channel *of*) —
   same "expected type from context" mechanism `ok(...)`/`err(...)` and
@@ -3420,23 +3447,9 @@ a type error.
   no implicit mixing between any of the four (consistent with the
   language's general no-implicit-coercion rule). Not `byte` — see
   "Numbers" above.
-- `floor(x: float) -> int` / `ceil(x: float) -> int` / `round(x: float)
-  -> int` — round towards negative infinity / positive infinity /
-  nearest (ties away from zero). All three take only `float` (an `int`
-  is already rounded) and return `int`, since that's the type the result
-  actually is. `math.floor`/`math.ceil`/`math.round` (see "The `math`
-  module" below) are the float-preserving versions, for a value too
-  large to fit `int` or that needs to stay a `float` for later
-  arithmetic. `decimal_round(d: decimal, scale: int) -> decimal`,
-  `decimal_floor(d: decimal, scale: int) -> decimal` and
-  `decimal_ceil(d: decimal, scale: int) -> decimal` are `decimal`'s
-  equivalents (rounding to `scale` places, not to a whole number) — see
-  "Numbers" above for why they're separate names rather than overloads.
-  `decimal_pow(base: decimal, exponent: int) -> decimal` raises `base`
-  to a non-negative integer `exponent`, exact (a fractional exponent has
-  no exact decimal answer — see "The `math` module"); a negative one is
-  a runtime error naming the `numerator / decimal_pow(base, -exponent)`
-  composition instead, since there's no scale to pick for the division on `decimal_pow`'s own.
+- Rounding (`floor`/`ceil`/`round`, `decimal_round`/`decimal_floor`/`decimal_ceil`) and
+  `decimal_pow` are not builtins any more: they live in the `math` module (see "The `math`
+  module").
 - `push(arr: [T], x: T) -> [T]` — a new array with `x` appended. `arr = push(arr, x)` in
   a loop is amortised O(1) per call: the result keeps up to twice its length in spare
   room, and the next `push` on the *newest* version of that array writes into it

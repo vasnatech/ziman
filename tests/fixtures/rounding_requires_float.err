@@ -1,1 +1,1 @@
-'floor' expects float, found int
+argument 1 of 'math::floor' expects float, found int

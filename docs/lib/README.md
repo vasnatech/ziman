@@ -25,7 +25,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`yaml`](yaml.md) | A strict YAML 1.2 subset on top of `json`. |
 | [`properties`](properties.md) | Spring-Boot-style configuration. |
 | [`number`](number.md) | Numbers as text and as bytes: formatting and parsing with separators, hex, shortest-text floats, and the fixed-width big-endian integers binary protocols use. |
-| [`math`](math.md) | Floating-point math beyond the four basic operators and the three rounding builtins. |
+| [`math`](math.md) | Floating-point math beyond the four basic operators, the rounding functions. |
 | [`uuid`](uuid.md) | UUIDs (RFC 4122): random version 4, time-ordered version 7, and the canonical text form. |
 | [`regex`](regex.md) | Regular expressions: a native engine that runs in time linear in the text (no backreferences), with patterns compiled once and cached. |
 | [`compress`](compress.md) | Gzip and zlib (deflate) compression, on zlib. |

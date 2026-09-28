@@ -1407,7 +1407,7 @@ from source.
   (D2, language review P1-7/S7/S8.) Done: `str`/`print`/`format` now display a `float` as the shortest
   round-trip text (matching `number.float_to_text`/JSON, and always with a `.` or `e` so it never reads like an
   `int`); a `math` module (`sqrt`/`pow`/`exp`/`log`/`sin`/`cos`/`tan`/`is_nan`/`pi`/`e`, float-preserving
-  `floor`/`ceil`/`round`); `decimal_pow`/`decimal_floor`/`decimal_ceil` alongside the existing `decimal_round`.
+  `floor_float`/`ceil_float`/`round_float`); `decimal_pow`/`decimal_floor`/`decimal_ceil` alongside `decimal_round` -- all of them, and the int-returning `floor`/`ceil`/`round`, now in the `math` module rather than the prelude.
   Not started:
   1. **`format` precision specifiers** (`{:.2}`) -- today a placeholder is exactly `{}`, untyped; money-style
      output has to reach for `decimal`/`number.format_*` instead.

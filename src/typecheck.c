@@ -824,7 +824,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", NULL,
 };
 
 /* A named call (`f(y: 2, x: 1)`) is reordered here, once, into the same
@@ -1748,6 +1748,62 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             return opt;
         }
         return *chan_type.elem;
+    }
+
+    if (strcmp(name, "channel_close") == 0 || strcmp(name, "receive_option") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
+        }
+        Expr *chan_arg = e->as.call.args.items[0];
+        Type chan_type = check_expr(module, env, chan_arg);
+        if (chan_type.kind != TY_CHANNEL) {
+            ziman_error("type", chan_arg->line, chan_arg->col, "'%s' expects a Channel, found %s", name, type_name(chan_type));
+        }
+        if (strcmp(name, "channel_close") == 0) return type_scalar(TY_VOID);
+        Type opt = type_enum("Option");
+        type_list_push(&opt.type_args, *chan_type.elem);
+        return opt;
+    }
+
+    if (strcmp(name, "receive_timeout") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'receive_timeout' takes exactly 2 arguments, found %d", e->as.call.args.count);
+        }
+        Expr *chan_arg = e->as.call.args.items[0];
+        Type chan_type = check_expr(module, env, chan_arg);
+        if (chan_type.kind != TY_CHANNEL) {
+            ziman_error("type", chan_arg->line, chan_arg->col, "argument 1 of 'receive_timeout' expects a Channel, found %s",
+                        type_name(chan_type));
+        }
+        Expr *millis_arg = e->as.call.args.items[1];
+        Type millis_type = check_expr(module, env, millis_arg);
+        if (millis_type.kind != TY_INT) {
+            ziman_error("type", millis_arg->line, millis_arg->col,
+                        "argument 2 of 'receive_timeout' expects an int (milliseconds), found %s", type_name(millis_type));
+        }
+        Type opt = type_enum("Option");
+        type_list_push(&opt.type_args, *chan_type.elem);
+        return opt;
+    }
+
+    if (strcmp(name, "select2") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'select2' takes exactly 2 arguments, found %d", e->as.call.args.count);
+        }
+        Expr *a_arg = e->as.call.args.items[0];
+        Type a_type = check_expr(module, env, a_arg);
+        if (a_type.kind != TY_CHANNEL) {
+            ziman_error("type", a_arg->line, a_arg->col, "argument 1 of 'select2' expects a Channel, found %s", type_name(a_type));
+        }
+        Expr *b_arg = e->as.call.args.items[1];
+        Type b_type = check_expr(module, env, b_arg);
+        if (b_type.kind != TY_CHANNEL) {
+            ziman_error("type", b_arg->line, b_arg->col, "argument 2 of 'select2' expects a Channel, found %s", type_name(b_type));
+        }
+        Type selected = type_enum("Selected");
+        type_list_push(&selected.type_args, *a_type.elem);
+        type_list_push(&selected.type_args, *b_type.elem);
+        return selected;
     }
 
     FunctionDecl *fn = find_function(module, name);
@@ -3746,7 +3802,7 @@ void typecheck(Module *module) {
     static const char *builtins[] = {"print", "printf", "str", "format", "len", "push", "insert", "set",
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
-                                      "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "hash", "compare",
+                                      "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare",
                                       "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter"};
 
     /* Struct names and field names within a struct must be unique --

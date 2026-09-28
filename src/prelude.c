@@ -106,61 +106,6 @@ static Value native_parse_decimal(Value *args, int argc, int line, int col) {
     return value_result(result_type, result_obj_new(1, value_decimal(d)));
 }
 
-static Value native_floor(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    return value_int((int64_t)floor(args[0].as.f));
-}
-
-static Value native_ceil(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    return value_int((int64_t)ceil(args[0].as.f));
-}
-
-static Value native_round(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    return value_int((int64_t)round(args[0].as.f));
-}
-
-static Value native_decimal_round(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    return value_decimal(decimal_round(*args[0].as.dec, (int)args[1].as.i));
-}
-
-static Value native_decimal_floor(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    return value_decimal(decimal_floor(*args[0].as.dec, (int)args[1].as.i));
-}
-
-static Value native_decimal_ceil(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    return value_decimal(decimal_ceil(*args[0].as.dec, (int)args[1].as.i));
-}
-
-static Value native_decimal_pow(Value *args, int argc, int line, int col) {
-    (void)argc;
-    int64_t exponent = args[1].as.i;
-    if (exponent < 0) {
-        ziman_error("runtime", line, col,
-                    "decimal_pow: exponent must be non-negative, found %lld (for a negative one, divide "
-                    "a decimal of your target scale by decimal_pow(base, -exponent) instead, e.g. "
-                    "1.0000d / decimal_pow(base, -exponent))",
-                    (long long)exponent);
-    }
-    return value_decimal(decimal_pow(*args[0].as.dec, (int)exponent));
-}
-
 #define SPTR(v) ((v).as.str.ptr)
 #define SLEN(v) ((size_t)(v).as.str.len)
 
@@ -1101,7 +1046,7 @@ typedef struct {
 static void guard_finalizer(void *obj, void *client_data) {
     (void)client_data;
     GuardBuf *g = obj;
-    channel_send(g->ch, g->message);
+    (void)channel_send(g->ch, g->message);
 }
 #endif
 
@@ -1205,13 +1150,6 @@ void prelude_register(void) {
     native_register("parse_float", native_parse_float);
     native_register("parse_bigint", native_parse_bigint);
     native_register("parse_decimal", native_parse_decimal);
-    native_register("floor", native_floor);
-    native_register("ceil", native_ceil);
-    native_register("round", native_round);
-    native_register("decimal_round", native_decimal_round);
-    native_register("decimal_floor", native_decimal_floor);
-    native_register("decimal_ceil", native_decimal_ceil);
-    native_register("decimal_pow", native_decimal_pow);
     native_register("concat", native_concat);
     native_register("substring", native_substring);
     native_register("split", native_split);
