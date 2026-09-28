@@ -567,12 +567,8 @@ for i, x in arr { ... }       // index + value together
   array iterates zero times.
 - **`a..b` is not a first-class value.** It's only legal directly after
   `in` in a `for` header — there's no `Range` type you can store in a
-  variable, pass to a function, or print. This is deliberate, same
-  "hardcode the minimum, not general machinery" instinct behind
-  `Result<T, E>`: a real `Range` type is a bigger design (does it own
-  its own equality? can it be empty as a first-class value? does `for`
-  need to special-case it or does it become a third iterable kind
-  alongside arrays?) that nothing has asked for yet.
+  variable, pass to a function, or print. Deliberate; see docs/DESIGN.md's
+  "Rationale consolidated from SYNTAX.md" entry for why.
 - **The two-binder form only works over an array, never a range** — `for
   i, j in 0..5` is a syntax error naming the offending second binder.
   There's nothing to name separately from the count itself when
@@ -929,11 +925,10 @@ fn main() {
   default expression, a `val`/`var`'s own declared type, a struct
   literal field, a `with` override, or a function's returned value — a
   bare `T` works too**, auto-wrapped to `Some(T)`. An already-`Option<T>`
-  value (or `None`) is also legal and passed through unchanged. This is
-  a deliberate, narrow exception to "no implicit coercion" (closer to a
-  C++ converting constructor than to anything in Rust, which makes you
-  write `Some(x)` or `.into()`): wrapping a single, statically-known type
-  is not lossy, unlike numeric coercion. The one place it *would* be
+  value (or `None`) is also legal and passed through unchanged. A
+  deliberate, narrow exception to "no implicit coercion" (see
+  docs/DESIGN.md's "Rationale consolidated from SYNTAX.md" entry for how
+  this compares to Rust/C++). The one place it *would* be
   ambiguous is `Option<Option<T>>`, where a bare `Option<T>` would turn a
   `None` into `Some(None)` -- that is a compile error; write
   `Option<Option<T>>.Some(...)` explicitly.
@@ -1386,14 +1381,9 @@ fn main() {
   variant name (`enum A { Some(int) }` and `enum B { Some(string) }` in
   the same file is fine), since access is always enum-qualified.
 - **Construction is always qualified by the enum's own name** —
-  `Shape.Circle(5.0)`, `Shape.Point` — never bare. Rust/Swift-style
-  languages let `Option`/`Result`'s variants be written bare only because
-  they're special-cased into every file's prelude; an ordinary user enum
-  in those languages requires qualification too. Since two unrelated
-  enums can easily share a variant name, bare construction would make
-  that silently ambiguous (or force an implicit "first declaration wins"
-  rule) — exactly the kind of implicit behavior Ziman avoids elsewhere.
-  A unit variant is written bare (`Shape.Point`); writing it with empty
+  `Shape.Circle(5.0)`, `Shape.Point` — never bare (see docs/DESIGN.md's
+  "Rationale consolidated from SYNTAX.md" entry for why, compared to
+  Rust/Swift). A unit variant is written bare (`Shape.Point`); writing it with empty
   parens (`Shape.Point()`) is a type error, so there's exactly one way to
   write it. A payload variant requires parens with exactly one argument.
 - **Consuming a variant uses two functions the compiler generates per
