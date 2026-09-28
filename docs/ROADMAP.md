@@ -524,6 +524,26 @@ from source.
 - **A real test harness beyond tests/run_tests.sh's stdout/substring
   matching** — fine for now, will need line/col assertions once
   diagnostics get richer.
+- **"Did you mean...?" suggestions on an undefined name, fuzzy-matched against visible builtins
+  and imported modules' own public names.** Surfaced by the LLM-generation benchmark
+  (`docs/reviews/llm-benchmark-2026-09-28.md`, F6/P2-7): the diagnostics that name an exact fix
+  (the semicolon message, "Ziman has no methods... call X(a, ...) instead", the `match`-to-
+  `switch` rewrite) let a model self-correct in 1-3 tries with zero documentation; a plain
+  "undefined variable"/"undefined function" with no suggestion (`let` and `mut`, an exact builtin
+  name like `map`/`filter`, `Map<K, V>`'s own construction syntax) did not, in the benchmark's
+  6-of-10 non-convergent cases, and models spent their whole fix budget guessing plausible
+  alternatives one at a time instead of getting pointed at the real name on the first miss. The
+  precedent already exists: `properties.check_unknown` "fails on keys not in the list, suggesting
+  the closest known key" (docs/SYNTAX.md, "Configuration"). The same mechanism (edit distance
+  against the identifiers actually in scope -- prelude builtins, the current module's own
+  declarations, and, for a qualified reference, that module's exports) applied to "use of
+  undefined variable"/"call to undefined function"/"module 'X' has no function 'Y'" would likely
+  close most of the gap the benchmark found, since the fix in every failing case turned out to be
+  one edit-distance hop from what the model actually typed (`let` -> `var`, `map` -> `Map`,
+  `encode` -> `json_to_string`). Not designed in detail: what counts as "in scope" for the
+  suggestion (a name from an unimported module should probably not be suggested at all, to avoid
+  "did you mean X" for something that still needs a `use` first) and a distance/count cutoff so a
+  wildly wrong name gets no suggestion rather than a misleading one.
 - **`#[deprecated]` and `#[experimental]` as interpreted attributes, not just
   prose.** F4 (2026-09-28) just labeled `pg`/`mysql`/`toml`/`yaml`
   "experimental" the only way available today: a sentence in each module's
