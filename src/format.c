@@ -86,6 +86,14 @@ static int scan(const char *src, size_t len, Items *out, char *err, size_t err_s
                 j++;
                 while (j < len && isdigit((unsigned char)src[j])) j++;
             }
+            if (j < len && (src[j] == 'e' || src[j] == 'E')) {
+                size_t k = j + 1;
+                if (k < len && (src[k] == '+' || src[k] == '-')) k++;
+                if (k < len && isdigit((unsigned char)src[k])) {
+                    while (k < len && isdigit((unsigned char)src[k])) k++;
+                    j = k;
+                }
+            }
             if (j < len && (src[j] == 'n' || src[j] == 'd' || src[j] == 'b') && !(j + 1 < len && (isalnum((unsigned char)src[j + 1]) || src[j + 1] == '_'))) j++;
             it.kind = K_NUMBER;
             it.len = (int)(j - i);

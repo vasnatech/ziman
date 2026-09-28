@@ -13,7 +13,12 @@ File extension: `.zm`.
   condition; see "Structs" and "Enums" below.
 - Integer literals: `[0-9]+` (decimal only in v0).
 - Float literals: `[0-9]+\.[0-9]+` (a digit is required on both sides of
-  the dot — `.5` and `5.` are not valid literals).
+  the dot — `.5` and `5.` are not valid literals), optionally with an exponent:
+  `[0-9]+(\.[0-9]+)?[eE][+-]?[0-9]+` (`1e3`, `2.5E-2`, `1.5e-10`). An exponent
+  makes the literal a `float` even without a point (`1e3` is `1000.0`), and it is
+  only read when digits follow the `e` (`1e` is still `1` and a name). An
+  exponent literal takes no `n`/`d`/`b` suffix (`1e3d` is a lexical error): write
+  a decimal as `15000d` or `1500.5d`.
 - String literals: `"..."` with escapes `\n`, `\t`, `\r`, `\"`, `\\`. No
   interpolation in v0. A plain string cannot span lines.
 - Text blocks: `"""` at the end of a line opens a multi-line string, and the next `"""` closes it.
@@ -3416,8 +3421,19 @@ a type error.
   display it — placeholders are untyped (no `%d`/`%s`-style verbs),
   since the argument's own declared type is already known and repeating
   it in the format string would just be a second place for it to drift
-  out of sync. Literal `{`/`}` characters can't appear unescaped in a
-  format string in v0 (no escape syntax yet — tracked in ROADMAP.md).
+  out of sync. Two additions to the plain `{}`:
+  - **`{:.N}`** (`N` a number of decimal places, 0 to 100) fixes the digits after the point of a `float` or a
+    `decimal`: `format("{:.2}", 3.14159)` is `3.14`, `format("{:.3}", 2.0)` is `2.000`. A decimal is rounded
+    half away from zero, exactly (`19.995d` gives `20.00`); a float is rounded by its binary value, as C's
+    `printf("%.2f")` does (`1.005` gives `1.00` because the float is really 1.00499...). `{:.N}` on any other
+    type is a compile error. Nothing but `.N` follows the colon: there is no width, alignment or fill.
+  - **`{{` and `}}`** write a literal `{` and `}`: `format("{{{}}}", 5)` is `{5}`. A lone `}` or a `{` that starts
+    neither a placeholder nor `{{` is a compile error.
+- `format_dynamic(template: string, args: [string]) -> Result<string, string>` — `format` for a template that is a
+  *value* (read from a message catalog or a translation file) with string arguments: `{}` is the next argument
+  and `{{`/`}}` are braces, as in `format`. Because nothing about the template is known before the program runs,
+  the checks `format` does at compile time become an `Err`: a malformed template, a different number of
+  placeholders than arguments, or a `{:.N}` precision (the arguments are strings, so there is nothing to round).
 - `len(arr) -> int` / `len(s: string) -> int` — the element count of any
   `[T]`, or the byte length of a `string`.
 - `substring(s: string, start: int, end: int) -> string` — the substring

@@ -1,0 +1,14 @@
+fn main() {
+    print(str(1e3))
+    print(str(2.5E-2))
+    print(str(1e+9))
+    print(str(1.5e-10))
+    print(str(12E0))
+    print(str(6.02e23))
+    print(str(1e308))
+    print(str(-4e2))
+    print(str(1e3 + 0.5))
+    val e = 5
+    print(str(e))
+    print(str(2e0 * 3.0))
+}

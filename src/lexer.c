@@ -287,6 +287,24 @@ static void lex_number(Lexer *lx) {
         while (isdigit((unsigned char)peek(lx))) advance(lx);
     }
 
+    /* An exponent (`1e3`, `2.5E-2`, `1e+9`) makes the literal a float, whatever its mantissa. It is only read when digits
+     * follow, so `1e` and `1else` still lex as a number and then a name. */
+    int has_exponent = 0;
+    if (peek(lx) == 'e' || peek(lx) == 'E') {
+        int at = (int)lx->pos + 1;
+        if (lx->src[at] == '+' || lx->src[at] == '-') at++;
+        if (isdigit((unsigned char)lx->src[at])) {
+            has_exponent = 1;
+            is_float = 1;
+            while ((int)lx->pos < at) advance(lx);
+            while (isdigit((unsigned char)peek(lx))) advance(lx);
+            char after = peek(lx);
+            if ((after == 'd' || after == 'n' || after == 'b') && !isalnum((unsigned char)peek_next(lx)) && peek_next(lx) != '_')
+                ziman_error("lexical", line, col,
+                            "an exponent literal is a float; it cannot take a '%c' suffix (write a decimal as 15000d, not 1.5e4d)", after);
+        }
+    }
+
     /* `n`/`d`/`b` suffix -- an arbitrary-precision `bigint` literal
      * (`12345678901234567890n`, whole-number-shaped only -- never
      * `19.99n`, bigint has no fractional part), a `decimal` literal
@@ -303,7 +321,7 @@ static void lex_number(Lexer *lx) {
     if (!is_float && peek(lx) == 'n' && !next_is_ident_char) {
         is_bigint = 1;
         advance(lx); /* 'n' */
-    } else if (peek(lx) == 'd' && !next_is_ident_char) {
+    } else if (!has_exponent && peek(lx) == 'd' && !next_is_ident_char) {
         is_decimal = 1;
         advance(lx); /* 'd' */
     } else if (!is_float && peek(lx) == 'b' && !next_is_ident_char) {

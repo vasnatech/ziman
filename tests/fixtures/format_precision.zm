@@ -1,0 +1,16 @@
+fn main() {
+    print(format("{:.2}", 3.14159))
+    print(format("{:.0}", 7.6))
+    print(format("{:.3}", 2.0))
+    print(format("{:.1}", -0.04))
+    print(format("{:.2}", 1e3))
+    print(format("{:.2}", 0.0 - 1.005))
+    print(format("{:.2}", 19.995d))
+    print(format("{:.0}", 2.5d))
+    print(format("{:.4}", 1.5d))
+    print(format("{:.1}", 0.05d))
+    print(format("{:.2}", -0.125d))
+    print(format("{:.30}", 1.0d))
+    print(format("{:.2} of {} at {:.1}%", 2.0 / 3.0, 12, 99.44))
+    print(len(format("{:.100}", 0.5)))
+}

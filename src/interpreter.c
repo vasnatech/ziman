@@ -17,6 +17,7 @@
 #include "derive.h"
 #include "env.h"
 #include "error.h"
+#include "fmtstr.h"
 #include "mapobj.h"
 #include "native.h"
 #include "value.h"
@@ -656,32 +657,43 @@ static Value call_unwrap_err(Value r, int line, int col) {
  * values. The type checker already verified `{}` placeholder count
  * matches argc-1 and that the format string is well-formed, so this
  * doesn't re-validate -- it trusts that pass. */
+/* One placeholder's text: the argument as `print` shows it, or with a precision N (a float or a decimal, which the type
+ * checker guarantees) rounded to N places and written with exactly N: a float as C's "%.*f" (correctly rounded from its
+ * binary value), a decimal half-up like decimal_round. */
+static char *format_placeholder(Value v, int precision) {
+    if (precision < 0) return value_display(v);
+    if (v.type.kind == TY_DECIMAL) return decimal_to_string(decimal_round(*v.as.dec, precision));
+    int len = snprintf(NULL, 0, "%.*f", precision, v.as.f);
+    char *out = zalloc_atomic((size_t)len + 1);
+    snprintf(out, (size_t)len + 1, "%.*f", precision, v.as.f);
+    return out;
+}
+
 static Value call_format(Value *args, int argc) {
     const char *fmt = args[0].as.str.ptr;
     size_t fmt_len = args[0].as.str.len;
     size_t cap = 32, len = 0;
     char *buf = zalloc_atomic(cap);
     int arg_i = 1;
-
-    for (const char *p = fmt; p < fmt + fmt_len; p++) {
-        if (p[0] == '{' && p + 1 < fmt + fmt_len && p[1] == '}') {
-            char *piece = value_display(args[arg_i++]);
-            size_t piece_len = strlen(piece);
-            while (len + piece_len + 1 > cap) {
-                cap *= 2;
-                buf = realloc(buf, cap);
-            }
-            memcpy(buf + len, piece, piece_len);
-            len += piece_len;
-            free(piece);
-            p++; /* skip the matching '}' */
-        } else {
-            if (len + 2 > cap) {
-                cap *= 2;
-                buf = realloc(buf, cap);
-            }
-            buf[len++] = *p;
+    size_t pos = 0;
+    FmtPiece piece;
+    char err[256];
+    while (fmt_next(fmt, fmt_len, &pos, &piece, err, sizeof err) > 0) {
+        char *text = NULL;
+        const char *src = piece.text;
+        size_t src_len = piece.len;
+        if (piece.placeholder) {
+            text = format_placeholder(args[arg_i++], piece.precision);
+            src = text;
+            src_len = strlen(text);
         }
+        while (len + src_len + 1 > cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+        }
+        memcpy(buf + len, src, src_len);
+        len += src_len;
+        free(text);
     }
     buf[len] = '\0';
     (void)argc;

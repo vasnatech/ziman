@@ -1,0 +1,3 @@
+fn main() {
+    print(format("{:.}", 1.5))
+}

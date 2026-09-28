@@ -100,6 +100,18 @@ A decimal from digits with an optional fraction, keeping the scale as written (`
 
 ## Strings
 
+### `format_dynamic`
+
+```
+native fn format_dynamic(template: string, args: [string]) -> Result<string, string>
+```
+
+`format` for a template that is a value -- read from a message catalog, say, or a translation -- with string arguments:
+`format_dynamic("{} of {}", ["3", "10"])` is `Ok("3 of 10")`. `{}` is the next argument and `{{`/`}}` are literal braces, as
+in `format`. `format` checks its literal template and the number of its arguments before the program runs; this cannot, so it
+is an Err (never a crash) if the template is malformed, has a different number of placeholders than arguments, or has a
+precision (`{:.2}`: the arguments are strings, so there is nothing to round).
+
 ### `concat`
 
 ```

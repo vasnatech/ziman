@@ -1,0 +1,1 @@
+a precision ('{:.1}') applies to a float or a decimal, not to string

@@ -1,0 +1,10 @@
+fn main() {
+    print(format("{{}}"))
+    print(format("{{{}}}", 5))
+    print(format("{{ {} }} and {{{:.1}}}", "x", 2.25))
+    print(format("a{{b}}c"))
+    print(format("}}{{"))
+    val name = "Ana"
+    print(format("{{\"name\": \"{}\"}}", name))
+    printf("{{{}}}\n", 42)
+}

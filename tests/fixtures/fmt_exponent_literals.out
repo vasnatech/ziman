@@ -1,0 +1,7 @@
+fn main() {
+    val a = 1e3
+    val b = 2.5E-2 * 1.5e+10
+    print(format("{{{:.2}}} {}", a, b))
+    val c = -4e2 + 1.0
+    print(str(c))
+}

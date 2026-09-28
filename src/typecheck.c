@@ -8,6 +8,7 @@
 #include "env.h"
 #include "derive.h"
 #include "error.h"
+#include "fmtstr.h"
 #include "stack.h"
 
 static FunctionDecl *find_function(Module *module, const char *name) {
@@ -619,26 +620,24 @@ static Type check_unary(Module *module, Env *env, Expr *e) {
     return type_scalar(TY_BOOL);
 }
 
-/* Scans a format-string literal's already-unescaped content for `{}`
- * placeholders, exiting with a type error on a stray/unmatched brace.
- * `fmt_expr` is only used to anchor error locations -- v0 doesn't track
- * per-character positions inside a string literal, so mistakes are
- * reported at the literal as a whole. */
-static int count_placeholders(Expr *fmt_expr) {
+/* Scans a format-string literal's already-unescaped content for placeholders (`{}` and `{:.N}`; `{{`/`}}` are
+ * literal braces -- see fmtstr.h), exiting with a type error on a stray/unmatched brace or a bad precision. Returns
+ * the count and, in `*precisions`, each placeholder's N (or -1). `fmt_expr` is only used to anchor error locations -- v0
+ * doesn't track per-character positions inside a string literal, so mistakes are reported at the literal as a whole. */
+static int scan_placeholders(Expr *fmt_expr, int **precisions) {
     const char *s = fmt_expr->as.string_val;
+    size_t n = strlen(s), pos = 0;
+    int *found = malloc((n + 1) * sizeof(int));
     int count = 0;
-    for (const char *p = s; *p; p++) {
-        if (*p == '{') {
-            if (p[1] != '}') {
-                ziman_error("type", fmt_expr->line, fmt_expr->col,
-                            "malformed placeholder in format string (expected '{}', found stray '{')");
-            }
-            count++;
-            p++; /* skip the matching '}' too */
-        } else if (*p == '}') {
-            ziman_error("type", fmt_expr->line, fmt_expr->col, "unmatched '}' in format string");
-        }
+    FmtPiece piece;
+    char err[256];
+    for (;;) {
+        int r = fmt_next(s, n, &pos, &piece, err, sizeof err);
+        if (r == 0) break;
+        if (r < 0) ziman_error("type", fmt_expr->line, fmt_expr->col, "%s", err);
+        if (piece.placeholder) found[count++] = piece.precision;
     }
+    *precisions = found;
     return count;
 }
 
@@ -1384,7 +1383,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         fmt_expr->resolved_type = type_scalar(TY_STRING);
 
-        int placeholder_count = count_placeholders(fmt_expr);
+        int *precisions;
+        int placeholder_count = scan_placeholders(fmt_expr, &precisions);
         int provided = e->as.call.args.count - 1;
         if (placeholder_count != provided) {
             ziman_error("type", e->line, e->col,
@@ -1393,8 +1393,12 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         for (int i = 1; i < e->as.call.args.count; i++) {
             Expr *arg = e->as.call.args.items[i];
-            check_expr(module, env, arg);
+            Type arg_type = check_expr(module, env, arg);
             require_not_void(arg, "as a format argument");
+            if (precisions[i - 1] >= 0 && arg_type.kind != TY_FLOAT && arg_type.kind != TY_DECIMAL) {
+                ziman_error("type", arg->line, arg->col,
+                            "a precision ('{:.%d}') applies to a float or a decimal, not to %s", precisions[i - 1], type_name(arg_type));
+            }
         }
         return type_scalar(strcmp(name, "printf") == 0 ? TY_VOID : TY_STRING);
     }
