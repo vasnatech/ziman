@@ -48,7 +48,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 ## E. Backend hardening and features (P1)
 
 - [ ] **E1** Indexes on every `patient_id` and the sort columns; native Postgres types through a per-dialect migration set. (D item 8; S-M)
-- [ ] **E2** `storage_error` helper and reduced error boilerplate (with C2). (D item 9; S)
+- [x] **E2** `storage_error` helper and reduced error boilerplate (with C2). (D item 9; S). Done: `#[from]` (C2) made a `storage_error` helper unnecessary; the remaining hand-written blocks are gone through `service.internal(result)` (a `Result<T, string>` from `crypto`/`jwt` as an `Internal` `ServiceError`, for `try`) and `try` in `security.zm`/`health_event.zm`. One `Option<ServiceError>` site in `insurance_record.zm` keeps its explicit `Storage(...)` because `try` needs a `Result`. `map_err` and constructors as function values were not added: nothing left needs them.
 - [ ] **E3** Multi-error validation (a list of field errors), field names in decode errors, hide raw constraint text from clients. (D item 10, B12; M)
 - [ ] **E4** Transactions for the cascades and for the two-active-insurance rule; delete without a check-then-delete race. (D item 11, B13; S-M)
 - [ ] **E5** Rate limiting and lockout on login, an MFA attempt cap, a TOTP replay guard, and encryption of TOTP secrets at rest. (D item 12, S3, S4; M)
