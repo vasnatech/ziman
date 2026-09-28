@@ -14,7 +14,8 @@ besides the request travels as an explicit context value.
 What it speaks: HTTP/1.1 and 1.0 requests with a request line, headers
 and an optional body (`Content-Length`, or `Transfer-Encoding: chunked`, decoded); keep-alive
 across requests on one connection (including pipelined requests already in the buffer);
-`Expect: 100-continue`; `HEAD` (headers only). Every response carries `Date` and `Server`. What it
+`Expect: 100-continue`; `HEAD` (headers only). Every response carries `Date` and `X-Content-Type-Options: nosniff`, and none says
+what server it is (a `Server` header only tells an attacker what to look for); a handler that sets either header itself is not overridden. What it
 does not: other transfer encodings (answered 501), HTTP/2, multipart bodies, compression, and
 request trailers (read and ignored). TLS is the socket's business: hand `serve` a listener from
 `net.listen_tls` and every connection is HTTPS. Request and response bodies are `string`, so they can't carry
@@ -26,9 +27,11 @@ exceeding them is `HeadersTooLarge`/`BodyTooLarge` (431/413). Set a read
 timeout on the socket (`net.set_timeout`) so an idle or stalled client
 can't hold a thread forever: a timed-out read is `Err(Timeout)`. A per-read
 timeout alone does not stop a client that sends a byte just inside it, again
-and again (slowloris), so `open_session_with_timeout` (which `serve` uses,
+and again (slowloris), so `open_session_with_timeouts` (which `serve` uses,
 with `idle_timeout_ms`) also bounds the whole request -- head and body --
-from its first byte.
+from its first byte. A request's head has a shorter limit of its own (`header_timeout_ms`, from its first byte to the blank line), and so does
+a new connection's first byte: a client that opens a connection and says nothing, or sends its head a byte at a time, is let go
+after that long rather than after `idle_timeout_ms`, so a handful of them cannot keep every connection slot from real clients.
 
 Strict where a proxy in front might be lenient, because a difference between the
 two is how requests get smuggled: a request whose `Content-Length` values differ,
@@ -64,7 +67,12 @@ fn handle(req: http.Request) -> http.Response {
 
 fn main() {
     val listener = unwrap(net.listen("127.0.0.1", 0))
-    val options = ServeOptions { idle_timeout_ms: 2000, max_connections: 4, log_requests: false }
+    val options = ServeOptions {
+        idle_timeout_ms: 2000,
+        header_timeout_ms: 2000,
+        max_connections: 4,
+        log_requests: false
+    }
     spawn server.serve(listener, handle, options)
     val base = format("http://127.0.0.1:{}", net.listener_port(listener))
 
@@ -117,6 +125,8 @@ pub struct Session {
     sock: Socket
     buffer: [byte]
     timeout_ms: int
+    head_timeout_ms: int
+    fresh: bool
 }
 ```
 
@@ -157,6 +167,17 @@ Like `open_session`, and the whole of each request (head and body, from its firs
 arrive within `timeout_ms` (a stalled or dripping client gets `Err(Timeout)`, answered 408), on top
 of the socket's per-read timeout, which it sets and resets itself: set none yourself. `serve` opens
 its sessions this way with `idle_timeout_ms`.
+
+### `open_session_with_timeouts`
+
+```
+pub fn open_session_with_timeouts(sock: Socket, timeout_ms: int, head_timeout_ms: int) -> Session
+```
+
+Like `open_session_with_timeout`, and the head of each request -- from its first byte to the blank line that ends it -- must also arrive within
+`head_timeout_ms` (a client that is honest sends it at once). For a session on a new connection the socket's own timeout must already be
+`head_timeout_ms`, which is then also how long the first byte may take; once the first request is read, the socket goes back to `timeout_ms`, the wait
+between requests of a keep-alive connection. `serve` opens its sessions this way with `ServeOptions.header_timeout_ms`.
 
 ## Reading
 
@@ -601,6 +622,7 @@ Calls the handler of the first endpoint whose method and pattern match `req`. Wh
 ```
 pub struct ServeOptions {
     idle_timeout_ms: int
+    header_timeout_ms: int
     max_connections: int
     log_requests: bool
 }
@@ -622,6 +644,12 @@ accept queue). `serve` returns when a shutdown has been requested
 connection already being served has finished -- an idle keep-alive
 connection ends at `idle_timeout_ms` at the latest. It does not close the
 listener or install the signal handler; the caller owns both.
+
+`idle_timeout_ms` is how long a client may take over anything else: a keep-alive connection waiting for its next request, a body, a
+stalled read. `header_timeout_ms` (use a few seconds; it should not exceed `idle_timeout_ms`) is how long a new connection may take to send its first byte, and any
+request to send its head once it has begun: an honest client needs milliseconds, so a client that opens connections and dawdles is dropped fast and cannot hold
+every one of the `max_connections` slots for `idle_timeout_ms` at a time. It cannot tell one client from another, so a determined flood from many
+addresses is a job for a firewall or the proxy in front (see the roadmap).
 
 ### `serve`
 

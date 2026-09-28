@@ -52,7 +52,12 @@ fn handle(req: http.Request) -> http.Response {
 fn main() {
     val listener = unwrap(net.listen("127.0.0.1", 0))
     val port = net.listener_port(listener)
-    val options = ServeOptions { idle_timeout_ms: 2000, max_connections: 4, log_requests: false }
+    val options = ServeOptions {
+        idle_timeout_ms: 2000,
+        header_timeout_ms: 2000,
+        max_connections: 4,
+        log_requests: false
+    }
     spawn server.serve(listener, handle, options)
 
     val base = format("http://127.0.0.1:{}", port)

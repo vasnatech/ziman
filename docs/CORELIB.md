@@ -1487,6 +1487,8 @@ pub struct Session {
     sock: Socket
     buffer: [byte]
     timeout_ms: int
+    head_timeout_ms: int
+    fresh: bool
 }
 
 pub struct Exchange {
@@ -1497,6 +1499,8 @@ pub struct Exchange {
 pub fn open_session(sock: Socket) -> Session
 
 pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session
+
+pub fn open_session_with_timeouts(sock: Socket, timeout_ms: int, head_timeout_ms: int) -> Session
 
 pub fn read_request(session: Session) -> Result<Exchange, HttpError>
 
@@ -1598,6 +1602,7 @@ pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string
 
 pub struct ServeOptions {
     idle_timeout_ms: int
+    header_timeout_ms: int
     max_connections: int
     log_requests: bool
 }

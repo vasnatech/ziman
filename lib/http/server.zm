@@ -12,7 +12,8 @@
 // What it speaks: HTTP/1.1 and 1.0 requests with a request line, headers
 // and an optional body (`Content-Length`, or `Transfer-Encoding: chunked`, decoded); keep-alive
 // across requests on one connection (including pipelined requests already in the buffer);
-// `Expect: 100-continue`; `HEAD` (headers only). Every response carries `Date` and `Server`. What it
+// `Expect: 100-continue`; `HEAD` (headers only). Every response carries `Date` and `X-Content-Type-Options: nosniff`, and none says
+// what server it is (a `Server` header only tells an attacker what to look for); a handler that sets either header itself is not overridden. What it
 // does not: other transfer encodings (answered 501), HTTP/2, multipart bodies, compression, and
 // request trailers (read and ignored). TLS is the socket's business: hand `serve` a listener from
 // `net.listen_tls` and every connection is HTTPS. Request and response bodies are `string`, so they can't carry
@@ -24,9 +25,11 @@
 // timeout on the socket (`net.set_timeout`) so an idle or stalled client
 // can't hold a thread forever: a timed-out read is `Err(Timeout)`. A per-read
 // timeout alone does not stop a client that sends a byte just inside it, again
-// and again (slowloris), so `open_session_with_timeout` (which `serve` uses,
+// and again (slowloris), so `open_session_with_timeouts` (which `serve` uses,
 // with `idle_timeout_ms`) also bounds the whole request -- head and body --
-// from its first byte.
+// from its first byte. A request's head has a shorter limit of its own (`header_timeout_ms`, from its first byte to the blank line), and so does
+// a new connection's first byte: a client that opens a connection and says nothing, or sends its head a byte at a time, is let go
+// after that long rather than after `idle_timeout_ms`, so a handful of them cannot keep every connection slot from real clients.
 //
 // Strict where a proxy in front might be lenient, because a difference between the
 // two is how requests get smuggled: a request whose `Content-Length` values differ,
@@ -39,7 +42,6 @@
 
 val read_chunk_bytes = 4096
 val accept_error_backoff_ms = 10
-val server_name = "ziman"
 val http_1_0 = "HTTP/1.0"
 val http_1_1 = "HTTP/1.1"
 val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
@@ -120,6 +122,8 @@ pub struct Session {
     sock: Socket
     buffer: [byte]
     timeout_ms: int
+    head_timeout_ms: int
+    fresh: bool
 }
 
 // One request read from a connection, with the session to read the next one from.
@@ -168,7 +172,7 @@ fn find_head_end(buf: [byte]) -> int {
 // A new connection's read state: the socket and nothing buffered yet. Reads are bounded only by
 // the socket's own timeout, one read at a time.
 pub fn open_session(sock: Socket) -> Session {
-    return Session { sock: sock, buffer: [], timeout_ms: 0 }
+    return Session { sock: sock, buffer: [], timeout_ms: 0, head_timeout_ms: 0, fresh: false }
 }
 
 // Like `open_session`, and the whole of each request (head and body, from its first byte) must
@@ -176,7 +180,15 @@ pub fn open_session(sock: Socket) -> Session {
 // of the socket's per-read timeout, which it sets and resets itself: set none yourself. `serve` opens
 // its sessions this way with `idle_timeout_ms`.
 pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session {
-    return Session { sock: sock, buffer: [], timeout_ms: timeout_ms }
+    return Session { sock: sock, buffer: [], timeout_ms: timeout_ms, head_timeout_ms: 0, fresh: false }
+}
+
+// Like `open_session_with_timeout`, and the head of each request -- from its first byte to the blank line that ends it -- must also arrive within
+// `head_timeout_ms` (a client that is honest sends it at once). For a session on a new connection the socket's own timeout must already be
+// `head_timeout_ms`, which is then also how long the first byte may take; once the first request is read, the socket goes back to `timeout_ms`, the wait
+// between requests of a keep-alive connection. `serve` opens its sessions this way with `ServeOptions.header_timeout_ms`.
+pub fn open_session_with_timeouts(sock: Socket, timeout_ms: int, head_timeout_ms: int) -> Session {
+    return Session { sock: sock, buffer: [], timeout_ms: timeout_ms, head_timeout_ms: head_timeout_ms, fresh: true }
 }
 
 // ------------------------------------------------------------- reading
@@ -303,6 +315,11 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Res
 pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     val sock = session.sock
     val limit_ms = session.timeout_ms
+    val head_limit_ms = if session.head_timeout_ms > 0 && (limit_ms <= 0 || session.head_timeout_ms < limit_ms) {
+        session.head_timeout_ms
+    } else {
+        limit_ms
+    }
     var buf = session.buffer
     var lowered = false
     var started = if len(buf) > 0 { clock.monotonic_millis() } else { -1 }
@@ -312,7 +329,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             return err(HttpError.HeadersTooLarge)
         }
         val continuing = started >= 0
-        val chunk = try read_within(sock, read_chunk_bytes, limit_ms, started)
+        val chunk = try read_within(sock, read_chunk_bytes, head_limit_ms, started)
         if continuing {
             lowered = true
         } else {
@@ -429,7 +446,13 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         }
         return Exchange {
             request: chunked_request,
-            session: Session { sock: sock, buffer: decoded.rest, timeout_ms: limit_ms }
+            session: Session {
+                sock: sock,
+                buffer: decoded.rest,
+                timeout_ms: limit_ms,
+                head_timeout_ms: session.head_timeout_ms,
+                fresh: false
+            }
         }
     }
     var content_length = 0
@@ -458,7 +481,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             rest = bytes_concat(rest, more)
         }
     }
-    try restore_timeout(sock, limit_ms, lowered)
+    try restore_timeout(sock, limit_ms, lowered || session.fresh)
     val body = slice<byte>(rest, 0, content_length)
     val leftover = slice<byte>(rest, content_length, len(rest))
 
@@ -471,7 +494,16 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         headers: header_list,
         body: body
     }
-    return Exchange { request: request, session: Session { sock: sock, buffer: leftover, timeout_ms: limit_ms } }
+    return Exchange {
+        request: request,
+        session: Session {
+            sock: sock,
+            buffer: leftover,
+            timeout_ms: limit_ms,
+            head_timeout_ms: session.head_timeout_ms,
+            fresh: false
+        }
+    }
 }
 
 // ------------------------------------------------------------ responses
@@ -650,14 +682,14 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
     val sb = sb_new()
     sb_append(sb, format("HTTP/1.1 {} {}\r\n", resp.status, reason(resp.status)))
     var has_date = false
-    var has_server = false
+    var has_nosniff = false
     for h in resp.headers {
         val lname = to_lower(h.name)
         if lname == "date" {
             has_date = true
         }
-        if lname == "server" {
-            has_server = true
+        if lname == "x-content-type-options" {
+            has_nosniff = true
         }
         if lname != "content-length" && lname != "connection" {
             sb_append(sb, h.name, ": ", h.value, "\r\n")
@@ -666,8 +698,8 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
     if !has_date {
         sb_append(sb, "Date: ", clock.now_http_date(), "\r\n")
     }
-    if !has_server {
-        sb_append(sb, "Server: ", server_name, "\r\n")
+    if !has_nosniff {
+        sb_append(sb, "X-Content-Type-Options: nosniff\r\n")
     }
     sb_append(sb, format("Content-Length: {}\r\n", len(resp.body)))
     if keep {
@@ -1396,8 +1428,15 @@ pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string
 // connection already being served has finished -- an idle keep-alive
 // connection ends at `idle_timeout_ms` at the latest. It does not close the
 // listener or install the signal handler; the caller owns both.
+//
+// `idle_timeout_ms` is how long a client may take over anything else: a keep-alive connection waiting for its next request, a body, a
+// stalled read. `header_timeout_ms` (use a few seconds; it should not exceed `idle_timeout_ms`) is how long a new connection may take to send its first byte, and any
+// request to send its head once it has begun: an honest client needs milliseconds, so a client that opens connections and dawdles is dropped fast and cannot hold
+// every one of the `max_connections` slots for `idle_timeout_ms` at a time. It cannot tell one client from another, so a determined flood from many
+// addresses is a job for a firewall or the proxy in front (see the roadmap).
 pub struct ServeOptions {
     idle_timeout_ms: int
+    header_timeout_ms: int
     max_connections: int
     log_requests: bool
 }
@@ -1412,7 +1451,7 @@ fn fail_connection(sock: Socket, message: string) {
     ))
     val body = "{\"status\":500,\"message\":\"An unexpected error occurred\"}"
     val head = format(
-        "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         len(body)
     )
     val _ = net.write_text(sock, concat(head, body))
@@ -1422,13 +1461,15 @@ fn serve_connection(
     sock: Socket,
     handler: fn(Request) -> Response,
     idle_timeout_ms: int,
+    header_timeout_ms: int,
     log_requests: bool,
     slots: Channel<int>
 ) {
     defer send(slots, 1)  // the slot is returned on every way out
     defer net.close(sock)
-    unwrap(net.set_timeout(sock, idle_timeout_ms))                  // an idle client can't hold this thread forever
-    var session = open_session_with_timeout(sock, idle_timeout_ms)  // nor one that drips a request in
+    val head_ms = if header_timeout_ms > 0 && header_timeout_ms < idle_timeout_ms { header_timeout_ms } else { idle_timeout_ms }
+    unwrap(net.set_timeout(sock, head_ms))                                    // a client that never speaks can't hold this thread for long
+    var session = open_session_with_timeouts(sock, idle_timeout_ms, head_ms)  // nor one that drips a request in
     var open = true
     while open {
         val next = read_request(session)
@@ -1471,7 +1512,14 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
         if is_ok(client) {
             val slot = receive(slots)  // waits here while every slot is in use
             val accepted = unwrap(client)
-            spawn serve_connection(accepted, handler, options.idle_timeout_ms, options.log_requests, slots) on_error fn(
+            spawn serve_connection(
+                accepted,
+                handler,
+                options.idle_timeout_ms,
+                options.header_timeout_ms,
+                options.log_requests,
+                slots
+            ) on_error fn(
                 message: string
             ) {
                 fail_connection(accepted, message)

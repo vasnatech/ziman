@@ -250,11 +250,12 @@ fn main() {
     put(s, "POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n")
     print(first_line(read_response(s, true)))
     net.close(s)
-    // every response carries Date and Server
+    // every response carries Date and X-Content-Type-Options, and no Server
     s = connect(port)
     put(s, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n")
     r = read_response(s, true)
-    print(contains(r, "Server: ziman"))
+    print(contains(r, "Server:"))
+    print(contains(r, "X-Content-Type-Options: nosniff"))
     print(contains(r, " GMT\r\n"))
     net.close(s)
     s = connect(port)

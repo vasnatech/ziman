@@ -2469,7 +2469,7 @@ ready-made server loop:
 ```
 fn route(conn: datasource.Connection, req: http.Request) -> http.Response { ... }
 
-val options = server.ServeOptions { idle_timeout_ms: 30000, max_connections: 64, log_requests: true }
+val options = server.ServeOptions { idle_timeout_ms: 30000, header_timeout_ms: 5000, max_connections: 64, log_requests: true }
 os.install_shutdown_handler()
 server.serve(listener, fn(req) { route(conn, req) }, options)   // the lambda captured `conn`
                                             // returns after SIGINT/SIGTERM
@@ -2553,9 +2553,22 @@ fn main() {
   request carrying a 0 byte gets a 400. A per-read timeout does not stop a
   client that sends a byte just inside it, again and again (slowloris), so
   `server.open_session_with_timeout(sock, ms)` also bounds the whole request --
-  head and body, from its first byte -- to `ms` (`Timeout`, 408); `serve` opens
-  its sessions this way with `idle_timeout_ms`, so that one number is both how
-  long a connection may sit idle and how long a request may take to arrive.
+  head and body, from its first byte -- to `ms` (`Timeout`, 408). `serve` uses
+  `idle_timeout_ms` for that, and for how long a keep-alive connection may sit idle,
+  and a second, shorter `header_timeout_ms` for how long a new connection may take
+  to send its first byte and a request to send its head
+  (`server.open_session_with_timeouts(sock, ms, head_ms)`): an honest client needs
+  milliseconds, so a client that opens connections and says nothing, or drips
+  a head, frees its slot after a few seconds, not after `idle_timeout_ms`, and a handful
+  of them cannot keep the `max_connections` slots from everyone else. The server
+  cannot tell clients apart, so a flood from many addresses is for a firewall or the proxy
+  in front.
+- **No banner, one hardening header.** Every response carries `Date` and
+  `X-Content-Type-Options: nosniff`; none carries a `Server` header, which only
+  tells an attacker what to look for. A handler that sets either header itself is
+  not overridden. `Strict-Transport-Security` is not the library's to send: it
+  does not know whether TLS ends at the process or at a proxy, so the application
+  adds it (the sample backend does, from `server.hsts-max-age-seconds`).
 - **Strict about what a proxy in front might read differently**, since a
   difference between the two is how requests are smuggled. A request is a 400
   if it has `Content-Length` headers that differ (identical repeats are fine),

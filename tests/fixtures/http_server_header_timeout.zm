@@ -1,0 +1,152 @@
+use clock
+use http
+use server
+use net
+
+// A new connection's first byte and a request's head have a shorter limit (300 ms here) than the idle wait between requests and a body (2000 ms), so a client
+// that opens a connection and dawdles is let go fast, while a keep-alive connection and a slow upload are not touched by it.
+
+fn route(req: http.Request) -> http.Response {
+    if req.path == "/echo" {
+        return server.text_response(200, format("body={}", unwrap(bytes_to_string(req.body))))
+    }
+    if req.path == "/own" {
+        return server.with_header(
+            server.with_header(server.text_response(200, "own"), "Server", "custom"),
+            "X-Content-Type-Options",
+            "other"
+        )
+    }
+    return server.text_response(200, "ok")
+}
+
+fn serve_connection(sock: net.Socket) {
+    defer net.close(sock)
+    unwrap(net.set_timeout(sock, 300))
+    var session = server.open_session_with_timeouts(sock, 2000, 300)
+    var open = true
+    while open {
+        val next = server.read_request(session)
+        if !is_ok(next) {
+            val _ = server.write_error(sock, unwrap_err(next))
+            open = false
+        } else {
+            val ex = unwrap(next)
+            session = ex.session
+            val keep = server.write_response(sock, ex.request, route(ex.request))
+            if !is_ok(keep) || !unwrap(keep) {
+                open = false
+            }
+        }
+    }
+}
+
+fn accept_loop(l: net.Listener) {
+    while true {
+        val c = net.accept(l)
+        if !is_ok(c) {
+            return
+        }
+        spawn serve_connection(unwrap(c))
+    }
+}
+
+fn connect(port: int) -> net.Socket {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.set_timeout(s, 3000))
+    return s
+}
+
+fn put(s: net.Socket, text: string) {
+    val _ = net.write_text(s, text)
+}
+
+fn read_response(s: net.Socket) -> string {
+    var acc = ""
+    while !contains(acc, "\r\n\r\n") {
+        val more = net.read_text(s, 4096)
+        if !is_ok(more) {
+            return acc
+        }
+        acc = concat(acc, unwrap(more))
+    }
+    val parts = split(acc, "\r\n\r\n")
+    val lines = split(to_lower(parts[0]), "content-length: ")
+    if len(lines) < 2 {
+        return acc
+    }
+    val want = unwrap(parse_int(trim(split(lines[1], "\r\n")[0])))
+    var body = parts[1]
+    while len(body) < want {
+        val more = net.read_text(s, 4096)
+        if !is_ok(more) {
+            return acc
+        }
+        body = concat(body, unwrap(more))
+    }
+    return concat(concat(parts[0], "\r\n\r\n"), body)
+}
+
+fn count_of(text: string, piece: string) -> int {
+    return len(split(text, piece)) - 1
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn accept_loop(l)
+
+    // A connection that never speaks is answered 408 and closed after the head limit, long before the 2000 ms idle limit.
+    var s = connect(port)
+    var started = clock.monotonic_millis()
+    var r = read_response(s)
+    var took = clock.monotonic_millis() - started
+    print(split(r, "\r\n")[0])
+    print(took >= 250 && took < 1500)
+    net.close(s)
+
+    // A head that has begun must finish within the head limit, even with every piece well inside the idle limit.
+    s = connect(port)
+    put(s, "GET /health HTTP/1.1\r\n")
+    clock.sleep_millis(200)
+    put(s, "Host: a\r\n")
+    clock.sleep_millis(200)
+    put(s, "\r\n")
+    print(split(read_response(s), "\r\n")[0])
+    net.close(s)
+
+    // A head that arrives in time is fine, however the first byte is delayed within the head limit.
+    s = connect(port)
+    clock.sleep_millis(100)
+    put(s, "GET /health HTTP/1.1\r\nHost: a\r\n\r\n")
+    print(split(read_response(s), "\r\n")[0])
+
+    // The wait for the next request on a keep-alive connection is the idle limit (2000 ms), not the head limit (300 ms).
+    clock.sleep_millis(700)
+    put(s, "GET /health HTTP/1.1\r\nHost: a\r\n\r\n")
+    print(split(read_response(s), "\r\n")[0])
+    net.close(s)
+
+    // A body may take longer than the head limit: it is bounded by the request limit.
+    s = connect(port)
+    put(s, "POST /echo HTTP/1.1\r\nHost: a\r\nContent-Length: 5\r\n\r\nab")
+    clock.sleep_millis(700)
+    put(s, "cde")
+    r = read_response(s)
+    print(split(r, "\r\n")[0])
+    print(contains(r, "body=abcde"))
+    net.close(s)
+
+    // No Server banner, a nosniff header, and a handler's own values are not overridden or repeated.
+    s = connect(port)
+    put(s, "GET /health HTTP/1.1\r\nHost: a\r\n\r\n")
+    r = read_response(s)
+    print(contains(to_lower(r), "server:"))
+    print(count_of(r, "X-Content-Type-Options: nosniff"))
+    put(s, "GET /own HTTP/1.1\r\nHost: a\r\n\r\n")
+    r = read_response(s)
+    print(contains(r, "Server: custom"))
+    print(contains(r, "X-Content-Type-Options: other"))
+    print(count_of(to_lower(r), "x-content-type-options"))
+    net.close(s)
+}

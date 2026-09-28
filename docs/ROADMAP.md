@@ -1448,6 +1448,11 @@ from source.
   would justify them is a message catalog whose languages put the pieces in different orders; `format_dynamic`
   would take them first.
 
+- **`serve`: per-client connection cap -- not started.** `header_timeout_ms` (E7) frees a slot from a client that dawdles within seconds, but a
+  flood from one address can still fill all `max_connections` slots. A cap per client address (`max_connections_per_client`, default 0 = off, since
+  behind a reverse proxy every connection has the proxy's address) needs `net.peer_address(sock)` (`getpeername`) and a counter shared by every
+  connection thread -- a native handle holding a mutex-guarded table, as `StringBuilder` and `Iter` hold theirs. Until then a firewall or the proxy in front does it.
+
 - **Metrics and telemetry -- not started; a `metrics` module first, then tracing.** Ziman has `log`, `clock` and
   threads but no way to count things across threads: a lambda cannot mutate what it captures, so shared state has to
   live in a native handle, as `StringBuilder` and `Iter` do. Planned, in order:
