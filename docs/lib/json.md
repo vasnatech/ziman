@@ -9,11 +9,17 @@ near-O(1) (not a scan), a duplicate key has one defined meaning (the last one
 wins; `parse_json_strict` rejects it instead), and iteration -- and so
 `json_to_string` -- keeps the order keys first appeared in the document.
 
-Numbers: `JInt(int)` for an integer literal that fits in 64 bits, `JNumber(float)`
-for everything else (a fraction, an exponent, or an integer too large for `int`).
-So a large id or count round-trips exactly instead of losing precision to a float.
-`int_from_json` accepts either (a `JNumber` only if it is a whole number in range);
-`float_from_json` accepts either.
+Numbers: `JNumber(Number)`, where a `Number` says how the number was written and so what it can
+be read back as exactly: `Int(int)` for an integer that fits in 64 bits, `Bigint(bigint)` for a
+larger one (never a float that has lost its low digits), `Float(float)` for a fraction or an
+exponent, and `Decimal(decimal)`, which `parse_json_exact` produces for a fraction or an exponent
+(every digit and the scale kept: `19.90` is `19.90`) and `decimal_to_json` builds. The `*_from_json`
+functions decide what is lossless: `int_from_json` accepts any `Number` that is a whole number in
+int's range, `bigint_from_json` any whole number, `decimal_from_json` and `float_from_json` any
+number (a float reading a decimal or bigint is rounded, as a cast to `float` is).
+
+A number is read as JSON's grammar says: `0`, or a digit 1-9 and more digits, so `01` is an error, as
+are `+1`, `.5`, `5.` and `NaN`. An integer or exact decimal may have at most 1000 digits.
 
 Strings: the full JSON escape set is read (`\" \\ \/ \b \f \n \r \t` and `\uXXXX`,
 including surrogate pairs, decoded to UTF-8) and written (control characters as
@@ -34,6 +40,7 @@ expected to be built on top of it (see `json_object_get`, `json_get_path` and th
 ```
 use json
 use json.Json
+use json.int_to_json
 
 // Parse text into a tree, read from it, build a new tree and print it.
 fn main() {
@@ -57,7 +64,7 @@ fn main() {
     print(Option.is_Some(first))
 
     // Build a tree and write it out, compact or indented.
-    val out = Json.JObject(Map<string, Json> { "ok": Json.JBool(true), "count": Json.JInt(2) })
+    val out = Json.JObject(Map<string, Json> { "ok": Json.JBool(true), "count": int_to_json(2) })
     print(json.json_to_string(out))
     print(json.json_to_pretty_string(out, 2))
 
@@ -82,22 +89,34 @@ true
 false
 ```
 
+### `Number`
+
+```
+pub enum Number {
+    Int(int)
+    Float(float)
+    Bigint(bigint)
+    Decimal(decimal)
+}
+```
+
+A JSON number, by how it was written or built: an `Int` that fits 64 bits, a `Bigint` that does not, a
+`Float` (a fraction or exponent parsed the usual way), or a `Decimal` (exact digits and scale).
+
 ### `Json`
 
 ```
 pub enum Json {
     JNull
     JBool(bool)
-    JInt(int)
-    JNumber(float)
+    JNumber(Number)
     JString(string)
     JArray([Json])
     JObject(Map<string, Json>)
 }
 ```
 
-A JSON value: null, a boolean, an integer (`JInt`, a number written without a fraction or
-exponent), any other number (`JNumber`), a string, an array, or an object (a `Map<string,
+A JSON value: null, a boolean, a number (`JNumber`), a string, an array, or an object (a `Map<string,
 Json>`).
 
 ## Parsing
@@ -139,6 +158,25 @@ pub fn parse_json_bytes_strict(data: [byte]) -> Result<Json, string>
 
 `parse_json_strict` over bytes.
 
+### `parse_json_exact`
+
+```
+pub fn parse_json_exact(s: string) -> Result<Json, string>
+```
+
+`parse_json`, but a number with a fraction or an exponent is a `Number.Decimal` with every digit and its scale kept, not a
+`Number.Float` (`0.1234567890123456789` and `19.90` survive, and `decimal_from_json` reads them exactly). What to parse
+money, doses and lab values with; an integer is still `Int` or, past 64 bits, `Bigint`. At most 1000 digits per number, and
+an exponent of at most 100000 in size.
+
+### `parse_json_bytes_exact`
+
+```
+pub fn parse_json_bytes_exact(data: [byte]) -> Result<Json, string>
+```
+
+`parse_json_exact` over the bytes of a document.
+
 ## Writing
 
 ### `json_to_bytes`
@@ -157,7 +195,8 @@ pub fn json_to_string(j: Json) -> string
 
 `j` as compact JSON text (no spaces), objects in key insertion order. A float is written
 with the fewest digits that read back as the same number (`0.1`, `1e+20`); NaN and infinity,
-which JSON cannot represent, are written as `null`. Control characters in strings are
+which JSON cannot represent, are written as `null`. A bigint is written as its digits and a
+decimal as its digits at its own scale (`19.90`). Control characters in strings are
 escaped (`\b \f \n \r \t`, else `\u00XX`); everything else, including non-ASCII, is written as is.
 
 ## Reading a tree
@@ -306,13 +345,38 @@ Converter functions for the scalar types. A generic #[derive(Json)] type takes
 one converter per type parameter (`page_to_json<int>(page, int_to_json)`), and
 a builtin type has no function of its own to pass -- these are those.
 
+### `json_number`
+
+```
+pub fn json_number(j: Json) -> Option<Number>
+```
+
+The `Number` in `j`, or None if `j` is not a JSON number.
+
 ### `int_from_json`
 
 ```
 pub fn int_from_json(j: Json) -> Result<int, string>
 ```
 
-A JInt, or a JNumber that is a whole number within int's range (`3.0`, `1e3`).
+An int from a JSON number that is a whole number in int's range: an `Int`, or a `Float`, `Bigint` or `Decimal` with no
+fraction (`3.0`, `1e3`, `3.00`). An Err otherwise.
+
+### `bigint_to_json`
+
+```
+pub fn bigint_to_json(n: bigint) -> Json
+```
+
+`n` as a JSON number, a bigint of any size, written as its digits.
+
+### `bigint_from_json`
+
+```
+pub fn bigint_from_json(j: Json) -> Result<bigint, string>
+```
+
+A bigint from a JSON number that is a whole number, of any size. An Err otherwise.
 
 ### `float_to_json`
 
@@ -328,7 +392,7 @@ pub fn float_to_json(f: float) -> Json
 pub fn float_from_json(j: Json) -> Result<float, string>
 ```
 
-A float from a JSON number, integers included; an Err otherwise.
+A float from any JSON number (a bigint or decimal is rounded to the nearest float); an Err otherwise.
 
 ### `decimal_to_json`
 
@@ -336,7 +400,7 @@ A float from a JSON number, integers included; an Err otherwise.
 pub fn decimal_to_json(d: decimal) -> Json
 ```
 
-`d` as a JSON number: the float nearest it, so a decimal with more than about 15 significant digits loses the rest.
+`d` as a JSON number, exactly: every digit and its scale (`19.90d` is written `19.90`).
 
 ### `decimal_from_json`
 
@@ -344,8 +408,8 @@ pub fn decimal_to_json(d: decimal) -> Json
 pub fn decimal_from_json(j: Json) -> Result<decimal, string>
 ```
 
-A decimal from a JSON number, integers included: a number is read as its shortest text (`0.1` is `0.1`, not the float's exact
-binary value). An Err otherwise.
+A decimal from any JSON number, exactly for an `Int`, `Bigint` or `Decimal`. A `Float` is read as its shortest text (`0.1` is
+`0.1`, not the float's exact binary value), which is all the digits a float has; NaN and infinity are an Err.
 
 ### `bool_to_json`
 

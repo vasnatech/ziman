@@ -18,6 +18,8 @@
 use clock
 use crypto
 use json.Json
+use json.int_to_json
+use json.json_number
 use json.json_object_get
 use json.json_require_string_field
 use json.json_to_string
@@ -78,8 +80,8 @@ pub fn claims(subject: string, expires_in_seconds: int) -> Json {
     val now = now_seconds()
     return Json.JObject(Map<string, Json> {
         "sub": Json.JString(subject),
-        "iat": Json.JInt(now),
-        "exp": Json.JInt(now + expires_in_seconds)
+        "iat": int_to_json(now),
+        "exp": int_to_json(now + expires_in_seconds)
     })
 }
 
@@ -137,11 +139,13 @@ fn decode_part(part: string, what: string) -> Result<Json, JwtError> {
 // The numeric claim `name` in seconds, when it is there and is a number.
 fn seconds_claim(payload: Json, name: string) -> Option<int> {
     if Some(value) = json_object_get(payload, name) {
-        if JInt(n) = value {
-            return Option<int>.Some(n)
-        }
-        if JNumber(f) = value {
-            return Option<int>.Some(f as int)
+        if Some(number) = json_number(value) {
+            switch number {
+                Int(n) { return Option<int>.Some(n) }
+                Float(f) { return Option<int>.Some(f as int) }
+                Bigint(b) { return Option<int>.Some(b as int) }
+                Decimal(d) { return Option<int>.Some(d as int) }
+            }
         }
     }
     return Option<int>.None

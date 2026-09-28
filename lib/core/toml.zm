@@ -10,7 +10,7 @@
 // Writes a `Json` object: scalars and arrays first as `key = value`, then sub-tables, then
 // arrays of tables (`[[name]]`). TOML has no null, so a `JNull` field is left out; a null
 // inside an array is an error. The output re-reads as the same tree (a float that is a whole
-// number keeps its `.0`; a `JInt` stays an integer).
+// number keeps its `.0`; an `Int` stays an integer).
 
 // The UTF-16 surrogate block (not valid code points) and the highest code point, for `\u` escapes.
 val surrogate_start = 55296
@@ -19,6 +19,9 @@ val max_code_point = 1114111
 val hex_chars = "0123456789abcdef"
 
 use json.Json
+use json.Number
+use json.float_to_json
+use json.int_to_json
 use number.float_to_text
 
 // ------------------------------------------------------------------ reading
@@ -301,7 +304,7 @@ fn parse_radix(t: string, digits: string, base: int) -> Result<Json, string> {
         }
         n = n * base + d
     }
-    return ok(Json.JInt(n))
+    return ok(int_to_json(n))
 }
 
 fn number_token(tok: string) -> Result<Json, string> {
@@ -331,7 +334,7 @@ fn number_token(tok: string) -> Result<Json, string> {
         if !is_ok(f) {
             return err(format("invalid number '{}'", tok))
         }
-        return ok(Json.JNumber(unwrap(f)))
+        return ok(float_to_json(unwrap(f)))
     }
     if len(bare) > 1 && char_at(bare, 0) == "0" {
         return err(format("leading zeros are not allowed in '{}'", tok))
@@ -340,7 +343,7 @@ fn number_token(tok: string) -> Result<Json, string> {
     if !is_ok(n) {
         return err(format("invalid integer '{}'", tok))
     }
-    return ok(Json.JInt(unwrap(n)))
+    return ok(int_to_json(unwrap(n)))
 }
 
 fn parse_scalar_token(s: string, pos: int) -> Result<Parsed, string> {
@@ -520,7 +523,7 @@ fn expect_line_end(s: string, pos: int) -> Result<int, string> {
 }
 
 // Parses a TOML document into a `Json` object (tables and inline tables become objects, arrays
-// arrays, integers `JInt`, floats `JNumber`, dates and times `JString`). An Err carries
+// arrays, integers `JNumber(Int)`, floats `JNumber(Float)`, dates and times `JString`). An Err carries
 // `line N: ...` for a syntax error, a duplicate key, a table defined twice, a table redefined as a
 // value (or the reverse), or an unsupported value (`inf`, `nan`).
 pub fn parse_toml(text: string) -> Result<Json, string> {
@@ -635,6 +638,17 @@ fn float_text(f: float) -> string {
     return concat(t, ".0")
 }
 
+// A JSON number as TOML text: an int or bigint as its digits, a float with the fewest digits that read back (and a `.0` if it
+// would otherwise look like an integer), a decimal as its digits at its own scale.
+fn number_text(n: Number) -> string {
+    switch n {
+        Int(i) { return str(i) }
+        Float(f) { return float_text(f) }
+        Bigint(b) { return str(b) }
+        Decimal(d) { return str(d) }
+    }
+}
+
 // A value on one line: scalars, arrays, and objects as inline tables.
 fn inline_value(j: Json) -> Result<string, string> {
     if Json.is_JNull(j) {
@@ -643,11 +657,8 @@ fn inline_value(j: Json) -> Result<string, string> {
     if Json.is_JBool(j) {
         return ok(if Json.unwrap_JBool(j) { "true" } else { "false" })
     }
-    if Json.is_JInt(j) {
-        return ok(str(Json.unwrap_JInt(j)))
-    }
     if Json.is_JNumber(j) {
-        return ok(float_text(Json.unwrap_JNumber(j)))
+        return ok(number_text(Json.unwrap_JNumber(j)))
     }
     if Json.is_JString(j) {
         return ok(quote_basic(Json.unwrap_JString(j)))

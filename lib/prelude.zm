@@ -16,12 +16,13 @@
 
 // ---------------------------------------------------------------- parsing numbers
 
-// The number in `s` (surrounding blanks allowed), or an Err naming the text when it is not one
-// or does not fit: `parse_int("9223372036854775808")` is an Err. `parse_int` takes an optional
-// leading `+` or `-` and decimal digits only (no `0x`, no `_`).
+// The number in `s`, or an Err naming the text when it is not one or does not fit:
+// `parse_int("9223372036854775808")` is an Err. `parse_int` takes an optional leading `-` and decimal
+// digits only: no blanks around the number, no `+`, no `0x`, no `_` (`trim` first to allow blanks).
 native fn parse_int(s: string) -> Result<int, string>
 
-// A float from decimal or exponent text (`3.5`, `1e3`), or an Err.
+// A float from decimal or exponent text (`3.5`, `1e3`), or an Err: like `parse_int`, no blanks and no `+`, and
+// no hex (`0x10`). `nan`, `inf` and `-inf` (what `str` prints) are the non-finite floats it reads.
 native fn parse_float(s: string) -> Result<float, string>
 
 // A bigint from digits with an optional sign, or an Err. Any length.

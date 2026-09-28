@@ -1,0 +1,40 @@
+// parse_int and parse_float take the whole text as a number or fail: no leading or trailing blanks, no `+`, no hex,
+// and exactly `nan`, `inf` and `-inf` as the non-finite floats (the spellings `str` prints). parse_bigint and
+// parse_decimal have always been this strict; all four now agree.
+
+fn show(label: string, s: string) {
+    print(format("{} int={} float={} bigint={} decimal={}", label, parse_int(s), parse_float(s), parse_bigint(s), parse_decimal(s)))
+}
+
+fn main() {
+    show("5", "5")
+    show("-5", "-5")
+    show("007", "007")
+    show("leading blank", " 5")
+    show("trailing blank", "5 ")
+    show("leading tab", "\t5")
+    show("trailing newline", "5\n")
+    show("plus", "+5")
+    show("minus plus", "-+5")
+    show("double minus", "--5")
+    show("empty", "")
+    show("minus", "-")
+    show("hex", "0x10")
+    show("underscore", "1_000")
+    show("point", "5.0")
+    show("leading point", ".5")
+    show("trailing point", "5.")
+    show("exponent", "1e3")
+    show("signed exponent", "1E-3")
+    show("dangling exponent", "1e")
+    show("nan", "nan")
+    show("inf", "inf")
+    show("minus inf", "-inf")
+    show("plus inf", "+inf")
+    show("Infinity", "Infinity")
+    show("NaN", "NaN")
+    show("nan payload", "nan(1)")
+    show("max int", "9223372036854775807")
+    show("past int", "9223372036854775808")
+    show("min int", "-9223372036854775808")
+}

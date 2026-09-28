@@ -274,11 +274,17 @@ pub fn extension(path: string) -> string
 A JSON parser/serializer (`Json`, a genuinely recursive enum), written in pure Ziman -- no native code needed. `\uXXXX` unicode escapes and `==`/`!=` on `Json` are the two known gaps.
 
 ```
+pub enum Number {
+    Int(int)
+    Float(float)
+    Bigint(bigint)
+    Decimal(decimal)
+}
+
 pub enum Json {
     JNull
     JBool(bool)
-    JInt(int)
-    JNumber(float)
+    JNumber(Number)
     JString(string)
     JArray([Json])
     JObject(Map<string, Json>)
@@ -291,6 +297,10 @@ pub fn parse_json_strict(s: string) -> Result<Json, string>
 pub fn parse_json_bytes(data: [byte]) -> Result<Json, string>
 
 pub fn parse_json_bytes_strict(data: [byte]) -> Result<Json, string>
+
+pub fn parse_json_exact(s: string) -> Result<Json, string>
+
+pub fn parse_json_bytes_exact(data: [byte]) -> Result<Json, string>
 
 pub fn json_to_bytes(j: Json) -> [byte]
 
@@ -324,7 +334,13 @@ pub fn json_from_json(j: Json) -> Result<Json, string>
 
 pub fn int_to_json(n: int) -> Json
 
+pub fn json_number(j: Json) -> Option<Number>
+
 pub fn int_from_json(j: Json) -> Result<int, string>
+
+pub fn bigint_to_json(n: bigint) -> Json
+
+pub fn bigint_from_json(j: Json) -> Result<bigint, string>
 
 pub fn float_to_json(f: float) -> Json
 

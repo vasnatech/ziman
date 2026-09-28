@@ -2,6 +2,7 @@ use json.parse_json
 use json.json_require_field
 use json.json_require_string_field
 use json.Json
+use json.Number
 
 fn main() {
     val j = unwrap(parse_json("{\"name\": \"Ada\", \"age\": 42}"))
@@ -13,5 +14,5 @@ fn main() {
     print(unwrap_err(json_require_string_field(j, "age")))
 
     val age_json = unwrap(json_require_field(j, "age"))
-    print(Json.is_JInt(age_json))
+    print(Number.is_Int(Json.unwrap_JNumber(age_json)))
 }

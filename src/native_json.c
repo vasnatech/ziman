@@ -9,32 +9,46 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bignum.h"
+#include "decimal.h"
 #include "error.h"
 #include "iter.h"
 #include "mapobj.h"
 #include "native.h"
 
 /* The `json` core module's parser and serializer, natively: json.parse_native(text, proto,
- * strict) and json.to_string_native(value). `proto` is any Json value; the values built here
- * take their enum name and type from it (a native cannot know the loader's qualified name for
- * `Json`). Error messages are the ones the module has always produced; positions are byte
- * offsets. See lib/core/json.zm. */
+ * number_proto, strict, exact) and json.to_string_native(value). `proto` is any Json value and
+ * `number_proto` any Number; the values built here take their enum names and types from them (a
+ * native cannot know the loader's qualified names for `Json` and `Number`). Error messages are the
+ * ones the module has always produced; positions are byte offsets. See lib/core/json.zm. */
 
 enum { MAX_DEPTH = 512 };
+
+/* The most digits an integer or an exact decimal may have: a longer number is an error rather than work
+ * the parser does for whoever sent it (turning n digits into a bigint takes time quadratic in n). */
+enum { MAX_NUMBER_DIGITS = 1000 };
 
 typedef struct {
     const char *s;
     size_t n;
     size_t p;
     int strict;
+    int exact; /* a fraction or exponent is read as a Decimal, not a Float */
     Type json_type;
     char *enum_name;
+    Type number_type;
+    char *number_enum_name;
     char err[320];
     int failed;
 } Parser;
 
 static Value make_json(Parser *ps, const char *variant, int has_payload, Value payload) {
     return value_enum(ps->json_type, enum_obj_new(ps->enum_name, (char *)variant, has_payload, payload));
+}
+
+static Value make_number(Parser *ps, const char *variant, Value payload) {
+    Value n = value_enum(ps->number_type, enum_obj_new(ps->number_enum_name, (char *)variant, 1, payload));
+    return make_json(ps, "JNumber", 1, n);
 }
 
 static void fail(Parser *ps, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
@@ -140,28 +154,63 @@ static Value parse_value(Parser *ps, int depth);
 
 static int is_digit_c(char c) { return c >= '0' && c <= '9'; }
 
+/* `digits` (the integer and fraction digits of a number, no point) with the decimal point `scale` digits from
+ * the right, as the plain text `decimal_from_string` reads: a negative scale (an exponent that outruns the
+ * fraction) is zeros on the end, a scale longer than the digits is zeros in front. */
+static char *decimal_text(int neg, const char *digits, size_t nd, long scale) {
+    size_t zeros_after = scale < 0 ? (size_t)(-scale) : 0;
+    size_t zeros_before = scale > 0 && (size_t)scale >= nd ? (size_t)scale - nd + 1 : 0;
+    size_t total = zeros_before + nd + zeros_after;
+    char *out = malloc(total + 3);
+    size_t o = 0;
+    if (neg) out[o++] = '-';
+    for (size_t i = 0; i < total; i++) {
+        if (scale > 0 && i == total - (size_t)scale) out[o++] = '.';
+        if (i < zeros_before) out[o++] = '0';
+        else if (i < zeros_before + nd) out[o++] = digits[i - zeros_before];
+        else out[o++] = '0';
+    }
+    out[o] = '\0';
+    return out;
+}
+
 static Value parse_number(Parser *ps) {
     const char *s = ps->s;
     size_t pos = ps->p, p = pos;
     int whole = 1;
-    if (p < ps->n && s[p] == '-') p++;
+    int neg = 0;
+    if (p < ps->n && s[p] == '-') { neg = 1; p++; }
     size_t int_start = p;
     while (p < ps->n && is_digit_c(s[p])) p++;
     if (p == int_start) { fail(ps, "invalid number at position %zu", pos); return value_int(0); }
+    size_t int_end = p;
+    /* JSON's grammar: an integer part is `0` or a digit 1-9 and more digits, never `01`. */
+    if (s[int_start] == '0' && int_end - int_start > 1) {
+        fail(ps, "invalid number: leading zeros are not allowed at position %zu", pos);
+        return value_int(0);
+    }
+    size_t frac_start = 0, frac_end = 0;
     if (p < ps->n && s[p] == '.') {
         whole = 0;
         p++;
-        size_t frac = p;
+        frac_start = p;
         while (p < ps->n && is_digit_c(s[p])) p++;
-        if (p == frac) { fail(ps, "invalid number at position %zu", pos); return value_int(0); }
+        if (p == frac_start) { fail(ps, "invalid number at position %zu", pos); return value_int(0); }
+        frac_end = p;
     }
+    long exponent = 0;
     if (p < ps->n && (s[p] == 'e' || s[p] == 'E')) {
         whole = 0;
         p++;
-        if (p < ps->n && (s[p] == '+' || s[p] == '-')) p++;
+        int exp_neg = 0;
+        if (p < ps->n && (s[p] == '+' || s[p] == '-')) { exp_neg = s[p] == '-'; p++; }
         size_t ex = p;
-        while (p < ps->n && is_digit_c(s[p])) p++;
+        while (p < ps->n && is_digit_c(s[p])) {
+            if (exponent < 1000000) exponent = exponent * 10 + (s[p] - '0');
+            p++;
+        }
         if (p == ex) { fail(ps, "invalid number at position %zu", pos); return value_int(0); }
+        if (exp_neg) exponent = -exponent;
     }
     char *text = malloc(p - pos + 1);
     memcpy(text, s + pos, p - pos);
@@ -171,14 +220,56 @@ static Value parse_number(Parser *ps) {
         errno = 0;
         char *end;
         long long v = strtoll(text, &end, 10);
-        if (errno == 0 && *end == '\0') { free(text); return make_json(ps, "JInt", 1, value_int((int64_t)v)); }
+        if (errno == 0 && *end == '\0') { free(text); return make_number(ps, "Int", value_int((int64_t)v)); }
+        /* An integer too big for int: exactly a bigint, never a float that has lost its low digits. */
+        size_t digits = int_end - int_start;
+        if (digits > MAX_NUMBER_DIGITS) {
+            fail(ps, "number has more than %d digits at position %zu", (int)MAX_NUMBER_DIGITS, pos);
+            free(text);
+            return value_int(0);
+        }
+        int ok;
+        BigNum big = bignum_from_string(text, &ok);
+        free(text);
+        if (!ok) { fail(ps, "invalid number at position %zu", pos); return value_int(0); }
+        return make_number(ps, "Bigint", value_bigint(big));
+    }
+    if (ps->exact) {
+        /* All the digits, and the scale they were written at (`1.50` keeps its scale); an exponent moves the point. */
+        size_t int_len = int_end - int_start, frac_len = frac_end - frac_start;
+        if (exponent > 100000 || exponent < -100000) {
+            fail(ps, "number has too large an exponent at position %zu", pos);
+            free(text);
+            return value_int(0);
+        }
+        char *digits = malloc(int_len + frac_len + 1);
+        memcpy(digits, s + int_start, int_len);
+        if (frac_len > 0) memcpy(digits + int_len, s + frac_start, frac_len);
+        size_t nd = int_len + frac_len;
+        digits[nd] = '\0';
+        long scale = (long)frac_len - exponent;
+        size_t needed = nd + (scale < 0 ? (size_t)(-scale) : 0);
+        if (needed > MAX_NUMBER_DIGITS || scale > MAX_NUMBER_DIGITS) {
+            fail(ps, "number has more than %d digits at position %zu", (int)MAX_NUMBER_DIGITS, pos);
+            free(digits);
+            free(text);
+            return value_int(0);
+        }
+        char *plain = decimal_text(neg, digits, nd, scale);
+        int ok;
+        Decimal d = decimal_from_string(plain, &ok);
+        free(plain);
+        free(digits);
+        free(text);
+        if (!ok) { fail(ps, "invalid number at position %zu", pos); return value_int(0); }
+        return make_number(ps, "Decimal", value_decimal(d));
     }
     errno = 0;
     char *end;
     double d = strtod(text, &end);
     if (*end != '\0') { fail(ps, "invalid number '%s' at position %zu", text, pos); free(text); return value_int(0); }
     free(text);
-    return make_json(ps, "JNumber", 1, value_float(d));
+    return make_number(ps, "Float", value_float(d));
 }
 
 static Value parse_array(Parser *ps, int depth) {
@@ -280,16 +371,19 @@ static Value parse_value(Parser *ps, int depth) {
     return value_int(0);
 }
 
-/* Parses `n` bytes at `text` as one JSON value: Result<Json, string>. `sample` is any Json value,
- * which tells the parser the enum's type and qualified name. */
-static Value parse_json_text(const char *text, size_t n, Value sample, int strict) {
+/* Parses `n` bytes at `text` as one JSON value: Result<Json, string>. `sample` is any Json value and
+ * `number_sample` any Number, which tell the parser the enums' types and qualified names. */
+static Value parse_json_text(const char *text, size_t n, Value sample, Value number_sample, int strict, int exact) {
     Parser ps;
     memset(&ps, 0, sizeof ps);
     ps.s = text;
     ps.n = n;
     ps.json_type = sample.type;
     ps.enum_name = sample.as.en->enum_name;
+    ps.number_type = number_sample.type;
+    ps.number_enum_name = number_sample.as.en->enum_name;
     ps.strict = strict;
+    ps.exact = exact;
     Type string_type = type_scalar(TY_STRING);
     Type result_type = type_result(ps.json_type, string_type);
     Value v = parse_value(&ps, 0);
@@ -303,15 +397,15 @@ static Value parse_json_text(const char *text, size_t n, Value sample, int stric
 
 static Value native_json_parse(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    return parse_json_text(args[0].as.str.ptr, args[0].as.str.len, args[1], args[2].as.b);
+    return parse_json_text(args[0].as.str.ptr, args[0].as.str.len, args[1], args[2], args[3].as.b, args[4].as.b);
 }
 
-/* json.parse_bytes_native(data, proto, strict): the same parser over a `[byte]`, with no string made first. */
+/* json.parse_bytes_native(data, proto, number_proto, strict, exact): the same parser over a `[byte]`, with no string made first. */
 static Value native_json_parse_bytes(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     int n = 0;
     uint8_t *bytes = array_copy_bytes(args[0].as.arr, &n);
-    Value result = parse_json_text((const char *)bytes, (size_t)n, args[1], args[2].as.b);
+    Value result = parse_json_text((const char *)bytes, (size_t)n, args[1], args[2], args[3].as.b, args[4].as.b);
     free(bytes);
     return result;
 }
@@ -321,6 +415,7 @@ static Value native_json_parse_bytes(Value *args, int argc, int line, int col) {
 typedef struct {
     LineSource *lines;
     Value sample;
+    Value number_sample;
 } RecordsState;
 
 static int records_next(IterObj *it, Value *out) {
@@ -341,7 +436,7 @@ static int records_next(IterObj *it, Value *out) {
         size_t a = 0;
         while (a < len && (line[a] == ' ' || line[a] == '\t')) a++;
         if (a == len) continue;
-        Value parsed = parse_json_text(line, len, st->sample, 0);
+        Value parsed = parse_json_text(line, len, st->sample, st->number_sample, 0, 0);
         if (parsed.as.res->is_ok) {
             *out = parsed;
         } else {
@@ -373,6 +468,7 @@ static Value native_ndjson_records_raw(Value *args, int argc, int line, int col)
     RecordsState *st = calloc(1, sizeof(RecordsState));
     st->lines = ls;
     st->sample = args[1];
+    st->number_sample = args[2];
     IterObj *it = calloc(1, sizeof(IterObj));
     it->next = records_next;
     it->release = records_release;
@@ -430,13 +526,32 @@ static void put_float(Out *o, double d) {
     out_str(o, buf);
 }
 
+/* A `Number`: an int as its digits, a float as the fewest digits that read back as it, a bigint as its digits, a decimal
+ * as its digits at the scale it has (`19.90` stays `19.90`; a negative scale, the zeros it stands for, is written out). */
+static void put_number(Out *o, Value number) {
+    const char *variant = number.as.en->variant_name;
+    Value payload = number.as.en->payload;
+    if (strcmp(variant, "Int") == 0) {
+        char b[32];
+        snprintf(b, sizeof b, "%lld", (long long)payload.as.i);
+        out_str(o, b);
+    } else if (strcmp(variant, "Float") == 0) {
+        put_float(o, payload.as.f);
+    } else if (strcmp(variant, "Bigint") == 0) {
+        out_str(o, bignum_to_string(*payload.as.bi));
+    } else {
+        Decimal d = *payload.as.dec;
+        if (d.scale < 0) d = decimal_round(d, 0);
+        out_str(o, decimal_to_string(d));
+    }
+}
+
 static void write_json(Out *o, Value j) {
     const char *variant = j.as.en->variant_name;
     Value payload = j.as.en->payload;
     if (strcmp(variant, "JNull") == 0) out_str(o, "null");
     else if (strcmp(variant, "JBool") == 0) out_str(o, payload.as.b ? "true" : "false");
-    else if (strcmp(variant, "JInt") == 0) { char b[32]; snprintf(b, sizeof b, "%lld", (long long)payload.as.i); out_str(o, b); }
-    else if (strcmp(variant, "JNumber") == 0) put_float(o, payload.as.f);
+    else if (strcmp(variant, "JNumber") == 0) put_number(o, payload);
     else if (strcmp(variant, "JString") == 0) put_json_string(o, payload.as.str.ptr, payload.as.str.len);
     else if (strcmp(variant, "JArray") == 0) {
         out_put(o, "[", 1);

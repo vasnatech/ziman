@@ -72,6 +72,7 @@ flowchart LR
     fs --> os
     http --> mime
     http --> number
+    json --> number
     jwt --> clock
     jwt --> crypto
     jwt --> json
@@ -134,9 +135,9 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `clock`, `collections`, `compress`, `json`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
-| 1 | `crypto`, `db`, `http`, `ndjson`, `os`, `toml`, `yaml` |
-| 2 | `fs`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sqlite`, `uuid` |
+| 0 | `clock`, `collections`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
+| 1 | `crypto`, `db`, `http`, `json`, `os` |
+| 2 | `fs`, `jwt`, `mysql`, `ndjson`, `otp`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml` |
 | 3 | `csv`, `datasource`, `log`, `properties`, `zone` |
 | 4 | `time` |
 | 5 | `client`, `migrate` |
@@ -155,7 +156,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `db` | `number` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `properties`, `zone` |
 | `http` | `mime`, `number` | `client`, `server` |
-| `json` | - | `csv`, `jwt`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
+| `json` | `number` | `csv`, `jwt`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `os` | - |
 | `math` | - | - |
@@ -164,7 +165,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
-| `number` | - | `client`, `csv`, `db`, `http`, `jwt`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
+| `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `log`, `migrate`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |

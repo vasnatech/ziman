@@ -22,6 +22,9 @@ val max_code_point = 1114111
 val hex_chars = "0123456789abcdef"
 
 use json.Json
+use json.Number
+use json.float_to_json
+use json.int_to_json
 use number.float_to_text
 
 struct Line {
@@ -249,7 +252,7 @@ fn parse_radix(t: string, digits: string, base: int) -> Json {
         }
         n = n * base + d
     }
-    return Json.JInt(n)
+    return int_to_json(n)
 }
 
 // A plain (unquoted) scalar, typed by the YAML 1.2 core schema.
@@ -282,13 +285,13 @@ fn plain_scalar(t: string, no: int) -> Result<Json, string> {
     if looks_int(t) {
         val n = parse_int(if is_char_at(t, 0, "+") { substring(t, 1, len(t)) } else { t })
         if is_ok(n) {
-            return ok(Json.JInt(unwrap(n)))
+            return ok(int_to_json(unwrap(n)))
         }
     }
     if looks_float(t) {
         val f = parse_float(if is_char_at(t, 0, "+") { substring(t, 1, len(t)) } else { t })
         if is_ok(f) {
-            return ok(Json.JNumber(unwrap(f)))
+            return ok(float_to_json(unwrap(f)))
         }
     }
     return ok(Json.JString(t))
@@ -896,6 +899,17 @@ fn float_text(f: float) -> string {
     return concat(t, ".0")
 }
 
+// A JSON number as YAML text: an int or bigint as its digits, a float with the fewest digits that read back (and a `.0` if it
+// would otherwise look like an integer), a decimal as its digits at its own scale.
+fn number_text(n: Number) -> string {
+    switch n {
+        Int(i) { return str(i) }
+        Float(f) { return float_text(f) }
+        Bigint(b) { return str(b) }
+        Decimal(d) { return str(d) }
+    }
+}
+
 fn scalar_text(j: Json) -> string {
     if Json.is_JNull(j) {
         return "null"
@@ -903,11 +917,8 @@ fn scalar_text(j: Json) -> string {
     if Json.is_JBool(j) {
         return if Json.unwrap_JBool(j) { "true" } else { "false" }
     }
-    if Json.is_JInt(j) {
-        return str(Json.unwrap_JInt(j))
-    }
     if Json.is_JNumber(j) {
-        return float_text(Json.unwrap_JNumber(j))
+        return number_text(Json.unwrap_JNumber(j))
     }
     return string_text(Json.unwrap_JString(j))
 }

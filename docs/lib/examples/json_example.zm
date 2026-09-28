@@ -1,5 +1,6 @@
 use json
 use json.Json
+use json.int_to_json
 
 // Parse text into a tree, read from it, build a new tree and print it.
 fn main() {
@@ -23,7 +24,7 @@ fn main() {
     print(Option.is_Some(first))
 
     // Build a tree and write it out, compact or indented.
-    val out = Json.JObject(Map<string, Json> { "ok": Json.JBool(true), "count": Json.JInt(2) })
+    val out = Json.JObject(Map<string, Json> { "ok": Json.JBool(true), "count": int_to_json(2) })
     print(json.json_to_string(out))
     print(json.json_to_pretty_string(out, 2))
 

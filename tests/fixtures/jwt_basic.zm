@@ -4,6 +4,7 @@ use json.Json
 use json.json_object_get
 use json.json_to_string
 use jwt
+use json.int_to_json
 
 fn show(r: Result<Json, jwt.JwtError>) {
     switch r {
@@ -46,7 +47,7 @@ fn main() {
     print(unwrap_err(jwt.sign(Json.JString("x"), key)))
 
     // expiry and not-before, checked at a chosen time
-    val timed = Json.JObject(Map<string, Json> { "sub": Json.JString("t"), "nbf": Json.JInt(1000), "exp": Json.JInt(2000) })
+    val timed = Json.JObject(Map<string, Json> { "sub": Json.JString("t"), "nbf": int_to_json(1000), "exp": int_to_json(2000) })
     val token = unwrap(jwt.sign(timed, key))
     show(jwt.verify_at(token, key, 999, 0))
     show(jwt.verify_at(token, key, 999, 5))

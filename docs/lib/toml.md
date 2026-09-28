@@ -12,7 +12,7 @@ are rejected. Defining the same key or table twice is an error.
 Writes a `Json` object: scalars and arrays first as `key = value`, then sub-tables, then
 arrays of tables (`[[name]]`). TOML has no null, so a `JNull` field is left out; a null
 inside an array is an error. The output re-reads as the same tree (a float that is a whole
-number keeps its `.0`; a `JInt` stays an integer).
+number keeps its `.0`; an `Int` stays an integer).
 
 `use toml` -- or `use toml.Name` to bring one item in bare.
 
@@ -68,7 +68,7 @@ pub fn parse_toml(text: string) -> Result<Json, string>
 ```
 
 Parses a TOML document into a `Json` object (tables and inline tables become objects, arrays
-arrays, integers `JInt`, floats `JNumber`, dates and times `JString`). An Err carries
+arrays, integers `JNumber(Int)`, floats `JNumber(Float)`, dates and times `JString`). An Err carries
 `line N: ...` for a syntax error, a duplicate key, a table defined twice, a table redefined as a
 value (or the reverse), or an unsupported value (`inf`, `nan`).
 

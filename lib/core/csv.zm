@@ -16,6 +16,9 @@
 
 use fs
 use json.Json
+use json.Number
+use json.float_to_json
+use json.int_to_json
 use number.float_to_text
 
 // One cell as the scanner saw it, and one row with the line it started on (a quoted cell can
@@ -146,11 +149,11 @@ fn typed_cell(cell: Cell) -> Json {
     }
     if tag == "i" {
         val n = parse_int(cell.text)
-        return if is_ok(n) { Json.JInt(unwrap(n)) } else { Json.JString(cell.text) }
+        return if is_ok(n) { int_to_json(unwrap(n)) } else { Json.JString(cell.text) }
     }
     if tag == "d" {
         val f = parse_float(cell.text)
-        return if is_ok(f) { Json.JNumber(unwrap(f)) } else { Json.JString(cell.text) }
+        return if is_ok(f) { float_to_json(unwrap(f)) } else { Json.JString(cell.text) }
     }
     return Json.JString(cell.text)
 }
@@ -540,11 +543,8 @@ fn cell_text(v: Json, key: string, sep: string) -> Result<string, string> {
     if Json.is_JBool(v) {
         return ok(if Json.unwrap_JBool(v) { "true" } else { "false" })
     }
-    if Json.is_JInt(v) {
-        return ok(str(Json.unwrap_JInt(v)))
-    }
     if Json.is_JNumber(v) {
-        return ok(float_to_text(Json.unwrap_JNumber(v)))
+        return ok(number_cell(Json.unwrap_JNumber(v)))
     }
     if Json.is_JString(v) {
         val s = Json.unwrap_JString(v)
@@ -617,4 +617,15 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
         sb_append(out, "\n")
     }
     return ok(sb_to_string(out))
+}
+
+// A JSON number as the text of a cell: an int or bigint as its digits, a float as the fewest digits that read back, a decimal
+// as its digits at its own scale.
+fn number_cell(n: Number) -> string {
+    switch n {
+        Int(i) { return str(i) }
+        Float(f) { return float_to_text(f) }
+        Bigint(b) { return str(b) }
+        Decimal(d) { return str(d) }
+    }
 }

@@ -1914,18 +1914,27 @@ fn main() {
 }
 ```
 
-- **`Json`** is a recursive `enum`: `JNull`, `JBool(bool)`, `JInt(int)`,
-  `JNumber(float)`, `JString(string)`, `JArray([Json])`,
-  `JObject(Map<string, Json>)`.
+- **`Json`** is a recursive `enum`: `JNull`, `JBool(bool)`, `JNumber(Number)`, `JString(string)`,
+  `JArray([Json])`, `JObject(Map<string, Json>)`.
 - **Objects are Maps.** A field lookup is near-O(1); iteration (and so
   `json_to_string`) keeps the order keys first appeared in; a repeated key keeps its
   first position with the last value (`parse_json_strict` makes it an error instead). `parse_json_bytes` and `parse_json_bytes_strict` are the same over a `[byte]`
   (a file read with `fs.read_bytes`, a body read off a socket), with no string made first.
   Build one with `Json.JObject(Map<string, Json> { "k": v })`.
-- **Numbers.** An integer literal that fits in 64 bits parses to `JInt` and is exact
-  (a large id no longer loses precision); a fraction, an exponent or an integer too big
-  for `int` parses to `JNumber(float)`. `int_from_json` accepts a `JInt` or a whole-valued
-  `JNumber` in range; `float_from_json` accepts either.
+- **Numbers.** `JNumber` holds a `json.Number`, an `enum Number { Int(int) Float(float) Bigint(bigint)
+  Decimal(decimal) }` that says how the number was written and so what it can be read back as exactly.
+  An integer that fits in 64 bits parses to `Int`; a larger one to `Bigint`, its digits exact, never a float
+  that has lost its low digits (as Jackson's `BigInteger`); a fraction or an exponent to `Float`.
+  `parse_json_exact` (and `parse_json_bytes_exact`) reads a fraction or an exponent as `Decimal` instead, every
+  digit and the scale kept (`19.90` stays `19.90`); `decimal_to_json` builds a `Decimal` and `json_to_string`
+  writes it at its own scale, and a `Bigint` as its digits. The readers decide what is lossless:
+  `int_from_json` takes any `Number` that is a whole number in `int`'s range, `bigint_from_json` any whole number,
+  `decimal_from_json` and `float_from_json` any number (a float reading a bigint or decimal is rounded, as a cast
+  is), and a `#[derive(Json)]` struct may have `bigint` and `decimal` fields. `json_number(j)` is the `Number`
+  of a `JNumber`, or `None`. There are no nested patterns, so to look at a number's kind `switch` on it
+  (`switch n { Int(i) {..} Float(f) {..} Bigint(b) {..} Decimal(d) {..} }`) or call one of the readers.
+  The grammar is JSON's: `01`, `+1`, `.5`, `5.` and a dangling exponent are errors, and an integer or exact
+  decimal may have at most 1000 digits (and an exact decimal an exponent of at most 100000 in size).
 - **`parse_json(s: string) -> Result<Json, string>`** — a native parser (about 40x faster than the
   Ziman one it replaced); errors give the byte position, and nesting past 512 levels is an error.
   All JSON string escapes are read (`\" \\ \/ \b \f \n \r \t` and `\uXXXX`, surrogate
@@ -3466,7 +3475,9 @@ a type error.
   -> Result<float, string>` / `parse_bigint(s: string) -> Result<bigint,
   string>` / `parse_decimal(s: string) -> Result<decimal, string>` —
   parses all of `s` as a number; `Err` (with a message) if `s` has
-  leading/trailing junk or doesn't parse at all.
+  leading/trailing junk or doesn't parse at all. Junk includes blanks (`" 5"`, `"5 "`) and a leading `+`
+  (`"+5"`); a number is an optional `-` and digits, for a float also a point and an exponent, and `parse_float`
+  reads `nan`, `inf` and `-inf` (what `str` prints), but not hex (`0x10`), `Infinity` or `NaN`. All four agree.
 - `contains(s: string, needle: string) -> bool` / `contains(arr: [T], x:
   T) -> bool` — substring test, or array membership test via `==`. The
   array form requires `T` to support `==` — same rule as array `==`/`!=`

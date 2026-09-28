@@ -1,0 +1,66 @@
+0 -> Int 0
+-0 -> Int 0
+42 -> Int 42
+-9223372036854775808 -> Int -9223372036854775808
+9223372036854775807 -> Int 9223372036854775807
+9223372036854775808 -> Bigint 9223372036854775808
+-9223372036854775809 -> Bigint -9223372036854775809
+12345678901234567890 -> Bigint 12345678901234567890
+100000000000000000000 -> Bigint 100000000000000000000
+1.5 -> Float 1.5
+2e2 -> Float 200.0
+0.1 -> Float 0.1
+1E+2 -> Float 100.0
+-1.25e-3 -> Float -0.00125
+01 -> error: invalid number: leading zeros are not allowed at position 0
+-01 -> error: invalid number: leading zeros are not allowed at position 0
+00 -> error: invalid number: leading zeros are not allowed at position 0
+[1, 01] -> error: invalid number: leading zeros are not allowed at position 4
++1 -> error: unexpected character '+' at position 0
+.5 -> error: unexpected character '.' at position 0
+5. -> error: invalid number at position 0
+1e -> error: invalid number at position 0
+- -> error: invalid number at position 0
+0.5 -> Float 0.5
+-0.5 -> Float -0.5
+0e0 -> Float 0.0
+[12345678901234567890,1.5,3]
+Err(expected an integer in the range of int)
+Ok(12345678901234567890)
+Ok(9223372036854776000.0)
+Ok(12345678901234567890)
+Ok(3)
+Ok(3)
+Err(expected an integer)
+Err(expected an integer)
+Ok(3.5)
+Ok(9223372036854775807)
+Err(expected an integer in the range of int)
+Err(expected a number)
+true
+number has more than 1000 digits at position 0
+19.90 -> Decimal 19.90 -> 19.90
+0.1234567890123456789012345 -> Decimal 0.1234567890123456789012345 -> 0.1234567890123456789012345
+1.5e3 -> Decimal 1500 -> 1500
+1e-3 -> Decimal 0.001 -> 0.001
+0.5e2 -> Decimal 50 -> 50
+-0.0 -> Decimal 0.0 -> 0.0
+2e2 -> Decimal 200 -> 200
+12345678901234567890 -> Bigint 12345678901234567890 -> 12345678901234567890
+7 -> Int 7 -> 7
+01 -> error: invalid number: leading zeros are not allowed at position 0
+1e100000 -> error: number has more than 1000 digits at position 0
+1e100001 -> error: number has too large an exponent at position 0
+true
+number has more than 1000 digits at position 0
+Ok(19.90)
+Ok(19.9)
+Ok(3)
+Err(expected an integer)
+Ok(3000)
+19.90
+0.5
+-3
+1.000000000000000000001
+-123456789012345678901234567890
+19.9

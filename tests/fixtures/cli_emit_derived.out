@@ -1,6 +1,6 @@
 // derive(Json) for 'P'
 pub fn p_to_json(v: P) -> Json {
-    val field_x_json = Json.JInt(v.x)
+    val field_x_json = int_to_json(v.x)
     return Json.JObject(Map<string, Json> {
         "x": field_x_json
     })

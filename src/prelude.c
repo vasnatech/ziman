@@ -40,6 +40,29 @@ const char *prelude_source(void) {
 }
 #pragma GCC diagnostic pop
 
+/* Both number parsers used to hand the text straight to strtoll/strtod, which accept what a strict parser must not:
+ * leading whitespace, a leading `+`, and (strtod) hex floats and `infinity`/`nan(...)`. The text is the whole number or
+ * it is an Err: an optional `-` and digits (an int); for a float also a point and an exponent, and exactly `nan`, `inf`
+ * and `-inf`, the spellings `str` prints them as. `parse_bigint` and `parse_decimal` have their own parsers and were
+ * already this strict. */
+static int int_text_ok(const char *s, size_t n) {
+    size_t i = 0;
+    if (i < n && s[i] == '-') i++;
+    return i < n && s[i] >= '0' && s[i] <= '9';
+}
+
+static int float_text_ok(const char *s, size_t n) {
+    if ((n == 3 && (memcmp(s, "nan", 3) == 0 || memcmp(s, "inf", 3) == 0)) || (n == 4 && memcmp(s, "-inf", 4) == 0)) return 1;
+    size_t i = 0;
+    if (i < n && s[i] == '-') i++;
+    if (i >= n || !((s[i] >= '0' && s[i] <= '9') || s[i] == '.')) return 0;
+    for (; i < n; i++) {
+        char c = s[i];
+        if (!((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-')) return 0;
+    }
+    return 1;
+}
+
 static Value native_parse_int(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -49,7 +72,7 @@ static Value native_parse_int(Value *args, int argc, int line, int col) {
     char *endptr;
     errno = 0;
     long long v = strtoll(str, &endptr, 10);
-    if (endptr == str || *endptr != '\0' || errno == ERANGE || strlen(str) != args[0].as.str.len) {
+    if (!int_text_ok(str, args[0].as.str.len) || endptr == str || *endptr != '\0' || errno == ERANGE || strlen(str) != args[0].as.str.len) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as int", str);
         return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
@@ -66,7 +89,7 @@ static Value native_parse_float(Value *args, int argc, int line, int col) {
     char *endptr;
     errno = 0;
     double v = strtod(str, &endptr);
-    if (endptr == str || *endptr != '\0' || errno == ERANGE || strlen(str) != args[0].as.str.len) {
+    if (!float_text_ok(str, args[0].as.str.len) || endptr == str || *endptr != '\0' || errno == ERANGE || strlen(str) != args[0].as.str.len) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as float", str);
         return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));

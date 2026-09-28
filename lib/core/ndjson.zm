@@ -2,10 +2,11 @@
 // The format of the FHIR bulk-data files and of most log pipelines.
 
 use json.Json
+use json.Number
 use json.json_to_string
 use json.parse_json
 
-native fn records_raw(path: string, sample: Json) -> Result<Iter<Result<Json, string>>, string>
+native fn records_raw(path: string, sample: Json, number_sample: Number) -> Result<Iter<Result<Json, string>>, string>
 
 // Every non-blank line as a JSON value, in order. A line that is not valid JSON is an
 // error naming its (1-based) line number. A trailing CR (CRLF files) is ignored.
@@ -34,7 +35,7 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
 // (`line 3: unexpected character ...`) and the iteration carries on, and a read error is a last Err
 // item. The Err on the call itself is the file failing to open. Leaving the loop early closes the file.
 pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string> {
-    return records_raw(path, Json.JNull)
+    return records_raw(path, Json.JNull, Number.Int(0))
 }
 
 // One compact JSON value per line, each line ended by "\n" (so the text ends with a newline).

@@ -1,5 +1,6 @@
 use json
 use json.Json
+use json.Number
 
 fn main() {
     // objects are Maps: order of first appearance is kept, a repeated key keeps its slot, last value wins
@@ -11,13 +12,13 @@ fn main() {
     print(unwrap_err(json.parse_json_strict("{\"k\": 1, \"k\": 2}")))
     print(is_ok(json.parse_json_strict("{\"k\": {\"k\": 2}}")))
 
-    // integers are exact; anything else is a float
+    // an integer is exact, past 64 bits as a bigint; a fraction or an exponent is a float
     val n = unwrap(json.parse_json("[9007199254740993, -5, 1.5, 2e2, 99999999999999999999]"))
     print(json.json_to_string(n))
     val items = Json.unwrap_JArray(n)
-    print(Json.is_JInt(items[0]))
-    print(Json.is_JNumber(items[2]))
-    print(Json.is_JNumber(items[4]))
+    print(Number.is_Int(Json.unwrap_JNumber(items[0])))
+    print(Number.is_Float(Json.unwrap_JNumber(items[2])))
+    print(Number.is_Bigint(Json.unwrap_JNumber(items[4])))
     print(json.int_from_json(items[3]))
     print(is_ok(json.int_from_json(items[2])))
     print(json.float_from_json(items[1]))
