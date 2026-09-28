@@ -47,6 +47,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 |---|---|
 | [`fs`](fs.md) | The filesystem: files, directories and paths. |
 | [`os`](os.md) | The process and its environment. |
+| [`thread`](thread.md) | What a thread can ask about itself, and values that are different on every thread. |
 | [`log`](log.md) | Levelled logging to stderr or to a file. |
 | [`random`](random.md) | Randomness from the operating system. |
 | [`clock`](clock.md) | The system clock and sleeping, the two things Ziman cannot do in pure code. |

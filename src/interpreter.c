@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "interpreter.h"
 #include "iter.h"
+#include "native_thread.h"
 #include "stack.h"
 
 #include <errno.h>
@@ -264,6 +265,7 @@ static void thread_failed(struct SpawnArgs *sa, const char *message) {
 
 static void *spawn_thread_entry(void *raw) {
     SpawnArgs *sa = (SpawnArgs *)raw;
+    ziman_thread_begin(sa->fn->name);
     ThreadBoundary boundary;
     ziman_thread_boundary_enter(&boundary);
     if (setjmp(boundary.jb) == 0) {
@@ -272,6 +274,7 @@ static void *spawn_thread_entry(void *raw) {
     } else {
         thread_failed(sa, boundary.message);
     }
+    ziman_thread_end();
     free(sa->args);
     free(sa);
     return NULL;
@@ -1122,7 +1125,11 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                  * hand-built .type already agree by construction, so
                  * this is a genuine no-op for the other ~20 native
                  * functions that existed before this. */
-                if (fn->is_native && fn->type_params.count > 0) {
+                /* A return type that is a bare type parameter (`thread`'s slot_get<T>) is left
+                 * alone: generic bodies run unspecialised, so inside one e->resolved_type is
+                 * still the placeholder `T`, while the Value such a native hands back (one it was
+                 * given earlier, not built) already carries its true runtime type. */
+                if (fn->is_native && fn->type_params.count > 0 && e->resolved_type.kind != TY_TYPEVAR) {
                     result.type = e->resolved_type;
                 }
             }

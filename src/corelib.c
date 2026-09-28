@@ -19,6 +19,7 @@
 #include "json_source.h"
 #include "number_source.h"
 #include "math_source.h"
+#include "thread_source.h"
 #include "datasource_source.h"
 #include "db_source.h"
 #include "net_source.h"
@@ -67,6 +68,7 @@ static const CoreModule CORE_MODULES[] = {
     {"json", JSON_SOURCE},
     {"number", NUMBER_SOURCE},
     {"math", MATH_SOURCE},
+    {"thread", THREAD_SOURCE},
     {"datasource", DATASOURCE_SOURCE},
     {"db", DB_SOURCE},
     {"net", NET_SOURCE},

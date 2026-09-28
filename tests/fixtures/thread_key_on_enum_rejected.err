@@ -1,0 +1,1 @@
+#[thread_key] applies to a struct, not to enum 'Kind'

@@ -28,6 +28,7 @@ flowchart LR
         random["random"]
         regex["regex"]
         test["test"]
+        thread["thread"]
         toml["toml"]
         uuid["uuid"]
         yaml["yaml"]
@@ -133,7 +134,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `clock`, `collections`, `compress`, `json`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test` |
+| 0 | `clock`, `collections`, `compress`, `json`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
 | 1 | `crypto`, `db`, `http`, `ndjson`, `os`, `toml`, `yaml` |
 | 2 | `fs`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sqlite`, `uuid` |
 | 3 | `csv`, `datasource`, `log`, `properties`, `zone` |
@@ -173,6 +174,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `server` | `clock`, `http`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
 | `test` | - | - |
+| `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `zone` | `client`, `migrate` |
 | `toml` | `json`, `number` | - |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | - |

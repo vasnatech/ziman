@@ -3222,6 +3222,26 @@ fn main() {
   `defer`s (no other cleanup), and a lock a native was holding at the moment of
   the error stays held (none of the library's natives raise errors while
   holding one).
+- **What a thread can ask about itself, and per-thread values (`thread`).** `use thread`:
+  `thread.id()` (0 for the main thread, then 1, 2, ... in the order threads started),
+  `thread.name()` (`main`, or `<function>-<id>` for a spawned thread, e.g. `worker-3`;
+  `thread.set_name(s)` renames the calling thread), `thread.is_main()` and
+  `thread.stack_remaining()` (bytes left before the "stack depth exceeded" error). There is
+  still no join or thread handle. `thread.ThreadLocal<T>` is a slot with a separate `T` on
+  every thread, like Java's `ThreadLocal`: make the key once, as a module-level `val`, giving the
+  function that makes a thread's first value --
+  `val hits = thread.local<int>(fn() -> int { return 0 })` -- then each thread reads and replaces its
+  own with `thread.get(hits)` / `thread.set(hits, v)`. `thread.has(key)` says whether the thread has
+  a value yet and `thread.reset(key)` forgets it, so the next `get` runs `init` again. A value is
+  immutable, so editing a slot means `set` with the new value (`push` on an array is amortised
+  O(1)); for a large mutable cache keep a `MapBuilder`/`ArrayBuilder` in the slot -- a builder must
+  stay on the thread that made it, which a thread's own slot guarantees, and `ThreadLocal` (marked
+  `#[thread_key]`, a struct attribute like `#[thread_bound]`) is the one type that may hold one
+  at module level, since the key itself is only a number and a function. A thread's slots are
+  dropped when it ends; `server.serve` runs one thread per connection, so a thread-local lives as
+  long as a connection, not the whole run -- right for per-request context and scratch space, not
+  for a cache that must outlive connections (an actor thread owning the cache, reached over a
+  channel, is the tool for that).
 - **Sharing a `Value` across threads needs no locking of its own.**
   Nothing in the interpreter ever frees an `ArrayObj`/`StructObj`/
   `EnumObj`/`ResultObj` (see docs/DESIGN.md), and nothing mutates one

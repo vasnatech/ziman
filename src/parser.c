@@ -2167,6 +2167,7 @@ typedef struct {
     int count;
     int capacity;
     int thread_bound; /* `#[thread_bound]` was among the attributes */
+    int thread_key;   /* `#[thread_key]` was among the attributes */
     int is_test;       /* `#[test]` or `#[test(cases: ...)]` was among the attributes */
     char *test_cases;  /* `#[test(cases: NAME)]`'s NAME, or NULL for a plain `#[test]` */
 } DeriveList;
@@ -2209,6 +2210,8 @@ static DeriveList parse_attributes(Parser *p) {
                 expect(p, TOK_RPAREN, "')'");
             } else if (item_name->length == 12 && strncmp(item_name->start, "thread_bound", 12) == 0) {
                 derives.thread_bound = 1;
+            } else if (item_name->length == 10 && strncmp(item_name->start, "thread_key", 10) == 0) {
+                derives.thread_key = 1;
             }
         } while (match(p, TOK_COMMA));
         expect(p, TOK_RBRACKET, "']'");
@@ -2258,6 +2261,7 @@ Module *parse(TokenList tokens) {
             sd->derives = derives.names;
             sd->derive_count = derives.count;
             sd->thread_bound = derives.thread_bound;
+            sd->thread_key = derives.thread_key;
             if (derives.is_test) {
                 ziman_error("syntax", sd->line, sd->col, "#[test] applies to a function, not to struct '%s'", sd->name);
             }
@@ -2270,11 +2274,14 @@ Module *parse(TokenList tokens) {
             if (derives.thread_bound) {
                 ziman_error("syntax", ed->line, ed->col, "#[thread_bound] applies to a struct, not to enum '%s'", ed->name);
             }
+            if (derives.thread_key) {
+                ziman_error("syntax", ed->line, ed->col, "#[thread_key] applies to a struct, not to enum '%s'", ed->name);
+            }
             if (derives.is_test) {
                 ziman_error("syntax", ed->line, ed->col, "#[test] applies to a function, not to enum '%s'", ed->name);
             }
             enum_list_push(&module->enums, ed);
-        } else if (derives.count > 0 || derives.thread_bound) {
+        } else if (derives.count > 0 || derives.thread_bound || derives.thread_key) {
             ziman_error("syntax", cur(&p)->line, cur(&p)->col,
                         "an attribute must be followed by a struct or enum declaration");
         } else if (check(&p, TOK_NATIVE)) {

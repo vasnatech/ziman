@@ -1,0 +1,34 @@
+use thread
+
+val counter = thread.local<int>(fn() -> int { return 100 })
+val names = thread.local<[string]>(fn() -> [string] { return ["start"] })
+
+fn worker(out: Channel<string>) {
+    // A new thread starts from the key's initial value, whatever main has set.
+    print(thread.has(counter))
+    thread.set(counter, thread.get(counter) + 1)
+    thread.set(names, push(thread.get(names), "worker"))
+    send(out, format("{} {}", thread.get(counter), thread.get(names)))
+}
+
+fn main() {
+    print(thread.has(counter))
+    print(thread.get(counter))
+    print(thread.has(counter))
+
+    thread.set(counter, 5)
+    thread.set(names, push(thread.get(names), "main"))
+
+    val out: Channel<string> = channel_new()
+    spawn worker(out)
+    print(receive(out))
+
+    // The worker's changes did not reach main, and main's did not reach the worker.
+    print(thread.get(counter))
+    print(thread.get(names))
+
+    // reset forgets this thread's value; the next get starts over from init.
+    thread.reset(counter)
+    print(thread.has(counter))
+    print(thread.get(counter))
+}

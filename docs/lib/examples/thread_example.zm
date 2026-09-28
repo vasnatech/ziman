@@ -1,0 +1,22 @@
+use thread
+
+// A key for a value that is separate on every thread; each thread's first `get` runs the function.
+val request_count = thread.local<int>(fn() -> int { return 0 })
+
+fn worker(done: Channel<string>) {
+    thread.set(request_count, thread.get(request_count) + 1)
+    send(done, format("{} counted {}", thread.name(), thread.get(request_count)))
+}
+
+fn main() {
+    print(thread.name())
+    print(thread.is_main())
+
+    thread.set(request_count, 10)
+    val done: Channel<string> = channel_new()
+    spawn worker(done)
+    print(receive(done))
+
+    // The worker's count started from 0 and never touched this thread's.
+    print(thread.get(request_count))
+}

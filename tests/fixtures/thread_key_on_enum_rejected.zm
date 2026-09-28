@@ -1,0 +1,8 @@
+#[thread_key]
+enum Kind {
+    A
+    B
+}
+
+fn main() {
+}

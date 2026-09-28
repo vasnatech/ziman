@@ -63,6 +63,7 @@ static int type_holds_thread_bound(Module *module, Type t, int depth) {
         case TY_STRUCT: {
             StructDecl *sd = find_struct(module, t.struct_name);
             if (sd != NULL && sd->thread_bound) return 1;
+            if (sd != NULL && sd->thread_key) return 0; /* a key holds no per-thread state itself, whatever its type argument is */
             for (int i = 0; i < t.type_args.count; i++) {
                 if (type_holds_thread_bound(module, t.type_args.items[i], depth + 1)) return 1;
             }

@@ -1,0 +1,30 @@
+use thread
+
+fn report(out: Channel<string>) {
+    out_send(out)
+}
+
+fn out_send(out: Channel<string>) {
+    send(out, format("{} id={} main={}", thread.name(), thread.id(), thread.is_main()))
+    thread.set_name("renamed")
+    send(out, thread.name())
+}
+
+fn main() {
+    print(thread.id())
+    print(thread.name())
+    print(thread.is_main())
+    print(thread.stack_remaining() > 100000)
+
+    val out: Channel<string> = channel_new()
+    spawn report(out)
+    print(receive(out))
+    print(receive(out))
+    spawn report(out)
+    print(receive(out))
+    print(receive(out))
+
+    // Renaming one thread leaves the others alone.
+    thread.set_name("boss")
+    print(thread.name())
+}

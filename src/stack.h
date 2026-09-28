@@ -39,6 +39,12 @@ size_t ziman_spawn_stack_bytes(void);
 /* Marks the calling thread as the interpreter's main thread (for the error message); every other thread measured is a spawned one. */
 void ziman_stack_mark_main(void);
 
+/* Whether the calling thread was marked with ziman_stack_mark_main. */
+int ziman_stack_is_main(void);
+
+/* Bytes of stack the calling thread has left before the "stack depth exceeded" error. */
+size_t ziman_stack_remaining(void);
+
 /* Runs `fn(arg)` on a new thread with a stack of `ziman_main_stack_bytes()` (halving the size until the system agrees, and running it on the calling thread
  * if no size works) and waits for it; returns fn's result. */
 void *ziman_run_on_big_stack(void *(*fn)(void *), void *arg);

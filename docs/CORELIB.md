@@ -910,6 +910,36 @@ pub fn assert_err<T, E>(r: Result<T, E>) -> E
 
 ```
 
+## `thread`
+
+```
+pub native fn id() -> int
+
+pub native fn name() -> string
+
+pub native fn set_name(name: string)
+
+pub native fn is_main() -> bool
+
+pub native fn stack_remaining() -> int
+
+pub struct ThreadLocal<T> {
+    id: int
+    init: fn() -> T
+}
+
+pub fn local<T>(init: fn() -> T) -> ThreadLocal<T>
+
+pub fn get<T>(key: ThreadLocal<T>) -> T
+
+pub fn set<T>(key: ThreadLocal<T>, value: T)
+
+pub fn has<T>(key: ThreadLocal<T>) -> bool
+
+pub fn reset<T>(key: ThreadLocal<T>)
+
+```
+
 ## `toml`
 
 TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.

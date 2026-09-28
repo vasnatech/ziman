@@ -20,6 +20,13 @@ static __thread int t_is_main = 0;
 static long g_main_mb = 0, g_thread_mb = 0, g_threads = 0; /* from the options */
 
 void ziman_stack_mark_main(void) { t_is_main = 1; }
+int ziman_stack_is_main(void) { return t_is_main; }
+
+size_t ziman_stack_remaining(void) {
+    char probe;
+    if (ziman_stack_limit == NULL) ziman_stack_slow();
+    return &probe > ziman_stack_limit ? (size_t)(&probe - ziman_stack_limit) : 0;
+}
 
 /* The margin kept below the limit: room to raise the error and unwind, and for a native that was mid-recursion when the check tripped. */
 static size_t margin_for(size_t stack_size) {
