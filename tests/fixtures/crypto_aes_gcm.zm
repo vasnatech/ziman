@@ -1,0 +1,39 @@
+use crypto
+use number.bytes_to_hex
+
+fn main() {
+    val key = string_to_bytes("0123456789abcdef0123456789abcdef")
+    val key32 = slice<byte>(key, 0, 32)
+    val plaintext = string_to_bytes("a TOTP secret, base32 encoded")
+
+    // round-trips under its own key
+    val blob = unwrap(crypto.aes_gcm_encrypt(key32, plaintext))
+    print(len(blob) == 12 + len(plaintext) + 16)
+    print(bytes_to_string(unwrap(crypto.aes_gcm_decrypt(key32, blob))) == bytes_to_string(plaintext))
+
+    // a fresh nonce each call, so two encryptions of the same plaintext differ
+    val blob2 = unwrap(crypto.aes_gcm_encrypt(key32, plaintext))
+    print(bytes_to_hex(blob) != bytes_to_hex(blob2))
+    print(bytes_to_string(unwrap(crypto.aes_gcm_decrypt(key32, blob2))) == bytes_to_string(plaintext))
+
+    // the wrong key does not decrypt
+    val other_key = slice<byte>(string_to_bytes("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"), 0, 32)
+    print(is_ok(crypto.aes_gcm_decrypt(other_key, blob)))
+
+    // an altered blob does not decrypt (the tag catches it)
+    val flipped_first_byte = crypto.bytes_xor(slice<byte>(blob, 0, 1), [255 as byte])
+    val tampered = concat_arrays<byte>(flipped_first_byte, slice<byte>(blob, 1, len(blob)))
+    print(is_ok(crypto.aes_gcm_decrypt(key32, tampered)))
+
+    // wrong key length is an Err, not a runtime error, on both sides
+    print(crypto.aes_gcm_encrypt(slice<byte>(key32, 0, 16), plaintext))
+    print(crypto.aes_gcm_decrypt(slice<byte>(key32, 0, 16), blob))
+
+    // a blob too short to hold a nonce and a tag is an Err
+    print(crypto.aes_gcm_decrypt(key32, [1 as byte, 2 as byte, 3 as byte]))
+
+    // empty plaintext round-trips to a 28-byte blob (12-byte nonce + 16-byte tag, no ciphertext)
+    val empty_blob = unwrap(crypto.aes_gcm_encrypt(key32, []))
+    print(len(empty_blob))
+    print(len(unwrap(crypto.aes_gcm_decrypt(key32, empty_blob))))
+}

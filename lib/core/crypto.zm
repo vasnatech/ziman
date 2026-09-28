@@ -1,12 +1,14 @@
-// crypto.zm -- hashes, message authentication, key derivation, password hashing and base64, on
-// OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt. The primitives are
-// native. Byte data is `[byte]`; a digest or key is returned as `[byte]` (use `number.bytes_to_hex`
-// for hex text).
+// crypto.zm -- hashes, message authentication, key derivation, password hashing, one authenticated
+// cipher and base64, on OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt. The
+// primitives are native. Byte data is `[byte]`; a digest or key is returned as `[byte]` (use
+// `number.bytes_to_hex` for hex text).
 //
-// The module is deliberately small: no ciphers, no public-key operations. It exists so the
+// The module is deliberately small: one cipher, no public-key operations. It exists so the
 // database drivers can authenticate (SCRAM-SHA-256 for Postgres, the SHA-1 / SHA-256 login
-// scrambles for MySQL), so programs can sign and verify data (see `jwt`), and so they can store
-// passwords (`password_hash`, `password_verify`); it grows when a real consumer needs more.
+// scrambles for MySQL), so programs can sign and verify data (see `jwt`), so they can store
+// passwords (`password_hash`, `password_verify`), and so a secret that must be read back exactly --
+// unlike a password, which only ever needs a yes-or-no verify -- can be kept encrypted at rest
+// (`aes_gcm_encrypt`/`aes_gcm_decrypt`); it grows when a real consumer needs more.
 //
 // Error convention: a wrong *argument* (mismatched lengths, an out-of-range iteration count)
 // is a runtime error, like any other misuse; malformed *data* (`base64_decode` of text that is
@@ -192,6 +194,18 @@ pub fn password_needs_rehash(stored: string) -> bool {
     val t = argon2_param(fields, "t")
     return !is_Some(m) || !is_Some(t) || unwrap_Some(m) < argon2_default_memory_kib || unwrap_Some(t) < argon2_default_iterations
 }
+
+// ---------------------------------------------------------------- authenticated encryption
+
+// AES-256-GCM of `plaintext` under `key` (32 bytes) with a fresh random 12-byte nonce, returned as
+// `nonce || ciphertext || tag` (12 + len(plaintext) + 16 bytes) so `aes_gcm_decrypt` needs only the key
+// and this one blob. An `Err` only for a wrong key length; encryption itself cannot otherwise fail.
+pub native fn aes_gcm_encrypt(key: [byte], plaintext: [byte]) -> Result<[byte], string>
+
+// The plaintext `aes_gcm_encrypt` sealed into `blob` under `key`. An `Err` for a wrong key length, a
+// `blob` too short to hold a nonce and a tag, or a tag that does not match -- the wrong key, or `blob`
+// was altered.
+pub native fn aes_gcm_decrypt(key: [byte], blob: [byte]) -> Result<[byte], string>
 
 // ---------------------------------------------------------------- byte arrays
 

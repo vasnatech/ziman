@@ -56,6 +56,18 @@ pub fn totp(key: [byte], unix_seconds: int) -> string
 
 The six-digit code an authenticator app shows at `unix_seconds` (30-second steps from the epoch).
 
+### `totp_matching_step`
+
+```
+pub fn totp_matching_step(key: [byte], code: string, unix_seconds: int, window: int) -> Option<int>
+```
+
+The 30-second step number `code` matches, at `unix_seconds` or within `window` steps of it either way (1
+allows for a clock a few seconds off), or `None` when it matches none: what a caller needs to reject a
+replay of a step already spent (store the step a login accepted; refuse a future call that matches the
+same one). The comparison takes the same time whatever the code, and every step in the window is checked
+even after a match, so the time taken does not say which step (or whether one) matched.
+
 ### `totp_valid`
 
 ```

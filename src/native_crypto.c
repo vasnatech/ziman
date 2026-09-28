@@ -19,9 +19,10 @@
 #include "native.h"
 
 /* The `crypto` core module's natives, on OpenSSL's libcrypto (already linked for TLS):
- * SHA-1 / SHA-256 / SHA-512, HMAC, PBKDF2, Argon2id, a constant-time comparison, base64 and base64url,
- * and a byte-wise XOR; and bcrypt, from libxcrypt (OpenSSL has none). See lib/core/crypto.zm. Hashing and PBKDF2 are native because a few
- * thousand iterations of a compression function is hopeless in a tree-walking interpreter. */
+ * SHA-1 / SHA-256 / SHA-512, HMAC, PBKDF2, Argon2id, AES-256-GCM, a constant-time comparison, base64 and
+ * base64url, and a byte-wise XOR; and bcrypt, from libxcrypt (OpenSSL has none). See lib/core/crypto.zm. Hashing
+ * and PBKDF2 are native because a few thousand iterations of a compression function is hopeless in a
+ * tree-walking interpreter. */
 
 static Type byte_array_type(void) { return type_array(type_scalar(TY_BYTE)); }
 
@@ -321,6 +322,117 @@ static Value native_argon2id_raw(Value *args, int argc, int line, int col) {
     return v;
 }
 
+/* ------------------------------------------------------------- authenticated encryption */
+
+static const size_t aes_gcm_nonce_len = 12;
+static const size_t aes_gcm_tag_len = 16;
+
+static Value bytes_result_err(Type result_type, const char *message) {
+    return value_result(result_type, result_obj_new(0, value_string(strdup(message))));
+}
+
+/* aes_gcm_encrypt(key, plaintext): AES-256-GCM with a fresh random nonce, returned as
+ * `nonce || ciphertext || tag`. An Err only for a wrong key length. */
+static Value native_aes_gcm_encrypt(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type result_type = type_result(byte_array_type(), type_scalar(TY_STRING));
+    int kn = 0, pn = 0;
+    uint8_t *key = array_copy_bytes(args[0].as.arr, &kn);
+    uint8_t *plaintext = array_copy_bytes(args[1].as.arr, &pn);
+    if (kn != 32) {
+        free(key);
+        free(plaintext);
+        return bytes_result_err(result_type, "aes_gcm_encrypt: key must be exactly 32 bytes");
+    }
+    unsigned char nonce[12];
+    if (RAND_bytes(nonce, (int)aes_gcm_nonce_len) != 1) {
+        free(key);
+        free(plaintext);
+        return bytes_result_err(result_type, "aes_gcm_encrypt: no random bytes available");
+    }
+    unsigned char *ciphertext = malloc((size_t)(pn > 0 ? pn : 1));
+    unsigned char tag[16];
+    int len = 0, ciphertext_len = 0;
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    int ok = ctx != NULL
+        && EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) == 1
+        && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, (int)aes_gcm_nonce_len, NULL) == 1
+        && EVP_EncryptInit_ex(ctx, NULL, NULL, key, nonce) == 1
+        && EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, pn) == 1;
+    if (ok) {
+        ciphertext_len = len;
+        ok = EVP_EncryptFinal_ex(ctx, ciphertext + ciphertext_len, &len) == 1;
+        ciphertext_len += len;
+        ok = ok && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, (int)aes_gcm_tag_len, tag) == 1;
+    }
+    Value v;
+    if (ok) {
+        size_t total = aes_gcm_nonce_len + (size_t)ciphertext_len + aes_gcm_tag_len;
+        unsigned char *out = malloc(total);
+        memcpy(out, nonce, aes_gcm_nonce_len);
+        memcpy(out + aes_gcm_nonce_len, ciphertext, (size_t)ciphertext_len);
+        memcpy(out + aes_gcm_nonce_len + (size_t)ciphertext_len, tag, aes_gcm_tag_len);
+        v = value_result(result_type, result_obj_new(1, value_byte_array(out, total)));
+        free(out);
+    } else {
+        v = bytes_result_err(result_type, "aes_gcm_encrypt: encryption failed");
+    }
+    if (ctx != NULL) EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key, (size_t)kn);
+    free(key);
+    free(plaintext);
+    free(ciphertext);
+    return v;
+}
+
+/* aes_gcm_decrypt(key, blob): the reverse of aes_gcm_encrypt, checking the tag. An Err for a wrong key
+ * length, a blob too short to hold a nonce and a tag, or a tag that does not match (the wrong key, or the
+ * blob was altered). */
+static Value native_aes_gcm_decrypt(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type result_type = type_result(byte_array_type(), type_scalar(TY_STRING));
+    int kn = 0, bn = 0;
+    uint8_t *key = array_copy_bytes(args[0].as.arr, &kn);
+    uint8_t *blob = array_copy_bytes(args[1].as.arr, &bn);
+    if (kn != 32) {
+        free(key);
+        free(blob);
+        return bytes_result_err(result_type, "aes_gcm_decrypt: key must be exactly 32 bytes");
+    }
+    if ((size_t)bn < aes_gcm_nonce_len + aes_gcm_tag_len) {
+        free(key);
+        free(blob);
+        return bytes_result_err(result_type, "aes_gcm_decrypt: too short to contain a nonce and a tag");
+    }
+    unsigned char *nonce = blob;
+    unsigned char *ciphertext = blob + aes_gcm_nonce_len;
+    int ciphertext_len = (int)((size_t)bn - aes_gcm_nonce_len - aes_gcm_tag_len);
+    unsigned char *tag = blob + (size_t)bn - aes_gcm_tag_len;
+    unsigned char *plaintext = malloc((size_t)(ciphertext_len > 0 ? ciphertext_len : 1));
+    int len = 0, plaintext_len = 0;
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    int ok = ctx != NULL
+        && EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) == 1
+        && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, (int)aes_gcm_nonce_len, NULL) == 1
+        && EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce) == 1
+        && EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len) == 1;
+    if (ok) {
+        plaintext_len = len;
+        ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, (int)aes_gcm_tag_len, tag) == 1
+            && EVP_DecryptFinal_ex(ctx, plaintext + plaintext_len, &len) == 1;
+        if (ok) plaintext_len += len;
+    }
+    Value v = ok
+        ? value_result(result_type, result_obj_new(1, value_byte_array(plaintext, (size_t)plaintext_len)))
+        : bytes_result_err(result_type, "aes_gcm_decrypt: decryption failed (the wrong key, or the data was altered)");
+    if (ctx != NULL) EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key, (size_t)kn);
+    free(key);
+    free(blob);
+    free(plaintext);
+    return v;
+}
+
 void native_crypto_register(void) {
     native_register("crypto::sha1", native_sha1);
     native_register("crypto::sha256", native_sha256);
@@ -335,6 +447,8 @@ void native_crypto_register(void) {
     native_register("crypto::bcrypt_native", native_bcrypt);
     native_register("crypto::bcrypt_verify", native_bcrypt_verify);
     native_register("crypto::argon2id_raw", native_argon2id_raw);
+    native_register("crypto::aes_gcm_encrypt", native_aes_gcm_encrypt);
+    native_register("crypto::aes_gcm_decrypt", native_aes_gcm_decrypt);
     native_register("crypto::bytes_xor", native_bytes_xor);
     native_register("crypto::bytes_equal", native_bytes_equal);
     native_register("crypto::base64_encode", native_base64_encode);

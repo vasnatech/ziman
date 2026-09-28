@@ -116,18 +116,28 @@ pub fn totp(key: [byte], unix_seconds: int) -> string {
     return hotp(key, unix_seconds / 30, 6)
 }
 
-// Whether `code` is the code at `unix_seconds` or within `window` 30-second steps of it either way (1 allows for a clock a few seconds
-// off). The comparison takes the same time whatever the code.
-pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> bool {
-    var found = false
+// The 30-second step number `code` matches, at `unix_seconds` or within `window` steps of it either way (1
+// allows for a clock a few seconds off), or `None` when it matches none: what a caller needs to reject a
+// replay of a step already spent (store the step a login accepted; refuse a future call that matches the
+// same one). The comparison takes the same time whatever the code, and every step in the window is checked
+// even after a match, so the time taken does not say which step (or whether one) matched.
+pub fn totp_matching_step(key: [byte], code: string, unix_seconds: int, window: int) -> Option<int> {
+    var found: Option<int> = None
     val typed = string_to_bytes(trim(code))
     for step in (0 - window)..(window + 1) {
-        val expected = string_to_bytes(totp(key, unix_seconds + step * 30))
+        val at = unix_seconds + step * 30
+        val expected = string_to_bytes(totp(key, at))
         if len(expected) == len(typed) && crypto.bytes_equal(expected, typed) {
-            found = true
+            found = Option<int>.Some(at / 30)
         }
     }
     return found
+}
+
+// Whether `code` is the code at `unix_seconds` or within `window` 30-second steps of it either way (1 allows for a clock a few seconds
+// off). The comparison takes the same time whatever the code.
+pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> bool {
+    return is_Some(totp_matching_step(key, code, unix_seconds, window))
 }
 
 // `text` percent-encoded for a URI component: letters, digits and `-_.~` stay, every other byte becomes `%XX`.

@@ -1453,6 +1453,12 @@ from source.
   behind a reverse proxy every connection has the proxy's address) needs `net.peer_address(sock)` (`getpeername`) and a counter shared by every
   connection thread -- a native handle holding a mutex-guarded table, as `StringBuilder` and `Iter` hold theirs. Until then a firewall or the proxy in front does it.
 
+- **health-record-backend-ziman: per-IP login throttle -- not started, same root cause as the connection cap above.**
+  E5 added a per-account login and MFA lockout (`app.security.max-login-attempts`/`max-mfa-attempts`, `users.failed_login_count`/`locked_until`,
+  `user_mfa.failed_attempts`/`locked_until`), but not the per-IP half the dev review also asked for (D item 12, S3): the app has no
+  `net.peer_address(sock)` to throttle by, and behind a reverse proxy every connection has the proxy's address anyway, so it would need
+  trusting a forwarded-for header from a configured proxy, not just an address. A firewall or the proxy in front does it until then.
+
 - **Metrics and telemetry -- not started; a `metrics` module first, then tracing.** Ziman has `log`, `clock` and
   threads but no way to count things across threads: a lambda cannot mutate what it captures, so shared state has to
   live in a native handle, as `StringBuilder` and `Iter` do. Planned, in order:

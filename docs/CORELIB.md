@@ -159,6 +159,10 @@ pub fn password_verify(password: string, stored: string) -> bool
 
 pub fn password_needs_rehash(stored: string) -> bool
 
+pub native fn aes_gcm_encrypt(key: [byte], plaintext: [byte]) -> Result<[byte], string>
+
+pub native fn aes_gcm_decrypt(key: [byte], blob: [byte]) -> Result<[byte], string>
+
 pub native fn bytes_xor(a: [byte], b: [byte]) -> [byte]
 
 pub native fn bytes_equal(a: [byte], b: [byte]) -> bool
@@ -806,6 +810,8 @@ pub fn base32_decode(text: string) -> Result<[byte], string>
 pub fn hotp(key: [byte], counter: int, digits: int) -> string
 
 pub fn totp(key: [byte], unix_seconds: int) -> string
+
+pub fn totp_matching_step(key: [byte], code: string, unix_seconds: int, window: int) -> Option<int>
 
 pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> bool
 
