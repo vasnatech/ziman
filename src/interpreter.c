@@ -191,6 +191,81 @@ static void defer_env_untrack(Env *env) {
     env->defers_tracked = 0;
 }
 
+/* A per-thread free list of Env structs already sized for a function call's own top-level
+ * scope, reused by call_function instead of allocating (and, in a GC build, simply abandoning
+ * to eventually become garbage) a fresh one on every call. Call/return is strictly LIFO per
+ * thread -- a call's own Env is only ever released after every call it made has already
+ * returned -- so a plain stack is enough; recursion is safe because each active call keeps its
+ * own Env alive as a local variable on the C stack until it releases it, never handing out the
+ * same pooled Env to two calls at once.
+ *
+ * Same GC-root reasoning as t_defer_envs just above, and for the same reason: the collector
+ * does not reliably scan thread-local storage, so the array holding the pool is allocated
+ * uncollectable (a root the collector always scans, which keeps every pooled Env -- and its own
+ * `items` buffer -- alive between one call releasing it and a later call reusing it) rather
+ * than through the ordinary GC_MALLOC a ZIMAN_GC build's `malloc`/`calloc` already redirect to. */
+static __thread Env **t_env_pool = NULL;
+static __thread int t_env_pool_count = 0;
+static __thread int t_env_pool_capacity = 0;
+
+static void env_pool_grow(int capacity) {
+#ifdef ZIMAN_GC
+    Env **fresh = GC_MALLOC_UNCOLLECTABLE(sizeof(Env *) * (size_t)capacity);
+    if (t_env_pool != NULL) {
+        memcpy(fresh, t_env_pool, sizeof(Env *) * (size_t)t_env_pool_count);
+        GC_FREE(t_env_pool);
+    }
+#else
+    Env **fresh = realloc(t_env_pool, sizeof(Env *) * (size_t)capacity);
+#endif
+    t_env_pool = fresh;
+    t_env_pool_capacity = capacity;
+}
+
+/* Releases this thread's own pool array (not the Envs it was holding -- in a GC build those are
+ * ordinary GC_MALLOC memory once more, collected in the ordinary way the moment nothing else
+ * roots them; in a nogc build they leak exactly as much as env_free's old per-call allocation
+ * already would have if this thread never reused them, which pooling only ever reduces, never
+ * increases). Called when a spawned thread ends, mirroring defer_envs_release right above, so a
+ * long-running program spawning many short-lived threads doesn't accumulate one abandoned
+ * uncollectable array per thread that ever ran. */
+static void env_pool_release_all(void) {
+#ifdef ZIMAN_GC
+    if (t_env_pool != NULL) GC_FREE(t_env_pool);
+#else
+    free(t_env_pool);
+#endif
+    t_env_pool = NULL;
+    t_env_pool_count = 0;
+    t_env_pool_capacity = 0;
+}
+
+/* call_function's replacement for a bare env_new(parent): reuses a pooled Env (reset, then
+ * re-parented for this call) if one is available, falling back to a fresh allocation otherwise. */
+static Env *env_pool_acquire(Env *parent) {
+    if (t_env_pool_count > 0) {
+        Env *env = t_env_pool[--t_env_pool_count];
+        env->parent = parent;
+        return env;
+    }
+    return env_new(parent);
+}
+
+/* call_function's replacement for env_free: gives `env` back to the pool for a later call to
+ * reuse instead of discarding it. env_reset clears its bindings first (freeing each one's own
+ * strdup'd name -- a real free in a nogc build, a no-op in a GC build, same as env_reset's other
+ * callers) so the next acquirer starts from an empty scope without needing to know this Env has
+ * a history; `defers`/`caps`/`defer_count` are left as env_free would have left them too --
+ * run_defers has already drained defer_count to 0 by the time a call reaches this, and an
+ * interpreter-built Env never touches caps/is_lambda_boundary/is_global at all (those are the
+ * type checker's own Env fields; see the Env doc comment in env.h), so there is nothing there
+ * for a reuse to see that a fresh env_new's own zeroed fields wouldn't already have shown. */
+static void env_pool_release(Env *env) {
+    env_reset(env);
+    if (t_env_pool_count == t_env_pool_capacity) env_pool_grow(t_env_pool_capacity == 0 ? 8 : t_env_pool_capacity * 2);
+    t_env_pool[t_env_pool_count++] = env;
+}
+
 static void run_defers(Module *module, Env *env) {
     while (env->defer_count > 0) {
         Expr *call = env->defers[--env->defer_count];
@@ -212,7 +287,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
         if (args != raw_args) free(args);
         return result;
     }
-    Env *env = env_new(g_global_env);
+    Env *env = env_pool_acquire(g_global_env);
     for (int i = 0; i < argc; i++) {
         Type bound_type = fn->params.items[i].is_variadic ? type_array(fn->params.items[i].type) : fn->params.items[i].type;
         env_define(env, fn->params.items[i].name, bound_type, 0, args[i]);
@@ -223,7 +298,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
         result = exec_stmt(module, env, fn->body->as.block.stmts.items[i]);
     }
     run_defers(module, env);
-    env_free(env);
+    env_pool_release(env);
     if (result.kind == CTRL_RETURN) return result.value;
     return fn->return_type.kind == TY_UNIT ? value_unit() : value_int(0);
 }
@@ -301,6 +376,7 @@ static void *spawn_thread_entry(void *raw) {
         thread_failed(sa, boundary.message);
     }
     defer_envs_release();
+    env_pool_release_all();
     ziman_thread_end();
     free(sa->args);
     free(sa);
@@ -948,6 +1024,22 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, e->line, e->col);
                     free(all);
                 }
+            } else if (e->call_fn != NULL) {
+                /* An ordinary named call to a user-defined function: check_call's own
+                 * find_function(module, name) already ran once, at type-check time, and only
+                 * ever reaches its ordinary-function fallback (setting e->call_fn) after every
+                 * `strcmp` branch below it has already failed to match -- so this can never
+                 * fire for an actual builtin, and skips re-running all ~48 of those comparisons
+                 * on every single call to any plain function, the same "resolve once, reuse
+                 * every time" idea call_fn's own doc comment (ast.h) describes for `find_function`
+                 * itself. The `else` chain below is left completely unreached for this case, not
+                 * removed, as a fallback with zero cost if this branch is ever wrong about a
+                 * name it hasn't seen before. See docs/DESIGN.md's interpreter-speed entry. */
+                FunctionDecl *fn = (FunctionDecl *)e->call_fn;
+                result = call_function(module, fn, args, argc, e->as.call.variadic_tail_is_array_spread, e->line, e->col);
+                if (fn->is_native && fn->type_params.count > 0 && e->resolved_type.kind != TY_TYPEVAR) {
+                    result.type = e->resolved_type;
+                }
             } else if (strcmp(e->as.call.callee, "print") == 0) {
                 result = call_print(args[0]);
             } else if (strcmp(e->as.call.callee, "str") == 0) {
@@ -1159,7 +1251,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 channel_select2(args[0].as.ch, args[1].as.ch, &first, &got);
                 result = value_enum(e->resolved_type, enum_obj_new("Selected", first ? "First" : "Second", 1, got));
             } else {
-                FunctionDecl *fn = find_function(module, e->as.call.callee);
+                FunctionDecl *fn = (FunctionDecl *)e->call_fn;
                 result = call_function(module, fn, args, argc, e->as.call.variadic_tail_is_array_spread, e->line, e->col);
                 /* A generic native fn's own C implementation has no way
                  * to know which concrete type(s) a given call

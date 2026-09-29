@@ -211,6 +211,20 @@ struct Expr {
     /* `identity<int>` / `mod.identity<int>` used as a value: the explicit type
      * arguments of the generic function being referred to (empty otherwise). */
     TypeList fn_ref_type_args;
+    /* EXPR_CALL only, and only for the "ordinary named function" case (not a builtin, not
+     * `call.through_value`, not a generic native whose own type-argument dispatch needs
+     * find_function's linear scan for other reasons -- see call_function's caller in
+     * interpreter.c): the FunctionDecl* check_call's own find_function(module, name) already
+     * found during type-checking, cached here so the interpreter doesn't re-run that same
+     * linear scan over every loaded function (including all of prelude/corelib) on every single
+     * call. Always non-NULL by the time interpretation reaches this branch, since type-checking
+     * already required it to resolve for the program to compile at all -- unlike
+     * resolved_depth/resolved_slot, this has no "not resolved" fallback state to check for.
+     * Distinct from fn_ref (a function referenced *as a value*, never a call) even though both
+     * hold a FunctionDecl* -- a node is exactly one ExprKind, so there is no ambiguity in
+     * practice, but they answer different questions and are kept as different fields for that
+     * reason. See docs/DESIGN.md's interpreter-speed entry. */
+    void *call_fn;
     /* EXPR_LAMBDA: `fn(x: int) -> int { ... }`. `lambda_decl` (a FunctionDecl *)
      * holds the parameters, return type and body as written. The type checker
      * finds which enclosing `val`s the body uses (captures, by value) and puts

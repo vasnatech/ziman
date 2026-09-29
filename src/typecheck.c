@@ -1999,6 +1999,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         ziman_error("type", e->line, e->col, "call to undefined function '%s'", name);
     }
+    e->call_fn = fn;
     canonicalize_named_args(e, fn);
     TypeList *type_args = &e->as.call.type_args;
     /* A generic call with no type arguments written infers them from the checked arguments (C3); one written
