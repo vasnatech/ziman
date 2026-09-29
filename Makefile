@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles corelib-reference lib-manual-check
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles corelib-reference lib-manual-check not-yet-check
 
 all: $(BIN)
 
@@ -152,6 +152,11 @@ lib-manual-check: $(BIN)
 	python3 tools/gen_lib_manual.py
 	python3 tools/gen_lib_deps.py
 	git diff --exit-code --stat -- docs/lib
+
+# Fails when docs/SYNTAX.md or a lib/**/*.zm doc comment claims some `pub` name is "not yet"
+# supported when it's already declared -- see tools/check_not_yet.py's own header comment.
+not-yet-check:
+	python3 tools/check_not_yet.py
 
 clean:
 	rm -f $(BIN) ziman-nogc src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
