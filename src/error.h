@@ -58,6 +58,39 @@ void ziman_set_error_file(const char *file);
  * other compile-time buffer here -- see ast.h's own no-free-policy note. */
 void ziman_register_source(const char *file, const char *text);
 
+/* --- a call-frame stack, for a trace on a fatal runtime error --------------------
+ * call_function (interpreter.c) pushes a frame on entry -- the callee's own name and
+ * source file, and the position of the call that invoked it (a position in the
+ * *caller*) -- and pops it before returning, so the current thread's frames describe
+ * its whole call chain, innermost last. A runtime error walks them, innermost first,
+ * into the message ziman_error builds -- both the direct-print path and the one that
+ * longjmps to a thread boundary, since the message is built once, at the point of the
+ * error, before either happens.
+ *
+ * Entering a ThreadBoundary resets the count to 0: the frames of a call chain that a
+ * fatal error already unwound past every pop for belong to a dynamic extent that is
+ * over, not to whatever a freshly armed boundary is about to run (an `on_error`
+ * handler, a deferred call) -- see ziman_thread_boundary_enter. */
+void ziman_push_frame(const char *name, const char *file, int call_line, int call_col);
+void ziman_pop_frame(void);
+
+/* The current thread's call chain as text, innermost first, one indented "at f
+ * (file:line:col)" per line, lines joined by "\n" with neither a leading nor a
+ * trailing one -- "" when there are none. For a caller reporting a failure it already
+ * has the bare message for (a spawned thread with no `on_error` handler: see
+ * thread_failed in interpreter.c), printed on its own line(s) after that message.
+ * Never called with an active boundary's message still in flight -- that message is
+ * deliberately left bare (see ziman_error's own comment on why) since a Ziman
+ * program's own `on_error` handler receives it as an ordinary string, not a report
+ * meant for a terminal. Malloc'd; the caller frees it. */
+char *ziman_trace_string(void);
+
+/* Frees this thread's own frame-stack buffer, mirroring the interpreter's own
+ * per-thread pools (t_defer_envs, t_env_pool) -- called when a spawned thread ends so
+ * a long-running program spawning many short-lived threads doesn't accumulate one
+ * abandoned uncollectable buffer per thread that ever ran. */
+void ziman_call_stack_release(void);
+
 /* The language server collects diagnostics instead of printing them: while a sink
  * is set, ziman_error hands each one to it (nothing is written) and jumps to the
  * innermost recovery point -- or, past the error limit or from

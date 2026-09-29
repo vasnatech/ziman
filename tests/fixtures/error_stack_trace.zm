@@ -1,0 +1,11 @@
+fn innermost(x: int) -> int {
+    return 1 / x
+}
+
+fn middle(x: int) -> int {
+    return innermost(x)
+}
+
+fn main() {
+    print(middle(0))
+}

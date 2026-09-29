@@ -1,0 +1,3 @@
+pub fn boom(x: int) -> int {
+    return 1 / x
+}

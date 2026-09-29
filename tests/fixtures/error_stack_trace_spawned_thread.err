@@ -1,0 +1,4 @@
+ziman: runtime error at 2:14: division by zero
+    at innermost (tests/fixtures/error_stack_trace_spawned_thread.zm:6:15)
+    at worker (tests/fixtures/error_stack_trace_spawned_thread.zm:15:5)
+ziman: the thread started by 'spawn worker' at 15:5 ended; the program goes on

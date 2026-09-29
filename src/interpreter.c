@@ -276,6 +276,7 @@ static void run_defers(Module *module, Env *env) {
 
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
     ZIMAN_STACK_CHECK();
+    ziman_push_frame(fn->name, fn->source_file, call_line, call_col);
     int argc;
     Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);
     if (fn->is_native) {
@@ -285,6 +286,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
         }
         Value result = native(args, argc, call_line, call_col);
         if (args != raw_args) free(args);
+        ziman_pop_frame();
         return result;
     }
     Env *env = env_pool_acquire(g_global_env);
@@ -311,6 +313,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
     }
     run_defers(module, env);
     env_pool_release(env);
+    ziman_pop_frame();
     if (result.kind == CTRL_RETURN) return result.value;
     return fn->return_type.kind == TY_UNIT ? value_unit() : value_int(0);
 }
@@ -357,7 +360,11 @@ static void thread_failed(struct SpawnArgs *sa, const char *message) {
             fprintf(stderr, "ziman: the on_error handler failed: %s\n", inner.message);
         }
     } else {
-        fprintf(stderr, "ziman: %s\nziman: the thread started by 'spawn %s' at %d:%d ended; the program goes on\n", message, sa->fn->name, sa->line, sa->col);
+        char *trace = ziman_trace_string();
+        fprintf(stderr, "ziman: %s\n", message);
+        if (trace[0] != '\0') fprintf(stderr, "%s\n", trace);
+        fprintf(stderr, "ziman: the thread started by 'spawn %s' at %d:%d ended; the program goes on\n", sa->fn->name, sa->line, sa->col);
+        free(trace);
     }
     while (t_defer_env_count > 0) {
         Env *env = t_defer_envs[--t_defer_env_count];
@@ -389,6 +396,7 @@ static void *spawn_thread_entry(void *raw) {
     }
     defer_envs_release();
     env_pool_release_all();
+    ziman_call_stack_release();
     ziman_thread_end();
     free(sa->args);
     free(sa);

@@ -161,9 +161,85 @@ static void print_json_string(FILE *out, const char *s) {
 
 static __thread ThreadBoundary *t_boundary = NULL;
 
+typedef struct { const char *name, *file; int call_line, call_col; } ZimanFrame;
+
+/* Reachable only through the `__thread` pointer, same as t_defer_envs/t_env_pool in
+ * interpreter.c: the collector does not reliably scan thread-local storage, so the
+ * buffer is allocated uncollectable rather than through the ordinary GC_MALLOC a
+ * ZIMAN_GC build's malloc/calloc already redirect to. */
+static __thread ZimanFrame *t_frames = NULL;
+static __thread int t_frame_count = 0;
+static __thread int t_frame_capacity = 0;
+
+static void frames_grow(int capacity) {
+#ifdef ZIMAN_GC
+    ZimanFrame *fresh = GC_MALLOC_UNCOLLECTABLE(sizeof(ZimanFrame) * (size_t)capacity);
+    if (t_frames != NULL) {
+        memcpy(fresh, t_frames, sizeof(ZimanFrame) * (size_t)t_frame_count);
+        GC_FREE(t_frames);
+    }
+#else
+    ZimanFrame *fresh = realloc(t_frames, sizeof(ZimanFrame) * (size_t)capacity);
+#endif
+    t_frames = fresh;
+    t_frame_capacity = capacity;
+}
+
+void ziman_push_frame(const char *name, const char *file, int call_line, int call_col) {
+    if (t_frame_count == t_frame_capacity) frames_grow(t_frame_capacity == 0 ? 64 : t_frame_capacity * 2);
+    t_frames[t_frame_count++] = (ZimanFrame){name, file, call_line, call_col};
+}
+
+void ziman_pop_frame(void) {
+    if (t_frame_count > 0) t_frame_count--;
+}
+
+void ziman_call_stack_release(void) {
+#ifdef ZIMAN_GC
+    if (t_frames != NULL) GC_FREE(t_frames);
+#else
+    free(t_frames);
+#endif
+    t_frames = NULL;
+    t_frame_count = 0;
+    t_frame_capacity = 0;
+}
+
+/* The current thread's call chain, innermost first, one frame per line joined by "\n"
+ * -- with neither a leading nor a trailing newline, so a caller decides how it joins
+ * onto whatever came before and after -- empty ("") when there are no frames (a fatal
+ * error before any Ziman function ran, such as the stack-depth guard tripping before
+ * main). Malloc'd; the caller frees it. */
+static char *build_trace(void) {
+    size_t room = 1;
+    char *trace = malloc(room);
+    trace[0] = '\0';
+    for (int i = t_frame_count - 1; i >= 0; i--) {
+        ZimanFrame *f = &t_frames[i];
+        char line[512];
+        const char *sep = i == t_frame_count - 1 ? "" : "\n";
+        if (f->file != NULL) {
+            snprintf(line, sizeof line, "%s    at %s (%s:%d:%d)", sep, f->name, f->file, f->call_line, f->call_col);
+        } else {
+            snprintf(line, sizeof line, "%s    at %s (%d:%d)", sep, f->name, f->call_line, f->call_col);
+        }
+        size_t add = strlen(line);
+        char *grown = malloc(room + add);
+        memcpy(grown, trace, room - 1);
+        memcpy(grown + room - 1, line, add + 1);
+        free(trace);
+        trace = grown;
+        room += add;
+    }
+    return trace;
+}
+
+char *ziman_trace_string(void) { return build_trace(); }
+
 void ziman_thread_boundary_enter(ThreadBoundary *b) {
     b->message = NULL;
     t_boundary = b;
+    t_frame_count = 0;
 }
 
 void ziman_thread_boundary_leave(void) { t_boundary = NULL; }
@@ -222,6 +298,9 @@ void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
             if (g_error_context != NULL) fprintf(stderr, " (in %s)", g_error_context);
             fprintf(stderr, ": %s\n", message);
             print_excerpt(g_error_file, line, col);
+            char *trace = build_trace();
+            if (trace[0] != '\0') fprintf(stderr, "%s\n", trace);
+            free(trace);
         }
         exit(1);
     }

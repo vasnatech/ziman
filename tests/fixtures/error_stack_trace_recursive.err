@@ -1,0 +1,6 @@
+ziman: runtime error at 3:18: division by zero
+    at fact (tests/fixtures/error_stack_trace_recursive.zm:5:16)
+    at fact (tests/fixtures/error_stack_trace_recursive.zm:5:16)
+    at fact (tests/fixtures/error_stack_trace_recursive.zm:5:16)
+    at fact (tests/fixtures/error_stack_trace_recursive.zm:9:11)
+    at main (tests/fixtures/error_stack_trace_recursive.zm:8:1)
