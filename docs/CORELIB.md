@@ -19,6 +19,123 @@ and docs/DESIGN.md's "Prelude" entry), since everything it declares
 unqualified in every program, the same way `print`/`str`/`parse_int`
 are. See docs/SYNTAX.md's "Modules" section for what it contains.
 
+## `bits`
+
+```
+pub native fn byte_and(a: byte, b: byte) -> byte
+
+pub native fn byte_or(a: byte, b: byte) -> byte
+
+pub native fn byte_xor(a: byte, b: byte) -> byte
+
+pub native fn byte_not(a: byte) -> byte
+
+pub native fn byte_shift_left(a: byte, n: int) -> byte
+
+pub native fn byte_shift_right(a: byte, n: int) -> byte
+
+pub native fn byte_popcount(a: byte) -> int
+
+pub native fn int_and(a: int, b: int) -> int
+
+pub native fn int_or(a: int, b: int) -> int
+
+pub native fn int_xor(a: int, b: int) -> int
+
+pub native fn int_not(a: int) -> int
+
+pub native fn int_shift_left(a: int, n: int) -> int
+
+pub native fn int_shift_right(a: int, n: int) -> int
+
+pub native fn bigint_and(a: bigint, b: bigint) -> bigint
+
+pub native fn bigint_or(a: bigint, b: bigint) -> bigint
+
+pub native fn bigint_xor(a: bigint, b: bigint) -> bigint
+
+pub native fn bigint_not(a: bigint) -> bigint
+
+pub native fn bigint_shift_left(a: bigint, n: int) -> bigint
+
+pub native fn bigint_shift_right(a: bigint, n: int) -> bigint
+
+pub native fn int_popcount(a: int) -> int
+
+pub native fn bigint_popcount(a: bigint) -> int
+
+pub native fn bigint_bit_length(a: bigint) -> int
+
+pub struct BitSet {
+    bits: int
+}
+
+pub fn bitset_new() -> BitSet
+
+pub fn bitset_of_int(x: int) -> BitSet
+
+pub fn bitset_to_int(bs: BitSet) -> int
+
+pub fn bitset_set(bs: BitSet, i: int) -> BitSet
+
+pub fn bitset_clear(bs: BitSet, i: int) -> BitSet
+
+pub fn bitset_flip(bs: BitSet, i: int) -> BitSet
+
+pub fn bitset_get(bs: BitSet, i: int) -> bool
+
+pub fn bitset_and(a: BitSet, b: BitSet) -> BitSet
+
+pub fn bitset_or(a: BitSet, b: BitSet) -> BitSet
+
+pub fn bitset_xor(a: BitSet, b: BitSet) -> BitSet
+
+pub fn bitset_and_not(a: BitSet, b: BitSet) -> BitSet
+
+pub fn bitset_is_empty(bs: BitSet) -> bool
+
+pub fn bitset_cardinality(bs: BitSet) -> int
+
+pub fn bitset_length(bs: BitSet) -> int
+
+pub fn bitset_to_string(bs: BitSet) -> string
+
+pub struct BigBitSet {
+    bits: bigint
+}
+
+pub fn big_bitset_new() -> BigBitSet
+
+pub fn big_bitset_of_bigint(x: bigint) -> BigBitSet
+
+pub fn big_bitset_to_bigint(bs: BigBitSet) -> bigint
+
+pub fn big_bitset_set(bs: BigBitSet, i: int) -> BigBitSet
+
+pub fn big_bitset_clear(bs: BigBitSet, i: int) -> BigBitSet
+
+pub fn big_bitset_flip(bs: BigBitSet, i: int) -> BigBitSet
+
+pub fn big_bitset_get(bs: BigBitSet, i: int) -> bool
+
+pub fn big_bitset_and(a: BigBitSet, b: BigBitSet) -> BigBitSet
+
+pub fn big_bitset_or(a: BigBitSet, b: BigBitSet) -> BigBitSet
+
+pub fn big_bitset_xor(a: BigBitSet, b: BigBitSet) -> BigBitSet
+
+pub fn big_bitset_and_not(a: BigBitSet, b: BigBitSet) -> BigBitSet
+
+pub fn big_bitset_is_empty(bs: BigBitSet) -> bool
+
+pub fn big_bitset_cardinality(bs: BigBitSet) -> int
+
+pub fn big_bitset_length(bs: BigBitSet) -> int
+
+pub fn big_bitset_to_string(bs: BigBitSet) -> string
+
+```
+
 ## `clock`
 
 One native function reading the system clock (`clock_gettime`) -- Ziman's other source of genuine non-determinism.

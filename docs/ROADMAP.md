@@ -761,18 +761,20 @@ from source.
   "which of the 32 slots at this node are populated" (a naive always-32-
   wide node wastes a lot of space for a sparsely populated trie — real
   HAMT implementations pack this with a 32-bit presence bitmap, which
-  needs bit-counting; Ziman has no bitwise operators, so this specifically
-  would need either adding them or finding an all-arithmetic substitute,
-  same open question the `byte`/`uuid`/`number` modules already hit and
-  worked around case-by-case), collision handling when two keys hash
-  into the same leaf path all the way down, and a hash-splitting scheme
-  (which chunk of `hash(key)`'s bits picks the slot at each level).
-  `hashmap_keys`/`hashmap_values`/`hashmap_size` would need reimplementing
-  against the new shape too (`size` stops being a trivial field read if
-  the trie doesn't track a running count itself, which it should).
-  Not started, not designed in detail — needs its own pass (node
-  representation, the bitwise-operator question specifically, collision
-  strategy, whether `HashSet<T>` shares the same trie implementation
+  needs bit-counting. *Update 2026-09-28: this is no longer an open
+  question* -- the `bits` core module (DESIGN.md "A bits module") now
+  gives `int_popcount`/`int_and`/`int_or`/`int_shift_left`/... directly, so
+  a 32-bit presence bitmap and its popcount are a native operation, not an
+  all-arithmetic substitute to invent, same as the `byte`/`uuid`/`number`
+  modules once had to work around case-by-case), collision handling when
+  two keys hash into the same leaf path all the way down, and a
+  hash-splitting scheme (which chunk of `hash(key)`'s bits picks the slot
+  at each level). `hashmap_keys`/`hashmap_values`/`hashmap_size` would need
+  reimplementing against the new shape too (`size` stops being a trivial
+  field read if the trie doesn't track a running count itself, which it
+  should). Not started, not designed in detail — needs its own pass (node
+  representation, collision strategy, whether `HashSet<T>` shares the same
+  trie implementation
   parameterized differently or duplicates it the way `HashMap`/`HashSet`
   already do today) before implementation starts. The current flat-
   bucket-array version stays as the interim implementation either way —
@@ -1478,12 +1480,13 @@ from source.
      `Upgrade: h2c` route was dropped from the standard (RFC 9113) and is not planned.
   2. **Framing and HPACK, and the bit operations they need.** A 9-byte frame header (24-bit length, type, flags, 31-bit stream
      id), `DATA`/`HEADERS`/`CONTINUATION`/`SETTINGS`/`PING`/`GOAWAY`/`RST_STREAM`/`WINDOW_UPDATE` (`PRIORITY` read and
-     ignored), and HPACK: the static and dynamic tables, prefix-coded integers and Huffman decoding. All of it is bit work, and
-     Ziman has no bitwise operators (`bytes_xor` is the only bit primitive; see the bitwise-operator question above). Three
-     ways, to decide when this starts: a small set of bit primitives in `number` (`bit_and`/`bit_or`/`shift_left`/...), which
-     also opens CRCs and flag words to everyone; HPACK as natives in C (encode and decode over `[byte]` and header arrays,
-     roughly 500 lines) with framing left in Ziman; or linking nghttp2 (a new system dependency and a much larger surface
-     than the rest of the natives, in exchange for a conformant implementation). The first two keep the current "system
+     ignored), and HPACK: the static and dynamic tables, prefix-coded integers and Huffman decoding. All of it is bit work.
+     *Update 2026-09-28: the first of the three options below is now done independently of HTTP/2* -- the `bits` core
+     module (`byte_and`/`int_and`/`bigint_and`/... plus `shift_left`/`shift_right`/`popcount`, see DESIGN.md "A bits
+     module") opens exactly this to everyone, not just this feature. Remaining choice for HPACK/framing specifically:
+     HPACK as natives in C (encode and decode over `[byte]` and header arrays, roughly 500 lines) with framing left in
+     Ziman using the now-existing `bits` primitives; or linking nghttp2 (a new system dependency and a much larger surface
+     than the rest of the natives, in exchange for a conformant implementation). The first keeps the current "system
      libraries plus one vendored collector" footprint.
   3. **A server that multiplexes.** `serve` is a thread per connection with a slot channel bounding them. HTTP/2 carries many
      concurrent streams on one connection, so a connection gets a reader thread that parses frames and hands each finished

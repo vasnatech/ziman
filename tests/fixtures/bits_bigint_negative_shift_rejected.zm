@@ -1,0 +1,5 @@
+use bits
+
+fn main() {
+    print(bits.bigint_shift_left(1n, -1))
+}

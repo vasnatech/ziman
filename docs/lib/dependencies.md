@@ -8,6 +8,7 @@ and its own natives.
 ```mermaid
 flowchart LR
     subgraph group_core["core"]
+        bits["bits"]
         clock["clock"]
         collections["collections"]
         compress["compress"]
@@ -135,7 +136,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `clock`, `collections`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
+| 0 | `bits`, `clock`, `collections`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
 | 1 | `crypto`, `db`, `http`, `json`, `os` |
 | 2 | `fs`, `jwt`, `mysql`, `ndjson`, `otp`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml` |
 | 3 | `csv`, `datasource`, `log`, `properties`, `zone` |
@@ -146,6 +147,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Module | Uses | Used by |
 |---|---|---|
+| `bits` | - | - |
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `server`, `time`, `uuid` |
 | `collections` | - | `migrate` |

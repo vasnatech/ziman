@@ -1,0 +1,27 @@
+use bits
+
+fn main() {
+    var bs = bits.big_bitset_new()
+    bs = bits.big_bitset_set(bs, 0)
+    bs = bits.big_bitset_set(bs, 100)
+    bs = bits.big_bitset_set(bs, 1000)          // far past int's 64-bit range
+    print(bits.big_bitset_to_string(bs))         // {0, 100, 1000}
+    print(bits.big_bitset_cardinality(bs))       // 3
+    print(bits.big_bitset_length(bs))            // 1001
+    print(bits.big_bitset_get(bs, 100))          // true
+    print(bits.big_bitset_get(bs, 101))          // false
+    print(bits.big_bitset_is_empty(bs))          // false
+    print(bits.big_bitset_is_empty(bits.big_bitset_new())) // true
+
+    bs = bits.big_bitset_clear(bs, 100)
+    print(bits.big_bitset_to_string(bs))         // {0, 1000}
+
+    val a = bits.big_bitset_set(bits.big_bitset_set(bits.big_bitset_new(), 1), 300)
+    val b = bits.big_bitset_set(bits.big_bitset_set(bits.big_bitset_new(), 300), 3)
+    print(bits.big_bitset_to_string(bits.big_bitset_and(a, b)))       // {300}
+    print(bits.big_bitset_to_string(bits.big_bitset_or(a, b)))        // {1, 3, 300}
+    print(bits.big_bitset_to_string(bits.big_bitset_xor(a, b)))       // {1, 3}
+    print(bits.big_bitset_to_string(bits.big_bitset_and_not(a, b)))   // {1}
+
+    print(bits.big_bitset_to_bigint(bits.big_bitset_of_bigint(42n)))  // 42
+}

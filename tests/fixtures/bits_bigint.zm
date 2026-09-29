@@ -1,0 +1,39 @@
+// Every expected value here was cross-checked against Python's own arbitrary-precision int
+// bitwise operators (which already implement exactly the infinite-two's-complement semantics
+// Java's BigInteger and this module both target), not hand-derived.
+use bits
+
+fn main() {
+    print(bits.bigint_and(12n, 10n))                                          // 8
+    print(bits.bigint_and(-1n, 5n))                                           // 5 -- -1 is all 1-bits
+    print(bits.bigint_and(-5n, 3n))                                           // 3
+    print(bits.bigint_and(-12n, -10n))                                        // -12
+    print(bits.bigint_and(123456789012345678901234567890n, 987654321n))       // 169740432
+    print(bits.bigint_and(-123456789012345678901234567890n, 555n))            // 42
+
+    print(bits.bigint_or(12n, 10n))                                           // 14
+    print(bits.bigint_or(-1n, 5n))                                            // -1
+    print(bits.bigint_or(-12n, -10n))                                         // -10
+    print(bits.bigint_or(123456789012345678901234567890n, 987654321n))        // 123456789012345678902052481779
+    print(bits.bigint_or(-123456789012345678901234567890n, 555n))             // -123456789012345678901234567377
+
+    print(bits.bigint_xor(12n, 10n))                                          // 6
+    print(bits.bigint_xor(-1n, 5n))                                           // -6
+    print(bits.bigint_xor(-12n, -10n))                                        // 2
+    print(bits.bigint_xor(123456789012345678901234567890n, 987654321n))       // 123456789012345678901882741347
+    print(bits.bigint_xor(-123456789012345678901234567890n, 555n))            // -123456789012345678901234567419
+
+    print(bits.bigint_not(0n))                                                // -1
+    print(bits.bigint_not(-1n))                                               // 0
+    print(bits.bigint_not(5n))                                                // -6
+    print(bits.bigint_not(-123456789012345678901234567890n))                  // 123456789012345678901234567889
+
+    print(bits.bigint_shift_left(1n, 4))                                      // 16
+    print(bits.bigint_shift_left(-1n, 100))                                   // -1267650600228229401496703205376
+
+    print(bits.bigint_shift_right(8n, 1))                                     // 4
+    print(bits.bigint_shift_right(-8n, 1))                                    // -4
+    print(bits.bigint_shift_right(-3n, 1))                                    // -2, floors (not -3n / 2n, which is -1n)
+    print(bits.bigint_shift_right(-123456789012345678901234567890n, 10))      // -120563270519868827051986883
+    print(bits.bigint_shift_right(0n, 5))                                     // 0
+}

@@ -1,0 +1,267 @@
+// bits.zm -- bitwise and/or/xor/not/shift on `byte`, `int` and `bigint`, and the two
+// scalar-backed sets they back, `BitSet` (an `int`, at most 64 members) and `BigBitSet` (a
+// `bigint`, unbounded). Ziman has no bitwise operators in its own syntax (`&`, `|`, `^`, `~`,
+// `<<`, `>>` don't exist as tokens); this module is the only way to do bit manipulation.
+//
+// `byte` is unsigned, so its six functions are the simplest here: no sign to extend, shifts
+// bounded to 0-7. `int`'s are direct native 64-bit two's-complement operations -- no surprises
+// beyond the sign. `bigint`'s match Java's `BigInteger`/Python's `int` exactly: `and`/`or`/`xor`/
+// `not` are defined against *infinite* two's complement, so a negative bigint conceptually has
+// infinitely many leading 1-bits (`bigint_and(-1n, 5n)` is `5n`, the same as Java/Python give).
+// `bigint_not(x)` is `-(x + 1)`, exactly Java's definition, needing no bit-level work at all.
+// `shift_right` floors (rounds toward negative infinity) for `int`/`bigint`, unlike `/` which
+// truncates toward zero: `int_shift_right(-3, 1)` is `-2`, not `-1` (`-3 / 2`); `byte_shift_right`
+// is a logical shift (no sign to preserve), so floor vs. truncate doesn't apply to it.
+
+pub native fn byte_and(a: byte, b: byte) -> byte
+pub native fn byte_or(a: byte, b: byte) -> byte
+pub native fn byte_xor(a: byte, b: byte) -> byte
+pub native fn byte_not(a: byte) -> byte
+
+// `n` must be 0 to 7 -- a byte is 8 bits wide.
+pub native fn byte_shift_left(a: byte, n: int) -> byte
+pub native fn byte_shift_right(a: byte, n: int) -> byte
+
+pub native fn byte_popcount(a: byte) -> int
+
+pub native fn int_and(a: int, b: int) -> int
+pub native fn int_or(a: int, b: int) -> int
+pub native fn int_xor(a: int, b: int) -> int
+pub native fn int_not(a: int) -> int
+
+// `n` must be 0 to 63; a shift amount outside that range is a runtime error rather than the
+// undefined behavior C itself gives a native shift by the operand's own bit width or more.
+pub native fn int_shift_left(a: int, n: int) -> int
+pub native fn int_shift_right(a: int, n: int) -> int
+
+pub native fn bigint_and(a: bigint, b: bigint) -> bigint
+pub native fn bigint_or(a: bigint, b: bigint) -> bigint
+pub native fn bigint_xor(a: bigint, b: bigint) -> bigint
+pub native fn bigint_not(a: bigint) -> bigint
+
+// `n` must not be negative; there is no upper bound of its own (an enormous `n` just produces
+// an enormous result, the same "no artificial cap on ordinary arithmetic" rule any other bigint
+// operation already follows).
+pub native fn bigint_shift_left(a: bigint, n: int) -> bigint
+pub native fn bigint_shift_right(a: bigint, n: int) -> bigint
+
+pub native fn int_popcount(a: int) -> int
+
+// Both are undefined (a runtime error) for a negative bigint -- infinite two's complement gives
+// a negative number infinitely many 1-bits, so there is no finite popcount or bit length to
+// return. `BigBitSet` below never produces one, since a set of indices is never negative.
+pub native fn bigint_popcount(a: bigint) -> int
+pub native fn bigint_bit_length(a: bigint) -> int
+
+// ---- BitSet: a set of the integers 0..63, backed by one `int` -------------------------
+//
+// A value type, like every other Ziman type -- `bitset_set`/`clear`/`flip` return a new
+// `BitSet` rather than mutating one in place. There is no builder: unlike `ArrayBuilder`'s
+// backing array, a `BitSet`'s entire state is one scalar, so there is no O(n)-copy cost a
+// builder would save -- `var bs = bitset_new(); bs = bitset_set(bs, 3)` is already exactly as
+// cheap as an in-place mutation would be. Modeled on java.util.BitSet, adapted for that.
+
+pub struct BitSet {
+    bits: int
+}
+
+fn check_bitset_index(i: int) {
+    if i < 0 || i > 63 {
+        val failure: Result<unit, string> = err(format("BitSet index {} out of range (0 to 63)", i))
+        val _ = unwrap(failure)
+    }
+}
+
+pub fn bitset_new() -> BitSet {
+    return BitSet { bits: 0 }
+}
+
+pub fn bitset_of_int(x: int) -> BitSet {
+    return BitSet { bits: x }
+}
+
+pub fn bitset_to_int(bs: BitSet) -> int {
+    return bs.bits
+}
+
+pub fn bitset_set(bs: BitSet, i: int) -> BitSet {
+    check_bitset_index(i)
+    return BitSet { bits: int_or(bs.bits, int_shift_left(1, i)) }
+}
+
+pub fn bitset_clear(bs: BitSet, i: int) -> BitSet {
+    check_bitset_index(i)
+    return BitSet { bits: int_and(bs.bits, int_not(int_shift_left(1, i))) }
+}
+
+pub fn bitset_flip(bs: BitSet, i: int) -> BitSet {
+    check_bitset_index(i)
+    return BitSet { bits: int_xor(bs.bits, int_shift_left(1, i)) }
+}
+
+pub fn bitset_get(bs: BitSet, i: int) -> bool {
+    check_bitset_index(i)
+    return int_and(bs.bits, int_shift_left(1, i)) != 0
+}
+
+pub fn bitset_and(a: BitSet, b: BitSet) -> BitSet {
+    return BitSet { bits: int_and(a.bits, b.bits) }
+}
+
+pub fn bitset_or(a: BitSet, b: BitSet) -> BitSet {
+    return BitSet { bits: int_or(a.bits, b.bits) }
+}
+
+pub fn bitset_xor(a: BitSet, b: BitSet) -> BitSet {
+    return BitSet { bits: int_xor(a.bits, b.bits) }
+}
+
+// `a` with every member of `b` removed.
+pub fn bitset_and_not(a: BitSet, b: BitSet) -> BitSet {
+    return BitSet { bits: int_and(a.bits, int_not(b.bits)) }
+}
+
+pub fn bitset_is_empty(bs: BitSet) -> bool {
+    return bs.bits == 0
+}
+
+pub fn bitset_cardinality(bs: BitSet) -> int {
+    return int_popcount(bs.bits)
+}
+
+// The highest member plus one, or 0 for an empty set -- java.util.BitSet's own `length()`.
+pub fn bitset_length(bs: BitSet) -> int {
+    var i = 63
+    while i >= 0 {
+        if bitset_get(bs, i) {
+            return i + 1
+        }
+        i = i - 1
+    }
+    return 0
+}
+
+// "{0, 3, 5}" -- the indices in order, java.util.BitSet's own `toString()` shape.
+pub fn bitset_to_string(bs: BitSet) -> string {
+    val sb = sb_new()
+    sb_append(sb, "{")
+    var first = true
+    var i = 0
+    while i <= 63 {
+        if bitset_get(bs, i) {
+            if !first {
+                sb_append(sb, ", ")
+            }
+            sb_append(sb, str(i))
+            first = false
+        }
+        i = i + 1
+    }
+    sb_append(sb, "}")
+    return sb_to_string(sb)
+}
+
+// ---- BigBitSet: an unbounded set of non-negative integers, backed by one `bigint` -----
+//
+// The same shape as `BitSet` above, with no upper bound on a member's index -- the cost of
+// `set`/`clear`/`flip` grows with the highest index ever set (an arbitrary-precision integer's
+// own cost), not a fixed 64 bits. No builder, for the same reason `BitSet` has none.
+
+pub struct BigBitSet {
+    bits: bigint
+}
+
+fn check_big_bitset_index(i: int) {
+    if i < 0 {
+        val failure: Result<unit, string> = err(format("BigBitSet index {} must not be negative", i))
+        val _ = unwrap(failure)
+    }
+}
+
+pub fn big_bitset_new() -> BigBitSet {
+    return BigBitSet { bits: 0n }
+}
+
+pub fn big_bitset_of_bigint(x: bigint) -> BigBitSet {
+    return BigBitSet { bits: x }
+}
+
+pub fn big_bitset_to_bigint(bs: BigBitSet) -> bigint {
+    return bs.bits
+}
+
+pub fn big_bitset_set(bs: BigBitSet, i: int) -> BigBitSet {
+    check_big_bitset_index(i)
+    return BigBitSet { bits: bigint_or(bs.bits, bigint_shift_left(1n, i)) }
+}
+
+pub fn big_bitset_clear(bs: BigBitSet, i: int) -> BigBitSet {
+    check_big_bitset_index(i)
+    return BigBitSet { bits: bigint_and(bs.bits, bigint_not(bigint_shift_left(1n, i))) }
+}
+
+pub fn big_bitset_flip(bs: BigBitSet, i: int) -> BigBitSet {
+    check_big_bitset_index(i)
+    return BigBitSet { bits: bigint_xor(bs.bits, bigint_shift_left(1n, i)) }
+}
+
+pub fn big_bitset_get(bs: BigBitSet, i: int) -> bool {
+    check_big_bitset_index(i)
+    return bigint_and(bs.bits, bigint_shift_left(1n, i)) != 0n
+}
+
+pub fn big_bitset_and(a: BigBitSet, b: BigBitSet) -> BigBitSet {
+    return BigBitSet { bits: bigint_and(a.bits, b.bits) }
+}
+
+pub fn big_bitset_or(a: BigBitSet, b: BigBitSet) -> BigBitSet {
+    return BigBitSet { bits: bigint_or(a.bits, b.bits) }
+}
+
+pub fn big_bitset_xor(a: BigBitSet, b: BigBitSet) -> BigBitSet {
+    return BigBitSet { bits: bigint_xor(a.bits, b.bits) }
+}
+
+pub fn big_bitset_and_not(a: BigBitSet, b: BigBitSet) -> BigBitSet {
+    return BigBitSet { bits: bigint_and(a.bits, bigint_not(b.bits)) }
+}
+
+pub fn big_bitset_is_empty(bs: BigBitSet) -> bool {
+    return bs.bits == 0n
+}
+
+pub fn big_bitset_cardinality(bs: BigBitSet) -> int {
+    return bigint_popcount(bs.bits)
+}
+
+// The highest member plus one, or 0 for an empty set -- same definition as `bitset_length`,
+// but via `bigint_bit_length` (a loop with no fixed bound to stop at would be far slower for a
+// set with a very large member) rather than a 64-iteration scan.
+pub fn big_bitset_length(bs: BigBitSet) -> int {
+    return bigint_bit_length(bs.bits)
+}
+
+// "{0, 3, 5}" -- same shape as `bitset_to_string`. Scans by shifting a working copy right one
+// bit at a time and testing the low bit, rather than calling `big_bitset_get(bs, i)` per index:
+// that would recompute `1n << i` from scratch for every i, which for a high member is
+// O(length log length) bignum multiplications instead of this loop's O(length) single-bit shifts.
+pub fn big_bitset_to_string(bs: BigBitSet) -> string {
+    val sb = sb_new()
+    sb_append(sb, "{")
+    var first = true
+    var i = 0
+    var remaining = bs.bits
+    while remaining != 0n {
+        if bigint_and(remaining, 1n) != 0n {
+            if !first {
+                sb_append(sb, ", ")
+            }
+            sb_append(sb, str(i))
+            first = false
+        }
+        remaining = bigint_shift_right(remaining, 1)
+        i = i + 1
+    }
+    sb_append(sb, "}")
+    return sb_to_string(sb)
+}

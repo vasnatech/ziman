@@ -1,0 +1,5 @@
+use bits
+
+fn main() {
+    print(bits.big_bitset_set(bits.big_bitset_new(), -1))
+}

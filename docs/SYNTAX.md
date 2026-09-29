@@ -3081,6 +3081,59 @@ fn main() {
   no scale to pick for that division on `decimal_pow`'s own (`1.0000d / math.decimal_pow(2d, 3)`
   is `0.1250`; a bare `1d`, scale 0, would divide down to `0`).
 
+## The `bits` module
+
+Bitwise `and`/`or`/`xor`/`not`/`shift_left`/`shift_right` on `byte`, `int` and `bigint`, plus two
+scalar-backed sets built on them: `BitSet` (an `int`, indices 0-63) and `BigBitSet` (a `bigint`,
+unbounded). Ziman has no bitwise operators in its own syntax (no `& | ^ ~ << >>` tokens) — this
+module is the only way to manipulate bits directly.
+
+```
+use bits
+
+fn main() {
+    print(bits.int_and(12, 10))          // 8
+    print(bits.int_shift_left(1, 4))     // 16
+    print(bits.int_shift_right(-8, 1))   // -4, sign-extending
+
+    var bs = bits.bitset_set(bits.bitset_new(), 3)
+    bs = bits.bitset_set(bs, 5)
+    print(bits.bitset_to_string(bs))     // {3, 5}
+    print(bits.bitset_cardinality(bs))   // 2
+}
+```
+
+- **Three scalar flavors, one naming convention**: `byte_*`, `int_*`, `bigint_*`, each with
+  `and`/`or`/`xor`/`not`/`shift_left`/`shift_right` plus `popcount` (`bigint` also gets
+  `bit_length`) — the same type-suffixed pattern `int_to_hex`/`bigint_to_hex` already use, rather
+  than a new one.
+- **`byte` is unsigned** — no sign to extend, so `byte_shift_right` is a logical shift, and a
+  shift amount must be 0 to 7 (a byte is 8 bits).
+- **`int` is a direct native 64-bit two's-complement operation** — no surprises beyond the sign.
+  A shift amount must be 0 to 63; outside that range is a runtime error rather than the undefined
+  behavior a native shift by the operand's own bit width or more would give in C.
+  `int_shift_right` is arithmetic (sign-extending): `int_shift_right(-8, 1)` is `-4`.
+- **`bigint` matches Java's `BigInteger`/Python's `int` exactly** — `bigint_and`/`or`/`xor`/`not`
+  are defined against *infinite* two's complement, so a negative bigint conceptually has
+  infinitely many leading 1-bits (`bigint_and(-1n, 5n)` is `5n`). A shift amount must not be
+  negative; there is no upper bound of its own (an enormous shift just produces an enormous
+  result). `int_shift_right` and `bigint_shift_right` both floor (round toward negative infinity),
+  unlike `/` which truncates toward zero: `int_shift_right(-3, 1)` is `-2`, not `-1` (`-3 / 2`).
+- **`bigint_popcount`/`bigint_bit_length` are undefined (a runtime error) for a negative bigint**
+  — infinite two's complement gives a negative number infinitely many 1-bits, so there's no
+  finite answer. `BigBitSet` never produces one, since a set of indices is never negative.
+- **`BitSet`** is a value type (like every other Ziman type) backed by one `int`: `bitset_new()`,
+  `bitset_of_int`/`bitset_to_int` (raw conversion), `set`/`clear`/`flip`/`get` (index 0-63, an
+  out-of-range index is a runtime error), `and`/`or`/`xor`/`and_not` (set operations, mirroring
+  Java's `BitSet`), `is_empty`, `cardinality`, `length` (highest member plus one, 0 if empty), and
+  `to_string` (`"{0, 3, 5}"`). There's no mutable builder: unlike `ArrayBuilder`, whose backing
+  array makes push-without-copying a real optimization, a `BitSet`'s entire state is one scalar,
+  so there's no O(n)-copy cost a builder would save — `var` plus the immutable functions above
+  already do the job.
+- **`BigBitSet`** mirrors `BitSet` exactly, backed by a `bigint` instead of an `int` — unbounded
+  (only a negative index is rejected, not an upper bound), with `length()` computed via
+  `bigint_bit_length` in O(digits) rather than a scan with no fixed bound to stop at.
+
 ## Result
 
 ```

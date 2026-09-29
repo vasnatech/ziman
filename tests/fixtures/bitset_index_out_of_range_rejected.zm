@@ -1,0 +1,5 @@
+use bits
+
+fn main() {
+    print(bits.bitset_set(bits.bitset_new(), 64))
+}
