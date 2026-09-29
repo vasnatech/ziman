@@ -1,0 +1,8 @@
+fn main() {
+    print(concat("a", "b"))
+    print(concat("a", "b", "c", "d"))
+    print(concat("solo"))
+    val parts: [string] = ["x", "y", "z"]
+    print(concat(parts))
+    print(concat(pieces: parts))
+}

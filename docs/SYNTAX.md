@@ -2235,8 +2235,10 @@ a type error.
   stdout. A `float` displays as the shortest decimal text that reads back exactly, always with
   a `.` or `e` (`1.0`, never bare `1`); plain notation from `1e-7` to `1e21`, scientific outside
   that. `format`'s `{}` displays a `float` the same way.
-- `concat(a: string, b: string) -> string` — joins two strings; no auto-stringify (use `str`
-  first), same anti-implicit-coercion reasoning as `+`.
+- `concat(pieces: string...) -> string` — every piece joined with no separator (`""` for zero
+  pieces); no auto-stringify (use `str` first), same anti-implicit-coercion reasoning as `+`.
+  `join` adds a separator/prefix/suffix; a `StringBuilder` avoids `concat`'s own O(n) recopy
+  when building one piece at a time in a loop (`--lint` flags `x = concat(x, ..)` there).
 - `str(x) -> string` — converts `int`/`float`/`bool`/`bigint`/`decimal`/`byte` to display text
   (a `float` the same way `print` does). Rejects an already-`string` argument, and a bare
   generic type parameter `T` (a fixed allowlist checked before type-parameter resolution) --

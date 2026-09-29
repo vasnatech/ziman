@@ -196,12 +196,21 @@ static Value native_concat(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    size_t la = SLEN(args[0]), lb = SLEN(args[1]);
-    char *buf = zalloc_atomic(la + lb + 1);
-    memcpy(buf, SPTR(args[0]), la);
-    memcpy(buf + la, SPTR(args[1]), lb);
-    buf[la + lb] = '\0';
-    return value_string_view(buf, la + lb, 1);
+    ArrayObj *pieces = args[0].as.arr;
+    size_t total = 0;
+    for (int i = 0; i < pieces->count; i++) {
+        total += SLEN(array_get(pieces, i));
+    }
+    char *buf = zalloc_atomic(total + 1);
+    size_t pos = 0;
+    for (int i = 0; i < pieces->count; i++) {
+        Value piece = array_get(pieces, i);
+        size_t piece_len = SLEN(piece);
+        memcpy(buf + pos, SPTR(piece), piece_len);
+        pos += piece_len;
+    }
+    buf[total] = '\0';
+    return value_string_view(buf, total, 1);
 }
 
 static Value native_substring(Value *args, int argc, int line, int col) {

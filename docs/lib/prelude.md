@@ -115,10 +115,13 @@ precision (`{:.2}`: the arguments are strings, so there is nothing to round).
 ### `concat`
 
 ```
-native fn concat(a: string, b: string) -> string
+native fn concat(pieces: string...) -> string
 ```
 
-`a` followed by `b`. For many pieces use `join`, or a `StringBuilder` in a loop.
+Every piece, in order, joined with no separator (`concat("a", "b", "c")` is `"abc"`; zero
+pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over
+a loop, a `StringBuilder` (a fresh `concat` on every iteration copies everything so far, same
+quadratic cost `--lint` already flags for `x = concat(x, ..)`).
 
 ### `string_to_bytes`
 

@@ -1,0 +1,26 @@
+// A trailing variadic parameter accepts zero elements even when it's the only parameter (no
+// fixed parameter for a positional `f()` call to satisfy), a positional call with no arguments
+// at all, or a named call that never names it -- none of these are "a missing required
+// argument," which only ever applies to a non-variadic, non-Option<T> parameter.
+fn sum(nums: int...) -> int {
+    var total = 0
+    for n in nums {
+        total = total + n
+    }
+    return total
+}
+
+fn labeled_sum(label: string, nums: int...) -> string {
+    return concat(label, ": ", str(sum(nums)))
+}
+
+fn main() {
+    print(sum())
+    print(sum(1, 2, 3))
+    print(concat())
+    print(concat("a"))
+    print(concat("a", "b", "c"))
+    print(join())
+    print(labeled_sum(label: "total"))
+    print(labeled_sum(label: "total", nums: [1, 2, 3]))
+}

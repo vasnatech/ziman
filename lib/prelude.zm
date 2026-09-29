@@ -41,8 +41,11 @@ native fn parse_decimal(s: string) -> Result<decimal, string>
 // precision (`{:.2}`: the arguments are strings, so there is nothing to round).
 native fn format_dynamic(template: string, args: [string]) -> Result<string, string>
 
-// `a` followed by `b`. For many pieces use `join`, or a `StringBuilder` in a loop.
-native fn concat(a: string, b: string) -> string
+// Every piece, in order, joined with no separator (`concat("a", "b", "c")` is `"abc"`; zero
+// pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over
+// a loop, a `StringBuilder` (a fresh `concat` on every iteration copies everything so far, same
+// quadratic cost `--lint` already flags for `x = concat(x, ..)`).
+native fn concat(pieces: string...) -> string
 
 // The UTF-8 bytes of `s`.
 native fn string_to_bytes(s: string) -> [byte]

@@ -973,6 +973,8 @@ static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
     if (names == NULL && (e->as.call.args.count > 0 || fn->params.count == 0)) {
         return;
     }
+    int is_variadic = fn->params.count > 0 && fn->params.items[fn->params.count - 1].is_variadic;
+    int fixed_count = is_variadic ? fn->params.count - 1 : fn->params.count;
     int argc = e->as.call.args.count;
     Expr **reordered = malloc((size_t)fn->params.count * sizeof(Expr *));
     for (int i = 0; i < fn->params.count; i++) {
@@ -998,8 +1000,18 @@ static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
         }
         reordered[param_index] = e->as.call.args.items[i];
     }
+    /* A trailing variadic parameter left unfilled (never named, and -- the `f()` case above --
+     * no positional arguments at all) means zero elements, not a missing argument: unlike every
+     * other parameter here, it has a perfectly good "nothing given" reading that doesn't need an
+     * Option<T> to express (see check_call/collapse_variadic_args, both already fine with a
+     * zero-length tail). Left NULL and excluded from the final count below, rather than filled
+     * with anything, so `sum()`/`concat()`/`join()` with nothing to add up/join reach the
+     * ordinary variadic-tail handling exactly as if the trailing argument had never existed at
+     * all -- not a new code path, just this function no longer manufacturing a fake error for
+     * one that was never required. */
+    int variadic_omitted = is_variadic && reordered[fixed_count] == NULL;
     for (int i = 0; i < fn->params.count; i++) {
-        if (reordered[i] != NULL) {
+        if (reordered[i] != NULL || (is_variadic && i == fixed_count)) {
             continue;
         }
         Param *param = &fn->params.items[i];
@@ -1013,7 +1025,7 @@ static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
                            : make_none_expr(param->type, e->line, e->col);
     }
     e->as.call.args.items = reordered;
-    e->as.call.args.count = fn->params.count;
+    e->as.call.args.count = variadic_omitted ? fixed_count : fn->params.count;
     e->as.call.args.capacity = fn->params.count;
     e->as.call.arg_names = NULL;
 }
