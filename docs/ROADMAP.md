@@ -1284,6 +1284,27 @@ from source.
     start (lockfiles pinning exact resolved versions at minimum;
     namespacing and any review/signing story are open questions), not
     bolt it on after an incident.
+  - **A concrete first candidate for what should actually move out of the bundled corelib once
+    this exists: the `db` drivers, `mysql.zm` and `pg.zm` specifically** (2026-09-29). Each is a
+    real wire-protocol implementation end to end (`pg.zm` 850 lines, `mysql.zm` 1,338 —
+    "the largest externally-specified surface in the library," per the language review,
+    §4.4), already marked experimental ahead of the rest of the core (see F4/docs/DESIGN.md's
+    "Experimental modules" entry) precisely because they carry protocol/maintenance risk the
+    rest of corelib doesn't. Today every `ziman` binary embeds them regardless of whether a
+    given program ever opens a Postgres or MySQL connection, the same "one binary, no install
+    step" tradeoff the whole corelib makes ("Bundled core modules" elsewhere in this file) --
+    reasonable for `json`/`collections`/`regex`, much less so for two entire SQL wire protocols
+    (SCRAM auth, wire-format encode/decode) a typical program never touches. Once packages are
+    real, `mysql`/`pg` (and plausibly `sqlite`, for the same reason, though it links a system
+    library rather than reimplementing a protocol) become ordinary published packages a project
+    opts into with a dependency line, not permanently part of every binary; `db`/`datasource`
+    (the driver-agnostic `Connection`/pooling layer) stay in the corelib proper, since every
+    driver package would need them. `internal` visibility (docs/DESIGN.md's own entry) already
+    treats `db`'s request-plumbing structs as shared *within* today's one bundled-corelib
+    package; splitting drivers out means `same_package`'s definition (today "both bundled, or
+    both not") has to grow to recognize "this driver package and the corelib it depends on"
+    as cooperating packages too, not just "corelib vs. everything else" -- one more concrete
+    thing the eventual manifest-based redefinition needs to handle, not a new problem.
 - ~~**Attributes (`#[...]`) and a first `derive` on top of them, starting
   with `#[derive(Json)]`.**~~ Implemented (`src/derive.c`, docs/DESIGN.md's
   "Attributes and `#[derive(Json)]`" entry). Grew out of a "should Ziman
