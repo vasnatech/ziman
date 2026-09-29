@@ -203,8 +203,10 @@ restricted set of positions -- see "`if` and `switch` as values" below.
 - `byte` — unsigned, 0-255. A literal is written with a trailing `b`
   (`200b`) — never bare digits, which always mean `int`. Unlike the
   other four scalar types above, not a number to compute with: no
-  arithmetic, no `abs`/`min`/`max`, just construction, `==`/`!=`,
-  `hash`, `str`/`print`/`format`, and a cast to/from `int`. See
+  arithmetic, no `abs`, just construction, `==`/`!=`,
+  `hash`, `str`/`print`/`format`, a cast to/from `int`, and `min`/`max`
+  (it satisfies `Ord`, the same as `compare`/`sort` already treat it -- picking
+  the smaller/larger of two values by order is not arithmetic). See
   "Numbers" below.
 - `unit` — the type with exactly one value, also written `unit`. It is
   what "nothing to give back" looks like when a value is required: the
@@ -367,10 +369,12 @@ fn main() {
 
 `byte` is a fifth scalar type, but a deliberately different kind of one
 from the four numeric types above: unsigned, 0-255, and **not a number
-to compute with** — no arithmetic operators, no `abs`/`min`/`max`. It
+to compute with** — no arithmetic operators, no `abs`. It
 exists to represent raw octets (a UUID's bytes, cryptographically random
 bytes) where "what's the sum of these two bytes" is a meaningless
-question but "are these the same byte" and "print this byte" aren't.
+question but "are these the same byte", "print this byte" and "which of
+these bytes sorts first" (`min`/`max`, `compare`, `sort` -- ordering, not
+arithmetic) aren't.
 
 ```
 fn main() {
@@ -391,12 +395,14 @@ fn main() {
   truncating — unlike a cast (below), a literal's value is already
   fully known at parse time, so there's no ambiguity about what "out of
   range" should do.
-- **Supports `== !=`, `str`, `hash`, and casting to/from `int` only** —
-  no `+ - * / %`, no unary `-`, no `< > <= >=`, no `abs`/`min`/`max`.
+- **Supports `== !=`, `str`, `hash`, `compare`/`sort`/`min`/`max` (it satisfies `Ord`), and
+  casting to/from `int` only** — no `+ - * / %`, no unary `-`, no `< > <= >=`, no `abs`.
   Ziman has no operator overloading, so a type either gets the full
   numeric operator set or none of it; `byte` deliberately gets none of
   it, since nothing that needs a `byte` (so far) needs arithmetic on
-  one — see docs/DESIGN.md's "byte" entry for the full reasoning.
+  one — see docs/DESIGN.md's "byte" entry for the full reasoning. Ordering is a
+  separate story from arithmetic (`Eq`/`Hash`/`Ord` are bounds any type can satisfy,
+  not part of the numeric operator set), which is why `byte` gets one but not the other.
 - **`int as byte` saturates to `[0, 255]` rather than wrapping** — `300
   as byte` is `255`, `-5 as byte` is `0` — same "clamp, don't silently
   wrap" precedent `bigint as int` already set. `byte as int` is always
@@ -3595,11 +3601,14 @@ a type error.
   index).
 - `abs(x: T) -> T` — absolute value; `T` is `int`, `float`, `bigint`, or
   `decimal`. Not `byte` — see "Numbers" above for why.
-- `min(a: T, b: T) -> T` / `max(a: T, b: T) -> T` — `T` is `int`,
-  `float`, `bigint`, or `decimal`; both arguments must be the same `T`,
-  no implicit mixing between any of the four (consistent with the
-  language's general no-implicit-coercion rule). Not `byte` — see
-  "Numbers" above.
+- `min(items: T...) -> T` / `max(items: T...) -> T` — variadic and `Ord`-bounded, the
+  same rule `compare`/`sort` use: two or more individually-listed arguments, or exactly
+  one already-built array as the whole list (the same convention a declared `T...`
+  parameter gives a caller); at least one value is required (`min()` is a compile-time
+  error, an empty array a runtime one). Every argument must be the same `T`, no implicit
+  mixing (consistent with the language's general no-implicit-coercion rule) — `int`,
+  `float`, `bigint`, `decimal`, `byte`, `string`, an array/Option/Result of those, or a
+  struct/enum with a `<type>_compare` function.
 - Rounding (`floor`/`ceil`/`round`, `decimal_round`/`decimal_floor`/`decimal_ceil`) and
   `decimal_pow` are not builtins any more: they live in the `math` module (see "The `math`
   module").

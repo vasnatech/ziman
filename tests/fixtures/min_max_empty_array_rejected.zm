@@ -1,0 +1,4 @@
+fn main() {
+    val xs: [int] = []
+    print(min(xs))
+}

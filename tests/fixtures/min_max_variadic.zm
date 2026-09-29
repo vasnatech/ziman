@@ -1,0 +1,24 @@
+// min/max are variadic and Ord-bounded, not just the four numeric scalars: two or more
+// individually-listed arguments, or exactly one already-built array as the whole list, works
+// for anything Ord (int/float/bigint/decimal/byte/string, or a struct/enum with its own
+// <type>_compare), the same rule compare/sort already use.
+struct Person {
+    name: string
+    age: int
+}
+
+fn person_compare(a: Person, b: Person) -> int {
+    return a.age - b.age
+}
+
+fn main() {
+    print(min(3, 1, 4, 1, 5, 9, 2, 6))          // 1
+    print(max(3, 1, 4, 1, 5, 9, 2, 6))          // 9
+    print(min([3, 1, 4, 1, 5]))                  // 1 -- a single array argument
+    print(min("banana", "apple", "cherry"))      // apple
+    print(min(5))                                 // 5 -- one argument is legal
+
+    val people = [Person { name: "Ada", age: 36 }, Person { name: "Bo", age: 20 }]
+    print(min(people).name)                       // Bo
+    print(max(people).name)                       // Ada
+}

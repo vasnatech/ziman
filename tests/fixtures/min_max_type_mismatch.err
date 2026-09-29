@@ -1,1 +1,1 @@
-'min' expects both arguments to be the same type, found int and float
+'min' expects every argument to be the same type, found int and float

@@ -1631,20 +1631,36 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     }
 
     if (strcmp(name, "min") == 0 || strcmp(name, "max") == 0) {
-        if (e->as.call.args.count != 2) {
-            ziman_error("type", e->line, e->col, "'%s' takes exactly 2 arguments, found %d", name, e->as.call.args.count);
+        /* Variadic, `Ord`-bounded (the same rule `compare`/`sort` already use), not just the
+         * four numeric scalars this used to be limited to -- see docs/DESIGN.md's "Variadic,
+         * Ord-bounded min/max" entry. Two call shapes, the same convention a declared `T...`
+         * parameter already gives a caller: two or more individually-listed arguments, or
+         * exactly one already-built array as the whole list. */
+        if (e->as.call.args.count == 0) {
+            ziman_error("type", e->line, e->col, "'%s' needs at least 1 argument", name);
         }
-        Expr *a_arg = e->as.call.args.items[0];
-        Type a_type = check_expr(module, env, a_arg);
-        if (a_type.kind != TY_INT && a_type.kind != TY_FLOAT && a_type.kind != TY_BIGINT && a_type.kind != TY_DECIMAL) {
-            ziman_error("type", a_arg->line, a_arg->col, "'%s' expects int, float, bigint, or decimal, found %s", name, type_name(a_type));
+        Expr *first_arg = e->as.call.args.items[0];
+        Type first_type = check_expr(module, env, first_arg);
+        Type elem_type = first_type;
+        if (e->as.call.args.count == 1 && first_type.kind == TY_ARRAY) {
+            elem_type = *first_type.elem;
+        } else {
+            for (int i = 1; i < e->as.call.args.count; i++) {
+                Expr *arg = e->as.call.args.items[i];
+                Type arg_type = check_expr(module, env, arg);
+                if (!type_equals(arg_type, first_type)) {
+                    ziman_error("type", arg->line, arg->col, "'%s' expects every argument to be the same type, found %s and %s",
+                                name, type_name(first_type), type_name(arg_type));
+                }
+            }
         }
-        Expr *b_arg = e->as.call.args.items[1];
-        Type b_type = check_expr(module, env, b_arg);
-        if (!type_equals(b_type, a_type)) {
-            ziman_error("type", b_arg->line, b_arg->col, "'%s' expects both arguments to be the same type, found %s and %s", name, type_name(a_type), type_name(b_type));
+        if (!type_supports_ordering(module, elem_type)) {
+            ziman_error("type", first_arg->line, first_arg->col,
+                        "'%s' expects int, float, bigint, decimal, byte, string, an array/Option/Result of those, a struct/enum with a "
+                        "'<type>_compare' function ('#[derive(Ord)]' writes one), or a type parameter bounded by 'Ord', found %s",
+                        name, type_name(elem_type));
         }
-        return a_type;
+        return elem_type;
     }
 
     if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0) {

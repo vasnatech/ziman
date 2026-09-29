@@ -580,30 +580,35 @@ static Value call_abs(Value x, int line, int col) {
     return value_float(x.as.f < 0 ? -x.as.f : x.as.f);
 }
 
-static Value call_min(Value a, Value b) {
-    if (a.type.kind == TY_INT) {
-        return value_int(a.as.i < b.as.i ? a.as.i : b.as.i);
+/* `min`/`max`: variadic and `Ord`-bounded, not just the four numeric scalars this used to be
+ * limited to. One linear scan calling `value_compare` per candidate -- already the native,
+ * direct-C-comparison path for int/float/bigint/decimal/byte/string (see its own TY_INT/.../
+ * TY_STRING cases above), so this needs no separate fast path for those the way `sort` gives
+ * a packed array its own native routine: a single comparison per element is not where sorting's
+ * O(n log n) cost lives. Falls back to a struct/enum's own `<type>_compare` exactly as `compare`
+ * and `sort` already do. `argc == 1 && args[0]` an array is the same "trailing array is the
+ * whole list" convention a declared `T...` parameter gives a caller. */
+static Value value_min_max(Module *module, Value *args, int argc, int want_min, int line, int col) {
+    Value best;
+    int n;
+    if (argc == 1 && args[0].type.kind == TY_ARRAY) {
+        ArrayObj *arr = args[0].as.arr;
+        n = arr->count;
+        if (n == 0) ziman_error("runtime", line, col, "'%s' of an empty array", want_min ? "min" : "max");
+        best = array_get(arr, 0);
+        for (int i = 1; i < n; i++) {
+            Value item = array_get(arr, i);
+            int c = value_compare(module, item, best, line, col);
+            if (want_min ? c < 0 : c > 0) best = item;
+        }
+        return best;
     }
-    if (a.type.kind == TY_BIGINT) {
-        return bignum_compare(*a.as.bi, *b.as.bi) < 0 ? a : b;
+    best = args[0];
+    for (int i = 1; i < argc; i++) {
+        int c = value_compare(module, args[i], best, line, col);
+        if (want_min ? c < 0 : c > 0) best = args[i];
     }
-    if (a.type.kind == TY_DECIMAL) {
-        return decimal_compare(*a.as.dec, *b.as.dec) < 0 ? a : b;
-    }
-    return value_float(a.as.f < b.as.f ? a.as.f : b.as.f);
-}
-
-static Value call_max(Value a, Value b) {
-    if (a.type.kind == TY_INT) {
-        return value_int(a.as.i > b.as.i ? a.as.i : b.as.i);
-    }
-    if (a.type.kind == TY_BIGINT) {
-        return bignum_compare(*a.as.bi, *b.as.bi) > 0 ? a : b;
-    }
-    if (a.type.kind == TY_DECIMAL) {
-        return decimal_compare(*a.as.dec, *b.as.dec) > 0 ? a : b;
-    }
-    return value_float(a.as.f > b.as.f ? a.as.f : b.as.f);
+    return best;
 }
 
 /* push/insert/set never mutate their `arr` argument -- they always build a
@@ -1090,9 +1095,9 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "abs") == 0) {
                 result = call_abs(args[0], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "min") == 0) {
-                result = call_min(args[0], args[1]);
+                result = value_min_max(module, args, argc, 1, e->line, e->col);
             } else if (strcmp(e->as.call.callee, "max") == 0) {
-                result = call_max(args[0], args[1]);
+                result = value_min_max(module, args, argc, 0, e->line, e->col);
             } else if (strcmp(e->as.call.callee, "channel_new") == 0) {
                 int limit = 0;
                 if (argc > 0) {
