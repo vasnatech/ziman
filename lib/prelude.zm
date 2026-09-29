@@ -47,7 +47,11 @@ native fn concat(a: string, b: string) -> string
 // The UTF-8 bytes of `s`.
 native fn string_to_bytes(s: string) -> [byte]
 
-// The text of `b`, or an Err when it holds a 0 byte (a string cannot).
+// The text of `b`, or an Err when `b` is not valid UTF-8 (naming the byte offset of the first
+// invalid sequence) or holds a 0 byte (a string cannot) -- the one real boundary where untrusted
+// bytes (a socket, a file, an HTTP body) become a `string`, so it's the one place this is
+// checked; every other string function keeps working on whatever bytes a `string` already holds,
+// same as always. See docs/DESIGN.md's UTF-8 correctness entry.
 native fn bytes_to_string(b: [byte]) -> Result<string, string>
 
 // Any number of byte arrays joined into one, in a single pass.
@@ -83,6 +87,33 @@ native fn last_index_of(s: string, needle: string) -> int
 // of range or `c` does not fit, so `is_char_at(s, p, "x")` replaces the guarded
 // `p < len(s) && char_at(s, p) == "x"`. `c` is normally one character but any text works.
 native fn is_char_at(s: string, i: int, c: string) -> bool
+
+// ---------------------------------------------------------------- code points
+//
+// Everything above (`len`, `substring`, `char_at`, `index_of`, ...) counts and cuts bytes, not
+// characters -- fast, and exactly right for ASCII, but `len("héllo")` is 6 and a `substring` can
+// split a multi-byte character in half, producing text that is no longer valid UTF-8. These
+// three functions are the code-point-aware alternative for text a person will actually read:
+// slower (each one walks the string decoding UTF-8), used only where that's what's wanted. See
+// docs/DESIGN.md's UTF-8 correctness entry for why both worlds stay, on purpose, rather than one
+// replacing the other.
+
+// `s` split into its individual code points, each its own one-character string:
+// `chars("héllo")` is `[h, é, l, l, o]`, not six one-byte pieces. A runtime error naming the
+// byte offset if `s` is not valid UTF-8 (only reachable by chaining a byte-level function like
+// `substring` into this one -- `bytes_to_string` already rejects invalid UTF-8 at the boundary
+// where it would otherwise enter a program).
+native fn chars(s: string) -> [string]
+
+// The number of code points in `s`: `char_count("héllo")` is 5, where `len("héllo")` (bytes) is
+// 6. Cheaper than `len(chars(s))` when only the count is wanted. Same UTF-8 requirement as `chars`.
+native fn char_count(s: string) -> int
+
+// `s` shortened to at most `max_chars` code points, without ever cutting one in half -- the safe
+// way to truncate text for display (`substring` counts bytes and can produce invalid UTF-8).
+// `max_chars >= char_count(s)` returns `s` unchanged; `max_chars` must not be negative. Same
+// UTF-8 requirement as `chars`.
+native fn truncate_chars(s: string, max_chars: int) -> string
 
 // True when `a` and `b` are equal when the ASCII letters A-Z are read as a-z (other bytes,
 // non-ASCII included, must match exactly). Builds no intermediate strings, unlike comparing

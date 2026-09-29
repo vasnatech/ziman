@@ -134,7 +134,11 @@ The UTF-8 bytes of `s`.
 native fn bytes_to_string(b: [byte]) -> Result<string, string>
 ```
 
-The text of `b`, or an Err when it holds a 0 byte (a string cannot).
+The text of `b`, or an Err when `b` is not valid UTF-8 (naming the byte offset of the first
+invalid sequence) or holds a 0 byte (a string cannot) -- the one real boundary where untrusted
+bytes (a socket, a file, an HTTP body) become a `string`, so it's the one place this is
+checked; every other string function keeps working on whatever bytes a `string` already holds,
+same as always. See docs/DESIGN.md's UTF-8 correctness entry.
 
 ### `bytes_concat`
 
@@ -212,6 +216,40 @@ native fn is_char_at(s: string, i: int, c: string) -> bool
 True when `c` appears in `s` starting at position `i`. False, never an error, when `i` is out
 of range or `c` does not fit, so `is_char_at(s, p, "x")` replaces the guarded
 `p < len(s) && char_at(s, p) == "x"`. `c` is normally one character but any text works.
+
+## Code points
+
+### `chars`
+
+```
+native fn chars(s: string) -> [string]
+```
+
+`s` split into its individual code points, each its own one-character string:
+`chars("héllo")` is `[h, é, l, l, o]`, not six one-byte pieces. A runtime error naming the
+byte offset if `s` is not valid UTF-8 (only reachable by chaining a byte-level function like
+`substring` into this one -- `bytes_to_string` already rejects invalid UTF-8 at the boundary
+where it would otherwise enter a program).
+
+### `char_count`
+
+```
+native fn char_count(s: string) -> int
+```
+
+The number of code points in `s`: `char_count("héllo")` is 5, where `len("héllo")` (bytes) is
+6. Cheaper than `len(chars(s))` when only the count is wanted. Same UTF-8 requirement as `chars`.
+
+### `truncate_chars`
+
+```
+native fn truncate_chars(s: string, max_chars: int) -> string
+```
+
+`s` shortened to at most `max_chars` code points, without ever cutting one in half -- the safe
+way to truncate text for display (`substring` counts bytes and can produce invalid UTF-8).
+`max_chars >= char_count(s)` returns `s` unchanged; `max_chars` must not be negative. Same
+UTF-8 requirement as `chars`.
 
 ### `equals_ignore_case`
 

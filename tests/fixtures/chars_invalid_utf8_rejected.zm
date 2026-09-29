@@ -1,0 +1,5 @@
+fn main() {
+    val s = "héllo"
+    val cut = substring(s, 0, 2)   // a byte-level function, still allowed to split é in half
+    print(chars(cut))
+}

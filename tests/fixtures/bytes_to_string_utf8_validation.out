@@ -1,0 +1,5 @@
+Ok(héllo)
+Err(bytes are not valid UTF-8 (invalid sequence at byte 1))
+Err(bytes are not valid UTF-8 (invalid sequence at byte 0))
+Err(bytes are not valid UTF-8 (invalid sequence at byte 0))
+Err(bytes contain a NUL byte and cannot be a string)

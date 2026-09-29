@@ -1,0 +1,17 @@
+fn main() {
+    // valid UTF-8: "héllo" (h=104, é=195,169, l=108, l=108, o=111)
+    print(bytes_to_string([104b, 195b, 169b, 108b, 108b, 111b]))
+
+    // a lone UTF-8 lead byte with no continuation byte after it -- truncated mid-character
+    print(bytes_to_string([104b, 195b]))
+
+    // a bad continuation byte (0x00 where a continuation byte, 10xxxxxx, is required)
+    print(bytes_to_string([195b, 0b, 108b]))
+
+    // an overlong encoding of '/' (0x2F) as two bytes instead of one -- a classic filter-bypass
+    // trick if a decoder accepts it
+    print(bytes_to_string([192b, 175b]))
+
+    // a NUL byte is still rejected too, same as before this fixture's own UTF-8 checks existed
+    print(bytes_to_string([104b, 0b, 108b]))
+}

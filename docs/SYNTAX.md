@@ -2501,9 +2501,14 @@ fn main() {
   Without one a read on a dead peer waits forever. There is no connect
   timeout beyond the OS default.
 - **`string_to_bytes` / `bytes_to_string` / `bytes_concat`** are prelude builtins
-  (no `use`): `bytes_to_string` returns a `Result` -- a string can't hold a 0
-  byte -- and `bytes_concat(parts...)` joins any number of byte arrays in one
-  pass. Sub-ranges are the prelude's zero-copy `slice<byte>(b, start, end)`.
+  (no `use`): `bytes_to_string` returns a `Result` -- an `Err` when the bytes
+  are not valid UTF-8 (naming the byte offset of the first invalid sequence)
+  or hold a 0 byte (a string can't) -- and `bytes_concat(parts...)` joins any
+  number of byte arrays in one pass. Sub-ranges are the prelude's zero-copy
+  `slice<byte>(b, start, end)`. This is the one real boundary where untrusted
+  bytes (read from this very socket, say) become a `string` at all, so it's
+  the one place UTF-8 is checked -- see "Strings are bytes, with code points
+  as an opt-in" below.
 - **`number`** (binary encodings): the big-endian `u16_to_bytes`/`u32_to_bytes`/`u16_from_bytes`/
   `u32_from_bytes` and the float encodings that network protocols are built from.
 - **Lines.** `net.lines(socket)` (and `lines_with(socket, max_line_bytes)`) is an `Iter<Result<string,
@@ -3677,6 +3682,31 @@ a type error.
 
   None of the search/compare functions above build intermediate strings,
   unlike the `substring(s, i, i + n) == x` idiom they replace.
+- **Strings are bytes, with code points as an opt-in.** Every function above
+  (`len`, `substring`, `char_at`, `index_of`, ...) counts and cuts bytes, not
+  characters — fast, and exactly right for ASCII text, but `len("héllo")` is
+  6 and a `substring` can cut a multi-byte character in half, producing text
+  that is no longer valid UTF-8. Three functions give the code-point-aware
+  alternative for text a person will actually read, each walking the string
+  to decode UTF-8 (so slower than the byte functions, used only where that's
+  what's wanted) and each a runtime error naming the byte offset if the
+  string isn't valid UTF-8 to begin with — reachable only by chaining a
+  byte-level function into one of these, since `bytes_to_string` (see
+  "Networking" above) already rejects invalid UTF-8 at the one boundary
+  where it would otherwise enter a program:
+  - `chars(s: string) -> [string]` — `s` split into its individual code
+    points, each its own one-character string: `chars("héllo")` is
+    `[h, é, l, l, o]`, not six one-byte pieces.
+  - `char_count(s: string) -> int` — the number of code points in `s`
+    (`char_count("héllo")` is 5). Cheaper than `len(chars(s))` when only the
+    count is wanted.
+  - `truncate_chars(s: string, max_chars: int) -> string` — `s` shortened to
+    at most `max_chars` code points, without ever cutting one in half; the
+    safe way to truncate text for display. `max_chars` must not be negative;
+    `max_chars >= char_count(s)` returns `s` unchanged.
+
+  See docs/DESIGN.md's UTF-8 correctness entry for why both worlds stay,
+  deliberately, rather than one replacing the other.
 - `trim(s: string) -> string` — `s` with leading/trailing whitespace
   removed.
 - `is_empty(s: string) -> bool` — `s == ""`; `is_blank(s: string) -> bool` —

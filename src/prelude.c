@@ -776,18 +776,145 @@ static Value native_string_to_bytes(Value *args, int argc, int line, int col) {
     return value_byte_array((const uint8_t *)s, n);
 }
 
+/* ---- UTF-8: a strict validator/decoder, used by bytes_to_string and the codepoint functions
+ * below (chars, char_count, truncate_chars) -- see docs/DESIGN.md's UTF-8 correctness entry.
+ *
+ * Deliberately not shared with regex.c's own decode(): that one is lenient on purpose (an
+ * invalid sequence falls back to one raw byte, so a regex never fails to match just because the
+ * text it's given happens to be malformed) -- exactly wrong here, where the whole point is to
+ * *detect* malformed input, not paper over it. */
+
+/* Decodes the sequence starting at s[pos] (pos < len), writing the code point to *cp and
+ * returning its byte length (1-4) -- or 0 if it's invalid: truncated at the end of the buffer,
+ * a bad continuation byte, an overlong encoding (the same value spelled with more bytes than
+ * necessary -- a classic filter-bypass trick if left unchecked), a surrogate half (U+D800 to
+ * U+DFFF, never a real code point on its own), or beyond Unicode's own range (past U+10FFFF). */
+static int utf8_decode_strict(const uint8_t *s, size_t len, size_t pos, uint32_t *cp) {
+    uint8_t c = s[pos];
+    if (c < 0x80) { *cp = c; return 1; }
+    int n;
+    uint32_t min;
+    if ((c & 0xE0) == 0xC0) { n = 2; min = 0x80; *cp = c & 0x1F; }
+    else if ((c & 0xF0) == 0xE0) { n = 3; min = 0x800; *cp = c & 0x0F; }
+    else if ((c & 0xF8) == 0xF0) { n = 4; min = 0x10000; *cp = c & 0x07; }
+    else return 0; /* a stray continuation byte (10xxxxxx), or a leading byte UTF-8 never uses (0xF8-0xFF) */
+    if (pos + (size_t)n > len) return 0;
+    for (int i = 1; i < n; i++) {
+        uint8_t cb = s[pos + (size_t)i];
+        if ((cb & 0xC0) != 0x80) return 0;
+        *cp = (*cp << 6) | (uint32_t)(cb & 0x3F);
+    }
+    if (*cp < min || *cp > 0x10FFFF || (*cp >= 0xD800 && *cp <= 0xDFFF)) return 0;
+    return n;
+}
+
+/* The byte offset of the first invalid sequence in s[0..len), or -1 if all of it is valid. */
+static long utf8_find_invalid(const uint8_t *s, size_t len) {
+    size_t pos = 0;
+    while (pos < len) {
+        uint32_t cp;
+        int n = utf8_decode_strict(s, len, pos, &cp);
+        if (n == 0) return (long)pos;
+        pos += (size_t)n;
+    }
+    return -1;
+}
+
 static Value native_bytes_to_string(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type str_type = type_scalar(TY_STRING);
     ArrayObj *arr = args[0].as.arr;
     int n = 0;
     uint8_t *tmp = array_copy_bytes(arr, &n);
+    long bad = utf8_find_invalid(tmp, (size_t)n);
+    if (bad >= 0) {
+        char msg[80];
+        snprintf(msg, sizeof msg, "bytes are not valid UTF-8 (invalid sequence at byte %ld)", bad);
+        free(tmp);
+        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(strdup(msg))));
+    }
     if (memchr(tmp, 0, (size_t)n) != NULL) {
         free(tmp);
         return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(strdup("bytes contain a NUL byte and cannot be a string"))));
     }
     char *s = (char *)tmp; /* already NUL-terminated by array_copy_bytes */
     return value_result(type_result(str_type, str_type), result_obj_new(1, value_string(s)));
+}
+
+/* One string per code point of `s` (never a raw byte): `chars("héllo")` is `[h, é, l, l, o]`,
+ * not `[h, \xc3, \xa9, l, l, o]`. A runtime error naming the byte offset if `s` isn't valid
+ * UTF-8 -- reachable only by chaining a byte-level function (`substring`, `concat` on a slice)
+ * into a code-point one, since bytes_to_string above already rejects invalid UTF-8 at the one
+ * real boundary untrusted bytes become a string. */
+static Value native_chars(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const uint8_t *s = (const uint8_t *)SPTR(args[0]);
+    size_t len = SLEN(args[0]);
+    Value *items = NULL;
+    int count = 0, cap = 0;
+    size_t pos = 0;
+    while (pos < len) {
+        uint32_t cp;
+        int n = utf8_decode_strict(s, len, pos, &cp);
+        if (n == 0) {
+            ziman_error("runtime", line, col, "chars: string is not valid UTF-8 (invalid sequence at byte %zu)", pos);
+        }
+        if (count == cap) {
+            cap = cap == 0 ? 8 : cap * 2;
+            items = realloc(items, (size_t)cap * sizeof(Value));
+        }
+        items[count++] = string_slice(args[0], pos, (size_t)n);
+        pos += (size_t)n;
+    }
+    return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, count));
+}
+
+/* The number of code points in `s` -- `char_count("héllo")` is 5, where `len("héllo")` (bytes)
+ * is 6. Cheaper than `len(chars(s))` when only the count is wanted: no array, no per-character
+ * string views. Same UTF-8 validity requirement and error as `chars`. */
+static Value native_char_count(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const uint8_t *s = (const uint8_t *)SPTR(args[0]);
+    size_t len = SLEN(args[0]);
+    size_t pos = 0;
+    int64_t count = 0;
+    while (pos < len) {
+        uint32_t cp;
+        int n = utf8_decode_strict(s, len, pos, &cp);
+        if (n == 0) {
+            ziman_error("runtime", line, col, "char_count: string is not valid UTF-8 (invalid sequence at byte %zu)", pos);
+        }
+        pos += (size_t)n;
+        count++;
+    }
+    return value_int(count);
+}
+
+/* `s`, shortened to at most `max_chars` code points -- the safe way to truncate user-facing
+ * text for display, unlike `substring`, which counts bytes and can cut a multi-byte character
+ * in half. Stops at the earlier of `max_chars` code points or the end of `s`; `max_chars >=
+ * char_count(s)` returns `s` itself, unchanged. Same UTF-8 validity requirement and error as
+ * `chars`. */
+static Value native_truncate_chars(Value *args, int argc, int line, int col) {
+    (void)argc;
+    int64_t max_chars = args[1].as.i;
+    if (max_chars < 0) {
+        ziman_error("runtime", line, col, "truncate_chars: max_chars must not be negative (got %lld)", (long long)max_chars);
+    }
+    const uint8_t *s = (const uint8_t *)SPTR(args[0]);
+    size_t len = SLEN(args[0]);
+    size_t pos = 0;
+    int64_t count = 0;
+    while (pos < len && count < max_chars) {
+        uint32_t cp;
+        int n = utf8_decode_strict(s, len, pos, &cp);
+        if (n == 0) {
+            ziman_error("runtime", line, col, "truncate_chars: string is not valid UTF-8 (invalid sequence at byte %zu)", pos);
+        }
+        pos += (size_t)n;
+        count++;
+    }
+    return string_slice(args[0], 0, pos);
 }
 
 /* ---- sorting scalars natively (collections.sort and friends) -------------------------
@@ -1270,6 +1397,9 @@ void prelude_register(void) {
     native_register("array_reverse", native_array_reverse);
     native_register("string_to_bytes", native_string_to_bytes);
     native_register("bytes_to_string", native_bytes_to_string);
+    native_register("chars", native_chars);
+    native_register("char_count", native_char_count);
+    native_register("truncate_chars", native_truncate_chars);
     native_register("slice", native_slice);
     native_register("sb_new", native_sb_new);
     native_register("sb_append", native_sb_append);
