@@ -107,6 +107,53 @@ the visible builtins and imported modules' own public names, the same idea `prop
 the single highest-leverage diagnostic improvement available: it would likely have converged 4 to
 6 more of the 10 tasks in round 2 with no other change. Tracked as a ROADMAP follow-up.
 
+## Follow-up: implemented the suggestion, re-tested against it
+
+Added "did you mean" suggestions to `src/typecheck.c` the same day (edit-distance search over the
+module's own functions/structs/enums and the builtin list, same algorithm and cutoff as
+`properties.zm`'s own `check_unknown`), plus two named special cases the data pointed at directly:
+a foreign declaration keyword (`let`/`const`/`mut`/`auto`) parsed as a bare identifier now says
+"Ziman has no 'let' -- declare with 'val' ... or 'var' ...", and a hardcoded generic type called
+like a function (`map()`) now says "'Map' is a built-in generic type, not a function: construct
+one with 'Map<...> { ... }'". The general suggestion mechanism, with no special-casing needed,
+also caught something outside either named case: `Ok(...)`/`Err(...)` (a reasonable guess from
+seeing `Ok`/`Err` work as bare `switch`-arm patterns) is one edit from the real lowercase
+`ok(...)`/`err(...)` construction, so it now says "did you mean 'ok'?"/"did you mean 'err'?".
+
+Re-ran the round-2 protocol (fresh model, zero docs, up to 5 fix attempts) against the three
+tasks the fix specifically targets, starting from each one's exact original round-1 code:
+
+- **struct_distance**: now converges in 4 attempts (was: did not converge). The `let` message
+  named the fix directly on the attempt it first appeared.
+- **safe_divide_result**: now converges in 5 attempts (was: did not converge) -- right at the
+  budget's edge, since it still needed to separately discover `switch` (for `match`), that a
+  switch arm's own `Ok(value)`/`Err(message)` pattern stays uppercase even though *construction*
+  is lowercase (a real, distinct wrinkle the diagnostic doesn't -- and structurally can't --
+  collapse into one lesson), and `concat`/`str` for string-building. The `ok`/`err` suggestion
+  removed exactly the one wall that had made every attempt dead-end before.
+- **word_count_map**: **still did not converge**, but for an honest, informative reason. Isolated
+  outside the rest of the file, `map()` alone now gets exactly the intended message and the model
+  in this run did reach and read it (its own log shows `val counts = map()` survived, unedited,
+  through to the final attempt). What it never discovered is the *second*, independent gap this
+  task needs closed: membership-testing and reading a `Map` (there is no `.has`/`in`; the answer
+  is `map_get(counts, word)` returning `Option<int>`, read with `is_Some`/pattern-matching) --
+  the model spent its later attempts guessing at that instead, including a plausible `if word in
+  counts` that is itself a new syntax error masking the now-fixed `map()` one on the next
+  `--check`. One targeted diagnostic fix closing one gap in a task that has two is exactly the
+  outcome to expect, not a failure of the fix -- and it is a cleaner result than declaring victory
+  would have been.
+
+Net, measured: 2 of the 3 targeted tasks move from "did not converge" to "converges," the third
+demonstrably gets past the specific wall targeted and stalls on a separate, still-undiagnosed one.
+Extrapolating (not re-run in full): round 2 across all ten would plausibly move from 4/10 to
+6/10, with `enum_shape_area`, `filter_double` and `json_roundtrip` still out of this fix's reach,
+since none of their gaps are an edit-distance-close name -- they need a wrapper-struct convention,
+a cross-module qualified name, and an unrelated vocabulary guess, respectively, none of which a
+name suggestion, however good, can supply.
+
+Test fixtures added: `tests/fixtures/diag_let_keyword`, `diag_map_as_function`,
+`diag_undefined_function_suggestion` (all `.err`-checked, `make test`: 789 passed, 0 failed).
+
 ## What this does and does not establish
 
 Ten tasks is a start, not the review's suggested "fixed 50-task benchmark" -- a real gap, noted

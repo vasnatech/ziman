@@ -1,0 +1,8 @@
+fn keep_positive(xs: [int]) -> int {
+    return len(xs)
+}
+
+fn main() {
+    var xs = [1, 2, 3]
+    print(keep_positiv(xs))
+}

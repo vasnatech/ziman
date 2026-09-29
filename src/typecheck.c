@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "env.h"
 #include "derive.h"
@@ -826,6 +827,97 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
     "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", NULL,
 };
+
+/* "did you mean" support (LLM-generation benchmark, docs/reviews/llm-benchmark-2026-09-28.md:
+ * an "undefined variable"/"undefined function" with no suggestion was the one diagnostic class
+ * that never let a model self-correct from zero context, where a habit with a named fix -- a
+ * semicolon, a method call, `match` -- did, in 1-3 tries every time). Standard Levenshtein edit
+ * distance (inserts, deletes, substitutions), same algorithm and the same "strictly less than 3"
+ * cutoff as `properties.zm`'s own `check_unknown`/`suggestion`, so the two "did you mean"
+ * mechanisms in the language agree. */
+static int name_distance(const char *a, const char *b) {
+    size_t la = strlen(a), lb = strlen(b);
+    int *prev = malloc((lb + 1) * sizeof(int));
+    int *cur = malloc((lb + 1) * sizeof(int));
+    for (size_t j = 0; j <= lb; j++) prev[j] = (int)j;
+    for (size_t i = 1; i <= la; i++) {
+        cur[0] = (int)i;
+        for (size_t j = 1; j <= lb; j++) {
+            int cost = (a[i - 1] == b[j - 1]) ? 0 : 1;
+            int del = prev[j] + 1;
+            int ins = cur[j - 1] + 1;
+            int sub = prev[j - 1] + cost;
+            int m = del < ins ? del : ins;
+            cur[j] = m < sub ? m : sub;
+        }
+        int *tmp = prev;
+        prev = cur;
+        cur = tmp;
+    }
+    int result = prev[lb];
+    free(prev);
+    free(cur);
+    return result;
+}
+
+/* The closest candidate to `name` among the module's own function/struct/enum names and the
+ * builtins that can be called bare, or NULL for none close enough. Deliberately does not search
+ * other modules' exports (including ones not `use`d) -- suggesting a name that still needs its
+ * own `use` line first would trade one error for a more confusing one. */
+static const char *suggest_function_name(Module *module, const char *name) {
+    const char *best = NULL;
+    int best_distance = 3;
+    for (size_t k = 0; BUILTINS_NO_NAMED_ARGS[k] != NULL; k++) {
+        const char *cand = BUILTINS_NO_NAMED_ARGS[k];
+        if (cand[0] == '$' || strcmp(cand, name) == 0) continue;
+        int d = name_distance(name, cand);
+        if (d < best_distance) {
+            best = cand;
+            best_distance = d;
+        }
+    }
+    for (int i = 0; i < module->functions.count; i++) {
+        const char *cand = module->functions.items[i]->name;
+        if (strcmp(cand, name) == 0) continue;
+        int d = name_distance(name, cand);
+        if (d < best_distance) {
+            best = cand;
+            best_distance = d;
+        }
+    }
+    for (int i = 0; i < module->structs.count; i++) {
+        const char *cand = module->structs.items[i]->name;
+        int d = name_distance(name, cand);
+        if (d < best_distance) {
+            best = cand;
+            best_distance = d;
+        }
+    }
+    for (int i = 0; i < module->enums.count; i++) {
+        const char *cand = module->enums.items[i]->name;
+        int d = name_distance(name, cand);
+        if (d < best_distance) {
+            best = cand;
+            best_distance = d;
+        }
+    }
+    return best;
+}
+
+/* Two specific confusions the benchmark actually hit, named directly rather than left to a
+ * fuzzy search: a foreign declaration keyword parsed as a bare identifier (task 04, and the
+ * majority of round 1's failures), and a hardcoded generic type called like a function because
+ * its name reads like one once case is ignored (task 08's `map(...)` for `Map<K, V> { ... }`). */
+static const char *const FOREIGN_DECL_KEYWORDS[] = {"let", "const", "mut", "auto", NULL};
+static const char *const HARDCODED_GENERIC_TYPES[] = {"Map", "Set", "Option", "Result", "Channel", NULL};
+
+static const char *matching_generic_type(const char *name) {
+    for (size_t k = 0; HARDCODED_GENERIC_TYPES[k] != NULL; k++) {
+        const char *cand = HARDCODED_GENERIC_TYPES[k];
+        if (strcmp(cand, name) != 0 && strcasecmp(cand, name) == 0) return cand;
+    }
+    return NULL;
+}
 
 /* A named call (`f(y: 2, x: 1)`) is reordered here, once, into the same
  * positional order the rest of check_call (and, downstream, the
@@ -1829,6 +1921,17 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                 }
             }
         }
+        const char *generic_type = matching_generic_type(name);
+        if (generic_type != NULL) {
+            ziman_error("type", e->line, e->col,
+                        "call to undefined function '%s' -- '%s' is a built-in generic type, not a function: "
+                        "construct one with '%s<...> { ... }', e.g. 'Map<string, int> { \"key\": value }'",
+                        name, generic_type, generic_type);
+        }
+        const char *suggestion = suggest_function_name(module, name);
+        if (suggestion != NULL) {
+            ziman_error("type", e->line, e->col, "call to undefined function '%s' -- did you mean '%s'?", name, suggestion);
+        }
         ziman_error("type", e->line, e->col, "call to undefined function '%s'", name);
     }
     canonicalize_named_args(e, fn);
@@ -2531,6 +2634,13 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
                     if (strcmp(e->as.ident_name, BUILTINS_NO_NAMED_ARGS[k]) == 0) {
                         ziman_error("type", e->line, e->col,
                                     "'%s' is a builtin, not a function value -- wrap it in a function of your own to pass it around", e->as.ident_name);
+                    }
+                }
+                for (size_t k = 0; FOREIGN_DECL_KEYWORDS[k] != NULL; k++) {
+                    if (strcmp(e->as.ident_name, FOREIGN_DECL_KEYWORDS[k]) == 0) {
+                        ziman_error("type", e->line, e->col,
+                                    "Ziman has no '%s' -- declare with 'val' (never reassigned) or 'var' (may be), "
+                                    "e.g. 'val x = 1' or 'var x = 1'", e->as.ident_name);
                     }
                 }
                 ziman_error("type", e->line, e->col, "use of undefined variable '%s'", e->as.ident_name);

@@ -524,26 +524,28 @@ from source.
 - **A real test harness beyond tests/run_tests.sh's stdout/substring
   matching** — fine for now, will need line/col assertions once
   diagnostics get richer.
-- **"Did you mean...?" suggestions on an undefined name, fuzzy-matched against visible builtins
-  and imported modules' own public names.** Surfaced by the LLM-generation benchmark
-  (`docs/reviews/llm-benchmark-2026-09-28.md`, F6/P2-7): the diagnostics that name an exact fix
-  (the semicolon message, "Ziman has no methods... call X(a, ...) instead", the `match`-to-
-  `switch` rewrite) let a model self-correct in 1-3 tries with zero documentation; a plain
-  "undefined variable"/"undefined function" with no suggestion (`let` and `mut`, an exact builtin
-  name like `map`/`filter`, `Map<K, V>`'s own construction syntax) did not, in the benchmark's
-  6-of-10 non-convergent cases, and models spent their whole fix budget guessing plausible
-  alternatives one at a time instead of getting pointed at the real name on the first miss. The
-  precedent already exists: `properties.check_unknown` "fails on keys not in the list, suggesting
-  the closest known key" (docs/SYNTAX.md, "Configuration"). The same mechanism (edit distance
-  against the identifiers actually in scope -- prelude builtins, the current module's own
-  declarations, and, for a qualified reference, that module's exports) applied to "use of
-  undefined variable"/"call to undefined function"/"module 'X' has no function 'Y'" would likely
-  close most of the gap the benchmark found, since the fix in every failing case turned out to be
-  one edit-distance hop from what the model actually typed (`let` -> `var`, `map` -> `Map`,
-  `encode` -> `json_to_string`). Not designed in detail: what counts as "in scope" for the
-  suggestion (a name from an unimported module should probably not be suggested at all, to avoid
-  "did you mean X" for something that still needs a `use` first) and a distance/count cutoff so a
-  wildly wrong name gets no suggestion rather than a misleading one.
+- ~~**"Did you mean...?" suggestions on an undefined name.**~~ Done 2026-09-28: edit-distance
+  search (same algorithm and "strictly less than 3" cutoff as `properties.check_unknown`'s own
+  suggestion) over the module's own functions/structs/enums and the callable builtins, on both
+  "use of undefined variable" and "call to undefined function". Deliberately does not search other
+  modules' exports, including ones not `use`d -- suggesting a name that still needs its own `use`
+  line first would trade one error for a more confusing one; a qualified `module 'X' has no
+  function 'Y'` is left for later. Two named special cases the benchmark's data pointed at
+  directly, not left to the fuzzy search: a foreign declaration keyword (`let`/`const`/`mut`/
+  `auto`) parsed as a bare identifier now says "Ziman has no 'let' -- declare with 'val' ... or
+  'var' ..."; a hardcoded generic type called like a function (`map()`) now says "'Map' is a
+  built-in generic type, not a function: construct one with 'Map<...> { ... }'". The general
+  mechanism, with no special-casing needed, also caught `Ok(...)`/`Err(...)` one edit from the
+  real lowercase `ok(...)`/`err(...)` construction. Re-run against the benchmark that motivated
+  it (`docs/reviews/llm-benchmark-2026-09-28.md`'s own follow-up section): 2 of the 3 targeted
+  tasks move from "did not converge in 5 attempts" to converging (struct_distance in 4,
+  safe_divide_result in 5); the third (word_count_map) demonstrably gets past the `map()` wall
+  this fix targets and stalls on a second, separate, still-undiagnosed gap (`Map` membership
+  testing) -- an honest partial result, not a false claim of full success. `enum_shape_area`,
+  `filter_double` and `json_roundtrip` remain outside this fix's reach on purpose (a wrapper-struct
+  convention, a cross-module qualified name, and an unrelated vocabulary guess -- none an
+  edit-distance-close name). Fixtures: `tests/fixtures/diag_let_keyword`,
+  `diag_map_as_function`, `diag_undefined_function_suggestion`.
 - **`#[deprecated]` and `#[experimental]` as interpreted attributes, not just
   prose.** F4 (2026-09-28) just labeled `pg`/`mysql`/`toml`/`yaml`
   "experimental" the only way available today: a sentence in each module's

@@ -1,0 +1,4 @@
+fn main() {
+    var counts = map()
+    print(counts)
+}
