@@ -53,8 +53,11 @@ pub enum ClientError {
     TooManyRedirects
 }
 
-// The error as one line of text, for logging or showing to a user.
-pub fn error_message(e: ClientError) -> string {
+// The error as one line of text, for logging or showing to a user. Named `client_error_message`,
+// matching `net_error_message`/`db_error_message`/`jwt_error_message`'s own convention (and
+// freeing the bare `error_message` name for the builtin of that name, which dispatches to this
+// exact function for a `ClientError` -- see docs/DESIGN.md's "A unified error_message builtin").
+pub fn client_error_message(e: ClientError) -> string {
     if ClientError.is_BadUrl(e) {
         return concat("bad URL: ", ClientError.unwrap_BadUrl(e))
     }

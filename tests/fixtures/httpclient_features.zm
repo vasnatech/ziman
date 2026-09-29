@@ -123,7 +123,7 @@ fn body_of(r: Result<http.Response, client.ClientError>) -> string {
     if is_ok(r) {
         return format("{} {}", unwrap(r).status, unwrap(bytes_to_string(unwrap(r).body)))
     }
-    return client.error_message(unwrap_err(r))
+    return error_message(unwrap_err(r))
 }
 
 fn count(ch: Channel<int>) -> int {

@@ -103,13 +103,16 @@ pub enum ClientError {
 
 Why an exchange failed (any HTTP status, even 500, is a success).
 
-### `error_message`
+### `client_error_message`
 
 ```
-pub fn error_message(e: ClientError) -> string
+pub fn client_error_message(e: ClientError) -> string
 ```
 
-The error as one line of text, for logging or showing to a user.
+The error as one line of text, for logging or showing to a user. Named `client_error_message`,
+matching `net_error_message`/`db_error_message`/`jwt_error_message`'s own convention (and
+freeing the bare `error_message` name for the builtin of that name, which dispatches to this
+exact function for a `ClientError` -- see docs/DESIGN.md's "A unified error_message builtin").
 
 ### `Url`
 

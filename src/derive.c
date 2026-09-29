@@ -117,6 +117,23 @@ char *ziman_compare_function_name(const char *type_name) {
     return out;
 }
 
+/* "NetError" -> "net_error_message": where the `error_message` builtin looks for a type's
+ * message function (docs/DESIGN.md's "A unified error_message builtin" entry). Same
+ * PascalCase-to-snake_case rule as `ziman_compare_function_name`, no "flat" spelling -- unlike
+ * `Ord`, this one has no pre-existing bundled types with an established alternate spelling to
+ * stay compatible with. */
+char *ziman_message_function_name(const char *type_name) {
+    const char *bare = type_name;
+    for (const char *p = strstr(bare, "::"); p != NULL; p = strstr(bare, "::")) bare = p + 2;
+    char *snake = pascal_to_snake(bare);
+    size_t prefix_len = (size_t)(bare - type_name);
+    char *out = malloc(prefix_len + strlen(snake) + strlen("_message") + 1);
+    memcpy(out, type_name, prefix_len);
+    strcpy(out + prefix_len, snake);
+    strcat(out, "_message");
+    return out;
+}
+
 char *ziman_compare_function_name_flat(const char *type_name) {
     const char *bare = type_name;
     for (const char *p = strstr(bare, "::"); p != NULL; p = strstr(bare, "::")) bare = p + 2;

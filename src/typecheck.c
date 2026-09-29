@@ -440,6 +440,20 @@ static FunctionDecl *find_compare_function(Module *module, Type t) {
     return fn;
 }
 
+/* An enum's `<snake_type>_message(e: Type) -> string`, the same naming-convention dispatch
+ * `Ord` uses for `<snake_type>_compare` -- what the `error_message` builtin looks for. Enums
+ * only: an error type is never a struct in this codebase, and keeping it that narrow keeps the
+ * lookup unambiguous with no generic-type-parameter case to handle (unlike `Ord`, no bundled or
+ * derived message function is generic). */
+static FunctionDecl *find_message_function(Module *module, Type t) {
+    if (t.kind != TY_ENUM || t.enum_name == NULL) return NULL;
+    char *fn_name = ziman_message_function_name(t.enum_name);
+    FunctionDecl *fn = find_function(module, fn_name);
+    if (fn == NULL || fn->params.count != 1 || fn->return_type.kind != TY_STRING) return NULL;
+    if (fn->type_params.count > 0 || !type_equals(fn->params.items[0].type, t)) return NULL;
+    return fn;
+}
+
 /* Whether `t` has a total order: the scalars that order naturally (int, float,
  * bigint, decimal, byte, string -- bytewise), a struct or enum with a
  * `<type>_compare(a, b) -> int` function, a type parameter bounded by `Ord`,
@@ -823,7 +837,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
  * arguments are for real (user or prelude) `fn`/`native fn`
  * declarations only. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
-    "print", "printf", "str", "format", "len", "contains", "hash", "compare", "abs", "min", "max",
+    "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
     "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", NULL,
 };
@@ -1588,6 +1602,20 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                         type_name(arg_type));
         }
         return type_scalar(TY_INT);
+    }
+
+    if (strcmp(name, "error_message") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'error_message' takes exactly 1 argument, found %d", e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(module, env, arg);
+        if (find_message_function(module, arg_type) == NULL) {
+            ziman_error("type", arg->line, arg->col,
+                        "'error_message' expects an enum with a '<type>_message(e: Type) -> string' function "
+                        "(NetError/DbError/JwtError and the like already have one), found %s", type_name(arg_type));
+        }
+        return type_scalar(TY_STRING);
     }
 
     if (strcmp(name, "abs") == 0) {
@@ -3935,7 +3963,7 @@ void typecheck(Module *module) {
     static const char *builtins[] = {"print", "printf", "str", "format", "len", "push", "insert", "set",
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
-                                      "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare",
+                                      "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
                                       "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter"};
 
     /* Struct names and field names within a struct must be unique --

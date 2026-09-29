@@ -116,12 +116,12 @@ fn main() {
         if is_ok(block) {
             print(unwrap(bytes_to_string(unwrap(block))))
         } else {
-            print(client.error_message(unwrap_err(block)))
+            print(error_message(unwrap_err(block)))
         }
     }
     for block in get(base, "/badchunk").body {
         if !is_ok(block) {
-            print(client.error_message(unwrap_err(block)))
+            print(error_message(unwrap_err(block)))
         }
     }
 
@@ -139,6 +139,6 @@ fn main() {
     }
 
     // errors on the call
-    print(client.error_message(unwrap_err(client.stream(method: HttpMethod.Get, url: "nonsense"))))
+    print(error_message(unwrap_err(client.stream(method: HttpMethod.Get, url: "nonsense"))))
     print(is_ok(client.stream(method: HttpMethod.Get, url: "http://127.0.0.1:1/")))
 }

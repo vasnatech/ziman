@@ -1301,7 +1301,7 @@ pub enum ClientError {
     TooManyRedirects
 }
 
-pub fn error_message(e: ClientError) -> string
+pub fn client_error_message(e: ClientError) -> string
 
 pub struct Url {
     secure: bool

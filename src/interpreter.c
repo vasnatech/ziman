@@ -555,6 +555,17 @@ static int value_compare(Module *module, Value a, Value b, int line, int col) {
     }
 }
 
+/* `error_message(e)`'s dispatch: the same naming-convention lookup `value_compare`'s TY_ENUM
+ * case uses, just for `<snake_type>_message` instead of `_compare`, and enums only (checked
+ * already at type-check time by find_message_function, so `fn` is never NULL here). */
+static Value value_error_message(Module *module, Value e, int line, int col) {
+    char *fn_name = ziman_message_function_name(e.type.enum_name);
+    FunctionDecl *fn = find_function(module, fn_name);
+    if (fn == NULL) ziman_error("runtime", line, col, "internal error: no message function '%s' for %s", fn_name, e.type.enum_name);
+    Value args[1] = {e};
+    return call_function(module, fn, args, 1, 0, line, col);
+}
+
 static Value call_abs(Value x, int line, int col) {
     if (x.type.kind == TY_INT) {
         if (x.as.i == INT64_MIN) int_overflow(line, col, "abs");
@@ -1074,6 +1085,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_hash(args[0]);
             } else if (strcmp(e->as.call.callee, "compare") == 0) {
                 result = value_int(value_compare(module, args[0], args[1], e->line, e->col));
+            } else if (strcmp(e->as.call.callee, "error_message") == 0) {
+                result = value_error_message(module, args[0], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "abs") == 0) {
                 result = call_abs(args[0], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "min") == 0) {

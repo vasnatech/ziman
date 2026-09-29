@@ -1,0 +1,7 @@
+fn error_message(x: int) -> string {
+    return "no"
+}
+
+fn main() {
+    print(0)
+}

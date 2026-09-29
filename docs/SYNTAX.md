@@ -2082,6 +2082,14 @@ val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
   sorted arrays `lower_bound` / `upper_bound` (insertion points) and
   `binary_search` (first match, `Option<int>`). `Uuid`, `LocalDate`, `LocalTime`, `LocalDateTime`,
   `Instant`, `Duration` and `ZoneOffset` are all `Ord`.
+- **`error_message(e) -> string`** dispatches by the same naming convention as `compare`, just for
+  a different suffix: an enum `e: NetError` looks for `net_error_message`, `e: DbError` for
+  `db_error_message`, and so on for any enum with its own `<snake_case_type>_message(e: Type) ->
+  string`. `NetError`, `DbError`, `JwtError` and `ClientError` (as `client_error_message`) all have
+  one already; a user-declared error enum only needs to add the same shape of function to work
+  with it too. Unlike `Ord`, there is no bound to name (`error_message` is a plain function, not
+  something a generic declaration's body needs to call on an abstract `T`) and no array/Option/
+  Result recursion -- it takes one concrete enum value and returns one string.
 
 ## Attributes and derive
 
@@ -2833,7 +2841,7 @@ val claims = jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JS
 val token = unwrap(jwt.sign(claims, key))
 switch jwt.verify(token, key) {
     Ok(c) { print(unwrap_Some(jwt.subject(c))) }
-    Err(e) { print(jwt.jwt_error_message(e)) }
+    Err(e) { print(error_message(e)) }
 }
 ```
 

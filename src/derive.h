@@ -28,6 +28,10 @@ char *ziman_compare_function_name(const char *type_name);
  * already use. A type's `Ord` function may be spelled either way. */
 char *ziman_compare_function_name_flat(const char *type_name);
 
+/* "NetError" -> "net_error_message": where the `error_message` builtin dispatches. The caller
+ * owns the result. */
+char *ziman_message_function_name(const char *type_name);
+
 /* When non-zero, every generated snippet is also printed to stdout, headed
  * by a `// derive(...) for '...'` comment (ziman --emit-derived). */
 extern int g_emit_derived;

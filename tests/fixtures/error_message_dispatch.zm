@@ -1,0 +1,29 @@
+// error_message(e) dispatches to whichever <snake_type>_message function the enum's own module
+// declares (net_error_message, db_error_message, jwt_error_message, client_error_message),
+// the same naming-convention dispatch Ord's compare already uses for <snake_type>_compare.
+use net
+use datasource
+use jwt
+use client
+
+fn main() {
+    val n = net.connect("127.0.0.1", 1)
+    if Err(e) = n {
+        print(error_message(e))
+    }
+
+    val d = datasource.open("sqlite:/nonexistent/dir/does_not_exist.db")
+    if Err(e) = d {
+        print(error_message(e))
+    }
+
+    val v = jwt.verify("not-a-real-token", string_to_bytes("key"))
+    if Err(e) = v {
+        print(error_message(e))
+    }
+
+    val c = client.get("http://127.0.0.1:1/")
+    if Err(e) = c {
+        print(error_message(e))
+    }
+}

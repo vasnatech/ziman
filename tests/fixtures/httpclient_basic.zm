@@ -79,7 +79,7 @@ fn show(r: Result<http.Response, client.ClientError>) {
         val resp = unwrap(r)
         printf("{} [{}]\n", resp.status, unwrap(bytes_to_string(resp.body)))
     } else {
-        printf("error: {}\n", client.error_message(unwrap_err(r)))
+        printf("error: {}\n", error_message(unwrap_err(r)))
     }
 }
 

@@ -13,12 +13,12 @@ fn main() {
         print(unwrap(ok).status)
         print(contains(unwrap(bytes_to_string(unwrap(ok).body)), "s_server"))
     } else {
-        print(client.error_message(unwrap_err(ok)))
+        print(error_message(unwrap_err(ok)))
     }
 
     val untrusted = client.get("https://127.0.0.1:55443/")
     print(is_ok(untrusted))
-    print(contains(client.error_message(unwrap_err(untrusted)), "TLS error"))
+    print(contains(error_message(unwrap_err(untrusted)), "TLS error"))
 
     val mismatch = client.request(
         method: HttpMethod.Get,

@@ -1,0 +1,4 @@
+connection refused: Connection refused
+database connection error: unable to open database file
+malformed token: a token has three parts separated by dots
+connection refused: Connection refused
