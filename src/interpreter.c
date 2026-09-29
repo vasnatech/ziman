@@ -292,6 +292,18 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
         Type bound_type = fn->params.items[i].is_variadic ? type_array(fn->params.items[i].type) : fn->params.items[i].type;
         env_define(env, fn->params.items[i].name, bound_type, 0, args[i]);
     }
+    if (fn->self_name != NULL) {
+        /* A recursive lambda's own binding, rebuilt fresh on every call rather than captured
+         * once at construction time -- there is no self-referential value to capture before
+         * this call exists, so it is never captured at all. `args[0..self_ncaptured)` are
+         * exactly the captured values *this* invocation itself received; copied (not aliased)
+         * into their own array, the same way EXPR_LAMBDA's own creation-time capture copy
+         * works, since `args` may be freed the line after this runs. */
+        Value *self_captured = fn->self_ncaptured > 0 ? malloc((size_t)fn->self_ncaptured * sizeof(Value)) : NULL;
+        for (int i = 0; i < fn->self_ncaptured; i++) self_captured[i] = args[i];
+        Value self_value = value_closure(fn, self_captured, fn->self_ncaptured);
+        env_define(env, fn->self_name, self_value.type, 0, self_value);
+    }
     if (args != raw_args) free(args);
     ExecResult result = {CTRL_NONE, value_int(0)};
     for (int i = 0; i < fn->body->as.block.stmts.count && result.kind == CTRL_NONE; i++) {

@@ -1,0 +1,6 @@
+fn main() {
+    val f = fn(f: int) -> int {
+        return f + 1
+    }
+    print(f(5))
+}

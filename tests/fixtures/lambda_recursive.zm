@@ -1,0 +1,44 @@
+use collections
+
+fn apply_twice(f: fn(int) -> int, x: int) -> int {
+    return f(f(x))
+}
+
+fn main() {
+    // basic self-recursion
+    val fact = fn(n: int) -> int {
+        return if n <= 1 { 1 } else { n * fact(n - 1) }
+    }
+    print(fact(5))
+    print(fact(10))
+
+    // self-recursion alongside a capture: the captured value must thread through every
+    // recursive call, not just the first
+    val mult = 3
+    val times_mult_fact = fn(n: int) -> int {
+        return if n <= 1 { mult } else { n * mult * times_mult_fact(n - 1) }
+    }
+    print(times_mult_fact(4))
+
+    // the recursive lambda is an ordinary function value everywhere else: passing it around
+    // doesn't disturb its own self-reference
+    print(apply_twice(fact, 3))
+
+    // nested: a recursive lambda built inside another function, returned, and called under a
+    // *different* name than the one it recurses by internally
+    val make_pow = fn(base: int) -> fn(int) -> int {
+        val pow = fn(exp: int) -> int {
+            return if exp <= 0 { 1 } else { base * pow(exp - 1) }
+        }
+        return pow
+    }
+    val cube_of_2 = make_pow(2)
+    print(cube_of_2(3))
+
+    // an ordinary val-bound lambda with an explicit return type that never actually
+    // self-references still works exactly as before this feature existed
+    val add_one = fn(x: int) -> int {
+        return x + 1
+    }
+    print(add_one(41))
+}

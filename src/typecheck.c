@@ -3371,6 +3371,22 @@ static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type
     }
     if (!lam->return_omitted) check_type_well_formed(module, lam->return_type, lam->line, lam->col);
 
+    if (lam->self_name != NULL) {
+        /* Only ever set (STMT_VAL/STMT_VAR's own case above) when `!lam->return_omitted` --
+         * self-reference needs the full signature known before checking a body that may call it,
+         * which an inferred-from-the-body return type can't give. `lambda_type(lam, 0)` below
+         * would read the wrong (not-yet-inferred) return type otherwise. */
+        /* Defined directly in `root`, the same scope a declared parameter lives in -- not via an
+         * ordinary env_lookup from inside the body crossing back out to the enclosing scope --
+         * so referencing `self_name` is never recorded as a capture. `lambda_type(lam, 0)` reads
+         * `lam->params` before this function's own capture-prepending step below runs, so it
+         * already excludes captures from the signature `self_name` is bound at, the same as a
+         * caller from outside sees. */
+        if (!env_define(root, lam->self_name, lambda_type(lam, 0), 0, value_int(0))) {
+            ziman_error("type", lam->line, lam->col, "recursive lambda '%s' has a parameter also named '%s'", lam->self_name, lam->self_name);
+        }
+    }
+
     StmtList *stmts = &lam->body->as.block.stmts;
     int n = stmts->count;
     Stmt *last = n > 0 ? stmts->items[n - 1] : NULL;
@@ -3440,6 +3456,7 @@ static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type
     for (int i = 0; i < lam->params.count; i++) param_list_push(&all, lam->params.items[i]);
     lam->params = all;
     e->lambda_ncaptured = ncaptured;
+    lam->self_ncaptured = ncaptured;
     e->lambda_checked = 1;
     env_free(root);
     return lambda_type(lam, ncaptured);
@@ -3517,6 +3534,24 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
         case STMT_VAR: {
             if (s->as.decl.has_declared_type) {
                 check_type_well_formed(module, s->as.decl.declared_type, s->line, s->col);
+            }
+            /* `val NAME = fn(...) -> T { ... }`: let NAME's own body call itself, recursively,
+             * by this name -- never for `var` (see FunctionDecl.self_name's own doc comment for
+             * why a reassignable binding would make "self" ambiguous), and only when the return
+             * type is already written explicitly. Self-reference needs the signature known
+             * *before* checking the body (see check_lambda_expecting), so an omitted return type
+             * (inferred *from* that same body) can never support it -- rather than reject every
+             * omitted-return-type `val`-bound lambda that doesn't even use self-reference (the
+             * overwhelmingly common case, `val greet = fn(name: string) { print(...) }`), simply
+             * don't offer it there: `self_name` stays NULL, exactly as before this feature
+             * existed, and a lambda that genuinely needs to recurse without a declared type
+             * fails the ordinary "undefined variable" way, discoverable by adding `-> T`. Set
+             * before check_initializer reaches check_lambda_expecting, which defines
+             * `self_name` directly in the lambda's own root scope so a reference to it from
+             * inside the body is never treated as a capture. */
+            if (s->kind == STMT_VAL && s->as.decl.init->kind == EXPR_LAMBDA) {
+                FunctionDecl *lam = (FunctionDecl *)s->as.decl.init->lambda_decl;
+                if (!lam->return_omitted) lam->self_name = s->as.decl.name;
             }
             Type declared = check_initializer(module, env, &s->as.decl.init, s->as.decl.has_declared_type,
                                               s->as.decl.declared_type, s->as.decl.name, fn_return_type);

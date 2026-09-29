@@ -561,6 +561,21 @@ typedef struct {
      * `ziman test` runs this function once per element, labelled
      * "name[i]". NULL for a plain `#[test]`, run once with no arguments. */
     const char *test_cases;
+    /* Non-NULL for a lambda declared as `val NAME = fn(...) -> T { ... }` (never `var` -- self-
+     * reference binds to *this* function permanently, which a reassignable `var` would make
+     * ambiguous): the name its own body may call itself by, recursively. NULL for every other
+     * function -- an ordinary lambda with no self-reference, and every top-level function, which
+     * already supports recursion the ordinary way through `find_function`/`call_fn` and needs
+     * none of this. See docs/DESIGN.md's recursive-lambdas entry. */
+    char *self_name;
+    /* Meaningful only when `self_name` is non-NULL: how many of this function's own leading
+     * `params` are real captures (computed once, for the same lambda, alongside
+     * `lambda_ncaptured` on the EXPR_LAMBDA node -- see check_lambda_expecting). `call_function`
+     * (interpreter.c) slices exactly this many entries off the front of its own `args` on every
+     * call to rebuild a fresh closure value under `self_name`, so a recursive call threads the
+     * same captured context through correctly -- constructed fresh per call, never stored, so
+     * there is no self-referential value to bootstrap before it exists. */
+    int self_ncaptured;
 } FunctionDecl;
 
 /* The `fn(P1, P2) -> R` type of a (non-generic, non-variadic) function used as

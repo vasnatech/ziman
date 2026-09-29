@@ -674,6 +674,21 @@ fn main() {
   and takes precedence over an outer variable of the same name; in a module
   (not the entry file) it may not share a global `val`'s name, the same rule as
   everywhere else.
+- **`val NAME = fn(params) -> R { ... }` lets the body call itself, recursively, by `NAME`** —
+  never `var` (a reassignable binding would make "self" ambiguous), and only when the return
+  type is written explicitly (an omitted one is inferred *from* the body, which is exactly what
+  self-reference would need to already know):
+  ```
+  val fact = fn(n: int) -> int {
+      return if n <= 1 { 1 } else { n * fact(n - 1) }
+  }
+  print(fact(5))   // 120
+  ```
+  This is the only form of recursion a lambda gets — two separately-declared lambdas calling
+  each other (mutual recursion) isn't supported. A `val`-bound lambda with an omitted return
+  type, or bound with `var`, gets no special treatment: calling itself by name inside its own
+  body is an ordinary "undefined function" error, exactly as before this existed. A parameter
+  sharing the same name as `NAME` is a compile error naming both.
 - **A reference to a named top-level function** is the other kind of value:
   `apply(double, 21)`. It carries nothing.
 - **What can be a value:** any top-level function (own module, `use mod.name`,
