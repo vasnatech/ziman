@@ -537,15 +537,20 @@ from source.
   built-in generic type, not a function: construct one with 'Map<...> { ... }'". The general
   mechanism, with no special-casing needed, also caught `Ok(...)`/`Err(...)` one edit from the
   real lowercase `ok(...)`/`err(...)` construction. Re-run against the benchmark that motivated
-  it (`docs/reviews/llm-benchmark-2026-09-28.md`'s own follow-up section): 2 of the 3 targeted
+  it (`docs/reviews/llm-benchmark-2026-09-28.md`'s own follow-up sections): 2 of the 3 targeted
   tasks move from "did not converge in 5 attempts" to converging (struct_distance in 4,
-  safe_divide_result in 5); the third (word_count_map) demonstrably gets past the `map()` wall
-  this fix targets and stalls on a second, separate, still-undiagnosed gap (`Map` membership
-  testing) -- an honest partial result, not a false claim of full success. `enum_shape_area`,
-  `filter_double` and `json_roundtrip` remain outside this fix's reach on purpose (a wrapper-struct
-  convention, a cross-module qualified name, and an unrelated vocabulary guess -- none an
-  edit-distance-close name). Fixtures: `tests/fixtures/diag_let_keyword`,
-  `diag_map_as_function`, `diag_undefined_function_suggestion`.
+  safe_divide_result in 5). Re-validating the third (word_count_map) found the fuzzy search
+  suggesting `hash` for `has` -- a real builtin, one edit away, and completely unrelated, a close
+  name that is actively the wrong answer -- fixed with a third named special case (`has`/
+  `has_key`/`contains_key`/...) pointing at the real `contains(m, key)`/`map_get(m, key)`. A final
+  re-test still didn't converge, but for a budget/ordering reason, not a remaining diagnostic gap:
+  the task needs two independent discoveries (map construction and membership), each fix worked
+  correctly when the model reached it, and a model resolving one `--check` error at a time can
+  exhaust 5 attempts on a two-discovery task depending which error its own strategy looks at
+  first. `enum_shape_area`, `filter_double` and `json_roundtrip` remain outside this fix's reach on
+  purpose (a wrapper-struct convention, a cross-module qualified name, and an unrelated vocabulary
+  guess -- none an edit-distance-close name). Fixtures: `tests/fixtures/diag_let_keyword`,
+  `diag_map_as_function`, `diag_undefined_function_suggestion`, `diag_map_membership`.
 - **`#[deprecated]` and `#[experimental]` as interpreted attributes, not just
   prose.** F4 (2026-09-28) just labeled `pg`/`mysql`/`toml`/`yaml`
   "experimental" the only way available today: a sentence in each module's

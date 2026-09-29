@@ -904,12 +904,17 @@ static const char *suggest_function_name(Module *module, const char *name) {
     return best;
 }
 
-/* Two specific confusions the benchmark actually hit, named directly rather than left to a
- * fuzzy search: a foreign declaration keyword parsed as a bare identifier (task 04, and the
- * majority of round 1's failures), and a hardcoded generic type called like a function because
- * its name reads like one once case is ignored (task 08's `map(...)` for `Map<K, V> { ... }`). */
+/* Specific confusions the benchmark actually hit, named directly rather than left to a fuzzy
+ * search: a foreign declaration keyword parsed as a bare identifier (task 04, and the majority
+ * of round 1's failures), a hardcoded generic type called like a function because its name reads
+ * like one once case is ignored (task 08's `map(...)` for `Map<K, V> { ... }`), and -- found on
+ * re-validating that same task's fix -- a membership-test method name from another language
+ * (`.has`/`has_key`/...), which has no Ziman equivalent at all: the real answer is `contains`. */
 static const char *const FOREIGN_DECL_KEYWORDS[] = {"let", "const", "mut", "auto", NULL};
 static const char *const HARDCODED_GENERIC_TYPES[] = {"Map", "Set", "Option", "Result", "Channel", NULL};
+static const char *const MAP_MEMBERSHIP_SYNONYMS[] = {
+    "has", "has_key", "hasKey", "contains_key", "containsKey", "has_value", "hasValue", "exists", NULL,
+};
 
 static const char *matching_generic_type(const char *name) {
     for (size_t k = 0; HARDCODED_GENERIC_TYPES[k] != NULL; k++) {
@@ -1927,6 +1932,19 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                         "call to undefined function '%s' -- '%s' is a built-in generic type, not a function: "
                         "construct one with '%s<...> { ... }', e.g. 'Map<string, int> { \"key\": value }'",
                         name, generic_type, generic_type);
+        }
+        for (size_t k = 0; MAP_MEMBERSHIP_SYNONYMS[k] != NULL; k++) {
+            if (strcmp(name, MAP_MEMBERSHIP_SYNONYMS[k]) == 0) {
+                /* Named ahead of the fuzzy suggestion below on purpose: "has" is one edit from
+                 * the real builtin "hash" (an unrelated function), which the LLM-generation
+                 * benchmark's own re-validation showed the fuzzy search suggesting as a
+                 * misleading "fix" -- a case where a close-by name is the wrong answer, not
+                 * just a missing one. */
+                ziman_error("type", e->line, e->col,
+                            "call to undefined function '%s' -- a Map or Set has no membership method: "
+                            "use 'contains(m, key)' to test for one, or 'map_get(m, key)' (an Option<V>) "
+                            "to look up the value at the same time", name);
+            }
         }
         const char *suggestion = suggest_function_name(module, name);
         if (suggestion != NULL) {

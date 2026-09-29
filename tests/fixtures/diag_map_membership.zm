@@ -1,0 +1,6 @@
+fn main() {
+    var counts = Map<string, int> { "the": 2 }
+    if has(counts, "the") {
+        print("yes")
+    }
+}

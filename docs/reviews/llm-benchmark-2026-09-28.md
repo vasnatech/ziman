@@ -154,6 +154,36 @@ name suggestion, however good, can supply.
 Test fixtures added: `tests/fixtures/diag_let_keyword`, `diag_map_as_function`,
 `diag_undefined_function_suggestion` (all `.err`-checked, `make test`: 789 passed, 0 failed).
 
+## Second follow-up: a misleading suggestion, and word_count_map's real second gap
+
+Re-validating `word_count_map` above surfaced a new, more specific problem than "no
+suggestion": once the model tried the reasonable free-function guess `has(counts, word)` for
+membership (after "Ziman has no methods" correctly steered it away from `.has(...)`), the fuzzy
+search suggested `hash` -- a real builtin, one edit away, and *completely unrelated* to map
+membership. A close-by name that is the wrong answer is worse than no suggestion at all, since it
+actively steers a model toward a dead end with the compiler's own authority behind it. Fixed the
+same way as the other two: a named special case (`has`/`has_key`/`hasKey`/`contains_key`/
+`containsKey`/`has_value`/`hasValue`/`exists`, checked before the fuzzy search reaches `hash`)
+naming the real answer, `contains(m, key)` for a bool or `map_get(m, key)` for the value too
+(`Map`/`Set` really do support `contains` -- confirmed directly, not assumed).
+
+Re-ran `word_count_map` end to end once more, fresh model, zero docs, the full 5-attempt budget,
+starting from the exact original round-1 code. Result: **still did not converge, but for a
+budget/ordering reason, not a remaining diagnostic gap.** This run fixed errors one at a time in
+a different order than the previous ones -- map literal syntax, then indexed assignment, then
+method calls, then (on attempt 5) both `let` and `has` at once, correctly landing on `contains`
+exactly as intended -- and only *then*, on what would have been a 6th attempt, did `--check`
+surface the `map()`-is-a-type message, past the cutoff. The two fixes this session added each did
+exactly their job when the model reached them (`contains` was applied correctly, no confusion);
+the task simply needs two independent discoveries, and a model that resolves one error per
+`--check` cycle rather than every error `--check` reports at once (ziman reports up to 25 per
+run) can exhaust a 5-attempt budget on a two-discovery task depending on which error the model's
+own strategy happens to look at first. That is a property of the 5-attempt protocol and this
+particular model's error-fixing strategy, not something a diagnostic wording can fix -- confirmed
+the honest way, by re-testing, rather than assumed.
+
+Test fixture added: `tests/fixtures/diag_map_membership` (`make test`: 790 passed, 0 failed).
+
 ## What this does and does not establish
 
 Ten tasks is a start, not the review's suggested "fixed 50-task benchmark" -- a real gap, noted
