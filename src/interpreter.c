@@ -906,7 +906,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_BYTE: return value_byte(e->as.byte_val);
         case EXPR_IDENT: {
             if (e->fn_ref != NULL) return value_function((FunctionDecl *)e->fn_ref);
-            Binding *b = env_lookup(env, e->as.ident_name);
+            Binding *b = e->resolved_depth >= 0 ? env_at_slot(env, e->resolved_depth, e->resolved_slot)
+                                                 : env_lookup(env, e->as.ident_name);
             return b->value;
         }
         case EXPR_UNARY: {
@@ -934,7 +935,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             if (e->as.call.through_value) {
                 /* A call through a local of function type (a parameter, a val):
                  * the value names the FunctionDecl to run. */
-                Binding *fb = env_lookup(env, e->as.call.local_name);
+                Binding *fb = e->resolved_depth >= 0 ? env_at_slot(env, e->resolved_depth, e->resolved_slot)
+                                                      : env_lookup(env, e->as.call.local_name);
                 ClosureObj *clo = fb->value.as.clo;
                 if (clo->ncaptured == 0) {
                     result = call_function(module, clo->fn, args, argc, 0, e->line, e->col);
@@ -1423,7 +1425,8 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             return no_ctrl();
         }
         case STMT_ASSIGN: {
-            Binding *b = env_lookup(env, s->as.assign.name);
+            Binding *b = s->resolved_depth >= 0 ? env_at_slot(env, s->resolved_depth, s->resolved_slot)
+                                                 : env_lookup(env, s->as.assign.name);
             b->value = eval_expr(module, env, s->as.assign.value);
             return no_ctrl();
         }
@@ -1441,29 +1444,38 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             return no_ctrl();
         }
         case STMT_WHILE: {
+            /* One scope for the whole loop, not one per iteration: `env_reset` clears last
+             * iteration's bindings (freeing each one's strdup'd name) without freeing the
+             * scope itself or its `items` buffer, so after the first iteration a loop with a
+             * stable declaration count allocates nothing at all for its own bookkeeping. This
+             * was most of a tight loop's cost -- see docs/DESIGN.md's interpreter-speed entry. */
+            Env *scope = env_new(env);
             for (;;) {
                 Value cond = eval_expr(module, env, s->as.while_stmt.cond);
                 if (!cond.as.b) break;
-                ExecResult result = exec_block(module, env, s->as.while_stmt.body);
-                if (result.kind == CTRL_RETURN) return result;
+                env_reset(scope);
+                ExecResult result = exec_stmts_in_scope(module, scope, s->as.while_stmt.body);
+                if (result.kind == CTRL_RETURN) { env_free(scope); return result; }
                 if (result.kind == CTRL_BREAK) break;
                 /* CTRL_CONTINUE and CTRL_NONE both just fall through to the
                  * next iteration's condition check. */
             }
+            env_free(scope);
             return no_ctrl();
         }
         case STMT_FOR: {
             if (s->as.for_stmt.is_range) {
                 Value start = eval_expr(module, env, s->as.for_stmt.range_start);
                 Value end = eval_expr(module, env, s->as.for_stmt.range_end);
+                Env *scope = env_new(env);
                 for (int64_t i = start.as.i; i < end.as.i; i++) {
-                    Env *scope = env_new(env);
+                    env_reset(scope);
                     env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(i));
                     ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
-                    env_free(scope);
-                    if (result.kind == CTRL_RETURN) return result;
+                    if (result.kind == CTRL_RETURN) { env_free(scope); return result; }
                     if (result.kind == CTRL_BREAK) break;
                 }
+                env_free(scope);
                 return no_ctrl();
             }
 
@@ -1473,12 +1485,13 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 int64_t handle = iter_handle_of(iterable);
                 Type item_type = s->as.for_stmt.iterable->resolved_type.type_args.items[0];
                 Value item;
+                Env *scope = env_new(env);
                 while (iter_advance(handle, &item, s->line, s->col)) {
-                    Env *scope = env_new(env);
+                    env_reset(scope);
                     env_define(scope, s->as.for_stmt.binder1, item_type, 0, item);
                     ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
-                    env_free(scope);
                     if (result.kind == CTRL_RETURN) {
+                        env_free(scope);
                         iter_close_handle(handle);
                         return result;
                     }
@@ -1487,6 +1500,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                         break;
                     }
                 }
+                env_free(scope);
                 return no_ctrl();
             }
             if (iterable.type.kind == TY_MAP || iterable.type.kind == TY_SET) {
@@ -1495,21 +1509,23 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 Value *keys, *vals = NULL;
                 mapobj_entries(iterable.as.map, &keys, is_map ? &vals : NULL);
                 Type key_type = *iterable.type.elem;
+                Env *scope = env_new(env);
                 for (int i = 0; i < iterable.as.map->count; i++) {
-                    Env *scope = env_new(env);
+                    env_reset(scope);
                     env_define(scope, s->as.for_stmt.binder1, key_type, 0, keys[i]);
                     if (s->as.for_stmt.binder2 != NULL) env_define(scope, s->as.for_stmt.binder2, *iterable.type.elem_err, 0, vals[i]);
                     ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
-                    env_free(scope);
-                    if (result.kind == CTRL_RETURN) return result;
+                    if (result.kind == CTRL_RETURN) { env_free(scope); return result; }
                     if (result.kind == CTRL_BREAK) break;
                 }
+                env_free(scope);
                 return no_ctrl();
             }
             ArrayObj *arr = iterable.as.arr;
             Type elem_type = *iterable.type.elem;
+            Env *scope = env_new(env);
             for (int i = 0; i < arr->count; i++) {
-                Env *scope = env_new(env);
+                env_reset(scope);
                 if (s->as.for_stmt.binder2 == NULL) {
                     env_define(scope, s->as.for_stmt.binder1, elem_type, 0, array_get(arr, i));
                 } else {
@@ -1517,10 +1533,10 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                     env_define(scope, s->as.for_stmt.binder2, elem_type, 0, array_get(arr, i));
                 }
                 ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
-                env_free(scope);
-                if (result.kind == CTRL_RETURN) return result;
+                if (result.kind == CTRL_RETURN) { env_free(scope); return result; }
                 if (result.kind == CTRL_BREAK) break;
             }
+            env_free(scope);
             return no_ctrl();
         }
         case STMT_BREAK: {
@@ -1614,7 +1630,8 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                     return no_ctrl();
                 }
                 case STMT_ASSIGN:
-                    env_lookup(env, s->as.value_block.name)->value = v;
+                    (s->resolved_depth >= 0 ? env_at_slot(env, s->resolved_depth, s->resolved_slot)
+                                             : env_lookup(env, s->as.value_block.name))->value = v;
                     return no_ctrl();
                 default: {
                     ExecResult ret = {CTRL_RETURN, v};

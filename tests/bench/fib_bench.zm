@@ -1,0 +1,15 @@
+// fib(27), recursive, no loop -- the second half of docs/reviews/language-design-review.md's
+// F2 diagnosis, deliberately paired with loop_bench.zm's loop-only cost. Unaffected by the
+// per-iteration scope-reuse fix in docs/DESIGN.md's interpreter-speed entry (call_function
+// still allocates one scope per call, not per loop iteration), so this is the benchmark to
+// watch if that cost is ever addressed next.
+fn fib(n: int) -> int {
+    if n < 2 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn main() {
+    print(fib(27))
+}

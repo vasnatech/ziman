@@ -183,6 +183,21 @@ struct Expr {
     ExprKind kind;
     int line, col;
     Type resolved_type; /* filled in by the type checker */
+    /* For EXPR_IDENT (an ordinary variable, not a function reference -- see fn_ref below) and
+     * for `call.local_name` (calling through a local of function type): how many `Env->parent`
+     * hops from this expression's own runtime `env`, and which index into that scope's
+     * `items`, the type checker's `env_lookup_resolved` found this exact name at. The
+     * interpreter uses `env_at_slot` to jump straight there instead of re-searching by name
+     * every time the expression runs -- see docs/DESIGN.md's interpreter-speed entry.
+     * -1 (the default; see expr_new) means "not resolved, use env_lookup by name instead" --
+     * the case for any reference that crossed a lambda boundary to be found (a capture, or
+     * anything beyond it, including a global): a lambda's runtime call frame is rooted
+     * directly at the global env (captures are copied by value into its own leading
+     * parameters, not found by walking up to the scope the lambda was defined in), so a depth
+     * counted through the *compile-time* nested scope chain would count the wrong number of
+     * hops at runtime. `env_lookup_resolved`'s own doc comment has the full reasoning. */
+    int resolved_depth;
+    int resolved_slot;
     /* EXPR_INT only: the literal 9223372036854775808, which is one more than INT64_MAX and only legal directly under a unary minus (that is `-9223372036854775808`, the
      * smallest int). parse_unary clears the flag when it folds the minus in; a literal that still has it reaches the type checker as an out-of-range error. */
     unsigned char int_min_literal;
@@ -326,6 +341,13 @@ typedef struct {
 struct Stmt {
     StmtKind kind;
     int line, col;
+    /* Same resolution as Expr's own `resolved_depth`/`resolved_slot` (see there for the full
+     * reasoning, including why a reference crossing a lambda boundary is left at -1) -- for
+     * STMT_ASSIGN's `assign.name` and STMT_VALUE_BLOCK's `value_block.name` when its target is
+     * STMT_ASSIGN, the two places a Stmt itself looks an existing name up rather than
+     * declaring one. */
+    int resolved_depth;
+    int resolved_slot;
 
     union {
         struct { char *name; Type declared_type; int has_declared_type; Expr *init; } decl;

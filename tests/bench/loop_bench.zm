@@ -1,0 +1,13 @@
+// The 3M-iteration integer loop from docs/reviews/language-design-review.md's F2 diagnosis
+// ("roughly 4-5x slower than CPython... 28x slower" per the two independent reviews) and
+// docs/DESIGN.md's interpreter-speed entry -- a `for` loop doing nothing but the loop
+// machinery itself and one addition, so its time is almost entirely interpreter overhead,
+// not program work. Compare against `fib(27)` (recursive, no loop) to see the two costs
+// separately: `time ./ziman tests/bench/loop_bench.zm`.
+fn main() {
+    var sum = 0
+    for i in 0..3000000 {
+        sum = sum + i
+    }
+    print(sum)
+}

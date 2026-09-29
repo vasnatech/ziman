@@ -1386,7 +1386,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
      * always wins over a top-level function of the same name. Named arguments
      * and type arguments don't apply -- the value carries only a parameter list. */
     if (e->as.call.local_name != NULL && e->as.call.type_args.count == 0) {
-        Binding *fb = env_lookup(env, e->as.call.local_name);
+        int local_depth, local_slot;
+        Binding *fb = env_lookup_resolved(env, e->as.call.local_name, &local_depth, &local_slot);
         /* A poisoned local (its own declaration already failed -- see poison_declaration) has a placeholder
          * TY_VOID type, so it never matches the `TY_FUNC` check just below and falls through to `find_function`,
          * which reports "call to undefined function" for a name that is, in fact, declared right here: an
@@ -1413,6 +1414,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                 }
             }
             e->as.call.through_value = 1;
+            e->resolved_depth = local_depth;
+            e->resolved_slot = local_slot;
             return *ft.elem;
         }
     }
@@ -2671,7 +2674,8 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
         case EXPR_DECIMAL: t = type_scalar(TY_DECIMAL); break;
         case EXPR_BYTE: t = type_scalar(TY_BYTE); break;
         case EXPR_IDENT: {
-            Binding *b = env_lookup(env, e->as.ident_name);
+            int depth, slot;
+            Binding *b = env_lookup_resolved(env, e->as.ident_name, &depth, &slot);
             if (b == NULL) {
                 Type ft;
                 if (resolve_function_reference(module, e, &ft)) {
@@ -2711,6 +2715,8 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
             if (e->fn_ref_type_args.count > 0) {
                 ziman_error("type", e->line, e->col, "'%s' is a variable, not a generic function, so it takes no type arguments", e->as.ident_name);
             }
+            e->resolved_depth = depth;
+            e->resolved_slot = slot;
             t = b->type;
             break;
         }
@@ -2816,6 +2822,14 @@ static void check_defer(Module *module, Env *env, Stmt *s) {
         ref->as.ident_name = hidden[i];
         ref->resolved_type = call->as.call.args.items[i]->resolved_type;
         expr_list_push(&replay->as.call.args, ref);
+        /* Reserves this hidden variable's own slot in `env` now, at type-check time, exactly
+         * where interpreter.c's own STMT_DEFER handling will env_define it at run time (see
+         * that code and ast.h's `defer_stmt` comment) -- otherwise every ordinary declaration
+         * later in this same scope would be type-checked one slot short of where it actually
+         * ends up once the interpreter's own env_define for this hidden variable takes a slot
+         * this pass never accounted for. `ref` itself is never run through check_expr (its
+         * resolved_type is set directly, above), so this is the only place that registers it. */
+        env_define(env, hidden[i], ref->resolved_type, 0, value_int(0));
     }
     s->as.defer_stmt.replay = replay;
     s->as.defer_stmt.hidden = hidden;
@@ -3544,10 +3558,13 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                     ctx.expected = s->as.value_block.declared_type;
                 }
             } else if (target == STMT_ASSIGN) {
-                assigned = env_lookup(env, s->as.value_block.name);
+                int depth, slot;
+                assigned = env_lookup_resolved(env, s->as.value_block.name, &depth, &slot);
                 if (assigned == NULL) {
                     ziman_error("type", s->line, s->col, "assignment to undefined variable '%s'", s->as.value_block.name);
                 }
+                s->resolved_depth = depth;
+                s->resolved_slot = slot;
                 if (assigned->lint_id > 0) g_lint_vars[assigned->lint_id - 1].assigned = 1;
                 if (!assigned->is_mutable) {
                     ziman_error("type", s->line, s->col, "cannot assign to '%s' because it was declared with 'val' (use 'var' to make it mutable)", s->as.value_block.name);
@@ -3580,10 +3597,13 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             break;
         }
         case STMT_ASSIGN: {
-            Binding *b = env_lookup(env, s->as.assign.name);
+            int depth, slot;
+            Binding *b = env_lookup_resolved(env, s->as.assign.name, &depth, &slot);
             if (b == NULL) {
                 ziman_error("type", s->line, s->col, "assignment to undefined variable '%s'", s->as.assign.name);
             }
+            s->resolved_depth = depth;
+            s->resolved_slot = slot;
             if (b->poisoned) ziman_abort_quietly();
             if (b->lint_id > 0) g_lint_vars[b->lint_id - 1].assigned = 1;
             if (!b->is_mutable) {

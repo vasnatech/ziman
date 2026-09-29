@@ -241,6 +241,7 @@ Expr *expr_new(ExprKind kind, int line, int col) {
     e->line = line;
     e->col = col;
     e->resolved_type = type_scalar(TY_VOID);
+    e->resolved_depth = -1;
     return e;
 }
 
@@ -249,6 +250,7 @@ Stmt *stmt_new(StmtKind kind, int line, int col) {
     s->kind = kind;
     s->line = line;
     s->col = col;
+    s->resolved_depth = -1;
     return s;
 }
 

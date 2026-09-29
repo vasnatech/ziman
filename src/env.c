@@ -19,6 +19,11 @@ void env_free(Env *env) {
     free(env);
 }
 
+void env_reset(Env *env) {
+    for (int i = 0; i < env->count; i++) free(env->items[i].name);
+    env->count = 0;
+}
+
 int env_define(Env *env, const char *name, Type type, int is_mutable, Value value) {
     /* `_` is a true discard, not a binding: it never actually goes into `env` (so it never collides with an
      * earlier `_`, and never needs freeing), and reading it back later is the ordinary "use of undefined
@@ -67,6 +72,51 @@ Binding *env_lookup(Env *env, const char *name) {
                 if (!e->is_global) {
                     for (int k = 0; k < n_crossed; k++) record_capture(crossed[k], &e->items[i]);
                 }
+                return &e->items[i];
+            }
+        }
+        if (e->is_lambda_boundary && n_crossed < 16) crossed[n_crossed++] = e;
+    }
+    return NULL;
+}
+
+Binding *env_lookup_resolved(Env *env, const char *name, int *out_depth, int *out_slot) {
+    Env *crossed[16];
+    int n_crossed = 0;
+    int depth = 0;
+    for (Env *e = env; e != NULL; e = e->parent, depth++) {
+        for (int i = 0; i < e->count; i++) {
+            if (strcmp(e->items[i].name, name) == 0) {
+                if (!e->is_global) {
+                    for (int k = 0; k < n_crossed; k++) record_capture(crossed[k], &e->items[i]);
+                }
+                /* Also excludes a match in the global scope (e->is_global) or in a lambda's own
+                 * root scope (e->is_lambda_boundary), even with no boundary crossed -- two more
+                 * cases where this search's hop count and slot index are not guaranteed to mean
+                 * the same thing at runtime:
+                 *
+                 *   - Global: the type checker's own g_global_env and the interpreter's are
+                 *     built by two independently-ordered passes that don't actually agree --
+                 *     interpreter.c's init_param_defaults defines one slot per omitted-default
+                 *     parameter, anywhere in the whole program, *before* init_global_vals
+                 *     defines the real module-level vals, but the type checker never calls
+                 *     env_define for those particular slots at all (a reference to one is a
+                 *     synthetic Expr with its type pre-filled, bypassing this search entirely;
+                 *     see make_default_ref_expr in typecheck.c). A global's index at check time
+                 *     and at run time are not guaranteed to be the same number.
+                 *
+                 *   - A lambda's own declared parameter (found directly in its root, not
+                 *     something the walk had to leave root to find): check_lambda builds root's
+                 *     env from the parameters exactly as declared, in order, *before* checking
+                 *     the body -- but by the time the body-check finishes discovering what it
+                 *     captures, those captures get prepended to the *front* of the same
+                 *     FunctionDecl's param list for call_function to bind them from (see
+                 *     ast.h's `lambda_ncaptured` comment). So the declared parameter that root's
+                 *     own env put at index 0 is the parameter call_function will actually bind
+                 *     at index `ncaptured` once any capture exists -- a shift this search has no
+                 *     way to predict while still walking the body that determines it. */
+                if (out_depth) *out_depth = (n_crossed == 0 && !e->is_global && !e->is_lambda_boundary) ? depth : -1;
+                if (out_slot) *out_slot = i;
                 return &e->items[i];
             }
         }
