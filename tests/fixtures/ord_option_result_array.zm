@@ -46,8 +46,7 @@ fn main() {
     for p in people {
         ages = push(ages, p.age)
     }
-    for p in unwrap(collections.sort_by_keys_desc<P, int>(people, ages)) {
+    for p in collections.sort_by_keys_desc<P, int>(people, ages) {
         print(concat(p.name, str(p.age)))
     }
-    print(is_ok(collections.sort_by_keys_desc<P, int>(people, [1])))
 }

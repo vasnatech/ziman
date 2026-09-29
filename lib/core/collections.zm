@@ -53,21 +53,30 @@ pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
 }
 
 // `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a caller sorts by
-// a field or a computed value without a comparator function. An Err if the two arrays differ
-// in length.
-pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string> {
+// a field or a computed value without a comparator function. The two arrays differing in length
+// is a bug in the caller's own logic (both are always the program's own arrays, never data from
+// outside it), not a recoverable condition -- a fatal error naming both lengths, the same policy
+// every programmer-error case in the library follows now (see docs/DESIGN.md's "Programmer
+// errors are fatal" entry), not a `Result` a caller could forget to check.
+pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> [T] {
     if len(items) != len(keys) {
-        return err(format("sort_by_keys: {} items but {} keys", len(items), len(keys)))
+        val mismatch: Result<[T], string> = err(format("sort_by_keys: {} items but {} keys", len(items), len(keys)))
+        return unwrap(mismatch)
     }
-    return ok(permute<T>(items, sort_indices<K>(keys)))
+    return permute<T>(items, sort_indices<K>(keys))
 }
 
 // The descending form of `sort_by_keys`.
-pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string> {
+pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> [T] {
     if len(items) != len(keys) {
-        return err(format("sort_by_keys_desc: {} items but {} keys", len(items), len(keys)))
+        val mismatch: Result<[T], string> = err(format(
+            "sort_by_keys_desc: {} items but {} keys",
+            len(items),
+            len(keys)
+        ))
+        return unwrap(mismatch)
     }
-    return ok(permute<T>(items, sort_indices_desc<K>(keys)))
+    return permute<T>(items, sort_indices_desc<K>(keys))
 }
 
 // `items` ordered by a comparator function (negative, zero or positive, like `compare`), for

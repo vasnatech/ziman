@@ -14,7 +14,7 @@ fn main() {
     print(entries[1].key)
     print(entries[1].value)
     val values = collections.map<MapEntry<string, int>, int>(entries, fn(e) { e.value })
-    val ranked = unwrap(collections.sort_by_keys_desc<MapEntry<string, int>, int>(entries, values))
+    val ranked = collections.sort_by_keys_desc<MapEntry<string, int>, int>(entries, values)
     print(collections.map<MapEntry<string, int>, string>(ranked, fn(e) { e.key }))
     print(len(map_entries<string, int>(Map<string, int> {})))
 

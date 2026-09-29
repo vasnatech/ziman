@@ -166,9 +166,9 @@ pub fn sort<T: Ord>(items: [T]) -> [T]
 
 pub fn sort_desc<T: Ord>(items: [T]) -> [T]
 
-pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string>
+pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> [T]
 
-pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string>
+pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> [T]
 
 pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
 

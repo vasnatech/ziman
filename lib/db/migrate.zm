@@ -192,10 +192,7 @@ pub fn load(dir: string) -> Result<[Migration], DbError> {
     }
     val items = ab_to_array<Migration>(found)
     val versions = collections.map<Migration, int>(items, fn(m: Migration) -> int { return m.version })
-    return switch collections.sort_by_keys<Migration, int>(items, versions) {
-        Ok(sorted) { sorted }
-        Err(message) { err(problem(message)) }
-    }
+    return ok(collections.sort_by_keys<Migration, int>(items, versions))
 }
 
 // The migrations for a database on `dialect` (`sqlite`, `postgres`, `mysql`): those in `dir`, which run everywhere, and those in `dir/<dialect>/`, which
@@ -223,10 +220,7 @@ pub fn load_for(dir: string, dialect: string) -> Result<[Migration], DbError> {
     }
     val all = concat_arrays<Migration>(shared, specific)
     val versions = collections.map<Migration, int>(all, fn(m: Migration) -> int { return m.version })
-    return switch collections.sort_by_keys<Migration, int>(all, versions) {
-        Ok(sorted) { sorted }
-        Err(message) { err(problem(message)) }
-    }
+    return ok(collections.sort_by_keys<Migration, int>(all, versions))
 }
 
 // The versions must be 1, 2, 3, ... in order.

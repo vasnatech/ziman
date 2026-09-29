@@ -29,7 +29,7 @@ fn main() {
     for p in patients {
         ages = push(ages, p.age)
     }
-    for p in unwrap(collections.sort_by_keys<Patient, int>(patients, ages)) {
+    for p in collections.sort_by_keys<Patient, int>(patients, ages) {
         print(concat(p.name, str(p.age)))
     }
     print(collections.is_sorted<int>([1, 2, 2, 3]))
@@ -38,7 +38,6 @@ fn main() {
     print(collections.binary_search<int>(s, 20))
     print(collections.binary_search<int>(s, 25))
     print(collections.binary_search<int>(s, 40))
-    print(is_ok(collections.sort_by_keys<Patient, int>(patients, [1])))
     // a big one
     var big: [int] = []
     for i in 0..500 {

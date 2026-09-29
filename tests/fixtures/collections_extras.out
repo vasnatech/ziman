@@ -39,8 +39,8 @@ None
 [3, 90, 200]
 [1, 0, 2, 3]
 [1, 3, 0, 2]
-Ok([b, d, a, c])
-Ok([a, c, b, d])
+[b, d, a, c]
+[a, c, b, d]
 true
 true
 true

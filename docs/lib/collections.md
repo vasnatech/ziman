@@ -25,10 +25,10 @@ fn main() {
     print(collections.sort_desc<int>([3, 1, 2]))
 
     // Sort by a computed key without writing a comparator.
-    val by_length = unwrap(collections.sort_by_keys<string, int>(
+    val by_length = collections.sort_by_keys<string, int>(
         words,
         collections.map<string, int>(words, fn(w) { len(w) })
-    ))
+    )
     print(by_length)
 
     print(collections.map<int, int>([1, 2, 3], fn(n) { n * n }))
@@ -112,17 +112,20 @@ pub fn sort_desc<T: Ord>(items: [T]) -> [T]
 ### `sort_by_keys`
 
 ```
-pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string>
+pub fn sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> [T]
 ```
 
 `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a caller sorts by
-a field or a computed value without a comparator function. An Err if the two arrays differ
-in length.
+a field or a computed value without a comparator function. The two arrays differing in length
+is a bug in the caller's own logic (both are always the program's own arrays, never data from
+outside it), not a recoverable condition -- a fatal error naming both lengths, the same policy
+every programmer-error case in the library follows now (see docs/DESIGN.md's "Programmer
+errors are fatal" entry), not a `Result` a caller could forget to check.
 
 ### `sort_by_keys_desc`
 
 ```
-pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> Result<[T], string>
+pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> [T]
 ```
 
 The descending form of `sort_by_keys`.

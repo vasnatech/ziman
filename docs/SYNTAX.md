@@ -2088,7 +2088,7 @@ use collections
 struct Person { last: string  first: string }
 
 val sorted = collections.sort<Person>(people)               // by last, then first
-val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
+val by_age = collections.sort_by_keys<Patient, int>(patients, ages)
 ```
 
 - **`<`, `>`, `<=`, `>=` work on `int`, `float`, `bigint`, `decimal`, `byte`
@@ -2123,8 +2123,10 @@ val by_age = unwrap(collections.sort_by_keys<Patient, int>(patients, ages))
 - **`collections.sort<T: Ord>(items) -> [T]`** is a stable merge sort (equal
   items keep their order) returning a new array. To sort by anything other
   than the type's own order, compute a key per item and use
-  **`collections.sort_by_keys<T, K: Ord>(items, keys) -> Result<[T], string>`**
-  (an `Err` if the lengths differ), or pass a comparator *function value* to
+  **`collections.sort_by_keys<T, K: Ord>(items, keys) -> [T]`**
+  (a fatal error naming both lengths if they differ -- a caller's own bug,
+  never recoverable data, so not a `Result`; see docs/DESIGN.md's "Programmer
+  errors are fatal" entry), or pass a comparator *function value* to
   **`sort_with<T>(items, cmp: fn(T, T) -> int)`** (also stable) for an order
   that is not a single key. Descending: **`sort_desc`** and
   **`sort_by_keys_desc`** (also `sort_indices_desc`) -- stable too, so equal
