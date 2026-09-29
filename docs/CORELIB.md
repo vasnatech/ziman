@@ -760,12 +760,6 @@ pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
 
 pub fn connect_tls_with(
 
-pub fn idle_put(key: string, s: Socket) -> bool
-
-pub fn idle_take(key: string) -> Option<Socket>
-
-pub fn idle_clear()
-
 pub fn close(s: Socket)
 
 pub fn close_listener(l: Listener)
@@ -1164,18 +1158,6 @@ pub fn yaml_to_string(j: Json) -> string
 ## `datasource`
 
 ```
-pub struct PoolState {
-    idle: Channel<IdleConnection>
-    size: int
-    url: string
-    check_after: int
-}
-
-pub struct IdleConnection {
-    connection: Connection
-    since: int
-}
-
 pub enum Connection {
     Sqlite(sqlite.Connection)
     Postgres(pg.Connection)
@@ -1283,44 +1265,6 @@ pub struct QueryResult {
     rows: [Row]
     affected: int
 }
-
-pub struct RunRequest {
-    sql: string
-    params: [SqlValue]
-    reply_to: Channel<Result<QueryResult, DbError>>
-}
-
-pub struct Page {
-    rows: [Row]
-    finished: bool
-    cursor: int
-}
-
-pub struct OpenRequest {
-    sql: string
-    params: [SqlValue]
-    reply_to: Channel<Result<Page, DbError>>
-}
-
-pub struct FetchRequest {
-    cursor: int
-    reply_to: Channel<Result<Page, DbError>>
-}
-
-pub struct EndRequest {
-    cursor: int
-    reply_to: Channel<int>
-}
-
-pub enum Request {
-    Run(RunRequest)
-    OpenCursor(OpenRequest)
-    FetchCursor(FetchRequest)
-    EndCursor(EndRequest)
-    Close
-}
-
-pub fn run_request(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError>
 
 pub fn open_rows(
 

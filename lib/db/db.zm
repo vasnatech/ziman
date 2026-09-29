@@ -323,7 +323,11 @@ pub struct QueryResult {
 }
 
 // A statement sent to the thread that owns the connection, with the channel to answer on.
-pub struct RunRequest {
+// `internal`, not `pub`, from here through `run_request` below: the driver-thread wire protocol
+// between a `Connection` and the thread that owns it, not something a caller of `db`/`datasource`
+// ever constructs directly -- see docs/DESIGN.md's visibility entry. `mysql.zm`/`pg.zm` can
+// still reach it, since both are bundled core modules, the same package as `db.zm`.
+internal struct RunRequest {
     sql: string
     params: [SqlValue]
     reply_to: Channel<Result<QueryResult, DbError>>
@@ -332,34 +336,34 @@ pub struct RunRequest {
 // One batch of a cursor's rows, decoded, whether the server has no more, and the cursor's number (each
 // cursor a connection opens gets the next one, so a late message about a finished cursor cannot touch
 // the cursor that replaced it).
-pub struct Page {
+internal struct Page {
     rows: [Row]
     finished: bool
     cursor: int
 }
 
 // Starts a cursor on the owning thread: run `sql` and answer with its first page.
-pub struct OpenRequest {
+internal struct OpenRequest {
     sql: string
     params: [SqlValue]
     reply_to: Channel<Result<Page, DbError>>
 }
 
 // Asks the owning thread for the next page of the open cursor.
-pub struct FetchRequest {
+internal struct FetchRequest {
     cursor: int
     reply_to: Channel<Result<Page, DbError>>
 }
 
 // Asks the owning thread to end the open cursor, if there is one; answered when the connection is
 // ready for the next statement.
-pub struct EndRequest {
+internal struct EndRequest {
     cursor: int
     reply_to: Channel<int>
 }
 
 // A message to a connection's owning thread: run a statement, work a cursor, or close the connection.
-pub enum Request {
+internal enum Request {
     Run(RunRequest)
     OpenCursor(OpenRequest)
     FetchCursor(FetchRequest)
@@ -368,7 +372,7 @@ pub enum Request {
 }
 
 // Sends a statement to the connection's owning thread and waits for its answer.
-pub fn run_request(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+internal fn run_request(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     val reply_to: Channel<Result<QueryResult, DbError>> = channel_new()
     send(requests, Request.Run(RunRequest { sql: sql, params: params, reply_to: reply_to }))
     return receive(reply_to)

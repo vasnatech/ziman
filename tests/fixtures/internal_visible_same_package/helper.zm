@@ -1,0 +1,11 @@
+// Not `pub` -- but not file-private either. `internal` is visible to any module in the same
+// package, which today means any other file in this same project (see docs/DESIGN.md's
+// visibility entry): main.zm can use these even though they're not exported to a consumer of
+// this project as a whole.
+internal struct Box {
+    value: int
+}
+
+internal fn add_one(x: int) -> int {
+    return x + 1
+}

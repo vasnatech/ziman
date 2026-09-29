@@ -1,0 +1,1 @@
+function 'idle_take' in module 'net' is internal to its own package (not visible from a different one; add 'pub' to export it more broadly)

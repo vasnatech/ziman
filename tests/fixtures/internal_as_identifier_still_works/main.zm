@@ -1,0 +1,13 @@
+use service.internal
+
+fn internal_helper(x: int) -> int {
+    return x + 1
+}
+
+fn main() {
+    val r: Result<int, string> = ok(5)
+    print(internal(r))
+    val internal = 41
+    print(internal + 1)
+    print(internal_helper(1))
+}

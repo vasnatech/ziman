@@ -602,9 +602,18 @@ static void write_type_params(SB *b, const TypeParamList *tp) {
     sb_puts(b, ">");
 }
 
+/* "pub "/"internal "/"" -- the modifier text a hover/signature rendering shows ahead of the
+ * declaration kind, mirroring exactly what the source itself would have written (or omitted,
+ * for the private default). */
+static const char *visibility_prefix(Visibility v) {
+    if (v == VIS_PUBLIC) return "pub ";
+    if (v == VIS_INTERNAL) return "internal ";
+    return "";
+}
+
 static char *fn_signature(const FunctionDecl *fn) {
     SB b = {0};
-    if (fn->is_public) sb_puts(&b, "pub ");
+    sb_puts(&b, visibility_prefix(fn->visibility));
     if (fn->is_native) sb_puts(&b, "native ");
     sb_printf(&b, "fn %s", bare_name(fn->name));
     write_type_params(&b, &fn->type_params);
@@ -620,7 +629,7 @@ static char *fn_signature(const FunctionDecl *fn) {
 
 static char *struct_signature(const StructDecl *sd) {
     SB b = {0};
-    if (sd->is_public) sb_puts(&b, "pub ");
+    sb_puts(&b, visibility_prefix(sd->visibility));
     sb_printf(&b, "struct %s", bare_name(sd->name));
     write_type_params(&b, &sd->type_params);
     sb_puts(&b, " {\n");
@@ -631,7 +640,7 @@ static char *struct_signature(const StructDecl *sd) {
 
 static char *enum_signature(const EnumDecl *ed) {
     SB b = {0};
-    if (ed->is_public) sb_puts(&b, "pub ");
+    sb_puts(&b, visibility_prefix(ed->visibility));
     sb_printf(&b, "enum %s", bare_name(ed->name));
     write_type_params(&b, &ed->type_params);
     sb_puts(&b, " {\n");
@@ -646,7 +655,7 @@ static char *enum_signature(const EnumDecl *ed) {
 
 static char *val_signature(const GlobalValDecl *v) {
     SB b = {0};
-    if (v->is_public) sb_puts(&b, "pub ");
+    sb_puts(&b, visibility_prefix(v->visibility));
     sb_printf(&b, "val %s", bare_name(v->name));
     if (v->has_declared_type) sb_printf(&b, ": %s", type_text(v->type));
     return b.s;
@@ -683,7 +692,14 @@ static char *core_file(const char *use_path) {
     return files[n++];
 }
 
-typedef struct { const char *name; const char *file; int line, col; int kind; char *signature; int is_public; int core; } Sym;
+/* `visible_outside`: whether a *different* file could ever reference this symbol -- true for
+ * both `pub` and `internal` (VIS_PRIVATE only). Completion doesn't currently distinguish
+ * `internal`'s narrower same-package reach from `pub`'s: an internal-only symbol from a
+ * different package can still show up in a `module.` completion list here, a minor imprecision
+ * in suggestions the compiler's own enforcement (loader.c's `visibility_allows`) doesn't share --
+ * getting this exactly right would mean teaching the LSP the same same-package tracking the
+ * compiler has, for a suggestion list's own sake, which the value doesn't clearly justify yet. */
+typedef struct { const char *name; const char *file; int line, col; int kind; char *signature; int visible_outside; int core; } Sym;
 
 /* The file a declaration lives in: its own, or for a bundled core module (`mime::parse`) the cached copy. */
 static const char *sym_file(const char *name, const char *source_file, int *core) {
@@ -711,22 +727,22 @@ static Sym *collect_symbols(int *count) {
             FunctionDecl *fn = g_module->functions.items[i];
             if (fn->derived_from != NULL || fn->name[0] == '$') continue;
             if ((file = sym_file(fn->name, fn->source_file, &core)) == NULL || fn->line <= 0) continue;
-            ADD(fn->name, file, fn->line, fn->col, 12, fn_signature(fn), fn->is_public, core);
+            ADD(fn->name, file, fn->line, fn->col, 12, fn_signature(fn), fn->visibility != VIS_PRIVATE, core);
         }
         for (int i = 0; i < g_module->structs.count; i++) {
             StructDecl *sd = g_module->structs.items[i];
             if ((file = sym_file(sd->name, sd->source_file, &core)) == NULL || sd->line <= 0) continue;
-            ADD(sd->name, file, sd->line, sd->col, 23, struct_signature(sd), sd->is_public, core);
+            ADD(sd->name, file, sd->line, sd->col, 23, struct_signature(sd), sd->visibility != VIS_PRIVATE, core);
         }
         for (int i = 0; i < g_module->enums.count; i++) {
             EnumDecl *ed = g_module->enums.items[i];
             if ((file = sym_file(ed->name, ed->source_file, &core)) == NULL || ed->line <= 0) continue;
-            ADD(ed->name, file, ed->line, ed->col, 10, enum_signature(ed), ed->is_public, core);
+            ADD(ed->name, file, ed->line, ed->col, 10, enum_signature(ed), ed->visibility != VIS_PRIVATE, core);
         }
         for (int i = 0; i < g_module->vals.count; i++) {
             GlobalValDecl *v = g_module->vals.items[i];
             if ((file = sym_file(v->name, v->source_file, &core)) == NULL || v->line <= 0) continue;
-            ADD(v->name, file, v->line, v->col, 13, val_signature(v), v->is_public, core);
+            ADD(v->name, file, v->line, v->col, 13, val_signature(v), v->visibility != VIS_PRIVATE, core);
         }
     }
 #undef ADD
@@ -1240,7 +1256,7 @@ static void handle_completion(const JVal *id, const JVal *params) {
             /* `module.` -> its public declarations; `Enum.` -> its variants */
             for (int i = 0; i < nsyms; i++) {
                 char *seg = module_segment(syms[i].name);
-                if (strcmp(seg, c.qualifier) == 0 && syms[i].is_public) {
+                if (strcmp(seg, c.qualifier) == 0 && syms[i].visible_outside) {
                     add_completion(&b, &first, bare_name(syms[i].name), syms[i].kind == 12 ? 3 : syms[i].kind == 23 ? 22 : syms[i].kind == 10 ? 13 : 6, syms[i].signature);
                 }
             }
@@ -1255,7 +1271,7 @@ static void handle_completion(const JVal *id, const JVal *params) {
             for (size_t i = 0; i < sizeof KEYWORDS / sizeof KEYWORDS[0]; i++) add_completion(&b, &first, KEYWORDS[i], 14, NULL);
             for (size_t i = 0; i < sizeof BUILTINS / sizeof BUILTINS[0]; i++) add_completion(&b, &first, BUILTINS[i], 3, "builtin");
             for (int i = 0; i < nsyms; i++) {
-                if (strcmp(syms[i].file, d->path) != 0 && !syms[i].is_public) continue;
+                if (strcmp(syms[i].file, d->path) != 0 && !syms[i].visible_outside) continue;
                 if (strcmp(syms[i].file, d->path) != 0) continue; /* other modules are reached as `module.name` */
                 add_completion(&b, &first, bare_name(syms[i].name), syms[i].kind == 12 ? 3 : syms[i].kind == 23 ? 22 : syms[i].kind == 10 ? 13 : 6, syms[i].signature);
             }

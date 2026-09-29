@@ -1,0 +1,7 @@
+// `internal` is a soft keyword: reserved only immediately before `fn`/`struct`/`enum`/`native
+// fn`/`val` at the top of a declaration (see docs/DESIGN.md's visibility entry) -- everywhere
+// else, including as a declaration's own name, it's an ordinary identifier. A real
+// health-record-backend-ziman function is spelled exactly this way.
+pub fn internal<T>(result: Result<T, string>) -> Result<T, string> {
+    return result
+}

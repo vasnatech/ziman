@@ -1259,6 +1259,16 @@ from source.
     the module system's design deliberately did *without*, since there
     was no third-party versioning to support yet. This is the point
     where that non-decision gets revisited, not before.
+    *Update 2026-09-28:* `internal` visibility (docs/DESIGN.md's
+    "`internal` visibility..." entry) now has a coarse, working notion of
+    "package" — `same_package` (loader.c) is one boolean comparison,
+    "both bundled corelib, or both this project" — specifically designed
+    as the one seam a manifest file would redefine later (comparing
+    manifest identities instead of that flag) without `internal` itself,
+    its enforcement call sites, or any already-written `internal`
+    declaration needing to change. Not a manifest file, not dependency
+    resolution — just confirms the visibility half of "what package am I
+    in" won't need reworking once this is built.
   - **A versioning + resolution scheme.** Leaning toward Cargo's model
     (one resolved dependency graph, a lockfile pinning exact versions)
     over npm's historical nested/duplicate-version tolerance — a single

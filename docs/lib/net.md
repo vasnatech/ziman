@@ -322,31 +322,6 @@ trusted CAs. The socket is closed if the handshake fails.
 
 ## Idle connections
 
-### `idle_put`
-
-```
-pub fn idle_put(key: string, s: Socket) -> bool
-```
-
-Parks `s` under `key` for a later `idle_take`. Do not use `s` again yourself. False if `s` is not an
-open socket.
-
-### `idle_take`
-
-```
-pub fn idle_take(key: string) -> Option<Socket>
-```
-
-A socket parked under `key`, the most recently parked one, or None. The caller owns it again.
-
-### `idle_clear`
-
-```
-pub fn idle_clear()
-```
-
-Closes every parked socket.
-
 ### `close`
 
 ```

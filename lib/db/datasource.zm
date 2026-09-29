@@ -42,8 +42,10 @@ use sqlite
 // The state of a pool: the channel of idle connections, how many were opened and the URL to
 // reopen one from (see `open_pool`). Statements run on the pool borrow a connection for that one
 // statement, and `acquire` hands one out exclusively. `Connection` is recursive through this
-// `Channel`, like `Json` is through an array.
-pub struct PoolState {
+// `Channel`, like `Json` is through an array. `internal`, not `pub`: a `Connection.Pool`
+// payload's own representation, never something a caller of `datasource` names directly (see
+// docs/DESIGN.md's visibility entry).
+internal struct PoolState {
     idle: Channel<IdleConnection>
     size: int
     url: string
@@ -52,7 +54,7 @@ pub struct PoolState {
 
 // A connection waiting in the pool, and the time (Unix seconds) it was put there, so a long-idle one can
 // be tested before it is lent out.
-pub struct IdleConnection {
+internal struct IdleConnection {
     connection: Connection
     since: int
 }

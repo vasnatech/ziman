@@ -516,6 +516,19 @@ typedef struct {
     int capacity;
 } TypeParamList;
 
+/* A top-level declaration's visibility, in ascending order of reach. `VIS_PRIVATE` (no
+ * modifier, the default) is visible only within its own declaring file, same as always.
+ * `VIS_PUBLIC` (`pub`) is visible everywhere, same as always. `VIS_INTERNAL` (`internal`) is
+ * new: visible to any module in the same *package* as the declaring one, but not beyond it --
+ * see loader.c's `same_package`/`visibility_allows` for what "package" means today (the bundled
+ * standard library is one package, a project is another) and docs/DESIGN.md's visibility entry
+ * for why that definition is deliberately narrow but meant to grow into a real package/crate
+ * system later without this type or its enforcement changing. `internal` is a soft keyword
+ * (checked by identifier text at the one declaration-prefix position `pub` already occupies,
+ * not a reserved word everywhere -- see parser.c), specifically so a program that already has a
+ * function, variable or import named `internal` keeps compiling unchanged. */
+typedef enum { VIS_PRIVATE, VIS_INTERNAL, VIS_PUBLIC } Visibility;
+
 typedef struct {
     char *name;
     ParamList params;
@@ -524,7 +537,7 @@ typedef struct {
                  * its implementation is a registered C function, looked up by
                  * module path + name at call time) */
     TypeParamList type_params; /* empty for an ordinary, non-generic function */
-    int is_public;
+    Visibility visibility;
     int is_native;
     int line, col;
     /* Non-NULL for a function a #[derive] generated, e.g. "derive(Json) for
@@ -567,7 +580,7 @@ typedef struct {
     char *name;
     ParamList fields;
     TypeParamList type_params;
-    int is_public;
+    Visibility visibility;
     /* `#[derive(Json, ...)]` written directly above the declaration --
      * each entry is one derive target name (e.g. "Json"). Empty for a
      * struct with no attribute at all. See src/derive.c. */
@@ -623,7 +636,7 @@ typedef struct {
     char *name;
     EnumVariantList variants;
     TypeParamList type_params; /* empty for an ordinary, non-generic enum */
-    int is_public;
+    Visibility visibility;
     /* Same `#[derive(...)]` mechanism as StructDecl -- see src/derive.c. */
     char **derives;
     int derive_count;
@@ -689,7 +702,7 @@ typedef struct {
     Type type; /* only meaningful when has_declared_type */
     int has_declared_type;
     Expr *init;
-    int is_public;
+    Visibility visibility;
     int line, col;
     const char *source_file;
 } GlobalValDecl;
@@ -706,6 +719,13 @@ typedef struct {
     EnumList enums;
     UseList uses;
     GlobalValList vals;
+    /* Set once in loader.c's load_module, from the same `from_disk` check that already decides
+     * whether to stamp this module's own declarations with a real `source_file` or leave it
+     * NULL for a bundled one: 1 for a module resolved from the bundled standard library
+     * (corelib.c/prelude.c), 0 for one resolved from the project's own filesystem tree. This is
+     * today's whole definition of a "package" for `VIS_INTERNAL` visibility -- see
+     * `same_package` in loader.c and Visibility's own doc comment above. */
+    int is_corelib;
 } Module;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --

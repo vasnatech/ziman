@@ -1,0 +1,5 @@
+use net
+
+fn main() {
+    print(net.idle_take("some-key"))
+}

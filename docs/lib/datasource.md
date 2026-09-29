@@ -99,34 +99,6 @@ false
 1
 ```
 
-### `PoolState`
-
-```
-pub struct PoolState {
-    idle: Channel<IdleConnection>
-    size: int
-    url: string
-    check_after: int
-}
-```
-
-The state of a pool: the channel of idle connections, how many were opened and the URL to
-reopen one from (see `open_pool`). Statements run on the pool borrow a connection for that one
-statement, and `acquire` hands one out exclusively. `Connection` is recursive through this
-`Channel`, like `Json` is through an array.
-
-### `IdleConnection`
-
-```
-pub struct IdleConnection {
-    connection: Connection
-    since: int
-}
-```
-
-A connection waiting in the pool, and the time (Unix seconds) it was put there, so a long-idle one can
-be tested before it is lent out.
-
 ### `Connection`
 
 ```

@@ -1535,14 +1535,46 @@ fn main() {
   from. A qualified call or struct literal looks identical to plain
   field access (`p.x`) until the parser sees what follows the second
   identifier; see the grammar note above.
-- **`pub` marks a declaration for export; the default is private to the
-  module.** A private function/struct can be called/constructed freely
-  from within its own module, but referencing it from another module is
-  a compile-time error naming both the declaration and its module
-  (`function 'x' in module 'y' is private`). A consequence: struct and
-  function names only need to be unique *within* their own module, not
-  across the whole program — two modules can each declare their own
-  `Point`, even both private, without colliding.
+- **Three levels of visibility, in ascending order of reach: private (no
+  modifier), `internal`, `pub`.** A private function/struct/enum/val can
+  be called/constructed freely from within its own module, but
+  referencing it from another module is a compile-time error naming both
+  the declaration and its module (`function 'x' in module 'y' is
+  private`). A consequence: struct and function names only need to be
+  unique *within* their own module, not across the whole program — two
+  modules can each declare their own `Point`, even both private, without
+  colliding. `pub` marks a declaration for export to any module,
+  anywhere, the same as always.
+- **`internal` sits between them: visible to any module in the same
+  *package*, invisible outside it.** Today, "package" means one of
+  exactly two things: the bundled standard library, taken as a whole, or
+  your own project, taken as a whole — not a per-directory or
+  per-subfolder boundary (see docs/DESIGN.md's visibility entry for why
+  a directory-based definition would actually have broken the case that
+  motivated this: `net.idle_put`/`lib/core/net.zm` and
+  `client.zm`/`lib/http/client.zm` share package-internal helpers across
+  *different* directories). A user program can never reference an
+  `internal` declaration from `net` or any other bundled module — those
+  are implementation details shared among the corelib's own files, the
+  same way `datasource.zm`'s `PoolState` and `db.zm`'s `RunRequest` are
+  — but two files in *your own* project can freely share `internal`
+  declarations with each other, unreachable from a hypothetical consumer
+  of your project as a whole. Violating this gives the same "is private"
+  shape of error, just worded for the reason: `'x' in module 'y' is
+  internal to its own package (not visible from a different one; add
+  'pub' to export it more broadly)`.
+- **`internal` is a soft keyword, not a reserved word.** It is
+  recognized only immediately before `fn`/`native fn`/`struct`/`enum`/`val`
+  at the very start of a top-level declaration — the exact position
+  `pub` already occupies (and the two are mutually exclusive: `pub` is
+  checked first, so a declaration is never both). Everywhere else —
+  a function's own name, a local variable, an import (`use
+  mod.internal`) — `internal` is an ordinary identifier, so a program
+  already using that word (as `service.internal` does in the
+  health-record-backend-ziman example application) keeps compiling
+  unchanged — the same technique `unit` already uses (see "Types"
+  above), recognized as the `unit` type only where a type is expected
+  and otherwise an ordinary name.
 - **`[pub] val NAME[: Type] = <expr>` at module top level declares a
   global value** — a module-wide constant, evaluated once before `main`
   runs (in file order, so a later one may reference an earlier one),

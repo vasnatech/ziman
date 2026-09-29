@@ -377,19 +377,22 @@ pub fn connect_tls_with(
 // so a user of `idle_take` must be ready to retry on a fresh connection.
 
 // Parks `s` under `key` for a later `idle_take`. Do not use `s` again yourself. False if `s` is not an
-// open socket.
-pub fn idle_put(key: string, s: Socket) -> bool {
+// open socket. `internal`, not `pub`: connection-pooling plumbing for `http.client`'s own
+// keep-alive, not a primitive a user program should reach for directly (see docs/DESIGN.md's
+// visibility entry) -- `client.zm` can still call it, since both are bundled core modules,
+// the same package.
+internal fn idle_put(key: string, s: Socket) -> bool {
     return idle_put_raw(key, s.handle)
 }
 
 // A socket parked under `key`, the most recently parked one, or None. The caller owns it again.
-pub fn idle_take(key: string) -> Option<Socket> {
+internal fn idle_take(key: string) -> Option<Socket> {
     val h = idle_take_raw(key)
     return if h < 0 { Option<Socket>.None } else { Option<Socket>.Some(Socket { handle: h }) }
 }
 
 // Closes every parked socket.
-pub fn idle_clear() {
+internal fn idle_clear() {
     idle_clear_raw()
 }
 

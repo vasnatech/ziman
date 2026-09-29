@@ -31,6 +31,21 @@ static int match(Parser *p, TokenType type) {
     return 1;
 }
 
+/* Consumes and returns true only if the current token is a plain identifier spelled exactly
+ * `word` -- a soft keyword, recognized by text at one specific grammar position rather than
+ * reserved everywhere the way TOK_PUB/TOK_STRUCT/etc. are. Used for `internal` (see the
+ * visibility modifier just below) so a program already using that word as a function, variable
+ * or import name keeps compiling unchanged -- the same technique `unit` already uses a few
+ * lines below (parse_type's own identifier-text check) for the identical reason. */
+static int match_ident(Parser *p, const char *word) {
+    size_t n = strlen(word);
+    if (check(p, TOK_IDENT) && (size_t)cur(p)->length == n && memcmp(cur(p)->start, word, n) == 0) {
+        advance_tok(p);
+        return 1;
+    }
+    return 0;
+}
+
 static Token *expect(Parser *p, TokenType type, const char *what) {
     if (check(p, type)) return advance_tok(p);
     ziman_error("syntax", cur(p)->line, cur(p)->col, "expected %s, found %s", what, token_type_name(cur(p)->type));
@@ -1182,13 +1197,13 @@ static Stmt *parse_decl(Parser *p, StmtKind kind) {
  * docs/DESIGN.md's "Global val" entry) and minus being wrapped in a Stmt,
  * since a top-level declaration lives in Module.vals, not a function
  * body's statement list. */
-static GlobalValDecl *parse_global_val_decl(Parser *p, int is_public) {
+static GlobalValDecl *parse_global_val_decl(Parser *p, Visibility vis) {
     Token *kw = expect(p, TOK_VAL, "'val'");
     Token *name_tok = expect(p, TOK_IDENT, "a global value name");
     require_lower_start(name_tok, "a global value name");
     GlobalValDecl *v = calloc(1, sizeof(GlobalValDecl));
     v->name = dup_token_text(name_tok);
-    v->is_public = is_public;
+    v->visibility = vis;
     v->line = kw->line;
     v->col = kw->col;
     if (match(p, TOK_COLON)) {
@@ -2237,7 +2252,8 @@ Module *parse(TokenList tokens) {
             while (!check(&p, TOK_EOF)) {
                 Token *t = cur(&p);
                 int starts_decl = t->col == 1 && (t->type == TOK_FN || t->type == TOK_STRUCT || t->type == TOK_ENUM || t->type == TOK_USE ||
-                                                  t->type == TOK_PUB || t->type == TOK_VAL || t->type == TOK_NATIVE || t->type == TOK_HASH);
+                                                  t->type == TOK_PUB || t->type == TOK_VAL || t->type == TOK_NATIVE || t->type == TOK_HASH ||
+                                                  (t->type == TOK_IDENT && t->length == 8 && memcmp(t->start, "internal", 8) == 0));
                 if (starts_decl) break;
                 advance_tok(&p);
             }
@@ -2254,10 +2270,15 @@ Module *parse(TokenList tokens) {
         if (check(&p, TOK_HASH)) {
             derives = parse_attributes(&p);
         }
-        int is_public = match(&p, TOK_PUB);
+        /* `pub` is a reserved word; `internal` is a soft one (match_ident, above) so a program
+         * already using "internal" as a function/variable/import name -- the health-record
+         * backend's own `service.internal` helper, for one -- keeps compiling unchanged. The two
+         * are mutually exclusive by construction: matching `pub` first means `internal` is never
+         * even checked once `pub` already matched. */
+        Visibility vis = match(&p, TOK_PUB) ? VIS_PUBLIC : (match_ident(&p, "internal") ? VIS_INTERNAL : VIS_PRIVATE);
         if (check(&p, TOK_STRUCT)) {
             StructDecl *sd = parse_struct_decl(&p);
-            sd->is_public = is_public;
+            sd->visibility = vis;
             sd->derives = derives.names;
             sd->derive_count = derives.count;
             sd->thread_bound = derives.thread_bound;
@@ -2268,7 +2289,7 @@ Module *parse(TokenList tokens) {
             struct_list_push(&module->structs, sd);
         } else if (check(&p, TOK_ENUM)) {
             EnumDecl *ed = parse_enum_decl(&p);
-            ed->is_public = is_public;
+            ed->visibility = vis;
             ed->derives = derives.names;
             ed->derive_count = derives.count;
             if (derives.thread_bound) {
@@ -2286,20 +2307,20 @@ Module *parse(TokenList tokens) {
                         "an attribute must be followed by a struct or enum declaration");
         } else if (check(&p, TOK_NATIVE)) {
             FunctionDecl *fn = parse_native_function(&p);
-            fn->is_public = is_public;
+            fn->visibility = vis;
             if (derives.is_test) {
                 ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a native function ('%s')", fn->name);
             }
             function_list_push(&module->functions, fn);
         } else if (check(&p, TOK_VAL)) {
-            GlobalValDecl *v = parse_global_val_decl(&p, is_public);
+            GlobalValDecl *v = parse_global_val_decl(&p, vis);
             if (derives.is_test) {
                 ziman_error("syntax", v->line, v->col, "#[test] applies to a function, not to a val ('%s')", v->name);
             }
             global_val_list_push(&module->vals, v);
         } else {
             FunctionDecl *fn = parse_function(&p);
-            fn->is_public = is_public;
+            fn->visibility = vis;
             fn->is_test = derives.is_test;
             fn->test_cases = derives.test_cases;
             function_list_push(&module->functions, fn);

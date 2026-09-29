@@ -755,6 +755,32 @@ static void report_unknown_module_call(const char *qualifier, const char *member
                 qualifier, member, qualifier, qualifier, hint, qualifier, qualifier);
 }
 
+/* Today's whole definition of a "package" for VIS_INTERNAL visibility (see Visibility's own
+ * doc comment in ast.h): the bundled standard library is one package, a project is another --
+ * `Module.is_corelib`, set once in load_module/load_module_graph from the same `from_disk` check
+ * that already decides whether to stamp a declaration's `source_file`. Deliberately coarse (a
+ * whole project is one package today, not sub-divided by directory -- see the DESIGN.md entry
+ * for why a directory-based boundary would have actually broken the motivating case,
+ * `net.zm`/`lib/core` and `client.zm`/`lib/http` sharing internals across different
+ * directories). Meant to be the one place a future manifest-based package/crate system redefines
+ * -- comparing package identities instead of this one flag -- without `internal` itself, or any
+ * of its call sites below, needing to change. */
+static int same_package(Module *a, Module *b) { return a->is_corelib == b->is_corelib; }
+
+static int visibility_allows(Visibility v, Module *from, Module *target) {
+    if (v == VIS_PUBLIC) return 1;
+    if (v == VIS_PRIVATE) return 0;
+    return same_package(from, target);
+}
+
+/* The tail of the "is private"/"is internal" error message, past "<kind> '<name>' in module
+ * '<path>' is " -- only ever called once visibility_allows has already said no, so `v` is never
+ * VIS_PUBLIC here. */
+static const char *visibility_violation_reason(Visibility v) {
+    return v == VIS_PRIVATE ? "private (add 'pub' to export it)"
+                             : "internal to its own package (not visible from a different one; add 'pub' to export it more broadly)";
+}
+
 static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line, int col) {
     char *qualifier, *rest;
     split_qualified(dotted, &qualifier, &rest);
@@ -771,8 +797,8 @@ static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line
     if (found == NULL) {
         ziman_error("module", line, col, "module '%s' has no function '%s'", u->path, rest);
     }
-    if (!found->is_public) {
-        ziman_error("module", line, col, "function '%s' in module '%s' is private (add 'pub' to export it)", rest, u->path);
+    if (!visibility_allows(found->visibility, ctx->mod, target)) {
+        ziman_error("module", line, col, "function '%s' in module '%s' is %s", rest, u->path, visibility_violation_reason(found->visibility));
     }
     free(qualifier);
     free(rest);
@@ -795,8 +821,8 @@ static char *resolve_type_ref(CrossRefCtx *ctx, const char *dotted, int line, in
     if (found == NULL) {
         ziman_error("module", line, col, "module '%s' has no struct '%s'", u->path, rest);
     }
-    if (!found->is_public) {
-        ziman_error("module", line, col, "struct '%s' in module '%s' is private (add 'pub' to export it)", rest, u->path);
+    if (!visibility_allows(found->visibility, ctx->mod, target)) {
+        ziman_error("module", line, col, "struct '%s' in module '%s' is %s", rest, u->path, visibility_violation_reason(found->visibility));
     }
     free(qualifier);
     free(rest);
@@ -828,8 +854,8 @@ static char *resolve_enum_ref(CrossRefCtx *ctx, const char *dotted, int line, in
     if (found == NULL) {
         ziman_error("module", line, col, "module '%s' has no enum '%s'", u->path, rest);
     }
-    if (!found->is_public) {
-        ziman_error("module", line, col, "enum '%s' in module '%s' is private (add 'pub' to export it)", rest, u->path);
+    if (!visibility_allows(found->visibility, ctx->mod, target)) {
+        ziman_error("module", line, col, "enum '%s' in module '%s' is %s", rest, u->path, visibility_violation_reason(found->visibility));
     }
     free(qualifier);
     free(rest);
@@ -856,8 +882,9 @@ static void resolve_type_or_enum_ref(Type *t, CrossRefCtx *ctx, int line, int co
     char *qualified = qualify_name(u->path, rest);
     for (int i = 0; i < target->structs.count; i++) {
         if (strcmp(target->structs.items[i]->name, qualified) == 0) {
-            if (!target->structs.items[i]->is_public) {
-                ziman_error("module", line, col, "struct '%s' in module '%s' is private (add 'pub' to export it)", rest, u->path);
+            if (!visibility_allows(target->structs.items[i]->visibility, ctx->mod, target)) {
+                ziman_error("module", line, col, "struct '%s' in module '%s' is %s", rest, u->path,
+                            visibility_violation_reason(target->structs.items[i]->visibility));
             }
             t->struct_name = qualified;
             free(qualifier);
@@ -867,8 +894,9 @@ static void resolve_type_or_enum_ref(Type *t, CrossRefCtx *ctx, int line, int co
     }
     for (int i = 0; i < target->enums.count; i++) {
         if (strcmp(target->enums.items[i]->name, qualified) == 0) {
-            if (!target->enums.items[i]->is_public) {
-                ziman_error("module", line, col, "enum '%s' in module '%s' is private (add 'pub' to export it)", rest, u->path);
+            if (!visibility_allows(target->enums.items[i]->visibility, ctx->mod, target)) {
+                ziman_error("module", line, col, "enum '%s' in module '%s' is %s", rest, u->path,
+                            visibility_violation_reason(target->enums.items[i]->visibility));
             }
             t->kind = TY_ENUM;
             t->struct_name = NULL;
@@ -1015,16 +1043,18 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
                 if (u != NULL) {
                     Module *target = find_loaded(ctx->ldr, u->path);
                     char *qualified = qualify_name(u->path, e->as.field_access.field_name);
-                    int found = 0, is_private = 0;
+                    int found = 0, is_not_visible = 0;
+                    Visibility found_vis = VIS_PRIVATE;
                     for (int i = 0; i < target->functions.count; i++) {
                         if (strcmp(target->functions.items[i]->name, qualified) == 0) {
                             found = 1;
-                            if (target->functions.items[i]->is_public) e->fn_ref_name = qualified;
-                            else is_private = 1;
+                            found_vis = target->functions.items[i]->visibility;
+                            if (visibility_allows(found_vis, ctx->mod, target)) e->fn_ref_name = qualified;
+                            else is_not_visible = 1;
                             break;
                         }
                     }
-                    if (!found || is_private) {
+                    if (!found || is_not_visible) {
                         /* Not a usable function. If the qualifier really is a
                          * local variable this is ordinary field access and the
                          * hint is never shown; if it is not, this is the
@@ -1032,8 +1062,12 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
                          * variable 'util'". A leading '!' marks it as a hint. */
                         size_t n = strlen(u->path) + strlen(e->as.field_access.field_name) + 96;
                         char *hint = malloc(n);
-                        if (is_private) snprintf(hint, n, "!function '%s' in module '%s' is private (add 'pub' to export it)", e->as.field_access.field_name, u->path);
-                        else snprintf(hint, n, "!module '%s' has no function '%s'", u->path, e->as.field_access.field_name);
+                        if (is_not_visible) {
+                            snprintf(hint, n, "!function '%s' in module '%s' is %s", e->as.field_access.field_name, u->path,
+                                     visibility_violation_reason(found_vis));
+                        } else {
+                            snprintf(hint, n, "!module '%s' has no function '%s'", u->path, e->as.field_access.field_name);
+                        }
                         e->fn_ref_name = hint;
                     }
                 }
@@ -1221,41 +1255,42 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, int *out_cou
 
         Module *target = find_loaded(ldr, u->path);
         char *qualified = qualify_name(u->path, u->imported_name);
-        int found = 0, is_public = 0;
+        int found = 0;
+        Visibility vis = VIS_PRIVATE;
         ImportKind kind = IMPORT_FN;
         for (int j = 0; j < target->functions.count && !found; j++) {
             if (strcmp(target->functions.items[j]->name, qualified) == 0) {
                 found = 1;
                 kind = IMPORT_FN;
-                is_public = target->functions.items[j]->is_public;
+                vis = target->functions.items[j]->visibility;
             }
         }
         for (int j = 0; j < target->structs.count && !found; j++) {
             if (strcmp(target->structs.items[j]->name, qualified) == 0) {
                 found = 1;
                 kind = IMPORT_STRUCT;
-                is_public = target->structs.items[j]->is_public;
+                vis = target->structs.items[j]->visibility;
             }
         }
         for (int j = 0; j < target->enums.count && !found; j++) {
             if (strcmp(target->enums.items[j]->name, qualified) == 0) {
                 found = 1;
                 kind = IMPORT_ENUM;
-                is_public = target->enums.items[j]->is_public;
+                vis = target->enums.items[j]->visibility;
             }
         }
         for (int j = 0; j < target->vals.count && !found; j++) {
             if (strcmp(target->vals.items[j]->name, qualified) == 0) {
                 found = 1;
                 kind = IMPORT_VAL;
-                is_public = target->vals.items[j]->is_public;
+                vis = target->vals.items[j]->visibility;
             }
         }
         if (!found) {
             ziman_error("module", u->line, u->col, "module '%s' has no function, struct, enum, or global val '%s'", u->path, u->imported_name);
         }
-        if (!is_public) {
-            ziman_error("module", u->line, u->col, "'%s' in module '%s' is private (add 'pub' to export it)", u->imported_name, u->path);
+        if (!visibility_allows(vis, mod, target)) {
+            ziman_error("module", u->line, u->col, "'%s' in module '%s' is %s", u->imported_name, u->path, visibility_violation_reason(vis));
         }
 
         if (count == cap) {
@@ -1326,6 +1361,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     ziman_set_error_file(from_disk ? file_path : NULL);
     if (from_disk) ziman_register_source(file_path, source);
     Module *mod = parse_file_contents(source);
+    mod->is_corelib = !from_disk;
     if (from_disk) {
         for (int i = 0; i < mod->functions.count; i++) mod->functions.items[i]->source_file = file_path;
         for (int i = 0; i < mod->structs.count; i++) mod->structs.items[i]->source_file = file_path;
@@ -1364,6 +1400,7 @@ Module *load_module_graph(const char *entry_path) {
      * just the entry one. See resolve_type_refs's own comment for the
      * reclassification fallback this enables. */
     Module *prelude_mod = parse_file_contents(prelude_source());
+    prelude_mod->is_corelib = 1;
     resolve_cross_refs(&ldr, prelude_mod);
     ldr.prelude_mod = prelude_mod;
 
