@@ -777,6 +777,20 @@ pub fn close_listener(l: Listener)
 Shared formatting/parsing across `int`/`float`/`bigint`/`decimal`/`byte`, written in pure Ziman on top of each type's own `str()`. `NumberFormat`/`parse_pattern` cover thousands separators and forced decimal places (a small subset of DecimalFormat-style patterns); `byte_to_hex`/`int_to_hex`/`bigint_to_hex` (and their `_from_hex` inverses) cover hex for the three integral types.
 
 ```
+pub val byte_min = 0b
+
+pub val byte_max = 255b
+
+pub val int_min = -9223372036854775808
+
+pub val int_max = 9223372036854775807
+
+pub val float_min = -1.7976931348623157e+308
+
+pub val float_max = 1.7976931348623157e+308
+
+pub val float_min_positive = 5e-324
+
 pub native fn float_to_text(x: float) -> string
 
 pub native fn byte_to_hex(b: byte) -> string

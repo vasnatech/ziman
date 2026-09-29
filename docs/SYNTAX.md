@@ -3034,6 +3034,21 @@ fn main() {
 - **`parse_byte(s: string) -> Result<byte, string>`** — `byte` had no
   parser until this module; delegates to `parse_int` and range-checks
   the result (0–255).
+- **Limits, as global vals**: `byte_min`/`byte_max` (0, 255),
+  `int_min`/`int_max` (-9223372036854775808, 9223372036854775807),
+  `float_min`/`float_max` (the most negative and largest finite
+  `double`, `float_min` exactly `-float_max`), `float_min_positive` (the
+  smallest positive nonzero `float`, a denormalized value — named
+  distinctly from `float_min` on purpose, unlike Java's confusing
+  `Double.MIN_VALUE`, which means this and not "most negative"). `bigint`
+  and `decimal` get no limit constants, being arbitrary-precision — there
+  is no finite bound to give. Crossing `float_min`/`float_max` doesn't
+  error, it overflows to the IEEE-754 infinity (`float_max * 2.0` is
+  `inf`); going under `float_min_positive` underflows to `0.0`. Crossing
+  `int_min`/`int_max` *is* a runtime error (`int_max + 1` fails, it
+  doesn't wrap to `int_min`) — same as every other `int` overflow. A
+  global val has no `number.int_max` dotted access — bring each in with
+  `use number.int_max` (see "Modules" above).
 
 ## The `math` module
 

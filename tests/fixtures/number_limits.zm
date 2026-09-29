@@ -1,0 +1,22 @@
+use number.byte_min
+use number.byte_max
+use number.int_min
+use number.int_max
+use number.float_min
+use number.float_max
+use number.float_min_positive
+
+fn main() {
+    print(byte_min)
+    print(byte_max)
+    print(int_min)
+    print(int_max)
+    print(float_min)
+    print(float_max)
+    print(float_min_positive)
+
+    print(float_min == -float_max)
+    print(float_max * 2.0)          // inf, overflow past the top end
+    print(float_min * 2.0)          // -inf, overflow past the bottom end
+    print(float_min_positive / 2.0) // 0.0, underflow
+}

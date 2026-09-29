@@ -1,0 +1,5 @@
+use number.int_max
+
+fn main() {
+    print(int_max + 1)
+}

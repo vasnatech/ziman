@@ -1,8 +1,37 @@
 // number.zm -- numbers as text and as bytes: formatting and parsing with separators, hex,
 // shortest-text floats, and the fixed-width big-endian integers binary protocols use.
 //
-// Four parts below: float text, hex, formatting and parsing with separators, and bytes. The
-// hex, byte and float-text functions are native; the formatting engine and `bigint` hex are Ziman.
+// Five parts below: limits, float text, hex, formatting and parsing with separators, and bytes.
+// The hex, byte and float-text functions are native; the formatting engine and `bigint` hex are
+// Ziman.
+
+// ---------------------------------------------------------------- limits
+//
+// `byte`, `int` and `float` are fixed-width, so each has a smallest and largest representable
+// value. `bigint` and `decimal` are arbitrary-precision -- there is no finite bound to give, so
+// they get no constants here (the same "no artificial cap on ordinary arithmetic" reasoning
+// `bigint_shift_left`'s own doc comment already states for its shift amount).
+
+pub val byte_min = 0b
+pub val byte_max = 255b
+
+pub val int_min = -9223372036854775808
+pub val int_max = 9223372036854775807
+
+// The most negative and largest finite `float`s -- not "closest to zero", the gotcha Java's own
+// `Double.MIN_VALUE` has (it means smallest positive nonzero, not most negative, unlike
+// `Integer.MIN_VALUE`). `float_min` is exactly `-float_max`, so the pair reads as a symmetric
+// range the same way `int_min`/`int_max` already do. Going past either end doesn't error -- it
+// overflows to the IEEE-754 infinity, the same as any other float arithmetic that leaves this
+// range (`float_max * 2.0` is `inf`).
+pub val float_min = -1.7976931348623157e+308
+pub val float_max = 1.7976931348623157e+308
+
+// The smallest positive `float` greater than zero -- a denormalized value, the same one Java
+// calls (confusingly) `Double.MIN_VALUE`. Named `float_min_positive`, not `float_min`, to avoid
+// exactly that confusion: `float_min` above is the most negative value, this is the closest to
+// zero on the positive side. Half of it underflows to `0.0`, not a smaller denormal.
+pub val float_min_positive = 5e-324
 
 // ---------------------------------------------------------------- float text
 
