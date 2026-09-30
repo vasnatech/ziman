@@ -396,3 +396,40 @@ collector's actual shape now, not a placeholder description of one. Phase 2's ow
 allocation-site-rewiring step is deferred until Phase 3 exists to make it worth doing at all; phases
 4-5 (moving globals/AST to the permanent region, re-measuring against the concurrency benchmark)
 remain design-only. Tracked as the concurrency half of F2 (docs/reviews/tasks.md).
+
+**Phase 3, first implementation increment done (2026-09-30): object headers.** `src/gc_object.c`/
+`.h` -- a thin layer on top of `arena.c`, giving every allocation a small header (`kind`, `size`,
+`marked`) that the eventual mark/copy phases will read from a bare pointer found by a stack scan or
+an already-in-progress trace. Nothing calls it yet; landed with its own test
+(`tests/unit/gc_object_test.c`, `make test-gc-object`), same discipline `arena.c` itself was built
+with. See docs/DESIGN.md's "Object headers, the foundation Phase 3's mark/copy phases will need"
+entry for the seven-kind `GcKind` design and why `GC_VALUES` is its own kind rather than folded
+into `GC_ARRAY`. The actual mark phase (walking a `Value` graph precisely by `type.kind`, using
+these headers) and the copying/relocation phase are the next increments, still ahead.
+
+**Phase 3, second implementation increment done (2026-09-30): the copy/relocate primitive, with
+sharing preserved.** `src/gc_copy.c`/`.h` -- realized this is mostly `src/value_copy.c`'s own
+per-kind recursive-copy logic already, generalized two ways: every structural allocation goes
+through `gc_object.c`'s `gc_alloc` instead of bare `arena_alloc` (so the copy carries the header a
+mark/sweep or trigger-side pass needs), and a dedup map (`GcDedup`, same hash/probe scheme as
+`src/handles.c`'s `HandleSet`) preserves sharing across the copy -- needed here in a way it wasn't
+for a one-off thread-crossing copy, since a value surviving many collection cycles over a thread's
+life would otherwise duplicate a shared substructure a little more every cycle, compounding.
+Deduplication is deliberately *not* applied to string bytes, a packed array's own buffers, or any
+`Value[]` array (`boxed_items`/`fields`/`captured`) -- a second, broader instance of the
+interior-pointer problem, found while designing this rather than while debugging it:
+`array_obj_view` shares its parent's buffers at an offset the same way a substring shares its
+parent's bytes, so the same address can mean a different logical value depending on the paired
+length/count. Always copying these three shapes fresh, uniformly, sidesteps the ambiguity rather
+than solving it -- the same tradeoff already accepted for strings, extended on purpose rather than
+re-litigated per case. A packed array's own raw buffers never actually need this treatment in
+practice, because `gc_copy_array` reads every element through `array_get` (which already resolves a
+view's own offset) and always rebuilds the copy boxed, the same simplification `value_copy.c`
+already made. See docs/DESIGN.md's "The copy/relocate primitive" entry for the full reasoning and
+the standalone test's 35 checks (`tests/unit/gc_copy_test.c`, `make test-gc-copy`), including the
+interior-pointer ambiguity exercised directly (a string and a same-start-address, shorter view of it
+both copy to their own correct content) and sharing preservation verified directly (a struct/array
+reachable from two places dedups to the same copied object, not two). Still not wired into anything
+that runs a real collection -- no trigger, no root-finding, no relocation of an *existing* live
+object (this builds fresh copies into an already-given destination; it doesn't yet decide when to
+run, or where the roots come from). Those are the next increments.

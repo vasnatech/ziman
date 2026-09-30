@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena corelib-reference lib-manual-check not-yet-check
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy corelib-reference lib-manual-check not-yet-check
 
 all: $(BIN)
 
@@ -142,6 +142,23 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 test-arena: src/arena.c tests/unit/arena_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_arena_test src/arena.c tests/unit/arena_test.c
 	/tmp/ziman_arena_test
+
+# src/gc_object.c sits on top of src/arena.c (Phase 3's object-header layer, docs/MEMORY.md) --
+# same standalone-test convention as arena.c itself, ahead of any mark/copy logic built on it.
+test-gc-object: src/arena.c src/gc_object.c tests/unit/gc_object_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_object_test src/arena.c src/gc_object.c tests/unit/gc_object_test.c
+	/tmp/ziman_gc_object_test
+
+# src/gc_copy.c is src/value_copy.c's logic generalised onto gc_object.c's headers, with a dedup
+# map added for sharing preservation (docs/MEMORY.md, "Phase 3 design"). Needs value.c's own
+# ArrayObj/StructObj/etc. constructors, and everything value.c itself needs (ast.c for Type, error.c
+# and stack.c for the runtime-error/recursion-depth paths value.c can hit, bignum.c/decimal.c,
+# mapobj.c) -- unlike arena.c/gc_object.c this can't stay dependency-free, since it exercises the
+# real Value representation, not a synthetic stand-in. value_hash (normally in src/interpreter.c,
+# not linked here) is stubbed inside the test itself; see its own header comment for why that's fine.
+test-gc-copy: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/arena.c src/gc_object.c src/gc_copy.c tests/unit/gc_copy_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_copy_test src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/arena.c src/gc_object.c src/gc_copy.c tests/unit/gc_copy_test.c
+	/tmp/ziman_gc_copy_test
 
 # docs/CORELIB.md and the manual in docs/lib/ are generated from the lib/core and lib/db modules' own `pub` declarations
 # (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make
