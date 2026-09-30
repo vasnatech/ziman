@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan corelib-reference lib-manual-check not-yet-check
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark corelib-reference lib-manual-check not-yet-check
 
 all: $(BIN)
 
@@ -179,6 +179,25 @@ test-gc-lookup: src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup
 test-gc-scan: src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_scan_test src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
 	/tmp/ziman_gc_scan_test
+
+# src/gc_heap.c is Phase 3's actual collected heap -- a free-list-capable allocator on top of
+# arena.c/gc_object.c, needed once Phase 3 switched from a copying design to mark-sweep (a
+# conservative stack scan's own roots can never safely be relocated; see gc_heap.h's own header
+# comment for why, and docs/MEMORY.md for the fuller story). gc_heap_collect wires gc_scan.c and
+# gc_mark.c together with gc_heap.c's own alloc/sweep, so this now needs their full dependency
+# chain too (real ArrayObj/StructObj/etc. construction for gc_mark.c, stack.c/error.c for
+# gc_scan.c), not just arena.c/gc_object.c on their own.
+test-gc-heap: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c tests/unit/gc_heap_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_heap_test src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c tests/unit/gc_heap_test.c
+	/tmp/ziman_gc_heap_test
+
+# src/gc_mark.c is the mark phase mark-sweep needs: walks a real Value graph by type.kind (mirroring
+# gc_copy.c's own per-kind structure) and calls gc_set_marked instead of copying. Needs the same
+# dependency chain as gc_copy_test.c's own (real ArrayObj/StructObj/etc. construction), plus
+# gc_lookup.c (interior-pointer resolution for string views and array slices during marking).
+test-gc-mark: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_mark.c tests/unit/gc_mark_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_mark_test src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_mark.c tests/unit/gc_mark_test.c
+	/tmp/ziman_gc_mark_test
 
 # docs/CORELIB.md and the manual in docs/lib/ are generated from the lib/core and lib/db modules' own `pub` declarations
 # (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make

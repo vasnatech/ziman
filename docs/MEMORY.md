@@ -174,9 +174,12 @@ into it. Concretely:
 - `spawn`: deep-copy `args`/`handler` into the *new* thread's heap (ideally built directly there,
   not copied twice) before that thread's entry function runs.
 - `send`/`receive`: deep-copy the value into the receiver's heap at the moment of the call.
-- Mark-sweep for a first version, not a copying/compacting collector — no pointer-rewriting to get
-  right yet. A copying collector is a plausible later refinement once precise mark-phase tracing
-  already exists (it buys allocation locality and bump-pointer allocation), not a v1 requirement.
+- Mark-sweep, not a copying/compacting collector — settled, not provisional (2026-09-30): a
+  conservative stack scan's own roots can never safely be relocated (rewriting an ambiguous stack
+  word that turns out not to be a real pointer would corrupt real data), the same wall Boehm itself
+  hits, resolved the same way. See "Phase 3 switches from copying to mark-sweep" in Status below —
+  an earlier note in this same document (before that finding) had provisionally called this "a
+  first version," with copying floated as a later refinement; it no longer is one.
 
 ### A correction found while scoping the implementation, before writing the arena code
 
@@ -295,6 +298,18 @@ does for a value crossing a thread. Revisit only if this specific cost shows up 
 measurement; building the general mechanism speculatively is exactly the kind of premature
 optimization this project's own stated design principles argue against.
 
+**Superseded (2026-09-30): Phase 3 is mark-sweep, not copying (see Status below) -- this resolution
+was written before that pivot and described the wrong mechanism, though the underlying problem and
+its actual fix turned out to still need solving, just differently.** A non-moving collector doesn't
+copy a view's bytes fresh; it has to mark the *real, existing* buffer a view points into, so sweep
+knows not to reclaim it. But `gc_set_marked` has the same "exact payload start only" contract
+`gc_alloc` always had -- it cannot be called on an arbitrary interior address either. The actual fix:
+`gc_lookup.c` (built for a different reason at the time -- resolving a *conservative stack scan's*
+own candidate words) turns out to solve this too. Marking a `Value` of kind `TY_STRING` resolves
+`v.as.str.ptr` through `gc_lookup` first, to the enclosing buffer's real start, before marking it --
+the identical primitive, reused for a second purpose it wasn't originally built for, rather than a
+second interior-pointer mechanism invented for marking specifically.
+
 **3. A from-scratch collector inherits this codebase's own already-documented root-finding gap, and
 must not repeat the mistake of trusting a scan that's known not to cover everything.** The reason
 `t_defer_envs`/`t_env_pool` (interpreter.c) are `GC_MALLOC_UNCOLLECTABLE` today, not ordinary
@@ -324,10 +339,13 @@ Phase 3 collects must be `arena_create_scanned`, for the identical reason the ou
 already fixed, already built, nothing new to design.
 
 **Still genuinely open, deferred to the implementation pass itself rather than blocked on here:**
-exact object-header size/alignment cost; whether a thread's heap ever shrinks (returns memory to
-the OS) or only grows and reuses space via the eventual copying collector; how `defer`'s own
-pending calls (Envs registered but not yet run) get treated as roots precisely, given `run_defers`
-already has its own control flow around them.
+exact object-header size/alignment cost (settled since: 24 bytes, rounded to 32 for alignment --
+`src/gc_object.c`); whether a thread's heap ever shrinks (settled since, partially: `gc_heap.c`'s
+free lists let a dead object's space be reused by a later allocation, but its underlying `mmap`'d
+block is never individually returned to the OS -- only a whole arena's `arena_destroy` does that,
+same limitation `arena.c` always had); how `defer`'s own pending calls (`Env`s registered but not
+yet run) get treated as roots precisely, given `run_defers` already has its own control flow around
+them -- still open, not yet reached by the implementation.
 
 ## Status
 
@@ -487,6 +505,109 @@ Verified this is the *only* thing found, not cover for something worse, by re-ru
 See DESIGN.md's "The actual conservative stack scan" entry for the full reasoning and the standalone
 test's 6 checks (`tests/unit/gc_scan_test.c`, `make test-gc-scan`), run five times deliberately (stack
 contents vary run to run) rather than trusted once, including the interior-pointer-as-root case
-`gc_lookup.c` exists for. Still ahead: the collection trigger, and wiring a full cycle end to end --
-deciding when to run, walking from real interpreter roots instead of a test's synthetic ones, and
-actually relocating survivors with `gc_copy.c` before discarding the old arena.
+`gc_lookup.c` exists for.
+
+**Phase 3 switches from copying to mark-sweep (2026-09-30) -- a design reversal, not a refinement,
+found while scoping the collection trigger.** A conservative stack scan's own roots can never safely
+be relocated: `gc_scan_stack_roots` cannot tell a real pointer from an integer that happens to look
+like one, which is harmless for keeping something alive too long but not for *moving* it -- rewriting
+an ambiguous stack slot that turns out not to have been a real pointer would silently corrupt real
+data. Boehm hits this identical wall and resolves it the same way every mature conservative collector
+does: never move anything. A cheaper-looking alternative -- walk this interpreter's own existing call-
+frame tracking (`ziman_push_frame`/`error.c`) precisely instead of scanning the stack, restricting
+collection to statement boundaries -- was worked through and found to fail on an ordinary case, not a
+contrived one: in `f(x) + g(y)`, while `g(y)` runs (itself hitting its own safe points), `f(x)`'s
+already-computed value sits only as a transient C local in the outer expression evaluator, invisible
+to any `Env`-chain-only root walk. Fixing that would mean compiling to an explicit operand-stack VM
+instead of tree-walking recursion -- far outside this effort's scope. Confirmed with the project owner
+across two rounds of discussion before committing to mark-sweep, given how much of the remaining work
+this decision reshapes.
+
+**What survives the pivot unchanged**: `gc_object.c`'s header, including the `marked` bit (clearly
+sized for this scheme already, before the pivot); `gc_scan.c`'s report-only `visit` callback (never
+built to relocate anything, so nothing about it was wrong for the old design either); `gc_lookup.c`,
+untouched. **What doesn't**: `gc_copy.c` is no longer *Phase 3's collector* (nothing moves under
+mark-sweep), though its deep-copy-with-sharing-preserved logic remains correct and may still find a
+use elsewhere (`value_copy.c`'s own thread-crossing copy, undecided, a separate question).
+
+**`src/gc_heap.c`/`.h` (new): the one genuinely new mechanism mark-sweep needs** -- `arena.c` can only
+bump-allocate and mass-free a whole arena at once, never reclaim one dead object's space individually,
+which a non-moving collector needs constantly. `GcHeap` adds segregated free lists (by power-of-two
+*total footprint*, header included, via a new `gc_header_span` accessor) on top of an internal
+`arena_create_scanned` arena: `gc_heap_alloc` reuses a same-class freed chunk if one exists, else
+carves fresh memory; `gc_heap_sweep` -- run after a mark phase (still ahead) -- walks every object via
+the same `arena_block_content`/`gc_next_object` primitives `gc_lookup.c` already established,
+reclaiming anything unmarked and clearing survivors' mark bits. A new `GcKind` value, `GC_FREE`, marks
+a reclaimed chunk sitting on a free list -- `gc_lookup` resolving a stray stack word to one is a real,
+if rare, possibility, and it must never be mistaken for a live, traceable object.
+
+**A real bug caught by reasoning through the minimum size class before writing the sweep code, not by
+testing it afterward**: a freed chunk's free-list "next" link has to live in the chunk's own payload
+bytes (the standard trick), which doesn't exist at all for a near-zero-byte request -- a real shape
+(`GC_VALUES`'s own empty-array case), not hypothetical. `gc_heap_alloc` now enforces a minimum
+effective payload of `sizeof(void *)` before computing a size class, so even the smallest class always
+has room for its own link once something in it is freed.
+
+See DESIGN.md's "Phase 3 switches from copying to mark-sweep" entry for the full reasoning and the
+standalone test's 17 checks (`tests/unit/gc_heap_test.c`, `make test-gc-heap`, using `gc_set_marked`
+directly to simulate a mark phase that doesn't exist yet -- the same discipline every earlier layer
+here was proven with first), all passing; `valgrind` clean; full suite (829 fixtures) unchanged on
+both builds.
+
+**The mark phase done (2026-09-30): `src/gc_mark.c`/`.h`, `gc_mark_value`.** Largely `gc_copy.c`'s own
+per-kind traversal structure, with allocate-and-recurse replaced by an idempotent mark-and-recurse
+(check `gc_is_marked`, return if already set, else `gc_set_marked` and recurse) -- the mark-bit
+equivalent of `gc_copy.c`'s own dedup map, for the identical reason (a shared substructure reachable
+from more than one place should not be retraced once per incoming reference). `gc_lookup.c`, built to
+resolve a *conservative stack scan's* candidate words, turns out to be exactly the fix the interior-
+pointer problem needs here too, for a reason `gc_copy.c` never had to face: marking can't sidestep an
+interior pointer by copying fresh bytes of a known length (there is no copy being made at all) -- the
+*real, existing* buffer a string view or array slice points into has to be found and marked, or
+`gc_heap_sweep` reclaims it out from under a value still using it. Marking a string's `str.ptr`, or an
+array's `boxed_items`/packed buffer, now resolves through `gc_lookup` first. This corrects the
+"Phase 3 design" section above, whose original interior-pointer resolution ("make Phase 3 a copying
+collector") is superseded by the mark-sweep pivot two entries up -- see the inline correction there.
+
+**An explicitly flagged, not-yet-measured performance question**: `gc_lookup`'s own docs call it fine
+for a stack scan's handful of calls per cycle, not necessarily for one call per string/view found
+while tracing an entire live graph -- marking could be `O(objects × interior references)` in the
+worst case. Left as-is until a real end-to-end cycle exists to measure against the actual concurrency
+benchmark, not prematurely optimized on suspicion alone -- the same discipline this whole effort has
+used throughout (profile first, tune second).
+
+See DESIGN.md's "The mark phase" entry for the full reasoning, the standalone test's 18 checks
+(`tests/unit/gc_mark_test.c`, `make test-gc-mark`, including the interior-pointer case and a shared-
+substructure termination case) all passing, `valgrind` clean, full suite (829 fixtures) unchanged on
+both builds.
+
+**The first real end-to-end cycle done (2026-09-30): scan, mark, sweep, composed and proven
+together.** `gc_mark_object` (new, `gc_mark.c`) is the bridge `gc_scan_stack_roots`'s bare-pointer
+roots actually need -- it has no `Value`/`Type.kind` for `gc_mark_value` to dispatch on, only the
+object's own `GcKind` header, so this dispatches on that instead, handing off to the same per-kind
+functions once it reaches a structural kind. `gc_heap_collect` (new, `gc_heap.c`) wires scan → mark →
+sweep into one call against a thread's own heap, skipping the whole cycle (not just the scan) if the
+stack can't be measured, the same graceful degradation `ziman_stack_slow` already uses.
+
+**Explicitly not yet a complete root set, built and tested anyway to prove the pieces compose first**:
+this codebase's own thread-local state (`t_defer_envs`/`t_env_pool`, `error.c`'s call-frame stack) is
+not reliably found by a conservative scan and isn't walked as an explicit root source yet -- the exact
+gap "Phase 3 design" section 3 above already flagged before any of this was built. Not safe to wire
+into the real interpreter until that closes.
+
+**The actual milestone: a real graph -- array containing struct containing string, reachable through
+one `volatile` stack root -- survives a genuine scan→mark→sweep cycle with its content fully intact,
+while an unreferenced object's slot gets reclaimed and reused.** First point in this whole effort
+where "does this actually work end to end" has a tested answer instead of a plan. A real test bug (not
+a code bug) was caught building this: comparing a dead object's address to a local read *after*
+`gc_heap_collect` forces the compiler to keep it live across that call, spilling it onto the exact
+stack the scan reads -- deterministic, not the ordinary run-to-run staleness conservative-scan tests
+already expect, which is what gave it away. Fixed by stashing the address in a file-scope `static`
+instead, genuinely invisible to the scan.
+
+See DESIGN.md's "`gc_mark_object`, and the first real end-to-end cycle" entry for the full story;
+`gc_mark_test.c` grew to 24 checks, `gc_heap_test.c` to 22, both rerun five times (stack contents vary
+run to run) with zero failures; `valgrind` clean (`--undef-value-errors=no` where conservative
+scanning's own inherent noise applies, same as `gc_scan_test.c`); full suite (829 fixtures) unchanged
+on both builds. Still ahead: the collection trigger (when to actually call `gc_heap_collect`), the
+explicit thread-local root walk that closes the gap above, and wiring a real per-thread `GcHeap` into
+the interpreter's own allocation sites.

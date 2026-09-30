@@ -53,6 +53,14 @@ void gc_set_marked(void *obj, int marked) {
     header_of(obj)->marked = marked;
 }
 
+void gc_set_kind(void *obj, GcKind kind) {
+    header_of(obj)->kind = kind;
+}
+
+size_t gc_header_span(void) {
+    return GC_HEADER_SPAN;
+}
+
 const void *gc_next_object(const char **cursor, const char *end) {
     if (*cursor >= end) return NULL;
     GcHeader *h = (GcHeader *)*cursor;

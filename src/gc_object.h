@@ -19,7 +19,13 @@ typedef enum {
     GC_STRUCT,  /* StructObj */
     GC_RESULT,  /* ResultObj */
     GC_ENUM,    /* EnumObj */
-    GC_CLOSURE  /* ClosureObj */
+    GC_CLOSURE, /* ClosureObj */
+    GC_FREE     /* not a live Value-backing object at all: a chunk `src/gc_heap.c`'s sweep phase has
+                 * reclaimed and is holding on a free list, waiting to be reused by a later
+                 * allocation of the same size class. A stray stack word that happens to resolve
+                 * here (`gc_lookup`) is a real possibility -- the same class of harmless false
+                 * positive conservative scanning always risks -- and must never be treated as a
+                 * traceable object: there is nothing meaningful left to mark or copy in it. */
 } GcKind;
 
 /* Allocates `payload_size` bytes of `kind` from `a`, prefixed with a header the mark/copy phases
@@ -40,6 +46,19 @@ GcKind gc_kind_of(const void *obj);
 size_t gc_size_of(const void *obj);
 int gc_is_marked(const void *obj);
 void gc_set_marked(void *obj, int marked);
+
+/* Overwrites `obj`'s own recorded kind in place -- for `src/gc_heap.c`'s sweep phase, converting a
+ * dead object to `GC_FREE` when it joins a free list, and back to a real kind when a later
+ * allocation reuses that same slot. `size` is left exactly as it was: a slot's own size never
+ * changes across being freed and reused, since gc_heap.c only ever reuses a slot for an allocation
+ * of the same size class it was already sized for. */
+void gc_set_kind(void *obj, GcKind kind);
+
+/* The fixed number of bytes `gc_alloc` reserves for its own header before any payload begins --
+ * for a caller (`src/gc_heap.c`) that needs to reason about an object's *total* footprint (header
+ * included) without knowing this module's private header layout, the same reason `gc_next_object`
+ * exists instead of exposing the layout itself. */
+size_t gc_header_span(void);
 
 /* Walks a raw byte range of already-allocated content one object at a time -- for a caller (e.g.
  * src/gc_lookup.c) that needs to visit every object in an arena, not just look one up by its own
