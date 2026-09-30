@@ -594,7 +594,15 @@ from source.
   `ziman-gc`, which routes every allocation through the Boehm collector;
   the two plans below (refcounting, per-thread arenas) were not built and
   are kept for their reasoning. See docs/DESIGN.md's "Memory
-  reclamation" entry for what shipped, what it measured, and what is left.* Every `Value` payload (`ArrayObj`/`StructObj`/
+  reclamation" entry for what shipped, what it measured, and what is left.*
+  *Update 2026-09-29: the collector is now the default build and does not
+  leak (re-verified), but does not scale with concurrent clients -- both
+  plans below are superseded by a corrected design, one independently
+  collected heap per thread, with no dependency on any particular
+  library's usage pattern (the per-thread-arena plan's mistake). See
+  docs/MEMORY.md for the full diagnosis, the reasoning for the correction,
+  and the design -- not started, tracked as F2's concurrency half
+  (docs/reviews/tasks.md).* Every `Value` payload (`ArrayObj`/`StructObj`/
   `EnumObj`/`ResultObj`, every `string` buffer) is heap-allocated and
   never freed, on purpose — see docs/DESIGN.md's "single-writer/actor
   pattern" entry: *"this interpreter never frees an `ArrayObj`/
@@ -718,6 +726,13 @@ from source.
   rule for state that deliberately outlives one (the buffered `Session`
   carried between requests for pipelining) and for values sent over a
   channel (copy-on-send).
+  **Second correction (2026-09-29):** "per request" is itself the wrong
+  generalization -- a request is a concept `server.zm` invented, not
+  something every Ziman thread has (a `spawn`ed worker consuming a
+  `Channel` forever, a batch job, a CLI script have no request to hang a
+  reset point on). See docs/MEMORY.md for the corrected design: one
+  independently-collected heap per thread, with no notion of "request"
+  anywhere in it.
 - **[Resolved: `Map`/`Set` are now built-in types on a persistent hash trie, O(log32 n)
   writes -- see docs/DESIGN.md "Map and Set". The analysis below is the history.]**
   **`HashMap`/`HashSet`'s `set`/`add`/`remove` are O(bucket_count), not
