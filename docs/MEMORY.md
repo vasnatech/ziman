@@ -433,3 +433,34 @@ reachable from two places dedups to the same copied object, not two). Still not 
 that runs a real collection -- no trigger, no root-finding, no relocation of an *existing* live
 object (this builds fresh copies into an already-given destination; it doesn't yet decide when to
 run, or where the roots come from). Those are the next increments.
+
+**Phase 3, third implementation increment done (2026-09-30): resolving a bare address back to an
+object (`src/gc_lookup.c`/`.h`), and a real gap in the design found while scoping root-finding, not
+while debugging it.** Root-finding (still ahead) means a conservative scan of a thread's own C
+stack, finding bare, untyped words with no length or kind attached -- unlike `gc_copy.c`'s own
+tracing, which always starts from an already-typed `Value` with its `len`/`count` in hand and so
+never needs to ask "what is this address." Working through what such a scan would actually
+encounter surfaced a case the interior-pointer resolution above didn't cover: `Value.as.str.ptr` (a
+string view sharing a parent buffer at an offset) is embedded directly in the `Value` union with no
+wrapper object around it, unlike every other heap-referencing field, which is always a pointer to
+its own wrapper's own exact `gc_alloc`'d start. A transient `Value` holding such a view, sitting
+only as a C-stack local mid-evaluation, would present a scanner with exactly this bare interior
+pointer -- and without a way to resolve it back to the buffer it lives in, a stack scan would fail
+to recognize that buffer as reachable at all, discarding memory a live view still points into. A
+real memory-safety gap, not a missed optimization.
+
+Resolved without reproducing Boehm's own general interior-pointer machinery: `gc_lookup` only needs
+to make an exact match *and* this one shape work, since everything else already resolves by exact
+match through ordinary dereferencing once its wrapper is found. Built with no separate index: `gc_alloc`'s
+own bump allocation already lays objects out contiguously and self-describingly, so `gc_lookup` just
+walks an arena's blocks (new arena.c accessors: `arena_first_block`/`arena_next_block`/
+`arena_block_content`) one object at a time (new gc_object.c primitive: `gc_next_object`) until it
+finds the one whose span contains the candidate. `arena_block_content` has to skip the one block
+that embeds the `Arena` struct itself past its own reserved bytes -- identified by a property already
+true of the existing code (exactly one block ever has `next == NULL`), not a new invariant added for
+this. See DESIGN.md's "Resolving a bare stack word back to an object" entry for the full reasoning
+and the standalone test's 18 checks (`tests/unit/gc_lookup_test.c`, `make test-gc-lookup`), including
+exact and interior matches, addresses that must resolve to nothing, alignment-padding correctness,
+and walking across multiple `mmap`'d blocks. Still ahead: the actual stack scan (using `stack.c`'s
+existing bounds computation to find the candidate words in the first place), the collection trigger,
+and wiring a full cycle end to end.

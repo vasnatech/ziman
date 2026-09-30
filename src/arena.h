@@ -70,4 +70,25 @@ void arena_destroy(Arena *a);
  * for Phase 3's own collection-trigger watermark; not otherwise meaningful to a caller. */
 size_t arena_reserved(const Arena *a);
 
+/* --- walking an arena's own content, block by block -----------------------------------------
+ * For a caller that needs to visit every object an arena currently holds (src/gc_lookup.c,
+ * resolving a bare address found by a conservative stack scan back to the gc_alloc'd object it
+ * falls within or inside) -- not needed by ordinary allocation, so kept separate from the
+ * everyday arena_alloc/arena_destroy API above. `ArenaBlock` stays opaque; these are read-only
+ * accessors, in no particular order (a caller visiting every block exactly once needs none). */
+typedef struct ArenaBlock ArenaBlock;
+
+const ArenaBlock *arena_first_block(const Arena *a);
+const ArenaBlock *arena_next_block(const ArenaBlock *b);
+
+/* `[*out_start, *out_start + *out_len)`: exactly the bytes `arena_alloc` has handed out of this
+ * block's own content -- never this block's own header, and never (on whichever single block
+ * happens to embed it) the `Arena` struct's own bytes. Walking this span sequentially is only
+ * meaningful when every allocation into this arena went through gc_object.c's `gc_alloc`, never
+ * a bare `arena_alloc` call directly (every object then has its own header saying how far to the
+ * next one, which is exactly what makes the span walkable at all) -- an arena that ever mixed in
+ * a bare `arena_alloc` (src/value_copy.c's outbound arena, for one) is not walkable this way;
+ * nothing here stops the call, but the result would not parse into real objects. */
+void arena_block_content(const ArenaBlock *b, const char **out_start, size_t *out_len);
+
 #endif

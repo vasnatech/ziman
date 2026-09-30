@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy corelib-reference lib-manual-check not-yet-check
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup corelib-reference lib-manual-check not-yet-check
 
 all: $(BIN)
 
@@ -159,6 +159,14 @@ test-gc-object: src/arena.c src/gc_object.c tests/unit/gc_object_test.c
 test-gc-copy: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/arena.c src/gc_object.c src/gc_copy.c tests/unit/gc_copy_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_copy_test src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/arena.c src/gc_object.c src/gc_copy.c tests/unit/gc_copy_test.c
 	/tmp/ziman_gc_copy_test
+
+# src/gc_lookup.c resolves a bare address (a future conservative stack scan's own candidate words,
+# docs/MEMORY.md Phase 3) to the gc_alloc'd object it falls within or inside, by walking arena.c's
+# own block layout via gc_object.c's gc_next_object -- no interpreter Value machinery needed, so
+# this stays as dependency-free as arena.c/gc_object.c's own tests, unlike gc_copy.c's.
+test-gc-lookup: src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_lookup_test src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup_test.c
+	/tmp/ziman_gc_lookup_test
 
 # docs/CORELIB.md and the manual in docs/lib/ are generated from the lib/core and lib/db modules' own `pub` declarations
 # (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make

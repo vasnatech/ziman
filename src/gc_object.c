@@ -52,3 +52,14 @@ int gc_is_marked(const void *obj) {
 void gc_set_marked(void *obj, int marked) {
     header_of(obj)->marked = marked;
 }
+
+const void *gc_next_object(const char **cursor, const char *end) {
+    if (*cursor >= end) return NULL;
+    GcHeader *h = (GcHeader *)*cursor;
+    const void *payload = *cursor + GC_HEADER_SPAN;
+    /* Matches gc_alloc's own request to arena_alloc exactly: the header plus the payload, rounded
+     * up together as one span -- not the header's own (already-rounded) size plus the payload
+     * separately rounded, which can differ and would walk to the wrong next address. */
+    *cursor += round_up(GC_HEADER_SPAN + h->size, GC_ALIGN);
+    return payload;
+}

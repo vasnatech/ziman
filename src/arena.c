@@ -162,3 +162,22 @@ void arena_destroy(Arena *a) {
 size_t arena_reserved(const Arena *a) {
     return a->reserved;
 }
+
+const ArenaBlock *arena_first_block(const Arena *a) {
+    return a->current;
+}
+
+const ArenaBlock *arena_next_block(const ArenaBlock *b) {
+    return b->next;
+}
+
+void arena_block_content(const ArenaBlock *b, const char **out_start, size_t *out_len) {
+    /* `next == NULL` identifies the one block that embeds the `Arena` struct itself (see
+     * arena_create_impl): every other block is only ever created by the "current is full" branch
+     * of arena_alloc, which sets its `next` before anything else can run, and nothing ever touches
+     * the original block's `next` again after arena_create_impl leaves it NULL. */
+    size_t used_at_start = round_up(ARENA_HEADER, ARENA_ALIGN);
+    if (b->next == NULL) used_at_start += round_up(sizeof(Arena), ARENA_ALIGN);
+    *out_start = (const char *)b + used_at_start;
+    *out_len = b->used - used_at_start;
+}

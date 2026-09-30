@@ -41,4 +41,15 @@ size_t gc_size_of(const void *obj);
 int gc_is_marked(const void *obj);
 void gc_set_marked(void *obj, int marked);
 
+/* Walks a raw byte range of already-allocated content one object at a time -- for a caller (e.g.
+ * src/gc_lookup.c) that needs to visit every object in an arena, not just look one up by its own
+ * known pointer. `*cursor` must start at an object's own header (the content-span start
+ * `arena_block_content` reports, or wherever a previous call left it); each call returns that
+ * object's payload pointer -- the same address `gc_alloc` originally handed back, safe to pass to
+ * `gc_kind_of`/`gc_size_of`/etc. -- and advances `*cursor` past it, to the next header. Returns NULL
+ * once `*cursor` reaches `end`, with nothing left to walk. This is the one other place besides
+ * `gc_alloc` itself that knows this module's private header layout; nothing else needs to compute
+ * an object's own footprint. */
+const void *gc_next_object(const char **cursor, const char *end);
+
 #endif
