@@ -193,15 +193,46 @@ sitting in a `Channel`'s queue, which is exactly the open question already recor
 that same question, arrived at from the allocator side instead of the collector side, confirming
 it's real and not an artifact of the collection design specifically.
 
-**Resolution for now**: a crossing-point deep copy is not allowed to land in *either* thread's own
-per-thread arena. It goes to the permanent/unmanaged region instead (pulled forward from its own
-later step below) — plain, unmanaged memory nothing ever frees through this mechanism, safe
-regardless of either thread's arena lifecycle, at the cost of leaking exactly the values that cross
-a thread boundary, for now. This is the honest, narrow version of "outside any single thread's
-collected region" the open question above already called for; a real reclamation story for these
-specific values (most plausibly a small, dedicated refcount just for what crosses a channel or a
+**Resolution, now implemented (see Status below)**: a crossing-point deep copy is not allowed to
+land in *either* thread's own per-thread working arena. It goes to a second, per-thread *outbound*
+arena instead — created lazily, never destroyed, so each thread's own crossing-point copies survive
+regardless of that thread's own working-arena lifecycle, at the cost of leaking exactly the values
+that cross a thread boundary, for now. This is the honest, narrow version of "outside any single
+thread's collected region" the open question above already called for; a real reclamation story for
+these specific values (most plausibly a small, dedicated refcount just for what crosses a channel or a
 spawn boundary, not the general refcounting design already rejected for the whole value graph) is
 follow-up work once the rest of this design exists, not a Phase 2 blocker.
+
+### A constraint found implementing Phase 2, binding on every future arena, not just the outbound one
+
+**Every per-thread arena this design ever creates must be a *scanned* one (registered with the
+collector via `GC_add_roots`), not a plain `mmap`'d region invisible to it — this interpreter
+already relies on Boehm's conservative scanning to keep native resource handles alive, and any
+arena that isn't scanned silently breaks that the moment a handle-carrying value lands in it.**
+Found implementing the outbound arena below, the hard way: `admin_test.py`
+(`health-record-backend-ziman`) hung, then failed outright with "invalid or closed connection
+handle," the first time a database connection crossed a `spawn`/`Channel` boundary through it. This
+codebase represents a native handle (`src/native_sqlite.c`'s `DbConn`, and presumably every other
+`HandleSet`-based native resource — sockets, files, TLS sessions) as the handle object's own heap
+address, cast to a plain `int64_t` and carried inside an ordinary `Value`. Boehm keeps the
+underlying object alive *only* because that address, in bit-pattern form, sits somewhere its
+conservative scanner looks — the C stack, or another `GC_MALLOC`'d block. An arena's `mmap`'d memory
+is invisible to that scanner by construction (the entire point of not using `GC_MALLOC`); a value
+copied into an unscanned arena still numerically encodes the same address, but nothing keeps the
+real object alive anymore once every *scanned* copy of that same integer is gone — the collector
+correctly (by its own rules) sees no reachable reference left and reclaims it, finalizing (closing)
+the resource a program, through the arena copy, still believes is open. See DESIGN.md's own entry
+on this for the full incident, including a methodological note: the first reproduction attempt hit
+a stale server process left over from earlier debugging squatting on the test's fixed port, a
+self-inflicted red herring that had to be ruled out before the real bug was even visible.
+
+This is not specific to `value_deep_copy` or to values that cross threads — it applies to **any**
+value an arena ever holds. Phase 2's remaining work (routing *ordinary*, non-crossing allocation
+into a per-thread working arena) will need the scanned variant too, or a program that just calls
+`sqlite.open()` and keeps using the connection normally, never spawning anything, would break the
+same way the moment that arena's own contents include the connection. `arena_create_scanned`
+(`src/arena.c`) is the fix already built and proven for the outbound arena; the working arena in
+Phase 2's remaining step needs to use it from the start, not discover the same bug a second time.
 
 ### What this deliberately does not solve
 
@@ -248,21 +279,31 @@ standalone arena allocator, landed inert before anything calls it" entry for wha
 real bugs the test found before this went anywhere near the interpreter) and why it has to use
 `mmap`/`munmap` rather than `malloc`/`free`.
 
-**A correction found while scoping the rest of Phase 2, recorded above in this document's own
-design section rather than only here**: a crossing-point copy (`value_deep_copy`'s output) cannot
-be allocated from either thread's own per-thread arena once those exist, or an arena freed "at
-thread exit" would free memory a still-running thread on the other end of a `spawn` or `Channel`
-still needs. Resolved by routing those specific copies to the permanent/unmanaged region instead,
-accepting that they leak for now -- see "A correction found while scoping the implementation,
-before writing the arena code" above for the full reasoning. This has to land before allocation
-sites get rewired to use per-thread arenas, not after, since `value_deep_copy` already exists.
+**Phase 2, second increment done (2026-09-29): `value_deep_copy` now allocates into a real, safe
+destination instead of the ordinary allocator.** Every thread gets a second arena besides its
+eventual main one -- an *outbound* arena, created lazily on first use and never destroyed (deliberately: this is the "leak them for now" resolution the correction below already called
+for, now actually built rather than just decided). Needs no lock despite outliving its own thread:
+only the owning thread ever writes into it; every other thread only ever reads an already-built,
+immutable value out of it afterward, the same reasoning that already let a `Value` cross a channel
+with no locking before any of this existed. Every `Value` kind except `Map`/`Set` now has its own
+arena-aware constructor in `src/value_copy.c` (`Map`/`Set` stay on the ordinary allocator for now --
+an explicitly flagged gap, not a regression, since that's exactly how they were allocated before
+this file existed). See docs/DESIGN.md's "`value_deep_copy` gets a real, safe destination" entry.
 
-Phases 2's remaining work (routing the interpreter's own allocation sites through a per-thread
-arena, plus giving `value_deep_copy` its permanent-region destination instead of whatever the
-ordinary constructors resolve to once they're arena-backed) and phases 3-5 (object headers +
-conservative-stack-scan + mark-sweep, moving globals/AST to the permanent region, re-measuring
-against the concurrency benchmark) are still design only, not started, not scoped into an estimate
-— comparable in size to writing a small garbage collector from scratch, because that's what Phase 3
-is: precise inside the heap, conservative on the stack (reusing Boehm's proven technique for that
-one part), scoped to a single thread rather than the whole process. Tracked as the concurrency half
-of F2 (docs/reviews/tasks.md).
+**Caught a real, serious bug before it shipped, from running the actual backend suite, not just
+this interpreter's own tests: a plain `arena_create` silently breaks native resource handles.**
+The design section above now has a permanent subsection on why ("A constraint found implementing
+Phase 2, binding on every future arena, not just the outbound one") -- `arena_create_scanned`
+(`src/arena.c`) is the fix, and every arena this design creates from here on needs to use it, not
+just the outbound one. Verified directly, not just that the test suite went green again: a minimal
+reproduction (`tests/fixtures/thread_crossing_native_handle.zm`) confirmed to fail with the exact
+original error when temporarily reverted, and pass once reverted back.
+
+Remaining Phase 2 work (routing the *interpreter's own* allocation sites -- ordinary `Value`
+construction during normal single-thread execution, not crossing-point copies -- through a
+per-thread working arena) and phases 3-5 (object headers + conservative-stack-scan + mark-sweep,
+moving globals/AST to the permanent region, re-measuring against the concurrency benchmark) are
+still design only, not started, not scoped into an estimate — comparable in size to writing a small
+garbage collector from scratch, because that's what Phase 3 is: precise inside the heap,
+conservative on the stack (reusing Boehm's proven technique for that one part), scoped to a single
+thread rather than the whole process. Tracked as the concurrency half of F2 (docs/reviews/tasks.md).

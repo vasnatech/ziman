@@ -6,6 +6,16 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+/* Only for GC_add_roots/GC_remove_roots (arena_create_scanned). A `make`/`make gc` build already
+ * force-includes src/zgc.h into every translation unit (the Makefile's own `-include`, which is
+ * what zgc.h's malloc/calloc/realloc/free redefinitions rely on -- see arena.h's comment on why
+ * this file never calls any of them, mmap/munmap being untouched by that redirect either way) --
+ * this explicit include is for gc.h's own declarations, not to pull in anything zgc.h wouldn't
+ * already have made available transitively. */
+#ifdef ZIMAN_GC
+#include <gc.h>
+#endif
+
 /* One `mmap`'d region, prepended to the arena's block list as it fills. `data` (a flexible array
  * member, so the block header and the bytes it hands out are one allocation) is bump-allocated
  * forward from `used`, which starts past the header itself; a block is never bump-allocated into
@@ -22,6 +32,7 @@ typedef struct ArenaBlock {
 struct Arena {
     ArenaBlock *current;
     size_t reserved;
+    int scanned; /* see arena_create_scanned */
 };
 
 /* C11's max_align_t is the portable way to ask for "however aligned the strictest C type needs to
@@ -78,16 +89,38 @@ static ArenaBlock *block_new(size_t min_payload) {
     return b;
 }
 
-Arena *arena_create(void) {
+/* Registers `b` with the collector as an additional conservatively-scanned range, in a `ZIMAN_GC`
+ * build with `scanned` set -- a no-op otherwise (arena.h's own comment on `arena_create_scanned`
+ * explains what this is for and why it's needed at all). */
+static void maybe_scan(const ArenaBlock *b, int scanned) {
+#ifdef ZIMAN_GC
+    if (scanned) GC_add_roots((void *)b, (char *)b + b->size);
+#else
+    (void)b;
+    (void)scanned;
+#endif
+}
+
+static Arena *arena_create_impl(int scanned) {
     /* The Arena struct itself lives in the first block's own payload, so creating one is exactly
      * one mmap call, not two -- the same "no allocation outside this module's own mechanism"
      * discipline the rest of this file follows. */
     ArenaBlock *first = block_new(sizeof(Arena));
+    maybe_scan(first, scanned);
     Arena *a = (Arena *)(first->data);
     first->used += round_up(sizeof(Arena), ARENA_ALIGN);
     a->current = first;
     a->reserved = first->size;
+    a->scanned = scanned;
     return a;
+}
+
+Arena *arena_create(void) {
+    return arena_create_impl(0);
+}
+
+Arena *arena_create_scanned(void) {
+    return arena_create_impl(1);
 }
 
 void *arena_alloc(Arena *a, size_t size) {
@@ -98,6 +131,7 @@ void *arena_alloc(Arena *a, size_t size) {
     ArenaBlock *cur = a->current;
     if (cur->used + need > cur->size) {
         ArenaBlock *fresh = block_new(need);
+        maybe_scan(fresh, a->scanned);
         fresh->next = cur;
         a->current = fresh;
         a->reserved += fresh->size;
@@ -109,10 +143,16 @@ void *arena_alloc(Arena *a, size_t size) {
 }
 
 void arena_destroy(Arena *a) {
+    int scanned = a->scanned;
     ArenaBlock *b = a->current;
     while (b != NULL) {
         ArenaBlock *next = b->next;
         size_t size = b->size;
+#ifdef ZIMAN_GC
+        if (scanned) GC_remove_roots((void *)b, (char *)b + size);
+#else
+        (void)scanned;
+#endif
         munmap(b, size);
         b = next;
     }

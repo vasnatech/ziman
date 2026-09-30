@@ -27,6 +27,30 @@ typedef struct Arena Arena;
 
 Arena *arena_create(void);
 
+/* Like `arena_create`, except every block is also registered with the Boehm collector
+ * (`GC_add_roots`) as an additional conservatively-scanned range, in a `ZIMAN_GC` build --
+ * a plain `arena_create` in the plain build, since there is no collector to register with.
+ *
+ * Needed wherever a value that might contain a native resource handle can end up in this arena
+ * (see src/value_copy.c): this codebase represents a handle (a database connection, ...) as the
+ * handle object's own heap address, cast to a plain `int64_t` and carried inside an ordinary
+ * `Value` (src/native_sqlite.c's own comment on `DbConn`/`g_live` explains why: "being in the set
+ * does not keep it alive... a Connection value nobody holds any more is collected"). Boehm keeps
+ * that object alive precisely *because* its address, in bit-pattern form, sits somewhere Boehm's
+ * conservative scanner looks -- normally the C stack or another `GC_MALLOC`'d block. An `mmap`'d
+ * arena block is invisible to that scanner by construction (the whole point of `arena_create`,
+ * for everything that never needs to be seen); copying such a value into an *unscanned* arena
+ * would silently break that retention, since nothing would keep the real object alive once every
+ * `GC_MALLOC`'d copy of the same integer is gone -- exactly the bug an early version of the
+ * outbound arena had, caught by `admin_test.py`'s own account-deletion-with-medications case
+ * hanging/erroring against a connection Boehm had already finalized out from under a copy sitting
+ * in unscanned memory. Scanning the whole arena is broader than strictly necessary (most of what
+ * lives there is never a disguised pointer at all), but a value's own shape isn't known until it's
+ * already been copied, and scanning harmless integers as if they might be pointers is exactly what
+ * *every* conservative collector already does for the ordinary C stack -- this is not a new kind
+ * of imprecision, just the same one applied to one more region. */
+Arena *arena_create_scanned(void);
+
 /* `size` bytes, aligned for any C type this interpreter stores in one (matching `malloc`'s own
  * alignment guarantee). Already zero-filled -- not a documented general contract of arenas, but a
  * genuine, free property of this one: every byte handed out is either freshly `mmap`'d (the kernel
@@ -36,7 +60,10 @@ Arena *arena_create(void);
 void *arena_alloc(Arena *a, size_t size);
 
 /* Releases every block `a` ever allocated, and `a` itself. Nothing allocated from it may be read or
- * written afterward -- the same "past this point, everything is gone" contract `munmap` itself has. */
+ * written afterward -- the same "past this point, everything is gone" contract `munmap` itself has.
+ * For an arena made with `arena_create_scanned`, this also un-registers every block's roots
+ * (`GC_remove_roots`) before unmapping it -- required, not optional: the collector must never be
+ * left holding a root that points at memory `munmap` has already given back to the OS. */
 void arena_destroy(Arena *a);
 
 /* Total bytes reserved from the OS across every block in `a` (not just what's been handed out) --

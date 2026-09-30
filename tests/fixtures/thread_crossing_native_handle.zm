@@ -1,0 +1,32 @@
+use sqlite
+use os
+
+// A native resource handle (a database connection) crossing a spawn/Channel boundary, under real
+// GC pressure. This is a regression guard for a real bug found implementing docs/MEMORY.md's
+// per-thread arena work: a handle is represented as the handle object's own heap address, cast to
+// a plain int64_t inside an ordinary Value (see src/native_sqlite.c's own comment on DbConn/
+// g_live); the collector only keeps the underlying native object alive because that address, in
+// bit-pattern form, sits somewhere its conservative scanner looks. Deep-copying such a value into
+// an *unscanned* arena block (mmap'd memory the collector doesn't know to scan) silently broke
+// that retention -- forcing a collection between the copy and using it reliably reproduced
+// "invalid or closed connection handle" before src/arena.c's arena_create_scanned fix.
+fn worker(out: Channel<sqlite.Connection>) {
+    val c = unwrap(sqlite.open(":memory:"))
+    send(out, c)
+}
+
+fn main() {
+    val out: Channel<sqlite.Connection> = channel_new()
+    spawn worker(out)
+    val conn = receive(out)
+    os.collect_garbage()
+    os.collect_garbage()
+    os.collect_garbage()
+    unwrap(sqlite.execute(conn, "CREATE TABLE t (id INTEGER)"))
+    unwrap(sqlite.execute(conn, "INSERT INTO t VALUES (42)"))
+    os.collect_garbage()
+    os.collect_garbage()
+    val rows = unwrap(sqlite.query(conn, "SELECT id FROM t"))
+    print(len(rows))
+    sqlite.close(conn)
+}

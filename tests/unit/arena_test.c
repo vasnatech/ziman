@@ -99,6 +99,23 @@ int main(void) {
     arena_destroy(empty);
     check("create then destroy with no other allocations doesn't crash", 1);
 
+    /* arena_create_scanned's own GC_add_roots/GC_remove_roots calls compile out entirely in this
+     * standalone (non-ZIMAN_GC) test binary -- see arena.c's own maybe_scan -- so this only
+     * exercises that the API surface behaves the same as the plain one, not the actual root
+     * registration; that property is checked at the interpreter level instead
+     * (tests/fixtures/thread_crossing_native_handle.zm, which reproduces the real bug this was
+     * for -- a native handle's retention silently breaking when a value crossing a thread landed
+     * in unscanned arena memory -- and confirms the fix). */
+    Arena *scanned = arena_create_scanned();
+    char *sp = arena_alloc(scanned, 100);
+    memset(sp, 0x11, 100);
+    int scanned_ok = 1;
+    for (int i = 0; i < 100; i++) {
+        if ((unsigned char)sp[i] != 0x11) scanned_ok = 0;
+    }
+    arena_destroy(scanned);
+    check("arena_create_scanned behaves like arena_create for ordinary allocation", scanned_ok);
+
     printf("%d failure(s)\n", failures);
     return failures ? 1 : 0;
 }
