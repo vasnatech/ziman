@@ -464,3 +464,29 @@ exact and interior matches, addresses that must resolve to nothing, alignment-pa
 and walking across multiple `mmap`'d blocks. Still ahead: the actual stack scan (using `stack.c`'s
 existing bounds computation to find the candidate words in the first place), the collection trigger,
 and wiring a full cycle end to end.
+
+**Phase 3, fourth implementation increment done (2026-09-30): the conservative stack scan itself**
+(`src/gc_scan.c`/`.h`, `gc_scan_stack_roots`) -- scans the *calling* thread's own C stack, word by
+word, from (approximately) the current stack pointer up to the thread's real upper bound, feeding
+each word through `gc_lookup` and reporting whatever resolves to a real object. Always the calling
+thread's own stack, never another's: this design's entire premise (one heap per thread, each
+collected on its own time) means there is never a reason to pause or inspect any other thread's
+stack the way a stop-the-world collector would, so no locking or thread-suspension machinery exists
+here at all, or ever needs to. Reused this codebase's own existing "address of a local is the stack
+pointer" idiom (`stack.h`'s `ZIMAN_STACK_CHECK`/`ziman_stack_remaining`) rather than a new technique,
+and a new `stack.c` accessor (`ziman_stack_bounds`) for the real bounds -- deliberately not
+`ziman_stack_limit`, the recursion guard's own margin-adjusted limit.
+
+**Worth recording plainly: this is the one module in the whole effort that cannot be fully
+`valgrind`-clean, and that is inherent to the technique, not a lapse.** Conservative scanning reads
+stack memory the current call chain may never have written (a slot left over from an earlier,
+unrelated, already-returned call) and treats it as a *possible* pointer -- `valgrind` correctly flags
+that as "uninitialised value used," the same interaction Boehm's own collector has with valgrind.
+Verified this is the *only* thing found, not cover for something worse, by re-running with
+`--undef-value-errors=no` (every other check -- invalid reads/writes, leaks -- still on): zero errors.
+See DESIGN.md's "The actual conservative stack scan" entry for the full reasoning and the standalone
+test's 6 checks (`tests/unit/gc_scan_test.c`, `make test-gc-scan`), run five times deliberately (stack
+contents vary run to run) rather than trusted once, including the interior-pointer-as-root case
+`gc_lookup.c` exists for. Still ahead: the collection trigger, and wiring a full cycle end to end --
+deciding when to run, walking from real interpreter roots instead of a test's synthetic ones, and
+actually relocating survivors with `gc_copy.c` before discarding the old arena.

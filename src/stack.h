@@ -45,6 +45,18 @@ int ziman_stack_is_main(void);
 /* Bytes of stack the calling thread has left before the "stack depth exceeded" error. */
 size_t ziman_stack_remaining(void);
 
+/* The calling thread's own real stack region -- `*out_low` the lowest address it may use,
+ * `*out_high` one past the highest (stacks grow down on every platform this runs on, so a scan
+ * looking for live roots runs from near the current stack pointer up toward `*out_high`, never
+ * down toward `*out_low`, since anything below the current stack pointer is already-returned,
+ * stale space from calls that are no longer active). For Phase 3's conservative root-finding
+ * (docs/MEMORY.md, src/gc_scan.c) -- deliberately not `ziman_stack_limit`, which is the recursion-
+ * depth guard's own margin-adjusted limit, not the stack's real bounds. Measures the thread on
+ * first call, same as the recursion guard does; returns 0 (leaving both untouched) if the thread
+ * cannot be measured (see measure_this_thread's own comment on why that is possible at all), 1 on
+ * success. */
+int ziman_stack_bounds(char **out_low, char **out_high);
+
 /* Runs `fn(arg)` on a new thread with a stack of `ziman_main_stack_bytes()` (halving the size until the system agrees, and running it on the calling thread
  * if no size works) and waits for it; returns fn's result. */
 void *ziman_run_on_big_stack(void *(*fn)(void *), void *arg);

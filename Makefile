@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup corelib-reference lib-manual-check not-yet-check
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan corelib-reference lib-manual-check not-yet-check
 
 all: $(BIN)
 
@@ -167,6 +167,18 @@ test-gc-copy: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/m
 test-gc-lookup: src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_lookup_test src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup_test.c
 	/tmp/ziman_gc_lookup_test
+
+# src/gc_scan.c conservatively scans the calling thread's own C stack for roots into an arena, using
+# src/stack.c's own stack-bounds computation (ziman_stack_bounds) and src/gc_lookup.c to resolve each
+# candidate word -- see its own header comment on why this test cannot be fully valgrind-clean in the
+# strict sense every earlier module here is: reading genuinely uninitialised stack memory and
+# comparing it as a possible pointer is what conservative scanning *is*, not a bug (the same
+# interaction Boehm's own collector has with valgrind). `valgrind --undef-value-errors=no` (memcheck's
+# other checks -- invalid read/write, leak detection -- still fully active) is the honest way to
+# confirm there is no *actual* memory-safety issue underneath that expected noise.
+test-gc-scan: src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_scan_test src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
+	/tmp/ziman_gc_scan_test
 
 # docs/CORELIB.md and the manual in docs/lib/ are generated from the lib/core and lib/db modules' own `pub` declarations
 # (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make

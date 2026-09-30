@@ -15,6 +15,7 @@
 
 __thread char *ziman_stack_limit = NULL;
 static __thread size_t t_stack_size = 0;
+static __thread char *t_stack_low = NULL;
 static __thread int t_is_main = 0;
 
 static long g_main_mb = 0, g_thread_mb = 0, g_threads = 0; /* from the options */
@@ -42,8 +43,17 @@ static void measure_this_thread(void) {
     pthread_attr_getstack(&attr, &low, &size);
     pthread_attr_destroy(&attr);
     t_stack_size = size;
+    t_stack_low = (char *)low;
     size_t margin = margin_for(size);
     ziman_stack_limit = size > 2 * margin ? (char *)low + margin : (char *)low + size / 2;
+}
+
+int ziman_stack_bounds(char **out_low, char **out_high) {
+    if (t_stack_low == NULL) measure_this_thread();
+    if (t_stack_low == NULL) return 0; /* could not measure -- see measure_this_thread's own comment */
+    *out_low = t_stack_low;
+    *out_high = t_stack_low + t_stack_size;
+    return 1;
 }
 
 void ziman_stack_slow(void) {
