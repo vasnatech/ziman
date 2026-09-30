@@ -835,7 +835,45 @@ standalone `gc_*` unit tests pass; `valgrind` clean beyond the same confirmed pr
 interaction (more occurrences only because `spawn_defer_gc_stress.zm` spawns 8 threads, each its own
 call-stack context for the identical pattern).
 
-Still ahead: re-measuring against the concurrency benchmark once more allocation sites migrate, and
+Re-running the concurrency benchmark for the first time since any `gc_heap` migration shipped, the
+server hard-`abort()`-ed at c=16: Boehm's own `GC_add_roots` root-set table has a fixed capacity
+(`MAX_ROOT_SETS`, 2048), and two independent, pre-existing leaks both burned one entry forever, per
+thread, with nothing ever calling `GC_remove_roots`. First: `ziman_thread_heap()`'s own per-thread
+`GcHeap` was never destroyed at thread exit -- the one piece of `__thread` state missing its own
+release call in `spawn_thread_entry`, unlike the env pool/defer scopes/call stack, which already had
+theirs. Fixed directly (`ziman_thread_heap_release()`, safe because a `Channel`/`spawn` crossing
+always deep-copies first, never sharing a dying thread's own heap objects).
+
+Second, harder: `value_copy.c`'s own "outbound arena," documented as deliberately leaked since the
+day it was built pending "a real reclamation story," was the other half. Given the severity and that
+a real fix meant genuine design tradeoffs, asked how to proceed (raise `MAX_ROOT_SETS` as a stopgap,
+design real reclamation, or stop and reassess) -- chose real reclamation. `value_deep_copy` (one
+`__thread` arena, reused forever) became two functions: `value_copy_send`/`value_copy_receive`, each
+crossing value (or group -- a spawn's args plus its `on_error` handler) getting its own dedicated
+arena, lazily created only if something actually needs one (a scalar or a `Channel` costs nothing at
+all), destroyed the moment the receiving side has its own independent copy. `ChannelObj`'s queue now
+carries `{Value, owner_arena}` pairs; every receive-side function finalizes transparently, so no
+receive-side interpreter.c call site needed to change. This surfaced one more genuine bug, found only
+empirically (a debug print made it vanish -- the signature of a race, confirmed by ten clean reruns):
+a spawned thread's pending `on_error` handler, once safely re-copied, was referenced by nothing but a
+plain `malloc`'d struct until `thread_failed` read it -- safe by accident under the old design (Boehm
+scans every `GC_MALLOC`'d block, no explicit rooting needed), a real gap the moment that string moved
+onto this thread's own `gc_heap`. Fixed with `t_pending_handler`, a new root source mirroring
+`t_defer_envs`/`t_env_pool`'s own shape exactly. See DESIGN.md's "A fourth root-source gap becomes a
+hard crash" entry for the full story.
+
+Verified: the fixture that caught the handler race passes ten runs in a row; both `try_send` failure
+paths (closed, full) confirmed to report correctly and not leak their crossing arena
+(`valgrind --leak-check=full`, 0 bytes definitely lost); full suite 831/831 stable across five runs on
+both builds; all nine standalone `gc_*` unit tests pass; `valgrind` clean on the fixture this segment's
+own bug was found through. **And, for the first time since any `gc_heap` migration shipped**:
+`tests/bench/server_concurrency.sh` against the real `health-record-backend-ziman` app completes all
+four concurrency levels with zero failures and no crash (c=1 474 req/s, c=4 773, c=8 689, c=16 454) --
+fixing the crash was the prerequisite for measuring the benchmark at all, not a fix for the underlying
+declining-past-its-peak throughput shape it was built to diagnose, which is still present and still
+ahead.
+
+Still ahead: re-measuring/improving that throughput shape once more allocation sites migrate, and
 migrating them (`env_new`/call frames next, per the project owner's own "narrowest possible slice"
 sequencing) -- each migration so far has surfaced its own bug at the exact point a newly-migrated
 allocation site meets a pre-existing mechanism never designed with a real collector in mind; no reason

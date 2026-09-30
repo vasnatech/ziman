@@ -9,10 +9,12 @@
 #include <string.h>
 #include <time.h>
 
+#include "arena.h"
 #include "bignum.h"
 #include "decimal.h"
 #include "error.h"
 #include "gc_thread_heap.h"
+#include "value_copy.h"
 
 Value value_int(int64_t i) { Value v; v.type = type_scalar(TY_INT); v.as.i = i; return v; }
 Value value_float(double f) { Value v; v.type = type_scalar(TY_FLOAT); v.as.f = f; return v; }
@@ -383,43 +385,55 @@ ChannelObj *channel_obj_new(int limit) {
 }
 
 /* The caller holds the lock. */
-static void channel_push_locked(ChannelObj *ch, Value v) {
+static void channel_push_locked(ChannelObj *ch, Value v, Arena *owner_arena) {
     if (ch->count == ch->capacity) {
         int new_capacity = ch->capacity == 0 ? 4 : ch->capacity * 2;
-        Value *bigger = malloc((size_t)new_capacity * sizeof(Value));
+        ChannelMsg *bigger = malloc((size_t)new_capacity * sizeof(ChannelMsg));
         for (int i = 0; i < ch->count; i++) bigger[i] = ch->items[(ch->head + i) % ch->capacity];
         ch->items = bigger;
         ch->head = 0;
         ch->capacity = new_capacity;
     }
-    ch->items[(ch->head + ch->count) % ch->capacity] = v;
+    ch->items[(ch->head + ch->count) % ch->capacity].value = v;
+    ch->items[(ch->head + ch->count) % ch->capacity].owner_arena = owner_arena;
     ch->count++;
     pthread_cond_signal(&ch->not_empty);
 }
 
-static Value channel_pop_locked(ChannelObj *ch) {
-    Value v = ch->items[ch->head];
+static ChannelMsg channel_pop_locked(ChannelObj *ch) {
+    ChannelMsg m = ch->items[ch->head];
     ch->head = (ch->head + 1) % ch->capacity;
     ch->count--;
     pthread_cond_signal(&ch->not_full);
-    return v;
+    return m;
 }
 
-int channel_send(ChannelObj *ch, Value v) {
+/* Finishes a popped message outside the channel's own lock (this may run value_copy_receive's own
+ * allocation work, no reason to hold up every other send/receive on this channel for that) -- see
+ * `channel_send`'s own `owner_arena` comment and value_copy.h for what this is closing out. */
+static Value channel_finalize_received(ChannelMsg m) {
+    if (m.owner_arena == NULL) return m.value;
+    Value fresh = value_copy_receive(m.value);
+    arena_destroy(m.owner_arena);
+    return fresh;
+}
+
+int channel_send(ChannelObj *ch, Value v, Arena *owner_arena) {
     pthread_mutex_lock(&ch->mutex);
     while (!ch->closed && ch->limit > 0 && ch->count >= ch->limit) {
         pthread_cond_wait(&ch->not_full, &ch->mutex);
     }
     if (ch->closed) {
         pthread_mutex_unlock(&ch->mutex);
+        if (owner_arena != NULL) arena_destroy(owner_arena);
         return 1;
     }
-    channel_push_locked(ch, v);
+    channel_push_locked(ch, v, owner_arena);
     pthread_mutex_unlock(&ch->mutex);
     return 0;
 }
 
-int channel_try_send_status(ChannelObj *ch, Value v) {
+int channel_try_send_status(ChannelObj *ch, Value v, Arena *owner_arena) {
     pthread_mutex_lock(&ch->mutex);
     int status;
     if (ch->closed) {
@@ -427,10 +441,11 @@ int channel_try_send_status(ChannelObj *ch, Value v) {
     } else if (ch->limit > 0 && ch->count >= ch->limit) {
         status = 1;
     } else {
-        channel_push_locked(ch, v);
+        channel_push_locked(ch, v, owner_arena);
         status = 0;
     }
     pthread_mutex_unlock(&ch->mutex);
+    if (status != 0 && owner_arena != NULL) arena_destroy(owner_arena);
     return status;
 }
 
@@ -443,8 +458,9 @@ int channel_receive(ChannelObj *ch, Value *out) {
         pthread_mutex_unlock(&ch->mutex);
         return 0;
     }
-    *out = channel_pop_locked(ch);
+    ChannelMsg m = channel_pop_locked(ch);
     pthread_mutex_unlock(&ch->mutex);
+    *out = channel_finalize_received(m);
     return 1;
 }
 
@@ -466,16 +482,19 @@ int channel_receive_timeout(ChannelObj *ch, int64_t millis, Value *out) {
         pthread_mutex_unlock(&ch->mutex);
         return 0;
     }
-    *out = channel_pop_locked(ch);
+    ChannelMsg m = channel_pop_locked(ch);
     pthread_mutex_unlock(&ch->mutex);
+    *out = channel_finalize_received(m);
     return 1;
 }
 
 int channel_try_receive(ChannelObj *ch, Value *out) {
     pthread_mutex_lock(&ch->mutex);
     int ok = ch->count > 0;
-    if (ok) *out = channel_pop_locked(ch);
+    ChannelMsg m;
+    if (ok) m = channel_pop_locked(ch);
     pthread_mutex_unlock(&ch->mutex);
+    if (ok) *out = channel_finalize_received(m);
     return ok;
 }
 

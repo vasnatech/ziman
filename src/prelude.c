@@ -1286,7 +1286,7 @@ typedef struct {
 static void guard_finalizer(void *obj, void *client_data) {
     (void)client_data;
     GuardBuf *g = obj;
-    (void)channel_send(g->ch, g->message);
+    (void)channel_send(g->ch, g->message, NULL);
 }
 #endif
 

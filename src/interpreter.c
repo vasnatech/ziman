@@ -20,6 +20,7 @@
 #include "fmtstr.h"
 #include "gc_heap.h"
 #include "gc_interp_roots.h"
+#include "gc_mark.h"
 #include "gc_thread_heap.h"
 #include "mapobj.h"
 #include "native.h"
@@ -229,6 +230,13 @@ static __thread Env **t_env_pool = NULL;
 static __thread int t_env_pool_count = 0;
 static __thread int t_env_pool_capacity = 0;
 
+/* A spawned thread's own pending `on_error` handler, from the moment spawn_thread_entry has its own
+ * safe, ordinary-allocated copy until either thread_failed has used it or this thread's own call
+ * finished without ever needing it -- see spawn_thread_entry's own comment on why this needs to be
+ * an explicit root source at all (mirrors t_defer_envs/t_env_pool's own shape). */
+static __thread Value t_pending_handler;
+static __thread int t_has_pending_handler = 0;
+
 static void env_pool_grow(int capacity) {
 #ifdef ZIMAN_GC
     Env **fresh = GC_MALLOC_UNCOLLECTABLE(sizeof(Env *) * (size_t)capacity);
@@ -353,6 +361,12 @@ typedef struct SpawnArgs {
     int line, col;
     Value handler; /* the `on_error` function value, when has_handler */
     int has_handler;
+    /* The one arena, if any, that args/handler's own value_copy_send calls shared (NULL if every
+     * one of them was a scalar/Channel and none needed one at all) -- destroyed by
+     * spawn_thread_entry once it has run value_copy_receive on every value that might reference it,
+     * never partway through (see value_copy.h's own comment on why several values sharing one arena
+     * must all be finished before it goes). */
+    Arena *crossing_arena;
 } SpawnArgs;
 
 /* A function value (a named function or a lambda with what it captured) called from C with `args`.
@@ -420,6 +434,33 @@ static void thread_failed(struct SpawnArgs *sa, const char *message) {
 static void *spawn_thread_entry(void *raw) {
     SpawnArgs *sa = (SpawnArgs *)raw;
     ziman_thread_begin(sa->fn->name);
+    /* Re-copies every crossing value into this thread's own ordinary allocators before anything
+     * else runs (call_function's own parameter binding, and a failure path's own thread_failed both
+     * read sa->args/sa->handler directly) -- then destroys the shared arena exactly once, only after
+     * every value that might reference it has its own independent copy (see value_copy.h and
+     * STMT_SPAWN's own comment on why they share one arena instead of one each). */
+    if (sa->crossing_arena != NULL) {
+        for (int i = 0; i < sa->argc; i++) sa->args[i] = value_copy_receive(sa->args[i]);
+        if (sa->has_handler) sa->handler = value_copy_receive(sa->handler);
+        arena_destroy(sa->crossing_arena);
+    }
+    /* sa->handler, from here until thread_failed either uses it or this thread decides it was
+     * never needed, is referenced only by `sa` -- a plain malloc'd struct, invisible to both root
+     * sources (not on this thread's own C stack, not bound into any Env) for however long
+     * call_function's own body happens to run before it fails, if it ever does. Boehm's own
+     * conservative scan would have found it regardless (it scans every GC_MALLOC'd block, sa
+     * included, with no explicit rooting needed at all) back when everything crossing a thread
+     * boundary lived in an arena Boehm treated as a valid scan target -- but a value_copy_receive
+     * copy now lives whichever way this thread's own value constructors do today (this thread's own
+     * gc_heap, for a kind already migrated there), which only this module's own two root sources
+     * ever find. t_pending_handler is exactly that: a root source scoped to precisely this window,
+     * mirroring t_defer_envs/t_env_pool's own shape for the identical reason. Found the same way as
+     * every other gap like it this session -- empirically, via a flaky failure that vanished the
+     * moment a debug print incidentally kept a stack-resident copy alive, not by inspection. */
+    if (sa->has_handler) {
+        t_pending_handler = sa->handler;
+        t_has_pending_handler = 1;
+    }
     ThreadBoundary boundary;
     ziman_thread_boundary_enter(&boundary);
     if (setjmp(boundary.jb) == 0) {
@@ -428,9 +469,11 @@ static void *spawn_thread_entry(void *raw) {
     } else {
         thread_failed(sa, boundary.message);
     }
+    t_has_pending_handler = 0;
     defer_envs_release();
     env_pool_release_all();
     ziman_call_stack_release();
+    ziman_thread_heap_release();
     ziman_thread_end();
     free(sa->args);
     free(sa);
@@ -1264,16 +1307,19 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 }
                 result = value_channel(e->resolved_type, channel_obj_new(limit));
             } else if (strcmp(e->as.call.callee, "send") == 0) {
-                /* Deep-copied, not aliased: a prerequisite for the memory-management redesign
-                 * (docs/MEMORY.md), landed ahead of it since it cannot change any program's
-                 * observable output under today's allocators (nothing is ever collected out from
-                 * under a value in flight), only what sending one costs. */
-                if (channel_send(args[0].as.ch, value_deep_copy(args[1]))) {
+                /* Deep-copied into its own dedicated arena, not aliased -- see value_copy.h's own
+                 * comment on why (one thread's memory must not depend on another's lifetime) and
+                 * channel_send's own on owner_arena (what receives it back out again). */
+                Arena *cross_arena = NULL;
+                Value copy = value_copy_send(args[1], &cross_arena);
+                if (channel_send(args[0].as.ch, copy, cross_arena)) {
                     ziman_error("runtime", e->line, e->col, "send on a closed channel");
                 }
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "try_send") == 0) {
-                int status = channel_try_send_status(args[0].as.ch, value_deep_copy(args[1]));
+                Arena *cross_arena = NULL;
+                Value copy = value_copy_send(args[1], &cross_arena);
+                int status = channel_try_send_status(args[0].as.ch, copy, cross_arena);
                 if (status == 2) {
                     ziman_error("runtime", e->line, e->col, "try_send on a closed channel");
                 }
@@ -1561,6 +1607,10 @@ static int eval_try_unwrap(Module *module, Env *env, Expr *e, Value *unwrapped, 
 static void mark_this_threads_roots(const Arena *a, void *ctx) {
     (void)ctx;
     gc_mark_interpreter_roots(a, g_global_env, t_defer_envs, t_defer_env_count, t_env_pool, t_env_pool_count);
+    /* See spawn_thread_entry's own comment on t_pending_handler: a spawned thread's pending
+     * on_error handler, for as long as it might still be needed, is reachable through nothing else
+     * this function already walks. */
+    if (t_has_pending_handler) gc_mark_value(a, t_pending_handler);
 }
 
 /* How much this thread's own heap must grow, since the last time it was checked, before another
@@ -1776,14 +1826,16 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
         case STMT_SPAWN: {
             /* args/handler are evaluated here, on the calling thread, then deep-copied before the
              * new thread ever sees them -- the same crossing-point fix as `send`'s own deep copy
-             * just above, and for the identical reason (docs/MEMORY.md): safe today because
-             * nothing is ever collected out from under either copy, and a prerequisite for the
-             * memory-management redesign that will make that no longer true. */
+             * just above, and for the identical reason (value_copy.h): one thread's own memory must
+             * not depend on another's lifetime. Every value that needs one shares a single arena
+             * (`crossing_arena`) rather than getting its own -- spawn_thread_entry re-copies each of
+             * them via value_copy_receive before destroying it, once, after all of them are done. */
             FunctionDecl *fn = find_function(module, s->as.spawn_stmt.callee);
             int argc = s->as.spawn_stmt.args.count;
             Value *args = argc > 0 ? malloc((size_t)argc * sizeof(Value)) : NULL;
+            Arena *crossing_arena = NULL;
             for (int i = 0; i < argc; i++) {
-                args[i] = value_deep_copy(eval_expr(module, env, s->as.spawn_stmt.args.items[i]));
+                args[i] = value_copy_send(eval_expr(module, env, s->as.spawn_stmt.args.items[i]), &crossing_arena);
             }
             SpawnArgs *sa = malloc(sizeof(SpawnArgs));
             sa->module = module;
@@ -1793,7 +1845,8 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             sa->line = s->line;
             sa->col = s->col;
             sa->has_handler = s->as.spawn_stmt.on_error != NULL;
-            if (sa->has_handler) sa->handler = value_deep_copy(eval_expr(module, env, s->as.spawn_stmt.on_error));
+            if (sa->has_handler) sa->handler = value_copy_send(eval_expr(module, env, s->as.spawn_stmt.on_error), &crossing_arena);
+            sa->crossing_arena = crossing_arena;
             if (ziman_spawn_thread(spawn_thread_entry, sa) != 0) {
                 ziman_error("runtime", s->line, s->col, "cannot start a thread (%s)", strerror(errno));
             }
