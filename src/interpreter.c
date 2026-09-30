@@ -1595,13 +1595,30 @@ void ziman_force_collect(void) {
 /* Runs `block`'s statements directly in `scope` (no further scope nesting) --
  * shared by exec_block (which makes its own fresh scope first) and STMT_FOR
  * (which needs a fresh scope per iteration holding that iteration's loop
- * binder(s), ahead of the body's own statements). */
+ * binder(s), ahead of the body's own statements).
+ *
+ * Also the one place that updates the current frame's own recorded Env (error.c's frame tracking,
+ * ziman_set_frame_env) for the duration of this nested scope, restoring it before returning --
+ * found necessary the hard way (docs/MEMORY.md, docs/DESIGN.md's own entry on the incident): every
+ * call to this function is handed a *child* of whatever Env the frame had recorded, but
+ * ziman_set_frame_env is otherwise only ever called once, by call_function, for a call's own
+ * top-level scope. Without this, gc_mark_env_chain's root walk -- which only ever walks a
+ * recorded Env and its ->parent chain *upward* -- could never reach a variable declared inside any
+ * loop or block body at all, since Env has no way to be walked *downward* from a shallower scope
+ * to a deeper one. A struct or array bound entirely inside a `for` loop's own body (a completely
+ * ordinary shape, not a corner case) was therefore invisible to every real collection cycle from
+ * the moment this frame tracking was first wired, regardless of which allocation site produced it
+ * -- not found until a real fixture kept one alive, in a nested scope, long enough under real
+ * allocation pressure for a collection to actually hit the gap. */
 static ExecResult exec_stmts_in_scope(Module *module, Env *scope, Stmt *block) {
+    void *saved_env = ziman_frame_env_at(ziman_frame_count() - 1);
+    ziman_set_frame_env(scope);
     ExecResult result = no_ctrl();
     for (int i = 0; i < block->as.block.stmts.count && result.kind == CTRL_NONE; i++) {
         result = exec_stmt(module, scope, block->as.block.stmts.items[i]);
     }
     run_defers(module, scope);
+    ziman_set_frame_env(saved_env);
     return result;
 }
 

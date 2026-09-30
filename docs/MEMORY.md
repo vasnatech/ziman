@@ -794,6 +794,49 @@ unrelated to Phase 3.
 See DESIGN.md's "Closing the temporary-buffer gap for real" entry. Verified: full suite 830/830 on both
 builds, stable across five repeated runs; all nine standalone `gc_*` unit tests pass; the real
 `health-record-backend-ziman` suite (823 checks) passes; `valgrind` clean beyond the confirmed
-pre-existing Boehm interaction. Still ahead: re-measuring against the concurrency benchmark once more
-allocation sites migrate, and migrating them (`env_new`/call frames next, per the project owner's own
-"narrowest possible slice" sequencing).
+pre-existing Boehm interaction.
+
+`array_obj_new` migrated next (the wrapper only). A zero-fill fix landed first (`gc_heap_alloc`'s
+reused-chunk path never cleared the free-list link written into a dead object's own payload bytes --
+fixed, `GcHeap` itself also now `GC_MALLOC_UNCOLLECTABLE` for the same `__thread`-scanning reason as
+`t_defer_envs`/`t_env_pool`). The migration itself segfaulted `spawn_defer_gc_stress.zm` --
+root-caused via a precise `gdb` backtrace to a fundamental gap in the second root source itself:
+`ziman_set_frame_env` only ever records a call's *top-level* `Env` (one call site, `call_function`),
+and `gc_mark_env_chain` only ever walks a recorded `Env`'s `->parent` upward -- a variable declared
+inside any nested `for`/`while`/`if`/block scope has been invisible to root-finding since this frame
+tracking was first built. Fixed in `exec_stmts_in_scope` (the single function every nested scope's
+execution funnels through): it now records the *currently executing* scope for the frame, not just
+the call's own top one, restoring the saved value on exit. See DESIGN.md's "`array_obj_new` migrates,
+and a fundamental gap..." entry. Verified against the exact crashing fixture (3 clean runs) and the
+other fixture it broke (`regex_cache`, confirmed matching); full suite 830/830 stable across five runs
+on both builds; all nine standalone `gc_*` unit tests pass.
+
+Running the real `health-record-backend-ziman` suite next (the standing rule) failed all 823 checks at
+once -- a third root-source gap, this time found by the app itself, not a synthetic fixture:
+`ArrayBuilder`/`MapBuilder`/`SetBuilder`'s own backing buffer (a plain `malloc`'d buffer reached only
+through a disguised `int64_t` handle in the builder's wrapper struct) is invisible to both existing
+root sources -- an appended element was only as safe as whatever *else* independently referenced it,
+true only for the loop-local that built it. `lib/http/server.zm`'s `routes<C>` builds an
+`ArrayBuilder<Pattern>` across ~100+ routes at start-up; once `Pattern`'s own struct wrapper was
+gc_heap-migrated, a real collection landing mid-loop swept every earlier-appended route pattern.
+Fixed with a new seam, `gc_mark_register_struct_content_marker` (`gc_mark.c`/`.h`): a struct type can
+register a content-marker by name, called unconditionally (never gated by the struct's own mark bit,
+since a prior type-less stack-scan visit may have already set it) whenever the mark phase visits a
+`TY_STRUCT` value of that name. `prelude.c` registers one for `"ArrayBuilder"` and one (shared) for
+`"MapBuilder"`/`"SetBuilder"`. Ordinary (non-builder) `Map`/`Set` values were already safe -- a
+pre-existing, documented `gc_mark.c` code path already walks every entry regardless of the `MapObj`'s
+own header status; the gap was specific to the three builders' own disguised handle. See DESIGN.md's
+"A third root-source gap..." entry. Verified: both minimal reproductions pass; the fix confirmed to
+actually discriminate (reverted via `git stash`, reproduced the failure, restored); a new permanent
+regression fixture (`gc_arraybuilder_contents_survive_collection.zm`) added and confirmed to
+discriminate the same way; the real `health-record-backend-ziman` suite now passes in full (19 files,
+~950 checks, sqlite mode); full suite 831/831 (with the new fixture) on both builds; all nine
+standalone `gc_*` unit tests pass; `valgrind` clean beyond the same confirmed pre-existing Boehm
+interaction (more occurrences only because `spawn_defer_gc_stress.zm` spawns 8 threads, each its own
+call-stack context for the identical pattern).
+
+Still ahead: re-measuring against the concurrency benchmark once more allocation sites migrate, and
+migrating them (`env_new`/call frames next, per the project owner's own "narrowest possible slice"
+sequencing) -- each migration so far has surfaced its own bug at the exact point a newly-migrated
+allocation site meets a pre-existing mechanism never designed with a real collector in mind; no reason
+to expect that pattern has stopped.

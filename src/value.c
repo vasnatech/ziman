@@ -107,8 +107,16 @@ Value value_array(Type array_type, ArrayObj *arr) {
     return v;
 }
 
+/* The wrapper alone is routed through the calling thread's own GcHeap, the same "narrowest slice
+ * within the slice" as struct_obj_new -- `items` stays on the ordinary allocator, and the other
+ * ArrayObj constructors below (array_obj_new_packed, array_obj_view, array_push) are not migrated
+ * yet either. gc_heap_alloc is now guaranteed always zero-filled (gc_heap.h/.c, fixed as part of
+ * this same migration -- a reused chunk's own free-list link byte range was not being cleared,
+ * which this constructor's reliance on calloc's implicit zero for bytes/bools/ints/floats/store
+ * would otherwise have exposed the first time a reused slot landed here), so this needs no change
+ * beyond the allocation call itself. */
 ArrayObj *array_obj_new(Value *items, int count) {
-    ArrayObj *a = calloc(1, sizeof(ArrayObj));
+    ArrayObj *a = gc_heap_alloc(ziman_thread_heap(), GC_ARRAY, sizeof(ArrayObj));
     a->boxed_items = items;
     a->count = count;
     return a;

@@ -48,4 +48,34 @@ void gc_mark_value(const Arena *a, Value v);
  * NULL `obj` are both no-ops: there is nothing live there to mark. */
 void gc_mark_object(const Arena *a, const void *obj);
 
+/* The seam a disguised-native-handle struct (ArrayBuilder/MapBuilder/SetBuilder, src/prelude.c)
+ * needs to keep its own payload's Values alive across a real collection while it's still being
+ * built. A builder's payload (an ArrayBuilderBuf's `items`, a MapBuilderBuf's MapObj) is a plain
+ * malloc'd/GC_MALLOC'd buffer reachable only through an opaque int64 handle stored in the wrapper
+ * struct's own `fields[0]` -- invisible to both root sources this module otherwise relies on (the
+ * stack scan sees no pointer shape in an integer; a struct's `fields` walk marks each field by its
+ * own Value.type.kind, and an int carries nothing further to trace). Whatever a builder holds is
+ * therefore only as safe as whatever *else* independently references it -- true for the *previous*
+ * loop iteration's own local once the loop moves on, which is false the moment nothing else does
+ * (found via docs/reviews/tasks.md's F2, the real health-record-backend-ziman app: lib/http/server.zm's
+ * `routes<C>` builds an `ArrayBuilder<Pattern>` across ~100+ loop iterations, and once `Pattern`'s
+ * own StructObj wrapper was migrated to gc_heap allocation, a real collection landing mid-loop swept
+ * every earlier-appended Pattern still sitting only in the builder's own buffer).
+ *
+ * `mark_contents(a, st)` is called once per type-directed visit to a TY_STRUCT value named
+ * `type_name` (from `gc_mark_into`'s own TY_STRUCT case, the only place a struct's Value -- and so
+ * its type name -- is available at all; the type-less `gc_mark_object` path, reached from a bare
+ * stack-scan candidate with no Value, has no type name and so cannot dispatch this at all).
+ * Deliberately unconditional -- never gated by `st`'s own mark bit -- because a bare stack pointer
+ * to the very same wrapper may already have been marked by `gc_mark_object` earlier in the same
+ * cycle (a real, common ordering: `gc_scan_stack_roots` always runs before `extra_roots`/the Env
+ * chain in `gc_heap_collect`), and gc_mark_struct's own "already marked, skip" guard would otherwise
+ * silently skip content-marking on the one visit that could have done it. Safe to call more than
+ * once per cycle for the same reason every other per-kind marking function's own redundant-retrace
+ * cost is accepted elsewhere in this module: the value graph is a DAG, so there is no loop risk, only
+ * possibly-repeated work on a builder still being appended to. Registered once, at startup
+ * (`prelude_register`), before any collection can run -- not meant to be called again afterward. */
+void gc_mark_register_struct_content_marker(const char *type_name,
+                                             void (*mark_contents)(const Arena *a, StructObj *st));
+
 #endif

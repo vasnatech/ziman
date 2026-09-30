@@ -52,7 +52,10 @@ GcHeap *gc_heap_create(void);
 void gc_heap_destroy(GcHeap *h);
 
 /* `payload_size` bytes of `kind`, reusing a same-size-class chunk `gc_heap_sweep` has freed if one
- * is available, otherwise carving fresh memory from the heap's own underlying arena. */
+ * is available, otherwise carving fresh memory from the heap's own underlying arena. Always
+ * zero-filled, fresh or reused -- matching `arena_alloc`'s own guarantee, so a caller that only
+ * sets some of its own fields explicitly (the same shape `calloc` was chosen for at a plain
+ * allocation) doesn't need to know or care which case it got. */
 void *gc_heap_alloc(GcHeap *h, GcKind kind, size_t payload_size);
 
 /* Total bytes `h`'s own underlying arena has reserved from the OS (its own `arena_reserved`) -- for

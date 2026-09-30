@@ -75,6 +75,16 @@ int main(void) {
     check("an allocation after a full sweep reuses a freed slot of the same size class", reused == a);
     check("a reused slot reports the newly requested kind, not its old one", gc_kind_of(reused) == GC_STRUCT);
     check("a reused slot starts unmarked", !gc_is_marked(reused));
+    /* The whole payload is zero, not just the part gc_heap_sweep's own memset already covered --
+     * the free-list link itself (the first sizeof(void*) bytes, written *after* that memset, to
+     * link the chunk in) is a real, separate byte range gc_heap_alloc's own reuse path has to
+     * clear too, or a caller relying on "always zero-filled" the way array_obj_new's own
+     * calloc-equivalent shape does would see a stale pointer value where it expects zero. */
+    int reused_zeroed = 1;
+    for (int i = 0; i < 40; i++) {
+        if (((unsigned char *)reused)[i] != 0) reused_zeroed = 0;
+    }
+    check("a reused slot's entire payload is zero-filled, including the former free-list link", reused_zeroed);
 
     /* Survivors: mark one of two objects, sweep, confirm the marked one is untouched and readable,
      * the unmarked one is reclaimed, and the marked one's own mark bit is cleared for next time.

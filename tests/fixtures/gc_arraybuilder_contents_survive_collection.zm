@@ -1,0 +1,58 @@
+use os
+
+// A regression guard for a real bug found by the health-record-backend-ziman app (docs/reviews/
+// tasks.md's F2): ArrayBuilder's own backing buffer (an ArrayBuilderBuf, src/prelude.c) is a plain
+// malloc'd `Value*` array reached only through a disguised int64 handle in the builder's wrapper
+// struct's own `fields[0]` -- invisible to both root sources the mark phase relies on (a bare int
+// carries no pointer shape for the stack scan to find, and a struct's generic field walk marks each
+// field by its own Value.type.kind, which an int has nothing further to trace into). An element
+// appended into a builder was therefore only as safe as whatever else independently referenced it:
+// true for the loop-local variable that built it, for exactly as long as that one loop iteration
+// lasted. `lib/http/server.zm`'s `routes<C>` builds an `ArrayBuilder<Pattern>` across ~100+ route
+// entries this same way; once `struct_obj_new` (Pattern's own wrapper) migrated to gc_heap
+// allocation, a real collection landing mid-loop swept every earlier-appended Pattern still sitting
+// only in the builder's buffer, and every request afterward failed with "field 'parts' not found at
+// runtime" -- reading a StructObj slot the collector had already reclaimed and zeroed (or reused).
+// Fixed by teaching the mark phase (gc_mark_register_struct_content_marker, src/gc_mark.c/.h) to
+// trace an ArrayBuilder/MapBuilder/SetBuilder's own buffer whenever its wrapper struct is marked.
+// `os.collect_garbage()` every iteration forces a real cycle deterministically, rather than relying
+// on enough incidental allocation to cross the collection trigger's own threshold.
+struct Pair {
+    a: [string]
+    b: [bool]
+}
+
+fn build(tag: string) -> Pair {
+    val names = ab_new<string>()
+    val flags = ab_new<bool>()
+    var i = 0
+    while i < 5 {
+        ab_append<string>(names, concat(tag, str(i)))
+        ab_append<bool>(flags, i % 2 == 0)
+        i = i + 1
+    }
+    return Pair { a: ab_to_array<string>(names), b: ab_to_array<bool>(flags) }
+}
+
+fn main() {
+    val builder = ab_new<Pair>()
+    var n = 0
+    while n < 50 {
+        val tag = concat("t", str(n))
+        ab_append<Pair>(builder, build(tag))
+        os.collect_garbage()
+        n = n + 1
+    }
+    val all = ab_to_array<Pair>(builder)
+    var ok = true
+    var i = 0
+    while i < len(all) {
+        val expected = concat("t", str(i))
+        if len(all[i].a) != 5 || all[i].a[0] != concat(expected, "0") {
+            ok = false
+            print(concat("MISMATCH at ", str(i)))
+        }
+        i = i + 1
+    }
+    print(if ok { "OK" } else { "FAIL" })
+}

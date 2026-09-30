@@ -17,6 +17,7 @@
 #include "decimal.h"
 #include "error.h"
 #include "fmtstr.h"
+#include "gc_mark.h"
 #include "native.h"
 #include "value.h"
 
@@ -1148,6 +1149,18 @@ static Value native_ab_len(Value *args, int argc, int line, int col) {
     return value_int((int64_t)buf->length);
 }
 
+/* Registered with gc_mark.c (see gc_mark_register_struct_content_marker's own comment) so a real
+ * collection landing while an ArrayBuilder is still being appended to doesn't sweep an
+ * already-appended, gc_heap-migrated element (a string, a struct, an array -- anything but a packed
+ * scalar) that no longer has any other live reference once the loop that built it has moved on.
+ * `st` is the ArrayBuilder's own wrapper StructObj, not a Value -- its `fields[0]` is the same
+ * disguised handle `ab_handle_of` reads off a Value, just reached a different way. */
+static void ab_mark_contents(const Arena *a, StructObj *st) {
+    ArrayBuilderBuf *buf = (ArrayBuilderBuf *)(intptr_t)st->fields[0].as.i;
+    if (buf->pkind != PK_NONE) return; /* packed elements are raw scalar bytes, nothing to mark */
+    for (size_t i = 0; i < buf->length; i++) gc_mark_value(a, buf->items[i]);
+}
+
 /* --- MapBuilder<K, V> and SetBuilder<T> -------------------------------------------------
  * Mutable counterparts of Map and Set, for building one up entry by entry without the
  * persistent map's per-insert node copying. Same pointer-as-handle scheme as ArrayBuilder;
@@ -1169,6 +1182,22 @@ static MapBuilderBuf *mb_get_buf(Value b) {
     if (buf == NULL || buf->magic != MB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MapBuilder/SetBuilder handle");
     builder_owner_check(buf->owner, "a MapBuilder/SetBuilder");
     return buf;
+}
+
+/* See ab_mark_contents's own comment -- identical reasoning, for a MapBuilder/SetBuilder's own
+ * MapObj instead of an ArrayBuilder's items buffer. Mirrors gc_mark.c's existing TY_MAP/TY_SET
+ * handling (mapobj_entries, then trace each key/value): a MapObj is not itself gc_alloc'd (a known,
+ * pre-existing gap, gc_mark.h's own comment), but its entries are real Values that may be. */
+static void mb_mark_contents(const Arena *a, StructObj *st) {
+    MapBuilderBuf *buf = (MapBuilderBuf *)(intptr_t)st->fields[0].as.i;
+    Value *keys, *vals;
+    mapobj_entries(buf->m, &keys, &vals);
+    for (int i = 0; i < buf->m->count; i++) {
+        gc_mark_value(a, keys[i]);
+        gc_mark_value(a, vals[i]);
+    }
+    free(keys);
+    free(vals);
 }
 
 static Value mb_new_value(const char *type_name) {
@@ -1419,4 +1448,10 @@ void prelude_register(void) {
     native_register("ab_append", native_ab_append);
     native_register("ab_to_array", native_ab_to_array);
     native_register("ab_len", native_ab_len);
+
+    /* See ab_mark_contents/mb_mark_contents's own comments and gc_mark_register_struct_content_marker's
+     * (gc_mark.h) for why these are needed at all. */
+    gc_mark_register_struct_content_marker("ArrayBuilder", ab_mark_contents);
+    gc_mark_register_struct_content_marker("MapBuilder", mb_mark_contents);
+    gc_mark_register_struct_content_marker("SetBuilder", mb_mark_contents);
 }

@@ -1,12 +1,40 @@
 #include "gc_mark.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "gc_lookup.h"
 #include "gc_object.h"
 #include "mapobj.h"
 
 static void gc_mark_into(const Arena *a, Value v);
+
+/* See gc_mark_register_struct_content_marker's own comment (gc_mark.h) for what this is and why it
+ * exists. A handful of fixed slots, not a dynamic list: only ArrayBuilder/MapBuilder/SetBuilder ever
+ * register one today, and this is filled once at startup, never resized concurrently with a lookup. */
+#define GC_MAX_STRUCT_CONTENT_MARKERS 8
+static struct {
+    const char *type_name;
+    void (*mark_contents)(const Arena *a, StructObj *st);
+} g_struct_content_markers[GC_MAX_STRUCT_CONTENT_MARKERS];
+static int g_struct_content_marker_count = 0;
+
+void gc_mark_register_struct_content_marker(const char *type_name,
+                                             void (*mark_contents)(const Arena *a, StructObj *st)) {
+    g_struct_content_markers[g_struct_content_marker_count].type_name = type_name;
+    g_struct_content_markers[g_struct_content_marker_count].mark_contents = mark_contents;
+    g_struct_content_marker_count++;
+}
+
+static void gc_mark_registered_contents(const Arena *a, const Type *t, StructObj *st) {
+    if (t->struct_name == NULL) return;
+    for (int i = 0; i < g_struct_content_marker_count; i++) {
+        if (strcmp(g_struct_content_markers[i].type_name, t->struct_name) == 0) {
+            g_struct_content_markers[i].mark_contents(a, st);
+            return;
+        }
+    }
+}
 
 /* Resolves `ptr` (which may be an interior pointer -- a string view, an `array_obj_view` slice)
  * through `gc_lookup` to the enclosing object's own exact start, and marks *that* -- `gc_set_marked`
@@ -156,6 +184,7 @@ static void gc_mark_into(const Arena *a, Value v) {
             return;
         case TY_STRUCT:
             gc_mark_struct(a, v.as.st);
+            gc_mark_registered_contents(a, &v.type, v.as.st);
             return;
         case TY_RESULT:
             gc_mark_result(a, v.as.res);

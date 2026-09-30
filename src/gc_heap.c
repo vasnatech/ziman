@@ -88,8 +88,16 @@ void *gc_heap_alloc(GcHeap *h, GcKind kind, size_t payload_size) {
     void *reused = h->free_lists[idx];
     if (reused != NULL) {
         /* The "next free" link lives in the chunk's own payload bytes -- nothing else is using
-         * them while it's free, the same trick any free-list allocator relies on. */
+         * them while it's free, the same trick any free-list allocator relies on. Read out first,
+         * then zeroed, not left behind: gc_heap_sweep already zeroes the rest of a reclaimed
+         * object's payload, but never the link itself (it writes it *after* zeroing, to link the
+         * chunk in) -- so a reused chunk's own first sizeof(void*) bytes would otherwise still
+         * hold that stale pointer value, the one part of "the whole payload is zero-filled" this
+         * allocator would otherwise quietly fail to keep true. Matches arena_alloc's own "always
+         * zero-filled" guarantee, which every caller that doesn't set every field explicitly
+         * (array_obj_new's calloc-equivalent shape, for one) depends on. */
         h->free_lists[idx] = *(void **)reused;
+        memset(reused, 0, sizeof(void *));
         gc_set_kind(reused, kind);
         gc_set_marked(reused, 0); /* already 0 from being on the free list; cleared again defensively */
         return reused;
