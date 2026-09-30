@@ -752,6 +752,48 @@ See DESIGN.md's "A real, live bug caught by the narrowest possible slice" entry 
 Still open: the `EXPR_CALL`-style temporary-buffer gap remains real for any future trigger point less
 restrictive than "only at `exec_stmt`'s own entry"; migrating any allocation site beyond
 `value_string_copy` will need the identical `is_gc_heap_object` care, not assumed safe by extension.
-Still ahead: re-measuring against the concurrency benchmark once more allocation sites migrate, and
-migrating them (array/struct construction, then `env_new`/call frames, per the project owner's own
+
+**That gap closed for real (2026-09-30), after migrating `struct_obj_new` (the natural next allocation
+site) broke two fixtures immediately.** `net_dropped_socket_reclaimed` failed on a timing issue
+(resolved below); `csv_extended` failed with `internal error: field 'cells' not found at runtime` --
+real corruption, confirming the temporary-buffer gap the previous entry flagged as "still open" was
+not theoretical. `EXPR_STRUCT_LIT`'s `fields[]` (and `EXPR_CALL`'s `args[]`, `EXPR_ARRAY_LIT`'s
+`items[]`, `EXPR_WITH`'s `fields[]`) is a plain `malloc`'d buffer populated one element at a time by
+repeated `eval_expr` calls; if evaluating one element recurses into a call, that call's own body can
+trigger `maybe_collect` while earlier elements sit in the buffer, unrooted. The earlier "only at
+`exec_stmt`'s own entry" analysis checked buffers never dangle *across* statement boundaries -- it
+never considered a collection firing *mid-construction* via a nested call. **Never specific to
+`struct_obj_new`**: the already-shipped `value_string_copy` wiring has the identical exposure, just
+unlikely to be hit (a crossed string rarely shares an expression with a call-triggering sibling
+argument the way structs constantly do in ordinary code).
+
+**The audit stayed bounded by finding the real choke points, not by auditing every file.**
+`grep -ln "native_call_closure\|call_closure_value" src/*.c` shows only three files ever call back
+into Ziman at all (`prelude.c`, `iter.c`, `interpreter.c`), and `call_function` is never called
+outside `interpreter.c` -- so guarding `call_closure_value`/`native_call_closure`'s own internal
+`call_function` call protects every native callback automatically (including a native's own `args[]`,
+which for natives specifically is *never* bound into an `Env` at all). `interpreter.c`'s own four
+`EXPR_*` sites plus one inline `map_filter`/`set_filter` loop needed their own narrower guards. Six
+guarded regions total: a new `__thread int t_gc_unsafe_depth`, `gc_unsafe_enter`/`gc_unsafe_leave`
+incrementing/decrementing it, `maybe_collect` skipping entirely while nonzero.
+
+**A second, milder bug from the same migration**: `net.Socket`'s own `StructObj` wrapper is now
+`gc_heap`-allocated, into an arena Boehm also scans (`arena_create_scanned`). `gc_heap_sweep` reclaimed
+a dead object's header but never zeroed its payload, so a disguised socket-handle address sitting in an
+already-dead struct's own bytes kept looking live to Boehm's scan of that same arena. Fixed two ways:
+`gc_heap_sweep` now zeroes a reclaimed object's payload before relinking it; a new
+`ziman_force_collect()` lets `os.collect_garbage()` run a real Phase 3 collection first, cleaning up
+this thread's own `gc_heap` content before Boehm's `GC_gcollect()` runs.
+
+**A valgrind finding investigated, not glossed over**: the fixed binary still shows "Invalid read of
+size 8" inside Boehm's own `GC_mark_from`, reading the thread's own stack, under
+`--undef-value-errors=no`. Confirmed pre-existing, not new: `thread_crossing_native_handle.zm` (predates
+all of this session's Phase 3 work) shows the identical pattern -- a known Boehm/valgrind interaction,
+unrelated to Phase 3.
+
+See DESIGN.md's "Closing the temporary-buffer gap for real" entry. Verified: full suite 830/830 on both
+builds, stable across five repeated runs; all nine standalone `gc_*` unit tests pass; the real
+`health-record-backend-ziman` suite (823 checks) passes; `valgrind` clean beyond the confirmed
+pre-existing Boehm interaction. Still ahead: re-measuring against the concurrency benchmark once more
+allocation sites migrate, and migrating them (`env_new`/call frames next, per the project owner's own
 "narrowest possible slice" sequencing).

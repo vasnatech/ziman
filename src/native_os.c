@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "interpreter.h"
 #include "native.h"
 #include "value.h"
 
@@ -71,10 +72,21 @@ static Value native_os_set_env(Value *args, int argc, int line, int col) {
 }
 
 /* os.collect_garbage(): run a collection and the finalizers it queues (sockets and connections
- * nobody references any more are closed). A no-op without the collector. */
+ * nobody references any more are closed). A no-op without the collector.
+ *
+ * Runs ziman_force_collect() (this thread's own Phase 3 GcHeap, docs/MEMORY.md) *before* Boehm's
+ * own GC_gcollect(), not after or not at all: gc_heap_sweep zeroes a reclaimed object's own bytes
+ * (src/gc_heap.c's own comment on why), which matters here specifically because this thread's
+ * GcHeap arena is registered with Boehm as an additional scanned range (arena_create_scanned) --
+ * without sweeping first, a disguised native-handle address sitting in an already-dead, not-yet-
+ * reclaimed gc_heap object (e.g. net.Socket's own wrapper, once struct_obj_new started allocating
+ * it there) would still look like a live reference to Boehm's own scan, keeping the underlying
+ * resource open well past the point nothing in the program can still reach it -- an explicit
+ * request to collect garbage should not leave that behind for Boehm to misread. */
 static Value native_os_collect_garbage(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
 #ifdef ZIMAN_GC
+    ziman_force_collect();
     GC_gcollect();
     GC_invoke_finalizers();
 #endif

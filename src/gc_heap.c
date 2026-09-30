@@ -134,6 +134,15 @@ size_t gc_heap_sweep(GcHeap *h) {
             size_t class_size = gc_header_span() + gc_size_of(obj);
             int idx = class_index_of(class_size);
             void *slot = (void *)obj;
+            /* Zeroed before relinking, not left with whatever the object's own bytes last held:
+             * this arena is registered with the collector (arena_create_scanned), so a disguised
+             * native-handle address (src/native_sqlite.c's own DbConn/g_live comment explains the
+             * trick) sitting in an already-dead object's payload would otherwise still look like a
+             * live reference to Boehm's own conservative scan for as long as this slot goes
+             * unreused -- keeping the underlying resource open well past the point nothing in the
+             * program can still reach it (found via tests/fixtures/net_dropped_socket_reclaimed.zm
+             * failing once struct_obj_new -- net.Socket's own wrapper -- first migrated here). */
+            memset(slot, 0, gc_size_of(obj));
             gc_set_kind(slot, GC_FREE);
             *(void **)slot = h->free_lists[idx];
             h->free_lists[idx] = slot;

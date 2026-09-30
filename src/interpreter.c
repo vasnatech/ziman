@@ -66,6 +66,23 @@ static EnumDecl *find_enum(Module *module, const char *name) {
 
 static Value eval_expr(Module *module, Env *env, Expr *e);
 
+/* Phase 3's collection-safety guard (docs/MEMORY.md, "one heap per thread") -- found necessary,
+ * not anticipated, while wiring the first real allocation site: a temporary `Value[]` buffer built
+ * by *repeated* calls that can each recurse back into Ziman code (eval_expr's own EXPR_CALL/
+ * EXPR_ARRAY_LIT/EXPR_STRUCT_LIT/EXPR_WITH, and every native function that calls back into a
+ * closure via call_closure_value/native_call_closure) is invisible to both root sources for as
+ * long as it's only partially built: earlier elements sit in a plain `malloc`'d block (not the C
+ * stack, not any Env) while a later element's own evaluation is still running -- and if *that*
+ * evaluation recurses into a function call, its own body's statements can trigger a real
+ * collection while the earlier elements are completely unprotected. `maybe_collect` (below) skips
+ * entirely whenever this depth is nonzero, so a collection can never run partway through building
+ * such a buffer. Every site that builds one wraps it with `gc_unsafe_enter`/`gc_unsafe_leave`; see
+ * docs/DESIGN.md's own entry on the bug this closes (found in `struct_obj_new`'s own first real
+ * migration attempt) for the full incident and the audit that produced this list. */
+static __thread int t_gc_unsafe_depth = 0;
+static void gc_unsafe_enter(void) { t_gc_unsafe_depth++; }
+static void gc_unsafe_leave(void) { t_gc_unsafe_depth--; }
+
 /* `int` is 64-bit and never wraps: overflow is a runtime error, the same
  * spirit as `bigint as int` / `int as byte` clamping rather than wrapping
  * silently. Use `bigint` when a value can outgrow 64 bits. */
@@ -338,15 +355,27 @@ typedef struct SpawnArgs {
     int has_handler;
 } SpawnArgs;
 
-/* A function value (a named function or a lambda with what it captured) called from C with `args`. */
+/* A function value (a named function or a lambda with what it captured) called from C with `args`.
+ * Guarded around the actual call, not just this function's own local `all` buffer: `args` itself
+ * belongs to *this call's own caller* (a native function's own parameters, or a temp buffer it is
+ * still building -- e.g. prelude.c's array_map/filter/flat_map, iter.c's own callback sites), which
+ * has no Env of its own to root it in and is otherwise invisible to both root sources for as long
+ * as this call is on the stack. This is the one choke point every such caller already goes
+ * through, so guarding it here protects all of them without touching each one individually. */
 static Value call_closure_value(Module *module, Value closure, Value *args, int argc) {
     ClosureObj *clo = closure.as.clo;
-    if (clo->ncaptured == 0) return call_function(module, clo->fn, args, argc, 0, 0, 0);
-    Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
-    memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
-    memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
-    Value result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, 0, 0);
-    free(all);
+    gc_unsafe_enter();
+    Value result;
+    if (clo->ncaptured == 0) {
+        result = call_function(module, clo->fn, args, argc, 0, 0, 0);
+    } else {
+        Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
+        memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
+        memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
+        result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, 0, 0);
+        free(all);
+    }
+    gc_unsafe_leave();
     return result;
 }
 
@@ -1029,9 +1058,11 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_CALL: {
             int argc = e->as.call.args.count;
             Value *args = argc > 0 ? malloc((size_t)argc * sizeof(Value)) : NULL;
+            gc_unsafe_enter();
             for (int i = 0; i < argc; i++) {
                 args[i] = eval_expr(module, env, e->as.call.args.items[i]);
             }
+            gc_unsafe_leave();
             Value result;
             if (e->as.call.through_value) {
                 /* A call through a local of function type (a parameter, a val):
@@ -1126,6 +1157,11 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 mapobj_entries(args[0].as.map, &keys, is_map ? &vals : NULL);
                 ClosureObj *clo = args[1].as.clo;
                 MapObj *m = mapobj_empty();
+                /* keys/vals (mapobj_entries, above) hold every entry up front, one plain malloc'd
+                 * array -- guarded for the same reason EXPR_CALL's own args[] loop is: entries not
+                 * yet reached by this loop are unrooted for as long as any of them are still
+                 * pending, and clo->fn's own call can recurse back into Ziman code. */
+                gc_unsafe_enter();
                 for (int i = 0; i < args[0].as.map->count; i++) {
                     Value call_args[2] = {keys[i], is_map ? vals[i] : value_int(0)};
                     int nargs = is_map ? 2 : 1;
@@ -1141,6 +1177,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     }
                     if (verdict.as.b) m = mapobj_set(m, keys[i], call_args[1]);
                 }
+                gc_unsafe_leave();
                 result = value_map(args[0].type, m);
             } else if (strcmp(e->as.call.callee, "map_remove_all") == 0) {
                 MapObj *m = args[0].as.map;
@@ -1366,9 +1403,11 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_ARRAY_LIT: {
             int count = e->as.array_lit.elements.count;
             Value *items = count > 0 ? malloc((size_t)count * sizeof(Value)) : NULL;
+            gc_unsafe_enter();
             for (int i = 0; i < count; i++) {
                 items[i] = eval_expr(module, env, e->as.array_lit.elements.items[i]);
             }
+            gc_unsafe_leave();
             ArrayObj *packed = array_try_pack(items, count);
             if (packed != NULL) return value_array(e->resolved_type, packed);
             return value_array(e->resolved_type, array_obj_new(items, count));
@@ -1387,6 +1426,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             int count = decl->fields.count;
             char **names = malloc((size_t)count * sizeof(char *));
             Value *fields = malloc((size_t)count * sizeof(Value));
+            gc_unsafe_enter();
             for (int i = 0; i < count; i++) {
                 names[i] = decl->fields.items[i].name; /* borrowed from the StructDecl, never freed */
                 Expr *value_expr = NULL;
@@ -1398,6 +1438,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 }
                 fields[i] = eval_expr(module, env, value_expr);
             }
+            gc_unsafe_leave();
             return value_struct(e->resolved_type, struct_obj_new(names, fields, count));
         }
         case EXPR_FIELD_ACCESS: {
@@ -1418,6 +1459,10 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             int count = old->count;
             Value *fields = malloc((size_t)count * sizeof(Value));
             memcpy(fields, old->fields, (size_t)count * sizeof(Value));
+            /* Guarded from the memcpy onward, not just the override loop: every entry (memcpy'd or
+             * about to be overridden) is equally unrooted until `fields` is fully handed off to
+             * struct_obj_new below. */
+            gc_unsafe_enter();
             for (int i = 0; i < e->as.with_expr.overrides.count; i++) {
                 FieldInit *fi = &e->as.with_expr.overrides.items[i];
                 for (int j = 0; j < count; j++) {
@@ -1427,6 +1472,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     }
                 }
             }
+            gc_unsafe_leave();
             /* Reuses old->field_names directly (same struct type, same
              * field order) -- never mutates `old`, so sharing it is safe. */
             return value_struct(e->resolved_type, struct_obj_new(old->field_names, fields, count));
@@ -1524,16 +1570,24 @@ static void mark_this_threads_roots(const Arena *a, void *ctx) {
 #define ZIMAN_GC_TRIGGER_BYTES ((size_t)(64 * 1024))
 static __thread size_t t_reserved_at_last_collect = 0;
 
-/* Only ever called from exec_stmt's own entry, before that statement's own evaluation has begun
- * anything -- the one point in this interpreter's execution where nothing is left dangling in a
- * heap-allocated, not-yet-rooted buffer (an EXPR_CALL's own `args` array, still mid-evaluation, is
- * exactly what this restriction exists to rule out; see docs/DESIGN.md's own entry on why this
- * matters and why it makes collecting here, specifically, safe). Not a permanent restriction on
- * when Phase 3 may ever collect -- a later increment that also gives such temporary buffers their
- * own root-tracking could safely collect more eagerly; this one doesn't need to. */
+/* Called from exec_stmt's own entry, before that statement's own evaluation has begun anything --
+ * but that alone is not sufficient, which is why the t_gc_unsafe_depth check below exists: a
+ * *nested* call's own exec_stmt entry is also "the top of a statement," yet an outer, not-yet-
+ * finished expression (an EXPR_CALL's own `args` array, still being built one element at a time)
+ * can have earlier elements sitting completely unrooted at that exact moment. Skipping entirely
+ * whenever any such buffer is in progress anywhere on this thread's call stack -- see
+ * gc_unsafe_enter/leave's own comment -- is what makes this safe; "exec_stmt's own entry" alone
+ * was not (see docs/DESIGN.md's own entry on the bug this fixes). */
 static void maybe_collect(void) {
+    if (t_gc_unsafe_depth > 0) return;
     size_t reserved = ziman_thread_heap_reserved();
     if (reserved - t_reserved_at_last_collect < ZIMAN_GC_TRIGGER_BYTES) return;
+    gc_heap_collect(ziman_thread_heap(), mark_this_threads_roots, NULL);
+    t_reserved_at_last_collect = ziman_thread_heap_reserved();
+}
+
+void ziman_force_collect(void) {
+    if (t_gc_unsafe_depth > 0) return;
     gc_heap_collect(ziman_thread_heap(), mark_this_threads_roots, NULL);
     t_reserved_at_last_collect = ziman_thread_heap_reserved();
 }
@@ -1870,14 +1924,25 @@ static void init_param_defaults(Module *module) {
 
 static Module *g_program = NULL;
 
+/* The choke point every native function that calls back into a Ziman closure goes through
+ * (prelude.c's array_map/filter/flat_map/sort_positions's own comparator, iter.c's own callback
+ * sites, ...) -- guarded the same way and for the same reason as call_closure_value just above:
+ * `args` belongs to the calling native's own parameters or a temp buffer it's still building, with
+ * no Env of its own to root it in for as long as this call is on the stack. */
 Value native_call_closure(Value fn, Value *args, int argc, int line, int col) {
     ClosureObj *clo = fn.as.clo;
-    if (clo->ncaptured == 0) return call_function(g_program, clo->fn, args, argc, 0, line, col);
-    Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
-    memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
-    memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
-    Value result = call_function(g_program, clo->fn, all, clo->ncaptured + argc, 0, line, col);
-    free(all);
+    gc_unsafe_enter();
+    Value result;
+    if (clo->ncaptured == 0) {
+        result = call_function(g_program, clo->fn, args, argc, 0, line, col);
+    } else {
+        Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
+        memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
+        memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
+        result = call_function(g_program, clo->fn, all, clo->ncaptured + argc, 0, line, col);
+        free(all);
+    }
+    gc_unsafe_leave();
     return result;
 }
 

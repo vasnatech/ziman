@@ -300,8 +300,16 @@ Value value_struct(Type struct_type, StructObj *st) {
     return v;
 }
 
+/* The wrapper alone is routed through the calling thread's own GcHeap -- `fields` (built by every
+ * caller before this runs) is not yet migrated, deliberately: the next narrow slice after
+ * value_string_copy (docs/DESIGN.md), not the whole of "array/struct construction" at once. Mixing
+ * a gc_heap-allocated wrapper with a not-yet-migrated fields buffer is exactly the shape
+ * gc_mark.c's is_gc_heap_object fix exists to handle correctly (see its own incident writeup);
+ * every caller that builds `fields` via more than one call is also now guarded by
+ * gc_unsafe_enter/leave (interpreter.c), the fix the *other* incident writeup this same migration
+ * attempt found needed first. */
 StructObj *struct_obj_new(char **field_names, Value *fields, int count) {
-    StructObj *s = malloc(sizeof(StructObj));
+    StructObj *s = gc_heap_alloc(ziman_thread_heap(), GC_STRUCT, sizeof(StructObj));
     s->field_names = field_names;
     s->fields = fields;
     s->count = count;
