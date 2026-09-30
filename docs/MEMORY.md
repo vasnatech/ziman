@@ -178,6 +178,31 @@ into it. Concretely:
   right yet. A copying collector is a plausible later refinement once precise mark-phase tracing
   already exists (it buys allocation locality and bump-pointer allocation), not a v1 requirement.
 
+### A correction found while scoping the implementation, before writing the arena code
+
+Phase 1 (below, already shipped) does the `value_deep_copy` for a crossing point on the *sending*
+thread — `spawn`'s own `STMT_SPAWN` handler, and the `send`/`try_send` call sites — since under a
+single shared heap it doesn't matter which thread's "allocation" a copy counts as, there's only one
+heap. **That stops being true the moment per-thread arenas exist, and doing it the same way would
+be a real bug, not a missed optimization.** An arena freed "at thread exit" (Phase 2's own
+deliberately simple model) means: if the copy a `spawn` makes lives in the *calling* thread's
+arena, and the calling thread finishes and exits before the *spawned* thread is done with that data
+(genuinely unbounded — a long-lived actor might hold it forever), the calling thread's exit frees
+the arena out from under a thread that's still reading it. The same reasoning applies to a value
+sitting in a `Channel`'s queue, which is exactly the open question already recorded above — this is
+that same question, arrived at from the allocator side instead of the collector side, confirming
+it's real and not an artifact of the collection design specifically.
+
+**Resolution for now**: a crossing-point deep copy is not allowed to land in *either* thread's own
+per-thread arena. It goes to the permanent/unmanaged region instead (pulled forward from its own
+later step below) — plain, unmanaged memory nothing ever frees through this mechanism, safe
+regardless of either thread's arena lifecycle, at the cost of leaking exactly the values that cross
+a thread boundary, for now. This is the honest, narrow version of "outside any single thread's
+collected region" the open question above already called for; a real reclamation story for these
+specific values (most plausibly a small, dedicated refcount just for what crosses a channel or a
+spawn boundary, not the general refcounting design already rejected for the whole value graph) is
+follow-up work once the rest of this design exists, not a Phase 2 blocker.
+
 ### What this deliberately does not solve
 
 - **A long-lived actor's own accumulating state** across many received messages still needs its
@@ -212,10 +237,32 @@ of handing across a bare pointer — see docs/DESIGN.md's "Deep-copy at the two 
 points" entry for the implementation, what it does and doesn't copy (a `Channel` value itself is
 deliberately never deep-copied — see the invariant section above), and how it was verified safe to
 land before any of the rest of this design exists (it cannot change observable output under
-today's allocators, only what crossing costs). Phases 2-5 (per-thread arenas freed at thread exit,
-object headers + conservative-stack-scan + mark-sweep, moving globals/AST to a permanent region,
-re-measuring against the concurrency benchmark) are still design only, not started, not scoped into
-an estimate — comparable in size to writing a small garbage collector from scratch, because that's
-what Phase 3 is: precise inside the heap, conservative on the stack (reusing Boehm's proven
-technique for that one part), scoped to a single thread rather than the whole process. Tracked as
-the concurrency half of F2 (docs/reviews/tasks.md).
+today's allocators, only what crossing costs).
+
+**Phase 2, first increment done (2026-09-29): a standalone arena allocator, not yet wired into
+anything.** `src/arena.c`/`.h` -- `mmap`-backed, bump-allocated, `arena_destroy` releases every
+block in one shot. Nothing in the interpreter calls it yet; landed with its own test
+(`tests/unit/arena_test.c`, `make test-arena`) before the much larger, riskier step of routing the
+interpreter's own allocation sites through it, which is still ahead. See docs/DESIGN.md's "A
+standalone arena allocator, landed inert before anything calls it" entry for what it caught (two
+real bugs the test found before this went anywhere near the interpreter) and why it has to use
+`mmap`/`munmap` rather than `malloc`/`free`.
+
+**A correction found while scoping the rest of Phase 2, recorded above in this document's own
+design section rather than only here**: a crossing-point copy (`value_deep_copy`'s output) cannot
+be allocated from either thread's own per-thread arena once those exist, or an arena freed "at
+thread exit" would free memory a still-running thread on the other end of a `spawn` or `Channel`
+still needs. Resolved by routing those specific copies to the permanent/unmanaged region instead,
+accepting that they leak for now -- see "A correction found while scoping the implementation,
+before writing the arena code" above for the full reasoning. This has to land before allocation
+sites get rewired to use per-thread arenas, not after, since `value_deep_copy` already exists.
+
+Phases 2's remaining work (routing the interpreter's own allocation sites through a per-thread
+arena, plus giving `value_deep_copy` its permanent-region destination instead of whatever the
+ordinary constructors resolve to once they're arena-backed) and phases 3-5 (object headers +
+conservative-stack-scan + mark-sweep, moving globals/AST to the permanent region, re-measuring
+against the concurrency benchmark) are still design only, not started, not scoped into an estimate
+— comparable in size to writing a small garbage collector from scratch, because that's what Phase 3
+is: precise inside the heap, conservative on the stack (reusing Boehm's proven technique for that
+one part), scoped to a single thread rather than the whole process. Tracked as the concurrency half
+of F2 (docs/reviews/tasks.md).

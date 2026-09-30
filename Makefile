@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles corelib-reference lib-manual-check not-yet-check
+.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena corelib-reference lib-manual-check not-yet-check
 
 all: $(BIN)
 
@@ -135,6 +135,13 @@ test-handles: src/handles.c tests/unit/handles_test.c
 test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	/tmp/ziman_decimal_test
+
+# src/arena.c doesn't need the GC/plain distinction (it's built on mmap/munmap directly, never
+# malloc/free, precisely so it stays inert under either -- see its own header comment), but is
+# tested the same standalone way as the other C modules above rather than through the interpreter.
+test-arena: src/arena.c tests/unit/arena_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_arena_test src/arena.c tests/unit/arena_test.c
+	/tmp/ziman_arena_test
 
 # docs/CORELIB.md and the manual in docs/lib/ are generated from the lib/core and lib/db modules' own `pub` declarations
 # (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make
