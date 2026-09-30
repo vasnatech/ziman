@@ -1,0 +1,57 @@
+// Every Value kind, crossing a thread boundary two ways: as a spawn argument and over a Channel.
+// Not about output that differs from before -- deep-copying instead of aliasing a value at these
+// two crossing points (docs/MEMORY.md) is deliberately invisible to any program, on purpose, so
+// this is a regression guard: a bug in value_deep_copy would corrupt or drop data here, not just
+// cost more memory.
+struct Point {
+    x: int
+    y: int
+}
+
+enum Shape {
+    Circle(float)
+    Square(Point)
+}
+
+fn worker(out: Channel<int>, nums: [int], m: Map<string, int>, s: Set<int>, big: bigint, dec: decimal, pt: Point, shape: Shape, names: [string]) {
+    print(nums)
+    print(map_get(m, "a"))
+    print(contains(s, 3))
+    print(big)
+    print(dec)
+    print(pt)
+    print(shape)
+    print(names)
+    send(out, 1)
+}
+
+fn main() {
+    val out: Channel<int> = channel_new()
+    val nums = [1, 2, 3, 4, 5]
+    val m = Map<string, int> { "a": 1, "b": 2 }
+    val s = Set<int> { 1, 2, 3 }
+    val big = 123456789012345678901234567890n
+    val dec = 19.99d
+    val pt = Point { x: 3, y: 4 }
+    val shape = Shape.Square(pt)
+    val names = ["ada", "grace", "margaret"]
+    spawn worker(out, nums, m, s, big, dec, pt, shape, names)
+    receive(out)
+
+    val ch2: Channel<Map<string, [Point]>> = channel_new()
+    val complex = Map<string, [Point]> { "shapes": [Point { x: 1, y: 1 }, Point { x: 2, y: 2 }] }
+    send(ch2, complex)
+    print(receive(ch2))
+
+    val ch3: Channel<string> = channel_new()
+    val captured = "context: "
+    val handler = fn(msg: string) {
+        send(ch3, concat(captured, msg))
+    }
+    spawn worker_that_fails(0) on_error handler
+    print(receive(ch3))
+}
+
+fn worker_that_fails(x: int) {
+    print(1 / x)
+}

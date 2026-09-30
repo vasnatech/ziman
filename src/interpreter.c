@@ -20,6 +20,7 @@
 #include "fmtstr.h"
 #include "mapobj.h"
 #include "native.h"
+#include "value_copy.h"
 #include "value.h"
 
 /* CTRL_YIELD carries the value of an `if`/`switch` arm used as a value up to the
@@ -1222,12 +1223,16 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 }
                 result = value_channel(e->resolved_type, channel_obj_new(limit));
             } else if (strcmp(e->as.call.callee, "send") == 0) {
-                if (channel_send(args[0].as.ch, args[1])) {
+                /* Deep-copied, not aliased: a prerequisite for the memory-management redesign
+                 * (docs/MEMORY.md), landed ahead of it since it cannot change any program's
+                 * observable output under today's allocators (nothing is ever collected out from
+                 * under a value in flight), only what sending one costs. */
+                if (channel_send(args[0].as.ch, value_deep_copy(args[1]))) {
                     ziman_error("runtime", e->line, e->col, "send on a closed channel");
                 }
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "try_send") == 0) {
-                int status = channel_try_send_status(args[0].as.ch, args[1]);
+                int status = channel_try_send_status(args[0].as.ch, value_deep_copy(args[1]));
                 if (status == 2) {
                     ziman_error("runtime", e->line, e->col, "try_send on a closed channel");
                 }
@@ -1660,11 +1665,16 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             return r;
         }
         case STMT_SPAWN: {
+            /* args/handler are evaluated here, on the calling thread, then deep-copied before the
+             * new thread ever sees them -- the same crossing-point fix as `send`'s own deep copy
+             * just above, and for the identical reason (docs/MEMORY.md): safe today because
+             * nothing is ever collected out from under either copy, and a prerequisite for the
+             * memory-management redesign that will make that no longer true. */
             FunctionDecl *fn = find_function(module, s->as.spawn_stmt.callee);
             int argc = s->as.spawn_stmt.args.count;
             Value *args = argc > 0 ? malloc((size_t)argc * sizeof(Value)) : NULL;
             for (int i = 0; i < argc; i++) {
-                args[i] = eval_expr(module, env, s->as.spawn_stmt.args.items[i]);
+                args[i] = value_deep_copy(eval_expr(module, env, s->as.spawn_stmt.args.items[i]));
             }
             SpawnArgs *sa = malloc(sizeof(SpawnArgs));
             sa->module = module;
@@ -1674,7 +1684,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             sa->line = s->line;
             sa->col = s->col;
             sa->has_handler = s->as.spawn_stmt.on_error != NULL;
-            if (sa->has_handler) sa->handler = eval_expr(module, env, s->as.spawn_stmt.on_error);
+            if (sa->has_handler) sa->handler = value_deep_copy(eval_expr(module, env, s->as.spawn_stmt.on_error));
             if (ziman_spawn_thread(spawn_thread_entry, sa) != 0) {
                 ziman_error("runtime", s->line, s->col, "cannot start a thread (%s)", strerror(errno));
             }

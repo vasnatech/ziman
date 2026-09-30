@@ -196,10 +196,26 @@ into it. Concretely:
   solves this per-thread; the same technique needs porting, not inventing.
 - Whether a thread's heap ever needs to shrink (return memory to the OS) or only grows and reuses
   freed space in place — deferred to measurement once there's something to measure.
+- **A value sitting inside a `Channel`'s own queue, between `send` and `receive`, doesn't belong to
+  either thread's heap** the way the crossing-points section above frames it — it's live in a
+  genuinely shared structure for an indeterminate time (surfaced implementing Phase 1, below).
+  Either the channel's buffered contents need to live outside any single thread's collected region
+  (the same way the channel object itself will need to), or the sending thread's collector needs to
+  treat its own pending sends as roots until delivery. Not resolved; needed before Phase 3 (the
+  collector itself) can be correct, not just before it's fast.
 
 ## Status
 
-Design only — not started, not scoped into a task with an estimate. Comparable in size to writing
-a small garbage collector from scratch, because that's what it is: precise inside the heap,
-conservative on the stack (reusing Boehm's proven technique for that one part), scoped to a single
-thread rather than the whole process. Tracked as the concurrency half of F2 (docs/reviews/tasks.md).
+**Phase 1 done (2026-09-29): deep-copy at the two crossing points.** `spawn`'s own `args`/`handler`
+and `send`/`try_send` on a `Channel` now deep-copy (`value_deep_copy`, `src/value_copy.c`) instead
+of handing across a bare pointer — see docs/DESIGN.md's "Deep-copy at the two thread-crossing
+points" entry for the implementation, what it does and doesn't copy (a `Channel` value itself is
+deliberately never deep-copied — see the invariant section above), and how it was verified safe to
+land before any of the rest of this design exists (it cannot change observable output under
+today's allocators, only what crossing costs). Phases 2-5 (per-thread arenas freed at thread exit,
+object headers + conservative-stack-scan + mark-sweep, moving globals/AST to a permanent region,
+re-measuring against the concurrency benchmark) are still design only, not started, not scoped into
+an estimate — comparable in size to writing a small garbage collector from scratch, because that's
+what Phase 3 is: precise inside the heap, conservative on the stack (reusing Boehm's proven
+technique for that one part), scoped to a single thread rather than the whole process. Tracked as
+the concurrency half of F2 (docs/reviews/tasks.md).

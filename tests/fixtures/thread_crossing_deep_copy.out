@@ -1,0 +1,10 @@
+[1, 2, 3, 4, 5]
+Some(1)
+true
+123456789012345678901234567890
+19.99
+Point { x: 3, y: 4 }
+Square(Point { x: 3, y: 4 })
+[ada, grace, margaret]
+{shapes: [Point { x: 1, y: 1 }, Point { x: 2, y: 2 }]}
+context: runtime error at 56:13: division by zero
