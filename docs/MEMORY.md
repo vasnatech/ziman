@@ -243,22 +243,91 @@ Phase 2's remaining step needs to use it from the start, not discover the same b
 - **Debugging/inspection tooling** (a future profiler or heap-dump, F6) will need to know about N
   independent heaps instead of one — not a blocker, a dependency to keep in mind later.
 
-### Open questions for the detailed implementation pass
+### The channel-buffered-value question is resolved, as a side effect of Phase 1/2
 
-- Exact object header layout and its per-allocation size cost.
-- Whether `ArrayObj`'s separately-allocated backing buffer gets its own header or is treated as
-  owned-by-parent for marking.
-- Stack-base recording for the main thread vs. a `pthread`-created spawned thread — Boehm already
-  solves this per-thread; the same technique needs porting, not inventing.
-- Whether a thread's heap ever needs to shrink (return memory to the OS) or only grows and reuses
-  freed space in place — deferred to measurement once there's something to measure.
-- **A value sitting inside a `Channel`'s own queue, between `send` and `receive`, doesn't belong to
-  either thread's heap** the way the crossing-points section above frames it — it's live in a
-  genuinely shared structure for an indeterminate time (surfaced implementing Phase 1, below).
-  Either the channel's buffered contents need to live outside any single thread's collected region
-  (the same way the channel object itself will need to), or the sending thread's collector needs to
-  treat its own pending sends as roots until delivery. Not resolved; needed before Phase 3 (the
-  collector itself) can be correct, not just before it's fast.
+**A value sitting inside a `Channel`'s own queue, between `send` and `receive`, was flagged as an
+open question (below, as originally written) before Phase 1/2 existed — it no longer is one.**
+`send`'s deep copy (Phase 1) now lands in the sending thread's own *outbound* arena (Phase 2),
+which is never destroyed. The value a `Channel`'s queue holds a pointer to is therefore already
+living in memory nothing will ever free, regardless of how long it sits there before `receive` —
+the exact same reasoning that makes it safe for a `spawn`ed thread to outlive its caller. Recorded
+here so the resolution is traceable to the two already-shipped pieces that produced it, rather than
+looking unresolved forever in a document that hasn't otherwise been revisited.
+
+### Phase 3 design, worked through before writing any code
+
+Three sub-problems turned out to be genuinely hard, not just "figure it out while implementing" —
+resolved here on paper first, given what the native-handle bug (above) already cost from shipping
+a smaller piece without this level of scrutiny.
+
+**1. Object headers are necessary, and here's why precisely.** A `Value`'s pointer-bearing fields
+(`as.arr`, `as.st`, `as.str.ptr`, ...) sit inside whatever holds the `Value` itself — a C local
+variable on the stack, an `Env`'s binding array, another heap object's own fields. Conservative
+stack scanning (the same technique used to find roots) finds a raw pointer-sized word that looks
+like a valid arena address; it does not know what it points *to*. Ziman's own `Value.type` doesn't
+help here, because `Value.type` lives wherever the `Value` itself is stored, not at the address the
+pointer refers to. The only way to know "is this address an `ArrayObj`, a `StructObj`, a plain
+string buffer, ..." once a pointer into the arena has been found is a header stored at that
+address, prepended to the object's own payload by whatever allocates it. Layout: `{kind: enum (one
+tag per traced shape, plus one for "atomic, never traced further" -- strings, `BigNum`/`Decimal`
+digits, packed arrays), marked: bool}`, built as a thin layer on top of `arena_alloc` (`arena.c`
+itself stays a general bump allocator with no opinion on headers), analogous to how `value_copy.c`
+sits on top of it today rather than baking this into `arena.c` directly.
+
+**2. The interior-pointer problem: this interpreter's own optimizations don't start allocations at
+their own beginning, and a from-scratch collector doesn't get Boehm's answer for free.** A
+substring/`trim`/`split` piece is a *view* into a parent string buffer (`value_string_view`), not
+necessarily at its start; `array_obj_view` slices work the same way; `ArrayStore` tracks spare
+capacity shared between `push` snapshots of the same growing array. Boehm handles all of this via
+`ALL_INTERIOR_POINTERS` (its own compile-time option, already enabled in this project's vendored
+build) — given *any* address, conservative or not, it can find which `GC_MALLOC`'d block contains
+it, header included, via its own internal block-size bookkeeping. A custom arena doesn't have that
+for free; building it (a sorted, binary-searchable index of every live allocation's range) is real,
+additional machinery with its own correctness surface. **Resolution for a first version: don't
+solve interior pointers at all — make Phase 3's collector a copying one, and copy a view's own
+*bytes*, not the shared buffer.** A live string view surviving a collection gets exactly the `len`
+bytes it actually uses, freshly copied into the new arena; a live array slice the same. This gives
+up buffer-sharing *across* a collection cycle (a real, measurable cost if collections are frequent
+and slicing is heavy) in exchange for a collector whose correctness doesn't depend on reproducing
+Boehm's own interior-pointer bookkeeping. `ArrayStore`'s cross-collection sharing is given up the
+same way -- a copied array starts a fresh `ArrayStore` of its own, same as `value_deep_copy` already
+does for a value crossing a thread. Revisit only if this specific cost shows up in a real
+measurement; building the general mechanism speculatively is exactly the kind of premature
+optimization this project's own stated design principles argue against.
+
+**3. A from-scratch collector inherits this codebase's own already-documented root-finding gap, and
+must not repeat the mistake of trusting a scan that's known not to cover everything.** The reason
+`t_defer_envs`/`t_env_pool` (interpreter.c) are `GC_MALLOC_UNCOLLECTABLE` today, not ordinary
+`GC_MALLOC`, is that *this interpreter's own comments already say* the collector does not reliably
+scan thread-local storage. A Phase 3 collector built around conservative C-stack scanning has the
+identical blind spot for its *own* `__thread` state (the working arena pointer, `t_defer_envs`,
+`t_env_pool`, `error.c`'s call-frame stack) unless those are walked as explicit, enumerated roots
+in addition to the stack scan, not assumed to be reachable via it. This is the same *class* of
+mistake as the native-handle bug — something silently invisible to whatever does the scanning —
+recorded now, before it gets found the same way a second time.
+
+**4. Root-finding reuses stack.c's own proven bounds computation, not new bookkeeping.**
+`ziman_stack_slow`/`measure_this_thread` (`src/stack.c`) already computes a thread's real stack
+range via `pthread_getattr_np` for the recursion-depth guard, on both the main thread and every
+`spawn`ed one. It currently only exposes a margin-adjusted limit (`ziman_stack_limit`), not the raw
+low address a conservative scan would need as its lower bound — Phase 3 needs a second accessor
+for that, extending this file rather than re-deriving stack bounds independently elsewhere.
+
+**5. Collection triggering reuses `arena_reserved`, already built.** A watermark check --
+collect this thread's heap once `arena_reserved` has grown by some threshold since the last
+collection -- is the same shape every bump/free-list allocator's own trigger already takes, and the
+function it reads already exists (`src/arena.c`, built for exactly this in Phase 2's first
+increment).
+
+**6. The native-handle constraint (above) applies here unchanged.** The per-thread working arena
+Phase 3 collects must be `arena_create_scanned`, for the identical reason the outbound arena is --
+already fixed, already built, nothing new to design.
+
+**Still genuinely open, deferred to the implementation pass itself rather than blocked on here:**
+exact object-header size/alignment cost; whether a thread's heap ever shrinks (returns memory to
+the OS) or only grows and reuses space via the eventual copying collector; how `defer`'s own
+pending calls (Envs registered but not yet run) get treated as roots precisely, given `run_defers`
+already has its own control flow around them.
 
 ## Status
 
@@ -299,11 +368,31 @@ just the outbound one. Verified directly, not just that the test suite went gree
 reproduction (`tests/fixtures/thread_crossing_native_handle.zm`) confirmed to fail with the exact
 original error when temporarily reverted, and pass once reverted back.
 
-Remaining Phase 2 work (routing the *interpreter's own* allocation sites -- ordinary `Value`
-construction during normal single-thread execution, not crossing-point copies -- through a
-per-thread working arena) and phases 3-5 (object headers + conservative-stack-scan + mark-sweep,
-moving globals/AST to the permanent region, re-measuring against the concurrency benchmark) are
-still design only, not started, not scoped into an estimate — comparable in size to writing a small
-garbage collector from scratch, because that's what Phase 3 is: precise inside the heap,
-conservative on the stack (reusing Boehm's proven technique for that one part), scoped to a single
-thread rather than the whole process. Tracked as the concurrency half of F2 (docs/reviews/tasks.md).
+**Sequencing decision (2026-09-30): skip Phase 2's remaining allocation-site rewiring, go straight
+to Phase 3's design.** Realized before starting it: a working arena freed only "at thread exit"
+(Phase 2's own original plan) does not help `server.zm`'s actual workload at all -- it is
+thread-*per-connection*, and with keep-alive one thread serves thousands of requests before it ever
+exits, so a thread-exit-freed arena reclaims nothing meaningfully sooner than today's shared
+collector does for that exact case. It would only help a genuinely short-lived thread (a one-shot
+`spawn`ed worker, a CLI script), and would be a large, risky rewiring (touching most of `value.c`/
+`env.c`/`mapobj.c`'s own allocation sites) for no benefit on the concurrency benchmark until Phase 3
+(real per-thread collection, which reclaims *during* a thread's life, not just at its end) also
+exists on top of it. Rather than build that large a piece twice, or build it once with no payoff
+yet, Phase 3's actual design came first.
+
+**Phase 3 design substantially worked through (2026-09-30), not yet implemented.** Three sub-problems
+that looked like implementation details turned out to need real resolution before any code: why
+object headers are unavoidable (precise tracing needs to know an object's shape from a bare pointer,
+which nothing else provides); the interior-pointer problem this interpreter's own view-sharing
+optimizations create, resolved by making Phase 3 a *copying* collector that re-copies a view's own
+bytes rather than reproducing Boehm's block-bookkeeping; and this codebase's own already-documented
+gap (thread-local storage isn't reliably scanned) applying identically to a from-scratch collector's
+own `__thread` state, meaning roots must be explicitly enumerated, not assumed found by a stack scan
+alone. See "Phase 3 design, worked through before writing any code" above for the full reasoning,
+plus two smaller pieces resolved by reuse rather than new design (`stack.c`'s existing stack-bounds
+computation for root-finding, `arena_reserved` for the collection trigger). Still not started as
+code, and still comparable in size to writing a small garbage collector from scratch — this is that
+collector's actual shape now, not a placeholder description of one. Phase 2's own remaining
+allocation-site-rewiring step is deferred until Phase 3 exists to make it worth doing at all; phases
+4-5 (moving globals/AST to the permanent region, re-measuring against the concurrency benchmark)
+remain design-only. Tracked as the concurrency half of F2 (docs/reviews/tasks.md).
