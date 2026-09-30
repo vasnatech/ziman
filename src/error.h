@@ -74,6 +74,23 @@ void ziman_register_source(const char *file, const char *text);
 void ziman_push_frame(const char *name, const char *file, int call_line, int call_col);
 void ziman_pop_frame(void);
 
+/* Associates `env` -- the interpreter's own Env* for this call's top-level scope, kept as `void *`
+ * since error.c has no reason to know about env.h -- with the current (innermost) frame. Called
+ * separately from ziman_push_frame, right after call_function creates its own Env (its frame is
+ * already pushed by then; a native call, which has no Env at all, never calls this, leaving that
+ * frame's env NULL). Needed so a real collection cycle can walk every currently active call's own
+ * scope chain (docs/MEMORY.md, "the second root source"): a conservative stack scan can never see
+ * into an Env's own bindings on its own, since Env lives on the ordinary allocator's heap, not a
+ * thread's GcHeap arena. */
+void ziman_set_frame_env(void *env);
+
+/* How many frames are active on the calling thread right now, and the Env* ziman_set_frame_env
+ * associated with frame `i` (0 = outermost, ziman_frame_count() - 1 = innermost, matching
+ * ziman_push_frame's own append order -- though a root walk needs every frame regardless of order),
+ * or NULL for a native call's frame or one nothing has set it for yet. */
+int ziman_frame_count(void);
+void *ziman_frame_env_at(int i);
+
 /* The current thread's call chain as text, innermost first, one indented "at f
  * (file:line:col)" per line, lines joined by "\n" with neither a leading nor a
  * trailing one -- "" when there are none. For a caller reporting a failure it already

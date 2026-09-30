@@ -608,6 +608,150 @@ See DESIGN.md's "`gc_mark_object`, and the first real end-to-end cycle" entry fo
 `gc_mark_test.c` grew to 24 checks, `gc_heap_test.c` to 22, both rerun five times (stack contents vary
 run to run) with zero failures; `valgrind` clean (`--undef-value-errors=no` where conservative
 scanning's own inherent noise applies, same as `gc_scan_test.c`); full suite (829 fixtures) unchanged
-on both builds. Still ahead: the collection trigger (when to actually call `gc_heap_collect`), the
-explicit thread-local root walk that closes the gap above, and wiring a real per-thread `GcHeap` into
-the interpreter's own allocation sites.
+on both builds.
+
+**The second root source, and a gap found broader than expected (2026-09-30): an `Env` chain.**
+Working out exactly what "the explicit thread-local root walk" needed to cover, before writing it,
+found the gap is wider than that name suggests. An `Env` (`env.h`) is never allocated in a thread's
+`GcHeap` arena -- it lives on the ordinary allocator's own heap. The moment a `Value` is stored into a
+binding, its pointer fields move off the C stack (where a conservative scan could see them as raw
+words) into `Env.items`' own heap storage -- invisible to a scan that only reads stack bytes and never
+dereferences what it finds. **This affects every ordinary variable in the interpreter, not just
+`t_defer_envs`/`t_env_pool`**, which is the narrower shape originally named above; those two are a
+real instance of the same underlying problem (an `Env` the collector's scan can't see into), but the
+cause is structural, not specific to thread-local storage.
+
+`src/gc_env_roots.c`/`.h` (new): `gc_mark_env_chain(const Arena *a, const Env *env)` marks every
+`Value` bound in `env` and walks `->parent` iteratively up to wherever the chain terminates. Built and
+tested standalone, on purpose, before touching `t_defer_envs`/`t_env_pool`/`error.c`'s frame tracking
+or the interpreter at all -- the smallest correct piece of the fix first. Still ahead, not resolved
+here: wiring this into `error.c`'s existing call-frame tracking (each active call's own `Env*`, not
+just one handed to it directly), walking `t_defer_envs`/`t_env_pool` the same way, and `g_global_env`
+once globals are ever routed through a `GcHeap` (Phase 4/5, still design-only). `gc_heap_collect`
+itself is not yet updated to call this.
+
+See DESIGN.md's "The second root source" entry for the full reasoning and the standalone test's 7
+checks (`tests/unit/gc_env_roots_test.c`, `make test-gc-env-roots`), all passing, `valgrind` clean,
+full suite (829 fixtures) unchanged on both builds.
+
+**`error.c`'s frame tracking now carries each call's own `Env*` (2026-09-30).** `ZimanFrame` gains a
+`void *env` (untyped -- `error.c` is shared by the lexer/parser/type checker too, none of which need
+`env.h`), set by a new `ziman_set_frame_env(void *env)` right after `call_function` creates its own
+`Env` (its frame is already pushed by then, before argument binding) -- one new line at that one call
+site. A native call's frame is left `NULL` (natives have no `Env`). Read back through
+`ziman_frame_count()`/`ziman_frame_env_at(int i)` rather than exposing the frame array itself, since
+`env` isn't contiguous across frames.
+
+**The first change in this whole effort to touch `interpreter.c`/`error.c` themselves, not land as a
+new, uncalled module** -- `ziman_set_frame_env` runs on every function call now, on the real hot path,
+even though nothing yet reads what it stores. Verified accordingly, not just tested in isolation: full
+suite (829 fixtures) unchanged on both builds, and the real `health-record-backend-ziman` suite (19
+Python files, 823 checks, including `admin_test.py`'s own case) passes against a freshly built binary
+-- this session's standing rule for anything touching interpreter behavior.
+
+See DESIGN.md's "Wiring error.c's existing frame tracking" entry for the full reasoning. Still ahead:
+actually calling `gc_mark_env_chain` for every frame this exposes, plus `g_global_env` and
+`t_defer_envs`/`t_env_pool`, from within a real collection cycle -- `gc_heap_collect` itself is
+unchanged by this increment, and the collection trigger and interpreter allocation-site wiring remain
+fully ahead too.
+
+**`gc_heap_collect` gains the seam for that second root source, without learning what it is
+(2026-09-30).** A third parameter, `extra_roots(const Arena *a, void *ctx)` + `ctx`, called (if
+non-`NULL`) after the stack scan and before sweeping. Not a direct call into `interpreter.c`'s own
+`g_global_env`/`t_defer_envs`/`t_env_pool`, which are genuinely private (`static`/`static __thread`)
+and which `gc_heap.c` has stayed decoupled from through every increment so far -- the same shape
+`gc_scan_stack_roots`'s own `visit` callback already uses: `gc_heap_collect` runs whatever a caller
+supplies, with no opinion on what it does. Every existing caller still passes `NULL` today, which is a
+real, explicitly documented gap (`gc_heap.h`'s own comment says so plainly), not an oversight -- not
+yet safe to wire into the real interpreter until a caller supplies a complete one.
+
+Proven with a genuine case, not just a signature change: a string bound in an `Env`, referenced by
+nothing else, survives a real `gc_heap_collect` cycle specifically because the new callback (calling
+`gc_mark_env_chain`) runs -- the exact shape invisible to conservative scanning alone. See DESIGN.md's
+"`gc_heap_collect` gains a seam" entry; `gc_heap_test.c` grew to 24 checks, rerun five times, zero
+failures, `valgrind` clean, full suite (829 fixtures) unchanged on both builds. Still ahead: the actual
+`interpreter.c`-side caller that supplies a complete `extra_roots` (global env, every frame's env,
+`t_defer_envs`/`t_env_pool`), the collection trigger, and wiring a real per-thread `GcHeap` into the
+interpreter's own allocation sites.
+
+**The interpreter's own root sources, aggregated (2026-09-30): `src/gc_interp_roots.c`/`.h`,
+`gc_mark_interpreter_roots`.** What `gc_heap_collect`'s `extra_roots` seam was waiting for -- marks
+the global scope, every active call's own frame (`error.c`'s frame tracking), and `t_defer_envs`/
+`t_env_pool`, in one call.
+
+**A real practical constraint, not a style choice, shaped its signature**: `interpreter.c` cannot be
+linked into a standalone unit test the way every other module in this effort has been -- it pulls in
+every native module, the parser, the type checker, essentially the whole program. Reading
+`g_global_env`/`t_defer_envs`/`t_env_pool` directly (genuinely private, `static`/`static __thread`)
+would have made this function's own correctness untestable except by exercising the real interpreter
+end to end. Fixed by taking that state as explicit parameters instead -- a synthetic `Env**`/count
+pair a standalone test builds by hand exercises the identical code path a real `t_defer_envs`/
+`t_env_pool` would. Active call frames are the one piece still read directly, via `error.c`'s already-
+general `ziman_frame_count`/`ziman_frame_env_at` -- a different, lighter kind of coupling than
+`interpreter.c`'s own internals. `interpreter.c`'s eventual wiring becomes a thin wrapper passing its
+own state through, one line per field.
+
+**A verification bar this function cannot fully clear on its own, said plainly**: the standalone test
+proves the aggregation logic itself is correct against synthetic stand-ins; it cannot prove
+`interpreter.c` will one day call it with the *right* state, since nothing calls it yet. That last mile
+comes once a real per-thread `GcHeap`, a trigger, and the actual `call_function`/`interpret` wiring all
+exist -- a fixture surviving a real, triggered collection will be the implicit end-to-end proof, the
+same way `admin_test.py` was for the native-handle bug.
+
+See DESIGN.md's "The interpreter's own root sources, aggregated" entry; standalone test 6 checks
+(`tests/unit/gc_interp_roots_test.c`, `make test-gc-interp-roots`) all passing, `valgrind` fully clean
+(this test's `type_scalar`-only `Value`s allocate nothing, unlike every other real-`Value` test here),
+full suite (829 fixtures) unchanged on both builds.
+
+**The narrowest possible slice, wired for real -- and a real, live bug it caught before anything
+shipped (2026-09-30).** `src/gc_thread_heap.c` (new) owns a per-thread `GcHeap*`; `value_string_copy`
+(`value.c`) now allocates through it, deliberately the one, smallest, most self-contained allocation
+site (docs/DESIGN.md's "narrowest possible slice"); a collection trigger checks a threshold at the top
+of `exec_stmt` -- the one point in this interpreter's execution proven safe from the `EXPR_CALL`-style
+temporary-buffer root-source gap (an `args` array built by plain `malloc`, holding `Value`s neither the
+stack scan nor the `Env`-chain walk can see into, but fully unwound and freed by the time any
+statement's own evaluation finishes -- verified by reading the code before writing any of this wiring,
+not assumed).
+
+**The bug**: `struct Opts { flag: bool }`, crossed through `spawn`, printed `true` instead of `false` --
+deterministic, confirmed absent on the prior commit, confirmed to disappear when the trigger was
+disabled with everything else left wired. **Root cause**: the mark phase assumed every structural
+object it reached had been built by `gc_alloc` (a real header) -- false for a struct crossing `spawn`,
+built by `value_copy.c`'s own bare `arena_alloc` with no header at all, and in fact false for *every*
+structural object anywhere in the interpreter at the time, since only `value_string_copy` had been
+migrated. `gc_set_marked`/`gc_is_marked`, called directly on such a pointer, wrote into whatever bytes
+actually preceded it -- here, the struct's own adjacent `bool` field, flipping it. This was a latent,
+universal gap in `gc_mark.c`'s per-kind functions from the moment `gc_mark_env_chain` could reach *any*
+real `Env` binding, not something specific to thread-crossing; the crossing case only happened to be
+the first path exercised. `mark_interior_capable` (strings, buffers) never showed this, because it
+already resolves through `gc_lookup` first and only marks a confirmed, non-`NULL` result.
+
+**The fix**: a new `is_gc_heap_object(a, ptr)` (`gc_lookup(a, ptr) == ptr`) gates every direct mark-bit
+touch in `gc_mark_array`/`_struct`/`_result`/`_enum`/`_closure` and the boxed `BigNum`/`Decimal` cases.
+When false, the object's own header is never touched, but its fields are still traced regardless -- a
+plain, not-yet-migrated object can still hold a field that *is* real `gc_heap` content. Costs the
+"already visited" idempotency guard for header-less objects specifically (safe: the graph is a DAG, so
+this cannot loop, only possibly retrace a shared substructure) and adds a second, unmeasured `gc_lookup`
+cost on top of the one already flagged for interior-pointer-capable buffers.
+
+**Verified as a real fix**: the minimal repro (`Opts{flag:false}` through `spawn`) reproduces `true`
+with the guards reverted, `false` restored, five runs each way. A permanent regression fixture,
+`tests/fixtures/gc_collect_preserves_thread_crossed_value.zm` (a `spawn`ed worker reading 3,000 lines
+via `fs.lines` to reliably cross the trigger threshold before checking its own received struct), does
+the identical before/after discrimination -- the same discipline `thread_crossing_native_handle.zm`
+already established for the earlier native-handle bug. Full suite 830/830 on both builds (829 plus this
+fixture); the real `health-record-backend-ziman` suite (823 checks) passes; `valgrind` against the real
+interpreter running the new fixture reports zero errors.
+
+**A second gap found while root-causing this one, fixed proactively before it could bite separately**:
+`t_heap` is `__thread`-reachable only -- the exact shape that already required
+`GC_MALLOC_UNCOLLECTABLE` for `t_defer_envs`/`t_env_pool`. `gc_heap_create` now allocates the `GcHeap`
+struct itself the same way.
+
+See DESIGN.md's "A real, live bug caught by the narrowest possible slice" entry for the full story.
+Still open: the `EXPR_CALL`-style temporary-buffer gap remains real for any future trigger point less
+restrictive than "only at `exec_stmt`'s own entry"; migrating any allocation site beyond
+`value_string_copy` will need the identical `is_gc_heap_object` care, not assumed safe by extension.
+Still ahead: re-measuring against the concurrency benchmark once more allocation sites migrate, and
+migrating them (array/struct construction, then `env_new`/call frames, per the project owner's own
+"narrowest possible slice" sequencing).

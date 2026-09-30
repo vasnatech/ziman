@@ -7,13 +7,18 @@
  * before building the next one" discipline every earlier layer here was proven with -- kept as-is
  * since it still exercises gc_heap_alloc/gc_heap_sweep on their own, independent of gc_scan.c/
  * gc_mark.c now being wired in for gc_heap_collect specifically. The second half tests the real,
- * composed cycle. `value_hash` is stubbed for the same reason gc_copy_test.c/gc_mark_test.c stub
- * it: nothing here constructs a TY_MAP/TY_SET value, so its real definition (src/interpreter.c, not
- * linked here) is never actually called. */
+ * composed cycle, including gc_heap_collect's own extra_roots callback -- the seam that will
+ * eventually carry interpreter.c's Env-chain roots (docs/MEMORY.md, "the second root source") --
+ * proven here with a value reachable only through an Env binding, never the stack. `value_hash` is
+ * stubbed for the same reason gc_copy_test.c/gc_mark_test.c stub it: nothing here constructs a
+ * TY_MAP/TY_SET value, so its real definition (src/interpreter.c, not linked here) is never
+ * actually called. */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "../../src/env.h"
+#include "../../src/gc_env_roots.h"
 #include "../../src/gc_heap.h"
 #include "../../src/gc_object.h"
 #include "../../src/value.h"
@@ -28,6 +33,10 @@ static int failures = 0;
 static void check(const char *label, int ok) {
     printf("%s %s\n", ok ? "PASS" : "FAIL", label);
     if (!ok) failures++;
+}
+
+static void mark_env_ctx(const Arena *a, void *ctx) {
+    gc_mark_env_chain(a, (const Env *)ctx);
 }
 
 /* File-scope, not a stack local: gc_scan_stack_roots only ever scans the C stack, so stashing the
@@ -169,7 +178,7 @@ int main(void) {
     memset(dead, 0xDD, 48);
     g_dead_addr = dead;
 
-    gc_heap_collect(h2);
+    gc_heap_collect(h2, NULL, NULL);
 
     check("the live graph's ArrayObj survives a real collection cycle", gc_kind_of((void *)live_root) == GC_ARRAY);
     check("the live graph's struct, reached through it, survives with its mark cleared", !gc_is_marked(point) && gc_kind_of(point) == GC_STRUCT);
@@ -182,6 +191,32 @@ int main(void) {
     check("a dead, unreferenced object's slot is reused after a real collection cycle", reused_after_collect == g_dead_addr);
 
     gc_heap_destroy(h2);
+
+    /* --- gc_heap_collect's extra_roots callback ------------------------------------------------
+     * A value reachable only through an Env binding, never through any stack-scanned root (the
+     * whole reason extra_roots exists -- see gc_heap.h's own header comment): the string's own
+     * pointer is stored into `env` and never referenced by any local of this test's own again,
+     * so the only thing keeping it alive across gc_heap_collect is the callback actually running
+     * and gc_mark_env_chain correctly marking it. */
+    GcHeap *h3 = gc_heap_create();
+    Env *env = env_new(NULL);
+    const char *msg = "reachable only through an Env binding, not the stack";
+    char *env_str_buf = gc_heap_alloc(h3, GC_ATOMIC, strlen(msg) + 1);
+    memcpy(env_str_buf, msg, strlen(msg) + 1);
+    Value env_str_val;
+    env_str_val.type = type_scalar(TY_STRING);
+    env_str_val.as.str.ptr = env_str_buf;
+    env_str_val.as.str.len = (uint32_t)strlen(msg);
+    env_str_val.as.str.term = 1;
+    env_define(env, "s", env_str_val.type, 0, env_str_val);
+
+    gc_heap_collect(h3, mark_env_ctx, env);
+
+    check("a value reachable only through an Env binding survives via extra_roots", gc_kind_of(env_str_buf) == GC_ATOMIC);
+    check("its content is intact after surviving through extra_roots", strcmp(env_str_buf, msg) == 0);
+
+    env_free(env);
+    gc_heap_destroy(h3);
 
     printf("%d failure(s)\n", failures);
     return failures ? 1 : 0;

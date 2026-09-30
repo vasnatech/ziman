@@ -161,7 +161,15 @@ static void print_json_string(FILE *out, const char *s) {
 
 static __thread ThreadBoundary *t_boundary = NULL;
 
-typedef struct { const char *name, *file; int call_line, call_col; } ZimanFrame;
+/* `env`: the interpreter's own Env* for this call's top-level scope, kept as `void *` since error.c
+ * has no reason to know about env.h -- set separately (ziman_set_frame_env), not by
+ * ziman_push_frame itself, since call_function pushes its frame before its own Env exists (see
+ * interpreter.c). NULL for a native call's frame (natives have no Env at all) or a frame nothing
+ * has set it for yet. Read back by a real collection cycle's root walk (docs/MEMORY.md, "the second
+ * root source") via ziman_frame_count/ziman_frame_env_at -- a conservative stack scan can never see
+ * into an Env's own bindings on its own, since Env lives on the ordinary allocator's heap, not a
+ * thread's GcHeap arena. */
+typedef struct { const char *name, *file; int call_line, call_col; void *env; } ZimanFrame;
 
 /* Reachable only through the `__thread` pointer, same as t_defer_envs/t_env_pool in
  * interpreter.c: the collector does not reliably scan thread-local storage, so the
@@ -187,11 +195,23 @@ static void frames_grow(int capacity) {
 
 void ziman_push_frame(const char *name, const char *file, int call_line, int call_col) {
     if (t_frame_count == t_frame_capacity) frames_grow(t_frame_capacity == 0 ? 64 : t_frame_capacity * 2);
-    t_frames[t_frame_count++] = (ZimanFrame){name, file, call_line, call_col};
+    t_frames[t_frame_count++] = (ZimanFrame){name, file, call_line, call_col, NULL};
 }
 
 void ziman_pop_frame(void) {
     if (t_frame_count > 0) t_frame_count--;
+}
+
+void ziman_set_frame_env(void *env) {
+    if (t_frame_count > 0) t_frames[t_frame_count - 1].env = env;
+}
+
+int ziman_frame_count(void) {
+    return t_frame_count;
+}
+
+void *ziman_frame_env_at(int i) {
+    return t_frames[i].env;
 }
 
 void ziman_call_stack_release(void) {

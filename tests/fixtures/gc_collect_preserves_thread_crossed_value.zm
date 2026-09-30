@@ -1,0 +1,43 @@
+use fs
+use clock
+
+// A regression guard for a real bug found implementing docs/MEMORY.md's Phase 3 mark-sweep
+// collector: a struct crossing a `spawn` boundary lives in value_copy.c's own outbound arena (a
+// bare arena_alloc, no gc_alloc header at all), but the mark phase's per-kind functions used to
+// call gc_set_marked/gc_is_marked directly on any StructObj/ArrayObj/etc. they found through an
+// Env binding, with no check for whether that object actually had a header to read or write.
+// Marking a struct that crossed via spawn wrote a "marked" bit into memory that was actually part
+// of the struct's own adjacent field -- here, a bool -- flipping it from false to true the moment
+// a real collection ran. `fs.lines` is what forces one: it is the one place in this interpreter
+// that already allocates through the real collector (value_string_copy, src/value.c), so reading
+// enough lines crosses the collection trigger's own threshold reliably. See docs/DESIGN.md's own
+// entry on this incident for the full story.
+struct Opts {
+    flag: bool
+}
+
+fn worker(o: Opts, path: string) {
+    val it = unwrap(fs.lines(path))
+    var count = 0
+    for line_result in it {
+        val _ = unwrap(line_result)
+        count = count + 1
+    }
+    print(count)
+    print(o.flag)
+}
+
+fn main() {
+    val path = "/tmp/ziman_fixture_gc_collect_preserves_thread_crossed_value.txt"
+    val _ = fs.remove(path)
+    val _ = fs.write_text(path, "")
+    var i = 0
+    while i < 3000 {
+        val _ = fs.append_text(path, "a line of text, allocated through value_string_copy\n")
+        i = i + 1
+    }
+    val opts = Opts { flag: false }
+    spawn worker(opts, path)
+    clock.sleep_millis(500)
+    val _ = fs.remove(path)
+}

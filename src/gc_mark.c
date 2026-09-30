@@ -12,23 +12,63 @@ static void gc_mark_into(const Arena *a, Value v);
  * through `gc_lookup` to the enclosing object's own exact start, and marks *that* -- `gc_set_marked`
  * cannot be called on an interior address directly (see gc_object.h's own contract). A `NULL`
  * result would mean `ptr` doesn't resolve to anything `a` actually holds at all; harmless to just
- * skip, since there is nothing to mark either way. */
+ * skip, since there is nothing to mark either way -- this also already makes this function safe to
+ * call on a pointer that lives in a *different* arena entirely (see is_gc_heap_object's own comment
+ * below for why that matters), since gc_lookup naturally answers "not found" for it too. */
 static void mark_interior_capable(const Arena *a, const void *ptr) {
     if (ptr == NULL) return;
     const void *obj = gc_lookup(a, ptr);
     if (obj != NULL) gc_set_marked((void *)obj, 1);
 }
 
-static void gc_mark_bignum_digits(BigNum n) {
+/* Whether `ptr` is actually a `gc_alloc`'d object's own exact start within `a` -- `gc_lookup`
+ * resolves both exact and interior addresses, so an exact match against its own result confirms
+ * `ptr` itself is a real object here, not merely inside one.
+ *
+ * Exists because not every ArrayObj/StructObj/ResultObj/EnumObj/ClosureObj/boxed BigNum/Decimal
+ * this interpreter ever builds lives in a `GcHeap` arena at all -- most don't yet (only
+ * `value_string_copy` has been migrated so far, docs/DESIGN.md's "narrowest possible slice"), and
+ * a value that crossed a `spawn`/`Channel` boundary (`value_copy.c`'s own outbound arena) never
+ * will, by design. Those objects have no `gc_alloc` header -- `gc_set_marked`/`gc_is_marked` read
+ * and write the bytes immediately before an object's own address, and calling them on a pointer
+ * with no real header there corrupts whatever those bytes actually belong to (found the hard way:
+ * a struct's own `bool` field, sitting where a non-existent header's `marked` bit landed, flipped
+ * from `false` to `true` the moment a collection first ran against a program crossing it through
+ * `spawn` -- see docs/DESIGN.md's own entry on this incident for the full story). Every per-kind
+ * marking function below checks this before touching an object's own mark bit, but still recurses
+ * into its fields regardless: a plain, not-yet-migrated struct can perfectly well hold a field that
+ * *is* `gc_heap`-allocated (an ordinary struct with a string field, once any string constructor
+ * beyond `value_string_copy` migrates), and that field still needs protecting.
+ *
+ * A real, deliberate cost, not overlooked: this is a second `gc_lookup` call per structural object
+ * during marking, on top of the one `mark_interior_capable` already needed for interior-pointer-
+ * capable buffers -- `gc_mark.h`'s own header comment already flags that one as unmeasured; this
+ * doubles down on the same flag rather than a new one. Correctness first, measured before optimized,
+ * the same discipline this effort has used throughout -- not a claim that it's free. */
+static int is_gc_heap_object(const Arena *a, const void *ptr) {
+    return gc_lookup(a, ptr) == ptr;
+}
+
+static void gc_mark_bignum_digits(const Arena *a, BigNum n) {
     /* Always a whole, own-start allocation -- every BigNum operation builds a fresh one (see
-     * bignum.h), never a view -- so a direct mark is correct and, unlike the interior-pointer-
-     * capable cases above, needs no gc_lookup resolution at all (no `Arena *` parameter needed). */
-    if (n.count > 0) gc_set_marked(n.digits, 1);
+     * bignum.h), never a view -- so no interior-pointer resolution is ever needed here, unlike
+     * mark_interior_capable's own cases. Still needs the same is_gc_heap_object gate as everything
+     * else in this file, though: the digit array can just as easily be a plain (not yet migrated)
+     * or permanently outbound-arena allocation as the boxed BigNum/Decimal wrapping it can. */
+    if (n.count > 0 && is_gc_heap_object(a, n.digits)) gc_set_marked(n.digits, 1);
 }
 
 static void gc_mark_array(const Arena *a, ArrayObj *arr) {
-    if (gc_is_marked(arr)) return;
-    gc_set_marked(arr, 1);
+    /* Only an object gc_alloc actually built here has a real header to read or set -- see
+     * is_gc_heap_object's own comment. A plain (not yet migrated, or permanently outbound-arena)
+     * ArrayObj has no mark bit to check or set, and so no "already visited" guard either; fields
+     * are still walked every time this reaches it, which cannot loop (the graph is a DAG) and only
+     * costs redundant work on a shared, not-yet-migrated substructure -- an accepted, documented
+     * cost, not a new correctness issue. */
+    if (is_gc_heap_object(a, arr)) {
+        if (gc_is_marked(arr)) return;
+        gc_set_marked(arr, 1);
+    }
     /* At most one of these is non-NULL (see ArrayObj's own doc comment); each is interior-pointer-
      * capable (array_obj_view slices whichever one is in use at an offset), so each goes through
      * mark_interior_capable, never a direct gc_set_marked. */
@@ -45,8 +85,11 @@ static void gc_mark_array(const Arena *a, ArrayObj *arr) {
 }
 
 static void gc_mark_struct(const Arena *a, StructObj *st) {
-    if (gc_is_marked(st)) return;
-    gc_set_marked(st, 1);
+    /* See gc_mark_array's own comment on is_gc_heap_object -- identical reasoning applies here. */
+    if (is_gc_heap_object(a, st)) {
+        if (gc_is_marked(st)) return;
+        gc_set_marked(st, 1);
+    }
     /* field_names is borrowed from the StructDecl (permanent AST, never gc_alloc'd) -- nothing to
      * mark there. fields is a Value[] buffer, always its own whole allocation for a StructObj
      * (never sliced the way ArrayObj.boxed_items can be -- see gc_copy.h's own reasoning for why
@@ -58,21 +101,30 @@ static void gc_mark_struct(const Arena *a, StructObj *st) {
 }
 
 static void gc_mark_result(const Arena *a, ResultObj *res) {
-    if (gc_is_marked(res)) return;
-    gc_set_marked(res, 1);
+    /* See gc_mark_array's own comment on is_gc_heap_object. */
+    if (is_gc_heap_object(a, res)) {
+        if (gc_is_marked(res)) return;
+        gc_set_marked(res, 1);
+    }
     gc_mark_into(a, res->value);
 }
 
 static void gc_mark_enum(const Arena *a, EnumObj *en) {
-    if (gc_is_marked(en)) return;
-    gc_set_marked(en, 1);
+    /* See gc_mark_array's own comment on is_gc_heap_object. */
+    if (is_gc_heap_object(a, en)) {
+        if (gc_is_marked(en)) return;
+        gc_set_marked(en, 1);
+    }
     /* enum_name/variant_name borrowed from the EnumDecl (permanent AST) -- nothing to mark. */
     if (en->has_payload) gc_mark_into(a, en->payload);
 }
 
 static void gc_mark_closure(const Arena *a, ClosureObj *clo) {
-    if (gc_is_marked(clo)) return;
-    gc_set_marked(clo, 1);
+    /* See gc_mark_array's own comment on is_gc_heap_object. */
+    if (is_gc_heap_object(a, clo)) {
+        if (gc_is_marked(clo)) return;
+        gc_set_marked(clo, 1);
+    }
     /* fn is a FunctionDecl* -- permanent AST, nothing to mark. */
     mark_interior_capable(a, clo->captured);
     for (int i = 0; i < clo->ncaptured; i++) gc_mark_into(a, clo->captured[i]);
@@ -84,14 +136,20 @@ static void gc_mark_into(const Arena *a, Value v) {
             mark_interior_capable(a, v.as.str.ptr);
             return;
         case TY_BIGINT:
-            if (gc_is_marked(v.as.bi)) return;
-            gc_set_marked(v.as.bi, 1);
-            gc_mark_bignum_digits(*v.as.bi);
+            /* See gc_mark_array's own comment on is_gc_heap_object: a boxed BigNum not yet
+             * migrated to gc_heap allocation (or permanently outbound-arena) has no real header. */
+            if (is_gc_heap_object(a, v.as.bi)) {
+                if (gc_is_marked(v.as.bi)) return;
+                gc_set_marked(v.as.bi, 1);
+            }
+            gc_mark_bignum_digits(a, *v.as.bi);
             return;
         case TY_DECIMAL:
-            if (gc_is_marked(v.as.dec)) return;
-            gc_set_marked(v.as.dec, 1);
-            gc_mark_bignum_digits(v.as.dec->unscaled);
+            if (is_gc_heap_object(a, v.as.dec)) {
+                if (gc_is_marked(v.as.dec)) return;
+                gc_set_marked(v.as.dec, 1);
+            }
+            gc_mark_bignum_digits(a, v.as.dec->unscaled);
             return;
         case TY_ARRAY:
             gc_mark_array(a, v.as.arr);

@@ -7,6 +7,14 @@
 #include "gc_mark.h"
 #include "gc_scan.h"
 
+/* Only for GC_MALLOC_UNCOLLECTABLE/GC_FREE (gc_heap_create/gc_heap_destroy) -- see gc_heap_create's
+ * own comment on why the GcHeap struct itself needs this. A `make`/`make gc` build already
+ * force-includes src/zgc.h into every translation unit; this explicit include is for gc.h's own
+ * declarations, same as arena.c's identical comment on its own `GC_add_roots`/`GC_remove_roots` use. */
+#ifdef ZIMAN_GC
+#include <gc.h>
+#endif
+
 /* One free list per power-of-two size class, indexed by its log2 (`class_index_of`) -- enough
  * slots to cover every representable `size_t` value; in practice only a handful near the small end
  * are ever non-NULL. */
@@ -31,7 +39,20 @@ static int class_index_of(size_t class_size) {
 }
 
 GcHeap *gc_heap_create(void) {
+    /* GC_MALLOC_UNCOLLECTABLE, not plain malloc (which a ZIMAN_GC build's own zgc.h redirects to
+     * ordinary, collectable GC_MALLOC): a GcHeap this codebase actually uses (src/gc_thread_heap.c)
+     * is reachable only through a `__thread` pointer, and this codebase's own established finding
+     * (interpreter.c's t_defer_envs/t_env_pool) is that Boehm does not reliably scan thread-local
+     * storage -- an ordinarily-collectable GcHeap struct could be reclaimed by Boehm while the
+     * thread that owns it is still actively allocating from its own arena, a use-after-free of the
+     * whole heap, not just one object in it. Uncollectable is safe for every other caller too (a
+     * stack-local GcHeap*, as every test here uses): it just means gc_heap_destroy is the only way
+     * to free it, already true of every GcHeap regardless. */
+#ifdef ZIMAN_GC
+    GcHeap *h = GC_MALLOC_UNCOLLECTABLE(sizeof(GcHeap));
+#else
     GcHeap *h = malloc(sizeof(GcHeap));
+#endif
     /* Scanned, not plain: this heap can end up holding a native resource handle the same way
      * src/value_copy.c's own outbound arena can (see arena.h's own comment on
      * arena_create_scanned) -- a disguised pointer stored as a plain int64_t Value field, kept
@@ -43,7 +64,15 @@ GcHeap *gc_heap_create(void) {
 
 void gc_heap_destroy(GcHeap *h) {
     arena_destroy(h->arena);
+#ifdef ZIMAN_GC
+    GC_FREE(h);
+#else
     free(h);
+#endif
+}
+
+size_t gc_heap_reserved(const GcHeap *h) {
+    return arena_reserved(h->arena);
 }
 
 void *gc_heap_alloc(GcHeap *h, GcKind kind, size_t payload_size) {
@@ -73,7 +102,7 @@ static void mark_visit(const void *obj, void *ctx) {
     gc_mark_object((const Arena *)ctx, obj);
 }
 
-size_t gc_heap_collect(GcHeap *h) {
+size_t gc_heap_collect(GcHeap *h, void (*extra_roots)(const Arena *a, void *ctx), void *ctx) {
     /* If the calling thread's own stack couldn't be measured at all (see gc_scan_stack_roots/
      * ziman_stack_bounds's own comment on when that happens), nothing was marked from it -- sweeping
      * anyway would treat every live object reachable only through the stack as garbage. Skipping
@@ -81,6 +110,7 @@ size_t gc_heap_collect(GcHeap *h) {
      * ziman_stack_slow itself makes for the recursion guard: an unmeasurable thread gets no limit,
      * not a wrong one; here, it gets no collection this cycle, not a wrong one. */
     if (!gc_scan_stack_roots(h->arena, mark_visit, h->arena)) return 0;
+    if (extra_roots != NULL) extra_roots(h->arena, ctx);
     return gc_heap_sweep(h);
 }
 

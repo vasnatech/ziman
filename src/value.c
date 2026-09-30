@@ -12,6 +12,7 @@
 #include "bignum.h"
 #include "decimal.h"
 #include "error.h"
+#include "gc_thread_heap.h"
 
 Value value_int(int64_t i) { Value v; v.type = type_scalar(TY_INT); v.as.i = i; return v; }
 Value value_float(double f) { Value v; v.type = type_scalar(TY_FLOAT); v.as.f = f; return v; }
@@ -50,8 +51,13 @@ Value value_string_view(const char *ptr, size_t len, int term) {
 
 Value value_string(char *s) { return value_string_view(s, strlen(s), 1); }
 
+/* Routed through the calling thread's own GcHeap (src/gc_thread_heap.c), not zalloc_atomic --
+ * deliberately the first, narrowest allocation site Phase 3's real collector was wired to
+ * (docs/DESIGN.md's "narrowest possible slice" entry), before any other constructor moves. Every
+ * other TY_STRING-producing site in this file (value_string_view, value_string) still uses
+ * zalloc_atomic or takes over an existing buffer -- not yet migrated. */
 Value value_string_copy(const char *ptr, size_t len) {
-    char *buf = zalloc_atomic(len + 1);
+    char *buf = gc_heap_alloc(ziman_thread_heap(), GC_ATOMIC, len + 1);
     memcpy(buf, ptr, len);
     buf[len] = '\0';
     return value_string_view(buf, len, 1);

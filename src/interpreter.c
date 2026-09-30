@@ -18,6 +18,9 @@
 #include "env.h"
 #include "error.h"
 #include "fmtstr.h"
+#include "gc_heap.h"
+#include "gc_interp_roots.h"
+#include "gc_thread_heap.h"
 #include "mapobj.h"
 #include "native.h"
 #include "value_copy.h"
@@ -291,6 +294,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
         return result;
     }
     Env *env = env_pool_acquire(g_global_env);
+    ziman_set_frame_env(env);
     for (int i = 0; i < argc; i++) {
         Type bound_type = fn->params.items[i].is_variadic ? type_array(fn->params.items[i].type) : fn->params.items[i].type;
         env_define(env, fn->params.items[i].name, bound_type, 0, args[i]);
@@ -1501,6 +1505,39 @@ static int eval_try_unwrap(Module *module, Env *env, Expr *e, Value *unwrapped, 
     return 0;
 }
 
+/* Phase 3's collection trigger (docs/MEMORY.md, "one heap per thread") -- narrowly scoped for now,
+ * deliberately: only `value_string_copy` (src/value.c) allocates through the calling thread's own
+ * `GcHeap` today, so this heap grows slowly and a real collection is a rare event in most programs,
+ * exactly the "narrowest possible slice" this was built as. `extra_roots` for `gc_heap_collect` is
+ * this thread's own state (src/gc_interp_roots.c's `gc_mark_interpreter_roots` needs
+ * `g_global_env`/`t_defer_envs`/`t_env_pool`, all private to this file) -- a thin wrapper capturing
+ * exactly that, nothing more. */
+static void mark_this_threads_roots(const Arena *a, void *ctx) {
+    (void)ctx;
+    gc_mark_interpreter_roots(a, g_global_env, t_defer_envs, t_defer_env_count, t_env_pool, t_env_pool_count);
+}
+
+/* How much this thread's own heap must grow, since the last time it was checked, before another
+ * collection runs -- an arbitrary, unmeasured starting point (unlike arena.c's own tuning, which
+ * came from real benchmark numbers), chosen only to be small enough that a test allocating strings
+ * in a loop actually exercises a real collection, not to be a considered performance choice. */
+#define ZIMAN_GC_TRIGGER_BYTES ((size_t)(64 * 1024))
+static __thread size_t t_reserved_at_last_collect = 0;
+
+/* Only ever called from exec_stmt's own entry, before that statement's own evaluation has begun
+ * anything -- the one point in this interpreter's execution where nothing is left dangling in a
+ * heap-allocated, not-yet-rooted buffer (an EXPR_CALL's own `args` array, still mid-evaluation, is
+ * exactly what this restriction exists to rule out; see docs/DESIGN.md's own entry on why this
+ * matters and why it makes collecting here, specifically, safe). Not a permanent restriction on
+ * when Phase 3 may ever collect -- a later increment that also gives such temporary buffers their
+ * own root-tracking could safely collect more eagerly; this one doesn't need to. */
+static void maybe_collect(void) {
+    size_t reserved = ziman_thread_heap_reserved();
+    if (reserved - t_reserved_at_last_collect < ZIMAN_GC_TRIGGER_BYTES) return;
+    gc_heap_collect(ziman_thread_heap(), mark_this_threads_roots, NULL);
+    t_reserved_at_last_collect = ziman_thread_heap_reserved();
+}
+
 /* Runs `block`'s statements directly in `scope` (no further scope nesting) --
  * shared by exec_block (which makes its own fresh scope first) and STMT_FOR
  * (which needs a fresh scope per iteration holding that iteration's loop
@@ -1523,6 +1560,7 @@ static ExecResult exec_block(Module *module, Env *parent, Stmt *block) {
 
 static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
     ZIMAN_STACK_CHECK();
+    maybe_collect();
     switch (s->kind) {
         case STMT_VAL:
         case STMT_VAR: {

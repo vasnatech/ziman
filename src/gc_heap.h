@@ -55,6 +55,11 @@ void gc_heap_destroy(GcHeap *h);
  * is available, otherwise carving fresh memory from the heap's own underlying arena. */
 void *gc_heap_alloc(GcHeap *h, GcKind kind, size_t payload_size);
 
+/* Total bytes `h`'s own underlying arena has reserved from the OS (its own `arena_reserved`) -- for
+ * a caller's own collection-trigger watermark, mirroring `arena_reserved`'s identical role for
+ * Phase 2's own (superseded) design. Not otherwise meaningful to a caller. */
+size_t gc_heap_reserved(const GcHeap *h);
+
 /* Walks every object the heap currently holds (both live objects and already-free chunks from an
  * earlier sweep): anything `gc_is_marked` reports false for is reclaimed onto its size class's
  * free list (converted to `GC_FREE`, available to a later `gc_heap_alloc`); anything marked has
@@ -67,21 +72,31 @@ size_t gc_heap_sweep(GcHeap *h);
 
 /* One full, self-contained collection cycle against `h`: scans the *calling* thread's own C stack
  * for roots into `h`'s arena (`gc_scan_stack_roots`), marks everything reachable from each one
- * found (`gc_mark_object`), then sweeps (`gc_heap_sweep`). Always the calling thread's own heap and
- * its own stack, for the identical reason `gc_scan_stack_roots` itself always is (see its own
- * header comment) -- there is never a reason for a thread to run this against anything but its own
- * heap.
+ * found (`gc_mark_object`), calls `extra_roots(h's arena, ctx)` if `extra_roots` is non-NULL, then
+ * sweeps (`gc_heap_sweep`). Always the calling thread's own heap and its own stack, for the
+ * identical reason `gc_scan_stack_roots` itself always is (see its own header comment) -- there is
+ * never a reason for a thread to run this against anything but its own heap.
  *
- * NOT YET a complete root set, and not yet safe to wire into the real interpreter for that reason:
- * this codebase's own thread-local state (`t_defer_envs`/`t_env_pool` in interpreter.c, error.c's
- * own call-frame stack) is not reliably found by a conservative stack scan -- the collector does
- * not reliably scan thread-local storage at all, the exact reason those are already
- * `GC_MALLOC_UNCOLLECTABLE` today -- and is not yet walked here as an explicit, additional root
- * source (docs/MEMORY.md's "Phase 3 design" section 3). Calling this today would be a real
- * correctness bug for any live value reachable only through one of those. Built and tested now
- * anyway, against synthetic conservative-scan-only roots, to prove the three pieces this effort has
- * spent several increments building actually compose correctly before closing that remaining gap --
- * the same "prove each layer before combining it" discipline this whole effort has used throughout.
+ * `extra_roots` exists because the stack scan alone is not a complete root set: an `Env` (env.h)
+ * lives on the ordinary allocator's own heap, never a thread's `GcHeap` arena, so once a `Value` is
+ * stored into a binding, a conservative stack scan can never see it -- it only reads raw stack
+ * bytes, never dereferences a pointer it finds to look inside whatever it points to (see
+ * `gc_env_roots.h`'s own header comment, "the second root source"). Marking every currently
+ * reachable `Env` chain -- the interpreter's own global scope, every active call's own scope
+ * (`error.c`'s frame tracking, extended to carry each one's `Env*`), `interpreter.c`'s
+ * `t_defer_envs`/`t_env_pool` -- needs knowledge only `interpreter.c` has, which this module
+ * deliberately does not (and should not) depend on; `extra_roots` is the seam a caller supplies
+ * that knowledge through, using `gc_mark_env_chain`/`gc_mark_value`/`gc_mark_object` on whatever it
+ * knows is reachable, with `h`'s own arena passed through for it to mark into. `gc_heap_collect`
+ * itself has no opinion on what a caller's roots are, keeping this module exactly as decoupled from
+ * `interpreter.c`/`error.c`'s own specifics as `gc_scan_stack_roots`'s `visit` callback already
+ * keeps `gc_scan.c` from needing to know what marking does.
+ *
+ * NOT YET wired to a complete root set by anything that actually calls this today -- passing NULL
+ * (as every test here still does) omits `Env`-reachable roots entirely, which would be a real
+ * correctness bug for any live value reachable only through a variable binding rather than a still-
+ * transient C local. Not yet safe to wire into the real interpreter until a caller supplies a
+ * complete `extra_roots` (docs/MEMORY.md's "Phase 3 design" section 3 and "the second root source").
  *
  * If the calling thread's own stack cannot be measured at all (see `gc_scan_stack_roots`'s own
  * comment on when that happens), the whole cycle is skipped, not just the scan -- sweeping without
@@ -93,6 +108,6 @@ size_t gc_heap_sweep(GcHeap *h);
  * Returns the number of objects reclaimed this cycle (0 if the cycle was skipped for the reason
  * above, indistinguishable from a cycle that genuinely reclaimed nothing -- neither is a caller's
  * concern; both mean "nothing to do here"). */
-size_t gc_heap_collect(GcHeap *h);
+size_t gc_heap_collect(GcHeap *h, void (*extra_roots)(const Arena *a, void *ctx), void *ctx);
 
 #endif
