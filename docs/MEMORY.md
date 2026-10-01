@@ -873,8 +873,66 @@ fixing the crash was the prerequisite for measuring the benchmark at all, not a 
 declining-past-its-peak throughput shape it was built to diagnose, which is still present and still
 ahead.
 
-Still ahead: re-measuring/improving that throughput shape once more allocation sites migrate, and
-migrating them (`env_new`/call frames next, per the project owner's own "narrowest possible slice"
-sequencing) -- each migration so far has surfaced its own bug at the exact point a newly-migrated
-allocation site meets a pre-existing mechanism never designed with a real collector in mind; no reason
-to expect that pattern has stopped.
+"env_new/call frames next" turned out narrower than it sounded: re-reading every call site first
+(rather than assuming), `call_function`'s own top-level scope and every loop kind already reuse one
+scope across calls/iterations (`env_pool_acquire`/`release`, `env_reset`) -- the one unpooled,
+per-execution scope left anywhere was `exec_block` (`if`/`else` bodies, bare blocks). Flagged the
+re-scoping and chose pooling that (reusing the exact same `env_pool_acquire`/`release` pair
+`call_function` already has) over a full Env-to-`gc_heap` redesign, then re-measuring before deciding
+if more was needed. It was a one-line change; full suite and the real app both still pass.
+
+Re-measuring found it didn't move the needle -- three concurrency-benchmark runs at c=16 (454, 432,
+528 req/s) show more swing between consecutive runs of the *identical* binary than any effect from
+the change itself. Rather than guess at another allocation site blind, profiled the real server under
+real concurrent load with `perf record -g --call-graph dwarf` (wrapping the server as perf's own
+child -- attaching to an already-running PID was silently restricted in this environment). Confirms
+F2's own original diagnosis in current numbers: `GC_mark_from` alone is 18% of sampled CPU time;
+Boehm's own locking/bookkeeping around it another ~26%; this session's own `gc_mark_*` functions
+(triggered because string/struct/array *are* migrated now) another ~7% -- close to half of all CPU
+time under this workload is garbage-collection-related. `env_define`/`env_lookup`/
+`exec_stmts_in_scope` together are under 1.3% of the same profile, direct confirmation Env was never
+where the volume lives. Caller attribution for Boehm's own allocation came back too fragmented across
+many small call paths to single out one obvious next site the way string/struct/array each were in
+turn. A second, separate, already-acknowledged cost (`__strcmp_avx2` + `native_lookup`, ~11-13%) is
+F2's *other* half -- name-based native dispatch, not yet covered by `env_lookup_resolved`'s own fix
+for ordinary variables -- explicitly out of scope here. See DESIGN.md's ""env_new/call frames" turns
+out to be narrower..." entry for the full numbers.
+
+Picked `result_obj_new`/`enum_obj_new` as the next migration anyway (the next simple wrapper
+constructors still on the ordinary allocator; `gc_mark_result`/`gc_mark_enum` already handle both
+kinds correctly, nothing had ever actually allocated one this way yet). Mechanical change, same as
+`struct_obj_new`/`array_obj_new` -- and `csv_records.zm` segfaulted immediately. Root cause: `iter.c`'s
+`FromState`/`ArrayIterState` (the native state behind `iter_from`/`iter_of_array`) hold whatever
+Values their own closures/arrays were built with, reachable only through `it->state`, a plain
+`calloc`'d struct invisible to both root sources -- the identical shape to `ArrayBuilder`'s own gap
+two entries up, fixed the same way (`gc_mark_register_struct_content_marker`, registered for `"Iter"`
+in `iter.c`).
+
+That alone didn't fix it: the registered marker only fires from the *type-directed* path (needs a
+Value's own Type to look the registration up by), and the outer `Iter` in a `for ... in <iter>` loop
+(`STMT_FOR`, interpreter.c) is a bare C local, found only by the stack scan -- type-*less*, no way to
+reach the registration. Tried binding it into the loop's own Env instead; this corrupted a completely
+different program -- the type checker's own `env_lookup_resolved` had already assigned every binding
+in that scope a fixed compile-time slot index with no knowledge an extra runtime-only binding would
+ever exist, silently shifting every later binding's real slot by one. Caught by the failure's own
+*shape* changing (garbage stack memory, not a `GC_FREE` header) -- a different signature is itself a
+sign one bug got traded for another, not fixed. The real fix: `t_active_iters`, a `__thread` stack of
+the `Iter`(s) a for-loop is currently driving on this thread, mirroring `t_defer_envs`'s own exact
+shape, marked directly (type-directed, so the registered marker fires) rather than touching Env/slot
+machinery at all. See DESIGN.md's "`result_obj_new`/`enum_obj_new` migrate..." entry for the full
+story, including the precise `gdb`/`-O0` root-causing of both bugs.
+
+Verified: the crashing fixture passes clean fifteen runs in a row; a new dedicated regression fixture
+(`gc_iter_state_survives_collection.zm`) confirmed to discriminate; full suite 832/832 stable across
+five runs on both builds; all nine standalone `gc_*` unit tests pass; the real
+`health-record-backend-ziman` suite passes in full; `valgrind` clean on the new fixture beyond the
+same pre-existing Boehm interaction (a separate, pre-existing, unrelated `getline`-buffer leak in
+`csv_records.zm` was checked against the pre-migration baseline and confirmed to already exist there).
+
+Still ahead: deciding what to migrate next -- `Map`/`Set` (`mapobj.c`, a known, long-standing,
+documented gap: "not yet gc_alloc-routed") is the next natural candidate, given how pervasively this
+real app uses them (JSON objects, route tables); each migration so far has surfaced its own bug at the
+exact point a newly-migrated allocation site meets a pre-existing mechanism never designed with a real
+collector in mind, and this file family (iter.c, value_copy.c, prelude.c's builders) is now a known,
+recurring shape to check for early rather than discover by crash each time: *any* native handle
+holding a Value in its own state, reachable by neither root source.

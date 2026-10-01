@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "error.h"
+#include "gc_mark.h"
 #include "handles.h"
 #include "native.h"
 
@@ -199,9 +200,41 @@ static Value native_iter_of_array(Value *args, int argc, int line, int col) {
     return iter_make(it);
 }
 
+/* Registered with gc_mark.c (see gc_mark_register_struct_content_marker's own comment, gc_mark.h --
+ * the identical seam ArrayBuilder/MapBuilder/SetBuilder already use) so a real collection landing
+ * while an Iter is still open doesn't sweep a Value its own native state holds but nothing else
+ * references: `FromState.next`/`.close` (the closures `iter_from<T>` was built with) and
+ * `ArrayIterState.items` (the array `iter_of_array<T>` is walking) are each referenced *only* by
+ * `it->state`, a plain `calloc`'d (GC_MALLOC'd) struct invisible to both root sources the mark phase
+ * otherwise relies on -- not on the stack once a `for`/`while` loop driving this Iter has moved past
+ * the statement that created it, and not in any Env, since nothing ever binds `it` or `st`
+ * themselves to a Ziman variable. Found the same way as every other gap in this family this
+ * session: a real crash (`csv_records.zm`, a lazy `iter_from`-based CSV reader whose own `close`
+ * closure, read back out of a since-swept `FromState`, pointed at corrupted memory), newly exposed
+ * once `enum_obj_new` migrated to `gc_heap` -- `from_next`'s own `Option.Some`/`None` result made
+ * real collections fire noticeably more often than this code path had ever been exercised against
+ * before. `it->next` (a plain function pointer, set once at construction and never reassigned)
+ * doubles as the discriminant for which state shape `it->state` actually is -- no separate tag
+ * needed, since the two are always set together. An Iter a Ziman program has already closed (not in
+ * `g_iters` any more) needs nothing marked: `iter_advance`/`iter_close_handle` already treat that
+ * state as fully done, same as this does. */
+static void iter_mark_contents(const Arena *a, StructObj *st) {
+    IterObj *it = (IterObj *)(intptr_t)st->fields[0].as.i;
+    if (!handleset_has(&g_iters, it)) return;
+    if (it->next == from_next) {
+        FromState *fs = it->state;
+        gc_mark_value(a, fs->next);
+        gc_mark_value(a, fs->close);
+    } else if (it->next == array_iter_next) {
+        ArrayIterState *as = it->state;
+        gc_mark_value(a, as->items);
+    }
+}
+
 void native_iter_register(void) {
     native_register("iter_from", native_iter_from);
     native_register("iter_of_array", native_iter_of_array);
     native_register("iter_next", native_iter_next);
     native_register("iter_close", native_iter_close);
+    gc_mark_register_struct_content_marker("Iter", iter_mark_contents);
 }

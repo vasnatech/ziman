@@ -1,0 +1,65 @@
+use os
+
+// A regression guard for a real bug found migrating result_obj_new/enum_obj_new to gc_heap
+// allocation (docs/reviews/tasks.md's F2): an Iter's own native state (FromState, src/iter.c) holds
+// whatever Values its `next`/`close` closures were built with (here, an inner Iter captured by
+// `close`), referenced only through `it->state` -- a plain malloc'd struct invisible to both root
+// sources once nothing else references it. The outer Iter's own wrapper struct is safe (the stack
+// scan finds it, its own StructObj header is real), but that's a DIFFERENT path than the
+// type-directed one gc_mark.c's registered content markers (gc_mark_register_struct_content_marker)
+// need to fire through -- a bare C local never bound to any Env is invisible to it. Fixed with
+// t_active_iters (interpreter.c), a stack of the Iter value(s) a `for ... in <iter>` loop on this
+// thread is currently driving, marked directly by mark_this_threads_roots rather than relying on
+// either existing root source to find it.
+//
+// `os.collect_garbage()` forces a real cycle every outer iteration, deterministically, rather than
+// relying on enough incidental allocation to cross the collection trigger's own threshold -- this
+// fixture reproduced the bug (a segfault, originally found via csv_records.zm) on the very first
+// iteration, not needing many. A Channel is the mutable "position" box, the same idiom
+// iter_from.zm's own fixture uses (a lambda cannot capture a `var`).
+fn inner_source() -> Iter<int> {
+    val position: Channel<int> = channel_new()
+    send(position, 0)
+    return iter_from<int>(
+        fn() -> Option<int> {
+            val n = receive(position)
+            if n >= 3 { return Option<int>.None }
+            send(position, n + 1)
+            return Option<int>.Some(n)
+        },
+        fn() { }
+    )
+}
+
+fn outer_source() -> Iter<string> {
+    val inner = inner_source()
+    val done: Channel<bool> = channel_new()
+    send(done, false)
+    return iter_from<string>(
+        fn() -> Option<string> {
+            if receive(done) { return Option<string>.None }
+            send(done, true)
+            return Option<string>.Some("outer-item")
+        },
+        fn() {
+            // closes a DIFFERENT Iter, captured here -- the exact shape that crashed
+            iter_close<int>(inner)
+        }
+    )
+}
+
+fn main() {
+    var ok = true
+    var i = 0
+    while i < 20 {
+        for item in outer_source() {
+            os.collect_garbage()
+            if item != "outer-item" {
+                ok = false
+                print(concat("MISMATCH at ", str(i), ": ", item))
+            }
+        }
+        i = i + 1
+    }
+    print(if ok { "OK" } else { "FAIL" })
+}

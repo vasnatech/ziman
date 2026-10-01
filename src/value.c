@@ -333,8 +333,13 @@ Value value_result(Type result_type, ResultObj *res) {
     return v;
 }
 
+/* Migrated to gc_heap_alloc (the wrapper only -- `value` is held by reference, nothing further to
+ * allocate here) continuing the same "narrowest possible slice" sequence as value_string_copy/
+ * struct_obj_new/array_obj_new: the mark phase (gc_mark_result, gc_mark.c) has already handled this
+ * kind correctly, gated by is_gc_heap_object, since the header-corruption bug was fixed -- this is
+ * the first time anything actually allocates one this way. */
 ResultObj *result_obj_new(int is_ok, Value value) {
-    ResultObj *r = malloc(sizeof(ResultObj));
+    ResultObj *r = gc_heap_alloc(ziman_thread_heap(), GC_RESULT, sizeof(ResultObj));
     r->is_ok = is_ok;
     r->value = value;
     return r;
@@ -347,8 +352,11 @@ Value value_enum(Type enum_type, EnumObj *en) {
     return v;
 }
 
+/* Migrated to gc_heap_alloc (the wrapper only), same reasoning as result_obj_new just above --
+ * enum_name/variant_name are borrowed from the permanent AST (EnumDecl), never this object's own to
+ * free, so nothing else here needs migrating alongside it. */
 EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Value payload) {
-    EnumObj *e = malloc(sizeof(EnumObj));
+    EnumObj *e = gc_heap_alloc(ziman_thread_heap(), GC_ENUM, sizeof(EnumObj));
     e->enum_name = enum_name;
     e->variant_name = variant_name;
     e->has_payload = has_payload;

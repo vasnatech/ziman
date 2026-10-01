@@ -213,6 +213,67 @@ static void defer_env_untrack(Env *env) {
     env->defers_tracked = 0;
 }
 
+/* The `Iter` struct value(s) a `for ... in <iter>` loop on this thread is currently driving,
+ * innermost last -- a strict LIFO stack, since one such loop nested inside another's body is the
+ * only way more than one is ever active on one thread at once. Needed because that `Iter` value is
+ * otherwise never bound to anything a root source can walk: it is a bare C local in STMT_FOR's own
+ * `exec_stmt` frame (interpreter.c), found by the stack scan well enough to keep its own StructObj
+ * header alive, but the stack scan dispatches through gc_mark_object (gc_mark.c), which has no
+ * Value and so no type name to look `iter_mark_contents`'s own registration (iter.c) up by -- the
+ * seam gc_mark_register_struct_content_marker needs a type-directed visit to fire at all. Pushing it
+ * here, instead, means gc_mark_env_chain's root walk never needs to find it: `mark_this_threads_roots`
+ * marks this stack directly, through `gc_mark_value`, which *does* have the type name.
+ *
+ * Binding it into the loop's own `scope` Env instead (tried first) is wrong in a much worse way than
+ * just failing to fix the bug: `env_define`-ing anything into a scope the type checker's own
+ * `env_lookup_resolved` has already assigned fixed slot indices for (every loop binder reached
+ * through `env_at_slot`'s fast path) shifts every later binding's *runtime* index without the type
+ * checker ever knowing -- the type checker's own resolution has no idea an extra binding now exists,
+ * so a binder's compile-time-resolved slot silently stops meaning the same thing at runtime. Found
+ * by the corruption it caused looking nothing like a GC bug at all (reading a stale/wrong slot, not
+ * a swept one) -- a different failure signature from everything else is itself a hint one error got
+ * fixed into a different one, not that it got fixed. */
+static __thread Value *t_active_iters = NULL;
+static __thread int t_active_iter_count = 0;
+static __thread int t_active_iter_capacity = 0;
+
+/* Same "the collector does not reliably scan thread-local storage" reasoning as t_defer_envs's own
+ * comment above -- allocated uncollectable so Boehm itself never reclaims the array out from under a
+ * running thread, independent of this module's own gc_heap mark phase reading it correctly. */
+static void active_iters_grow(int capacity) {
+#ifdef ZIMAN_GC
+    Value *fresh = GC_MALLOC_UNCOLLECTABLE(sizeof(Value) * (size_t)capacity);
+    if (t_active_iters != NULL) {
+        memcpy(fresh, t_active_iters, sizeof(Value) * (size_t)t_active_iter_count);
+        GC_FREE(t_active_iters);
+    }
+#else
+    Value *fresh = realloc(t_active_iters, sizeof(Value) * (size_t)capacity);
+#endif
+    t_active_iters = fresh;
+    t_active_iter_capacity = capacity;
+}
+
+static void active_iters_release(void) {
+#ifdef ZIMAN_GC
+    if (t_active_iters != NULL) GC_FREE(t_active_iters);
+#else
+    free(t_active_iters);
+#endif
+    t_active_iters = NULL;
+    t_active_iter_count = 0;
+    t_active_iter_capacity = 0;
+}
+
+static void active_iter_push(Value v) {
+    if (t_active_iter_count == t_active_iter_capacity) active_iters_grow(t_active_iter_capacity == 0 ? 4 : t_active_iter_capacity * 2);
+    t_active_iters[t_active_iter_count++] = v;
+}
+
+static void active_iter_pop(void) {
+    t_active_iter_count--;
+}
+
 /* A per-thread free list of Env structs already sized for a function call's own top-level
  * scope, reused by call_function instead of allocating (and, in a GC build, simply abandoning
  * to eventually become garbage) a fresh one on every call. Call/return is strictly LIFO per
@@ -471,6 +532,7 @@ static void *spawn_thread_entry(void *raw) {
     }
     t_has_pending_handler = 0;
     defer_envs_release();
+    active_iters_release();
     env_pool_release_all();
     ziman_call_stack_release();
     ziman_thread_heap_release();
@@ -1611,6 +1673,9 @@ static void mark_this_threads_roots(const Arena *a, void *ctx) {
      * on_error handler, for as long as it might still be needed, is reachable through nothing else
      * this function already walks. */
     if (t_has_pending_handler) gc_mark_value(a, t_pending_handler);
+    /* See t_active_iters's own comment (just above defer_env_untrack): every `for ... in <iter>`
+     * loop currently running on this thread, innermost last. */
+    for (int i = 0; i < t_active_iter_count; i++) gc_mark_value(a, t_active_iters[i]);
 }
 
 /* How much this thread's own heap must grow, since the last time it was checked, before another
@@ -1672,10 +1737,20 @@ static ExecResult exec_stmts_in_scope(Module *module, Env *scope, Stmt *block) {
     return result;
 }
 
+/* Was a bare env_new(parent)/env_free(scope) pair -- the one scope allocation left in the whole
+ * interpreter that wasn't already reused across executions (call_function's own top-level scope has
+ * env_pool_acquire/release; every loop body allocates one scope for its *whole* run, env_reset per
+ * iteration -- see STMT_WHILE/STMT_FOR's own comments). Every `if`/`else` body and bare `{...}`
+ * block runs through here, so under a real workload this was the dominant source of ongoing Boehm
+ * GC_MALLOC/GC_FREE churn, not calls or loops. env_pool_acquire/release is already fully generic
+ * (it re-parents on acquire and only assumes defer_count is already 0 on release, true here for the
+ * identical reason it's true for call_function: exec_stmts_in_scope's own run_defers call, which
+ * every path through here already goes through) -- no new mechanism needed, just extending the one
+ * call_function already proved out to its last remaining gap. */
 static ExecResult exec_block(Module *module, Env *parent, Stmt *block) {
-    Env *scope = env_new(parent);
+    Env *scope = env_pool_acquire(parent);
     ExecResult result = exec_stmts_in_scope(module, scope, block);
-    env_free(scope);
+    env_pool_release(scope);
     return result;
 }
 
@@ -1762,6 +1837,10 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 Type item_type = s->as.for_stmt.iterable->resolved_type.type_args.items[0];
                 Value item;
                 Env *scope = env_new(env);
+                /* See t_active_iters's own comment just above: `iterable` needs this push for the
+                 * entire loop, popped on every exit path (both below and the two loop-internal
+                 * returns right here). */
+                active_iter_push(iterable);
                 while (iter_advance(handle, &item, s->line, s->col)) {
                     env_reset(scope);
                     env_define(scope, s->as.for_stmt.binder1, item_type, 0, item);
@@ -1769,6 +1848,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                     if (result.kind == CTRL_RETURN) {
                         env_free(scope);
                         iter_close_handle(handle);
+                        active_iter_pop();
                         return result;
                     }
                     if (result.kind == CTRL_BREAK) {
@@ -1776,6 +1856,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                         break;
                     }
                 }
+                active_iter_pop();
                 env_free(scope);
                 return no_ctrl();
             }
