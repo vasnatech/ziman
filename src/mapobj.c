@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "gc_heap.h"
+#include "gc_thread_heap.h"
+
 #define BITS 5
 #define FANOUT 32
 #define MAX_DEPTH 12 /* 12 levels use 60 of the 64 hash bits; below that, entries with equal hashes share a list */
@@ -63,8 +66,14 @@ static int keys_equal(const Leaf *a, uint64_t hash, Value key) {
     return a->hash == hash && value_equals(a->key, key);
 }
 
+/* The MapObj wrapper (only -- MapNode/Leaf, the trie itself, stay on the ordinary allocator for now,
+ * the same "wrapper only" slice struct_obj_new/array_obj_new/result_obj_new/enum_obj_new each took)
+ * is gc_heap-migrated at all four sites that build one (here, mapobj_set/remove/snapshot below) --
+ * gc_mark_map (gc_mark.c) already handles it correctly, is_gc_heap_object-gated. mapobj_mut_new's own
+ * builder-private MapObj is deliberately left on malloc: it is never wrapped in a TY_MAP/TY_SET Value
+ * directly (only a mapobj_snapshot of it is), so it never needs a real gc_heap header at all. */
 MapObj *mapobj_empty(void) {
-    MapObj *m = malloc(sizeof(MapObj));
+    MapObj *m = gc_heap_alloc(ziman_thread_heap(), GC_MAP, sizeof(MapObj));
     m->root = node_alloc(0);
     m->count = 0;
     m->next_seq = 0;
@@ -175,7 +184,7 @@ MapObj *mapobj_set(const MapObj *m, Value key, Value val) {
     nl->val = val;
     nl->seq = m->next_seq;
     int added = 0;
-    MapObj *out = malloc(sizeof(MapObj));
+    MapObj *out = gc_heap_alloc(ziman_thread_heap(), GC_MAP, sizeof(MapObj));
     out->root = node_insert(m->root, 0, nl, &added);
     out->count = m->count + added;
     out->next_seq = m->next_seq + added;
@@ -227,7 +236,7 @@ MapObj *mapobj_remove(const MapObj *m, Value key) {
     int removed = 0;
     const MapNode *root = node_remove(m->root, 0, map_hash(key), key, &removed);
     if (!removed) return (MapObj *)m;
-    MapObj *out = malloc(sizeof(MapObj));
+    MapObj *out = gc_heap_alloc(ziman_thread_heap(), GC_MAP, sizeof(MapObj));
     out->root = (MapNode *)root;
     out->count = m->count - 1;
     out->next_seq = m->next_seq;
@@ -386,7 +395,7 @@ static MapNode *copy_tree(const MapNode *node) {
 /* An independent immutable MapObj with the builder's entries. Leaves are shared, so the
  * caller must treat the builder's leaves as shared from now on. */
 MapObj *mapobj_snapshot(const MapObj *m) {
-    MapObj *out = malloc(sizeof(MapObj));
+    MapObj *out = gc_heap_alloc(ziman_thread_heap(), GC_MAP, sizeof(MapObj));
     out->root = copy_tree(m->root);
     out->count = m->count;
     out->next_seq = m->next_seq;

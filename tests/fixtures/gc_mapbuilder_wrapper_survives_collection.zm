@@ -1,0 +1,36 @@
+use os
+
+// A regression guard for a real bug found migrating MapObj's own wrapper to gc_heap allocation
+// (docs/reviews/tasks.md's F2): mapobj_mut_new (the builder-private MapObj behind MapBuilder/
+// SetBuilder) is just `return mapobj_empty();` -- once mapobj_empty started allocating its wrapper
+// via gc_heap_alloc (GC_MAP), a builder's own `buf->m` gained a real header for the first time.
+// mb_mark_contents (prelude.c), the content-marker already registered for MapBuilder/SetBuilder,
+// only traced the map's *entries* (mapobj_entries, then marking each key/value) -- it never set the
+// wrapper's *own* mark bit, so a real collection saw buf->m's header as unmarked and swept it,
+// zeroing `root`/`count`/`next_seq`. The next mapb_set then crashed inside GC_realloc, reallocating
+// a `root` MapNode pointer read back out of an already-zeroed wrapper. Fixed by wrapping buf->m in a
+// throwaway TY_MAP Value and calling the already-public gc_mark_value, reusing gc_mark_map's own
+// is_gc_heap_object-gated header handling exactly instead of duplicating it.
+//
+// `os.collect_garbage()` forces a real cycle between every insert, deterministically, rather than
+// relying on enough incidental allocation to cross the collection trigger's own threshold.
+fn main() {
+    val b = mapb_new<string, int>()
+    var i = 0
+    while i < 50 {
+        mapb_set<string, int>(b, concat("k", str(i)), i)
+        os.collect_garbage()
+        i = i + 1
+    }
+    val m = mapb_to_map<string, int>(b)
+    var ok = true
+    var j = 0
+    while j < 50 {
+        if option_unwrap_or<int>(map_get(m, concat("k", str(j))), -1) != j {
+            ok = false
+            print(concat("MISMATCH at ", str(j)))
+        }
+        j = j + 1
+    }
+    print(if ok { "OK" } else { "FAIL" })
+}

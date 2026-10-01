@@ -158,6 +158,28 @@ static void gc_mark_closure(const Arena *a, ClosureObj *clo) {
     for (int i = 0; i < clo->ncaptured; i++) gc_mark_into(a, clo->captured[i]);
 }
 
+static void gc_mark_map(const Arena *a, MapObj *m) {
+    /* See gc_mark_array's own comment on is_gc_heap_object -- identical reasoning: the wrapper
+     * (mapobj_empty/set/remove/snapshot's own allocation) is gc_heap-migrated, but MapNode/Leaf, the
+     * trie itself, are not (a separate, later piece of work -- mapobj_mut_new's own builder-private
+     * MapObj is never wrapped in a TY_MAP/TY_SET Value directly, only a mapobj_snapshot of it is, so
+     * it never reaches this function at all). Entries are still walked every time regardless of
+     * whether `m` itself has a real header, for the same "a plain not-yet-migrated object can hold a
+     * gc_heap-allocated field" reason every other kind here does. */
+    if (is_gc_heap_object(a, m)) {
+        if (gc_is_marked(m)) return;
+        gc_set_marked(m, 1);
+    }
+    Value *keys, *vals;
+    mapobj_entries(m, &keys, &vals);
+    for (int i = 0; i < m->count; i++) {
+        gc_mark_into(a, keys[i]);
+        gc_mark_into(a, vals[i]);
+    }
+    free(keys);
+    free(vals);
+}
+
 static void gc_mark_into(const Arena *a, Value v) {
     switch (v.type.kind) {
         case TY_STRING:
@@ -197,20 +219,7 @@ static void gc_mark_into(const Arena *a, Value v) {
             return;
         case TY_MAP:
         case TY_SET:
-            /* Not yet gc_alloc-routed -- same known gap gc_copy.c/value_copy.c already have (see
-             * gc_mark.h). Walked anyway, in case a future MapObj ever does live in a gc_alloc'd
-             * arena: entries are still real Values worth tracing, even though the trie nodes
-             * themselves aren't gc_alloc'd objects this module can mark. */
-            {
-                Value *keys, *vals;
-                mapobj_entries(v.as.map, &keys, &vals);
-                for (int i = 0; i < v.as.map->count; i++) {
-                    gc_mark_into(a, keys[i]);
-                    gc_mark_into(a, vals[i]);
-                }
-                free(keys);
-                free(vals);
-            }
+            gc_mark_map(a, v.as.map);
             return;
         case TY_CHANNEL:
             /* Never traced into -- see this file's own header comment. */
@@ -256,6 +265,9 @@ void gc_mark_object(const Arena *a, const void *obj) {
             return;
         case GC_CLOSURE:
             gc_mark_closure(a, (ClosureObj *)obj);
+            return;
+        case GC_MAP:
+            gc_mark_map(a, (MapObj *)obj);
             return;
         case GC_FREE:
             /* A stray stack word resolved to an already-reclaimed chunk -- not live, nothing to

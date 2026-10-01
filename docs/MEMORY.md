@@ -929,10 +929,43 @@ five runs on both builds; all nine standalone `gc_*` unit tests pass; the real
 same pre-existing Boehm interaction (a separate, pre-existing, unrelated `getline`-buffer leak in
 `csv_records.zm` was checked against the pre-migration baseline and confirmed to already exist there).
 
-Still ahead: deciding what to migrate next -- `Map`/`Set` (`mapobj.c`, a known, long-standing,
-documented gap: "not yet gc_alloc-routed") is the next natural candidate, given how pervasively this
-real app uses them (JSON objects, route tables); each migration so far has surfaced its own bug at the
-exact point a newly-migrated allocation site meets a pre-existing mechanism never designed with a real
-collector in mind, and this file family (iter.c, value_copy.c, prelude.c's builders) is now a known,
-recurring shape to check for early rather than discover by crash each time: *any* native handle
-holding a Value in its own state, reachable by neither root source.
+Took on `Map`/`Set` next -- a bigger, costlier step than the first four (`MapObj` wraps a persistent
+hash trie, `MapNode`/`Leaf`, not a flat struct; needed a real new `GcKind` and mark-phase logic, not
+just a `malloc`->`gc_heap_alloc` swap; uncertain payoff since only the 24-byte wrapper migrates, the
+trie itself stays on the ordinary allocator). Flagged this explicitly before starting; chose to go
+ahead. New `GC_MAP` kind, `gc_mark_map` (`gc_mark.c`) mirroring every other per-kind marker exactly,
+wired into *both* dispatch paths from the start this time (a direct lesson from the `Iter` entry just
+above: a kind reachable from only one path is a kind with a real gap). Four allocation sites migrated
+(`mapobj_empty`/`set`/`remove`/`snapshot`); `mapobj_mut_new` (the builder-private MapObj behind
+`MapBuilder`/`SetBuilder`) reasoned to need no migration, since it's never wrapped in a `TY_MAP` Value
+directly.
+
+That reasoning missed that `mapobj_mut_new` is just `return mapobj_empty();` -- the function just
+migrated. Two fixtures (`map_set_builders.zm`, `http_endpoints.zm`) immediately started segfaulting:
+`GC_realloc` crashing on a `root` pointer read out of an already-zeroed wrapper. Root cause: `prelude.c`'s
+`mb_mark_contents` (the content-marker already registered for `MapBuilder`/`SetBuilder` since the
+`ArrayBuilder` entry) only ever traced the map's *entries* -- it never marked the wrapper's *own*
+header, because when it was written `MapObj` had no real header to mark. The third time this session
+has found a native-handle-held Value invisible to both root sources (`ArrayBuilder`'s buffer, `Iter`'s
+`FromState`/`ArrayIterState`, now this), but the first time the handle itself, not something it points
+to, needed protecting. Fixed by reusing existing machinery: wrap `buf->m` in a throwaway `TY_MAP`
+Value and call the already-public `gc_mark_value`, running `gc_mark_map`'s own header handling exactly
+rather than duplicating it. See DESIGN.md's "`Map`/`Set`'s own wrapper migrates..." entry for the full
+story, including a related pre-existing inconsistency found (not fixed, out of scope) in `gc_copy.c`'s
+own dead-code `Map`/`Set` handling.
+
+Verified: both broken fixtures pass clean, ten runs each; a new dedicated regression fixture
+confirmed to discriminate; full suite 833/833 stable across five runs on both builds; all nine
+standalone `gc_*` unit tests pass; the real `health-record-backend-ziman` suite passes in full;
+`valgrind` clean beyond the same pre-existing Boehm interaction. The concurrency benchmark, run twice:
+every level at or above the best of the three pre-migration runs, `c=8`/`c=16` by a margin clearly
+outside the established noise band (689->802-843 req/s, 528->591 req/s) -- a real improvement,
+consistent with this app's own dominant `Map`/`Set` use (routing, every JSON response) now allocating
+off Boehm's shared, locked heap.
+
+Still ahead: deciding what to migrate next -- `MapNode`/`Leaf` (the trie itself, where a map's real
+memory lives, still unmigrated) is one candidate, though each "wrapper only" slice so far has left the
+*next* layer as the obvious next question; `iter.c`/`value_copy.c`/`prelude.c`'s builders are now a
+known, recurring shape to check for early rather than discover by crash each time: *any* native handle
+holding a Value in its own state, reachable by neither root source, and (new this entry) *the handle
+itself* needing protecting too, once what it disguises gains a real header.

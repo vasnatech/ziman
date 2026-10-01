@@ -35,8 +35,13 @@ void gc_dedup_destroy(GcDedup *d);
 
 /* Deep-copies `v` into `dest` via gc_alloc, using `dedup` to preserve sharing as described above.
  * `dest` should be a fresh arena for a real collection cycle (the old generation is abandoned, not
- * touched by this call). `Map`/`Set` are not yet gc_alloc-routed -- same known gap as
- * value_copy.c, not a new one. `Channel` is shared by identity, never copied -- same as
+ * touched by this call). `Map`/`Set`'s own wrapper is gc_heap-migrated now (gc_mark.c's `GC_MAP`),
+ * but this module's own TY_MAP/TY_SET case (`mapobj_empty`/`mapobj_set`) builds it through the
+ * *calling thread's own* `GcHeap`, not `dest` -- this module is unused by the live interpreter (dead
+ * code kept for its own tested "deep copy with sharing preserved" logic, not currently wired to
+ * anything; see this header's own top comment), so nothing exercises this inconsistency today, but a
+ * future caller of `gc_copy_value` on a `Map`/`Set` value should not assume the result lives in
+ * `dest`. `Channel` is shared by identity, never copied -- same as
  * value_copy.c and for the same reason (see value_copy.h). */
 Value gc_copy_value(Arena *dest, GcDedup *dedup, Value v);
 

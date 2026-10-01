@@ -16,9 +16,11 @@
  * built bottom-up, so excluding `Channel` (which this never traces into -- see below), the graph is
  * a DAG, never cyclic.
  *
- * `Map`/`Set` are not yet `gc_alloc`-routed -- the same known gap `gc_copy.c`/`value_copy.c` already
- * carry, nothing new. `Channel` is never traced into: it is the language's one identity-based,
- * shared-across-threads handle, and belongs to no single thread's heap to begin with.
+ * `Map`/`Set`'s own wrapper (`MapObj`) is `gc_alloc`-routed (`GC_MAP`, `gc_mark_map`); `MapNode`/
+ * `Leaf`, the persistent trie itself, are not yet (a separate, later slice) -- `gc_copy.c`/
+ * `value_copy.c` still carry that part of the gap. `Channel` is never traced into: it is the
+ * language's one identity-based, shared-across-threads handle, and belongs to no single thread's
+ * heap to begin with.
  *
  * A real, open performance question, not yet measured against anything: marking a string, or an
  * array's own boxed/packed buffer, resolves its pointer through `gc_lookup` first, since it may be

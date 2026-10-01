@@ -1185,19 +1185,21 @@ static MapBuilderBuf *mb_get_buf(Value b) {
 }
 
 /* See ab_mark_contents's own comment -- identical reasoning, for a MapBuilder/SetBuilder's own
- * MapObj instead of an ArrayBuilder's items buffer. Mirrors gc_mark.c's existing TY_MAP/TY_SET
- * handling (mapobj_entries, then trace each key/value): a MapObj is not itself gc_alloc'd (a known,
- * pre-existing gap, gc_mark.h's own comment), but its entries are real Values that may be. */
+ * MapObj instead of an ArrayBuilder's items buffer. `buf->m` is `mapobj_mut_new`'s own MapObj --
+ * which, since MapObj migrated to gc_heap allocation (GC_MAP, gc_mark.c), now has a real header that
+ * needs its own mark bit set, not just its entries traced: wrapping it in a throwaway TY_MAP Value
+ * and calling the already-public gc_mark_value reuses gc_mark_map's own is_gc_heap_object-gated
+ * header handling exactly, rather than duplicating it here. (A bare .kind is all gc_mark_map ever
+ * reads off a Value -- elem/struct_name and the rest are never touched, so type_scalar's own zeroed
+ * fields are fine.) Found the hard way: without this, buf->m's own wrapper looked unmarked on every
+ * real collection and was swept -- map_set_builders.zm crashed inside GC_realloc, reallocating a
+ * `root` MapNode pointer read back out of a wrapper struct that had already been zeroed. */
 static void mb_mark_contents(const Arena *a, StructObj *st) {
     MapBuilderBuf *buf = (MapBuilderBuf *)(intptr_t)st->fields[0].as.i;
-    Value *keys, *vals;
-    mapobj_entries(buf->m, &keys, &vals);
-    for (int i = 0; i < buf->m->count; i++) {
-        gc_mark_value(a, keys[i]);
-        gc_mark_value(a, vals[i]);
-    }
-    free(keys);
-    free(vals);
+    Value v;
+    v.type = type_scalar(TY_MAP);
+    v.as.map = buf->m;
+    gc_mark_value(a, v);
 }
 
 static Value mb_new_value(const char *type_name) {
