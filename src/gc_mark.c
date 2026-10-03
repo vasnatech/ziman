@@ -158,26 +158,30 @@ static void gc_mark_closure(const Arena *a, ClosureObj *clo) {
     for (int i = 0; i < clo->ncaptured; i++) gc_mark_into(a, clo->captured[i]);
 }
 
+/* mapobj_mark_leaves's own callback (mapobj.h): marks one Leaf's own header (if it has one -- see
+ * gc_mark_map's own comment on mapobj_mut_new's builder-private MapObj, the one case that never
+ * reaches here with a real one) and its key/val Values. `leaf` is opaque to this file (Leaf is
+ * private to mapobj.c) -- is_gc_heap_object/gc_set_marked need nothing more than the bare address. */
+static void mark_leaf(const void *leaf, Value key, Value val, void *ctx) {
+    const Arena *a = ctx;
+    if (is_gc_heap_object(a, leaf)) gc_set_marked((void *)leaf, 1);
+    gc_mark_into(a, key);
+    gc_mark_into(a, val);
+}
+
 static void gc_mark_map(const Arena *a, MapObj *m) {
-    /* See gc_mark_array's own comment on is_gc_heap_object -- identical reasoning: the wrapper
-     * (mapobj_empty/set/remove/snapshot's own allocation) is gc_heap-migrated, but MapNode/Leaf, the
-     * trie itself, are not (a separate, later piece of work -- mapobj_mut_new's own builder-private
-     * MapObj is never wrapped in a TY_MAP/TY_SET Value directly, only a mapobj_snapshot of it is, so
-     * it never reaches this function at all). Entries are still walked every time regardless of
-     * whether `m` itself has a real header, for the same "a plain not-yet-migrated object can hold a
-     * gc_heap-allocated field" reason every other kind here does. */
+    /* See gc_mark_array's own comment on is_gc_heap_object -- identical reasoning for the wrapper
+     * itself: MapObj is gc_heap-migrated (mapobj_empty/set/remove/snapshot), but mapobj_mut_new's own
+     * builder-private MapObj is never wrapped in a TY_MAP/TY_SET Value directly (only a
+     * mapobj_snapshot of it is), so it never reaches this function with a real header at all.
+     * mapobj_mark_leaves (not mapobj_entries, as this used to be) walks every entry once, regardless
+     * of whether `m` itself has a real header -- same reasoning, since a plain not-yet-migrated
+     * object can still hold gc_heap-allocated fields. */
     if (is_gc_heap_object(a, m)) {
         if (gc_is_marked(m)) return;
         gc_set_marked(m, 1);
     }
-    Value *keys, *vals;
-    mapobj_entries(m, &keys, &vals);
-    for (int i = 0; i < m->count; i++) {
-        gc_mark_into(a, keys[i]);
-        gc_mark_into(a, vals[i]);
-    }
-    free(keys);
-    free(vals);
+    mapobj_mark_leaves(m, mark_leaf, (void *)a);
 }
 
 static void gc_mark_into(const Arena *a, Value v) {
@@ -268,6 +272,18 @@ void gc_mark_object(const Arena *a, const void *obj) {
             return;
         case GC_MAP:
             gc_mark_map(a, (MapObj *)obj);
+            return;
+        case GC_MAP_LEAF:
+            /* A stray stack word resolving to a Leaf's own exact start -- the real, complete
+             * marking (its own key/val Values too) happens through gc_mark_map's own
+             * mapobj_mark_leaves walk, reached via the MapObj that actually owns it; this type-less
+             * path has no way to recover Leaf's own private layout (it's private to mapobj.c) to
+             * trace further, so it only protects the header itself here, matching GC_ATOMIC's own
+             * "nothing further to do without type info" shape. Expected to be rare to unreachable in
+             * practice: a freshly built Leaf is always linked into its own tree with no re-entrant
+             * Ziman call (and so no possible collection point) in between -- the same class of
+             * harmless, conservative-scanning false positive GC_FREE's own comment already accepts. */
+            gc_set_marked((void *)obj, 1);
             return;
         case GC_FREE:
             /* A stray stack word resolved to an already-reclaimed chunk -- not live, nothing to

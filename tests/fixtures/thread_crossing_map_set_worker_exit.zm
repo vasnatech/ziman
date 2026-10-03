@@ -1,0 +1,58 @@
+use os
+
+// A Map/Set crossing a spawn/Channel boundary where the SENDING thread exits right after the
+// send, before the receiver has looked at the value. Regression guard for a real bug found
+// finishing the Map/Set gc_heap migration: value_copy.c's TY_MAP/TY_SET case in
+// value_deep_copy_into (the SEND side) built the copy's wrapper and leaves directly on
+// ziman_thread_heap() -- the SENDING thread's own per-thread heap -- instead of the dedicated
+// crossing arena (lazy_arena(slot)) every other structural kind already uses. spawn_thread_entry
+// calls ziman_thread_heap_release() (-> gc_heap_destroy -> unconditional arena_destroy) right
+// after a spawned function returns, so the instant this worker exited, the Map/Set's own backing
+// memory was unmapped out from under the receiver -- reliably crashing or returning garbage, not
+// a timing-dependent GC artifact. Fixed by mapobj_empty_into/mapobj_set_into (mapobj.c), arena-
+// parameterized twins of mapobj_empty/mapobj_set, used on the send side only.
+fn worker(out: Channel<Map<string, int>>, outs: Channel<Set<int>>) {
+    var m: Map<string, int> = Map<string, int> {}
+    var i = 0
+    while i < 50 {
+        m = set(m, concat("k", str(i)), i)
+        i = i + 1
+    }
+    var s: Set<int> = Set<int> {}
+    var j = 0
+    while j < 50 {
+        s = insert(s, j)
+        j = j + 1
+    }
+    send(out, m)
+    send(outs, s)
+    // worker returns immediately after this -- its own gc_heap is destroyed before main next runs.
+}
+
+fn main() {
+    val out: Channel<Map<string, int>> = channel_new()
+    val outs: Channel<Set<int>> = channel_new()
+    spawn worker(out, outs)
+    val m = receive(out)
+    val s = receive(outs)
+    os.collect_garbage()
+    os.collect_garbage()
+    var map_ok = true
+    var k = 0
+    while k < 50 {
+        if option_unwrap_or<int>(map_get(m, concat("k", str(k))), -1) != k {
+            map_ok = false
+        }
+        k = k + 1
+    }
+    var set_ok = true
+    var l = 0
+    while l < 50 {
+        if !contains(s, l) {
+            set_ok = false
+        }
+        l = l + 1
+    }
+    print(if map_ok { "map OK" } else { "map FAIL" })
+    print(if set_ok { "set OK" } else { "set FAIL" })
+}

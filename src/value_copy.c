@@ -162,17 +162,24 @@ static Value value_deep_copy_into(Arena **slot, Value v) {
             return arena_closure_copy(slot, v.as.clo, v.type);
         case TY_MAP:
         case TY_SET: {
-            /* The trie itself is rebuilt through the ordinary allocator (mapobj_set/mapobj_empty),
-             * not the arena -- MapObj is not yet arena-routed at all (a separate, later piece of
-             * work, not a regression: this is exactly how it was allocated before this file
-             * existed). A nested structural key or value still recurses through
-             * value_deep_copy_into, so `*slot` can still end up non-NULL for a Map/Set whose own
-             * entries hold one -- an all-scalar Map/Set costs no arena at all. */
+            /* mapobj_empty_into/mapobj_set_into (mapobj.h), not mapobj_empty/mapobj_set: the
+             * wrapper and each entry's own Leaf are gc_heap-migrated now, so building them through
+             * the ordinary mapobj_empty/mapobj_set (always this thread's own gc_heap) would leave
+             * them living in a heap the sending thread might destroy at its own exit
+             * (ziman_thread_heap_release) before the receiving side ever gets to copy them out --
+             * found exactly that way, a spawned thread sending a Map and exiting right after
+             * segfaulting the receiver. Every Map/Set crossing a boundary now needs a real arena for
+             * its own wrapper, even an empty or all-scalar one (unlike before, when only a nested
+             * structural key/value forced one) -- `lazy_arena` still means nothing is created until
+             * the first actual call needs it, just that call is now unconditional rather than only
+             * happening for a nested structural entry. MapNode itself is untouched either way
+             * (mapobj_set_into still calls the same node_insert everything else does -- it was never
+             * part of this problem, see mapobj.h's own comment). */
             Value *keys, *vals;
             mapobj_entries(v.as.map, &keys, &vals);
-            MapObj *copy = mapobj_empty();
+            MapObj *copy = mapobj_empty_into(lazy_arena(slot));
             for (int i = 0; i < v.as.map->count; i++) {
-                copy = mapobj_set(copy, value_deep_copy_into(slot, keys[i]), value_deep_copy_into(slot, vals[i]));
+                copy = mapobj_set_into(lazy_arena(slot), copy, value_deep_copy_into(slot, keys[i]), value_deep_copy_into(slot, vals[i]));
             }
             free(keys);
             free(vals);

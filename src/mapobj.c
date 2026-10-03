@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "arena.h"
 #include "gc_heap.h"
 #include "gc_thread_heap.h"
 
@@ -66,12 +67,13 @@ static int keys_equal(const Leaf *a, uint64_t hash, Value key) {
     return a->hash == hash && value_equals(a->key, key);
 }
 
-/* The MapObj wrapper (only -- MapNode/Leaf, the trie itself, stay on the ordinary allocator for now,
- * the same "wrapper only" slice struct_obj_new/array_obj_new/result_obj_new/enum_obj_new each took)
- * is gc_heap-migrated at all four sites that build one (here, mapobj_set/remove/snapshot below) --
- * gc_mark_map (gc_mark.c) already handles it correctly, is_gc_heap_object-gated. mapobj_mut_new's own
- * builder-private MapObj is deliberately left on malloc: it is never wrapped in a TY_MAP/TY_SET Value
- * directly (only a mapobj_snapshot of it is), so it never needs a real gc_heap header at all. */
+/* The MapObj wrapper is gc_heap-migrated at all four sites that build one (here, mapobj_set/remove/
+ * snapshot below) -- gc_mark_map (gc_mark.c) already handles it correctly, is_gc_heap_object-gated.
+ * Leaf (the trie's own entries) is migrated too, below; MapNode stays on the ordinary allocator,
+ * since its own mutable-builder fast path grows a node in place via realloc, which gc_heap has no
+ * equivalent of. mapobj_mut_new's own builder-private MapObj is deliberately left on malloc: it is
+ * never wrapped in a TY_MAP/TY_SET Value directly (only a mapobj_snapshot of it is), so it never
+ * needs a real gc_heap header at all. */
 MapObj *mapobj_empty(void) {
     MapObj *m = gc_heap_alloc(ziman_thread_heap(), GC_MAP, sizeof(MapObj));
     m->root = node_alloc(0);
@@ -177,14 +179,44 @@ static MapNode *node_insert(const MapNode *node, int depth, Leaf *nl, int *added
     return copy;
 }
 
+/* Leaf (every site that builds one, here and in the mutable path below) is gc_heap-migrated --
+ * unlike MapNode, it is never realloc'd (checked directly: no realloc call anywhere in this file
+ * touches a Leaf*), so it has none of MapNode's own incompatibility with gc_heap_alloc's lack of an
+ * in-place resize. gc_mark_map (gc_mark.c) marks each one's own header via mapobj_mark_leaves. */
 MapObj *mapobj_set(const MapObj *m, Value key, Value val) {
-    Leaf *nl = malloc(sizeof(Leaf));
+    Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
     nl->hash = map_hash(key);
     nl->key = key;
     nl->val = val;
     nl->seq = m->next_seq;
     int added = 0;
     MapObj *out = gc_heap_alloc(ziman_thread_heap(), GC_MAP, sizeof(MapObj));
+    out->root = node_insert(m->root, 0, nl, &added);
+    out->count = m->count + added;
+    out->next_seq = m->next_seq + added;
+    return out;
+}
+
+/* mapobj_empty/mapobj_set's own exact bodies, with the wrapper and the Leaf built via arena_alloc(ar,
+ * ...) instead of gc_heap_alloc(ziman_thread_heap(), ...) -- see mapobj.h's own comment on why
+ * value_copy.c needs this pair at all. node_alloc/node_insert are untouched: MapNode itself was never
+ * part of the problem this exists to fix (it was never gc_heap-migrated in the first place). */
+MapObj *mapobj_empty_into(Arena *ar) {
+    MapObj *m = arena_alloc(ar, sizeof(MapObj));
+    m->root = node_alloc(0);
+    m->count = 0;
+    m->next_seq = 0;
+    return m;
+}
+
+MapObj *mapobj_set_into(Arena *ar, const MapObj *m, Value key, Value val) {
+    Leaf *nl = arena_alloc(ar, sizeof(Leaf));
+    nl->hash = map_hash(key);
+    nl->key = key;
+    nl->val = val;
+    nl->seq = m->next_seq;
+    int added = 0;
+    MapObj *out = arena_alloc(ar, sizeof(MapObj));
     out->root = node_insert(m->root, 0, nl, &added);
     out->count = m->count + added;
     out->next_seq = m->next_seq + added;
@@ -267,6 +299,18 @@ void mapobj_entries(const MapObj *m, Value **keys, Value **vals) {
         if (keys != NULL) (*keys)[i] = leaves[i]->key;
         if (vals != NULL) (*vals)[i] = leaves[i]->val;
     }
+    free(leaves);
+}
+
+void mapobj_mark_leaves(const MapObj *m, void (*visit)(const void *leaf, Value key, Value val, void *ctx), void *ctx) {
+    int count = m->count;
+    Leaf **leaves = malloc((size_t)(count > 0 ? count : 1) * sizeof(Leaf *));
+    int n = 0;
+    collect(m->root, leaves, &n);
+    for (int i = 0; i < n; i++) {
+        visit(leaves[i], leaves[i]->key, leaves[i]->val, ctx);
+    }
+    free(leaves);
 }
 
 /* ---- in-place mutation, for MapBuilder / SetBuilder ------------------------------------
@@ -281,7 +325,7 @@ static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, V
             Leaf *old = node->slots[i].leaf;
             if (keys_equal(old, hash, key)) {
                 if (shared) {
-                    Leaf *nl = malloc(sizeof(Leaf));
+                    Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
                     *nl = *old;
                     nl->val = val;
                     node->slots[i].leaf = nl;
@@ -293,7 +337,7 @@ static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, V
             }
         }
         node = realloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
-        Leaf *nl = malloc(sizeof(Leaf));
+        Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
         *nl = (Leaf){hash, key, val, seq};
         node->slots[node->n].leaf = nl;
         node->slots[node->n].child = NULL;
@@ -307,7 +351,7 @@ static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, V
     if (!(node->bitmap & bit)) {
         node = realloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
         memmove(node->slots + pos + 1, node->slots + pos, (size_t)(node->n - pos) * sizeof(Slot));
-        Leaf *nl = malloc(sizeof(Leaf));
+        Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
         *nl = (Leaf){hash, key, val, seq};
         node->slots[pos].leaf = nl;
         node->slots[pos].child = NULL;
@@ -325,7 +369,7 @@ static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, V
     Leaf *old = s->leaf;
     if (keys_equal(old, hash, key)) {
         if (shared) {
-            Leaf *nl = malloc(sizeof(Leaf));
+            Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
             *nl = *old;
             nl->val = val;
             s->leaf = nl;
@@ -335,7 +379,7 @@ static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, V
         *added = 0;
         return;
     }
-    Leaf *nl = malloc(sizeof(Leaf));
+    Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
     *nl = (Leaf){hash, key, val, seq};
     s->leaf = NULL;
     s->child = make_pair(old, nl, depth + 1);

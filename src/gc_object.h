@@ -20,9 +20,11 @@ typedef enum {
     GC_RESULT,  /* ResultObj */
     GC_ENUM,    /* EnumObj */
     GC_CLOSURE, /* ClosureObj */
-    GC_MAP,     /* MapObj (mapobj.h) -- the wrapper only; MapNode/Leaf, the trie itself, stay on the
-                 * ordinary allocator for now, same "wrapper only" slice struct_obj_new/array_obj_new
-                 * already took */
+    GC_MAP,     /* MapObj (mapobj.h) -- the wrapper */
+    GC_MAP_LEAF, /* a persistent trie's own Leaf (mapobj.c, private to that file) -- never realloc'd,
+                  * unlike MapNode, which stays on the ordinary allocator for exactly that reason (its
+                  * own mutable-builder fast path grows a node in place via realloc, which gc_heap has
+                  * no equivalent of at all) */
     GC_FREE     /* not a live Value-backing object at all: a chunk `src/gc_heap.c`'s sweep phase has
                  * reclaimed and is holding on a free list, waiting to be reused by a later
                  * allocation of the same size class. A stray stack word that happens to resolve
