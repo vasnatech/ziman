@@ -180,11 +180,10 @@ pub fn json_get_path(j: Json, path: string...) -> Option<Json> {
 // failure worth a clear message, not an Option every caller has to
 // unwrap into one anyway.
 pub fn json_require_field(j: Json, key: string) -> Result<Json, string> {
-    val found = json_object_get(j, key)
-    if !Option.is_Some(found) {
-        return err(format("missing field '{}'", key))
+    return switch json_object_get(j, key) {
+        Some(field) { ok(field) }
+        None { err(format("missing field '{}'", key)) }
     }
-    return Option.unwrap_Some(found)
 }
 
 // json_require_field, further requiring the value be a JSON string --
@@ -203,22 +202,20 @@ pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
 // lacks it, or it is not an integer.
 pub fn json_require_int_field(j: Json, key: string) -> Result<int, string> {
     val v = try json_require_field(j, key)
-    val n = int_from_json(v)
-    if !is_ok(n) {
-        return err(format("field '{}' must be an integer", key))
+    return switch int_from_json(v) {
+        Ok(n) { ok(n) }
+        Err(_) { err(format("field '{}' must be an integer", key)) }
     }
-    return n
 }
 
 // The number in field `key` of object `j` (an integer is widened); an Err naming the field when it
 // is missing or not a number.
 pub fn json_require_float_field(j: Json, key: string) -> Result<float, string> {
     val v = try json_require_field(j, key)
-    val f = float_from_json(v)
-    if !is_ok(f) {
-        return err(format("field '{}' must be a number", key))
+    return switch float_from_json(v) {
+        Ok(f) { ok(f) }
+        Err(_) { err(format("field '{}' must be a number", key)) }
     }
-    return f
 }
 
 // The boolean in field `key` of object `j`; an Err naming the field when it is missing or not a

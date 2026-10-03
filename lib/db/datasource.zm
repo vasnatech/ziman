@@ -112,55 +112,47 @@ pub fn open(url: string) -> Result<Connection, DbError> {
 // so a borrowed connection that was never released makes this wait
 // forever; `defer datasource.release(...)` is what prevents that.
 pub fn close(conn: Connection) {
-    if Connection.is_Pool(conn) {
-        val pool = Connection.unwrap_Pool(conn)
-        for i in 0..pool.size {
-            close(receive(pool.idle).connection)
+    switch conn {
+        Pool(pool) {
+            for i in 0..pool.size {
+                close(receive(pool.idle).connection)
+            }
         }
-    } else if Connection.is_Postgres(conn) {
-        pg.close(Connection.unwrap_Postgres(conn))
-    } else if Connection.is_Mysql(conn) {
-        mysql.close(Connection.unwrap_Mysql(conn))
-    } else {
-        sqlite.close(Connection.unwrap_Sqlite(conn))
+        Postgres(pg_conn) { pg.close(pg_conn) }
+        Mysql(mysql_conn) { mysql.close(mysql_conn) }
+        Sqlite(sqlite_conn) { sqlite.close(sqlite_conn) }
     }
 }
 
 // Runs a statement (or, for DDL, a `;`-separated script) and returns the
 // number of rows the last statement changed.
 pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
-    if Connection.is_Pool(conn) {
-        val inner = try acquire(conn)
-        val result = execute(inner, sql, params)
-        settle<int>(conn, inner, result)
-        return result
-    }
-    if Connection.is_Postgres(conn) {
-        return pg.execute(Connection.unwrap_Postgres(conn), sql, params)
-    }
-    return if Connection.is_Mysql(conn) {
-        mysql.execute(Connection.unwrap_Mysql(conn), sql, params)
-    } else {
-        sqlite.execute(Connection.unwrap_Sqlite(conn), sql, params)
+    return switch conn {
+        Pool(pool) {
+            val inner = try acquire(conn)
+            val result = execute(inner, sql, params)
+            settle<int>(conn, inner, result)
+            result
+        }
+        Postgres(pg_conn) { pg.execute(pg_conn, sql, params) }
+        Mysql(mysql_conn) { mysql.execute(mysql_conn, sql, params) }
+        Sqlite(sqlite_conn) { sqlite.execute(sqlite_conn, sql, params) }
     }
 }
 
 // Runs a query and returns its rows, each a `db.Row`; `params` are bound to the placeholders
 // (`?` for SQLite and MySQL, `$1`, `$2` for Postgres), never spliced into `sql`.
 pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
-    if Connection.is_Pool(conn) {
-        val inner = try acquire(conn)
-        val result = query(inner, sql, params)
-        settle<[Row]>(conn, inner, result)
-        return result
-    }
-    if Connection.is_Postgres(conn) {
-        return pg.query(Connection.unwrap_Postgres(conn), sql, params)
-    }
-    return if Connection.is_Mysql(conn) {
-        mysql.query(Connection.unwrap_Mysql(conn), sql, params)
-    } else {
-        sqlite.query(Connection.unwrap_Sqlite(conn), sql, params)
+    return switch conn {
+        Pool(pool) {
+            val inner = try acquire(conn)
+            val result = query(inner, sql, params)
+            settle<[Row]>(conn, inner, result)
+            result
+        }
+        Postgres(pg_conn) { pg.query(pg_conn, sql, params) }
+        Mysql(mysql_conn) { mysql.query(mysql_conn, sql, params) }
+        Sqlite(sqlite_conn) { sqlite.query(sqlite_conn, sql, params) }
     }
 }
 
@@ -183,28 +175,29 @@ pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row]
 // A row that fails to arrive is an Err item and ends the iteration; the Err on the call is the statement
 // failing to run.
 pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError> {
-    if Connection.is_Pool(conn) {
-        val inner = try acquire(conn)
-        val opened = rows(inner, sql, params)
-        if !is_ok(opened) {
-            release(conn, inner)
-            return err(unwrap_err(opened))
+    return switch conn {
+        Pool(pool) {
+            val inner = try acquire(conn)
+            val opened = rows(inner, sql, params)
+            if !is_ok(opened) {
+                release(conn, inner)
+                return err(unwrap_err(opened))
+            }
+            val source = unwrap(opened)
+            return iter_from<Result<Row, DbError>>(
+                fn() -> Option<Result<Row, DbError>> {
+                    iter_next<Result<Row, DbError>>(source)
+                },
+                fn() {
+                    iter_close<Result<Row, DbError>>(source)
+                    release(conn, inner)
+                }
+            )
         }
-        val source = unwrap(opened)
-        return iter_from<Result<Row, DbError>>(fn() -> Option<Result<Row, DbError>> {
-            iter_next<Result<Row, DbError>>(source)
-        }, fn() {
-            iter_close<Result<Row, DbError>>(source)
-            release(conn, inner)
-        })
+        Postgres(pg_conn) { pg.rows(pg_conn, sql, params) }
+        Mysql(mysql_conn) { mysql.rows(mysql_conn, sql, params) }
+        Sqlite(sqlite_conn) { sqlite.rows(sqlite_conn, sql, params) }
     }
-    if Connection.is_Sqlite(conn) {
-        return sqlite.rows(Connection.unwrap_Sqlite(conn), sql, params)
-    }
-    if Connection.is_Postgres(conn) {
-        return pg.rows(Connection.unwrap_Postgres(conn), sql, params)
-    }
-    return mysql.rows(Connection.unwrap_Mysql(conn), sql, params)
 }
 
 // The common lookup-by-key shape: the first row, or None.
@@ -335,11 +328,13 @@ pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Resul
 // none can be opened, so the pool never shrinks.
 fn replacement(pool: PoolState, dead: Connection) -> Connection {
     val fresh = open(pool.url)
-    if !is_ok(fresh) {
-        return dead
+    return switch fresh {
+        Ok(c) {
+            close(dead)
+            c
+        }
+        Err(_) { return dead }
     }
-    close(dead)
-    return unwrap(fresh)
 }
 
 // A connection taken from the pool's idle channel, tested first when it has been idle long enough: one that
@@ -395,8 +390,8 @@ pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, 
     val pool = Connection.unwrap_Pool(conn)
     for _ in 0..(if timeout_ms > 0 { timeout_ms / 2 + 1 } else { 1 }) {
         val got = try_receive(pool.idle)
-        if Option.is_Some(got) {
-            return checked(pool, Option.unwrap_Some(got))
+        if Some(entry) = got {
+            return checked(pool, entry)
         }
         if timeout_ms > 0 {
             sleep_millis(2)
@@ -410,8 +405,8 @@ pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, 
 // still open goes back dirty -- roll it back first (`defer datasource.rollback`
 // registered *after* the release defer runs before it).
 pub fn release(conn: Connection, taken: Connection) {
-    if Connection.is_Pool(conn) {
-        park(Connection.unwrap_Pool(conn).idle, taken)
+    if Pool(pool) = conn {
+        park(pool.idle, taken)
     }
 }
 
@@ -420,8 +415,7 @@ pub fn release(conn: Connection, taken: Connection) {
 // Use it instead of `release` when the connection is known to be broken. Does nothing on a
 // connection that isn't a pool.
 pub fn discard(conn: Connection, taken: Connection) {
-    if Connection.is_Pool(conn) {
-        val pool = Connection.unwrap_Pool(conn)
+    if Pool(pool) = conn {
         park(pool.idle, replacement(pool, taken))
     }
 }

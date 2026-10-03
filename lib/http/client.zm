@@ -58,19 +58,14 @@ pub enum ClientError {
 // freeing the bare `error_message` name for the builtin of that name, which dispatches to this
 // exact function for a `ClientError` -- see docs/DESIGN.md's "A unified error_message builtin").
 pub fn client_error_message(e: ClientError) -> string {
-    if ClientError.is_BadUrl(e) {
-        return concat("bad URL: ", ClientError.unwrap_BadUrl(e))
+    return switch e {
+        BadUrl(text) { concat("bad URL: ", text) }
+        Network(text) { text }
+        Timeout { "request timed out" }
+        BadResponse(text) { concat("bad response: ", text) }
+        TooLarge { "response body is too large" }
+        TooManyRedirects { "too many redirects" }
     }
-    if ClientError.is_Network(e) {
-        return ClientError.unwrap_Network(e)
-    }
-    if ClientError.is_Timeout(e) {
-        return "request timed out"
-    }
-    if ClientError.is_BadResponse(e) {
-        return concat("bad response: ", ClientError.unwrap_BadResponse(e))
-    }
-    return if ClientError.is_TooLarge(e) { "response body is too large" } else { "too many redirects" }
 }
 
 // A parsed `http://` or `https://` URL. `target` is the path and query as they go on the request line
@@ -185,14 +180,15 @@ pub fn parse_url(url: string) -> Result<Url, string> {
 // ------------------------------------------------------------ reading
 
 fn lift<T>(r: Result<T, NetError>) -> Result<T, ClientError> {
-    if !is_ok(r) {
-        val e = unwrap_err(r)
-        if NetError.is_Timeout(e) {
-            return err(ClientError.Timeout)
+    return switch r {
+        Ok(v) { ok(v) }
+        Err(e) {
+            if NetError.is_Timeout(e) {
+                return err(ClientError.Timeout)
+            }
+            return err(ClientError.Network(net_error_message(e)))
         }
-        return err(ClientError.Network(net_error_message(e)))
     }
-    return unwrap(r)
 }
 
 fn text_of(b: [byte]) -> Result<string, ClientError> {

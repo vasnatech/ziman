@@ -50,16 +50,11 @@ pub struct Row {
 // `e` as a sentence for a log line or a response, prefixed by its kind (`NotFound` is the bare
 // message).
 pub fn db_error_message(e: DbError) -> string {
-    if DbError.is_NotFound(e) {
-        return DbError.unwrap_NotFound(e)
-    }
-    if DbError.is_Constraint(e) {
-        return concat("constraint violation: ", DbError.unwrap_Constraint(e))
-    }
-    return if DbError.is_Connection(e) {
-        concat("database connection error: ", DbError.unwrap_Connection(e))
-    } else {
-        concat("database error: ", DbError.unwrap_Sql(e))
+    return switch e {
+        NotFound(msg) { msg }
+        Constraint(msg) { concat("constraint violation: ", msg) }
+        Connection(msg) { concat("database connection error: ", msg) }
+        Sql(msg) { concat("database error: ", msg) }
     }
 }
 
@@ -76,19 +71,14 @@ pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError> {
 }
 
 fn sql_type_name(v: SqlValue) -> string {
-    if SqlValue.is_Null(v) {
-        return "NULL"
+    return switch v {
+        Null { "NULL" }
+        Int(_) { "INTEGER" }
+        Float(_) { "FLOAT" }
+        Text(_) { "TEXT" }
+        Bool(_) { "BOOL" }
+        Bytes(_) { "BYTES" }
     }
-    if SqlValue.is_Int(v) {
-        return "INTEGER"
-    }
-    if SqlValue.is_Float(v) {
-        return "FLOAT"
-    }
-    if SqlValue.is_Text(v) {
-        return "TEXT"
-    }
-    return if SqlValue.is_Bool(v) { "BOOL" } else { "BYTES" }
 }
 
 fn sql_mismatch(expected: string, v: SqlValue) -> DbError {
@@ -158,10 +148,10 @@ pub fn sql_as_decimal(v: SqlValue) -> Result<decimal, DbError> {
 // Lifts a domain type's own parse result (Result<T, string>, e.g.
 // uuid_from_string) into the DbError error type a from_sql needs.
 pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError> {
-    if !is_ok(r) {
-        return err(DbError.Sql(format("invalid {} value: {}", what, unwrap_err(r))))
+    switch r {
+        Ok(v) { return ok(v) }
+        Err(msg) { return err(DbError.Sql(format("invalid {} value: {}", what, msg))) }
     }
-    return unwrap(r)
 }
 
 // ---------------------------------------------------------------- URLs

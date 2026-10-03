@@ -357,12 +357,12 @@ fn parse_url(url: string) -> Result<MyUrl, DbError> {
     var sslmode = "disable"
     var sslrootcert = ""
     val mode = db.url_param(u, "sslmode")
-    if Option.is_Some(mode) {
-        sslmode = Option.unwrap_Some(mode)
+    if Some(c) = mode {
+        sslmode = c
     }
     val root = db.url_param(u, "sslrootcert")
-    if Option.is_Some(root) {
-        sslrootcert = Option.unwrap_Some(root)
+    if Some(c) = root {
+        sslrootcert = c
     }
     if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
         return err(conn_err(concat(
@@ -955,43 +955,26 @@ fn lenenc_bytes(raw: [byte]) -> [byte] {
 
 // The type code (and unsigned flag) sent for a parameter.
 fn param_type(v: SqlValue) -> [byte] {
-    if SqlValue.is_Null(v) {
-        return [6b, 0b]
+    return switch v {
+        Null { [6b, 0b] }
+        Int(_) { [8b, 0b] }
+        Float(_) { [5b, 0b] }
+        Bool(_) { [1b, 0b] }
+        Bytes(_) { [252b, 0b] }
+        Text(_) { [253b, 0b] }
     }
-    if SqlValue.is_Int(v) {
-        return [8b, 0b]
-    }
-    if SqlValue.is_Bool(v) {
-        return [1b, 0b]
-    }
-    if SqlValue.is_Bytes(v) {
-        return [252b, 0b]
-    }
-    return if SqlValue.is_Float(v) { [5b, 0b] } else { [253b, 0b] }
 }
 
 // The value bytes; NULL is only the bitmap bit.
 fn param_value(v: SqlValue) -> [byte] {
-    if SqlValue.is_Int(v) {
-        return le_int64(SqlValue.unwrap_Int(v))
+    return switch v {
+        Null { [] }
+        Int(n) { le_int64(n) }
+        Float(f) { f64_to_bytes(f) }
+        Bool(b) { if b { [1b] } else { [0b] } }
+        Text(s) { lenenc_bytes(string_to_bytes(s)) }
+        Bytes(b) { lenenc_bytes(b) }
     }
-    if SqlValue.is_Bool(v) {
-        if SqlValue.unwrap_Bool(v) {
-            return [1b]
-        }
-        return [0b]
-    }
-    if SqlValue.is_Float(v) {
-        return f64_to_bytes(SqlValue.unwrap_Float(v))
-    }
-    if SqlValue.is_Text(v) {
-        return lenenc_bytes(string_to_bytes(SqlValue.unwrap_Text(v)))
-    }
-    if SqlValue.is_Bytes(v) {
-        return lenenc_bytes(SqlValue.unwrap_Bytes(v))
-    }
-    val none: [byte] = []
-    return none
 }
 
 // COM_STMT_EXECUTE. `flags` is 0 for a plain execution or 1 (CURSOR_TYPE_READ_ONLY) to open a server-side
@@ -1238,50 +1221,52 @@ fn serve(sock: Socket, requests: Channel<Request>) {
     var deferred = Option<DbError>.None
     while open {
         val req = receive(requests)
-        if Request.is_Run(req) {
-            val r = Request.unwrap_Run(req)
-            send(r.reply_to, run_query(sock, r.sql, r.params))
-        } else if Request.is_OpenCursor(req) {
-            val r = Request.unwrap_OpenCursor(req)
-            if cursor_open {
-                val busy: Result<Page, DbError> = cursor_busy()
-                send(r.reply_to, busy)
-            } else {
-                issued = issued + 1
-                cursor_id = issued
-                val step = start_cursor(sock, cursor_id, r.sql, r.params)
-                deferred = step.deferred
-                cursor_open = step.open
-                statement = step.statement
-                columns = step.columns
-                send(r.reply_to, step.page)
+        switch req {
+            Run(r) {
+                send(r.reply_to, run_query(sock, r.sql, r.params))
             }
-        } else if Request.is_FetchCursor(req) {
-            val r = Request.unwrap_FetchCursor(req)
-            if r.cursor == cursor_id && Option.is_Some(deferred) {
-                val failed: Result<Page, DbError> = Option.unwrap_Some(deferred)
-                deferred = Option<DbError>.None
-                send(r.reply_to, failed)
-            } else if !cursor_open || r.cursor != cursor_id {
-                val over: Result<Page, DbError> = Page { rows: [], finished: true, cursor: r.cursor }
-                send(r.reply_to, over)
-            } else {
-                val step = fetch_page(sock, cursor_id, statement, columns)
-                deferred = step.deferred
-                cursor_open = step.open
-                send(r.reply_to, step.page)
+            OpenCursor(r) {
+                if cursor_open {
+                    val busy: Result<Page, DbError> = cursor_busy()
+                    send(r.reply_to, busy)
+                } else {
+                    issued = issued + 1
+                    cursor_id = issued
+                    val step = start_cursor(sock, cursor_id, r.sql, r.params)
+                    deferred = step.deferred
+                    cursor_open = step.open
+                    statement = step.statement
+                    columns = step.columns
+                    send(r.reply_to, step.page)
+                }
             }
-        } else if Request.is_EndCursor(req) {
-            val r = Request.unwrap_EndCursor(req)
-            if cursor_open && r.cursor == cursor_id {
-                cursor_open = false
-                close_statement(sock, statement)
+            FetchCursor(r) {
+                if r.cursor == cursor_id && Option.is_Some(deferred) {
+                    val failed: Result<Page, DbError> = Option.unwrap_Some(deferred)
+                    deferred = Option<DbError>.None
+                    send(r.reply_to, failed)
+                } else if !cursor_open || r.cursor != cursor_id {
+                    val over: Result<Page, DbError> = Page { rows: [], finished: true, cursor: r.cursor }
+                    send(r.reply_to, over)
+                } else {
+                    val step = fetch_page(sock, cursor_id, statement, columns)
+                    deferred = step.deferred
+                    cursor_open = step.open
+                    send(r.reply_to, step.page)
+                }
             }
-            send(r.reply_to, 0)
-        } else {
-            val _ = send_packet(sock, 0, [1b])
-            net.close(sock)
-            open = false
+            EndCursor(r) {
+                if cursor_open && r.cursor == cursor_id {
+                    cursor_open = false
+                    close_statement(sock, statement)
+                }
+                send(r.reply_to, 0)
+            }
+            Close {
+                val _ = send_packet(sock, 0, [1b])
+                net.close(sock)
+                open = false
+            }
         }
     }
 }

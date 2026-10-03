@@ -95,16 +95,18 @@ pub native fn list_dir(path: string) -> Result<[string], string>
 // directory follow the same convention as anything else that calls this directly.
 pub fn resolve(name: string) -> Option<string> {
     val search = os.getenv("ZIMAN_RESOURCE_PATH")
-    if !Option.is_Some(search) {
-        return Some(name)
-    }
-    for dir in split(Option.unwrap_Some(search), ":") {
-        val candidate = path_join(dir, name)
-        if exists(candidate) {
-            return Some(candidate)
+    return switch search {
+        None { Some(name) }
+        Some(s) {
+            for dir in split(s, ":") {
+                val candidate = path_join(dir, name)
+                if exists(candidate) {
+                    return Some(candidate)
+                }
+            }
+            None
         }
     }
-    return None
 }
 
 // ---------------------------------------------------------------- changing
@@ -164,11 +166,11 @@ pub fn file_name(path: string) -> string {
 // Everything before the last segment: `parent_dir("a/b/c.txt")` is "a/b"; "." for a bare name,
 // "/" for a top-level absolute path.
 pub fn parent_dir(path: string) -> string {
-    val trimmed = if len(path) > 1 && is_char_at(
-        path,
-        len(path) - 1,
-        "/"
-    ) { substring(path, 0, len(path) - 1) } else { path }
+    val trimmed = if len(path) > 1 && is_char_at(path, len(path) - 1, "/") {
+        substring(path, 0, len(path) - 1)
+    } else {
+        path
+    }
     val at = last_index_of(trimmed, "/")
     if at < 0 {
         return "."

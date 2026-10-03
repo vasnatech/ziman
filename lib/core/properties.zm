@@ -234,15 +234,16 @@ pub fn load(name: string) -> Result<Properties, string> {
 }
 
 fn require(props: Properties, key: string) -> Result<Entry, string> {
-    val found = lookup(props, key)
-    if !Option.is_Some(found) {
-        return err(format(
-            "missing required property '{}' (set it in a .properties file or the {} environment variable)",
-            key,
-            env_name(key)
-        ))
+    return switch lookup(props, key) {
+        Some(e) { ok(e) }
+        None {
+            err(format(
+                "missing required property '{}' (set it in a .properties file or the {} environment variable)",
+                key,
+                env_name(key)
+            ))
+        }
     }
-    return ok(Option.unwrap_Some(found))
 }
 
 // The entry's value as a string (always Ok; here so every `entry_*` has the same shape, which is
@@ -253,20 +254,18 @@ pub fn entry_string(e: Entry) -> Result<string, string> {
 
 // The entry's value as an int. An Err naming the key, the text and where the value came from.
 pub fn entry_int(e: Entry) -> Result<int, string> {
-    val n = parse_int(e.value)
-    if !is_ok(n) {
-        return err(format("{}: '{}' is not an integer ({})", e.key, e.value, e.source))
+    switch parse_int(e.value) {
+        Ok(n) { return ok(n) }
+        Err(_) { return err(format("{}: '{}' is not an integer ({})", e.key, e.value, e.source)) }
     }
-    return ok(unwrap(n))
 }
 
 // The entry's value as a float. An Err naming the key, the text and where the value came from.
 pub fn entry_float(e: Entry) -> Result<float, string> {
-    val n = parse_float(e.value)
-    if !is_ok(n) {
-        return err(format("{}: '{}' is not a number ({})", e.key, e.value, e.source))
+    switch parse_float(e.value) {
+        Ok(n) { return ok(n) }
+        Err(_) { return err(format("{}: '{}' is not a number ({})", e.key, e.value, e.source)) }
     }
-    return ok(unwrap(n))
 }
 
 // The entry's value as a bool: `true` or `false`, any case. An Err otherwise, naming the key and source.
@@ -373,7 +372,7 @@ fn mask_value(value: string) -> string {
         if at >= 0 {
             val colon = index_of(substring(v, 0, at), ":", scheme + 3)
             if colon >= 0 {
-                v = concat(concat(substring(v, 0, colon + 1), "****"), substring(v, at, len(v)))
+                v = concat(substring(v, 0, colon + 1), "****", substring(v, at, len(v)))
             }
         }
     }
@@ -384,7 +383,7 @@ fn mask_value(value: string) -> string {
         if end < 0 {
             end = len(v)
         }
-        v = concat(concat(substring(v, 0, start), "****"), substring(v, end, len(v)))
+        v = concat(substring(v, 0, start), "****", substring(v, end, len(v)))
     }
     return v
 }

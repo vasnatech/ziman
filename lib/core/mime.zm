@@ -246,14 +246,14 @@ pub fn parse(text: string) -> Result<MediaType, string> {
 
 // `type/subtype` alone, without parameters: `application/json`.
 pub fn essence(m: MediaType) -> string {
-    return concat(concat(m.type, "/"), m.subtype)
+    return concat(m.type, "/", m.subtype)
 }
 
 fn quote_if_needed(value: string) -> string {
     if is_token(value) {
         return value
     }
-    return concat(concat("\"", replace(replace(value, "\\", "\\\\"), "\"", "\\\"")), "\"")
+    return concat("\"", replace(replace(value, "\\", "\\\\"), "\"", "\\\""), "\"")
 }
 
 // The text form: `text/html; charset=utf-8`. A parameter value that is not a token is written quoted.

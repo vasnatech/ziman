@@ -111,10 +111,10 @@ pub native fn float_to_text(f: float) -> string
 // ---------------------------------------------------------------- helpers
 
 fn lift<T>(r: Result<T, net.NetError>) -> Result<T, DbError> {
-    if !is_ok(r) {
-        return err(DbError.Connection(net_error_message(unwrap_err(r))))
+    return switch r {
+        Ok(v) { ok(v) }
+        Err(e) { err(DbError.Connection(net_error_message(e))) }
     }
-    return unwrap(r)
 }
 
 fn conn_err(message: string) -> DbError {
@@ -520,8 +520,8 @@ fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
             }
         }
     }
-    if Option.is_Some(failure) {
-        return err(Option.unwrap_Some(failure))
+    if Some(f) = failure {
+        return err(f)
     }
     return QueryResult { rows: ab_to_array<Row>(rows), affected: affected }
 }
@@ -532,19 +532,16 @@ fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
 // as 1/0, which Postgres accepts for both BOOLEAN and INTEGER columns --
 // the same repository SQL and schema then work on SQLite too.
 fn encode_param(v: SqlValue) -> [byte] {
-    if SqlValue.is_Null(v) {
+    if Null = v {
         return u32_to_bytes(4294967295)
     }
-    val text = if SqlValue.is_Int(v) {
-        str(SqlValue.unwrap_Int(v))
-    } else if SqlValue.is_Float(v) {
-        float_to_text(SqlValue.unwrap_Float(v))
-    } else if SqlValue.is_Text(v) {
-        SqlValue.unwrap_Text(v)
-    } else if SqlValue.is_Bool(v) {
-        if SqlValue.unwrap_Bool(v) { "1" } else { "0" }
-    } else {
-        concat("\\x", bytes_to_hex(SqlValue.unwrap_Bytes(v)))
+    val text = switch v {
+        Null { "" } // unreachable: already returned above
+        Int(n) { str(n) }
+        Float(f) { float_to_text(f) }
+        Text(s) { s }
+        Bool(b) { if b { "1" } else { "0" } }
+        Bytes(b) { concat("\\x", bytes_to_hex(b)) }
     }
     val payload = string_to_bytes(text)
     return bytes_concat(u32_to_bytes(len(payload)), payload)
@@ -745,55 +742,57 @@ fn serve(sock: Socket, requests: Channel<Request>) {
     var oids: [int] = []
     while open {
         val req = receive(requests)
-        if Request.is_Run(req) {
-            val r = Request.unwrap_Run(req)
-            if cursor_open {
-                val busy: Result<QueryResult, DbError> = cursor_busy()
-                send(r.reply_to, busy)
-            } else {
-                send(r.reply_to, run_query(sock, r.sql, r.params))
+        switch req {
+            Run(r) {
+                if cursor_open {
+                    val busy: Result<QueryResult, DbError> = cursor_busy()
+                    send(r.reply_to, busy)
+                } else {
+                    send(r.reply_to, run_query(sock, r.sql, r.params))
+                }
             }
-        } else if Request.is_OpenCursor(req) {
-            val r = Request.unwrap_OpenCursor(req)
-            if cursor_open {
-                val busy: Result<Page, DbError> = cursor_busy()
-                send(r.reply_to, busy)
-            } else {
-                issued = issued + 1
-                cursor_id = issued
-                val step = start_cursor(sock, cursor_id, r.sql, r.params)
-                deferred = step.deferred
-                cursor_open = step.open
-                names = step.names
-                oids = step.oids
-                send(r.reply_to, step.page)
+            OpenCursor(r) {
+                if cursor_open {
+                    val busy: Result<Page, DbError> = cursor_busy()
+                    send(r.reply_to, busy)
+                } else {
+                    issued = issued + 1
+                    cursor_id = issued
+                    val step = start_cursor(sock, cursor_id, r.sql, r.params)
+                    deferred = step.deferred
+                    cursor_open = step.open
+                    names = step.names
+                    oids = step.oids
+                    send(r.reply_to, step.page)
+                }
             }
-        } else if Request.is_FetchCursor(req) {
-            val r = Request.unwrap_FetchCursor(req)
-            if r.cursor == cursor_id && Option.is_Some(deferred) {
-                val failed: Result<Page, DbError> = Option.unwrap_Some(deferred)
-                deferred = Option<DbError>.None
-                send(r.reply_to, failed)
-            } else if !cursor_open || r.cursor != cursor_id {
-                val over: Result<Page, DbError> = Page { rows: [], finished: true, cursor: r.cursor }
-                send(r.reply_to, over)
-            } else {
-                val step = continue_cursor(sock, cursor_id, names, oids)
-                deferred = step.deferred
-                cursor_open = step.open
-                send(r.reply_to, step.page)
+            FetchCursor(r) {
+                if cursor_open && r.cursor == cursor_id && Option.is_Some(deferred) {
+                    val failed: Result<Page, DbError> = Option.unwrap_Some(deferred)
+                    deferred = Option<DbError>.None
+                    send(r.reply_to, failed)
+                } else if !cursor_open || r.cursor != cursor_id {
+                    val over: Result<Page, DbError> = Page { rows: [], finished: true, cursor: r.cursor }
+                    send(r.reply_to, over)
+                } else {
+                    val step = continue_cursor(sock, cursor_id, names, oids)
+                    deferred = step.deferred
+                    cursor_open = step.open
+                    send(r.reply_to, step.page)
+                }
             }
-        } else if Request.is_EndCursor(req) {
-            val r = Request.unwrap_EndCursor(req)
-            if cursor_open && r.cursor == cursor_id {
-                cursor_open = false
-                val _ = sync_and_drain(sock)
+            EndCursor(r) {
+                if cursor_open && r.cursor == cursor_id {
+                    cursor_open = false
+                    val _ = sync_and_drain(sock)
+                }
+                send(r.reply_to, 0)
             }
-            send(r.reply_to, 0)
-        } else {
-            val _ = send_message(sock, "X", [])
-            net.close(sock)
-            open = false
+            Close {
+                val _ = send_message(sock, "X", [])
+                net.close(sock)
+                open = false
+            }
         }
     }
 }
@@ -810,9 +809,9 @@ pub fn connect(url: string) -> Result<Connection, DbError> {
     val parsed = try parse_url(url)
     val sock = try lift<Socket>(net.connect(parsed.host, parsed.port))
     val ready = handshake(sock, parsed)
-    if !is_ok(ready) {
+    if Err(e) = ready {
         net.close(sock)
-        return err(unwrap_err(ready))
+        return err(e)
     }
     val requests: Channel<Request> = channel_new()
     spawn serve(sock, requests)

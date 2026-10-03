@@ -434,3 +434,17 @@ struct Guard {
 
 // A guard that sends `message` on `ch` when it is collected.
 native fn guard_new<T>(ch: Channel<T>, message: T) -> Guard
+
+pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T> {
+    return switch r {
+        Ok(value) { Option<T>.Some(value) }
+        Err(_) { Option<T>.None }
+    }
+}
+
+pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E> {
+    return switch o {
+        Some(value) { ok(value) }
+        None { err(err_supplier()) }
+    }
+}

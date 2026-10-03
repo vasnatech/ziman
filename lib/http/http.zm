@@ -129,32 +129,25 @@ pub fn header(req: Request, name: string) -> Option<string> {
 pub fn header_value(headers: [Header], name: string) -> Option<string> {
     for h in headers {
         if equals_ignore_case(h.name, name) {
-            return Option<string>.Some(h.value)
+            return Some(h.value)
         }
     }
-    return Option<string>.None
+    return None
 }
 
 // The `Content-Type` in `headers` as a media type, or None when there is none or it is not a valid media type.
 pub fn content_type(headers: [Header]) -> Option<mime.MediaType> {
-    val value = header_value(headers, "Content-Type")
-    if !Option.is_Some(value) {
-        return Option<mime.MediaType>.None
-    }
-    val parsed = mime.parse(Option.unwrap_Some(value))
-    return switch parsed {
-        Ok(m) { Option<mime.MediaType>.Some(m) }
-        Err(e) { Option<mime.MediaType>.None }
+    return switch header_value(headers, "Content-Type") {
+        None { None }
+        Some(value) { result_to_option(mime.parse(value)) }
     }
 }
 
 fn is_zero_quality(m: mime.MediaType) -> bool {
-    val q = mime.param(m, "q")
-    if !Option.is_Some(q) {
-        return false
+    return switch mime.param(m, "q") {
+        None { false }
+        Some(q) { replace(replace(q, "0", ""), ".", "") == "" }
     }
-    val digits = replace(replace(Option.unwrap_Some(q), "0", ""), ".", "")
-    return digits == ""
 }
 
 // Whether a client whose headers are `headers` accepts a response of type `media`: true when there is no
@@ -163,17 +156,15 @@ fn is_zero_quality(m: mime.MediaType) -> bool {
 // are not ranked; any positive one counts as acceptance.
 pub fn accepts(headers: [Header], media: mime.MediaType) -> bool {
     val value = header_value(headers, "Accept")
-    if !Option.is_Some(value) {
-        return true
-    }
+    if None = value { return true }
     val ranges = ab_new<mime.MediaType>()
     for item in split(Option.unwrap_Some(value), ",") {
         val range = mime.parse(item)
-        if is_ok(range) {
-            ab_append<mime.MediaType>(ranges, unwrap(range))
+        if Ok(r) = range {
+            ab_append(ranges, r)
         }
     }
-    val all = ab_to_array<mime.MediaType>(ranges)
+    val all = ab_to_array(ranges)
     for r in all {
         if is_zero_quality(r) && mime.essence(r) == mime.essence(media) {
             return false
@@ -200,7 +191,7 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
                 return err("truncated %-escape")
             }
             val b = byte_from_hex(substring(s, i + 1, i + 3))
-            if !is_ok(b) {
+            if Err(_) = b {
                 return err("bad %-escape")
             }
             if !sb_append_byte(out, unwrap(b)) {

@@ -30,9 +30,9 @@ fn error_from_raw(raw: string) -> DbError {
     var category = raw
     var message = ""
     val split_raw = split_once(raw, "|")
-    if Option.is_Some(split_raw) {
-        category = Option.unwrap_Some(split_raw)[0]
-        message = Option.unwrap_Some(split_raw)[1]
+    if Some(raw) = split_raw {
+        category = raw[0]
+        message = raw[1]
     }
     if category == "constraint" {
         return DbError.Constraint(message)
@@ -41,30 +41,21 @@ fn error_from_raw(raw: string) -> DbError {
 }
 
 fn encode_param(v: SqlValue) -> string {
-    if SqlValue.is_Null(v) {
-        return "N"
-    }
-    if SqlValue.is_Int(v) {
-        return concat("I", str(SqlValue.unwrap_Int(v)))
-    }
-    if SqlValue.is_Float(v) {
-        return concat("F", float_to_text(SqlValue.unwrap_Float(v)))
-    }
-    if SqlValue.is_Text(v) {
-        return concat("T", SqlValue.unwrap_Text(v))
-    }
-    if SqlValue.is_Bool(v) {
-        if SqlValue.unwrap_Bool(v) {
-            return "b1"
+    return switch v {
+        Null { "N" }
+        Int(n) { concat("I", str(n)) }
+        Float(f) { concat("F", float_to_text(f)) }
+        Text(s) { concat("T", s) }
+        Bool(b) { if b { "b1" } else { "b0" } }
+        Bytes(bytes) {
+            val hex = sb_new()
+            sb_append(hex, "B")
+            for by in bytes {
+                sb_append(hex, byte_to_hex(by))
+            }
+            sb_to_string(hex)
         }
-        return "b0"
     }
-    val hex = sb_new()
-    sb_append(hex, "B")
-    for b in SqlValue.unwrap_Bytes(v) {
-        sb_append(hex, byte_to_hex(b))
-    }
-    return sb_to_string(hex)
 }
 
 fn encode_params(params: [SqlValue]) -> [string] {
@@ -102,8 +93,8 @@ fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
         val bytes = ab_new<byte>()
         for i in 0..len(payload) / 2 {
             val b = byte_from_hex(substring(payload, 2 * i, 2 * i + 2))
-            if !is_ok(b) {
-                return err(DbError.Sql(concat("bad blob from driver: ", payload)))
+            if Err(_) = b {
+                return err(DbError.Sql(concat("bad hex from driver: ", payload)))
             }
             ab_append<byte>(bytes, unwrap(b))
         }
@@ -120,11 +111,10 @@ pub struct Connection {
 
 // `path` is a SQLite filename, or `:memory:`.
 pub fn open(path: string) -> Result<Connection, DbError> {
-    val opened = open_raw(path)
-    if !is_ok(opened) {
-        return err(error_from_raw(unwrap_err(opened)))
+    return switch open_raw(path) {
+        Ok(handle) { ok(Connection { handle: handle }) }
+        Err(raw_error) { err(error_from_raw(raw_error)) }
     }
-    return Connection { handle: unwrap(opened) }
 }
 
 // Closes the database. Using the connection afterwards is an error, not a crash; one never closed
@@ -136,18 +126,17 @@ pub fn close(conn: Connection) {
 // Runs a statement, or a `;`-separated script of them, and returns the rows the last statement
 // changed. `params` bind to the `?` placeholders.
 pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
-    val r = execute_raw(conn.handle, sql, encode_params(params))
-    if !is_ok(r) {
-        return err(error_from_raw(unwrap_err(r)))
+    return switch execute_raw(conn.handle, sql, encode_params(params)) {
+        Ok(affected) { ok(affected) }
+        Err(raw_error) { err(error_from_raw(raw_error)) }
     }
-    return ok(unwrap(r))
 }
 
 // Runs a statement and returns its rows; `params` bind to the `?` placeholders.
 pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
     val r = query_raw(conn.handle, sql, encode_params(params))
-    if !is_ok(r) {
-        return err(error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(error_from_raw(e))
     }
     val flat = unwrap(r)
     val ncols = unwrap(parse_int(flat[0]))
@@ -181,15 +170,15 @@ fn row_from_cells(names: [string], cells: [string]) -> Result<Row, DbError> {
 
 fn next_row(cursor: int, names: [string]) -> Option<Result<Row, DbError>> {
     val r = cursor_next_raw(cursor)
-    if !is_ok(r) {
-        val failure: Result<Row, DbError> = error_from_raw(unwrap_err(r))
-        return Option<Result<Row, DbError>>.Some(failure)
+    if Err(e) = r {
+        val failure: Result<Row, DbError> = err(error_from_raw(e))
+        return Some(failure)
     }
     val cells = unwrap(r)
     if len(cells) == 0 {
-        return Option<Result<Row, DbError>>.None
+        return None
     }
-    return Option<Result<Row, DbError>>.Some(row_from_cells(names, cells))
+    return Some(row_from_cells(names, cells))
 }
 
 // Runs a statement and returns its rows lazily, one at a time as a `for` loop asks for them, so a
@@ -200,8 +189,8 @@ fn next_row(cursor: int, names: [string]) -> Option<Result<Row, DbError>> {
 // closing the connection.
 pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError> {
     val opened = cursor_open_raw(conn.handle, sql, encode_params(params))
-    if !is_ok(opened) {
-        return err(error_from_raw(unwrap_err(opened)))
+    if Err(e) = opened {
+        return err(error_from_raw(e))
     }
     val cursor = unwrap(opened)
     val names = cursor_columns_raw(cursor)
