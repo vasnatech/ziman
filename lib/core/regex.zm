@@ -67,16 +67,16 @@ fn match_of(re: Regex, text: string, caps: [int], at: int) -> Match {
     for g in 1..re.groups + 1 {
         val s = caps[at + 2 * g]
         if s < 0 {
-            ab_append<Option<string>>(groups, Option<string>.None)
+            ab_append(groups, Option<string>.None)
         } else {
-            ab_append<Option<string>>(groups, Option<string>.Some(substring(text, s, caps[at + 2 * g + 1])))
+            ab_append(groups, Option<string>.Some(substring(text, s, caps[at + 2 * g + 1])))
         }
     }
     return Match {
         start: caps[at],
         end: caps[at + 1],
         text: substring(text, caps[at], caps[at + 1]),
-        groups: ab_to_array<Option<string>>(groups),
+        groups: ab_to_array(groups),
         names: re.names
     }
 }
@@ -108,10 +108,10 @@ pub fn find_all(re: Regex, text: string) -> [Match] {
     val out = ab_new<Match>()
     var at = 0
     while at < len(caps) {
-        ab_append<Match>(out, match_of(re, text, caps, at))
+        ab_append(out, match_of(re, text, caps, at))
         at = at + stride
     }
-    return ab_to_array<Match>(out)
+    return ab_to_array(out)
 }
 
 // The text of group `n` of a match: 0 is the whole match, 1.. the groups.
@@ -247,12 +247,12 @@ pub fn split(re: Regex, text: string) -> [string] {
     var last = 0
     for m in find_all(re, text) {
         if m.end > m.start {
-            ab_append<string>(out, substring(text, last, m.start))
+            ab_append(out, substring(text, last, m.start))
             last = m.end
         }
     }
-    ab_append<string>(out, substring(text, last, len(text)))
-    return ab_to_array<string>(out)
+    ab_append(out, substring(text, last, len(text)))
+    return ab_to_array(out)
 }
 
 // `text` with every regex metacharacter escaped, so it matches itself.

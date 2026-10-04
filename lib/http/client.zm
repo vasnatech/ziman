@@ -264,7 +264,7 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
         if !Option.is_Some(pair) {
             return err(ClientError.BadResponse(concat("malformed header line: ", lines[i])))
         }
-        ab_append<Header>(
+        ab_append(
             headers,
             Header { name: Option.unwrap_Some(pair)[0], value: trim(Option.unwrap_Some(pair)[1]) }
         )
@@ -273,7 +273,7 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
     return ok(Head {
         status: unwrap(status_parsed),
         status_line: lines[0],
-        headers: ab_to_array<Header>(headers),
+        headers: ab_to_array(headers),
         rest: slice<byte>(buf, head_end, len(buf))
     })
 }
@@ -318,7 +318,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
                     trailer_end = bytes_index_of(buf, crlf, 0)
                 }
             }
-            return ok(Body { bytes: ab_to_array<byte>(body), clean: len(buf) == 2 })
+            return ok(Body { bytes: ab_to_array(body), clean: len(buf) == 2 })
         }
         total = total + size
         if total > max_body_bytes {
@@ -328,7 +328,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
             val step = try more(sock, buf)
             buf = step
         }
-        ab_append<byte>(body, slice<byte>(buf, 0, size))
+        ab_append(body, slice<byte>(buf, 0, size))
         buf = slice<byte>(buf, size + 2, len(buf))
     }
     return ok(Body { bytes: [], clean: false })
@@ -337,23 +337,23 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
 // A body that runs until the server closes the connection (so the connection cannot be reused).
 fn read_to_close(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
     val body = ab_new<byte>()
-    ab_append<byte>(body, start)
+    ab_append(body, start)
     while true {
-        if ab_len<byte>(body) > max_body_bytes {
+        if ab_len(body) > max_body_bytes {
             return err(ClientError.TooLarge)
         }
         val chunk = net.read(sock, read_chunk_bytes)
         if !is_ok(chunk) {
             val e = unwrap_err(chunk)
             if NetError.is_Closed(e) {
-                return ok(Body { bytes: ab_to_array<byte>(body), clean: false })
+                return ok(Body { bytes: ab_to_array(body), clean: false })
             }
             if NetError.is_Timeout(e) {
                 return err(ClientError.Timeout)
             }
             return err(ClientError.Network(net_error_message(e)))
         }
-        ab_append<byte>(body, unwrap(chunk))
+        ab_append(body, unwrap(chunk))
     }
     return err(ClientError.Timeout)
 }
@@ -415,10 +415,10 @@ fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<Response,
     for h in headers {
         val lname = to_lower(h.name)
         if lname != "content-encoding" && lname != "content-length" {
-            ab_append<Header>(kept, h)
+            ab_append(kept, h)
         }
     }
-    return ok(Response { status: status, headers: ab_to_array<Header>(kept), body: unwrap(decoded) })
+    return ok(Response { status: status, headers: ab_to_array(kept), body: unwrap(decoded) })
 }
 
 // ------------------------------------------------------------ proxies
@@ -569,7 +569,7 @@ fn write_request(
         u.target
     }
     val out = ab_new<string>()
-    ab_append<string>(out, format("{} {} HTTP/1.1\r\n", method_name(method), request_target))
+    ab_append(out, format("{} {} HTTP/1.1\r\n", method_name(method), request_target))
     var has_ua = false
     var has_accept = false
     var has_encoding = false
@@ -589,41 +589,41 @@ fn write_request(
             has_auth = true
         }
         if lname != "host" && lname != "content-length" && lname != "connection" {
-            ab_append<string>(out, format("{}: {}\r\n", h.name, h.value))
+            ab_append(out, format("{}: {}\r\n", h.name, h.value))
         }
     }
-    ab_append<string>(out, format("Host: {}\r\n", host_header(u)))
+    ab_append(out, format("Host: {}\r\n", host_header(u)))
     if !has_ua {
-        ab_append<string>(out, "User-Agent: ziman\r\n")
+        ab_append(out, "User-Agent: ziman\r\n")
     }
     if !has_accept {
-        ab_append<string>(out, "Accept: */*\r\n")
+        ab_append(out, "Accept: */*\r\n")
     }
     if !has_encoding {
-        ab_append<string>(
+        ab_append(
             out,
             if want_compression { "Accept-Encoding: gzip, deflate\r\n" } else { "Accept-Encoding: identity\r\n" }
         )
     }
     if !has_auth && len(u.userinfo) > 0 {
-        ab_append<string>(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
+        ab_append(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
     }
     if via_http_proxy && Option.unwrap_Some(proxy).userinfo != "" {
-        ab_append<string>(
+        ab_append(
             out,
             format("Proxy-Authorization: {}\r\n", basic_auth(Option.unwrap_Some(proxy).userinfo))
         )
     }
-    ab_append<string>(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
+    ab_append(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
     if Some(body) = body {
-        ab_append<string>(out, format("Content-Length: {}\r\n", len(body)))
+        ab_append(out, format("Content-Length: {}\r\n", len(body)))
     } else {
         if method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch {
-            ab_append<string>(out, "Content-Length: 0\r\n")
+            ab_append(out, "Content-Length: 0\r\n")
         }
     }
-    ab_append<string>(out, "\r\n")
-    try lift<int>(net.write_text(s, join(pieces: ab_to_array<string>(out), separator: "")))
+    ab_append(out, "\r\n")
+    try lift<int>(net.write_text(s, join(pieces: ab_to_array(out), separator: "")))
     if Some(body) = body && len(body) > 0 {
         try lift<int>(net.write(s, body))
     }
@@ -791,10 +791,10 @@ fn parse_http_date(text: string) -> int {
     val fields = ab_new<string>()
     for p in parts {
         if len(p) > 0 {
-            ab_append<string>(fields, p)
+            ab_append(fields, p)
         }
     }
-    val f = ab_to_array<string>(fields)
+    val f = ab_to_array(fields)
     if len(f) < 5 {
         return -1
     }
@@ -902,13 +902,13 @@ pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar {
                 val kept = ab_new<Cookie>()
                 for old in current {
                     if !same_cookie(old, c) && (old.expires < 0 || old.expires > now) {
-                        ab_append<Cookie>(kept, old)
+                        ab_append(kept, old)
                     }
                 }
                 if c.expires < 0 || c.expires > now {
-                    ab_append<Cookie>(kept, c)
+                    ab_append(kept, c)
                 }
-                current = ab_to_array<Cookie>(kept)
+                current = ab_to_array(kept)
             }
         }
     }
@@ -944,28 +944,28 @@ pub fn jar_header(jar: CookieJar, u: Url) -> Option<string> {
     val chosen = ab_new<Cookie>()
     for c in jar.cookies {
         if cookie_matches(c, u, now) {
-            ab_append<Cookie>(chosen, c)
+            ab_append(chosen, c)
         }
     }
-    val matched = ab_to_array<Cookie>(chosen)
+    val matched = ab_to_array(chosen)
     if len(matched) == 0 {
         return Option<string>.None
     }
     val ordered = sort_matches(matched)
     val parts = ab_new<string>()
     for c in ordered {
-        ab_append<string>(parts, format("{}={}", c.name, c.value))
+        ab_append(parts, format("{}={}", c.name, c.value))
     }
-    return Option<string>.Some(join(separator: "; ", pieces: ab_to_array<string>(parts)))
+    return Option<string>.Some(join(separator: "; ", pieces: ab_to_array(parts)))
 }
 
 // Stable order: longer paths first.
 fn sort_matches(cookies: [Cookie]) -> [Cookie] {
     val lengths = ab_new<int>()
     for c in cookies {
-        ab_append<int>(lengths, len(c.path))
+        ab_append(lengths, len(c.path))
     }
-    return permute<Cookie>(cookies, sort_scalar_order<int>(ab_to_array<int>(lengths), true))
+    return permute<Cookie>(cookies, sort_scalar_order<int>(ab_to_array(lengths), true))
 }
 
 // ------------------------------------------------------------ requests
@@ -1032,10 +1032,10 @@ fn run(
             val kept = ab_new<Header>()
             for h in hs {
                 if !equals_ignore_case(h.name, "Authorization") && !equals_ignore_case(h.name, "Cookie") {
-                    ab_append<Header>(kept, h)
+                    ab_append(kept, h)
                 }
             }
-            hs = ab_to_array<Header>(kept)
+            hs = ab_to_array(kept)
         }
         current = unwrap(next)
         if s == status_see_other || ((s == status_moved_permanently || s == status_found) && m == HttpMethod.Post) {
@@ -1159,9 +1159,9 @@ pub fn put_json(url: string, body: string) -> Result<Response, ClientError> {
 pub fn form_encode(fields: Map<string, string>) -> string {
     val parts = ab_new<string>()
     for name, value in fields {
-        ab_append<string>(parts, format("{}={}", percent_encode(name, true), percent_encode(value, true)))
+        ab_append(parts, format("{}={}", percent_encode(name, true), percent_encode(value, true)))
     }
-    return join(separator: "&", pieces: ab_to_array<string>(parts))
+    return join(separator: "&", pieces: ab_to_array(parts))
 }
 
 // POST an HTML-form-style body built from `fields` (`Content-Type: application/x-www-form-urlencoded`).

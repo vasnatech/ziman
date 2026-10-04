@@ -299,11 +299,11 @@ fn audiences_of(value: Json) -> [string] {
     if JArray(items) = value {
         for item in items {
             if JString(text) = item {
-                ab_append<string>(names, text)
+                ab_append(names, text)
             }
         }
     }
-    return ab_to_array<string>(names)
+    return ab_to_array(names)
 }
 
 // The `sub` claim, when it is a string.

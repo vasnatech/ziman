@@ -236,18 +236,18 @@ pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<
     val out = mapb_new<string, V>()
     for key, value in Json.unwrap_JObject(j) {
         val item = try decode(value)
-        mapb_set<string, V>(out, key, item)
+        mapb_set(out, key, item)
     }
-    return ok(mapb_to_map<string, V>(out))
+    return ok(mapb_to_map(out))
 }
 
 // The other direction: a Map as a JSON object, each value encoded by `encode`.
 pub fn json_from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json {
     val out = mapb_new<string, Json>()
     for key, value in m {
-        mapb_set<string, Json>(out, key, encode(value))
+        mapb_set(out, key, encode(value))
     }
-    return Json.JObject(mapb_to_map<string, Json>(out))
+    return Json.JObject(mapb_to_map(out))
 }
 
 // A JSON object of strings as a Map<string, string>.

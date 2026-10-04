@@ -290,7 +290,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Res
                     trailer_end = bytes_index_of(buf, crlf, 0)
                 }
             }
-            return ChunkedBody { body: ab_to_array<byte>(body), rest: slice<byte>(buf, 2, len(buf)) }
+            return ChunkedBody { body: ab_to_array(body), rest: slice<byte>(buf, 2, len(buf)) }
         }
         total = total + n
         if total > max_body_bytes {
@@ -303,7 +303,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Res
         if buf[n] != 13b || buf[n + 1] != 10b {
             return err(HttpError.BadRequest("a chunk is not followed by CRLF"))
         }
-        ab_append<byte>(body, slice<byte>(buf, 0, n))
+        ab_append(body, slice<byte>(buf, 0, n))
         buf = slice<byte>(buf, n + 2, len(buf))
     }
     return err(HttpError.BadRequest("unreachable"))
@@ -373,10 +373,10 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     var i = first + 1
     while i < len(lines) {
         val h = try parse_header_line(lines[i])
-        ab_append<Header>(headers, h)
+        ab_append(headers, h)
         i = i + 1
     }
-    val header_list = ab_to_array<Header>(headers)
+    val header_list = ab_to_array(headers)
 
     // What a proxy in front might read differently from this server is what request smuggling uses:
     // so a request that says the same thing twice, or two different things, is refused outright.
@@ -763,14 +763,14 @@ fn compile_pattern(pattern: string) -> Pattern {
     val is_param = ab_new<bool>()
     for segment in segments_of(pattern) {
         if len(segment) >= 3 && starts_with(segment, "{") && ends_with(segment, "}") {
-            ab_append<string>(parts, substring(segment, 1, len(segment) - 1))
-            ab_append<bool>(is_param, true)
+            ab_append(parts, substring(segment, 1, len(segment) - 1))
+            ab_append(is_param, true)
         } else {
-            ab_append<string>(parts, segment)
-            ab_append<bool>(is_param, false)
+            ab_append(parts, segment)
+            ab_append(is_param, false)
         }
     }
-    return Pattern { parts: ab_to_array<string>(parts), is_param: ab_to_array<bool>(is_param) }
+    return Pattern { parts: ab_to_array(parts), is_param: ab_to_array(is_param) }
 }
 
 // Whether the split path `got` has this pattern's shape: as many segments, every literal equal, every
@@ -808,12 +808,12 @@ fn capture(p: Pattern, got: [string]) -> Option<Params> {
             if !is_ok(decoded) {
                 return Option<Params>.None
             }
-            ab_append<string>(names, p.parts[i])
-            ab_append<string>(values, unwrap(decoded))
+            ab_append(names, p.parts[i])
+            ab_append(values, unwrap(decoded))
         }
         i = i + 1
     }
-    return Option<Params>.Some(Params { names: ab_to_array<string>(names), values: ab_to_array<string>(values) })
+    return Option<Params>.Some(Params { names: ab_to_array(names), values: ab_to_array(values) })
 }
 
 // `Some(params)` if the request's method is `method` and its path matches
@@ -849,10 +849,10 @@ pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Respon
     for r in routes {
         val parts = split(r, " ")
         if len(parts) == 2 && Option.is_Some(path_params(parts[1], req.path)) {
-            ab_append<string>(allowed, parts[0])
+            ab_append(allowed, parts[0])
         }
     }
-    val methods = ab_to_array<string>(allowed)
+    val methods = ab_to_array(allowed)
     return if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
 }
 
@@ -977,17 +977,17 @@ fn select_decoder<I>(decoders: [Decoder<I>], req: Request) -> Option<Decoder<I>>
 fn consumed_types<I>(decoders: [Decoder<I>]) -> string {
     val names = ab_new<string>()
     for r in decoders {
-        ab_append<string>(names, mime.essence(r.media))
+        ab_append(names, mime.essence(r.media))
     }
-    return join(separator: " or ", pieces: ab_to_array<string>(names))
+    return join(separator: " or ", pieces: ab_to_array(names))
 }
 
 fn produced_types<O>(encoders: [Encoder<O>]) -> string {
     val names = ab_new<string>()
     for w in encoders {
-        ab_append<string>(names, mime.essence(w.media))
+        ab_append(names, mime.essence(w.media))
     }
-    return join(separator: ", ", pieces: ab_to_array<string>(names))
+    return join(separator: ", ", pieces: ab_to_array(names))
 }
 
 // The answer for `result`: written with `encoder` when there is one, or an empty body when the endpoint has no encoders
@@ -1359,25 +1359,25 @@ pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
     var i = 0
     for e in endpoints {
         val p = compile_pattern(e.pattern)
-        ab_append<Pattern>(patterns, p)
+        ab_append(patterns, p)
         val key = method_key(e.method, len(p.parts))
-        mapb_set<string, [int]>(
+        mapb_set(
             methods,
             key,
-            push(option_unwrap_or<[int]>(mapb_get<string, [int]>(methods, key), none), i)
+            push(option_unwrap_or<[int]>(mapb_get(methods, key), none), i)
         )
-        mapb_set<int, [int]>(
+        mapb_set(
             lengths,
             len(p.parts),
-            push(option_unwrap_or<[int]>(mapb_get<int, [int]>(lengths, len(p.parts)), none), i)
+            push(option_unwrap_or<[int]>(mapb_get(lengths, len(p.parts)), none), i)
         )
         i = i + 1
     }
     return Routes<C> {
         endpoints: endpoints,
-        patterns: ab_to_array<Pattern>(patterns),
-        by_method: mapb_to_map<string, [int]>(methods),
-        by_length: mapb_to_map<int, [int]>(lengths)
+        patterns: ab_to_array(patterns),
+        by_method: mapb_to_map(methods),
+        by_length: mapb_to_map(lengths)
     }
 }
 
@@ -1398,10 +1398,10 @@ pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string
     val allowed = ab_new<string>()
     for i in map_get_or(table.by_length, len(got), none) {
         if Option.is_Some(capture(table.patterns[i], got)) {
-            ab_append<string>(allowed, method_name(table.endpoints[i].method))
+            ab_append(allowed, method_name(table.endpoints[i].method))
         }
     }
-    val methods = ab_to_array<string>(allowed)
+    val methods = ab_to_array(allowed)
     val unmatched = if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
     val message = if unmatched.status == status_method_not_allowed { "method not allowed" } else { "not found" }
     val reply = fault(unmatched.status, message)

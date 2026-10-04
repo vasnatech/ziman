@@ -61,9 +61,9 @@ fn encode_param(v: SqlValue) -> string {
 fn encode_params(params: [SqlValue]) -> [string] {
     val out = ab_new<string>()
     for p in params {
-        ab_append<string>(out, encode_param(p))
+        ab_append(out, encode_param(p))
     }
-    return ab_to_array<string>(out)
+    return ab_to_array(out)
 }
 
 fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
@@ -96,9 +96,9 @@ fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
             if Err(_) = b {
                 return err(DbError.Sql(concat("bad hex from driver: ", payload)))
             }
-            ab_append<byte>(bytes, unwrap(b))
+            ab_append(bytes, unwrap(b))
         }
-        return SqlValue.Bytes(ab_to_array<byte>(bytes))
+        return SqlValue.Bytes(ab_to_array(bytes))
     }
     return err(DbError.Sql(concat("unknown cell tag from driver: ", tag)))
 }
@@ -142,30 +142,30 @@ pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row]
     val ncols = unwrap(parse_int(flat[0]))
     val columns = ab_new<string>()
     for c in 0..ncols {
-        ab_append<string>(columns, flat[1 + c])
+        ab_append(columns, flat[1 + c])
     }
-    val names = ab_to_array<string>(columns)
+    val names = ab_to_array(columns)
     val rows = ab_new<Row>()
     var pos = 1 + ncols
     while pos < len(flat) {
         val values = ab_new<SqlValue>()
         for k in 0..ncols {
             val cell = try decode_cell(flat[pos + k])
-            ab_append<SqlValue>(values, cell)
+            ab_append(values, cell)
         }
-        ab_append<Row>(rows, Row { columns: names, values: ab_to_array<SqlValue>(values) })
+        ab_append(rows, Row { columns: names, values: ab_to_array(values) })
         pos = pos + ncols
     }
-    return ab_to_array<Row>(rows)
+    return ab_to_array(rows)
 }
 
 fn row_from_cells(names: [string], cells: [string]) -> Result<Row, DbError> {
     val values = ab_new<SqlValue>()
     for cell in cells {
         val v = try decode_cell(cell)
-        ab_append<SqlValue>(values, v)
+        ab_append(values, v)
     }
-    return Row { columns: names, values: ab_to_array<SqlValue>(values) }
+    return Row { columns: names, values: ab_to_array(values) }
 }
 
 fn next_row(cursor: int, names: [string]) -> Option<Result<Row, DbError>> {

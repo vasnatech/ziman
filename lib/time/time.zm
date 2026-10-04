@@ -226,52 +226,52 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
     while i < plen {
         if matches_token(pattern, i, "yyyy") {
             if literal_buf != "" {
-                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
+                ab_append(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append<DateTimePart>(parts, DateTimePart.Year)
+            ab_append(parts, DateTimePart.Year)
             i = i + 4
         } else if matches_token(pattern, i, "MM") {
             if literal_buf != "" {
-                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
+                ab_append(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append<DateTimePart>(parts, DateTimePart.Month)
+            ab_append(parts, DateTimePart.Month)
             i = i + 2
         } else if matches_token(pattern, i, "dd") {
             if literal_buf != "" {
-                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
+                ab_append(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append<DateTimePart>(parts, DateTimePart.Day)
+            ab_append(parts, DateTimePart.Day)
             i = i + 2
         } else if matches_token(pattern, i, "HH") {
             if literal_buf != "" {
-                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
+                ab_append(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append<DateTimePart>(parts, DateTimePart.Hour)
+            ab_append(parts, DateTimePart.Hour)
             i = i + 2
         } else if matches_token(pattern, i, "mm") {
             if literal_buf != "" {
-                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
+                ab_append(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append<DateTimePart>(parts, DateTimePart.Minute)
+            ab_append(parts, DateTimePart.Minute)
             i = i + 2
         } else if matches_token(pattern, i, "ss") {
             if literal_buf != "" {
-                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
+                ab_append(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append<DateTimePart>(parts, DateTimePart.Second)
+            ab_append(parts, DateTimePart.Second)
             i = i + 2
         } else if matches_token(pattern, i, "SSSSSSSSS") {
             if literal_buf != "" {
-                ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
+                ab_append(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append<DateTimePart>(parts, DateTimePart.Nano)
+            ab_append(parts, DateTimePart.Nano)
             i = i + 9
         } else {
             literal_buf = concat(literal_buf, char_at(pattern, i))
@@ -279,9 +279,9 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
         }
     }
     if literal_buf != "" {
-        ab_append<DateTimePart>(parts, DateTimePart.Literal(literal_buf))
+        ab_append(parts, DateTimePart.Literal(literal_buf))
     }
-    val parts_array = ab_to_array<DateTimePart>(parts)
+    val parts_array = ab_to_array(parts)
     var width = 0
     for part in parts_array {
         width = width + datetime_part_width(part)
@@ -727,7 +727,7 @@ fn widen_fraction(s: string) -> Result<string, string> {
         return err(format("'{}': the fraction of a second needs 1 to 9 digits, found {}", s, digits))
     }
     val zeros = substring("000000000", 0, 9 - digits)
-    return ok(concat(concat(substring(s, 0, end), zeros), substring(s, end, len(s))))
+    return ok(concat(substring(s, 0, end), zeros, substring(s, end, len(s))))
 }
 
 // `to_string`'s own output only includes the fractional part when

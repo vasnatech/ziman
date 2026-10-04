@@ -272,12 +272,12 @@ pub fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
     val seen = setb_new<T>()
     val out = ab_new<T>()
     for item in items {
-        if !setb_contains<T>(seen, item) {
-            setb_add<T>(seen, item)
-            ab_append<T>(out, item)
+        if !setb_contains(seen, item) {
+            setb_add(seen, item)
+            ab_append(out, item)
         }
     }
-    return ab_to_array<T>(out)
+    return ab_to_array(out)
 }
 
 // The elements grouped by `key`: a map from each key to the elements that have it, in input
@@ -286,20 +286,20 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
     val builders = mapb_new<K, ArrayBuilder<T>>()
     for item in items {
         val k = key(item)
-        val found = mapb_get<K, ArrayBuilder<T>>(builders, k)
+        val found = mapb_get(builders, k)
         if Some(b) = found {
-            ab_append<T>(b, item)
+            ab_append(b, item)
         } else {
             val started = ab_new<T>(capacity: 4)
-            ab_append<T>(started, item)
-            mapb_set<K, ArrayBuilder<T>>(builders, k, started)
+            ab_append(started, item)
+            mapb_set(builders, k, started)
         }
     }
     val groups = mapb_new<K, [T]>()
-    for k, group in mapb_to_map<K, ArrayBuilder<T>>(builders) {
-        mapb_set<K, [T]>(groups, k, ab_to_array<T>(group))
+    for k, group in mapb_to_map(builders) {
+        mapb_set(groups, k, ab_to_array(group))
     }
-    return mapb_to_map<K, [T]>(groups)
+    return mapb_to_map(groups)
 }
 
 // How many times each distinct element occurs: `frequencies<string>(["a", "b", "a"])` is `{a: 2, b: 1}`, keys
@@ -307,13 +307,13 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
 pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
     val counts = mapb_new<T, int>()
     for item in items {
-        val seen = mapb_get<T, int>(counts, item)
-        mapb_set<T, int>(counts, item, switch seen {
+        val seen = mapb_get(counts, item)
+        mapb_set(counts, item, switch seen {
             Some(n) { n + 1 }
             None { 1 }
         })
     }
-    return mapb_to_map<T, int>(counts)
+    return mapb_to_map(counts)
 }
 
 // The elements keyed by `key`: a map from each key to the element that has it. When two elements share a
@@ -322,7 +322,7 @@ pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
 pub fn index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T> {
     val index = mapb_new<K, T>()
     for item in items {
-        mapb_set<K, T>(index, key(item), item)
+        mapb_set(index, key(item), item)
     }
-    return mapb_to_map<K, T>(index)
+    return mapb_to_map(index)
 }

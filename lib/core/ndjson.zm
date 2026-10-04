@@ -23,9 +23,9 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
         if !is_ok(parsed) {
             return err(format("line {}: {}", line_no, unwrap_err(parsed)))
         }
-        ab_append<Json>(items, unwrap(parsed))
+        ab_append(items, unwrap(parsed))
     }
-    return ok(ab_to_array<Json>(items))
+    return ok(ab_to_array(items))
 }
 
 // The JSON values of a newline-delimited file, read lazily as a `for` loop asks for them, so a log

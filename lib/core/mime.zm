@@ -233,13 +233,13 @@ pub fn parse(text: string) -> Result<MediaType, string> {
                 return err(bad(text, format("'{}' is not a valid parameter name", name)))
             }
             val read = try read_value(s, eq + 1)
-            if !mapb_contains<string, string>(params, name) {
-                mapb_set<string, string>(params, name, read[0])
+            if !mapb_contains(params, name) {
+                mapb_set(params, name, read[0])
             }
             pos = unwrap(parse_int(read[1]))
         }
     }
-    return MediaType { type: type, subtype: subtype, params: mapb_to_map<string, string>(params) }
+    return MediaType { type: type, subtype: subtype, params: mapb_to_map(params) }
 }
 
 // ---------------------------------------------------------------- writing and reading

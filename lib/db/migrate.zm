@@ -132,7 +132,7 @@ pub fn split_statements(sql: string) -> [string] {
         } else if c == ";" {
             val statement = trim(sb_to_string(current))
             if !is_empty(statement) {
-                ab_append<string>(out, statement)
+                ab_append(out, statement)
             }
             current = sb_new()
             i = i + 1
@@ -143,9 +143,9 @@ pub fn split_statements(sql: string) -> [string] {
     }
     val last = trim(sb_to_string(current))
     if !is_empty(last) {
-        ab_append<string>(out, last)
+        ab_append(out, last)
     }
-    return ab_to_array<string>(out)
+    return ab_to_array(out)
 }
 
 // ---------------------------------------------------------------- reading a directory
@@ -187,10 +187,10 @@ pub fn load(dir: string) -> Result<[Migration], DbError> {
     for file in names {
         if ends_with(file, ".sql") {
             val one = try read_migration(dir, file)
-            ab_append<Migration>(found, one)
+            ab_append(found, one)
         }
     }
-    val items = ab_to_array<Migration>(found)
+    val items = ab_to_array(found)
     val versions = collections.map<Migration, int>(items, fn(m: Migration) -> int { return m.version })
     return ok(collections.sort_by_keys<Migration, int>(items, versions))
 }

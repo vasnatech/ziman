@@ -377,9 +377,9 @@ fn parse_block(data: [byte], hdr: int, wide: bool) -> Result<Block, string> {
     val names = ab_new<string>()
     for i in 0..typecnt {
         val at = body + timecnt * tsize + timecnt + i * 6
-        ab_append<int>(utoffs, i32_from_bytes(data, at))
-        ab_append<bool>(dsts, data[at + 4] != 0b)
-        ab_append<string>(names, c_string(data, chars_at + (data[at + 5] as int), chars_at + charcnt))
+        ab_append(utoffs, i32_from_bytes(data, at))
+        ab_append(dsts, data[at + 4] != 0b)
+        ab_append(names, c_string(data, chars_at + (data[at + 5] as int), chars_at + charcnt))
     }
     val transitions = ab_new<int>()
     val type_of = ab_new<int>()
@@ -389,16 +389,16 @@ fn parse_block(data: [byte], hdr: int, wide: bool) -> Result<Block, string> {
         if index >= typecnt {
             return err("time zone file refers to a missing local time type")
         }
-        ab_append<int>(transitions, t)
-        ab_append<int>(type_of, index)
+        ab_append(transitions, t)
+        ab_append(type_of, index)
     }
     return ok(Block {
         rules: ZoneRules {
-            transitions: ab_to_array<int>(transitions),
-            type_of: ab_to_array<int>(type_of),
-            utoffs: ab_to_array<int>(utoffs),
-            dsts: ab_to_array<bool>(dsts),
-            names: ab_to_array<string>(names),
+            transitions: ab_to_array(transitions),
+            type_of: ab_to_array(type_of),
+            utoffs: ab_to_array(utoffs),
+            dsts: ab_to_array(dsts),
+            names: ab_to_array(names),
             has_rule: false,
             rule: no_rule
         },

@@ -278,12 +278,12 @@ fn parse_key_path(s: string, pos: int) -> Result<PPath, string> {
     var p = skip_blank(s, pos)
     while true {
         val part = try parse_key_part(s, p)
-        ab_append<string>(parts, part.text)
+        ab_append(parts, part.text)
         p = skip_blank(s, part.next)
         if is_char_at(s, p, ".") {
             p = skip_blank(s, p + 1)
         } else {
-            return ok(PPath { path: ab_to_array<string>(parts), next: p })
+            return ok(PPath { path: ab_to_array(parts), next: p })
         }
     }
     return err("unreachable")
@@ -389,10 +389,10 @@ fn parse_array_value(s: string, pos: int) -> Result<Parsed, string> {
             return err(fail(s, pos, "unterminated array"))
         }
         if is_char_at(s, p, "]") {
-            return ok(Parsed { value: Json.JArray(ab_to_array<Json>(items)), next: p + 1 })
+            return ok(Parsed { value: Json.JArray(ab_to_array(items)), next: p + 1 })
         }
         val item = try parse_value(s, p)
-        ab_append<Json>(items, item.value)
+        ab_append(items, item.value)
         p = skip_all(s, item.next)
         if is_char_at(s, p, ",") {
             p = skip_all(s, p + 1)
@@ -628,9 +628,9 @@ fn key_text(k: string) -> string {
 fn path_text(path: [string]) -> string {
     val parts = ab_new<string>()
     for k in path {
-        ab_append<string>(parts, key_text(k))
+        ab_append(parts, key_text(k))
     }
-    return join(separator: ".", pieces: ab_to_array<string>(parts))
+    return join(separator: ".", pieces: ab_to_array(parts))
 }
 
 fn float_text(f: float) -> string {
@@ -670,9 +670,9 @@ fn inline_value(j: Json) -> Result<string, string> {
         val parts = ab_new<string>()
         for item in Json.unwrap_JArray(j) {
             val text = try inline_value(item)
-            ab_append<string>(parts, text)
+            ab_append(parts, text)
         }
-        return ok(concat("[", concat(join(separator: ", ", pieces: ab_to_array<string>(parts)), "]")))
+        return ok(concat("[", join(separator: ", ", pieces: ab_to_array(parts)), "]"))
     }
     val parts = ab_new<string>()
     for key, value in Json.unwrap_JObject(j) {
@@ -680,12 +680,12 @@ fn inline_value(j: Json) -> Result<string, string> {
             continue
         }
         val text = try inline_value(value)
-        ab_append<string>(parts, concat(key_text(key), concat(" = ", text)))
+        ab_append(parts, concat(key_text(key), " = ", text))
     }
-    if ab_len<string>(parts) == 0 {
+    if ab_len(parts) == 0 {
         return ok("{}")
     }
-    return ok(concat("{ ", concat(join(separator: ", ", pieces: ab_to_array<string>(parts)), " }")))
+    return ok(concat("{ ", join(separator: ", ", pieces: ab_to_array(parts)), " }"))
 }
 
 fn is_table_array(j: Json) -> bool {

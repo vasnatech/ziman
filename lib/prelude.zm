@@ -361,9 +361,9 @@ struct MapEntry<K, V> {
 fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
     val out = ab_new<MapEntry<K, V>>()
     for k, v in m {
-        ab_append<MapEntry<K, V>>(out, MapEntry<K, V> { key: k, value: v })
+        ab_append(out, MapEntry<K, V> { key: k, value: v })
     }
-    return ab_to_array<MapEntry<K, V>>(out)
+    return ab_to_array(out)
 }
 
 // `m` with `f` applied to every value, keys and their order unchanged:
@@ -371,9 +371,9 @@ fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
 fn map_map_values<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(V) -> R) -> Map<K, R> {
     val out = mapb_new<K, R>()
     for k, v in m {
-        mapb_set<K, R>(out, k, f(v))
+        mapb_set(out, k, f(v))
     }
-    return mapb_to_map<K, R>(out)
+    return mapb_to_map(out)
 }
 
 // The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the same
@@ -381,9 +381,9 @@ fn map_map_values<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(V) -> R) -> Map<K, R> 
 fn set_map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U> {
     val out = setb_new<U>()
     for x in s {
-        setb_add<U>(out, f(x))
+        setb_add(out, f(x))
     }
-    return setb_to_set<U>(out)
+    return setb_to_set(out)
 }
 
 // ---------------------------------------------------------------- bytes

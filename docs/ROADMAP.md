@@ -403,6 +403,19 @@ from source.
   - **`Option<T>`** (for the still-separate optional/nullable-type gap
     above) would very likely use this exact same trick — not designed,
     but the precedent now exists.
+  - **An empty array literal isn't inferred as an ordinary enum variant
+    constructor's argument**, even though a struct literal field gets
+    exactly this treatment (`Holder { items: [] }` works;
+    `Json.JArray([])` doesn't, "cannot infer the element type of an
+    empty array literal", even though `JArray`'s one field type is just
+    as statically fixed as `items`'s). `ok(x)`/`err(e)` are
+    special-cased past this (see above), but no general mechanism
+    extends "the constructor's own declared field type" to variant
+    construction the way struct literals already get it. Narrow, but a
+    real asymmetry: found while simplifying `[Json]`-returning code that
+    has to bind an empty array to a separately-annotated `val` first
+    (`val no_rows: [Json] = []; return ok(Json.JArray(no_rows))`)
+    instead of writing `return ok(Json.JArray([]))` inline.
 - ~~**Structured/machine-parseable diagnostics** (`--json` error mode).~~
   Done 2026-09-23 (roadmap R8): `--json` prints each error as one JSON
   object on stderr. Still open: reporting *more than one* error per run

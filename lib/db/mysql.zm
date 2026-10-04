@@ -210,9 +210,9 @@ fn cstring_end(b: [byte], start: int) -> int {
 fn zeros(n: int) -> [byte] {
     val out = ab_new<byte>()
     for i in 0..n {
-        ab_append<byte>(out, 0b)
+        ab_append(out, 0b)
     }
-    return ab_to_array<byte>(out)
+    return ab_to_array(out)
 }
 
 // `v` (>= 0) as `n` little-endian bytes.
@@ -220,10 +220,10 @@ fn le(v: int, n: int) -> [byte] {
     val out = ab_new<byte>()
     var x = v
     for i in 0..n {
-        ab_append<byte>(out, (x % 256) as byte)
+        ab_append(out, (x % 256) as byte)
         x = x / 256
     }
-    return ab_to_array<byte>(out)
+    return ab_to_array(out)
 }
 
 // An unsigned little-endian integer of `n` (<= 7 to stay in an int) bytes.
@@ -302,11 +302,11 @@ fn read_packet(sock: Socket) -> Result<Packet, DbError> {
         seq = header[3] as int
         if length > 0 {
             val body = try lift<[byte]>(net.read_exact(sock, length))
-            ab_append<[byte]>(parts, body)
+            ab_append(parts, body)
         }
         more = length == 16777215
     }
-    return Packet { seq: seq, body: concat_arrays<byte>(parts: ab_to_array<[byte]>(parts)) }
+    return Packet { seq: seq, body: concat_arrays<byte>(parts: ab_to_array(parts)) }
 }
 
 fn is_err_packet(body: [byte]) -> bool {
@@ -568,7 +568,7 @@ fn read_columns(sock: Socket, count: int) -> Result<[Column], DbError> {
         if is_err_packet(p.body) {
             return err(parse_error(p.body))
         }
-        ab_append<Column>(columns, parse_column(p.body))
+        ab_append(columns, parse_column(p.body))
     }
     if count > 0 {
         val eof = try read_packet(sock)
@@ -576,7 +576,7 @@ fn read_columns(sock: Socket, count: int) -> Result<[Column], DbError> {
             return err(parse_error(eof.body))
         }
     }
-    return ab_to_array<Column>(columns)
+    return ab_to_array(columns)
 }
 
 // SERVER_MORE_RESULTS_EXISTS is bit 3 of the status flags.
@@ -619,10 +619,10 @@ fn read_result(sock: Socket) -> Result<ResultSet, DbError> {
             more = more_results(read_le(p.body, 3, 2))
             done = true
         } else {
-            ab_append<[byte]>(rows, p.body)
+            ab_append(rows, p.body)
         }
     }
-    return ResultSet { columns: columns, rows: ab_to_array<[byte]>(rows), affected: 0, more: more }
+    return ResultSet { columns: columns, rows: ab_to_array(rows), affected: 0, more: more }
 }
 
 // A `;`-separated script yields several results; the last one is returned.
@@ -680,13 +680,13 @@ fn decode_text_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbErro
     for c in columns {
         val l = read_lenenc(body, pos)
         if l.is_null {
-            ab_append<SqlValue>(values, SqlValue.Null)
+            ab_append(values, SqlValue.Null)
         } else {
-            ab_append<SqlValue>(values, decode_text_value(c, slice<byte>(body, l.next, l.next + l.value)))
+            ab_append(values, decode_text_value(c, slice<byte>(body, l.next, l.next + l.value)))
         }
         pos = l.next + l.value
     }
-    return ab_to_array<SqlValue>(values)
+    return ab_to_array(values)
 }
 
 fn pad(n: int, width: int) -> string {
@@ -835,33 +835,33 @@ fn decode_binary_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbEr
     for i in 0..len(columns) {
         val flag_byte = body[1 + (i + 2) / 8] as int
         if bit_set(flag_byte, (i + 2) % 8) {
-            ab_append<SqlValue>(values, SqlValue.Null)
+            ab_append(values, SqlValue.Null)
         } else {
             val v = try decode_binary_value(columns[i], body, pos)
-            ab_append<SqlValue>(values, v)
+            ab_append(values, v)
             pos = pos + binary_value_size(columns[i], body, pos)
         }
     }
-    return ab_to_array<SqlValue>(values)
+    return ab_to_array(values)
 }
 
 fn to_result(rs: ResultSet, binary: bool) -> Result<QueryResult, DbError> {
     val names = ab_new<string>()
     for c in rs.columns {
-        ab_append<string>(names, c.name)
+        ab_append(names, c.name)
     }
-    val column_names = ab_to_array<string>(names)
+    val column_names = ab_to_array(names)
     val rows = ab_new<Row>()
     for body in rs.rows {
         if binary {
             val values = try decode_binary_row(body, rs.columns)
-            ab_append<Row>(rows, Row { columns: column_names, values: values })
+            ab_append(rows, Row { columns: column_names, values: values })
         } else {
             val values = try decode_text_row(body, rs.columns)
-            ab_append<Row>(rows, Row { columns: column_names, values: values })
+            ab_append(rows, Row { columns: column_names, values: values })
         }
     }
-    return QueryResult { rows: ab_to_array<Row>(rows), affected: rs.affected }
+    return QueryResult { rows: ab_to_array(rows), affected: rs.affected }
 }
 
 // ------------------------------------------------------------ parameters
@@ -926,14 +926,14 @@ fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, Db
                 )))
             }
             sb_append(out, "?")
-            ab_append<SqlValue>(ordered, params[index - 1])
+            ab_append(ordered, params[index - 1])
             i = j
         } else {
             sb_append(out, char_at(sql, i))
             i = i + 1
         }
     }
-    return Rewritten { sql: sb_to_string(out), params: ab_to_array<SqlValue>(ordered) }
+    return Rewritten { sql: sb_to_string(out), params: ab_to_array(ordered) }
 }
 
 // A signed 64-bit integer as 8 little-endian two's-complement bytes.
@@ -944,9 +944,9 @@ fn le_int64(v: int) -> [byte] {
     val magnitude = le(-(v + 1), 8)
     val out = ab_new<byte>()
     for b in magnitude {
-        ab_append<byte>(out, (255 - (b as int)) as byte)
+        ab_append(out, (255 - (b as int)) as byte)
     }
-    return ab_to_array<byte>(out)
+    return ab_to_array(out)
 }
 
 fn lenenc_bytes(raw: [byte]) -> [byte] {
@@ -995,20 +995,20 @@ fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
             }
             weight = weight * 2
         }
-        ab_append<byte>(bitmap, flags as byte)
+        ab_append(bitmap, flags as byte)
     }
     val types = ab_new<[byte]>()
     val values = ab_new<[byte]>()
     for p in params {
-        ab_append<[byte]>(types, param_type(p))
-        ab_append<[byte]>(values, param_value(p))
+        ab_append(types, param_type(p))
+        ab_append(values, param_value(p))
     }
     return bytes_concat(
         head,
-        ab_to_array<byte>(bitmap),
+        ab_to_array(bitmap),
         [1b],
-        concat_arrays<byte>(parts: ab_to_array<[byte]>(types)),
-        concat_arrays<byte>(parts: ab_to_array<[byte]>(values))
+        concat_arrays<byte>(parts: ab_to_array(types)),
+        concat_arrays<byte>(parts: ab_to_array(values))
     )
 }
 
@@ -1072,9 +1072,9 @@ fn failed_step(e: DbError) -> CursorStep {
 fn column_names(columns: [Column]) -> [string] {
     val names = ab_new<string>()
     for c in columns {
-        ab_append<string>(names, c.name)
+        ab_append(names, c.name)
     }
-    return ab_to_array<string>(names)
+    return ab_to_array(names)
 }
 
 // Asks for the next `cursor_fetch_rows` rows and reads them: binary rows, then an EOF whose status says
@@ -1101,20 +1101,20 @@ fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> Curso
             last = bit_set(read_le(body, 3, 2), status_last_row_sent)
             done = true
         } else {
-            ab_append<[byte]>(raw, body)
+            ab_append(raw, body)
         }
     }
     val names = column_names(columns)
     val rows = ab_new<Row>()
-    for body in ab_to_array<[byte]>(raw) {
+    for body in ab_to_array(raw) {
         val values = decode_binary_row(body, columns)
         if is_ok(values) {
-            ab_append<Row>(rows, Row { columns: names, values: unwrap(values) })
+            ab_append(rows, Row { columns: names, values: unwrap(values) })
         } else if !Option.is_Some(failure) {
             failure = Option<DbError>.Some(unwrap_err(values))
         }
     }
-    val delivered = ab_to_array<Row>(rows)
+    val delivered = ab_to_array(rows)
     if Some(reason) = failure {
         close_statement(sock, statement)
         if len(delivered) == 0 {

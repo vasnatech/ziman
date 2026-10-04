@@ -64,13 +64,13 @@ fn parse_rows(text: string, sep: string, typed: bool) -> Result<[Row], string> {
     for item in flat {
         if compare(char_at(item, 0), " ") < 0 {
             val line = unwrap(parse_int(substring(item, 1, len(item))))
-            ab_append<Row>(rows, Row { line: line, cells: ab_to_array<Cell>(cells) })
+            ab_append(rows, Row { line: line, cells: ab_to_array(cells) })
             cells = ab_new<Cell>()
         } else {
-            ab_append<Cell>(cells, Cell { text: substring(item, 1, len(item)), tag: substring(item, 0, 1) })
+            ab_append(cells, Cell { text: substring(item, 1, len(item)), tag: substring(item, 0, 1) })
         }
     }
-    return ok(ab_to_array<Row>(rows))
+    return ok(ab_to_array(rows))
 }
 
 fn is_digit_char(c: string) -> bool {
@@ -162,10 +162,10 @@ fn typed_cell(cell: Cell) -> Json {
 fn rows_to_objects(rows: [Row], header: [string], from: int, typed: bool) -> Result<Json, string> {
     val seen = setb_new<string>()
     for h in header {
-        if setb_contains<string>(seen, h) {
+        if setb_contains(seen, h) {
             return err(format("duplicate column name '{}'", h))
         }
-        setb_add<string>(seen, h)
+        setb_add(seen, h)
     }
     val out = ab_new<Json>()
     for i in from..len(rows) {
@@ -176,19 +176,19 @@ fn rows_to_objects(rows: [Row], header: [string], from: int, typed: bool) -> Res
         val obj = mapb_new<string, Json>()
         for j in 0..len(header) {
             val cell = row.cells[j]
-            mapb_set<string, Json>(obj, header[j], if typed { typed_cell(cell) } else { Json.JString(cell.text) })
+            mapb_set(obj, header[j], if typed { typed_cell(cell) } else { Json.JString(cell.text) })
         }
-        ab_append<Json>(out, Json.JObject(mapb_to_map<string, Json>(obj)))
+        ab_append(out, Json.JObject(mapb_to_map(obj)))
     }
-    return ok(Json.JArray(ab_to_array<Json>(out)))
+    return ok(Json.JArray(ab_to_array(out)))
 }
 
 fn header_of(rows: [Row]) -> [string] {
     val names = ab_new<string>()
     for cell in rows[0].cells {
-        ab_append<string>(names, cell.text)
+        ab_append(names, cell.text)
     }
-    return ab_to_array<string>(names)
+    return ab_to_array(names)
 }
 
 fn table_of(text: string, sep: string, typed: bool) -> Result<Json, string> {
@@ -218,11 +218,11 @@ pub fn parse_csv_rows_with(text: string, delimiter: string) -> Result<[[string]]
     for row in rows {
         val cells = ab_new<string>()
         for cell in row.cells {
-            ab_append<string>(cells, cell.text)
+            ab_append(cells, cell.text)
         }
-        ab_append<[string]>(out, ab_to_array<string>(cells))
+        ab_append(out, ab_to_array(cells))
     }
-    return ok(ab_to_array<[string]>(out))
+    return ok(ab_to_array(out))
 }
 
 // The first row names the columns; every later row becomes a JSON object of strings keyed by
@@ -328,7 +328,7 @@ fn read_record(
                     continue
                 }
                 if started {
-                    text = concat(concat(text, "\n"), line)
+                    text = concat(text, "\n", line)
                 } else {
                     started = true
                     start_line = number
@@ -497,7 +497,7 @@ fn needs_quotes(s: string, sep: string) -> bool {
 }
 
 fn quote_cell(s: string) -> string {
-    return concat("\"", concat(replace(s, "\"", "\"\""), "\""))
+    return concat("\"", replace(s, "\"", "\"\""), "\"")
 }
 
 fn write_row(out: StringBuilder, cells: [string], sep: string) {
@@ -560,16 +560,16 @@ fn flatten_row(row: Json, sep: string) -> Result<Map<string, string>, string> {
     for key, value in Json.unwrap_JObject(row) {
         if Json.is_JObject(value) {
             for inner_key, inner in Json.unwrap_JObject(value) {
-                val name = concat(key, concat(".", inner_key))
+                val name = concat(key, ".", inner_key)
                 val text = try cell_text(inner, name, sep)
-                mapb_set<string, string>(cells, name, text)
+                mapb_set(cells, name, text)
             }
         } else {
             val text = try cell_text(value, key, sep)
-            mapb_set<string, string>(cells, key, text)
+            mapb_set(cells, key, text)
         }
     }
-    return ok(mapb_to_map<string, string>(cells))
+    return ok(mapb_to_map(cells))
 }
 
 // A JSON array of objects as CSV: a header row of the union of the rows' keys in first-seen
@@ -595,15 +595,15 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
         }
         val cells = try flatten_row(row, delimiter)
         for name in map_keys(cells) {
-            setb_add<string>(columns, name)
+            setb_add(columns, name)
         }
-        ab_append<Map<string, string>>(flat, cells)
+        ab_append(flat, cells)
         i = i + 1
     }
-    val names = set_items(setb_to_set<string>(columns))
+    val names = set_items(setb_to_set(columns))
     val out = sb_new()
     write_row(out, names, delimiter)
-    for cells in ab_to_array<Map<string, string>>(flat) {
+    for cells in ab_to_array(flat) {
         var first = true
         for name in names {
             if !first {

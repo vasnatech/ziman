@@ -70,12 +70,12 @@ pub fn base32_decode(text: string) -> Result<[byte], string> {
                 divisor = divisor * 2
             }
             val value = buffer / divisor
-            ab_append<byte>(out, value as byte)
+            ab_append(out, value as byte)
             buffer = buffer - value * divisor
             bits = bits - 8
         }
     }
-    return ab_to_array<byte>(out)
+    return ab_to_array(out)
 }
 
 // The counter as the 8 big-endian bytes HOTP signs.
@@ -88,9 +88,9 @@ fn counter_bytes(counter: int) -> [byte] {
         rest = rest / 256
     }
     for i in 0..8 {
-        ab_append<byte>(out, digits[7 - i] as byte)
+        ab_append(out, digits[7 - i] as byte)
     }
-    return ab_to_array<byte>(out)
+    return ab_to_array(out)
 }
 
 // The HOTP value (RFC 4226) for `counter`, `digits` (6 to 9) long with leading zeros: HMAC-SHA-1, then the "dynamic truncation".

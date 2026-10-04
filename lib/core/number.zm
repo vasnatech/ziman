@@ -100,10 +100,10 @@ fn bigint_magnitude_to_hex(n: bigint) -> string {
     var remaining = n
     while remaining > 0n {
         val digit_val = (remaining % 16n) as int
-        ab_append<string>(digits, hex_digits[digit_val])
+        ab_append(digits, hex_digits[digit_val])
         remaining = remaining / 16n
     }
-    val reversed = ab_to_array<string>(digits)
+    val reversed = ab_to_array(digits)
     val out = sb_new()
     var i = len(reversed) - 1
     while i >= 0 {
@@ -259,7 +259,7 @@ pub fn format_number(s: string, fmt: NumberFormat) -> string {
         frac_part = adjust_decimal_places(frac_part, places)
     }
     val grouped = insert_thousands(int_part, fmt.thousands_separator)
-    return if frac_part == "" { grouped } else { concat(grouped, concat(fmt.decimal_separator, frac_part)) }
+    return if frac_part == "" { grouped } else { concat(grouped, fmt.decimal_separator, frac_part) }
 }
 
 // The inverse of `format_number`: strips the thousands separator and turns the decimal separator
@@ -273,7 +273,7 @@ pub fn parse_number(s: string, fmt: NumberFormat) -> string {
     if fmt.decimal_separator != "." {
         val parts = split(out, fmt.decimal_separator)
         if len(parts) > 1 {
-            out = concat(parts[0], concat(".", parts[1]))
+            out = concat(parts[0], ".", parts[1])
         }
     }
     return out
