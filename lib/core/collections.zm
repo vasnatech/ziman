@@ -287,8 +287,8 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
     for item in items {
         val k = key(item)
         val found = mapb_get<K, ArrayBuilder<T>>(builders, k)
-        if Option.is_Some(found) {
-            ab_append<T>(Option.unwrap_Some(found), item)
+        if Some(b) = found {
+            ab_append<T>(b, item)
         } else {
             val started = ab_new<T>(capacity: 4)
             ab_append<T>(started, item)
@@ -308,7 +308,10 @@ pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
     val counts = mapb_new<T, int>()
     for item in items {
         val seen = mapb_get<T, int>(counts, item)
-        mapb_set<T, int>(counts, item, if Option.is_Some(seen) { Option.unwrap_Some(seen) + 1 } else { 1 })
+        mapb_set<T, int>(counts, item, switch seen {
+            Some(n) { n + 1 }
+            None { 1 }
+        })
     }
     return mapb_to_map<T, int>(counts)
 }

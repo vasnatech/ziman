@@ -64,10 +64,9 @@ fn find_file_entry(entries: [Entry], key: string) -> Option<Entry> {
 pub fn lookup(props: Properties, key: string) -> Option<Entry> {
     val name = env_name(key)
     val e = os.getenv(name)
-    return if Option.is_Some(e) {
-        Option<Entry>.Some(Entry { key: key, value: Option.unwrap_Some(e), source: concat("env ", name) })
-    } else {
-        find_file_entry(props.entries, key)
+    return switch e {
+        Some(v) { Option<Entry>.Some(Entry { key: key, value: v, source: concat("env ", name) }) }
+        None { find_file_entry(props.entries, key) }
     }
 }
 
@@ -96,12 +95,11 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
             }
             val referenced = find_file_entry(props.entries, name)
             val env = os.getenv(name)
-            if Option.is_Some(referenced) {
-                val r = Option.unwrap_Some(referenced)
+            if Some(r) = referenced {
                 val expanded = try resolve(props, r.value, r.source, push(seen, name))
                 sb_append(sb, expanded)
-            } else if Option.is_Some(env) {
-                sb_append(sb, Option.unwrap_Some(env))
+            } else if Some(v) = env {
+                sb_append(sb, v)
             } else if colon >= 0 {
                 sb_append(sb, substring(inner, colon + 1, len(inner)))
             } else {
@@ -160,12 +158,12 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
     val first_seen = mapb_new<string, string>()
     for e in entries {
         val earlier = mapb_get<string, string>(first_seen, e.key)
-        if Option.is_Some(earlier) {
+        if Some(first) = earlier {
             return err(format(
                 "{}: duplicate key '{}' (first defined at {})",
                 e.source,
                 e.key,
-                Option.unwrap_Some(earlier)
+                first
             ))
         }
         mapb_set<string, string>(first_seen, e.key, e.source)
@@ -218,12 +216,14 @@ pub fn load(name: string) -> Result<Properties, string> {
     val base = try parse_raw(text, base_file)
     val from_env = os.getenv("PROFILE_ACTIVE")
     val declared = find_file_entry(base.entries, "profile.active")
-    val profile = if Option.is_Some(from_env) {
-        trim(Option.unwrap_Some(from_env))
-    } else if Option.is_Some(declared) {
-        Option.unwrap_Some(declared).value
-    } else {
-        ""
+    val profile = switch from_env {
+        Some(v) { trim(v) }
+        None {
+            switch declared {
+                Some(e) { e.value }
+                None { "" }
+            }
+        }
     }
     if len(profile) == 0 {
         return resolve_all(base)
@@ -399,8 +399,7 @@ pub fn report(props: Properties, keys: string...) -> string {
     }
     for i in 0..len(keys) {
         val found = lookup(props, keys[i])
-        if Option.is_Some(found) {
-            val e = Option.unwrap_Some(found)
+        if Some(e) = found {
             val shown = if is_secret_key(e.key) { "****" } else { mask_value(e.value) }
             sb_append(sb, format("{}={} ({})\n", e.key, shown, e.source))
         }

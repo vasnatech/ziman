@@ -292,7 +292,10 @@ pub fn suffix(m: MediaType) -> Option<string> {
 
 // True for `application/json` and any `+json` type.
 pub fn is_json(m: MediaType) -> bool {
-    return essence(m) == "application/json" || (Option.is_Some(suffix(m)) && Option.unwrap_Some(suffix(m)) == "json")
+    return essence(m) == "application/json" || switch suffix(m) {
+        Some(s) { s == "json" }
+        None { false }
+    }
 }
 
 // True for `text/*`.

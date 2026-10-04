@@ -255,8 +255,8 @@ pub fn format_number(s: string, fmt: NumberFormat) -> string {
     if len(parts) > 1 {
         frac_part = parts[1]
     }
-    if Option.is_Some(fmt.decimal_places) {
-        frac_part = adjust_decimal_places(frac_part, Option.unwrap_Some(fmt.decimal_places))
+    if Some(places) = fmt.decimal_places {
+        frac_part = adjust_decimal_places(frac_part, places)
     }
     val grouped = insert_thousands(int_part, fmt.thousands_separator)
     return if frac_part == "" { grouped } else { concat(grouped, concat(fmt.decimal_separator, frac_part)) }

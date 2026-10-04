@@ -149,11 +149,11 @@ pub fn json_get_path(j: Json, path: string...) -> Option<Json> {
     var cur = j
     for segment in path {
         if Json.is_JObject(cur) {
-            val next = map_get(Json.unwrap_JObject(cur), segment)
-            if !Option.is_Some(next) {
+            if Some(v) = map_get(Json.unwrap_JObject(cur), segment) {
+                cur = v
+            } else {
                 return Option<Json>.None
             }
-            cur = Option.unwrap_Some(next)
         } else if Json.is_JArray(cur) {
             val index = parse_int(segment)
             if !is_ok(index) {

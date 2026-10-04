@@ -471,16 +471,15 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
             return ok(Json.JObject(set(fields, name, value)))
         }
         if op == 1 {
-            if Option.is_Some(existing) {
-                if Json.is_JObject(Option.unwrap_Some(existing)) {
+            if Some(e) = existing {
+                if Json.is_JObject(e) {
                     return ok(node)
                 }
                 return err(format("'{}' is already defined as a value, not a table", name))
             }
             return ok(Json.JObject(set(fields, name, Json.JObject(Map<string, Json> {}))))
         }
-        if Option.is_Some(existing) {
-            val current = Option.unwrap_Some(existing)
+        if Some(current) = existing {
             if !Json.is_JArray(current) {
                 return err(format("'{}' is already defined and is not an array of tables", name))
             }
@@ -490,8 +489,8 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
         return ok(Json.JObject(set(fields, name, Json.JArray([Json.JObject(Map<string, Json> {})]))))
     }
     var child = Json.JObject(Map<string, Json> {})
-    if Option.is_Some(existing) {
-        child = Option.unwrap_Some(existing)
+    if Some(e) = existing {
+        child = e
     }
     if Json.is_JArray(child) {
         val items = Json.unwrap_JArray(child)

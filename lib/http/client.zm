@@ -367,11 +367,11 @@ fn read_body(sock: Socket, head: Head, head_only: bool) -> Result<Body, ClientEr
     }
     val te = header_value(head.headers, "Transfer-Encoding")
     val cl = header_value(head.headers, "Content-Length")
-    if Option.is_Some(te) && contains(to_lower(Option.unwrap_Some(te)), "chunked") {
+    if Some(te) = te && contains(to_lower(te), "chunked") {
         return read_chunked(sock, head.rest)
     }
-    if Option.is_Some(cl) {
-        val n = parse_int(trim(Option.unwrap_Some(cl)))
+    if Some(cl) = cl {
+        val n = parse_int(trim(cl))
         if !is_ok(n) || unwrap(n) < 0 {
             return err(ClientError.BadResponse("invalid Content-Length"))
         }
@@ -427,12 +427,12 @@ fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<Response,
 // (`HTTPS_PROXY` for https, `HTTP_PROXY` for http, either case), skipped for hosts `NO_PROXY` lists.
 fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientError> {
     var text = ""
-    if Option.is_Some(explicit) {
-        text = Option.unwrap_Some(explicit)
+    if Some(t) = explicit {
+        text = t
     } else {
         val upper = os.getenv(if u.secure { "HTTPS_PROXY" } else { "HTTP_PROXY" })
         val lower = os.getenv(if u.secure { "https_proxy" } else { "http_proxy" })
-        text = if Option.is_Some(upper) { Option.unwrap_Some(upper) } else { option_unwrap_or<string>(lower, "") }
+        text = option_unwrap_or<string>(upper, option_unwrap_or<string>(lower, ""))
         if len(text) > 0 && no_proxy_matches(u.host) {
             text = ""
         }
@@ -453,10 +453,7 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
 // True if `NO_PROXY` (a comma-separated list of hosts, `.suffixes` and `*`) covers `host`.
 fn no_proxy_matches(host: string) -> bool {
     val upper = os.getenv("NO_PROXY")
-    val list = if Option.is_Some(upper) { Option.unwrap_Some(upper) } else { option_unwrap_or<string>(
-        os.getenv("no_proxy"),
-        ""
-    ) }
+    val list = option_unwrap_or<string>(upper, option_unwrap_or<string>(os.getenv("no_proxy"), ""))
     for raw in split(list, ",") {
         val entry = to_lower(trim(raw))
         if entry == "*" {
@@ -495,12 +492,10 @@ fn basic_auth(userinfo: string) -> string {
 // Where connections to `u` are parked for reuse: the scheme, host and port, and the proxy if any.
 fn cache_key(u: Url, proxy: Option<Url>) -> string {
     val base = format("{}://{}:{}", if u.secure { "https" } else { "http" }, u.host, u.port)
-    return if Option.is_Some(proxy) { format(
-        "{} via {}:{}",
-        base,
-        Option.unwrap_Some(proxy).host,
-        Option.unwrap_Some(proxy).port
-    ) } else { base }
+    return switch proxy {
+        Some(p) { format("{} via {}:{}", base, p.host, p.port) }
+        None { base }
+    }
 }
 
 fn fail_closed(s: Socket, e: ClientError) -> Result<Socket, ClientError> {
@@ -620,8 +615,8 @@ fn write_request(
         )
     }
     ab_append<string>(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
-    if Option.is_Some(body) {
-        ab_append<string>(out, format("Content-Length: {}\r\n", len(Option.unwrap_Some(body))))
+    if Some(body) = body {
+        ab_append<string>(out, format("Content-Length: {}\r\n", len(body)))
     } else {
         if method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch {
             ab_append<string>(out, "Content-Length: 0\r\n")
@@ -629,8 +624,8 @@ fn write_request(
     }
     ab_append<string>(out, "\r\n")
     try lift<int>(net.write_text(s, join(pieces: ab_to_array<string>(out), separator: "")))
-    if Option.is_Some(body) && len(Option.unwrap_Some(body)) > 0 {
-        try lift<int>(net.write(s, Option.unwrap_Some(body)))
+    if Some(body) = body && len(body) > 0 {
+        try lift<int>(net.write(s, body))
     }
     return ok(0)
 }
@@ -651,7 +646,10 @@ fn exchange(
     val payload = try read_body(s, head, method == HttpMethod.Head)
     val decoded = try decode_body(head.status, head.headers, payload.bytes)
     val connection = header_value(head.headers, "Connection")
-    val server_closes = Option.is_Some(connection) && contains(to_lower(Option.unwrap_Some(connection)), "close")
+    val server_closes = switch connection {
+        Some(c) { contains(to_lower(c), "close") }
+        None { false }
+    }
     val http_1_1 = starts_with(head.status_line, "HTTP/1.1")
     return ok(Reply { response: decoded, reusable: payload.clean && !server_closes && http_1_1 && keep_alive })
 }
@@ -663,8 +661,8 @@ fn take_or_open(
     ca_file: Option<string>,
     timeout_ms: int
 ) -> Result<Socket, ClientError> {
-    if Option.is_Some(parked) {
-        return ok(Option.unwrap_Some(parked))
+    if Some(sock) = parked {
+        return ok(sock)
     }
     return open_socket(u, proxy, ca_file, timeout_ms)
 }
@@ -846,8 +844,14 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
     for i in 1..len(pieces) {
         val attr = trim(pieces[i])
         val kv = split_once(attr, "=")
-        val key = to_lower(if Option.is_Some(kv) { Option.unwrap_Some(kv)[0] } else { attr })
-        val val_text = if Option.is_Some(kv) { trim(Option.unwrap_Some(kv)[1]) } else { "" }
+        val key = to_lower(switch kv {
+            Some(pair) { pair[0] }
+            None { attr }
+        })
+        val val_text = switch kv {
+            Some(pair) { trim(pair[1]) }
+            None { "" }
+        }
         if key == "domain" && len(val_text) > 0 {
             val wanted = to_lower(if starts_with(
                 val_text,
@@ -894,9 +898,7 @@ pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar {
     var current = jar.cookies
     for h in headers {
         if equals_ignore_case(h.name, "Set-Cookie") {
-            val parsed = parse_set_cookie(h.value, u, now)
-            if Option.is_Some(parsed) {
-                val c = Option.unwrap_Some(parsed)
+            if Some(c) = parse_set_cookie(h.value, u, now) {
                 val kept = ab_new<Cookie>()
                 for old in current {
                     if !same_cookie(old, c) && (old.expires < 0 || old.expires > now) {
@@ -1001,10 +1003,14 @@ fn run(
     while true {
         val proxy = try proxy_for(current, proxy_arg)
         val cookie_value = jar_header(cookies, current)
-        val sent_headers = if Option.is_Some(cookie_value) && !Option.is_Some(header_value(hs, "Cookie")) {
-            push(hs, Header { name: "Cookie", value: Option.unwrap_Some(cookie_value) })
-        } else {
-            hs
+        val sent_headers = switch cookie_value {
+            Some(v) {
+                if Option.is_Some(header_value(hs, "Cookie")) { hs } else { push(
+                    hs,
+                    Header { name: "Cookie", value: v }
+                ) }
+            }
+            None { hs }
         }
         val resp = try send_once(m, current, proxy, sent_headers, b, timeout, ca_file, want_compression, reuse)
         cookies = jar_store(cookies, current, resp.headers)
@@ -1344,10 +1350,10 @@ pub fn stream(
     val status = head.status
     val no_body = method == HttpMethod.Head || status < 200 || status == status_no_content || status == status_not_modified
     var state = BodyState { buffer: head.rest, mode: 2, left: 0, after_chunk: false, finished: no_body }
-    if Option.is_Some(te) && contains(to_lower(Option.unwrap_Some(te)), "chunked") {
+    if Some(te) = te && contains(to_lower(te), "chunked") {
         state = BodyState { buffer: head.rest, mode: 1, left: 0, after_chunk: false, finished: no_body }
-    } else if Option.is_Some(cl) {
-        val n = parse_int(trim(Option.unwrap_Some(cl)))
+    } else if Some(cl) = cl {
+        val n = parse_int(trim(cl))
         if !is_ok(n) || unwrap(n) < 0 {
             net.close(sock)
             return err(ClientError.BadResponse("invalid Content-Length"))

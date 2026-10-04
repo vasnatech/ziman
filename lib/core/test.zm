@@ -85,8 +85,8 @@ pub fn assert_some<T>(opt: Option<T>) -> T {
 
 // Fails if `opt` is Some.
 pub fn assert_none<T>(opt: Option<T>) {
-    if Option.is_Some(opt) {
-        fail(format("assertion failed: expected None, got Some({})", Option.unwrap_Some(opt)))
+    if Some(v) = opt {
+        fail(format("assertion failed: expected None, got Some({})", v))
     }
 }
 

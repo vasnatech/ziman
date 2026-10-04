@@ -410,28 +410,25 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     var path = target
     var query = ""
     val tq = split_once(target, "?")
-    if Option.is_Some(tq) {
-        path = Option.unwrap_Some(tq)[0]
-        query = Option.unwrap_Some(tq)[1]
+    if Some(parts) = tq {
+        path = parts[0]
+        query = parts[1]
     }
 
     val transfer_encoding = header_value(header_list, "Transfer-Encoding")
-    val is_chunked = Option.is_Some(transfer_encoding) && equals_ignore_case(
-        trim(Option.unwrap_Some(transfer_encoding)),
-        "chunked"
-    )
-    if Option.is_Some(transfer_encoding) && !is_chunked {
-        return err(HttpError.NotImplemented(format(
-            "unsupported Transfer-Encoding '{}'",
-            Option.unwrap_Some(transfer_encoding)
-        )))
+    val is_chunked = switch transfer_encoding {
+        Some(te) { equals_ignore_case(trim(te), "chunked") }
+        None { false }
+    }
+    if Some(te) = transfer_encoding && !is_chunked {
+        return err(HttpError.NotImplemented(format("unsupported Transfer-Encoding '{}'", te)))
     }
     if is_chunked && Option.is_Some(header_value(header_list, "Content-Length")) {
         return err(HttpError.BadRequest("both Transfer-Encoding and Content-Length are set"))
     }
     if is_chunked {
         val expect_chunked = header_value(header_list, "Expect")
-        if Option.is_Some(expect_chunked) && equals_ignore_case(Option.unwrap_Some(expect_chunked), "100-continue") {
+        if Some(expect_chunked) = expect_chunked && equals_ignore_case(expect_chunked, "100-continue") {
             try lift<int>(net.write_text(sock, continue_response))
         }
         val decoded = try read_chunked(sock, slice<byte>(buf, head_end, len(buf)), limit_ms, started)
@@ -458,8 +455,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     }
     var content_length = 0
     val cl = header_value(header_list, "Content-Length")
-    if Option.is_Some(cl) {
-        val cl_text = trim(Option.unwrap_Some(cl))
+    if Some(cl) = cl {
+        val cl_text = trim(cl)
         val parsed = parse_int(cl_text)
         if starts_with(cl_text, "+") || starts_with(cl_text, "-") || !is_ok(parsed) {
             return err(HttpError.BadRequest("invalid Content-Length"))
@@ -473,7 +470,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     var rest = slice<byte>(buf, head_end, len(buf))
     if content_length > len(rest) {
         val expect = header_value(header_list, "Expect")
-        if Option.is_Some(expect) && equals_ignore_case(Option.unwrap_Some(expect), "100-continue") {
+        if Some(expect) = expect && equals_ignore_case(expect, "100-continue") {
             try lift<int>(net.write_text(sock, continue_response))
         }
         while len(rest) < content_length {
@@ -642,8 +639,8 @@ pub fn error_response(e: HttpError) -> Response {
 
 fn connection_close_requested(req: Request) -> bool {
     val c = header(req, "Connection")
-    if Option.is_Some(c) {
-        val v = to_lower(Option.unwrap_Some(c))
+    if Some(c) = c {
+        val v = to_lower(c)
         if contains(v, "close") {
             return true
         }
@@ -864,8 +861,7 @@ pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Respon
 pub fn query_param(req: Request, name: string) -> Option<string> {
     for pair in split(req.query, "&") {
         val kv = split_once(pair, "=")
-        if Option.is_Some(kv) {
-            val parts = Option.unwrap_Some(kv)
+        if Some(parts) = kv {
             val key = percent_decode(parts[0], true)
             if is_ok(key) && unwrap(key) == name {
                 val value = percent_decode(parts[1], true)
@@ -1393,10 +1389,9 @@ pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string
     for i in map_get_or(table.by_method, method_key(req.method, len(got)), none) {
         val e = table.endpoints[i]
         if e.method == req.method {
-            val matched = capture(table.patterns[i], got)
-            if Option.is_Some(matched) {
+            if Some(params) = capture(table.patterns[i], got) {
                 val h = e.handler
-                return h(ctx, req, Option.unwrap_Some(matched))
+                return h(ctx, req, params)
             }
         }
     }
@@ -1411,7 +1406,10 @@ pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string
     val message = if unmatched.status == status_method_not_allowed { "method not allowed" } else { "not found" }
     val reply = fault(unmatched.status, message)
     val allow = header_value(unmatched.headers, "Allow")
-    return if Option.is_Some(allow) { with_header(reply, "Allow", Option.unwrap_Some(allow)) } else { reply }
+    return switch allow {
+        Some(names) { with_header(reply, "Allow", names) }
+        None { reply }
+    }
 }
 
 // ------------------------------------------------------------------- serve

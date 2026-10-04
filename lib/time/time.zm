@@ -1250,8 +1250,8 @@ pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant {
             }
         }
     }
-    if Option.is_Some(best) {
-        return Option.unwrap_Some(best)
+    if Some(b) = best {
+        return b
     }
     return instant_add(as_utc, duration_of_seconds(-before.total_seconds, 0))
 }

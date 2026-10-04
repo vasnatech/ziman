@@ -180,7 +180,10 @@ enum Selected<A, B> {
 
 // The value inside `o`, or `default_value` when `o` is None.
 fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T {
-    return if Option.is_Some(o) { Option.unwrap_Some(o) } else { default_value }
+    return switch o {
+        Some(v) { v }
+        None { default_value }
+    }
 }
 
 // ---------------------------------------------------------------- StringBuilder

@@ -444,8 +444,8 @@ pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string> {
 // The directory holding the zone files, or an Err when there is none.
 fn zone_dir() -> Result<string, string> {
     val configured = os.getenv("TZDIR")
-    if Option.is_Some(configured) && len(Option.unwrap_Some(configured)) > 0 {
-        return ok(Option.unwrap_Some(configured))
+    if Some(dir) = configured && len(dir) > 0 {
+        return ok(dir)
     }
     for dir in default_dirs {
         if fs.is_dir(dir) {

@@ -233,20 +233,20 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
     var path_and_query = ""
     var authority = rest
     val slash = split_once(rest, "/")
-    if Option.is_Some(slash) {
-        authority = Option.unwrap_Some(slash)[0]
-        path_and_query = Option.unwrap_Some(slash)[1]
+    if Some(parts) = slash {
+        authority = parts[0]
+        path_and_query = parts[1]
     }
     var database = path_and_query
     val params = ab_new<UrlParam>()
     val q = split_once(path_and_query, "?")
-    if Option.is_Some(q) {
-        database = Option.unwrap_Some(q)[0]
-        for pair in split(Option.unwrap_Some(q)[1], "&") {
+    if Some(parts) = q {
+        database = parts[0]
+        for pair in split(parts[1], "&") {
             val kv = split_once(pair, "=")
-            if Option.is_Some(kv) {
-                val value = try percent_decode(Option.unwrap_Some(kv)[1])
-                ab_append<UrlParam>(params, UrlParam { name: Option.unwrap_Some(kv)[0], value: value })
+            if Some(kv) = kv {
+                val value = try percent_decode(kv[1])
+                ab_append<UrlParam>(params, UrlParam { name: kv[0], value: value })
             }
         }
     }
@@ -261,16 +261,16 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
     var user = userinfo
     var password = ""
     val up = split_once(userinfo, ":")
-    if Option.is_Some(up) {
-        user = Option.unwrap_Some(up)[0]
-        password = Option.unwrap_Some(up)[1]
+    if Some(parts) = up {
+        user = parts[0]
+        password = parts[1]
     }
     var host = hostport
     var port = default_port
     val hp = split_once(hostport, ":")
-    if Option.is_Some(hp) {
-        host = Option.unwrap_Some(hp)[0]
-        val text = Option.unwrap_Some(hp)[1]
+    if Some(parts) = hp {
+        host = parts[0]
+        val text = parts[1]
         val parsed_port = parse_int(text)
         if !is_ok(parsed_port) {
             return err(bad(concat("bad port in database URL: ", text)))
@@ -395,10 +395,9 @@ fn buffer_page(buffer: Channel<Option<Row>>, page: Page) {
 // the buffer marks the end and is put back, so asking again after the end is safe.
 fn next_item(handle: CursorHandle, buffer: Channel<Option<Row>>) -> Option<Result<Row, DbError>> {
     val got = try_receive(buffer)
-    if Option.is_Some(got) {
-        val item = Option.unwrap_Some(got)
-        if Option.is_Some(item) {
-            val row: Result<Row, DbError> = Option.unwrap_Some(item)
+    if Some(item) = got {
+        if Some(r) = item {
+            val row: Result<Row, DbError> = r
             return Option<Result<Row, DbError>>.Some(row)
         }
         send(buffer, item)

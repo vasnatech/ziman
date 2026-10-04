@@ -113,9 +113,9 @@ fn net_error_from_raw(raw: string) -> NetError {
     var category = raw
     var message = ""
     val split_raw = split_once(raw, "|")
-    if Option.is_Some(split_raw) {
-        category = Option.unwrap_Some(split_raw)[0]
-        message = Option.unwrap_Some(split_raw)[1]
+    if Some(parts) = split_raw {
+        category = parts[0]
+        message = parts[1]
     }
     if category == "refused" {
         return NetError.ConnectionRefused(message)
@@ -338,7 +338,7 @@ pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError> {
 // trusted CAs to use instead of the system store (e.g. a private CA, or a
 // self-signed test certificate).
 pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError> {
-    val ca = if Option.is_Some(ca_file) { Option.unwrap_Some(ca_file) } else { "" }
+    val ca = option_unwrap_or<string>(ca_file, "")
     val r = start_tls_raw(s.handle, host, tls_verify_level(verify), ca)
     if !is_ok(r) {
         return err(net_error_from_raw(unwrap_err(r)))

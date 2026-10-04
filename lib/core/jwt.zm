@@ -256,28 +256,28 @@ fn check(
         }
     }
     if Some(wanted) = issuer {
-        val found = json_object_get(payload, "iss")
-        if !is_Some(found) {
+        if Some(found) = json_object_get(payload, "iss") {
+            val actual = issuer_of(found)
+            if !is_Some(actual) || unwrap_Some(actual) != wanted {
+                return JwtError.WrongIssuer
+            }
+        } else {
             return JwtError.MissingClaim("iss")
-        }
-        val actual = issuer_of(unwrap_Some(found))
-        if !is_Some(actual) || unwrap_Some(actual) != wanted {
-            return JwtError.WrongIssuer
         }
     }
     if Some(wanted) = audience {
-        val found = json_object_get(payload, "aud")
-        if !is_Some(found) {
-            return JwtError.MissingClaim("aud")
-        }
-        var listed = false
-        for name in audiences_of(unwrap_Some(found)) {
-            if name == wanted {
-                listed = true
+        if Some(found) = json_object_get(payload, "aud") {
+            var listed = false
+            for name in audiences_of(found) {
+                if name == wanted {
+                    listed = true
+                }
             }
-        }
-        if !listed {
-            return JwtError.WrongAudience
+            if !listed {
+                return JwtError.WrongAudience
+            }
+        } else {
+            return JwtError.MissingClaim("aud")
         }
     }
     return payload

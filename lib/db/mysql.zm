@@ -1115,10 +1115,10 @@ fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> Curso
         }
     }
     val delivered = ab_to_array<Row>(rows)
-    if Option.is_Some(failure) {
+    if Some(reason) = failure {
         close_statement(sock, statement)
         if len(delivered) == 0 {
-            return failed_step(Option.unwrap_Some(failure))
+            return failed_step(reason)
         }
         val partial: Result<Page, DbError> = Page { rows: delivered, finished: false, cursor: id }
         return CursorStep { page: partial, open: false, statement: statement, columns: columns, deferred: failure }

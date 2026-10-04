@@ -184,16 +184,8 @@ fn parse_error(body: [byte]) -> DbError {
 // postgres://user[:password]@host[:port]/database[?sslmode=...&sslrootcert=...]
 fn parse_url(url: string) -> Result<PgUrl, DbError> {
     val u = try db.parse_url(url, ["postgres://", "postgresql://"], 5432)
-    var sslmode = "disable"
-    var sslrootcert = ""
-    val mode = db.url_param(u, "sslmode")
-    if Option.is_Some(mode) {
-        sslmode = Option.unwrap_Some(mode)
-    }
-    val root = db.url_param(u, "sslrootcert")
-    if Option.is_Some(root) {
-        sslrootcert = Option.unwrap_Some(root)
-    }
+    val sslmode = option_unwrap_or<string>(db.url_param(u, "sslmode"), "disable")
+    val sslrootcert = option_unwrap_or<string>(db.url_param(u, "sslrootcert"), "")
     if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
         return err(conn_err(concat(
             "unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ",
@@ -671,10 +663,10 @@ fn finish_page(sock: Socket, id: int, names: [string], oids: [int]) -> CursorSte
         return failed_step(unwrap_err(read))
     }
     val p = unwrap(read)
-    if Option.is_Some(p.failure) {
+    if Some(reason) = p.failure {
         val drained = sync_and_drain(sock)
         if len(p.rows) == 0 {
-            return failed_step(Option.unwrap_Some(p.failure))
+            return failed_step(reason)
         }
         // rows arrived before the error: deliver them now and the error on the next fetch
         val partial: Result<Page, DbError> = Page { rows: p.rows, finished: false, cursor: id }
