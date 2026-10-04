@@ -410,6 +410,8 @@ fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<Response,
         return ok(Response { status: status, headers: headers, body: body })
     }
     var decoded = decompress(body, max_body_bytes)
+    // HTTP's "deflate" is supposed to be zlib-wrapped (RFC 1950), but some servers send raw RFC 1951
+    // deflate with no header at all; if the standard decode fails, retry as raw before giving up.
     if !is_ok(decoded) && name == "deflate" && unwrap_err(decoded) == "compressed data is corrupt" {
         decoded = inflate_raw(body, max_body_bytes)
     }
@@ -514,7 +516,10 @@ fn fail_closed(s: Socket, e: ClientError) -> Result<Socket, ClientError> {
     return err(e)
 }
 
-// Connects to `u`, directly or through `proxy` (an https target through a CONNECT tunnel).
+// Connects to `u`, directly or through `proxy` (an https target through a CONNECT tunnel). A plain
+// http target through a proxy needs no tunnel at all -- the proxy is just the next hop, and the
+// request line carries the full absolute URL instead (see `write_request`'s `via_http_proxy`); only
+// the https-through-proxy case is handled here.
 fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: int) -> Result<Socket, ClientError> {
     if Some(p) = proxy {
         val sock = try lift<Socket>(net.connect(p.host, p.port))
@@ -600,6 +605,8 @@ fn write_request(
         if lname == "authorization" {
             has_auth = true
         }
+        // Host, Content-Length and Connection are always set below from this call's own
+        // arguments, so a caller-supplied one here would just be a duplicate.
         if lname != "host" && lname != "content-length" && lname != "connection" {
             ab_append(out, format("{}: {}\r\n", h.name, h.value))
         }
@@ -930,6 +937,9 @@ pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar {
     return CookieJar { cookies: current }
 }
 
+// Whether `c` should be sent on a request to `u`: not expired, `Secure` only over https, the domain
+// matches (exactly if `host_only`, else `u`'s host or any subdomain of it), and the path is `c.path`
+// or a directory above it on a `/` boundary (so `/ab` does not match a cookie scoped to `/a`).
 fn cookie_matches(c: Cookie, u: Url, now: int) -> bool {
     if c.expires >= 0 && c.expires <= now {
         return false

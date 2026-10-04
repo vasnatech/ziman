@@ -31,6 +31,12 @@ use json.float_to_json
 use json.int_to_json
 use number.float_to_text
 
+// `indent` is where this line's own content starts (after any `- ` lifted off the front, per
+// `tokenize`'s own comment). `base` is the indentation of the original source line before any
+// lifting, shared by every line lifted out of it -- it is the baseline a block scalar's body
+// (and a block-mapping value on its own lines) must be indented past, which can differ from
+// `indent` for a lifted line. `cont` marks a line produced by that lifting, sharing `raw` with
+// the line it came from.
 struct Line {
     no: int
     indent: int
@@ -431,6 +437,9 @@ fn flow_seq(s: string, pos: int, no: int) -> Result<Scalar, string> {
             return err(fail(no, "expected ',' or ']'"))
         }
     }
+    // The `while true` above only ever exits via a `return`; this line is dead and exists
+    // purely because the typechecker still requires every path out of the function to
+    // produce a value. The same idiom recurs in flow_map below.
     return err("unreachable")
 }
 
@@ -445,6 +454,10 @@ fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
             return ok(Scalar { value: Json.JObject(mapb_to_map(fields)), next: p + 1 })
         }
         val key = try flow_scalar(s, p, true, no)
+        // A flow mapping's key becomes its scanned source text verbatim (not its typed value)
+        // unless it was quoted: `Json` only has string keys, and keeping the literal text for
+        // an unquoted key (`0x1A: v`, `true: v`) avoids silently renormalizing it to a
+        // different string (e.g. its decimal value, or its own canonical casing).
         val key_text = if Json.is_JString(key.value) { Json.unwrap_JString(key.value) } else { trim(substring(
             s,
             p,
@@ -702,6 +715,8 @@ fn parse_node(lines: [Line], i: int, min_indent: int) -> Result<NodeRes, string>
     if content == "-" {
         return parse_seq(lines, j, ln.indent)
     }
+    // Only used as a look-ahead here, to tell a mapping apart from a sequence or a scalar;
+    // parse_map re-runs split_key on this same line to actually use its result.
     val kv = try split_key(content, ln.no)
     if Option.is_Some(kv) {
         return parse_map(lines, j, ln.indent)

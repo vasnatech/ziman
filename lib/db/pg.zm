@@ -726,6 +726,9 @@ fn cursor_busy() -> DbError {
     return DbError.Sql("a cursor is open on this connection: read it to the end or close it first")
 }
 
+// The thread that owns the socket: one request at a time off `requests`, for the connection's whole
+// life. Running the wire protocol on a single thread (rather than locking the socket from several)
+// keeps request and response in lock-step without needing a mutex around every read/write.
 fn serve(sock: Socket, requests: Channel<Request>) {
     var open = true
     var cursor_open = false
@@ -761,6 +764,9 @@ fn serve(sock: Socket, requests: Channel<Request>) {
                 }
             }
             FetchCursor(r) {
+                // Left as is_Some/unwrap_Some rather than an if-let: binding `deferred` here crashed the
+                // interpreter under a timing-sensitive concurrency bug (confirmed with a minimal repro
+                // outside this file; not yet root-caused in the interpreter itself) -- not a style choice.
                 if cursor_open && r.cursor == cursor_id && Option.is_Some(deferred) {
                     val failed: Result<Page, DbError> = Option.unwrap_Some(deferred)
                     deferred = Option<DbError>.None

@@ -57,6 +57,7 @@ pub struct ThreadLocal<T> {
     init: fn() -> T
 }
 
+// A fresh key for a thread-local slot, with `init` as the function that makes a thread's first value.
 pub fn local<T>(init: fn() -> T) -> ThreadLocal<T> {
     return ThreadLocal<T> { id: next_key(), init: init }
 }

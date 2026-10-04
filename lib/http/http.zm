@@ -143,6 +143,9 @@ pub fn content_type(headers: [Header]) -> Option<mime.MediaType> {
     }
 }
 
+// True when `m`'s `q` parameter is some spelling of zero ("0", "0.0", "0.00", ...). Stripping
+// every "0" and "." and checking for an empty result avoids parsing the value as a float, which
+// would also have to tolerate a malformed quality weight without failing the whole Accept header.
 fn is_zero_quality(m: mime.MediaType) -> bool {
     return switch mime.param(m, "q") {
         None { false }

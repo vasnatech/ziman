@@ -10,9 +10,12 @@
 // change only the ASCII letters A-Z.
 
 // Implementation notes. This file is merged bare into every program by the loader and is never
-// `use`-able (`use prelude` does not resolve), so `pub` is never written. Its native functions
-// are registered by prelude_register() in src/prelude.c. Its header is generated from this
-// source by the ordinary corelib Makefile rule, like every bundled module.
+// `use`-able (`use prelude` does not resolve), so `pub` is never written -- except on
+// result_to_option/option_to_result below, which have it for no reason this module gives: `pub`
+// makes no difference to a module nothing can `use`, so treat those two as a leftover, not a
+// pattern to copy. Its native functions are registered by prelude_register() in src/prelude.c.
+// Its header is generated from this source by the ordinary corelib Makefile rule, like every
+// bundled module.
 
 // ---------------------------------------------------------------- parsing numbers
 
@@ -438,6 +441,8 @@ struct Guard {
 // A guard that sends `message` on `ch` when it is collected.
 native fn guard_new<T>(ch: Channel<T>, message: T) -> Guard
 
+// `r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
+// caller truly doesn't care why something failed, not as a shortcut past handling it.
 pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T> {
     return switch r {
         Ok(value) { Option<T>.Some(value) }
@@ -445,6 +450,9 @@ pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T> {
     }
 }
 
+// The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
+// Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
+// formatted message) is skipped entirely on the common Some path.
 pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E> {
     return switch o {
         Some(value) { ok(value) }

@@ -386,6 +386,8 @@ fn row_of_record(record: RecordText, sep: string, typed: bool) -> Result<Row, st
     }
 }
 
+// One item of the lazy iteration started by `open_records`: the next record turned into an
+// object keyed by `names`, or None once `read_record` reaches the end of the file.
 fn next_object(
     lines: Iter<Result<string,
     string>>,
@@ -417,6 +419,8 @@ fn next_object(
     return Option<Result<Json, string>>.Some(item)
 }
 
+// Opens `path`, reads just the header record, and hands back an iterator that reads one
+// record at a time (via `next_object`) as the caller asks for them.
 fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Json, string>>, string> {
     try check_delimiter(sep)
     val lines = try fs.lines(path)
@@ -440,6 +444,9 @@ fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Js
         return err(e)
     }
     val names = header_of([unwrap(header_row)])
+    // Calling rows_to_objects here is only to reuse its duplicate-column-name check: with
+    // `from: 1` on this single-row array, it never visits a row, so its Ok payload (always an
+    // empty array) is discarded -- only Err(e), a duplicate name, is worth anything here.
     return switch rows_to_objects([unwrap(header_row)], names, 1, typed) {
         Ok(_) {
             iter_from<Result<Json, string>>(fn() -> Option<Result<Json, string>> {

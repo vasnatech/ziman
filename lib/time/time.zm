@@ -501,6 +501,7 @@ fn epoch_day_of(year: int, month: int, day: int) -> int {
     return era * days_per_era + doe - epoch_shift_days
 }
 
+// The inverse of `epoch_day_of`: the same Hinnant civil-from-days algorithm, run backward.
 fn date_of_epoch_day(epoch_day: int) -> LocalDate {
     val z = epoch_day + epoch_shift_days
     val era = if z < 0 { (z - (days_per_era - 1)) / days_per_era } else { z / days_per_era }

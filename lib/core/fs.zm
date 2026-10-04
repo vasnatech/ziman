@@ -154,11 +154,11 @@ pub fn path_join(pieces: string...) -> string {
 
 // The last segment of a path: `file_name("a/b/c.txt")` is "c.txt". A trailing slash is ignored.
 pub fn file_name(path: string) -> string {
-    val trimmed = if len(path) > 1 && is_char_at(
-        path,
-        len(path) - 1,
-        "/"
-    ) { substring(path, 0, len(path) - 1) } else { path }
+    val trimmed = if len(path) > 1 && is_char_at(path, len(path) - 1, "/") {
+        substring(path, 0, len(path) - 1)
+    } else {
+        path
+    }
     val at = last_index_of(trimmed, "/")
     return if at < 0 { trimmed } else { substring(trimmed, at + 1, len(trimmed)) }
 }

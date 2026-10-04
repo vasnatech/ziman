@@ -301,6 +301,8 @@ fn rule_local_seconds(d: RuleDate, year: int) -> int {
     var day = 0
     if d.kind == 0 {
         val first = days_from_civil(year, d.month, 1)
+        // 1970-01-01 (epoch day 0) was a Thursday (weekday 4 in a Sunday=0 week), so shifting by
+        // +4 before the mod lines up `first`'s own day-count with that same Sunday-based index.
         val weekday_of_first = floor_mod(first + 4, 7)
         var dom = 1 + floor_mod(d.weekday - weekday_of_first, 7) + (d.week - 1) * 7
         if dom > days_in_month(year, d.month) {
@@ -316,7 +318,10 @@ fn rule_local_seconds(d: RuleDate, year: int) -> int {
     return day * seconds_per_day + d.seconds
 }
 
-// The type in force at UTC second `t` under a POSIX rule.
+// The type in force at UTC second `t` under a POSIX rule. `start < finish` is the ordinary
+// northern-hemisphere case (spring forward, then fall back later the same year); a southern-
+// hemisphere zone's DST period crosses the year boundary, so its start falls after its end within
+// one calendar year, and `in_dst` is then true everywhere *outside* [finish, start) instead.
 fn rule_type_at(rule: PosixRule, t: int) -> ZoneType {
     if !rule.has_dst {
         return rule.standard

@@ -6,6 +6,10 @@ use json.Number
 use json.json_to_string
 use json.parse_json
 
+// `sample`/`number_sample`'s own values never matter (callers always pass `Json.JNull`/
+// `Number.Int(0)`) -- only their runtime type descriptors do, which is how the native side
+// learns the `Json`/`Number` types to build parsed values and the `Err` strings with, since it
+// has no way to construct a value of an enum type it was not handed a witness of.
 native fn records_raw(path: string, sample: Json, number_sample: Number) -> Result<Iter<Result<Json, string>>, string>
 
 // Every non-blank line as a JSON value, in order. A line that is not valid JSON is an

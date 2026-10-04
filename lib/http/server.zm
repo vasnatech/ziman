@@ -634,6 +634,8 @@ pub fn error_response(e: HttpError) -> Response {
     }
 }
 
+// HTTP/1.1 defaults to keep-alive unless told to close; HTTP/1.0 is the other way around, defaulting
+// to close unless told to keep-alive.
 fn connection_close_requested(req: Request) -> bool {
     val c = header(req, "Connection")
     if Some(c) = c {
@@ -686,6 +688,8 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
         if lname == "x-content-type-options" {
             has_nosniff = true
         }
+        // Content-Length and Connection are always written below from resp.body and keep, so a
+        // caller-supplied one here would just be a duplicate.
         if lname != "content-length" && lname != "connection" {
             sb_append(sb, h.name, ": ", h.value, "\r\n")
         }

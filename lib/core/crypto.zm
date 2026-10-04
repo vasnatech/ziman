@@ -130,6 +130,9 @@ pub fn argon2id_hash(
     ))
 }
 
+// The int value of one `name=value` field in a PHC string's comma-separated parameter list
+// (e.g. "m=19456,t=2,p=1"). None both when `name` is absent and when its value isn't a valid
+// int -- callers treat a malformed field as "not there" rather than raising a parse error.
 fn argon2_param(fields: [string], name: string) -> Option<int> {
     for field in fields {
         if Some(pair) = split_once(field, "=") {

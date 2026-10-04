@@ -286,9 +286,17 @@ fn parse_key_path(s: string, pos: int) -> Result<PPath, string> {
             return ok(PPath { path: ab_to_array(parts), next: p })
         }
     }
+    // The `while true` above only ever exits via a `return`; this line is dead and exists
+    // purely because the typechecker still requires every path out of the function to
+    // produce a value. The same idiom recurs below in parse_array_value and
+    // parse_inline_table, each with their own infinite loop.
     return err("unreachable")
 }
 
+// A bare token "looks like" a date or time by shape alone (digits and `-`/`:` in the right
+// positions) -- not validated beyond that. TOML keeps date/time values as plain text (Json has
+// no date type), so this only decides whether to parse `tok` as a number or leave it as a
+// JString; an invalid date like `2024-13-40` still passes through as a string untouched.
 fn looks_datetime(t: string) -> bool {
     if contains(t, ":") {
         return true
