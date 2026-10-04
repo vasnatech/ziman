@@ -165,7 +165,7 @@ static void *run_program(void *raw) {
 
     register_all_natives();
 
-    Module *module = load_module_graph(file);
+    Module *module = load_module_graph(file, NULL);
     if (lint) typecheck_enable_lint();
     typecheck(module);
     if (lint) {
@@ -208,7 +208,7 @@ static void *run_tests_program(void *raw) {
 
     int total_run = 0, total_failed = 0;
     for (int i = 0; i < o->n_files; i++) {
-        Module *module = load_module_graph(o->files[i]);
+        Module *module = load_module_graph(o->files[i], NULL);
         typecheck(module);
         interpret_tests(module, base_name(o->files[i]), &total_run, &total_failed);
     }

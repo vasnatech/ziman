@@ -51,6 +51,21 @@ static char *dirname_of(const char *path) {
     return dir;
 }
 
+/* The bare module name a path would have if something `use`d it: its filename, minus
+ * directory and ".zm". Used only to recognize an entry file that is itself one of the bundled
+ * corelib modules (see its one call site below) -- every other module's name instead comes
+ * straight from the `use` path text that named it, never a path computation like this one. */
+static char *module_name_of(const char *path) {
+    const char *slash = strrchr(path, '/');
+    const char *base = slash != NULL ? slash + 1 : path;
+    size_t len = strlen(base);
+    if (len > 3 && strcmp(base + len - 3, ".zm") == 0) len -= 3;
+    char *name = malloc(len + 1);
+    memcpy(name, base, len);
+    name[len] = '\0';
+    return name;
+}
+
 static char *resolve_file_path(const char *project_root, const char *use_path) {
     size_t len = strlen(project_root) + strlen(use_path) + 6;
     char *out = malloc(len);
@@ -1361,7 +1376,17 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     ziman_set_error_file(from_disk ? file_path : NULL);
     if (from_disk) ziman_register_source(file_path, source);
     Module *mod = parse_file_contents(source);
-    mod->is_corelib = !from_disk;
+    /* A module found on disk is ordinarily a project's own, never part of the bundled standard
+     * library -- except when its own name is also a bundled module's (see module_name_of's own
+     * comment on the entry-file case this mirrors): developing the stdlib itself means its
+     * modules sit on disk right next to each other, each resolving its sibling corelib imports
+     * straight off disk the same way, and leaving one `is_corelib` while the one importing it
+     * is corelib too (or vice versa) breaks `internal` visibility between them for no reason a
+     * real cross-package boundary would ever justify. A project that deliberately shadows a
+     * corelib module's exact name -- rare, and already usable as-is since this only changes same
+     * vs. different *package*, never which file's declarations a `use` of that name actually
+     * sees -- gets the same corelib-like internal reach its stand-in is shadowing, not a loss. */
+    mod->is_corelib = !from_disk || corelib_source_for(use_path) != NULL;
     if (from_disk) {
         for (int i = 0; i < mod->functions.count; i++) mod->functions.items[i]->source_file = file_path;
         for (int i = 0; i < mod->structs.count; i++) mod->structs.items[i]->source_file = file_path;
@@ -1387,9 +1412,9 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     return mod;
 }
 
-Module *load_module_graph(const char *entry_path) {
+Module *load_module_graph(const char *entry_path, const char *project_root_override) {
     Loader ldr = {0};
-    ldr.project_root = dirname_of(entry_path);
+    ldr.project_root = project_root_override != NULL ? strdup(project_root_override) : dirname_of(entry_path);
 
     /* Parsed and resolved before anything else, and stashed on `ldr`
      * itself (not just merged in later, see the merge site below) --
@@ -1411,6 +1436,22 @@ Module *load_module_graph(const char *entry_path) {
     ziman_set_error_file(entry_path);
     ziman_register_source(entry_path, entry_source);
     Module *entry_mod = parse_file_contents(entry_source);
+    /* An entry file is ordinarily a project's own program, never part of the bundled standard
+     * library (same_package's whole point is distinguishing the two) -- but the language server
+     * analyzes whatever file is open as its own "entry" (see lsp.c's run_analysis), which for
+     * someone editing the stdlib's own source is one of the bundled modules itself. Left
+     * unmarked, such a file would be the only corelib module ever loaded as a non-corelib
+     * package, breaking every `internal` reference between it and its sibling corelib modules
+     * (e.g. lib/http/client.zm's own call into net.zm's `internal fn idle_take`) -- not just a
+     * diagnostics false positive, but the load_module_graph error that causes (caught via
+     * ziman_recovery_push in lsp.c) leaves g_module on its previous, unrelated value, so every
+     * go-to-definition/hover/symbol request against the open file silently finds nothing. Safe
+     * for ordinary (non-LSP) execution too: a corelib module's own name is a name nobody else's
+     * real program entry would coincidentally share and then expect `ziman` to run as a program
+     * missing `main` in the first place. */
+    char *entry_module_name = module_name_of(entry_path);
+    if (corelib_source_for(entry_module_name) != NULL) entry_mod->is_corelib = 1;
+    free(entry_module_name);
     for (int i = 0; i < entry_mod->functions.count; i++) entry_mod->functions.items[i]->source_file = entry_path;
     for (int i = 0; i < entry_mod->structs.count; i++) entry_mod->structs.items[i]->source_file = entry_path;
     for (int i = 0; i < entry_mod->enums.count; i++) entry_mod->enums.items[i]->source_file = entry_path;

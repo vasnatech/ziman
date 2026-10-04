@@ -412,8 +412,81 @@ static void diag_sink(const char *phase, const char *file, int line, int col, co
 }
 
 static Module *g_module = NULL;
-static char *g_module_entry = NULL;
-static char *g_module_entry_path(void) { return g_module_entry; }
+/* The directory the last analysis's `use` paths actually resolved against -- `entry`'s own
+ * directory ordinarily, but the fallback analyze() runs when a file isn't reached by the
+ * project's real entry passes its OWN, different root (see run_analysis's and
+ * load_module_graph's own comments): canonical_module_path/module_file need that same root to
+ * find a `use` path's file, never `entry`'s own directory, which for that fallback case is some
+ * unrelated file's, not the project's. */
+static char *g_module_root = NULL;
+static char *g_module_root_dir(void) { return g_module_root; }
+
+/* Every distinct entry this session has ever analyzed, each remembering its own graph --
+ * not just the most recent one. A project with a real entry main.zm doesn't reach can have
+ * several genuinely different "programs" in it (serve.zm, a batch script, a second demo
+ * entry) -- opening first one file, then another, re-runs analyze() with whichever one was
+ * opened last as the trigger, and a single shared `g_module` getting overwritten each time
+ * would make navigation and symbols for the FIRST file disappear the moment the second is
+ * even looked at (its own didOpen alone triggers this, before any edit), coming back only if
+ * that exact file is revisited -- exactly the "mixed results" this is the fix for. Symbol
+ * lookup (collect_symbols and the enum-variant walks) reads every cached graph's own
+ * declarations together; `g_module` itself stays the single most-recently-analyzed one,
+ * which is all graph_has_file (deciding whether THIS call's own fallback is needed) ever
+ * needs. */
+typedef struct { char *entry; Module *module; } CachedGraph;
+static CachedGraph *g_graphs = NULL;
+static int g_n_graphs = 0;
+
+static void cache_graph(const char *entry, Module *module) {
+    for (int i = 0; i < g_n_graphs; i++) {
+        if (strcmp(g_graphs[i].entry, entry) == 0) { g_graphs[i].module = module; return; }
+    }
+    g_graphs = realloc(g_graphs, (size_t)(g_n_graphs + 1) * sizeof(CachedGraph));
+    g_graphs[g_n_graphs].entry = strdup(entry);
+    g_graphs[g_n_graphs].module = module;
+    g_n_graphs++;
+}
+
+/* Calls `visit` for every enum declared in any cached graph; stops when it returns non-zero. */
+typedef int (*EnumVisitor)(EnumDecl *ed, void *ctx);
+static void for_each_cached_enum(EnumVisitor visit, void *ctx) {
+    for (int gi = 0; gi < g_n_graphs; gi++) {
+        Module *m = g_graphs[gi].module;
+        if (m == NULL) continue;
+        for (int i = 0; i < m->enums.count; i++) if (visit(m->enums.items[i], ctx)) return;
+    }
+}
+
+typedef struct { const char *word; const char *file; int line, col; } FindVariantCtx;
+
+static int visit_find_variant(EnumDecl *ed, void *ctx) {
+    FindVariantCtx *vc = ctx;
+    for (int v = 0; v < ed->variants.count; v++) {
+        if (strcmp(ed->variants.items[v].name, vc->word) == 0 && ed->source_file != NULL) {
+            vc->file = ed->source_file;
+            vc->line = ed->variants.items[v].line > 0 ? ed->variants.items[v].line : ed->line;
+            vc->col = ed->variants.items[v].line > 0 ? ed->variants.items[v].col : ed->col;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+typedef struct { const char *qualifier; SB *b; int *first; } EnumVariantCompletionCtx;
+static void add_completion(SB *b, int *first, const char *label, int kind, const char *detail);
+static const char *bare_name(const char *qualified);
+
+static int visit_complete_variants(EnumDecl *ed, void *ctx) {
+    EnumVariantCompletionCtx *ec = ctx;
+    if (strcmp(bare_name(ed->name), ec->qualifier) != 0) return 0;
+    for (int v = 0; v < ed->variants.count; v++) add_completion(ec->b, ec->first, ed->variants.items[v].name, 20, NULL);
+    return 0;
+}
+
+static char *dirname_copy(const char *path) {
+    const char *slash = strrchr(path, '/');
+    return slash != NULL ? strndup(path, (size_t)(slash - path)) : strdup("");
+}
 
 static int file_exists(const char *path) {
     struct stat st;
@@ -476,8 +549,11 @@ static void publish(const char *path, int has_doc) {
     send_notification("textDocument/publishDiagnostics", b.s);
 }
 
-/* Loads and type-checks the program rooted at `entry`, collecting its diagnostics into g_diags. */
-static void run_analysis(char *entry) {
+/* Loads and type-checks the program rooted at `entry`, collecting its diagnostics into g_diags.
+ * `root`, NULL unless the caller is the fallback below, is the project root `entry`'s own `use`
+ * paths resolve against (see load_module_graph's own comment on why that is not always
+ * `entry`'s own directory). */
+static void run_analysis(char *entry, const char *root) {
     g_current_entry = entry;
 
     const char **paths = malloc((size_t)(g_ndocs + 1) * sizeof(char *));
@@ -494,9 +570,11 @@ static void run_analysis(char *entry) {
     Module *volatile loaded = NULL;
     ziman_recovery_push(&jb);
     if (setjmp(jb) == 0) {
-        loaded = load_module_graph(entry);
+        loaded = load_module_graph(entry, root);
         g_module = loaded;
-        g_module_entry = entry;
+        cache_graph(entry, loaded);
+        free(g_module_root);
+        g_module_root = root != NULL ? strdup(root) : dirname_copy(entry);
         typecheck(loaded);
         ziman_recovery_pop();
     }
@@ -528,9 +606,20 @@ static int graph_has_file(const char *path) {
 
 static void analyze(Doc *trigger) {
     char *entry = find_entry(trigger->path);
-    run_analysis(entry);
-    /* a file the nearest main.zm does not reach (a second entry point, a test) is its own program */
-    if (strcmp(entry, trigger->path) != 0 && !graph_has_file(trigger->path)) run_analysis(trigger->path);
+    run_analysis(entry, NULL);
+    /* A file the nearest main.zm does not reach (a second entry point, a test) is still analyzed on its
+     * own, so at least its own declarations (and anything it drags in) show up for hover/definition/etc.
+     * -- but its `use` paths must resolve against the SAME project root `entry` already established
+     * (that root's own directory when `entry` is a real main.zm, or `trigger`'s own when none exists
+     * at all, exactly what `entry`'s directory already is either way), never `trigger`'s own directory:
+     * a file nested under the project root (lib/db/datasource.zm two levels under src/main/ziman/,
+     * say) writes its `use` paths relative to that root, not to its own, immediately-enclosing folder,
+     * and resolving them against the latter is exactly as wrong as it would be for the real entry. */
+    if (strcmp(entry, trigger->path) != 0 && !graph_has_file(trigger->path)) {
+        char *root = dirname_copy(entry);
+        run_analysis(trigger->path, root);
+        free(root);
+    }
 
     /* publish to every open document that has diagnostics now or had them before */
     char **files = malloc((size_t)(g_ndocs + g_prev_n + g_ndiags + 2) * sizeof(char *));
@@ -715,32 +804,59 @@ static const char *sym_file(const char *name, const char *source_file, int *core
 }
 
 /* Every declaration the last analysis loaded (derived code excluded). */
+/* The index of a symbol already in `out[0..n)` at this exact file+line -- the same declaration,
+ * reached again through a different cached graph (see g_graphs's own comment): every graph
+ * that happens to load a shared dependency (common.zm, say) carries its own copy of that
+ * dependency's declarations, so without this a name used by several of a project's distinct
+ * entries would otherwise show up once per entry that reaches it. -1 if there is none. */
+static int already_has(const Sym *out, int n, const char *file, int line) {
+    for (int i = 0; i < n; i++) if (out[i].line == line && strcmp(out[i].file, file) == 0) return i;
+    return -1;
+}
+
 static Sym *collect_symbols(int *count) {
     int n = 0, cap = 64;
     Sym *out = malloc((size_t)cap * sizeof(Sym));
-#define ADD(nm, f, l, c, k, sig, pub, cr) do { if (n == cap) { cap *= 2; out = realloc(out, (size_t)cap * sizeof(Sym)); } \
-    out[n++] = (Sym){nm, f, l, c, k, sig, pub, cr}; } while (0)
-    if (g_module != NULL) {
+    /* The SAME declaration can carry a different `name` depending on which graph loaded it: bare
+     * when the file loading it is itself that graph's entry (an entry is never a `use` target, so
+     * it keeps its own bare names -- see load_module_graph's own comment), module-qualified
+     * ("util::double") when some other graph reaches it as an ordinary dependency. A later
+     * qualified copy replaces an earlier bare one at the same spot -- never the other way --
+     * since matches_word's own qualifier check (module_part_equals) needs the "::" a bare name
+     * doesn't have; dropping the duplicate instead would silently break every cross-file,
+     * qualified reference to a symbol whose file also happens to be some *other* graph's entry
+     * (lib/http/client.zm's own net.zm dependency, say, when net.zm is independently open too). */
+#define ADD(nm, f, l, c, k, sig, pub, cr) do { \
+    int dup = already_has(out, n, f, l); \
+    if (dup < 0) { \
+        if (n == cap) { cap *= 2; out = realloc(out, (size_t)cap * sizeof(Sym)); } \
+        out[n++] = (Sym){nm, f, l, c, k, sig, pub, cr}; \
+    } else if (strstr(nm, "::") != NULL && strstr(out[dup].name, "::") == NULL) { \
+        out[dup] = (Sym){nm, f, l, c, k, sig, pub, cr}; \
+    } } while (0)
+    for (int gi = 0; gi < g_n_graphs; gi++) {
+        Module *m = g_graphs[gi].module;
+        if (m == NULL) continue;
         int core;
         const char *file;
-        for (int i = 0; i < g_module->functions.count; i++) {
-            FunctionDecl *fn = g_module->functions.items[i];
+        for (int i = 0; i < m->functions.count; i++) {
+            FunctionDecl *fn = m->functions.items[i];
             if (fn->derived_from != NULL || fn->name[0] == '$') continue;
             if ((file = sym_file(fn->name, fn->source_file, &core)) == NULL || fn->line <= 0) continue;
             ADD(fn->name, file, fn->line, fn->col, 12, fn_signature(fn), fn->visibility != VIS_PRIVATE, core);
         }
-        for (int i = 0; i < g_module->structs.count; i++) {
-            StructDecl *sd = g_module->structs.items[i];
+        for (int i = 0; i < m->structs.count; i++) {
+            StructDecl *sd = m->structs.items[i];
             if ((file = sym_file(sd->name, sd->source_file, &core)) == NULL || sd->line <= 0) continue;
             ADD(sd->name, file, sd->line, sd->col, 23, struct_signature(sd), sd->visibility != VIS_PRIVATE, core);
         }
-        for (int i = 0; i < g_module->enums.count; i++) {
-            EnumDecl *ed = g_module->enums.items[i];
+        for (int i = 0; i < m->enums.count; i++) {
+            EnumDecl *ed = m->enums.items[i];
             if ((file = sym_file(ed->name, ed->source_file, &core)) == NULL || ed->line <= 0) continue;
             ADD(ed->name, file, ed->line, ed->col, 10, enum_signature(ed), ed->visibility != VIS_PRIVATE, core);
         }
-        for (int i = 0; i < g_module->vals.count; i++) {
-            GlobalValDecl *v = g_module->vals.items[i];
+        for (int i = 0; i < m->vals.count; i++) {
+            GlobalValDecl *v = m->vals.items[i];
             if ((file = sym_file(v->name, v->source_file, &core)) == NULL || v->line <= 0) continue;
             ADD(v->name, file, v->line, v->col, 13, val_signature(v), v->visibility != VIS_PRIVATE, core);
         }
@@ -853,14 +969,25 @@ static void for_each_use(const Doc *d, UseVisitor visit, void *ctx) {
 
 static int file_exists(const char *path);
 static Doc *find_doc_by_path(const char *path);
-static char *g_module_entry_path(void);
+static char *g_module_root_dir(void);
+
+/* The directory a `use` path in `d` resolves against: the last analysis's own root when one has
+ * run (which, unlike `d`'s own directory, is right even for a file the project's real entry
+ * doesn't reach -- see g_module_root's own comment), else `d`'s own directory as the only
+ * guess available before any analysis has run at all. */
+static int use_base_dir(const Doc *d, const char **out_base) {
+    const char *root = g_module_root_dir();
+    if (root != NULL) { *out_base = root; return (int)strlen(root); }
+    *out_base = d->path;
+    const char *slash = strrchr(d->path, '/');
+    return slash != NULL ? (int)(slash - d->path) : 0;
+}
 
 /* The module a `use` path names: a folder holds its own module under its own name, so `use a/b` with no a/b.zm
  * but an a/b/b.zm is the module a/b/b (the same rule the loader applies). Returns a copy of `path` otherwise. */
 static char *canonical_module_path(const Doc *d, const char *path) {
-    const char *base = g_module_entry_path() != NULL ? g_module_entry_path() : d->path;
-    const char *slash = strrchr(base, '/');
-    int dirlen = slash != NULL ? (int)(slash - base) : 0;
+    const char *base;
+    int dirlen = use_base_dir(d, &base);
     SB direct = {0}, inner = {0};
     const char *last = strrchr(path, '/');
     last = last != NULL ? last + 1 : path;
@@ -914,13 +1041,13 @@ static int visit_has_import(const UseLine *u, void *ctx) {
     return 0;
 }
 
-/* The file of a module named by a `use` path: a project file next to the program's entry, else a bundled module. */
+/* The file of a module named by a `use` path: a project file next to the program's root, else a bundled module. */
 static char *module_file(const Doc *d, const char *mod_path) {
-    const char *base = g_module_entry != NULL ? g_module_entry : d->path;
-    const char *slash = strrchr(base, '/');
+    const char *base;
+    int dirlen = use_base_dir(d, &base);
     char *canon = canonical_module_path(d, mod_path);
     SB b = {0};
-    if (slash != NULL) sb_printf(&b, "%.*s/%s.zm", (int)(slash - base), base, canon);
+    if (dirlen > 0) sb_printf(&b, "%.*s/%s.zm", dirlen, base, canon);
     else sb_printf(&b, "%s.zm", canon);
     if (file_exists(b.s) || find_doc_by_path(b.s) != NULL) return b.s;
     return core_file(mod_path);
@@ -1144,15 +1271,10 @@ static void handle_definition(const JVal *id, const JVal *params) {
         if (imported != NULL) { send_location(id, imported->file, imported->line, imported->col); return; }
     }
     /* an enum variant (`Shape.Circle`): point at its enum */
-    for (int i = 0; g_module != NULL && i < g_module->enums.count; i++) {
-        EnumDecl *ed = g_module->enums.items[i];
-        for (int v = 0; v < ed->variants.count; v++) {
-            if (strcmp(ed->variants.items[v].name, c.word) == 0 && ed->source_file != NULL) {
-                send_location(id, ed->source_file, ed->variants.items[v].line > 0 ? ed->variants.items[v].line : ed->line,
-                              ed->variants.items[v].line > 0 ? ed->variants.items[v].col : ed->col);
-                return;
-            }
-        }
+    {
+        FindVariantCtx vc = {c.word, NULL, 0, 0};
+        for_each_cached_enum(visit_find_variant, &vc);
+        if (vc.file != NULL) { send_location(id, vc.file, vc.line, vc.col); return; }
     }
     /* a local variable, parameter or loop binder */
     int ll, lc;
@@ -1260,12 +1382,9 @@ static void handle_completion(const JVal *id, const JVal *params) {
                     add_completion(&b, &first, bare_name(syms[i].name), syms[i].kind == 12 ? 3 : syms[i].kind == 23 ? 22 : syms[i].kind == 10 ? 13 : 6, syms[i].signature);
                 }
             }
-            if (g_module != NULL) {
-                for (int i = 0; i < g_module->enums.count; i++) {
-                    EnumDecl *ed = g_module->enums.items[i];
-                    if (strcmp(bare_name(ed->name), c.qualifier) != 0) continue;
-                    for (int v = 0; v < ed->variants.count; v++) add_completion(&b, &first, ed->variants.items[v].name, 20, NULL);
-                }
+            {
+                EnumVariantCompletionCtx ec = {c.qualifier, &b, &first};
+                for_each_cached_enum(visit_complete_variants, &ec);
             }
         } else {
             for (size_t i = 0; i < sizeof KEYWORDS / sizeof KEYWORDS[0]; i++) add_completion(&b, &first, KEYWORDS[i], 14, NULL);
