@@ -659,8 +659,8 @@ fn failed_step(e: DbError) -> CursorStep {
 // syncs the connection back to ready.
 fn finish_page(sock: Socket, id: int, names: [string], oids: [int]) -> CursorStep {
     val read = read_page(sock, names, oids)
-    if !is_ok(read) {
-        return failed_step(unwrap_err(read))
+    if Err(e) = read {
+        return failed_step(e)
     }
     val p = unwrap(read)
     if Some(reason) = p.failure {

@@ -375,8 +375,8 @@ fn parse_scalar_token(s: string, pos: int) -> Result<Parsed, string> {
         p = q
     }
     val n = number_token(tok)
-    if !is_ok(n) {
-        return err(fail(s, pos, unwrap_err(n)))
+    if Err(e) = n {
+        return err(fail(s, pos, e))
     }
     return ok(Parsed { value: unwrap(n), next: p })
 }
@@ -417,8 +417,8 @@ fn parse_inline_table(s: string, pos: int) -> Result<Parsed, string> {
         }
         val value = try parse_value(s, skip_blank(s, p + 1))
         val updated = descend(table, key.path, 0, 0, value.value)
-        if !is_ok(updated) {
-            return err(fail(s, p, unwrap_err(updated)))
+        if Err(e) = updated {
+            return err(fail(s, p, e))
         }
         table = unwrap(updated)
         p = skip_blank(s, value.next)
@@ -551,8 +551,8 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
                 defined = insert(defined, joined)
             }
             val updated = descend(root, header.path, 0, if is_array { 2 } else { 1 }, Json.JNull)
-            if !is_ok(updated) {
-                return err(fail(text, p, unwrap_err(updated)))
+            if Err(e) = updated {
+                return err(fail(text, p, e))
             }
             root = unwrap(updated)
             current = header.path
@@ -566,8 +566,8 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
             }
             val value = try parse_value(text, skip_blank(text, q + 1))
             val updated = descend(root, concat_arrays<string>(current, key.path), 0, 0, value.value)
-            if !is_ok(updated) {
-                return err(fail(text, p, unwrap_err(updated)))
+            if Err(e) = updated {
+                return err(fail(text, p, e))
             }
             root = unwrap(updated)
             val after_value = try expect_line_end(text, value.next)

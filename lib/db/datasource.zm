@@ -179,9 +179,9 @@ pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<R
         Pool(pool) {
             val inner = try acquire(conn)
             val opened = rows(inner, sql, params)
-            if !is_ok(opened) {
+            if Err(e) = opened {
                 release(conn, inner)
-                return err(unwrap_err(opened))
+                return err(e)
             }
             val source = unwrap(opened)
             return iter_from<Result<Row, DbError>>(
@@ -310,13 +310,13 @@ pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Resul
     var opened = 0
     while opened < size {
         val c = open(url)
-        if !is_ok(c) {
+        if Err(e) = c {
             var i = 0
             while i < opened {
                 close(receive(idle).connection)
                 i = i + 1
             }
-            return err(unwrap_err(c))
+            return err(e)
         }
         park(idle, unwrap(c))
         opened = opened + 1
@@ -350,9 +350,9 @@ fn checked(pool: PoolState, entry: IdleConnection) -> Result<Connection, DbError
         return c
     }
     val fresh = open(pool.url)
-    if !is_ok(fresh) {
+    if Err(e) = fresh {
         park(pool.idle, c)
-        return err(unwrap_err(fresh))
+        return err(e)
     }
     close(c)
     return unwrap(fresh)

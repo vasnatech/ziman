@@ -137,8 +137,8 @@ pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
     var i = start
     while i < len(s) {
         val dv = hex_digit_value(char_at(s, i))
-        if !is_ok(dv) {
-            return err(unwrap_err(dv))
+        if Err(e) = dv {
+            return err(e)
         }
         result = result * 16n + (unwrap(dv) as bigint)
         i = i + 1

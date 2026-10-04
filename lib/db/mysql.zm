@@ -181,8 +181,8 @@ struct MyUrl {
 // ---------------------------------------------------------------- helpers
 
 fn lift<T>(r: Result<T, net.NetError>) -> Result<T, DbError> {
-    if !is_ok(r) {
-        return err(DbError.Connection(net_error_message(unwrap_err(r))))
+    if Err(e) = r {
+        return err(DbError.Connection(net_error_message(e)))
     }
     return unwrap(r)
 }
@@ -1081,8 +1081,8 @@ fn column_names(columns: [Column]) -> [string] {
 // whether that was the last of them. The statement is closed when the cursor is finished or failed.
 fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> CursorStep {
     val sent = send_packet(sock, 0, bytes_concat([28b], le(statement, 4), le(cursor_fetch_rows, 4)))
-    if !is_ok(sent) {
-        return failed_step(unwrap_err(sent))
+    if Err(e) = sent {
+        return failed_step(e)
     }
     val raw = ab_new<[byte]>()
     var failure = Option<DbError>.None
@@ -1090,8 +1090,8 @@ fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> Curso
     var done = false
     while !done {
         val p = read_packet(sock)
-        if !is_ok(p) {
-            return failed_step(unwrap_err(p))
+        if Err(e) = p {
+            return failed_step(e)
         }
         val body = unwrap(p).body
         if is_err_packet(body) {
@@ -1140,17 +1140,17 @@ fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> Curso
 // returns no rows (an INSERT) answers with an OK packet and is a finished cursor with no rows.
 fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> CursorStep {
     val rewritten = rewrite_placeholders(sql, params)
-    if !is_ok(rewritten) {
-        return failed_step(unwrap_err(rewritten))
+    if Err(e) = rewritten {
+        return failed_step(e)
     }
     val statement_text = unwrap(rewritten)
     val prepared = send_packet(sock, 0, bytes_concat([22b], string_to_bytes(statement_text.sql)))
-    if !is_ok(prepared) {
-        return failed_step(unwrap_err(prepared))
+    if Err(e) = prepared {
+        return failed_step(e)
     }
     val reply = read_packet(sock)
-    if !is_ok(reply) {
-        return failed_step(unwrap_err(reply))
+    if Err(e) = reply {
+        return failed_step(e)
     }
     val head = unwrap(reply).body
     if is_err_packet(head) {
@@ -1160,14 +1160,14 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
     val column_count = read_le(head, 5, 2)
     val param_count = read_le(head, 7, 2)
     val param_defs = read_columns(sock, param_count)
-    if !is_ok(param_defs) {
+    if Err(e) = param_defs {
         close_statement(sock, statement)
-        return failed_step(unwrap_err(param_defs))
+        return failed_step(e)
     }
     val column_defs = read_columns(sock, column_count)
-    if !is_ok(column_defs) {
+    if Err(e) = column_defs {
         close_statement(sock, statement)
-        return failed_step(unwrap_err(column_defs))
+        return failed_step(e)
     }
     if param_count != len(statement_text.params) {
         close_statement(sock, statement)
@@ -1178,13 +1178,13 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
         )))
     }
     val executed = send_packet(sock, 0, execute_body(statement, statement_text.params, 1))
-    if !is_ok(executed) {
+    if Err(e) = executed {
         close_statement(sock, statement)
-        return failed_step(unwrap_err(executed))
+        return failed_step(e)
     }
     val first = read_packet(sock)
-    if !is_ok(first) {
-        return failed_step(unwrap_err(first))
+    if Err(e) = first {
+        return failed_step(e)
     }
     val b = unwrap(first).body
     if is_err_packet(b) {
@@ -1198,9 +1198,9 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
         return CursorStep { page: none, open: false, statement: 0, columns: no_columns, deferred: Option<DbError>.None }
     }
     val columns = read_columns(sock, read_lenenc(b, 0).value)
-    if !is_ok(columns) {
+    if Err(e) = columns {
         close_statement(sock, statement)
-        return failed_step(unwrap_err(columns))
+        return failed_step(e)
     }
     return fetch_page(sock, id, statement, unwrap(columns))
 }

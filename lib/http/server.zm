@@ -140,8 +140,8 @@ val max_chunk_line_bytes = 1024
 // ------------------------------------------------------------ helpers
 
 fn lift<T>(r: Result<T, NetError>) -> Result<T, HttpError> {
-    if !is_ok(r) {
-        val e = unwrap_err(r)
+    if Err(e2) = r {
+        val e = e2
         if NetError.is_Timeout(e) {
             return err(HttpError.Timeout)
         }
@@ -1472,8 +1472,8 @@ fn serve_connection(
     var open = true
     while open {
         val next = read_request(session)
-        if !is_ok(next) {
-            val _ = write_error(sock, unwrap_err(next))  // 400/408/413/431/501, or nothing if the peer is gone
+        if Err(e) = next {
+            val _ = write_error(sock, e)  // 400/408/413/431/501, or nothing if the peer is gone
             open = false
         } else {
             val exchange = unwrap(next)

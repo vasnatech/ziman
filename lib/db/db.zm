@@ -406,9 +406,9 @@ fn next_item(handle: CursorHandle, buffer: Channel<Option<Row>>) -> Option<Resul
     val reply: Channel<Result<Page, DbError>> = channel_new()
     send(handle.requests, Request.FetchCursor(FetchRequest { cursor: handle.cursor, reply_to: reply }))
     val page = receive(reply)
-    if !is_ok(page) {
+    if Err(e) = page {
         send(buffer, Option<Row>.None)
-        val failure: Result<Row, DbError> = unwrap_err(page)
+        val failure: Result<Row, DbError> = e
         return Option<Result<Row, DbError>>.Some(failure)
     }
     buffer_page(buffer, unwrap(page))

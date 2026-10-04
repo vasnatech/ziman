@@ -343,8 +343,8 @@ fn read_to_close(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
             return err(ClientError.TooLarge)
         }
         val chunk = net.read(sock, read_chunk_bytes)
-        if !is_ok(chunk) {
-            val e = unwrap_err(chunk)
+        if Err(e2) = chunk {
+            val e = e2
             if NetError.is_Closed(e) {
                 return ok(Body { bytes: ab_to_array(body), clean: false })
             }
@@ -404,8 +404,8 @@ fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<Response,
     if !is_ok(decoded) && name == "deflate" && unwrap_err(decoded) == "compressed data is corrupt" {
         decoded = inflate_raw(body, max_body_bytes)
     }
-    if !is_ok(decoded) {
-        val why = unwrap_err(decoded)
+    if Err(e) = decoded {
+        val why = e
         if why == "decompressed data is too large" {
             return err(ClientError.TooLarge)
         }
@@ -441,8 +441,8 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
         return ok(Option<Url>.None)
     }
     val parsed = parse_url(if contains(text, "://") { text } else { concat("http://", text) })
-    if !is_ok(parsed) {
-        return err(ClientError.BadUrl(concat("proxy: ", unwrap_err(parsed))))
+    if Err(e) = parsed {
+        return err(ClientError.BadUrl(concat("proxy: ", e)))
     }
     if unwrap(parsed).secure {
         return err(ClientError.BadUrl("proxy: an https:// proxy is not supported (use http://)"))
@@ -527,12 +527,12 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
         if len(p.userinfo) > 0 { format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)) } else { "" }
     )
     val sent = lift<int>(net.write_text(sock, request))
-    if !is_ok(sent) {
-        return fail_closed(sock, unwrap_err(sent))
+    if Err(e) = sent {
+        return fail_closed(sock, e)
     }
     val head = read_head(sock)
-    if !is_ok(head) {
-        return fail_closed(sock, unwrap_err(head))
+    if Err(e) = head {
+        return fail_closed(sock, e)
     }
     if unwrap(head).status != 200 {
         return fail_closed(sock, ClientError.Network(format("proxy refused the tunnel: {}", unwrap(head).status_line)))
@@ -686,8 +686,8 @@ fn send_once(
         val parked = if reuse && attempt == 0 { net.idle_take(key) } else { Option<Socket>.None }
         val reused = Option.is_Some(parked)
         val sock = take_or_open(parked, u, proxy, ca_file, timeout_ms)
-        if !is_ok(sock) {
-            return err(unwrap_err(sock))
+        if Err(e) = sock {
+            return err(e)
         }
         val s = unwrap(sock)
         val timeout_set = net.set_timeout(s, timeout_ms)
@@ -990,8 +990,8 @@ fn run(
     jar: CookieJar
 ) -> Result<Outcome, ClientError> {
     val parsed = parse_url(url)
-    if !is_ok(parsed) {
-        return err(ClientError.BadUrl(unwrap_err(parsed)))
+    if Err(e) = parsed {
+        return err(ClientError.BadUrl(e))
     }
     var current = unwrap(parsed)
     var m = method
@@ -1023,8 +1023,8 @@ fn run(
             return err(ClientError.TooManyRedirects)
         }
         val next = resolve_location(current, Option.unwrap_Some(location_of(resp)))
-        if !is_ok(next) {
-            return err(ClientError.BadResponse(concat("bad redirect location: ", unwrap_err(next))))
+        if Err(e) = next {
+            return err(ClientError.BadResponse(concat("bad redirect location: ", e)))
         }
         val moved_away = unwrap(next).host != current.host || unwrap(next).port != current.port || unwrap(next).secure != current.secure
         if moved_away {
@@ -1223,9 +1223,9 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
         if st.after_chunk {
             while len(buf) < 2 {
                 val more_bytes = more(s, buf)
-                if !is_ok(more_bytes) {
+                if Err(e) = more_bytes {
                     send(cell, finished)
-                    return body_failure(unwrap_err(more_bytes))
+                    return body_failure(e)
                 }
                 buf = unwrap(more_bytes)
             }
@@ -1238,17 +1238,17 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
                 return body_failure(ClientError.BadResponse("chunk size line is too long"))
             }
             val more_bytes = more(s, buf)
-            if !is_ok(more_bytes) {
+            if Err(e) = more_bytes {
                 send(cell, finished)
-                return body_failure(unwrap_err(more_bytes))
+                return body_failure(e)
             }
             buf = unwrap(more_bytes)
             eol = bytes_index_of(buf, crlf, 0)
         }
         val line = text_of(slice<byte>(buf, 0, eol))
-        if !is_ok(line) {
+        if Err(e) = line {
             send(cell, finished)
-            return body_failure(unwrap_err(line))
+            return body_failure(e)
         }
         val size_text = trim(split(unwrap(line), ";")[0])
         val size = int_from_hex(size_text)
@@ -1273,8 +1273,8 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
     var rest: [byte] = []
     if len(block) == 0 {
         val got = net.read(s, read_chunk_bytes)
-        if !is_ok(got) {
-            val e = unwrap_err(got)
+        if Err(e2) = got {
+            val e = e2
             send(cell, finished)
             if st.mode == 2 && NetError.is_Closed(e) {
                 return body_end()
@@ -1325,8 +1325,8 @@ pub fn stream(
     proxy: Option<string>
 ) -> Result<StreamResponse, ClientError> {
     val parsed = parse_url(url)
-    if !is_ok(parsed) {
-        return err(ClientError.BadUrl(unwrap_err(parsed)))
+    if Err(e) = parsed {
+        return err(ClientError.BadUrl(e))
     }
     val u = unwrap(parsed)
     val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
@@ -1334,14 +1334,14 @@ pub fn stream(
     val sock = try open_socket(u, via, ca_file, timeout)
     val _ = net.set_timeout(sock, timeout)
     val sent = write_request(sock, method, u, via, option_unwrap_or<[Header]>(headers, []), body, false, false)
-    if !is_ok(sent) {
+    if Err(e) = sent {
         net.close(sock)
-        return err(unwrap_err(sent))
+        return err(e)
     }
     val read = read_head(sock)
-    if !is_ok(read) {
+    if Err(e) = read {
         net.close(sock)
-        return err(unwrap_err(read))
+        return err(e)
     }
     val head = unwrap(read)
     val te = header_value(head.headers, "Transfer-Encoding")

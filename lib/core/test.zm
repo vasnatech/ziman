@@ -92,8 +92,8 @@ pub fn assert_none<T>(opt: Option<T>) {
 
 // The `Ok` value inside `r`, or a failure naming the `Err` value found instead.
 pub fn assert_ok<T, E>(r: Result<T, E>) -> T {
-    if !is_ok(r) {
-        fail(format("assertion failed: expected Ok, got Err({})", unwrap_err(r)))
+    if Err(e) = r {
+        fail(format("assertion failed: expected Ok, got Err({})", e))
     }
     return unwrap(r)
 }

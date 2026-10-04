@@ -88,8 +88,8 @@ pub fn uuid_from_string(s: string) -> Result<Uuid, string> {
         }
     }
     val bytes = bytes_from_hex(replace(s, "-", ""))
-    if !is_ok(bytes) {
-        return err(format("invalid UUID '{}': {}", s, unwrap_err(bytes)))
+    if Err(e) = bytes {
+        return err(format("invalid UUID '{}': {}", s, e))
     }
     return ok(Uuid { bytes: unwrap(bytes) })
 }

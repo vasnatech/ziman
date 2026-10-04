@@ -135,8 +135,8 @@ fn net_error_from_raw(raw: string) -> NetError {
 // `host` is a name or an address (IPv4 or IPv6).
 pub fn connect(host: string, port: int) -> Result<Socket, NetError> {
     val r = connect_raw(host, port)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
     }
     return Socket { handle: unwrap(r) }
 }
@@ -144,8 +144,8 @@ pub fn connect(host: string, port: int) -> Result<Socket, NetError> {
 // Port 0 asks the OS for a free port; `listener_port` says which.
 pub fn listen(host: string, port: int) -> Result<Listener, NetError> {
     val r = listen_raw(host, port)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
     }
     return Listener { handle: unwrap(r) }
 }
@@ -158,8 +158,8 @@ pub fn listen(host: string, port: int) -> Result<Listener, NetError> {
 // from `listen_tls` itself means the certificate or key could not be used, or the port is not available.
 pub fn listen_tls(host: string, port: int, cert_file: string, key_file: string) -> Result<Listener, NetError> {
     val r = listen_tls_raw(host, port, cert_file, key_file)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
     }
     return Listener { handle: unwrap(r) }
 }
@@ -172,8 +172,8 @@ pub fn listener_port(l: Listener) -> int {
 // Blocks until a client connects.
 pub fn accept(l: Listener) -> Result<Socket, NetError> {
     val r = accept_raw(l.handle)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
     }
     return Socket { handle: unwrap(r) }
 }
@@ -182,8 +182,8 @@ pub fn accept(l: Listener) -> Result<Socket, NetError> {
 // has arrived, up to `max` bytes.
 pub fn read(s: Socket, max: int) -> Result<[byte], NetError> {
     val r = read_raw(s.handle, max)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
     }
     return unwrap(r)
 }
@@ -192,8 +192,8 @@ pub fn read(s: Socket, max: int) -> Result<[byte], NetError> {
 // first) -- the shape a length-prefixed protocol wants.
 pub fn read_exact(s: Socket, count: int) -> Result<[byte], NetError> {
     val r = read_exact_raw(s.handle, count)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
     }
     return unwrap(r)
 }
@@ -201,8 +201,8 @@ pub fn read_exact(s: Socket, count: int) -> Result<[byte], NetError> {
 // Writes every byte before returning, and reports how many.
 pub fn write(s: Socket, data: [byte]) -> Result<int, NetError> {
     val r = write_raw(s.handle, data)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
     }
     return unwrap(r)
 }
@@ -211,8 +211,8 @@ pub fn write(s: Socket, data: [byte]) -> Result<int, NetError> {
 // read that receives one is an error rather than a silent truncation.
 pub fn read_text(s: Socket, max: int) -> Result<string, NetError> {
     val r = read_text_raw(s.handle, max)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
     }
     return unwrap(r)
 }
@@ -220,8 +220,8 @@ pub fn read_text(s: Socket, max: int) -> Result<string, NetError> {
 // Writes the whole string (UTF-8) before returning, and reports how many bytes.
 pub fn write_text(s: Socket, text: string) -> Result<int, NetError> {
     val r = write_text_raw(s.handle, text)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
     }
     return unwrap(r)
 }

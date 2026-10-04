@@ -361,8 +361,8 @@ fn parse_fixed_width_int(s: string, start: int, width: int) -> Result<int, strin
 fn parse_year(s: string, start: int) -> Result<[int], string> {
     if !is_char_at(s, start, "+") && !is_char_at(s, start, "-") {
         val r = parse_fixed_width_int(s, start, 4)
-        if !is_ok(r) {
-            return err(unwrap_err(r))
+        if Err(e) = r {
+            return err(e)
         }
         return ok([unwrap(r), start + 4])
     }
@@ -375,8 +375,8 @@ fn parse_year(s: string, start: int) -> Result<[int], string> {
         return err(format("a signed year needs 4 to 9 digits, found {}", digits))
     }
     val magnitude = parse_int(substring(s, start + 1, end))
-    if !is_ok(magnitude) {
-        return err(unwrap_err(magnitude))
+    if Err(e) = magnitude {
+        return err(e)
     }
     return ok([if is_char_at(s, start, "-") { 0 - unwrap(magnitude) } else { unwrap(magnitude) }, end])
 }
@@ -393,50 +393,50 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
     for part in fmt.parts {
         if DateTimePart.is_Year(part) {
             val r = parse_year(s, si)
-            if !is_ok(r) {
-                return err(format("invalid year in '{}': {}", s, unwrap_err(r)))
+            if Err(e) = r {
+                return err(format("invalid year in '{}': {}", s, e))
             }
             year = unwrap(r)[0]
             si = unwrap(r)[1]
         } else if DateTimePart.is_Month(part) {
             val r = parse_fixed_width_int(s, si, 2)
-            if !is_ok(r) {
-                return err(format("invalid month in '{}': {}", s, unwrap_err(r)))
+            if Err(e) = r {
+                return err(format("invalid month in '{}': {}", s, e))
             }
             month = unwrap(r)
             si = si + 2
         } else if DateTimePart.is_Day(part) {
             val r = parse_fixed_width_int(s, si, 2)
-            if !is_ok(r) {
-                return err(format("invalid day in '{}': {}", s, unwrap_err(r)))
+            if Err(e) = r {
+                return err(format("invalid day in '{}': {}", s, e))
             }
             day = unwrap(r)
             si = si + 2
         } else if DateTimePart.is_Hour(part) {
             val r = parse_fixed_width_int(s, si, 2)
-            if !is_ok(r) {
-                return err(format("invalid hour in '{}': {}", s, unwrap_err(r)))
+            if Err(e) = r {
+                return err(format("invalid hour in '{}': {}", s, e))
             }
             hour = unwrap(r)
             si = si + 2
         } else if DateTimePart.is_Minute(part) {
             val r = parse_fixed_width_int(s, si, 2)
-            if !is_ok(r) {
-                return err(format("invalid minute in '{}': {}", s, unwrap_err(r)))
+            if Err(e) = r {
+                return err(format("invalid minute in '{}': {}", s, e))
             }
             minute = unwrap(r)
             si = si + 2
         } else if DateTimePart.is_Second(part) {
             val r = parse_fixed_width_int(s, si, 2)
-            if !is_ok(r) {
-                return err(format("invalid second in '{}': {}", s, unwrap_err(r)))
+            if Err(e) = r {
+                return err(format("invalid second in '{}': {}", s, e))
             }
             second = unwrap(r)
             si = si + 2
         } else if DateTimePart.is_Nano(part) {
             val r = parse_fixed_width_int(s, si, 9)
-            if !is_ok(r) {
-                return err(format("invalid nanosecond fraction in '{}': {}", s, unwrap_err(r)))
+            if Err(e) = r {
+                return err(format("invalid nanosecond fraction in '{}': {}", s, e))
             }
             nano = unwrap(r)
             si = si + 9
@@ -600,8 +600,8 @@ pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string {
 // date does not exist (31 February).
 pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string> {
     val fields_r = parse_fields(s, fmt)
-    if !is_ok(fields_r) {
-        return err(unwrap_err(fields_r))
+    if Err(e) = fields_r {
+        return err(e)
     }
     val f = unwrap(fields_r)
     return localdate_of(f.year, f.month, f.day)
@@ -706,8 +706,8 @@ pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string {
 // range.
 pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string> {
     val fields_r = parse_fields(s, fmt)
-    if !is_ok(fields_r) {
-        return err(unwrap_err(fields_r))
+    if Err(e) = fields_r {
+        return err(e)
     }
     val f = unwrap(fields_r)
     return localtime_of(f.hour, f.minute, f.second, f.nano)
@@ -976,17 +976,17 @@ pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string {
 // range.
 pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string> {
     val fields_r = parse_fields(s, fmt)
-    if !is_ok(fields_r) {
-        return err(unwrap_err(fields_r))
+    if Err(e) = fields_r {
+        return err(e)
     }
     val f = unwrap(fields_r)
     val date_r = localdate_of(f.year, f.month, f.day)
-    if !is_ok(date_r) {
-        return err(unwrap_err(date_r))
+    if Err(e) = date_r {
+        return err(e)
     }
     val time_r = localtime_of(f.hour, f.minute, f.second, f.nano)
-    if !is_ok(time_r) {
-        return err(unwrap_err(time_r))
+    if Err(e) = time_r {
+        return err(e)
     }
     return ok(LocalDateTime { date: unwrap(date_r), time: unwrap(time_r) })
 }
@@ -1282,12 +1282,12 @@ pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, 
     val datetime_part = substring(s, 0, fmt.width)
     val offset_part = substring(s, fmt.width, len(s))
     val dt_r = localdatetime_parse_pattern(datetime_part, fmt)
-    if !is_ok(dt_r) {
-        return err(unwrap_err(dt_r))
+    if Err(e) = dt_r {
+        return err(e)
     }
     val offset_r = zoneoffset_from_string(offset_part)
-    if !is_ok(offset_r) {
-        return err(unwrap_err(offset_r))
+    if Err(e) = offset_r {
+        return err(e)
     }
     return ok(localdatetime_to_instant(unwrap(dt_r), unwrap(offset_r)))
 }

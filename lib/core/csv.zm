@@ -318,9 +318,9 @@ fn read_record(
         } else {
             send(cell, number)
             val line_result = Option.unwrap_Some(item)
-            if !is_ok(line_result) {
+            if Err(e) = line_result {
                 done = true
-                result = Option<Result<RecordText, string>>.Some(record_text_error(number, unwrap_err(line_result)))
+                result = Option<Result<RecordText, string>>.Some(record_text_error(number, e))
             } else {
                 val line = unwrap(line_result)
                 if !started && len(trim(line)) == 0 {
@@ -375,15 +375,16 @@ fn record_error(start_line: int, message: string) -> string {
 
 // One record's text as a row with its real line number.
 fn row_of_record(record: RecordText, sep: string, typed: bool) -> Result<Row, string> {
-    val parsed = parse_rows(record.text, sep, typed)
-    if !is_ok(parsed) {
-        return err(record_error(record.line, unwrap_err(parsed)))
+    return switch parse_rows(record.text, sep, typed) {
+        Ok(rows) {
+            if len(rows) == 0 {
+                err(format("line {}: empty record", record.line))
+            } else {
+                Row { line: record.line, cells: rows[0].cells }
+            }
+        }
+        Err(e) { err(record_error(record.line, e)) }
     }
-    val rows = unwrap(parsed)
-    if len(rows) == 0 {
-        return err(format("line {}: empty record", record.line))
-    }
-    return Row { line: record.line, cells: rows[0].cells }
 }
 
 fn next_object(
@@ -399,18 +400,18 @@ fn next_object(
         return Option<Result<Json, string>>.None
     }
     val text = Option.unwrap_Some(record)
-    if !is_ok(text) {
-        val failure: Result<Json, string> = unwrap_err(text)
+    if Err(e) = text {
+        val failure: Result<Json, string> = err(e)
         return Option<Result<Json, string>>.Some(failure)
     }
     val row = row_of_record(unwrap(text), sep, typed)
-    if !is_ok(row) {
-        val failure: Result<Json, string> = unwrap_err(row)
+    if Err(e) = row {
+        val failure: Result<Json, string> = err(e)
         return Option<Result<Json, string>>.Some(failure)
     }
     val objects = rows_to_objects([unwrap(row)], names, 0, typed)
-    if !is_ok(objects) {
-        val failure: Result<Json, string> = unwrap_err(objects)
+    if Err(e) = objects {
+        val failure: Result<Json, string> = err(e)
         return Option<Result<Json, string>>.Some(failure)
     }
     val array = Json.unwrap_JArray(unwrap(objects))
@@ -430,14 +431,14 @@ fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Js
         return iter_of_array<Result<Json, string>>(no_items)
     }
     val header_text = Option.unwrap_Some(first)
-    if !is_ok(header_text) {
+    if Err(e) = header_text {
         iter_close<Result<string, string>>(lines)
-        return err(unwrap_err(header_text))
+        return err(e)
     }
     val header_row = row_of_record(unwrap(header_text), sep, false)
-    if !is_ok(header_row) {
+    if Err(e) = header_row {
         iter_close<Result<string, string>>(lines)
-        return err(unwrap_err(header_row))
+        return err(e)
     }
     val names = header_of([unwrap(header_row)])
     return switch rows_to_objects([unwrap(header_row)], names, 1, typed) {

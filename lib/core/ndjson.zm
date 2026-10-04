@@ -20,8 +20,8 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
             continue
         }
         val parsed = parse_json(line)
-        if !is_ok(parsed) {
-            return err(format("line {}: {}", line_no, unwrap_err(parsed)))
+        if Err(e) = parsed {
+            return err(format("line {}: {}", line_no, e))
         }
         ab_append(items, unwrap(parsed))
     }
