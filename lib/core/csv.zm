@@ -285,11 +285,10 @@ fn quote_count(line: string) -> int {
 // it can give one (a stray quote in the middle of a cell looks the same to a line count), else that a
 // quoted cell is never closed.
 fn unclosed_record(text: string, start_line: int, sep: string) -> Result<RecordText, string> {
-    val parsed = parse_rows(text, sep, false)
-    if !is_ok(parsed) {
-        return err(record_error(start_line, unwrap_err(parsed)))
+    return switch parse_rows(text, sep, false) {
+        Ok(_) { record_text_error(start_line, "a quoted cell is never closed") }
+        Err(e) { err(record_error(start_line, e)) }
     }
-    return record_text_error(start_line, "a quoted cell is never closed")
 }
 
 // The next record of a file being read line by line, or None at its end. Blank lines between records are
@@ -441,14 +440,17 @@ fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Js
         return err(unwrap_err(header_row))
     }
     val names = header_of([unwrap(header_row)])
-    val checked = rows_to_objects([unwrap(header_row)], names, 1, typed)
-    if !is_ok(checked) {
-        iter_close<Result<string, string>>(lines)
-        return err(unwrap_err(checked))
+    return switch rows_to_objects([unwrap(header_row)], names, 1, typed) {
+        Ok(_) {
+            iter_from<Result<Json, string>>(fn() -> Option<Result<Json, string>> {
+                next_object(lines, cell, names, sep, typed)
+            }, fn() { iter_close<Result<string, string>>(lines) })
+        }
+        Err(e) {
+            iter_close<Result<string, string>>(lines)
+            err(e)
+        }
     }
-    return iter_from<Result<Json, string>>(fn() -> Option<Result<Json, string>> {
-        next_object(lines, cell, names, sep, typed)
-    }, fn() { iter_close<Result<string, string>>(lines) })
 }
 
 // A CSV file read lazily, one record at a time as a `for` loop asks for them, so a file of any size uses

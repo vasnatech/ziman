@@ -1282,14 +1282,17 @@ pub struct Connection {
 pub fn connect(url: string) -> Result<Connection, DbError> {
     val parsed = try parse_url(url)
     val sock = try lift<Socket>(net.connect(parsed.host, parsed.port))
-    val ready = handshake(sock, parsed)
-    if !is_ok(ready) {
-        net.close(sock)
-        return err(unwrap_err(ready))
+    return switch handshake(sock, parsed) {
+        Ok(_) {
+            val requests: Channel<Request> = channel_new()
+            spawn serve(sock, requests)
+            Connection { requests: requests, guard: guard_new(requests, Request.Close) }
+        }
+        Err(e) {
+            net.close(sock)
+            err(e)
+        }
     }
-    val requests: Channel<Request> = channel_new()
-    spawn serve(sock, requests)
-    return Connection { requests: requests, guard: guard_new<Request>(requests, Request.Close) }
 }
 
 fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {

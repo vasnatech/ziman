@@ -314,11 +314,10 @@ pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetErro
 // Applies to reads and writes on this socket; a call that waits longer
 // fails with `Timeout`. Without one, a read on a dead peer waits forever.
 pub fn set_timeout(s: Socket, millis: int) -> Result<unit, NetError> {
-    val r = set_timeout_raw(s.handle, millis)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    return switch set_timeout_raw(s.handle, millis) {
+        Ok(_) { unit }
+        Err(e) { err(net_error_from_raw(e)) }
     }
-    return unit
 }
 
 fn tls_verify_level(v: TlsVerify) -> int {
@@ -339,11 +338,10 @@ pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError> {
 // self-signed test certificate).
 pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError> {
     val ca = option_unwrap_or<string>(ca_file, "")
-    val r = start_tls_raw(s.handle, host, tls_verify_level(verify), ca)
-    if !is_ok(r) {
-        return err(net_error_from_raw(unwrap_err(r)))
+    return switch start_tls_raw(s.handle, host, tls_verify_level(verify), ca) {
+        Ok(_) { unit }
+        Err(e) { err(net_error_from_raw(e)) }
     }
-    return unit
 }
 
 // connect + start_tls. The socket is closed if the handshake fails, so a
@@ -361,12 +359,13 @@ pub fn connect_tls_with(
     ca_file: Option<string>
 ) -> Result<Socket, NetError> {
     val s = try connect(host, port)
-    val upgraded = start_tls_with(s, host, verify, ca_file)
-    if !is_ok(upgraded) {
-        close(s)
-        return err(unwrap_err(upgraded))
+    return switch start_tls_with(s, host, verify, ca_file) {
+        Ok(_) { s }
+        Err(e) {
+            close(s)
+            err(e)
+        }
     }
-    return s
 }
 
 // ---------------------------------------------------------------- idle connections

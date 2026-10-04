@@ -673,9 +673,8 @@ fn finish_page(sock: Socket, id: int, names: [string], oids: [int]) -> CursorSte
         return CursorStep { page: partial, open: false, names: p.names, oids: p.oids, deferred: p.failure }
     }
     if !p.suspended {
-        val drained = sync_and_drain(sock)
-        if !is_ok(drained) {
-            return failed_step(unwrap_err(drained))
+        if Err(e) = sync_and_drain(sock) {
+            return failed_step(e)
         }
     }
     val page: Result<Page, DbError> = Page { rows: p.rows, finished: !p.suspended, cursor: id }
@@ -702,20 +701,18 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
         frame("E", bytes_concat(cstring(""), u32_to_bytes(cursor_fetch_rows))),
         frame("H", [])
     )
-    val sent = lift<int>(net.write(sock, batch))
-    if !is_ok(sent) {
-        return failed_step(unwrap_err(sent))
+    return switch lift<int>(net.write(sock, batch)) {
+        Ok(_) { finish_page(sock, id, [], []) }
+        Err(e) { failed_step(e) }
     }
-    return finish_page(sock, id, [], [])
 }
 
 fn continue_cursor(sock: Socket, id: int, names: [string], oids: [int]) -> CursorStep {
     val batch = bytes_concat(frame("E", bytes_concat(cstring(""), u32_to_bytes(cursor_fetch_rows))), frame("H", []))
-    val sent = lift<int>(net.write(sock, batch))
-    if !is_ok(sent) {
-        return failed_step(unwrap_err(sent))
+    return switch lift<int>(net.write(sock, batch)) {
+        Ok(_) { finish_page(sock, id, names, oids) }
+        Err(e) { failed_step(e) }
     }
-    return finish_page(sock, id, names, oids)
 }
 
 // -------------------------------------------------------- owner thread API
