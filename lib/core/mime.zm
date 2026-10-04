@@ -326,11 +326,10 @@ pub fn of_extension(extension: string) -> Option<MediaType> {
     if starts_with(e, ".") {
         e = substring(e, 1, len(e))
     }
-    val known = map_get(extension_types, e)
-    if Option.is_None(known) {
-        return Option<MediaType>.None
+    if Some(k) = map_get(extension_types, e) {
+        return Option<MediaType>.Some(unwrap(parse(k)))
     }
-    return Option<MediaType>.Some(unwrap(parse(Option.unwrap_Some(known))))
+    return Option<MediaType>.None
 }
 
 // The media type of the file at `path`, by its extension: `of_path("/srv/report.csv")` is `text/csv`.

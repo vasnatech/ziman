@@ -260,14 +260,11 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
     val headers = ab_new<Header>()
     var i = 1
     while i < len(lines) {
-        val pair = split_once(lines[i], ":")
-        if !Option.is_Some(pair) {
+        if Some(pair) = split_once(lines[i], ":") {
+            ab_append(headers, Header { name: pair[0], value: trim(pair[1]) })
+        } else {
             return err(ClientError.BadResponse(concat("malformed header line: ", lines[i])))
         }
-        ab_append(
-            headers,
-            Header { name: Option.unwrap_Some(pair)[0], value: trim(Option.unwrap_Some(pair)[1]) }
-        )
         i = i + 1
     }
     return ok(Head {
@@ -505,42 +502,44 @@ fn fail_closed(s: Socket, e: ClientError) -> Result<Socket, ClientError> {
 
 // Connects to `u`, directly or through `proxy` (an https target through a CONNECT tunnel).
 fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: int) -> Result<Socket, ClientError> {
-    if !Option.is_Some(proxy) {
-        val direct = try lift<Socket>(if u.secure {
-            net.connect_tls_with(u.host, u.port, net.TlsVerify.Full, ca_file)
-        } else {
-            net.connect(u.host, u.port)
-        })
-        return ok(direct)
+    if Some(p) = proxy {
+        val sock = try lift<Socket>(net.connect(p.host, p.port))
+        if !u.secure {
+            return ok(sock)
+        }
+        val timeout_set = net.set_timeout(sock, timeout_ms)
+        val target = format("{}:{}", u.host, u.port)
+        val request = format(
+            "CONNECT {} HTTP/1.1\r\nHost: {}\r\n{}\r\n",
+            target,
+            target,
+            if len(p.userinfo) > 0 { format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)) } else { "" }
+        )
+        val sent = lift<int>(net.write_text(sock, request))
+        if Err(e) = sent {
+            return fail_closed(sock, e)
+        }
+        val head = read_head(sock)
+        if Err(e) = head {
+            return fail_closed(sock, e)
+        }
+        if unwrap(head).status != 200 {
+            return fail_closed(
+                sock,
+                ClientError.Network(format("proxy refused the tunnel: {}", unwrap(head).status_line))
+            )
+        }
+        return switch lift<unit>(net.start_tls_with(sock, u.host, net.TlsVerify.Full, ca_file)) {
+            Ok(_) { ok(sock) }
+            Err(e) { fail_closed(sock, e) }
+        }
     }
-    val p = Option.unwrap_Some(proxy)
-    val sock = try lift<Socket>(net.connect(p.host, p.port))
-    if !u.secure {
-        return ok(sock)
-    }
-    val timeout_set = net.set_timeout(sock, timeout_ms)
-    val target = format("{}:{}", u.host, u.port)
-    val request = format(
-        "CONNECT {} HTTP/1.1\r\nHost: {}\r\n{}\r\n",
-        target,
-        target,
-        if len(p.userinfo) > 0 { format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)) } else { "" }
-    )
-    val sent = lift<int>(net.write_text(sock, request))
-    if Err(e) = sent {
-        return fail_closed(sock, e)
-    }
-    val head = read_head(sock)
-    if Err(e) = head {
-        return fail_closed(sock, e)
-    }
-    if unwrap(head).status != 200 {
-        return fail_closed(sock, ClientError.Network(format("proxy refused the tunnel: {}", unwrap(head).status_line)))
-    }
-    return switch lift<unit>(net.start_tls_with(sock, u.host, net.TlsVerify.Full, ca_file)) {
-        Ok(_) { ok(sock) }
-        Err(e) { fail_closed(sock, e) }
-    }
+    val direct = try lift<Socket>(if u.secure {
+        net.connect_tls_with(u.host, u.port, net.TlsVerify.Full, ca_file)
+    } else {
+        net.connect(u.host, u.port)
+    })
+    return ok(direct)
 }
 
 // What one exchange produced: the response, and whether the connection is fit for reuse.

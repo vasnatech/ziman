@@ -198,19 +198,17 @@ fn parse_header_line(line: string) -> Result<Header, HttpError> {
     if len(line) == 0 || starts_with(line, " ") || starts_with(line, "\t") {
         return err(HttpError.BadRequest("malformed header line"))
     }
-    val split_line = split_once(line, ":")
-    if !Option.is_Some(split_line) {
-        return err(HttpError.BadRequest(concat("header line has no ':': ", line)))
+    if Some(parts) = split_once(line, ":") {
+        val name = parts[0]
+        if !is_token(name) {
+            return err(HttpError.BadRequest("malformed header name"))
+        }
+        if !is_field_value(parts[1]) {
+            return err(HttpError.BadRequest("a header value has a control character"))
+        }
+        return Header { name: name, value: trim(parts[1]) }
     }
-    val parts = Option.unwrap_Some(split_line)
-    val name = parts[0]
-    if !is_token(name) {
-        return err(HttpError.BadRequest("malformed header name"))
-    }
-    if !is_field_value(parts[1]) {
-        return err(HttpError.BadRequest("a header value has a control character"))
-    }
-    return Header { name: name, value: trim(parts[1]) }
+    return err(HttpError.BadRequest(concat("header line has no ':': ", line)))
 }
 
 // A request body sent with `Transfer-Encoding: chunked`, decoded, and the bytes read past its end
@@ -962,13 +960,11 @@ fn negotiate<O>(encoders: [Encoder<O>], req: Request) -> Option<Encoder<O>> {
 
 // The first decoder whose media type the request's `Content-Type` is.
 fn select_decoder<I>(decoders: [Decoder<I>], req: Request) -> Option<Decoder<I>> {
-    val sent = content_type(req.headers)
-    if !is_Some(sent) {
-        return Option<Decoder<I>>.None
-    }
-    for r in decoders {
-        if mime.matches(r.media, unwrap_Some(sent)) {
-            return Option<Decoder<I>>.Some(r)
+    if Some(sent) = content_type(req.headers) {
+        for r in decoders {
+            if mime.matches(r.media, sent) {
+                return Option<Decoder<I>>.Some(r)
+            }
         }
     }
     return Option<Decoder<I>>.None

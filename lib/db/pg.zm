@@ -273,13 +273,14 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
     val final = try expect_auth(sock, 12)
     val server_final = text_of(final.body, 4, len(final.body))
     val verifier = scram_attr(server_final, "v")
-    if !Option.is_Some(verifier) {
-        return err(conn_err("malformed SCRAM server-final-message"))
-    }
     val server_key = hmac_sha256(salted, string_to_bytes("Server Key"))
     val expected = base64_encode(hmac_sha256(server_key, auth_message))
-    if Option.unwrap_Some(verifier) != expected {
-        return err(conn_err("SCRAM server signature mismatch -- the server did not prove it knows the password"))
+    if Some(v) = verifier {
+        if v != expected {
+            return err(conn_err("SCRAM server signature mismatch -- the server did not prove it knows the password"))
+        }
+    } else {
+        return err(conn_err("malformed SCRAM server-final-message"))
     }
     return 0
 }

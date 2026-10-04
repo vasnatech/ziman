@@ -309,15 +309,14 @@ fn read_record(
     while !done {
         val item = iter_next<Result<string, string>>(lines)
         val number = receive(cell) + 1
-        if Option.is_None(item) {
+        if None = item {
             send(cell, number - 1)
             done = true
             if started {
                 result = Option<Result<RecordText, string>>.Some(unclosed_record(text, start_line, sep))
             }
-        } else {
+        } else if Some(line_result) = item {
             send(cell, number)
-            val line_result = Option.unwrap_Some(item)
             if Err(e) = line_result {
                 done = true
                 result = Option<Result<RecordText, string>>.Some(record_text_error(number, e))
