@@ -536,7 +536,7 @@ fn encode_param(v: SqlValue) -> [byte] {
         return u32_to_bytes(4294967295)
     }
     val text = switch v {
-        Null { "" } // unreachable: already returned above
+        Null { "" }  // unreachable: already returned above
         Int(n) { str(n) }
         Float(f) { float_to_text(f) }
         Text(s) { s }

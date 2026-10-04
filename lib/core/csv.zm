@@ -500,130 +500,130 @@ fn quote_cell(s: string) -> string {
     return concat("\"", concat(replace(s, "\"", "\"\""), "\""))
 }
 
-    fn write_row(out: StringBuilder, cells: [string], sep: string) {
+fn write_row(out: StringBuilder, cells: [string], sep: string) {
+    var first = true
+    for cell in cells {
+        if !first {
+            sb_append(out, sep)
+        }
+        first = false
+        sb_append(out, if needs_quotes(cell, sep) { quote_cell(cell) } else { cell })
+    }
+    sb_append(out, "\n")
+}
+
+// A table of raw strings as text, one row per line, quoting where a cell needs it. Nothing
+// is inferred: an empty string is written as an empty cell.
+pub fn csv_rows_to_string(rows: [[string]]) -> string {
+    val out = sb_new()
+    for row in rows {
+        write_row(out, row, ",")
+    }
+    return sb_to_string(out)
+}
+
+// csv_rows_to_string with another one-character delimiter. An Err for an invalid delimiter.
+pub fn csv_rows_to_string_with(rows: [[string]], delimiter: string) -> Result<string, string> {
+    try check_delimiter(delimiter)
+    val out = sb_new()
+    for row in rows {
+        write_row(out, row, delimiter)
+    }
+    return ok(sb_to_string(out))
+}
+
+// A scalar as the text of its cell. A string that would read back as something else under
+// parse_csv_typed (empty, numeric, true/false) is quoted so it stays a string.
+fn cell_text(v: Json, key: string, sep: string) -> Result<string, string> {
+    if Json.is_JNull(v) {
+        return ok("")
+    }
+    if Json.is_JBool(v) {
+        return ok(if Json.unwrap_JBool(v) { "true" } else { "false" })
+    }
+    if Json.is_JNumber(v) {
+        return ok(number_cell(Json.unwrap_JNumber(v)))
+    }
+    if Json.is_JString(v) {
+        val s = Json.unwrap_JString(v)
+        if len(s) == 0 || s == "true" || s == "false" || looks_int(s) || looks_float(s) {
+            return ok(quote_cell(s))
+        }
+        return ok(if needs_quotes(s, sep) { quote_cell(s) } else { s })
+    }
+    return err(format("field '{}' is nested more than one level deep (or an array); CSV cannot hold it", key))
+}
+
+// Flattens one row into ordered (column, cell text) entries.
+fn flatten_row(row: Json, sep: string) -> Result<Map<string, string>, string> {
+    val cells = mapb_new<string, string>()
+    for key, value in Json.unwrap_JObject(row) {
+        if Json.is_JObject(value) {
+            for inner_key, inner in Json.unwrap_JObject(value) {
+                val name = concat(key, concat(".", inner_key))
+                val text = try cell_text(inner, name, sep)
+                mapb_set<string, string>(cells, name, text)
+            }
+        } else {
+            val text = try cell_text(value, key, sep)
+            mapb_set<string, string>(cells, key, text)
+        }
+    }
+    return ok(mapb_to_map<string, string>(cells))
+}
+
+// A JSON array of objects as CSV: a header row of the union of the rows' keys in first-seen
+// order, then one line per object; a key a row lacks is an empty cell. An object value is
+// flattened one level into dotted columns (`address.city`); an array, or an object nested
+// deeper, is an Err (CSV cannot hold it), as is a row that is not an object.
+pub fn csv_to_string(rows: Json) -> Result<string, string> {
+    return csv_to_string_with(rows, ",")
+}
+
+// csv_to_string with another one-character delimiter.
+pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, string> {
+    try check_delimiter(delimiter)
+    if !Json.is_JArray(rows) {
+        return err("expected an array of objects")
+    }
+    val flat = ab_new<Map<string, string>>()
+    val columns = setb_new<string>()
+    var i = 0
+    for row in Json.unwrap_JArray(rows) {
+        if !Json.is_JObject(row) {
+            return err(format("row {} is not an object", i))
+        }
+        val cells = try flatten_row(row, delimiter)
+        for name in map_keys(cells) {
+            setb_add<string>(columns, name)
+        }
+        ab_append<Map<string, string>>(flat, cells)
+        i = i + 1
+    }
+    val names = set_items(setb_to_set<string>(columns))
+    val out = sb_new()
+    write_row(out, names, delimiter)
+    for cells in ab_to_array<Map<string, string>>(flat) {
         var first = true
-        for cell in cells {
+        for name in names {
             if !first {
-                sb_append(out, sep)
+                sb_append(out, delimiter)
             }
             first = false
-            sb_append(out, if needs_quotes(cell, sep) { quote_cell(cell) } else { cell })
+            sb_append(out, option_unwrap_or<string>(map_get(cells, name), ""))
         }
         sb_append(out, "\n")
     }
+    return ok(sb_to_string(out))
+}
 
-    // A table of raw strings as text, one row per line, quoting where a cell needs it. Nothing
-    // is inferred: an empty string is written as an empty cell.
-    pub fn csv_rows_to_string(rows: [[string]]) -> string {
-        val out = sb_new()
-        for row in rows {
-            write_row(out, row, ",")
-        }
-        return sb_to_string(out)
+// A JSON number as the text of a cell: an int or bigint as its digits, a float as the fewest digits that read back, a decimal
+// as its digits at its own scale.
+fn number_cell(n: Number) -> string {
+    switch n {
+        Int(i) { return str(i) }
+        Float(f) { return float_to_text(f) }
+        Bigint(b) { return str(b) }
+        Decimal(d) { return str(d) }
     }
-
-    // csv_rows_to_string with another one-character delimiter. An Err for an invalid delimiter.
-    pub fn csv_rows_to_string_with(rows: [[string]], delimiter: string) -> Result<string, string> {
-        try check_delimiter(delimiter)
-        val out = sb_new()
-        for row in rows {
-            write_row(out, row, delimiter)
-        }
-        return ok(sb_to_string(out))
-    }
-
-    // A scalar as the text of its cell. A string that would read back as something else under
-    // parse_csv_typed (empty, numeric, true/false) is quoted so it stays a string.
-    fn cell_text(v: Json, key: string, sep: string) -> Result<string, string> {
-        if Json.is_JNull(v) {
-            return ok("")
-        }
-        if Json.is_JBool(v) {
-            return ok(if Json.unwrap_JBool(v) { "true" } else { "false" })
-        }
-        if Json.is_JNumber(v) {
-            return ok(number_cell(Json.unwrap_JNumber(v)))
-        }
-        if Json.is_JString(v) {
-            val s = Json.unwrap_JString(v)
-            if len(s) == 0 || s == "true" || s == "false" || looks_int(s) || looks_float(s) {
-                return ok(quote_cell(s))
-            }
-            return ok(if needs_quotes(s, sep) { quote_cell(s) } else { s })
-        }
-        return err(format("field '{}' is nested more than one level deep (or an array); CSV cannot hold it", key))
-    }
-
-    // Flattens one row into ordered (column, cell text) entries.
-    fn flatten_row(row: Json, sep: string) -> Result<Map<string, string>, string> {
-        val cells = mapb_new<string, string>()
-        for key, value in Json.unwrap_JObject(row) {
-            if Json.is_JObject(value) {
-                for inner_key, inner in Json.unwrap_JObject(value) {
-                    val name = concat(key, concat(".", inner_key))
-                    val text = try cell_text(inner, name, sep)
-                    mapb_set<string, string>(cells, name, text)
-                }
-            } else {
-                val text = try cell_text(value, key, sep)
-                mapb_set<string, string>(cells, key, text)
-            }
-        }
-        return ok(mapb_to_map<string, string>(cells))
-    }
-
-    // A JSON array of objects as CSV: a header row of the union of the rows' keys in first-seen
-    // order, then one line per object; a key a row lacks is an empty cell. An object value is
-    // flattened one level into dotted columns (`address.city`); an array, or an object nested
-    // deeper, is an Err (CSV cannot hold it), as is a row that is not an object.
-    pub fn csv_to_string(rows: Json) -> Result<string, string> {
-        return csv_to_string_with(rows, ",")
-    }
-
-    // csv_to_string with another one-character delimiter.
-    pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, string> {
-        try check_delimiter(delimiter)
-        if !Json.is_JArray(rows) {
-            return err("expected an array of objects")
-        }
-        val flat = ab_new<Map<string, string>>()
-        val columns = setb_new<string>()
-        var i = 0
-        for row in Json.unwrap_JArray(rows) {
-            if !Json.is_JObject(row) {
-                return err(format("row {} is not an object", i))
-            }
-            val cells = try flatten_row(row, delimiter)
-            for name in map_keys(cells) {
-                setb_add<string>(columns, name)
-            }
-            ab_append<Map<string, string>>(flat, cells)
-            i = i + 1
-        }
-        val names = set_items(setb_to_set<string>(columns))
-        val out = sb_new()
-        write_row(out, names, delimiter)
-        for cells in ab_to_array<Map<string, string>>(flat) {
-            var first = true
-            for name in names {
-                if !first {
-                    sb_append(out, delimiter)
-                }
-                first = false
-                sb_append(out, option_unwrap_or<string>(map_get(cells, name), ""))
-            }
-            sb_append(out, "\n")
-        }
-        return ok(sb_to_string(out))
-    }
-
-    // A JSON number as the text of a cell: an int or bigint as its digits, a float as the fewest digits that read back, a decimal
-    // as its digits at its own scale.
-    fn number_cell(n: Number) -> string {
-        switch n {
-            Int(i) { return str(i) }
-            Float(f) { return float_to_text(f) }
-            Bigint(b) { return str(b) }
-            Decimal(d) { return str(d) }
-        }
-    }
+}
