@@ -480,11 +480,11 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
             return ok(Json.JObject(set(fields, name, Json.JObject(Map<string, Json> {}))))
         }
         if Some(current) = existing {
-            if !Json.is_JArray(current) {
-                return err(format("'{}' is already defined and is not an array of tables", name))
+            if JArray(items) = current {
+                val grown = push(items, Json.JObject(Map<string, Json> {}))
+                return ok(Json.JObject(set(fields, name, Json.JArray(grown))))
             }
-            val grown = push(Json.unwrap_JArray(current), Json.JObject(Map<string, Json> {}))
-            return ok(Json.JObject(set(fields, name, Json.JArray(grown))))
+            return err(format("'{}' is already defined and is not an array of tables", name))
         }
         return ok(Json.JObject(set(fields, name, Json.JArray([Json.JObject(Map<string, Json> {})]))))
     }
@@ -492,8 +492,7 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
     if Some(e) = existing {
         child = e
     }
-    if Json.is_JArray(child) {
-        val items = Json.unwrap_JArray(child)
+    if JArray(items) = child {
         val last = len(items) - 1
         if last < 0 || !Json.is_JObject(items[last]) {
             return err(format("'{}' is not a table", name))
@@ -654,54 +653,50 @@ fn number_text(n: Number) -> string {
 
 // A value on one line: scalars, arrays, and objects as inline tables.
 fn inline_value(j: Json) -> Result<string, string> {
-    if Json.is_JNull(j) {
-        return err("TOML cannot hold null inside an array or inline table")
-    }
-    if Json.is_JBool(j) {
-        return ok(if Json.unwrap_JBool(j) { "true" } else { "false" })
-    }
-    if Json.is_JNumber(j) {
-        return ok(number_text(Json.unwrap_JNumber(j)))
-    }
-    if Json.is_JString(j) {
-        return ok(quote_basic(Json.unwrap_JString(j)))
-    }
-    if Json.is_JArray(j) {
-        val parts = ab_new<string>()
-        for item in Json.unwrap_JArray(j) {
-            val text = try inline_value(item)
-            ab_append(parts, text)
+    return switch j {
+        JNull { err("TOML cannot hold null inside an array or inline table") }
+        JBool(b) { ok(if b { "true" } else { "false" }) }
+        JNumber(n) { ok(number_text(n)) }
+        JString(s) { ok(quote_basic(s)) }
+        JArray(items) {
+            val parts = ab_new<string>()
+            for item in items {
+                val text = try inline_value(item)
+                ab_append(parts, text)
+            }
+            ok(concat("[", join(separator: ", ", pieces: ab_to_array(parts)), "]"))
         }
-        return ok(concat("[", join(separator: ", ", pieces: ab_to_array(parts)), "]"))
-    }
-    val parts = ab_new<string>()
-    for key, value in Json.unwrap_JObject(j) {
-        if Json.is_JNull(value) {
-            continue
+        JObject(fields) {
+            val parts = ab_new<string>()
+            for key, value in fields {
+                if Json.is_JNull(value) {
+                    continue
+                }
+                val text = try inline_value(value)
+                ab_append(parts, concat(key_text(key), " = ", text))
+            }
+            if ab_len(parts) == 0 {
+                ok("{}")
+            } else {
+                ok(concat("{ ", join(separator: ", ", pieces: ab_to_array(parts)), " }"))
+            }
         }
-        val text = try inline_value(value)
-        ab_append(parts, concat(key_text(key), " = ", text))
     }
-    if ab_len(parts) == 0 {
-        return ok("{}")
-    }
-    return ok(concat("{ ", join(separator: ", ", pieces: ab_to_array(parts)), " }"))
 }
 
 fn is_table_array(j: Json) -> bool {
-    if !Json.is_JArray(j) {
-        return false
-    }
-    val items = Json.unwrap_JArray(j)
-    if len(items) == 0 {
-        return false
-    }
-    for item in items {
-        if !Json.is_JObject(item) {
+    if JArray(items) = j {
+        if len(items) == 0 {
             return false
         }
+        for item in items {
+            if !Json.is_JObject(item) {
+                return false
+            }
+        }
+        return true
     }
-    return true
+    return false
 }
 
 fn write_table(out: StringBuilder, table: Json, path: [string]) -> Result<int, string> {

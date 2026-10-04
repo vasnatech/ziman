@@ -87,28 +87,27 @@ fn sql_mismatch(expected: string, v: SqlValue) -> DbError {
 
 // The text of a TEXT value, or a DbError.Sql saying what was found instead.
 pub fn sql_as_text(v: SqlValue) -> Result<string, DbError> {
-    if !SqlValue.is_Text(v) {
-        return err(sql_mismatch("TEXT", v))
+    if Text(s) = v {
+        return s
     }
-    return SqlValue.unwrap_Text(v)
+    return err(sql_mismatch("TEXT", v))
 }
 
 // The number in an INTEGER value, or a DbError.Sql saying what was found instead.
 pub fn sql_as_int(v: SqlValue) -> Result<int, DbError> {
-    if !SqlValue.is_Int(v) {
-        return err(sql_mismatch("INTEGER", v))
+    if Int(n) = v {
+        return n
     }
-    return SqlValue.unwrap_Int(v)
+    return err(sql_mismatch("INTEGER", v))
 }
 
 // SQLite hands an integer column back for a value stored as 0/1 where
 // Postgres would say Bool -- accept an integer that's exactly 0 or 1 too.
 pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError> {
-    if SqlValue.is_Bool(v) {
-        return SqlValue.unwrap_Bool(v)
+    if Bool(b) = v {
+        return b
     }
-    if SqlValue.is_Int(v) {
-        val n = SqlValue.unwrap_Int(v)
+    if Int(n) = v {
         if n == 0 {
             return false
         }
@@ -121,11 +120,11 @@ pub fn sql_as_bool(v: SqlValue) -> Result<bool, DbError> {
 
 // A whole-number column read as a float, or a float column as itself.
 pub fn sql_as_float(v: SqlValue) -> Result<float, DbError> {
-    if SqlValue.is_Float(v) {
-        return SqlValue.unwrap_Float(v)
+    if Float(f) = v {
+        return f
     }
-    if SqlValue.is_Int(v) {
-        return SqlValue.unwrap_Int(v) as float
+    if Int(n) = v {
+        return n as float
     }
     return err(sql_mismatch("FLOAT", v))
 }
@@ -133,14 +132,14 @@ pub fn sql_as_float(v: SqlValue) -> Result<float, DbError> {
 // A decimal column: TEXT holding decimal text (how `#[derive(Row)]` writes one, keeping its scale), or a whole-number or float
 // column read as a decimal.
 pub fn sql_as_decimal(v: SqlValue) -> Result<decimal, DbError> {
-    if SqlValue.is_Text(v) {
-        return sql_lift<decimal>(parse_decimal(SqlValue.unwrap_Text(v)), "decimal")
+    if Text(s) = v {
+        return sql_lift<decimal>(parse_decimal(s), "decimal")
     }
-    if SqlValue.is_Int(v) {
-        return SqlValue.unwrap_Int(v) as decimal
+    if Int(n) = v {
+        return n as decimal
     }
-    if SqlValue.is_Float(v) {
-        return SqlValue.unwrap_Float(v) as decimal
+    if Float(f) = v {
+        return f as decimal
     }
     return err(sql_mismatch("DECIMAL", v))
 }

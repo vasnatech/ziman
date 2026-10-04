@@ -226,15 +226,15 @@ fn check(
     if Err(reason) = algorithm {
         return JwtError.Malformed("the header has no 'alg'")
     }
-    val expected = mac(unwrap(algorithm), key, string_to_bytes(format("{}.{}", parts[0], parts[1])))
-    if !is_Some(expected) {
-        return JwtError.UnsupportedAlgorithm(unwrap(algorithm))
+    val expected = switch mac(unwrap(algorithm), key, string_to_bytes(format("{}.{}", parts[0], parts[1]))) {
+        Some(e) { e }
+        None { return JwtError.UnsupportedAlgorithm(unwrap(algorithm)) }
     }
     val given = crypto.base64url_decode(parts[2])
     if Err(reason) = given {
         return JwtError.Malformed(format("the signature is not base64url ({})", reason))
     }
-    if !crypto.bytes_equal(unwrap_Some(expected), unwrap(given)) {
+    if !crypto.bytes_equal(expected, unwrap(given)) {
         return JwtError.BadSignature
     }
     val payload = try decode_part(parts[1], "the payload")
@@ -257,8 +257,11 @@ fn check(
     }
     if Some(wanted) = issuer {
         if Some(found) = json_object_get(payload, "iss") {
-            val actual = issuer_of(found)
-            if !is_Some(actual) || unwrap_Some(actual) != wanted {
+            val actual = switch issuer_of(found) {
+                Some(a) { a }
+                None { return JwtError.WrongIssuer }
+            }
+            if actual != wanted {
                 return JwtError.WrongIssuer
             }
         } else {

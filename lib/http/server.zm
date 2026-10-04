@@ -154,11 +154,10 @@ fn lift<T>(r: Result<T, NetError>) -> Result<T, HttpError> {
 }
 
 fn text_of(b: [byte], start: int, end: int) -> Result<string, HttpError> {
-    val s = bytes_to_string(slice<byte>(b, start, end))
-    if !is_ok(s) {
-        return err(HttpError.BadRequest("request contains a NUL byte"))
+    if Ok(s) = bytes_to_string(slice<byte>(b, start, end)) {
+        return s
     }
-    return unwrap(s)
+    return err(HttpError.BadRequest("request contains a NUL byte"))
 }
 
 val crlf: [byte] = [13b, 10b]
@@ -265,11 +264,15 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Res
         }
         val size_line = try text_of(buf, 0, eol)
         val size_text = trim(split(size_line, ";")[0])
-        val size = int_from_hex(size_text)
-        if !is_ok(size) || unwrap(size) < 0 || len(size_text) > 8 {
-            return err(HttpError.BadRequest(format("invalid chunk size '{}'", size_line)))
+        val n = switch int_from_hex(size_text) {
+            Ok(v) {
+                if v < 0 || len(size_text) > 8 {
+                    return err(HttpError.BadRequest(format("invalid chunk size '{}'", size_line)))
+                }
+                v
+            }
+            Err(_) { return err(HttpError.BadRequest(format("invalid chunk size '{}'", size_line))) }
         }
-        val n = unwrap(size)
         buf = slice<byte>(buf, eol + 2, len(buf))
         if n == 0 {
             // trailers: header lines up to a blank line, all ignored
@@ -455,11 +458,15 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     val cl = header_value(header_list, "Content-Length")
     if Some(cl) = cl {
         val cl_text = trim(cl)
-        val parsed = parse_int(cl_text)
-        if starts_with(cl_text, "+") || starts_with(cl_text, "-") || !is_ok(parsed) {
-            return err(HttpError.BadRequest("invalid Content-Length"))
+        content_length = switch parse_int(cl_text) {
+            Ok(v) {
+                if starts_with(cl_text, "+") || starts_with(cl_text, "-") {
+                    return err(HttpError.BadRequest("invalid Content-Length"))
+                }
+                v
+            }
+            Err(_) { return err(HttpError.BadRequest("invalid Content-Length")) }
         }
-        content_length = unwrap(parsed)
     }
     if content_length > max_body_bytes {
         return err(HttpError.BodyTooLarge)
@@ -616,22 +623,14 @@ pub fn method_not_allowed(allowed: string...) -> Response {
 // The response to send for a request that couldn't be read. (`Closed` and
 // `Io` mean there is nobody to answer; the caller just closes.)
 pub fn error_response(e: HttpError) -> Response {
-    if HttpError.is_BadRequest(e) {
-        return bad_request(HttpError.unwrap_BadRequest(e))
-    }
-    if HttpError.is_BodyTooLarge(e) {
-        return error_reply(status_payload_too_large, "request body too large")
-    }
-    if HttpError.is_HeadersTooLarge(e) {
-        return error_reply(status_header_fields_too_large, "request headers too large")
-    }
-    if HttpError.is_NotImplemented(e) {
-        return error_reply(status_not_implemented, HttpError.unwrap_NotImplemented(e))
-    }
-    return if HttpError.is_Timeout(e) {
-        error_reply(status_request_timeout, "request timed out")
-    } else {
-        error_reply(status_internal_server_error, "internal error")
+    return switch e {
+        BadRequest(msg) { bad_request(msg) }
+        BodyTooLarge { error_reply(status_payload_too_large, "request body too large") }
+        HeadersTooLarge { error_reply(status_header_fields_too_large, "request headers too large") }
+        NotImplemented(msg) { error_reply(status_not_implemented, msg) }
+        Timeout { error_reply(status_request_timeout, "request timed out") }
+        Closed { error_reply(status_internal_server_error, "internal error") }
+        Io(_) { error_reply(status_internal_server_error, "internal error") }
     }
 }
 
@@ -802,12 +801,12 @@ fn capture(p: Pattern, got: [string]) -> Option<Params> {
     var i = 0
     while i < len(got) {
         if p.is_param[i] {
-            val decoded = percent_decode(got[i], false)
-            if !is_ok(decoded) {
+            if Ok(decoded) = percent_decode(got[i], false) {
+                ab_append(names, p.parts[i])
+                ab_append(values, decoded)
+            } else {
                 return Option<Params>.None
             }
-            ab_append(names, p.parts[i])
-            ab_append(values, unwrap(decoded))
         }
         i = i + 1
     }
@@ -860,11 +859,11 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
     for pair in split(req.query, "&") {
         val kv = split_once(pair, "=")
         if Some(parts) = kv {
-            val key = percent_decode(parts[0], true)
-            if is_ok(key) && unwrap(key) == name {
-                val value = percent_decode(parts[1], true)
-                if is_ok(value) {
-                    return Option<string>.Some(unwrap(value))
+            if Ok(key) = percent_decode(parts[0], true) {
+                if key == name {
+                    if Ok(value) = percent_decode(parts[1], true) {
+                        return Option<string>.Some(value)
+                    }
                 }
             }
         } else if pair == name {
@@ -1483,9 +1482,13 @@ fn serve_connection(
                     response.status
                 )
             }
-            val keep = write_response(sock, exchange.request, response)
-            if !is_ok(keep) || !unwrap(keep) {
-                open = false
+            switch write_response(sock, exchange.request, response) {
+                Ok(k) {
+                    if !k {
+                        open = false
+                    }
+                }
+                Err(_) { open = false }
             }
         }
     }
@@ -1504,9 +1507,8 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
     }
     while !os.shutdown_requested() {
         val client = net.accept(listener)
-        if is_ok(client) {
+        if Ok(accepted) = client {
             val slot = receive(slots)  // waits here while every slot is in use
-            val accepted = unwrap(client)
             spawn serve_connection(
                 accepted,
                 handler,

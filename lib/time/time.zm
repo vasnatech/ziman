@@ -195,13 +195,16 @@ pub struct DateTimeFormat {
 }
 
 fn datetime_part_width(part: DateTimePart) -> int {
-    if DateTimePart.is_Year(part) {
-        return 4
+    return switch part {
+        Year { 4 }
+        Month { 2 }
+        Day { 2 }
+        Hour { 2 }
+        Minute { 2 }
+        Second { 2 }
+        Nano { 9 }
+        Literal(s) { len(s) }
     }
-    if DateTimePart.is_Month(part) || DateTimePart.is_Day(part) || DateTimePart.is_Hour(part) || DateTimePart.is_Minute(part) || DateTimePart.is_Second(part) {
-        return 2
-    }
-    return if DateTimePart.is_Nano(part) { 9 } else { len(DateTimePart.unwrap_Literal(part)) }
 }
 
 // Scans `pattern` exactly once, building the compiled parts array
@@ -318,23 +321,16 @@ fn format_fields(
 ) -> string {
     val out = sb_new()
     for part in fmt.parts {
-        if DateTimePart.is_Year(part) {
-            sb_append(out, format_year(year))
-        } else if DateTimePart.is_Month(part) {
-            sb_append(out, pad_left(month, 2))
-        } else if DateTimePart.is_Day(part) {
-            sb_append(out, pad_left(day, 2))
-        } else if DateTimePart.is_Hour(part) {
-            sb_append(out, pad_left(hour, 2))
-        } else if DateTimePart.is_Minute(part) {
-            sb_append(out, pad_left(minute, 2))
-        } else if DateTimePart.is_Second(part) {
-            sb_append(out, pad_left(second, 2))
-        } else if DateTimePart.is_Nano(part) {
-            sb_append(out, pad_left(nano, 9))
-        } else {
-            sb_append(out, DateTimePart.unwrap_Literal(part))
-        }
+        sb_append(out, switch part {
+            Year { format_year(year) }
+            Month { pad_left(month, 2) }
+            Day { pad_left(day, 2) }
+            Hour { pad_left(hour, 2) }
+            Minute { pad_left(minute, 2) }
+            Second { pad_left(second, 2) }
+            Nano { pad_left(nano, 9) }
+            Literal(s) { s }
+        })
     }
     return sb_to_string(out)
 }
@@ -391,62 +387,70 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
     var nano = 0
     var si = 0
     for part in fmt.parts {
-        if DateTimePart.is_Year(part) {
-            val r = parse_year(s, si)
-            if Err(e) = r {
-                return err(format("invalid year in '{}': {}", s, e))
+        switch part {
+            Year {
+                val r = switch parse_year(s, si) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid year in '{}': {}", s, e)) }
+                }
+                year = r[0]
+                si = r[1]
             }
-            year = unwrap(r)[0]
-            si = unwrap(r)[1]
-        } else if DateTimePart.is_Month(part) {
-            val r = parse_fixed_width_int(s, si, 2)
-            if Err(e) = r {
-                return err(format("invalid month in '{}': {}", s, e))
+            Month {
+                val r = switch parse_fixed_width_int(s, si, 2) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid month in '{}': {}", s, e)) }
+                }
+                month = r
+                si = si + 2
             }
-            month = unwrap(r)
-            si = si + 2
-        } else if DateTimePart.is_Day(part) {
-            val r = parse_fixed_width_int(s, si, 2)
-            if Err(e) = r {
-                return err(format("invalid day in '{}': {}", s, e))
+            Day {
+                val r = switch parse_fixed_width_int(s, si, 2) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid day in '{}': {}", s, e)) }
+                }
+                day = r
+                si = si + 2
             }
-            day = unwrap(r)
-            si = si + 2
-        } else if DateTimePart.is_Hour(part) {
-            val r = parse_fixed_width_int(s, si, 2)
-            if Err(e) = r {
-                return err(format("invalid hour in '{}': {}", s, e))
+            Hour {
+                val r = switch parse_fixed_width_int(s, si, 2) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid hour in '{}': {}", s, e)) }
+                }
+                hour = r
+                si = si + 2
             }
-            hour = unwrap(r)
-            si = si + 2
-        } else if DateTimePart.is_Minute(part) {
-            val r = parse_fixed_width_int(s, si, 2)
-            if Err(e) = r {
-                return err(format("invalid minute in '{}': {}", s, e))
+            Minute {
+                val r = switch parse_fixed_width_int(s, si, 2) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid minute in '{}': {}", s, e)) }
+                }
+                minute = r
+                si = si + 2
             }
-            minute = unwrap(r)
-            si = si + 2
-        } else if DateTimePart.is_Second(part) {
-            val r = parse_fixed_width_int(s, si, 2)
-            if Err(e) = r {
-                return err(format("invalid second in '{}': {}", s, e))
+            Second {
+                val r = switch parse_fixed_width_int(s, si, 2) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid second in '{}': {}", s, e)) }
+                }
+                second = r
+                si = si + 2
             }
-            second = unwrap(r)
-            si = si + 2
-        } else if DateTimePart.is_Nano(part) {
-            val r = parse_fixed_width_int(s, si, 9)
-            if Err(e) = r {
-                return err(format("invalid nanosecond fraction in '{}': {}", s, e))
+            Nano {
+                val r = switch parse_fixed_width_int(s, si, 9) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid nanosecond fraction in '{}': {}", s, e)) }
+                }
+                nano = r
+                si = si + 9
             }
-            nano = unwrap(r)
-            si = si + 9
-        } else {
-            val lit = DateTimePart.unwrap_Literal(part)
-            val llen = len(lit)
-            if !is_char_at(s, si, lit) {
-                return err(format("'{}' does not match expected literal '{}' at position {}", s, lit, si))
+            Literal(lit) {
+                val llen = len(lit)
+                if !is_char_at(s, si, lit) {
+                    return err(format("'{}' does not match expected literal '{}' at position {}", s, lit, si))
+                }
+                si = si + llen
             }
-            si = si + llen
         }
     }
     if si != len(s) {
@@ -1327,10 +1331,10 @@ pub fn local_date_to_json(d: LocalDate) -> Json {
 
 // A `LocalDate` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn local_date_from_json(j: Json) -> Result<LocalDate, string> {
-    if !Json.is_JString(j) {
-        return err("expected a JSON string for LocalDate")
+    if JString(s) = j {
+        return localdate_from_string(s)
     }
-    return localdate_from_string(Json.unwrap_JString(j))
+    return err("expected a JSON string for LocalDate")
 }
 
 // `LocalTime` as a JSON string in its ISO form.
@@ -1340,10 +1344,10 @@ pub fn local_time_to_json(t: LocalTime) -> Json {
 
 // A `LocalTime` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn local_time_from_json(j: Json) -> Result<LocalTime, string> {
-    if !Json.is_JString(j) {
-        return err("expected a JSON string for LocalTime")
+    if JString(s) = j {
+        return localtime_from_string(s)
     }
-    return localtime_from_string(Json.unwrap_JString(j))
+    return err("expected a JSON string for LocalTime")
 }
 
 // `Duration` as a JSON string in its ISO form.
@@ -1353,10 +1357,10 @@ pub fn duration_to_json(d: Duration) -> Json {
 
 // A `Duration` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn duration_from_json(j: Json) -> Result<Duration, string> {
-    if !Json.is_JString(j) {
-        return err("expected a JSON string for Duration")
+    if JString(s) = j {
+        return duration_from_string(s)
     }
-    return duration_from_string(Json.unwrap_JString(j))
+    return err("expected a JSON string for Duration")
 }
 
 // `LocalDateTime` as a JSON string in its ISO form.
@@ -1366,10 +1370,10 @@ pub fn local_date_time_to_json(dt: LocalDateTime) -> Json {
 
 // A `LocalDateTime` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string> {
-    if !Json.is_JString(j) {
-        return err("expected a JSON string for LocalDateTime")
+    if JString(s) = j {
+        return localdatetime_from_string(s)
     }
-    return localdatetime_from_string(Json.unwrap_JString(j))
+    return err("expected a JSON string for LocalDateTime")
 }
 
 // `ZoneOffset` as a JSON string in its ISO form.
@@ -1379,10 +1383,10 @@ pub fn zone_offset_to_json(z: ZoneOffset) -> Json {
 
 // A `ZoneOffset` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string> {
-    if !Json.is_JString(j) {
-        return err("expected a JSON string for ZoneOffset")
+    if JString(s) = j {
+        return zoneoffset_from_string(s)
     }
-    return zoneoffset_from_string(Json.unwrap_JString(j))
+    return err("expected a JSON string for ZoneOffset")
 }
 
 // `ZoneId` as a JSON string in its ISO form.
@@ -1392,10 +1396,10 @@ pub fn zone_id_to_json(z: ZoneId) -> Json {
 
 // A `ZoneId` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string> {
-    if !Json.is_JString(j) {
-        return err("expected a JSON string for ZoneId")
+    if JString(s) = j {
+        return zoneid_from_string(s)
     }
-    return zoneid_from_string(Json.unwrap_JString(j))
+    return err("expected a JSON string for ZoneId")
 }
 
 // `Instant` as a JSON string in its ISO form.
@@ -1405,10 +1409,10 @@ pub fn instant_to_json(i: Instant) -> Json {
 
 // A `Instant` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
 pub fn instant_from_json(j: Json) -> Result<Instant, string> {
-    if !Json.is_JString(j) {
-        return err("expected a JSON string for Instant")
+    if JString(s) = j {
+        return instant_from_string(s)
     }
-    return instant_from_string(Json.unwrap_JString(j))
+    return err("expected a JSON string for Instant")
 }
 
 // SQL mapping, for #[derive(Row)] (see src/derive.c): every type here

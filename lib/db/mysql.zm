@@ -1107,11 +1107,13 @@ fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> Curso
     val names = column_names(columns)
     val rows = ab_new<Row>()
     for body in ab_to_array(raw) {
-        val values = decode_binary_row(body, columns)
-        if is_ok(values) {
-            ab_append(rows, Row { columns: names, values: unwrap(values) })
-        } else if !Option.is_Some(failure) {
-            failure = Option<DbError>.Some(unwrap_err(values))
+        switch decode_binary_row(body, columns) {
+            Ok(v) { ab_append(rows, Row { columns: names, values: v }) }
+            Err(e) {
+                if !Option.is_Some(failure) {
+                    failure = Option<DbError>.Some(e)
+                }
+            }
         }
     }
     val delivered = ab_to_array(rows)

@@ -346,26 +346,30 @@ fn checked(pool: PoolState, entry: IdleConnection) -> Result<Connection, DbError
         return c
     }
     val probe = query(c, "SELECT 1")
-    if is_ok(probe) || !DbError.is_Connection(unwrap_err(probe)) {
-        return c
+    if Err(e) = probe {
+        if DbError.is_Connection(e) {
+            val fresh = open(pool.url)
+            if Err(fresh_e) = fresh {
+                park(pool.idle, c)
+                return err(fresh_e)
+            }
+            close(c)
+            return unwrap(fresh)
+        }
     }
-    val fresh = open(pool.url)
-    if Err(e) = fresh {
-        park(pool.idle, c)
-        return err(e)
-    }
-    close(c)
-    return unwrap(fresh)
+    return c
 }
 
 // Puts a borrowed connection back after a statement, replacing it first when the statement's
 // error says the connection is gone.
 fn settle<T>(conn: Connection, taken: Connection, result: Result<T, DbError>) {
-    if !is_ok(result) && DbError.is_Connection(unwrap_err(result)) {
-        discard(conn, taken)
-    } else {
-        release(conn, taken)
+    if Err(e) = result {
+        if DbError.is_Connection(e) {
+            discard(conn, taken)
+            return
+        }
     }
+    release(conn, taken)
 }
 
 // An exclusive connection, for a unit of work that must stay on one (a
@@ -373,31 +377,29 @@ fn settle<T>(conn: Connection, taken: Connection, result: Result<T, DbError>) {
 // isn't a pool it just returns that connection, and `release` does
 // nothing -- so the same code runs against either.
 pub fn acquire(conn: Connection) -> Result<Connection, DbError> {
-    if !Connection.is_Pool(conn) {
-        return conn
+    if Pool(pool) = conn {
+        return checked(pool, receive(pool.idle))
     }
-    val pool = Connection.unwrap_Pool(conn)
-    return checked(pool, receive(pool.idle))
+    return conn
 }
 
 // Like `acquire`, but gives up with a `DbError.Connection` once `timeout_ms` milliseconds pass
 // with every connection still in use (checked every 2 ms). A `timeout_ms` of zero or less tries
 // once.
 pub fn acquire_timeout(conn: Connection, timeout_ms: int) -> Result<Connection, DbError> {
-    if !Connection.is_Pool(conn) {
-        return conn
-    }
-    val pool = Connection.unwrap_Pool(conn)
-    for _ in 0..(if timeout_ms > 0 { timeout_ms / 2 + 1 } else { 1 }) {
-        val got = try_receive(pool.idle)
-        if Some(entry) = got {
-            return checked(pool, entry)
+    if Pool(pool) = conn {
+        for _ in 0..(if timeout_ms > 0 { timeout_ms / 2 + 1 } else { 1 }) {
+            val got = try_receive(pool.idle)
+            if Some(entry) = got {
+                return checked(pool, entry)
+            }
+            if timeout_ms > 0 {
+                sleep_millis(2)
+            }
         }
-        if timeout_ms > 0 {
-            sleep_millis(2)
-        }
+        return err(DbError.Connection(format("timed out after {} ms waiting for a pooled connection", timeout_ms)))
     }
-    return err(DbError.Connection(format("timed out after {} ms waiting for a pooled connection", timeout_ms)))
+    return conn
 }
 
 // Gives back a connection taken with `acquire`. Pair every `acquire` with

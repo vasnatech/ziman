@@ -752,11 +752,10 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
         if content == "-" {
             break
         }
-        val kv = try split_key(content, ln.no)
-        if !Option.is_Some(kv) {
-            return err(fail(ln.no, "expected 'key: value'"))
+        val entry = switch try split_key(content, ln.no) {
+            Some(e) { e }
+            None { return err(fail(ln.no, "expected 'key: value'")) }
         }
-        val entry = Option.unwrap_Some(kv)
         if mapb_contains(fields, entry.key) {
             return err(fail(ln.no, format("duplicate key '{}'", entry.key)))
         }
@@ -932,10 +931,13 @@ fn is_container(j: Json) -> bool {
 }
 
 fn is_empty_container(j: Json) -> bool {
-    if Json.is_JArray(j) {
-        return len(Json.unwrap_JArray(j)) == 0
+    if JArray(items) = j {
+        return len(items) == 0
     }
-    return Json.is_JObject(j) && len(Json.unwrap_JObject(j)) == 0
+    if JObject(fields) = j {
+        return len(fields) == 0
+    }
+    return false
 }
 
 fn empty_text(j: Json) -> string {

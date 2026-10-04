@@ -107,10 +107,10 @@ pub fn uuid_to_json(u: Uuid) -> Json {
 
 // A `Uuid` from a JSON string. An Err if `j` is not a string or not a valid UUID.
 pub fn uuid_from_json(j: Json) -> Result<Uuid, string> {
-    if !Json.is_JString(j) {
-        return err("expected a JSON string for Uuid")
+    if JString(s) = j {
+        return uuid_from_string(s)
     }
-    return uuid_from_string(Json.unwrap_JString(j))
+    return err("expected a JSON string for Uuid")
 }
 
 // A `Uuid` as a TEXT value in the canonical dashed form, for `#[derive(Row)]` (SQLite has no

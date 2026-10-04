@@ -168,11 +168,15 @@ pub fn parse_url(url: string) -> Result<Url, string> {
         return err("missing host")
     }
     if port_text != "" {
-        val p = parse_int(port_text)
-        if !is_ok(p) || unwrap(p) < 1 || unwrap(p) > max_port {
-            return err(concat("invalid port: ", port_text))
+        port = switch parse_int(port_text) {
+            Ok(v) {
+                if v < 1 || v > max_port {
+                    return err(concat("invalid port: ", port_text))
+                }
+                v
+            }
+            Err(_) { return err(concat("invalid port: ", port_text)) }
         }
-        port = unwrap(p)
     }
     return ok(Url { secure: secure, host: host, port: port, target: target, userinfo: userinfo })
 }
@@ -192,11 +196,10 @@ fn lift<T>(r: Result<T, NetError>) -> Result<T, ClientError> {
 }
 
 fn text_of(b: [byte]) -> Result<string, ClientError> {
-    val s = bytes_to_string(b)
-    if !is_ok(s) {
-        return err(ClientError.BadResponse("body contains a NUL byte"))
+    if Ok(s) = bytes_to_string(b) {
+        return s
     }
-    return unwrap(s)
+    return err(ClientError.BadResponse("body contains a NUL byte"))
 }
 
 fn header_value(headers: [Header], name: string) -> Option<string> {
@@ -253,9 +256,9 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
     if len(status_parts) < 2 || !starts_with(status_parts[0], "HTTP/1.") {
         return err(ClientError.BadResponse(concat("malformed status line: ", lines[0])))
     }
-    val status_parsed = parse_int(status_parts[1])
-    if !is_ok(status_parsed) {
-        return err(ClientError.BadResponse(concat("malformed status line: ", lines[0])))
+    val status = switch parse_int(status_parts[1]) {
+        Ok(v) { v }
+        Err(_) { return err(ClientError.BadResponse(concat("malformed status line: ", lines[0]))) }
     }
     val headers = ab_new<Header>()
     var i = 1
@@ -268,7 +271,7 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
         i = i + 1
     }
     return ok(Head {
-        status: unwrap(status_parsed),
+        status: status,
         status_line: lines[0],
         headers: ab_to_array(headers),
         rest: slice<byte>(buf, head_end, len(buf))
@@ -293,11 +296,15 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
         }
         val line = try text_of(slice<byte>(buf, 0, eol))
         val size_text = trim(split(line, ";")[0])
-        val size_parsed = int_from_hex(size_text)
-        if !is_ok(size_parsed) || unwrap(size_parsed) < 0 {
-            return err(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+        val size = switch int_from_hex(size_text) {
+            Ok(v) {
+                if v < 0 {
+                    return err(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+                }
+                v
+            }
+            Err(_) { return err(ClientError.BadResponse(concat("invalid chunk size: ", size_text))) }
         }
-        val size = unwrap(size_parsed)
         buf = slice<byte>(buf, eol + 2, len(buf))
         if size == 0 {
             var trailer_end = bytes_index_of(buf, crlf, 0)
@@ -368,20 +375,25 @@ fn read_body(sock: Socket, head: Head, head_only: bool) -> Result<Body, ClientEr
         return read_chunked(sock, head.rest)
     }
     if Some(cl) = cl {
-        val n = parse_int(trim(cl))
-        if !is_ok(n) || unwrap(n) < 0 {
-            return err(ClientError.BadResponse("invalid Content-Length"))
+        val n = switch parse_int(trim(cl)) {
+            Ok(v) {
+                if v < 0 {
+                    return err(ClientError.BadResponse("invalid Content-Length"))
+                }
+                v
+            }
+            Err(_) { return err(ClientError.BadResponse("invalid Content-Length")) }
         }
-        if unwrap(n) > max_body_bytes {
+        if n > max_body_bytes {
             return err(ClientError.TooLarge)
         }
-        if unwrap(n) > len(head.rest) {
+        if n > len(head.rest) {
             return ok(Body {
-                bytes: bytes_concat(head.rest, try lift<[byte]>(net.read_exact(sock, unwrap(n) - len(head.rest)))),
+                bytes: bytes_concat(head.rest, try lift<[byte]>(net.read_exact(sock, n - len(head.rest)))),
                 clean: true
             })
         }
-        return ok(Body { bytes: slice<byte>(head.rest, 0, unwrap(n)), clean: len(head.rest) == unwrap(n) })
+        return ok(Body { bytes: slice<byte>(head.rest, 0, n), clean: len(head.rest) == n })
     }
     return read_to_close(sock, head.rest)
 }
@@ -482,8 +494,10 @@ fn host_header(u: Url) -> string {
 
 // `Basic base64(user:password)` for the raw `user:password` of a URL or proxy (percent-decoded).
 fn basic_auth(userinfo: string) -> string {
-    val decoded = percent_decode(userinfo, false)
-    return concat("Basic ", base64_encode(string_to_bytes(if is_ok(decoded) { unwrap(decoded) } else { userinfo })))
+    return concat("Basic ", base64_encode(string_to_bytes(switch percent_decode(userinfo, false) {
+        Ok(v) { v }
+        Err(_) { userinfo }
+    })))
 }
 
 // Where connections to `u` are parked for reuse: the scheme, host and port, and the proxy if any.
@@ -606,11 +620,12 @@ fn write_request(
     if !has_auth && len(u.userinfo) > 0 {
         ab_append(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
     }
-    if via_http_proxy && Option.unwrap_Some(proxy).userinfo != "" {
-        ab_append(
-            out,
-            format("Proxy-Authorization: {}\r\n", basic_auth(Option.unwrap_Some(proxy).userinfo))
-        )
+    if via_http_proxy {
+        if Some(p) = proxy {
+            if p.userinfo != "" {
+                ab_append(out, format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)))
+            }
+        }
     }
     ab_append(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
     if Some(body) = body {
@@ -690,20 +705,21 @@ fn send_once(
         }
         val s = unwrap(sock)
         val timeout_set = net.set_timeout(s, timeout_ms)
-        val result = exchange(s, method, u, proxy, headers, body, want_compression, reuse)
-        if is_ok(result) {
-            val reply = unwrap(result)
-            if reply.reusable && reuse {
-                net.idle_put(key, s)
-            } else {
-                net.close(s)
+        switch exchange(s, method, u, proxy, headers, body, want_compression, reuse) {
+            Ok(reply) {
+                if reply.reusable && reuse {
+                    net.idle_put(key, s)
+                } else {
+                    net.close(s)
+                }
+                return ok(reply.response)
             }
-            return ok(reply.response)
-        }
-        net.close(s)
-        val why = unwrap_err(result)
-        if !(reused && ClientError.is_Network(why)) {
-            return err(why)
+            Err(why) {
+                net.close(s)
+                if !(reused && ClientError.is_Network(why)) {
+                    return err(why)
+                }
+            }
         }
         attempt = attempt + 1
     }
@@ -818,19 +834,21 @@ fn parse_http_date(text: string) -> int {
     if year < 100 {
         year = if year < 70 { 2000 + year } else { 1900 + year }
     }
-    val date = localdate_of(year, month, unwrap(day))
-    if !is_ok(date) {
-        return -1
+    if Ok(d) = localdate_of(year, month, unwrap(day)) {
+        return localdate_to_epoch_day(d) * 86400 + unwrap(hh) * 3600 + unwrap(mm) * 60 + unwrap(ss)
     }
-    return localdate_to_epoch_day(unwrap(date)) * 86400 + unwrap(hh) * 3600 + unwrap(mm) * 60 + unwrap(ss)
+    return -1
 }
 
 // A `Set-Cookie` header value as a cookie set by the response to a request for `u` (None if it is
 // malformed or names another domain).
 fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
     val pieces = split(value, ";")
-    val name_value = split_once(trim(pieces[0]), "=")
-    if !Option.is_Some(name_value) || len(Option.unwrap_Some(name_value)[0]) == 0 {
+    val name_value = switch split_once(trim(pieces[0]), "=") {
+        Some(nv) { nv }
+        None { return Option<Cookie>.None }
+    }
+    if len(name_value[0]) == 0 {
         return Option<Cookie>.None
     }
     var domain = to_lower(u.host)
@@ -865,9 +883,8 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
         } else if key == "secure" {
             secure = true
         } else if key == "max-age" {
-            val n = parse_int(val_text)
-            if is_ok(n) {
-                expires = now + unwrap(n)
+            if Ok(n) = parse_int(val_text) {
+                expires = now + n
                 max_age_seen = true
             }
         } else if key == "expires" && !max_age_seen {
@@ -875,8 +892,8 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
         }
     }
     return Option<Cookie>.Some(Cookie {
-        name: trim(Option.unwrap_Some(name_value)[0]),
-        value: trim(Option.unwrap_Some(name_value)[1]),
+        name: trim(name_value[0]),
+        value: trim(name_value[1]),
         domain: domain,
         path: path,
         secure: secure,
@@ -1250,17 +1267,25 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
             return body_failure(e)
         }
         val size_text = trim(split(unwrap(line), ";")[0])
-        val size = int_from_hex(size_text)
-        if !is_ok(size) || unwrap(size) < 0 {
-            send(cell, finished)
-            return body_failure(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+        val n = switch int_from_hex(size_text) {
+            Ok(v) {
+                if v < 0 {
+                    send(cell, finished)
+                    return body_failure(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+                }
+                v
+            }
+            Err(_) {
+                send(cell, finished)
+                return body_failure(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+            }
         }
         buf = slice<byte>(buf, eol + 2, len(buf))
-        if unwrap(size) == 0 {
+        if n == 0 {
             send(cell, finished)
             return body_end()
         }
-        send(cell, BodyState { buffer: buf, mode: 1, left: unwrap(size), after_chunk: false, finished: false })
+        send(cell, BodyState { buffer: buf, mode: 1, left: n, after_chunk: false, finished: false })
         return next_body_block(s, cell)
     }
     if st.mode != 2 && st.left == 0 {
@@ -1351,12 +1376,20 @@ pub fn stream(
     if Some(te) = te && contains(to_lower(te), "chunked") {
         state = BodyState { buffer: head.rest, mode: 1, left: 0, after_chunk: false, finished: no_body }
     } else if Some(cl) = cl {
-        val n = parse_int(trim(cl))
-        if !is_ok(n) || unwrap(n) < 0 {
-            net.close(sock)
-            return err(ClientError.BadResponse("invalid Content-Length"))
+        val n = switch parse_int(trim(cl)) {
+            Ok(v) {
+                if v < 0 {
+                    net.close(sock)
+                    return err(ClientError.BadResponse("invalid Content-Length"))
+                }
+                v
+            }
+            Err(_) {
+                net.close(sock)
+                return err(ClientError.BadResponse("invalid Content-Length"))
+            }
         }
-        state = BodyState { buffer: head.rest, mode: 0, left: unwrap(n), after_chunk: false, finished: no_body }
+        state = BodyState { buffer: head.rest, mode: 0, left: n, after_chunk: false, finished: no_body }
     }
     val cell: Channel<BodyState> = channel_new()
     send(cell, state)

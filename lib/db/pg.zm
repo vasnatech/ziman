@@ -499,11 +499,13 @@ fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
             names = desc.names
             oids = desc.oids
         } else if m.kind == "D" {
-            val values = parse_data_row(m.body, oids)
-            if is_ok(values) {
-                ab_append(rows, Row { columns: names, values: unwrap(values) })
-            } else if !Option.is_Some(failure) {
-                failure = Option<DbError>.Some(unwrap_err(values))
+            switch parse_data_row(m.body, oids) {
+                Ok(v) { ab_append(rows, Row { columns: names, values: v }) }
+                Err(e) {
+                    if !Option.is_Some(failure) {
+                        failure = Option<DbError>.Some(e)
+                    }
+                }
             }
         } else if m.kind == "C" {
             affected = affected_rows(text_of(m.body, 0, cstring_end(m.body, 0)))
@@ -619,11 +621,13 @@ fn read_page(sock: Socket, names0: [string], oids0: [int]) -> Result<PageRead, D
             names = desc.names
             oids = desc.oids
         } else if m.kind == "D" {
-            val values = parse_data_row(m.body, oids)
-            if is_ok(values) {
-                ab_append(rows, Row { columns: names, values: unwrap(values) })
-            } else if !Option.is_Some(failure) {
-                failure = Option<DbError>.Some(unwrap_err(values))
+            switch parse_data_row(m.body, oids) {
+                Ok(v) { ab_append(rows, Row { columns: names, values: v }) }
+                Err(e) {
+                    if !Option.is_Some(failure) {
+                        failure = Option<DbError>.Some(e)
+                    }
+                }
             }
         } else if m.kind == "s" {
             suspended = true

@@ -155,10 +155,12 @@ fn is_zero_quality(m: mime.MediaType) -> bool {
 // naming `media` exactly with `q=0` refuses it even when a wildcard would allow it. Other quality weights
 // are not ranked; any positive one counts as acceptance.
 pub fn accepts(headers: [Header], media: mime.MediaType) -> bool {
-    val value = header_value(headers, "Accept")
-    if None = value { return true }
+    val value = switch header_value(headers, "Accept") {
+        Some(v) { v }
+        None { return true }
+    }
     val ranges = ab_new<mime.MediaType>()
-    for item in split(Option.unwrap_Some(value), ",") {
+    for item in split(value, ",") {
         val range = mime.parse(item)
         if Ok(r) = range {
             ab_append(ranges, r)

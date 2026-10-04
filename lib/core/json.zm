@@ -136,10 +136,10 @@ pub fn json_to_string(j: Json) -> string {
 // built on this module needs it at least once per field) to be worth
 // including, without turning this into a general "Json query language."
 pub fn json_object_get(j: Json, key: string) -> Option<Json> {
-    if !Json.is_JObject(j) {
-        return Option<Json>.None
+    if JObject(fields) = j {
+        return map_get(fields, key)
     }
-    return map_get(Json.unwrap_JObject(j), key)
+    return None
 }
 
 // Follows `path` down from `j`: each segment is an object key, or -- when the current
@@ -148,28 +148,27 @@ pub fn json_object_get(j: Json, key: string) -> Option<Json> {
 pub fn json_get_path(j: Json, path: string...) -> Option<Json> {
     var cur = j
     for segment in path {
-        if Json.is_JObject(cur) {
-            if Some(v) = map_get(Json.unwrap_JObject(cur), segment) {
+        if JObject(fields) = cur {
+            if Some(v) = map_get(fields, segment) {
                 cur = v
             } else {
-                return Option<Json>.None
+                return None
             }
-        } else if Json.is_JArray(cur) {
+        } else if JArray(items) = cur {
             val index = parse_int(segment)
             if !is_ok(index) {
-                return Option<Json>.None
+                return None
             }
-            val items = Json.unwrap_JArray(cur)
             val i = unwrap(index)
             if i < 0 || i >= len(items) {
-                return Option<Json>.None
+                return None
             }
             cur = items[i]
         } else {
-            return Option<Json>.None
+            return None
         }
     }
-    return Option<Json>.Some(cur)
+    return Some(cur)
 }
 
 // json_object_get, treating a missing field as an error instead of
@@ -192,10 +191,10 @@ pub fn json_require_field(j: Json, key: string) -> Result<Json, string> {
 // out the is_JString check every time.
 pub fn json_require_string_field(j: Json, key: string) -> Result<string, string> {
     val v = try json_require_field(j, key)
-    if !Json.is_JString(v) {
-        return err(format("field '{}' must be a string", key))
+    if JString(s) = v {
+        return ok(s)
     }
-    return ok(Json.unwrap_JString(v))
+    return err(format("field '{}' must be a string", key))
 }
 
 // The integer in field `key` of object `j`; an Err naming the field when `j` is not an object,
@@ -222,23 +221,23 @@ pub fn json_require_float_field(j: Json, key: string) -> Result<float, string> {
 // boolean.
 pub fn json_require_bool_field(j: Json, key: string) -> Result<bool, string> {
     val v = try json_require_field(j, key)
-    if !Json.is_JBool(v) {
-        return err(format("field '{}' must be a boolean", key))
+    if JBool(b) = v {
+        return ok(b)
     }
-    return ok(Json.unwrap_JBool(v))
+    return err(format("field '{}' must be a boolean", key))
 }
 
 // An object as a Map, each value decoded by `decode`: `json_to_map<int>(j, int_from_json)`.
 pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string> {
-    if !Json.is_JObject(j) {
-        return err("expected an object")
+    if JObject(fields) = j {
+        val out = mapb_new<string, V>()
+        for key, value in fields {
+            val item = try decode(value)
+            mapb_set(out, key, item)
+        }
+        return ok(mapb_to_map(out))
     }
-    val out = mapb_new<string, V>()
-    for key, value in Json.unwrap_JObject(j) {
-        val item = try decode(value)
-        mapb_set(out, key, item)
-    }
-    return ok(mapb_to_map(out))
+    return err("expected an object")
 }
 
 // The other direction: a Map as a JSON object, each value encoded by `encode`.
@@ -266,8 +265,7 @@ pub fn json_to_pretty_string(j: Json, indent: int) -> string {
 fn write_pretty(out: StringBuilder, j: Json, indent: int, level: int) {
     val pad = repeat_spaces(indent * (level + 1))
     val close_pad = repeat_spaces(indent * level)
-    if Json.is_JArray(j) {
-        val items = Json.unwrap_JArray(j)
+    if JArray(items) = j {
         if len(items) == 0 {
             sb_append(out, "[]")
             return
@@ -281,8 +279,7 @@ fn write_pretty(out: StringBuilder, j: Json, indent: int, level: int) {
             i = i + 1
         }
         sb_append(out, close_pad, "]")
-    } else if Json.is_JObject(j) {
-        val fields = Json.unwrap_JObject(j)
+    } else if JObject(fields) = j {
         if len(fields) == 0 {
             sb_append(out, "{}")
             return
@@ -340,10 +337,10 @@ pub fn int_to_json(n: int) -> Json {
 
 // The `Number` in `j`, or None if `j` is not a JSON number.
 pub fn json_number(j: Json) -> Option<Number> {
-    if !Json.is_JNumber(j) {
-        return Option<Number>.None
+    if JNumber(n) = j {
+        return Some(n)
     }
-    return Option<Number>.Some(Json.unwrap_JNumber(j))
+    return None
 }
 
 fn whole_float(f: float) -> Result<int, string> {
@@ -372,16 +369,15 @@ fn whole_decimal(d: decimal) -> Result<int, string> {
 // An int from a JSON number that is a whole number in int's range: an `Int`, or a `Float`, `Bigint` or `Decimal` with no
 // fraction (`3.0`, `1e3`, `3.00`). An Err otherwise.
 pub fn int_from_json(j: Json) -> Result<int, string> {
-    if !Json.is_JNumber(j) {
-        return err("expected a number")
+    if JNumber(n) = j {
+        switch n {
+            Int(i) { return ok(i) }
+            Float(f) { return whole_float(f) }
+            Bigint(b) { return whole_bigint(b) }
+            Decimal(d) { return whole_decimal(d) }
+        }
     }
-    val n = Json.unwrap_JNumber(j)
-    switch n {
-        Int(i) { return ok(i) }
-        Float(f) { return whole_float(f) }
-        Bigint(b) { return whole_bigint(b) }
-        Decimal(d) { return whole_decimal(d) }
-    }
+    return err("expected a number")
 }
 
 // `n` as a JSON number, a bigint of any size, written as its digits.
@@ -391,27 +387,26 @@ pub fn bigint_to_json(n: bigint) -> Json {
 
 // A bigint from a JSON number that is a whole number, of any size. An Err otherwise.
 pub fn bigint_from_json(j: Json) -> Result<bigint, string> {
-    if !Json.is_JNumber(j) {
-        return err("expected a number")
-    }
-    val n = Json.unwrap_JNumber(j)
-    switch n {
-        Int(i) { return ok(i as bigint) }
-        Float(f) {
-            if f != f || f - f != 0.0 || ((f as bigint) as float) != f {
-                return err("expected an integer")
+    if JNumber(n) = j {
+        switch n {
+            Int(i) { return ok(i as bigint) }
+            Float(f) {
+                if f != f || f - f != 0.0 || ((f as bigint) as float) != f {
+                    return err("expected an integer")
+                }
+                return ok(f as bigint)
             }
-            return ok(f as bigint)
-        }
-        Bigint(b) { return ok(b) }
-        Decimal(d) {
-            val b = d as bigint
-            if (b as decimal) != d {
-                return err("expected an integer")
+            Bigint(b) { return ok(b) }
+            Decimal(d) {
+                val b = d as bigint
+                if (b as decimal) != d {
+                    return err("expected an integer")
+                }
+                return ok(b)
             }
-            return ok(b)
         }
     }
+    return err("expected a number")
 }
 
 // `f` as a JSON number.
@@ -421,16 +416,15 @@ pub fn float_to_json(f: float) -> Json {
 
 // A float from any JSON number (a bigint or decimal is rounded to the nearest float); an Err otherwise.
 pub fn float_from_json(j: Json) -> Result<float, string> {
-    if !Json.is_JNumber(j) {
-        return err("expected a number")
+    if JNumber(n) = j {
+        switch n {
+            Int(i) { return ok(i as float) }
+            Float(f) { return ok(f) }
+            Bigint(b) { return ok(b as float) }
+            Decimal(d) { return ok(d as float) }
+        }
     }
-    val n = Json.unwrap_JNumber(j)
-    switch n {
-        Int(i) { return ok(i as float) }
-        Float(f) { return ok(f) }
-        Bigint(b) { return ok(b as float) }
-        Decimal(d) { return ok(d as float) }
-    }
+    return err("expected a number")
 }
 
 // `d` as a JSON number, exactly: every digit and its scale (`19.90d` is written `19.90`).
@@ -441,25 +435,24 @@ pub fn decimal_to_json(d: decimal) -> Json {
 // A decimal from any JSON number, exactly for an `Int`, `Bigint` or `Decimal`. A `Float` is read as its shortest text (`0.1` is
 // `0.1`, not the float's exact binary value), which is all the digits a float has; NaN and infinity are an Err.
 pub fn decimal_from_json(j: Json) -> Result<decimal, string> {
-    if !Json.is_JNumber(j) {
-        return err("expected a number")
-    }
-    val n = Json.unwrap_JNumber(j)
-    switch n {
-        Int(i) { return ok(i as decimal) }
-        Float(f) {
-            if f != f || f - f != 0.0 {
-                return err("expected a finite number")
+    if JNumber(n) = j {
+        switch n {
+            Int(i) { return ok(i as decimal) }
+            Float(f) {
+                if f != f || f - f != 0.0 {
+                    return err("expected a finite number")
+                }
+                val shortest = parse_decimal(float_to_text(f))
+                if is_ok(shortest) {
+                    return shortest
+                }
+                return ok(f as decimal)
             }
-            val shortest = parse_decimal(float_to_text(f))
-            if is_ok(shortest) {
-                return shortest
-            }
-            return ok(f as decimal)
+            Bigint(b) { return ok(b as decimal) }
+            Decimal(d) { return ok(d) }
         }
-        Bigint(b) { return ok(b as decimal) }
-        Decimal(d) { return ok(d) }
     }
+    return err("expected a number")
 }
 
 // `b` as a JSON boolean.
@@ -469,10 +462,10 @@ pub fn bool_to_json(b: bool) -> Json {
 
 // A bool from a JSON boolean; an Err otherwise.
 pub fn bool_from_json(j: Json) -> Result<bool, string> {
-    if !Json.is_JBool(j) {
-        return err("expected a boolean")
+    if JBool(b) = j {
+        return ok(b)
     }
-    return ok(Json.unwrap_JBool(j))
+    return err("expected a boolean")
 }
 
 // `s` as a JSON string.
@@ -482,8 +475,8 @@ pub fn string_to_json(s: string) -> Json {
 
 // A string from a JSON string; an Err otherwise.
 pub fn string_from_json(j: Json) -> Result<string, string> {
-    if !Json.is_JString(j) {
-        return err("expected a string")
+    if JString(s) = j {
+        return ok(s)
     }
-    return ok(Json.unwrap_JString(j))
+    return err("expected a string")
 }

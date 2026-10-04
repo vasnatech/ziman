@@ -89,22 +89,13 @@ native fn close_raw(handle: int)
 
 // The error as one line of text, for logging or showing to a user: `connection refused: ...`.
 pub fn net_error_message(e: NetError) -> string {
-    if NetError.is_ConnectionRefused(e) {
-        return concat("connection refused: ", NetError.unwrap_ConnectionRefused(e))
-    }
-    if NetError.is_HostNotFound(e) {
-        return concat("host not found: ", NetError.unwrap_HostNotFound(e))
-    }
-    if NetError.is_Timeout(e) {
-        return concat("timed out: ", NetError.unwrap_Timeout(e))
-    }
-    if NetError.is_Closed(e) {
-        return concat("connection closed: ", NetError.unwrap_Closed(e))
-    }
-    return if NetError.is_Tls(e) {
-        concat("TLS error: ", NetError.unwrap_Tls(e))
-    } else {
-        concat("network error: ", NetError.unwrap_Io(e))
+    return switch e {
+        ConnectionRefused(msg) { concat("connection refused: ", msg) }
+        HostNotFound(msg) { concat("host not found: ", msg) }
+        Timeout(msg) { concat("timed out: ", msg) }
+        Closed(msg) { concat("connection closed: ", msg) }
+        Tls(msg) { concat("TLS error: ", msg) }
+        Io(msg) { concat("network error: ", msg) }
     }
 }
 
@@ -321,10 +312,11 @@ pub fn set_timeout(s: Socket, millis: int) -> Result<unit, NetError> {
 }
 
 fn tls_verify_level(v: TlsVerify) -> int {
-    if TlsVerify.is_Off(v) {
-        return 0
+    return switch v {
+        Off { 0 }
+        Chain { 1 }
+        Full { 2 }
     }
-    return if TlsVerify.is_Chain(v) { 1 } else { 2 }
 }
 
 // Upgrades a connected socket to TLS, verifying the server's certificate

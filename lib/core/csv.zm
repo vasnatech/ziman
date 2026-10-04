@@ -394,11 +394,10 @@ fn next_object(
     sep: string,
     typed: bool
 ) -> Option<Result<Json, string>> {
-    val record = read_record(lines, cell, sep)
-    if Option.is_None(record) {
-        return Option<Result<Json, string>>.None
+    val text = switch read_record(lines, cell, sep) {
+        Some(t) { t }
+        None { return None }
     }
-    val text = Option.unwrap_Some(record)
     if Err(e) = text {
         val failure: Result<Json, string> = err(e)
         return Option<Result<Json, string>>.Some(failure)
@@ -423,13 +422,14 @@ fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Js
     val lines = try fs.lines(path)
     val cell: Channel<int> = channel_new()
     send(cell, 0)
-    val first = read_record(lines, cell, sep)
-    if Option.is_None(first) {
-        iter_close<Result<string, string>>(lines)
-        val no_items: [Result<Json, string>] = []
-        return iter_of_array<Result<Json, string>>(no_items)
+    val header_text = switch read_record(lines, cell, sep) {
+        Some(t) { t }
+        None {
+            iter_close<Result<string, string>>(lines)
+            val no_items: [Result<Json, string>] = []
+            return iter_of_array<Result<Json, string>>(no_items)
+        }
     }
-    val header_text = Option.unwrap_Some(first)
     if Err(e) = header_text {
         iter_close<Result<string, string>>(lines)
         return err(e)
@@ -537,31 +537,34 @@ pub fn csv_rows_to_string_with(rows: [[string]], delimiter: string) -> Result<st
 // A scalar as the text of its cell. A string that would read back as something else under
 // parse_csv_typed (empty, numeric, true/false) is quoted so it stays a string.
 fn cell_text(v: Json, key: string, sep: string) -> Result<string, string> {
-    if Json.is_JNull(v) {
-        return ok("")
-    }
-    if Json.is_JBool(v) {
-        return ok(if Json.unwrap_JBool(v) { "true" } else { "false" })
-    }
-    if Json.is_JNumber(v) {
-        return ok(number_cell(Json.unwrap_JNumber(v)))
-    }
-    if Json.is_JString(v) {
-        val s = Json.unwrap_JString(v)
-        if len(s) == 0 || s == "true" || s == "false" || looks_int(s) || looks_float(s) {
-            return ok(quote_cell(s))
+    return switch v {
+        JNull { ok("") }
+        JBool(b) { ok(if b { "true" } else { "false" }) }
+        JNumber(n) { ok(number_cell(n)) }
+        JString(s) {
+            if len(s) == 0 || s == "true" || s == "false" || looks_int(s) || looks_float(s) {
+                ok(quote_cell(s))
+            } else {
+                ok(if needs_quotes(s, sep) { quote_cell(s) } else { s })
+            }
         }
-        return ok(if needs_quotes(s, sep) { quote_cell(s) } else { s })
+        JArray(_) { err(format(
+            "field '{}' is nested more than one level deep (or an array); CSV cannot hold it",
+            key
+        )) }
+        JObject(_) { err(format(
+            "field '{}' is nested more than one level deep (or an array); CSV cannot hold it",
+            key
+        )) }
     }
-    return err(format("field '{}' is nested more than one level deep (or an array); CSV cannot hold it", key))
 }
 
 // Flattens one row into ordered (column, cell text) entries.
 fn flatten_row(row: Json, sep: string) -> Result<Map<string, string>, string> {
     val cells = mapb_new<string, string>()
     for key, value in Json.unwrap_JObject(row) {
-        if Json.is_JObject(value) {
-            for inner_key, inner in Json.unwrap_JObject(value) {
+        if JObject(inner_fields) = value {
+            for inner_key, inner in inner_fields {
                 val name = concat(key, ".", inner_key)
                 val text = try cell_text(inner, name, sep)
                 mapb_set(cells, name, text)
