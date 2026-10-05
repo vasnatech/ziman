@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "arena.h"
 #include "gc_heap.h"
 #include "gc_thread_heap.h"
 
@@ -197,26 +196,26 @@ MapObj *mapobj_set(const MapObj *m, Value key, Value val) {
     return out;
 }
 
-/* mapobj_empty/mapobj_set's own exact bodies, with the wrapper and the Leaf built via arena_alloc(ar,
- * ...) instead of gc_heap_alloc(ziman_thread_heap(), ...) -- see mapobj.h's own comment on why
+/* mapobj_empty/mapobj_set's own exact bodies, with the wrapper and the Leaf built by plain `malloc`
+ * instead of gc_heap_alloc(ziman_thread_heap(), ...) -- see mapobj.h's own comment on why
  * value_copy.c needs this pair at all. node_alloc/node_insert are untouched: MapNode itself was never
  * part of the problem this exists to fix (it was never gc_heap-migrated in the first place). */
-MapObj *mapobj_empty_into(Arena *ar) {
-    MapObj *m = arena_alloc(ar, sizeof(MapObj));
+MapObj *mapobj_empty_crossing(void) {
+    MapObj *m = malloc(sizeof(MapObj));
     m->root = node_alloc(0);
     m->count = 0;
     m->next_seq = 0;
     return m;
 }
 
-MapObj *mapobj_set_into(Arena *ar, const MapObj *m, Value key, Value val) {
-    Leaf *nl = arena_alloc(ar, sizeof(Leaf));
+MapObj *mapobj_set_crossing(const MapObj *m, Value key, Value val) {
+    Leaf *nl = malloc(sizeof(Leaf));
     nl->hash = map_hash(key);
     nl->key = key;
     nl->val = val;
     nl->seq = m->next_seq;
     int added = 0;
-    MapObj *out = arena_alloc(ar, sizeof(MapObj));
+    MapObj *out = malloc(sizeof(MapObj));
     out->root = node_insert(m->root, 0, nl, &added);
     out->count = m->count + added;
     out->next_seq = m->next_seq + added;

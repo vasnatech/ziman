@@ -46,16 +46,26 @@ MapObj *mapobj_snapshot(const MapObj *m);
  * shape every other kind's own marking already has for shared substructure. */
 void mapobj_mark_leaves(const MapObj *m, void (*visit)(const void *leaf, Value key, Value val, void *ctx), void *ctx);
 
-/* The exact same shape as mapobj_empty/mapobj_set, but the MapObj wrapper and the Leaf it builds go
- * into `ar` directly (a bare arena_alloc, not the calling thread's own gc_heap) -- for
- * value_copy.c's own crossing-arena construction, the identical reason its own arena_struct_copy/
- * arena_array_copy exist instead of calling struct_obj_new/array_obj_new directly: a value crossing
- * a spawn/Channel boundary must not end up living in a heap that the sending thread might destroy
- * (ziman_thread_heap_release, at that thread's own exit) before the receiving side has had a chance
- * to copy it out. MapNode itself is untouched either way (still calloc'd/realloc'd, via the existing
+/* The exact same shape as mapobj_empty/mapobj_set, but the MapObj wrapper and the Leaf it builds are
+ * plain `malloc`'d -- which a `ZIMAN_GC` build's own zgc.h routes to `GC_MALLOC`, i.e. Boehm's own
+ * shared heap, belonging to no thread in particular -- rather than coming from the calling thread's
+ * own gc_heap. For value_copy.c's own crossing construction, the identical reason its own
+ * `ordinary_*` counterparts exist instead of calling struct_obj_new/array_obj_new directly: a value
+ * crossing a spawn/Channel boundary must not end up living in a heap that the sending thread might
+ * destroy (ziman_thread_heap_release, at that thread's own exit) before the receiving side has had a
+ * chance to copy it out. That is the whole requirement -- *not* thread-tied -- and Boehm's own heap
+ * meets it directly, while being traced precisely through whatever references the copy (a
+ * `ChannelMsg` in a channel's own `malloc`'d queue, a `SpawnArgs`) instead of needing the copy's
+ * memory registered as a root range. See value_copy.h for the full reasoning and what it replaced.
+ *
+ * MapNode itself is untouched either way (still calloc'd/realloc'd, via the existing
  * node_alloc/node_insert this file already has) -- only the wrapper and the leaf, the two kinds that
- * actually migrated to a thread-tied allocator, need an alternate destination at all. */
-MapObj *mapobj_empty_into(struct Arena *ar);
-MapObj *mapobj_set_into(struct Arena *ar, const MapObj *m, Value key, Value val);
+ * actually migrated to a thread-tied allocator, need an alternate destination at all.
+ *
+ * A Map/Set built this way has no `gc_alloc` header, so gc_mark.c never touches a mark bit on it:
+ * `gc_mark_map` and `mark_leaf` are both already `is_gc_heap_object`-gated and both already walk
+ * entries regardless, exactly as they do for any other not-yet-migrated object. */
+MapObj *mapobj_empty_crossing(void);
+MapObj *mapobj_set_crossing(const MapObj *m, Value key, Value val);
 
 #endif

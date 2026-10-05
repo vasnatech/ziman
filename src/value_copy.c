@@ -180,24 +180,20 @@ static Value value_deep_copy_into(Arena **slot, Value v) {
             return arena_closure_copy(slot, v.as.clo, v.type);
         case TY_MAP:
         case TY_SET: {
-            /* mapobj_empty_into/mapobj_set_into (mapobj.h), not mapobj_empty/mapobj_set: the
-             * wrapper and each entry's own Leaf are gc_heap-migrated now, so building them through
-             * the ordinary mapobj_empty/mapobj_set (always this thread's own gc_heap) would leave
-             * them living in a heap the sending thread might destroy at its own exit
+            /* mapobj_empty_crossing/mapobj_set_crossing (mapobj.h), not mapobj_empty/mapobj_set:
+             * the wrapper and each entry's own Leaf are gc_heap-migrated now, so building them
+             * through the ordinary mapobj_empty/mapobj_set (always this thread's own gc_heap) would
+             * leave them living in a heap the sending thread might destroy at its own exit
              * (ziman_thread_heap_release) before the receiving side ever gets to copy them out --
              * found exactly that way, a spawned thread sending a Map and exiting right after
-             * segfaulting the receiver. Every Map/Set crossing a boundary now needs a real arena for
-             * its own wrapper, even an empty or all-scalar one (unlike before, when only a nested
-             * structural key/value forced one) -- `lazy_arena` still means nothing is created until
-             * the first actual call needs it, just that call is now unconditional rather than only
-             * happening for a nested structural entry. MapNode itself is untouched either way
-             * (mapobj_set_into still calls the same node_insert everything else does -- it was never
-             * part of this problem, see mapobj.h's own comment). */
+             * segfaulting the receiver. MapNode itself is untouched either way (the crossing pair
+             * still calls the same node_insert everything else does -- it was never part of this
+             * problem, see mapobj.h's own comment). */
             Value *keys, *vals;
             mapobj_entries(v.as.map, &keys, &vals);
-            MapObj *copy = mapobj_empty_into(lazy_arena(slot));
+            MapObj *copy = mapobj_empty_crossing();
             for (int i = 0; i < v.as.map->count; i++) {
-                copy = mapobj_set_into(lazy_arena(slot), copy, value_deep_copy_into(slot, keys[i]), value_deep_copy_into(slot, vals[i]));
+                copy = mapobj_set_crossing(copy, value_deep_copy_into(slot, keys[i]), value_deep_copy_into(slot, vals[i]));
             }
             free(keys);
             free(vals);
