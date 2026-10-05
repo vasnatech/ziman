@@ -991,7 +991,27 @@ measured. The same shape as the already-fixed put-back-`None` leak, one layer ou
 `try_receive`s it empty before sending `Request.EndCursor`. Peak live ranges for the whole fixture
 dropped from 2039 to 500.
 
-Verified: peak live ranges for the fixture dropped from 2039 to 500 and it runs to the end instead of
-aborting nine lines in -- but its output is still one line short, `database error: division by zero`,
-which reproduces on the clean tree and so is a separate pre-existing bug, chased next. Suite 834/834;
-`fmt-check` clean; all nine `gc_*` unit tests pass.
+With the leak gone the fixture ran to the end and was still one line short, which turned out to be a
+**separate, genuine pg driver bug the abort had been hiding**: `finish_page`'s "rows arrived before
+the error" branch correctly returns `open: false` alongside the `deferred` error it still owes, but
+`serve`'s `FetchCursor` handler guarded the deferred-error branch on `cursor_open &&` -- just set
+false by that same step -- so the error was answered with an empty finished page and discarded.
+`mysql.zm`'s own `serve` already had the correct form; pg was the outlier. Confirmed pre-existing on
+the clean tree before touching it.
+
+Verified: `make test-pg` 11/11 and `make test-mysql` 6/6, **both fully green for the first time in
+this whole investigation**; suite 834/834; `fmt-check` clean; all nine `gc_*` unit tests pass. One
+thing to flag: the `ziman-nogc` build now segfaults flakily on two or three fixtures per run, a
+different subset each time, and does so identically at the clean `d1893c9` -- a separate pre-existing
+regression (this file last recorded that build stable across five runs), none of the affected
+fixtures touching `lib/db`.
+
+Still ahead, and now demonstrated rather than suspected: a **fifth** trigger of the same symptom with
+no leak in it at all. A single fully-drained cursor peaks at ~500 registered ranges, a quarter of
+Boehm's 2048-entry table, simply because that is what a 500-row page buffered through a channel
+costs; six threads each streaming and fully draining one cursor abort at `live=2039`. At one
+`GC_add_roots` slot per queued message, `MAX_ROOT_SETS` is a hard concurrency ceiling on `Channel`
+itself, not just where four leaks happened to surface. The fix that removes the ceiling instead of
+the next leak: stop registering scanned arenas in Boehm's fixed-capacity static-root table and push
+them from the `GC_set_push_other_roots` hook `gc_boehm_roots.c` already installs for `Env` -- an
+uncapped, walk-a-list root source, machinery that already exists in this codebase.

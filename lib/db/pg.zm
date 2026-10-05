@@ -764,7 +764,11 @@ fn serve(sock: Socket, requests: Channel<Request>) {
                 }
             }
             FetchCursor(r) {
-                if cursor_open && r.cursor == cursor_id && Some(e) = deferred {
+                // Not guarded on `cursor_open`: a page that carried rows *and* an error leaves the
+                // cursor closed (finish_page has already drained the socket) but still owes the
+                // client that error on its next fetch, so the deferred error is keyed on the cursor
+                // id alone -- the same shape mysql.zm's own serve already has.
+                if r.cursor == cursor_id && Some(e) = deferred {
                     val failed: Result<Page, DbError> = e
                     deferred = Option<DbError>.None
                     send(r.reply_to, failed)
