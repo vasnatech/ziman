@@ -969,3 +969,29 @@ memory lives, still unmigrated) is one candidate, though each "wrapper only" sli
 known, recurring shape to check for early rather than discover by crash each time: *any* native handle
 holding a Value in its own state, reachable by neither root source, and (new this entry) *the handle
 itself* needing protecting too, once what it disguises gains a real header.
+
+Took on the one question the last three entries kept deferring: `pg_rows`/`mysql_rows`'s own
+`"Too many root sets"` abort, the fourth distinct trigger of that symptom. The previous entry's own
+guess at where it happened (the deliberate SQL syntax error, inferred from where the output stopped)
+was simply wrong -- counting the expected output's lines back to the statements that print them puts
+the failure in the five-round early-`break` loop instead, and `addr2line` settled it in one run.
+Measured rather than reasoned about this time: a temporary shadow copy of Boehm's own root-set table
+in `arena.c`, plus `GC_set_abort_func` hooked to dump the counters and a `backtrace()` at the abort,
+showed the live registered-range count climbing **monotonically to 2039** (a real leak, not a peak),
+ruled out two plausible Boehm-side mechanisms outright (`same_start_merge=0`, `remove_nomatch=0`),
+and named the leaking call site directly: `lazy_arena` from `value_copy_send`.
+
+Root cause: `db.zm`'s `buffer_page` pushes a whole 500-row cursor page into a `Channel<Option<Row>>`
+before the iterator pulls the first row back out, and every one of those sends gets its own
+dedicated, `GC_add_roots`-registered arena. Drained to the end they are all received and destroyed;
+**left early, every row still in the buffer is stranded in a channel nothing will ever receive from
+again, its arena registered forever** -- ~499 a round, five rounds, which is exactly the 2039
+measured. The same shape as the already-fixed put-back-`None` leak, one layer out. Fixed in
+`end_cursor`, the one place that knows the buffer will never be read again: it takes the buffer and
+`try_receive`s it empty before sending `Request.EndCursor`. Peak live ranges for the whole fixture
+dropped from 2039 to 500.
+
+Verified: peak live ranges for the fixture dropped from 2039 to 500 and it runs to the end instead of
+aborting nine lines in -- but its output is still one line short, `database error: division by zero`,
+which reproduces on the clean tree and so is a separate pre-existing bug, chased next. Suite 834/834;
+`fmt-check` clean; all nine `gc_*` unit tests pass.

@@ -375,7 +375,15 @@ struct CursorHandle {
     guard: Guard
 }
 
-fn end_cursor(handle: CursorHandle) {
+// Ends the cursor on the connection, and -- first -- gives back every row its own page buffer is
+// still holding. That buffer is a channel, and a value left queued on a channel keeps the dedicated
+// copy `send` made of it alive for as long as the channel itself lives (docs/DESIGN.md): a cursor
+// left early strands up to a whole page of rows that way, each one holding its own copy, so the
+// drain is what actually releases them rather than waiting for the channel to be collected.
+fn end_cursor(handle: CursorHandle, buffer: Channel<Option<Row>>) {
+    while channel_len(buffer) > 0 {
+        val _ = try_receive(buffer)
+    }
     val reply: Channel<int> = channel_new()
     send(handle.requests, Request.EndCursor(EndRequest { cursor: handle.cursor, reply_to: reply }))
     receive(reply)
@@ -440,6 +448,6 @@ pub fn open_rows(
     buffer_page(buffer, first)
     return iter_from<Result<Row, DbError>>(
         fn() -> Option<Result<Row, DbError>> { next_item(handle, buffer) },
-        fn() { end_cursor(handle) }
+        fn() { end_cursor(handle, buffer) }
     )
 }
