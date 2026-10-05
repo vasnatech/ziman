@@ -68,11 +68,15 @@ static void mark_interior_capable(const Arena *a, const void *ptr) {
  * *is* `gc_heap`-allocated (an ordinary struct with a string field, once any string constructor
  * beyond `value_string_copy` migrates), and that field still needs protecting.
  *
- * A real, deliberate cost, not overlooked: this is a second `gc_lookup` call per structural object
- * during marking, on top of the one `mark_interior_capable` already needed for interior-pointer-
- * capable buffers -- `gc_mark.h`'s own header comment already flags that one as unmeasured; this
- * doubles down on the same flag rather than a new one. Correctness first, measured before optimized,
- * the same discipline this effort has used throughout -- not a claim that it's free. */
+ * This is a second `gc_lookup` call per structural object during marking, on top of the one
+ * `mark_interior_capable` already needed for interior-pointer-capable buffers. It was landed as a
+ * knowingly-unmeasured cost ("correctness first, measured before optimized") and, when finally
+ * measured, turned out to be the single largest one in the interpreter under concurrent load --
+ * 37% of all CPU time in a cursor-streaming benchmark, because answering it meant walking the
+ * containing block's objects from the start, 827 of them per answer. It is now a single bit test
+ * against the allocation-start bitmap each arena block keeps (`arena.h`, `gc_lookup.c`), so the
+ * two calls per object cost essentially nothing and the gate can stay exactly where correctness
+ * wants it. */
 static int is_gc_heap_object(const Arena *a, const void *ptr) {
     return gc_lookup(a, ptr) == ptr;
 }

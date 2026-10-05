@@ -1056,3 +1056,45 @@ cursors the process goes CPU-bound instead of aborting, in **Ziman's own** mark 
 arena's objects linearly. `ziman_arena_push_scanned_roots` is 4.9% of that same profile, so this is
 not the new code. A pre-existing scalability wall nothing could previously reach; the obvious next
 piece of work, and not a small one.
+
+Went after the `gc_lookup` wall the last entry flagged. Measured it first: `is_gc_heap_object` asks
+"is this pointer an object this `gc_heap` allocated" of essentially every pointer the mark phase
+touches, and `gc_lookup` answered by walking the containing block's objects from its content start
+-- **710,688 calls, 136 million object steps, 827 objects per answer** on a six-thread
+cursor-streaming benchmark. The split decided the design: **138,708 of those answers were exact
+matches and 20 were genuine interior pointers**, so all of the cost was the one question that needs
+no walk. Simulated a memo cache first and the numbers talked me out of it (77% hit rate but 132k
+evictions on 140k fills, and that is an upper bound since a real one must reset per collection).
+
+Fix: **one bit per `ARENA_ALIGN` bytes of every arena block**, set by `arena_alloc`, reserved inline
+between the block's header and its content. Exact match is one bit test; an interior address is a
+short backwards scan for the nearest start, span then checked. Inline rather than a side table
+means no second mmap, no block-to-bitmap registry, and nothing to free -- it is unmapped with its
+block, so `arena_destroy`/`arena_reclaim_block` needed no new code. Costs 1/128th of a block.
+
+**The honest result: it works and buys no wall-clock time.** `gc_next_object`/`gc_lookup` vanish
+from the profile; twelve-thread user CPU drops **5.5-6.0s to 3.3-3.7s (~40%)**, matching their 37%
+profile share -- but elapsed time is unchanged, because that benchmark waits on Postgres and the
+freed CPU just goes idle. The real app's `server_concurrency.sh` is flat in both directions. A third
+of the interpreter's CPU under this load returned, with no throughput number to show for it.
+
+**The cliff was never gc_lookup.** 14 threads 1.7s, 15 never finish, identically with and without
+the bitmap. Boehm's stats say it outright: **3,935 "Mark stack overflow; current size: 4096 entries"
+and 7 completed collections** -- `GC_signal_mark_stack_overflow` deliberately skips setting
+`GC_mark_stack_too_small` when `GC_parallel` is on, and "No room to copy back mark stack" (the only
+other place that sets it) appears **zero** times, so the stack never grows and marking restarts
+forever with the world stopped. `GC_MARKERS=1` runs the same case in 2.82s.
+
+Worth recording why it appeared now: the trigger is root ranges from `push_other_roots`, one per
+queued `Channel` message (15 cursors x 500 rows ~ 7,500 against a 4,096-entry stack). While scanned
+arenas used `GC_add_roots`, `MAX_ROOT_SETS` capped that at 2,048 -- **below the mark stack, so the
+abort was accidentally protecting the process from this livelock.** Last commit removed the cap and
+exposed it; that is a cost of that fix, not an unrelated find.
+
+Still ahead, and the same answer as the last two entries kept pointing at: stop giving every value
+crossing a `Channel` its own `mmap`'d scanned arena. That one decision is what makes a queued
+message cost 256KB of address space, a root-set slot, and now a mark-stack entry. The precedent is
+already in-tree -- the payload-less-enum fix allocates its copy with plain `malloc`, Boehm-visible
+through the channel queue, no arena and no root range. Extending that to every crossing copy would
+take root ranges from one-per-queued-message to one-per-thread and retire most of this whole
+investigation. It changes the copy path every crossing goes through, so it is its own work.

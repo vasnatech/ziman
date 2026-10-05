@@ -100,6 +100,30 @@ typedef struct ArenaBlock ArenaBlock;
 const ArenaBlock *arena_first_block(const Arena *a);
 const ArenaBlock *arena_next_block(const ArenaBlock *b);
 
+/* --- resolving an address back to the allocation it belongs to ------------------------------
+ * Each block records, in a bitmap reserved inline between its own header and its content, which of
+ * its `ARENA_ALIGN`-sized offsets an `arena_alloc` result started at. These two answer the only
+ * questions a conservative collector asks of it. Both take an address that need not be in `b` at
+ * all and simply answer "no" for one that isn't, so a caller may walk every block without
+ * range-checking first.
+ *
+ * `arena_block_is_alloc_start` is exact and constant-time, which is the whole point of the bitmap:
+ * `src/gc_mark.c`'s `is_gc_heap_object` asks it of essentially every pointer it marks, and before
+ * the bitmap existed the only way to answer was to walk the block's objects from its content start
+ * -- measured at 827 objects walked per answer, 115 million object steps in one cursor-streaming
+ * benchmark run, together 37% of all CPU time in it (docs/DESIGN.md). It is also what makes that
+ * answer *exact* rather than a guess at whether the bytes before an address look like a header:
+ * writing a mark bit through a false positive corrupts whatever those bytes really belong to,
+ * which is a bug this collector has already shipped once and does not intend to again.
+ *
+ * `arena_block_alloc_start_at_or_before` resolves an interior address -- a string view, a sliced
+ * array -- to the allocation containing it, by scanning the bitmap backwards for the nearest start.
+ * The caller must still check the allocation's own span actually reaches the address: the nearest
+ * preceding start is the only candidate (allocations never overlap and are laid out in increasing
+ * address order), but it may simply end before the address. */
+int arena_block_is_alloc_start(const ArenaBlock *b, const void *addr);
+const void *arena_block_alloc_start_at_or_before(const ArenaBlock *b, const void *addr);
+
 /* `[*out_start, *out_start + *out_len)`: exactly the bytes `arena_alloc` has handed out of this
  * block's own content -- never this block's own header, and never (on whichever single block
  * happens to embed it) the `Arena` struct's own bytes. Walking this span sequentially is only

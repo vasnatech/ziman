@@ -69,6 +69,47 @@ static size_t round_up(size_t v, size_t unit) {
     return (v + unit - 1) / unit * unit;
 }
 
+/* --- the per-block allocation-start bitmap -------------------------------------------------
+ * One bit per `ARENA_ALIGN` bytes of the block, reserved inline between the block's own header and
+ * the bytes it hands out, and set by `arena_alloc` for every allocation it returns. It answers, in
+ * constant time and exactly, "did an allocation in this block start at this address" -- and, by
+ * scanning backwards, "which allocation's span is this address inside".
+ *
+ * It lives here rather than in the collector because this is the only module that knows where an
+ * allocation starts; it carries no interpretation of its own (`arena.h` says what the collector
+ * uses it for). Inline rather than a side allocation on purpose: it needs no second `mmap`, no
+ * registry mapping a block to its bitmap, and nothing has to free it -- it is unmapped with the
+ * block it describes, by `arena_destroy` and `arena_reclaim_block` alike, with no code of their own.
+ * It costs one bit per 16 bytes, 1/128th of every block (2KB of a 256KB one).
+ *
+ * Every `arena_alloc` result is `ARENA_ALIGN`-aligned *relative to its block's own base* (`used` is
+ * kept a multiple of `ARENA_ALIGN` from `block_new` onward and every request is rounded up to one),
+ * and a block's base is page-aligned by `mmap`, so an offset divided by `ARENA_ALIGN` is an exact,
+ * dense bit index with nothing to round. */
+static size_t bitmap_bytes_for(size_t block_size) {
+    return round_up(block_size / (ARENA_ALIGN * 8), ARENA_ALIGN);
+}
+
+static size_t bitmap_offset(void) {
+    return round_up(ARENA_HEADER, ARENA_ALIGN);
+}
+
+/* Where a block's own bump-allocated content begins: past the header and past the bitmap. The one
+ * block that embeds the `Arena` struct (see arena_create_impl) has that in its content too, which
+ * `arena_block_content` -- not this -- is what accounts for. */
+static size_t content_offset(const ArenaBlock *b) {
+    return bitmap_offset() + bitmap_bytes_for(b->size);
+}
+
+static unsigned char *bitmap_of(const ArenaBlock *b) {
+    return (unsigned char *)((char *)b + bitmap_offset());
+}
+
+static void bitmap_set_start(ArenaBlock *b, size_t offset) {
+    size_t bit = offset / ARENA_ALIGN;
+    bitmap_of(b)[bit / 8] |= (unsigned char)(1u << (bit % 8));
+}
+
 static size_t page_size(void) {
     static size_t cached = 0;
     if (cached == 0) {
@@ -84,8 +125,17 @@ static size_t page_size(void) {
  * interpreter already does the same (this file has no more graceful option than malloc's own
  * callers already accept elsewhere). */
 static ArenaBlock *block_new(size_t min_payload) {
+    /* The bitmap's own size depends on the block's, which depends on the bitmap's -- resolved by
+     * sizing the block without it, then growing a page at a time until it genuinely fits (a few
+     * iterations at most, since each page added needs only another 32 bytes of bitmap to describe
+     * it). Written as a loop rather than closed-form arithmetic on purpose: getting that algebra
+     * subtly wrong would under-size a block by a few bytes, which is a corruption rather than a
+     * shortfall, because arena_alloc trusts `size` to be the whole truth about the mapping. */
     size_t want = ARENA_HEADER + min_payload;
     size_t size = round_up(want > ARENA_BLOCK_SIZE ? want : ARENA_BLOCK_SIZE, page_size());
+    while (bitmap_offset() + bitmap_bytes_for(size) + min_payload > size) {
+        size = round_up(size + 1, page_size());
+    }
     void *mem = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (mem == MAP_FAILED) {
         abort();
@@ -97,7 +147,7 @@ static ArenaBlock *block_new(size_t min_payload) {
      * address is always page-aligned, far stricter than ARENA_ALIGN needs, so keeping `used` a
      * multiple of ARENA_ALIGN from this point on is what keeps every arena_alloc result aligned --
      * ARENA_HEADER itself (three pointer/size_t-sized fields) has no reason to already be one. */
-    b->used = round_up(ARENA_HEADER, ARENA_ALIGN);
+    b->used = content_offset(b);
     return b;
 }
 
@@ -172,8 +222,12 @@ void ziman_arena_push_scanned_roots(void) {
              * could not do, since it was fixed at block-creation time, before anything was in it --
              * it is also safe, since the thread that owns this arena is stopped while this runs, and
              * `arena_alloc` advances `used` past a new allocation *before* it returns the pointer,
-             * so nothing can be written into a region this has not yet been told about. */
-            GC_push_all((char *)b, (char *)b + b->used);
+             * so nothing can be written into a region this has not yet been told about.
+             *
+             * From `content_offset`, not the block's own base, for the same reason: the header and
+             * the allocation-start bitmap hold no Ziman pointer, and the bitmap in particular is
+             * dense bit patterns that conservative scanning would be forced to consider. */
+            GC_push_all((char *)b + content_offset(b), (char *)b + b->used);
         }
     }
 #endif
@@ -182,9 +236,12 @@ void ziman_arena_push_scanned_roots(void) {
 static Arena *arena_create_impl(int scanned) {
     /* The Arena struct itself lives in the first block's own payload, so creating one is exactly
      * one mmap call, not two -- the same "no allocation outside this module's own mechanism"
-     * discipline the rest of this file follows. */
+     * discipline the rest of this file follows. Placed at `used` (the content start) rather than at
+     * `data`, which is where the block's own bitmap begins, not its content. Deliberately *not*
+     * recorded in that bitmap: it is not an `arena_alloc` result and no allocation here is ever
+     * meant to resolve to it -- `arena_block_content` skips past it for the same reason. */
     ArenaBlock *first = block_new(sizeof(Arena));
-    Arena *a = (Arena *)(first->data);
+    Arena *a = (Arena *)((char *)first + first->used);
     first->used += round_up(sizeof(Arena), ARENA_ALIGN);
     a->current = first;
     a->reserved = first->size;
@@ -229,6 +286,9 @@ void *arena_alloc(Arena *a, size_t size) {
         cur = fresh;
     }
     void *p = cur->data + (cur->used - ARENA_HEADER);
+    /* Recorded before `used` grows, so a block never claims an allocation it has not yet marked
+     * the start of -- the same ordering arena_alloc already owes the collector for `used` itself. */
+    bitmap_set_start(cur, cur->used);
     cur->used += need;
     return p;
 }
@@ -271,12 +331,46 @@ const ArenaBlock *arena_next_block(const ArenaBlock *b) {
     return b->next;
 }
 
+int arena_block_is_alloc_start(const ArenaBlock *b, const void *addr) {
+    size_t offset = (size_t)((const char *)addr - (const char *)b);
+    if (offset >= b->used || offset % ARENA_ALIGN != 0) return 0;
+    size_t bit = offset / ARENA_ALIGN;
+    return (bitmap_of(b)[bit / 8] >> (bit % 8)) & 1u;
+}
+
+const void *arena_block_alloc_start_at_or_before(const ArenaBlock *b, const void *addr) {
+    size_t offset = (size_t)((const char *)addr - (const char *)b);
+    if (offset >= b->used) return NULL;
+    size_t bit = offset / ARENA_ALIGN;
+    const unsigned char *map = bitmap_of(b);
+    size_t first_bit = content_offset(b) / ARENA_ALIGN;
+
+    /* Backwards from `bit`, a byte at a time: the partial byte holding `bit` itself first (masked
+     * so bits above it are ignored), then whole bytes. `first_bit` is where this block's content
+     * starts, so the scan can never run back into the bitmap's own bytes or the block header. */
+    size_t byte = bit / 8;
+    unsigned int bits = map[byte] & (unsigned int)((1u << (bit % 8 + 1)) - 1u);
+    for (;;) {
+        if (bits != 0) {
+            /* The highest set bit in this byte is the nearest start at or before `addr`. */
+            int top = 7;
+            while (((bits >> top) & 1u) == 0) top--;
+            size_t found = byte * 8 + (size_t)top;
+            if (found < first_bit) return NULL;
+            return (const char *)b + found * ARENA_ALIGN;
+        }
+        if (byte == 0 || byte * 8 <= first_bit) return NULL;
+        byte--;
+        bits = map[byte];
+    }
+}
+
 void arena_block_content(const ArenaBlock *b, const char **out_start, size_t *out_len) {
     /* `next == NULL` identifies the one block that embeds the `Arena` struct itself (see
      * arena_create_impl): every other block is only ever created by the "current is full" branch
      * of arena_alloc, which sets its `next` before anything else can run, and nothing ever touches
      * the original block's `next` again after arena_create_impl leaves it NULL. */
-    size_t used_at_start = round_up(ARENA_HEADER, ARENA_ALIGN);
+    size_t used_at_start = content_offset(b);
     if (b->next == NULL) used_at_start += round_up(sizeof(Arena), ARENA_ALIGN);
     *out_start = (const char *)b + used_at_start;
     *out_len = b->used - used_at_start;

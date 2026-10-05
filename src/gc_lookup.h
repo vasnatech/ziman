@@ -25,14 +25,21 @@
  * already-found object; interior-pointer support here exists only to make the *first*, raw-stack-word
  * discovery of such a root correct too.
  *
- * Works by walking every block `a` holds, one object at a time (`arena_block_content` +
- * `gc_object.c`'s `gc_next_object`) -- no separate index is built or kept up to date as allocations
- * happen, since gc_alloc's own bump allocation already lays every object out contiguously and
- * self-describingly. This makes one call O(number of objects currently in `a`): fine for the
- * handful of calls a conservative stack scan makes per collection, wrong to call from anywhere
- * allocation-frequency matters. Only meaningful for an arena where every allocation went through
- * `gc_alloc` -- see `arena_block_content`'s own comment on why a bare `arena_alloc` call breaks the
- * walk. */
+ * Answers both from the allocation-start bitmap each arena block keeps (`arena.h`): an exact match
+ * is one bit test -- "did an allocation start one header-span before `candidate`" -- and an
+ * interior address costs a short backwards scan of that bitmap for the nearest start. Only
+ * meaningful for an arena where every allocation went through `gc_alloc`, since that is what makes
+ * "an allocation started here" and "an object's header is here" the same statement.
+ *
+ * This replaced walking the containing block's objects one at a time from its content start, which
+ * was correct and needed no index at all, but made a call O(number of objects in the block). That
+ * was knowingly accepted when nothing measured it and the only caller was a stack scan making a
+ * handful of calls per collection (`gc_mark.c`'s `is_gc_heap_object` says as much where it calls
+ * this: "a real, deliberate cost, not overlooked ... measured before optimized"). It then became
+ * the single largest cost in the interpreter under concurrent load: 827 objects walked per answer,
+ * 115 million object steps in one cursor-streaming benchmark run, 37% of all CPU time in it --
+ * which the bitmap removes entirely, cutting that run's CPU from 5.6s to 3.5s. See docs/DESIGN.md
+ * for why its *elapsed* time does not move (that benchmark waits on a database, not on CPU). */
 const void *gc_lookup(const Arena *a, const void *candidate);
 
 #endif

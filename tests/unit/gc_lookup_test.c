@@ -32,6 +32,14 @@ int main(void) {
     check("the last valid byte of a payload still resolves to its start", gc_lookup(a, first + 39) == first);
     check("one byte past a payload's declared end does not resolve to it", gc_lookup(a, first + 40) != first);
 
+    /* An address inside an object's own *header* -- between where its allocation starts and where
+     * its payload does -- is not a reference to that object and must not resolve to it. Checked
+     * because the allocation-start bitmap (arena.h) records allocation starts, i.e. header
+     * addresses, so resolving one has to step forward past the header and then find the address
+     * genuinely short of the payload, rather than reporting the object it sits in front of. */
+    check("an address inside an object's header resolves to nothing",
+          gc_lookup(a, first - 1) != first);
+
     /* Several more objects of different kinds/sizes, walked correctly one after another. */
     char *second = gc_alloc(a, GC_STRUCT, 24);
     memset(second, 'B', 24);
@@ -80,6 +88,20 @@ int main(void) {
     check("an object in a third block resolves correctly", gc_lookup(a, after_big) == after_big);
 
     arena_destroy(a);
+
+    /* The bitmap's own bytes, and the block header in front of them, live between a block's base
+     * and its content -- no address in there is an allocation, and none may resolve to one. The
+     * arena pointer itself sits at the start of the first block's *content*, so stepping back from
+     * it lands squarely in that reserved region. */
+    Arena *geom = arena_create();
+    char *only = gc_alloc(geom, GC_ATOMIC, 16);
+    int reserved_clean = 1;
+    for (size_t back = 1; back <= 512; back++) {
+        if (gc_lookup(geom, (const char *)geom - back) != NULL) reserved_clean = 0;
+    }
+    check("no address in a block's header or allocation-start bitmap resolves to an object", reserved_clean);
+    check("an object in that same arena still resolves normally", gc_lookup(geom, only) == only);
+    arena_destroy(geom);
 
     printf("%d failure(s)\n", failures);
     return failures ? 1 : 0;

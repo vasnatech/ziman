@@ -99,8 +99,8 @@ int main(void) {
     arena_destroy(empty);
     check("create then destroy with no other allocations doesn't crash", 1);
 
-    /* arena_create_scanned's own GC_add_roots/GC_remove_roots calls compile out entirely in this
-     * standalone (non-ZIMAN_GC) test binary -- see arena.c's own maybe_scan -- so this only
+    /* arena_create_scanned's own scanned-arena registry compiles out entirely in this standalone
+     * (non-ZIMAN_GC) test binary -- see arena.c's own scanned_link -- so this only
      * exercises that the API surface behaves the same as the plain one, not the actual root
      * registration; that property is checked at the interpreter level instead
      * (tests/fixtures/thread_crossing_native_handle.zm, which reproduces the real bug this was
