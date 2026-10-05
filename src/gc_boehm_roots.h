@@ -13,6 +13,14 @@
  * The fix: Boehm exposes exactly the seam this needs, `GC_set_push_other_roots` (vendored
  * `gc/gc_mark.h`, unused anywhere in this codebase before now) -- a callback its own mark phase
  * calls on every cycle to push additional roots beyond its own conservative stack/register scan.
+ * The hook also carries one root source that is not an `Env` thing at all: every live
+ * `arena_create_scanned` arena (`ziman_arena_push_scanned_roots`, arena.c). Those blocks have to be
+ * conservatively scanned for the reasons arena.h's own comment on `arena_create_scanned` gives, and
+ * they were registered one-by-one with `GC_add_roots` originally -- correct, but capped at
+ * `MAX_ROOT_SETS` (2048) ranges process-wide, which `value_copy_send`'s own arena-per-queued-
+ * `Channel`-message turned into a hard concurrency ceiling on correct programs. This hook has no
+ * such capacity, which is the whole reason that registration moved here.
+ *
  * This module installs one that walks the *same* root set `gc_mark_interpreter_roots` already does
  * for Ziman's own collector (`error.c`'s per-thread call frames, `interpreter.c`'s per-thread
  * `t_defer_envs`/`t_env_pool`/`t_active_iters`/`t_pending_handler`, and the shared `g_global_env`),

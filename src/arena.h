@@ -27,9 +27,20 @@ typedef struct Arena Arena;
 
 Arena *arena_create(void);
 
-/* Like `arena_create`, except every block is also registered with the Boehm collector
- * (`GC_add_roots`) as an additional conservatively-scanned range, in a `ZIMAN_GC` build --
- * a plain `arena_create` in the plain build, since there is no collector to register with.
+/* Like `arena_create`, except every block is also handed to the Boehm collector as an additional
+ * conservatively-scanned range on every collection, in a `ZIMAN_GC` build -- a plain
+ * `arena_create` in the plain build, since there is no collector to be scanned by.
+ *
+ * Scanned arenas are kept on a list this module owns and pushed from
+ * `ziman_arena_push_scanned_roots` (below), *not* registered individually with `GC_add_roots`.
+ * That was the original design and it had a hard, low ceiling: Boehm's own static-root table holds
+ * `MAX_ROOT_SETS` (2048) entries, one per registered range, and `GC_add_roots_inner` `abort()`s
+ * the whole process the moment it fills. Since `value_copy_send` gives every value crossing a
+ * `Channel` its own scanned arena, that made 2048 *simultaneously queued messages* a
+ * process-wide limit on the language's own `Channel` -- reached by six threads each streaming and
+ * fully draining one database cursor, with nothing leaked and nothing wrong with the program (see
+ * docs/DESIGN.md, which also records the four separate leaks that hit the same ceiling first and
+ * were each mistaken for the whole problem in turn). A walked list has no such capacity.
  *
  * Needed wherever a value that might contain a native resource handle can end up in this arena
  * (see src/value_copy.c): this codebase represents a handle (a database connection, ...) as the
@@ -61,14 +72,22 @@ void *arena_alloc(Arena *a, size_t size);
 
 /* Releases every block `a` ever allocated, and `a` itself. Nothing allocated from it may be read or
  * written afterward -- the same "past this point, everything is gone" contract `munmap` itself has.
- * For an arena made with `arena_create_scanned`, this also un-registers every block's roots
- * (`GC_remove_roots`) before unmapping it -- required, not optional: the collector must never be
- * left holding a root that points at memory `munmap` has already given back to the OS. */
+ * For an arena made with `arena_create_scanned`, this also takes it off the scanned list before
+ * unmapping anything -- required, not optional, and in that order: the collector must never be left
+ * scanning memory `munmap` has already given back to the OS. */
 void arena_destroy(Arena *a);
 
 /* Total bytes reserved from the OS across every block in `a` (not just what's been handed out) --
  * for Phase 3's own collection-trigger watermark; not otherwise meaningful to a caller. */
 size_t arena_reserved(const Arena *a);
+
+/* Pushes every block of every live `arena_create_scanned` arena to Boehm's own mark phase as an
+ * additional root range. Call only from a `GC_push_other_roots_proc` (src/gc_boehm_roots.c installs
+ * the one this codebase has): it reads the scanned-arena list without locking, which is safe there
+ * and only there, because that callback runs with every other thread already stopped. A no-op
+ * without the collector. See `arena_create_scanned` above for why this exists rather than a
+ * `GC_add_roots` call per block. */
+void ziman_arena_push_scanned_roots(void);
 
 /* --- walking an arena's own content, block by block -----------------------------------------
  * For a caller that needs to visit every object an arena currently holds (src/gc_lookup.c,
@@ -92,13 +111,13 @@ const ArenaBlock *arena_next_block(const ArenaBlock *b);
 void arena_block_content(const ArenaBlock *b, const char **out_start, size_t *out_len);
 
 /* Unlinks `b` from `a`'s own block list and releases it exactly like one iteration of
- * arena_destroy's own loop would -- `GC_remove_roots` (if `a` was made with arena_create_scanned)
- * then `munmap` -- for a caller (gc_heap_sweep) that has independently established nothing in `b`
- * is still live. Never relocates anything still reachable; only ever called for a block gc_heap's
- * own mark phase found entirely dead, the same non-moving guarantee every other reclaim in this
- * collector already relies on (docs/MEMORY.md, "Phase 3 switches from copying to mark-sweep") --
- * see docs/DESIGN.md's own entry on why Boehm's `GC_add_roots` table filling up for an ordinary,
- * long-lived thread's own sustained allocation needed this at all.
+ * arena_destroy's own loop would -- for a caller (gc_heap_sweep) that has independently established
+ * nothing in `b` is still live. Unlinking is also what stops a scanned arena's block being scanned,
+ * since the block list is exactly what `ziman_arena_push_scanned_roots` walks. Never relocates
+ * anything still reachable; only ever called for a block gc_heap's own mark phase found entirely
+ * dead, the same non-moving guarantee every other reclaim in this collector already relies on
+ * (docs/MEMORY.md, "Phase 3 switches from copying to mark-sweep") -- see docs/DESIGN.md's own entry
+ * on why an ordinary, long-lived thread's own sustained allocation needed this at all.
  *
  * `prev` is whichever block currently has `next == b` in `a`'s own list -- a caller walking blocks
  * via arena_first_block/arena_next_block (visiting newest-first) already has this as the previous

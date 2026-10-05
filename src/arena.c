@@ -6,7 +6,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-/* Only for GC_add_roots/GC_remove_roots (arena_create_scanned). A `make`/`make gc` build already
+/* Only for `GC_push_all` (ziman_arena_push_scanned_roots). A `make`/`make gc` build already
  * force-includes src/zgc.h into every translation unit (the Makefile's own `-include`, which is
  * what zgc.h's malloc/calloc/realloc/free redefinitions rely on -- see arena.h's comment on why
  * this file never calls any of them, mmap/munmap being untouched by that redirect either way) --
@@ -14,6 +14,8 @@
  * already have made available transitively. */
 #ifdef ZIMAN_GC
 #include <gc.h>
+#include <gc/gc_mark.h> /* GC_push_all, for ziman_arena_push_scanned_roots */
+#include <pthread.h>
 #endif
 
 /* One `mmap`'d region, prepended to the arena's block list as it fills. `data` (a flexible array
@@ -33,6 +35,16 @@ struct Arena {
     ArenaBlock *current;
     size_t reserved;
     int scanned; /* see arena_create_scanned */
+    /* g_scanned's own links, unused unless `scanned`. Doubly linked purely so that unlinking is
+     * O(1): a `Channel` under load creates and destroys one scanned arena per message, so a
+     * singly-linked list's own walk-to-find-the-predecessor makes the registry quadratic in how
+     * many arenas are live at once -- and, since every walk happens under one global lock, it
+     * serialises threads that have nothing to do with each other. Measured both ways on twelve
+     * threads each streaming a 4000-row cursor: 6.5s singly-linked against 1.5s with these, and
+     * on six threads 1.2-2.1s against 0.65s.
+     * Only `next_scanned` is ever read outside the lock (by ziman_arena_push_scanned_roots). */
+    struct Arena *next_scanned;
+    struct Arena *prev_scanned;
 };
 
 /* C11's max_align_t is the portable way to ask for "however aligned the strictest C type needs to
@@ -89,15 +101,81 @@ static ArenaBlock *block_new(size_t min_payload) {
     return b;
 }
 
-/* Registers `b` with the collector as an additional conservatively-scanned range, in a `ZIMAN_GC`
- * build with `scanned` set -- a no-op otherwise (arena.h's own comment on `arena_create_scanned`
- * explains what this is for and why it's needed at all). */
-static void maybe_scan(const ArenaBlock *b, int scanned) {
 #ifdef ZIMAN_GC
-    if (scanned) GC_add_roots((void *)b, (char *)b + b->size);
-#else
-    (void)b;
-    (void)scanned;
+/* Every live scanned arena, on an ordinary (non-`__thread`) global list, so that
+ * `ziman_arena_push_scanned_roots` below can hand all of them to Boehm's own mark phase on every
+ * collection -- see arena.h's own comment on `arena_create_scanned` for why these ranges have to be
+ * scanned at all, and that same comment for why they are no longer registered one-by-one with
+ * `GC_add_roots`. The lock is only ever taken by the (comparatively rare) link/unlink below; the collector
+ * walks the list with every other thread already stopped and takes no lock at all, exactly as
+ * gc_boehm_roots.c's own thread registry does.
+ *
+ * Both link and unlink are written so that a thread *suspended part-way through one* still leaves a
+ * wholly valid list behind for the collector to walk, since unlike a thread registry these run
+ * constantly during ordinary execution (every `Channel` send creates and destroys one) and so will
+ * sometimes be interrupted by a collection. Each publishes its change with a single aligned pointer
+ * store, so the list the collector sees either already includes the arena or does not yet -- never
+ * something in between. */
+static Arena *g_scanned = NULL;
+static pthread_mutex_t g_scanned_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Links `a` in. Called before anything has been `arena_alloc`'d out of it, so the window where a
+ * collection could run between `a`'s creation and its appearance on the list covers an arena with
+ * nothing in it yet -- nothing unscanned that anything could already be pointing at. The release
+ * store is what keeps `a->next_scanned` ordered before the publication of `a` itself. */
+static void scanned_link(Arena *a) {
+    pthread_mutex_lock(&g_scanned_lock);
+    a->prev_scanned = NULL;
+    a->next_scanned = g_scanned;
+    if (g_scanned != NULL) g_scanned->prev_scanned = a;
+    __atomic_store_n(&g_scanned, a, __ATOMIC_RELEASE);
+    pthread_mutex_unlock(&g_scanned_lock);
+}
+
+/* Unlinks `a`. The caller must do this *before* unmapping any of `a`'s blocks: a collection that
+ * runs in between finds `a` already off the list and simply doesn't scan it (correct -- the
+ * receiving side of a crossing already holds its own independent copy by the time anything destroys
+ * the arena), whereas the reverse order would leave the collector reading memory `munmap` has
+ * handed back to the OS. */
+static void scanned_unlink(Arena *a) {
+    pthread_mutex_lock(&g_scanned_lock);
+    Arena *pv = a->prev_scanned;
+    Arena *nx = a->next_scanned;
+    /* The forward chain the collector walks is repaired by this one store, before anything touches
+     * a `prev_scanned` (which only this function and scanned_link ever read, both under the lock) --
+     * so a collection interrupting here still finds a whole, valid list. */
+    if (pv != NULL) {
+        __atomic_store_n(&pv->next_scanned, nx, __ATOMIC_RELEASE);
+    } else {
+        __atomic_store_n(&g_scanned, nx, __ATOMIC_RELEASE);
+    }
+    if (nx != NULL) nx->prev_scanned = pv;
+    pthread_mutex_unlock(&g_scanned_lock);
+}
+#endif
+
+void ziman_arena_push_scanned_roots(void) {
+#ifdef ZIMAN_GC
+    for (Arena *a = __atomic_load_n(&g_scanned, __ATOMIC_ACQUIRE); a != NULL; a = a->next_scanned) {
+        for (ArenaBlock *b = __atomic_load_n(&a->current, __ATOMIC_ACQUIRE); b != NULL; b = b->next) {
+            /* `b->used`, not `b->size`: only the bytes arena_alloc has actually handed out, never
+             * the rest of the block. The untouched tail is freshly-`mmap`'d zeroes by construction
+             * (bump allocation only ever moves forward, and nothing is reused until the whole arena
+             * goes), so no pointer can be hiding in it and scanning it is pure cost -- and a large
+             * one: a block is `ARENA_BLOCK_SIZE` (256KB) even when a crossing copy of one small
+             * value is all it will ever hold, which for a `Channel` with a page of rows queued on
+             * it is the difference between scanning tens of bytes per message and scanning a
+             * quarter-megabyte. Measured both ways on twelve threads each streaming a 4000-row
+             * cursor: 3.4-4.0s pushing whole blocks against 1.4-1.5s pushing only `used`, and a
+             * smaller 0.8-0.9s against 0.65s on six. Reading `used` live on every collection is
+             * exactly what pushing from a hook makes possible and a one-shot `GC_add_roots` range
+             * could not do, since it was fixed at block-creation time, before anything was in it --
+             * it is also safe, since the thread that owns this arena is stopped while this runs, and
+             * `arena_alloc` advances `used` past a new allocation *before* it returns the pointer,
+             * so nothing can be written into a region this has not yet been told about. */
+            GC_push_all((char *)b, (char *)b + b->used);
+        }
+    }
 #endif
 }
 
@@ -106,12 +184,16 @@ static Arena *arena_create_impl(int scanned) {
      * one mmap call, not two -- the same "no allocation outside this module's own mechanism"
      * discipline the rest of this file follows. */
     ArenaBlock *first = block_new(sizeof(Arena));
-    maybe_scan(first, scanned);
     Arena *a = (Arena *)(first->data);
     first->used += round_up(sizeof(Arena), ARENA_ALIGN);
     a->current = first;
     a->reserved = first->size;
     a->scanned = scanned;
+    a->next_scanned = NULL;
+    a->prev_scanned = NULL;
+#ifdef ZIMAN_GC
+    if (scanned) scanned_link(a);
+#endif
     return a;
 }
 
@@ -130,10 +212,19 @@ void *arena_alloc(Arena *a, size_t size) {
     size_t need = size == 0 ? ARENA_ALIGN : round_up(size, ARENA_ALIGN);
     ArenaBlock *cur = a->current;
     if (cur->used + need > cur->size) {
+        /* No per-block registration any more: the fresh block joins this arena's own block list,
+         * and ziman_arena_push_scanned_roots walks that list on every collection, so a scanned
+         * arena's new block is covered from the moment `a->current` points at it -- which is before
+         * `used` grows past the header just below, so no allocation can exist in a block the
+         * collector has not been told about yet.
+         *
+         * The release store is what makes that true for a *concurrent* collection rather than just
+         * in program order: `fresh->next` must already be the rest of the list when `a->current`
+         * becomes visible, or a collector walking from `fresh` would stop at the NULL `block_new`
+         * left there and silently miss every older block in this arena. */
         ArenaBlock *fresh = block_new(need);
-        maybe_scan(fresh, a->scanned);
         fresh->next = cur;
-        a->current = fresh;
+        __atomic_store_n(&a->current, fresh, __ATOMIC_RELEASE);
         a->reserved += fresh->size;
         cur = fresh;
     }
@@ -143,16 +234,14 @@ void *arena_alloc(Arena *a, size_t size) {
 }
 
 void arena_destroy(Arena *a) {
-    int scanned = a->scanned;
+#ifdef ZIMAN_GC
+    /* Off the list first, every block only after that -- see scanned_unlink's own comment. */
+    if (a->scanned) scanned_unlink(a);
+#endif
     ArenaBlock *b = a->current;
     while (b != NULL) {
         ArenaBlock *next = b->next;
         size_t size = b->size;
-#ifdef ZIMAN_GC
-        if (scanned) GC_remove_roots((void *)b, (char *)b + size);
-#else
-        (void)scanned;
-#endif
         munmap(b, size);
         b = next;
     }
@@ -164,11 +253,12 @@ size_t arena_reserved(const Arena *a) {
 }
 
 void arena_reclaim_block(Arena *a, ArenaBlock *prev, ArenaBlock *b) {
-    prev->next = b->next;
+    /* Unlinking `b` from the block list is all a scanned arena needs: that list *is* what
+     * ziman_arena_push_scanned_roots walks, so `b` stops being scanned the moment this store lands,
+     * and the single aligned pointer store means a collection interrupting this either still sees
+     * `b` (mapped -- munmap is below) or already skips it. */
+    __atomic_store_n(&prev->next, b->next, __ATOMIC_RELEASE);
     size_t size = b->size;
-#ifdef ZIMAN_GC
-    if (a->scanned) GC_remove_roots((void *)b, (char *)b + size);
-#endif
     a->reserved -= size;
     munmap(b, size);
 }

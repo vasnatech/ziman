@@ -1015,3 +1015,44 @@ itself, not just where four leaks happened to surface. The fix that removes the 
 the next leak: stop registering scanned arenas in Boehm's fixed-capacity static-root table and push
 them from the `GC_set_push_other_roots` hook `gc_boehm_roots.c` already installs for `Env` -- an
 uncapped, walk-a-list root source, machinery that already exists in this codebase.
+
+Fixed the ceiling itself rather than waiting for the sixth leak to hit it. `arena_create_scanned` no
+longer calls `GC_add_roots` per block: every live scanned arena goes on a global list that a new
+`ziman_arena_push_scanned_roots` walks from the `GC_set_push_other_roots` callback
+`gc_boehm_roots.c` already installs for `Env`, which has no capacity limit at all. `arena_destroy`
+unlinks instead of `GC_remove_roots`, and `arena_reclaim_block`'s existing block-list unlink is now
+the whole of what stops a block being scanned.
+
+The care went into concurrency, not the list. Unlike a thread registry (which `gc_boehm_roots.c`
+gets away with locking loosely because threads start and exit rarely), a scanned arena is created
+and destroyed **per value crossing a `Channel`**, so a thread will be suspended mid-link or
+mid-unlink by a collection constantly. Both are written so the forward chain the collector walks is
+whole at every instant -- one release store each, `prev_scanned` only ever read by the locked
+mutators -- and the same reasoning pushed one level down to `arena_alloc`, where `a->current` must
+be published *after* `fresh->next`, or a collector would stop at `block_new`'s NULL and silently
+miss every older block in the arena.
+
+Two measured wins, both found by checking claims I had already written down and got wrong. Pushing
+from a hook makes it possible to read each block's `used` live per collection and scan only the
+bytes handed out, never the rest of the 256KB block a one-value crossing copy gets to itself:
+**3.4-4.0s to 1.4-1.5s** on twelve streaming cursors. And the first version's singly-linked list
+made unlinking walk for the predecessor -- quadratic, under one global lock: **6.5s to 1.5s** once
+the links went both ways. Each is a real 2.4x-4.3x win; neither was the "never finished to seconds"
+my first comments claimed. Lesson worth keeping: don't write the number down before producing it.
+
+Verified with the thing that matters most for a GC change -- that it costs nothing when unneeded. At
+four cursors (the only load both builds can run, being under the old ceiling) clean `bf8f908` and
+this are indistinguishable; at sixteen `bf8f908` aborts in 4.35s and this completes.
+`server_concurrency.sh` against the real app, both builds back to back, flat within noise (661/1315/
+1382/958 vs 666/1324/1355/963 req/s, zero failures) -- an earlier better-looking set for this build
+was just variance, caught by rebuilding the baseline instead of trusting numbers recorded here in an
+older session. Suite 834/834; test-pg 11/11; test-mysql 6/6; nine `gc_*` unit tests; real app suite
+in full (19 files, ~1000 checks); `fmt-check` clean; `valgrind` 0 bytes lost with byte-identical
+error contexts to the clean build.
+
+Still ahead, and newly visible because the crash no longer hides it: above ~14 concurrent streaming
+cursors the process goes CPU-bound instead of aborting, in **Ziman's own** mark phase --
+`gc_next_object`/`gc_lookup` at 20.7%/3.5% of a `perf` profile, resolving an address by walking an
+arena's objects linearly. `ziman_arena_push_scanned_roots` is 4.9% of that same profile, so this is
+not the new code. A pre-existing scalability wall nothing could previously reach; the obvious next
+piece of work, and not a small one.
