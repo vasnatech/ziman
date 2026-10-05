@@ -1415,7 +1415,18 @@ static Stmt *parse_if_binding(Parser *p, Token *kw, int allow_binding) {
     neg->as.unary.op = OP_NOT;
     neg->as.unary.operand = parse_mk_ident(flag, kw->line, kw->col);
     otherwise->as.if_stmt.cond = neg;
-    otherwise->as.if_stmt.then_block = else_stmt;
+    /* `then_block` must always be a real STMT_BLOCK -- every other producer of one (an ordinary
+     * `{ ... }`) already guarantees this, and check_block (typecheck.c) reads `block->as.block`
+     * through the union with no kind check, unlike else_block's own STMT_IF-aware handling. `else
+     * if ...` (not `else { ... }`) hands back a bare STMT_IF here, not a block -- wrap it, rather
+     * than reinterpreting its own if_stmt fields as a stmt list's count/items and reading garbage. */
+    if (else_stmt->kind == STMT_BLOCK) {
+        otherwise->as.if_stmt.then_block = else_stmt;
+    } else {
+        Stmt *wrapped_else = stmt_new(STMT_BLOCK, else_stmt->line, else_stmt->col);
+        stmt_list_push(&wrapped_else->as.block.stmts, else_stmt);
+        otherwise->as.if_stmt.then_block = wrapped_else;
+    }
     stmt_list_push(&outer->as.block.stmts, otherwise);
     return outer;
 }

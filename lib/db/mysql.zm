@@ -1246,11 +1246,8 @@ fn serve(sock: Socket, requests: Channel<Request>) {
                 }
             }
             FetchCursor(r) {
-                // Left as is_Some/unwrap_Some rather than an if-let: binding `deferred` here crashed the
-                // interpreter under a timing-sensitive concurrency bug (confirmed with a minimal repro
-                // outside this file; not yet root-caused in the interpreter itself) -- not a style choice.
-                if r.cursor == cursor_id && Option.is_Some(deferred) {
-                    val failed: Result<Page, DbError> = Option.unwrap_Some(deferred)
+                if r.cursor == cursor_id && Some(e) = deferred {
+                    val failed: Result<Page, DbError> = e
                     deferred = Option<DbError>.None
                     send(r.reply_to, failed)
                 } else if !cursor_open || r.cursor != cursor_id {

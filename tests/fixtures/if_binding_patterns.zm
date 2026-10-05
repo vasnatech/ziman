@@ -14,6 +14,21 @@ fn area(s: Shape) -> int {
     }
 }
 
+// Regression: a multi-part (2+ `&&`-joined) condition followed by `else if` (not `else { ... }`)
+// -- the parser's synthesized "did every part hold" check used to hand that bare `if` straight to
+// `then_block`, which the type checker always assumes is a real block; crashed reading garbage
+// through the union (docs/DESIGN.md).
+fn multi_part_else_if(flag: bool, o: Option<int>) -> int {
+    if flag && Some(x) = o {
+        return x
+    } else if !flag {
+        return -1
+    } else {
+        return -2
+    }
+    return -99 // unreachable -- a multi-part chain with an else isn't seen by "every path returns"
+}
+
 fn half(n: int) -> Result<int, string> {
     if n % 2 != 0 {
         return err("odd")
@@ -57,6 +72,11 @@ fn main() {
     print(area(Shape.Circle(2)))
     print(area(Shape.Rect(3)))
     print(area(Shape.Empty))
+    val some5: Option<int> = Option<int>.Some(5)
+    val none: Option<int> = Option<int>.None
+    print(multi_part_else_if(true, some5))
+    print(multi_part_else_if(false, some5))
+    print(multi_part_else_if(true, none))
     for i in 0..3 {
         val o: Option<int> = if i == 1 { Option<int>.None } else { Option<int>.Some(i) }
         if Some(k) = o {
