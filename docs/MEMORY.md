@@ -1140,3 +1140,37 @@ exception to that contract. The `gc` build is flat. Recorded, not fixed.
 `arena_create_scanned` now has exactly one caller left, `gc_heap_create` -- scanned root ranges are
 one per thread instead of one per queued message, which is what retires this whole line of
 investigation.
+
+Went back at the `ziman-nogc` flakiness I had written off as "pre-existing, 2-3 fixtures" three
+entries running. That was wrong and worth the check: **every fixture tried segfaults about half the
+time** (toml_basic, yaml_basic, map_set_builders, http_endpoints, csv_extended, regex_cache, each
+2-3 crashes in 6 runs). The suite showed only 3-6 failures because most fixtures are too small to
+reach it.
+
+Root cause via `valgrind` on the nogc build, not by reasoning: `Invalid read` in
+`gc_mark_env_chain` on a 72-byte block (`sizeof(Env)`) freed at `interpreter.c:1862`
+(`STMT_WHILE`'s `env_free`). `env_pool_release` called `env_reset` but left `env->parent` pointing
+at the scope the Env was last used under, and `gc_mark_env_chain` follows `parent` chains -- so the
+pool, which is one of the interpreter's own GC root sources, held a pointer into freed memory for
+the next collection to walk. Fix is one line: `env->parent = NULL` on release (acquire already
+re-parents, so nothing observes the NULL).
+
+**Why the real build never showed it** is the part to remember: a `make gc` build's `free` is a
+no-op (zgc.h), so the dead scope was never reclaimed, *and* the stale parent kept it reachable so
+Boehm never collected it either. Wrong ownership, correct behaviour, on two independent
+coincidences. Only a real `free` exposes it -- which makes `make test-nogc` load-bearing rather
+than a curiosity, and is the strongest argument yet for keeping it in the loop.
+
+Verified: nogc **834/834 five runs in a row** (was 3-6 failures every run); the six crashing
+fixtures now 0/8 crashes each; valgrind on yaml_basic under nogc down to 0 invalid reads and 0
+use-after-free, leaving only the two documented `gc_lookup` conservative-scan contexts. gc build
+unaffected and fully re-verified (suite 3x, test-pg, test-mysql, nine gc_* unit tests, real app
+suite, fmt-check, valgrind unchanged).
+
+Two negatives I checked rather than assumed. The retention this removes in the gc build is **not**
+measurable (40.9MB peak RSS either way on a loop-heavy program -- pool is bounded, Boehm's 32MB
+initial heap dominates), so there is no memory win to claim. And **no regression fixture was added**:
+four shapes were tried, including the exact `return`-out-of-a-`while` that valgrind named, and none
+reproduces even an invalid read on the buggy binary, so a fixture would have asserted coverage that
+does not exist. `make test-nogc` is the coverage; the lesson is that I read its output as flakiness
+for three entries instead of looking.

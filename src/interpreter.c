@@ -351,9 +351,22 @@ static Env *env_pool_acquire(Env *parent) {
  * run_defers has already drained defer_count to 0 by the time a call reaches this, and an
  * interpreter-built Env never touches caps/is_lambda_boundary/is_global at all (those are the
  * type checker's own Env fields; see the Env doc comment in env.h), so there is nothing there
- * for a reuse to see that a fresh env_new's own zeroed fields wouldn't already have shown. */
+ * for a reuse to see that a fresh env_new's own zeroed fields wouldn't already have shown.
+ *
+ * `parent` is cleared, which is not cosmetic: the pool is one of this module's own GC root sources
+ * (gc_interp_roots.c marks every Env in it), and `gc_mark_env_chain` follows `parent` chains. A
+ * pooled Env left pointing at the scope it was last used under is a pointer into a scope that may
+ * well be freed before this Env is ever acquired again -- `env_free` runs for an ordinary `while`
+ * or `for` body's own scope on every exit path (interpreter.c's STMT_WHILE/STMT_FOR) -- after which
+ * the next collection walks the chain straight into freed memory. `env_pool_acquire` re-parents on
+ * the way out, so nothing ever observes the NULL; a pooled Env is simply, and now actually,
+ * parentless and empty while it waits. This was a real use-after-free, invisible in a `make gc`
+ * build only because `free` is a no-op there (zgc.h) and the stale `parent` kept the scope
+ * *reachable*, so Boehm never reclaimed it -- correct by accident. In a `nogc` build, where `free`
+ * is real, it segfaulted roughly every other run of any non-trivial program (docs/DESIGN.md). */
 static void env_pool_release(Env *env) {
     env_reset(env);
+    env->parent = NULL;
     if (t_env_pool_count == t_env_pool_capacity) env_pool_grow(t_env_pool_capacity == 0 ? 8 : t_env_pool_capacity * 2);
     t_env_pool[t_env_pool_count++] = env;
 }
