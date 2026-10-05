@@ -1290,7 +1290,9 @@ typedef struct {
 static void guard_finalizer(void *obj, void *client_data) {
     (void)client_data;
     GuardBuf *g = obj;
-    (void)channel_send(g->ch, g->message, NULL);
+    /* needs_receive 0: `message` is not a value_copy_send copy -- it is whatever guard_new was
+     * handed, already safe to share as it stands (see channel_send's own comment). */
+    (void)channel_send(g->ch, g->message, 0);
     ziman_guard_unregister(&g->message);
 }
 #endif

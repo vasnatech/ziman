@@ -1098,3 +1098,45 @@ already in-tree -- the payload-less-enum fix allocates its copy with plain `mall
 through the channel queue, no arena and no root range. Extending that to every crossing copy would
 take root ranges from one-per-queued-message to one-per-thread and retire most of this whole
 investigation. It changes the copy path every crossing goes through, so it is its own work.
+
+Changed the decision the last three entries all kept pointing at. `value_copy_send` gave every value
+crossing a `Channel`/`spawn` its own `arena_create_scanned` arena -- `mmap`'d, registered as a
+conservatively-scanned root range, destroyed once the receiver had its own copy. Correct, promptly
+reclaimed, and the direct cause of three hard ceilings in a row (`MAX_ROOT_SETS`, four separate
+leaks of such arenas, then Boehm's mark stack livelocking once that cap was lifted) because root
+ranges scaled with **queued messages** rather than threads.
+
+The requirement was never rooting. Where it is actually written down (`mapobj.h`, on the `_into`
+pair that exists for this alone) it is exactly: a crossing copy must not live in a heap the
+*sending* thread may destroy at exit before the receiver copies it out. Plain `malloc` --
+`GC_MALLOC`, Boehm's shared heap, tied to no thread -- meets that, and better: the copy is
+**traced** through whatever holds it (a `ChannelMsg` in a channel's `malloc`'d queue, a `SpawnArgs`)
+rather than rooted wholesale. The precedent was already in-tree: the payload-less-enum fix had done
+exactly this since the first leak.
+
+Three things verified rather than assumed, since the arena-as-root had made all three moot:
+the `spawn` handoff (Boehm's own `pthread_create` wrapper keeps `sa` in a `start_info` on the
+*parent's stack* and `sem_wait`s until the child has taken it -- its own comment says so, so no
+window exists); disguised native handles (still fine, `GC_MALLOC` blocks are conservatively scanned,
+which the receive side has always relied on); and `gc_mark.c` (no change -- a crossing copy has no
+header, so it is the existing `is_gc_heap_object == false` path, and `gc_mark_map`/`mark_leaf` were
+already gated for exactly that).
+
+**The livelock is gone**: 15/16/24 concurrent streaming cursors, every one of which previously never
+finished, now take 2.24s/2.27s/3.99s with parallel marking on -- **0 mark stack overflows and 28
+completed collections against 3,935 and 7.** And it is ~3x faster on channel-heavy code: 200,000
+struct sends go 1.13s to 0.36s, with user CPU and RSS flat and the whole difference in **system
+time, 1.26s to 0.10s** -- the per-crossing `mmap`/`munmap` pair gone.
+
+Honest about the mixed case: on the twelve-thread cursor benchmark elapsed improves ~18% and sys
+drops 2.5s to 1.6s, but **user CPU rises 4.1s to 5.3s** -- that workload keeps much more crossing
+data live, so Boehm traces what a root range used to cover in one go. Total CPU roughly flat there;
+the win is wall-clock plus the ceiling. Real app benchmark flat within noise both ways.
+
+One real regression, in the build whose README already says it "never frees anything": `nogc`'s peak
+RSS on that 200k-send program goes 296MB to 455MB, because `arena_destroy` had been a genuine
+exception to that contract. The `gc` build is flat. Recorded, not fixed.
+
+`arena_create_scanned` now has exactly one caller left, `gc_heap_create` -- scanned root ranges are
+one per thread instead of one per queued message, which is what retires this whole line of
+investigation.

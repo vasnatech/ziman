@@ -393,7 +393,7 @@ ChannelObj *channel_obj_new(int limit) {
 }
 
 /* The caller holds the lock. */
-static void channel_push_locked(ChannelObj *ch, Value v, Arena *owner_arena) {
+static void channel_push_locked(ChannelObj *ch, Value v, int needs_receive) {
     if (ch->count == ch->capacity) {
         int new_capacity = ch->capacity == 0 ? 4 : ch->capacity * 2;
         ChannelMsg *bigger = malloc((size_t)new_capacity * sizeof(ChannelMsg));
@@ -403,7 +403,7 @@ static void channel_push_locked(ChannelObj *ch, Value v, Arena *owner_arena) {
         ch->capacity = new_capacity;
     }
     ch->items[(ch->head + ch->count) % ch->capacity].value = v;
-    ch->items[(ch->head + ch->count) % ch->capacity].owner_arena = owner_arena;
+    ch->items[(ch->head + ch->count) % ch->capacity].needs_receive = needs_receive;
     ch->count++;
     pthread_cond_signal(&ch->not_empty);
 }
@@ -418,30 +418,27 @@ static ChannelMsg channel_pop_locked(ChannelObj *ch) {
 
 /* Finishes a popped message outside the channel's own lock (this may run value_copy_receive's own
  * allocation work, no reason to hold up every other send/receive on this channel for that) -- see
- * `channel_send`'s own `owner_arena` comment and value_copy.h for what this is closing out. */
+ * `channel_send`'s own `needs_receive` comment and value_copy.h for what this is closing out. */
 static Value channel_finalize_received(ChannelMsg m) {
-    if (m.owner_arena == NULL) return m.value;
-    Value fresh = value_copy_receive(m.value);
-    arena_destroy(m.owner_arena);
-    return fresh;
+    if (!m.needs_receive) return m.value;
+    return value_copy_receive(m.value);
 }
 
-int channel_send(ChannelObj *ch, Value v, Arena *owner_arena) {
+int channel_send(ChannelObj *ch, Value v, int needs_receive) {
     pthread_mutex_lock(&ch->mutex);
     while (!ch->closed && ch->limit > 0 && ch->count >= ch->limit) {
         pthread_cond_wait(&ch->not_full, &ch->mutex);
     }
     if (ch->closed) {
         pthread_mutex_unlock(&ch->mutex);
-        if (owner_arena != NULL) arena_destroy(owner_arena);
         return 1;
     }
-    channel_push_locked(ch, v, owner_arena);
+    channel_push_locked(ch, v, needs_receive);
     pthread_mutex_unlock(&ch->mutex);
     return 0;
 }
 
-int channel_try_send_status(ChannelObj *ch, Value v, Arena *owner_arena) {
+int channel_try_send_status(ChannelObj *ch, Value v, int needs_receive) {
     pthread_mutex_lock(&ch->mutex);
     int status;
     if (ch->closed) {
@@ -449,11 +446,10 @@ int channel_try_send_status(ChannelObj *ch, Value v, Arena *owner_arena) {
     } else if (ch->limit > 0 && ch->count >= ch->limit) {
         status = 1;
     } else {
-        channel_push_locked(ch, v, owner_arena);
+        channel_push_locked(ch, v, needs_receive);
         status = 0;
     }
     pthread_mutex_unlock(&ch->mutex);
-    if (status != 0 && owner_arena != NULL) arena_destroy(owner_arena);
     return status;
 }
 

@@ -142,16 +142,17 @@ typedef struct EnumObj {
  * EnumObj/ResultObj (see docs/DESIGN.md), and nothing mutates one after
  * construction, so there's neither a use-after-free nor a data-race
  * hazard once a Value has crossed the channel's own lock. */
-struct Arena; /* opaque forward decl -- only a pointer is ever stored here (src/value_copy.c) */
-
-/* A queued message plus, when non-NULL, the dedicated arena (src/value_copy.c's `value_copy_send`)
- * that the sender's own crossing-safe copy of `value` lives in -- a receiving function
- * (channel_receive/_timeout/try_receive/select2, value.c) must run `value_copy_receive` on `value`
- * and then `arena_destroy(owner_arena)` before handing the result to its own caller. NULL for an
- * ordinary `channel_send` (no crossing arena involved at all -- see value_copy.h). */
+/* A queued message plus whether `value` is a crossing-safe copy (src/value_copy.c's
+ * `value_copy_send`) that the receiving side still owes a `value_copy_receive` on before handing it
+ * to its own caller -- which every receiving function (channel_receive/_timeout/try_receive/select2,
+ * value.c) does transparently. 0 for an ordinary `channel_send` of a value that is safe to share as
+ * it stands (prelude.c's own `guard_finalizer`). Nothing here owns memory: a crossing copy lives on
+ * Boehm's shared heap and is reachable through this very struct, so a message nobody ever receives
+ * is reclaimed by the collector rather than needing anyone to release it (see value_copy.h, and
+ * docs/DESIGN.md for the three distinct ceilings the arena-per-crossing design it replaced hit). */
 typedef struct {
     Value value;
-    struct Arena *owner_arena;
+    int needs_receive;
 } ChannelMsg;
 
 typedef struct ChannelObj {
@@ -240,21 +241,19 @@ ChannelObj *channel_obj_new(int limit);
  * success -- the caller (interpreter.c) turns 1 into a runtime error, same as `channel_new`'s
  * own capacity check does for its argument.
  *
- * `owner_arena`: NULL for an ordinary send (v is safe to share as-is, e.g. prelude.c's own
- * `guard_finalizer`); otherwise the dedicated arena `value_copy_send` built `v` into, ownership
- * passed to the channel -- if `v` is never actually queued (the channel is already closed), this
- * destroys `owner_arena` itself before returning, so a value nobody will ever receive doesn't leak
- * its own crossing arena. */
-int channel_send(ChannelObj *ch, Value v, struct Arena *owner_arena);
+ * `needs_receive`: 0 for an ordinary send of a value safe to share as it stands (prelude.c's own
+ * `guard_finalizer`); 1 for a `value_copy_send` copy, which the receiving side re-copies into its
+ * own allocators. Nothing is owned either way -- a value never actually queued (the channel is
+ * already closed) is simply dropped, and the collector reclaims it. */
+int channel_send(ChannelObj *ch, Value v, int needs_receive);
 /* Blocks until a value arrives or the channel is closed and drained (already-queued values are
  * still delivered after close -- closing only means no *more* will be sent). Returns 1 with
  * *out set, or 0 if closed and empty.
  *
- * Transparently finishes a crossing-safe send (see `channel_send`'s own `owner_arena` comment and
- * value_copy.h): if the popped message carries one, `*out` is `value_copy_receive`'s own
- * independent copy and the arena is destroyed before this returns, never exposed to the caller --
- * every receive-side function behaves identically here, whether or not the specific message it
- * happened to pop needed this at all. */
+ * Transparently finishes a crossing-safe send (see `channel_send`'s own `needs_receive` comment and
+ * value_copy.h): if the popped message is flagged, `*out` is `value_copy_receive`'s own independent
+ * copy rather than the sender's -- every receive-side function behaves identically here, whether or
+ * not the specific message it happened to pop needed this at all. */
 int channel_receive(ChannelObj *ch, Value *out);
 /* Same as channel_receive, but gives up after `millis` milliseconds: 0 either way (timed out, or
  * closed and empty) -- the two aren't distinguished, the same blur a `select` with a timeout
@@ -262,10 +261,8 @@ int channel_receive(ChannelObj *ch, Value *out);
 int channel_receive_timeout(ChannelObj *ch, int64_t millis, Value *out);
 /* Non-blocking: 1 = sent, 0 = full or closed (channel_try_send distinguishes the two so
  * interpreter.c can raise on closed but return `false` on full, same reasoning `channel_send`
- * has for `send` vs a plain runtime error). `owner_arena`: same meaning as `channel_send`'s own --
- * destroyed here directly whenever the status isn't 0 (sent), for the identical "don't leak a
- * crossing arena nobody will ever receive" reason. */
-int channel_try_send_status(ChannelObj *ch, Value v, struct Arena *owner_arena); /* 0 = sent, 1 = full, 2 = closed */
+ * has for `send` vs a plain runtime error). `needs_receive`: same meaning as `channel_send`'s own. */
+int channel_try_send_status(ChannelObj *ch, Value v, int needs_receive); /* 0 = sent, 1 = full, 2 = closed */
 int channel_try_receive(ChannelObj *ch, Value *out);
 int channel_length(ChannelObj *ch);
 /* No more values will ever be sent. Idempotent (closing twice is harmless, unlike Go's channels).
