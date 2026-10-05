@@ -225,6 +225,23 @@ void ziman_call_stack_release(void) {
     t_frame_capacity = 0;
 }
 
+ZimanFramesRootAddrs ziman_frames_root_addrs(void) {
+    ZimanFramesRootAddrs addrs;
+    addrs.frames_ptr_addr = (void **)&t_frames;
+    addrs.frame_count_addr = &t_frame_count;
+    return addrs;
+}
+
+int ziman_frames_root_ranges(ZimanFramesRootAddrs addrs, ZimanMemRange *out_ranges, int max_ranges) {
+    (void)max_ranges; /* always at most 1 -- see the header's own comment */
+    ZimanFrame *frames = *(ZimanFrame **)addrs.frames_ptr_addr;
+    int count = *addrs.frame_count_addr;
+    if (frames == NULL || count == 0) return 0;
+    out_ranges[0].start = frames;
+    out_ranges[0].end = frames + count;
+    return 1;
+}
+
 /* The current thread's call chain, innermost first, one frame per line joined by "\n"
  * -- with neither a leading nor a trailing newline, so a caller decides how it joins
  * onto whatever came before and after -- empty ("") when there are no frames (a fatal

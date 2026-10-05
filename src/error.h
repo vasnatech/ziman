@@ -108,6 +108,27 @@ char *ziman_trace_string(void);
  * abandoned uncollectable buffer per thread that ever ran. */
 void ziman_call_stack_release(void);
 
+/* A raw byte range, [start, end) -- shared by every module's own root-address accessor
+ * (gc_boehm_roots.c's own GC_push_other_roots_proc is the only consumer, see its header
+ * comment for why this exists at all) so that module alone needs to know Boehm's own
+ * GC_push_all API; everyone else just hands back plain memory ranges. */
+typedef struct { void *start; void *end; } ZimanMemRange;
+
+/* This thread's own `t_frames`/`t_frame_count` *addresses* (not their current values --
+ * `t_frames` is reallocated as it grows, so the collector needs to re-read it at collection
+ * time, not whenever this was called), captured once at registration time
+ * (ziman_gc_register_thread_roots, gc_boehm_roots.c) and handed back to
+ * ziman_frames_root_ranges on every collection to compute the current, live range. */
+typedef struct { void **frames_ptr_addr; int *frame_count_addr; } ZimanFramesRootAddrs;
+ZimanFramesRootAddrs ziman_frames_root_addrs(void);
+
+/* Writes this thread's own current frames array as a single ZimanMemRange into out_ranges[0]
+ * (at most 1 -- max_ranges is for symmetry with ziman_interp_root_ranges, whose own count can
+ * vary) and returns how many it wrote (0 if the frame stack has not been touched yet, i.e.
+ * frames_ptr_addr's own pointer is still NULL). Reads addrs' pointers now, not whatever they
+ * pointed to when captured -- see ZimanFramesRootAddrs's own comment. */
+int ziman_frames_root_ranges(ZimanFramesRootAddrs addrs, ZimanMemRange *out_ranges, int max_ranges);
+
 /* The language server collects diagnostics instead of printing them: while a sink
  * is set, ziman_error hands each one to it (nothing is written) and jumps to the
  * innermost recovery point -- or, past the error limit or from

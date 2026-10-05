@@ -18,6 +18,7 @@
 #include "env.h"
 #include "error.h"
 #include "fmtstr.h"
+#include "gc_boehm_roots.h"
 #include "gc_heap.h"
 #include "gc_interp_roots.h"
 #include "gc_mark.h"
@@ -495,6 +496,7 @@ static void thread_failed(struct SpawnArgs *sa, const char *message) {
 static void *spawn_thread_entry(void *raw) {
     SpawnArgs *sa = (SpawnArgs *)raw;
     ziman_thread_begin(sa->fn->name);
+    ziman_gc_register_thread_roots();
     /* Re-copies every crossing value into this thread's own ordinary allocators before anything
      * else runs (call_function's own parameter binding, and a failure path's own thread_failed both
      * read sa->args/sa->handler directly) -- then destroys the shared arena exactly once, only after
@@ -536,6 +538,7 @@ static void *spawn_thread_entry(void *raw) {
     env_pool_release_all();
     ziman_call_stack_release();
     ziman_thread_heap_release();
+    ziman_gc_unregister_thread_roots();
     ziman_thread_end();
     free(sa->args);
     free(sa);
@@ -1676,6 +1679,62 @@ static void mark_this_threads_roots(const Arena *a, void *ctx) {
     /* See t_active_iters's own comment (just above defer_env_untrack): every `for ... in <iter>`
      * loop currently running on this thread, innermost last. */
     for (int i = 0; i < t_active_iter_count; i++) gc_mark_value(a, t_active_iters[i]);
+}
+
+/* The Boehm-visible counterpart of mark_this_threads_roots just above -- same four root sources
+ * (g_global_env plus this thread's own t_defer_envs/t_env_pool/t_active_iters/t_pending_handler),
+ * handed back as raw address pairs for gc_boehm_roots.c to re-read (through
+ * ziman_interp_root_ranges, at collection time, from whichever thread is doing the collecting)
+ * rather than walked here directly -- see gc_boehm_roots.h's own header comment for why a second,
+ * independent path to the identical state exists at all: Boehm's own `GC_gcollect` never calls
+ * this module's own `gc_heap_collect`/`mark_this_threads_roots`, so without this, nothing ever
+ * told Boehm about any of it. */
+ZimanInterpRootAddrs ziman_interp_root_addrs(void) {
+    ZimanInterpRootAddrs addrs;
+    addrs.defer_envs_ptr_addr = (void **)&t_defer_envs;
+    addrs.defer_env_count_addr = &t_defer_env_count;
+    addrs.env_pool_ptr_addr = (void **)&t_env_pool;
+    addrs.env_pool_count_addr = &t_env_pool_count;
+    addrs.active_iters_ptr_addr = (void **)&t_active_iters;
+    addrs.active_iter_count_addr = &t_active_iter_count;
+    addrs.pending_handler_addr = &t_pending_handler;
+    addrs.has_pending_handler_addr = &t_has_pending_handler;
+    return addrs;
+}
+
+int ziman_interp_root_ranges(ZimanInterpRootAddrs addrs, ZimanMemRange *out_ranges, int max_ranges) {
+    int n = 0;
+    Env **defer_envs = *(Env ***)addrs.defer_envs_ptr_addr;
+    int defer_env_count = *addrs.defer_env_count_addr;
+    if (defer_envs != NULL && defer_env_count > 0 && n < max_ranges) {
+        out_ranges[n].start = defer_envs;
+        out_ranges[n].end = defer_envs + defer_env_count;
+        n++;
+    }
+    Env **env_pool = *(Env ***)addrs.env_pool_ptr_addr;
+    int env_pool_count = *addrs.env_pool_count_addr;
+    if (env_pool != NULL && env_pool_count > 0 && n < max_ranges) {
+        out_ranges[n].start = env_pool;
+        out_ranges[n].end = env_pool + env_pool_count;
+        n++;
+    }
+    Value *active_iters = *(Value **)addrs.active_iters_ptr_addr;
+    int active_iter_count = *addrs.active_iter_count_addr;
+    if (active_iters != NULL && active_iter_count > 0 && n < max_ranges) {
+        out_ranges[n].start = active_iters;
+        out_ranges[n].end = active_iters + active_iter_count;
+        n++;
+    }
+    if (*addrs.has_pending_handler_addr && n < max_ranges) {
+        out_ranges[n].start = addrs.pending_handler_addr;
+        out_ranges[n].end = (Value *)addrs.pending_handler_addr + 1;
+        n++;
+    }
+    return n;
+}
+
+void **ziman_global_env_addr(void) {
+    return (void **)&g_global_env;
 }
 
 /* How much this thread's own heap must grow, since the last time it was checked, before another

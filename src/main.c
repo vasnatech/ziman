@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "derive.h"
+#include "gc_boehm_roots.h"
 #include "stack.h"
 #include "format.h"
 #include "lsp.h"
@@ -156,6 +157,7 @@ static void *run_program(void *raw) {
     const char *file = o->file;
     int json = o->json, lint = o->lint, check_only = o->check_only;
     ziman_stack_mark_main();
+    ziman_gc_register_thread_roots();
 
     /* Line-buffered stdout even when redirected to a file or a pipe (C's
      * default there is fully buffered). A long-running program -- a
@@ -202,6 +204,7 @@ typedef struct {
 static void *run_tests_program(void *raw) {
     TestOptions *o = raw;
     ziman_stack_mark_main();
+    ziman_gc_register_thread_roots();
     setvbuf(stdout, NULL, _IOLBF, 0);
     register_all_natives();
     typecheck_skip_main_check(1);
@@ -238,6 +241,7 @@ int main(int argc, char **argv) {
     GC_INIT();
     (void)GC_expand_hp(32u * 1024 * 1024);
 #endif
+    ziman_gc_install_boehm_root_hook();
     if (argc >= 2 && strcmp(argv[1], "test") == 0) {
         return run_tests_main(argc - 2, argv + 2);
     }
