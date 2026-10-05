@@ -163,6 +163,16 @@ size_t arena_reserved(const Arena *a) {
     return a->reserved;
 }
 
+void arena_reclaim_block(Arena *a, ArenaBlock *prev, ArenaBlock *b) {
+    prev->next = b->next;
+    size_t size = b->size;
+#ifdef ZIMAN_GC
+    if (a->scanned) GC_remove_roots((void *)b, (char *)b + size);
+#endif
+    a->reserved -= size;
+    munmap(b, size);
+}
+
 const ArenaBlock *arena_first_block(const Arena *a) {
     return a->current;
 }

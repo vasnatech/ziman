@@ -91,4 +91,22 @@ const ArenaBlock *arena_next_block(const ArenaBlock *b);
  * nothing here stops the call, but the result would not parse into real objects. */
 void arena_block_content(const ArenaBlock *b, const char **out_start, size_t *out_len);
 
+/* Unlinks `b` from `a`'s own block list and releases it exactly like one iteration of
+ * arena_destroy's own loop would -- `GC_remove_roots` (if `a` was made with arena_create_scanned)
+ * then `munmap` -- for a caller (gc_heap_sweep) that has independently established nothing in `b`
+ * is still live. Never relocates anything still reachable; only ever called for a block gc_heap's
+ * own mark phase found entirely dead, the same non-moving guarantee every other reclaim in this
+ * collector already relies on (docs/MEMORY.md, "Phase 3 switches from copying to mark-sweep") --
+ * see docs/DESIGN.md's own entry on why Boehm's `GC_add_roots` table filling up for an ordinary,
+ * long-lived thread's own sustained allocation needed this at all.
+ *
+ * `prev` is whichever block currently has `next == b` in `a`'s own list -- a caller walking blocks
+ * via arena_first_block/arena_next_block (visiting newest-first) already has this as the previous
+ * iteration's own `b`; passing the wrong one corrupts the list silently, so this trusts the caller
+ * rather than re-deriving it by a second walk. Never call this for `a`'s own current block (the one
+ * still being bump-allocated into -- `arena_first_block`'s own result, before any `arena_next_block`
+ * call) or for the one block with no `next` (it embeds the `Arena` struct itself, created once in
+ * `arena_create_impl` and never reclaimed either way) -- neither is checked here. */
+void arena_reclaim_block(Arena *a, ArenaBlock *prev, ArenaBlock *b);
+
 #endif

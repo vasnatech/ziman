@@ -110,6 +110,29 @@ static void mark_visit(const void *obj, void *ctx) {
     gc_mark_object((const Arena *)ctx, obj);
 }
 
+/* Splices every free-list node whose address falls in [block_start, block_end) out of every size
+ * class, in place -- needed right before gc_heap_sweep reclaims a whole block: an object swept as
+ * dead in an *earlier* cycle is already linked into h->free_lists[] from back then, and leaving
+ * that link in place after this block is unmapped would dangle the moment something later walks
+ * that class's list looking for a chunk to reuse. Standard singly-linked-list splice: `slot` names
+ * whichever word currently holds the address of the next node to examine -- either one class's own
+ * head (h->free_lists[idx]) or a surviving node's own "next" link -- so removing a node rewrites
+ * `*slot` without needing to track a separate "previous" pointer. */
+static void remove_block_from_free_lists(GcHeap *h, const char *block_start, const char *block_end) {
+    for (size_t idx = 0; idx < GC_HEAP_CLASSES; idx++) {
+        void **slot = &h->free_lists[idx];
+        while (*slot != NULL) {
+            char *node = (char *)*slot;
+            void *next = *(void **)node;
+            if (node >= block_start && node < block_end) {
+                *slot = next; /* drop node; `slot` itself still names the same word */
+            } else {
+                slot = (void **)node; /* keep node; a later removal rewrites *its* own link instead */
+            }
+        }
+    }
+}
+
 size_t gc_heap_collect(GcHeap *h, void (*extra_roots)(const Arena *a, void *ctx), void *ctx) {
     /* If the calling thread's own stack couldn't be measured at all (see gc_scan_stack_roots/
      * ziman_stack_bounds's own comment on when that happens), nothing was marked from it -- sweeping
@@ -124,17 +147,25 @@ size_t gc_heap_collect(GcHeap *h, void (*extra_roots)(const Arena *a, void *ctx)
 
 size_t gc_heap_sweep(GcHeap *h) {
     size_t reclaimed = 0;
-    for (const ArenaBlock *b = arena_first_block(h->arena); b != NULL; b = arena_next_block(b)) {
+    /* `prev` is whichever block this loop visited just before `b` -- arena_reclaim_block's own
+     * requirement, tracked here rather than re-derived, since this is already a single forward walk
+     * (arena_first_block/arena_next_block visit newest-first) with no other reason to look back. */
+    ArenaBlock *prev = NULL;
+    const ArenaBlock *b = arena_first_block(h->arena);
+    while (b != NULL) {
+        const ArenaBlock *next = arena_next_block(b);
         const char *start;
         size_t len;
         arena_block_content(b, &start, &len);
         const char *cursor = start;
         const char *end = start + len;
         const void *obj;
+        int any_live = 0;
         while ((obj = gc_next_object(&cursor, end)) != NULL) {
             if (gc_kind_of(obj) == GC_FREE) continue; /* already free, already linked -- leave it */
             if (gc_is_marked(obj)) {
                 gc_set_marked((void *)obj, 0); /* survives; ready for the next cycle's mark phase */
+                any_live = 1;
                 continue;
             }
             /* Dead: its own recorded size is already an exact class size (gc_heap_alloc's own
@@ -156,6 +187,22 @@ size_t gc_heap_sweep(GcHeap *h) {
             h->free_lists[idx] = slot;
             reclaimed++;
         }
+        /* Block-level reclaim, not just the per-object one above: once nothing in this block
+         * survived this cycle, the whole 256KB (or however large) block can go back to the OS and
+         * off Boehm's own root-set table, not just sit around registered forever with every slot on
+         * a free list -- see arena_reclaim_block's own comment for why this exists at all. Never for
+         * the block still being bump-allocated into (`prev == NULL` on the very first iteration, the
+         * one arena_first_block itself returns) or the one block with no `next` (it embeds the
+         * Arena struct itself). `remove_block_from_free_lists` runs first: any object swept dead in
+         * an *earlier* cycle is already linked into h->free_lists[] from back then, and that link
+         * would dangle the moment this block is unmapped if left in place. */
+        if (!any_live && next != NULL && prev != NULL) {
+            remove_block_from_free_lists(h, start, end);
+            arena_reclaim_block(h->arena, prev, (ArenaBlock *)b);
+        } else {
+            prev = (ArenaBlock *)b;
+        }
+        b = next;
     }
     return reclaimed;
 }
