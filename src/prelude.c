@@ -17,7 +17,9 @@
 #include "decimal.h"
 #include "error.h"
 #include "fmtstr.h"
+#include "gc_guard_roots.h"
 #include "gc_mark.h"
+#include "gc_thread_heap.h"
 #include "native.h"
 #include "value.h"
 
@@ -1289,6 +1291,7 @@ static void guard_finalizer(void *obj, void *client_data) {
     (void)client_data;
     GuardBuf *g = obj;
     (void)channel_send(g->ch, g->message, NULL);
+    ziman_guard_unregister(&g->message);
 }
 #endif
 
@@ -1321,6 +1324,12 @@ static Value native_guard_new(Value *args, int argc, int line, int col) {
     g->magic = GUARD_MAGIC;
     g->ch = args[0].as.ch;
     g->message = args[1];
+    /* See gc_guard_roots.h's own comment: `message` may point into this thread's own gc_heap
+     * arena (any Request/EndRequest-shaped value does, through enum_obj_new/struct_obj_new), which
+     * nothing else protects from this same thread's own, entirely separate Phase 3 sweep once the
+     * Guard value itself stops being Ziman-visible -- exactly the window the finalizer below exists
+     * to act in. */
+    ziman_guard_register(ziman_thread_heap(), &g->message);
 #ifdef ZIMAN_GC
     /* Ordered finalization, not NO_ORDER: the finalizer sends `message` on `ch`, both reachable only
      * from `g`, and an unordered finalizer may find them already collected (a message that turned into
