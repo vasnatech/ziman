@@ -114,12 +114,30 @@ static Value arena_result_copy(Arena **slot, ResultObj *res, Type result_type) {
 }
 
 static Value arena_enum_copy(Arena **slot, EnumObj *en, Type enum_type) {
-    EnumObj *copy = arena_alloc(lazy_arena(slot), sizeof(EnumObj));
+    EnumObj *copy;
+    if (en->has_payload) {
+        copy = arena_alloc(lazy_arena(slot), sizeof(EnumObj));
+        copy->payload = value_deep_copy_into(slot, en->payload);
+    } else {
+        /* No payload at all means there is nothing here that actually needs an independent copy --
+         * enum_name/variant_name are borrowed/shared either way (same reasoning as field_names
+         * above), and `payload` is unused. An ordinary malloc'd (Boehm-tracked under ZIMAN_GC) copy
+         * is exactly as safe as any other plain GC_MALLOC'd block already is here: the Channel's own
+         * queue this ends up referenced from (value.c's ChannelMsg array) is itself plain malloc'd,
+         * so Boehm's conservative scan finds this EnumObj through it with no help from Ziman's own
+         * Phase 3 needed at all -- the same reasoning gc_guard_roots.h's own GuardBuf already relies
+         * on. Without this, every payload-less enum send (an `Option.None`, a no-payload variant
+         * like pg.zm's `Request.Close`) paid lazy_arena's own mmap/GC_add_roots cost for nothing --
+         * found because `db.zm`'s own `next_item` "puts back" exactly such a `None` into a channel
+         * nothing ever receives from again once a `for` loop stops at the first one, leaking one
+         * such arena, permanently, per cursor drained the ordinary way (docs/DESIGN.md). */
+        copy = malloc(sizeof(EnumObj));
+        copy->payload = en->payload;
+    }
     /* enum_name/variant_name borrowed from the EnumDecl, same reasoning as field_names above. */
     copy->enum_name = en->enum_name;
     copy->variant_name = en->variant_name;
     copy->has_payload = en->has_payload;
-    copy->payload = en->has_payload ? value_deep_copy_into(slot, en->payload) : en->payload;
     Value v;
     v.type = enum_type;
     v.as.en = copy;
