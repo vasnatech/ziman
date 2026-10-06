@@ -589,6 +589,16 @@ native fn mapb_to_map<K: Eq + Hash, V>(mb: MapBuilder<K, V>) -> Map<K, V>
 
 The entries added so far, as an ordinary Map.
 
+### `mapb_get_or`
+
+```
+fn mapb_get_or<K: Eq + Hash, V>(mb: MapBuilder<K, V>, key: K, default_value: V) -> V
+```
+
+The value stored under `key`, or `default_value` when there is none -- `map_get_or` for a builder.
+Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
+loop (`mapb_set(counts, k, mapb_get_or(counts, k, 0) + 1)`) reads as one line instead of four.
+
 ### `setb_new`
 
 ```
