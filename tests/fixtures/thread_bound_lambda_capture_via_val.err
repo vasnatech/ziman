@@ -1,0 +1,1 @@
+fn() -> string cannot be passed to another thread with 'spawn'

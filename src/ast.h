@@ -97,6 +97,15 @@ typedef struct {
 
 struct Type {
     TypeKind kind;
+    /* TY_FUNC only: this is a lambda that captured something holding a `#[thread_bound]` value (a
+     * builder or an iterator). A function type otherwise says nothing about what a closure captured,
+     * which is why sending one used to be allowed and failed at run time on the receiving thread
+     * instead -- the capture set is known where the lambda is checked, so typecheck.c records it here
+     * and `spawn`/`send` can refuse it like any other thread-bound value. Lives in the four bytes of
+     * padding that followed `kind`, so sizeof(Type) is unchanged at 64 bytes: this struct is copied
+     * on every arithmetic result in a running program (see type_scalar below) and must not grow.
+     * Every constructor uses `Type t = {0}`, so it is 0 unless deliberately set. */
+    int func_captures_thread_bound;
     struct Type *elem;     /* TY_ARRAY: element type. TY_RESULT: success (Ok) type. TY_CHANNEL: element type. TY_FUNC: return type (TY_VOID when it returns nothing). */
     struct Type *elem_err; /* only meaningful when kind == TY_RESULT: the Err type */
     char *struct_name;     /* only meaningful when kind == TY_STRUCT */

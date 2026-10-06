@@ -1,1 +1,1 @@
-an Iter belongs to the thread that made it and was used from another thread
+fn() cannot be passed to another thread with 'spawn'

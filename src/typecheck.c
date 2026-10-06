@@ -50,8 +50,9 @@ static int same_source(const char *a, const char *b) {
 }
 
 /* Whether a value of type `t` can hold a `#[thread_bound]` value (a builder): it is one, or an array, map, set, Result, Option or other generic instance with one
- * among its parts, or a struct or enum with one in a field or variant. A function type does not count (what a closure captured is not in its type; the
- * run-time owner check covers that). */
+ * among its parts, or a struct or enum with one in a field or variant, or a lambda that captured one
+ * (Type.func_captures_thread_bound, set where the lambda is checked -- a function's parameter and
+ * return types say nothing about this, only what it closed over does). */
 /* The declarations already on the current path, as a list built on the stack -- no allocation, and
  * depth is bounded by the number of distinct declarations rather than by a guess. */
 typedef struct VisitedDecl {
@@ -114,6 +115,9 @@ static int type_holds_thread_bound(Module *module, Type t, const VisitedDecl *se
             }
             return 0;
         }
+        case TY_FUNC:
+            /* Not the signature -- a lambda's captures. See Type.func_captures_thread_bound. */
+            return t.func_captures_thread_bound;
         default:
             return 0;
     }
@@ -1924,6 +1928,12 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                         "argument 2 of 'send' expects %s (the channel's element type), found %s",
                         type_name(*chan_type.elem), type_name(val_type));
         }
+        /* The value's own type, as well as the channel's declared element type (checked once where
+         * the Channel type is validated). They differ for exactly one thing: a lambda that captured a
+         * builder has Type.func_captures_thread_bound set, which `Channel<fn() -> string>` as written
+         * by the programmer cannot. Without this, `send(ch, fn() { sb_append(sb, "x") })` type-checked
+         * and failed on the receiving thread instead. */
+        reject_thread_bound(module, val_type, "sent over a channel", val_arg->line, val_arg->col);
         return type_scalar(TY_VOID);
     }
 
@@ -1944,6 +1954,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                         "argument 2 of 'try_send' expects %s (the channel's element type), found %s",
                         type_name(*chan_type.elem), type_name(val_type));
         }
+        reject_thread_bound(module, val_type, "sent over a channel", val_arg->line, val_arg->col); /* see 'send' */
         return type_scalar(TY_BOOL);
     }
 
@@ -3526,8 +3537,20 @@ static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type
     e->lambda_ncaptured = ncaptured;
     lam->self_ncaptured = ncaptured;
     e->lambda_checked = 1;
+    /* Recorded on the type, not just checked here, because the lambda and the `spawn`/`send` that
+     * rejects it are usually far apart: `val f = fn() { sb_append(sb, "x") }` then `send(ch, f)`
+     * three lines later. The type is what travels between the two. Captures are the only source --
+     * a named function's value type carries 0, as does a lambda that captured nothing thread-bound.
+     * A capture that is itself such a lambda is covered by its own flag. */
+    Type lt = lambda_type(lam, ncaptured);
+    for (int i = 0; i < ncaptured; i++) {
+        if (type_holds_thread_bound(module, root->caps[i].type, NULL)) {
+            lt.func_captures_thread_bound = 1;
+            break;
+        }
+    }
     env_free(root);
-    return lambda_type(lam, ncaptured);
+    return lt;
 }
 
 static Type check_lambda(Module *module, Env *env, Expr *e) {

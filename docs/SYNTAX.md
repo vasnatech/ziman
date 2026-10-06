@@ -1322,9 +1322,11 @@ rejected rather than silently ignored, since nothing reads it there yet.
 
 `#[thread_bound]` marks a struct that belongs to the thread that made it (as `StringBuilder`/
 `ArrayBuilder`/`MapBuilder`/`SetBuilder`/`Iter` are). A type containing one is refused as a
-`Channel` element, `spawn` argument, or module-level `val` type; anything else that could carry
-one across threads (a closure capturing it) is caught at use -- each remembers its own thread,
-a use from another is a runtime error. Hand over the finished value (`sb_to_string`,
+`Channel` element, `spawn` argument, or module-level `val` type -- including a lambda that captured
+one, whose type records that fact, so sending or spawning the lambda is refused where it is written
+rather than failing on the receiving thread. Each builder and iterator also remembers its own thread
+and a use from another is a runtime error, which stays as a backstop for anything the type checker
+cannot see. Hand over the finished value (`sb_to_string`,
 `ab_to_array`, `mapb_to_map`, an iterator's items as an array), not the builder/iterator. For
 a struct written in Ziman this attribute gives only the compile-time refusals (no native check).
 

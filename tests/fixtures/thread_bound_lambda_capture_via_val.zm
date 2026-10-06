@@ -1,0 +1,32 @@
+// The capture is recorded on the lambda's *type*, not just checked where the lambda is written,
+// because the lambda and the `spawn`/`send` that refuses it are usually far apart -- the type is what
+// travels between the two. A lambda that captures nothing thread-bound still crosses freely, and
+// using a captured builder on the thread that made it is fine.
+fn runner(f: fn() -> string, d: Channel<string>) {
+    send(d, f())
+}
+
+fn doubler(h: fn(int) -> int, d: Channel<int>) {
+    send(d, h(21))
+}
+
+fn main() {
+    val sb = sb_new()
+    sb_append(sb, "owned by main")
+
+    // allowed: the capture never leaves this thread
+    val local = fn() -> string { sb_to_string(sb) }
+    print(local())
+
+    // allowed: captures nothing thread-bound
+    val pure = fn(n: int) -> int { n * 2 }
+    val ints: Channel<int> = channel_new()
+    spawn doubler(pure, ints)
+    print(receive(ints))
+
+    // rejected: the builder would cross with the lambda, three lines from where it was captured
+    val crossing = fn() -> string { sb_to_string(sb) }
+    val strs: Channel<string> = channel_new()
+    spawn runner(crossing, strs)
+    print(receive(strs))
+}

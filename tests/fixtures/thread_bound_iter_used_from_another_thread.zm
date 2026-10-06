@@ -1,3 +1,6 @@
+// As thread_bound_used_from_another_thread, for an Iter rather than a builder: the lambda captures it
+// and `spawn` now refuses that at compile time (A14, 2026-10-06) rather than letting the receiving
+// thread trip the run-time owner check in src/iter.c, which remains as a backstop.
 use fs
 
 fn run(job: fn(), done: Channel<int>) {
