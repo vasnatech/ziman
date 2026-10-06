@@ -196,7 +196,10 @@ failing to run.
 pub fn query_one(conn: Connection, sql: string, params: SqlValue...) -> Result<Option<Row>, DbError>
 ```
 
-The common lookup-by-key shape: the first row, or None.
+The common lookup-by-key shape: the first row, or None. It runs `sql` as written and keeps the first
+row of whatever comes back -- it does not add `LIMIT 1`, so a query that could match many rows fetches
+and discards them all. Write the `LIMIT 1` yourself when that matters; for a lookup by primary key or
+unique column, where the engine returns one row anyway, it makes no difference.
 
 ### `begin`
 
