@@ -94,7 +94,21 @@ static Value native_parse_float(Value *args, int argc, int line, int col) {
     char *endptr;
     errno = 0;
     double v = strtod(str, &endptr);
-    if (!float_text_ok(str, args[0].as.str.len) || endptr == str || *endptr != '\0' || errno == ERANGE || strlen(str) != args[0].as.str.len) {
+    /* ERANGE alone is not a parse failure, because strtod reports two different things with it. On
+     * *overflow* the result is infinity and the number genuinely has no double: rejected, as before.
+     * On *underflow* the result is the correctly-rounded subnormal, which is an ordinary double --
+     * and rejecting those meant parse_float could not read back what str had just written.
+     * `str(5e-324)` is "5e-324" and parse_float refused it, breaking the round-trip agreement the
+     * docs promise; tests/fixtures/number_limits.out has been printing that very value all along. In
+     * a server it turned a legitimate client number into a 500.
+     *
+     * A value too small for even a subnormal (1e-400) rounds to 0.0 and is accepted: that is the same
+     * rounding that makes 0.1 inexact, only more extreme, and it is what strtod, Python, Java and
+     * JavaScript all do. Overflow stays rejected, which leaves a deliberate asymmetry worth naming --
+     * `parse_float("inf")` is Ok, because that text asks for infinity, while "1e400" is a finite
+     * number this type cannot hold and is better refused than silently turned into infinity. */
+    int range_error = errno == ERANGE && isinf(v);
+    if (!float_text_ok(str, args[0].as.str.len) || endptr == str || *endptr != '\0' || range_error || strlen(str) != args[0].as.str.len) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as float", str);
         return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));

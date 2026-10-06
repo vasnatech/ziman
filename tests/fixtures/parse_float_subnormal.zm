@@ -1,0 +1,36 @@
+// parse_float treated strtod's ERANGE as a parse failure, but strtod reports two different things
+// with it. On overflow the result is infinity and the number has no double at all. On underflow the
+// result is the correctly-rounded subnormal -- an ordinary double, which the language can hold and
+// print (tests/fixtures/number_limits.out has printed 5e-324 all along) but could not read back.
+// That broke the str/parse round-trip the docs promise, and in a server turned a legitimate client
+// number into a 500. Subnormals are now accepted; overflow is still refused.
+fn attempt(s: string) {
+    switch parse_float(s) {
+        Ok(v) { printf("{} -> Ok {}\n", s, v) }
+        Err(e) { printf("{} -> Err {}\n", s, e) }
+    }
+}
+
+fn main() {
+    attempt("1e-320")                    // subnormal
+    attempt("5e-324")                    // the smallest positive subnormal
+    attempt("-5e-324")                   // and negative
+    attempt("2.2250738585072014e-308")   // the smallest normal, which always worked
+    attempt("1e-400")                    // below every subnormal: rounds to zero, as strtod does
+    attempt("1e400")                     // overflow: no double exists, still refused
+    attempt("-1e400")
+    attempt("inf")                       // asking for infinity by name is still fine
+    attempt("1.5")
+    attempt("notanumber")
+
+    // the round trip the docs promise, at the very bottom of the range
+    val tiny = 5e-324
+    printf("str(tiny) = {}\n", str(tiny))
+    switch parse_float(str(tiny)) {
+        Ok(v) { printf("round trip -> Ok {}\n", v) }
+        Err(e) { printf("round trip -> Err {}\n", e) }
+    }
+
+    // a subnormal literal in source always worked, and still does
+    printf("literal: {} {}\n", 5e-324, 1e-320)
+}

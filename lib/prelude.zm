@@ -26,6 +26,10 @@ native fn parse_int(s: string) -> Result<int, string>
 
 // A float from decimal or exponent text (`3.5`, `1e3`), or an Err: like `parse_int`, no blanks and no `+`, and
 // no hex (`0x10`). `nan`, `inf` and `-inf` (what `str` prints) are the non-finite floats it reads.
+// Anything `str` writes reads back, including a subnormal such as `5e-324`. Text naming a value
+// smaller than any subnormal (`1e-400`) rounds to `0.0`, the same rounding that makes `0.1` inexact;
+// text naming one too large (`1e400`) is an Err rather than silently becoming infinity, which is why
+// `inf` is accepted by name but `1e400` is not.
 native fn parse_float(s: string) -> Result<float, string>
 
 // A bigint from digits with an optional sign, or an Err. Any length.
