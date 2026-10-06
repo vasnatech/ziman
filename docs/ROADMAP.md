@@ -627,6 +627,57 @@ from source.
   `#[deprecated]` should ever become a hard error (a "deny" policy) once a
   removal is actually scheduled, or stay a warning forever.
 
+- **Make `Map`/`Set` operations faster -- constant factors, not complexity.** Measured 2026-10-05
+  against CPython 3.14's `dict`, 1,000,000 operations on a 100,000-entry container, in-program
+  clocks, pinned (loop overhead ~41ns/iteration in Ziman and ~43ns in Python, so the figures are
+  directly comparable):
+
+  | operation | Python `dict` | Ziman `Map` | Ziman `MapBuilder` |
+  | --- | --- | --- | --- |
+  | get | 87ns | 2989ns (34x) | 1856ns (21x) |
+  | set | 84ns | 1971ns (23x) | 850ns (10x) |
+  | remove | 41ns | 5249ns (128x) | 170ns (4x) |
+  | contains | 64ns | 254ns (4x) | 214ns (3x) |
+  | len | 73ns | 89ns (1.2x) | 108ns (1.5x) |
+  | snapshot of 100k | 1.2ms (`dict(d)`) | -- | 2.3ms (`mapb_to_map`) |
+
+  **The complexities are already right** and this entry is not about changing them: `Map`/`Set` are a
+  32-way HAMT capped at `MAX_DEPTH 12`, so a lookup is at most twelve hops for any map up to 32^12
+  entries -- a constant, and with a better worst case than `dict`'s O(n) under adversarial collisions
+  (O(k) among keys sharing 60 hash bits). Every gap above is a constant factor. `Set` needs no
+  separate work: `SetBuilder` is `mapobj_set_mut` with a dummy value and `Set<T>` is a `MapObj`, so
+  the same trie and the same fixes serve both.
+
+  Ranked by what the measurements actually point at, each with its mechanism already identified:
+
+  1. **`get` allocates an `Option` and `contains` does not, which costs ~9x.** Same trie descent,
+     1856ns against 214ns (and 2989 against 254 for the immutable `Map`), where Python's own two are
+     87 and 64. So roughly nine tenths of `get` is the wrapper allocation and the collection work it
+     causes, not the lookup. `contains` at 3x Python is the honest measure of the trie itself. This is
+     the largest and clearest win available.
+  2. **`gc_lookup` finds a block by walking the block list linearly**, which is what makes that
+     allocation so expensive: marking a 200k-entry map walks every leaf calling `gc_lookup`, and a
+     heap grown that far has a hundred-odd blocks -- twenty million block visits per collection,
+     `arena_block_content` 48% of the profile against `mapobj_get`'s 2.6%. Fix is a per-arena block
+     index sorted by address and binary-searched, or a one-entry last-block-found cache since marking
+     has real locality. Contained to `arena.c`/`gc_lookup.c`, and it speeds up everything that marks,
+     not only maps. Three cheaper attempts at this are already ruled out by measurement -- see
+     docs/DESIGN.md's "MapBuilder vs CPython dict" entry before trying another.
+  3. **`MapNode` has no capacity field**, so every insert `realloc`s the node to exact fit and
+     `memmove`s to open a slot: a node filling to 32 slots does ~32 reallocs where `dict` amortises
+     by doubling. Growing capacity geometrically (4/8/16/32) is contained to `mapobj.c` and is the
+     insert-side fix for the 10x.
+  4. **Every `mapb_*`/`setb_*` call validates its handle through `handleset_has`**, a hash probe paid
+     per operation. Small, but it is on literally every builder call, and for `len` -- 108ns against
+     the immutable `Map`'s 89ns for the same field read -- it is the entire cost.
+
+  Needs nothing: `len` is already at parity, and the immutable `Map`'s `remove` at 128x is the worst
+  row but is inherent to being persistent (path copy plus node collapse plus a fresh `MapObj` per
+  removal) -- `MapBuilder.remove` at 4x is the one to use in a loop, which is what the builders are
+  for. Do not start with (3) or a flat open-addressing table for the builder: twice in one day the
+  structurally obvious change measured worse than doing nothing (the `Type` union, and three separate
+  attempts at (2)), so measure each step.
+
 ## Larger, needs its own design pass
 
 - **Memory is never reclaimed while a program runs (in the default build)
