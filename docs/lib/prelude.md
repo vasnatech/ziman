@@ -856,14 +856,24 @@ native fn guard_new<T>(ch: Channel<T>, message: T) -> Guard
 
 A guard that sends `message` on `ch` when it is collected.
 
+### `result_map_err`
+
+```
+fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F>
+```
+
+`r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
+caller truly doesn't care why something failed, not as a shortcut past handling it.
+`r` with its error replaced by `convert(error)`; an Ok passes through untouched. The piece that was
+missing wherever one module's error type has to become another's -- `fs` answers an `FsError` and a
+caller whose own errors are strings wants `try result_map_err(fs.read_text(p), fs.fs_error_message)`
+rather than four lines of switch at every call.
+
 ### `result_to_option`
 
 ```
 pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T>
 ```
-
-`r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
-caller truly doesn't care why something failed, not as a shortcut past handling it.
 
 ### `option_to_result`
 

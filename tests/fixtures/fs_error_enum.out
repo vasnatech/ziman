@@ -1,0 +1,5 @@
+NotFound
+IsDirectory
+cannot read '/definitely/not/here.txt': No such file or directory
+cannot read '/definitely/not/here.txt': No such file or directory
+write: NotFound

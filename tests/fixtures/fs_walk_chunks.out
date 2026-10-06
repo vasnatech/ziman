@@ -3,7 +3,7 @@
 /tmp/ziman_fixture_walk/b/deep/x.txt
 /tmp/ziman_fixture_walk/b/y.txt
 /tmp/ziman_fixture_walk/z.txt
-cannot list '/tmp/ziman_fixture_no_such_dir': No such file or directory
+NotFound(cannot list '/tmp/ziman_fixture_no_such_dir': No such file or directory)
 /tmp/ziman_fixture_walk/a/one.txt
 true
 3
@@ -12,9 +12,9 @@ true
 [7]
 7
 0
-chunk size 0 is out of range (1 to 1073741824)
-chunk size -5 is out of range (1 to 1073741824)
-cannot read '/tmp/ziman_fixture_no_such_file.bin': No such file or directory
+Other(chunk size 0 is out of range (1 to 1073741824))
+Other(chunk size -5 is out of range (1 to 1073741824))
+NotFound(cannot read '/tmp/ziman_fixture_no_such_file.bin': No such file or directory)
 true
 x
 y

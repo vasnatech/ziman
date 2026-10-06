@@ -188,7 +188,7 @@ fn read_source(file: string) -> Result<string, string> {
             unwrap(os.getenv("ZIMAN_RESOURCE_PATH"))
         )) }
     }
-    return fs.read_text(resolved)
+    return result_map_err(fs.read_text(resolved), fs.fs_error_message)
 }
 
 // `over` wins on a key present in both.

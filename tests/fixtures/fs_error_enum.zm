@@ -1,0 +1,52 @@
+// `fs` answered every failure with a string, so the three cases a program actually branches on -- "it is not
+// there", "I am not allowed", "that is a directory" -- were reachable only by matching substrings of
+// `strerror`, which is neither stable across platforms nor meant to be parsed. They are variants now, in the
+// shape `net` already used for `NetError`.
+//
+// The classification is one errno switch in C (src/native_fs.c), handed over as the same "category|message"
+// string native_net.c uses, and split into the enum here -- so neither side has to build the other's values.
+// Every variant still carries the OS's own wording, which `fs_error_message` returns unchanged.
+use fs
+
+fn describe(path: string) -> string {
+    return switch fs.read_text(path) {
+        Ok(text) { concat("read ", str(len(text))) }
+        Err(e) {
+            switch e {
+                NotFound(m) { "NotFound" }
+                Denied(m) { "Denied" }
+                IsDirectory(m) { "IsDirectory" }
+                NotDirectory(m) { "NotDirectory" }
+                Exists(m) { "Exists" }
+                Other(m) { "Other" }
+            }
+        }
+    }
+}
+
+fn main() {
+    print(describe("/definitely/not/here.txt"))
+    print(describe("/tmp"))
+
+    // the message is still the OS's, so nothing was lost by making it branchable
+    switch fs.read_text("/definitely/not/here.txt") {
+        Ok(t) { print("unexpected") }
+        Err(e) { print(fs.fs_error_message(e)) }
+    }
+
+    // a caller whose own errors are strings adapts in one line
+    print(switch read_as_string("/definitely/not/here.txt") {
+        Ok(t) { t }
+        Err(m) { m }
+    })
+
+    // writing into a directory that is not there is NotFound, not Other
+    switch fs.write_text("/definitely/not/here/x.txt", "hi") {
+        Ok(n) { print("unexpected") }
+        Err(e) { print(switch e { NotFound(m) { "write: NotFound" } Denied(m) { "write: Denied" } IsDirectory(m) { "write: IsDirectory" } NotDirectory(m) { "write: NotDirectory" } Exists(m) { "write: Exists" } Other(m) { "write: Other" } }) }
+    }
+}
+
+fn read_as_string(path: string) -> Result<string, string> {
+    return result_map_err(fs.read_text(path), fs.fs_error_message)
+}

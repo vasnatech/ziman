@@ -19,7 +19,7 @@ false
 false
 false
 false
-Err(cannot write '/nonexistent_dir/x': No such file or directory)
+Err(NotFound(cannot write '/nonexistent_dir/x': No such file or directory))
 Ok(unit)
 Ok(unit)
 Ok(unit)

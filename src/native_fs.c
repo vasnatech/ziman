@@ -21,9 +21,25 @@
  * message -- never a fatal ziman_error. */
 static Type string_type(void) { return type_scalar(TY_STRING); }
 
+/* The part of `errno` a caller can actually branch on, as the category prefix fs.zm splits off. The same
+ * "category|message" convention native_net.c uses for NetError, and for the same reason: classifying here
+ * keeps one errno switch in C while the enum itself stays declared in Ziman, so neither side has to build
+ * the other's values. Everything not worth its own branch is `other`, which keeps the OS's message. */
+static const char *errno_category(void) {
+    switch (errno) {
+        case ENOENT: return "notfound";
+        case EACCES:
+        case EPERM: return "denied";
+        case EISDIR: return "isdir";
+        case ENOTDIR: return "notdir";
+        case EEXIST: return "exists";
+        default: return "other";
+    }
+}
+
 static Value fs_err(Type ok_type, const char *what, const char *path) {
     char msg[1024];
-    snprintf(msg, sizeof(msg), "%s '%s': %s", what, path, strerror(errno));
+    snprintf(msg, sizeof(msg), "%s|%s '%s': %s", errno_category(), what, path, strerror(errno));
     return value_result(type_result(ok_type, string_type()), result_obj_new(0, value_string(strdup(msg))));
 }
 
@@ -364,7 +380,9 @@ static int chunks_next(IterObj *it, Value *out) {
     if (got == 0) {
         if (ferror(st->file)) {
             st->failed = 1;
-            *out = chunk_item(0, value_string(strdup(strerror(errno))));
+            char item_msg[512];
+            snprintf(item_msg, sizeof item_msg, "%s|%s", errno_category(), strerror(errno));
+            *out = chunk_item(0, value_string(strdup(item_msg)));
             return 1;
         }
         return 0;
@@ -486,7 +504,7 @@ static int walk_next(IterObj *it, Value *out) {
         if (lstat(full, &sb) == 0 && S_ISDIR(sb.st_mode)) {
             if (!walk_push(st, full)) {
                 char msg[1024];
-                snprintf(msg, sizeof msg, "cannot list '%s': %s", full, strerror(errno));
+                snprintf(msg, sizeof msg, "%s|cannot list '%s': %s", errno_category(), full, strerror(errno));
                 *out = walk_item(0, strdup(msg));
                 return 1;
             }
@@ -520,25 +538,28 @@ static Value native_fs_walk(Value *args, int argc, int line, int col) {
 }
 
 void native_fs_register(void) {
-    native_register("fs::read_text", native_fs_read_text);
-    native_register("fs::lines", native_fs_lines);
-    native_register("fs::chunks", native_fs_chunks);
-    native_register("fs::walk", native_fs_walk);
-    native_register("fs::write_text", native_fs_write_text);
-    native_register("fs::append_text", native_fs_append_text);
+    /* `_raw` because fs.zm wraps each of these in a public function that turns the "category|message"
+     * string below into an FsError (see its own comment, and native_net.c for the same arrangement). The
+     * three predicates further down return a plain bool and need no wrapper, so they keep their names. */
+    native_register("fs::read_text_raw", native_fs_read_text);
+    native_register("fs::lines_raw", native_fs_lines);
+    native_register("fs::chunks_raw", native_fs_chunks);
+    native_register("fs::walk_raw", native_fs_walk);
+    native_register("fs::write_text_raw", native_fs_write_text);
+    native_register("fs::append_text_raw", native_fs_append_text);
     native_register("fs::exists", native_fs_exists);
     native_register("fs::is_dir", native_fs_is_dir);
-    native_register("fs::size", native_fs_size);
-    native_register("fs::remove", native_fs_remove);
-    native_register("fs::make_dir", native_fs_make_dir);
-    native_register("fs::rename", native_fs_rename);
-    native_register("fs::list_dir", native_fs_list_dir);
-    native_register("fs::read_bytes", native_fs_read_bytes);
-    native_register("fs::write_bytes", native_fs_write_bytes);
-    native_register("fs::append_bytes", native_fs_append_bytes);
-    native_register("fs::write_text_atomic", native_fs_write_text_atomic);
+    native_register("fs::size_raw", native_fs_size);
+    native_register("fs::remove_raw", native_fs_remove);
+    native_register("fs::make_dir_raw", native_fs_make_dir);
+    native_register("fs::rename_raw", native_fs_rename);
+    native_register("fs::list_dir_raw", native_fs_list_dir);
+    native_register("fs::read_bytes_raw", native_fs_read_bytes);
+    native_register("fs::write_bytes_raw", native_fs_write_bytes);
+    native_register("fs::append_bytes_raw", native_fs_append_bytes);
+    native_register("fs::write_text_atomic_raw", native_fs_write_text_atomic);
     native_register("fs::is_file", native_fs_is_file);
-    native_register("fs::make_dirs", native_fs_make_dirs);
-    native_register("fs::copy_file", native_fs_copy_file);
-    native_register("fs::modified_seconds", native_fs_modified_seconds);
+    native_register("fs::make_dirs_raw", native_fs_make_dirs);
+    native_register("fs::copy_file_raw", native_fs_copy_file);
+    native_register("fs::modified_seconds_raw", native_fs_modified_seconds);
 }

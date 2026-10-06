@@ -165,7 +165,7 @@ fn read_migration(dir: string, file: string) -> Result<Migration, DbError> {
     }
     val text = switch fs.read_text(fs.path_join(dir, file)) {
         Ok(contents) { contents }
-        Err(message) { return err(problem(message)) }
+        Err(e) { return err(problem(fs.fs_error_message(e))) }
     }
     return Migration {
         version: version,
@@ -181,7 +181,7 @@ fn read_migration(dir: string, file: string) -> Result<Migration, DbError> {
 pub fn load(dir: string) -> Result<[Migration], DbError> {
     val names = switch fs.list_dir(dir) {
         Ok(listed) { listed }
-        Err(message) { return err(problem(message)) }
+        Err(e) { return err(problem(fs.fs_error_message(e))) }
     }
     val found = ab_new<Migration>()
     for file in names {

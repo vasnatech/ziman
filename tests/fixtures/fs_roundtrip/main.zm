@@ -6,6 +6,6 @@ fn main() {
     if is_ok(r) {
         print(unwrap(r))
     } else {
-        print(concat("unexpected failure: ", unwrap_err(r)))
+        print(concat("unexpected failure: ", fs.fs_error_message(unwrap_err(r))))
     }
 }

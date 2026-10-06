@@ -5,6 +5,6 @@ fn main() {
     if is_ok(r) {
         print(unwrap(r))
     } else {
-        print(concat("could not read: ", unwrap_err(r)))
+        print(concat("could not read: ", fs.fs_error_message(unwrap_err(r))))
     }
 }
