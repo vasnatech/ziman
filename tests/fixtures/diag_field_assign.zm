@@ -1,0 +1,7 @@
+// As diag_index_assign, for a struct field: the repair is `with`, which the old message did not name.
+struct P { x: int }
+fn main() {
+    var p = P { x: 1 }
+    p.x = 5
+    print(p.x)
+}

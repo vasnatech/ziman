@@ -1,0 +1,7 @@
+// Ziman has no nested functions. The parser used to complain "expected '(', found identifier",
+// which named the token that stopped it rather than the rule, and said nothing about the lambda that
+// replaces it.
+fn main() {
+    fn inner() -> int { return 1 }
+    print(inner())
+}

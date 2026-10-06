@@ -757,6 +757,15 @@ static Expr *parse_primary(Parser *p) {
          * written out like a named function's; a missing `->` means it returns
          * nothing. What it captures from the enclosing function is worked out
          * by the type checker. */
+        /* A name here means someone wrote a named function inside another one. Ziman has no nested
+         * functions, and the token-level complaint ("expected '(', found identifier") says nothing about
+         * that or about the lambda that replaces it. */
+        if (cur(p)->type == TOK_IDENT) {
+            ziman_error("syntax", t->line, t->col,
+                        "a function cannot be declared inside another function -- either move '%.*s' out to the "
+                        "top level, or bind a lambda to a val: 'val %.*s = fn(...) -> T { ... }'",
+                        cur(p)->length, cur(p)->start, cur(p)->length, cur(p)->start);
+        }
         FunctionDecl *fn = calloc(1, sizeof(FunctionDecl));
         fn->name = (char *)"lambda";
         fn->line = t->line;
@@ -809,6 +818,18 @@ static Expr *parse_primary(Parser *p) {
         Expr *e = expr_new(EXPR_VALUE_BLOCK, t->line, t->col);
         e->as.value_block.inner = inner;
         return e;
+    }
+    /* A common mistake lands here, and the surrounding tokens say exactly which, so say it rather than
+     * naming the token that happened to stop the parser (D2 item 18).
+     *
+     * A trailing comma: the comma was consumed, an expression was expected, and a closing bracket turned
+     * up instead. Ziman does not allow one, and "expected an expression, found ']'" leaves the reader
+     * looking at the bracket rather than the comma before it. (`k++`/`k--` are caught in
+     * parse_statement instead -- see there for why not here.) */
+    if (p->pos > 0 && previous(p)->type == TOK_COMMA &&
+        (t->type == TOK_RBRACKET || t->type == TOK_RPAREN || t->type == TOK_RBRACE)) {
+        ziman_error("syntax", previous(p)->line, previous(p)->col,
+                    "a trailing comma is not allowed before %s -- remove it", token_type_name(t->type));
     }
     ziman_error("syntax", t->line, t->col, "expected an expression, found %s", token_type_name(t->type));
     return NULL; /* unreachable */
@@ -1624,9 +1645,37 @@ static Stmt *parse_statement(Parser *p) {
      * (currently only calls are useful here, e.g. `print(x)`). Both start
      * with an expression, so parse one and see what follows. */
     Token *start = cur(p);
+    /* `k++` / `k--`, checked before parsing rather than from the expression parser's failure, because the
+     * two reach different places and only one of them fails: `k++` runs out of operand and lands in
+     * primary()'s "expected an expression", while `k--` parses as `k - (-print(...))` and surfaces much
+     * later as "cannot use a void value as an operand", pointing at the wrong line entirely. Spotting the
+     * shape here catches both and says the same thing about them. Ziman has no increment operator. */
+    if (start->type == TOK_IDENT &&
+        ((check_ahead(p, 1, TOK_PLUS) && check_ahead(p, 2, TOK_PLUS)) ||
+         (check_ahead(p, 1, TOK_MINUS) && check_ahead(p, 2, TOK_MINUS)))) {
+        int plus = check_ahead(p, 1, TOK_PLUS);
+        ziman_error("syntax", start->line, start->col,
+                    "there is no '%s' operator -- write '%.*s = %.*s %c 1' (and declare it with 'var', not 'val')",
+                    plus ? "++" : "--", start->length, start->start, start->length, start->start,
+                    plus ? '+' : '-');
+    }
     Expr *first = parse_expr(p);
     if (match(p, TOK_EQ)) {
         if (first->kind != EXPR_IDENT) {
+            /* The shape of the left-hand side says which mistake it is, and both have a one-line repair
+             * that "must be a variable name" does not hint at. Arrays and structs are values here, so
+             * neither is assigned into -- a copy is made with a different element or field. Worth naming
+             * because these are two of the four most likely day-one mistakes (D2 item 18). */
+            if (first->kind == EXPR_INDEX) {
+                ziman_error("syntax", start->line, start->col,
+                            "an array element cannot be assigned: arrays are values, not mutable containers -- "
+                            "write 'arr = set(arr, i, value)' (and see ArrayBuilder for building one up in a loop)");
+            }
+            if (first->kind == EXPR_FIELD_ACCESS) {
+                ziman_error("syntax", start->line, start->col,
+                            "a field cannot be assigned: a struct is a value -- write 'p = p with { field: value }' "
+                            "to make a copy with that field changed");
+            }
             ziman_error("syntax", start->line, start->col, "left-hand side of assignment must be a variable name");
         }
         Stmt *s = stmt_new(STMT_ASSIGN, start->line, start->col);

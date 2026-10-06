@@ -1,0 +1,6 @@
+// Arithmetic on an Option used to advise "use 'as' to cast explicitly", which cannot work: there is no
+// cast from Option<int> to int. The repair is to get the value out, and the message now names three ways.
+fn main() {
+    val o: Option<int> = Some(4)
+    print(o + 1)
+}

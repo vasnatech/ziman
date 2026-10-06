@@ -144,6 +144,7 @@ static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type e
 static int check_ok_err_call(Module *module, Env *env, Expr *e, Type expected);
 static int check_channel_new_call(Module *module, Env *env, Expr *e, Type expected);
 static int check_bare_option_call(Module *module, Env *env, Expr *e, Type expected);
+static int is_option_type(Type t);
 
 /* Rebuilds `t` with every TY_TYPEVAR named in `params` replaced by the
  * type argument at the same index in `args` -- the substitution-on-demand
@@ -614,6 +615,17 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
             if (e->as.binary.op == OP_MOD && lt.kind == TY_FLOAT && rt.kind == TY_FLOAT) {
                 ziman_error("type", e->line, e->col,
                             "'%%' is not defined for float (there is no float remainder); use it on int, bigint or decimal, or cast to int first if a whole-number remainder is what you mean");
+            }
+            /* An Option is the one case where the generic message's "use 'as' to cast" is advice that
+             * cannot work: there is no cast from Option<int> to int, and what is needed is to get the
+             * value out. Same shape as the string and array cases above, and the same class of defect
+             * as C9's -- a message naming a repair that does not exist costs more than saying less. */
+            if (is_option_type(lt) || is_option_type(rt)) {
+                Type opt = is_option_type(lt) ? lt : rt;
+                ziman_error("type", e->line, e->col,
+                            "arithmetic needs the value inside the %s, not the Option itself (found %s and %s) -- unwrap it first: "
+                            "'if Some(v) = o { v + 1 }', or option_unwrap_or(o, 0) for a default, or Option.unwrap_Some(o) when it cannot be None",
+                            type_name(opt), type_name(lt), type_name(rt));
             }
             if (lt.kind != rt.kind || (lt.kind != TY_INT && lt.kind != TY_FLOAT && lt.kind != TY_BIGINT && lt.kind != TY_DECIMAL)) {
                 ziman_error("type", e->line, e->col,
@@ -1925,18 +1937,19 @@ static Type check_call(Module *module, Env *env, Expr *e) {
          * e.g. `print(ok(5))` or a bare `ok(5)` statement. There's no way
          * to infer the type this would need without that context. */
         ziman_error("type", e->line, e->col,
-                    "cannot infer the type of '%s(...)' here; only legal as a val/var initializer with an "
-                    "explicit Result<T, E> annotation, a struct literal field, a 'with' override, or a "
-                    "function's returned value",
+                    "cannot infer the type of '%s(...)' here; it takes its type from the context, so it needs one: "
+                    "a val/var with an explicit Result<T, E> annotation, a struct literal field, a 'with' override, "
+                    "a function's returned value, or an argument whose parameter type says which Result it is",
                     name);
     }
 
     if (strcmp(name, "channel_new") == 0) {
         /* Same reasoning as ok/err above, via check_channel_new_call. */
         ziman_error("type", e->line, e->col,
-                    "cannot infer the type of 'channel_new()' here; only legal as a val/var initializer with an "
-                    "explicit Channel<T> annotation, a struct literal field, a 'with' override, or a "
-                    "function's returned value");
+                    "cannot infer the type of 'channel_new()' here; it takes its type from the context, so it needs "
+                    "one: a val/var with an explicit Channel<T> annotation, a struct literal field, a 'with' "
+                    "override, a function's returned value, or an argument whose parameter type says which Channel "
+                    "it is");
     }
 
     if (strcmp(name, "Some") == 0) {
@@ -1944,9 +1957,11 @@ static Type check_call(Module *module, Env *env, Expr *e) {
          * Option<T> to work with -- e.g. `print(Some(5))` or a bare `Some(5)` statement. Same reasoning as
          * ok/err above: `Some(x)`'s argument alone doesn't say this is an Option rather than something else. */
         ziman_error("type", e->line, e->col,
-                    "cannot infer the type of 'Some(...)' here; only legal as a val/var initializer with an "
-                    "explicit Option<T> annotation, a struct literal field, a 'with' override, or a "
-                    "function's returned value");
+                    "cannot infer the type of 'Some(...)' here; it takes its type from the context, so it needs one: "
+                    "a val/var with an explicit Option<T> annotation, a struct literal field, a 'with' override, a "
+                    "function's returned value, or an argument whose parameter type says which Option it is. Inside "
+                    "another Some(...) there is no context either -- qualify it, as "
+                    "'Option<Option<int>>.Some(Option<int>.Some(4))'");
     }
 
     if (strcmp(name, "send") == 0) {
@@ -2810,9 +2825,10 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
                     /* Reachable only when nothing gave check_bare_option_call() (via check_expr_expecting) an
                      * expected Option<T> to work with -- `None` alone carries no `T` at all to infer. */
                     ziman_error("type", e->line, e->col,
-                                "cannot infer the type of 'None' here; only legal as a val/var initializer with an "
-                                "explicit Option<T> annotation, a struct literal field, a 'with' override, or a "
-                                "function's returned value");
+                                "cannot infer the type of 'None' here; it takes its type from the context, so it "
+                                "needs one: a val/var with an explicit Option<T> annotation, a struct literal field, "
+                                "a 'with' override, a function's returned value, or an argument whose parameter type "
+                                "says which Option it is");
                 }
                 for (size_t k = 0; k < sizeof BUILTINS_NO_NAMED_ARGS / sizeof BUILTINS_NO_NAMED_ARGS[0] && BUILTINS_NO_NAMED_ARGS[k] != NULL; k++) {
                     if (strcmp(e->as.ident_name, BUILTINS_NO_NAMED_ARGS[k]) == 0) {
@@ -2985,7 +3001,9 @@ static Type check_try_unwrap(Module *module, Env *env, Expr *e, Type fn_return_t
     if (is_option_type(inner_type)) {
         if (!is_option_type(fn_return_type)) {
             ziman_error("type", e->line, e->col,
-                        "'try' on an Option<T> value requires the enclosing function to return Option<...>, found %s",
+                        "'try' on an Option<T> value requires the enclosing function or lambda to return Option<...>, "
+                        "found %s -- give it that return type (a lambda needs it written out: "
+                        "'fn(...) -> Option<T> { ... }')",
                         type_name(fn_return_type));
         }
         e->as.try_unwrap.propagated_type = fn_return_type;
@@ -3008,8 +3026,10 @@ static Type check_try_unwrap(Module *module, Env *env, Expr *e, Type fn_return_t
         if (fn_return_type.kind != TY_RESULT ||
             (e->as.try_unwrap.convert_variant == NULL && !type_equals(*inner_type.elem_err, *fn_return_type.elem_err))) {
             ziman_error("type", e->line, e->col,
-                        "'try' on a Result<T, E> value requires the enclosing function to return Result<..., %s>, found %s%s",
-                        type_name(*inner_type.elem_err), type_name(fn_return_type),
+                        "'try' on a Result<T, E> value requires the enclosing function or lambda to return "
+                        "Result<..., %s>, found %s -- give it that return type (a lambda needs it written out: "
+                        "'fn(...) -> Result<T, %s> { ... }')%s",
+                        type_name(*inner_type.elem_err), type_name(fn_return_type), type_name(*inner_type.elem_err),
                         fn_return_type.kind == TY_RESULT && fn_return_type.elem_err->kind == TY_ENUM
                             ? " (or mark a variant of that enum `#[from]` to convert the error)" : "");
         }

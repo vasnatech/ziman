@@ -1,0 +1,6 @@
+// A trailing comma used to report "expected an expression, found ']'", pointing the reader at the
+// bracket rather than the comma before it.
+fn main() {
+    val xs = [1, 2, 3,]
+    print(xs)
+}

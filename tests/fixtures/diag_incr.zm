@@ -1,0 +1,7 @@
+// There is no increment operator. `k++` used to run out of operand and report "expected an
+// expression, found '+'".
+fn main() {
+    var k = 0
+    k++
+    print(k)
+}

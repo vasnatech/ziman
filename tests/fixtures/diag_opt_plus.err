@@ -1,0 +1,1 @@
+unwrap it first: 'if Some(v) = o { v + 1 }'

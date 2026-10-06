@@ -1,0 +1,8 @@
+// `k--` took a different path from `k++` -- it parses as `k - (-print(...))` and surfaced much later
+// as "cannot use a void value as an operand", pointing at the wrong line. Both are now caught in
+// parse_statement by their shape, before the expression is parsed.
+fn main() {
+    var k = 5
+    k--
+    print(k)
+}

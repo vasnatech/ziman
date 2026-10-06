@@ -1,0 +1,7 @@
+// Arrays are values here, so an element is not assigned into. "left-hand side of assignment must be a
+// variable name" was true and unhelpful; the shape of the left-hand side says which repair applies.
+fn main() {
+    var xs = [1, 2, 3]
+    xs[0] = 9
+    print(xs)
+}
