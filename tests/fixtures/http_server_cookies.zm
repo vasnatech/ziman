@@ -1,0 +1,28 @@
+// A server had neither half of the cookie story: reading the `Cookie` header a browser sends, and building
+// the `Set-Cookie` header it is told to store. The client's `CookieJar` is the other side of the same wire and
+// stays where it is -- it models what a user agent keeps between requests, which a server has no use for.
+use http
+fn main() {
+    val req = http.Request {
+        method: http.HttpMethod.Get,
+        target: "/",
+        path: "/",
+        query: "",
+        version: "HTTP/1.1",
+        headers: [http.Header { name: "Cookie", value: "sid=abc123; theme=dark; broken; empty=" }],
+        body: []
+    }
+    for p in http.request_cookies(req) { printf("{} = [{}]\n", p.name, p.value) }
+    printf("sid: {}\n", http.request_cookie(req, "sid"))
+    printf("absent: {}\n", http.request_cookie(req, "nope"))
+    val h = http.set_cookie_header(http.session_cookie("sid", "abc123"))
+    printf("{}: {}\n", h.name, h.value)
+    val h2 = http.set_cookie_header(with http.session_cookie("sid", "x") {
+        max_age_seconds: 3600,
+        same_site: "Strict",
+        http_only: false
+    })
+    printf("{}: {}\n", h2.name, h2.value)
+    val h3 = http.delete_cookie_header("sid", "/", "")
+    printf("{}: {}\n", h3.name, h3.value)
+}

@@ -1702,7 +1702,7 @@ static Stmt *parse_statement(Parser *p) {
             }
             if (first->kind == EXPR_FIELD_ACCESS) {
                 ziman_error("syntax", start->line, start->col,
-                            "a field cannot be assigned: a struct is a value -- write 'p = p with { field: value }' "
+                            "a field cannot be assigned: a struct is a value -- write 'p = with p { field: value }' "
                             "to make a copy with that field changed");
             }
             ziman_error("syntax", start->line, start->col, "left-hand side of assignment must be a variable name");

@@ -1381,6 +1381,111 @@ pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
     }
 }
 
+// ------------------------------------------------------------ CORS
+//
+// Browser-facing servers all write the same thirty lines: answer the preflight, and put
+// `Access-Control-Allow-Origin` on everything else -- but only for an origin on the list, because a
+// wildcard with credentials is the one combination browsers refuse outright. These two functions are that,
+// generalised from the reference backend's own `route_cors`.
+//
+// Two functions rather than one wrapper taking a handler: a wrapper would have to return a closure and
+// allocate one per request, and this composes with anything -- `dispatch`, a hand-written router, a static
+// file handler -- by sitting either side of it.
+
+// Which origins may see an answer, and what a preflight is told the browser may then send. `allowed_origins`
+// is matched exactly; a single `"*"` allows any origin, which is only sound without credentials (a browser
+// rejects `*` together with `Access-Control-Allow-Credentials`, so `allow_credentials` is ignored then).
+pub struct CorsPolicy {
+    allowed_origins: [string]
+    allowed_methods: string
+    allowed_headers: string
+    max_age_seconds: int
+    allow_credentials: bool
+}
+
+// A policy for `origins` with the defaults a JSON API wants: the usual methods, `Authorization` and
+// `Content-Type` when the browser does not say which headers it needs, a one-hour preflight cache, and
+// credentials allowed. Override what differs with `with`.
+pub fn cors_policy(origins: [string]) -> CorsPolicy {
+    return CorsPolicy {
+        allowed_origins: origins,
+        allowed_methods: "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+        allowed_headers: "Authorization, Content-Type",
+        max_age_seconds: 3600,
+        allow_credentials: true
+    }
+}
+
+fn cors_origin_allowed(policy: CorsPolicy, origin: string) -> bool {
+    for allowed in policy.allowed_origins {
+        if allowed == "*" || allowed == origin {
+            return true
+        }
+    }
+    return false
+}
+
+fn cors_wildcard(policy: CorsPolicy) -> bool {
+    for allowed in policy.allowed_origins {
+        if allowed == "*" {
+            return true
+        }
+    }
+    return false
+}
+
+// The answer to a browser's preflight (`OPTIONS` carrying `Access-Control-Request-Method`), or None when
+// `req` is not one and should be routed normally. A preflight from an origin not on the list is
+// `fault(403, ...)` rather than a bare rejection, so it looks like every other refusal this server makes.
+pub fn cors_preflight(policy: CorsPolicy, req: Request, fault: fn(int, string) -> Response) -> Option<Response> {
+    val origin = switch header(req, "Origin") {
+        Some(value) { value }
+        None { return None }
+    }
+    if !HttpMethod.is_Options(req.method) || Option.is_None(header(req, "Access-Control-Request-Method")) {
+        return None
+    }
+    if !cors_origin_allowed(policy, origin) {
+        return Some(fault(status_forbidden, "Invalid CORS request"))
+    }
+    val requested = switch header(req, "Access-Control-Request-Headers") {
+        Some(value) { value }
+        None { policy.allowed_headers }
+    }
+    val answer = with_header(
+        with_header(
+            with_header(response(status_no_content, []), "Access-Control-Allow-Methods", policy.allowed_methods),
+            "Access-Control-Allow-Headers",
+            requested
+        ),
+        "Access-Control-Max-Age",
+        str(policy.max_age_seconds)
+    )
+    return Some(cors_apply(policy, req, answer))
+}
+
+// `answer` with the CORS headers a browser needs to hand it to the page, when the request carried an `Origin`
+// on the list. Without an `Origin`, or from an origin not on it, `answer` is returned untouched -- which is
+// what makes the browser withhold it, and is the whole mechanism: a server does not refuse the request, it
+// declines to say the answer may be read.
+pub fn cors_apply(policy: CorsPolicy, req: Request, answer: Response) -> Response {
+    val origin = switch header(req, "Origin") {
+        Some(value) { value }
+        None { return answer }
+    }
+    if !cors_origin_allowed(policy, origin) {
+        return answer
+    }
+    // `*` is echoed as `*`, not as the origin: echoing turns a public API into one that looks
+    // origin-specific, and a browser will not accept `*` with credentials anyway.
+    val allow = if cors_wildcard(policy) { "*" } else { origin }
+    val with_origin = with_header(answer, "Access-Control-Allow-Origin", allow)
+    if policy.allow_credentials && !cors_wildcard(policy) {
+        return with_header(with_origin, "Access-Control-Allow-Credentials", "true")
+    }
+    return with_origin
+}
+
 // Calls the handler of the first endpoint whose method and pattern match `req`. When none does, the answer is
 // `fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
 pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {

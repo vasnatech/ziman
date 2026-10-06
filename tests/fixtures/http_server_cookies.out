@@ -1,0 +1,8 @@
+sid = [abc123]
+theme = [dark]
+empty = []
+sid: Some(abc123)
+absent: None
+Set-Cookie: sid=abc123; Path=/; SameSite=Lax; Secure; HttpOnly
+Set-Cookie: sid=x; Path=/; Max-Age=3600; SameSite=Strict; Secure
+Set-Cookie: sid=; Path=/; Max-Age=0; SameSite=Lax; Secure; HttpOnly

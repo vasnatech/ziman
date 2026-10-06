@@ -320,6 +320,85 @@ pub fn header_value(headers: [Header], name: string) -> Option<string>
 
 The value of the first header called `name` (case-insensitive), or None.
 
+## Cookies
+
+### `CookiePair`
+
+```
+pub struct CookiePair {
+    name: string
+    value: string
+}
+```
+
+One `name=value` pair from a request's `Cookie` header.
+
+### `request_cookies`
+
+```
+pub fn request_cookies(req: Request) -> [CookiePair]
+```
+
+Every pair in the request's `Cookie` header, in the order the client sent them. A malformed pair (no `=`)
+is skipped rather than failing the lot: a browser can be made to send almost anything, and one bad pair
+should not cost a request its session. Values are returned exactly as sent -- a server that
+percent-encoded them is the one that knows to decode them (`url.percent_decode`).
+
+### `request_cookie`
+
+```
+pub fn request_cookie(req: Request, name: string) -> Option<string>
+```
+
+The value of the cookie called `name`, or None. The first wins when a client sends the name twice, which
+it may (different paths or domains produce duplicates and the header does not say which is which).
+
+### `SetCookie`
+
+```
+pub struct SetCookie {
+    name: string
+    value: string
+    path: string
+    domain: string
+    max_age_seconds: int
+    secure: bool
+    http_only: bool
+    same_site: string
+}
+```
+
+What to put in a `Set-Cookie` header. `max_age_seconds` of -1 leaves the attribute off, which makes a
+session cookie; 0 is a valid value and tells the browser to drop it now. `same_site` is written as given
+("Lax", "Strict", "None") and left off when blank -- `None` requires `secure`, which this does not check,
+since a browser enforcing it is the point of saying it.
+
+### `session_cookie`
+
+```
+pub fn session_cookie(name: string, value: string) -> SetCookie
+```
+
+A `SetCookie` with the defaults a session cookie wants: path `/`, no domain, no Max-Age, `HttpOnly` and
+`Secure` on, `SameSite=Lax`. Override what differs with `with`.
+
+### `set_cookie_header`
+
+```
+pub fn set_cookie_header(c: SetCookie) -> Header
+```
+
+`c` as a `Set-Cookie` header, ready to add to a response's headers.
+
+### `delete_cookie_header`
+
+```
+pub fn delete_cookie_header(name: string, path: string, domain: string) -> Header
+```
+
+The header that deletes `name`: the same path and domain it was set with, an empty value and `Max-Age=0`.
+A browser only drops a cookie when the path and domain match, which is the part that is easy to forget.
+
 ### `content_type`
 
 ```

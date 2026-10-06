@@ -1,0 +1,63 @@
+// CORS, generalised from the reference backend's own `route_cors`: every browser-facing server writes the
+// same thirty lines. Two functions rather than one handler-wrapping closure, so it composes with `dispatch`,
+// a hand-written router or anything else by sitting either side of it, and allocates nothing per request.
+use http
+use server
+fn fault(status: int, message: string) -> http.Response {
+    return server.response(status, string_to_bytes(message))
+}
+fn req_of(method: http.HttpMethod, headers: [http.Header]) -> http.Request {
+    return http.Request {
+        method: method,
+        target: "/x",
+        path: "/x",
+        query: "",
+        version: "HTTP/1.1",
+        headers: headers,
+        body: []
+    }
+}
+fn show(label: string, r: http.Response) {
+    val out = ab_new<string>()
+    for h in r.headers { ab_append(out, concat(h.name, "=", h.value)) }
+    printf("{}: {} [{}]\n", label, r.status, join(separator: ", ", pieces: ab_to_array(out)))
+}
+fn main() {
+    val policy = server.cors_policy(["https://app.example"])
+    val inner = server.response(200, string_to_bytes("hi"))
+
+    // a preflight from an allowed origin
+    val pre = req_of(http.HttpMethod.Options, [
+        http.Header { name: "Origin", value: "https://app.example" },
+        http.Header { name: "Access-Control-Request-Method", value: "POST" }
+    ])
+    switch server.cors_preflight(policy, pre, fault) {
+        Some(r) { show("preflight allowed", r) }
+        None { print("preflight allowed: not a preflight") }
+    }
+
+    // a preflight from somewhere else
+    val bad = req_of(http.HttpMethod.Options, [
+        http.Header { name: "Origin", value: "https://evil.example" },
+        http.Header { name: "Access-Control-Request-Method", value: "POST" }
+    ])
+    switch server.cors_preflight(policy, bad, fault) {
+        Some(r) { show("preflight denied", r) }
+        None { print("preflight denied: not a preflight") }
+    }
+
+    // an ordinary request is not a preflight
+    val plain = req_of(http.HttpMethod.Get, [http.Header { name: "Origin", value: "https://app.example" }])
+    printf("plain is preflight: {}\n", Option.is_Some(server.cors_preflight(policy, plain, fault)))
+    show("allowed origin", server.cors_apply(policy, plain, inner))
+
+    val other = req_of(http.HttpMethod.Get, [http.Header { name: "Origin", value: "https://evil.example" }])
+    show("other origin", server.cors_apply(policy, other, inner))
+
+    val none = req_of(http.HttpMethod.Get, [])
+    show("no origin", server.cors_apply(policy, none, inner))
+
+    // a wildcard policy echoes `*` and drops credentials
+    val open_policy = server.cors_policy(["*"])
+    show("wildcard", server.cors_apply(open_policy, other, inner))
+}

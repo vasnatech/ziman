@@ -607,6 +607,55 @@ Compiles `endpoints` for `dispatch`. Do it once, at start-up (a module-level `va
 is what `dispatch` tries them in: the first endpoint that matches wins, so a `/items/{id}` listed before
 `/items/new` answers for `/items/new`.
 
+## CORS
+
+### `CorsPolicy`
+
+```
+pub struct CorsPolicy {
+    allowed_origins: [string]
+    allowed_methods: string
+    allowed_headers: string
+    max_age_seconds: int
+    allow_credentials: bool
+}
+```
+
+Which origins may see an answer, and what a preflight is told the browser may then send. `allowed_origins`
+is matched exactly; a single `"*"` allows any origin, which is only sound without credentials (a browser
+rejects `*` together with `Access-Control-Allow-Credentials`, so `allow_credentials` is ignored then).
+
+### `cors_policy`
+
+```
+pub fn cors_policy(origins: [string]) -> CorsPolicy
+```
+
+A policy for `origins` with the defaults a JSON API wants: the usual methods, `Authorization` and
+`Content-Type` when the browser does not say which headers it needs, a one-hour preflight cache, and
+credentials allowed. Override what differs with `with`.
+
+### `cors_preflight`
+
+```
+pub fn cors_preflight(policy: CorsPolicy, req: Request, fault: fn(int, string) -> Response) -> Option<Response>
+```
+
+The answer to a browser's preflight (`OPTIONS` carrying `Access-Control-Request-Method`), or None when
+`req` is not one and should be routed normally. A preflight from an origin not on the list is
+`fault(403, ...)` rather than a bare rejection, so it looks like every other refusal this server makes.
+
+### `cors_apply`
+
+```
+pub fn cors_apply(policy: CorsPolicy, req: Request, answer: Response) -> Response
+```
+
+`answer` with the CORS headers a browser needs to hand it to the page, when the request carried an `Origin`
+on the list. Without an `Origin`, or from an origin not on it, `answer` is returned untouched -- which is
+what makes the browser withhold it, and is the whole mechanism: a server does not refuse the request, it
+declines to say the answer may be read.
+
 ### `dispatch`
 
 ```

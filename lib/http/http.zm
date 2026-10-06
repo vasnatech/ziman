@@ -136,6 +136,120 @@ pub fn header_value(headers: [Header], name: string) -> Option<string> {
     return None
 }
 
+// ---------------------------------------------------------------- cookies
+//
+// A server's two halves of the cookie story, which it had neither of: reading the `Cookie` header a browser
+// sends, and building the `Set-Cookie` header it is told to store. The client's `CookieJar` is the other
+// side of the same wire and stays where it is -- it models what a *user agent* keeps between requests, which
+// a server has no use for.
+
+// One `name=value` pair from a request's `Cookie` header.
+pub struct CookiePair {
+    name: string
+    value: string
+}
+
+// Every pair in the request's `Cookie` header, in the order the client sent them. A malformed pair (no `=`)
+// is skipped rather than failing the lot: a browser can be made to send almost anything, and one bad pair
+// should not cost a request its session. Values are returned exactly as sent -- a server that
+// percent-encoded them is the one that knows to decode them (`url.percent_decode`).
+pub fn request_cookies(req: Request) -> [CookiePair] {
+    val out = ab_new<CookiePair>()
+    if Some(raw) = header(req, "Cookie") {
+        for piece in split(raw, ";") {
+            val pair = trim(piece)
+            if Some(parts) = split_once(pair, "=") {
+                val name = trim(parts[0])
+                if name != "" {
+                    ab_append(out, CookiePair { name: name, value: trim(parts[1]) })
+                }
+            }
+        }
+    }
+    return ab_to_array(out)
+}
+
+// The value of the cookie called `name`, or None. The first wins when a client sends the name twice, which
+// it may (different paths or domains produce duplicates and the header does not say which is which).
+pub fn request_cookie(req: Request, name: string) -> Option<string> {
+    for pair in request_cookies(req) {
+        if pair.name == name {
+            return Some(pair.value)
+        }
+    }
+    return None
+}
+
+// What to put in a `Set-Cookie` header. `max_age_seconds` of -1 leaves the attribute off, which makes a
+// session cookie; 0 is a valid value and tells the browser to drop it now. `same_site` is written as given
+// ("Lax", "Strict", "None") and left off when blank -- `None` requires `secure`, which this does not check,
+// since a browser enforcing it is the point of saying it.
+pub struct SetCookie {
+    name: string
+    value: string
+    path: string
+    domain: string
+    max_age_seconds: int
+    secure: bool
+    http_only: bool
+    same_site: string
+}
+
+// A `SetCookie` with the defaults a session cookie wants: path `/`, no domain, no Max-Age, `HttpOnly` and
+// `Secure` on, `SameSite=Lax`. Override what differs with `with`.
+pub fn session_cookie(name: string, value: string) -> SetCookie {
+    return SetCookie {
+        name: name,
+        value: value,
+        path: "/",
+        domain: "",
+        max_age_seconds: -1,
+        secure: true,
+        http_only: true,
+        same_site: "Lax"
+    }
+}
+
+// `c` as a `Set-Cookie` header, ready to add to a response's headers.
+pub fn set_cookie_header(c: SetCookie) -> Header {
+    val out = sb_new()
+    sb_append(out, c.name, "=", c.value)
+    if c.path != "" {
+        sb_append(out, "; Path=", c.path)
+    }
+    if c.domain != "" {
+        sb_append(out, "; Domain=", c.domain)
+    }
+    if c.max_age_seconds >= 0 {
+        sb_append(out, "; Max-Age=", str(c.max_age_seconds))
+    }
+    if c.same_site != "" {
+        sb_append(out, "; SameSite=", c.same_site)
+    }
+    if c.secure {
+        sb_append(out, "; Secure")
+    }
+    if c.http_only {
+        sb_append(out, "; HttpOnly")
+    }
+    return Header { name: "Set-Cookie", value: sb_to_string(out) }
+}
+
+// The header that deletes `name`: the same path and domain it was set with, an empty value and `Max-Age=0`.
+// A browser only drops a cookie when the path and domain match, which is the part that is easy to forget.
+pub fn delete_cookie_header(name: string, path: string, domain: string) -> Header {
+    return set_cookie_header(SetCookie {
+        name: name,
+        value: "",
+        path: path,
+        domain: domain,
+        max_age_seconds: 0,
+        secure: true,
+        http_only: true,
+        same_site: "Lax"
+    })
+}
+
 // The `Content-Type` in `headers` as a media type, or None when there is none or it is not a valid media type.
 pub fn content_type(headers: [Header]) -> Option<mime.MediaType> {
     return switch header_value(headers, "Content-Type") {

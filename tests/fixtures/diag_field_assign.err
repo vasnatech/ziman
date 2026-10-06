@@ -1,1 +1,1 @@
-a struct is a value -- write 'p = p with { field: value }'
+a struct is a value -- write 'p = with p { field: value }'
