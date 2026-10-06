@@ -811,3 +811,22 @@ native fn guard_new<T>(ch: Channel<T>, message: T) -> Guard
 ```
 
 A guard that sends `message` on `ch` when it is collected.
+
+### `result_to_option`
+
+```
+pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T>
+```
+
+`r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
+caller truly doesn't care why something failed, not as a shortcut past handling it.
+
+### `option_to_result`
+
+```
+pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E>
+```
+
+The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
+Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
+formatted message) is skipped entirely on the common Some path.

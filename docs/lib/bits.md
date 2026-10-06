@@ -23,6 +23,8 @@ is a logical shift (no sign to preserve), so floor vs. truncate doesn't apply to
 pub native fn byte_and(a: byte, b: byte) -> byte
 ```
 
+Bitwise AND, OR, XOR and complement of bytes.
+
 ### `byte_or`
 
 ```
@@ -61,11 +63,15 @@ pub native fn byte_shift_right(a: byte, n: int) -> byte
 pub native fn byte_popcount(a: byte) -> int
 ```
 
+The number of 1 bits in `a`.
+
 ### `int_and`
 
 ```
 pub native fn int_and(a: int, b: int) -> int
 ```
+
+Bitwise AND, OR, XOR and complement of ints (two's complement, 64-bit).
 
 ### `int_or`
 
@@ -105,6 +111,9 @@ pub native fn int_shift_right(a: int, n: int) -> int
 ```
 pub native fn bigint_and(a: bigint, b: bigint) -> bigint
 ```
+
+Bitwise AND, OR, XOR and complement of bigints, against infinite two's complement (see the
+file comment above).
 
 ### `bigint_or`
 
@@ -146,6 +155,10 @@ pub native fn bigint_shift_right(a: bigint, n: int) -> bigint
 pub native fn int_popcount(a: int) -> int
 ```
 
+The number of 1 bits in `a`'s 64-bit two's-complement representation (a negative `a` is fine
+here, unlike `bigint_popcount` below -- a fixed width has no infinitely-many leading 1-bits
+to worry about).
+
 ### `bigint_popcount`
 
 ```
@@ -178,11 +191,15 @@ pub struct BitSet {
 pub fn bitset_new() -> BitSet
 ```
 
+The empty set.
+
 ### `bitset_of_int`
 
 ```
 pub fn bitset_of_int(x: int) -> BitSet
 ```
+
+The set whose membership is `x`'s bit pattern (bit `i` set means `i` is a member).
 
 ### `bitset_to_int`
 
@@ -190,11 +207,15 @@ pub fn bitset_of_int(x: int) -> BitSet
 pub fn bitset_to_int(bs: BitSet) -> int
 ```
 
+`bs`'s membership as a raw bit pattern.
+
 ### `bitset_set`
 
 ```
 pub fn bitset_set(bs: BitSet, i: int) -> BitSet
 ```
+
+`bs` with `i` added.
 
 ### `bitset_clear`
 
@@ -202,11 +223,15 @@ pub fn bitset_set(bs: BitSet, i: int) -> BitSet
 pub fn bitset_clear(bs: BitSet, i: int) -> BitSet
 ```
 
+`bs` with `i` removed.
+
 ### `bitset_flip`
 
 ```
 pub fn bitset_flip(bs: BitSet, i: int) -> BitSet
 ```
+
+`bs` with `i`'s membership toggled.
 
 ### `bitset_get`
 
@@ -214,11 +239,15 @@ pub fn bitset_flip(bs: BitSet, i: int) -> BitSet
 pub fn bitset_get(bs: BitSet, i: int) -> bool
 ```
 
+Whether `i` is a member of `bs`.
+
 ### `bitset_and`
 
 ```
 pub fn bitset_and(a: BitSet, b: BitSet) -> BitSet
 ```
+
+The intersection of `a` and `b`.
 
 ### `bitset_or`
 
@@ -226,11 +255,15 @@ pub fn bitset_and(a: BitSet, b: BitSet) -> BitSet
 pub fn bitset_or(a: BitSet, b: BitSet) -> BitSet
 ```
 
+The union of `a` and `b`.
+
 ### `bitset_xor`
 
 ```
 pub fn bitset_xor(a: BitSet, b: BitSet) -> BitSet
 ```
+
+The symmetric difference of `a` and `b` (members of exactly one).
 
 ### `bitset_and_not`
 
@@ -246,11 +279,15 @@ pub fn bitset_and_not(a: BitSet, b: BitSet) -> BitSet
 pub fn bitset_is_empty(bs: BitSet) -> bool
 ```
 
+Whether `bs` has no members.
+
 ### `bitset_cardinality`
 
 ```
 pub fn bitset_cardinality(bs: BitSet) -> int
 ```
+
+The number of members of `bs`.
 
 ### `bitset_length`
 
@@ -284,11 +321,15 @@ pub struct BigBitSet {
 pub fn big_bitset_new() -> BigBitSet
 ```
 
+The empty set.
+
 ### `big_bitset_of_bigint`
 
 ```
 pub fn big_bitset_of_bigint(x: bigint) -> BigBitSet
 ```
+
+The set whose membership is `x`'s bit pattern (bit `i` set means `i` is a member).
 
 ### `big_bitset_to_bigint`
 
@@ -296,11 +337,15 @@ pub fn big_bitset_of_bigint(x: bigint) -> BigBitSet
 pub fn big_bitset_to_bigint(bs: BigBitSet) -> bigint
 ```
 
+`bs`'s membership as a raw bit pattern.
+
 ### `big_bitset_set`
 
 ```
 pub fn big_bitset_set(bs: BigBitSet, i: int) -> BigBitSet
 ```
+
+`bs` with `i` added.
 
 ### `big_bitset_clear`
 
@@ -308,11 +353,15 @@ pub fn big_bitset_set(bs: BigBitSet, i: int) -> BigBitSet
 pub fn big_bitset_clear(bs: BigBitSet, i: int) -> BigBitSet
 ```
 
+`bs` with `i` removed.
+
 ### `big_bitset_flip`
 
 ```
 pub fn big_bitset_flip(bs: BigBitSet, i: int) -> BigBitSet
 ```
+
+`bs` with `i`'s membership toggled.
 
 ### `big_bitset_get`
 
@@ -320,11 +369,15 @@ pub fn big_bitset_flip(bs: BigBitSet, i: int) -> BigBitSet
 pub fn big_bitset_get(bs: BigBitSet, i: int) -> bool
 ```
 
+Whether `i` is a member of `bs`.
+
 ### `big_bitset_and`
 
 ```
 pub fn big_bitset_and(a: BigBitSet, b: BigBitSet) -> BigBitSet
 ```
+
+The intersection of `a` and `b`.
 
 ### `big_bitset_or`
 
@@ -332,11 +385,15 @@ pub fn big_bitset_and(a: BigBitSet, b: BigBitSet) -> BigBitSet
 pub fn big_bitset_or(a: BigBitSet, b: BigBitSet) -> BigBitSet
 ```
 
+The union of `a` and `b`.
+
 ### `big_bitset_xor`
 
 ```
 pub fn big_bitset_xor(a: BigBitSet, b: BigBitSet) -> BigBitSet
 ```
+
+The symmetric difference of `a` and `b` (members of exactly one).
 
 ### `big_bitset_and_not`
 
@@ -344,17 +401,23 @@ pub fn big_bitset_xor(a: BigBitSet, b: BigBitSet) -> BigBitSet
 pub fn big_bitset_and_not(a: BigBitSet, b: BigBitSet) -> BigBitSet
 ```
 
+`a` with every member of `b` removed.
+
 ### `big_bitset_is_empty`
 
 ```
 pub fn big_bitset_is_empty(bs: BigBitSet) -> bool
 ```
 
+Whether `bs` has no members.
+
 ### `big_bitset_cardinality`
 
 ```
 pub fn big_bitset_cardinality(bs: BigBitSet) -> int
 ```
+
+The number of members of `bs`.
 
 ### `big_bitset_length`
 

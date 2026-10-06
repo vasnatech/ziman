@@ -126,6 +126,8 @@ pub struct ThreadLocal<T> {
 pub fn local<T>(init: fn() -> T) -> ThreadLocal<T>
 ```
 
+A fresh key for a thread-local slot, with `init` as the function that makes a thread's first value.
+
 ### `get`
 
 ```
