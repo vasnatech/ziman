@@ -680,6 +680,51 @@ from source.
 
 ## Larger, needs its own design pass
 
+- **An interactive debugger: breakpoints, stepping, variable inspection.** Split out of F6 on
+  2026-10-05 when the rest of that task closed (see docs/reviews/tasks.md), because it is the one
+  part of it that is a project rather than a feature and should not sit behind a checkbox that looks
+  almost finished.
+
+  What already exists, and is why this is not urgent: a runtime error prints a stack trace with
+  every frame's file, line and column; `--locals` adds each frame's variables and their values under
+  it, innermost scope outwards; `--profile` says where the time went; `--coverage` says what never
+  ran. Between them they answer "where did it fail", "with what values", "what is slow" and "what is
+  untested" without an interactive session, which is most of what a debugger gets used for -- and
+  they answer it in a CI run or someone else's bug report, where nothing can attach.
+
+  What stepping would add that those cannot: watching state change *as* it changes, rather than
+  seeing it once at the point of failure. That is the real gap, and it matters most for a bug whose
+  failure point is far from its cause.
+
+  Two shapes, and the choice is the design pass:
+  - A **DAP server** (Debug Adapter Protocol), so VS Code and every other DAP client drives it. The
+    LSP in src/lsp.c is the precedent for both the protocol plumbing and the scale -- this is that
+    size of job, not smaller.
+  - A **terminal REPL** over the interpreter loop: `break file:line`, `step`, `next`, `print x`.
+    Much less protocol, no editor integration, and it needs the same core underneath either way.
+
+  The core underneath is the same for both and is the actual work: a breakpoint check on the
+  statement path (`exec_stmt` already carries every statement's line, and `--coverage` showed what a
+  flag-guarded test there costs, which is nothing measurable), a way to suspend the interpreting
+  thread and resume it, and enough of `--locals`' scope walk to answer an inspection request for an
+  arbitrary frame rather than only the dying one. Deferred, not rejected: the evidence so far points
+  elsewhere, since the LLM benchmark's own finding was that diagnostics -- not step-debugging --
+  were what let a model correct itself.
+
+- **Grow the LLM-generation benchmark from 10 tasks to the 50 the review asked for.** Also split out
+  of F6 on 2026-10-05 rather than closed with it, because 10 tasks is a fifth of the asked-for scope
+  and calling that done would misrepresent it. `tests/bench/llm_tasks/` holds the fixed 10-task set
+  and docs/reviews/llm-benchmark-2026-09-28.md the method -- each task run cold with zero Ziman
+  context, then iterated against the compiler alone for up to five fix attempts, two independent
+  fresh model instances per task.
+
+  Worth growing because this is the one measurement here with a track record of changing the
+  language: its finding -- that diagnostics naming an exact fix let a model self-correct every time,
+  while a bare "undefined function" did not -- produced the "did you mean" suggestions, and the
+  re-validation caught a real bug in them (fuzzy search offering `hash` for `has`). A 10-task set
+  cannot separate a real effect from which error a given run happened to look at first, which is
+  exactly what the third task's inconclusive result came down to.
+
 - **Memory is never reclaimed while a program runs (in the default build)
   — fine for a short-lived script, a real problem for the North Star goal
   of an always-on backend.** *Update 2026-09-23: `make gc` builds
