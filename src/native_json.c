@@ -551,13 +551,34 @@ static void put_json_string(Out *o, const char *s, size_t n) {
     out_put(o, "\"", 1);
 }
 
-/* The shortest text that reads back as the same double. */
+/* The shortest text that reads back as the same double, always looking like a float.
+ *
+ * `%g` drops the fraction from a whole number, so 1.0 was written `1`, 100.0 `100` and -0.0 `-0`. JSON
+ * does not distinguish integers from floats, but every reader built on it does: Jackson and Python's
+ * `json` both answer `1.0` here, and a client parsing `1` gets an integer where the API promised a
+ * number with a fraction. It also meant a text round trip through this module lost the distinction --
+ * `Number.Float(1.0)` serialised to `1` and parsed back as `Number.Int(1)`.
+ *
+ * The same ".0 if it does not already look like one" rule value_display applies (value.c's TY_FLOAT
+ * case), by the same `strpbrk` test, so `print` and JSON now agree on which values are floats. They
+ * still differ on *notation* for large and small magnitudes -- `print(1e20)` is
+ * 100000000000000000000.0 where this writes 1e+20 -- because float_shortest_text deliberately uses
+ * plain notation up to 1e21 while JSON follows the shortest round-tripping form that Jackson and
+ * Python also produce. That one is print being the outlier, not this. */
 static void put_float(Out *o, double d) {
     if (d != d || isinf(d)) { out_str(o, "null"); return; } /* JSON has no NaN or Infinity */
-    char buf[40];
+    char buf[48];
     for (int prec = 15; prec <= 17; prec++) {
         snprintf(buf, sizeof buf, "%.*g", prec, d);
         if (strtod(buf, NULL) == d) break;
+    }
+    if (strpbrk(buf, ".e") == NULL) {
+        size_t len = strlen(buf);
+        if (len + 2 < sizeof buf) {
+            buf[len] = '.';
+            buf[len + 1] = '0';
+            buf[len + 2] = '\0';
+        }
     }
     out_str(o, buf);
 }

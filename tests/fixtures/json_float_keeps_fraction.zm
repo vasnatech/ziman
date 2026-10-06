@@ -1,0 +1,55 @@
+// `%g` drops the fraction from a whole number, so a float 1.0 was written as `1`. JSON does not separate
+// integers from floats, but every reader built on it does: Jackson and Python's `json` both write `1.0`,
+// and a client parsing `1` gets an integer where the API promised a number with a fraction. It also made a
+// text round trip through this module lossy -- Number.Float(1.0) serialised to `1` and parsed back as
+// Number.Int(1). The JSON writer now applies the same "add .0 if it does not already look like a float"
+// rule `print` has always applied, so the two agree about which values are floats.
+//
+// Notation still differs for large and small magnitudes (`print(1e20)` is 100000000000000000000.0 where
+// JSON writes 1e+20). That is deliberate: float_shortest_text uses plain notation up to 1e21, while JSON
+// follows the shortest round-tripping form Jackson and Python also produce.
+use json
+
+fn kind(j: json.Json) -> string {
+    if JNumber(n) = j {
+        return switch n {
+            Int(i) { "Int" }
+            Float(f) { "Float" }
+            Bigint(b) { "Bigint" }
+            Decimal(d) { "Decimal" }
+        }
+    }
+    return "not a number"
+}
+
+fn show(f: float) {
+    printf("print={} json={}\n", f, json.json_to_string(json.float_to_json(f)))
+}
+
+fn main() {
+    show(1.0)
+    show(10.0)
+    show(100.0)
+    show(-0.0)
+    show(0.1)
+    show(1.5)
+    show(1e20)
+    show(1.5e-7)
+
+    // an int, a bigint and a decimal are untouched: only Float gained the fraction
+    print(json.json_to_string(json.int_to_json(7)))
+    print(json.json_to_string(json.bigint_to_json(99999999999999999999n)))
+    print(json.json_to_string(json.decimal_to_json(19.90d)))
+
+    // and the round trip keeps the kind it started with
+    val ftext = json.json_to_string(json.float_to_json(1.0))
+    switch json.parse_json(ftext) {
+        Ok(back) { printf("1.0 -> {} -> {}\n", ftext, kind(back)) }
+        Err(e) { printf("Err {}\n", e) }
+    }
+    val itext = json.json_to_string(json.int_to_json(1))
+    switch json.parse_json(itext) {
+        Ok(back) { printf("1 -> {} -> {}\n", itext, kind(back)) }
+        Err(e) { printf("Err {}\n", e) }
+    }
+}

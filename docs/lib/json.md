@@ -194,7 +194,11 @@ pub fn json_to_string(j: Json) -> string
 ```
 
 `j` as compact JSON text (no spaces), objects in key insertion order. A float is written
-with the fewest digits that read back as the same number (`0.1`, `1e+20`); NaN and infinity,
+with the fewest digits that read back as the same number (`0.1`, `1e+20`) and always with a fraction or
+an exponent, so a whole one stays recognisably a float (`1.0`, not `1`) -- JSON itself does not separate
+integers from floats, but every reader built on it does, and `1` would arrive as an integer where the
+value is a number with a fraction. It also keeps a text round trip through this module lossless:
+`Number.Float(1.0)` comes back as a `Float`, not an `Int`. NaN and infinity,
 which JSON cannot represent, are written as `null`. A bigint is written as its digits and a
 decimal as its digits at its own scale (`19.90`). Control characters in strings are
 escaped (`\b \f \n \r \t`, else `\u00XX`); valid non-ASCII is written as is. A byte sequence that

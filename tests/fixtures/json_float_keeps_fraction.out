@@ -1,0 +1,13 @@
+print=1.0 json=1.0
+print=10.0 json=10.0
+print=100.0 json=100.0
+print=-0.0 json=-0.0
+print=0.1 json=0.1
+print=1.5 json=1.5
+print=100000000000000000000.0 json=1e+20
+print=0.00000015 json=1.5e-07
+7
+99999999999999999999
+19.90
+1.0 -> 1.0 -> Float
+1 -> 1 -> Int

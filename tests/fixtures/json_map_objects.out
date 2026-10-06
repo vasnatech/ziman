@@ -4,7 +4,7 @@ Some(JNumber(Int(3)))
 None
 duplicate key 'k' at position 9
 true
-[9007199254740993,-5,1.5,200,99999999999999999999]
+[9007199254740993,-5,1.5,200.0,99999999999999999999]
 true
 true
 true

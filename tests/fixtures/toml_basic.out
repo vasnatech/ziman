@@ -1,7 +1,7 @@
 {
   "title": "Tést",
   "port": 8080,
-  "ratio": 150,
+  "ratio": 150.0,
   "on": true,
   "hex": 255,
   "when": "1979-05-27T07:32:00Z",
