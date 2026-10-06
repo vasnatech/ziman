@@ -764,9 +764,20 @@ static void split_qualified(const char *dotted, char **qualifier_out, char **res
 /* `p.to_string()` parses as a call into a module named `p`. The most common
  * reason there is no such module is that `p` is a value and the author
  * reached for a method, which Ziman doesn't have -- so say that first, with
- * the function-call form that does work. */
+ * the function-call form that does work.
+ *
+ * There are two such forms, not one, and the message used to name only the first. If `p` is a value and
+ * `member` is a free function, `member(p, ...)` is right. But if `member` is a *field* of `p` holding a
+ * function value, no such free function exists and `member(p, ...)` is advice that cannot work -- the
+ * form is to bind the field and call that. This runs before type checking, so it cannot tell which case
+ * it is in (it does not know what `p` is, or whether it has fields at all), and guessing wrong is how the
+ * old message came to recommend `run(o, ...)` for a `run` that was only ever a field: the reference
+ * backend carries a four-line comment in service/crud.zm explaining the workaround, used twelve times in
+ * that file alone, and lib/http/server.zm does the same for Endpoint/Decoder/Encoder. So the message now
+ * names both forms and leaves the choice to the reader, who can see which it is. Letting `p.member(...)`
+ * work directly is tracked as C15. */
 static void report_unknown_module_call(const char *qualifier, const char *member, int line, int col) {
-    char hint[160];
+    char hint[320]; /* both forms, with the names spelled out twice; 160 truncated for ordinary identifiers */
     if (strcmp(member, "to_string") == 0 || strcmp(member, "toString") == 0 || strcmp(member, "to_str") == 0) {
         snprintf(hint, sizeof hint, "str(%s)", qualifier);
     } else if (strcmp(member, "len") == 0 || strcmp(member, "length") == 0 || strcmp(member, "size") == 0) {
@@ -774,7 +785,10 @@ static void report_unknown_module_call(const char *qualifier, const char *member
     } else if (strcmp(member, "push") == 0 || strcmp(member, "append") == 0) {
         snprintf(hint, sizeof hint, "%s = push(%s, item)", qualifier, qualifier);
     } else {
-        snprintf(hint, sizeof hint, "%s(%s, ...)", member, qualifier);
+        /* Both working forms, because which one applies depends on something this pass cannot see --
+         * whether `member` is a free function or a field of `qualifier` holding a function value. */
+        snprintf(hint, sizeof hint, "%s(%s, ...) -- or, if '%s' is a field holding a function, 'val %s = %s.%s' then '%s(...)'",
+                 member, qualifier, member, member, qualifier, member, member);
     }
     ziman_error("module", line, col,
                 "'%s.%s(...)': '%s' is not an imported module, and Ziman has no methods -- if '%s' is a value, call a function on it instead, e.g. %s "

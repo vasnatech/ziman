@@ -1,0 +1,15 @@
+// `h.run(21)` parses as a call into a module named `h`, which does not exist. The diagnostic for that
+// used to offer one repair, `run(h, ...)` -- correct when `run` is a free function taking `h`, and
+// impossible when `run` is a *field* of `h` holding a function value, which is this case. The repair
+// that works is to bind the field and call it. The message names both now, because this runs before type
+// checking and so cannot tell which case it is looking at; the reader can. Letting the call work
+// directly is C15.
+struct Handler {
+    name: string
+    run: fn(int) -> int
+}
+
+fn main() {
+    val h = Handler { name: "double", run: fn(n: int) -> int { return n * 2 } }
+    print(h.run(21))
+}
