@@ -89,6 +89,9 @@ void ziman_set_frame_env(void *env);
  * ziman_push_frame's own append order -- though a root walk needs every frame regardless of order),
  * or NULL for a native call's frame or one nothing has set it for yet. */
 int ziman_frame_count(void);
+/* The innermost Ziman function name on this thread, NULL when none -- signal-handler safe, see
+ * error.c. Used by --profile's sampler (src/profile.c). */
+const char *ziman_frame_top_name(void);
 void *ziman_frame_env_at(int i);
 
 /* The current thread's call chain as text, innermost first, one indented "at f

@@ -6,6 +6,7 @@
 #include "arena.h"
 #include "gc_mark.h"
 #include "gc_scan.h"
+#include "profile.h"
 
 /* Only for GC_MALLOC_UNCOLLECTABLE/GC_FREE (gc_heap_create/gc_heap_destroy) -- see gc_heap_create's
  * own comment on why the GcHeap struct itself needs this. A `make`/`make gc` build already
@@ -140,9 +141,19 @@ size_t gc_heap_collect(GcHeap *h, void (*extra_roots)(const Arena *a, void *ctx)
      * the whole cycle (not just the scan) is the same graceful-degradation choice
      * ziman_stack_slow itself makes for the recursion guard: an unmeasurable thread gets no limit,
      * not a wrong one; here, it gets no collection this cycle, not a wrong one. */
-    if (!gc_scan_stack_roots(h->arena, mark_visit, h->arena)) return 0;
+    /* Bracketed here rather than at maybe_collect, the interpreter's call site, so --profile reports
+     * this as collection time without putting anything on a path that runs per statement: that call
+     * site returns early almost every time, and adding calls to it was part of a measured 9%
+     * regression on call-heavy code. Here the cost is two increments per actual collection. */
+    ziman_profile_gc_enter();
+    if (!gc_scan_stack_roots(h->arena, mark_visit, h->arena)) {
+        ziman_profile_gc_leave();
+        return 0;
+    }
     if (extra_roots != NULL) extra_roots(h->arena, ctx);
-    return gc_heap_sweep(h);
+    size_t reclaimed = gc_heap_sweep(h);
+    ziman_profile_gc_leave();
+    return reclaimed;
 }
 
 size_t gc_heap_sweep(GcHeap *h) {

@@ -186,8 +186,14 @@ static void frames_grow(int capacity) {
         memcpy(fresh, t_frames, sizeof(ZimanFrame) * (size_t)t_frame_count);
         GC_FREE(t_frames);
     }
+    memset(fresh + t_frame_count, 0, sizeof(ZimanFrame) * (size_t)(capacity - t_frame_count));
 #else
     ZimanFrame *fresh = realloc(t_frames, sizeof(ZimanFrame) * (size_t)capacity);
+    /* Every slot not yet in use is zeroed, which is what lets ziman_push_frame stay a single
+     * unordered store and still be safe to sample from a signal handler -- see there. realloc does
+     * not zero what it adds, and GC_MALLOC_UNCOLLECTABLE's own zeroing does not cover the copy
+     * above, so both paths do it explicitly. */
+    memset(fresh + t_frame_count, 0, sizeof(ZimanFrame) * (size_t)(capacity - t_frame_count));
 #endif
     t_frames = fresh;
     t_frame_capacity = capacity;
@@ -195,7 +201,35 @@ static void frames_grow(int capacity) {
 
 void ziman_push_frame(const char *name, const char *file, int call_line, int call_col) {
     if (t_frame_count == t_frame_capacity) frames_grow(t_frame_capacity == 0 ? 64 : t_frame_capacity * 2);
+    /* Deliberately left as one unordered store-and-increment, with no barrier. --profile's SIGPROF
+     * handler reads the top frame on this very thread and so can land in the middle of this line,
+     * which looks like it needs the fields published before the count. Ordering it that way was
+     * tried and cost 9.5% on call-heavy code (12 paired rounds, fib(30), CI +7.6%..+11.3%): a
+     * signal fence is a full compiler barrier, and putting one here stops the compiler keeping this
+     * thread-local in a register across the call path that every Ziman call goes through. Paying
+     * that on every program to serve the rare profiled one is the wrong trade.
+     *
+     * What makes the barrier unnecessary is frames_grow zeroing every slot it has not handed out
+     * yet. The handler therefore reads one of exactly three things, never a torn pointer: the name
+     * just stored, NULL (reported as time outside Ziman code), or the name a previous call left at
+     * this depth, which is a valid string and at worst attributes one sample of a thousand per
+     * second to a function that really did run there moments ago. Safety comes from the array's own
+     * invariant rather than from ordering, which is why the hot path can stay as it was. */
     t_frames[t_frame_count++] = (ZimanFrame){name, file, call_line, call_col, NULL};
+}
+
+/* The innermost Ziman function running on the calling thread, or NULL when none is (startup, or a
+ * thread that has not entered interpreted code). Safe to call from a signal handler: it reads two
+ * thread-locals and returns a `const char *` the parser owns for the life of the process, taking no
+ * lock and allocating nothing. The count is read once into a local so the bounds check and the
+ * index cannot disagree if a push or pop runs in between, and the fence is on this side only --
+ * free here, where it runs a thousand times a second, and not on the push path, where it was
+ * measured at 9.5%. See ziman_push_frame for why a slot can never hold a torn pointer. */
+const char *ziman_frame_top_name(void) {
+    int n = t_frame_count;
+    __atomic_signal_fence(__ATOMIC_SEQ_CST);
+    if (n <= 0) return NULL;
+    return t_frames[n - 1].name;
 }
 
 void ziman_pop_frame(void) {

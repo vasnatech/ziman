@@ -1,0 +1,14 @@
+// --profile writes its report to stderr, so a profiled program's own stdout is byte-for-byte what
+// it would be without the flag. That is what this fixture pins: the sample counts in a report are
+// not reproducible between runs and cannot be asserted, but their absence from stdout can be, and
+// a crash in the sampler would show up here too.
+fn busy(n: int) -> int {
+    var t = 0
+    for i in 0..n { t = t + i }
+    return t
+}
+
+fn main() {
+    print(busy(200000))
+    print("done")
+}

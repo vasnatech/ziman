@@ -146,7 +146,14 @@ list), exiting 1 if any did not -- an executable line is one some statement star
 blank line and a block's opening brace are never counted against you, and bundled modules and
 `#[derive]`-generated code are left out the same way `--lint` leaves them out; `ziman test
 --coverage file.zm ...` does the same across a whole suite, merging files parsed once per test file
-so a shared helper counts as covered if any test reached it; `--fmt file.zm...` prints the source formatted
+so a shared helper counts as covered if any test reached it; `--profile` runs the program and then reports to stderr which functions the time went to, hottest
+first (`self%  samples  function`) -- CPU-time sampling at 1kHz off the frame stack the interpreter
+already keeps for error traces, so it costs nothing measurable and needs no instrumentation. The
+figure is *self* time, the function's own statements rather than its callees, which is the one that
+answers "what do I make faster"; core-library and native functions appear too, so a program whose
+time really goes into `mapb_set` is told so. Time spent collecting garbage gets its own row instead
+of being blamed on whichever function happened to allocate, and the report goes to stderr so the
+program's own stdout is unchanged; `--fmt file.zm...` prints the source formatted
 (`--fmt --write` rewrites the files, `--fmt --check` lists the ones that would
 change and exits 1, `--fmt -` reads stdin, `--width=N` sets the wrap column,
 default 120, 0 = never); `--stack-mb=N`, `--thread-stack-mb=N` and `--threads=N` size the thread stacks

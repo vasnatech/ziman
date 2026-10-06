@@ -17,6 +17,7 @@
 #include "native_os.h"
 #include "native_thread.h"
 #include "coverage.h"
+#include "profile.h"
 #include "error.h"
 #include "interpreter.h"
 #include "loader.h"
@@ -50,6 +51,8 @@ static void usage(FILE *out) {
           "                   code instead of running it; exit 1 if there are any\n"
           "  --coverage       run, then report which lines of your own code did not\n"
           "                   execute; exit 1 if any did not\n"
+          "  --profile        run, then report which functions the time went to, hottest\n"
+          "                   first (CPU-time sampling at 1kHz, self time)\n"
           "  --lsp            run as a Language Server on stdin/stdout (diagnostics, formatting,\n"
           "                   symbols, go to definition, hover, completion)\n"
           "  -- args...       everything after `--` is the program's own arguments (os.args())\n"
@@ -152,13 +155,14 @@ static void register_all_natives(void) {
 /* Everything `ziman file.zm` does after the options: load, check, and run. It runs on a thread with a stack sized for deep recursion (see stack.h). */
 typedef struct {
     const char *file;
-    int json, lint, check_only, coverage;
+    int json, lint, check_only, coverage, profile;
 } RunOptions;
 
 static void *run_program(void *raw) {
     RunOptions *o = raw;
     const char *file = o->file;
     int json = o->json, lint = o->lint, check_only = o->check_only, coverage = o->coverage;
+    int profile = o->profile;
     ziman_stack_mark_main();
     ziman_gc_register_thread_roots();
 
@@ -186,7 +190,12 @@ static void *run_program(void *raw) {
      * including anything a `defer` did on the way out. Reported even when the program fails: what
      * ran before it failed is exactly what you want to see then. */
     if (coverage) ziman_coverage_enable();
+    /* Started here rather than in main, so loading and type-checking are not sampled: the report is
+     * about the program's own run. The samples taken before the first call still land in the "not in
+     * Ziman code" row, which is the honest place for them. */
+    if (profile) ziman_profile_start();
     interpret(module);
+    if (profile) ziman_profile_report();
     if (coverage) {
         /* Exit 1 when something did not run, the same convention --lint uses for a finding: it
          * makes `ziman --coverage` usable as a gate without parsing its output. */
@@ -277,7 +286,7 @@ int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "test") == 0) {
         return run_tests_main(argc - 2, argv + 2);
     }
-    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, lsp = 0, coverage = 0;
+    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, lsp = 0, coverage = 0, profile = 0;
     long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0;
     const char *file = NULL;
     char **files = malloc((size_t)argc * sizeof(char *));
@@ -292,6 +301,7 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--json") == 0) json = 1;
         else if (strcmp(a, "--lint") == 0) lint = 1;
         else if (strcmp(a, "--coverage") == 0) coverage = 1;
+        else if (strcmp(a, "--profile") == 0) profile = 1;
         else if (strcmp(a, "--fmt") == 0) fmt = 1;
         else if (strcmp(a, "--lsp") == 0) lsp = 1;
         else if (strcmp(a, "--write") == 0) fmt_write = 1;
@@ -320,7 +330,7 @@ int main(int argc, char **argv) {
     }
     ziman_set_json_errors(json);
     ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
-    RunOptions options = {file, json, lint, check_only, coverage};
+    RunOptions options = {file, json, lint, check_only, coverage, profile};
     ziman_run_on_big_stack(run_program, &options);
     return 0;
 }
