@@ -167,10 +167,38 @@ typedef struct ChannelObj {
     int closed;    /* set by channel_close; see its own comment */
 } ChannelObj;
 
-Value value_int(int64_t i);
-Value value_unit(void);
-Value value_float(double f);
-Value value_bool(int b);
+/* The scalar constructors are `static inline` for the same reason `type_scalar` is (ast.h): they
+ * are the most frequently executed functions in the interpreter -- one per literal, per arithmetic
+ * result, per comparison -- and with no LTO in this build each was an out-of-line call returning an
+ * 80-byte `Value` through a hidden pointer. `value_int` alone was 30% of a recursive-fib profile.
+ * They are one assignment each; there is nothing for a call to amortise. */
+static inline Value value_int(int64_t i) {
+    Value v;
+    v.type = type_scalar(TY_INT);
+    v.as.i = i;
+    return v;
+}
+
+static inline Value value_unit(void) {
+    Value v;
+    v.type = type_scalar(TY_UNIT);
+    v.as.i = 0;
+    return v;
+}
+
+static inline Value value_float(double f) {
+    Value v;
+    v.type = type_scalar(TY_FLOAT);
+    v.as.f = f;
+    return v;
+}
+
+static inline Value value_bool(int b) {
+    Value v;
+    v.type = type_scalar(TY_BOOL);
+    v.as.b = b;
+    return v;
+}
 /* Takes ownership of a NUL-terminated heap buffer. */
 Value value_string(char *s);
 /* A function value: a reference to a named top-level function (no capture). */
@@ -192,7 +220,13 @@ const char *value_cstr(Value v);
 long value_str_find(const char *hay, size_t hay_len, const char *needle, size_t needle_len, size_t from);
 Value value_bigint(BigNum n); /* copies `n` onto the heap; caller keeps owning `n`'s own digits */
 Value value_decimal(Decimal d); /* likewise, copies `d` onto the heap */
-Value value_byte(int b); /* caller's responsibility to have already range-checked 0-255 */
+/* Caller's responsibility to have already range-checked 0-255. Inline, see value_int above. */
+static inline Value value_byte(int b) {
+    Value v;
+    v.type = type_scalar(TY_BYTE);
+    v.as.by = b;
+    return v;
+}
 Value value_array(Type array_type, ArrayObj *arr);
 Value value_struct(Type struct_type, StructObj *st);
 Value value_result(Type result_type, ResultObj *res);

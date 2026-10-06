@@ -1288,3 +1288,44 @@ crossing value off an allocator the *sending* thread may destroy) that stands al
 that **"migrate the rest" is not a performance strategy**, the 46% has no fix on this path, and the
 real question for that cost is whether two collectors should walk one object graph at all -- which
 nobody should open before disposing of the handle-retention constraint that pins the scan in place.
+
+Profiled the call-heavy side of interpreter speed for the first time since the `Env` pool, now that
+closing F2 had established the honest numbers (loop 1.75x CPython, calls ~8x). The top entry was
+**`value_int` at 30%** -- a three-line function. The reason is what it moves:
+**`sizeof(Value) = 80`, `sizeof(Type) = 64`**. Every `Value` carries a whole `Type` descriptor
+inline and `Value` is the most-copied object in the interpreter; `type_scalar` zeroes 64 bytes
+before filling in a 4-byte tag. Ziman is statically typed, so the runtime is paying 80 bytes per
+value to carry what the checker already proved.
+
+**What worked, and it was the smaller idea: inline the constructors.** No LTO in this build, so
+`value_int` was a real cross-TU call returning 80 bytes through a hidden pointer and `type_scalar`
+another returning 64. `static inline` for `type_scalar` plus the five scalar `value_*` constructors:
+**fib(32) 1.11-1.18 -> 0.81-0.88s (~26%), loop_bench 0.26-0.29 -> 0.14-0.17s (~45%),
+scalar_arrays 1.07-1.15 -> 0.79-0.89s (~25%)**, pinned, four runs each. The loop benchmark is now
+0.15s against CPython's 0.16s -- parity on the microbenchmark F2 opened with at 28x.
+
+**What failed, and this is the part to remember.** `Type`'s name fields are mutually exclusive by
+kind, so unioning `struct_name`/`enum_name`/`type_var_name` is a pure layout change (C11 anonymous
+union, every call site reads identically) taking `Type` to 48 and `Value` to 64. It passed 840/840.
+It was **40-160% slower** -- loop 0.15 -> 0.40s, worse than baseline. `no_ctrl`, a one-line helper
+returning `{CTRL_NONE, value_int(0)}`, became **43%** of the loop profile, and the disassembly shows
+GCC bouncing the aggregate through half a dozen stack slots with `movdqa`/`movups` instead of
+storing zeros into the return slot: **the union defeats scalar replacement of aggregates**, so a
+struct previously kept in registers gets materialised through memory on every construction. Making
+the struct smaller made the code that copies it much worse. Reverted.
+
+Kept from the attempt, in its own commit, because both stand alone: `loader.c`'s five hand-copied
+struct-to-enum reclassifications became one `retype_struct_as_enum` (two wrote the new name before
+clearing the old, which the union would have turned into erasing it), and `gc_mark.c`'s
+registered-content lookup is gated on kind rather than only on a non-NULL name.
+
+**Measured honestly where it does not show:** `server_concurrency.sh` on the real backend is
+unchanged -- five interleaved paired rounds, c=1 637 vs 639 req/s, c=8 992 vs 986. That app is
+dominated by HTTP parsing, SQLite and the collector, so 25-45% off value construction has nothing to
+surface through. Same shape as the `gc_lookup` bitmap earlier: a real CPU win the workload can't
+convert.
+
+Next, now justified rather than speculative: interning `Type` so `Value.type` is a pointer would
+take `Value` 80 -> ~24 bytes. The copy cost is demonstrably real and large, which is the evidence
+that refactor needed -- but it is hundreds of `.`-to-`->` edits, and the union result is a standing
+warning that a smaller struct is not automatically faster code. Prototype and measure first.

@@ -4891,3 +4891,33 @@ Then, with that foundation in place so atomic data cost Boehm's marking *nothing
 That closes the loop on why the measurements come out the way they do, and why they always will. The scan cannot be dropped until nothing in the `gc_heap` points into Boehm's heap -- which needs the migration finished *and* the handle-retention constraint above dealt with. And the migration cannot show a win until the scan is dropped, because until then every object moved in pays both collectors. Each half is the other's prerequisite. **There is no incremental path: every slice measured on its own is a loss, and would be even if the end state were a win.** Anyone revisiting this should treat it as one all-or-nothing change to how the two collectors relate -- or, more likely, as a reason to ask whether v0 should have two at all.
 
 **What this does and does not say.** It does not say the existing migrations were mistakes: `Map`/`Set` was measured as a real concurrent-throughput win, and the string/struct/array/result/enum moves were made for a correctness reason -- getting a crossing value off an allocator a *sending* thread might destroy -- that stands on its own. What it says is that **"migrate the rest" is not a performance strategy**, that the 46% in `GC_mark_from` has no fix on this path, and that the honest next question for that cost is not "what else can move into the `gc_heap`" but "should there be two collectors over one object graph at all" -- which is a far larger question than any migration slice, and one nobody should open without first disposing of the handle-retention constraint above, since that is what pins the conservative scan in place.
+
+## `value_int` was 30% of a profile for carrying a 64-byte type descriptor, and the obvious fix for that made things worse (2026-10-05)
+
+Closing F2 established the honest headline for interpreter speed: loop-heavy code is 1.75x CPython 3.14, call-heavy code about 8x (`fib(32)` 1.14s against 0.14s). Profiling the call-heavy side for the first time since the `Env` pool landed found something that is not a per-call cost at all.
+
+```
+30.42%  value_int          13.12%  eval_expr        7.05%  pthread_mutex_trylock
+ 7.63%  exec_stmt           6.29%  call_function    2.79%  env_define
+```
+
+**`value_int` is three lines.** It is 30% of a recursive-fib run because of what it moves, not what it does:
+
+```
+sizeof(Value) = 80 bytes
+sizeof(Type)  = 64 bytes
+```
+
+Every `Value` carries a whole `Type` descriptor inline, and `Value` is the most-copied object in the interpreter -- one per literal, per arithmetic result, per comparison, per parameter bind, per `eval_expr` return. `type_scalar` zeroes all 64 bytes (`Type t = {0}`) before filling in a 4-byte tag. The irony is that Ziman is statically typed: the checker already proved the type, and the runtime pays 80 bytes a value to carry it anyway.
+
+**The fix that worked was the smaller of the two tried: inline the constructors.** This build has no LTO, so `value_int` was a genuine cross-translation-unit call returning 80 bytes through a hidden pointer, and `type_scalar` another returning 64. Making `type_scalar` and `value_int`/`value_unit`/`value_float`/`value_bool`/`value_byte` `static inline` in their headers removes both calls and both return copies. Pinned to one core, four runs each: **`fib(32)` 1.11-1.18s to 0.81-0.88s (about 26%), `loop_bench` 0.26-0.29s to 0.14-0.17s (about 45%), `scalar_arrays_bench` 1.07-1.15s to 0.79-0.89s (about 25%)**. The loop benchmark is now 0.15s against CPython 3.14's 0.16s -- at parity on the microbenchmark F2 opened with at 28x.
+
+**The fix that seemed obviously better made it dramatically worse, and the reason is worth recording.** `Type`'s six payload fields are mutually exclusive by kind -- the comments already said so, and every constructor confirmed it -- so `struct_name`/`enum_name`/`type_var_name` were collapsed into a C11 anonymous union. That is a pure layout change: every `t.struct_name` in the codebase still reads identically, and it takes `Type` to 48 bytes and `Value` to 64, 20% less to copy on every value in the program. It passed 840/840 on both builds. It was also **40-160% slower**: `fib(32)` 0.81s to 1.15s, `loop_bench` 0.15s to 0.40s -- worse than the original baseline -- and `scalar_arrays` 0.81s to 1.24s.
+
+Profiling the regression put `no_ctrl` -- a one-line helper returning `{CTRL_NONE, value_int(0)}` -- at **43%** of the loop profile, and disassembly showed why: instead of storing zeros into the return slot, GCC emitted a long chain of `movdqa`/`movups` bouncing the aggregate through half a dozen stack slots. The union defeats scalar replacement of aggregates, so a struct that was previously kept in registers is now materialised through memory, repeatedly, on every construction and return. Making the struct *smaller* made the code that copies it far worse. Reverted; the inlining alone is what shipped.
+
+Two things were kept from the attempt because they stand on their own, and are in their own commit: `loader.c`'s five hand-copied struct-to-enum reclassifications became one `retype_struct_as_enum` (two of the five wrote the new name before clearing the old one, which the union would have silently turned into erasing it), and `gc_mark.c`'s registered-content lookup is now gated on the type's kind rather than only on its name being non-NULL.
+
+**Verified.** `./tests/run_tests.sh` 840/840 on both builds; all thirteen standalone unit tests including `test-lsp`; `make test-pg` 11/11; `make test-mysql` 6/6; the real app's own suite in full; `make fmt-check` and `make docs-check` clean. **And measured honestly where it does not show:** `tests/bench/server_concurrency.sh` against the real backend is unchanged -- five interleaved paired rounds, c=1 averaging 637 against 639 req/s and c=8 992 against 986. That app is dominated by HTTP parsing, SQLite and the collector rather than by tight interpreter arithmetic, so a 25-45% improvement in value construction has nothing to surface through. The microbenchmarks isolate interpreter dispatch, which is exactly where the win is and exactly what F2 measured.
+
+**Still on the table, and now justified rather than speculative:** interning `Type` so `Value.type` becomes a pointer would take `Value` from 80 bytes to about 24. The copy cost is now demonstrated to be real and large, which is the evidence that refactor needed -- but it is hundreds of `.`-to-`->` edits across the codebase, and the union result above is a warning that a smaller struct does not automatically mean faster code. Measure a prototype before committing to the edit.

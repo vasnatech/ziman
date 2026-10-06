@@ -16,9 +16,6 @@
 #include "gc_thread_heap.h"
 #include "value_copy.h"
 
-Value value_int(int64_t i) { Value v; v.type = type_scalar(TY_INT); v.as.i = i; return v; }
-Value value_float(double f) { Value v; v.type = type_scalar(TY_FLOAT); v.as.f = f; return v; }
-Value value_bool(int b) { Value v; v.type = type_scalar(TY_BOOL); v.as.b = b; return v; }
 Value value_closure(FunctionDecl *fn, Value *captured, int ncaptured) {
     Value v;
     ClosureObj *c = malloc(sizeof(ClosureObj));
@@ -99,8 +96,6 @@ Value value_decimal(Decimal d) {
     return v;
 }
 
-Value value_unit(void) { Value v; v.type = type_scalar(TY_UNIT); v.as.i = 0; return v; }
-Value value_byte(int b) { Value v; v.type = type_scalar(TY_BYTE); v.as.by = b; return v; }
 
 Value value_array(Type array_type, ArrayObj *arr) {
     Value v;

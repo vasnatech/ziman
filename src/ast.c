@@ -8,12 +8,6 @@
 /* Every constructor below starts from a fully zeroed Type (including
  * `type_args`, itself a struct) so adding a new field never means hunting
  * down every constructor again. */
-Type type_scalar(TypeKind kind) {
-    Type t = {0};
-    t.kind = kind;
-    return t;
-}
-
 Type type_array(Type elem) {
     Type t = {0};
     t.kind = TY_ARRAY;

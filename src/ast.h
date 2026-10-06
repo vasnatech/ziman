@@ -105,7 +105,20 @@ struct Type {
     TypeList type_args;    /* TY_STRUCT/TY_ENUM only, when the declaration is generic. TY_FUNC: the parameter types, in order. */
 };
 
-Type type_scalar(TypeKind kind); /* for anything but TY_ARRAY/TY_STRUCT/TY_RESULT/TY_ENUM/TY_CHANNEL/TY_TYPEVAR */
+/* For anything but TY_ARRAY/TY_STRUCT/TY_RESULT/TY_ENUM/TY_CHANNEL/TY_TYPEVAR.
+ *
+ * `static inline` in the header rather than a function in ast.c, because this is on the hottest
+ * path there is: every `value_int`/`value_bool`/`value_float` calls it, which means every integer
+ * literal and every arithmetic result in a running program. This build has no LTO, so out of line
+ * it was a real cross-translation-unit call returning a 64-byte struct through a hidden pointer --
+ * `perf` put `value_int` alone at 30% of a recursive-fib profile for exactly that reason (see
+ * docs/DESIGN.md). Inline, the zeroing collapses to filling in one `kind` field in the caller's
+ * own stack slot. */
+static inline Type type_scalar(TypeKind kind) {
+    Type t = {0};
+    t.kind = kind;
+    return t;
+}
 Type type_array(Type elem);
 Type type_struct(const char *name);
 Type type_result(Type ok_type, Type err_type);
