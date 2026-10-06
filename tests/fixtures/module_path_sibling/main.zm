@@ -1,0 +1,13 @@
+// `use` looks for a module beside the importing file and, since C13, then in each directory of
+// ZIMAN_MODULE_PATH. Without that a test could not live in a directory of its own -- the convention every
+// language this one borrows from uses -- which is why the reference backend had zero unit tests while
+// `ziman test` worked perfectly on a test file sitting beside production code.
+//
+// `calc` is NOT beside this file; it is in lib/, named only by module_path_sibling.env. `calc` itself
+// then uses `helper`, which is found the same way, so a module reached through the path can import too.
+use calc
+
+fn main() {
+    print(calc.add(2, 3))
+    print(calc.tripled(4))
+}

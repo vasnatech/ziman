@@ -77,6 +77,45 @@ static char *resolve_file_path(const char *project_root, const char *use_path) {
     return out;
 }
 
+/* `use foo` looks for `foo.zm` beside the importing file and nowhere else, which is enough for a program
+ * laid out in one tree and not enough for the convention every language this one borrows from uses for
+ * tests: the tests in a directory of their own, importing the code they test. `src/test/ziman/calc_test.zm`
+ * cannot say `use calc` when calc.zm is in `src/main/ziman/`, so the reference backend has no unit tests at
+ * all -- `ziman test` works perfectly when the test file sits beside production code, which is not where
+ * anyone wants to keep it.
+ *
+ * ZIMAN_MODULE_PATH is a colon-separated list of directories searched after the importing file's own, in
+ * order, first match winning. Deliberately the same shape and spelling convention as ZIMAN_RESOURCE_PATH,
+ * which already does this for resources and which the backend's own test harness already sets -- so this
+ * is one more familiar variable rather than a new mechanism. The importing file's own directory is still
+ * tried first, so nothing that resolves today resolves differently.
+ *
+ * Returns a readable path from the list, or NULL when none of them is readable (the caller then reports
+ * using the project-relative name, which is the one the author wrote and expects to see). */
+static char *resolve_via_module_path(const char *use_path) {
+    const char *env = getenv("ZIMAN_MODULE_PATH");
+    if (env == NULL || env[0] == '\0') return NULL;
+    const char *p = env;
+    while (*p != '\0') {
+        const char *colon = strchr(p, ':');
+        size_t dir_len = colon != NULL ? (size_t)(colon - p) : strlen(p);
+        if (dir_len > 0) {
+            size_t len = dir_len + strlen(use_path) + 6;
+            char *candidate = malloc(len);
+            snprintf(candidate, len, "%.*s/%s.zm", (int)dir_len, p, use_path);
+            FILE *f = fopen(candidate, "rb");
+            if (f != NULL) {
+                fclose(f);
+                return candidate;
+            }
+            free(candidate);
+        }
+        if (colon == NULL) break;
+        p = colon + 1;
+    }
+    return NULL;
+}
+
 /* "<use_path>::<bare_name>" -- the fully-qualified form every cross-module
  * reference (and every non-entry module's own declaration) is rewritten
  * to. Chosen so it can never collide with a bare (entry-module or
@@ -1380,6 +1419,19 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
 
     char *file_path = resolve_file_path(ldr->project_root, use_path);
     char *source = read_all(file_path);
+    if (source == NULL) {
+        /* Beside the importing file wins; ZIMAN_MODULE_PATH is only consulted when that misses. */
+        char *from_path = resolve_via_module_path(use_path);
+        if (from_path != NULL) {
+            source = read_all(from_path);
+            if (source != NULL) {
+                free(file_path);
+                file_path = from_path;
+            } else {
+                free(from_path);
+            }
+        }
+    }
     int from_disk = source != NULL;
     if (source == NULL) {
         /* No project-relative file by this name -- fall back to a
@@ -1387,9 +1439,12 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
          * project file always wins when both exist. */
         const char *core_source = corelib_source_for(use_path);
         if (core_source == NULL) {
+            const char *mod_path = getenv("ZIMAN_MODULE_PATH");
             ziman_error("module", ref_line, ref_col,
-                        "cannot find module '%s' (looked for %s, and it's not a bundled core module)",
-                        use_path, file_path);
+                        "cannot find module '%s' (looked for %s%s%s, and it's not a bundled core module)",
+                        use_path, file_path,
+                        mod_path != NULL && mod_path[0] != '\0' ? ", then in ZIMAN_MODULE_PATH=" : "",
+                        mod_path != NULL && mod_path[0] != '\0' ? mod_path : "");
         }
         source = strdup(core_source);
     }
