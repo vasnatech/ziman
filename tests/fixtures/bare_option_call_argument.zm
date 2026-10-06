@@ -1,0 +1,39 @@
+// `ok`/`err`, `channel_new()` and a bare `Some(...)`/`None` carry no type of their own and take it from
+// the context. Every context that offers one accepts them -- an annotated val, a struct literal field, a
+// `with` override, a `return` -- except a call argument, which offers one too: the parameter's declared
+// type. So `f(4)` was accepted and `f(Some(4))` rejected, meaning the explicit spelling was the refused
+// one, and the error listed the contexts that work without saying why this was not among them.
+fn opt(x: Option<int>) -> int {
+    switch x {
+        Some(v) { return v }
+        None { return -1 }
+    }
+}
+
+fn res(r: Result<int, string>) -> string {
+    switch r {
+        Ok(v) { return concat("ok ", str(v)) }
+        Err(e) { return concat("err ", e) }
+    }
+}
+
+fn chan(c: Channel<int>) -> int {
+    send(c, 7)
+    return receive(c)
+}
+
+fn main() {
+    // the implicit wrap always worked
+    print(opt(4))
+    // and now so does writing it out
+    print(opt(Some(4)))
+    print(opt(None))
+    // the same for the other two forms that take their type from context
+    print(res(ok(4)))
+    print(res(err("bad")))
+    print(chan(channel_new()))
+    // a named value still works, and still auto-wraps
+    val v: Option<int> = Some(9)
+    print(opt(v))
+    print(opt(9))
+}

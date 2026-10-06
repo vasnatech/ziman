@@ -138,6 +138,12 @@ static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type
 static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type *expected);
 static void check_type_well_formed(Module *module, Type t, int line, int col);
 static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type expected);
+/* The three forms that carry no type of their own and take it from the context. Declared here because
+ * check_value_against_param_type needs them well before they are defined -- a call argument's parameter
+ * type is a context like any other, and used not to be treated as one (see there). */
+static int check_ok_err_call(Module *module, Env *env, Expr *e, Type expected);
+static int check_channel_new_call(Module *module, Env *env, Expr *e, Type expected);
+static int check_bare_option_call(Module *module, Env *env, Expr *e, Type expected);
 
 /* Rebuilds `t` with every TY_TYPEVAR named in `params` replaced by the
  * type argument at the same index in `args` -- the substitution-on-demand
@@ -845,6 +851,20 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
          * so its own parameter and return types may be left out */
         arg_type = check_lambda_expecting(module, env, arg, &param_type);
         arg->resolved_type = arg_type;
+    } else if (check_ok_err_call(module, env, arg, param_type) ||
+               check_channel_new_call(module, env, arg, param_type) ||
+               check_bare_option_call(module, env, arg, param_type)) {
+        /* `ok`/`err`, `channel_new()` and a bare `Some(...)`/`None` carry no type of their own and take
+         * it from the context, which is why every other context offering one -- an annotated val, a
+         * struct literal field, a `with` override, a `return` -- accepts them. A call argument offers
+         * one too (the parameter's declared type) and was the single place that did not use it, so
+         * `f(Some(4))` was rejected where `f(4)` was accepted: the explicit spelling was the one
+         * refused, and the error even listed the contexts that work without mentioning why this was not
+         * among them. These are the same three helpers check_expr_expecting calls, in the same order;
+         * each sets the argument's resolved_type to `param_type` when it matches, so the caller needs
+         * nothing further. */
+        *out_arg_type = param_type;
+        return 1;
     } else {
         arg_type = check_expr(module, env, arg);
         require_not_void(arg, "as an argument");

@@ -675,7 +675,9 @@ fn plus_one(s: string) -> Result<int, string> {
   conversion applies only to `try`, only one step. `Option<T>`'s `try` requires only that the
   enclosing function return `Option<T2>` for *any* `T2` -- `None` carries nothing to propagate.
 - **`Some(x)`/`None` may be written bare** wherever an `Option<T>` is already expected (the same
-  four positions `ok`/`err`/`channel_new` get) -- `return None`, `notes: Some(text)` work
+  five positions `ok`/`err`/`channel_new` get: a val/var with a declared type, a struct literal
+  field, a `with` override, a `return`, and a call argument, whose parameter type is an expected
+  type like any other) -- `return None`, `notes: Some(text)` and `f(Some(4))` work
   without naming `Option<string>`. Elsewhere the qualified `Option<T>.Some(x)`/`.None` is still
   required (nothing to infer from). Distinct from bare-value auto-wrap: that only sees a bare
   `T`, never something already shaped like `Some(...)`/`None`.
