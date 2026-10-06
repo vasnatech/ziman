@@ -1499,11 +1499,13 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             if (to == TY_FLOAT) {
                 if (v.type.kind == TY_INT) return value_float((double)v.as.i);
                 if (v.type.kind == TY_BIGINT) {
-                    /* Lossy via a saturating int64 round-trip -- the same
-                     * precision ceiling casting a very large int to float
-                     * already has; a genuinely huge bigint can't be
-                     * represented exactly by a float regardless. */
-                    return value_float((double)bignum_to_i64_saturating(*v.as.bi));
+                    /* Lossy in the digits, as `as float` always is, but not in the magnitude. This
+                     * went through a saturating int64 round trip until 2026-10-06, which reported
+                     * 9.2e18 for a bigint of 1.2e29 -- the previous comment reasoned that a huge
+                     * bigint cannot be represented exactly by a float anyway, which is true of its
+                     * low digits and not of how big it is. bignum_to_double goes through the text,
+                     * the same way decimal_to_double already did. */
+                    return value_float(bignum_to_double(*v.as.bi));
                 }
                 if (v.type.kind == TY_DECIMAL) return value_float(decimal_to_double(*v.as.dec));
                 return value_float(v.as.f);

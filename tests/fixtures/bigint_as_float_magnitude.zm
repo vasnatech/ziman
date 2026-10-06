@@ -1,0 +1,43 @@
+// `bigint as float` went through a saturating int64 round trip, so every bigint past int64's range
+// reported a magnitude of about 9.2e18 whatever it really was -- 123456789012345678901234567890
+// came back as 9223372036854776000.0 instead of 1.2345678901234568e+29. Losing a float's worth of
+// low digits is inherent to the cast; losing how big the number is, is not. It now goes through the
+// decimal text and strtod, exactly as `decimal as float` already did. This reached clients through
+// json.float_from_json, whose Bigint arm performs this very cast, so a JSON measurement value too
+// big for int64 was silently corrupted rather than rounded.
+use json
+
+fn via_json(doc: string) {
+    switch json.parse_json(doc) {
+        Ok(j) {
+            switch json.json_object_get(j, "v") {
+                Some(num) {
+                    switch json.float_from_json(num) {
+                        Ok(f) { printf("{} -> {}\n", doc, f) }
+                        Err(e) { printf("{} -> Err {}\n", doc, e) }
+                    }
+                }
+                None { printf("{} -> no field\n", doc) }
+            }
+        }
+        Err(e) { printf("{} -> parse Err {}\n", doc, e) }
+    }
+}
+
+fn main() {
+    // the cast itself, which is where the defect was
+    printf("30-digit      : {}\n", 123456789012345678901234567890n as float)
+    printf("negated       : {}\n", -123456789012345678901234567890n as float)
+    printf("small         : {}\n", 42n as float)
+    printf("zero          : {}\n", 0n as float)
+    // a magnitude past what a double can hold is infinity, the IEEE answer, not a saturated integer
+    printf("400 digits    : {}\n", 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999n as float)
+    printf("400 negated   : {}\n", -9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999n as float)
+    // decimal already did this correctly and must keep doing it
+    printf("decimal       : {}\n", 123456789012345678901234567890.5d as float)
+
+    // and the path a client actually sees
+    via_json("{\"v\": 123456789012345678901234567890}")
+    via_json("{\"v\": 9223372036854775808}")
+    via_json("{\"v\": 1.5}")
+}

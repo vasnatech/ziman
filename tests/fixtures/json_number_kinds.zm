@@ -79,6 +79,10 @@ fn main() {
     val big = unwrap(json.parse_json("12345678901234567890"))
     print(json.int_from_json(big))
     print(json.bigint_from_json(big))
+    // 12345678901234567000.0, the nearest float to 12345678901234567890. This expectation used to
+    // read 9223372036854776000.0 -- int64's maximum as a float -- because `bigint as float`, which
+    // float_from_json's Bigint arm performs, went through a saturating int64 round trip. The fixture
+    // was pinning the defect, so the suite protected it; corrected with A9 on 2026-10-06.
     print(json.float_from_json(big))
     print(json.decimal_from_json(big))
     val whole = unwrap(json.parse_json("3.0"))

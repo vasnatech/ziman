@@ -64,5 +64,6 @@ BigNum bignum_pow10(int n);
  * and by an explicit `as int` cast, which is itself defined as
  * saturating rather than wrapping (see docs/SYNTAX.md's cast rules). */
 int64_t bignum_to_i64_saturating(BigNum a);
+double bignum_to_double(BigNum a);      /* used by `as float`; via the text, so any magnitude survives */
 
 #endif

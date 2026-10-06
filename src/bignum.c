@@ -337,6 +337,19 @@ int bignum_is_zero(BigNum a) {
     return a.sign == 0;
 }
 
+/* Via the decimal text, exactly as decimal_to_double does, because `strtod` is the one conversion
+ * that already handles every magnitude correctly -- including rounding to the nearest double and
+ * answering infinity for a value past DBL_MAX. The obvious shortcut, an int64 round trip, was what
+ * this replaced: it saturated 123456789012345678901234567890 to 9223372036854775807 and so reported
+ * 9.2e18 for a number whose magnitude is 1.2e29. Losing a float's worth of low digits is inherent to
+ * `as float`; losing the magnitude is not. */
+double bignum_to_double(BigNum a) {
+    char *s = bignum_to_string(a);
+    double v = strtod(s, NULL);
+    free(s);
+    return v;
+}
+
 int64_t bignum_to_i64_saturating(BigNum a) {
     if (a.sign == 0) return 0;
     /* INT64_MAX is 9223372036854775807 -- 3 limbs of base 1e9 at most,
