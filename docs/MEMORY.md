@@ -1245,3 +1245,46 @@ digits, 40 divisor sizes) gave **byte-identical output from the pre- and post-ch
 that output is what the `.out` now locks in. Plus suite **835/835 both builds**, test-bignum,
 test-decimal, nine gc_* tests, test-pg 11/11, test-mysql 6/6 (both drivers decode numerics through
 this), real app suite, fmt-check, valgrind 0 bytes lost.
+
+Went after the gc_heap migration and **abandoned it on evidence**. Nothing landed; the finding is
+the deliverable. Two independent premises failed.
+
+**1. It can never retire `GC_mark_from`, which is what I claimed last entry.** `handles.h` spells
+the rule out: the live-handle table is deliberately unscanned, so "being in the set does not keep an
+object alive". A socket is `GC_MALLOC`'d with a finalizer and handed to Ziman as
+`(int64_t)(intptr_t)h` -- a conservative scan finding that integer is the *only* thing keeping it
+alive. `struct_obj_new` is already migrated, so a `net.Socket`'s fields live in the gc_heap, so that
+arena stays a Boehm root **permanently** however much else moves. The proof was already in-tree and
+I had read past it twice: `gc_heap.c` records `net_dropped_socket_reclaimed.zm` failing exactly when
+`struct_obj_new` first migrated. Worse, since the push covers `[content_offset, used)` per block,
+migrating more *enlarges* what Boehm re-scans.
+
+**2. A migrated object is measurably slower -- single-threaded and concurrent.** I built the proper
+foundation first so the test would be fair: GcHeap split into the scanned arena plus a plain
+`arena_create()` never registered with Boehm, holding only `GC_ATOMIC` objects, the two linked by a
+new `arena_set_sibling` so `gc_lookup` finds either and all ~28 `const Arena *a` signatures (plus
+the public content-marker callback) stayed untouched; free lists split per arena so an unscanned
+chunk can never be handed to a pointer-bearing object. 836/836 both builds, nine gc_* tests, two
+updated (they asserted cross-kind reuse, now forbidden) plus a new segregation check. Then:
+
+- `format` into the atomic arena: **1.23s -> 1.38s (~10% slower)**, 4M formats.
+- `ClosureObj` into the gc_heap: **1.12s -> 1.25s (~8-10% slower)**, 2M closure calls. `GC_CLOSURE`
+  and `gc_mark_closure` were already written and unused -- the same mechanical step the four earlier
+  migrations took.
+- Same ClosureObj change on **8 threads: 5.3s -> 5.7s (~7% slower)**. This was the hypothesis most
+  likely to save the strategy, since the one migration ever measured as a win (Map/Set, 689 ->
+  802-843 req/s) was measured on the *concurrent* server benchmark where you buy relief from
+  Boehm's locked heap. It still loses.
+
+**Mechanism, explaining all three: a gc_heap object pays BOTH collectors** -- it is inside the range
+Boehm conservatively re-scans as a root *and* marked/swept by Ziman's Phase 3. A Boehm-heap object
+pays Boehm only. Bump+freelist beats `GC_MALLOC` per call, but not by enough to cover a second
+collector walking the same object; for `GC_ATOMIC` it is worse still, since `GC_MALLOC_ATOMIC` is
+already cheap *and* already unscanned.
+
+What it does **not** say: the existing migrations weren't mistakes. Map/Set was a measured concurrent
+win, and the string/struct/array/result/enum moves were made for a correctness reason (getting a
+crossing value off an allocator the *sending* thread may destroy) that stands alone. What it says is
+that **"migrate the rest" is not a performance strategy**, the 46% has no fix on this path, and the
+real question for that cost is whether two collectors should walk one object graph at all -- which
+nobody should open before disposing of the handle-retention constraint that pins the scan in place.
