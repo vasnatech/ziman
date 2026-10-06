@@ -165,10 +165,19 @@ here) and its other environment variables apply.
 ## Testing
 
 ```sh
-make test
+make check
 ```
 
-Runs every fixture in `tests/fixtures/` — see `tests/run_tests.sh`.
+Everything that needs nothing but this repo and a C toolchain: every fixture in
+`tests/fixtures/` on both builds (`make test`, `make test-nogc` — see `tests/run_tests.sh`), the
+standalone C unit tests (`make unit-tests`), formatting (`make fmt-check`), and the documentation
+guards (`make docs-check`, which checks that `docs/lib/` and `docs/CORELIB.md` still match the
+sources they are generated from, that no doc calls a `pub` name "not yet" supported once it exists,
+and that this file's own module table agrees with each module's `#![experimental]`).
+
+The rest need something the repo can't supply, so they are separate: `make test-pg` and
+`make test-mysql` want a container runtime and a database image, `make test-tls` wants the
+`openssl` binary, and `tests/bench/` wants `ab` and a checkout of the sample backend.
 
 ## Documentation
 

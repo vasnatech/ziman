@@ -26,9 +26,25 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check
 
 all: $(BIN)
+
+# Every gate that needs nothing but this repo and a C toolchain: the fixture suite on both builds,
+# the standalone unit tests, formatting, and the documentation guards. One command for "is this
+# repo healthy", because the alternative is what actually happened -- `lib-manual-check` sat broken
+# on main for a while, since `make test` does not run it and nothing else did either.
+#
+# Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
+# `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
+# the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
+check: test test-nogc unit-tests fmt-check docs-check
+
+# The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
+# well under a second, so there is no reason to ever run them selectively.
+unit-tests: test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy \
+            test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots \
+            test-gc-interp-roots test-lsp
 
 $(GC_LIB): $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/include/*.h $(GC_DIR)/include/*/*.h)
 	$(CC) -O2 -DNDEBUG -I$(GC_DIR)/include -DGC_THREADS -DGC_BUILTIN_ATOMIC -DTHREAD_LOCAL_ALLOC -DPARALLEL_MARK \
@@ -107,11 +123,25 @@ test-mysql: $(BIN)
 	./tests/run_mysql_tests.sh
 
 # The TLS client tests: need the openssl binary (see tests/run_tls_tests.sh).
-# The bundled library, the extra test programs and the sample backend are kept
-# formatted by `ziman --fmt` (tests/fixtures is not: fixtures that test error
-# positions depend on their exact layout).
+# The bundled library and the extra test programs are kept formatted by `ziman --fmt`
+# (tests/fixtures is not: fixtures that test error positions depend on their exact layout).
+#
+# This repo only. The sample backend lives in a sibling checkout and has its own target below --
+# it used to be in this one, which made a gate on *this* repo fail for a file in another, and meant
+# anyone without that checkout could not run `make fmt-check` at all. Found when `make check` first
+# ran the whole set together: it had been failing on three of the backend's files.
 fmt-check: $(BIN)
-	./$(BIN) --fmt --check $$(find lib docs/lib/examples tests/pg tests/mysql tests/tls tests/shutdown tests/bench ../health-record/health-record-backend-ziman/src -name '*.zm')
+	./$(BIN) --fmt --check $$(find lib docs/lib/examples tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm')
+
+# The sample backend (health-record-backend-ziman), which is kept formatted the same way but lives
+# next door, so this is separate from `fmt-check` and skips cleanly when it is not checked out.
+BACKEND_DIR := ../health-record/health-record-backend-ziman
+fmt-check-backend: $(BIN)
+	@if [ -d "$(BACKEND_DIR)/src" ]; then \
+	    ./$(BIN) --fmt --check $$(find $(BACKEND_DIR)/src -name '*.zm'); \
+	else \
+	    echo "SKIP fmt-check-backend: $(BACKEND_DIR)/src is not checked out"; \
+	fi
 
 test-lsp: $(BIN)
 	python3 tests/lsp/lsp_test.py ./$(BIN)
