@@ -1,0 +1,1 @@
+would both be referenced as 'patient' -- give one an alias, e.g. 'use entity/patient as entity_patient'

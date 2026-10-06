@@ -1,0 +1,12 @@
+// A module is referenced by its path's last segment, so two files of the same name in different
+// directories both want to be `patient`. That used to be accepted silently with the first `use` winning:
+// every `patient.x` went to model's, and the second line did nothing -- a wrong function quietly called.
+// It is an error now, which is the rule the per-name `use` form always had. Reported rather than resolved
+// by inventing a name from two path segments, because a name the author never wrote is what this module
+// system sets out to avoid, and `as` already says it explicitly.
+use model/patient
+use entity/patient
+
+fn main() {
+    print(patient.name())
+}

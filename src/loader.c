@@ -1297,6 +1297,49 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, int *out_cou
     NamedImport *imports = NULL;
     int count = 0, cap = 0;
 
+    /* Two whole-module `use`s that bind the same qualifier used to be accepted, and the first silently won:
+     * `use model/patient` then `use entity/patient` left every `patient.x` going to model's, with the second
+     * line doing nothing at all. A module is referenced by its path's last segment (or its `as` alias), so
+     * two files of the same name in different directories collide -- which is common enough that the
+     * reference backend writes 351 aliases, and those aliases are load-bearing rather than noise.
+     *
+     * Reported rather than resolved by inventing a name from two path segments, which was the other option
+     * on the table: a name the author never wrote is exactly what this module system sets out to avoid
+     * ("never a bare name that silently resolves to an import"), and `as` already says it explicitly. The
+     * per-name form below has always rejected its own version of this; this is the same rule for the other
+     * form, where the consequence of not having it was worse -- a wrong function quietly called. */
+    for (int i = 0; i < mod->uses.count; i++) {
+        UseDecl *a = &mod->uses.items[i];
+        if (a->imported_name != NULL || a->qualifier == NULL) continue;
+        for (int j = 0; j < i; j++) {
+            UseDecl *b = &mod->uses.items[j];
+            if (b->imported_name != NULL || b->qualifier == NULL) continue;
+            if (strcmp(a->qualifier, b->qualifier) != 0) continue;
+            if (strcmp(a->path, b->path) == 0) {
+                ziman_error("module", a->line, a->col, "module '%s' is imported twice", a->path);
+            }
+            /* Suggest the name the author would most likely pick: the parent directory joined to the
+             * last segment, so `entity/patient` suggests `entity_patient`. Falls back to a suffix when
+             * the path has no parent segment to borrow. */
+            const char *last_slash = strrchr(a->path, '/');
+            char suggestion[128];
+            if (last_slash != NULL) {
+                const char *parent_start = a->path;
+                for (const char *q = a->path; q < last_slash; q++) {
+                    if (*q == '/') parent_start = q + 1;
+                }
+                snprintf(suggestion, sizeof suggestion, "%.*s_%s",
+                         (int)(last_slash - parent_start), parent_start, a->qualifier);
+            } else {
+                snprintf(suggestion, sizeof suggestion, "%s_alt", a->qualifier);
+            }
+            ziman_error("module", a->line, a->col,
+                        "'%s' and '%s' would both be referenced as '%s' -- give one an alias, "
+                        "e.g. 'use %s as %s'",
+                        b->path, a->path, a->qualifier, a->path, suggestion);
+        }
+    }
+
     for (int i = 0; i < mod->uses.count; i++) {
         UseDecl *u = &mod->uses.items[i];
         if (u->imported_name == NULL) continue; /* whole-module use */

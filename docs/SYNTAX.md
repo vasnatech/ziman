@@ -922,7 +922,11 @@ fn main() {
   name (`controller/controller.zm` for `use controller`, the way bundled `http` is
   `lib/http/http.zm`); the shorter file wins when both exist. Slash, not dot, since a module
   path never shares a token with `.field` access. The referenced name is the path's last
-  segment, or the `as` alias — either way casing-enforced lowercase.
+  segment, or the `as` alias — either way casing-enforced lowercase. Two `use` lines that would be
+  referenced by the same name are a compile error naming both paths and suggesting an alias (`use
+  entity/patient as entity_patient`), as is importing one module twice; before that check existed the
+  first `use` silently won and the second did nothing. Nothing is auto-renamed: a name you did not
+  write is what the rule below about bare names exists to prevent.
 - **`use path/to/mod.Name [as alias]`** imports one function/struct/enum, bound to a bare
   local name (`use uuid.Uuid` then just `Uuid`) — one name per import, no `{A, B, C}` list.
   The bare name's casing must match `Name`'s own, checked at parse time (the parser already
