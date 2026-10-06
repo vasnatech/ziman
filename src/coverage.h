@@ -42,8 +42,15 @@ extern int ziman_coverage_on;
  * if any file's run reached it. */
 void ziman_coverage_accumulate(const Module *module);
 
-/* Prints the accumulated report to stdout and returns the number of uncovered executable lines
- * (0 when everything ran). Call once, after every module has been accumulated. */
+/* Prints the accumulated report to stderr and returns the number of uncovered executable lines
+ * (0 when everything ran). Call once, after every module has been accumulated.
+ *
+ * stderr, not stdout, and the rule is worth stating because the CLI splits both ways: a tool that
+ * does not run the program -- --check, --fmt, --lint -- writes to stdout, because its findings are
+ * the entire output. A tool that runs the program and reports alongside it writes to stderr, so the
+ * program's own stdout stays byte-for-byte what it would have been without the flag and stays
+ * diffable: `ziman --coverage app.zm > out.txt` yields exactly what the program printed. --profile
+ * and --locals follow the same rule. */
 int ziman_coverage_report(void);
 
 #endif

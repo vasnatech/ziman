@@ -5037,6 +5037,10 @@ A tool that does not run the program -- `--check`, `--fmt`, `--lint` -- writes i
 stdout, because they are the entire output. A tool that runs the program and reports alongside it
 should write to stderr, so the program's own stdout stays byte-for-byte what it would have been and
 stays diffable: `ziman --profile prog.zm > data.txt` still yields exactly what the program printed.
-`--profile` and `--locals` follow that; `--coverage` currently does not, and prints its report to
-stdout where it interleaves with the program's own output. That is a known inconsistency, not a
-considered exception.
+All three follow it. `--coverage` did not at first -- it printed to stdout, where it interleaved
+with the program's own output -- and was moved the same day rather than defended, because the
+argument for it was only that it had shipped that way a few hours earlier. The fixture for it
+changed shape as a result: tests/run_tests.sh checks either stdout (`.out`) or stderr (`.err`) but
+not both, so coverage_partial asserts the report on stderr and coverage_full, which exits 0, asserts
+instead that stdout carries only the program's output -- its exit status is what pins full coverage,
+since --coverage exits 1 if any line did not run.

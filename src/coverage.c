@@ -132,21 +132,21 @@ int ziman_coverage_report(void) {
         }
         total += file_total;
         covered += file_covered;
-        printf("%s: %d/%d lines (%.0f%%)\n", fc->file, file_covered, file_total,
-               file_total > 0 ? 100.0 * file_covered / file_total : 100.0);
+        fprintf(stderr, "%s: %d/%d lines (%.0f%%)\n", fc->file, file_covered, file_total,
+                file_total > 0 ? 100.0 * file_covered / file_total : 100.0);
         if (file_covered < file_total) {
-            printf("  not run:");
+            fprintf(stderr, "  not run:");
             for (int i = 0; i < fc->count; i++) {
-                if (!fc->lines[i].ran) printf(" %d", fc->lines[i].line);
+                if (!fc->lines[i].ran) fprintf(stderr, " %d", fc->lines[i].line);
             }
-            printf("\n");
+            fprintf(stderr, "\n");
         }
     }
     if (cov->count == 0) {
-        printf("coverage: no user code to report (every function came from a bundled module)\n");
+        fprintf(stderr, "coverage: no user code to report (every function came from a bundled module)\n");
     } else if (cov->count > 1) {
-        printf("total: %d/%d lines (%.0f%%)\n", covered, total,
-               total > 0 ? 100.0 * covered / total : 100.0);
+        fprintf(stderr, "total: %d/%d lines (%.0f%%)\n", covered, total,
+                total > 0 ? 100.0 * covered / total : 100.0);
     }
 
     for (int f = 0; f < cov->count; f++) free(cov->files[f].lines);
