@@ -516,7 +516,11 @@ fn main() {
   construction, unmentioned fields are kept, not required.
   **Functions operate on structs, not methods** (`distance_squared(a, b)`, not
   `a.distance_squared(b)`) -- no `impl` blocks, no inheritance (see docs/DESIGN.md's
-  classes-vs-traits discussion).
+  classes-vs-traits discussion). A field that *holds* a function value is the one exception to the
+  shape, not to the rule: `h.run(21)` calls the function in `h`'s `run` field, which is the field's
+  value doing the work rather than a method dispatched on `h`'s type. A field of any other type says
+  so when called (`'h.name' is a string, which cannot be called`), and a qualifier that is neither an
+  imported module nor a local with a callable field still reports the module error.
 - **`==`/`!=` compares every field in declaration order**, short-circuiting on the first
   mismatch; both sides must be the same declared type. Works only when every field's type
   itself supports `==`, recursively (an incomparable field, like `Channel`, makes the whole

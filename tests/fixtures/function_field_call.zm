@@ -1,0 +1,36 @@
+// A struct field holding a function value is called directly: `h.run(21)`. That used to be a module error,
+// because `a.b(...)` is resolved as a call into module `a` before type checking, and the workaround was to
+// bind the field to a val first -- which the reference backend's service/crud.zm did twelve times with a
+// four-line comment explaining why, and lib/http/server.zm did for Endpoint/Decoder/Encoder.
+//
+// The loader now leaves such a call alone when the qualifier is not an imported module, and the type
+// checker either resolves it to a field of function type or raises the module diagnostic itself, so that
+// message is no worse than before. A call's target is a name everywhere else; this is the one case where it
+// is an expression.
+struct Box<T> {
+    label: string
+    show: fn(T) -> string
+}
+
+struct Handler {
+    name: string
+    run: fn(int) -> int
+}
+
+fn main() {
+    val h = Handler { name: "double", run: fn(n: int) -> int { return n * 2 } }
+    print(h.run(21))
+
+    // a generic struct's field, so the field type is substituted before use
+    val b = Box<int> { label: "b", show: fn(n: int) -> string { return concat("n=", str(n)) } }
+    print(b.show(7))
+
+    // the field's lambda may capture, and its captures are still its own
+    val k = 100
+    val adder = Handler { name: "add", run: fn(n: int) -> int { return n + k } }
+    print(adder.run(5))
+
+    // binding the field first still works, since that is ordinary field access
+    val f = h.run
+    print(f(3))
+}

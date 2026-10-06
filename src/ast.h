@@ -295,7 +295,12 @@ struct Expr {
          * name of a local variable of function type that a call may go through
          * (a local wins over a same-named top-level function). `through_value`
          * is set by the type checker when the call resolved that way. */
-        struct { char *callee; ExprList args; TypeList type_args; char **arg_names; int variadic_tail_is_array_spread; char *local_name; int through_value; } call;
+        /* `callee_expr` is set only for a call through a *field* holding a function value
+         * (`handler.run(21)`): the loader cannot tell `handler` from a module name, so it leaves the
+         * dotted callee alone with `unresolved_qualifier` set, and the type checker either resolves it
+         * to this field access or reports the unknown module. A call's target is otherwise always a
+         * name, which is why this one case needs an expression. */
+        struct { char *callee; ExprList args; TypeList type_args; char **arg_names; int variadic_tail_is_array_spread; char *local_name; int through_value; Expr *callee_expr; int unresolved_qualifier; } call;
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
         struct { Expr *array; Expr *index; } index;

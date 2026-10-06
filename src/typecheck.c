@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "typecheck.h"
+#include "loader.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1501,6 +1502,92 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
 
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
+
+    /* `a.f(args)` where `a` is not a module this file imported. The loader left it alone and marked it
+     * (ast.h's `unresolved_qualifier`) because only this pass knows whether `a` is a local. Two outcomes:
+     * `a` is a value whose struct type has a field `f` of function type, and the call goes through that
+     * field; or it is neither, and the module diagnostic the loader used to raise is raised here instead,
+     * unchanged, so nothing about that message got worse to make this possible.
+     *
+     * Going through the field means the call's target is an expression rather than a name, which is the
+     * one place that is true -- see `callee_expr`. The field access is built here rather than desugared
+     * into a temporary val, so the interpreter evaluates exactly what was written. */
+    if (e->as.call.unresolved_qualifier) {
+        const char *dot = strchr(name, '.');
+        size_t qlen = (size_t)(dot - name);
+        char *qualifier = malloc(qlen + 1);
+        memcpy(qualifier, name, qlen);
+        qualifier[qlen] = '\0';
+        const char *member = dot + 1;
+
+        int depth, slot;
+        Binding *base = env_lookup_resolved(env, qualifier, &depth, &slot);
+        if (base != NULL && base->poisoned) ziman_abort_quietly();
+        Type ft = type_scalar(TY_VOID);
+        int found_field = 0;
+        if (base != NULL && base->type.kind == TY_STRUCT) {
+            StructDecl *sd = find_struct(module, base->type.struct_name);
+            if (sd != NULL) {
+                for (int i = 0; i < sd->fields.count; i++) {
+                    if (strcmp(sd->fields.items[i].name, member) != 0) continue;
+                    Type fieldt = substitute_type(sd->fields.items[i].type, &sd->type_params, &base->type.type_args);
+                    if (fieldt.kind == TY_FUNC) {
+                        ft = fieldt;
+                        found_field = 1;
+                    } else {
+                        /* The field exists and is simply not callable. Saying so beats the module message,
+                         * which would send the reader looking for an import that was never the problem. */
+                        ziman_error("type", e->line, e->col,
+                                    "'%s.%s' is a %s, which cannot be called -- only a field of function type can be",
+                                    qualifier, member, type_name(fieldt));
+                    }
+                    break;
+                }
+            }
+        }
+        if (!found_field) {
+            ziman_report_unknown_module_call(qualifier, member, e->line, e->col);
+        }
+        free(qualifier);
+
+        if (e->as.call.arg_names != NULL) {
+            ziman_error("type", e->line, e->col,
+                        "named arguments aren't supported when calling through a function value ('%s')", name);
+        }
+        if (e->as.call.type_args.count != 0) {
+            ziman_error("type", e->line, e->col,
+                        "type arguments aren't supported when calling through a function value ('%s')", name);
+        }
+        if (e->as.call.args.count != ft.type_args.count) {
+            ziman_error("type", e->line, e->col, "'%s' has type %s, which takes %d argument(s), found %d",
+                        name, type_name(ft), ft.type_args.count, e->as.call.args.count);
+        }
+        for (int i = 0; i < e->as.call.args.count; i++) {
+            Type arg_type;
+            if (!check_value_against_param_type(module, env, &e->as.call.args.items[i], ft.type_args.items[i], &arg_type)) {
+                ziman_error("type", e->as.call.args.items[i]->line, e->as.call.args.items[i]->col,
+                            "argument %d of '%s' (a %s) expects %s, found %s", i + 1, name, type_name(ft),
+                            type_name(ft.type_args.items[i]), type_name(arg_type));
+            }
+        }
+        /* The field access the call goes through, checked like any other so its own resolution happens
+         * once, here. */
+        Expr *base_ref = expr_new(EXPR_IDENT, e->line, e->col);
+        base_ref->as.ident_name = (char *)name; /* trimmed to the qualifier just below */
+        char *qual_only = malloc(qlen + 1);
+        memcpy(qual_only, name, qlen);
+        qual_only[qlen] = '\0';
+        base_ref->as.ident_name = qual_only;
+        Expr *access = expr_new(EXPR_FIELD_ACCESS, e->line, e->col);
+        access->as.field_access.base = base_ref;
+        access->as.field_access.field_name = strdup(member);
+        access->resolved_type = ft;
+        base_ref->resolved_type = base->type;
+        base_ref->resolved_depth = depth;
+        base_ref->resolved_slot = slot;
+        e->as.call.callee_expr = access;
+        return *ft.elem;
+    }
 
     /* A call through a local of function type (a parameter or a val): a local
      * always wins over a top-level function of the same name. Named arguments

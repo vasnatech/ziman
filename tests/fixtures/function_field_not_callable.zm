@@ -1,0 +1,10 @@
+// A field that exists but is not of function type says so, rather than falling through to the module
+// diagnostic and sending the reader to look for an import that was never the problem.
+struct Handler {
+    name: string
+}
+
+fn main() {
+    val h = Handler { name: "x" }
+    print(h.name(1))
+}

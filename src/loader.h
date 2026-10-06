@@ -26,4 +26,9 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
  * arrays are borrowed, not copied. */
 void loader_set_overrides(const char **paths, const char **texts, int count);
 
+/* The "'x' is not an imported module, and Ziman has no methods" diagnostic, raised by the type checker
+ * rather than here for a dotted call whose qualifier might be a local: see Expr's `unresolved_qualifier`
+ * (ast.h) and check_call. Kept in loader.c because the wording is about modules and imports. */
+void ziman_report_unknown_module_call(const char *qualifier, const char *member, int line, int col);
+
 #endif

@@ -1203,12 +1203,19 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             }
             gc_unsafe_leave();
             Value result;
-            if (e->as.call.through_value) {
-                /* A call through a local of function type (a parameter, a val):
-                 * the value names the FunctionDecl to run. */
-                Binding *fb = e->resolved_depth >= 0 ? env_at_slot(env, e->resolved_depth, e->resolved_slot)
-                                                      : env_lookup(env, e->as.call.local_name);
-                ClosureObj *clo = fb->value.as.clo;
+            if (e->as.call.through_value || e->as.call.callee_expr != NULL) {
+                /* A call through a function value. Either a local of function type (a parameter, a val),
+                 * or -- when `callee_expr` is set -- a struct field holding one, `handler.run(21)`, whose
+                 * target is an expression rather than a name (see ast.h). Both end in the same place: a
+                 * ClosureObj naming the FunctionDecl to run. */
+                ClosureObj *clo;
+                if (e->as.call.callee_expr != NULL) {
+                    clo = eval_expr(module, env, e->as.call.callee_expr).as.clo;
+                } else {
+                    Binding *fb = e->resolved_depth >= 0 ? env_at_slot(env, e->resolved_depth, e->resolved_slot)
+                                                          : env_lookup(env, e->as.call.local_name);
+                    clo = fb->value.as.clo;
+                }
                 if (clo->ncaptured == 0) {
                     result = call_function(module, clo->fn, args, argc, 0, e->line, e->col);
                 } else {

@@ -805,18 +805,13 @@ static void split_qualified(const char *dotted, char **qualifier_out, char **res
  * reached for a method, which Ziman doesn't have -- so say that first, with
  * the function-call form that does work.
  *
- * There are two such forms, not one, and the message used to name only the first. If `p` is a value and
- * `member` is a free function, `member(p, ...)` is right. But if `member` is a *field* of `p` holding a
- * function value, no such free function exists and `member(p, ...)` is advice that cannot work -- the
- * form is to bind the field and call that. This runs before type checking, so it cannot tell which case
- * it is in (it does not know what `p` is, or whether it has fields at all), and guessing wrong is how the
- * old message came to recommend `run(o, ...)` for a `run` that was only ever a field: the reference
- * backend carries a four-line comment in service/crud.zm explaining the workaround, used twelve times in
- * that file alone, and lib/http/server.zm does the same for Endpoint/Decoder/Encoder. So the message now
- * names both forms and leaves the choice to the reader, who can see which it is. Letting `p.member(...)`
- * work directly is tracked as C15. */
-static void report_unknown_module_call(const char *qualifier, const char *member, int line, int col) {
-    char hint[320]; /* both forms, with the names spelled out twice; 160 truncated for ordinary identifiers */
+ * Since C15 this is no longer raised for a field holding a function value: the type checker resolves
+ * `p.member(...)` to that field and calls it, so the advice C9 added here about binding the field to a val
+ * first has been removed again -- it described a workaround that is no longer needed. What is left is the
+ * case this pass can still be sure about: the qualifier is neither an imported module nor a local with a
+ * callable field, so either a free function was meant or a `use` is missing. */
+void ziman_report_unknown_module_call(const char *qualifier, const char *member, int line, int col) {
+    char hint[160];
     if (strcmp(member, "to_string") == 0 || strcmp(member, "toString") == 0 || strcmp(member, "to_str") == 0) {
         snprintf(hint, sizeof hint, "str(%s)", qualifier);
     } else if (strcmp(member, "len") == 0 || strcmp(member, "length") == 0 || strcmp(member, "size") == 0) {
@@ -824,10 +819,7 @@ static void report_unknown_module_call(const char *qualifier, const char *member
     } else if (strcmp(member, "push") == 0 || strcmp(member, "append") == 0) {
         snprintf(hint, sizeof hint, "%s = push(%s, item)", qualifier, qualifier);
     } else {
-        /* Both working forms, because which one applies depends on something this pass cannot see --
-         * whether `member` is a free function or a field of `qualifier` holding a function value. */
-        snprintf(hint, sizeof hint, "%s(%s, ...) -- or, if '%s' is a field holding a function, 'val %s = %s.%s' then '%s(...)'",
-                 member, qualifier, member, member, qualifier, member, member);
+        snprintf(hint, sizeof hint, "%s(%s, ...)", member, qualifier);
     }
     ziman_error("module", line, col,
                 "'%s.%s(...)': '%s' is not an imported module, and Ziman has no methods -- if '%s' is a value, call a function on it instead, e.g. %s "
@@ -866,7 +858,7 @@ static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line
     split_qualified(dotted, &qualifier, &rest);
     UseDecl *u = find_use(ctx->mod, qualifier);
     if (u == NULL) {
-        report_unknown_module_call(qualifier, rest, line, col);
+        ziman_report_unknown_module_call(qualifier, rest, line, col);
     }
     Module *target = find_loaded(ctx->ldr, u->path);
     char *qualified = qualify_name(u->path, rest);
@@ -1083,7 +1075,20 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
             break;
         case EXPR_CALL:
             if (strchr(e->as.call.callee, '.') != NULL) {
-                e->as.call.callee = resolve_function_ref(ctx, e->as.call.callee, e->line, e->col);
+                /* If the qualifier is not a module this file imported, it may still be a local holding a
+                 * struct with a function-typed field (`handler.run(21)`). Only the type checker knows,
+                 * so the call is left exactly as written and marked; check_call either resolves it to a
+                 * field or calls ziman_report_unknown_module_call itself, so the diagnostic is as good
+                 * as it was before this became possible. */
+                char *q, *rest;
+                split_qualified(e->as.call.callee, &q, &rest);
+                if (find_use(ctx->mod, q) == NULL) {
+                    e->as.call.unresolved_qualifier = 1;
+                } else {
+                    e->as.call.callee = resolve_function_ref(ctx, e->as.call.callee, e->line, e->col);
+                }
+                free(q);
+                free(rest);
             }
             for (int i = 0; i < e->as.call.type_args.count; i++) resolve_type_refs(&e->as.call.type_args.items[i], ctx, e->line, e->col);
             for (int i = 0; i < e->as.call.args.count; i++) resolve_expr_refs(e->as.call.args.items[i], ctx);
