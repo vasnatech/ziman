@@ -1,0 +1,14 @@
+fn classify(n: int) -> string {
+    if n < 0 {
+        return "negative"
+    }
+    return "non-negative"
+}
+
+fn never_called() -> int {
+    return 7
+}
+
+fn main() {
+    print(classify(5))
+}

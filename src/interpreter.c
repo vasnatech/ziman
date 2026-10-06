@@ -16,6 +16,7 @@
 #include "decimal.h"
 #include "derive.h"
 #include "env.h"
+#include "coverage.h"
 #include "error.h"
 #include "fmtstr.h"
 #include "gc_boehm_roots.h"
@@ -1855,6 +1856,13 @@ static ExecResult exec_block(Module *module, Env *parent, Stmt *block) {
 static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
     ZIMAN_STACK_CHECK();
     maybe_collect();
+    /* `--coverage` (src/coverage.h): one increment behind a flag that is false for every ordinary
+     * run, so the cost is a branch on a global that the predictor gets right every time. Counted
+     * here rather than per line because this is the one place every statement passes through, and
+     * because it makes the report's denominator exact -- coverage.c reads these counts back off the
+     * same AST it walks to find which lines are executable at all. The flag is read as a global
+     * rather than through an accessor on purpose: see coverage.h. */
+    if (ziman_coverage_on) s->exec_count++;
     switch (s->kind) {
         case STMT_VAL:
         case STMT_VAR: {

@@ -1,0 +1,33 @@
+// Every executable line runs, so the report is 100% and the exit status is 0 -- the half of
+// --coverage that a partial-coverage fixture cannot check. Covers the nesting kinds the AST walk
+// has to descend into: both arms of an if, a while body, and every arm of a switch.
+enum Colour {
+    Red
+    Green
+}
+
+fn name_of(c: Colour) -> string {
+    switch c {
+        Red { return "red" }
+        Green { return "green" }
+    }
+}
+
+fn both_ways(n: int) -> string {
+    if n < 0 {
+        return "negative"
+    }
+    return "non-negative"
+}
+
+fn main() {
+    print(both_ways(-1))
+    print(both_ways(1))
+    print(name_of(Colour.Red))
+    print(name_of(Colour.Green))
+    var i = 0
+    while i < 2 {
+        i = i + 1
+    }
+    print(i)
+}

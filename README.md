@@ -140,7 +140,13 @@ under the column, with a "N errors" line at the end; `--emit-derived` prints the
 instead of running it (today: a `var` that is never reassigned, and `x = concat(x, ..)` / `x = concat_arrays(x, ..)` in a loop, which copies all of `x` on every pass -- use a StringBuilder or ArrayBuilder -- `var` and
 `val` differ by one letter, so it is the typo that silently makes something
 mutable) as `file:line:col: warning: ...`, or JSON with `"severity":"warning"`,
-and exits 1 if there are any; `--fmt file.zm...` prints the source formatted
+and exits 1 if there are any; `--coverage` runs the program and then reports, per file, how many
+lines of your own code executed and which ones did not (`file.zm: 3/5 lines (60%)` and a `not run:`
+list), exiting 1 if any did not -- an executable line is one some statement starts on, so a `}`, a
+blank line and a block's opening brace are never counted against you, and bundled modules and
+`#[derive]`-generated code are left out the same way `--lint` leaves them out; `ziman test
+--coverage file.zm ...` does the same across a whole suite, merging files parsed once per test file
+so a shared helper counts as covered if any test reached it; `--fmt file.zm...` prints the source formatted
 (`--fmt --write` rewrites the files, `--fmt --check` lists the ones that would
 change and exits 1, `--fmt -` reads stdin, `--width=N` sets the wrap column,
 default 120, 0 = never); `--stack-mb=N`, `--thread-stack-mb=N` and `--threads=N` size the thread stacks

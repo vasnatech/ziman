@@ -368,6 +368,15 @@ typedef struct {
 struct Stmt {
     StmtKind kind;
     int line, col;
+    /* `--coverage` only: how many times the interpreter has executed this statement. Counted in
+     * exec_stmt, behind a flag so an ordinary run pays nothing but a well-predicted branch, and
+     * read back by src/coverage.c, which walks the AST afterwards to turn it into per-file line
+     * coverage. Living on the Stmt rather than in a side table is what makes the denominator
+     * exact: the same walk that finds a statement's line is the one that reports whether it ran,
+     * so "executable line" means precisely "line some statement starts on" with nothing to keep
+     * in sync. Zero for every statement in a `calloc`'d Stmt (parser.c), so an un-run program
+     * reports honestly rather than emptily. */
+    long exec_count;
     /* Same resolution as Expr's own `resolved_depth`/`resolved_slot` (see there for the full
      * reasoning, including why a reference crossing a lambda boundary is left at -1) -- for
      * STMT_ASSIGN's `assign.name` and STMT_VALUE_BLOCK's `value_block.name` when its target is

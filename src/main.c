@@ -16,6 +16,7 @@
 #include "native_number.h"
 #include "native_os.h"
 #include "native_thread.h"
+#include "coverage.h"
 #include "error.h"
 #include "interpreter.h"
 #include "loader.h"
@@ -47,6 +48,8 @@ static void usage(FILE *out) {
           "                   (with --check, print {\"ok\":true} on success)\n"
           "  --lint           report style findings (a `var` never reassigned) in your own\n"
           "                   code instead of running it; exit 1 if there are any\n"
+          "  --coverage       run, then report which lines of your own code did not\n"
+          "                   execute; exit 1 if any did not\n"
           "  --lsp            run as a Language Server on stdin/stdout (diagnostics, formatting,\n"
           "                   symbols, go to definition, hover, completion)\n"
           "  -- args...       everything after `--` is the program's own arguments (os.args())\n"
@@ -149,13 +152,13 @@ static void register_all_natives(void) {
 /* Everything `ziman file.zm` does after the options: load, check, and run. It runs on a thread with a stack sized for deep recursion (see stack.h). */
 typedef struct {
     const char *file;
-    int json, lint, check_only;
+    int json, lint, check_only, coverage;
 } RunOptions;
 
 static void *run_program(void *raw) {
     RunOptions *o = raw;
     const char *file = o->file;
-    int json = o->json, lint = o->lint, check_only = o->check_only;
+    int json = o->json, lint = o->lint, check_only = o->check_only, coverage = o->coverage;
     ziman_stack_mark_main();
     ziman_gc_register_thread_roots();
 
@@ -179,7 +182,18 @@ static void *run_program(void *raw) {
         if (json) printf("{\"ok\":true}\n");
         return NULL;
     }
+    /* Enabled before the program runs and reported after it, so the report covers the whole run
+     * including anything a `defer` did on the way out. Reported even when the program fails: what
+     * ran before it failed is exactly what you want to see then. */
+    if (coverage) ziman_coverage_enable();
     interpret(module);
+    if (coverage) {
+        /* Exit 1 when something did not run, the same convention --lint uses for a finding: it
+         * makes `ziman --coverage` usable as a gate without parsing its output. */
+        ziman_coverage_accumulate(module);
+        int uncovered = ziman_coverage_report();
+        exit(uncovered == 0 ? 0 : 1);
+    }
 
     return NULL;
 }
@@ -199,6 +213,7 @@ static const char *base_name(const char *path) {
 typedef struct {
     char **files;
     int n_files;
+    int coverage;
 } TestOptions;
 
 static void *run_tests_program(void *raw) {
@@ -214,18 +229,35 @@ static void *run_tests_program(void *raw) {
         Module *module = load_module_graph(o->files[i], NULL);
         typecheck(module);
         interpret_tests(module, base_name(o->files[i]), &total_run, &total_failed);
+        /* Per file, because each file is its own Module -- ziman_coverage_accumulate merges them by
+         * source file name, so a helper two test files share is reported once and counts as covered
+         * if either file's tests reached it. */
+        if (o->coverage) ziman_coverage_accumulate(module);
     }
     printf("%d passed, %d failed\n", total_run - total_failed, total_failed);
-    exit(total_failed == 0 ? 0 : 1);
+    int uncovered = o->coverage ? ziman_coverage_report() : 0;
+    /* A failing test outranks incomplete coverage in the exit status: the first thing to fix is the
+     * failure, and a caller that only wants the coverage gate can run a passing suite. */
+    exit(total_failed != 0 ? 1 : (uncovered == 0 ? 0 : 1));
 }
 
 static int run_tests_main(int argc, char **argv) {
+    /* Accept --coverage anywhere among the file names and strip it, so `ziman test --coverage a.zm`
+     * and `ziman test a.zm --coverage` both work and neither leaves the flag to be opened as a
+     * source file. */
+    int coverage = 0, n = 0;
+    for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--coverage") == 0) coverage = 1;
+        else argv[n++] = argv[i];
+    }
+    argc = n;
     if (argc == 0) {
-        fprintf(stderr, "usage: ziman test <file.zm> [file2.zm ...]\n");
+        fprintf(stderr, "usage: ziman test [--coverage] <file.zm> [file2.zm ...]\n");
         return 2;
     }
+    if (coverage) ziman_coverage_enable();
     ziman_stack_configure(0, 0, 0);
-    TestOptions options = {argv, argc};
+    TestOptions options = {argv, argc, coverage};
     ziman_run_on_big_stack(run_tests_program, &options);
     return 0;
 }
@@ -245,7 +277,7 @@ int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "test") == 0) {
         return run_tests_main(argc - 2, argv + 2);
     }
-    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, lsp = 0;
+    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, lsp = 0, coverage = 0;
     long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0;
     const char *file = NULL;
     char **files = malloc((size_t)argc * sizeof(char *));
@@ -259,6 +291,7 @@ int main(int argc, char **argv) {
         if (strcmp(a, "--check") == 0) check_only = 1;
         else if (strcmp(a, "--json") == 0) json = 1;
         else if (strcmp(a, "--lint") == 0) lint = 1;
+        else if (strcmp(a, "--coverage") == 0) coverage = 1;
         else if (strcmp(a, "--fmt") == 0) fmt = 1;
         else if (strcmp(a, "--lsp") == 0) lsp = 1;
         else if (strcmp(a, "--write") == 0) fmt_write = 1;
@@ -287,7 +320,7 @@ int main(int argc, char **argv) {
     }
     ziman_set_json_errors(json);
     ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
-    RunOptions options = {file, json, lint, check_only};
+    RunOptions options = {file, json, lint, check_only, coverage};
     ziman_run_on_big_stack(run_program, &options);
     return 0;
 }
