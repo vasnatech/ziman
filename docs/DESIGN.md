@@ -4968,3 +4968,75 @@ Insert is about 6x CPython. **Lookup is the problem**: subtracting insert leaves
 All three reverted; the finding is what is kept. **The cost is the twenty million block visits, not what each one does**, and nothing that shaves the per-visit constant will matter. The fix is to stop the walk being linear: a per-arena index of blocks sorted by address, binary-searched (O(log blocks)), or a one-entry cache of the last block found, since marking walks leaves in an order with real locality. That is a contained change to `arena.c`/`gc_lookup.c` with a benchmark already in place to judge it by, and it is the next thing to try here.
 
 Worth noting what this does *not* say: insert at 6x and the string/array rows at 1.8x/2.8x are ordinary tree-walker overhead. Only the lookup row was pathological, and after the trigger fix what remains of it is one linear scan in the collector rather than anything about maps.
+
+## Three tools that each cost nothing because the interpreter already kept what they needed (2026-10-05)
+
+`--coverage`, `--profile` and `--locals` closed most of F6's tooling half in one day, and the reason
+they were a day's work rather than a project each is that none of them needed new bookkeeping. Every
+one reuses something the interpreter already maintained for an unrelated purpose:
+
+- **`--coverage`** counts into a field on `Stmt`, then walks the AST afterwards to report. The walk
+  is what makes the denominator exact: "executable line" means "a line some statement starts on",
+  which is not a second model of the language that could drift from the interpreter, but a
+  consequence of the same walk that reads whether the statement ran.
+- **`--profile`** samples the frame stack in `error.c` -- maintained unconditionally for error
+  traces, so a SIGPROF handler already has somewhere to look and the call path gains nothing.
+- **`--locals`** reads the `Env` each frame carries. That field exists because a conservative stack
+  scan cannot see into an `Env`'s bindings (docs/MEMORY.md, "the second root source"), so the
+  collector needed it -- and it happens to be exactly what a post-mortem inspector needs. Because
+  `interpreter.c` swaps it to the innermost active scope, nested-block locals come for free.
+
+The general lesson is worth keeping: before building infrastructure for a tool, check what the
+runtime already has to maintain for correctness. Twice here the answer was "all of it".
+
+### Sampling over instrumenting, and why the profile is self time
+
+Instrumenting every call was the obvious design and is the wrong one. Two clock reads cost tens of
+nanoseconds against a call costing a few hundred, so the functions it reports as hottest are the
+ones it slowed down most. Sampling costs one store per sample, a thousand times a second, and errs
+only in the harmless direction -- it needs enough samples to be sure about a small function, and the
+report says so. Self time (innermost frame only) answers "which function do I make faster", which is
+what a profiler is for; inclusive time would need the handler to walk the whole stack per sample.
+
+### Collection gets its own row, because otherwise the profiler lies
+
+A 400k-insert `MapBuilder` loop first reported `build_map` 48.6%, inviting someone to optimise a
+`for` loop containing an add and a call. A flat `perf` profile puts `GC_mark_from` at 27.8%: the
+collector, running inside the loop because that is where the allocation was. Boehm collects from
+inside whatever allocation crossed its threshold, so no call site can bracket it -- that needs
+`GC_set_on_collection_event`. Ziman's own collector is bracketed inside `gc_heap_collect`, and
+deliberately not at `maybe_collect`, which `exec_stmt` calls per statement.
+
+What proved the split was real rather than merely moved: giving Boehm a heap large enough never to
+collect makes the collection row vanish while `build_map`'s absolute sample count barely moves (56
+against 60), so its remaining share is genuinely its own loop and call setup.
+
+### A 4MB static array cost 9% of an unrelated benchmark
+
+The profiler's sample buffer began as `static const char *g_samples[1 << 19]` -- 4MB of BSS in every
+`ziman` binary, profiling or not. It cost 9% on call-heavy code: **+1.9% instructions but +10.4%
+cycles**, IPC down, which is the signature of hot globals being pushed into conflicting cache sets
+rather than of extra work. It is now allocated when profiling starts.
+
+Two confident guesses at the cause were both wrong and both measured: a signal fence on the
+frame-push path, and the calls added to `maybe_collect`. Removing each changed nothing. The fence is
+gone anyway, replaced by a better invariant -- `frames_grow` zeroes every slot it has not handed out,
+so a sampling handler reads a name, NULL, or a valid stale name, but never a torn pointer. Safety
+from the data structure rather than from ordering a hot path, which is why the hot path could stay
+exactly as it was.
+
+The method mattered more than any single number here. An unrelated change of the same source size to
+the same file cost nothing on the same benchmark, which is what ruled out plain code-layout luck and
+made the 9% trustworthy as real. And the final "is it free when off" question -- a sub-1% effect --
+needed fourteen paired rounds to answer (+0.89%, 95% CI -0.44%..+2.22%); two earlier interleaved runs
+of the *same* comparison read +1.6% and -2.0%. Anything measured there with fewer rounds is noise.
+
+### Where each tool writes, and the rule behind it
+
+A tool that does not run the program -- `--check`, `--fmt`, `--lint` -- writes its findings to
+stdout, because they are the entire output. A tool that runs the program and reports alongside it
+should write to stderr, so the program's own stdout stays byte-for-byte what it would have been and
+stays diffable: `ziman --profile prog.zm > data.txt` still yields exactly what the program printed.
+`--profile` and `--locals` follow that; `--coverage` currently does not, and prints its report to
+stdout where it interleaves with the program's own output. That is a known inconsistency, not a
+considered exception.

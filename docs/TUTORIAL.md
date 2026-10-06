@@ -252,7 +252,13 @@ standard library for JSON, files, HTTP, databases, time, crypto and more —
 
 - **`ziman --check file.zm`** type-checks without running; **`ziman --lint
   file.zm`** flags a few common mistakes (an unused `var`, a loop that
-  quadratically rebuilds a string or array); **`ziman --fmt --write file.zm`**
+  quadratically rebuilds a string or array); **`ziman --coverage file.zm`**
+  (or `ziman test --coverage`) reports which of your lines never ran, and
+  exits 1 if any did not; **`ziman --profile file.zm`** reports which
+  functions the time went to, hottest first; **`ziman --locals file.zm`**
+  adds each stack frame's variables and their values to a runtime error's
+  trace, which is usually the fastest way to see what a failure was holding;
+  **`ziman --fmt --write file.zm`**
   formats it.
 - **[docs/SYNTAX.md](SYNTAX.md)** is the normative reference: every construct,
   every builtin, every operator, with the exact rules.
