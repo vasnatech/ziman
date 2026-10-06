@@ -227,7 +227,10 @@ and query parameters.
 pub fn percent_decode(s: string) -> Result<string, DbError>
 ```
 
-Decodes `%XX` escapes in `s`; an Err for a malformed escape or one that yields a NUL byte.
+Decodes `%XX` escapes in `s`; an Err for a malformed escape or one that yields a NUL byte. The loop is
+`url.percent_decode`, shared with `http`; this wraps its message in the `DbError` the rest of this module
+answers with, and says which URL was at fault, which a caller cannot work out from "bad %-escape" alone.
+`+` is a literal plus here: a database URL is not a query string.
 
 ### `url_param`
 

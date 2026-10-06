@@ -58,6 +58,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | Module | What it is |
 |---|---|
 | [`net`](net.md) | Blocking TCP: connect, listen/accept, read, write, close. |
+| [`url`](url.md) | The percent-encoding both `http` and `db` need, in one place. |
 
 ## HTTP
 

@@ -1,0 +1,31 @@
+// `http.percent_decode` and `db.percent_decode` were the same loop twice, differing only in whether `+`
+// counts as a space and in which error type they returned. The algorithm now lives in `url`, below both, so
+// `db` does not have to depend on `http` to borrow a `%XX` loop. Each keeps its own signature: http's for the
+// public API it already exported, db's to answer a DbError naming the URL at fault.
+use url
+use http
+use db
+
+fn main() {
+    // the shared primitive
+    print(unwrap(url.percent_decode("a%20b", false)))
+    print(unwrap(url.percent_decode("a+b", true)))
+    print(unwrap(url.percent_decode("a+b", false)))
+    print(url.percent_encode("a b/c~d", false))
+    print(url.percent_encode("a b", true))
+
+    // http's adapter answers exactly the same thing
+    print(unwrap(http.percent_decode("caf%C3%A9", false)))
+    printf("http and url agree: {}\n", unwrap(http.percent_decode("x%2Fy", true)) == unwrap(url.percent_decode("x%2Fy", true)))
+
+    // db's adapter keeps the plus literal and wraps the message with the URL
+    print(unwrap(db.percent_decode("p%40ss+word")))
+    switch db.percent_decode("bad%ZZ") {
+        Ok(v) { printf("unexpectedly ok: {}\n", v) }
+        Err(e) { print(db.db_error_message(e)) }
+    }
+    switch url.percent_decode("bad%ZZ", false) {
+        Ok(v) { printf("unexpectedly ok: {}\n", v) }
+        Err(m) { print(m) }
+    }
+}

@@ -345,8 +345,9 @@ are not ranked; any positive one counts as acceptance.
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string>
 ```
 
-%XX escapes; `plus_is_space` is for query strings ("a+b" is "a b"
-there, but a literal plus in a path).
+%XX escapes; `plus_is_space` is for query strings ("a+b" is "a b" there, but a literal plus in a path).
+The loop itself is in `url`, shared with `db.percent_decode`, which needed the same algorithm and a
+different error type; these two keep the names this module has always exported.
 
 ### `percent_encode`
 

@@ -21,7 +21,7 @@ GROUPS = [
                                    "number", "math", "bits", "uuid", "regex", "compress", "crypto", "jwt", "otp", "mime"]),
     ("Time", "time", ["time", "zone"]),
     ("System", "core", ["fs", "os", "thread", "log", "random", "clock"]),
-    ("Networking", "core", ["net"]),
+    ("Networking", "core", ["net", "url"]),
     ("HTTP", "http", ["http", "server", "client"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql"]),
     ("Testing", "core", ["test"]),

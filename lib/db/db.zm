@@ -14,6 +14,7 @@
 // as %40, %3A, %2F (a literal `@` in the password also works: the LAST `@` separates userinfo from host).
 
 use number.byte_from_hex
+use url
 
 // ---------------------------------------------------------------- values, rows, errors
 
@@ -176,32 +177,15 @@ fn bad(message: string) -> DbError {
     return DbError.Connection(message)
 }
 
-// Decodes `%XX` escapes in `s`; an Err for a malformed escape or one that yields a NUL byte.
+// Decodes `%XX` escapes in `s`; an Err for a malformed escape or one that yields a NUL byte. The loop is
+// `url.percent_decode`, shared with `http`; this wraps its message in the `DbError` the rest of this module
+// answers with, and says which URL was at fault, which a caller cannot work out from "bad %-escape" alone.
+// `+` is a literal plus here: a database URL is not a query string.
 pub fn percent_decode(s: string) -> Result<string, DbError> {
-    val out = sb_new()
-    var run = 0
-    var i = 0
-    while i < len(s) {
-        if is_char_at(s, i, "%") {
-            if i + 3 > len(s) {
-                return err(bad(concat("bad %-escape in database URL: ", s)))
-            }
-            sb_append(out, substring(s, run, i))
-            val b = byte_from_hex(substring(s, i + 1, i + 3))
-            if !is_ok(b) {
-                return err(bad(concat("bad %-escape in database URL: ", s)))
-            }
-            if !sb_append_byte(out, unwrap(b)) {
-                return err(bad("database URL decodes to text containing a NUL byte"))
-            }
-            i = i + 3
-            run = i
-        } else {
-            i = i + 1
-        }
+    return switch url.percent_decode(s, false) {
+        Ok(decoded) { ok(decoded) }
+        Err(message) { err(bad(format("{} in database URL: {}", message, s))) }
     }
-    sb_append(out, substring(s, run, len(s)))
-    return sb_to_string(out)
 }
 
 // The query parameter `name`, if the URL has it.

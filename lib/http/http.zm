@@ -5,6 +5,7 @@
 use mime
 use number.byte_from_hex
 use number.byte_to_hex
+use url
 
 // True if `s` is a non-empty run of the characters RFC 7230 allows in a "token": letters, digits and
 // ``!#$%&'*+-.^_`|~``. What a header name or a method must be; a space, a colon, a control character
@@ -183,54 +184,16 @@ pub fn accepts(headers: [Header], media: mime.MediaType) -> bool {
     return false
 }
 
-// %XX escapes; `plus_is_space` is for query strings ("a+b" is "a b"
-// there, but a literal plus in a path).
+// %XX escapes; `plus_is_space` is for query strings ("a+b" is "a b" there, but a literal plus in a path).
+// The loop itself is in `url`, shared with `db.percent_decode`, which needed the same algorithm and a
+// different error type; these two keep the names this module has always exported.
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> {
-    val out = sb_new()
-    var run = 0
-    var i = 0
-    while i < len(s) {
-        if is_char_at(s, i, "%") {
-            sb_append(out, substring(s, run, i))
-            if i + 3 > len(s) {
-                return err("truncated %-escape")
-            }
-            val b = byte_from_hex(substring(s, i + 1, i + 3))
-            if Err(_) = b {
-                return err("bad %-escape")
-            }
-            if !sb_append_byte(out, unwrap(b)) {
-                return err("decodes to text containing a NUL byte")
-            }
-            i = i + 3
-            run = i
-        } else if plus_is_space && is_char_at(s, i, "+") {
-            sb_append(out, substring(s, run, i), " ")
-            i = i + 1
-            run = i
-        } else {
-            i = i + 1
-        }
-    }
-    sb_append(out, substring(s, run, len(s)))
-    return ok(sb_to_string(out))
+    return url.percent_decode(s, plus_is_space)
 }
 
 // The inverse of `percent_decode`: every byte except the unreserved characters (letters, digits,
 // `-` `_` `.` `~`) as `%XX` (uppercase hex). With `plus_for_space` a space is written `+` (form and query
 // encoding) instead of `%20`.
 pub fn percent_encode(s: string, plus_for_space: bool) -> string {
-    val out = sb_new()
-    for b in string_to_bytes(s) {
-        val c = b as int
-        val unreserved = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 45 || c == 95 || c == 46 || c == 126
-        if unreserved {
-            sb_append_byte(out, b)
-        } else if c == 32 && plus_for_space {
-            sb_append(out, "+")
-        } else {
-            sb_append(out, "%", to_upper(byte_to_hex(b)))
-        }
-    }
-    return sb_to_string(out)
+    return url.percent_encode(s, plus_for_space)
 }

@@ -31,6 +31,7 @@ flowchart LR
         test["test"]
         thread["thread"]
         toml["toml"]
+        url["url"]
         uuid["uuid"]
         yaml["yaml"]
     end
@@ -70,9 +71,11 @@ flowchart LR
     datasource --> pg
     datasource --> sqlite
     db --> number
+    db --> url
     fs --> os
     http --> mime
     http --> number
+    http --> url
     json --> number
     jwt --> clock
     jwt --> crypto
@@ -117,6 +120,7 @@ flowchart LR
     time --> zone
     toml --> json
     toml --> number
+    url --> number
     uuid --> clock
     uuid --> db
     uuid --> json
@@ -137,10 +141,10 @@ otherwise: everything on a layer depends only on lower layers.
 | Layer | Modules |
 |---|---|
 | 0 | `bits`, `clock`, `collections`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
-| 1 | `crypto`, `db`, `http`, `json`, `os` |
-| 2 | `fs`, `jwt`, `mysql`, `ndjson`, `otp`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml` |
-| 3 | `csv`, `datasource`, `log`, `properties`, `zone` |
-| 4 | `time` |
+| 1 | `crypto`, `json`, `os`, `url` |
+| 2 | `db`, `fs`, `http`, `jwt`, `ndjson`, `otp`, `toml`, `yaml` |
+| 3 | `csv`, `log`, `mysql`, `pg`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
+| 4 | `datasource`, `time` |
 | 5 | `client`, `migrate` |
 
 ## Each module
@@ -155,9 +159,9 @@ otherwise: everything on a layer depends only on lower layers.
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
-| `db` | `number` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
+| `db` | `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `properties`, `zone` |
-| `http` | `mime`, `number` | `client`, `server` |
+| `http` | `mime`, `number`, `url` | `client`, `server` |
 | `json` | `number` | `csv`, `jwt`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `os` | - |
@@ -167,7 +171,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
-| `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `uuid`, `yaml`, `zone` |
+| `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `log`, `migrate`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
@@ -180,6 +184,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `zone` | `client`, `migrate` |
 | `toml` | `json`, `number` | - |
+| `url` | `number` | `db`, `http` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | - |
 | `yaml` | `json`, `number` | - |
 | `zone` | `fs`, `number`, `os` | `time` |
