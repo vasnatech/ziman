@@ -204,6 +204,23 @@ static const NamedImport *find_named_import(SelfQualifyCtx *ctx, const char *nam
  * against. A match against `orig_enum_names` reclassifies the Type to
  * TY_ENUM in the same step it gets qualified, so every later pass only
  * ever sees the correct kind. */
+/* Reclassify a type the parser recorded as `TY_STRUCT` into the `TY_ENUM` it really is -- the
+ * parser cannot tell the two apart from a bare name (see ast.h's Type comment), so several passes
+ * below discover it and have to rewrite the type in place.
+ *
+ * Five places did this with their own copy of the same three assignments, in two different orders.
+ * They are one call now, which is worth it on its own, and worth it twice over because the order
+ * is a latent trap: two of the five wrote `t->enum_name = t->struct_name` *before* clearing
+ * `struct_name`, which is correct only while those two fields have separate storage. An experiment
+ * that unioned them (mutually exclusive by kind, so it looked free) would have silently erased the
+ * name at exactly those two sites -- the experiment was reverted for unrelated reasons, see
+ * docs/DESIGN.md, but the trap it exposed is real and now has only one place to go wrong. */
+static void retype_struct_as_enum(Type *t, char *enum_name) {
+    t->struct_name = NULL;
+    t->enum_name = enum_name;
+    t->kind = TY_ENUM;
+}
+
 static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
     if (t->kind == TY_ARRAY) {
         self_qualify_type(t->elem, ctx);
@@ -245,10 +262,7 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
     }
     for (int i = 0; i < ctx->n_enums; i++) {
         if (strcmp(t->struct_name, ctx->orig_enum_names[i]) == 0) {
-            char *qualified = qualify_name(ctx->own_path, t->struct_name);
-            t->struct_name = NULL;
-            t->enum_name = qualified;
-            t->kind = TY_ENUM;
+            retype_struct_as_enum(t, qualify_name(ctx->own_path, t->struct_name));
             return;
         }
     }
@@ -260,9 +274,7 @@ static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
         }
         imp = find_named_import(ctx, t->struct_name, IMPORT_ENUM);
         if (imp != NULL) {
-            t->struct_name = NULL;
-            t->enum_name = imp->qualified_name;
-            t->kind = TY_ENUM;
+            retype_struct_as_enum(t, imp->qualified_name);
             return;
         }
     }
@@ -913,9 +925,7 @@ static void resolve_type_or_enum_ref(Type *t, CrossRefCtx *ctx, int line, int co
                 ziman_error("module", line, col, "enum '%s' in module '%s' is %s", rest, u->path,
                             visibility_violation_reason(target->enums.items[i]->visibility));
             }
-            t->kind = TY_ENUM;
-            t->struct_name = NULL;
-            t->enum_name = qualified;
+            retype_struct_as_enum(t, qualified);
             free(qualifier);
             free(rest);
             return;
@@ -975,9 +985,7 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
      * is the last point that reliably can for the entry-module case. */
     for (int i = 0; i < ctx->mod->enums.count; i++) {
         if (strcmp(t->struct_name, ctx->mod->enums.items[i]->name) == 0) {
-            t->enum_name = t->struct_name;
-            t->struct_name = NULL;
-            t->kind = TY_ENUM;
+            retype_struct_as_enum(t, t->struct_name);
             return;
         }
     }
@@ -999,9 +1007,7 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
     if (ctx->ldr->prelude_mod != NULL) {
         for (int i = 0; i < ctx->ldr->prelude_mod->enums.count; i++) {
             if (strcmp(t->struct_name, ctx->ldr->prelude_mod->enums.items[i]->name) == 0) {
-                t->enum_name = t->struct_name;
-                t->struct_name = NULL;
-                t->kind = TY_ENUM;
+                retype_struct_as_enum(t, t->struct_name);
                 return;
             }
         }

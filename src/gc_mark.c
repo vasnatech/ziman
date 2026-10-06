@@ -27,7 +27,11 @@ void gc_mark_register_struct_content_marker(const char *type_name,
 }
 
 static void gc_mark_registered_contents(const Arena *a, const Type *t, StructObj *st) {
-    if (t->struct_name == NULL) return;
+    /* Gated on the kind, not only on the name being non-NULL. Today's single caller only ever
+     * passes a TY_STRUCT, so the name check alone happens to be enough -- an implicit contract
+     * worth stating rather than relying on, since what this does on a match is call a registered
+     * marker that assumes `st` really is the struct the name says. */
+    if (t->kind != TY_STRUCT || t->struct_name == NULL) return;
     for (int i = 0; i < g_struct_content_marker_count; i++) {
         if (strcmp(g_struct_content_markers[i].type_name, t->struct_name) == 0) {
             g_struct_content_markers[i].mark_contents(a, st);
