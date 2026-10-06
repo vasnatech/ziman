@@ -343,6 +343,13 @@ for x in seen { ... }                    // a set has one binder
 - **`#[derive(Json)]`** writes `Map<string, V>`/`Map<int, V>` as a JSON object (an int key
   becomes decimal text) and `Set<T>` as an array (duplicates collapse on decode); other key
   types are a derive error. `Row`/`Properties` don't support them.
+- **`NaN` as a key**: a key is matched by an equality that is reflexive on `NaN`, which `==` is
+  not. `nan == nan` is `false` (IEEE, as everywhere else in the language), but a `NaN` stored in a
+  `Map`, `Set` or array is found again by `map_get`/`contains`, and storing it twice keeps one
+  entry -- otherwise a key could never be retrieved, and a `Map<float, _>` would grow without bound
+  while `map_get` returned `None`. `compare(nan, nan)` is `0` and agrees with key lookup. This is the
+  same line Java draws between `==` and `Double.equals`. `-0.0` and `0.0` are one key and `==` also
+  equates them, so nothing differs there.
 - **Names**: `Map`/`Set` are reserved words. `map_get`, `map_keys` (`Set<K>`), `map_values`
   (`[V]`), `set_items` (`[T]`) take their collection's type from the argument -- no type
   arguments written.

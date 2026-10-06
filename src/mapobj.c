@@ -63,7 +63,11 @@ static uint32_t bit_at(uint64_t hash, int depth) {
 }
 
 static int keys_equal(const Leaf *a, uint64_t hash, Value key) {
-    return a->hash == hash && value_equals(a->key, key);
+    /* value_key_equals, not value_equals: a key must be findable again after it is stored, and
+     * IEEE `==` makes that false for NaN -- the leaf would hash to this very slot and then compare
+     * unequal to itself, so the trie would file a second copy no lookup could ever reach. See
+     * value.c's TY_FLOAT case. */
+    return a->hash == hash && value_key_equals(a->key, key);
 }
 
 /* The MapObj wrapper is gc_heap-migrated at all four sites that build one (here, mapobj_set/remove/

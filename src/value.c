@@ -521,7 +521,7 @@ int channel_length(ChannelObj *ch) {
     return n;
 }
 
-int value_equals(Value a, Value b) {
+static int equals_inner(Value a, Value b, int nan_reflexive) {
     ZIMAN_STACK_CHECK();
     /* Callers only compare same-typed values, and only when the type checker
      * (type_supports_equality in typecheck.c) has already established that
@@ -531,7 +531,21 @@ int value_equals(Value a, Value b) {
      * when every payload-carrying variant's payload type is. */
     switch (a.type.kind) {
         case TY_INT: return a.as.i == b.as.i;
-        case TY_FLOAT: return a.as.f == b.as.f;
+        case TY_FLOAT:
+            /* `nan_reflexive` is the whole reason this function is shared. For `==` the answer is
+             * IEEE's: NaN equals nothing, itself included, which is what every float-having language
+             * means by `==` and what docs/SYNTAX.md promises. For a collection key it has to be the
+             * other answer, because a key that is not equal to itself cannot be found again: the
+             * trie files the second NaN as a distinct key (same hash, unequal), so a Set<float> ends
+             * up holding two of them while `contains` denies both, and a Map<float, _> grows without
+             * bound while `map_get` returns None. Java draws the line in exactly this place --
+             * `Double.equals` is reflexive on NaN where `==` is not -- and it is the only way
+             * `compare`, which already answers 0 for two NaNs, can agree with key lookup.
+             *
+             * -0.0 needs no special case: `==` already says it equals 0.0, and value_hash
+             * (interpreter.c) already normalises it so the two hash alike, so both paths agree. */
+            if (nan_reflexive && a.as.f != a.as.f && b.as.f != b.as.f) return 1;
+            return a.as.f == b.as.f;
         case TY_BOOL: return a.as.b == b.as.b;
         case TY_STRING: return a.as.str.len == b.as.str.len && memcmp(a.as.str.ptr, b.as.str.ptr, a.as.str.len) == 0;
         case TY_BIGINT: return bignum_compare(*a.as.bi, *b.as.bi) == 0;
@@ -553,7 +567,7 @@ int value_equals(Value a, Value b) {
                 return memcmp(arr_a->bools, arr_b->bools, (size_t)arr_a->count) == 0;
             }
             for (int i = 0; i < arr_a->count; i++) {
-                if (!value_equals(array_get(arr_a, i), array_get(arr_b, i))) return 0;
+                if (!equals_inner(array_get(arr_a, i), array_get(arr_b, i), nan_reflexive)) return 0;
             }
             return 1;
         }
@@ -566,7 +580,7 @@ int value_equals(Value a, Value b) {
             StructObj *st_a = a.as.st;
             StructObj *st_b = b.as.st;
             for (int i = 0; i < st_a->count; i++) {
-                if (!value_equals(st_a->fields[i], st_b->fields[i])) return 0;
+                if (!equals_inner(st_a->fields[i], st_b->fields[i], nan_reflexive)) return 0;
             }
             return 1;
         }
@@ -577,7 +591,7 @@ int value_equals(Value a, Value b) {
             ResultObj *res_a = a.as.res;
             ResultObj *res_b = b.as.res;
             if (res_a->is_ok != res_b->is_ok) return 0;
-            return value_equals(res_a->value, res_b->value);
+            return equals_inner(res_a->value, res_b->value, nan_reflexive);
         }
         case TY_ENUM: {
             /* Same reasoning as Result: different variants are never
@@ -586,7 +600,7 @@ int value_equals(Value a, Value b) {
             EnumObj *en_b = b.as.en;
             if (strcmp(en_a->variant_name, en_b->variant_name) != 0) return 0;
             if (!en_a->has_payload) return 1;
-            return value_equals(en_a->payload, en_b->payload);
+            return equals_inner(en_a->payload, en_b->payload, nan_reflexive);
         }
         case TY_CHANNEL:
             ziman_error("runtime", 0, 0, "internal error: '=='/'!=' on Channel should have been rejected by the type checker");
@@ -601,7 +615,7 @@ int value_equals(Value a, Value b) {
             for (int i = 0; i < a.as.map->count; i++) {
                 Value other;
                 if (!mapobj_get(b.as.map, keys[i], &other)) return 0;
-                if (is_map && !value_equals(vals[i], other)) return 0;
+                if (is_map && !equals_inner(vals[i], other, nan_reflexive)) return 0;
             }
             return 1;
         }
@@ -614,6 +628,14 @@ int value_equals(Value a, Value b) {
     }
     return 0;
 }
+
+
+/* `==` and `!=`: IEEE semantics, so NaN equals nothing. */
+int value_equals(Value a, Value b) { return equals_inner(a, b, 0); }
+
+/* Equality for a collection key, and for `contains`: as above but reflexive on NaN. See the
+ * TY_FLOAT case for why the two have to differ, and value.h for which callers want which. */
+int value_key_equals(Value a, Value b) { return equals_inner(a, b, 1); }
 
 char *float_shortest_text(double d) {
     if (d != d) return strdup("nan");

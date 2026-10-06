@@ -594,7 +594,10 @@ static Value call_contains(Value first, Value second) {
         return value_bool(memchr(arr->bytes, second.as.by, (size_t)arr->count) != NULL);
     }
     for (int i = 0; i < arr->count; i++) {
-        if (value_equals(array_get(arr, i), second)) return value_bool(1);
+        /* value_key_equals, matching the Map/Set branch a dozen lines up: `contains` is one builtin
+         * and must answer "is this present" the same way whichever container it is given, so a NaN
+         * stored in an array is found exactly as a NaN stored in a Set is. */
+        if (value_key_equals(array_get(arr, i), second)) return value_bool(1);
     }
     return value_bool(0);
 }
@@ -624,9 +627,17 @@ uint64_t value_hash(Value v) {
             h = 0;
             break;
         case TY_FLOAT: {
-            /* -0.0 == 0.0, so they must hash alike. */
-            double f = v.as.f == 0.0 ? 0.0 : v.as.f;
-            memcpy(&h, &f, sizeof(h));
+            /* -0.0 == 0.0, so they must hash alike. Every NaN likewise: value_key_equals treats any
+             * two NaNs as the same key, so they have to reach the same trie slot to be compared at
+             * all, and a double has many NaN encodings (quiet, signalling, any payload, either
+             * sign) that would otherwise hash apart. Canonicalised to one of them rather than to a
+             * made-up constant, so the hash stays a pure function of the value. */
+            if (v.as.f != v.as.f) {
+                h = 0x7ff8000000000000ULL; /* the canonical quiet NaN, written out rather than computed */
+            } else {
+                double f = v.as.f == 0.0 ? 0.0 : v.as.f;
+                memcpy(&h, &f, sizeof(h));
+            }
             break;
         }
         case TY_ARRAY: {

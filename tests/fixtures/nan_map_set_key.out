@@ -1,0 +1,10 @@
+nan == nan: false
+compare(nan, nan): 0
+set: len 1 contains true
+map: len 1 get Some(2)
+zeroes: len 1 (-0.0 == 0.0: true)
+struct key: len 1 get Some(2)
+array key: len 1
+array contains: true
+SetBuilder: len 1 contains true
+eq float/array/struct: false false false

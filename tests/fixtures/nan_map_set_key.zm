@@ -1,0 +1,65 @@
+// A NaN used as a Map/Set key must be findable again. IEEE says NaN equals nothing, itself
+// included, so `==` cannot be what a collection uses to match a key: the second NaN hashes to the
+// same slot, compares unequal to the first, and gets filed as a separate key no lookup can reach --
+// a Set holding two of a value it says it does not contain, and a Map growing without bound while
+// map_get returns None. Collections and `contains` use value_key_equals, which is reflexive on NaN;
+// `==`/`!=` keep IEEE. `compare` already answered 0 for two NaNs and now agrees with key lookup.
+use math
+
+struct P {
+    x: float
+    y: int
+}
+
+fn main() {
+    val n1 = math.sqrt(-1.0)
+    var n2 = 0.0
+    switch parse_float("nan") {
+        Ok(v) { n2 = v }
+        Err(e) { print("unexpected: nan did not parse") }
+    }
+
+    // `==` is unchanged, and compare already agreed with what keys now do
+    printf("nan == nan: {}\n", n1 == n1)
+    printf("compare(nan, nan): {}\n", compare(n1, n2))
+
+    // one key, whichever NaN produced it
+    var s = Set<float> {}
+    s = insert(s, n1)
+    s = insert(s, n2)
+    printf("set: len {} contains {}\n", len(s), contains(s, n2))
+
+    var m = Map<float, int> {}
+    m = set(m, n1, 1)
+    m = set(m, n2, 2)
+    printf("map: len {} get {}\n", len(m), map_get(m, n1))
+
+    // -0.0 and 0.0 were already one key and stay one; `==` still equates them
+    var z = Set<float> {}
+    z = insert(z, 0.0)
+    z = insert(z, -0.0)
+    printf("zeroes: len {} (-0.0 == 0.0: {})\n", len(z), -0.0 == 0.0)
+
+    // nested in a struct key, and in an array key
+    var ms = Map<P, int> {}
+    ms = set(ms, P { x: n1, y: 7 }, 1)
+    ms = set(ms, P { x: n2, y: 7 }, 2)
+    printf("struct key: len {} get {}\n", len(ms), map_get(ms, P { x: n1, y: 7 }))
+
+    var ma = Map<[float], int> {}
+    ma = set(ma, [1.0, n1], 1)
+    ma = set(ma, [1.0, n2], 2)
+    printf("array key: len {}\n", len(ma))
+
+    // one `contains` builtin, one answer, whatever the container
+    printf("array contains: {}\n", contains([1.0, n1, 3.0], n2))
+
+    // the builders share the trie, so they share the fix
+    val sb = setb_new<float>()
+    setb_add<float>(sb, n1)
+    setb_add<float>(sb, n2)
+    printf("SetBuilder: len {} contains {}\n", setb_len<float>(sb), setb_contains<float>(sb, n1))
+
+    // the split must not leak into `==` at any depth
+    printf("eq float/array/struct: {} {} {}\n", n1 == n2, [n1] == [n2], P { x: n1, y: 1 } == P { x: n2, y: 1 })
+}

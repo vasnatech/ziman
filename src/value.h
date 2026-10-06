@@ -315,6 +315,13 @@ void channel_select2(ChannelObj *a, ChannelObj *b, int *out_first, Value *out);
 
 int value_equals(Value a, Value b);
 
+/* Equality as a collection key, and as `contains` asks it: the same comparison value_equals makes
+ * except that NaN equals NaN. Used by mapobj.c's own key lookup and by `contains`, so that a float
+ * key can be found again after it is stored and so that `compare`, which already answers 0 for two
+ * NaNs, agrees with the collections. `==`/`!=` keep value_equals and stay IEEE. See value.c's
+ * TY_FLOAT case for the full reasoning. */
+int value_key_equals(Value a, Value b);
+
 /* Renders a value the way `print` displays it (arrays as `[e1, e2, ...]`,
  * recursively). Returns a heap-allocated, NUL-terminated string owned by
  * the caller. */
