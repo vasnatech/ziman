@@ -4943,3 +4943,28 @@ Building a five-workload comparison against CPython 3.14 -- the honest version o
 **Verified.** `./tests/run_tests.sh` 840/840 on both builds; every `gc_*` unit test (these are the ones that would notice a collection that stops happening, and `test-gc-heap` drives real collect/sweep cycles directly); `make test-pg` 11/11; `make test-mysql` 6/6; the real app's suite in full; `make fmt-check` and `make docs-check` clean. `tests/bench/server_concurrency.sh`, three interleaved paired rounds, is flat to about 1-2% better (c=1 629 against 639 req/s, c=8 984 against 993) -- that backend builds nothing large and long-lived per request, so it was never paying the quadratic.
 
 **Worth keeping in view:** this is the second time in two entries that the honest headline number for "how slow is Ziman" was dominated by something other than the interpreter. The eight-times-CPython figure for calls was real; the four-hundred-times figure for maps was a trigger constant nobody had measured. The remaining gaps in the table below should be read with that in mind -- a bad row is a bug to find, not a property to accept.
+
+## `MapBuilder` against CPython's `dict`: the remaining 15x is `gc_lookup`'s block scan, and three cheap fixes for it do nothing (2026-10-05)
+
+With the quadratic collection trigger fixed, the map row of the CPython comparison is 15x rather than 400x. Breaking it down (best of three, pinned, n = 50k/100k/200k):
+
+| | 50k | 100k | 200k |
+| --- | --- | --- | --- |
+| Ziman, set only | 0.06s | 0.19s | 0.42s |
+| CPython, set only | 0.03s | 0.04s | 0.07s |
+| Ziman, set + get | 0.17s | 0.57s | 1.49s |
+| CPython, set + get | 0.03s | 0.06s | 0.10s |
+
+Insert is about 6x CPython. **Lookup is the problem**: subtracting insert leaves 0.11s / 0.38s / 1.07s for the same number of lookups, which is still growing faster than linearly.
+
+**It is not the map and not the lookup.** `perf` on the 200k case: `arena_block_content` **48.5%**, `gc_lookup` 14.8%, `mapobj_mark_leaves` 8.8%, `arena_next_block` 3.0% -- about two thirds of the run inside `gc_lookup`'s walk, and only 2.6% in `mapobj_get` itself. The shape is: every lookup allocates an `Option` wrapper, that allocation grows the heap, a collection eventually runs, and marking walks all 200,000 leaves (`mapobj_mark_leaves`) calling `gc_lookup` on each -- while `gc_lookup` finds the containing block by **walking the block list linearly**, and a heap grown to this size has a hundred-odd blocks. Two hundred thousand leaves times a hundred blocks is twenty million block visits per collection. The per-block bitmap added earlier made the search *within* a block O(1) and left the search *for* the block linear, which is now the whole cost.
+
+**Three cheap fixes, all measured, none of them anything.** Each looked obvious and each is recorded because the reasoning was wrong in an instructive way:
+
+- **The `strdup` per lookup.** `native_mapb_get` called `type_enum("Option")`, which `strdup`s its argument -- a heap allocation per map lookup purely to spell a constant type's name, on the only two per-operation paths that do it (`mapb_get` and `iter_next`). Replaced with a non-allocating variant for static names. **No measurable change** (0.16/0.56/1.49 against 0.17/0.57/1.49): a seven-byte `GC_MALLOC` is simply not where the time is.
+- **A cheap block reject.** `arena_block_content` derives where a block's content starts from its size, which costs two divisions, and it was being called for every block on every lookup. Added an `arena_block_may_contain` doing two pointer compares first. **No change** (0.17/0.58/1.56) -- the cost is not the arithmetic.
+- **LTO.** If those accessors are cross-translation-unit calls that cannot inline -- the exact thing that made `value_int` 30% of a profile two entries ago -- then `-flto` should fix the category rather than one accessor. It does not: 1.54s against 1.49s, `fib(30)` 0.71s against 0.61s, loop unchanged, suite still 840/840. No win, so not adopted.
+
+All three reverted; the finding is what is kept. **The cost is the twenty million block visits, not what each one does**, and nothing that shaves the per-visit constant will matter. The fix is to stop the walk being linear: a per-arena index of blocks sorted by address, binary-searched (O(log blocks)), or a one-entry cache of the last block found, since marking walks leaves in an order with real locality. That is a contained change to `arena.c`/`gc_lookup.c` with a benchmark already in place to judge it by, and it is the next thing to try here.
+
+Worth noting what this does *not* say: insert at 6x and the string/array rows at 1.8x/2.8x are ordinary tree-walker overhead. Only the lookup row was pathological, and after the trigger fix what remains of it is one linear scan in the collector rather than anything about maps.

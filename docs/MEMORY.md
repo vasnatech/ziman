@@ -1366,3 +1366,25 @@ long-lived per request, so it was never paying this.
 **The lesson, twice in two entries:** the headline "how slow is Ziman" number was dominated by
 something other than the interpreter both times. 8x CPython on calls was real; 400x on maps was an
 unmeasured constant. A bad benchmark row is a bug to find, not a property to accept.
+
+Compared `MapBuilder` to CPython's `dict` properly, now that the quadratic trigger is fixed (15x, not
+400x). Insert is ~6x CPython; **lookup is the problem** -- subtracting insert leaves 0.11/0.38/1.07s
+for 50k/100k/200k lookups, still super-linear.
+
+`perf` says it is not the map: `arena_block_content` **48.5%**, `gc_lookup` 14.8%,
+`mapobj_mark_leaves` 8.8%, and only 2.6% in `mapobj_get`. The shape: each lookup allocates an
+`Option` wrapper -> heap grows -> collection -> marking walks all 200k leaves calling `gc_lookup` ->
+`gc_lookup` finds the containing block by **walking the block list linearly**, and a heap this size
+has ~100 blocks. 200k x 100 = **twenty million block visits per collection**. The per-block bitmap
+from earlier made the search *within* a block O(1) and left the search *for* the block linear.
+
+Three cheap fixes tried, all measured, **none did anything** -- recorded because each looked obvious:
+the `strdup("Option")` per lookup (removed; no change -- a 7-byte GC_MALLOC is not the cost); a
+two-pointer-compare block pre-reject before `arena_block_content`'s two divisions (no change -- not
+the arithmetic); and `-flto`, on the theory that these accessors are un-inlinable cross-TU calls the
+way `value_int` was (no win: 1.54 vs 1.49s, fib 0.71 vs 0.61s; not adopted). All reverted.
+
+The cost is the twenty million *visits*, not what each does, so shaving the per-visit constant cannot
+help. Next thing to try: stop the walk being linear -- a per-arena block index sorted by address and
+binary-searched, or a one-entry last-block-found cache, since marking walks leaves with real
+locality. Contained to arena.c/gc_lookup.c, with the benchmark already in place.
