@@ -556,6 +556,10 @@ static void *spawn_thread_entry(void *raw) {
     ziman_thread_heap_release();
     ziman_gc_unregister_thread_roots();
     ziman_thread_end();
+    /* Last, so this thread stops counting as a possible sender only once it truly cannot send
+     * again -- see value.h. A reader blocked on a channel this thread was going to send on learns
+     * from this that it is waiting for nothing. */
+    ziman_channel_thread_ended();
     free(sa->args);
     free(sa);
     return NULL;
@@ -2052,7 +2056,13 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             sa->col = s->col;
             sa->has_handler = s->as.spawn_stmt.on_error != NULL;
             if (sa->has_handler) sa->handler = value_copy_send(eval_expr(module, env, s->as.spawn_stmt.on_error));
+            /* Counted before the thread exists, not from inside it: a thread counted only once it
+             * starts running is live-but-invisible for a moment, and a reader already blocked on a
+             * channel could declare a deadlock while this one was still starting up. Undone
+             * immediately if the thread cannot be created at all. */
+            ziman_channel_thread_started();
             if (ziman_spawn_thread(spawn_thread_entry, sa) != 0) {
+                ziman_channel_thread_ended();
                 ziman_error("runtime", s->line, s->col, "cannot start a thread (%s)", strerror(errno));
             }
             return no_ctrl();

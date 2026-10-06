@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "value.h"
+#include <errno.h>
 #include "stack.h"
 #include "mapobj.h"
 
@@ -418,11 +419,78 @@ static Value channel_finalize_received(ChannelMsg m) {
     if (!m.needs_receive) return m.value;
     return value_copy_receive(m.value);
 }
+/* ---- deadlock detection ----
+ *
+ * A spawned thread that dies before it sends used to leave its reader blocked in `receive` for ever,
+ * with no output and no exit: tests/fixtures/error_stack_trace_spawned_thread.zm relies on the
+ * harness timeout for exactly that reason and says so in its own comment, and a scratch program from
+ * the 2026-10-05 review was still hung 55 minutes later. The thread's error had already been printed,
+ * so the information was there -- the program simply never ended.
+ *
+ * The test is the one Go uses: if every live thread is blocked on a channel, no thread can ever send,
+ * so no blocked thread can ever wake. Rather than track which channels have which peers -- which
+ * means reference-counting senders per channel, and getting it wrong means either a false deadlock or
+ * the hang back again -- each blocked thread waits with a timeout and re-asks that global question.
+ * A blocked thread is doing nothing anyway, so a wakeup every CHANNEL_DEADLOCK_POLL_MS costs nothing
+ * worth measuring.
+ *
+ * `strikes` requires the condition to hold across two consecutive polls before anything is raised.
+ * The two counters are plain atomics rather than a lock, so a reader can see them mid-update; what
+ * that can produce is a transient false positive, and insisting the answer is the same ~100ms later
+ * removes it without introducing a second lock to order against the channel mutex.
+ *
+ * Only the indefinite waits take part. A thread in `receive_timeout` will wake on its own and may
+ * then send, so it is not blocked in the sense that matters; a thread computing, sleeping or in a
+ * syscall is live and not blocked, which makes this conservative -- it reports a deadlock only when
+ * every thread really is waiting on a channel. */
+#define CHANNEL_DEADLOCK_POLL_MS 100
+
+static int g_live_threads = 1; /* the main thread; spawned ones are counted by the interpreter */
+static int g_blocked_threads = 0;
+
+void ziman_channel_thread_started(void) { __atomic_fetch_add(&g_live_threads, 1, __ATOMIC_RELAXED); }
+void ziman_channel_thread_ended(void) { __atomic_fetch_sub(&g_live_threads, 1, __ATOMIC_RELAXED); }
+
+/* Waits on `cond` for up to one poll interval, with ch->mutex held. Returns 1 when every live thread
+ * has been blocked on a channel for two consecutive polls. */
+static int wait_or_deadlock(ChannelObj *ch, pthread_cond_t *cond, int *strikes) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_nsec += (long)CHANNEL_DEADLOCK_POLL_MS * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000L;
+    }
+    int rc = pthread_cond_timedwait(cond, &ch->mutex, &deadline);
+    if (rc != ETIMEDOUT) { *strikes = 0; return 0; }
+    int live = __atomic_load_n(&g_live_threads, __ATOMIC_RELAXED);
+    int blocked = __atomic_load_n(&g_blocked_threads, __ATOMIC_RELAXED);
+    if (blocked >= live && live > 0) (*strikes)++;
+    else *strikes = 0;
+    return *strikes >= 2;
+}
+
+static void report_deadlock(void) {
+    ziman_error("runtime", 0, 0,
+                "deadlock: every thread is blocked on a channel, so nothing can ever send "
+                "(a spawned thread that was going to send may have ended -- any error it printed is above)");
+}
+
 
 int channel_send(ChannelObj *ch, Value v, int needs_receive) {
     pthread_mutex_lock(&ch->mutex);
-    while (!ch->closed && ch->limit > 0 && ch->count >= ch->limit) {
-        pthread_cond_wait(&ch->not_full, &ch->mutex);
+    if (!ch->closed && ch->limit > 0 && ch->count >= ch->limit) {
+        int strikes = 0;
+        __atomic_fetch_add(&g_blocked_threads, 1, __ATOMIC_RELAXED);
+        while (!ch->closed && ch->limit > 0 && ch->count >= ch->limit) {
+            if (wait_or_deadlock(ch, &ch->not_full, &strikes)) {
+                __atomic_fetch_sub(&g_blocked_threads, 1, __ATOMIC_RELAXED);
+                pthread_mutex_unlock(&ch->mutex);
+                report_deadlock();
+                return 0;
+            }
+        }
+        __atomic_fetch_sub(&g_blocked_threads, 1, __ATOMIC_RELAXED);
     }
     if (ch->closed) {
         pthread_mutex_unlock(&ch->mutex);
@@ -450,8 +518,18 @@ int channel_try_send_status(ChannelObj *ch, Value v, int needs_receive) {
 
 int channel_receive(ChannelObj *ch, Value *out) {
     pthread_mutex_lock(&ch->mutex);
-    while (ch->count == 0 && !ch->closed) {
-        pthread_cond_wait(&ch->not_empty, &ch->mutex);
+    if (ch->count == 0 && !ch->closed) {
+        int strikes = 0;
+        __atomic_fetch_add(&g_blocked_threads, 1, __ATOMIC_RELAXED);
+        while (ch->count == 0 && !ch->closed) {
+            if (wait_or_deadlock(ch, &ch->not_empty, &strikes)) {
+                __atomic_fetch_sub(&g_blocked_threads, 1, __ATOMIC_RELAXED);
+                pthread_mutex_unlock(&ch->mutex); /* before raising: ziman_error may longjmp to a thread boundary */
+                report_deadlock();
+                return 0;
+            }
+        }
+        __atomic_fetch_sub(&g_blocked_threads, 1, __ATOMIC_RELAXED);
     }
     if (ch->count == 0) {
         pthread_mutex_unlock(&ch->mutex);

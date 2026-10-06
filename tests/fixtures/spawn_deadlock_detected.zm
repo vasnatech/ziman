@@ -1,0 +1,19 @@
+// A spawned thread that dies before it sends used to leave its reader blocked in `receive` for ever:
+// no output, no exit, and the thread's own error already printed above with nothing to connect it to
+// the silence. The test is the one Go uses -- if every live thread is blocked on a channel then
+// nothing can ever send, so no blocked thread can ever wake -- and it is reported rather than waited
+// out. Note the order of the two errors: the worker's failure is printed first, then the reason main
+// cannot continue, which is the pair a reader needs.
+fn divide(n: int) -> int {
+    return 100 / n
+}
+
+fn worker(out: Channel<int>) {
+    send(out, divide(0))
+}
+
+fn main() {
+    val ch: Channel<int> = channel_new()
+    spawn worker(ch)
+    printf("received {}\n", receive(ch))
+}

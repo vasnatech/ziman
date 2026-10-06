@@ -2165,7 +2165,13 @@ fn main() {
   failure end the whole program like a main-thread one. `server.serve` uses this per connection:
   a crashing handler gets a 500, its slot and socket release, and the server continues. Nothing
   but the defers runs -- a lock a native held at the moment of the error stays held (none of the
-  library's natives hold one across a possible error).
+  library's natives hold one across a possible error). If that thread was the only one that could
+  have sent on a channel someone is blocked reading, the reader does not wait for ever: when every
+  live thread is blocked on a channel, nothing can ever send, and that is reported as a runtime
+  error (`deadlock: every thread is blocked on a channel ...`) on each blocked thread. The failed
+  thread's own error is printed first, so the two together say what happened and why the program
+  stopped. A thread that is computing, sleeping or in a syscall counts as live, so this fires only
+  when every thread really is waiting on a channel.
 - **`thread` module**: `thread.id()` (0 for main, then 1, 2, ... in start order), `thread.name()`
   (`main` or `<function>-<id>`; `set_name` renames), `is_main()`, `stack_remaining()` (bytes
   before "stack depth exceeded"). No join or thread handle. `thread.ThreadLocal<T>` is a

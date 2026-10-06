@@ -1,0 +1,1 @@
+deadlock: every thread is blocked on a channel, so nothing can ever send

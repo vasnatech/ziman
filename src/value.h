@@ -303,6 +303,16 @@ int channel_length(ChannelObj *ch);
  * Wakes every blocked send/receive so none of them wait forever for something that will never
  * come. */
 void channel_close(ChannelObj *ch);
+
+/* Counts the threads that could still send on a channel, so that a thread blocked in `receive` can
+ * tell the difference between "nobody has sent yet" and "nobody ever will". The interpreter calls
+ * these around a `spawn`: started before pthread_create, so a thread is counted before it can run
+ * (counting it from inside the new thread would leave a window in which it is live but invisible, and
+ * a deadlock would be declared while it was still starting up), and ended on the thread's way out as
+ * well as when pthread_create itself fails. The main thread is counted from the start. See value.c's
+ * deadlock-detection comment. */
+void ziman_channel_thread_started(void);
+void ziman_channel_thread_ended(void);
 /* Waits on two channels of possibly different element types at once, whichever gets a value
  * first: *out_first is set to 1 for `a`, 0 for `b`, and *out to the value. Built by polling both
  * with channel_try_receive and a short sleep between rounds -- Ziman's channels are plain
