@@ -1329,3 +1329,40 @@ Next, now justified rather than speculative: interning `Type` so `Value.type` is
 take `Value` 80 -> ~24 bytes. The copy cost is demonstrably real and large, which is the evidence
 that refactor needed -- but it is hundreds of `.`-to-`->` edits, and the union result is a standing
 warning that a smaller struct is not automatically faster code. Prototype and measure first.
+
+Set out to build an honest Ziman-vs-CPython comparison table (five workloads, not F2's single loop)
+and one row came back at **26.6s against CPython's 0.06s** -- 200k `MapBuilder` inserts plus 200k
+lookups. Four hundred times is not a tree-walker gap, it is a bug.
+
+**Not the map.** Scaling was quadratic (12.5k/25k/50k: 0.02/0.09/0.43s) but every layer of the map
+is the right complexity -- `node_insert_mut` is a plain HAMT insert, O(log32 n), and the layers above
+it add nothing. **It was `ZIMAN_GC_TRIGGER_BYTES`**, a flat 64KB of heap growth between collections,
+whose own comment already said it was "an arbitrary, unmeasured starting point ... not to be a
+considered performance choice". With one large live structure that makes the number of collections
+proportional to the heap while each collection marks everything live: O(n) work, O(n) times.
+Confirmed by raising it 100x as an experiment -- 100k inserts 1.25s -> 0.08s, curve straight.
+
+Fix is to scale the threshold, not raise the constant (which only moves the cliff and spends memory
+everywhere): `max(64KB floor, reserved/2)`, so each collection buys proportional headroom --
+O(log n) collections, O(n) total work.
+
+  MapBuilder 25k/50k/100k    0.03/0.18/1.25s -> 0.01/0.03/0.12s
+  200k insert + 200k lookup  26.76s -> 0.81s   (33x)
+  build-60k-and-drop x12     3.47s  -> 0.45s   (7.7x)
+
+**Memory cost, measured because collecting less often is a trade:** +27% peak RSS on the
+monotonically-growing map (98.9 -> 125.7MB); only +6.5% on grow-then-drop (55.2 -> 58.8MB) and
+*bounded, not ratcheting*, because the threshold derives from reserved-at-last-collect, which shrinks
+when `gc_heap_sweep` reclaims blocks -- so the trigger tightens as soon as the heap does; unchanged
+(~41MB) on steady-state string churn. The README's "backend stays around 40MB" claim is intact.
+
+Also found: `tests/bench/server_load.sh` does not run in this environment at all (its server dies at
+startup) and fails identically on the pre-change binary -- pre-existing, its own small task, and the
+one tool that would have measured the server's memory directly.
+
+Real app throughput flat to +1-2% (three interleaved rounds) -- that backend builds nothing large and
+long-lived per request, so it was never paying this.
+
+**The lesson, twice in two entries:** the headline "how slow is Ziman" number was dominated by
+something other than the interpreter both times. 8x CPython on calls was real; 400x on maps was an
+unmeasured constant. A bad benchmark row is a bug to find, not a property to accept.
