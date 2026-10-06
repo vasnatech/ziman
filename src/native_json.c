@@ -15,6 +15,7 @@
 #include "iter.h"
 #include "mapobj.h"
 #include "native.h"
+#include "utf8.h"
 
 /* The `json` core module's parser and serializer, natively: json.parse_native(text, proto,
  * number_proto, strict, exact) and json.to_string_native(value). `proto` is any Json value and
@@ -494,23 +495,58 @@ static void out_put(Out *o, const char *s, size_t n) {
 
 static void out_str(Out *o, const char *s) { out_put(o, s, strlen(s)); }
 
+/* Every byte above the ASCII range is checked as part of a UTF-8 sequence rather than copied
+ * through, and an invalid one becomes U+FFFD. JSON is defined over Unicode text, so a document
+ * containing a byte that is not valid UTF-8 is not JSON -- and the bug this closes was not that the
+ * output was rejected, it was that it was rejected *elsewhere*: `substring` cuts on byte positions
+ * (documented), so splitting a two-byte character and encoding the half produced a document
+ * Python's `json` refused to decode while this module's own `parse_json` accepted it. Any test
+ * written in Ziman therefore passed and the client failed, which is the one shape of defect a
+ * fixture cannot catch.
+ *
+ * Substituting rather than failing is deliberate. The alternative is for every encoder, and the
+ * derived `*_to_json` of every struct, to start returning a Result for an input the caller usually
+ * cannot do anything about -- and lossy-but-well-formed is what encoders and browsers already do
+ * with a malformed sequence. The guarantee worth having at a boundary is that what leaves is always
+ * valid UTF-8; U+FFFD is the character Unicode reserves for saying "something was here and it was
+ * not text".
+ *
+ * Note where the invalid text can come from, because it is not from `bytes_to_string` -- that one
+ * already refuses, returning `Err("bytes are not valid UTF-8 ...")`. It comes from `substring`,
+ * `char_at` and `index_of`, which work on byte positions by design (docs/lib/prelude.md says so),
+ * so splitting a multi-byte character is a documented possibility and the resulting string is a
+ * perfectly ordinary value that flows anywhere a string does. */
 static void put_json_string(Out *o, const char *s, size_t n) {
     static const char hex[] = "0123456789abcdef";
     out_put(o, "\"", 1);
-    for (size_t i = 0; i < n; i++) {
+    size_t i = 0;
+    while (i < n) {
         unsigned char c = (unsigned char)s[i];
-        switch (c) {
-            case '"': out_str(o, "\\\""); break;
-            case '\\': out_str(o, "\\\\"); break;
-            case '\n': out_str(o, "\\n"); break;
-            case '\t': out_str(o, "\\t"); break;
-            case '\r': out_str(o, "\\r"); break;
-            case '\b': out_str(o, "\\b"); break;
-            case '\f': out_str(o, "\\f"); break;
-            default:
-                if (c < 0x20) { char e[7] = {'\\', 'u', '0', '0', hex[c >> 4], hex[c & 15], 0}; out_put(o, e, 6); }
-                else out_put(o, s + i, 1);
+        if (c < 0x80) {
+            switch (c) {
+                case '"': out_str(o, "\\\""); break;
+                case '\\': out_str(o, "\\\\"); break;
+                case '\n': out_str(o, "\\n"); break;
+                case '\t': out_str(o, "\\t"); break;
+                case '\r': out_str(o, "\\r"); break;
+                case '\b': out_str(o, "\\b"); break;
+                case '\f': out_str(o, "\\f"); break;
+                default:
+                    if (c < 0x20) { char e[7] = {'\\', 'u', '0', '0', hex[c >> 4], hex[c & 15], 0}; out_put(o, e, 6); }
+                    else out_put(o, s + i, 1);
+            }
+            i++;
+            continue;
         }
+        uint32_t cp;
+        int seq = ziman_utf8_decode_strict((const uint8_t *)s, n, i, &cp);
+        if (seq == 0) {
+            out_str(o, "\xEF\xBF\xBD"); /* U+FFFD REPLACEMENT CHARACTER */
+            i++;                        /* resynchronise one byte at a time, as decoders do */
+            continue;
+        }
+        out_put(o, s + i, (size_t)seq);
+        i += (size_t)seq;
     }
     out_put(o, "\"", 1);
 }

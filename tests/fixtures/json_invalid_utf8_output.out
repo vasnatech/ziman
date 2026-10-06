@@ -1,0 +1,9 @@
+"café 日本語"
+"a\tb\nc"
+"�"
+"��"
+"日"
+"��"
+"😀"
+{"text":"caf�"}
+bytes_to_string: bytes are not valid UTF-8 (invalid sequence at byte 1)

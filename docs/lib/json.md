@@ -197,7 +197,10 @@ pub fn json_to_string(j: Json) -> string
 with the fewest digits that read back as the same number (`0.1`, `1e+20`); NaN and infinity,
 which JSON cannot represent, are written as `null`. A bigint is written as its digits and a
 decimal as its digits at its own scale (`19.90`). Control characters in strings are
-escaped (`\b \f \n \r \t`, else `\u00XX`); everything else, including non-ASCII, is written as is.
+escaped (`\b \f \n \r \t`, else `\u00XX`); valid non-ASCII is written as is. A byte sequence that
+is not valid UTF-8 -- which `substring`, `char_at` and `index_of` can produce, since they work on
+byte positions -- is replaced by U+FFFD rather than copied through, so the output is always valid
+UTF-8 and so always parses elsewhere.
 
 ## Reading a tree
 
