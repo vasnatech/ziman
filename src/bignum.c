@@ -57,13 +57,50 @@ static uint32_t *mag_sub(const uint32_t *a, int na, const uint32_t *b, int nb, i
     return out;
 }
 
+/* How many limbs of scratch the magnitude helpers below keep on the stack before falling back to
+ * an allocation. 64 limbs is 576 decimal digits -- far past every `decimal` value this language can
+ * hold, and past any integer an ordinary program multiplies. */
+#define MAG_SCRATCH_LIMBS 64
+
+/* `limb * b`, written into caller-provided `out` (which must have room for `nb + 1` limbs) and
+ * returning the trimmed limb count -- the allocation-free form of `mag_mul` for the one shape that
+ * dominates division. `mag_divmod`'s binary search below computes exactly this product once per
+ * bisection step, about thirty times per dividend limb, and each `mag_mul` call cost two
+ * allocations to materialise a result read once and thrown away. Semantics match
+ * `mag_mul(&limb, limb == 0 ? 0 : 1, b, nb, ...)` exactly, including the zero case's count of 0.
+ * Limbs above the returned count are left as they were: every reader here (`mag_compare`,
+ * `mag_sub`) is bounded by the count, which is what makes one buffer reusable across probes. */
+static int mag_mul_limb(uint32_t *out, const uint32_t *b, int nb, uint32_t limb) {
+    if (limb == 0 || nb == 0) return 0;
+    uint64_t carry = 0;
+    for (int j = 0; j < nb; j++) {
+        uint64_t cur = (uint64_t)limb * (uint64_t)b[j] + carry;
+        out[j] = (uint32_t)(cur % BIGNUM_BASE);
+        carry = cur / BIGNUM_BASE;
+    }
+    int count = nb;
+    while (carry > 0) {
+        out[count++] = (uint32_t)(carry % BIGNUM_BASE);
+        carry /= BIGNUM_BASE;
+    }
+    mag_trim(out, &count);
+    return count;
+}
+
 static uint32_t *mag_mul(const uint32_t *a, int na, const uint32_t *b, int nb, int *out_count) {
     if (na == 0 || nb == 0) {
         *out_count = 0;
         return calloc(1, sizeof(uint32_t));
     }
     int n = na + nb;
-    uint64_t *acc = calloc((size_t)n, sizeof(uint64_t));
+    /* The accumulator is pure scratch -- copied into `out` and dropped -- so it comes off the stack
+     * whenever it fits. That matters more than it looks: `free` is a no-op in a collector build
+     * (zgc.h), so every multiply used to hand Boehm one more block to sweep for nothing. The cap
+     * covers any product up to MAG_SCRATCH_LIMBS*9 decimal digits, which is every `decimal` this
+     * language has and all but enormous integers; anything larger still allocates. */
+    uint64_t scratch[MAG_SCRATCH_LIMBS];
+    uint64_t *acc = n <= MAG_SCRATCH_LIMBS ? scratch : calloc((size_t)n, sizeof(uint64_t));
+    if (acc == scratch) memset(acc, 0, (size_t)n * sizeof(uint64_t));
     for (int i = 0; i < na; i++) {
         if (a[i] == 0) continue;
         uint64_t carry = 0;
@@ -83,7 +120,7 @@ static uint32_t *mag_mul(const uint32_t *a, int na, const uint32_t *b, int nb, i
     }
     uint32_t *out = calloc((size_t)n, sizeof(uint32_t));
     for (int i = 0; i < n; i++) out[i] = (uint32_t)acc[i];
-    free(acc);
+    if (acc != scratch) free(acc);
     int count = n;
     mag_trim(out, &count);
     *out_count = count;
@@ -104,6 +141,12 @@ static void mag_divmod(const uint32_t *a, int na, const uint32_t *b, int nb,
     uint32_t *rem = calloc(1, sizeof(uint32_t));
     int rem_count = 0;
 
+    /* One product buffer for the whole division, reused by every bisection probe and by the
+     * subtract below -- see mag_mul_limb for what this replaced. `nb + 1` is the most limbs a
+     * single-limb product can have; the extra limb keeps mag_mul_limb's carry loop in bounds. */
+    uint32_t prod_stack[MAG_SCRATCH_LIMBS];
+    uint32_t *prod = nb + 2 <= MAG_SCRATCH_LIMBS ? prod_stack : calloc((size_t)nb + 2, sizeof(uint32_t));
+
     for (int i = na - 1; i >= 0; i--) {
         uint32_t *shifted = calloc((size_t)(rem_count + 1), sizeof(uint32_t));
         shifted[0] = a[i];
@@ -116,11 +159,8 @@ static void mag_divmod(const uint32_t *a, int na, const uint32_t *b, int nb,
         int64_t lo = 0, hi = BIGNUM_BASE - 1, q = 0;
         while (lo <= hi) {
             int64_t mid = lo + (hi - lo) / 2;
-            uint32_t mid_limb = (uint32_t)mid;
-            int prod_count;
-            uint32_t *prod = mag_mul(&mid_limb, mid == 0 ? 0 : 1, b, nb, &prod_count);
+            int prod_count = mag_mul_limb(prod, b, nb, (uint32_t)mid);
             int cmp = mag_compare(prod, prod_count, rem, rem_count);
-            free(prod);
             if (cmp <= 0) {
                 q = mid;
                 lo = mid + 1;
@@ -131,18 +171,16 @@ static void mag_divmod(const uint32_t *a, int na, const uint32_t *b, int nb,
         quot[i] = (uint32_t)q;
 
         if (q > 0) {
-            uint32_t q_limb = (uint32_t)q;
-            int prod_count;
-            uint32_t *prod = mag_mul(&q_limb, 1, b, nb, &prod_count);
+            int prod_count = mag_mul_limb(prod, b, nb, (uint32_t)q);
             int new_rem_count;
             uint32_t *diff = mag_sub(rem, rem_count, prod, prod_count, &new_rem_count);
-            free(prod);
             free(rem);
             rem = diff;
             rem_count = new_rem_count;
         }
     }
 
+    if (prod != prod_stack) free(prod);
     int quot_count = na;
     mag_trim(quot, &quot_count);
     *out_quot = quot;

@@ -1205,3 +1205,43 @@ earlier in this investigation -- never trust a single non-interleaved pair from 
 
 `GC_mark_from` is now 46% of that profile (was 37.7%) purely because the denominator shrank. That is
 the next thing in front of anyone profiling this interpreter.
+
+Chased `GC_mark_from`'s 46% and it is **irreducible** -- worth recording as a negative result.
+`ziman_arena_push_scanned_roots` hands Boehm the thread's whole `gc_heap` as a conservative root
+range: measured at **~16 MiB per collection, 187 MiB in a 0.65s `csv_extended` run**. A heap census
+shows that is real live data, not garbage -- the heap goes from 0.5 MiB to **57 MiB live / 403,336
+objects** parsing a deliberately-large 20,000-row CSV into JSON, about ten objects per cell, which
+is just what boxed immutable JSON costs. Also `atomic 0 KiB`: no pointer-free objects in the gc_heap
+to exclude. So it is two collectors walking one big live graph, and Boehm must see inside those
+objects (disguised native handles, pointers to still-`GC_MALLOC`'d kinds).
+
+Three fixes ruled out with evidence, not argument: `GC_FREE_SPACE_DIVISOR` (swept 1-24, **13
+collections at every setting** -- they are expansion-driven, and higher is strictly slower);
+atomic-tagging gc_heap blocks (there are none); pushing live objects individually (140k-400k
+`GC_push_all` calls against a 4096-entry mark stack = the livelock from two entries ago). This cost
+goes away only by finishing the migration (strings, Env, closures, MapNode) until the arena needn't
+be pushed at all. That is the remaining program, not a change.
+
+**The win was elsewhere.** A decimal-heavy loop spends *nothing* in marking and **~42% in Boehm
+allocation** (`GC_build_fl` 19.8 + `GC_malloc_kind` 14.7 + `GC_allochblk_nth` 7.4). Cause: in
+`bignum.c`, `mag_divmod` finds each quotient limb by binary search over `[0, 1e9)` -- ~30 steps --
+and every step called `mag_mul` to materialise `mid_limb * divisor` into two fresh `calloc`'d
+arrays, read once and dropped. ~60 allocations per dividend limb for a product needing none. New
+`mag_mul_limb` writes it into a caller buffer; `mag_divmod` now keeps **one** buffer per division
+(on the stack when it fits) for all probes plus the final subtract. `mag_mul`'s scratch accumulator
+moved to the stack too -- it is pure scratch, and `free` is a no-op in a collector build.
+
+**Trap avoided by measuring first:** the obvious fix looked like `zalloc_atomic` for digit arrays
+(`uint32_t`, never pointers). That would have been a straight bug -- it maps to `GC_MALLOC_ATOMIC`,
+which does **not** zero, and every site is `calloc` because the algorithms need zeroed limbs. The
+profile said allocation *volume*, not scan volume.
+
+Results: decimal loop **1.18s -> 0.37s (3.2x)**, RSS flat; Boehm allocation 42% -> 4.3%;
+`mag_mul_limb` now 45.8%, i.e. the arithmetic itself is on top where it belongs.
+
+Verified with a real differential test, which this kind of change earns: both binaries kept, and
+`tests/fixtures/bignum_mul_divmod_wide.zm` (238 lines of bigint/decimal mul, div and rem up to ~90
+digits, 40 divisor sizes) gave **byte-identical output from the pre- and post-change binaries** --
+that output is what the `.out` now locks in. Plus suite **835/835 both builds**, test-bignum,
+test-decimal, nine gc_* tests, test-pg 11/11, test-mysql 6/6 (both drivers decode numerics through
+this), real app suite, fmt-check, valgrind 0 bytes lost.

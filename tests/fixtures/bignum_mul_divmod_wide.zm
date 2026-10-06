@@ -1,0 +1,36 @@
+// Multiply, divide and remainder across many magnitudes and limb counts, with every intermediate
+// printed -- a golden-output check on the magnitude helpers in src/bignum.c, written when
+// mag_divmod's binary search stopped materialising its probe products through mag_mul and started
+// computing them in place (mag_mul_limb). Every line here was confirmed byte-identical to the
+// previous implementation's before being recorded, so a future change to that arithmetic that
+// alters any result anywhere in this range fails here rather than silently.
+fn main() {
+    var b = 1n
+    var i = 0
+    while i < 60 {
+        b = b * 987654321987654321n + 12345678901234567n
+        print(str(b))
+        i = i + 1
+    }
+    var d = b
+    var k = 0
+    while k < 60 {
+        d = d / 1000000007n
+        print(str(d))
+        k = k + 1
+    }
+    for j in 1..40 {
+        val divisor = (j as bigint) * 999999937n
+        printf("{} {}\n", str(b / divisor), str(b % divisor))
+    }
+    var dec = 1.000000001d
+    var m = 0
+    while m < 50 {
+        dec = dec * 123456789.987654321d
+        print(str(dec))
+        m = m + 1
+    }
+    for j in 1..30 {
+        printf("{}\n", str(dec / ((j as decimal) + 0.00000001d)))
+    }
+}
