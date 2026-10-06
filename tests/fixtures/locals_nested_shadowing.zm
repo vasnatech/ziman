@@ -1,0 +1,21 @@
+// --locals shows each frame's variables under its trace line. This pins the parts with real
+// semantics behind them: variables declared in nested blocks are visible (the frame's env is the
+// innermost active scope, not just the function's top level), innermost scope comes first, a name
+// shadowed by an inner block is shown once as the inner binding that was actually live, a string is
+// quoted so it cannot be confused with a number, and a long value is truncated rather than burying
+// everything else.
+fn deep(limit: int) -> int {
+    val name = "the outer one, which must not appear"
+    var big: [int] = []
+    for i in 0..60 { big = concat_arrays(big, [i]) }
+    if limit > 0 {
+        val name = "the inner one, which must appear"
+        val note = "only in the if-block"
+        return big[999]
+    }
+    return 0
+}
+
+fn main() {
+    print(deep(1))
+}

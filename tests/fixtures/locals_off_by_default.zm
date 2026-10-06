@@ -1,0 +1,11 @@
+// Without --locals the trace is exactly what it was before the feature existed: no values, and no
+// blank heading where they would go. The renderer is a NULL function pointer until --locals
+// installs one, so this is what every ordinary run gets.
+fn boom(xs: [int]) -> int {
+    val secret = "must not be printed"
+    return xs[9]
+}
+
+fn main() {
+    print(boom([1, 2]))
+}

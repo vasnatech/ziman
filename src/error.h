@@ -88,6 +88,13 @@ void ziman_set_frame_env(void *env);
  * associated with frame `i` (0 = outermost, ziman_frame_count() - 1 = innermost, matching
  * ziman_push_frame's own append order -- though a root walk needs every frame regardless of order),
  * or NULL for a native call's frame or one nothing has set it for yet. */
+/* --locals (src/locals.h): renders one frame's variables, given the `void *` env that frame carries,
+ * as lines to append under its trace line -- or NULL for a frame with nothing to show. Malloc'd;
+ * build_trace frees it. NULL until installed, which is what keeps the feature free when unused:
+ * error.c deliberately knows nothing about Env or Value, so the rendering lives in locals.c and
+ * arrives through here. */
+void ziman_set_locals_renderer(char *(*fn)(void *env));
+
 int ziman_frame_count(void);
 /* The innermost Ziman function name on this thread, NULL when none -- signal-handler safe, see
  * error.c. Used by --profile's sampler (src/profile.c). */

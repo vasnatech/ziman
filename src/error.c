@@ -281,6 +281,12 @@ int ziman_frames_root_ranges(ZimanFramesRootAddrs addrs, ZimanMemRange *out_rang
  * onto whatever came before and after -- empty ("") when there are no frames (a fatal
  * error before any Ziman function ran, such as the stack-depth guard tripping before
  * main). Malloc'd; the caller frees it. */
+/* NULL unless --locals installed one; see error.h. Not per-thread: it is set once before the
+ * program runs and only ever read. */
+static char *(*g_locals_renderer)(void *env) = NULL;
+
+void ziman_set_locals_renderer(char *(*fn)(void *env)) { g_locals_renderer = fn; }
+
 static char *build_trace(void) {
     size_t room = 1;
     char *trace = malloc(room);
@@ -301,6 +307,23 @@ static char *build_trace(void) {
         free(trace);
         trace = grown;
         room += add;
+
+        /* --locals: this frame's variables, as further lines under the one just added. Skipped
+         * entirely -- not even a heading -- when no renderer is installed, when the frame carries no
+         * env (a native has none), or when the frame has nothing in scope worth showing. */
+        if (g_locals_renderer != NULL && f->env != NULL) {
+            char *locals = g_locals_renderer(f->env);
+            if (locals != NULL) {
+                size_t ladd = strlen(locals);
+                char *with_locals = malloc(room + ladd);
+                memcpy(with_locals, trace, room - 1);
+                memcpy(with_locals + room - 1, locals, ladd + 1);
+                free(trace);
+                trace = with_locals;
+                room += ladd;
+                free(locals);
+            }
+        }
     }
     return trace;
 }

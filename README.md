@@ -153,7 +153,13 @@ figure is *self* time, the function's own statements rather than its callees, wh
 answers "what do I make faster"; core-library and native functions appear too, so a program whose
 time really goes into `mapb_set` is told so. Time spent collecting garbage gets its own row instead
 of being blamed on whichever function happened to allocate, and the report goes to stderr so the
-program's own stdout is unchanged; `--fmt file.zm...` prints the source formatted
+program's own stdout is unchanged; `--locals` adds each stack frame's variables and their values
+under it when a runtime error prints a trace (`xs: [int] = [1, 2, 3]`), innermost block first --
+the post-mortem half of a debugger, which arrives on the first failure with no setup and so works
+in a CI run or a crash someone else reported. Opt-in because a value can be large and a variable
+can hold something that should not reach a log; a name shadowed by an inner block is shown once, as
+the binding that was live, a string is quoted so it cannot be read as a number, and a long value is
+truncated. `--fmt file.zm...` prints the source formatted
 (`--fmt --write` rewrites the files, `--fmt --check` lists the ones that would
 change and exits 1, `--fmt -` reads stdin, `--width=N` sets the wrap column,
 default 120, 0 = never); `--stack-mb=N`, `--thread-stack-mb=N` and `--threads=N` size the thread stacks
