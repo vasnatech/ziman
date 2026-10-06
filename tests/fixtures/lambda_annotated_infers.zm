@@ -1,0 +1,36 @@
+// A fully annotated lambda is exactly as informative to type-argument inference as a named function,
+// and now contributes to it. `collections.map(xs, double)` always inferred; the identical call with
+// `fn(n: int) -> int { ... }` did not, for no reason visible to whoever wrote the second -- the
+// inference pass excluded every lambda, annotated or not, because an unannotated one needs to be told
+// what it should be before its parameters have types at all. SYNTAX.md described the narrower rule it
+// was meant to be ("a lambda's result type isn't inferred"), so the behaviour was wider than the promise.
+use collections
+
+fn double(n: int) -> int {
+    return n * 2
+}
+
+fn main() {
+    val xs = [1, 2, 3]
+
+    // the two that should always have agreed
+    print(collections.map(xs, double))
+    print(collections.map(xs, fn(n: int) -> int { return n * 2 }))
+
+    // inferring U to something other than the element type is the real test
+    print(collections.map(xs, fn(n: int) -> string { return concat("n", str(n)) }))
+
+    // explicit type arguments still work, and must keep working
+    print(collections.map<int, string>(xs, fn(n: int) -> string { return concat("x", str(n)) }))
+
+    // an unannotated lambda still gets its types from the expected type, as before
+    print(collections.filter(xs, fn(n) { n > 1 }))
+
+    // a lambda with typed parameters but no `->` is still not fully annotated, so it keeps relying on
+    // the expected type rather than contributing to inference
+    print(collections.filter(xs, fn(n: int) { n > 2 }))
+
+    // the other functions whose docs call out explicit type arguments
+    print(set_map(Set<int> { 1, 2 }, fn(n: int) -> string { return concat("s", str(n)) }))
+    print(map_map_values(Map<string, int> { "a": 1 }, fn(v: int) -> string { return concat("v", str(v)) }))
+}

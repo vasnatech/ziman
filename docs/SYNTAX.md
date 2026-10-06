@@ -319,8 +319,10 @@ for x in seen { ... }                    // a set has one binder
   else runtime error; a repeated key keeps the last value); sets -- `set_union`/`set_intersect`/
   `set_difference(a, b)` (`a`'s order, `b`'s extras appended for union), `set_is_subset(a, b)`,
   `set_from_array(items)`, `set_insert_all(s, items)`, `set_filter(s, keep: fn(T) -> bool)`.
-  Written with explicit type arguments (a lambda's result type isn't inferred):
-  `map_map_values<K, V, R>(m, f)` applies `f: fn(V) -> R` to every value (keys/order unchanged);
+  A type argument a lambda's result would have to supply is inferred only when the lambda is fully
+  annotated (every parameter typed and `->` written), which is the same information a named function
+  gives; an unannotated lambda takes its types *from* the expected type, so it has none to contribute
+  and the call needs them written: `map_map_values<K, V, R>(m, f)` applies `f: fn(V) -> R` to every value (keys/order unchanged);
   `set_map<T, U>(s, f)` merges elements mapping to the same value; `map_entries<K, V>(m)` is an
   array of `MapEntry<K, V> { key, value }` in map order. In `collections`: `frequencies<T>`
   counts into `Map<T, int>`, `index_by<T, K>(items, key)` builds `Map<K, T>` (later element wins;

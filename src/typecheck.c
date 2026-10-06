@@ -1276,9 +1276,27 @@ static int type_mentions_any(Type t, TypeParamList *params) {
  * special-cases. Inference has no expected type to offer yet, so these are left for the ordinary argument-checking
  * loop to handle once every type argument is known, rather than forced here (which would just be today's "cannot
  * infer" error, for an argument that may not even matter to inference). */
+/* Whether a lambda's own type is knowable without being told what it should be: every parameter has a
+ * written type and the return type is written too. Such a lambda is exactly as informative to inference
+ * as a named function, which already works -- `collections.map(xs, double)` infers while
+ * `collections.map(xs, fn(n: int) -> int { return n * 2 })` did not, for no reason the writer of the
+ * second could see. docs/SYNTAX.md said the exclusion applied to a lambda's *result type* not being
+ * inferred, which is the unannotated case, so the behaviour was also wider than the promise. */
+static int lambda_is_fully_annotated(const Expr *e) {
+    const FunctionDecl *lam = (const FunctionDecl *)e->lambda_decl;
+    if (lam == NULL || lam->return_omitted) return 0;
+    for (int i = 0; i < lam->params.count; i++) {
+        if (lam->params.items[i].type_omitted) return 0;
+    }
+    return 1;
+}
+
 static int expr_needs_expected_type(const Expr *e) {
     if (e->kind == EXPR_ARRAY_LIT && e->as.array_lit.elements.count == 0) return 1;
-    if (e->kind == EXPR_LAMBDA) return 1;
+    /* An unannotated lambda still needs the expected type to fill its parameters in; an annotated one
+     * does not, and checking it early is safe because check_lambda_expecting memoises on
+     * `lambda_checked`, so the ordinary argument loop reuses the result rather than checking twice. */
+    if (e->kind == EXPR_LAMBDA) return !lambda_is_fully_annotated(e);
     if (e->kind == EXPR_VALUE_BLOCK) return 1;
     if (e->kind == EXPR_CALL) {
         const char *callee = e->as.call.callee;
