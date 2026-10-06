@@ -45,6 +45,13 @@ int ziman_stack_is_main(void);
 /* Bytes of stack the calling thread has left before the "stack depth exceeded" error. */
 size_t ziman_stack_remaining(void);
 
+/* 1 while a stack-overflow error is being reported on this thread. Anything on the error path that
+ * needs a non-trivial amount of stack must check this and do without -- notably error.c's --locals
+ * renderer, which walks values recursively. Do NOT use ziman_stack_remaining() for that judgement:
+ * during the report the limit is deliberately NULL, and that function calls ziman_stack_slow(),
+ * which raises the overflow again from inside its own report. */
+int ziman_stack_reporting_overflow(void);
+
 /* The calling thread's own real stack region -- `*out_low` the lowest address it may use,
  * `*out_high` one past the highest (stacks grow down on every platform this runs on, so a scan
  * looking for live roots runs from near the current stack pointer up toward `*out_high`, never

@@ -277,6 +277,31 @@ static int run_tests_main(int argc, char **argv) {
     return 0;
 }
 
+#ifdef ZIMAN_GC
+/* Boehm's own warnings went straight to stderr unfiltered, because nothing ever called
+ * GC_set_warn_proc. That is normally invisible and occasionally catastrophic: a runaway recursion
+ * used to make the trace builder allocate hundreds of thousands of ever-larger buffers, and Boehm
+ * announced each one, producing 23,170 of the 198,578 stderr lines a single stack-depth error wrote.
+ * The allocation behaviour is fixed (src/error.c's build_trace), but a warning channel with no cap is
+ * still a channel an input can flood, so it is capped here as well.
+ *
+ * The first few are printed, because they can be the only clue to a real problem, and the rest are
+ * counted away behind one line that says how to see them. ZIMAN_GC_WARN=1 prints all of them. */
+#define ZIMAN_GC_WARN_SHOWN 3
+static int g_gc_warn_seen = 0;
+
+static void GC_CALLBACK ziman_gc_warn(const char *msg, GC_uintptr_t arg) {
+    int n = __atomic_fetch_add(&g_gc_warn_seen, 1, __ATOMIC_RELAXED);
+    static int show_all = -1;
+    if (show_all < 0) show_all = getenv("ZIMAN_GC_WARN") != NULL;
+    if (show_all || n < ZIMAN_GC_WARN_SHOWN) {
+        fprintf(stderr, msg, arg);
+    } else if (n == ZIMAN_GC_WARN_SHOWN) {
+        fprintf(stderr, "ziman: further garbage-collector warnings suppressed; set ZIMAN_GC_WARN=1 to see them all\n");
+    }
+}
+#endif
+
 int main(int argc, char **argv) {
 #ifdef ZIMAN_GC
     /* Before the first allocation: the first one initialises the collector with defaults. */
@@ -285,6 +310,7 @@ int main(int argc, char **argv) {
      * grows, and two marker threads keep marking off most of a many-core machine.
      * GC_MARKERS (and the collector's other environment variables) still win. */
     if (getenv("GC_MARKERS") == NULL) GC_set_markers_count(2);
+    GC_set_warn_proc(ziman_gc_warn);
     GC_INIT();
     (void)GC_expand_hp(32u * 1024 * 1024);
 #endif

@@ -56,6 +56,11 @@ int ziman_stack_bounds(char **out_low, char **out_high) {
     return 1;
 }
 
+/* 1 only while ziman_stack_slow is reporting an overflow; see there. */
+static __thread int t_reporting_overflow = 0;
+
+int ziman_stack_reporting_overflow(void) { return t_reporting_overflow; }
+
 void ziman_stack_slow(void) {
     if (ziman_stack_limit == NULL) {
         measure_this_thread();
@@ -66,11 +71,20 @@ void ziman_stack_slow(void) {
     /* Past the limit. Lower it for the error itself (it needs some stack) -- the program is ending, or the error is being recovered from by unwinding. */
     char *saved = ziman_stack_limit;
     ziman_stack_limit = NULL;
+    /* Set while the overflow is being reported, so the error path can tell that it is running on a
+     * stack that has already run out and skip anything stack-hungry. error.c's --locals renderer
+     * asks: walking values recursively is exactly what there is no room for here, and doing it
+     * anyway re-trips the check inside value_display and raises this error again from within its own
+     * report. Note that ziman_stack_remaining() cannot be used to make that judgement -- with the
+     * limit NULL it calls back into this function and re-raises, which is how this flag came to
+     * exist. */
+    t_reporting_overflow = 1;
     size_t mb = (t_stack_size + 1048575) / 1048576;
     ziman_error("runtime", 0, 0,
                 "stack depth exceeded: this %s thread's %zu MB stack is used up (deep or endless recursion?); raise it with %s, or plan for fewer threads with --threads=N / ZIMAN_THREADS",
                 t_is_main ? "main" : "spawned", mb,
                 t_is_main ? "--stack-mb=N / ZIMAN_STACK_MB" : "--thread-stack-mb=N / ZIMAN_THREAD_STACK_MB");
+    t_reporting_overflow = 0;
     ziman_stack_limit = saved; /* only reached when the error was recovered from */
 }
 

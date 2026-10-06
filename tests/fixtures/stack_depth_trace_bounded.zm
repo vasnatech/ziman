@@ -1,0 +1,15 @@
+// A runaway recursion used to make reporting the error cost more than the recursion did. build_trace
+// allocated a fresh buffer and copied the whole trace for every one of ~152,000 frames -- quadratic
+// -- so this program took 402 seconds, 1.97 GB of RSS and 198,578 lines of stderr, of which 23,170
+// were Boehm complaining about the repeated huge allocations (nothing had ever called
+// GC_set_warn_proc). In a server that is a denial of service reachable from any input that can drive
+// recursion. The buffer now grows by doubling and the trace prints the innermost 32 frames, a count
+// of what was left out, and the outermost 8: an 8 MB error message is useless even when produced
+// quickly. Takes about two seconds now, so this fixture also guards the harness timeout.
+fn deep(n: int) -> int {
+    return deep(n + 1)
+}
+
+fn main() {
+    print(deep(0))
+}

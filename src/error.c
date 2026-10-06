@@ -1,4 +1,5 @@
 #include "error.h"
+#include "stack.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -287,45 +288,92 @@ static char *(*g_locals_renderer)(void *env) = NULL;
 
 void ziman_set_locals_renderer(char *(*fn)(void *env)) { g_locals_renderer = fn; }
 
+/* How many frames a trace prints: the innermost TRACE_HEAD, then the outermost TRACE_TAIL, with a
+ * count of what was left out in between. Unbounded was not a cosmetic problem. A runaway recursion
+ * fills the frame stack with hundreds of thousands of entries, and this function used to allocate a
+ * fresh buffer and copy the whole trace for every one of them -- quadratic, so an unremarkable
+ * `fn deep(n) { return deep(n + 1) }` cost 402 seconds, 1.97 GB of RSS and 198,578 lines of stderr
+ * on the machine this was measured on, with 23,170 of those lines being Boehm complaining about the
+ * repeated huge allocations. In a server that is a denial of service reachable from any input that
+ * can drive recursion.
+ *
+ * Both halves needed fixing, not just the quadratic: an 8 MB error message is useless even when it
+ * is produced quickly. 32 and 8 are chosen because the innermost frames say what blew up, the
+ * outermost say how the program got there, and everything between is the same cycle repeated. The
+ * deepest trace any fixture expects is 5 frames, so ordinary traces are unaffected. */
+#define TRACE_HEAD 32
+#define TRACE_TAIL 8
+
+typedef struct {
+    char *text;
+    size_t len, cap;
+} TraceBuf;
+
+/* Amortised doubling, so building a trace is linear in its length rather than quadratic. */
+static void trace_add(TraceBuf *b, const char *s) {
+    size_t add = strlen(s);
+    if (b->len + add + 1 > b->cap) {
+        while (b->len + add + 1 > b->cap) b->cap = b->cap == 0 ? 256 : b->cap * 2;
+        b->text = realloc(b->text, b->cap);
+    }
+    memcpy(b->text + b->len, s, add + 1);
+    b->len += add;
+}
+
 static char *build_trace(void) {
-    size_t room = 1;
-    char *trace = malloc(room);
-    trace[0] = '\0';
-    for (int i = t_frame_count - 1; i >= 0; i--) {
+    TraceBuf b = {0};
+    trace_add(&b, ""); /* so an empty trace is "" rather than NULL, as the contract below says */
+    int count = t_frame_count;
+    /* --locals walks values recursively (value_display), which needs stack -- and the commonest
+     * reason to be printing a trace at all is that the stack has just run out. Rendering then
+     * re-trips the check inside value_display and raises the overflow again from inside its own
+     * report: 7,373 stderr lines for one runaway recursion, the message repeated thousands of times.
+     * Asked once per trace, since the answer cannot change while one is being built. */
+    int locals_ok = g_locals_renderer != NULL && !ziman_stack_reporting_overflow();
+    int locals_skipped = g_locals_renderer != NULL && !locals_ok;
+    int elided = count - (TRACE_HEAD + TRACE_TAIL);
+    int omitted_noted = 0;
+    int first = 1;
+    for (int i = count - 1; i >= 0; i--) {
+        if (elided > 0) {
+            int from_top = count - 1 - i;
+            if (from_top >= TRACE_HEAD && i >= TRACE_TAIL) {
+                if (!omitted_noted) {
+                    char note[96];
+                    snprintf(note, sizeof note, "\n    ... %d more frames ...", elided);
+                    trace_add(&b, note);
+                    omitted_noted = 1;
+                }
+                continue;
+            }
+        }
         ZimanFrame *f = &t_frames[i];
         char line[512];
-        const char *sep = i == t_frame_count - 1 ? "" : "\n";
         if (f->file != NULL) {
-            snprintf(line, sizeof line, "%s    at %s (%s:%d:%d)", sep, f->name, f->file, f->call_line, f->call_col);
+            snprintf(line, sizeof line, "%s    at %s (%s:%d:%d)", first ? "" : "\n", f->name, f->file, f->call_line, f->call_col);
         } else {
-            snprintf(line, sizeof line, "%s    at %s (%d:%d)", sep, f->name, f->call_line, f->call_col);
+            snprintf(line, sizeof line, "%s    at %s (%d:%d)", first ? "" : "\n", f->name, f->call_line, f->call_col);
         }
-        size_t add = strlen(line);
-        char *grown = malloc(room + add);
-        memcpy(grown, trace, room - 1);
-        memcpy(grown + room - 1, line, add + 1);
-        free(trace);
-        trace = grown;
-        room += add;
+        first = 0;
+        trace_add(&b, line);
 
         /* --locals: this frame's variables, as further lines under the one just added. Skipped
          * entirely -- not even a heading -- when no renderer is installed, when the frame carries no
          * env (a native has none), or when the frame has nothing in scope worth showing. */
-        if (g_locals_renderer != NULL && f->env != NULL) {
+        if (locals_ok && f->env != NULL) {
             char *locals = g_locals_renderer(f->env);
             if (locals != NULL) {
-                size_t ladd = strlen(locals);
-                char *with_locals = malloc(room + ladd);
-                memcpy(with_locals, trace, room - 1);
-                memcpy(with_locals + room - 1, locals, ladd + 1);
-                free(trace);
-                trace = with_locals;
-                room += ladd;
+                trace_add(&b, locals);
                 free(locals);
             }
         }
     }
-    return trace;
+    /* Said once, at the end, rather than left as a silent absence: --locals was asked for and did not
+     * happen, and the reason is worth knowing. */
+    if (locals_skipped) {
+        trace_add(&b, "\n    (--locals omitted: too little stack left to inspect values safely)");
+    }
+    return b.text;
 }
 
 char *ziman_trace_string(void) { return build_trace(); }
