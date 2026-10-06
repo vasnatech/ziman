@@ -565,7 +565,24 @@ from source.
   guess -- none an edit-distance-close name). Fixtures: `tests/fixtures/diag_let_keyword`,
   `diag_map_as_function`, `diag_undefined_function_suggestion`, `diag_map_membership`.
 - **`#[deprecated]` and `#[experimental]` as interpreted attributes, not just
-  prose.** F4 (2026-09-28) just labeled `pg`/`mysql`/`toml`/`yaml`
+  prose.** ~~`#[deprecated]` on a *function*~~ Done 2026-10-05, in the shape this entry's own
+  "at minimum" asked for: `#[deprecated]` / `#[deprecated("use X instead")]` on a function, with a
+  cross-module call or value reference reported by `ziman --lint` (quoting the message when given),
+  and same-module use deliberately silent. `lib/http/server.zm`'s `open_session_with_timeout` --
+  the candidate named below -- now carries it. Two things the entry got wrong, both found by trying
+  it: `#[deprecated("...")]` did **not** already parse (the attribute grammar accepted only
+  identifier arguments, so a quoted message was a syntax error -- only the bare form parsed), and
+  an attribute between a doc comment and its declaration made `tools/gen_lib_manual.py` drop that
+  declaration's whole description from the manual, which had already silently cost
+  `#[thread_key] ThreadLocal<T>` and prelude's five `#[thread_bound]` structs their documentation
+  before this feature existed. Still open from this entry: `#[experimental]` and its generated
+  "Experimental" callout; `#[deprecated]` on a `struct`/`enum`/`val` (rejected with a clear message
+  today rather than silently ignored, since nothing reads it there); a **module-level** attribute,
+  which is still new grammar surface with the same undecided questions; whether a deprecation should
+  ever be a warning by default (still needs "warnings/notes as a separate severity") or a hard
+  error under a "deny" policy. The original entry follows.
+
+  F4 (2026-09-28) just labeled `pg`/`mysql`/`toml`/`yaml`
   "experimental" the only way available today: a sentence in each module's
   header comment, the README's module table and DESIGN.md, all hand-written,
   none of it checked by the compiler or visible to an editor. The grammar

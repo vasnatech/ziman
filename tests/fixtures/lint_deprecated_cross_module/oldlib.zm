@@ -1,0 +1,22 @@
+// `#[deprecated]` on a function: using it from another module is a `--lint` warning, with the
+// attribute's own message when it gave one. Using it from *this* module stays silent, which is what
+// lets a library keep a superseded function working for its existing callers without warning about
+// every internal call it makes to itself.
+#[deprecated("use doubled instead")]
+pub fn twice(x: int) -> int {
+    return still_internal(x)
+}
+
+#[deprecated]
+pub fn thrice(x: int) -> int {
+    return x * 3
+}
+
+pub fn doubled(x: int) -> int {
+    return x * 2
+}
+
+#[deprecated("same module, so this must never warn")]
+fn still_internal(x: int) -> int {
+    return x * 2
+}

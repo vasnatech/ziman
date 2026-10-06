@@ -179,6 +179,7 @@ pub fn open_session(sock: Socket) -> Session {
 // arrive within `timeout_ms` (a stalled or dripping client gets `Err(Timeout)`, answered 408), on top
 // of the socket's per-read timeout, which it sets and resets itself: set none yourself. `serve` opens
 // its sessions this way with `idle_timeout_ms`.
+#[deprecated("use open_session_with_timeouts, which also bounds the request head")]
 pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session {
     return Session { sock: sock, buffer: [], timeout_ms: timeout_ms, head_timeout_ms: 0, fresh: false }
 }

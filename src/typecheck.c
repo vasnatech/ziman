@@ -375,6 +375,34 @@ static int g_lint_active = 0;             /* the function being checked is user 
 static const char *g_lint_file = NULL;
 
 void typecheck_enable_lint(void) { g_lint_on = 1; }
+
+/* Whether two declarations come from the same place, for the purpose of "is this use
+ * cross-module". A bundled core module and the prelude carry a NULL `source_file` (ast.h), so a
+ * user file calling into one compares non-NULL against NULL and is correctly treated as crossing. */
+static int lint_same_source(const char *a, const char *b) {
+    if (a == b) return 1;
+    if (a == NULL || b == NULL) return 0;
+    return strcmp(a, b) == 0;
+}
+
+/* `#[deprecated]`: warns when user code uses a deprecated function declared somewhere else.
+ * Same-source use is silent on purpose -- whoever wrote the deprecated thing is the one person who
+ * does not need telling, and a library keeping a superseded function working for its existing
+ * callers (lib/http's own `open_session_with_timeout`) would otherwise warn on every internal call
+ * it makes to itself. `--lint`-only, which is also what keeps this out of the way of the still-open
+ * question of whether Ziman should have compiler warnings on by default at all (docs/ROADMAP.md).
+ * `g_lint_active` already means "the function being checked is user code, not a derive expansion",
+ * so it is exactly the right gate. */
+static void lint_deprecated_use(const FunctionDecl *fn, int line, int col) {
+    if (!g_lint_active || fn == NULL || !fn->deprecated) return;
+    if (lint_same_source(fn->source_file, g_lint_file)) return;
+    if (fn->deprecated_message != NULL) {
+        ziman_warning(g_lint_file, line, col, "'%s' is deprecated: %s", fn->name, fn->deprecated_message);
+    } else {
+        ziman_warning(g_lint_file, line, col, "'%s' is deprecated", fn->name);
+    }
+    g_lint_count++;
+}
 static int g_skip_main_check = 0;
 void typecheck_skip_main_check(int skip) { g_skip_main_check = skip; }
 int typecheck_lint_count(void) { return g_lint_count; }
@@ -1968,6 +1996,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     }
 
     FunctionDecl *fn = find_function(module, name);
+    lint_deprecated_use(fn, e->line, e->col);
     if (fn == NULL) {
         /* Inside a #[derive] expansion, a missing <type>_to_json / _from_json
          * / _to_sql / _from_sql means a field's type provides no conversion
@@ -2450,6 +2479,7 @@ static int resolve_function_reference(Module *module, Expr *e, Type *out) {
     }
     FunctionDecl *fn = find_function(module, e->fn_ref_name);
     if (fn == NULL) return 0;
+    lint_deprecated_use(fn, e->line, e->col);
     for (int i = 0; i < fn->params.count; i++) {
         if (fn->params.items[i].is_variadic) {
             ziman_error("type", e->line, e->col,

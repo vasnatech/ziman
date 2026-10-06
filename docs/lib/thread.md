@@ -120,6 +120,9 @@ pub struct ThreadLocal<T> {
 }
 ```
 
+A key for a value that is separate on every thread. `init` makes a thread's first value, the first
+time that thread calls `get` on the key.
+
 ### `local`
 
 ```

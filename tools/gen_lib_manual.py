@@ -116,6 +116,14 @@ def parse(path):
                 pending.append(l)
             i += 1
             continue
+        if l.startswith("#["):
+            # An attribute belongs to the declaration after it, so it must not come between a doc
+            # comment and the thing that comment describes: `pending` is carried across it rather
+            # than cleared. Without this, every documented declaration carrying one loses its whole
+            # description from the manual -- `thread.zm`'s `#[thread_key] ThreadLocal<T>` and
+            # `server.zm`'s `#[deprecated] open_session_with_timeout` are both written that way.
+            i += 1
+            continue
         if re.match(decl, l):
             sig, i = signature(lines, i)
             entries.append((section, pending, sig))

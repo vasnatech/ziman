@@ -1277,8 +1277,30 @@ val by_age = collections.sort_by_keys<Patient, int>(patients, ages)
 
 ## Attributes and derive
 
-`#[...]`, above a `struct`/`enum` declaration, attaches compile-time metadata. Two are
-interpreted: `derive` (below) and `thread_bound`; other names parse but have no effect yet.
+`#[...]`, above a declaration, attaches compile-time metadata. Four are interpreted: `derive`
+(below) and `thread_bound` on a `struct`/`enum`, and `test` and `deprecated` on a function; other
+names parse but have no effect yet.
+
+`#[deprecated]`, or `#[deprecated("use X instead")]`, marks a function that still works but should
+not be used in new code. Calling it -- or naming it as a value -- *from another module* is a
+`--lint` warning that quotes the message when one was given:
+
+```
+#[deprecated("use open_session_with_timeouts, which also bounds the request head")]
+pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session
+```
+
+```
+$ ziman --lint app.zm
+app.zm:12:18: warning: 'server::open_session_with_timeout' is deprecated: use open_session_with_timeouts, which also bounds the request head
+```
+
+Use from *within* the declaring module is deliberately silent: a library keeping a superseded
+function working for its existing callers would otherwise warn on every internal call it makes to
+itself, and whoever wrote the deprecated thing is the one person who does not need telling. It is a
+`--lint` finding rather than a warning by default, because Ziman has no warning severity outside
+`--lint` yet. On anything other than a function (a `struct`, `enum` or `val`) the attribute is
+rejected rather than silently ignored, since nothing reads it there yet.
 
 `#[thread_bound]` marks a struct that belongs to the thread that made it (as `StringBuilder`/
 `ArrayBuilder`/`MapBuilder`/`SetBuilder`/`Iter` are). A type containing one is refused as a

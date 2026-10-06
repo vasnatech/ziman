@@ -381,6 +381,14 @@ struct StringBuilder {
 }
 ```
 
+A mutable buffer for assembling a string piece by piece. Adding to a string with `concat` in
+a loop copies the whole string each time and leaves the old copies as garbage; appending to a
+StringBuilder is amortized O(1). `handle` is an opaque reference to the native buffer: do not
+build or edit one directly, only through `sb_new` and the `sb_*` functions. It belongs to the
+thread that made it (`#[thread_bound]`): it cannot be a `Channel`'s element, a `spawn` argument or a
+module-level `val`, and using one from another thread (through a closure, say) is a runtime error.
+Hand the finished string over, not the builder.
+
 ### `sb_new`
 
 ```
@@ -437,6 +445,10 @@ struct ArrayBuilder<T> {
     handle: int
 }
 ```
+
+The array counterpart of StringBuilder: `push` copies the whole array on every call, so
+pushing in a loop is quadratic, while appending to an ArrayBuilder is amortized O(1). Same
+opaque `handle`, same thread-bound rule.
 
 ### `concat_arrays`
 
@@ -500,6 +512,13 @@ struct MapBuilder<K: Eq + Hash, V> {
 }
 ```
 
+The mutable counterparts of Map and Set, for building one entry by entry. `set` and `insert` on
+a Map copy a few nodes each time; a builder changes its own private structure in place, so
+adding n entries allocates O(n) in all, not O(n) per entry. `mapb_to_map` and `setb_to_set`
+snapshot what has been added so far into an ordinary Map or Set, and the builder stays usable.
+Keys keep the order they were first added, and follow the same rule as a Map's (`Eq + Hash`).
+Thread-bound like the other builders.
+
 ### `SetBuilder`
 
 ```
@@ -507,6 +526,8 @@ struct SetBuilder<T: Eq + Hash> {
     handle: int
 }
 ```
+
+A mutable set under construction; see MapBuilder.
 
 ### `mapb_new`
 
@@ -621,6 +642,15 @@ struct Iter<T> {
     handle: int
 }
 ```
+
+A lazy source of values, produced one at a time as a `for` loop asks for them: `for line in
+lines { ... }` over an `Iter<Result<string, string>>` from `fs.lines`. Nothing is read ahead, so
+the source can be far larger than memory, and stopping early (`break`, `return`, or `try`) leaves the
+rest unread. `handle` is an opaque reference to the native source; a source that is not finished
+or closed is closed when it is garbage collected. It can be walked once: a second `for` over the
+same Iter carries on where the first stopped. It belongs to the thread that made it, like a builder
+(`#[thread_bound]`): not a `Channel` element, a `spawn` argument or a module-level `val`, and walking or
+closing it from another thread is a runtime error.
 
 ### `iter_from`
 

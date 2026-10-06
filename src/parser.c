@@ -2183,10 +2183,11 @@ static UseDecl parse_use_decl(Parser *p) {
  * `IDENT ( IDENT { , IDENT } )` (`derive(...)`'s own shape) except for
  * `test(...)`, whose one argument is `cases: IDENT` rather than a bare
  * ident list. This is a general, reusable mechanism -- only `derive`,
- * `thread_bound` and `test` are actually interpreted right now (`derive`
- * by src/derive.c, which reads `StructDecl.derives`/`EnumDecl.derives`);
- * any other item name is parsed (so the grammar doesn't need to change
- * later) but silently has no effect yet. See docs/DESIGN.md's
+ * `thread_bound`, `test` and `deprecated` are actually interpreted right
+ * now (`derive` by src/derive.c, which reads `StructDecl.derives`/
+ * `EnumDecl.derives`; `deprecated` by typecheck.c's own
+ * `lint_deprecated_use`); any other item name is parsed (so the grammar
+ * doesn't need to change later) but silently has no effect yet. See docs/DESIGN.md's
  * "Attributes and derive" entry. */
 typedef struct {
     char **names;
@@ -2196,6 +2197,8 @@ typedef struct {
     int thread_key;   /* `#[thread_key]` was among the attributes */
     int is_test;       /* `#[test]` or `#[test(cases: ...)]` was among the attributes */
     char *test_cases;  /* `#[test(cases: NAME)]`'s NAME, or NULL for a plain `#[test]` */
+    int deprecated;                  /* `#[deprecated]` or `#[deprecated("...")]` was among them */
+    const char *deprecated_message;  /* the `("...")` text, or NULL for the bare form */
 } DeriveList;
 
 static void derive_list_push(DeriveList *list, char *name) {
@@ -2226,6 +2229,18 @@ static DeriveList parse_attributes(Parser *p) {
                     expect(p, TOK_COLON, "':'");
                     Token *cases_name = expect(p, TOK_IDENT, "the name of the cases array or function");
                     derives.test_cases = dup_token_text(cases_name);
+                    expect(p, TOK_RPAREN, "')'");
+                }
+            } else if (item_name->length == 10 && strncmp(item_name->start, "deprecated", 10) == 0) {
+                /* The one attribute that takes a *string* argument rather than identifiers, which
+                 * is why it is handled before the generic `(ident, ...)` branch below: a message is
+                 * prose for whoever hits the warning, not a name the compiler resolves. */
+                derives.deprecated = 1;
+                if (match(p, TOK_LPAREN)) {
+                    Token *msg = expect(p, TOK_STRING_LIT, "a message in quotes, or no argument at all");
+                    /* The lexer already handed us a private, NUL-terminated, unescaped buffer for a
+                     * string literal (see parse_primary's own EXPR_STRING case). */
+                    derives.deprecated_message = (const char *)msg->start;
                     expect(p, TOK_RPAREN, "')'");
                 }
             } else if (match(p, TOK_LPAREN)) {
@@ -2297,6 +2312,10 @@ Module *parse(TokenList tokens) {
             if (derives.is_test) {
                 ziman_error("syntax", sd->line, sd->col, "#[test] applies to a function, not to struct '%s'", sd->name);
             }
+            if (derives.deprecated) {
+                ziman_error("syntax", sd->line, sd->col,
+                            "#[deprecated] applies to a function; nothing reads it on struct '%s' yet (docs/ROADMAP.md)", sd->name);
+            }
             struct_list_push(&module->structs, sd);
         } else if (check(&p, TOK_ENUM)) {
             EnumDecl *ed = parse_enum_decl(&p);
@@ -2312,6 +2331,10 @@ Module *parse(TokenList tokens) {
             if (derives.is_test) {
                 ziman_error("syntax", ed->line, ed->col, "#[test] applies to a function, not to enum '%s'", ed->name);
             }
+            if (derives.deprecated) {
+                ziman_error("syntax", ed->line, ed->col,
+                            "#[deprecated] applies to a function; nothing reads it on enum '%s' yet (docs/ROADMAP.md)", ed->name);
+            }
             enum_list_push(&module->enums, ed);
         } else if (derives.count > 0 || derives.thread_bound || derives.thread_key) {
             ziman_error("syntax", cur(&p)->line, cur(&p)->col,
@@ -2319,6 +2342,8 @@ Module *parse(TokenList tokens) {
         } else if (check(&p, TOK_NATIVE)) {
             FunctionDecl *fn = parse_native_function(&p);
             fn->visibility = vis;
+            fn->deprecated = derives.deprecated;
+            fn->deprecated_message = derives.deprecated_message;
             if (derives.is_test) {
                 ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a native function ('%s')", fn->name);
             }
@@ -2328,12 +2353,18 @@ Module *parse(TokenList tokens) {
             if (derives.is_test) {
                 ziman_error("syntax", v->line, v->col, "#[test] applies to a function, not to a val ('%s')", v->name);
             }
+            if (derives.deprecated) {
+                ziman_error("syntax", v->line, v->col,
+                            "#[deprecated] applies to a function; nothing reads it on a val ('%s') yet (docs/ROADMAP.md)", v->name);
+            }
             global_val_list_push(&module->vals, v);
         } else {
             FunctionDecl *fn = parse_function(&p);
             fn->visibility = vis;
             fn->is_test = derives.is_test;
             fn->test_cases = derives.test_cases;
+            fn->deprecated = derives.deprecated;
+            fn->deprecated_message = derives.deprecated_message;
             function_list_push(&module->functions, fn);
         }
         ziman_recovery_pop();

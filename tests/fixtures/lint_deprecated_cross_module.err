@@ -1,0 +1,3 @@
+tests/fixtures/lint_deprecated_cross_module/main.zm:8:11: warning: 'oldlib::twice' is deprecated: use doubled instead
+tests/fixtures/lint_deprecated_cross_module/main.zm:9:11: warning: 'oldlib::thrice' is deprecated
+tests/fixtures/lint_deprecated_cross_module/main.zm:11:23: warning: 'oldlib::twice' is deprecated: use doubled instead

@@ -566,6 +566,12 @@ typedef struct {
     /* A lambda written without `->`: its return type comes from the function
      * type it is used as, or else from its final expression. */
     int return_omitted;
+    /* `#[deprecated]` / `#[deprecated("use X instead")]`: calling or referring to this function
+     * from *another* module is a `--lint` warning, carrying `deprecated_message` when one was
+     * given. Same-module use is deliberately silent -- the author of the thing already knows.
+     * `deprecated_message` is NULL for the bare form. */
+    int deprecated;
+    const char *deprecated_message;
     /* `#[test]`: `ziman test` runs this function (see docs/SYNTAX.md
      * "Testing"). Must take no parameters (or, with `test_cases` set,
      * exactly one) and return nothing or `Result<unit, E>`. */

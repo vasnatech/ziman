@@ -1,0 +1,12 @@
+use oldlib
+
+fn apply(f: fn(int) -> int, v: int) -> int {
+    return f(v)
+}
+
+fn main() {
+    print(oldlib.twice(1))     // warns, with the message
+    print(oldlib.thrice(2))    // warns, no message
+    print(oldlib.doubled(3))   // not deprecated: silent
+    print(apply(oldlib.twice, 4))  // used as a value, not called: still warns
+}
