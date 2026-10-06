@@ -1,9 +1,9 @@
 // toml.zm -- TOML 1.0 on top of `json`: a document is a `Json` object, so any
 // `#[derive(Json)]` type decodes from it with its own `_from_json`. Written in pure Ziman.
 //
-// Experimental (see docs/DESIGN.md "Experimental modules: pg, mysql, toml, yaml"): unlike
-// `json`, no real Ziman program depends on this module yet, so treat a gap or an edge case
-// as more likely here than elsewhere in the library.
+// Marked `#![experimental]` below: unlike `json`, no real Ziman program depends on this
+// module yet, so treat a gap or an edge case as more likely here than elsewhere in the
+// library.
 //
 // Reads tables (`[a.b]`), arrays of tables (`[[a]]`), dotted keys, inline tables, arrays
 // (any nesting, multi-line, trailing commas), basic / literal / multi-line strings with all
@@ -17,6 +17,8 @@
 // number keeps its `.0`; an `Int` stays an integer).
 
 // The UTF-16 surrogate block (not valid code points) and the highest code point, for `\u` escapes.
+#![experimental]
+
 val surrogate_start = 55296
 val surrogate_end = 57343
 val max_code_point = 1114111

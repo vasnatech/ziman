@@ -1,0 +1,19 @@
+// `#![experimental]` is the module-level form of an attribute: it attaches to the whole file rather
+// than to the declaration after it. It carries no compile-time or runtime behaviour on purpose --
+// the program below runs exactly as it would without it -- because its only job is to be the one
+// place a module is called experimental, which the documentation generators read.
+#![experimental]
+
+struct Point {
+    x: int
+    y: int
+}
+
+fn shifted(p: Point, by: int) -> Point {
+    return Point { x: p.x + by, y: p.y + by }
+}
+
+fn main() {
+    val p = shifted(Point { x: 1, y: 2 }, 10)
+    printf("{} {}\n", p.x, p.y)
+}

@@ -1,11 +1,14 @@
 # `yaml`
 
+> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
+
 A strict YAML 1.2 subset on top of `json`: a document is a `Json` tree, so any
 `#[derive(Json)]` type decodes from it with its own `_from_json`. Written in pure Ziman.
 
-Experimental (see docs/DESIGN.md "Experimental modules: pg, mysql, toml, yaml"): unlike
-`json`, no real Ziman program depends on this module yet, so treat a gap or an edge case
-as more likely here than elsewhere in the library.
+Marked `#![experimental]` below: unlike `json`, no real Ziman program depends on this
+module yet, so treat a gap or an edge case as more likely here than elsewhere in the
+library.
 
 Reads: block mappings and sequences (indentation, spaces only), `- key: v` items, flow
 `[a, b]` / `{a: b}` (nesting, multi-line), plain / 'single' / "double" quoted scalars,

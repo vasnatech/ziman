@@ -1,11 +1,14 @@
 # `toml`
 
+> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
+
 TOML 1.0 on top of `json`: a document is a `Json` object, so any
 `#[derive(Json)]` type decodes from it with its own `_from_json`. Written in pure Ziman.
 
-Experimental (see docs/DESIGN.md "Experimental modules: pg, mysql, toml, yaml"): unlike
-`json`, no real Ziman program depends on this module yet, so treat a gap or an edge case
-as more likely here than elsewhere in the library.
+Marked `#![experimental]` below: unlike `json`, no real Ziman program depends on this
+module yet, so treat a gap or an edge case as more likely here than elsewhere in the
+library.
 
 Reads tables (`[a.b]`), arrays of tables (`[[a]]`), dotted keys, inline tables, arrays
 (any nesting, multi-line, trailing commas), basic / literal / multi-line strings with all

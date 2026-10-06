@@ -148,6 +148,13 @@ def intro(header, name):
     return text
 
 
+def is_experimental(lines):
+    """Whether the module carries `#![experimental]` -- the module-level attribute is the single
+    place that claim lives, so this manual and tools/gen_corelib_reference.sh both read it from the
+    source instead of each repeating it by hand (docs/ROADMAP.md)."""
+    return any(l.strip() == "#![experimental]" for l in lines)
+
+
 def summary_of(text):
     """One line for the index: the first sentence, cut at its first colon, dash or parenthesis."""
     s = first_sentence(text)
@@ -161,6 +168,12 @@ def page(name, path, kind):
     header, entries = parse(path)
     text = intro(header, name)
     out = ["# `%s`" % name, ""]
+    with open(path) as f:
+        experimental = is_experimental(f.read().split("\n"))
+    if experimental:
+        out += ["> **Experimental** -- see docs/DESIGN.md's \"Experimental modules\" entry. Generated from this",
+                "> module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.",
+                ""]
     body = render_comment(text)
     if body:
         out += [body, ""]

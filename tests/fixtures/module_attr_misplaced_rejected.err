@@ -1,0 +1,1 @@
+a module attribute '#![...]' applies to the whole file, so it must come before the first declaration

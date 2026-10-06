@@ -4,9 +4,9 @@
 // `crypto` (SCRAM-SHA-256); nothing here is native but the exact float
 // formatting. It speaks protocol version 3.0.
 //
-// Experimental (see docs/DESIGN.md "Experimental modules: pg, mysql, toml, yaml"): a real
-// wire protocol reimplemented end to end, the largest externally-specified surface in the
-// library, so treat a protocol-conformance gap as more likely here than elsewhere.
+// Marked `#![experimental]` below: a real wire protocol reimplemented end to end, the
+// largest externally-specified surface in the library, so treat a protocol-conformance
+// gap as more likely here than elsewhere.
 //
 // What it supports: trust, cleartext-password and SCRAM-SHA-256
 // authentication (the default since Postgres 14); the simple query
@@ -52,6 +52,8 @@
 // is no lock a `try` returning early can leave held. A *transaction* is
 // still per-connection state on the server: statements from other
 // threads interleave inside it, as documented for `datasource`.
+
+#![experimental]
 
 use crypto.base64_decode
 use crypto.base64_encode

@@ -433,9 +433,11 @@ from source.
   (see docs/SYNTAX.md) — the one variable-arity builtin in the language,
   by necessity, but still fully statically checked because the literal
   is visible at the call site.
-- **Escaping literal `{`/`}` in format strings.** `format` has no escape
-  syntax yet — a literal brace can't appear in a format string at all.
-  Low priority until someone actually needs one.
+- ~~**Escaping literal `{`/`}` in format strings.**~~ Already implemented, and this entry was
+  simply stale: `{{` and `}}` write a literal brace, documented in docs/SYNTAX.md's own `format`
+  section and suggested by the error message a stray `{` produces. Found 2026-10-05 while looking
+  for something to work on, which is the argument for `make docs-check` existing at all -- three of
+  this section's own open items turned out to be done, half-done or wrong.
 - ~~**`for` loop.**~~ Implemented, three forms in one grammar production
   (docs/SYNTAX.md "For loops"): `for x in arr` (value), `for i in a..b`
   (index, over an exclusive-end int range), `for i, x in arr` (both,
@@ -575,12 +577,21 @@ from source.
   an attribute between a doc comment and its declaration made `tools/gen_lib_manual.py` drop that
   declaration's whole description from the manual, which had already silently cost
   `#[thread_key] ThreadLocal<T>` and prelude's five `#[thread_bound]` structs their documentation
-  before this feature existed. Still open from this entry: `#[experimental]` and its generated
-  "Experimental" callout; `#[deprecated]` on a `struct`/`enum`/`val` (rejected with a clear message
-  today rather than silently ignored, since nothing reads it there); a **module-level** attribute,
-  which is still new grammar surface with the same undecided questions; whether a deprecation should
-  ever be a warning by default (still needs "warnings/notes as a separate severity") or a hard
-  error under a "deny" policy. The original entry follows.
+  before this feature existed. ~~`#[experimental]` and its generated "Experimental" callout~~ Also done
+  2026-10-05, together with the **module-level attribute** this entry called new grammar surface:
+  `#![...]`, with the `!`, attaches to the whole file instead of the next declaration (the
+  inner/outer split Rust draws) and must precede the first declaration. `#![experimental]` carries
+  no compile-time or runtime behaviour by design -- it exists to be the single place the claim
+  lives. `docs/CORELIB.md` and `docs/lib/*.md` now generate the callout from it, and the regenerated
+  `CORELIB.md` came out byte-identical to the hand-written version, which is the proof the dedup is
+  faithful; `make experimental-check` holds `README.md`'s own table to it, that one being
+  hand-written and the fourth copy. `pg`, `mysql`, `toml` and `yaml` carry the attribute, and their
+  header comments keep the module-specific *reason* while no longer repeating the label.
+  `#![deprecated]` is refused with a message saying why, since what it should warn about is still
+  undecided. Still open: `#[deprecated]` on a `struct`/`enum`/`val` (rejected with a clear message
+  today rather than silently ignored, since nothing reads it there); whether a deprecation should
+  ever be a warning by default (still needs "warnings/notes as a separate severity") or a hard error
+  under a "deny" policy. The original entry follows.
 
   F4 (2026-09-28) just labeled `pg`/`mysql`/`toml`/`yaml`
   "experimental" the only way available today: a sentence in each module's

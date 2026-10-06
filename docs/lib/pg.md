@@ -1,14 +1,17 @@
 # `pg`
 
+> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
+
 A PostgreSQL client, the second backend behind the `datasource`
 module (`datasource.open("postgres://user:password@host:port/database")`).
 Written in Ziman on top of `net` (TCP), byte arrays (message framing) and
 `crypto` (SCRAM-SHA-256); nothing here is native but the exact float
 formatting. It speaks protocol version 3.0.
 
-Experimental (see docs/DESIGN.md "Experimental modules: pg, mysql, toml, yaml"): a real
-wire protocol reimplemented end to end, the largest externally-specified surface in the
-library, so treat a protocol-conformance gap as more likely here than elsewhere.
+Marked `#![experimental]` below: a real wire protocol reimplemented end to end, the
+largest externally-specified surface in the library, so treat a protocol-conformance
+gap as more likely here than elsewhere.
 
 What it supports: trust, cleartext-password and SCRAM-SHA-256
 authentication (the default since Postgres 14); the simple query

@@ -25,6 +25,15 @@ static Token *advance_tok(Parser *p) {
 
 static int check(Parser *p, TokenType type) { return cur(p)->type == type; }
 
+/* `ahead` tokens past the current one, without consuming anything -- the token list is always
+ * TOK_EOF-terminated, so looking past the end just keeps reporting TOK_EOF rather than running off
+ * the array. Needed to tell `#![...]` (a module attribute) from `#[...]` (a declaration's own). */
+static int check_ahead(Parser *p, int ahead, TokenType type) {
+    size_t at = (size_t)p->pos;
+    for (int i = 0; i < ahead && p->tokens.items[at].type != TOK_EOF; i++) at++;
+    return p->tokens.items[at].type == type;
+}
+
 static int match(Parser *p, TokenType type) {
     if (!check(p, type)) return 0;
     advance_tok(p);
@@ -2212,6 +2221,15 @@ static void derive_list_push(DeriveList *list, char *name) {
 static DeriveList parse_attributes(Parser *p) {
     DeriveList derives = {0};
     while (check(p, TOK_HASH)) {
+        if (check_ahead(p, 1, TOK_BANG)) {
+            /* `#![...]` attaches to the whole module, so it is only meaningful before any
+             * declaration -- parse_module_attributes has already consumed every one that was.
+             * Reaching here means this one is too late, which is worth saying outright rather than
+             * leaving as "expected '[', found '!'". */
+            ziman_error("syntax", cur(p)->line, cur(p)->col,
+                        "a module attribute '#![...]' applies to the whole file, so it must come before "
+                        "the first declaration -- for this declaration alone, write '#[...]' without the '!'");
+        }
         expect(p, TOK_HASH, "'#'");
         expect(p, TOK_LBRACKET, "'['");
         do {
@@ -2261,11 +2279,40 @@ static DeriveList parse_attributes(Parser *p) {
     return derives;
 }
 
+/* `#![name]`, the module-level form: it attaches to the file it appears in rather than to the
+ * declaration after it (the same inner/outer `#!`/`#` split Rust draws), so it only makes sense
+ * before any declaration and is only looked for there. `experimental` is the one name interpreted;
+ * anything else is refused by name rather than ignored, since a silently-ignored attribute is how
+ * `#[deprecated]` managed to parse-and-do-nothing for as long as it did. */
+static void parse_module_attributes(Parser *p, Module *module) {
+    while (check(p, TOK_HASH) && check_ahead(p, 1, TOK_BANG)) {
+        expect(p, TOK_HASH, "'#'");
+        expect(p, TOK_BANG, "'!'");
+        expect(p, TOK_LBRACKET, "'['");
+        do {
+            Token *name = expect(p, TOK_IDENT, "a module attribute name");
+            if (name->length == 12 && strncmp(name->start, "experimental", 12) == 0) {
+                module->experimental = 1;
+            } else if (name->length == 10 && strncmp(name->start, "deprecated", 10) == 0) {
+                ziman_error("syntax", name->line, name->col,
+                            "#![deprecated] is not supported yet -- what a deprecated *module* should warn about "
+                            "is still undecided (docs/ROADMAP.md); #[deprecated] on each function works today");
+            } else {
+                ziman_error("syntax", name->line, name->col,
+                            "unknown module attribute '%.*s' (the only one is 'experimental')", name->length, name->start);
+            }
+        } while (match(p, TOK_COMMA));
+        expect(p, TOK_RBRACKET, "']'");
+        skip_newlines(p);
+    }
+}
+
 Module *parse(TokenList tokens) {
     Parser p = {tokens, 0};
     Module *module = calloc(1, sizeof(Module));
 
     skip_newlines(&p);
+    parse_module_attributes(&p, module);
     while (!check(&p, TOK_EOF)) {
         /* One declaration at a time, so several syntax errors in a file are all
          * reported: after an error, skip to the next line that starts a top-level

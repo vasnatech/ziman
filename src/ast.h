@@ -762,6 +762,15 @@ typedef struct {
      * today's whole definition of a "package" for `VIS_INTERNAL` visibility -- see
      * `same_package` in loader.c and Visibility's own doc comment above. */
     int is_corelib;
+    /* `#![experimental]` at the top of this module's own file (before any declaration), the
+     * module-level form of an attribute -- `#[...]` applies to the declaration after it, `#![...]`
+     * to the file it is in, the same inner/outer split Rust draws. Carries no compile-time or
+     * runtime behaviour on purpose: its job is to be the *one* place a module is called
+     * experimental, which the documentation generators read (tools/gen_corelib_reference.sh,
+     * tools/gen_lib_manual.py) instead of each hand-repeating the claim. See docs/ROADMAP.md for
+     * why a module-level `#![deprecated]` is deliberately not accepted yet -- what it should warn
+     * about (every `use`? every call?) is undecided. */
+    int experimental;
 } Module;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --

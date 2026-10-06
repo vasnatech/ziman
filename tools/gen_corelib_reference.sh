@@ -27,10 +27,10 @@ describe() {
         jwt) echo "JSON Web Tokens signed with a shared secret (HS256/384/512): sign, and verify with expiry checks." ;;
         ndjson) echo "Newline-delimited JSON (one value per line) on top of \`json\`." ;;
         csv) echo "RFC 4180 CSV as a \`Json\` array of objects keyed by the header row (typed or string cells; TSV via the \`_with\` variants); a table writer that flattens one level." ;;
-        toml) echo "**Experimental** (see docs/DESIGN.md \"Experimental modules\"). TOML 1.0 to and from a \`Json\` tree. Dates stay strings; \`inf\`/\`nan\` are rejected." ;;
-        yaml) echo "**Experimental** (see docs/DESIGN.md \"Experimental modules\"). A strict YAML 1.2 subset to and from a \`Json\` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors." ;;
-        pg) echo "**Experimental** (see docs/DESIGN.md \"Experimental modules\"). A PostgreSQL client, the second engine behind \`datasource\`: the simple and extended query protocols, trust/cleartext/SCRAM-SHA-256 authentication, TLS. No MD5 auth, Kerberos, client certificates, COPY or LISTEN/NOTIFY." ;;
-        mysql) echo "**Experimental** (see docs/DESIGN.md \"Experimental modules\"). A MySQL/MariaDB client, the third engine behind \`datasource\`: the text and binary protocols, \`mysql_native_password\`/\`caching_sha2_password\` authentication, TLS. No compressed protocol, LOCAL INFILE, the RSA key exchange, or prepared-statement reuse." ;;
+        toml) echo "TOML 1.0 to and from a \`Json\` tree. Dates stay strings; \`inf\`/\`nan\` are rejected." ;;
+        yaml) echo "A strict YAML 1.2 subset to and from a \`Json\` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors." ;;
+        pg) echo "A PostgreSQL client, the second engine behind \`datasource\`: the simple and extended query protocols, trust/cleartext/SCRAM-SHA-256 authentication, TLS. No MD5 auth, Kerberos, client certificates, COPY or LISTEN/NOTIFY." ;;
+        mysql) echo "A MySQL/MariaDB client, the third engine behind \`datasource\`: the text and binary protocols, \`mysql_native_password\`/\`caching_sha2_password\` authentication, TLS. No compressed protocol, LOCAL INFILE, the RSA key exchange, or prepared-statement reuse." ;;
         *) echo "" ;;
     esac
 }
@@ -62,6 +62,12 @@ for f in lib/core/*.zm lib/db/*.zm lib/http/*.zm lib/time/*.zm; do
     name=$(basename "$f" .zm)
     if [ "$name" = "prelude" ]; then continue; fi
     desc=$(describe "$name")
+    # The "Experimental" label comes from the module's own `#![experimental]` attribute, not from a
+    # hand-written prefix in `describe` above -- one source of truth, so the reference, the manual
+    # (tools/gen_lib_manual.py) and the module itself cannot drift apart. See docs/ROADMAP.md.
+    if grep -q '^#!\[experimental\]' "$f"; then
+        desc="**Experimental** (see docs/DESIGN.md \"Experimental modules\"). $desc"
+    fi
     echo
     echo "## \`$name\`"
     echo

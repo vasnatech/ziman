@@ -1277,9 +1277,20 @@ val by_age = collections.sort_by_keys<Patient, int>(patients, ages)
 
 ## Attributes and derive
 
-`#[...]`, above a declaration, attaches compile-time metadata. Four are interpreted: `derive`
+`#[...]`, above a declaration, attaches compile-time metadata to it. Four are interpreted: `derive`
 (below) and `thread_bound` on a `struct`/`enum`, and `test` and `deprecated` on a function; other
 names parse but have no effect yet.
+
+`#![...]`, with the `!`, attaches to the *whole file* instead of to the declaration after it (the
+same inner/outer split Rust draws), so it must appear before the first declaration -- writing one
+later is an error that says so. One name is interpreted: `#![experimental]`, which marks a module
+whose surface is more likely to have a gap than the rest of the library. It changes nothing at
+compile time or runtime by design; its job is to be the single place that claim lives, so that
+docs/CORELIB.md and docs/lib/*.md can generate the "Experimental" callout from the source rather
+than each repeating it by hand, and `make experimental-check` can hold the README's own table to
+it. `pg`, `mysql`, `toml` and `yaml` carry it. `#![deprecated]` is deliberately refused for now:
+what a deprecated *module* should warn about -- every `use`, or every call into it -- is undecided
+(docs/ROADMAP.md).
 
 `#[deprecated]`, or `#[deprecated("use X instead")]`, marks a function that still works but should
 not be used in new code. Calling it -- or naming it as a value -- *from another module* is a

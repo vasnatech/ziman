@@ -1,0 +1,9 @@
+fn helper() -> int {
+    return 1
+}
+
+#![experimental]
+
+fn main() {
+    print(helper())
+}

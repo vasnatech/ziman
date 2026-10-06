@@ -1,14 +1,17 @@
 # `mysql`
 
+> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
+
 A MySQL / MariaDB client, the third engine behind the `datasource`
 module (`datasource.open("mysql://user:password@host:port/database")`). Written
 in Ziman on top of `net` (TCP + TLS), byte arrays (packet framing) and
 `crypto` (SHA-1 / SHA-256 for the login scramble); nothing here is
 native at all.
 
-Experimental (see docs/DESIGN.md "Experimental modules: pg, mysql, toml, yaml"): a real
-wire protocol reimplemented end to end, the largest externally-specified surface in the
-library, so treat a protocol-conformance gap as more likely here than elsewhere.
+Marked `#![experimental]` below: a real wire protocol reimplemented end to end, the
+largest externally-specified surface in the library, so treat a protocol-conformance
+gap as more likely here than elsewhere.
 
 What it supports:
   * Authentication: `mysql_native_password` and `caching_sha2_password`

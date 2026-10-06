@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all clean fmt-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check
+.PHONY: all clean fmt-check docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check
 
 all: $(BIN)
 
@@ -246,6 +246,16 @@ lib-manual-check: $(BIN)
 # supported when it's already declared -- see tools/check_not_yet.py's own header comment.
 not-yet-check:
 	python3 tools/check_not_yet.py
+
+# Fails when README.md's module table disagrees with the modules' own `#![experimental]`
+# attribute -- see tools/check_experimental.py's own header comment.
+experimental-check:
+	python3 tools/check_experimental.py
+
+# Every guard that keeps the documentation from drifting from the sources it describes, in one
+# target, because each of these is only useful if something actually runs it: `lib-manual-check`
+# was failing on main for a while precisely because nothing did.
+docs-check: lib-manual-check not-yet-check experimental-check
 
 clean:
 	rm -f $(BIN) ziman-nogc src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
