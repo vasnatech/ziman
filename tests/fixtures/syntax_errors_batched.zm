@@ -1,0 +1,16 @@
+// The parser recovered only at declaration boundaries, so two mistakes in one function cost two compile
+// cycles -- for a file of any size, most of them. It now recovers per statement, the same shape the top
+// level already used per declaration, synchronising on the line parsing stopped on. All three of these are
+// reported in one run, and so are the two inside nested blocks.
+fn main() {
+    val a = [1, 2,]
+    var k = 0
+    k++
+    val b = [3, 4,]
+    if true {
+        val c = [5,]
+        var j = 0
+        j--
+    }
+    print(a)
+}

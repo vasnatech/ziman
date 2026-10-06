@@ -1,3 +1,4 @@
+#include <setjmp.h>
 #include "parser.h"
 
 #include <stdio.h>
@@ -1128,8 +1129,36 @@ static Stmt *parse_block(Parser *p) {
     Token *open = expect(p, TOK_LBRACE, "'{'");
     Stmt *block = stmt_new(STMT_BLOCK, open->line, open->col);
     skip_newlines(p);
-    while (!check(p, TOK_RBRACE)) {
+    /* One statement at a time behind a recovery point, the same shape the top level already uses for one
+     * declaration at a time. Without this the parser recovered only at declaration boundaries, so two
+     * mistakes in one function cost two compile cycles -- which for a file of any size is most of them,
+     * and is what D2 item 27 measured as eight mistakes costing eight runs.
+     *
+     * Statements are newline-delimited here, so the synchronisation point is the next line: skip the rest
+     * of the line the failed statement started on and carry on. That is imperfect by nature -- a statement
+     * spanning several lines resumes mid-expression and may complain again -- but a second, poorer message
+     * after a real one costs the reader much less than being shown one mistake at a time. The top-level
+     * recovery remains the backstop when a block's braces end up unbalanced.
+     *
+     * TOK_EOF ends the loop as well as `}`: after recovery the parser can reach the end of the file with
+     * the brace never found, and without this the loop would spin there for ever. */
+    while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        jmp_buf jb;
+        volatile int start_pos = p->pos;
+        ziman_recovery_push(&jb);
+        if (setjmp(jb) != 0) {
+            /* The line parsing actually stopped on, not the one the statement began on. For a statement
+             * spanning several lines those differ, and synchronising on the opening line leaves the
+             * position back at the offending construct, which then reports the identical error a second
+             * time -- `concat_arrays<int>(\n [1, 2,],\n ...)` did exactly that before this. */
+            int failed_line = cur(p)->line;
+            if (p->pos <= start_pos) p->pos = start_pos + 1; /* always make progress, or this loops */
+            while (!check(p, TOK_EOF) && !check(p, TOK_RBRACE) && cur(p)->line == failed_line) advance_tok(p);
+            skip_newlines(p);
+            continue;
+        }
         Stmt *s = parse_statement(p);
+        ziman_recovery_pop();
         hoist_stmt(s, &block->as.block.stmts);
         stmt_list_push(&block->as.block.stmts, s);
         skip_newlines(p);
