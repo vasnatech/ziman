@@ -539,6 +539,21 @@ typedef struct {
     TypeParamList type_params; /* empty for an ordinary, non-generic function */
     Visibility visibility;
     int is_native;
+    /* `is_native` only: the registered C implementation (a `NativeFn`, src/native.h), resolved from
+     * `name` on this declaration's first call and kept. Held as a bare `void (*)(void)` rather than
+     * a `NativeFn` to keep this header free of the dependency -- native.h needs value.h, which
+     * needs this -- and cast back at the one place that uses it (interpreter.c's call_function).
+     * A *function* pointer, not `void *`: converting between function pointer types and back is
+     * well defined, where round-tripping one through an object pointer is not (and -Wpedantic says
+     * so).
+     *
+     * Memoised because `native_lookup` is a linear scan with a `strcmp` per entry over every
+     * registered native, and there are 247 of them: resolving on every call cost an average of 205
+     * string comparisons per native call, measured at 1,964,293 of them in a single run of
+     * tests/fixtures/yaml_basic.zm, which `perf` put at a fifth of all CPU time (`__strcmp_avx2`
+     * plus `native_lookup`, docs/DESIGN.md). A `FunctionDecl` lives as long as the program and its
+     * name never changes, so one resolution per declaration is all that was ever needed. */
+    void (*native_impl)(void);
     int line, col;
     /* Non-NULL for a function a #[derive] generated, e.g. "derive(Json) for
      * 'Point'": every position inside it is stamped with the declaration's

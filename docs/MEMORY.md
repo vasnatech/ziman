@@ -1174,3 +1174,34 @@ four shapes were tried, including the exact `return`-out-of-a-`while` that valgr
 reproduces even an invalid read on the buggy binary, so a fixture would have asserted coverage that
 does not exist. `make test-nogc` is the coverage; the lesson is that I read its output as flakiness
 for three entries instead of looking.
+
+Took on the last unaddressed piece of F2's original profile -- `__strcmp_avx2` plus `native_lookup`,
+about a fifth of CPU in every profile since. The cause was plain: `native_lookup` is a linear walk
+over every registered native with a `strcmp` per entry, and `call_function` called it **on every
+native call**. Measured: 247 natives registered, and one `yaml_basic` run makes 9,595 native calls
+costing **1,964,293 string comparisons** (average scan depth 205) -- all but one per declaration
+re-deriving an answer that cannot change, since the table is built before any Ziman code runs and a
+`FunctionDecl`'s name is fixed.
+
+Fix is the move `env_lookup_resolved` already made for variables, one layer over: `FunctionDecl`
+gains `native_impl`, resolved on that declaration's first call and kept. Same run after: **23
+lookups, 4,807 comparisons** -- 409x fewer, and the floor (one per distinct native used).
+
+Two details: the field is a bare `void (*)(void)` because `ast.h` cannot include `native.h`
+(cycle via value.h), and specifically a *function* pointer rather than `void *` since
+function-pointer round-trips are defined where object-pointer ones are not -- `-Wpedantic` caught
+the first attempt. The store/load pair is relaxed-atomic only to make the benign same-value race
+between two threads well-defined.
+
+Results: `__strcmp_avx2` (16.2%) and `native_lookup` (10.1%) -- **26.3% of CPU -- vanish** from a
+csv_extended profile. A 3M-call `math.sqrt`/`cos` loop goes **2.12s to 0.75s (2.8x)**; csv_extended
+0.85s to 0.65s (~24%); the real app's server benchmark +6% at c=4 and +2% at c=8.
+
+**Worth remembering, because I nearly reported the opposite:** the first server-benchmark A/B looked
+like a 14% *regression*, which is impossible for a change that only deletes comparisons. It was
+noise. Building both binaries once and interleaving three rounds each showed the new build ahead in
+five of six paired runs. This same benchmark had already produced a misleading non-interleaved pair
+earlier in this investigation -- never trust a single non-interleaved pair from it.
+
+`GC_mark_from` is now 46% of that profile (was 37.7%) purely because the denominator shrank. That is
+the next thing in front of anyone profiling this interpreter.

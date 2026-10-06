@@ -385,9 +385,19 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
     int argc;
     Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);
     if (fn->is_native) {
-        NativeFn native = native_lookup(fn->name);
+        /* Resolved once per declaration, not once per call -- see FunctionDecl.native_impl (ast.h)
+         * for the measurement that motivated it. Two threads reaching an unresolved declaration at
+         * the same time both do the lookup and both store the same pointer, so the relaxed atomic
+         * pair is here to make that benign race well-defined rather than to coordinate anything:
+         * every registration happens before any Ziman code runs (native.h), so there is exactly one
+         * correct answer and it never changes. */
+        NativeFn native = (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED);
         if (native == NULL) {
-            ziman_error("runtime", call_line, call_col, "native function '%s' has no registered implementation", fn->name);
+            native = native_lookup(fn->name);
+            if (native == NULL) {
+                ziman_error("runtime", call_line, call_col, "native function '%s' has no registered implementation", fn->name);
+            }
+            __atomic_store_n(&fn->native_impl, (void (*)(void))native, __ATOMIC_RELAXED);
         }
         Value result = native(args, argc, call_line, call_col);
         if (args != raw_args) free(args);
