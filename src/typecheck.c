@@ -52,38 +52,64 @@ static int same_source(const char *a, const char *b) {
 /* Whether a value of type `t` can hold a `#[thread_bound]` value (a builder): it is one, or an array, map, set, Result, Option or other generic instance with one
  * among its parts, or a struct or enum with one in a field or variant. A function type does not count (what a closure captured is not in its type; the
  * run-time owner check covers that). */
-static int type_holds_thread_bound(Module *module, Type t, int depth) {
-    if (depth > 12) return 0;
+/* The declarations already on the current path, as a list built on the stack -- no allocation, and
+ * depth is bounded by the number of distinct declarations rather than by a guess. */
+typedef struct VisitedDecl {
+    const void *decl;
+    const struct VisitedDecl *prev;
+} VisitedDecl;
+
+static int visited_has(const VisitedDecl *v, const void *decl) {
+    for (; v != NULL; v = v->prev) {
+        if (v->decl == decl) return 1;
+    }
+    return 0;
+}
+
+static int type_holds_thread_bound(Module *module, Type t, const VisitedDecl *seen) {
+    /* This used to bail out at `depth > 12` and answer 0. The cutoff was there to stop a recursive
+     * type (`struct Node { kids: [Node] }`) recursing for ever, but it also abandoned perfectly
+     * ordinary deep types and answered "holds no builder" for them -- so a StringBuilder fifteen
+     * structs deep passed `spawn` statically, which is the one hole the #[thread_bound] story had.
+     * Remembering which declarations are already on this path terminates a cycle exactly, with no
+     * depth limit and no wrong answers in between; and because a cycle now terminates properly there
+     * is no unbounded recursion left to turn into an error, which is the better outcome than the
+     * error this task originally asked for. Revisiting is pruned per path rather than globally, so a
+     * struct reached twice through different fields is still examined both times. */
     switch (t.kind) {
         case TY_ARRAY:
         case TY_SET:
         case TY_CHANNEL:
-            return type_holds_thread_bound(module, *t.elem, depth + 1);
+            return type_holds_thread_bound(module, *t.elem, seen);
         case TY_RESULT:
         case TY_MAP:
-            return type_holds_thread_bound(module, *t.elem, depth + 1) || type_holds_thread_bound(module, *t.elem_err, depth + 1);
+            return type_holds_thread_bound(module, *t.elem, seen) || type_holds_thread_bound(module, *t.elem_err, seen);
         case TY_STRUCT: {
             StructDecl *sd = find_struct(module, t.struct_name);
             if (sd != NULL && sd->thread_bound) return 1;
             if (sd != NULL && sd->thread_key) return 0; /* a key holds no per-thread state itself, whatever its type argument is */
             for (int i = 0; i < t.type_args.count; i++) {
-                if (type_holds_thread_bound(module, t.type_args.items[i], depth + 1)) return 1;
+                if (type_holds_thread_bound(module, t.type_args.items[i], seen)) return 1;
             }
             if (sd != NULL) {
+                if (visited_has(seen, sd)) return 0; /* already on this path: a cycle, nothing new below */
+                VisitedDecl here = {sd, seen};
                 for (int i = 0; i < sd->fields.count; i++) {
-                    if (type_holds_thread_bound(module, sd->fields.items[i].type, depth + 1)) return 1;
+                    if (type_holds_thread_bound(module, sd->fields.items[i].type, &here)) return 1;
                 }
             }
             return 0;
         }
         case TY_ENUM: {
             for (int i = 0; i < t.type_args.count; i++) {
-                if (type_holds_thread_bound(module, t.type_args.items[i], depth + 1)) return 1;
+                if (type_holds_thread_bound(module, t.type_args.items[i], seen)) return 1;
             }
             EnumDecl *ed = find_enum(module, t.enum_name);
             if (ed != NULL) {
+                if (visited_has(seen, ed)) return 0; /* as above */
+                VisitedDecl here = {ed, seen};
                 for (int v = 0; v < ed->variants.count; v++) {
-                    if (ed->variants.items[v].has_payload && type_holds_thread_bound(module, ed->variants.items[v].payload_type, depth + 1)) return 1;
+                    if (ed->variants.items[v].has_payload && type_holds_thread_bound(module, ed->variants.items[v].payload_type, &here)) return 1;
                 }
             }
             return 0;
@@ -95,7 +121,7 @@ static int type_holds_thread_bound(Module *module, Type t, int depth) {
 
 /* The message for a thread-bound type where it may not go: `what` says where ("sent over a channel"). */
 static void reject_thread_bound(Module *module, Type t, const char *what, int line, int col) {
-    if (type_holds_thread_bound(module, t, 0)) {
+    if (type_holds_thread_bound(module, t, NULL)) {
         ziman_error("type", line, col,
                     "%s cannot be %s: it belongs to the thread that made it, as a builder or an iterator does (send the finished value instead -- sb_to_string, ab_to_array, mapb_to_map, the items as an array)",
                     type_name(t), what);

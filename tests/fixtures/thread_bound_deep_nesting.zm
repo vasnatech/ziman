@@ -1,0 +1,88 @@
+// `#[thread_bound]` is enforced by walking a type for a builder inside it, and that walk used to
+// give up at depth 12 and answer "holds none" -- so a StringBuilder nested deeper than that passed
+// `spawn` statically, which was the one hole in the story. The depth cutoff existed to stop a
+// recursive type recursing for ever; remembering which declarations are already on the current
+// path terminates a cycle exactly instead, with no limit and no wrong answers below it. This
+// fixture pins all three cases: deeper than the old cutoff, recursive, and mutually recursive with
+// the builder on the far side. Each must be rejected, and none may hang the type checker.
+struct L0 {
+    sb: StringBuilder
+}
+struct L1 {
+    inner: L0
+}
+struct L2 {
+    inner: L1
+}
+struct L3 {
+    inner: L2
+}
+struct L4 {
+    inner: L3
+}
+struct L5 {
+    inner: L4
+}
+struct L6 {
+    inner: L5
+}
+struct L7 {
+    inner: L6
+}
+struct L8 {
+    inner: L7
+}
+struct L9 {
+    inner: L8
+}
+struct L10 {
+    inner: L9
+}
+struct L11 {
+    inner: L10
+}
+struct L12 {
+    inner: L11
+}
+struct L13 {
+    inner: L12
+}
+struct L14 {
+    inner: L13
+}
+
+// recursive, and genuinely holds one: the cycle must not hide it
+struct Node {
+    sb: StringBuilder
+    kids: [Node]
+}
+
+// mutually recursive, builder on the far side
+struct A {
+    b: [B]
+}
+struct B {
+    a: [A]
+    sb: StringBuilder
+}
+
+// recursive and holding no builder at all: must still be accepted, and must terminate
+struct Plain {
+    label: string
+    kids: [Plain]
+}
+
+fn deep_worker(x: L14, d: Channel<int>) { send(d, 1) }
+fn node_worker(x: Node, d: Channel<int>) { send(d, 1) }
+fn a_worker(x: A, d: Channel<int>) { send(d, 1) }
+fn plain_worker(x: Plain, d: Channel<int>) { send(d, 1) }
+
+fn main() {
+    val d: Channel<int> = channel_new()
+    val deep = L14 { inner: L13 { inner: L12 { inner: L11 { inner: L10 { inner: L9 { inner: L8 { inner: L7 { inner: L6 { inner: L5 { inner: L4 { inner: L3 { inner: L2 { inner: L1 { inner: L0 { sb: sb_new() } } } } } } } } } } } } } } }
+    spawn deep_worker(deep, d)
+    spawn node_worker(Node { sb: sb_new(), kids: [] }, d)
+    spawn a_worker(A { b: [] }, d)
+    spawn plain_worker(Plain { label: "ok", kids: [] }, d)
+    print(receive(d))
+}
