@@ -1,0 +1,61 @@
+// `<type>_from_json` stops at the first bad field, so a request with four wrong types reports one of them.
+// `#[derive(Json)]` now also generates `<type>_from_json_all`, which reports all of them as
+// `Result<T, [string]>`.
+//
+// A companion rather than a change to the existing decoder: that one keeps its signature, so nothing breaks
+// and nothing it already does gets slower, and a caller opts in by name. Each field is decoded inside a
+// lambda, which is what makes it cheap to generate -- the emitter ends a failing field with `return err(...)`,
+// and inside a lambda that returns from the lambda, so the existing per-field emission is reused verbatim
+// with no second recording mode to keep in step with it. The cost is one closure per field, paid only here.
+use json
+
+#[derive(Json)]
+struct Patient {
+    name: string
+    age: int
+    email: string
+    nickname: Option<string>
+    scores: [int]
+}
+
+fn main() {
+    val bad = "{\"name\": 5, \"age\": \"x\", \"email\": true, \"scores\": [1, \"two\"]}"
+    val j = unwrap(json.parse_json(bad))
+
+    print("one:")
+    switch patient_from_json(j) {
+        Ok(p) { print("unexpectedly decoded") }
+        Err(e) { print(e) }
+    }
+
+    print("all:")
+    switch patient_from_json_all(j) {
+        Ok(p) { print("unexpectedly decoded") }
+        Err(problems) {
+            printf("{} problems\n", len(problems))
+            for problem in problems {
+                print(problem)
+            }
+        }
+    }
+
+    // a good document decodes the same either way, and an absent Option stays None
+    val good = "{\"name\": \"Ada\", \"age\": 36, \"email\": \"a@b.c\", \"scores\": [1, 2, 3]}"
+    val k = unwrap(json.parse_json(good))
+    val one = unwrap(patient_from_json(k))
+    val every = unwrap(patient_from_json_all(k))
+    printf("agree: {} {} {}\n", one.name == every.name, one.age == every.age, len(one.scores) == len(every.scores))
+    printf("absent Option: {}\n", is_Some(every.nickname))
+
+    // a missing required field is reported like any other problem
+    switch patient_from_json_all(unwrap(json.parse_json("{\"name\": \"Ada\"}"))) {
+        Ok(p) { print("unexpectedly decoded") }
+        Err(problems) { printf("missing fields: {}\n", len(problems)) }
+    }
+
+    // not an object at all
+    switch patient_from_json_all(unwrap(json.parse_json("[1]"))) {
+        Ok(p) { print("unexpectedly decoded") }
+        Err(problems) { print(problems[0]) }
+    }
+}

@@ -1,0 +1,12 @@
+one:
+name: expected a string
+all:
+4 problems
+name: expected a string
+age: expected a number
+email: expected a string
+scores: expected a number
+agree: true true true
+absent Option: false
+missing fields: 3
+expected a JSON object for Patient

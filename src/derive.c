@@ -609,6 +609,67 @@ static char *generate_struct_from_json(StructDecl *sd) {
     }
     cb_appendf(&cb, "    }\n");
     cb_appendf(&cb, "}\n\n");
+
+    /* ---- the accumulating companion ----
+     *
+     * `<type>_from_json` stops at the first bad field, so a request with three wrong types reports one of
+     * them. `<type>_from_json_all` reports all of them, as `Result<T, [string]>`.
+     *
+     * A companion rather than a change to the decoder above: that one keeps its signature, so nothing
+     * breaks and nothing it already does gets slower, and a caller opts in by name.
+     *
+     * Each field is decoded inside a *lambda*, which is what makes this cheap to generate. The emitters
+     * above end a failing field with `return err(...)`, and inside a lambda that returns from the lambda --
+     * so the existing per-field emission is reused verbatim, including its "skip the rest of this field"
+     * behaviour, with no second recording mode to keep in step with it. `field_ctx` is passed as NULL there
+     * and the key is prefixed once here, or the message would name the field twice.
+     *
+     * The cost is one closure per field, paid only by callers of this function. Known limit: a nested
+     * struct contributes one message, its own first, because its decoder is the single-error one. */
+    cb_appendf(&cb, "pub fn %s_from_json_all%s(j: Json%s) -> Result<%s, [string]> {\n", fn_name,
+               type_param_decl_text(&sd->type_params, ""), converter_params_text(&sd->type_params, 0),
+               decl_type_text(sd->name, &sd->type_params));
+    cb_appendf(&cb, "    if !Json.is_JObject(j) { return err([\"expected a JSON object for %s\"]) }\n", sd->name);
+    cb_appendf(&cb, "    val problems = ab_new<string>()\n");
+    tmp = 0;
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        char *camel = snake_to_camel(f->name);
+        char *dst = fmt_str("field_%s", f->name);
+        char *raw = fmt_str("field_%s_raw", f->name);
+        cb_appendf(&cb, "    val get_%s = fn() -> Result<%s, string> {\n", f->name, type_name(f->type));
+        if (is_option_type_here(f->type)) {
+            Type elem = f->type.type_args.items[0];
+            char *elem_type_name = type_name(elem);
+            char *found = fmt_str("field_%s_found", f->name);
+            char *inner = fmt_str("field_%s_inner", f->name);
+            cb_appendf(&cb, "    val %s = json_object_get(j, \"%s\")\n", found, camel);
+            cb_appendf(&cb, "    var %s = Option<%s>.None\n", dst, elem_type_name);
+            cb_appendf(&cb, "    if Option.is_Some(%s) {\n", found);
+            cb_appendf(&cb, "    val %s = Option.unwrap_Some(%s)\n", raw, found);
+            cb_appendf(&cb, "    if !Json.is_JNull(%s) {\n", raw);
+            emit_from_json(elem, raw, inner, &cb, &tmp, f->line, f->col, NULL);
+            cb_appendf(&cb, "    %s = Option<%s>.Some(%s)\n", dst, elem_type_name, inner);
+            cb_appendf(&cb, "    }\n");
+            cb_appendf(&cb, "    }\n");
+        } else {
+            cb_appendf(&cb, "    val %s = try json_require_field(j, \"%s\")\n", raw, camel);
+            emit_from_json(f->type, raw, dst, &cb, &tmp, f->line, f->col, NULL);
+        }
+        cb_appendf(&cb, "    return ok(%s)\n", dst);
+        cb_appendf(&cb, "    }\n");
+        cb_appendf(&cb, "    val got_%s = get_%s()\n", f->name, f->name);
+        cb_appendf(&cb, "    if Err(problem_%s) = got_%s { ab_append(problems, concat(\"%s: \", problem_%s)) }\n",
+                   f->name, f->name, camel, f->name);
+    }
+    cb_appendf(&cb, "    if ab_len(problems) > 0 { return err(ab_to_array(problems)) }\n");
+    cb_appendf(&cb, "    return ok(%s {\n", decl_type_text(sd->name, &sd->type_params));
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        cb_appendf(&cb, "        %s: unwrap(got_%s)%s\n", f->name, f->name, i + 1 < sd->fields.count ? "," : "");
+    }
+    cb_appendf(&cb, "    })\n");
+    cb_appendf(&cb, "}\n\n");
     return cb.data;
 }
 

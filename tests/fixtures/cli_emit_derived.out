@@ -19,3 +19,19 @@ pub fn p_from_json(j: Json) -> Result<P, string> {
     }
 }
 
+pub fn p_from_json_all(j: Json) -> Result<P, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for P"]) }
+    val problems = ab_new<string>()
+    val get_x = fn() -> Result<int, string> {
+    val field_x_raw = try json_require_field(j, "x")
+    val field_x = try int_from_json(field_x_raw)
+    return ok(field_x)
+    }
+    val got_x = get_x()
+    if Err(problem_x) = got_x { ab_append(problems, concat("x: ", problem_x)) }
+    if ab_len(problems) > 0 { return err(ab_to_array(problems)) }
+    return ok(P {
+        x: unwrap(got_x)
+    })
+}
+

@@ -1365,7 +1365,12 @@ fn main() {
 
 - **`#[derive(Json)]`** generates `<snake_case>_to_json(v) -> Json` and `<snake_case>_from_json(j)
   -> Result<Type, string>` (both directions always, via a real multi-word `PascalCase` ->
-  `snake_case` conversion: `ValidationError` -> `validation_error`).
+  `snake_case` conversion: `ValidationError` -> `validation_error`). On a **struct** it also generates
+  `<snake_case>_from_json_all(j) -> Result<Type, [string]>`, which reports *every* bad field instead of
+  stopping at the first -- a document with four wrong types gives four messages. Use it where a client
+  should see all of its mistakes at once; `_from_json` is unchanged and remains the cheaper call. A nested
+  struct contributes one message (its own first), since it is decoded by its single-error function, and an
+  enum gets no companion: its decode either matches a variant or does not, so there is nothing to collect.
 - **Per-field conversion, in priority order**: (1) the field type's own `_to_json`/`_from_json`
   (hand-written or derived); (2) a `_to_string`/`_from_string` pair (every `time`/`uuid` type has
   one, wrapped thin -- really tier 1 one step removed); (3) a plain scalar, or `decimal` (written
