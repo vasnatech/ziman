@@ -12,10 +12,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef ZIMAN_ALLOC_PROFILE
+/* A measurement build (see src/allocsites.c): every allocation is counted against its source site. */
+#include <pthread.h>
+void *ziman_alloc_note(const char *file, int line, size_t n, void *p);
+#define malloc(n) ziman_alloc_note(__FILE__, __LINE__, (n), GC_MALLOC(n))
+#define calloc(a, b) ziman_alloc_note(__FILE__, __LINE__, (a) * (b), GC_MALLOC((a) * (b)))
+#define realloc(p, n) ziman_alloc_note(__FILE__, __LINE__, (n), GC_REALLOC((p), (n)))
+#define strdup(s) ((char *)ziman_alloc_note(__FILE__, __LINE__, strlen(s) + 1, GC_STRDUP(s)))
+#else
 #define malloc(n) GC_MALLOC(n)
 #define calloc(a, b) GC_MALLOC((a) * (b))
 #define realloc(p, n) GC_REALLOC((p), (n))
 #define strdup(s) GC_STRDUP(s)
+#endif
 #define free(p) ((void)(p))
 
 #endif

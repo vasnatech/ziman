@@ -68,6 +68,21 @@ static EnumDecl *find_enum(Module *module, const char *name) {
     return NULL;
 }
 
+/* How many call arguments go in the evaluating frame instead of the heap. Four, because the average
+ * call passes 1.6 of them -- 314MB over 2.44M argument arrays in a measured run, against an 80-byte
+ * Value -- so four covers nearly every call while a larger buffer would only cost recursion depth.
+ *
+ * Measured at c=16 on tests/bench/server_concurrency.sh, interleaved rounds, against the maximum
+ * recursion depth found by bisection:
+ *
+ *     heap array (before)   919 req/s   82,148 deep
+ *     ARGS_INLINE 2        1,136 req/s  79,062 deep
+ *     ARGS_INLINE 4        1,205 req/s  74,433 deep
+ *
+ * Four it is: the depth it costs is 9%, and `--stack-mb` takes it back (600 gives 84,355, past where
+ * this started), while throughput under concurrency is not something a flag can recover. */
+#define ARGS_INLINE 4
+
 static Value eval_expr(Module *module, Env *env, Expr *e);
 
 /* Phase 3's collection-safety guard (docs/MEMORY.md, "one heap per thread") -- found necessary,
@@ -1196,7 +1211,20 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             return eval_binary(module, env, e);
         case EXPR_CALL: {
             int argc = e->as.call.args.count;
-            Value *args = argc > 0 ? malloc((size_t)argc * sizeof(Value)) : NULL;
+            /* Small argument lists go on the C stack rather than the heap. Every call used to malloc
+             * its argument array: measured at 24.5% of all allocation calls and 314MB of garbage over
+             * 2,000 authenticated requests of the reference backend, second only to the environment's
+             * own binding names. Under the collector that garbage is what drives collection frequency,
+             * and collection frequency is what stops throughput scaling with clients (F7).
+             *
+             * Correct by the same mechanism the collector already depends on: Boehm scans every
+             * thread's C stack conservatively, so Values living in this frame keep their referents
+             * alive exactly as the heap array did. ARGS_INLINE is deliberately small -- the array sits
+             * in every eval_expr frame whether a call is being evaluated or not, and eval_expr recurses
+             * once per nested expression, so a large one would cost recursion depth. */
+            Value inline_args[ARGS_INLINE];
+            Value *args = argc == 0 ? NULL : (argc <= ARGS_INLINE ? inline_args
+                                                                  : malloc((size_t)argc * sizeof(Value)));
             gc_unsafe_enter();
             for (int i = 0; i < argc; i++) {
                 args[i] = eval_expr(module, env, e->as.call.args.items[i]);
@@ -1496,7 +1524,11 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     result.type = e->resolved_type;
                 }
             }
-            free(args);
+            /* Only a heap one is freed -- `free` is a no-op under the collector, but the plain build
+             * has a real one, and handing it a stack address would be a crash rather than a leak. */
+            if (args != inline_args) {
+                free(args);
+            }
             return result;
         }
         case EXPR_CAST: {

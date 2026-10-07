@@ -1,5 +1,6 @@
 ziman
 ziman-nogc
+ziman-allocprofile
 third_party/
 vendor/bdwgc/gc.o
 vendor/bdwgc/libgc.a

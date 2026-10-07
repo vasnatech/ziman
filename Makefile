@@ -282,6 +282,14 @@ not-yet-check:
 experimental-check:
 	python3 tools/check_experimental.py
 
+# ./ziman-allocprofile: the collector build plus a count of every allocation against its source
+# site, dumped to stderr at exit, hottest first. Not a normal build and not fast -- it takes a mutex
+# per allocation -- but it answers "what actually allocates" exactly rather than by sampling, which is
+# how F7's three hottest sites were found (the review had named two different ones). See
+# src/allocsites.c. Run as: ./ziman-allocprofile <program.zm> 2>&1 | sed -n '/allocations by site/,$p'
+ziman-allocprofile: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
+	$(CC) $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-allocprofile"' $(GC_FLAGS) 	    -DZIMAN_ALLOC_PROFILE -o $@ $(SRC) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
+
 # Fails when a Ziman example in docs/SYNTAX.md no longer compiles (or, if it is tagged `fails`,
 # when it starts compiling) -- see tools/check_syntax_examples.py's own header comment. Needs the
 # binary, since it compiles every example with it.
@@ -294,4 +302,4 @@ syntax-check: $(BIN)
 docs-check: lib-manual-check not-yet-check experimental-check syntax-check
 
 clean:
-	rm -f $(BIN) ziman-nogc src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
+	rm -f $(BIN) ziman-nogc ziman-allocprofile src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
