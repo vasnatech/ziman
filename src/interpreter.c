@@ -1958,37 +1958,46 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
         }
         case STMT_WHILE: {
             /* One scope for the whole loop, not one per iteration: `env_reset` clears last
-             * iteration's bindings (freeing each one's strdup'd name) without freeing the
-             * scope itself or its `items` buffer, so after the first iteration a loop with a
-             * stable declaration count allocates nothing at all for its own bookkeeping. This
-             * was most of a tight loop's cost -- see docs/DESIGN.md's interpreter-speed entry. */
-            Env *scope = env_new(env);
+             * iteration's bindings without freeing the scope itself or its `items` buffer, so after
+             * the first iteration a loop with a stable declaration count allocates nothing at all for
+             * its own bookkeeping. This was most of a tight loop's cost -- see docs/DESIGN.md's
+             * interpreter-speed entry.
+             *
+             * And the scope itself comes from the pool, as `exec_block` and `call_function` already
+             * took theirs: one allocation per loop *entry* is still 234K calloc'd Envs and 209K
+             * reallocs of their `items` across a 2,000-request workload, which was the largest
+             * remaining source of allocated bytes once the three sites in DESIGN.md's "Three
+             * allocation sites" entry were gone. A pooled Env arrives with its `items` buffer already
+             * grown, so the reallocs go with the callocs. `env_pool_release` assumes `defer_count` is
+             * already 0, which holds here for exactly the reason it holds for `exec_block`: every path
+             * out of the body goes through `exec_stmts_in_scope`, which runs the defers. */
+            Env *scope = env_pool_acquire(env);
             for (;;) {
                 Value cond = eval_expr(module, env, s->as.while_stmt.cond);
                 if (!cond.as.b) break;
                 env_reset(scope);
                 ExecResult result = exec_stmts_in_scope(module, scope, s->as.while_stmt.body);
-                if (result.kind == CTRL_RETURN) { env_free(scope); return result; }
+                if (result.kind == CTRL_RETURN) { env_pool_release(scope); return result; }
                 if (result.kind == CTRL_BREAK) break;
                 /* CTRL_CONTINUE and CTRL_NONE both just fall through to the
                  * next iteration's condition check. */
             }
-            env_free(scope);
+            env_pool_release(scope);
             return no_ctrl();
         }
         case STMT_FOR: {
             if (s->as.for_stmt.is_range) {
                 Value start = eval_expr(module, env, s->as.for_stmt.range_start);
                 Value end = eval_expr(module, env, s->as.for_stmt.range_end);
-                Env *scope = env_new(env);
+                Env *scope = env_pool_acquire(env);
                 for (int64_t i = start.as.i; i < end.as.i; i++) {
                     env_reset(scope);
                     env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(i));
                     ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
-                    if (result.kind == CTRL_RETURN) { env_free(scope); return result; }
+                    if (result.kind == CTRL_RETURN) { env_pool_release(scope); return result; }
                     if (result.kind == CTRL_BREAK) break;
                 }
-                env_free(scope);
+                env_pool_release(scope);
                 return no_ctrl();
             }
 
@@ -1998,7 +2007,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 int64_t handle = iter_handle_of(iterable);
                 Type item_type = s->as.for_stmt.iterable->resolved_type.type_args.items[0];
                 Value item;
-                Env *scope = env_new(env);
+                Env *scope = env_pool_acquire(env);
                 /* See t_active_iters's own comment just above: `iterable` needs this push for the
                  * entire loop, popped on every exit path (both below and the two loop-internal
                  * returns right here). */
@@ -2008,7 +2017,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                     env_define(scope, s->as.for_stmt.binder1, item_type, 0, item);
                     ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
                     if (result.kind == CTRL_RETURN) {
-                        env_free(scope);
+                        env_pool_release(scope);
                         iter_close_handle(handle);
                         active_iter_pop();
                         return result;
@@ -2019,7 +2028,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                     }
                 }
                 active_iter_pop();
-                env_free(scope);
+                env_pool_release(scope);
                 return no_ctrl();
             }
             if (iterable.type.kind == TY_MAP || iterable.type.kind == TY_SET) {
@@ -2028,21 +2037,21 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 Value *keys, *vals = NULL;
                 mapobj_entries(iterable.as.map, &keys, is_map ? &vals : NULL);
                 Type key_type = *iterable.type.elem;
-                Env *scope = env_new(env);
+                Env *scope = env_pool_acquire(env);
                 for (int i = 0; i < iterable.as.map->count; i++) {
                     env_reset(scope);
                     env_define(scope, s->as.for_stmt.binder1, key_type, 0, keys[i]);
                     if (s->as.for_stmt.binder2 != NULL) env_define(scope, s->as.for_stmt.binder2, *iterable.type.elem_err, 0, vals[i]);
                     ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
-                    if (result.kind == CTRL_RETURN) { env_free(scope); return result; }
+                    if (result.kind == CTRL_RETURN) { env_pool_release(scope); return result; }
                     if (result.kind == CTRL_BREAK) break;
                 }
-                env_free(scope);
+                env_pool_release(scope);
                 return no_ctrl();
             }
             ArrayObj *arr = iterable.as.arr;
             Type elem_type = *iterable.type.elem;
-            Env *scope = env_new(env);
+            Env *scope = env_pool_acquire(env);
             for (int i = 0; i < arr->count; i++) {
                 env_reset(scope);
                 if (s->as.for_stmt.binder2 == NULL) {
@@ -2052,10 +2061,10 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                     env_define(scope, s->as.for_stmt.binder2, elem_type, 0, array_get(arr, i));
                 }
                 ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
-                if (result.kind == CTRL_RETURN) { env_free(scope); return result; }
+                if (result.kind == CTRL_RETURN) { env_pool_release(scope); return result; }
                 if (result.kind == CTRL_BREAK) break;
             }
-            env_free(scope);
+            env_pool_release(scope);
             return no_ctrl();
         }
         case STMT_BREAK: {
