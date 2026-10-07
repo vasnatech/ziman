@@ -72,7 +72,8 @@ fn main() {
         idle_timeout_ms: 2000,
         header_timeout_ms: 2000,
         max_connections: 4,
-        log_requests: false
+        log_requests: false,
+        fault: None
     }
     spawn server.serve(listener, handle, options)
     val base = format("http://127.0.0.1:{}", net.listener_port(listener))
@@ -268,6 +269,23 @@ pub fn error_response(e: HttpError) -> Response
 The response to send for a request that couldn't be read. (`Closed` and
 `Io` mean there is nobody to answer; the caller just closes.)
 
+### `error_status`
+
+```
+pub fn error_status(e: HttpError) -> int
+```
+
+The status a rejection of `e` carries, and the sentence that goes with it. These exist so an application can
+render the server's own rejections in its own error shape: `error_response` is the library's rendering of the
+same pair, and `ServeOptions.fault` is given these two rather than the `HttpError`, so an application does not
+have to match on a library enum to answer a 413.
+
+### `error_text`
+
+```
+pub fn error_text(e: HttpError) -> string
+```
+
 ### `write_response`
 
 ```
@@ -290,6 +308,20 @@ Sends the response for a request that couldn't be read (see
 `error_response`) and closes the exchange: there is no parsed Request to
 consult, so it always says `Connection: close`. Nothing to send for
 `Closed`/`Io` -- the peer is gone -- so it succeeds without writing.
+
+### `write_error_with`
+
+```
+pub fn write_error_with(
+    sock: Socket,
+    e: HttpError,
+    fault: Option<fn(int, string) -> Response>
+) -> Result<bool, HttpError>
+```
+
+`write_error`, but rendering the rejection through `fault` when there is one -- see `ServeOptions.fault`. The
+application gets the status and the sentence, not the `HttpError`, and what it returns is written as-is, so its
+body shape and any header it adds (an HSTS header, say) are on the rejection too.
 
 ## Routing
 
@@ -680,6 +712,19 @@ pub struct ServeOptions {
     header_timeout_ms: int
     max_connections: int
     log_requests: bool
+    // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
+    // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
+    // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.
+    //
+    // Pass the same renderer the application gives `dispatch`, and a client sees one error shape from the whole
+    // server instead of two: a browser that cannot read the body of its own 413 because it arrived in a
+    // different shape with none of the application's headers is the reason this exists. Whatever it returns is
+    // written as-is, so an HSTS header it adds is on the rejection too.
+    //
+    // It gets a status and a sentence, not the Request: these failures happen while the request is being read,
+    // so there may be no parsed request to pass -- which is also why a per-request header like
+    // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
+    fault: Option<fn(int, string) -> Response>
 }
 ```
 

@@ -624,14 +624,34 @@ pub fn method_not_allowed(allowed: string...) -> Response {
 // The response to send for a request that couldn't be read. (`Closed` and
 // `Io` mean there is nobody to answer; the caller just closes.)
 pub fn error_response(e: HttpError) -> Response {
+    return error_reply(error_status(e), error_text(e))
+}
+
+// The status a rejection of `e` carries, and the sentence that goes with it. These exist so an application can
+// render the server's own rejections in its own error shape: `error_response` is the library's rendering of the
+// same pair, and `ServeOptions.fault` is given these two rather than the `HttpError`, so an application does not
+// have to match on a library enum to answer a 413.
+pub fn error_status(e: HttpError) -> int {
     return switch e {
-        BadRequest(msg) { bad_request(msg) }
-        BodyTooLarge { error_reply(status_payload_too_large, "request body too large") }
-        HeadersTooLarge { error_reply(status_header_fields_too_large, "request headers too large") }
-        NotImplemented(msg) { error_reply(status_not_implemented, msg) }
-        Timeout { error_reply(status_request_timeout, "request timed out") }
-        Closed { error_reply(status_internal_server_error, "internal error") }
-        Io(_) { error_reply(status_internal_server_error, "internal error") }
+        BadRequest(_) { status_bad_request }
+        BodyTooLarge { status_payload_too_large }
+        HeadersTooLarge { status_header_fields_too_large }
+        NotImplemented(_) { status_not_implemented }
+        Timeout { status_request_timeout }
+        Closed { status_internal_server_error }
+        Io(_) { status_internal_server_error }
+    }
+}
+
+pub fn error_text(e: HttpError) -> string {
+    return switch e {
+        BadRequest(msg) { msg }
+        BodyTooLarge { "request body too large" }
+        HeadersTooLarge { "request headers too large" }
+        NotImplemented(msg) { msg }
+        Timeout { "request timed out" }
+        Closed { "internal error" }
+        Io(_) { "internal error" }
     }
 }
 
@@ -719,6 +739,18 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
 // consult, so it always says `Connection: close`. Nothing to send for
 // `Closed`/`Io` -- the peer is gone -- so it succeeds without writing.
 pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError> {
+    val none: Option<fn(int, string) -> Response> = None
+    return write_error_with(sock, e, none)
+}
+
+// `write_error`, but rendering the rejection through `fault` when there is one -- see `ServeOptions.fault`. The
+// application gets the status and the sentence, not the `HttpError`, and what it returns is written as-is, so its
+// body shape and any header it adds (an HSTS header, say) are on the rejection too.
+pub fn write_error_with(
+    sock: Socket,
+    e: HttpError,
+    fault: Option<fn(int, string) -> Response>
+) -> Result<bool, HttpError> {
     if HttpError.is_Closed(e) || HttpError.is_Io(e) {
         return false
     }
@@ -731,7 +763,11 @@ pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError> {
         headers: [],
         body: []
     }
-    return write_response(sock, stub, error_response(e))
+    val reply = switch fault {
+        Some(render) { render(error_status(e), error_text(e)) }
+        None { error_response(e) }
+    }
+    return write_response(sock, stub, reply)
 }
 
 // -------------------------------------------------------------- routing
@@ -1576,6 +1612,19 @@ pub struct ServeOptions {
     header_timeout_ms: int
     max_connections: int
     log_requests: bool
+    // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
+    // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
+    // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.
+    //
+    // Pass the same renderer the application gives `dispatch`, and a client sees one error shape from the whole
+    // server instead of two: a browser that cannot read the body of its own 413 because it arrived in a
+    // different shape with none of the application's headers is the reason this exists. Whatever it returns is
+    // written as-is, so an HSTS header it adds is on the rejection too.
+    //
+    // It gets a status and a sentence, not the Request: these failures happen while the request is being read,
+    // so there may be no parsed request to pass -- which is also why a per-request header like
+    // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
+    fault: Option<fn(int, string) -> Response>
 }
 
 // What a connection's thread does when a runtime error in the handler (or anywhere in the thread) ends it: the error goes to stderr, and the client is answered
@@ -1600,6 +1649,7 @@ fn serve_connection(
     idle_timeout_ms: int,
     header_timeout_ms: int,
     log_requests: bool,
+    fault: Option<fn(int, string) -> Response>,
     slots: Channel<int>
 ) {
     defer send(slots, 1)  // the slot is returned on every way out
@@ -1611,7 +1661,7 @@ fn serve_connection(
     while open {
         val next = read_request(session)
         if Err(e) = next {
-            val _ = write_error(sock, e)  // 400/408/413/431/501, or nothing if the peer is gone
+            val _ = write_error_with(sock, e, fault)  // 400/408/413/431/501, or nothing if the peer is gone
             open = false
         } else {
             val exchange = unwrap(next)
@@ -1658,6 +1708,7 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
                 options.idle_timeout_ms,
                 options.header_timeout_ms,
                 options.log_requests,
+                options.fault,
                 slots
             ) on_error fn(
                 message: string

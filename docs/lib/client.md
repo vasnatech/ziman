@@ -56,7 +56,8 @@ fn main() {
         idle_timeout_ms: 2000,
         header_timeout_ms: 2000,
         max_connections: 4,
-        log_requests: false
+        log_requests: false,
+        fault: None
     }
     spawn server.serve(listener, handle, options)
 

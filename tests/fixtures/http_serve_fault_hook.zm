@@ -1,0 +1,105 @@
+// A rejection the server makes on its own -- a 400 for a malformed request line, a 501 for a method the parser
+// will not take, a 408, a 413, a 431 -- never reaches the handler, so before E12 it answered the library's own
+// JSON shape with none of the application's headers. A browser could not read the body of its own 413, because
+// it arrived in a different shape from every other error the API produces.
+//
+// `ServeOptions.fault` is given the status and the sentence, and whatever it returns is written as-is. This
+// serves the same two requests twice: once through an application renderer that answers a different shape and
+// adds a header of its own, and once with `fault: None`, which must still answer exactly what the library always
+// answered.
+use http
+use net
+use server
+
+fn render(status: int, message: string) -> http.Response {
+    // A deliberately different shape from the library's {"status":...,"message":...}, plus a header that stands
+    // in for the HSTS one an application adds to everything else it answers.
+    val body = format("{{\"error\":{{\"code\":{},\"detail\":\"{}\"}}}}", status, message)
+    return server.with_header(
+        server.with_header(server.response(status, string_to_bytes(body)), "Content-Type", "application/json"),
+        "Strict-Transport-Security",
+        "max-age=31536000"
+    )
+}
+
+// No string-repeat in the prelude, and a header over the 16 KiB limit is the point of the 431 case.
+fn padding(n: int) -> string {
+    val sb = sb_new()
+    for i in 0..n {
+        sb_append(sb, "p")
+    }
+    return sb_to_string(sb)
+}
+
+fn handler(req: http.Request) -> http.Response {
+    return server.text_response(200, "the handler was reached")
+}
+
+fn serve_with(fault: Option<fn(int, string) -> http.Response>) -> int {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    val options = server.ServeOptions {
+        idle_timeout_ms: 1000,
+        header_timeout_ms: 1000,
+        max_connections: 4,
+        log_requests: false,
+        fault: fault
+    }
+    spawn server.serve(l, handler, options)
+    return port
+}
+
+// Sends `raw` and returns the status line and the headers, with the body on one line after them.
+fn ask(port: int, raw: string) -> string {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.set_timeout(s, 3000))
+    defer net.close(s)
+    val _ = net.write_text(s, raw)
+    var acc = ""
+    while true {
+        val chunk = net.read_text(s, 4096)
+        if !is_ok(chunk) {
+            return acc
+        }
+        val text = unwrap(chunk)
+        if len(text) == 0 {
+            return acc
+        }
+        acc = concat(acc, text)
+    }
+    return acc
+}
+
+fn show(label: string, raw: string) {
+    val cut = index_of(raw, "\r\n\r\n", 0)
+    val head = if cut < 0 { raw } else { substring(raw, 0, cut) }
+    val body = if cut < 0 { "" } else { substring(raw, cut + 4, len(raw)) }
+    val lines = split(head, "\r\n")
+    var hsts = "-"
+    for line in lines {
+        if starts_with(to_lower(line), "strict-transport-security:") {
+            hsts = "present"
+        }
+    }
+    printf("{}: {} | HSTS: {} | body: {}\n", label, lines[0], hsts, body)
+}
+
+fn main() {
+    val own: Option<fn(int, string) -> http.Response> = Some(render)
+    val none: Option<fn(int, string) -> http.Response> = None
+    val with_hook = serve_with(own)
+    val without = serve_with(none)
+
+    val bad = "nonsense\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    // Over max_header_bytes (16 KiB), which is a 431 -- one of the three statuses this hook exists for. A 413
+    // needs a megabyte of body to provoke and answers through the same path, so this stands for both.
+    val big = concat("GET / HTTP/1.1\r\nHost: localhost\r\nX-Pad: ", padding(20000), "\r\n\r\n")
+    val fine = "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+
+    show("hook    malformed", ask(with_hook, bad))
+    show("default malformed", ask(without, bad))
+    show("hook    big header", ask(with_hook, big))
+    show("default big header", ask(without, big))
+    // A request the handler does answer is untouched by any of this.
+    show("hook    good      ", ask(with_hook, fine))
+}

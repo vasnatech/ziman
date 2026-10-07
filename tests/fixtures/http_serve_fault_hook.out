@@ -1,0 +1,5 @@
+hook    malformed: HTTP/1.1 400 Bad Request | HSTS: present | body: {"error":{"code":400,"detail":"malformed request line"}}
+default malformed: HTTP/1.1 400 Bad Request | HSTS: - | body: {"status":400,"error":"malformed request line"}
+hook    big header: HTTP/1.1 431 Request Header Fields Too Large | HSTS: present | body: {"error":{"code":431,"detail":"request headers too large"}}
+default big header: HTTP/1.1 431 Request Header Fields Too Large | HSTS: - | body: {"status":431,"error":"request headers too large"}
+hook    good      : HTTP/1.1 200 OK | HSTS: - | body: the handler was reached
