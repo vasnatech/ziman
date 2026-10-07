@@ -1488,6 +1488,11 @@ pub fn cors_apply(policy: CorsPolicy, req: Request, answer: Response) -> Respons
 
 // Calls the handler of the first endpoint whose method and pattern match `req`. When none does, the answer is
 // `fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
+//
+// A `HEAD` that matches nothing is tried again as `GET`, since RFC 9110 makes HEAD a GET without a body and a
+// path serving GET has to serve HEAD; the GET handler's body comes back as usual and `write_response` withholds
+// it on the wire while keeping the `Content-Length` it would have had. `Allow` therefore names HEAD wherever
+// GET is served.
 pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
     val got = segments_of(req.path)
     val none: [int] = []
@@ -1500,11 +1505,39 @@ pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string
             }
         }
     }
+    // No route took it as the method asked for. HEAD is the one method that must still be answered: RFC 9110
+    // makes it GET without a body, so a server that serves GET on a path has to serve HEAD on it too, and
+    // answering 405 there breaks caches and link checkers that use HEAD to ask whether a resource exists. The
+    // GET handler runs and returns its body as usual -- `write_response` withholds it for a HEAD request while
+    // still writing the `Content-Length` the body would have had, which is what RFC 9110 asks for, so there is
+    // nothing to strip here. The exact-method loop above ran first, so an application that registers its own
+    // HEAD route keeps it.
+    if HttpMethod.is_Head(req.method) {
+        for i in map_get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
+            val e = table.endpoints[i]
+            if HttpMethod.is_Get(e.method) {
+                if Some(params) = capture(table.patterns[i], got) {
+                    val h = e.handler
+                    return h(ctx, req, params)
+                }
+            }
+        }
+    }
     val allowed = ab_new<string>()
+    var serves_get = false
+    var serves_head = false
     for i in map_get_or(table.by_length, len(got), none) {
         if Option.is_Some(capture(table.patterns[i], got)) {
-            ab_append(allowed, method_name(table.endpoints[i].method))
+            val m = table.endpoints[i].method
+            ab_append(allowed, method_name(m))
+            if HttpMethod.is_Get(m) { serves_get = true }
+            if HttpMethod.is_Head(m) { serves_head = true }
         }
+    }
+    // `Allow` has to name HEAD when the path serves GET, because the fallback above means it really is allowed;
+    // listing only GET would tell a client the opposite of what the server does.
+    if serves_get && !serves_head {
+        ab_append(allowed, "HEAD")
     }
     val methods = ab_to_array(allowed)
     val unmatched = if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }

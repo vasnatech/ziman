@@ -1,11 +1,18 @@
 use http
-use server
 use http.HttpMethod
+use server
 
 // What `server.routes` + `server.dispatch` promise: the first endpoint in the table whose method and pattern
 // match wins (so order decides between a `{param}` and a literal), a trailing slash is ignored, captures are
 // percent-decoded, an empty segment never fills a `{param}`, and a path that exists under other methods is a 405
 // naming them, in table order, while an unknown path is a 404.
+//
+// HEAD is the exception to the method match, and this fixture used to assert the opposite: `HEAD /` expected a
+// 405. RFC 9110 makes HEAD a GET without a body, so a path that serves GET has to serve HEAD, and a 405 there
+// breaks the caches and link checkers that use HEAD to ask whether a resource exists. An unmatched HEAD now
+// runs the GET handler -- the body comes back as usual and `write_response` withholds it on the wire while
+// still writing the Content-Length it would have had -- and `Allow` names HEAD wherever GET is served, since
+// after the fallback it really is allowed (E14).
 
 struct Ctx {
     tag: string
@@ -45,7 +52,14 @@ fn show(table: server.Routes<Ctx>, method: HttpMethod, path: string) {
     val r = server.dispatch<Ctx>(table, Ctx { tag: "t" }, request(method, path), fault)
     val allow = http.header_value(r.headers, "Allow")
     val allowed = if Option.is_Some(allow) { concat("  Allow: ", Option.unwrap_Some(allow)) } else { "" }
-    print(format("{} {} -> {} {}{}", http.method_name(method), path, r.status, unwrap(bytes_to_string(r.body)), allowed))
+    print(format(
+        "{} {} -> {} {}{}",
+        http.method_name(method),
+        path,
+        r.status,
+        unwrap(bytes_to_string(r.body)),
+        allowed
+    ))
 }
 
 fn main() {

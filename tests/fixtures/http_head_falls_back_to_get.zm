@@ -1,0 +1,111 @@
+// RFC 9110 makes HEAD a GET without a body, so a path that serves GET has to serve HEAD too, and `dispatch`
+// used to answer 405 there (its own fixture asserted that). What this checks, over a real socket rather than by
+// calling dispatch, is the whole promise: HEAD on a GET route answers the GET's status and headers, carries the
+// `Content-Length` the body would have had, and sends no body -- a client that trusted that length and read it
+// would hang, which is why the length and the absence of the body have to be seen together on the wire.
+use http
+use http.HttpMethod
+use net
+use server
+
+fn thing<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+    return server.text_response(200, "twelve bytes")
+}
+
+fn made<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+    return server.text_response(201, "made")
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, message)
+}
+
+val table = server.routes<int>([
+    server.Endpoint<int> { method: HttpMethod.Get, pattern: "/thing", handler: thing<int> },
+    server.Endpoint<int> { method: HttpMethod.Post, pattern: "/made", handler: made<int> }
+])
+
+fn serve_connection(sock: net.Socket) {
+    defer net.close(sock)
+    unwrap(net.set_timeout(sock, 500))
+    var session = server.open_session_with_timeout(sock, 500)
+    var open = true
+    while open {
+        val next = server.read_request(session)
+        if !is_ok(next) {
+            val _ = server.write_error(sock, unwrap_err(next))
+            open = false
+        } else {
+            val ex = unwrap(next)
+            session = ex.session
+            val answer = server.dispatch<int>(table, 0, ex.request, fault)
+            val keep = server.write_response(sock, ex.request, answer)
+            if !is_ok(keep) || !unwrap(keep) {
+                open = false
+            }
+        }
+    }
+}
+
+fn accept_loop(l: net.Listener) {
+    while true {
+        val c = net.accept(l)
+        if !is_ok(c) {
+            return
+        }
+        spawn serve_connection(unwrap(c))
+    }
+}
+
+// Reads until the peer closes, which `Connection: close` makes it do, so the body (if any) is all there.
+fn exchange(port: int, request: string) -> string {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.set_timeout(s, 3000))
+    defer net.close(s)
+    val _ = net.write_text(s, request)
+    var acc = ""
+    while true {
+        val chunk = net.read_text(s, 4096)
+        if !is_ok(chunk) {
+            return acc
+        }
+        val text = unwrap(chunk)
+        if len(text) == 0 {
+            return acc
+        }
+        acc = concat(acc, text)
+    }
+    return acc
+}
+
+fn describe(label: string, raw: string) {
+    val cut = index_of(raw, "\r\n\r\n", 0)
+    val head = if cut < 0 { raw } else { substring(raw, 0, cut) }
+    val body_len = if cut < 0 { 0 } else { len(raw) - cut - 4 }
+    val lines = split(head, "\r\n")
+    var length = "-"
+    var allow = "-"
+    for line in lines {
+        if starts_with(to_lower(line), "content-length:") {
+            length = trim(substring(line, 15, len(line)))
+        }
+        if starts_with(to_lower(line), "allow:") {
+            allow = trim(substring(line, 6, len(line)))
+        }
+    }
+    printf("{}: {} | Content-Length: {} | body bytes: {} | Allow: {}\n", label, lines[0], length, body_len, allow)
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn accept_loop(l)
+
+    val close = "Host: localhost\r\nConnection: close\r\n\r\n"
+    describe("GET  /thing ", exchange(port, concat("GET /thing HTTP/1.1\r\n", close)))
+    describe("HEAD /thing ", exchange(port, concat("HEAD /thing HTTP/1.1\r\n", close)))
+    // HEAD on a path that serves only POST is still a 405, and Allow names what is really there.
+    describe("HEAD /made  ", exchange(port, concat("HEAD /made HTTP/1.1\r\n", close)))
+    // A path that serves neither is still a 404.
+    describe("HEAD /nope  ", exchange(port, concat("HEAD /nope HTTP/1.1\r\n", close)))
+}

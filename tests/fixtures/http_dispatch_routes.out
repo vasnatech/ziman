@@ -8,10 +8,10 @@ GET /pairs/x%2Fy/z -> 200 x/y/z
 GET /items// -> 404 not found
 GET /pairs//z -> 404 not found
 GET /items/%zz -> 404 not found
-PATCH /items/7 -> 405 method not allowed  Allow: GET, DELETE, PUT
+PATCH /items/7 -> 405 method not allowed  Allow: GET, DELETE, PUT, HEAD
 GET /items -> 405 method not allowed  Allow: POST
-POST /items/7 -> 405 method not allowed  Allow: GET, DELETE, PUT
+POST /items/7 -> 405 method not allowed  Allow: GET, DELETE, PUT, HEAD
 GET /nope -> 404 not found
 GET /items/7/extra -> 404 not found
 GET /pairs/only -> 404 not found
-HEAD / -> 405 method not allowed  Allow: GET
+HEAD / -> 200 root

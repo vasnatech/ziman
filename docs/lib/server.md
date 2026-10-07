@@ -665,6 +665,11 @@ pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string
 Calls the handler of the first endpoint whose method and pattern match `req`. When none does, the answer is
 `fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
 
+A `HEAD` that matches nothing is tried again as `GET`, since RFC 9110 makes HEAD a GET without a body and a
+path serving GET has to serve HEAD; the GET handler's body comes back as usual and `write_response` withholds
+it on the wire while keeping the `Content-Length` it would have had. `Allow` therefore names HEAD wherever
+GET is served.
+
 ## Serve
 
 ### `ServeOptions`

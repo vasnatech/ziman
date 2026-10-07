@@ -1,0 +1,4 @@
+GET  /thing : HTTP/1.1 200 OK | Content-Length: 12 | body bytes: 12 | Allow: -
+HEAD /thing : HTTP/1.1 200 OK | Content-Length: 12 | body bytes: 0 | Allow: -
+HEAD /made  : HTTP/1.1 405 Method Not Allowed | Content-Length: 18 | body bytes: 0 | Allow: POST
+HEAD /nope  : HTTP/1.1 404 Not Found | Content-Length: 9 | body bytes: 0 | Allow: -
