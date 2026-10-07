@@ -73,7 +73,8 @@ fn main() {
         header_timeout_ms: 2000,
         max_connections: 4,
         log_requests: false,
-        fault: None
+        fault: None,
+        metrics: false
     }
     spawn server.serve(listener, handle, options)
     val base = format("http://127.0.0.1:{}", net.listener_port(listener))
@@ -622,6 +623,10 @@ pub struct Routes<C> {
     patterns: [Pattern]
     by_method: Map<string, [int]>
     by_length: Map<int, [int]>
+    // Whether `dispatch` records a metric per request. Set by `metered_routes`, not by `routes`:
+    // the matched pattern is known here and nowhere else, which is the one label worth having and
+    // the reason this lives on the table rather than in `ServeOptions`.
+    meter: bool
 }
 ```
 
@@ -629,15 +634,70 @@ A table of endpoints compiled for dispatching: each pattern split once, and the 
 and number of path segments (in the order they were given) so a request only meets the ones that could match.
 Build it once with `routes`.
 
+## Metrics
+
+### `declare_metrics`
+
+```
+pub fn declare_metrics()
+```
+
+Declares what `metered_routes` and `ServeOptions.metrics` record. Calling it again is a no-op, so
+an application that wants the names documented before any request may call it itself.
+
+The latency buckets are seconds, by Prometheus convention. Note the resolution they are measured
+at: `clock.monotonic_millis` is the finest clock Ziman has, so every request faster than a
+millisecond lands in the first bucket and a latency histogram cannot tell 100us from 900us. For
+a handler doing real work that is unimportant; for one answering from memory it means the
+histogram says "fast" and nothing finer.
+
+### `metrics_response`
+
+```
+pub fn metrics_response() -> Response
+```
+
+The label key for one request. Built by hand rather than through `metrics.series`, which sorts
+and escapes: these three values are a method name, a route pattern and a status, none of which can
+contain a quote, a backslash or a newline, and the names are already in increasing order.
+
+`route` is the *matched pattern*, never the request's path. A path carries ids, so labelling by it
+would grow the registry until the series cap dropped everything after the first 128 -- which is
+the usual way a metrics integration takes a service down. A request that matched nothing is
+labelled `<unmatched>` for the same reason.
+Everything recorded so far, as the body of a `/metrics` endpoint -- the content type Prometheus
+expects, and the version it has used since 0.0.4. Mount it in one line:
+
+
+```
+server.Endpoint<Ctx> { method: HttpMethod.Get, pattern: "/metrics", handler: server.metrics_handler<Ctx> }
+```
+
+Nothing here restricts who may read it. A metrics page tells a reader the shape of your traffic
+and which routes exist, so put it behind the same `who` as the rest of an internal API, or on a
+listener that only your network can reach.
+
+### `metrics_handler`
+
+```
+pub fn metrics_handler<C>(ctx: C, req: Request, params: Params) -> Response
+```
+
 ### `routes`
 
 ```
 pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C>
 ```
 
-Compiles `endpoints` for `dispatch`. Do it once, at start-up (a module-level `val`), not per request. The order
-is what `dispatch` tries them in: the first endpoint that matches wins, so a `/items/{id}` listed before
-`/items/new` answers for `/items/new`.
+### `metered_routes`
+
+```
+pub fn metered_routes<C>(endpoints: [Endpoint<C>]) -> Routes<C>
+```
+
+`routes`, and `dispatch` on the result records `http_requests_total` and `http_request_seconds`
+for every request, labelled with the method, the pattern that matched and the status. One line to
+turn on, and the pattern is a label only something that did the matching can supply.
 
 ## CORS
 
@@ -725,6 +785,10 @@ pub struct ServeOptions {
     // so there may be no parsed request to pass -- which is also why a per-request header like
     // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
     fault: Option<fn(int, string) -> Response>
+    // Whether to record `http_open_connections` and the two byte counters. Per-request metrics are
+    // separate, on the route table (`metered_routes`), because only something that matched the request
+    // knows the pattern to label it with -- and a pattern is the only label worth having.
+    metrics: bool
 }
 ```
 

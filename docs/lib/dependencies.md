@@ -19,6 +19,7 @@ flowchart LR
         jwt["jwt"]
         log["log"]
         math["math"]
+        metrics["metrics"]
         mime["mime"]
         ndjson["ndjson"]
         net["net"]
@@ -85,6 +86,7 @@ flowchart LR
     log --> fs
     log --> number
     log --> os
+    metrics --> collections
     migrate --> collections
     migrate --> crypto
     migrate --> datasource
@@ -109,6 +111,7 @@ flowchart LR
     properties --> os
     server --> clock
     server --> http
+    server --> metrics
     server --> mime
     server --> net
     server --> number
@@ -142,7 +145,7 @@ otherwise: everything on a layer depends only on lower layers.
 | Layer | Modules |
 |---|---|
 | 0 | `bits`, `clock`, `collections`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
-| 1 | `crypto`, `json`, `os`, `url` |
+| 1 | `crypto`, `json`, `metrics`, `os`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `ndjson`, `otp`, `toml`, `yaml` |
 | 3 | `csv`, `log`, `mysql`, `pg`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
 | 4 | `datasource`, `time` |
@@ -155,7 +158,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `bits` | - | - |
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `server`, `time`, `uuid` |
-| `collections` | - | `migrate` |
+| `collections` | - | `metrics`, `migrate` |
 | `compress` | - | `client` |
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
@@ -167,6 +170,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `number`, `os` | - |
 | `math` | - | - |
+| `metrics` | `collections` | `server` |
 | `migrate` | `collections`, `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
 | `mime` | - | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
@@ -179,7 +183,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `properties` | `fs`, `os` | - |
 | `random` | - | `crypto`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |
-| `server` | `clock`, `http`, `mime`, `net`, `number`, `os` | - |
+| `server` | `clock`, `http`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
 | `test` | - | - |
 | `thread` | - | - |

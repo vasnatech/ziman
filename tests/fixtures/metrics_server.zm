@@ -1,0 +1,132 @@
+// What a metered server records, over a real socket: a counter per (method, matched route, status), a
+// latency histogram, an open-connections gauge and the two byte counters, served from a `/metrics`
+// endpoint mounted in one line.
+//
+// The route label is the *matched pattern*, never the path -- `/items/{id}` for both `/items/1` and
+// `/items/2`, and `<unmatched>` for a path that matched nothing. A path carries ids, so labelling by
+// it would fill the 128-series cap and drop everything after, which is how a metrics integration
+// takes a service down rather than measuring it.
+use http
+use http.HttpMethod
+use metrics
+use net
+use server
+
+fn item<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+    return server.text_response(200, concat("item ", server.param(params, "id")))
+}
+
+fn make<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+    return server.text_response(201, "made")
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, message)
+}
+
+val table = server.metered_routes<int>([
+    server.Endpoint<int> { method: HttpMethod.Get, pattern: "/items/{id}", handler: item<int> },
+    server.Endpoint<int> { method: HttpMethod.Post, pattern: "/items", handler: make<int> },
+    server.Endpoint<int> { method: HttpMethod.Get, pattern: "/metrics", handler: server.metrics_handler<int> }
+])
+
+fn serve_connection(sock: net.Socket) {
+    defer net.close(sock)
+    unwrap(net.set_timeout(sock, 500))
+    var session = server.open_session_with_timeout(sock, 500)
+    var open = true
+    while open {
+        val next = server.read_request(session)
+        if !is_ok(next) {
+            val _ = server.write_error(sock, unwrap_err(next))
+            open = false
+        } else {
+            val ex = unwrap(next)
+            session = ex.session
+            val keep = server.write_response(sock, ex.request, server.dispatch<int>(table, 0, ex.request, fault))
+            if !is_ok(keep) || !unwrap(keep) {
+                open = false
+            }
+        }
+    }
+}
+
+fn accept_loop(l: net.Listener) {
+    while true {
+        val c = net.accept(l)
+        if !is_ok(c) {
+            return
+        }
+        spawn serve_connection(unwrap(c))
+    }
+}
+
+fn ask(port: int, raw: string) -> string {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.set_timeout(s, 3000))
+    defer net.close(s)
+    val _ = net.write_text(s, raw)
+    var acc = ""
+    while true {
+        val chunk = net.read_text(s, 8192)
+        if !is_ok(chunk) {
+            return acc
+        }
+        val text = unwrap(chunk)
+        if len(text) == 0 {
+            return acc
+        }
+        acc = concat(acc, text)
+    }
+    return acc
+}
+
+fn get(port: int, path: string) -> string {
+    return ask(port, concat("GET ", path, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn accept_loop(l)
+
+    // two different ids on one pattern, a created resource, and a path that matches nothing
+    val _ = get(port, "/items/1")
+    val _ = get(port, "/items/2")
+    val _ = get(port, "/items/3")
+    val _ = ask(port, "POST /items HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbody")
+    val _ = get(port, "/nope")
+
+    val body = get(port, "/metrics")
+    // Only the lines this fixture is about, so an added metric elsewhere does not fail it.
+    for line in split(replace(body, "\r", ""), "\n") {
+        if starts_with(line, "http_requests_total{") {
+            print(line)
+        }
+    }
+    for line in split(replace(body, "\r", ""), "\n") {
+        if starts_with(line, "http_request_seconds_count{") {
+            print(line)
+        }
+    }
+    // The gauge: at least one connection is open while /metrics is being answered -- its own.
+    for line in split(replace(body, "\r", ""), "\n") {
+        if starts_with(line, "http_open_connections") && !starts_with(line, "#") {
+            printf(
+                "open connections while answering: {}\n",
+                (if contains(line, " 0") { "none -- the gauge never moved" } else { "at least one" })
+            )
+        }
+    }
+    // The request body of the POST was 4 bytes; nothing else sent one.
+    for line in split(replace(body, "\r", ""), "\n") {
+        if starts_with(line, "http_received_bytes_total") && !starts_with(line, "#") {
+            print(line)
+        }
+    }
+    for line in split(replace(body, "\r", ""), "\n") {
+        if starts_with(line, "ziman_metrics_dropped_series_total") && !starts_with(line, "#") {
+            print(line)
+        }
+    }
+}

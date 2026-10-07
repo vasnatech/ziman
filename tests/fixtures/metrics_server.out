@@ -1,0 +1,7 @@
+http_requests_total{method="GET",route="/items/{id}",status="200"} 3
+http_requests_total{method="POST",route="/items",status="201"} 1
+http_requests_total{method="GET",route="<unmatched>",status="404"} 1
+http_request_seconds_count{method="GET",route="/items/{id}"} 3
+http_request_seconds_count{method="POST",route="/items"} 1
+http_request_seconds_count{method="GET",route="<unmatched>"} 1
+ziman_metrics_dropped_series_total 0

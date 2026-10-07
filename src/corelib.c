@@ -11,6 +11,7 @@
 #include "url_source.h"
 #include "fs_source.h"
 #include "log_source.h"
+#include "metrics_source.h"
 #include "regex_source.h"
 #include "client_source.h"
 #include "random_source.h"
@@ -62,6 +63,7 @@ static const CoreModule CORE_MODULES[] = {
     {"url", URL_SOURCE},
     {"fs", FS_SOURCE},
     {"log", LOG_SOURCE},
+    {"metrics", METRICS_SOURCE},
     {"regex", REGEX_SOURCE},
     {"client", CLIENT_SOURCE},
     {"random", RANDOM_SOURCE},

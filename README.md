@@ -96,7 +96,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `time` | `java.time`-shaped dates, times, durations, instants |
 | `uuid`, `number`, `crypto` | UUIDs, number formatting/parsing and binary encodings, SHA-256/HMAC/PBKDF2/base64 |
 | `json`, `ndjson`, `csv`, `toml`\*, `yaml`\* | JSON, and the other formats as converters to and from the same `Json` tree |
-| `properties`, `log`, `regex` | configuration files, levelled logging, regular expressions |
+| `properties`, `log`, `metrics`, `regex` | configuration files, levelled logging, counters/gauges/histograms in the Prometheus text format, regular expressions |
 | `net`, `http`, `server`, `client` | TCP and TLS, the types HTTP shares, an HTTP/1.1 server toolkit, an HTTP/HTTPS client |
 | `url` | percent-encoding, shared by `http` and `db` |
 | `db`, `sql`, `sqlite`, `pg`\*, `mysql`\* | one database API over SQLite, PostgreSQL and MySQL, with pooling |

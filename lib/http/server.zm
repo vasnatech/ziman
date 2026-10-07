@@ -84,6 +84,7 @@ use http.status_service_unavailable
 use http.status_unauthorized
 use http.status_unprocessable_entity
 use http.status_unsupported_media_type
+use metrics
 use mime
 use net
 use net.Listener
@@ -1378,6 +1379,96 @@ pub struct Routes<C> {
     patterns: [Pattern]
     by_method: Map<string, [int]>
     by_length: Map<int, [int]>
+    // Whether `dispatch` records a metric per request. Set by `metered_routes`, not by `routes`:
+    // the matched pattern is known here and nowhere else, which is the one label worth having and
+    // the reason this lives on the table rather than in `ServeOptions`.
+    meter: bool
+}
+
+// ---------------------------------------------------------------- metrics
+
+val requests_metric = "http_requests_total"
+val latency_metric = "http_request_seconds"
+val connections_metric = "http_open_connections"
+val received_metric = "http_received_bytes_total"
+val sent_metric = "http_sent_bytes_total"
+
+// Declares what `metered_routes` and `ServeOptions.metrics` record. Calling it again is a no-op, so
+// an application that wants the names documented before any request may call it itself.
+//
+// The latency buckets are seconds, by Prometheus convention. Note the resolution they are measured
+// at: `clock.monotonic_millis` is the finest clock Ziman has, so every request faster than a
+// millisecond lands in the first bucket and a latency histogram cannot tell 100us from 900us. For
+// a handler doing real work that is unimportant; for one answering from memory it means the
+// histogram says "fast" and nothing finer.
+pub fn declare_metrics() {
+    val _ = metrics.counter(requests_metric, "Requests answered, by method, matched route and status.")
+    val _ = metrics.histogram(
+        latency_metric,
+        "How long a request took, in seconds, by method and matched route.",
+        [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+    )
+    val _ = metrics.gauge(connections_metric, "Connections being served right now.")
+    val _ = metrics.counter(received_metric, "Request bytes read.")
+    val _ = metrics.counter(sent_metric, "Response bytes written.")
+}
+
+// The label key for one request. Built by hand rather than through `metrics.series`, which sorts
+// and escapes: these three values are a method name, a route pattern and a status, none of which can
+// contain a quote, a backslash or a newline, and the names are already in increasing order.
+//
+// `route` is the *matched pattern*, never the request's path. A path carries ids, so labelling by it
+// would grow the registry until the series cap dropped everything after the first 128 -- which is
+// the usual way a metrics integration takes a service down. A request that matched nothing is
+// labelled `<unmatched>` for the same reason.
+// Everything recorded so far, as the body of a `/metrics` endpoint -- the content type Prometheus
+// expects, and the version it has used since 0.0.4. Mount it in one line:
+//
+//     server.Endpoint<Ctx> { method: HttpMethod.Get, pattern: "/metrics", handler: server.metrics_handler<Ctx> }
+//
+// Nothing here restricts who may read it. A metrics page tells a reader the shape of your traffic
+// and which routes exist, so put it behind the same `who` as the rest of an internal API, or on a
+// listener that only your network can reach.
+pub fn metrics_response() -> Response {
+    return with_header(
+        response(status_ok, string_to_bytes(metrics.render())),
+        "Content-Type",
+        "text/plain; version=0.0.4; charset=utf-8"
+    )
+}
+
+pub fn metrics_handler<C>(ctx: C, req: Request, params: Params) -> Response {
+    return metrics_response()
+}
+
+fn request_key(method: HttpMethod, route: string, status: int) -> string {
+    return concat(
+        "method=\"",
+        method_name(method),
+        "\",route=\"",
+        route,
+        "\",status=\"",
+        str(status),
+        "\""
+    )
+}
+
+fn latency_key(method: HttpMethod, route: string) -> string {
+    return concat("method=\"", method_name(method), "\",route=\"", route, "\"")
+}
+
+fn connection_closed(meter: bool) {
+    if meter {
+        metrics.gauge_add(connections_metric, -1.0)
+    }
+}
+
+fn record_request(method: HttpMethod, route: string, status: int, millis: int) {
+    metrics.increment_at(metrics.series_of(key_name: requests_metric, key: request_key(method, route, status)))
+    metrics.observe_at(
+        metrics.series_of(key_name: latency_metric, key: latency_key(method, route)),
+        (millis as float) / 1000.0
+    )
 }
 
 fn method_key(m: HttpMethod, length: int) -> string {
@@ -1387,7 +1478,7 @@ fn method_key(m: HttpMethod, length: int) -> string {
 // Compiles `endpoints` for `dispatch`. Do it once, at start-up (a module-level `val`), not per request. The order
 // is what `dispatch` tries them in: the first endpoint that matches wins, so a `/items/{id}` listed before
 // `/items/new` answers for `/items/new`.
-pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
+fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
     val patterns = ab_new<Pattern>()
     val methods = mapb_new<string, [int]>()
     val lengths = mapb_new<int, [int]>()
@@ -1410,11 +1501,24 @@ pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
         i = i + 1
     }
     return Routes<C> {
+        meter: meter,
         endpoints: endpoints,
         patterns: ab_to_array(patterns),
         by_method: mapb_to_map(methods),
         by_length: mapb_to_map(lengths)
     }
+}
+
+pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
+    return routes_with<C>(endpoints, false)
+}
+
+// `routes`, and `dispatch` on the result records `http_requests_total` and `http_request_seconds`
+// for every request, labelled with the method, the pattern that matched and the status. One line to
+// turn on, and the pattern is a label only something that did the matching can supply.
+pub fn metered_routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
+    declare_metrics()
+    return routes_with<C>(endpoints, true)
 }
 
 // ------------------------------------------------------------ CORS
@@ -1530,6 +1634,51 @@ pub fn cors_apply(policy: CorsPolicy, req: Request, answer: Response) -> Respons
 // it on the wire while keeping the `Content-Length` it would have had. `Allow` therefore names HEAD wherever
 // GET is served.
 pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
+    if table.meter {
+        // Timed and counted around the same work, so every exit -- a handler, the HEAD fallback, a
+        // 405, a 404 -- is recorded exactly once. `dispatch_inner` is the whole of what this used to
+        // be; nothing is recorded when a table is not metered, not even the clock read.
+        val start = clock.monotonic_millis()
+        val answer = dispatch_inner<C>(table, ctx, req, fault)
+        record_request(
+            req.method,
+            matched_pattern<C>(table, req),
+            answer.status,
+            clock.monotonic_millis() - start
+        )
+        return answer
+    }
+    return dispatch_inner<C>(table, ctx, req, fault)
+}
+
+// The pattern a request matched, as a label: the registered pattern itself, or `<unmatched>` when
+// nothing took it. Never the request's path, which carries ids and would grow the registry past its
+// series cap. This repeats `dispatch_inner`'s matching rather than threading a value out of it,
+// which costs one more walk of a short list on a metered table only, and keeps the matching in one
+// place instead of two that could disagree about what `{id}` matched.
+fn matched_pattern<C>(table: Routes<C>, req: Request) -> string {
+    val got = segments_of(req.path)
+    val none: [int] = []
+    for i in map_get_or(table.by_method, method_key(req.method, len(got)), none) {
+        if table.endpoints[i].method == req.method {
+            if Option.is_Some(capture(table.patterns[i], got)) {
+                return table.endpoints[i].pattern
+            }
+        }
+    }
+    if HttpMethod.is_Head(req.method) {
+        for i in map_get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
+            if HttpMethod.is_Get(table.endpoints[i].method) {
+                if Option.is_Some(capture(table.patterns[i], got)) {
+                    return table.endpoints[i].pattern
+                }
+            }
+        }
+    }
+    return "<unmatched>"
+}
+
+fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
     val got = segments_of(req.path)
     val none: [int] = []
     for i in map_get_or(table.by_method, method_key(req.method, len(got)), none) {
@@ -1625,6 +1774,10 @@ pub struct ServeOptions {
     // so there may be no parsed request to pass -- which is also why a per-request header like
     // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
     fault: Option<fn(int, string) -> Response>
+    // Whether to record `http_open_connections` and the two byte counters. Per-request metrics are
+    // separate, on the route table (`metered_routes`), because only something that matched the request
+    // knows the pattern to label it with -- and a pattern is the only label worth having.
+    metrics: bool
 }
 
 // What a connection's thread does when a runtime error in the handler (or anywhere in the thread) ends it: the error goes to stderr, and the client is answered
@@ -1650,10 +1803,20 @@ fn serve_connection(
     header_timeout_ms: int,
     log_requests: bool,
     fault: Option<fn(int, string) -> Response>,
+    meter: bool,
     slots: Channel<int>
 ) {
     defer send(slots, 1)  // the slot is returned on every way out
     defer net.close(sock)
+    if meter {
+        metrics.gauge_add(connections_metric, 1.0)
+    }
+    // Decremented on every way out of the *function*, including a handler that failed: a gauge that
+    // only counts up reads as a connection leak, and it is the first number anyone looks at. The
+    // check is inside the helper rather than around the `defer`, because `defer` runs when its
+    // enclosing *block* ends -- putting this one inside the `if` above made it fire immediately, so
+    // the gauge went up and straight back down and read 0 while connections were plainly open.
+    defer connection_closed(meter)
     val head_ms = if header_timeout_ms > 0 && header_timeout_ms < idle_timeout_ms { header_timeout_ms } else { idle_timeout_ms }
     unwrap(net.set_timeout(sock, head_ms))                                    // a client that never speaks can't hold this thread for long
     var session = open_session_with_timeouts(sock, idle_timeout_ms, head_ms)  // nor one that drips a request in
@@ -1666,7 +1829,13 @@ fn serve_connection(
         } else {
             val exchange = unwrap(next)
             session = exchange.session  // carries any bytes read past this request
+            if meter {
+                metrics.add(received_metric, (len(exchange.request.body) as float))
+            }
             val response = handler(exchange.request)
+            if meter {
+                metrics.add(sent_metric, (len(response.body) as float))
+            }
             if log_requests {
                 printf(
                     "{} {} -> {}\n",
@@ -1709,6 +1878,7 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
                 options.header_timeout_ms,
                 options.log_requests,
                 options.fault,
+                options.metrics,
                 slots
             ) on_error fn(
                 message: string

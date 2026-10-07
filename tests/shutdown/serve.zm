@@ -15,7 +15,8 @@ fn main() {
         header_timeout_ms: 1000,
         max_connections: 4,
         log_requests: false,
-        fault: None
+        fault: None,
+        metrics: false
     }
     val greeting = "hi"
     server.serve(listener, fn(req: http.Request) -> http.Response {

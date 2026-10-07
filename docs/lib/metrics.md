@@ -1,0 +1,235 @@
+# `metrics`
+
+Counters, gauges and histograms that the threads of a server share, and a render of them in the
+Prometheus text format for something to scrape. The numbers live in a native registry
+(src/native_metrics.c) because a Ziman lambda cannot mutate what it captures, so state shared
+across threads has to sit behind a handle the way `StringBuilder` and `Iter` do.
+
+Declare at start-up, record anywhere:
+
+
+```
+metrics.counter("requests_total", "Requests answered, by method and route.")
+metrics.histogram("request_seconds", "How long a request took.", [0.005, 0.05, 0.5, 5.0])
+...
+metrics.increment_with("requests_total", map_from_arrays(["method"], ["GET"]))
+metrics.observe("request_seconds", 0.0121)
+print(metrics.render())
+```
+
+Recording never fails and never reports: a counter increment that could fail would mean a
+request failing because it was being measured. Two things follow, and both are deliberate.
+Recording to a name that was never declared does nothing -- a typo is silent, so declare in one
+place and reference that. And a metric accepts at most 128 distinct label sets, after which
+writes are dropped and counted in `ziman_metrics_dropped_series_total`, which `render` always
+emits, even at zero. That cap is the whole reason to label with a route *pattern* and never a
+raw path: a label carrying a user id or an id-bearing URL grows without bound, which is the
+usual way a metrics integration takes a service down rather than measuring it.
+
+Labels are a `Map<string, string>`. The key a series is stored under is built here, with the
+names sorted, so the same labels given in a different order are the same series.
+
+`use metrics` -- or `use metrics.Name` to bring one item in bare.
+
+### `counter`
+
+```
+pub fn counter(name: string, help: string) -> bool
+```
+
+Declares a counter: a number that only goes up (requests, errors, bytes). False when the
+registry is full (64 names), which is a start-up mistake rather than something to handle.
+
+### `gauge`
+
+```
+pub fn gauge(name: string, help: string) -> bool
+```
+
+Declares a gauge: a number that goes up and down (open connections, queue depth).
+
+### `histogram`
+
+```
+pub fn histogram(name: string, help: string, buckets: [float]) -> bool
+```
+
+Declares a histogram with fixed upper bounds, in the unit being observed and in increasing
+order (seconds, not milliseconds, by Prometheus convention). At most 16; `+Inf` is added by the
+render and must not be given here.
+
+### `increment`
+
+```
+pub fn increment(name: string)
+```
+
+Adds 1 to a counter with no labels.
+
+### `add`
+
+```
+pub fn add(name: string, delta: float)
+```
+
+Adds `delta` to a counter with no labels.
+
+### `set`
+
+```
+pub fn set(name: string, value: float)
+```
+
+Sets a gauge with no labels.
+
+### `gauge_add`
+
+```
+pub fn gauge_add(name: string, delta: float)
+```
+
+Moves a gauge by `delta`, which `add` deliberately will not do: `add` is for counters, and a
+counter and a gauge are different promises. Two threads moving the same gauge at once each see the
+other's change, which is what an open-connections count needs.
+
+### `gauge_add_with`
+
+```
+pub fn gauge_add_with(name: string, delta: float, labels: Map<string, string>)
+```
+
+### `observe`
+
+```
+pub fn observe(name: string, value: float)
+```
+
+Records one observation in a histogram with no labels.
+
+### `increment_with`
+
+```
+pub fn increment_with(name: string, labels: Map<string, string>)
+```
+
+The same four, with labels.
+
+### `add_with`
+
+```
+pub fn add_with(name: string, delta: float, labels: Map<string, string>)
+```
+
+### `set_with`
+
+```
+pub fn set_with(name: string, value: float, labels: Map<string, string>)
+```
+
+### `observe_with`
+
+```
+pub fn observe_with(name: string, value: float, labels: Map<string, string>)
+```
+
+### `Series`
+
+```
+pub struct Series {
+    handle: int
+}
+```
+
+One metric's one label set, resolved once so that recording to it costs nothing but the update.
+
+Building a label key is the expensive half of a labelled record: sorting the names, escaping the
+values and joining them measured about 4.5us per increment, against 0.25us for the update it
+leads to. A server labelling by route would spend nearly all of its metrics time rebuilding the
+same key per request, so resolve the series once -- at start-up, or on the first request for a
+route -- and keep it:
+
+
+```
+val get_items = metrics.series("requests_total", map_from_arrays(["route"], ["/items"]))
+...
+metrics.increment_at(get_items)      // no strings, no sorting, no lookup by name
+```
+
+A `Series` stays valid for the life of the process. `reset` invalidates every one of them, which
+is another reason it is only for tests.
+
+### `series`
+
+```
+pub fn series(name: string, labels: Map<string, string>) -> Series
+```
+
+### `series_of`
+
+```
+pub fn series_of(key_name: string, key: string) -> Series
+```
+
+The unlabelled series of a metric, resolved the same way.
+A series whose label key is already built, for a caller that knows its labels are safe and in
+order and does not want `labels_key`'s sorting and escaping on a hot path. The key is the
+rendered label list exactly as it appears between the braces: `k="v",k2="v2"`, names in
+increasing order, each value with `\`, `"` and newline escaped. Getting that wrong splits a
+series rather than failing, which is why the sorted, escaped `series` is what to reach for first.
+
+### `plain_series`
+
+```
+pub fn plain_series(name: string) -> Series
+```
+
+### `increment_at`
+
+```
+pub fn increment_at(s: Series)
+```
+
+Adds 1 to a resolved counter.
+
+### `add_at`
+
+```
+pub fn add_at(s: Series, delta: float)
+```
+
+### `set_at`
+
+```
+pub fn set_at(s: Series, value: float)
+```
+
+### `observe_at`
+
+```
+pub fn observe_at(s: Series, value: float)
+```
+
+### `gauge_add_at`
+
+```
+pub fn gauge_add_at(s: Series, delta: float)
+```
+
+### `render`
+
+```
+pub fn render() -> string
+```
+
+Every declared metric in the Prometheus text format, ending in a newline. Serve this as the
+body of a `/metrics` endpoint with `text/plain; version=0.0.4` -- `server.metrics_response`
+does that for you.
+
+### `reset`
+
+```
+pub fn reset()
+```
+
+Forgets every metric and every series. For a test that wants an empty registry; a server has no
+reason to call it, and a scraper that sees a counter restart reads it as a process restart.

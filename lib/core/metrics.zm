@@ -1,0 +1,213 @@
+// Counters, gauges and histograms that the threads of a server share, and a render of them in the
+// Prometheus text format for something to scrape. The numbers live in a native registry
+// (src/native_metrics.c) because a Ziman lambda cannot mutate what it captures, so state shared
+// across threads has to sit behind a handle the way `StringBuilder` and `Iter` do.
+//
+// Declare at start-up, record anywhere:
+//
+//     metrics.counter("requests_total", "Requests answered, by method and route.")
+//     metrics.histogram("request_seconds", "How long a request took.", [0.005, 0.05, 0.5, 5.0])
+//     ...
+//     metrics.increment_with("requests_total", map_from_arrays(["method"], ["GET"]))
+//     metrics.observe("request_seconds", 0.0121)
+//     print(metrics.render())
+//
+// Recording never fails and never reports: a counter increment that could fail would mean a
+// request failing because it was being measured. Two things follow, and both are deliberate.
+// Recording to a name that was never declared does nothing -- a typo is silent, so declare in one
+// place and reference that. And a metric accepts at most 128 distinct label sets, after which
+// writes are dropped and counted in `ziman_metrics_dropped_series_total`, which `render` always
+// emits, even at zero. That cap is the whole reason to label with a route *pattern* and never a
+// raw path: a label carrying a user id or an id-bearing URL grows without bound, which is the
+// usual way a metrics integration takes a service down rather than measuring it.
+//
+// Labels are a `Map<string, string>`. The key a series is stored under is built here, with the
+// names sorted, so the same labels given in a different order are the same series.
+use collections
+
+native fn declare_raw(name: string, kind: string, help: string, bounds: string) -> bool
+
+native fn add_raw(name: string, labels: string, delta: float)
+
+native fn set_raw(name: string, labels: string, value: float)
+
+native fn observe_raw(name: string, labels: string, value: float)
+
+native fn series_raw(name: string, labels: string) -> int
+
+native fn add_at_raw(handle: int, delta: float)
+
+native fn set_at_raw(handle: int, value: float)
+
+native fn observe_at_raw(handle: int, value: float)
+
+native fn gauge_add_raw(name: string, labels: string, delta: float)
+
+native fn gauge_add_at_raw(handle: int, delta: float)
+
+native fn render_raw() -> string
+
+native fn reset_raw()
+
+val no_labels = ""
+
+// Declares a counter: a number that only goes up (requests, errors, bytes). False when the
+// registry is full (64 names), which is a start-up mistake rather than something to handle.
+pub fn counter(name: string, help: string) -> bool {
+    return declare_raw(name, "counter", help, "")
+}
+
+// Declares a gauge: a number that goes up and down (open connections, queue depth).
+pub fn gauge(name: string, help: string) -> bool {
+    return declare_raw(name, "gauge", help, "")
+}
+
+// Declares a histogram with fixed upper bounds, in the unit being observed and in increasing
+// order (seconds, not milliseconds, by Prometheus convention). At most 16; `+Inf` is added by the
+// render and must not be given here.
+pub fn histogram(name: string, help: string, buckets: [float]) -> bool {
+    val parts = ab_new<string>()
+    for b in buckets {
+        ab_append(parts, str(b))
+    }
+    return declare_raw(name, "histogram", help, join(separator: ",", pieces: ab_to_array(parts)))
+}
+
+// A label value goes inside double quotes in the rendered line, so the three characters that
+// would end it or the line are escaped, exactly as the text format requires.
+fn escape(value: string) -> string {
+    var out = replace(value, "\\", "\\\\")
+    out = replace(out, "\"", "\\\"")
+    return replace(out, "\n", "\\n")
+}
+
+// `k="v",k2="v2"` with the names sorted, so the order they were written in never splits a series.
+fn labels_key(labels: Map<string, string>) -> string {
+    if len(labels) == 0 {
+        return no_labels
+    }
+    val names = collections.sort<string>(set_items(map_keys(labels)))
+    val parts = ab_new<string>()
+    for name in names {
+        ab_append(parts, concat(name, "=\"", escape(map_get_or(labels, name, "")), "\""))
+    }
+    return join(separator: ",", pieces: ab_to_array(parts))
+}
+
+// Adds 1 to a counter with no labels.
+pub fn increment(name: string) {
+    add_raw(name, no_labels, 1.0)
+}
+
+// Adds `delta` to a counter with no labels.
+pub fn add(name: string, delta: float) {
+    add_raw(name, no_labels, delta)
+}
+
+// Sets a gauge with no labels.
+pub fn set(name: string, value: float) {
+    set_raw(name, no_labels, value)
+}
+
+// Moves a gauge by `delta`, which `add` deliberately will not do: `add` is for counters, and a
+// counter and a gauge are different promises. Two threads moving the same gauge at once each see the
+// other's change, which is what an open-connections count needs.
+pub fn gauge_add(name: string, delta: float) {
+    gauge_add_raw(name, no_labels, delta)
+}
+
+pub fn gauge_add_with(name: string, delta: float, labels: Map<string, string>) {
+    gauge_add_raw(name, labels_key(labels), delta)
+}
+
+// Records one observation in a histogram with no labels.
+pub fn observe(name: string, value: float) {
+    observe_raw(name, no_labels, value)
+}
+
+// The same four, with labels.
+pub fn increment_with(name: string, labels: Map<string, string>) {
+    add_raw(name, labels_key(labels), 1.0)
+}
+
+pub fn add_with(name: string, delta: float, labels: Map<string, string>) {
+    add_raw(name, labels_key(labels), delta)
+}
+
+pub fn set_with(name: string, value: float, labels: Map<string, string>) {
+    set_raw(name, labels_key(labels), value)
+}
+
+pub fn observe_with(name: string, value: float, labels: Map<string, string>) {
+    observe_raw(name, labels_key(labels), value)
+}
+
+// One metric's one label set, resolved once so that recording to it costs nothing but the update.
+//
+// Building a label key is the expensive half of a labelled record: sorting the names, escaping the
+// values and joining them measured about 4.5us per increment, against 0.25us for the update it
+// leads to. A server labelling by route would spend nearly all of its metrics time rebuilding the
+// same key per request, so resolve the series once -- at start-up, or on the first request for a
+// route -- and keep it:
+//
+//     val get_items = metrics.series("requests_total", map_from_arrays(["route"], ["/items"]))
+//     ...
+//     metrics.increment_at(get_items)      // no strings, no sorting, no lookup by name
+//
+// A `Series` stays valid for the life of the process. `reset` invalidates every one of them, which
+// is another reason it is only for tests.
+pub struct Series {
+    handle: int
+}
+
+pub fn series(name: string, labels: Map<string, string>) -> Series {
+    return Series { handle: series_raw(name, labels_key(labels)) }
+}
+
+// The unlabelled series of a metric, resolved the same way.
+// A series whose label key is already built, for a caller that knows its labels are safe and in
+// order and does not want `labels_key`'s sorting and escaping on a hot path. The key is the
+// rendered label list exactly as it appears between the braces: `k="v",k2="v2"`, names in
+// increasing order, each value with `\`, `"` and newline escaped. Getting that wrong splits a
+// series rather than failing, which is why the sorted, escaped `series` is what to reach for first.
+pub fn series_of(key_name: string, key: string) -> Series {
+    return Series { handle: series_raw(key_name, key) }
+}
+
+pub fn plain_series(name: string) -> Series {
+    return Series { handle: series_raw(name, no_labels) }
+}
+
+// Adds 1 to a resolved counter.
+pub fn increment_at(s: Series) {
+    add_at_raw(s.handle, 1.0)
+}
+
+pub fn add_at(s: Series, delta: float) {
+    add_at_raw(s.handle, delta)
+}
+
+pub fn set_at(s: Series, value: float) {
+    set_at_raw(s.handle, value)
+}
+
+pub fn observe_at(s: Series, value: float) {
+    observe_at_raw(s.handle, value)
+}
+
+pub fn gauge_add_at(s: Series, delta: float) {
+    gauge_add_at_raw(s.handle, delta)
+}
+
+// Every declared metric in the Prometheus text format, ending in a newline. Serve this as the
+// body of a `/metrics` endpoint with `text/plain; version=0.0.4` -- `server.metrics_response`
+// does that for you.
+pub fn render() -> string {
+    return render_raw()
+}
+
+// Forgets every metric and every series. For a test that wants an empty registry; a server has no
+// reason to call it, and a scraper that sees a counter restart reads it as a process restart.
+pub fn reset() {
+    reset_raw()
+}
