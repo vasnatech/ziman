@@ -83,6 +83,7 @@ flowchart LR
     jwt --> number
     log --> clock
     log --> fs
+    log --> number
     log --> os
     migrate --> collections
     migrate --> crypto
@@ -164,14 +165,14 @@ otherwise: everything on a layer depends only on lower layers.
 | `http` | `mime`, `number`, `url` | `client`, `server` |
 | `json` | `number` | `csv`, `jwt`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
-| `log` | `clock`, `fs`, `os` | - |
+| `log` | `clock`, `fs`, `number`, `os` | - |
 | `math` | - | - |
 | `migrate` | `collections`, `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
 | `mime` | - | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
-| `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
+| `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `log`, `migrate`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |

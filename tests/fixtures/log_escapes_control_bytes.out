@@ -1,0 +1,6 @@
+INFO  user a@b.c\n2026-01-01 FORGED
+INFO  user \x1b[2JTAMP
+INFO  user x\x07y\x08z\x7f
+INFO  a\tb
+INFO  non-English: café 日本語 stays intact
+

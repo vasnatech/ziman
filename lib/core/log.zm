@@ -16,6 +16,7 @@
 // does it, or nothing does).
 use clock.now_iso
 use fs
+use number.byte_to_hex
 use os
 
 // A message's severity, lowest first. A logger drops messages below its own level.
@@ -121,10 +122,33 @@ pub fn enabled(l: Logger, level: Level) -> bool {
     return level_rank(level) >= level_rank(l.level)
 }
 
-// `message` with each line break written as the two characters `\n` or `\r`, so text that came from a
-// user (an email address in a failed login) cannot end the log line and start a forged one.
+// `message` with every control byte written out, so text that came from a user (an email address in a failed
+// login) cannot do anything to the log but appear in it. A line break would end the line and start a forged
+// one, which this always handled; the rest matter just as much and did not. An ESC byte begins an ANSI
+// sequence, so `ESC [ 2 J` clears the screen of whoever is reading the log, `ESC [ 1 A` moves the cursor up a
+// line to overwrite what is above it, and BEL and BS are the small change of the same trick. A terminal is
+// the one place these are instructions rather than characters.
+//
+// Bytes from 0x80 up pass through untouched: they are UTF-8 continuation and lead bytes, and mangling them
+// would corrupt every non-English log line to guard against nothing -- a terminal acts on C0 controls and
+// DEL, not on text.
 fn single_line(message: string) -> string {
-    return replace(replace(message, "\n", "\\n"), "\r", "\\r")
+    val out = sb_new()
+    for b in string_to_bytes(message) {
+        val c = b as int
+        if c == 10 {
+            sb_append(out, "\\n")
+        } else if c == 13 {
+            sb_append(out, "\\r")
+        } else if c == 9 {
+            sb_append(out, "\\t")
+        } else if c < 32 || c == 127 {
+            sb_append(out, "\\x", byte_to_hex(b))
+        } else {
+            sb_append_byte(out, b)
+        }
+    }
+    return sb_to_string(out)
 }
 
 // Moves `<path>.<n>` to `<path>.<n + 1>` for the kept files, oldest first, and `path` to `<path>.1`; the file past the last kept one is deleted. With

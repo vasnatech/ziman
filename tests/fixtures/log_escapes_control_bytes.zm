@@ -1,0 +1,40 @@
+// A log line carries text that came from a user -- an email address in a failed login, a header value. A line
+// break would end the line and start a forged one, which single_line always handled. The rest of the control
+// bytes matter just as much and did not: ESC begins an ANSI sequence, so `ESC [ 2 J` clears the screen of
+// whoever is reading the log and `ESC [ 1 A` moves the cursor up to overwrite the line above. A terminal is
+// the one place those are instructions rather than characters.
+//
+// Bytes from 0x80 up are left alone: they are UTF-8, and escaping them would corrupt every non-English log
+// line to guard against nothing.
+use fs
+use log
+
+// Logged to a file rather than the console, then read back and printed: with no file a Logger writes to
+// stderr, which the fixture harness does not compare, and timestamps are off so the output is the same
+// every run.
+fn main() {
+    val path = "/tmp/ziman_fixture_log_escapes.log"
+    val _ = fs.remove(path)
+    val l = log.logger(level: log.Level.Info, timestamps: false, file: path)
+
+    // the line break, as before
+    log.info(l, "user a@b.c\n2026-01-01 FORGED")
+
+    // ESC [ 2 J, which clears a terminal
+    log.info(l, concat("user ", unwrap(bytes_to_string([27b, 91b, 50b, 74b, 84b, 65b, 77b, 80b]))))
+
+    // BEL, BS and DEL
+    log.info(l, concat("user ", unwrap(bytes_to_string([120b, 7b, 121b, 8b, 122b, 127b]))))
+
+    // a tab, written out so a log line cannot be made to look like two columns
+    log.info(l, "a\tb")
+
+    // text stays text
+    log.info(l, "non-English: café 日本語 stays intact")
+
+    switch fs.read_text(path) {
+        Ok(text) { print(text) }
+        Err(e) { printf("could not read the log back: {}\n", fs.fs_error_message(e)) }
+    }
+    val _ = fs.remove(path)
+}
