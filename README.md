@@ -139,7 +139,11 @@ file other than the one given on the command line) and, in text mode, shown with
 under the column, with a "N errors" line at the end; `--emit-derived` prints the code each
 `#[derive]` generates; `--lint` reports style findings in your own code
 instead of running it (today: a declaration nothing ever reads, a redundant `as` alias that binds the name
-the import would bind anyway, a `var` that is never reassigned, and `x = concat(x, ..)` / `x = concat_arrays(x, ..)` in a loop, which copies all of `x` on every pass -- use a StringBuilder or ArrayBuilder -- `var` and
+the import would bind anyway, a `spawn` with no `on_error` that is handed a Channel -- if it fails, whoever
+waits on that channel waits for ever -- a `var` that is never reassigned, and `x = concat(x, ..)` /
+`x = concat_arrays(x, ..)` / `x = set(x, i, ..)` in a loop, which copies all of `x` on every pass -- use a
+StringBuilder or ArrayBuilder; `x = push(x, ..)` is deliberately *not* reported, since appending to an array
+nothing else holds extends it in place -- `var` and
 `val` differ by one letter, so it is the typo that silently makes something
 mutable) as `file:line:col: warning: ...`, or JSON with `"severity":"warning"`,
 and exits 1 if there are any; `--coverage` runs the program and then reports to stderr, per file, how many

@@ -1,0 +1,30 @@
+// A spawned function that fails without `on_error` ends its thread and nothing else. If the parent is
+// blocked in `receive` on a channel only that thread was ever going to send to, the program hangs for
+// good -- A12 added detection that reports instead of hanging for ever, and this is the cheaper half,
+// before it runs.
+//
+// Reported only when the spawn is handed a Channel: a thread that shares no channel cannot strand
+// anyone, so warning about it would be noise.
+fn worker(out: Channel<int>, n: int) {
+    send(out, n * 2)
+}
+
+fn fire_and_forget(n: int) {
+    print(str(n))
+}
+
+fn main() {
+    val c: Channel<int> = channel_new()
+    spawn worker(c, 21)
+    print(str(receive(c)))
+
+    // no channel: not reported
+    spawn fire_and_forget(1)
+
+    // handled: not reported
+    val c2: Channel<int> = channel_new()
+    spawn worker(c2, 1) on_error fn(message: string) {
+        print(message)
+    }
+    print(str(receive(c2)))
+}

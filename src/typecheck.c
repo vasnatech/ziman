@@ -482,7 +482,14 @@ static void lint_finish_function(int first_var) {
     g_lint_var_count = first_var;
 }
 
-/* `x = concat(x, ..)` or `x = concat_arrays(x, ..)` inside a loop copies all of x on every pass: quadratic. */
+/* `x = concat(x, ..)`, `x = concat_arrays(x, ..)` or `x = set(x, i, ..)` inside a loop copies all of x on
+ * every pass: quadratic.
+ *
+ * `set` is here on measurement, not on the look of it. Filling an array of n elements one `set` at a time
+ * took 82ms at n=8,000, 225ms at 16,000 and 904ms at 32,000 -- time quadrupling as n doubles. The same
+ * loop written with `push` took 3, 4 and 7ms, because appending to an array nothing else holds extends it
+ * in place (see ArrayStore's `used` counter in value.c), so `x = push(x, ..)` is deliberately *not*
+ * reported: it is the shape that looks worst and costs least. */
 static void lint_quadratic_accumulation(const Stmt *s) {
     const Expr *v = s->as.assign.value;
     const char *name = s->as.assign.name;
@@ -495,6 +502,12 @@ static void lint_quadratic_accumulation(const Stmt *s) {
         if (first->kind != EXPR_IDENT || strcmp(first->as.ident_name, name) != 0) return;
         if (strcmp(callee, "concat") == 0) fix = "a StringBuilder (sb_new, sb_append, sb_to_string)";
         else if (strcmp(callee, "concat_arrays") == 0) fix = "an ArrayBuilder (ab_new, ab_append, ab_to_array)";
+        else if (strcmp(callee, "set") == 0 && v->as.call.args.count == 3) {
+            /* No builder has random-access assignment, so the advice depends on what the loop is doing;
+             * both halves are given rather than guessing which one applies. */
+            fix = "an ArrayBuilder (ab_new, ab_append, ab_to_array) if the loop fills it in order, or a "
+                  "MapBuilder keyed by index if it does not";
+        }
     }
     if (fix == NULL) return;
     ziman_warning(g_lint_file, s->line, s->col,
@@ -4064,6 +4077,30 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                     ziman_error("type", arg->line, arg->col,
                                 "argument %d of '%s' expects %s, found %s",
                                 i + 1, callee, type_name(expected), type_name(arg_type));
+                }
+            }
+            /* --lint: a thread that can die silently, holding a channel the parent is waiting on. Without
+             * `on_error`, a runtime error in a spawned function ends that thread and nothing else; if the
+             * parent is blocked in `receive` on a channel only that thread was ever going to send to, the
+             * program hangs for good. A12 added deadlock detection for the whole-program case, which
+             * reports rather than hangs; this is the cheaper half, catching it before it runs.
+             *
+             * Only a spawn that is handed a Channel is reported. A fire-and-forget thread that shares no
+             * channel cannot strand anybody, so warning about it would be noise. The shape was chosen
+             * against the two real cases in this library -- `pg.zm` and `mysql.zm` each spawn the loop
+             * their own `requests` channel feeds, with no handler -- which `--lint` itself will never
+             * report, since it only ever reports the code the person running it wrote. */
+            if (g_lint_active && s->as.spawn_stmt.on_error == NULL) {
+                for (int i = 0; i < s->as.spawn_stmt.args.count; i++) {
+                    Expr *arg = s->as.spawn_stmt.args.items[i];
+                    if (arg->resolved_type.kind == TY_CHANNEL) {
+                        ziman_warning(g_lint_file, s->line, s->col,
+                                      "'spawn %s' has no 'on_error' and is given a Channel: if it fails, "
+                                      "whoever is waiting on that channel waits for ever",
+                                      callee);
+                        g_lint_count++;
+                        break;
+                    }
                 }
             }
             if (s->as.spawn_stmt.on_error != NULL) {

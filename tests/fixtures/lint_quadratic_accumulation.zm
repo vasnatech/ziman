@@ -1,13 +1,25 @@
+// `x = f(x, ..)` inside a loop, where f copies all of x, is quadratic. Reported for `concat`,
+// `concat_arrays` and `set`; deliberately not for `push`, because appending to an array nothing else
+// holds extends it in place (ArrayStore's `used` counter in value.c), so the shape that looks worst
+// costs least -- measured at 3/4/7ms for n of 8,000/16,000/32,000 against 82/225/904ms for the same
+// loop written with `set`.
+//
+// The `push` line sits between two reported ones on purpose: the expectation below is contiguous, so
+// if `push` were ever reported the extra line would break the match. That is how a `.err` fixture,
+// which matches a substring, can prove something is *not* warned about.
 fn main() {
     var s = ""
     var a: [int] = []
     var pushed: [int] = []
+    var fixed = [0, 0, 0]
     for i in 0..3 {
         s = concat(s, "x")
-        a = concat_arrays<int>(a, [i])
         pushed = push(pushed, i)
+        a = concat_arrays<int>(a, [i])
+        fixed = set(fixed, i, i)
     }
     print(s)
     print(a)
     print(pushed)
+    print(fixed)
 }
