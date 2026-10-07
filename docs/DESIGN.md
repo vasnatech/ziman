@@ -5044,3 +5044,51 @@ changed shape as a result: tests/run_tests.sh checks either stdout (`.out`) or s
 not both, so coverage_partial asserts the report on stderr and coverage_full, which exits 0, asserts
 instead that stdout carries only the program's output -- its exit status is what pins full coverage,
 since --coverage exits 1 if any line did not run.
+
+## When a library error gets a type, and why counting `Result<_, string>` misleads (2026-10-06)
+
+The 2026-10-05 developer review tracked `Result<_, string>` across `lib/` as a quality metric -- 281, up
+from 242 -- and called it "the one axis that got worse". Auditing all 280 of them for D15 says the metric
+is measuring the wrong thing, and the clearest demonstration is D9, the task that fixed exactly the problem
+D15 was about:
+
+| `lib/core/fs.zm` | before D9 | after D9 |
+| --- | --- | --- |
+| `Result<_, string>` total | 21 | **24** |
+| of those, in the public API | 18 | **3** |
+
+Giving `fs` a branchable `FsError` *raised* the count, because each native became a private `*_raw` returning
+the category string that the public wrapper turns into the enum -- the same arrangement `net` has always used
+for `NetError`. The count went up; the API got better. Any metric that moves the wrong way on its own
+best-case fix is not the thing to track.
+
+### The rule
+
+**An error gets a type when callers branch on its kind. It stays a string when the message is the whole
+information.** The three structured types in the library are exactly the places callers branch:
+`FsError` (not there / not allowed / is a directory), `NetError` (refused / not found / timed out / closed),
+`DbError`, and `JwtError` on `verify` (expired / bad signature / wrong audience -- a 401 or a 400 depending).
+`jwt.sign` keeps a string, because its only failure is "the claims must be a JSON object", which is a
+programming mistake and not a branch.
+
+### What the 280 actually are
+
+- **55 internal or in comments.** `net`'s eleven are *all* private `*_raw` natives behind `NetError`;
+  `fs`'s twenty-one likewise behind `FsError`; `sqlite`'s five behind `DbError`. Plumbing under a structured
+  API, counted as if it were the API.
+- **~184 parse and format errors**, where the message is the information and nobody branches: `csv` 51,
+  `time` 27, `json` 25, `toml` 16, `properties` 16, `yaml` 14, `crypto` 8, `number` 6, `zone` 5, and the
+  rest. The review itself said to leave `json` and `regex` alone; the same reasoning covers all of them.
+- **14 in `server`**, almost all *application-supplied callbacks* -- `decode: fn([byte]) -> Result<I, string>`,
+  `path: fn(Params) -> Result<P, string>`. The error is the application's message to a client, which the
+  library turns into a 400 body. A library enum there would make every application decoder speak the
+  library's error type to describe its own validation.
+- **13 in `os`**: `load_average`, `uptime_seconds`, `disk_free` and friends. These fail when the platform
+  cannot answer, which a program cannot usefully branch on -- it either works on this OS or does not.
+- **3 in `fs`**, deliberate and documented: the per-item errors inside `lines`/`chunks`/`walk`. An item error
+  is "a read failed partway through iteration", and making it a variant means building the enum in C, which
+  is what the `"category|message"` convention exists to avoid.
+
+So there is nothing substantial left to consolidate. If this is to be tracked at all, the number worth
+watching is *public* `Result<_, string>` in modules whose errors a caller branches on -- which is currently
+zero.
