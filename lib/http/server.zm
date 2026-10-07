@@ -1385,6 +1385,18 @@ pub struct Routes<C> {
     meter: bool
 }
 
+// Caps how many malloc arenas glibc will create, unless `MALLOC_ARENA_MAX` is already set in the
+// environment, in which case the operator has decided and this leaves it alone. See
+// src/native_http.c for the measurements; the short version is that this server is
+// thread-per-connection, a password hash asks OpenSSL for a ~19 MiB buffer, and glibc keeps that
+// buffer in the arena of whichever thread allocated it -- so every connection that ever
+// authenticated left 19 MiB behind. 48 registrations at 16 concurrent grew resident memory by
+// 307 MB; capped from here, 136 MB. `MALLOC_ARENA_MAX=1` in the environment reaches 98 MB, because
+// glibc reads that at the process's first allocation while this can only bound arenas made after
+// `serve` starts -- which is why an operator's setting wins and is worth keeping as the documented
+// way to go further.
+native fn bound_malloc_arenas(n: int) -> bool
+
 // ---------------------------------------------------------------- metrics
 
 val requests_metric = "http_requests_total"
@@ -1859,6 +1871,20 @@ fn serve_connection(
 // Serves `listener` until a shutdown is requested, answering each request with `handler`; see
 // `ServeOptions` for the limits and the description above for how connections and shutdown behave.
 pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions) {
+    // Here rather than at interpreter start-up, so only a program that actually serves adopts it: this
+    // is a policy for thread-per-connection code that hashes passwords, not for every Ziman program.
+    // Ziman's own allocation does not use glibc's arenas at all (zgc.h routes it through Boehm, which
+    // takes memory from mmap), so what this caps is what third-party C libraries allocate -- which is
+    // exactly the Argon2id buffer being retained. Measured at every concurrency before being made a
+    // default: an authenticated read was 3.8% slower at 16 clients, 1.7% faster at 32, 7% faster at
+    // 64, and registrations were unchanged. The result is ignored: a server can do nothing useful
+    // about a failure, and on a platform without glibc there is nothing to fail.
+    //
+    // This cannot reach what the environment variable reaches (136 MB against 98 MB on the same run),
+    // because three threads are alive before `serve` is called and `mallopt` does not merge arenas that
+    // already exist. Taking the rest would mean doing this at interpreter start-up, which is the global
+    // policy for every Ziman program that this placement exists to avoid.
+    val _ = bound_malloc_arenas(1)
     var limit = options.max_connections
     if limit < 1 {
         limit = 1
