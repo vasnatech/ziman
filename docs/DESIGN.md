@@ -4534,6 +4534,22 @@ F5's last remaining piece, P1-9: "a CI check that greps docs for the 'not yet' l
 
 **Scoped to exactly that shape, deliberately, not doc staleness generally.** A "Not yet: HTTP/2, multipart, compression, trailers" clause (the actual current wording in a few places, after the SYNTAX.md rewrite above) names no specific identifier a script could look up -- there is no `pub fn http2` to compare against. Trying to make this check catch *that* class of drift would mean either parsing English well enough to recognize "this prose phrase describes a feature that got implemented under a different name" (not a reasonable scripting target) or maintaining a hand-written map from prose to identifiers (itself something that drifts, the exact problem being solved). `tools/check_not_yet.py` catches only the case where the "not yet" text names a real identifier in backticks that already exists as a `pub` declaration -- narrower than the review's literal wording might suggest, but the only version of this check that can run unattended without becoming its own maintenance burden.
 
+**Extended to DESIGN.md and declined for ROADMAP.md (2026-10-07, F11 and after).** Adding docs/DESIGN.md
+to its sources found two genuinely stale claims immediately, and needed two refinements: a *quoted* "Not
+yet" is a citation rather than a claim (this very entry quotes the stale sentence three times, so the
+check reported the entry documenting itself), and a `**Superseded ...**` note ends the claim it corrects,
+since everything such a note names is what *has* landed.
+
+docs/ROADMAP.md was tried the same way, with "not started" as a second marker, and **produced 40 findings
+of which nearly all were wrong** -- so it was reverted. The reason is the shape of the prose, not the
+rule: "HTTP/2 -- not started" is followed by a paragraph mentioning `listen_tls`, `connect_tls_with`,
+`byte_and` and more, none of which the entry claims are missing, and the continuation-pulling that makes
+the check work on a terse `Not yet: a, b, c` list is exactly what drags those in. A narrower variant --
+flag a "not started" entry that cites a tasks.md id which is now closed -- is precise but matches three
+lines in the whole file, two of them freshly written, which is not enough to earn a tool. The roadmap's
+guard is a documented habit in its own header instead: closing a task means searching the roadmap for
+what it touched.
+
 **Mechanism**: collect every `pub fn`/`pub native fn`/`pub struct`/`pub enum`/`pub val` name declared anywhere under `lib/` (one pass over `lib/**/*.zm`, the same declarations `tools/gen_corelib_reference.sh` already extracts, independently re-parsed rather than sharing code with it since the two scripts want different things from the same lines -- a full signature there, a bare name here); then scan `docs/SYNTAX.md` and every `lib/**/*.zm` doc comment for "Not yet" and pull backtick-quoted identifiers out of the text *following* the marker on that line and any immediately-continuing lines (a `//`-comment run for a `.zm` file, a non-blank non-list-starting prose line for a Markdown one) -- flag any that's already a collected `pub` name. Only scans hand-written/source-of-truth text (`docs/SYNTAX.md`, `lib/**/*.zm`), not `docs/lib/*.md`/`docs/CORELIB.md`, since those are generated from the latter and can only ever repeat whatever it already says.
 
 **The "text following the marker only" detail matters.** `net.zm`'s own comment is "Server-side TLS is `listen_tls`. Not yet: client certificates, ALPN, ..." -- `listen_tls` and "Not yet" share a line, but `listen_tls` names the feature that *does* exist, appearing *before* the marker. Splitting the line at "Not yet" and only scanning what comes after it is what keeps this from flagging `listen_tls` against itself on every run.

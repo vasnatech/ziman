@@ -4,6 +4,20 @@ Not commitments, not ordered — ideas and known gaps to pull from as v0
 proves out. See docs/DESIGN.md for the principles these should be judged
 against before adding any of them.
 
+**Each entry carries its own status after a `--`**: `not started`, `done`, `first step done`, `postponed`.
+That status is the most perishable thing in the file, and nothing checks it. Closing a task in
+docs/reviews/tasks.md therefore means searching here for what it touched: on 2026-10-07 four entries were
+wrong at once because the work had been done and this file not revisited — a per-IP throttle still listed
+as needing a `net.peer_address` that existed, a connection cap still listed as blocked on two things that
+had landed, metrics listed as not started with half of it shipped, and a superseded collector design still
+pointing a reader at the path that was measured and abandoned.
+
+That is not fixable by a script, and it was tried: `tools/check_not_yet.py` catches a stale "Not yet" when
+it names an identifier that is now `pub`, and pointing it at this file produced **40 findings, nearly all
+wrong** — an entry like "HTTP/2 -- not started" is followed by a paragraph mentioning `listen_tls`,
+`byte_and` and a dozen other real things, none of which it claims are missing. The check works on a terse
+`Not yet: a, b, c` list and this file is discursive prose, so the guard here is the habit, not a tool.
+
 ## North star: write (a slice of) the health-record backend in Ziman
 
 The first concrete target beyond language-design exercises: get Ziman
@@ -739,7 +753,15 @@ from source.
   library's usage pattern (the per-thread-arena plan's mistake). See
   docs/MEMORY.md for the full diagnosis, the reasoning for the correction,
   and the design -- not started, tracked as F2's concurrency half
-  (docs/reviews/tasks.md).* Every `Value` payload (`ArrayObj`/`StructObj`/
+  (docs/reviews/tasks.md). **Superseded 2026-10-07: that task (F7) is closed, and not by
+  this design.** The gc_heap migration was measured and abandoned -- a gc_heap object pays
+  *both* collectors, and each half of the fix is the other's prerequisite -- while the
+  scaling problem itself was fixed by removing allocation rather than by moving it: four
+  sites (binding names, call argument arrays, a scratch array inside the mark phase, and
+  loop scopes) took allocation calls on a server workload from 9.96M to 2.57M, after which
+  throughput stops falling as clients are added and is flat from 8 to 64. See DESIGN.md's
+  "The gc_heap migration, measured and abandoned" and "Three allocation sites, and what
+  they did to F7". A reader following the design below is following the abandoned path.* Every `Value` payload (`ArrayObj`/`StructObj`/
   `EnumObj`/`ResultObj`, every `string` buffer) is heap-allocated and
   never freed, on purpose — see docs/DESIGN.md's "single-writer/actor
   pattern" entry: *"this interpreter never frees an `ArrayObj`/
@@ -1719,12 +1741,17 @@ from source.
   flood from one address can still fill all `max_connections` slots. A cap per client address (`max_connections_per_client`, default 0 = off, since
   behind a reverse proxy every connection has the proxy's address) needs `net.peer_address(sock)` (`getpeername`) and a counter shared by every
   connection thread -- a native handle holding a mutex-guarded table, as `StringBuilder` and `Iter` hold theirs. Until then a firewall or the proxy in front does it.
+  *Update 2026-10-07: both things this was waiting for now exist. `net.peer_address(sock)` landed with B10, and `server.rate_allow` is exactly the
+  "native handle holding a mutex-guarded table" described above. What B10 does **not** cover is this entry: its throttle counts requests to
+  `/api/auth/*`, so a flood of connections that never send a request still fills every slot. Still not started, but no longer blocked.*
 
-- **health-record-backend-ziman: per-IP login throttle -- not started, same root cause as the connection cap above.**
-  E5 added a per-account login and MFA lockout (`app.security.max-login-attempts`/`max-mfa-attempts`, `users.failed_login_count`/`locked_until`,
-  `user_mfa.failed_attempts`/`locked_until`), but not the per-IP half the dev review also asked for (D item 12, S3): the app has no
-  `net.peer_address(sock)` to throttle by, and behind a reverse proxy every connection has the proxy's address anyway, so it would need
-  trusting a forwarded-for header from a configured proxy, not just an address. A firewall or the proxy in front does it until then.
+- **health-record-backend-ziman: per-IP login throttle -- done (2026-10-07, B10).**
+  E5 added the per-account lockout (`app.security.max-login-attempts`/`max-mfa-attempts`); B10 added the per-IP half the dev review also asked
+  for (D item 12, S3). Both halves of what this entry said it needed landed with it: `net.peer_address(sock)` now exists, and the
+  forwarded-for question is answered by `server.forwarded_for(req, trusted_hops)`, which counts proxies you own from the right of
+  `X-Forwarded-For` and is never read unless configured -- so a client that is not behind your proxy cannot pick its own identity.
+  `app.security.max-auth-attempts-per-address`/`auth-attempt-window-seconds` (100 per 60s, measured: 20 broke three of the backend's own
+  suites) throttle `/api/auth/*` in `routes.route`, before any handler runs, because registration's cost begins before it knows who is asking.
 
 - **health-record-backend-ziman: migrate the Python test suite to Ziman -- not started, revisit once Ziman is stable enough.**
   `src/test/other/*_test.py` (about 800 checks) is Python for two reasons, not just convenience, and both would need to still hold after a
@@ -1738,7 +1765,7 @@ from source.
   Not worth doing while the interpreter and its library are both still moving targets -- the point of the exercise is confidence in Ziman,
   and a self-hosted test suite is weaker evidence of that than an external one until Ziman itself needs less looking-over.
 
-- **Metrics and telemetry -- not started; a `metrics` module first, then tracing.** Ziman has `log`, `clock` and
+- **Metrics and telemetry -- items 1 and 2 done (2026-10-07, F10); 3 to 5 not started.** Ziman has `log`, `clock` and
   threads but no way to count things across threads: a lambda cannot mutate what it captures, so shared state has to
   live in a native handle, as `StringBuilder` and `Iter` do. Planned, in order:
   1. **A `metrics` core module**: `counter`, `gauge` and `histogram` (fixed buckets), each with an optional
@@ -1754,6 +1781,13 @@ from source.
      of `client` and `json`, which needs a background thread to batch.
   5. **`log`**: an optional JSON line format carrying a request id.
   Out of scope: an agent or collector of our own; the module only exposes numbers for one to scrape.
+  *Update 2026-10-07 (F10): 1 and 2 are done. `lib/core/metrics.zm` over `src/native_metrics.c` has counters, gauges and histograms with
+  `Map<string, string>` labels, a documented 128-series cap per metric whose drops are themselves rendered, and `render()` in the Prometheus
+  text format; `server` records requests by method, matched pattern and status, a latency histogram, open connections and bytes in and out,
+  with `server.metrics_handler` to mount `/metrics` in one line. Two measurements shaped it and are worth knowing before extending it: a mutex
+  per metric made throughput **fall** as threads were added, so an existing series is updated lock-free with a compare-exchange on the double's
+  bits; and building a label key cost ~4.5us against ~0.25us for the update, so `metrics.series(...)` resolves a label set once into a handle
+  (20x faster). Items 3 (runtime metrics), 4 (trace context) and 5 (JSON log lines) remain.*
 
 - **Accounts and tokens for backends -- password hashing and JWT done; the request pipeline next.** `crypto` has bcrypt
   (through libxcrypt, so `$2a$`/`$2b$` hashes written by other systems verify) and Argon2id (OpenSSL), with
