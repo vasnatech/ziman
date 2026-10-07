@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check
 
 all: $(BIN)
 
@@ -282,10 +282,16 @@ not-yet-check:
 experimental-check:
 	python3 tools/check_experimental.py
 
+# Fails when a Ziman example in docs/SYNTAX.md no longer compiles (or, if it is tagged `fails`,
+# when it starts compiling) -- see tools/check_syntax_examples.py's own header comment. Needs the
+# binary, since it compiles every example with it.
+syntax-check: $(BIN)
+	python3 tools/check_syntax_examples.py
+
 # Every guard that keeps the documentation from drifting from the sources it describes, in one
 # target, because each of these is only useful if something actually runs it: `lib-manual-check`
 # was failing on main for a while precisely because nothing did.
-docs-check: lib-manual-check not-yet-check experimental-check
+docs-check: lib-manual-check not-yet-check experimental-check syntax-check
 
 clean:
 	rm -f $(BIN) ziman-nogc src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)

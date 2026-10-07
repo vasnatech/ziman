@@ -49,7 +49,7 @@ File extension: `.zm`.
 
 ## Grammar (informal EBNF)
 
-```
+```ziman ignore: a grammar, not Ziman
 program        := { use_decl | top_level_decl }   (* use may appear anywhere
                      at the top level, though conventionally listed first *)
 top_level_decl := [ "pub" ] ( function_decl | native_fn_decl | struct_decl | enum_decl | global_val_decl )
@@ -203,7 +203,7 @@ an unscaled `bigint` magnitude plus a scale, exactly Java's `BigDecimal` shape) 
 `int`/`float` for exact, unbounded arithmetic. Neither ever implicitly mixes with any
 other numeric type — cast explicitly with `as`, same rule as everywhere else.
 
-```
+```ziman
 fn factorial(n: bigint, limit: int, i: int) -> bigint {
     if i > limit { return n }
     return factorial(n * (i as bigint), limit, i + 1)
@@ -220,7 +220,9 @@ error. Casts: `bigint as int`/`as float` saturate to the type's min/max rather t
 the exact remaining value (NaN/infinity is a runtime error, same for `float as decimal`).
 Heap-allocated internally, unlike `int`/`float`.
 
-```
+```ziman
+use math
+
 fn main() {
     val total = 19.99d + (19.99d * 0.0825d)
     print(total)             // 21.639175 -- exact, no binary rounding drift
@@ -240,7 +242,7 @@ half-up-away-from-zero to `max(a.scale, b.scale)` (`10d / 3d` is `3`, `-2d / 3d`
 `BigDecimal.equals()`). Casts are lossy through `float` either way, and truncate (not
 round) going to `int`/`bigint`; `int`/`bigint as decimal` are exact.
 
-```
+```ziman fragment
 print(300 as byte)   // 255 -- saturates, doesn't wrap
 print(-5 as byte)     // 0
 ```
@@ -258,7 +260,7 @@ argument, and a `Map`/`Set` key where `Eq`/`Hash` apply.
 
 ## Arrays
 
-```
+```ziman fragment
 var nums: [int] = []
 for i in 0..5 {
     nums = push(nums, i * i)
@@ -298,7 +300,7 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
 refers back to itself (`Json`, or a recursive `enum Tree<T: Eq> { Leaf(T) Node([Tree<T>]) }`); a type
 parameter bounded by `Hash`; a value may be anything.
 
-```
+```ziman ignore: the `for` lines end in `...` to show the binders, not a body
 var stock = Map<string, int> { "apple": 4, "pear": 6 }    // the type arguments are always written
 var seen = Set<int> {}                                    // empty
 stock = set(stock, "fig", 9)             // add or replace; returns a new map
@@ -361,7 +363,7 @@ for x in seen { ... }                    // a set has one binder
 Three forms, chosen by binder count and whether the right-hand side of
 `in` is a range or an array:
 
-```
+```ziman ignore: shapes of `for`, with `...` standing in for a body
 for x in arr { ... }          // value only -- x: T, once per element
 for i in 0..len(arr) { ... }  // index only -- i: int, counting a range
 for i, x in arr { ... }       // index + value together
@@ -417,7 +419,9 @@ A function can be passed around: its type is `fn(A, B) -> R` (no `-> R` for a
 function that returns nothing). Two things are values of that type: the name of
 a top-level function, and a *lambda*, an anonymous function written in place.
 
-```
+```ziman
+use collections
+
 fn double(n: int) -> int { return n * 2 }
 fn is_even(n: int) -> bool { return n % 2 == 0 }
 
@@ -482,7 +486,7 @@ fn main() {
 
 ## Structs
 
-```
+```ziman
 struct Point {
     x: int
     y: int
@@ -534,7 +538,7 @@ fn main() {
 
 ### Variadic parameters
 
-```
+```ziman
 fn sum(nums: int...) -> int {
     var total = 0
     for n in nums { total = total + n }
@@ -562,7 +566,7 @@ fn main() {
 
 ### Named arguments
 
-```
+```ziman
 fn localtime_of(hour: int, minute: int, second: int, nano: int) -> string {
     return format("{}:{}:{}.{}", hour, minute, second, nano)
 }
@@ -588,7 +592,7 @@ fn main() {
 
 ### Option\<T\> parameter omission and defaults
 
-```
+```ziman
 fn describe(name: string, nickname: Option<string>, priority: Option<int> = 3) -> string {
     return format("{}, priority {}", name, Option.unwrap_Some(priority))
 }
@@ -620,7 +624,7 @@ fn main() {
 
 ### Result\<T, E\> bare-value auto-wrap
 
-```
+```ziman
 fn as_result(ok_path: bool) -> Result<int, string> {
     if ok_path { return 1 }              // a bare T return value -- becomes Ok(1)
     return "bad input"                    // a bare E return value -- becomes Err("bad input")
@@ -643,7 +647,7 @@ fn main() {
 
 ### `try` — Option\<T\>/Result\<T, E\> unwrap-or-propagate
 
-```
+```ziman
 fn plus_one(s: string) -> Result<int, string> {
     return ok(try parse_int(s) + 1)
 }
@@ -690,15 +694,15 @@ fn plus_one(s: string) -> Result<int, string> {
 
 ### Must-use `Result`
 
-```
+```ziman fails
 fn risky(n: int) -> Result<int, string> {
     if n < 0 { return err("negative") }
     return ok(n)
 }
-fn main() {
-    risky(-1)          // type error: this Result<int, string> is discarded
-    val _ = risky(-1)  // fine: discarded on purpose
-    try risky(-1)       // fine: propagates a real Err
+fn caller() -> Result<int, string> {
+    risky(-1)              // type error: this Result<int, string> is discarded
+    val _ = risky(-1)      // fine: discarded on purpose
+    return try risky(-1)   // fine: propagates a real Err
 }
 ```
 
@@ -712,7 +716,7 @@ fn main() {
 
 ### `if Variant(name) = expr` — test and bind in one step
 
-```
+```ziman
 fn main() {
     val a: Option<int> = Option<int>.Some(4)
     if Some(x) = a { print(x) }                     // 4
@@ -740,7 +744,7 @@ Structs, enums and functions can all be generic, cross-module included (see docs
 "Generics" entry for how this was staged). `Box<T>`/`Pair<A, B>` below are plain illustrative
 structs, not corelib exports.
 
-```
+```ziman
 struct Box<T> { value: T }
 fn main() {
     val b = Box<int> { value: 5 }
@@ -771,7 +775,7 @@ fn main() {
 never does. `Option<T> { Some(T) None }` below is the actual prelude-provided type, always
 available bare.
 
-```
+```ziman
 fn main() {
     val a = Option<int>.Some(5)
     print(Option.is_Some(a))       // true
@@ -792,7 +796,7 @@ fn main() {
 
 **Generic functions** work the same explicit-argument way, but a call site may omit them:
 
-```
+```ziman
 fn identity<T>(x: T) -> T { return x }
 fn are_equal<T: Eq>(a: T, b: T) -> bool { return a == b }
 fn main() {
@@ -826,7 +830,7 @@ fn main() {
 A user-declared tagged union — the first parametric-free type *users* can declare that isn't
 a plain product type like `struct`.
 
-```
+```ziman
 struct RectDims { width: float  height: float }
 enum Shape { Circle(float) Rectangle(RectDims) Point }
 
@@ -864,7 +868,7 @@ fn area(s: Shape) -> float {
 
 ### `switch` — exhaustive consumption of an enum or a Result
 
-```
+```ziman
 enum Shape { Circle(float) Square(float) Empty }
 fn area(s: Shape) -> float {
     switch s {
@@ -893,7 +897,7 @@ fn area(s: Shape) -> float {
 One file is one module, identified by its filesystem path — no separate
 `module Foo` declaration to keep in sync with the filename.
 
-```
+```ziman ignore: the first half of a two-file example; `main.zm` below imports it
 // models/user.zm
 pub struct User {
     id: int
@@ -909,7 +913,7 @@ fn validate_name(name: string) -> bool {   // no `pub` -- private to this module
 }
 ```
 
-```
+```ziman ignore: the second half of a two-file example, importing the `models/user` above
 // main.zm
 use models/user
 
@@ -1022,7 +1026,7 @@ modes are otherwise designed around.
 An `if` or `switch` can produce a value, which removes the "declare a `var`,
 then assign it in every branch" pattern:
 
-```
+```ziman ignore: `n`, `e` and `text` are the reader's own; the point is where such an expression may go
 val label = if n > 0 { "positive" } else if n < 0 { "negative" } else { "zero" }
 
 val status = switch e {
@@ -1074,7 +1078,7 @@ length per letter (unlike `java.time.DateTimeFormatter`, where `M`/`MM`/`MMM`/`M
 no month/day names, no locale-awareness; an unrecognized run length of a token letter (three
 `S`s) is just folded into the surrounding literal rather than erroring.
 
-```
+```ziman
 use time.LocalDate
 use time.localdate_of
 use time.localdate_add_months
@@ -1152,7 +1156,7 @@ overlapping work.
 
 The `json` core module (`use json.Name`) is a parser/serializer, pure Ziman.
 
-```
+```ziman
 use json.parse_json
 use json.json_to_string
 use json.Json
@@ -1214,7 +1218,7 @@ file, or None for an extension it does not know. Well-known types are functions 
 Each format is a pure-Ziman module that converts text to and from a `Json` tree, so
 `#[derive(Json)]` types decode from (and encode to) every format for free:
 
-```
+```ziman
 use toml
 use json.Json
 
@@ -1259,7 +1263,7 @@ fn main() {
 
 ## Ordering (`Ord`, `compare`, sorting)
 
-```
+```ziman ignore: `people`, `patients` and `ages` stand for the reader's own arrays
 use collections
 
 #[derive(Ord)]
@@ -1322,7 +1326,7 @@ what a deprecated *module* should warn about -- every `use`, or every call into 
 not be used in new code. Calling it -- or naming it as a value -- *from another module* is a
 `--lint` warning that quotes the message when one was given:
 
-```
+```ziman ignore: a signature with no body, showing what the attribute is written on
 #[deprecated("use open_session_with_timeouts, which also bounds the request head")]
 pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session
 ```
@@ -1349,7 +1353,7 @@ cannot see. Hand over the finished value (`sb_to_string`,
 `ab_to_array`, `mapb_to_map`, an iterator's items as an array), not the builder/iterator. For
 a struct written in Ziman this attribute gives only the compile-time refusals (no native check).
 
-```
+```ziman
 use json.Json
 use json.json_to_string
 
@@ -1409,8 +1413,10 @@ both count as failure, message shown; anything else passes. Prints `PASS <file>:
 
 **Parametrized: `#[test(cases: NAME)]`** runs a one-parameter function once per array element:
 
-```
-struct AddCase { a: int, b: int, expected: int }
+```ziman
+use test
+
+struct AddCase { a: int  b: int  expected: int }
 val add_cases = [AddCase { a: 1, b: 1, expected: 2 }, AddCase { a: 2, b: 2, expected: 4 }]
 
 #[test(cases: add_cases)]
@@ -1444,7 +1450,8 @@ the URL parser) and `datasource` (what a program calls -- connections, `execute`
 (`postgres://user:password@host:port/database`) are the two backends, chosen by URL scheme
 behind the same calls.
 
-```
+```ziman
+use datasource
 use db.SqlValue
 use db.row_get
 use db.sql_as_text
@@ -1540,7 +1547,7 @@ fn main() {
 The `net` core module is blocking TCP; `[byte]` helpers are prelude builtins, plus binary
 encodings in `number`.
 
-```
+```ziman
 use net
 fn serve(l: net.Listener) {
     val client = unwrap(net.accept(l))
@@ -1598,7 +1605,7 @@ fn main() {
 The `http` core module is an HTTP/1.1 **server toolkit** on `net`: parse a request off a
 socket, route it, write a response -- plus a ready-made server loop.
 
-```
+```ziman ignore: `{ ... }` stands in for the handler's body
 fn route(conn: datasource.Connection, req: http.Request) -> http.Response { ... }
 
 val options = server.ServeOptions { idle_timeout_ms: 30000, header_timeout_ms: 5000, max_connections: 64, log_requests: true }
@@ -1693,7 +1700,7 @@ a pool, begins, calls `work(tx)`, commits on `Ok` or rolls back on `Err`/a faile
 hands the connection back on every path out, returning `work`'s result unchanged. `work` (a
 function value, usually a lambda) must not call `begin`/`commit` itself.
 
-```
+```ziman ignore: `...` stands in for the statement's arguments
 fn transfer(tx: datasource.Connection, t: Transfer) -> Result<int, DbError> {
     try datasource.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2", ...)
     try datasource.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2", ...)
@@ -1704,7 +1711,9 @@ val moved = try datasource.with_transaction<int>(conn, fn(tx) -> Result<int, DbE
 
 ## Regular expressions (`regex`)
 
-```
+```ziman fragment
+use regex
+
 val re = try regex.compile("(\\w+)@(\\w+)\\.com")           // Result<Regex, string>
 val m = regex.find(re, "mail bob@site.com now")             // Option<Match>
 regex.replace_all(re, "bob@site.com", "$2: $1")             // "site: bob"
@@ -1820,7 +1829,12 @@ OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt; `[byte]
 
 `jwt` signs/verifies with a shared secret (HS256/384/512), on `crypto`/`json`/`clock`.
 
-```
+```ziman fragment
+use crypto.base64_decode
+use jwt
+use json.Json
+
+val secret = "c2hhcmVkLXNlY3JldC1vZi0zMi1ieXRlcy0xMjM0NTY="   // 32 random bytes, base64
 val key = unwrap(base64_decode(secret))
 val claims = jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JString("admin"))
 val token = unwrap(jwt.sign(claims, key))
@@ -1851,7 +1865,11 @@ switch jwt.verify(token, key) {
 
 `otp` makes/checks TOTP codes (RFC 6238: HMAC-SHA-1, 30-second steps), pure Ziman on `crypto`.
 
-```
+```ziman fragment
+use otp
+
+val typed_code = "492039"
+val now_seconds = 1760000000
 val secret = otp.generate_secret()                                   // base32, shown to the user once
 val key = unwrap(otp.base32_decode(secret))
 otp.totp_valid(key, typed_code, now_seconds, 1)                      // this step and one either side
@@ -1871,7 +1889,7 @@ The rest of `os` is for ending cleanly: `os.exit(code)` flushes stdout/stderr th
 set a flag instead of killing the process, `os.shutdown_requested() -> bool` reads it, and
 `net.accept` errors within ~0.25s of the signal so an accept loop can stop, drain, and exit:
 
-```
+```ziman ignore: `{ ... }` stands in for what the loop does with each client
 os.install_shutdown_handler()
 while !os.shutdown_requested() {
     val client = net.accept(listener)
@@ -1882,14 +1900,16 @@ while !os.shutdown_requested() {
 The signal can arrive on any thread, so only `accept` notices it automatically -- other blocking
 work needs its own arrangement (a socket timeout, say).
 
-```
+```ziman
 use properties
 
 #[derive(Properties)]
 struct ServerConfig { port: int  idle_timeout_ms: int  banner: Option<string> }
 
-val props = try properties.load("application")          // application.properties (+ -<profile>)
-val cfg = try server_config_from_properties(props, "server")
+fn load_config() -> Result<ServerConfig, string> {
+    val loaded = try properties.load("application")     // application.properties (+ -<profile>)
+    return server_config_from_properties(loaded, "server")
+}
 ```
 
 - **Format**: `key=value` lines, `#` comments only at line start, lowercase dotted kebab-case
@@ -1921,7 +1941,7 @@ val cfg = try server_config_from_properties(props, "server")
 The `number` core module is shared formatting/parsing across `int`/`float`/`bigint`/`decimal`/
 `byte`, pure Ziman on top of each type's own `str()`.
 
-```
+```ziman
 use number.parse_pattern
 use number.format_int
 
@@ -1969,7 +1989,7 @@ fn main() {
 `sqrt`, `pow`, `exp`, `log` (natural), `sin`/`cos`/`tan` (radians), constants `pi`/`e` (global
 vals, `use math.pi` to bring in bare). All `float` in/out, one-line libm wrappers.
 
-```
+```ziman
 use math
 fn main() {
     print(math.sqrt(2.0))          // 1.4142135623730951
@@ -1999,7 +2019,7 @@ Bitwise `and`/`or`/`xor`/`not`/`shift_left`/`shift_right` on `byte`/`int`/`bigin
 scalar-backed sets: `BitSet` (an `int`, indices 0-63) and `BigBitSet` (a `bigint`, unbounded).
 Ziman has no bitwise operators in its own syntax -- this module is the only way to touch bits.
 
-```
+```ziman
 use bits
 fn main() {
     print(bits.int_and(12, 10))          // 8
@@ -2034,7 +2054,7 @@ fn main() {
 
 ## Result
 
-```
+```ziman
 fn safe_div(a: int, b: int) -> Result<int, string> {
     if b == 0 {
         return err("division by zero")
@@ -2080,7 +2100,13 @@ fn main() {
 falling off the end, `return`, a `try` that propagates an error, `break`, or
 `continue`. It is how a resource is released without destructors.
 
-```
+```ziman
+use datasource
+use db.DbError
+use net
+
+fn read_reply(sock: net.Socket) -> string { return "0" }   // stands for the caller's own reading
+
 fn talk(port: int) -> Result<int, string> {
     val sock = unwrap(net.connect("127.0.0.1", port))
     defer net.close(sock)              // closed on every path out of talk
@@ -2125,7 +2151,7 @@ piece of mutable state and is the only thing that ever touches it; every
 other thread reaches it only by sending a message and waiting for a
 reply.
 
-```
+```ziman
 enum PatientMessage {
     Create(string)
     GetById(int)
