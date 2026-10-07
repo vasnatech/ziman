@@ -151,7 +151,9 @@ static Value native_declare(Value *args, int argc, int line, int col) {
     const char *help = value_cstr(args[2]);
     const char *bounds = value_cstr(args[3]); /* comma-separated, histograms only */
 
-    MetricKind k;
+    /* Initialised although every path assigns it: the `else` below ends in ziman_error, which does not
+     * return, but is not declared that way, so the compiler warns otherwise. */
+    MetricKind k = M_COUNTER;
     if (strcmp(kind, "counter") == 0) k = M_COUNTER;
     else if (strcmp(kind, "gauge") == 0) k = M_GAUGE;
     else if (strcmp(kind, "histogram") == 0) k = M_HISTOGRAM;

@@ -11,7 +11,13 @@ struct Expr;
  * on keeping the implementation itself boring and explicit. */
 
 typedef struct {
-    char *name;
+    /* Borrowed, never owned: every caller of env_define passes a name that belongs to the AST (a
+     * declaration's name, a parameter's, a loop binder's, a defer's hidden variable), and the AST
+     * outlives every environment built from it -- nothing frees it in either build. It used to be
+     * strdup'd here, which measured as the single hottest allocation in the interpreter: 25.7% of all
+     * allocation calls across a server workload and 99.7% of them in a call-heavy benchmark, one copy
+     * per binding per call. See docs/DESIGN.md, "Binding names are borrowed". */
+    const char *name;
     int is_mutable;
     int lint_id; /* type checker only: 1-based index into its `var` lint table, 0 = none */
     int poisoned; /* type checker only: the declaration of this name failed to check; uses of it are skipped silently */

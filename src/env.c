@@ -11,8 +11,8 @@ Env *env_new(Env *parent) {
 }
 
 void env_free(Env *env) {
-    /* the names env_define copied; `caps` names are not freed -- the type checker keeps them */
-    for (int i = 0; i < env->count; i++) free(env->items[i].name);
+    /* No name is freed: a binding borrows its name from the AST (see env.h's Binding). `caps` names
+     * were never freed either -- the type checker keeps them. */
     free(env->items);
     free(env->defers);
     free(env->caps);
@@ -20,7 +20,6 @@ void env_free(Env *env) {
 }
 
 void env_reset(Env *env) {
-    for (int i = 0; i < env->count; i++) free(env->items[i].name);
     env->count = 0;
 }
 
@@ -39,7 +38,7 @@ int env_define(Env *env, const char *name, Type type, int is_mutable, Value valu
         env->capacity = env->capacity == 0 ? 8 : env->capacity * 2;
         env->items = realloc(env->items, (size_t)env->capacity * sizeof(Binding));
     }
-    env->items[env->count].name = strdup(name);
+    env->items[env->count].name = name;
     env->items[env->count].is_mutable = is_mutable;
     env->items[env->count].lint_id = 0;
     env->items[env->count].poisoned = 0;
