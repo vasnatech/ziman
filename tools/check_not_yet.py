@@ -33,7 +33,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PUB_DECL = re.compile(r"^pub (?:native )?(?:fn|struct|enum|val) ([A-Za-z_][A-Za-z0-9_]*)")
 NOT_YET = re.compile(r"Not yet\b[:,]?\s*(.*)")
-BACKTICK_NAME = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*)`")
+# A backticked name, bare (`listen_tls`) or module-qualified (`metrics.render`). The qualified form
+# has to be matched here, not just split later: the pattern used to require a bare identifier, so a
+# claim naming the thing qualified matched nothing at all and sailed past a declaration that exists.
+BACKTICK_NAME = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)`")
 
 
 def pub_names():
@@ -107,8 +110,13 @@ def main():
     for path in sources:
         for rel, lineno, text in not_yet_claims(path):
             for name in BACKTICK_NAME.findall(text):
-                if name in names:
-                    decl_file, decl_line = names[name]
+                # A claim may name the thing qualified (`metrics.render`) or bare (`listen_tls`), and
+                # declarations are indexed bare, so a qualified mention needs its last segment tried
+                # too -- without this, `Not yet: ... (`metrics.render`)` sailed past a declared
+                # `pub fn render`, which is the whole class of thing this check exists to catch.
+                bare = name.rsplit(".", 1)[-1]
+                if bare in names:
+                    decl_file, decl_line = names[bare]
                     problems.append(
                         "%s:%d: says `%s` is \"not yet\" supported, but it's already declared "
                         "pub at %s:%d" % (rel, lineno, name, decl_file, decl_line)
