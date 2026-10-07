@@ -402,7 +402,9 @@ static int type_supports_hashing(Module *module, Type t, int depth) {
 typedef struct {
     const char *name;
     int line, col;
-    int assigned;
+    int assigned;  /* a `var` that is never reassigned should have been a `val` */
+    int used;      /* a declaration nothing ever reads is dead weight -- see lint_finish_function */
+    int mutable_decl;
 } LintVar;
 
 static int g_lint_on = 0;
@@ -445,20 +447,35 @@ static int g_skip_main_check = 0;
 void typecheck_skip_main_check(int skip) { g_skip_main_check = skip; }
 int typecheck_lint_count(void) { return g_lint_count; }
 
-static int lint_register_var(const char *name, int line, int col) {
+/* For a lint rule that lives outside this file. The loader has one -- a redundant `as` alias -- because
+ * a module's `use` list belongs to the loader's per-module AST and is already gone from the merged
+ * Module this file is handed. The count stays here so `--lint`'s exit status counts every finding. */
+int typecheck_lint_enabled(void) { return g_lint_on; }
+
+void typecheck_lint_note(void) { g_lint_count++; }
+
+static int lint_register_var(const char *name, int line, int col, int is_mutable) {
     if (g_lint_var_count == g_lint_var_cap) {
         g_lint_var_cap = g_lint_var_cap == 0 ? 16 : g_lint_var_cap * 2;
         g_lint_vars = realloc(g_lint_vars, (size_t)g_lint_var_cap * sizeof(LintVar));
     }
-    g_lint_vars[g_lint_var_count] = (LintVar){name, line, col, 0};
+    g_lint_vars[g_lint_var_count] = (LintVar){name, line, col, 0, 0, is_mutable};
     return ++g_lint_var_count; /* 1-based */
 }
 
 static void lint_finish_function(int first_var) {
     for (int i = first_var; i < g_lint_var_count; i++) {
-        if (!g_lint_vars[i].assigned) {
-            ziman_warning(g_lint_file, g_lint_vars[i].line, g_lint_vars[i].col,
-                          "'var %s' is never reassigned; declare it with 'val'", g_lint_vars[i].name);
+        LintVar *v = &g_lint_vars[i];
+        /* Unread comes first and alone: telling someone a binding should have been a `val` when the
+         * answer is to delete it would be advice about the wrong line. */
+        if (!v->used) {
+            ziman_warning(g_lint_file, v->line, v->col,
+                          "'%s %s' is never read; remove it (or name it '_' to discard on purpose)",
+                          v->mutable_decl ? "var" : "val", v->name);
+            g_lint_count++;
+        } else if (v->mutable_decl && !v->assigned) {
+            ziman_warning(g_lint_file, v->line, v->col,
+                          "'var %s' is never reassigned; declare it with 'val'", v->name);
             g_lint_count++;
         }
     }
@@ -1595,6 +1612,13 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     if (e->as.call.local_name != NULL && e->as.call.type_args.count == 0) {
         int local_depth, local_slot;
         Binding *fb = env_lookup_resolved(env, e->as.call.local_name, &local_depth, &local_slot);
+        /* Calling a function-valued binding reads it, and a call does not go through EXPR_IDENT. Without
+         * this, `val to_params = crud.to_params` followed by `to_params(entity)` was reported as never
+         * read -- 19 such findings in the reference backend, every one of them wrong, which is what this
+         * line exists to answer. */
+        if (fb != NULL && fb->lint_id > 0 && fb->lint_id - 1 < g_lint_var_count) {
+            g_lint_vars[fb->lint_id - 1].used = 1;
+        }
         /* A poisoned local (its own declaration already failed -- see poison_declaration) has a placeholder
          * TY_VOID type, so it never matches the `TY_FUNC` check just below and falls through to `find_function`,
          * which reports "call to undefined function" for a name that is, in fact, declared right here: an
@@ -2896,6 +2920,12 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
         case EXPR_IDENT: {
             int depth, slot;
             Binding *b = env_lookup_resolved(env, e->as.ident_name, &depth, &slot);
+            /* The one place a name is read, so the one place the unread-declaration lint needs. An
+             * assignment's target does not come through here (STMT_ASSIGN resolves its own binding),
+             * which is what makes `x = 1` with no reader still report as unread. */
+            if (b != NULL && b->lint_id > 0 && b->lint_id - 1 < g_lint_var_count) {
+                g_lint_vars[b->lint_id - 1].used = 1;
+            }
             if (b == NULL) {
                 Type ft;
                 if (resolve_function_reference(module, e, &ft)) {
@@ -3795,8 +3825,20 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             if (!env_define(env, s->as.decl.name, declared, is_mutable, value_int(0))) {
                 ziman_error("type", s->line, s->col, "'%s' is already declared in this scope", s->as.decl.name);
             }
-            if (is_mutable && g_lint_active) {
-                env_lookup(env, s->as.decl.name)->lint_id = lint_register_var(s->as.decl.name, s->line, s->col);
+            if (g_lint_active) {
+                /* Every declaration, not only a `var`: an unread one is dead weight whichever keyword
+                 * declared it, and the two findings share this table.
+                 *
+                 * `_` is skipped because `env_define` never binds it at all -- it is a true discard, the
+                 * one name the whole type checker special-cases, so `env_lookup` answers NULL and
+                 * `val _ = f()` is already the way to say "deliberately unread". Widening this from
+                 * `var` to every declaration is what first found that out, by segfaulting on it. */
+                Binding *declared_binding =
+                    strcmp(s->as.decl.name, "_") == 0 ? NULL : env_lookup(env, s->as.decl.name);
+                if (declared_binding != NULL) {
+                    declared_binding->lint_id =
+                        lint_register_var(s->as.decl.name, s->line, s->col, is_mutable);
+                }
             }
             break;
         }
@@ -3863,7 +3905,8 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                     ziman_error("type", s->line, s->col, "'%s' is already declared in this scope", s->as.value_block.name);
                 }
                 if (target == STMT_VAR && g_lint_active) {
-                    env_lookup(env, s->as.value_block.name)->lint_id = lint_register_var(s->as.value_block.name, s->line, s->col);
+                    env_lookup(env, s->as.value_block.name)->lint_id =
+                        lint_register_var(s->as.value_block.name, s->line, s->col, 1);
                 }
             }
             break;

@@ -1,0 +1,42 @@
+// A declaration nothing ever reads is dead weight, whichever keyword declared it. Two findings in the
+// reference backend when this landed, both real: a `val saved = try repository.save(...)` whose value
+// nothing wanted (the `try` was the point) and an `if Err(failure) = ...` whose binder the log line
+// never mentioned.
+//
+// What must NOT be reported is as much of the rule as what must: `_` is a true discard, a loop binder
+// nobody reads is ordinary, and calling a function-valued binding is a read even though a call does not
+// go through the same path a plain name does -- that last one was 19 wrong findings before it was fixed.
+fn twice(n: int) -> int {
+    return n * 2
+}
+
+fn main() {
+    val never = 2
+    var unread = 5
+    val _ = 99
+
+    val read = 1
+    var counted = 0
+    counted = counted + read
+    print(str(counted))
+
+    // a function value, called: read
+    val doubler = twice
+    print(str(doubler(4)))
+
+    // a loop binder nobody reads: not reported
+    for i in 0..2 {
+        print("tick")
+    }
+
+    // a payload nobody needs, said properly
+    val o: Option<int> = Some(5)
+    if Some(_) = o {
+        print("present")
+    }
+
+    // a payload bound and ignored: reported, and `Some(_)` above is the fix
+    if Some(ignored) = o {
+        print("present again")
+    }
+}

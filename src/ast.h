@@ -740,6 +740,13 @@ typedef struct {
     char *imported_name;
     char *local_name;
     int line, col;
+    /* Whether an `as` was actually written, and where. Needed because `qualifier` is the alias *or*
+     * the path's last segment, so the two are indistinguishable afterwards -- and `use a/b as b` is a
+     * line that does nothing, which `--lint` reports (there were 16 of them in the reference backend).
+     * `alias_line`/`alias_col` point at the alias rather than at the `use`, so the warning points at
+     * the word to delete. Zero when no alias was written. */
+    int has_alias;
+    int alias_line, alias_col;
 } UseDecl;
 
 typedef struct {

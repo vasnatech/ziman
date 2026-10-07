@@ -1,6 +1,11 @@
+// A value-block assignment (`code = if ... { } else { }`) counts as a reassignment, so `code` is not
+// reported as a `var` that should have been a `val`. `once` is the control: read, never reassigned, so it
+// is reported -- and it has to be *read*, because an unread declaration is reported as something to
+// remove instead, which is the more useful advice and would hide what this fixture is checking.
 fn main() {
     var code = 0
-    var unused = 1
+    var once = 1
     code = if true { 1 } else { 2 }
     print(code)
+    print(str(once))
 }

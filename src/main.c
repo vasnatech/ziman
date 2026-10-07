@@ -179,8 +179,11 @@ static void *run_program(void *raw) {
 
     register_all_natives();
 
-    Module *module = load_module_graph(file, NULL);
+    /* Enabled before the load, not after: one lint rule lives in the loader (a redundant `as` alias),
+     * because a module's `use` list belongs to the loader's per-module AST and is gone by the time the
+     * merged Module reaches the type checker. */
     if (lint) typecheck_enable_lint();
+    Module *module = load_module_graph(file, NULL);
     typecheck(module);
     if (lint) {
         int n = typecheck_lint_count();

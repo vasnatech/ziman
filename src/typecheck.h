@@ -16,5 +16,7 @@ void typecheck_skip_main_check(int skip);
  * own (non-bundled, non-derived) code through ziman_warning(), and counts them. */
 void typecheck_enable_lint(void);
 int typecheck_lint_count(void);
+int typecheck_lint_enabled(void);
+void typecheck_lint_note(void);
 
 #endif

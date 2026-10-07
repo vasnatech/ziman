@@ -1,6 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include "loader.h"
 
+#include "typecheck.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1298,7 +1300,7 @@ static Module *parse_file_contents(const char *source) {
  * failing loudly -- narrow enough (nobody writes this by accident) that
  * it's left as a documented limitation rather than plumbing the
  * prelude's/builtins' name lists in here too. */
-static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, int *out_count) {
+static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, const char *file, int *out_count) {
     NamedImport *imports = NULL;
     int count = 0, cap = 0;
 
@@ -1313,6 +1315,34 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, int *out_cou
      * ("never a bare name that silently resolves to an import"), and `as` already says it explicitly. The
      * per-name form below has always rejected its own version of this; this is the same rule for the other
      * form, where the consequence of not having it was worse -- a wrong function quietly called. */
+    /* --lint: an `as` that binds the name the import would bind anyway. `use controller/admin as admin`
+     * and `use collections.sort as sort` are lines that do nothing -- a whole-module import's qualifier
+     * is already the path's last segment, and a per-name import already binds the imported name. There
+     * were 16 of the first kind in the reference backend. This lives here rather than with the other
+     * lint rules in typecheck.c because a module's `use` list is the loader's: it is already gone from
+     * the merged Module the type checker is handed, which cost a first attempt at this rule. Reported at
+     * the alias, since that is the word to delete. */
+    if (typecheck_lint_enabled() && !mod->is_corelib) {
+        for (int i = 0; i < mod->uses.count && file != NULL; i++) {
+            UseDecl *u = &mod->uses.items[i];
+            if (!u->has_alias) continue;
+            const char *bound = NULL;
+            if (u->qualifier != NULL) {
+                const char *slash = strrchr(u->path, '/');
+                const char *last = slash != NULL ? slash + 1 : u->path;
+                if (strcmp(u->qualifier, last) == 0) bound = u->qualifier;
+            } else if (u->local_name != NULL && u->imported_name != NULL
+                       && strcmp(u->local_name, u->imported_name) == 0) {
+                bound = u->local_name;
+            }
+            if (bound != NULL) {
+                ziman_warning(file, u->alias_line, u->alias_col,
+                              "'as %s' binds the name this import would bind anyway; drop it", bound);
+                typecheck_lint_note();
+            }
+        }
+    }
+
     for (int i = 0; i < mod->uses.count; i++) {
         UseDecl *a = &mod->uses.items[i];
         if (a->imported_name != NULL || a->qualifier == NULL) continue;
@@ -1526,7 +1556,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     ziman_set_error_file(from_disk ? file_path : NULL);
 
     int n_imports = 0;
-    NamedImport *imports = resolve_named_imports(ldr, mod, &n_imports);
+    NamedImport *imports = resolve_named_imports(ldr, mod, file_path, &n_imports);
     self_qualify_module(mod, use_path, imports, n_imports);
     resolve_cross_refs(ldr, mod);
 
@@ -1596,7 +1626,7 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
      * rewrite to in the first place). It still needs its own dotted
      * cross-module references resolved too. */
     int n_entry_imports = 0;
-    NamedImport *entry_imports = resolve_named_imports(&ldr, entry_mod, &n_entry_imports);
+    NamedImport *entry_imports = resolve_named_imports(&ldr, entry_mod, entry_path, &n_entry_imports);
     char **entry_val_names = entry_mod->vals.count > 0 ? malloc((size_t)entry_mod->vals.count * sizeof(char *)) : NULL;
     for (int i = 0; i < entry_mod->vals.count; i++) entry_val_names[i] = entry_mod->vals.items[i]->name;
     check_no_val_shadowing(entry_mod, entry_val_names, entry_mod->vals.count, entry_imports, n_entry_imports);

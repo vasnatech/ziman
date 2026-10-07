@@ -2220,6 +2220,9 @@ static UseDecl parse_use_decl(Parser *p) {
     UseDecl u;
     u.path = path;
     u.line = kw->line;
+    u.has_alias = 0;
+    u.alias_line = 0;
+    u.alias_col = 0;
 
     if (match(p, TOK_DOT)) {
         /* Per-name import: `use collections.HashMap`. Casing isn't
@@ -2241,6 +2244,9 @@ static UseDecl parse_use_decl(Parser *p) {
                             (int)alias->length, alias->start, (int)member->length, member->start);
             }
             u.local_name = dup_token_text(alias);
+            u.has_alias = 1;
+            u.alias_line = alias->line;
+            u.alias_col = alias->col;
         } else {
             u.local_name = u.imported_name; /* shared pointer -- AST nodes are never freed */
         }
@@ -2252,6 +2258,9 @@ static UseDecl parse_use_decl(Parser *p) {
         Token *alias = expect(p, TOK_IDENT, "a module alias");
         require_lower_start(alias, "a module alias");
         u.qualifier = dup_token_text(alias);
+        u.has_alias = 1;
+        u.alias_line = alias->line;
+        u.alias_col = alias->col;
     } else {
         require_lower_start(last_seg, "a module qualifier (the path's last segment)");
         u.qualifier = dup_token_text(last_seg);
