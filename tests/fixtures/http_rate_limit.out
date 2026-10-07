@@ -1,0 +1,10 @@
+limit 3, one key:            yyynn
+a different address:         allowed
+a different bucket, same key: allowed
+limit 0:                     allowed
+limit 2 window 60 at t=100,100,100,159,160,160: yynnyy
+hops 0 -- nothing in front:   10.0.0.2
+hops 1 -- one proxy of ours:  198.51.100.4
+hops 2 -- two of ours:        203.0.113.9
+hops 5 -- more than exist:    10.0.0.2
+no header, hops 1:            10.0.0.3

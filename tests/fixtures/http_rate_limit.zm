@@ -1,0 +1,79 @@
+// A fixed-window rate limiter shared by every thread of a server, and the helper that decides which
+// address to key it on when proxies are in front (B10).
+//
+// Why this is in the library and not in an application: Ziman has no mutable state two threads can
+// share. A `MapBuilder` is `#[thread_bound]` on purpose and a lambda cannot mutate what it captures, so
+// a thread-per-connection server cannot count anything across requests without a native handle. An
+// application could not write this.
+//
+// `rate_allow_at` takes the clock, like `jwt.verify_at`, so a window can be shown expiring without
+// waiting for one.
+use http
+use http.HttpMethod
+use server
+
+fn main() {
+    server.rate_reset()
+
+    var verdicts = ""
+    for i in 0..5 {
+        verdicts = concat(verdicts, if server.rate_allow_at("login", "1.2.3.4", 3, 60, 100) { "y" } else { "n" })
+    }
+    printf("limit 3, one key:            {}\n", verdicts)
+
+    // A different key, and a different bucket with the same key, are separate allowances.
+    printf(
+        "a different address:         {}\n",
+        if server.rate_allow_at("login", "5.6.7.8", 3, 60, 100) { "allowed" } else { "refused" }
+    )
+    printf(
+        "a different bucket, same key: {}\n",
+        if server.rate_allow_at("register", "1.2.3.4", 3, 60, 100) { "allowed" } else { "refused" }
+    )
+
+    // A limit of zero means "not configured to limit", not "refuse everything".
+    printf(
+        "limit 0:                     {}\n",
+        if server.rate_allow_at("login", "9.9.9.9", 0, 60, 100) { "allowed" } else { "refused" }
+    )
+
+    // The window rolls over: two allowed at t=100, refused inside the window, allowed again past it.
+    server.rate_reset()
+    var window = ""
+    for t in [100, 100, 100, 159, 160, 160] {
+        window = concat(window, if server.rate_allow_at("w", "k", 2, 60, t) { "y" } else { "n" })
+    }
+    printf("limit 2 window 60 at t=100,100,100,159,160,160: {}\n", window)
+
+    // forwarded_for: `trusted_hops` counts proxies *you own*, from the right, because each one appends
+    // what it saw and only the rightmost entries were written by machines you control.
+    val req = http.Request {
+        method: HttpMethod.Get,
+        target: "/",
+        path: "/",
+        query: "",
+        version: "HTTP/1.1",
+        headers: [http.Header { name: "X-Forwarded-For", value: "203.0.113.9, 198.51.100.4" }],
+        body: [],
+        peer: Some("10.0.0.2")
+    }
+    printf("hops 0 -- nothing in front:   {}\n", option_unwrap_or<string>(server.forwarded_for(req, 0), "-"))
+    printf("hops 1 -- one proxy of ours:  {}\n", option_unwrap_or<string>(server.forwarded_for(req, 1), "-"))
+    printf("hops 2 -- two of ours:        {}\n", option_unwrap_or<string>(server.forwarded_for(req, 2), "-"))
+    // More hops than entries means the request did not come through the chain this server expects, so
+    // the only address certainly not forged is the one on the socket.
+    printf("hops 5 -- more than exist:    {}\n", option_unwrap_or<string>(server.forwarded_for(req, 5), "-"))
+
+    // No header at all, with a hop claimed: same reasoning, fall back to the socket.
+    val bare = http.Request {
+        method: HttpMethod.Get,
+        target: "/",
+        path: "/",
+        query: "",
+        version: "HTTP/1.1",
+        headers: [],
+        body: [],
+        peer: Some("10.0.0.3")
+    }
+    printf("no header, hops 1:            {}\n", option_unwrap_or<string>(server.forwarded_for(bare, 1), "-"))
+}

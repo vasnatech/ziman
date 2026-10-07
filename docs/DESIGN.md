@@ -61,6 +61,7 @@ them against the code.
 - [Formatter: wrapping, comment alignment, sorted `use`, stdin (open item 9)](#formatter-wrapping-comment-alignment-sorted-use-stdin-open-item-9)
 - [`--fmt --canonical`: settling brace placement, which plain `--fmt` will not (2026-10-07, F12)](#--fmt---canonical-settling-brace-placement-which-plain---fmt-will-not-2026-10-07-f12)
 - [`--coverage-lcov=F`: coverage something other than a person can read (2026-10-07, F13)](#--coverage-lcovf-coverage-something-other-than-a-person-can-read-2026-10-07-f13)
+- [A request knows where it came from, and a server can rate-limit on it (2026-10-07, B10)](#a-request-knows-where-it-came-from-and-a-server-can-rate-limit-on-it-2026-10-07-b10)
 - [The language server](#the-language-server)
 - [Map and Set](#map-and-set)
 - [JSON on Map](#json-on-map)
@@ -3877,6 +3878,54 @@ already had while gaining what it did not. And by hand across processes, which i
 test cannot stage: one program with two branches, run twice with different arguments into one file,
 took `LH` from 4 to 6 of `LF:6`, with the lines common to both runs summing rather than being
 overwritten.
+
+## A request knows where it came from, and a server can rate-limit on it (2026-10-07, B10)
+
+Rate-limiting an unauthenticated endpoint needs to tell one caller from another, and nothing in the
+library could. Worth being precise about why, because the task names a comment as the position to argue
+with and that comment is about something else: it says the connection *timeouts* cannot tell one client
+from another, which is true and unrelated. The actual gap was lower down -- `net` had `getsockname`, for
+a listener's port, and no `getpeername` at all, so a peer address was not merely withheld from handlers
+but unreachable from Ziman.
+
+**`net.peer_address(socket)`** answers it, and **`Request.peer`** carries it to handlers, filled in by
+`read_request` at both places it builds a Request and left `None` on `write_error`'s stub, which has no
+connection behind it.
+
+**A field rather than a synthetic header**, which is the security-relevant choice. Injecting something
+like `X-Ziman-Peer` into the parsed headers would have changed no API and broken no literal -- and a
+client could send that exact name, so it would be safe only as long as the parser stripped it. Relying on
+that is the subtlety a peer address exists to avoid. Where a value comes from should be visible in its
+type. The cost was 13 Request literals; two of them contain `if ... { } else { }`, so brace-matched
+editing stopped at the inner block and put `peer: None` outside the literal, which the suite caught.
+
+**`X-Forwarded-For` is never read by default**, and `server.forwarded_for(req, trusted_hops)` is how an
+application opts in. `trusted_hops` counts proxies *you own*, and the function takes the entry that many
+places from the **right**, because each proxy appends what it saw and only the rightmost entries were
+written by machines you control. `0` returns the socket address and ignores the header entirely. Getting
+the number too high is the dangerous direction: it starts trusting entries the client wrote. There is no
+default and no auto-detection, because a library cannot know what is in front of a server and guessing
+would mean every deployment that is *not* behind a proxy accepts a header its clients control.
+
+**`server.rate_allow`** is a fixed-window counter in C, because an application cannot write one: Ziman has
+no mutable state two threads can share -- a `MapBuilder` is `#[thread_bound]` on purpose and a lambda
+cannot mutate what it captures -- so a thread-per-connection server cannot count anything across requests
+without a native handle. `rate_allow_at` takes the clock the way `jwt.verify_at` does, so a window can be
+shown expiring without waiting for one.
+
+Three properties stated rather than left to be derived. It is a fixed window, so a caller can spend its
+allowance at the end of one window and again at the start of the next: the honest worst case is twice the
+limit over a window's width. At most 4096 keys are tracked, and on a full table an expired entry is reused
+first, then the oldest window replaced -- so a flood can push a legitimate caller's count out and hand them
+a fresh allowance, which is a bounded loss of accuracy chosen over refusing everyone (a denial of service)
+or allowing everyone (no protection). And a limit of zero means "not configured", not "refuse everything".
+
+**What the default had to be, measured rather than chosen.** The reference backend throttles `/api/auth/*`
+per address, enforced in `routes.route` because registration's cost begins before it knows who is asking.
+At 20 a minute the project's own suite failed three ways -- the lockout test makes eleven wrong passwords
+on purpose, the MFA test more, and log rotation needs a run of registrations -- which is a fair model of
+several real users behind one NAT. At 100 a minute all twenty suites pass, and a flood of thousands a
+minute is still refused. A default that breaks legitimate use is worse than a high one.
 
 ## The language server
 

@@ -185,6 +185,12 @@ pub val status_unsupported_media_type = 415
 pub val status_unprocessable_entity = 422
 ```
 
+### `status_too_many_requests`
+
+```
+pub val status_too_many_requests = 429
+```
+
 ### `status_header_fields_too_large`
 
 ```

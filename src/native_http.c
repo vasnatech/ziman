@@ -1,6 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include "native_http.h"
 
+#include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #ifdef __GLIBC__
@@ -27,6 +29,102 @@
 
 #include "native.h"
 #include "value.h"
+
+/* ------------------------------------------------------------- rate limiting
+ *
+ * `server::rate_allow_raw(bucket, key, limit, window_seconds, now_seconds)`: a fixed-window counter
+ * shared by every thread of a server. True when this event is within the limit for that key, false when
+ * it is over -- and counting it is part of asking, so a caller must not ask twice about one event.
+ *
+ * In C because an application cannot write it. Ziman has no mutable state two threads can share: a
+ * `MapBuilder` is `#[thread_bound]` on purpose, and a lambda cannot mutate what it captures, so shared
+ * state has to live behind a handle the way StringBuilder, Iter and the metrics registry do. A server
+ * that is thread-per-connection therefore cannot count anything across requests without this.
+ *
+ * Fixed window, not a token bucket, and the difference matters at the edge: a client can send `limit`
+ * events at the end of one window and `limit` more at the start of the next, so the real worst case is
+ * twice the limit over a window's width. A token bucket smooths that out but needs a rate and a burst
+ * size rather than one number, and for the thing this exists for -- making an unauthenticated flood
+ * expensive rather than impossible -- twice the limit is not the difference between working and not.
+ * Said here because a reader should not have to discover it from the arithmetic.
+ *
+ * The clock comes from the caller, not from this file. Ziman already has `clock`, and a native that
+ * read the time itself would be a second source of it that a test could not control.
+ *
+ * **The table is fixed and the eviction policy is the interesting part.** A flood from many addresses
+ * is exactly the case this is for, so the table will be full of keys that each appeared once. On a full
+ * table, an entry whose window has already expired is reused first; failing that, the one with the
+ * oldest window start is replaced, which is the least recently useful. The alternatives are both worse:
+ * refusing everything once full turns a flood into a denial of service against legitimate callers, and
+ * allowing everything once full means the flood that filled the table is the flood that gets through.
+ * Replacing the oldest means a determined attacker can push a legitimate caller's count out and give
+ * them a fresh allowance -- a bounded loss of accuracy, chosen over an unbounded loss of either
+ * availability or protection. RATE_SLOTS is the documented ceiling. */
+
+#define RATE_SLOTS 4096
+#define RATE_KEY_MAX 96
+
+typedef struct {
+    char key[RATE_KEY_MAX]; /* "bucket\0key", empty when the slot is free */
+    long long window_start;
+    long long count;
+} RateSlot;
+
+static RateSlot g_rate[RATE_SLOTS];
+static pthread_mutex_t g_rate_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static Value native_server_rate_allow(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *bucket = value_cstr(args[0]);
+    const char *key = value_cstr(args[1]);
+    long long limit = args[2].as.i;
+    long long window = args[3].as.i;
+    long long now = args[4].as.i;
+    if (limit < 1 || window < 1) return value_bool(1); /* not configured to limit anything */
+
+    char full[RATE_KEY_MAX];
+    int n = snprintf(full, sizeof full, "%s\n%s", bucket, key);
+    if (n <= 0) return value_bool(1);
+    /* A key longer than the slot is truncated rather than rejected, so two very long keys sharing a
+     * prefix would share a counter. Addresses and bucket names are far shorter than this; the note is
+     * here so that a caller inventing long keys knows what it would mean. */
+
+    pthread_mutex_lock(&g_rate_mu);
+    RateSlot *found = NULL, *expired = NULL, *oldest = &g_rate[0];
+    for (int i = 0; i < RATE_SLOTS; i++) {
+        RateSlot *s = &g_rate[i];
+        if (s->key[0] == '\0') {
+            if (expired == NULL) expired = s;
+            continue;
+        }
+        if (strcmp(s->key, full) == 0) { found = s; break; }
+        if (expired == NULL && now - s->window_start >= window) expired = s;
+        if (s->window_start < oldest->window_start) oldest = s;
+    }
+    if (found == NULL) {
+        found = expired != NULL ? expired : oldest;
+        snprintf(found->key, sizeof found->key, "%s", full);
+        found->window_start = now;
+        found->count = 0;
+    } else if (now - found->window_start >= window) {
+        found->window_start = now;
+        found->count = 0;
+    }
+    found->count++;
+    int allowed = found->count <= limit;
+    pthread_mutex_unlock(&g_rate_mu);
+    return value_bool(allowed);
+}
+
+/* Forgets every counter. For a test that wants a known starting point; a server has no reason to call
+ * it, and doing so would hand everyone a fresh allowance. */
+static Value native_server_rate_reset(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    pthread_mutex_lock(&g_rate_mu);
+    memset(g_rate, 0, sizeof g_rate);
+    pthread_mutex_unlock(&g_rate_mu);
+    return value_unit();
+}
 
 /* RFC 7230's `token`: what a header name or a method may be made of. */
 static int is_tchar(unsigned char c) {
@@ -100,6 +198,8 @@ static Value native_http_is_field_value(Value *args, int argc, int line, int col
 
 void native_http_register(void) {
     native_register("server::bound_malloc_arenas", native_server_bound_malloc_arenas);
+    native_register("server::rate_allow_raw", native_server_rate_allow);
+    native_register("server::rate_reset_raw", native_server_rate_reset);
     native_register("http::is_token", native_http_is_token);
     native_register("http::is_field_value", native_http_is_field_value);
 }

@@ -634,6 +634,79 @@ A table of endpoints compiled for dispatching: each pattern split once, and the 
 and number of path segments (in the order they were given) so a request only meets the ones that could match.
 Build it once with `routes`.
 
+## Rate limiting
+
+### `rate_allow`
+
+```
+pub fn rate_allow(bucket: string, key: string, limit: int, window_seconds: int) -> bool
+```
+
+Whether this event is within `limit` for `key` in the last `window_seconds` -- and asking counts it,
+so ask exactly once per event. `bucket` separates unrelated limits that share a key: `"login"` and
+`"register"` keyed by the same address are two allowances, not one.
+
+What it is for: making an unauthenticated flood expensive. Per-account lockout already covers a
+password guessed at one account (and throttles the email tried whether or not the account exists);
+what it cannot cover is volume from one source against many accounts, or against an endpoint that
+does real work for an anonymous caller -- registration above all, which asks OpenSSL for a ~19 MiB
+Argon2id buffer before it knows who is asking (B10).
+
+Fixed window, not a token bucket: a client can spend its whole allowance at the end of one window
+and again at the start of the next, so the honest worst case is twice `limit` over a window's width.
+That is stated rather than hidden because it is the kind of thing a reader should not have to derive.
+
+At most 4096 distinct keys are tracked at once. Past that, an entry whose window has expired is
+reused, and failing that the oldest window is replaced -- so a determined flood can push a
+legitimate caller's count out and hand them a fresh allowance. That is a bounded loss of accuracy,
+chosen over refusing everyone (a denial of service) or allowing everyone (no protection at all);
+src/native_http.c says why at more length.
+
+### `rate_allow_at`
+
+```
+pub fn rate_allow_at(bucket: string, key: string, limit: int, window_seconds: int, now_seconds: int) -> bool
+```
+
+`rate_allow` with the clock supplied, the same way `jwt.verify_at` takes the time rather than reading
+it. A test can then show a window expiring without waiting for one, and a caller with its own idea of
+now -- a replayed log, a simulation -- can use that instead. `now_seconds` must not go backwards for a
+given key: a window is "has `now` passed `window_start + window_seconds`", so a clock that jumps back
+extends the current window rather than opening a new one.
+
+### `rate_reset`
+
+```
+pub fn rate_reset()
+```
+
+Forgets every counter. For a test that wants a known starting point -- a server calling this would
+hand every client a fresh allowance.
+
+### `forwarded_for`
+
+```
+pub fn forwarded_for(req: Request, trusted_hops: int) -> Option<string>
+```
+
+The address to rate-limit a request by, for a server that sits behind proxies **it owns**.
+
+`trusted_hops` is how many proxies of your own are in front of this server. Read it that way and
+nothing else: the function takes the entry that many places from the *right* of `X-Forwarded-For`,
+because each proxy appends the address it saw and only the rightmost entries were written by
+machines you control. Everything to the left of those was supplied by the client, which can write
+whatever it likes there.
+
+So `trusted_hops: 0` returns `req.peer` and ignores the header entirely, which is the right answer
+when nothing is in front. `trusted_hops: 1` behind one proxy of yours returns the address that proxy
+saw. Getting the number too *high* is the dangerous direction: it starts trusting entries the client
+wrote, which is how a rate limit becomes decoration. Too low merely limits the proxy instead of the
+client, which is visible immediately.
+
+There is no default and no auto-detection on purpose. A library cannot know what is in front of a
+server, and guessing would mean every deployment that is *not* behind a proxy accepts a header its
+clients control.
+
 ## Metrics
 
 ### `declare_metrics`
