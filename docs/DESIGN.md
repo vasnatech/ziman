@@ -5092,3 +5092,57 @@ programming mistake and not a branch.
 So there is nothing substantial left to consolidate. If this is to be tracked at all, the number worth
 watching is *public* `Result<_, string>` in modules whose errors a caller branches on -- which is currently
 zero.
+
+## Three allocation sites, and what they did to F7 (2026-10-07)
+
+F7 -- throughput not scaling with concurrent clients under the collector -- has a long list of
+things ruled out with evidence: migrating more objects into the per-thread `gc_heap` (measured
+*slower*), heap tuning, `GC_FREE_SPACE_DIVISOR`, per-object root pushing, incremental mode. Both
+2026-10-05 reviews re-confirmed the shape and re-scoped it: throughput *falling* as concurrency
+rises, and capacity *improving* when fewer clients are admitted, is contention, not per-visit scan
+cost. L2's interim suggestion was to cut allocation frequency in "`format`'s output buffer and small
+`StructObj`".
+
+That suggestion was worth checking rather than taking. `make ziman-allocprofile` counts every
+allocation against its source site, and over 2,000 authenticated reads of the reference backend
+three sites were 74% of all allocation calls -- neither named one among them:
+
+| site | share of calls | what it was |
+| --- | --- | --- |
+| `env.c` | 25.7% | `strdup` of every binding's name, once per binding per call |
+| `interpreter.c` | 24.5% | a `malloc`'d argument array per call |
+| `mapobj.c` | 24.0% | a scratch array of every leaf, per map, **inside the mark phase** |
+
+All three went away rather than being tuned. Binding names are borrowed from the AST, which outlives
+every environment built from it. Argument arrays of four or fewer live in the evaluating frame, which
+Boehm already scans conservatively. `mapobj_mark_leaves` visits as it walks, since unlike
+`mapobj_entries` beside it, it never sorts.
+
+Allocation calls across that workload fell from 9.96M to 2.57M. Measured paired and interleaved,
+`tests/bench/server_concurrency.sh`, two rounds each:
+
+| clients | before | after | change |
+| --- | --- | --- | --- |
+| 1 | 404-430 | 461-495 | +10 to +15% |
+| 4 | 967-1048 | 1229-1308 | +27 to +30% |
+| 8 | 1016-1028 | 1213-1496 | +18 to +47% |
+| 16 | 782-821 | 998-1384 | +28 to +69% |
+| 32 | 736-756 | 1256-1278 | +66 to +74% |
+
+**The gain grows with concurrency**, which is what a fix to collection *frequency* should do: the
+cost it removes is the one that scales badly with threads.
+
+**F7 is not fixed.** The shape is still there -- throughput still peaks around four to eight clients
+and declines -- but the decline is shallower and every level is substantially higher, with the worst
+case improved most. The gap to `ziman-nogc` at c=16 narrows from about 4.6x to about 2.5-3.5x. The
+architectural question the task frames (whether v0 should run two collectors over one object graph at
+all) is untouched by this and still open.
+
+What this says about method, since the numbers here are easy to misread. Allocation *call counts*
+drove every decision; the byte column did not, which was lucky, because the profiler's first version
+expanded its size expression twice around `GC_REALLOC` and could compute a size from a pointer the
+realloc had already moved -- undefined behaviour that reported a 32GB site which does not exist.
+Chasing that number down to a branch that cannot ask for more than ~550 bytes is what found the bug.
+Separately, a first reading of the argument-array change looked like +58% because one baseline run
+was low, and a first depth probe that doubled its step reported "recursion depth halved" where
+bisection says 9%. Every figure above is a median of paired, interleaved rounds for that reason.

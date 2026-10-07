@@ -25,3 +25,11 @@
 2026-10-07T16:41:08.633Z INFO  AUTH_REGISTER_SUCCESS email=ada@example.com name=Ada L
 2026-10-07T16:41:52.543Z INFO  AUTH_REGISTER_SUCCESS email=ada@example.com name=Ada L
 2026-10-07T16:43:13.852Z INFO  AUTH_REGISTER_SUCCESS email=ada@example.com name=Ada L
+2026-10-07T16:46:20.089Z INFO  AUTH_REGISTER_SUCCESS email=bench-513502@example.com name=Bench Runner
+2026-10-07T16:46:34.323Z INFO  AUTH_REGISTER_SUCCESS email=bench-522821@example.com name=Bench Runner
+2026-10-07T16:46:46.097Z INFO  AUTH_REGISTER_SUCCESS email=bench-532091@example.com name=Bench Runner
+2026-10-07T16:47:00.402Z INFO  AUTH_REGISTER_SUCCESS email=bench-541421@example.com name=Bench Runner
+2026-10-07T16:47:29.709Z INFO  AUTH_REGISTER_SUCCESS email=bench-551054@example.com name=Bench Runner
+2026-10-07T16:47:51.099Z INFO  AUTH_REGISTER_SUCCESS email=bench-566529@example.com name=Bench Runner
+2026-10-07T16:48:07.245Z INFO  AUTH_REGISTER_SUCCESS email=bench-581941@example.com name=Bench Runner
+2026-10-07T16:48:28.793Z INFO  AUTH_REGISTER_SUCCESS email=bench-597413@example.com name=Bench Runner
