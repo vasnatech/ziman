@@ -9,7 +9,16 @@ fn req(method: string, target: string) -> http.Request {
         path = tq[0]
         query = tq[1]
     }
-    return http.Request { method: http.method_parse(method), target: target, path: path, query: query, version: "HTTP/1.1", headers: [http.Header { name: "X-Thing", value: "v" }], body: [] }
+    return http.Request {
+        method: http.method_parse(method),
+        target: target,
+        path: path,
+        query: query,
+        version: "HTTP/1.1",
+        headers: [http.Header { name: "X-Thing", value: "v" }],
+        body: [],
+        peer: None
+    }
 }
 
 fn show(m: Option<server.Params>, name: string) -> string {

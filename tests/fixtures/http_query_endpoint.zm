@@ -52,7 +52,8 @@ fn request(target: string, headers: [http.Header]) -> http.Request {
         query: if len(parts) > 1 { parts[1] } else { "" },
         version: "HTTP/1.1",
         headers: headers,
-        body: []
+        body: [],
+        peer: None
     }
 }
 

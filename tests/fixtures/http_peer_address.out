@@ -1,0 +1,3 @@
+a hand-built request: no peer
+the client's view of its peer: 127.0.0.1
+what the handler saw: peer=127.0.0.1

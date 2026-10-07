@@ -443,7 +443,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             query: query,
             version: version,
             headers: header_list,
-            body: decoded.body
+            body: decoded.body,
+            peer: net.peer_address(sock)
         }
         return Exchange {
             request: chunked_request,
@@ -497,7 +498,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         query: query,
         version: version,
         headers: header_list,
-        body: body
+        body: body,
+        peer: net.peer_address(sock)
     }
     return Exchange {
         request: request,
@@ -762,7 +764,8 @@ pub fn write_error_with(
         query: "",
         version: http_1_0,
         headers: [],
-        body: []
+        body: [],
+        peer: None
     }
     val reply = switch fault {
         Some(render) { render(error_status(e), error_text(e)) }

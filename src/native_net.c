@@ -305,6 +305,31 @@ static Value native_net_listener_port_raw(Value *args, int argc, int line, int c
     return value_int(-1);
 }
 
+/* The address at the other end of a connected socket, as text: "192.0.2.7" or "2001:db8::1", with no
+ * port. Empty string when the socket is not connected or the family is one this does not know, which a
+ * caller reads as "no address available" rather than an error -- there is nothing to retry.
+ *
+ * This is the transport peer and nothing else. It is deliberately *not* `X-Forwarded-For`: that header
+ * is written by whoever is in front, and a client that is not behind a proxy can put anything in it, so
+ * a server that read it by default would let any caller choose its own identity -- which is exactly
+ * backwards for rate limiting, the reason this exists (B10). An application behind a proxy it trusts
+ * has to say so itself and then read the header itself; the library will not guess. */
+static Value native_net_peer_address_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    int fd = require_fd(args[0].as.i, "peer_address", line, col);
+    struct sockaddr_storage ss;
+    socklen_t len = sizeof(ss);
+    if (getpeername(fd, (struct sockaddr *)&ss, &len) != 0) return value_string(strdup(""));
+    char text[INET6_ADDRSTRLEN];
+    const void *addr = NULL;
+    if (ss.ss_family == AF_INET) addr = &((struct sockaddr_in *)&ss)->sin_addr;
+    else if (ss.ss_family == AF_INET6) addr = &((struct sockaddr_in6 *)&ss)->sin6_addr;
+    if (addr == NULL || inet_ntop(ss.ss_family, addr, text, sizeof text) == NULL) {
+        return value_string(strdup(""));
+    }
+    return value_string(strdup(text));
+}
+
 static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     Type int_type = type_scalar(TY_INT);
@@ -638,6 +663,7 @@ void native_net_register(void) {
     native_register("net::connect_raw", native_net_connect_raw);
     native_register("net::listen_raw", native_net_listen_raw);
     native_register("net::listener_port_raw", native_net_listener_port_raw);
+    native_register("net::peer_address_raw", native_net_peer_address_raw);
     native_register("net::accept_raw", native_net_accept_raw);
     native_register("net::idle_put_raw", native_net_idle_put_raw);
     native_register("net::idle_take_raw", native_net_idle_take_raw);

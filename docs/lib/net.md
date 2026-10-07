@@ -195,6 +195,23 @@ pub fn listener_port(l: Listener) -> int
 
 The port a listener is bound to (useful after `listen(host, 0)`, which picks a free one).
 
+### `peer_address`
+
+```
+pub fn peer_address(s: Socket) -> Option<string>
+```
+
+The address at the other end of `s`, as text ("192.0.2.7" or "2001:db8::1"), with no port. `None`
+when the socket is not connected any more or the address family is one this does not know -- there is
+nothing to retry, so it is an absence rather than an error.
+
+**This is the transport peer, and only that.** It is not `X-Forwarded-For`: that header is written by
+whatever is in front, and a client that is *not* behind a proxy can put anything it likes in it. A
+server that read it by default would let every caller choose its own identity, which is exactly
+backwards for the thing an address is usually wanted for -- telling one client from another in order
+to rate-limit. An application that sits behind a proxy it trusts has to say so itself, and read the
+header itself, knowing how many hops it owns. This library will not guess at that.
+
 ### `accept`
 
 ```

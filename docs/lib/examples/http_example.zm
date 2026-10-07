@@ -16,7 +16,8 @@ fn main() {
         query: "x=1",
         version: "HTTP/1.1",
         headers: [Header { name: "Content-Type", value: "text/plain" }],
-        body: []
+        body: [],
+        peer: None
     }
     print(http.header(req, "content-type"))
     print(status_not_found)

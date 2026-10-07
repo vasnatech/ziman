@@ -1,0 +1,79 @@
+// A handler can see which address a request came from (`Request.peer`), which is what rate limiting
+// needs and what nothing in the library could answer before: `net` had `getsockname` for a listener's
+// port but no `getpeername` at all, so the address was not merely hidden from handlers, it was not
+// reachable from Ziman (B10).
+//
+// `peer` is the *transport* peer and nothing else. It is a field rather than a synthetic header
+// precisely so it cannot be confused with client input: a header could be spoofed by a client sending
+// that name unless the parser stripped it, and relying on that is the subtlety this avoids. A Request
+// built by hand has `None`, which is the honest answer rather than a placeholder.
+use http
+use http.HttpMethod
+use net
+use server
+
+fn who<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+    return server.text_response(200, concat("peer=", option_unwrap_or<string>(req.peer, "<none>")))
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, message)
+}
+
+val table = server.routes<int>([
+    server.Endpoint<int> { method: HttpMethod.Get, pattern: "/who", handler: who<int> }
+])
+
+fn main() {
+    // A Request nobody received has no peer.
+    val built = http.Request {
+        method: HttpMethod.Get,
+        target: "/who",
+        path: "/who",
+        query: "",
+        version: "HTTP/1.1",
+        headers: [],
+        body: [],
+        peer: None
+    }
+    printf("a hand-built request: {}\n", if Option.is_None(built.peer) { "no peer" } else { "a peer" })
+
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    val options = server.ServeOptions {
+        idle_timeout_ms: 1000,
+        header_timeout_ms: 1000,
+        max_connections: 4,
+        log_requests: false,
+        fault: None,
+        metrics: false
+    }
+    spawn server.serve(l, fn(req: http.Request) -> http.Response {
+        return server.dispatch<int>(table, 0, req, fault)
+    }, options) on_error fn(m: string) {
+        print(m)
+    }
+
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.set_timeout(s, 3000))
+    defer net.close(s)
+    // The client's own view of the other end, which is the server it just connected to.
+    printf("the client's view of its peer: {}\n", option_unwrap_or<string>(net.peer_address(s), "<none>"))
+    val _ = net.write_text(s, "GET /who HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    var acc = ""
+    while true {
+        val chunk = net.read_text(s, 4096)
+        if !is_ok(chunk) {
+            break
+        }
+        if len(unwrap(chunk)) == 0 {
+            break
+        }
+        acc = concat(acc, unwrap(chunk))
+    }
+    for line in split(acc, "\r\n") {
+        if starts_with(line, "peer=") {
+            printf("what the handler saw: {}\n", line)
+        }
+    }
+}

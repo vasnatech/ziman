@@ -101,6 +101,21 @@ pub struct Request {
     version: string
     headers: [Header]
     body: [byte]
+    // The address at the other end of the connection this request arrived on, as text ("192.0.2.7" or
+    // "2001:db8::1"), with no port. `None` on a Request that did not come off a socket -- one built by
+    // hand in a test, or by `write_error`'s stub -- which is the honest answer rather than a placeholder.
+    //
+    // **The transport peer, and only that.** Not `X-Forwarded-For`: that header is written by whatever
+    // is in front, and a client that is not behind a proxy can put anything in it, so a server reading
+    // it by default would let every caller choose its own identity -- backwards for the thing an
+    // address is wanted for, which is telling one client from another in order to rate-limit (B10). An
+    // application behind a proxy it trusts reads the header itself, knowing how many hops it owns;
+    // `server.forwarded_for` is there to help once that decision has been made explicitly.
+    //
+    // A field rather than a synthetic header, deliberately: a header could be spoofed by a client
+    // sending that exact name unless the parser stripped it, and relying on that is the same subtlety
+    // this field exists to avoid. Where the value comes from should be visible in the type.
+    peer: Option<string>
 }
 
 // What a handler returns: a status code, headers and a body of bytes. `write_response` adds

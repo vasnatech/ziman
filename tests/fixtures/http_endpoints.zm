@@ -150,7 +150,8 @@ fn request_bytes(method: string, path: string, headers: [http.Header], body: [by
         query: "",
         version: "HTTP/1.1",
         headers: headers,
-        body: body
+        body: body,
+        peer: None
     }
 }
 
@@ -162,7 +163,8 @@ fn request(method: string, path: string, headers: [http.Header], body: string) -
         query: "",
         version: "HTTP/1.1",
         headers: headers,
-        body: string_to_bytes(body)
+        body: string_to_bytes(body),
+        peer: None
     }
 }
 

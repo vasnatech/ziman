@@ -10,7 +10,8 @@ fn main() {
         query: "",
         version: "HTTP/1.1",
         headers: [http.Header { name: "Cookie", value: "sid=abc123; theme=dark; broken; empty=" }],
-        body: []
+        body: [],
+        peer: None
     }
     for p in http.request_cookies(req) { printf("{} = [{}]\n", p.name, p.value) }
     printf("sid: {}\n", http.request_cookie(req, "sid"))

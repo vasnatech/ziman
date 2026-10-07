@@ -44,7 +44,8 @@ fn request(method: HttpMethod, path: string) -> http.Request {
         query: "",
         version: "HTTP/1.1",
         headers: [],
-        body: []
+        body: [],
+        peer: None
     }
 }
 
