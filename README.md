@@ -154,7 +154,11 @@ list), exiting 1 if any did not -- stderr so the program's own stdout is unchang
 blank line and a block's opening brace are never counted against you, and bundled modules and
 `#[derive]`-generated code are left out the same way `--lint` leaves them out; `ziman test
 --coverage file.zm ...` does the same across a whole suite, merging files parsed once per test file
-so a shared helper counts as covered if any test reached it; `--profile` runs the program and then reports to stderr which functions the time went to, hottest
+so a shared helper counts as covered if any test reached it. `--coverage-lcov=F` additionally writes
+the measurement to `F` in lcov's `.info` format, which `genhtml`, Codecov and Coveralls read, so
+coverage can gate a build rather than only be looked at -- it implies `--coverage`, works with
+`ziman test` too, and *merges* into an existing `F` so several invocations accumulate into one number
+(delete `F` to start fresh, since counts only grow). `--profile` runs the program and then reports to stderr which functions the time went to, hottest
 first (`self%  samples  function`) -- CPU-time sampling at 1kHz off the frame stack the interpreter
 already keeps for error traces, so it costs nothing measurable and needs no instrumentation. The
 figure is *self* time, the function's own statements rather than its callees, which is the one that

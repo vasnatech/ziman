@@ -11,7 +11,11 @@
  * report back in line order for free. */
 typedef struct {
     int line;
-    int ran;
+    /* How many times a statement on this line ran, summed over the statements on it and over every
+     * module accumulated. The text report only needs "did it run", but lcov's `DA:<line>,<count>`
+     * record wants the count, and `Stmt.exec_count` already holds it, so nothing extra is counted at
+     * run time to have it. */
+    long long count;
 } LineHit;
 
 typedef struct {
@@ -52,7 +56,7 @@ static FileCoverage *file_for(Coverage *cov, const char *file) {
  * line (`if x { return 1 }`), so a line already present is updated rather than added again: it is
  * covered if *any* statement on it ran, which is the only reading that doesn't punish putting two
  * statements on a line. */
-static void note_line(FileCoverage *fc, int line, int ran) {
+static void note_line(FileCoverage *fc, int line, long long count) {
     int lo = 0, hi = fc->count;
     while (lo < hi) {
         int mid = lo + (hi - lo) / 2;
@@ -60,7 +64,7 @@ static void note_line(FileCoverage *fc, int line, int ran) {
         else hi = mid;
     }
     if (lo < fc->count && fc->lines[lo].line == line) {
-        if (ran) fc->lines[lo].ran = 1;
+        fc->lines[lo].count += count;
         return;
     }
     if (fc->count == fc->capacity) {
@@ -69,7 +73,7 @@ static void note_line(FileCoverage *fc, int line, int ran) {
     }
     memmove(fc->lines + lo + 1, fc->lines + lo, (size_t)(fc->count - lo) * sizeof(LineHit));
     fc->lines[lo].line = line;
-    fc->lines[lo].ran = ran != 0;
+    fc->lines[lo].count = count;
     fc->count++;
 }
 
@@ -83,7 +87,7 @@ static void walk_stmt(FileCoverage *fc, const Stmt *s) {
      * function's signature line as uncovered, because a body's statements are run through
      * exec_stmts_in_scope and the block itself never passes through exec_stmt at all. Its children
      * are what matter, and they are walked below. */
-    if (s->kind != STMT_BLOCK) note_line(fc, s->line, s->exec_count > 0);
+    if (s->kind != STMT_BLOCK) note_line(fc, s->line, (long long)s->exec_count);
     switch (s->kind) {
         case STMT_IF:
             walk_stmt(fc, s->as.if_stmt.then_block);
@@ -121,6 +125,75 @@ void ziman_coverage_accumulate(const Module *module) {
     }
 }
 
+/* ------------------------------------------------------------- lcov output
+ *
+ * The `.info` format `lcov`, `genhtml`, Codecov and Coveralls all read:
+ *
+ *     TN:                      the test name, empty -- there is one run, not a named suite
+ *     SF:<path>                one section per source file
+ *     DA:<line>,<count>        one per executable line, with how many times it ran
+ *     LF:<n>  LH:<n>           lines found, lines hit
+ *     end_of_record
+ *
+ * **Merging is done here, not left to the reader.** If the target file already exists, its records
+ * are read and this run's counts are added to them, so running several times into one path
+ * accumulates -- which is what a project needs when its tests are several invocations rather than
+ * one. The alternative was to write a fresh file each time and tell people that concatenating two
+ * `.info` files merges them because lcov sums repeated records; that is true as far as I know, but
+ * no lcov tool is installed on the machine this was written on, so it would have been a claim about
+ * software I could not run. Merging here is a claim about code in this file, which its own fixture
+ * checks: two runs covering different lines produce the union.
+ *
+ * Delete the file to start a fresh measurement. A line's count can only grow, so a stale file makes
+ * coverage look better than it is -- the one failure mode worth knowing about, and the reason the
+ * path is always named explicitly by the caller rather than defaulted.
+ *
+ * Paths are written exactly as the compiler saw them, which is what the person ran; a relative one
+ * stays relative, since the tools resolve it against where they are invoked. */
+static void merge_existing_lcov(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (f == NULL) return;
+    char line[4096];
+    FileCoverage *fc = NULL;
+    while (fgets(line, sizeof line, f) != NULL) {
+        if (strncmp(line, "SF:", 3) == 0) {
+            char *nl = strchr(line + 3, '\n');
+            if (nl != NULL) *nl = '\0';
+            /* strdup because the Coverage keeps the pointer and this buffer is reused per line. */
+            fc = file_for(&g_cov, strdup(line + 3));
+        } else if (strncmp(line, "DA:", 3) == 0 && fc != NULL) {
+            char *comma = strchr(line + 3, ',');
+            if (comma == NULL) continue;
+            *comma = '\0';
+            note_line(fc, atoi(line + 3), atoll(comma + 1));
+        } else if (strncmp(line, "end_of_record", 13) == 0) {
+            fc = NULL;
+        }
+    }
+    fclose(f);
+}
+
+int ziman_coverage_write_lcov(const char *path) {
+    /* Read first, then rewrite: the merge is this run's counts plus whatever the file already held. */
+    merge_existing_lcov(path);
+    FILE *f = fopen(path, "w");
+    if (f == NULL) return -1;
+    for (int fi = 0; fi < g_cov.count; fi++) {
+        FileCoverage *fc = &g_cov.files[fi];
+        int hit = 0;
+        for (int i = 0; i < fc->count; i++) {
+            if (fc->lines[i].count > 0) hit++;
+        }
+        fprintf(f, "TN:\nSF:%s\n", fc->file);
+        for (int i = 0; i < fc->count; i++) {
+            fprintf(f, "DA:%d,%lld\n", fc->lines[i].line, fc->lines[i].count);
+        }
+        fprintf(f, "LF:%d\nLH:%d\nend_of_record\n", fc->count, hit);
+    }
+    if (fclose(f) != 0) return -1;
+    return 0;
+}
+
 int ziman_coverage_report(void) {
     Coverage *cov = &g_cov;
     int total = 0, covered = 0;
@@ -128,7 +201,7 @@ int ziman_coverage_report(void) {
         FileCoverage *fc = &cov->files[f];
         int file_total = fc->count, file_covered = 0;
         for (int i = 0; i < fc->count; i++) {
-            if (fc->lines[i].ran) file_covered++;
+            if (fc->lines[i].count > 0) file_covered++;
         }
         total += file_total;
         covered += file_covered;
@@ -137,7 +210,7 @@ int ziman_coverage_report(void) {
         if (file_covered < file_total) {
             fprintf(stderr, "  not run:");
             for (int i = 0; i < fc->count; i++) {
-                if (!fc->lines[i].ran) fprintf(stderr, " %d", fc->lines[i].line);
+                if (fc->lines[i].count == 0) fprintf(stderr, " %d", fc->lines[i].line);
             }
             fprintf(stderr, "\n");
         }

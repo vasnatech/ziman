@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check
 
 all: $(BIN)
 
@@ -42,7 +42,7 @@ check: test test-nogc unit-tests fmt-check docs-check
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
-unit-tests: test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy \
+unit-tests: test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy \
             test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots \
             test-gc-interp-roots test-lsp
 
@@ -169,6 +169,13 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 # src/arena.c doesn't need the GC/plain distinction (it's built on mmap/munmap directly, never
 # malloc/free, precisely so it stays inert under either -- see its own header comment), but is
 # tested the same standalone way as the other C modules above rather than through the interpreter.
+# src/coverage.c alone: the lcov writer and, mainly, that writing into a file which already has
+# records adds to them rather than replacing them. The AST is built by hand in the test, so nothing
+# else links.
+test-coverage: src/coverage.c tests/unit/coverage_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_coverage_test src/coverage.c tests/unit/coverage_test.c
+	/tmp/ziman_coverage_test
+
 test-arena: src/arena.c tests/unit/arena_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_arena_test src/arena.c tests/unit/arena_test.c
 	/tmp/ziman_arena_test

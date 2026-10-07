@@ -53,6 +53,10 @@ static void usage(FILE *out) {
           "                   code instead of running it; exit 1 if there are any\n"
           "  --coverage       run, then report which lines of your own code did not\n"
           "                   execute; exit 1 if any did not\n"
+          "  --coverage-lcov=F  also write the coverage to F in lcov's .info format (for\n"
+          "                   genhtml, Codecov and the rest); implies --coverage. An existing\n"
+          "                   F is merged into, so several runs into one path accumulate --\n"
+          "                   delete it to start fresh\n"
           "  --profile        run, then report which functions the time went to, hottest\n"
           "                   first (CPU-time sampling at 1kHz, self time)\n"
           "  --locals         on a runtime error, show each stack frame's variables and\n"
@@ -163,6 +167,7 @@ static void register_all_natives(void) {
 typedef struct {
     const char *file;
     int json, lint, check_only, coverage, profile, locals;
+    const char *coverage_lcov; /* NULL unless --coverage-lcov=PATH was given */
 } RunOptions;
 
 static void *run_program(void *raw) {
@@ -170,6 +175,7 @@ static void *run_program(void *raw) {
     const char *file = o->file;
     int json = o->json, lint = o->lint, check_only = o->check_only, coverage = o->coverage;
     int profile = o->profile, locals = o->locals;
+    const char *coverage_lcov = o->coverage_lcov;
     ziman_stack_mark_main();
     ziman_gc_register_thread_roots();
 
@@ -213,6 +219,10 @@ static void *run_program(void *raw) {
         /* Exit 1 when something did not run, the same convention --lint uses for a finding: it
          * makes `ziman --coverage` usable as a gate without parsing its output. */
         ziman_coverage_accumulate(module);
+        if (coverage_lcov != NULL && ziman_coverage_write_lcov(coverage_lcov) != 0) {
+            fprintf(stderr, "ziman: cannot write coverage to %s\n", coverage_lcov);
+            exit(1);
+        }
         int uncovered = ziman_coverage_report();
         exit(uncovered == 0 ? 0 : 1);
     }
@@ -236,6 +246,7 @@ typedef struct {
     char **files;
     int n_files;
     int coverage;
+    const char *coverage_lcov; /* NULL unless --coverage-lcov=PATH was given */
 } TestOptions;
 
 static void *run_tests_program(void *raw) {
@@ -257,6 +268,10 @@ static void *run_tests_program(void *raw) {
         if (o->coverage) ziman_coverage_accumulate(module);
     }
     printf("%d passed, %d failed\n", total_run - total_failed, total_failed);
+    if (o->coverage && o->coverage_lcov != NULL && ziman_coverage_write_lcov(o->coverage_lcov) != 0) {
+        fprintf(stderr, "ziman: cannot write coverage to %s\n", o->coverage_lcov);
+        exit(1);
+    }
     int uncovered = o->coverage ? ziman_coverage_report() : 0;
     /* A failing test outranks incomplete coverage in the exit status: the first thing to fix is the
      * failure, and a caller that only wants the coverage gate can run a passing suite. */
@@ -268,18 +283,22 @@ static int run_tests_main(int argc, char **argv) {
      * and `ziman test a.zm --coverage` both work and neither leaves the flag to be opened as a
      * source file. */
     int coverage = 0, n = 0;
+    const char *coverage_lcov = NULL;
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--coverage") == 0) coverage = 1;
-        else argv[n++] = argv[i];
+        else if (strncmp(argv[i], "--coverage-lcov=", 16) == 0) {
+            coverage_lcov = argv[i] + 16;
+            coverage = 1;
+        } else argv[n++] = argv[i];
     }
     argc = n;
     if (argc == 0) {
-        fprintf(stderr, "usage: ziman test [--coverage] <file.zm> [file2.zm ...]\n");
+        fprintf(stderr, "usage: ziman test [--coverage] [--coverage-lcov=F] <file.zm> [file2.zm ...]\n");
         return 2;
     }
     if (coverage) ziman_coverage_enable();
     ziman_stack_configure(0, 0, 0);
-    TestOptions options = {argv, argc, coverage};
+    TestOptions options = {argv, argc, coverage, coverage_lcov};
     ziman_run_on_big_stack(run_tests_program, &options);
     return 0;
 }
@@ -326,6 +345,7 @@ int main(int argc, char **argv) {
         return run_tests_main(argc - 2, argv + 2);
     }
     int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, fmt_canonical = 0, lsp = 0, coverage = 0, profile = 0, locals = 0;
+    const char *coverage_lcov = NULL;
     long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0;
     const char *file = NULL;
     char **files = malloc((size_t)argc * sizeof(char *));
@@ -340,6 +360,11 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--json") == 0) json = 1;
         else if (strcmp(a, "--lint") == 0) lint = 1;
         else if (strcmp(a, "--coverage") == 0) coverage = 1;
+        /* Implies --coverage: asking for the file is asking for the measurement. */
+        else if (strncmp(a, "--coverage-lcov=", 16) == 0) {
+            coverage_lcov = a + 16;
+            coverage = 1;
+        }
         else if (strcmp(a, "--profile") == 0) profile = 1;
         else if (strcmp(a, "--locals") == 0) locals = 1;
         else if (strcmp(a, "--fmt") == 0) fmt = 1;
@@ -371,7 +396,7 @@ int main(int argc, char **argv) {
     }
     ziman_set_json_errors(json);
     ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
-    RunOptions options = {file, json, lint, check_only, coverage, profile, locals};
+    RunOptions options = {file, json, lint, check_only, coverage, profile, locals, coverage_lcov};
     ziman_run_on_big_stack(run_program, &options);
     return 0;
 }

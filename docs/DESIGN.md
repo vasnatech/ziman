@@ -60,6 +60,7 @@ them against the code.
 - [Reporting several errors per run (roadmap open item 8)](#reporting-several-errors-per-run-roadmap-open-item-8)
 - [Formatter: wrapping, comment alignment, sorted `use`, stdin (open item 9)](#formatter-wrapping-comment-alignment-sorted-use-stdin-open-item-9)
 - [`--fmt --canonical`: settling brace placement, which plain `--fmt` will not (2026-10-07, F12)](#--fmt---canonical-settling-brace-placement-which-plain---fmt-will-not-2026-10-07-f12)
+- [`--coverage-lcov=F`: coverage something other than a person can read (2026-10-07, F13)](#--coverage-lcovf-coverage-something-other-than-a-person-can-read-2026-10-07-f13)
 - [The language server](#the-language-server)
 - [Map and Set](#map-and-set)
 - [JSON on Map](#json-on-map)
@@ -3847,6 +3848,35 @@ no-op on it.
 proof that `items->n` is not negative, and it warned that a `memcpy` bound might be 18 quintillion
 bytes. The bound is now guarded explicitly. The warning was about pre-existing code that only became
 unprovable because something new was called next to it.
+
+## `--coverage-lcov=F`: coverage something other than a person can read (2026-10-07, F13)
+
+**Extends the `--coverage` entry above.** The text report is for a human and cannot gate anything:
+to fail a build on a coverage drop, or to draw an annotated source view, a machine needs the numbers.
+`--coverage-lcov=F` writes them in lcov's `.info` format -- `TN:`, `SF:`, one `DA:<line>,<count>` per
+executable line, `LF:`/`LH:`, `end_of_record` -- which `genhtml`, Codecov and Coveralls all read.
+
+**Counts, not a flag.** `LineHit` held a boolean "did it run"; it now holds how many times, summed
+over the statements on the line and over every module accumulated. Nothing extra is counted at run
+time to get that: `Stmt.exec_count` already had it and the text report was throwing it away.
+
+**It merges, rather than telling the reader to.** An existing `F` is read first and this run's counts
+are added to it, so several invocations into one path accumulate -- which a project needs when its
+tests are several runs rather than one. The alternative was to write a fresh file each time and say
+that concatenating two `.info` files merges them, because lcov sums repeated records for a file. That
+is true as far as I know, and it is also a claim about a tool that is not installed on the machine
+this was written on, so it would have been unverifiable here. Merging in `coverage.c` is a claim about
+code in this repository, and `make test-coverage` checks it.
+
+The cost is that counts only grow, so a stale `F` flatters the result. That is why the path is always
+named explicitly and never defaulted, and why the help text says to delete it to start fresh.
+
+**Verified** two ways. `make test-coverage` builds a Module by hand -- two statements, one run and one
+not -- and checks the records, the `LF`/`LH` totals, and that a second write keeps what the file
+already had while gaining what it did not. And by hand across processes, which is the case the unit
+test cannot stage: one program with two branches, run twice with different arguments into one file,
+took `LH` from 4 to 6 of `LF:6`, with the lines common to both runs summing rather than being
+overwritten.
 
 ## The language server
 

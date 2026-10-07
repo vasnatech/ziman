@@ -53,4 +53,15 @@ void ziman_coverage_accumulate(const Module *module);
  * and --locals follow the same rule. */
 int ziman_coverage_report(void);
 
+/* Writes the accumulated coverage to `path` in lcov's `.info` format, for `genhtml`, Codecov,
+ * Coveralls or any other consumer of it -- the machine-readable half of `--coverage`, since the text
+ * report is for a person and cannot gate anything. Returns 0, or -1 if the file could not be written.
+ *
+ * Merges rather than overwrites: an existing file at `path` is read first and this run's counts are
+ * added to it, so several invocations into one path accumulate. That matters because a project's tests
+ * are often several runs, and because the alternative -- telling people to concatenate `.info` files
+ * and rely on lcov summing repeated records -- would be a claim about a tool that is not installed
+ * here. Delete the file to start fresh; counts only ever grow, so a stale file flatters the result. */
+int ziman_coverage_write_lcov(const char *path);
+
 #endif
