@@ -1405,7 +1405,7 @@ static void handle_formatting(const JVal *id, const JVal *params) {
     Doc *d = uri != NULL ? find_doc_by_uri(uri) : NULL;
     if (d == NULL) { send_result(id, "[]"); return; }
     char err[256];
-    char *formatted = format_source(d->text, strlen(d->text), 120, err, sizeof err);
+    char *formatted = format_source(d->text, strlen(d->text), 120, 0, err, sizeof err);
     if (formatted == NULL) { send_error(id, -32803, err); return; }
     if (strcmp(formatted, d->text) == 0) { send_result(id, "[]"); return; }
     int lines = 0;

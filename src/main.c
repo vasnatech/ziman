@@ -63,7 +63,9 @@ static void usage(FILE *out) {
           "  --fmt            print the source formatted (several files allowed, `-` is\n"
           "                   stdin); with --write rewrite the files in place, with\n"
           "                   --check list the files that would change and exit 1;\n"
-          "                   --width=N wraps longer lines (default 120, 0 = never)\n"
+          "                   --width=N wraps longer lines (default 120, 0 = never);\n"
+          "                   --canonical also moves an opening brace onto the line of what it\n"
+          "                   opens, and `else` onto the line of the brace that closed its `if`\n"
           "  --emit-derived   print the code each #[derive] generates, then continue\n"
           "  --stack-mb=N     the main thread's stack in MB (1-768; default: computed from the memory available)\n"
           "  --thread-stack-mb=N  the stack of each `spawn`ed thread in MB (default: computed)\n"
@@ -101,8 +103,8 @@ static char *read_stdin(size_t *len) {
     return buf;
 }
 
-/* `ziman --fmt [--width=N] [--write | --check] files...`; a file named `-` is stdin (printed to stdout). */
-static int run_format(char **files, int n_files, int write, int check, int width) {
+/* `ziman --fmt [--width=N] [--canonical] [--write | --check] files...`; a file named `-` is stdin (printed to stdout). */
+static int run_format(char **files, int n_files, int write, int check, int width, int canonical) {
     int changed = 0, failed = 0;
     for (int i = 0; i < n_files; i++) {
         size_t len;
@@ -110,7 +112,7 @@ static int run_format(char **files, int n_files, int write, int check, int width
         char *src = from_stdin ? read_stdin(&len) : read_whole(files[i], &len);
         if (src == NULL) { fprintf(stderr, "ziman: cannot open '%s'\n", files[i]); failed = 1; continue; }
         char err[256];
-        char *out = format_source(src, len, width, err, sizeof err);
+        char *out = format_source(src, len, width, canonical, err, sizeof err);
         if (out == NULL) { fprintf(stderr, "%s: %s\n", files[i], err); failed = 1; free(src); continue; }
         int differs = strlen(out) != len || memcmp(out, src, len) != 0;
         if (differs) changed++;
@@ -323,7 +325,7 @@ int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "test") == 0) {
         return run_tests_main(argc - 2, argv + 2);
     }
-    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, lsp = 0, coverage = 0, profile = 0, locals = 0;
+    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, fmt_canonical = 0, lsp = 0, coverage = 0, profile = 0, locals = 0;
     long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0;
     const char *file = NULL;
     char **files = malloc((size_t)argc * sizeof(char *));
@@ -344,6 +346,7 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--lsp") == 0) lsp = 1;
         else if (strcmp(a, "--write") == 0) fmt_write = 1;
         else if (strncmp(a, "--width=", 8) == 0) fmt_width = atoi(a + 8);
+        else if (strcmp(a, "--canonical") == 0) fmt_canonical = 1;
         else if (strcmp(a, "--emit-derived") == 0) g_emit_derived = 1;
         else if (strncmp(a, "--stack-mb=", 11) == 0) stack_main_mb = atol(a + 11);
         else if (strncmp(a, "--thread-stack-mb=", 18) == 0) stack_thread_mb = atol(a + 18);
@@ -359,7 +362,7 @@ int main(int argc, char **argv) {
     }
     if (fmt) {
         if (n_files == 0) { usage(stderr); return 2; }
-        return run_format(files, n_files, fmt_write, check_only, fmt_width);
+        return run_format(files, n_files, fmt_write, check_only, fmt_width, fmt_canonical);
     }
     if (n_files > 1) { fprintf(stderr, "ziman: more than one file given ('%s' and '%s')\n", files[0], files[1]); usage(stderr); return 2; }
     if (file == NULL) {

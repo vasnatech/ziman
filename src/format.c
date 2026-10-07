@@ -561,15 +561,67 @@ static void sort_use_runs(Items *items) {
         free(order);
         li = lj;
     }
-    memcpy(items->v, result, (size_t)n * sizeof(Item));
+    /* Guarded so the cast to size_t is provably not a negative int: `n` is items->n and cannot be
+     * negative, but the compiler stopped being able to see that once there was another call between
+     * this function and its caller, and warned about a bound of 18 quintillion bytes. */
+    if (n > 0) memcpy(items->v, result, (size_t)n * sizeof(Item));
     free(result);
     free(line_of_first);
 }
 
-char *format_source(const char *src, size_t len, int width, char *err, size_t err_size) {
+/* ------------------------------------------------------- canonical brace placement
+ *
+ * `--fmt` keeps every line break the author wrote, which is what makes it safe to run on anything
+ * lexable -- but it also means two files in opposite styles both pass `--fmt --check`, so the
+ * formatter does not settle style the way gofmt does (F12). `--canonical` settles the one part a
+ * lexer can decide on its own: an opening brace belongs on the line of what it opens, and `else`
+ * belongs on the line of the brace that closed its `if`.
+ *
+ * Every line-leading `{` is pulled up, not only a construct's. The worry that made a first version
+ * of this narrower was a bare block statement -- `print(x)` on one line and `{` on the next, where
+ * pulling the brace up would change the program -- but Ziman has no bare block statement: a `{`
+ * cannot begin one, and the parser says so ("expected an expression, found '{'"). So a `{` that
+ * starts a line always belongs to whatever precedes it, whether that is a function, an `if`, a
+ * `switch` arm's pattern or a struct literal, and moving it up cannot change meaning.
+ *
+ * The one exception is a brace after a trailing comment, which would be commented out if it moved.
+ *
+ * `else` is the other half: on its own line after the `}` that closed its `if`, it joins that line.
+ *
+ * Idempotent by construction: it only ever clears a newline, and a brace already on the right line
+ * has none to clear. The token-equality self-check at the end of format_source covers the rest. */
+
+static int item_is(const Item *it, const char *text) {
+    size_t n = strlen(text);
+    return (size_t)it->len == n && strncmp(it->s, text, n) == 0;
+}
+
+static void canonicalize_braces(Items *items) {
+    for (int i = 1; i < items->n; i++) {
+        Item *it = &items->v[i];
+        if (it->nl_before == 0) continue;
+        if (it->kind == K_PUNCT && item_is(it, "{")) {
+            /* Never past a comment: a `{` after a trailing comment cannot move onto that line
+             * without commenting itself out. */
+            if (items->v[i - 1].kind != K_COMMENT) {
+                it->nl_before = 0;
+                it->spaces_before = 1;
+            }
+        } else if (it->kind == K_WORD && item_is(it, "else")) {
+            const Item *prev = &items->v[i - 1];
+            if (item_is(prev, "}") && prev->kind == K_PUNCT) {
+                it->nl_before = 0;
+                it->spaces_before = 1;
+            }
+        }
+    }
+}
+
+char *format_source(const char *src, size_t len, int width, int canonical, char *err, size_t err_size) {
     Items items = {0};
     if (!scan(src, len, &items, err, err_size)) { free(items.v); return NULL; }
     sort_use_runs(&items);
+    if (canonical) canonicalize_braces(&items);
 
     ItemPos *pos = malloc((size_t)(items.n + 1) * sizeof(ItemPos));
     Buf out = {0};

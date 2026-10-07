@@ -170,7 +170,9 @@ the binding that was live, a string is quoted so it cannot be read as a number, 
 truncated. `--fmt file.zm...` prints the source formatted
 (`--fmt --write` rewrites the files, `--fmt --check` lists the ones that would
 change and exits 1, `--fmt -` reads stdin, `--width=N` sets the wrap column,
-default 120, 0 = never); `--stack-mb=N`, `--thread-stack-mb=N` and `--threads=N` size the thread stacks
+default 120, 0 = never, and `--canonical` also settles brace placement -- a line-leading `{` joins
+what it opens and `else` joins the `}` that closed its `if`, which plain `--fmt` deliberately leaves
+alone since moving a line break is the one thing it promises not to do); `--stack-mb=N`, `--thread-stack-mb=N` and `--threads=N` size the thread stacks
 (recursion is limited by stack, see docs/SYNTAX.md "Stack depth"); `--version`; `--help`. A function's parameter list, or a call's argument list, that is too wide or already wrapped between its
 arguments is laid out one to a line with the parentheses on lines of their own (`fn name(` / `    a: A,` /
 `    b: B` / `) -> R {`, and likewise `call(` / `    x: 1,` / `    y: 2` / `)`); the body is indented one level from

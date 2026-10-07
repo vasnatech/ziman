@@ -59,6 +59,7 @@ them against the code.
 - [Packed storage for `[int]`, `[float]` and `[bool]`](#packed-storage-for-int-float-and-bool)
 - [Reporting several errors per run (roadmap open item 8)](#reporting-several-errors-per-run-roadmap-open-item-8)
 - [Formatter: wrapping, comment alignment, sorted `use`, stdin (open item 9)](#formatter-wrapping-comment-alignment-sorted-use-stdin-open-item-9)
+- [`--fmt --canonical`: settling brace placement, which plain `--fmt` will not (2026-10-07, F12)](#--fmt---canonical-settling-brace-placement-which-plain---fmt-will-not-2026-10-07-f12)
 - [The language server](#the-language-server)
 - [Map and Set](#map-and-set)
 - [JSON on Map](#json-on-map)
@@ -3802,6 +3803,50 @@ self-check compares against the sorted sequence.
 "format buffer". Still not done: joining lines that would now fit, wrapping at
 binary operators or `&&`/`||`, wrapping long `use` or `if` conditions, and an LSP
 "format document" (item 10).
+
+## `--fmt --canonical`: settling brace placement, which plain `--fmt` will not (2026-10-07, F12)
+
+**Extends "The formatter (`ziman --fmt`, R17)" and "Formatter: wrapping, comment alignment, sorted
+`use`, stdin" above.**
+
+The formatter keeps every line break the author wrote. That is what makes it safe to run on anything
+lexable, and it is also why it does not settle style: a file in Allman braces and a file in K&R braces
+both pass `--fmt --check`, which is most of what people actually want from gofmt. `--canonical` is the
+opt-in that settles the part of it a scanner can decide on its own.
+
+**What it does.** A `{` that starts a line joins the line before it, with one space. An `else` on its
+own line after the `}` that closed its `if` joins that line. Nothing else moves, and without the flag
+nothing moves at all.
+
+**Why every line-leading `{`, and not only a construct's.** A first version was narrower, out of a
+worry about a bare block statement:
+
+```ziman ignore: the point is that this is not valid Ziman, so it cannot be formatted either
+print(x)
+{
+    val scoped = 1
+}
+```
+
+Pulling that brace up would produce `print(x) {`, a different program. It turns out Ziman has no bare
+block statement at all -- a `{` cannot begin one, and the parser says so ("expected an expression,
+found '{'") -- so there is no case where moving a line-leading brace up changes meaning, and the rule
+covers a `switch` arm's pattern and a struct literal as well. Finding that out is what made the rule
+simpler rather than more complicated, which is the opposite of how these usually go.
+
+The one brace left alone is one that follows a trailing comment, which would be commented out if it
+moved.
+
+**Verified**: the canonicalised output still runs; running it twice changes nothing (it only ever
+clears a newline, and a brace already in place has none to clear); `format_source`'s existing
+token-equality self-check covers the rest; and `--fmt --canonical --check` over all of `lib/` and the
+documentation examples reports no change, so the library was already in this style and the flag is a
+no-op on it.
+
+**A side effect worth recording.** Adding a call between `sort_use_runs` and its caller lost GCC the
+proof that `items->n` is not negative, and it warned that a `memcpy` bound might be 18 quintillion
+bytes. The bound is now guarded explicitly. The warning was about pre-existing code that only became
+unprovable because something new was called next to it.
 
 ## The language server
 

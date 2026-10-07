@@ -1,0 +1,50 @@
+// `--fmt` alone keeps every line break the author wrote, so two files in opposite brace styles both
+// pass `--fmt --check` and the formatter does not settle style. `--canonical` settles the part a
+// scanner can decide: a line-leading `{` joins what it opens, and `else` joins the `}` that closed
+// its `if`.
+//
+// Every form is here because a first version of this was narrower, out of a worry about bare block
+// statements -- `print(x)` then `{` on its own line -- which turned out not to exist in Ziman at all:
+// a `{` cannot begin a statement, and the parser says so. That ruled the hazard out and let the rule
+// cover arms and struct literals too.
+struct Point {
+    x: int
+    y: int
+}
+
+enum Shape {
+    Round(float)
+    Flat
+}
+
+fn describe(s: Shape) -> string {
+    return switch s {
+        Round(r) {
+            "round"
+        }
+        Flat {
+            "flat"
+        }
+    }
+}
+
+fn classify(n: int) -> string {
+    if n > 0 {
+        return "positive"
+    } else {
+        return "not"
+    }
+}
+
+fn main() {
+    val p = Point {
+        x: 1,
+        y: 2
+    }
+    print(str(p.x))
+    print(describe(Shape.Flat))
+    print(classify(3))
+    for i in 0..2 {
+        print(str(i))
+    }
+}

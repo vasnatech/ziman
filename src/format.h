@@ -16,6 +16,10 @@
  * after a comma of their outermost bracket group; runs of consecutive `use` lines
  * are sorted; consecutive trailing comments are aligned. `<` and `>` keep their original spacing, since
  * `a < b` and `List<int>` cannot be told apart without parsing. */
-char *format_source(const char *src, size_t len, int width, char *err, size_t err_size);
+/* With `canonical`, brace placement is normalised as well: an opening brace moves onto the line of
+ * the construct it opens, and `else` onto the line of the brace that closed its `if` -- but only
+ * where that is decidable without parsing (see canonicalize_braces in format.c). Off by default,
+ * because moving a line break is the one thing the rest of this formatter promises not to do. */
+char *format_source(const char *src, size_t len, int width, int canonical, char *err, size_t err_size);
 
 #endif
