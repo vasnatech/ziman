@@ -305,15 +305,26 @@ void mapobj_entries(const MapObj *m, Value **keys, Value **vals) {
     free(leaves);
 }
 
-void mapobj_mark_leaves(const MapObj *m, void (*visit)(const void *leaf, Value key, Value val, void *ctx), void *ctx) {
-    int count = m->count;
-    Leaf **leaves = malloc((size_t)(count > 0 ? count : 1) * sizeof(Leaf *));
-    int n = 0;
-    collect(m->root, leaves, &n);
-    for (int i = 0; i < n; i++) {
-        visit(leaves[i], leaves[i]->key, leaves[i]->val, ctx);
+/* Visits as it walks, rather than collecting every leaf into an array first. `mapobj_entries` needs
+ * the array because it sorts by `seq`; this does not sort, so the array was pure cost -- and an
+ * expensive one, since the one caller is the collector's own mark phase (src/gc_mark.c): every
+ * collection allocated one array per map it marked, which is allocating *during* a collection. It was
+ * 48% of all allocation calls in a measured server workload once the two bigger sites above it were
+ * gone. The traversal order is unchanged, being the same walk that filled the array. */
+static void walk_leaves(const MapNode *node, void (*visit)(const void *leaf, Value key, Value val, void *ctx),
+                        void *ctx) {
+    for (int i = 0; i < node->n; i++) {
+        if (node->slots[i].child != NULL) {
+            walk_leaves(node->slots[i].child, visit, ctx);
+        } else {
+            const Leaf *leaf = node->slots[i].leaf;
+            visit(leaf, leaf->key, leaf->val, ctx);
+        }
     }
-    free(leaves);
+}
+
+void mapobj_mark_leaves(const MapObj *m, void (*visit)(const void *leaf, Value key, Value val, void *ctx), void *ctx) {
+    walk_leaves(m->root, visit, ctx);
 }
 
 /* ---- in-place mutation, for MapBuilder / SetBuilder ------------------------------------

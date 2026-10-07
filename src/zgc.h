@@ -13,13 +13,22 @@
 #include <string.h>
 
 #ifdef ZIMAN_ALLOC_PROFILE
-/* A measurement build (see src/allocsites.c): every allocation is counted against its source site. */
+/* A measurement build (see src/allocsites.c): every allocation is counted against its source site.
+ *
+ * Each of these takes the size as an ordinary argument, evaluated once, rather than expanding it twice
+ * into a call that also allocates. The first version did the latter, and it was wrong in a way worth
+ * remembering: `realloc(node, sizeof(MapNode) + node->n * sizeof(Slot))` expanded to a call taking both
+ * the size expression *and* GC_REALLOC's result, argument evaluation order is unspecified, so the size
+ * could be computed from `node->n` after the realloc had already moved `node`. That is undefined
+ * behaviour, and in practice it reported a 32GB allocation site that did not exist. */
 #include <pthread.h>
-void *ziman_alloc_note(const char *file, int line, size_t n, void *p);
-#define malloc(n) ziman_alloc_note(__FILE__, __LINE__, (n), GC_MALLOC(n))
-#define calloc(a, b) ziman_alloc_note(__FILE__, __LINE__, (a) * (b), GC_MALLOC((a) * (b)))
-#define realloc(p, n) ziman_alloc_note(__FILE__, __LINE__, (n), GC_REALLOC((p), (n)))
-#define strdup(s) ((char *)ziman_alloc_note(__FILE__, __LINE__, strlen(s) + 1, GC_STRDUP(s)))
+void *ziman_alloc_malloc(const char *file, int line, size_t n);
+void *ziman_alloc_realloc(const char *file, int line, void *p, size_t n);
+char *ziman_alloc_strdup(const char *file, int line, const char *s);
+#define malloc(n) ziman_alloc_malloc(__FILE__, __LINE__, (n))
+#define calloc(a, b) ziman_alloc_malloc(__FILE__, __LINE__, (size_t)(a) * (size_t)(b))
+#define realloc(p, n) ziman_alloc_realloc(__FILE__, __LINE__, (p), (n))
+#define strdup(s) ziman_alloc_strdup(__FILE__, __LINE__, (s))
 #else
 #define malloc(n) GC_MALLOC(n)
 #define calloc(a, b) GC_MALLOC((a) * (b))
