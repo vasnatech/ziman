@@ -14,7 +14,10 @@ that already exists. A "Not yet: HTTP/2, multipart, compression" clause (prose, 
 name that could ever collide with a real declaration) is unverifiable this way and correctly
 never flagged; that class of staleness still needs a human doc sweep, as F5's own audit was.
 
-Scans only source: docs/SYNTAX.md (hand-written) and lib/**/*.zm (the doc comments
+A "Not yet" inside double quotes is skipped: that is someone citing a wording (this file's own
+DESIGN.md entry quotes the stale sentence that motivated the check), not claiming it is still true.
+
+Scans source only: docs/SYNTAX.md and docs/DESIGN.md (hand-written) and lib/**/*.zm (the doc comments
 docs/lib/*.md and docs/CORELIB.md are generated from) -- not the generated .md files
 themselves, since they can only ever repeat whatever the source already says.
 
@@ -45,6 +48,11 @@ def pub_names():
     return names
 
 
+def inside_quotes(line, at):
+    """Whether position `at` falls inside a double-quoted span of `line`."""
+    return line.count('"', 0, at) % 2 == 1
+
+
 def not_yet_claims(path):
     """Every "Not yet: ..." occurrence in `path`, as (lineno, text-after-the-marker) -- the
     text extends across immediately following comment/prose lines too, since a claim often
@@ -56,6 +64,11 @@ def not_yet_claims(path):
     i = 0
     while i < len(lines):
         m = NOT_YET.search(lines[i])
+        if m and inside_quotes(lines[i], m.start()):
+            # A *quoted* "Not yet" is a citation of some wording, not a claim about today. DESIGN.md's
+            # own entry about this check quotes the stale sentence that motivated it, three times; without
+            # this, adding DESIGN.md to the sources made the check report the entry documenting itself.
+            m = None
         if m:
             text = m.group(1)
             j = i + 1
@@ -63,6 +76,11 @@ def not_yet_claims(path):
             # line that isn't blank and doesn't start a new list item/heading.
             while j < len(lines):
                 nxt = lines[j].strip()
+                # A "**Superseded ...**" note ends the claim it corrects: everything it names is what
+                # *has* landed, which is the opposite of the claim, so pulling it in would make every
+                # correction look like the staleness it documents. (It did, the first time.)
+                if nxt.startswith("**Superseded"):
+                    break
                 if path.endswith(".zm"):
                     if nxt.startswith("//"):
                         text += " " + nxt[2:].strip()
@@ -82,7 +100,7 @@ def not_yet_claims(path):
 
 def main():
     names = pub_names()
-    sources = [os.path.join(ROOT, "docs", "SYNTAX.md")] + glob.glob(
+    sources = [os.path.join(ROOT, "docs", "SYNTAX.md"), os.path.join(ROOT, "docs", "DESIGN.md")] + glob.glob(
         os.path.join(ROOT, "lib", "**", "*.zm"), recursive=True
     )
     problems = []

@@ -26,7 +26,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check
 
 all: $(BIN)
 
@@ -290,6 +290,16 @@ experimental-check:
 ziman-allocprofile: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
 	$(CC) $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-allocprofile"' $(GC_FLAGS) 	    -DZIMAN_ALLOC_PROFILE -o $@ $(SRC) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
 
+# Regenerates docs/DESIGN.md's section index in place -- see tools/gen_design_index.py.
+design-index:
+	python3 tools/gen_design_index.py
+
+# Fails when the committed index is not what the sections now are: the same `git diff` shape
+# lib-manual-check uses, because a hand-kept index of a file that size is wrong within a month.
+design-index-check:
+	python3 tools/gen_design_index.py
+	git diff --exit-code --stat -- docs/DESIGN.md
+
 # Fails when a Ziman example in docs/SYNTAX.md no longer compiles (or, if it is tagged `fails`,
 # when it starts compiling) -- see tools/check_syntax_examples.py's own header comment. Needs the
 # binary, since it compiles every example with it.
@@ -299,7 +309,7 @@ syntax-check: $(BIN)
 # Every guard that keeps the documentation from drifting from the sources it describes, in one
 # target, because each of these is only useful if something actually runs it: `lib-manual-check`
 # was failing on main for a while precisely because nothing did.
-docs-check: lib-manual-check not-yet-check experimental-check syntax-check
+docs-check: lib-manual-check not-yet-check experimental-check syntax-check design-index-check
 
 clean:
 	rm -f $(BIN) ziman-nogc ziman-allocprofile src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
