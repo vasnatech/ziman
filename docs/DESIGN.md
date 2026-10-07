@@ -5132,11 +5132,30 @@ Allocation calls across that workload fell from 9.96M to 2.57M. Measured paired 
 **The gain grows with concurrency**, which is what a fix to collection *frequency* should do: the
 cost it removes is the one that scales badly with threads.
 
-**F7 is not fixed.** The shape is still there -- throughput still peaks around four to eight clients
-and declines -- but the decline is shallower and every level is substantially higher, with the worst
-case improved most. The gap to `ziman-nogc` at c=16 narrows from about 4.6x to about 2.5-3.5x. The
-architectural question the task frames (whether v0 should run two collectors over one object graph at
-all) is untouched by this and still open.
+A fourth site followed: the five loop scopes in `exec_stmt` still called `env_new` on entry and
+`env_free` on exit, while `call_function` and `exec_block` had taken theirs from the per-thread Env
+pool for some time. Pooling those too halved the remaining Env allocations (234K to 107K) and cut
+their `items` reallocs by a third, for another 14% at c=16 -- and noticeably less run-to-run variance,
+a fresh allocation per loop entry having been adding spread as well as cost.
+
+**The shape F2 and F7 named is gone.** Measured paired across the full sweep, 2,500 requests a level:
+
+| clients | 1 | 4 | 8 | 16 | 32 | 64 |
+| --- | --- | --- | --- | --- | --- | --- |
+| before | 407-429 | 888-988 | 1030-1041 | 763-843 | 620-756 | -- |
+| after | 463-535 | 1293-1428 | 1522-1664 | 1429-1574 | 1491-1517 | 1436-1495 |
+| `ziman-nogc` | | | 2711 | 2979 | 2745 | 2652 |
+
+Before, throughput peaked at four to eight clients and fell 27-40% by 32. After, it is flat from 8 to
+64 within run-to-run noise -- as `ziman-nogc` is, which also plateaus at 8-16. What remains between
+the two builds is a roughly 1.8x constant factor at every level, down from 4.6x at c=16: the ordinary
+price of a tracing collector rather than a failure to scale.
+
+Two things this does **not** settle. The architectural question the task frames -- whether v0 should
+run two collectors over one object graph at all -- is untouched, and the `gc_heap` migration remains
+measured and abandoned for the reasons recorded above. And this is one workload (an authenticated read
+of an empty collection, new connection per request, which is the pessimistic case for the Env pool);
+a write-heavy or keep-alive profile has not been measured.
 
 What this says about method, since the numbers here are easy to misread. Allocation *call counts*
 drove every decision; the byte column did not, which was lucky, because the profiler's first version
