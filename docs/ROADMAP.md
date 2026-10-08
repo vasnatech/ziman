@@ -18,6 +18,13 @@ wrong** — an entry like "HTTP/2 -- not started" is followed by a paragraph men
 `byte_and` and a dozen other real things, none of which it claims are missing. The check works on a terse
 `Not yet: a, b, c` list and this file is discursive prose, so the guard here is the habit, not a tool.
 
+**Opening a task carries the same obligation, which 2026-10-08 is the first demonstration of.** The C
+implementation review (docs/reviews/c-implementation-review-2026-10-08.md) opened twelve, and four entries
+here read optimistically because of them -- the regex engine's "linear-time", the formatter, the collector's
+"does not leak" and the metrics module's lock-free update. Each now carries a dated note pointing at the task,
+rather than being quietly contradicted by a file in the same directory. A fifth, platform support, gained a
+cheaper first step from the same review instead of a correction.
+
 ## North star: write (a slice of) the health-record backend in Ziman
 
 The first concrete target beyond language-design exercises: get Ziman
@@ -328,7 +335,16 @@ against)**
   call another); logging (levels, destination); filesystem beyond
   `read_file`/`write_file` (append, stat, delete, list; `write_file` is
   still fatal on failure); regex; sorting (R11); domain-typed map keys
-  (R12).
+  (R12). *Update 2026-10-08: "linear-time" is a promise about the
+  subject string, not about the pattern. `regex.compile("()" * 6000)`
+  then `is_match` segfaults at every stack size up to the 768 MB
+  ceiling (A16) -- the thread-list construction recurses once per
+  instruction carrying a VLA frame, and allocates `n_inst x ncap`
+  beside it, so the engine is linear in what it scans and unbounded in
+  what it compiles. The existing nesting-depth limit does not catch it
+  because the pattern is wide, not nested. No backreferences still
+  means no exponential backtracking; it does not mean a hostile pattern
+  is safe.*
 - [x] **R16. Naming convention.** *Done: the rule is written down (SYNTAX.md, "Naming conventions for module functions"). Surveying every bundled module found it was already followed -- every name imported bare is noun-prefixed, every qualified-use name is a short verb -- so the only rename was `httpclient.client_error_message` -> `error_message`.* `collections` uses type-prefixed names
   meant for bare import (`hashmap_get`); `http` uses bare names meant for
   qualified use (`header`, `response`), which then collide with
@@ -350,6 +366,14 @@ against)**
   flags a `var` that is never reassigned, in user code only (bundled modules
   and derived code are skipped); running it over the bundled library found
   three. `ziman --fmt` is the formatter (a text formatter: it keeps comments and line breaks, see DESIGN.md "The formatter"); `make fmt-check` keeps the library, backend and extra tests formatted.*
+  *Update 2026-10-08: the formatter buffers a quadratic result in
+  memory -- 32 KB of nested blocks formats to 256 MB of output at 9.7
+  GB RSS, and the same code reached through the language server turns
+  a 24 KB document into a 144 MB reply (A18). The quadratic output is
+  inherent, since every line is indented by its depth; holding all of
+  it before writing a byte is not. `make fmt-check` never sees this
+  because real code is not nested 8,000 deep -- an editor and a fuzzer
+  both are.*
 - [x] **R18. Split README.md into sections.** *Done: README.md is now ~900 words (a taste, the language at a glance, a module table, tooling); the old wall of prose lives in docs/FEATURE-NOTES.md under ten headings.* It is ~3,000 words in
   essentially one paragraph, and it is the document most likely to be
   pasted into a model's context as "the language".
@@ -761,7 +785,19 @@ from source.
   loop scopes) took allocation calls on a server workload from 9.96M to 2.57M, after which
   throughput stops falling as clients are added and is flat from 8 to 64. See DESIGN.md's
   "The gc_heap migration, measured and abandoned" and "Three allocation sites, and what
-  they did to F7". A reader following the design below is following the abandoned path.* Every `Value` payload (`ArrayObj`/`StructObj`/
+  they did to F7". A reader following the design below is following the abandoned path.*
+  *Update 2026-10-08: "does not leak", re-verified twice above, has
+  one measured exception, and it is not in the collector.
+  `src/iter.c:133` releases a libc `getline` buffer through
+  `zgc.h`'s `free`, which is a no-op in this build, so Boehm never
+  reclaims a block it did not allocate: 1.27 GB RSS against 28 MB
+  under `ziman-nogc` -- the build whose own comment says nothing is
+  ever freed is the one that holds (A17, plus three `strndup`
+  siblings in `src/lsp.c`). The rule the macro hides is that memory
+  libc allocated has to be freed by libc, which
+  `src/native_http.c:15-27` already does with `push_macro`. So the
+  claim to make is narrower than the one made here: nothing Ziman
+  allocates leaks.* Every `Value` payload (`ArrayObj`/`StructObj`/
   `EnumObj`/`ResultObj`, every `string` buffer) is heap-allocated and
   never freed, on purpose — see docs/DESIGN.md's "single-writer/actor
   pattern" entry: *"this interpreter never frees an `ArrayObj`/
@@ -1646,6 +1682,16 @@ from source.
     `_GNU_SOURCE`-only function here and there, `-lm`/`-lpthread` differences, the vendored collector's
     platform flags). The first step is a CI job that builds and runs `make test` on macOS, so the README can
     say what is actually true.
+    *Update 2026-10-08: a cheaper first step exists, and the C review named it -- **build with clang here**,
+    which is not installed and so was the one gap that review could not close. A second front end is the
+    cheapest way to find remaining UB in 34,000 lines, and it tests the same thing a macOS job does without
+    the job: `cc` on macOS *is* clang. That review's survey of the POSIX and glibc dependencies found "would
+    not compile elsewhere" to be the dominant category and **no** case of "would compile and be wrong" --
+    `mallopt` is behind `__GLIBC__`, the `/proc` and cgroup reads in `stack.c:144-157` fall back for
+    "unreadable (not Linux)", and `getline`/`strndup`/`pthread_attr_setstacksize` are POSIX rather than glibc-
+    only. The two places where another compiler could be right and this one wrong are both filed: the signed
+    `<<` at `native_bits.c:96`, which works only by a documented GCC extension (A21), and the `double` punning
+    in `native_metrics.c` (A19), which is what clang is most likely to surface.*
   - **Windows through a POSIX layer (MSYS2 or Cygwin):** build there and record what breaks. Expect the
     `Makefile` and the bash test scripts to work as they are and the socket and signal code to need attention.
   - **A native Windows build:** a thin portability layer in C for threads (Windows threads, or a pthreads
@@ -1793,6 +1839,12 @@ from source.
   per metric made throughput **fall** as threads were added, so an existing series is updated lock-free with a compare-exchange on the double's
   bits; and building a label key cost ~4.5us against ~0.25us for the update, so `metrics.series(...)` resolves a label set once into a handle
   (20x faster). Items 3 (runtime metrics), 4 (trace context) and 5 (JSON log lines) remain.*
+  *Update 2026-10-08: the lock-free update that measurement chose has a race -- the compare-exchange seeds itself with a plain non-atomic
+  load (`src/native_metrics.c:91`), reported twice by TSan under eight threads -- and the same three functions pun a `double` through a
+  pointer cast in a build carrying no `-fno-strict-aliasing`. One fix closes both (A19). The measurement that chose the design stands; its
+  implementation is what needs the two lines. Also worth knowing before trusting any clean concurrency measurement of the server:
+  `server.metrics` is off by default, so a load test that does not turn it on never executes this code at all -- which is exactly how a
+  clean 6,037-line TSan run of the backend missed the race.*
 
 - **Accounts and tokens for backends -- password hashing and JWT done; the request pipeline next.** `crypto` has bcrypt
   (through libxcrypt, so `$2a$`/`$2b$` hashes written by other systems verify) and Argon2id (OpenSSL), with
