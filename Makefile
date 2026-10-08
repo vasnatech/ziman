@@ -351,9 +351,11 @@ syntax-check: $(BIN)
 #     Every other stack-depth fixture reports its error normally under both. Neither is a bug in
 #     anything, and both were found by running these targets rather than reasoned about.
 #
-# `make tsan` currently fails, and should: on its first run it found a real data race in
-# src/native_net.c, filed as A24 in docs/reviews/tasks.md. That is the target earning its place, not
-# a defect in it -- see the A24 entry for the evidence.
+# On its first run `make tsan` found two real races -- one on a socket handle's descriptor and one
+# TSan was right to flag and wrong about (a signal handler writing a `volatile sig_atomic_t`, which
+# the standard permits and a sanitizer cannot see). Both are fixed, A24 in docs/reviews/tasks.md, and
+# all three targets are green on this tree. That is the argument for having them: nothing else here
+# could have found either.
 #
 # The runtime libraries are packaged separately on some distributions (libasan, libubsan, libtsan on
 # Fedora) and were not installed on the machine these targets were written on, so each recipe passes

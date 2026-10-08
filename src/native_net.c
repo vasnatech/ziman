@@ -40,7 +40,28 @@
  * Closing a handle another thread is blocked reading on is *allowed*
  * (close shuts the socket down first, which wakes that read with an
  * error), but the fd number is then free for the OS to reuse, so a
- * program should only close a socket from the thread that owns it. */
+ * program should only close a socket from the thread that owns it.
+ *
+ * What that costs, exactly, since this is the one part of this module two
+ * threads touch at once (docs/reviews/tasks.md A24). The descriptor is
+ * read and cleared atomically, so there is no data race on the field and
+ * exactly one thread ever hands it to close(2) -- the clear is an
+ * exchange, and `handleset_remove` already decides which thread gets
+ * there. A reader that arrives after the close sees -1 and is told the
+ * socket is closed.
+ *
+ * What remains is not fixable by ordering, and is the reason the advice
+ * above still stands: a reader that loaded the number *before* the close
+ * still holds it afterwards, and if any thread opens anything in between,
+ * the OS may hand that same number back -- so the read lands on an
+ * unrelated socket, file or database connection rather than failing.
+ * Closing that window needs the descriptor to outlive its last user: a
+ * reference count on the handle, with close(2) deferred to the last
+ * release, or a close deferred to the collector's finalizer (net_finalizer
+ * already does exactly that for a handle nobody holds). Neither is here
+ * because neither is free -- a refcount puts an atomic pair around every
+ * read and write -- and because a server that closes from its accepting
+ * thread, which is what `server.zm` does, never opens the window. */
 
 /* `ssl` is non-NULL once start_tls has upgraded the connection; every
  * read/write/close then goes through it (see io_read/io_write below), so
@@ -50,6 +71,10 @@
  * lock taken around each operation (a plain socket doesn't need one:
  * the OS lets one thread read while another writes). */
 typedef struct {
+    /* Read and cleared with the __atomic builtins, never plainly: one thread can close a handle
+     * while another is reading or accepting on it, which is how a server shuts down, and that made
+     * this field a data race TSan reported on six fixtures (docs/reviews/tasks.md A24). The clear is
+     * an exchange, so exactly one thread ever passes the descriptor to close(2). */
     int fd;
     SSL *ssl;
     SSL_CTX *server_ctx; /* non-NULL on a TLS listener: accept() completes a handshake with it */
@@ -72,10 +97,11 @@ static void release_handle(NetHandle *h) {
         SSL_free(h->ssl);
         h->ssl = NULL;
     }
-    if (h->fd >= 0) {
-        close(h->fd);
-        h->fd = -1;
-    }
+    /* Take the descriptor out of the handle and close the copy: an exchange, so a second caller
+     * racing here gets -1 and closes nothing, and every later reader sees -1 rather than a number
+     * that is on its way to being closed. */
+    int fd = __atomic_exchange_n(&h->fd, -1, __ATOMIC_ACQ_REL);
+    if (fd >= 0) close(fd);
 }
 
 #ifdef ZIMAN_GC
@@ -111,7 +137,8 @@ static Value errno_result(Type ok_type, int e) {
 
 static int64_t handle_register(int fd) {
     NetHandle *h = ziman_xcalloc(1, sizeof(NetHandle));
-    h->fd = fd;
+    __atomic_store_n(&h->fd, fd, __ATOMIC_RELAXED); /* before handleset_add publishes `h`; see the field */
+
     pthread_mutex_init(&h->tls_mu, NULL);
     handleset_add(&g_live, h);
 #ifdef ZIMAN_GC
@@ -133,7 +160,7 @@ static NetHandle *require_handle(int64_t id, const char *what, int line, int col
 }
 
 static int require_fd(int64_t id, const char *what, int line, int col) {
-    return require_handle(id, what, line, col)->fd;
+    return __atomic_load_n(&require_handle(id, what, line, col)->fd, __ATOMIC_ACQUIRE);
 }
 
 /* ---- I/O over a plain socket or, after start_tls, over TLS ---- */
@@ -163,8 +190,13 @@ static void tls_error_message(IoErr *e, SSL *ssl) {
 static ssize_t io_read(NetHandle *h, void *buf, size_t n, IoErr *e) {
     memset(e, 0, sizeof(*e));
     if (h->ssl == NULL) {
+        int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
+        /* Closed by another thread between the handle lookup and here. Answered as EBADF, which
+         * errno_result already reports as the `closed` category -- the same answer the kernel would
+         * give for a read on -1, decided here instead of discovered there. */
+        if (fd < 0) { e->errno_val = EBADF; return -1; }
         ssize_t r;
-        do { r = recv(h->fd, buf, n, 0); } while (r < 0 && errno == EINTR);
+        do { r = recv(fd, buf, n, 0); } while (r < 0 && errno == EINTR);
         if (r < 0) e->errno_val = errno;
         return r;
     }
@@ -200,7 +232,9 @@ static ssize_t io_write(NetHandle *h, const unsigned char *data, size_t n, IoErr
     while (sent < n) {
         if (h->ssl == NULL) {
             ssize_t w;
-            do { w = send(h->fd, data + sent, n - sent, MSG_NOSIGNAL); } while (w < 0 && errno == EINTR);
+            int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
+            if (fd < 0) { e->errno_val = EBADF; return -1; } /* see io_read */
+            do { w = send(fd, data + sent, n - sent, MSG_NOSIGNAL); } while (w < 0 && errno == EINTR);
             if (w < 0) { e->errno_val = errno; return -1; }
             sent += (size_t)w;
         } else {
@@ -543,7 +577,7 @@ static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) 
     SSL *ssl = SSL_new(ctx);
     SSL_CTX_free(ctx); /* the SSL holds its own reference */
     if (ssl == NULL) { IoErr e; tls_error_message(&e, NULL); return err_result(int_type, "tls", e.message); }
-    SSL_set_fd(ssl, h->fd);
+    SSL_set_fd(ssl, __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE));
     if (!host_is_ip) SSL_set_tlsext_host_name(ssl, host);
     if (verify >= 2) {
         int ok = host_is_ip ? X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(ssl), host) : SSL_set1_host(ssl, host);
@@ -588,7 +622,8 @@ static pthread_mutex_t g_idle_mu = PTHREAD_MUTEX_INITIALIZER;
 static void idle_drop(IdleEntry *e) {
     if (e->h != NULL && handleset_remove(&g_live, e->h)) {
         if (e->h->ssl != NULL) SSL_shutdown(e->h->ssl);
-        if (e->h->fd >= 0) shutdown(e->h->fd, SHUT_RDWR);
+        int fd = __atomic_load_n(&e->h->fd, __ATOMIC_ACQUIRE);
+        if (fd >= 0) shutdown(fd, SHUT_RDWR);
         release_handle(e->h);
     }
     e->h = NULL;
@@ -653,7 +688,8 @@ static Value native_net_close_raw(Value *args, int argc, int line, int col) {
     NetHandle *h = (NetHandle *)(intptr_t)args[0].as.i;
     if (h != NULL && handleset_remove(&g_live, h)) {
         if (h->ssl != NULL) SSL_shutdown(h->ssl); /* sends close_notify; the peer's reply isn't awaited */
-        if (h->fd >= 0) shutdown(h->fd, SHUT_RDWR); /* wakes a thread blocked reading this socket */
+        int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
+        if (fd >= 0) shutdown(fd, SHUT_RDWR); /* wakes a thread blocked reading this socket */
         release_handle(h);
     }
     return value_int(0);

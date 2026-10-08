@@ -134,15 +134,30 @@ static Value native_os_write_stderr(Value *args, int argc, int line, int col) {
     return value_int(0);
 }
 
+/* `volatile sig_atomic_t` is what C11 7.14.1.1p5 guarantees a handler may write and ordinary code
+ * may read, and that guarantee is why this was correct before. It is accessed through the atomic
+ * builtins anyway, for a reason worth writing down rather than rediscovering: a thread sanitizer
+ * cannot see that guarantee -- there is nothing in the program text that says this object is
+ * shared, only a type whose meaning lives in the standard -- so it reported the handler's write
+ * against `accept`'s read as a data race on three fixtures, and a tool that cries wolf on correct
+ * code is a tool nobody runs (docs/reviews/tasks.md A24). Relaxed ordering: this is a flag whose
+ * only transition is 0 -> 1 and nothing is published with it, and `sig_atomic_t` is lock-free, so
+ * the handler stays signal-safe. */
 static volatile sig_atomic_t g_shutdown_requested = 0;
 
 int ziman_shutdown_requested(void) {
-    return g_shutdown_requested;
+    return __atomic_load_n(&g_shutdown_requested, __ATOMIC_RELAXED);
 }
 
 static void on_shutdown_signal(int sig) {
     (void)sig;
-    g_shutdown_requested = 1;
+    /* Saved and restored because a handler runs between any two instructions of the thread it
+     * interrupts: anything it leaves in errno would be read there as the result of a call this
+     * handler had nothing to do with. Nothing below sets errno today, which is exactly why the
+     * save is here rather than in a comment saying it is not needed yet. */
+    int saved_errno = errno;
+    __atomic_store_n(&g_shutdown_requested, 1, __ATOMIC_RELAXED);
+    errno = saved_errno;
 }
 
 /* os.install_shutdown_handler(): SIGINT and SIGTERM set a flag instead of
@@ -162,7 +177,7 @@ static Value native_os_install_shutdown_handler(Value *args, int argc, int line,
 
 static Value native_os_shutdown_requested(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
-    return value_bool(g_shutdown_requested);
+    return value_bool(ziman_shutdown_requested()); /* the one reader of the flag; see it for why */
 }
 
 
