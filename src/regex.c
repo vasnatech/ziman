@@ -11,6 +11,25 @@
 #define MAX_INSTRUCTIONS 20000
 #define MAX_CODEPOINT 0x10FFFF
 
+/* The ceiling on what one match may allocate, checked once at compile time (see the end of
+ * regex_compile) because that is where a pattern is still reportable as an error rather than as a
+ * dead process. MAX_INSTRUCTIONS alone does not bound it: the matcher's capture buffers are
+ * `n_inst * 2 * (n_groups + 1)` ints, so the *product* is what grows, and a pattern of 6,000 empty
+ * groups -- 18,002 instructions, inside the instruction limit, and wide rather than nested, so the
+ * nesting limit does not see it either -- asked for about 1.1 GB and got a SIGSEGV instead
+ * (docs/reviews/tasks.md A16). 64 MB is far above any real pattern: a 200-character pattern with
+ * 20 capture groups needs about 35 KB. */
+#define MAX_MATCH_BYTES (64u * 1024u * 1024u)
+
+/* One thread of the matcher: an instruction and the capture offsets it reached there with. Declared
+ * up here, away from the matcher itself, because regex_compile's size check needs sizeof(Thread)
+ * and sizeof(Work) to say what a match would cost. */
+typedef struct { int pc; int *caps; } Thread;
+
+/* One entry of add_thread's explicit worklist: the instruction to visit and the captures in force
+ * on the way to it. */
+typedef struct { int pc; int *caps; } Work;
+
 /* ------------------------------------------------------------------ UTF-8 */
 
 /* Decodes the code point at `pos`; an invalid sequence is one byte, taken as itself. */
@@ -700,6 +719,32 @@ Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size
         free(re);
         return NULL;
     }
+
+    /* What matching this would allocate, refused here rather than attempted later -- see
+     * MAX_MATCH_BYTES. Counted in 64-bit arithmetic because the product is exactly what can
+     * overflow an int: two capture buffers, the scratch add_thread copies into, the worklist, the
+     * two thread arrays, the mark array and the two caller-sized capture arrays. */
+    uint64_t ncap = 2u * ((uint64_t)re->n_groups + 1u);
+    uint64_t n_inst = (uint64_t)re->n_inst;
+    uint64_t needed = 3u * n_inst * ncap * sizeof(int)        /* two capbufs and the save scratch */
+                    + 2u * n_inst * sizeof(Thread)           /* the two thread arrays */
+                    + (2u * n_inst + 2u) * sizeof(Work)      /* add_thread's worklist */
+                    + n_inst * sizeof(unsigned)              /* the mark array */
+                    + 2u * ncap * sizeof(int);               /* `initial` and `best` */
+    if (needed > MAX_MATCH_BYTES) {
+        snprintf(err, err_size,
+                 "pattern needs too much memory to match: %llu MB for %d capture groups over %d instructions "
+                 "(the limit is %u MB; use (?:...) for a group whose text you do not need)",
+                 (unsigned long long)((needed + 1048575u) / 1048576u), re->n_groups, re->n_inst,
+                 (unsigned)(MAX_MATCH_BYTES / 1048576u));
+        free(re->prog);
+        for (int i = 0; i < re->n_classes; i++) free(re->classes[i].ranges);
+        free(re->classes);
+        for (int i = 0; i <= re->n_groups && re->group_names != NULL; i++) free(re->group_names[i]);
+        free(re->group_names);
+        free(re);
+        return NULL;
+    }
     return re;
 }
 
@@ -712,7 +757,6 @@ const char *regex_group_name(const Regex *re, int group) {
 
 /* ---------------------------------------------------------------- matcher */
 
-typedef struct { int pc; int *caps; } Thread;
 
 typedef struct {
     Thread *t;
@@ -727,6 +771,8 @@ typedef struct {
     size_t len;
     int ncap;
     unsigned *mark;
+    Work *work;      /* 2 * n_inst + 2 entries: see add_thread for why that bounds it */
+    int *savepool;   /* n_inst * ncap ints, bump-allocated per add_thread call */
 } Vm;
 
 static int assertion_holds(const Vm *vm, Op op, size_t pos) {
@@ -744,54 +790,110 @@ static int assertion_holds(const Vm *vm, Op op, size_t pos) {
     }
 }
 
+/* Adds pc and everything reachable from it by epsilon transitions to `l` -- the standard
+ * closure walk of a Thompson/Pike VM, iterative rather than recursive.
+ *
+ * It recursed until 2026-10-08, once per instruction, and each I_SAVE frame carried a
+ * variable-length array of the captures. For `("()" * 6000)` that is about 96 KB a frame to a
+ * depth of 12,000: roughly 1.1 GB of C stack, which segfaults at every size --stack-mb allows,
+ * including the 768 MB ceiling, and from pure Ziman code (docs/reviews/tasks.md A16). Depth now
+ * lives in `vm->work` on the heap, and regex_compile has already refused any pattern whose
+ * buffers would exceed MAX_MATCH_BYTES, so neither can run away.
+ *
+ * Thread order is preserved exactly, which matters because the first thread to reach I_MATCH wins
+ * and that is what makes the match leftmost-first: entries pop LIFO, and I_SPLIT pushes y before
+ * x, so x and its whole subtree are visited before y -- the same depth-first, x-first order the
+ * recursion had.
+ *
+ * Two bounds, both from `vm->mark`, which admits each instruction once per generation. At most
+ * n_inst entries are ever popped-and-processed and each pushes at most two, so 2 * n_inst + 2
+ * worklist entries can never be exceeded. At most n_inst of those are I_SAVE, so the bump
+ * allocator below cannot pass n_inst * ncap ints -- and it is reset on entry because nothing it
+ * hands out survives the walk: the only thing kept is the copy into l->capbuf. */
 static void add_thread(const Vm *vm, ThreadList *l, int pc, int *caps, size_t pos) {
-    if (vm->mark[pc] == l->gen) return;
-    vm->mark[pc] = l->gen;
-    const Inst *in = &vm->re->prog[pc];
-    switch (in->op) {
-        case I_JMP: add_thread(vm, l, in->x, caps, pos); return;
-        case I_SPLIT:
-            add_thread(vm, l, in->x, caps, pos);
-            add_thread(vm, l, in->y, caps, pos);
-            return;
-        case I_SAVE: {
-            int tmp[2 * (vm->ncap + 1)];
-            memcpy(tmp, caps, (size_t)vm->ncap * sizeof(int));
-            tmp[in->x] = (int)pos;
-            add_thread(vm, l, pc + 1, tmp, pos);
-            return;
-        }
-        case I_BOL: case I_EOL: case I_WORDB: case I_NWORDB:
-            if (assertion_holds(vm, in->op, pos)) add_thread(vm, l, pc + 1, caps, pos);
-            return;
-        default: {
-            int *slot = l->capbuf + (size_t)l->n * (size_t)vm->ncap;
-            memcpy(slot, caps, (size_t)vm->ncap * sizeof(int));
-            l->t[l->n].pc = pc;
-            l->t[l->n].caps = slot;
-            l->n++;
-            return;
+    size_t top = 0, save_used = 0;
+    vm->work[top].pc = pc;
+    vm->work[top].caps = caps;
+    top++;
+    while (top > 0) {
+        top--;
+        int p = vm->work[top].pc;
+        int *c = vm->work[top].caps;
+        if (vm->mark[p] == l->gen) continue;
+        vm->mark[p] = l->gen;
+        const Inst *in = &vm->re->prog[p];
+        switch (in->op) {
+            case I_JMP:
+                vm->work[top].pc = in->x;
+                vm->work[top].caps = c;
+                top++;
+                break;
+            case I_SPLIT:
+                vm->work[top].pc = in->y;
+                vm->work[top].caps = c;
+                top++;
+                vm->work[top].pc = in->x;
+                vm->work[top].caps = c;
+                top++;
+                break;
+            case I_SAVE: {
+                int *saved = vm->savepool + save_used;
+                save_used += (size_t)vm->ncap;
+                memcpy(saved, c, (size_t)vm->ncap * sizeof(int));
+                saved[in->x] = (int)pos;
+                vm->work[top].pc = p + 1;
+                vm->work[top].caps = saved;
+                top++;
+                break;
+            }
+            case I_BOL: case I_EOL: case I_WORDB: case I_NWORDB:
+                if (assertion_holds(vm, in->op, pos)) {
+                    vm->work[top].pc = p + 1;
+                    vm->work[top].caps = c;
+                    top++;
+                }
+                break;
+            default: {
+                int *slot = l->capbuf + (size_t)l->n * (size_t)vm->ncap;
+                memcpy(slot, c, (size_t)vm->ncap * sizeof(int));
+                l->t[l->n].pc = p;
+                l->t[l->n].caps = slot;
+                l->n++;
+                break;
+            }
         }
     }
 }
 
+/* -1 when a buffer could not be allocated, which regex_compile's MAX_MATCH_BYTES check makes a
+ * real out-of-memory rather than a big pattern; the caller turns it into a runtime error. */
 int regex_search(const Regex *re, const char *text, size_t len, size_t from, int *out_caps) {
     Vm vm;
     vm.re = re;
     vm.text = (const unsigned char *)text;
     vm.len = len;
     vm.ncap = 2 * (re->n_groups + 1);
+    size_t ncap_bytes = (size_t)vm.ncap * sizeof(int);
+    size_t capbuf_bytes = (size_t)re->n_inst * ncap_bytes;
     vm.mark = calloc((size_t)re->n_inst, sizeof(unsigned));
+    vm.work = malloc((2u * (size_t)re->n_inst + 2u) * sizeof(Work));
+    vm.savepool = malloc(capbuf_bytes);
 
     ThreadList lists[2];
     for (int i = 0; i < 2; i++) {
         lists[i].t = malloc((size_t)re->n_inst * sizeof(Thread));
-        lists[i].capbuf = malloc((size_t)re->n_inst * (size_t)vm.ncap * sizeof(int));
+        lists[i].capbuf = malloc(capbuf_bytes);
         lists[i].n = 0;
         lists[i].gen = 0;
     }
-    int *initial = malloc((size_t)vm.ncap * sizeof(int));
-    int *best = malloc((size_t)vm.ncap * sizeof(int));
+    int *initial = malloc(ncap_bytes);
+    int *best = malloc(ncap_bytes);
+    if (vm.mark == NULL || vm.work == NULL || vm.savepool == NULL || initial == NULL || best == NULL ||
+        lists[0].t == NULL || lists[0].capbuf == NULL || lists[1].t == NULL || lists[1].capbuf == NULL) {
+        for (int i = 0; i < 2; i++) { free(lists[i].t); free(lists[i].capbuf); }
+        free(initial); free(best); free(vm.mark); free(vm.work); free(vm.savepool);
+        return -1;
+    }
     int matched = 0;
     unsigned gen_counter = 0;
 
@@ -853,5 +955,7 @@ int regex_search(const Regex *re, const char *text, size_t len, size_t from, int
     free(initial);
     free(best);
     free(vm.mark);
+    free(vm.work);
+    free(vm.savepool);
     return matched;
 }

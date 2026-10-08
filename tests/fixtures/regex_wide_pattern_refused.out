@@ -1,0 +1,4 @@
+6000 capturing     -> refused: pattern needs too much memory to match: 1650 MB for 6000 capture groups over 12003 instructions (the limit is 64 MB; use (?:...) for a group whose text you do not need)
+6000 non-capturing -> compiled, matches: true
+400 capturing      -> compiled, matches: true
+1000 capturing     -> compiled, matches: true

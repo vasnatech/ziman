@@ -1,0 +1,33 @@
+use regex
+
+// A pattern can be too big to match without being too long to compile, and the two limits are
+// different: MAX_INSTRUCTIONS bounds the program, while the matcher's capture buffers are
+// `instructions x 2 x (groups + 1)` ints, so it is the *product* that runs away. 6,000 empty
+// groups is 12,003 instructions -- inside the instruction limit -- and wide rather than nested, so
+// the nesting limit does not see it either. It used to recurse once per instruction with 96 KB of
+// captures per frame and segfault (docs/reviews/tasks.md A16); it is now refused with the size it
+// would have needed, and the advice in the message is tested here too: the same shape written with
+// non-capturing groups has no capture buffers to speak of and compiles.
+fn show(label: string, pattern: string) {
+    val r = regex.compile(pattern)
+    if is_ok(r) {
+        printf("{} -> compiled, matches: {}\n", label, regex.is_match(unwrap(r), "zz"))
+    } else {
+        printf("{} -> refused: {}\n", label, unwrap_err(r))
+    }
+}
+
+fn repeated(unit: string, times: int) -> string {
+    var s = ""
+    for i in 0..times { s = concat(s, unit) }
+    return s
+}
+
+fn main() {
+    show("6000 capturing    ", repeated("()", 6000))
+    show("6000 non-capturing", repeated("(?:)", 6000))
+    show("400 capturing     ", repeated("()", 400))
+    // Allowed by the budget, and deep: 2,000 I_SAVE instructions, which cost about 32 MB of C
+    // stack before the closure walk stopped recursing. Runs here on a 1 MB stack.
+    show("1000 capturing    ", repeated("()", 1000))
+}

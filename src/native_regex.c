@@ -111,7 +111,11 @@ static Value native_regex_search_raw(Value *args, int argc, int line, int col) {
     int n = 2 * (regex_group_count(h->re) + 1);
     int *caps = malloc((size_t)n * sizeof(int));
     Value result;
-    if (regex_search(h->re, args[1].as.str.ptr, len, (size_t)from, caps)) result = int_array(caps, n);
+    int found = regex_search(h->re, args[1].as.str.ptr, len, (size_t)from, caps);
+    /* -1 is a failed allocation inside the matcher, not "no match" -- its size is already bounded
+     * at compile time (regex.c's MAX_MATCH_BYTES), so this is a real out-of-memory. */
+    if (found < 0) ziman_error("runtime", line, col, "regex: out of memory while matching");
+    if (found) result = int_array(caps, n);
     else result = int_array(caps, 0);
     free(caps);
     return result;
@@ -129,7 +133,11 @@ static Value native_regex_search_all_raw(Value *args, int argc, int line, int co
     int cap = 64, count = 0;
     int *all = malloc((size_t)cap * sizeof(int));
     size_t from = 0;
-    while (from <= len && regex_search(h->re, text, len, from, caps)) {
+    for (;;) {
+        if (from > len) break;
+        int found = regex_search(h->re, text, len, from, caps);
+        if (found < 0) ziman_error("runtime", line, col, "regex: out of memory while matching");
+        if (!found) break;
         if (count + n > cap) {
             while (count + n > cap) cap *= 2;
             all = realloc(all, (size_t)cap * sizeof(int));

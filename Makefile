@@ -43,6 +43,7 @@ check: test test-nogc unit-tests fmt-check docs-check
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
 unit-tests: test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy \
+            test-regex \
             test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots \
             test-gc-interp-roots test-lsp
 
@@ -157,6 +158,10 @@ test-tls: $(BIN)
 test-bignum: src/bignum.c tests/unit/bignum_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_bignum_test src/bignum.c tests/unit/bignum_test.c
 	/tmp/ziman_bignum_test
+
+test-regex: src/regex.c tests/unit/regex_test.c
+	$(CC) $(PLAIN_CFLAGS) -Wl,--wrap=malloc -o /tmp/ziman_regex_test src/regex.c tests/unit/regex_test.c
+	/tmp/ziman_regex_test
 
 test-handles: src/handles.c tests/unit/handles_test.c
 	$(CC) $(PLAIN_CFLAGS) -Wl,--wrap=malloc -Wl,--wrap=calloc -o /tmp/ziman_handles_test src/handles.c tests/unit/handles_test.c
