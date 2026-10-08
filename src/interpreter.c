@@ -1251,7 +1251,12 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     /* A lambda's captured values are its first parameters. */
                     Value *all = ziman_xmalloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
                     memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
-                    memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
+                    /* `args` is NULL for a zero-argument lambda, and memcpy's second parameter is
+                     * declared never-null whatever the length is, so the zero-length copy is
+                     * undefined by the letter of C11 7.24.1p2 -- UBSan reports it, harmlessly, on
+                     * 12 of the fixtures, which is enough noise to bury a real report
+                     * (docs/reviews/tasks.md A22). */
+                    if (argc > 0) memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
                     result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, e->line, e->col);
                     free(all);
                 }
@@ -2272,7 +2277,7 @@ Value native_call_closure(Value fn, Value *args, int argc, int line, int col) {
     } else {
         Value *all = ziman_xmalloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
         memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
-        memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
+        if (argc > 0) memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value)); /* see the same guard in eval_expr */
         result = call_function(g_program, clo->fn, all, clo->ncaptured + argc, 0, line, col);
         free(all);
     }
