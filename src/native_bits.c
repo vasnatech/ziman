@@ -7,6 +7,7 @@
 #include "bignum.h"
 #include "error.h"
 #include "native.h"
+#include "xalloc.h"
 
 /* The `bits` core module's natives: bitwise and/or/xor/not/shift on `byte`, `int` and `bigint`.
  * See lib/core/bits.zm and docs/DESIGN.md's "A bits module" entry for why `bigint`'s half
@@ -126,13 +127,13 @@ static uint32_t *bignum_magnitude_to_words(BigNum a, int *out_count) {
     BigNum base = bignum_from_i64(WORD_BASE_I64);
     BigNum rest = bignum_abs(a);
     int cap = 4, count = 0;
-    uint32_t *words = malloc((size_t)cap * sizeof(uint32_t));
+    uint32_t *words = ziman_xmalloc((size_t)cap * sizeof(uint32_t));
     while (!bignum_is_zero(rest)) {
         BigNum q, r;
         bignum_divmod(rest, base, &q, &r);
         if (count == cap) {
             cap *= 2;
-            words = realloc(words, (size_t)cap * sizeof(uint32_t));
+            words = ziman_xrealloc(words, (size_t)cap * sizeof(uint32_t));
         }
         words[count++] = (uint32_t)bignum_to_i64_saturating(r); /* r is always < 2^32: exact, no saturation */
         rest = q;
@@ -175,14 +176,14 @@ static BigNum bignum_bitop(BigNum a, BigNum b, BitOp op) {
     int longer = la > lb ? la : lb;
     int L = longer + 1; /* one padding word, so the sign bit always has room to be meaningful */
 
-    uint32_t *ta = calloc((size_t)L, sizeof(uint32_t));
-    uint32_t *tb = calloc((size_t)L, sizeof(uint32_t));
+    uint32_t *ta = ziman_xcalloc((size_t)L, sizeof(uint32_t));
+    uint32_t *tb = ziman_xcalloc((size_t)L, sizeof(uint32_t));
     for (int i = 0; i < la; i++) ta[i] = wa[i];
     for (int i = 0; i < lb; i++) tb[i] = wb[i];
     if (a.sign < 0) negate_words(ta, L);
     if (b.sign < 0) negate_words(tb, L);
 
-    uint32_t *tr = malloc((size_t)L * sizeof(uint32_t));
+    uint32_t *tr = ziman_xmalloc((size_t)L * sizeof(uint32_t));
     for (int i = 0; i < L; i++) {
         switch (op) {
             case BIT_AND: tr[i] = ta[i] & tb[i]; break;

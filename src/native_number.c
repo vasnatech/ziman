@@ -9,6 +9,7 @@
 
 #include "error.h"
 #include "native.h"
+#include "xalloc.h"
 
 /* The `number` core module's natives: the little-endian IEEE-754 floats MySQL's binary
  * protocol carries, and hex text for byte arrays. See lib/core/number.zm. */
@@ -52,7 +53,7 @@ static Value native_bytes_to_hex(Value *args, int argc, int line, int col) {
     int n = 0;
     uint8_t *in = array_copy_bytes(args[0].as.arr, &n);
     static const char digits[] = "0123456789abcdef";
-    char *out = malloc((size_t)n * 2 + 1);
+    char *out = ziman_xmalloc((size_t)n * 2 + 1);
     for (int i = 0; i < n; i++) {
         out[2 * i] = digits[in[i] >> 4];
         out[2 * i + 1] = digits[in[i] & 15];
@@ -74,13 +75,13 @@ static Value native_bytes_from_hex(Value *args, int argc, int line, int col) {
     Type result_type = type_result(type_array(type_scalar(TY_BYTE)), type_scalar(TY_STRING));
     const char *s = args[0].as.str.ptr;
     size_t n = args[0].as.str.len;
-    if (n % 2 != 0) return value_result(result_type, result_obj_new(0, value_string(strdup("invalid hex: odd number of digits"))));
-    unsigned char *out = malloc(n / 2 + 1);
+    if (n % 2 != 0) return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("invalid hex: odd number of digits"))));
+    unsigned char *out = ziman_xmalloc(n / 2 + 1);
     for (size_t i = 0; i < n; i += 2) {
         int hi = hex_nibble(s[i]), lo = hex_nibble(s[i + 1]);
         if (hi < 0 || lo < 0) {
             free(out);
-            return value_result(result_type, result_obj_new(0, value_string(strdup("invalid hex: bad digit"))));
+            return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("invalid hex: bad digit"))));
         }
         out[i / 2] = (unsigned char)(hi * 16 + lo);
     }
@@ -91,7 +92,7 @@ static Value native_bytes_from_hex(Value *args, int argc, int line, int col) {
 
 /* ---- float text, hex of ints and bytes, big-endian integers -------------------------- */
 static Value err_result_of(Type ok_type, const char *message) {
-    return value_result(type_result(ok_type, type_scalar(TY_STRING)), result_obj_new(0, value_string(strdup(message))));
+    return value_result(type_result(ok_type, type_scalar(TY_STRING)), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 /* The shortest decimal text that reads back as the same double -- see value.c's
@@ -109,7 +110,7 @@ static Value native_int_to_hex(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     char buf[24];
     snprintf(buf, sizeof buf, "%llx", (unsigned long long)args[0].as.i);
-    return value_string(strdup(buf));
+    return value_string(ziman_xstrdup(buf));
 }
 
 static Value native_int_from_hex(Value *args, int argc, int line, int col) {
@@ -140,7 +141,7 @@ static Value native_byte_to_hex(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     char buf[3];
     snprintf(buf, sizeof buf, "%02x", args[0].as.by);
-    return value_string(strdup(buf));
+    return value_string(ziman_xstrdup(buf));
 }
 
 static Value native_byte_from_hex(Value *args, int argc, int line, int col) {

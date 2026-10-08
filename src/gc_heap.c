@@ -7,6 +7,7 @@
 #include "gc_mark.h"
 #include "gc_scan.h"
 #include "profile.h"
+#include "xalloc.h"
 
 /* Only for GC_MALLOC_UNCOLLECTABLE/GC_FREE (gc_heap_create/gc_heap_destroy) -- see gc_heap_create's
  * own comment on why the GcHeap struct itself needs this. A `make`/`make gc` build already
@@ -50,9 +51,9 @@ GcHeap *gc_heap_create(void) {
      * stack-local GcHeap*, as every test here uses): it just means gc_heap_destroy is the only way
      * to free it, already true of every GcHeap regardless. */
 #ifdef ZIMAN_GC
-    GcHeap *h = GC_MALLOC_UNCOLLECTABLE(sizeof(GcHeap));
+    GcHeap *h = ziman_xcheck(GC_MALLOC_UNCOLLECTABLE(sizeof(GcHeap)));
 #else
-    GcHeap *h = malloc(sizeof(GcHeap));
+    GcHeap *h = ziman_xmalloc(sizeof(GcHeap));
 #endif
     /* Scanned, not plain: this heap can end up holding a native resource handle the same way
      * src/value_copy.c's own outbound arena can (see arena.h's own comment on

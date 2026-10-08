@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "mapobj.h"
+#include "xalloc.h"
 
 /* Every allocation below is a plain `malloc` -- `GC_MALLOC` under zgc.h, Boehm's own shared heap,
  * belonging to no thread in particular. That is the whole requirement (see value_copy.h): a crossing
@@ -14,7 +15,7 @@
  * payload-less branch already relied on before any of the rest of this did. */
 
 static Value crossing_string_copy(const char *ptr, size_t len) {
-    char *buf = malloc(len + 1);
+    char *buf = ziman_xmalloc(len + 1);
     memcpy(buf, ptr, len);
     buf[len] = '\0';
     Value v;
@@ -30,7 +31,7 @@ static Value crossing_string_copy(const char *ptr, size_t len) {
  * all (see bignum.h), so nothing to duplicate and nothing to allocate. */
 static BigNum crossing_bignum_copy(BigNum n) {
     if (n.count > 0) {
-        uint32_t *digits = malloc((size_t)n.count * sizeof(uint32_t));
+        uint32_t *digits = ziman_xmalloc((size_t)n.count * sizeof(uint32_t));
         memcpy(digits, n.digits, (size_t)n.count * sizeof(uint32_t));
         n.digits = digits;
     }
@@ -38,7 +39,7 @@ static BigNum crossing_bignum_copy(BigNum n) {
 }
 
 static Value crossing_bigint(BigNum n) {
-    BigNum *boxed = malloc(sizeof(BigNum));
+    BigNum *boxed = ziman_xmalloc(sizeof(BigNum));
     *boxed = crossing_bignum_copy(n);
     Value v;
     v.type = type_scalar(TY_BIGINT);
@@ -48,7 +49,7 @@ static Value crossing_bigint(BigNum n) {
 
 static Value crossing_decimal(Decimal d) {
     d.unscaled = crossing_bignum_copy(d.unscaled);
-    Decimal *boxed = malloc(sizeof(Decimal));
+    Decimal *boxed = ziman_xmalloc(sizeof(Decimal));
     *boxed = d;
     Value v;
     v.type = type_scalar(TY_DECIMAL);
@@ -67,11 +68,11 @@ static Value crossing_array_copy(ArrayObj *a, Type array_type) {
      * dropped: it is tied to one thread's own compare-and-swap sequence of pushes, and a copy on
      * another thread sharing it would mean two independently-managed heaps racing a CAS over memory
      * only one of them will end up owning. */
-    Value *items = a->count > 0 ? malloc((size_t)a->count * sizeof(Value)) : NULL;
+    Value *items = a->count > 0 ? ziman_xmalloc((size_t)a->count * sizeof(Value)) : NULL;
     for (int i = 0; i < a->count; i++) {
         items[i] = value_deep_copy_crossing(array_get(a, i));
     }
-    ArrayObj *copy = malloc(sizeof(ArrayObj));
+    ArrayObj *copy = ziman_xmalloc(sizeof(ArrayObj));
     copy->boxed_items = items;
     copy->bytes = NULL;
     copy->bools = NULL;
@@ -86,11 +87,11 @@ static Value crossing_array_copy(ArrayObj *a, Type array_type) {
 }
 
 static Value crossing_struct_copy(StructObj *st, Type struct_type) {
-    Value *fields = st->count > 0 ? malloc((size_t)st->count * sizeof(Value)) : NULL;
+    Value *fields = st->count > 0 ? ziman_xmalloc((size_t)st->count * sizeof(Value)) : NULL;
     for (int i = 0; i < st->count; i++) {
         fields[i] = value_deep_copy_crossing(st->fields[i]);
     }
-    StructObj *copy = malloc(sizeof(StructObj));
+    StructObj *copy = ziman_xmalloc(sizeof(StructObj));
     /* field_names is borrowed from the StructDecl (part of the AST, never freed, never duplicated
      * per instance, same as every other copy of this struct) -- shared, not copied. */
     copy->field_names = st->field_names;
@@ -103,7 +104,7 @@ static Value crossing_struct_copy(StructObj *st, Type struct_type) {
 }
 
 static Value crossing_result_copy(ResultObj *res, Type result_type) {
-    ResultObj *copy = malloc(sizeof(ResultObj));
+    ResultObj *copy = ziman_xmalloc(sizeof(ResultObj));
     copy->is_ok = res->is_ok;
     copy->value = value_deep_copy_crossing(res->value);
     Value v;
@@ -113,7 +114,7 @@ static Value crossing_result_copy(ResultObj *res, Type result_type) {
 }
 
 static Value crossing_enum_copy(EnumObj *en, Type enum_type) {
-    EnumObj *copy = malloc(sizeof(EnumObj));
+    EnumObj *copy = ziman_xmalloc(sizeof(EnumObj));
     /* `payload` is unused when there is none to copy, but copying it across unconditionally keeps
      * this branch-free and matches what `value_copy_receive`'s own `ordinary_enum_copy` does. */
     copy->payload = en->has_payload ? value_deep_copy_crossing(en->payload) : en->payload;
@@ -128,11 +129,11 @@ static Value crossing_enum_copy(EnumObj *en, Type enum_type) {
 }
 
 static Value crossing_closure_copy(ClosureObj *clo, Type func_type) {
-    Value *captured = clo->ncaptured > 0 ? malloc((size_t)clo->ncaptured * sizeof(Value)) : NULL;
+    Value *captured = clo->ncaptured > 0 ? ziman_xmalloc((size_t)clo->ncaptured * sizeof(Value)) : NULL;
     for (int i = 0; i < clo->ncaptured; i++) {
         captured[i] = value_deep_copy_crossing(clo->captured[i]);
     }
-    ClosureObj *copy = malloc(sizeof(ClosureObj));
+    ClosureObj *copy = ziman_xmalloc(sizeof(ClosureObj));
     /* fn is a FunctionDecl*: part of the AST, never freed, shared same as everywhere else. */
     copy->fn = clo->fn;
     copy->ncaptured = clo->ncaptured;
@@ -207,7 +208,7 @@ static Value value_copy_ordinary_into(Value v);
 
 static BigNum ordinary_bignum_copy(BigNum n) {
     if (n.count > 0) {
-        uint32_t *digits = malloc((size_t)n.count * sizeof(uint32_t));
+        uint32_t *digits = ziman_xmalloc((size_t)n.count * sizeof(uint32_t));
         memcpy(digits, n.digits, (size_t)n.count * sizeof(uint32_t));
         n.digits = digits;
     }
@@ -215,7 +216,7 @@ static BigNum ordinary_bignum_copy(BigNum n) {
 }
 
 static Value ordinary_array_copy(ArrayObj *a, Type array_type) {
-    Value *items = a->count > 0 ? malloc((size_t)a->count * sizeof(Value)) : NULL;
+    Value *items = a->count > 0 ? ziman_xmalloc((size_t)a->count * sizeof(Value)) : NULL;
     for (int i = 0; i < a->count; i++) {
         items[i] = value_copy_ordinary_into(array_get(a, i));
     }
@@ -226,7 +227,7 @@ static Value ordinary_array_copy(ArrayObj *a, Type array_type) {
 }
 
 static Value ordinary_struct_copy(StructObj *st, Type struct_type) {
-    Value *fields = st->count > 0 ? malloc((size_t)st->count * sizeof(Value)) : NULL;
+    Value *fields = st->count > 0 ? ziman_xmalloc((size_t)st->count * sizeof(Value)) : NULL;
     for (int i = 0; i < st->count; i++) {
         fields[i] = value_copy_ordinary_into(st->fields[i]);
     }
@@ -252,7 +253,7 @@ static Value ordinary_enum_copy(EnumObj *en, Type enum_type) {
 }
 
 static Value ordinary_closure_copy(ClosureObj *clo, Type func_type) {
-    Value *captured = clo->ncaptured > 0 ? malloc((size_t)clo->ncaptured * sizeof(Value)) : NULL;
+    Value *captured = clo->ncaptured > 0 ? ziman_xmalloc((size_t)clo->ncaptured * sizeof(Value)) : NULL;
     for (int i = 0; i < clo->ncaptured; i++) {
         captured[i] = value_copy_ordinary_into(clo->captured[i]);
     }
@@ -260,7 +261,7 @@ static Value ordinary_closure_copy(ClosureObj *clo, Type func_type) {
      * need not agree with func_type's own (possibly already-substituted) type if this closure came
      * from a generic instantiation -- preserving func_type directly, as arena_closure_copy already
      * does, is the one thing that must not change between the two directions. */
-    ClosureObj *copy = malloc(sizeof(ClosureObj));
+    ClosureObj *copy = ziman_xmalloc(sizeof(ClosureObj));
     copy->fn = clo->fn;
     copy->ncaptured = clo->ncaptured;
     copy->captured = captured;

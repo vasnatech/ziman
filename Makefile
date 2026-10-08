@@ -38,7 +38,7 @@ all: $(BIN)
 # Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
 # `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
 # the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
-check: test test-nogc unit-tests fmt-check docs-check libc-free-check
+check: test test-nogc unit-tests fmt-check docs-check libc-free-check xalloc-check
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
@@ -155,20 +155,20 @@ test-tls: $(BIN)
 # independent of any Ziman-level syntax). Each has its own main(), so it
 # lives outside src/ (which this Makefile wildcards into the ziman
 # binary) and is built/run standalone rather than joining $(OBJ).
-test-bignum: src/bignum.c tests/unit/bignum_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_bignum_test src/bignum.c tests/unit/bignum_test.c
+test-bignum: src/xalloc.c src/bignum.c tests/unit/bignum_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_bignum_test src/xalloc.c src/bignum.c tests/unit/bignum_test.c
 	/tmp/ziman_bignum_test
 
 test-regex: src/regex.c tests/unit/regex_test.c
 	$(CC) $(PLAIN_CFLAGS) -Wl,--wrap=malloc -o /tmp/ziman_regex_test src/regex.c tests/unit/regex_test.c
 	/tmp/ziman_regex_test
 
-test-handles: src/handles.c tests/unit/handles_test.c
-	$(CC) $(PLAIN_CFLAGS) -Wl,--wrap=malloc -Wl,--wrap=calloc -o /tmp/ziman_handles_test src/handles.c tests/unit/handles_test.c
+test-handles: src/xalloc.c src/handles.c tests/unit/handles_test.c
+	$(CC) $(PLAIN_CFLAGS) -Wl,--wrap=malloc -Wl,--wrap=calloc -o /tmp/ziman_handles_test src/xalloc.c src/handles.c tests/unit/handles_test.c
 	/tmp/ziman_handles_test
 
-test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_decimal_test src/bignum.c src/decimal.c tests/unit/decimal_test.c
+test-decimal: src/xalloc.c src/bignum.c src/decimal.c tests/unit/decimal_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_decimal_test src/xalloc.c src/bignum.c src/decimal.c tests/unit/decimal_test.c
 	/tmp/ziman_decimal_test
 
 # src/arena.c doesn't need the GC/plain distinction (it's built on mmap/munmap directly, never
@@ -177,18 +177,18 @@ test-decimal: src/bignum.c src/decimal.c tests/unit/decimal_test.c
 # src/coverage.c alone: the lcov writer and, mainly, that writing into a file which already has
 # records adds to them rather than replacing them. The AST is built by hand in the test, so nothing
 # else links.
-test-coverage: src/coverage.c tests/unit/coverage_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_coverage_test src/coverage.c tests/unit/coverage_test.c
+test-coverage: src/xalloc.c src/coverage.c tests/unit/coverage_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_coverage_test src/xalloc.c src/coverage.c tests/unit/coverage_test.c
 	/tmp/ziman_coverage_test
 
-test-arena: src/arena.c tests/unit/arena_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_arena_test src/arena.c tests/unit/arena_test.c
+test-arena: src/xalloc.c src/arena.c tests/unit/arena_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_arena_test src/xalloc.c src/arena.c tests/unit/arena_test.c
 	/tmp/ziman_arena_test
 
 # src/gc_object.c sits on top of src/arena.c (Phase 3's object-header layer, docs/MEMORY.md) --
 # same standalone-test convention as arena.c itself, ahead of any mark/copy logic built on it.
-test-gc-object: src/arena.c src/gc_object.c tests/unit/gc_object_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_object_test src/arena.c src/gc_object.c tests/unit/gc_object_test.c
+test-gc-object: src/xalloc.c src/arena.c src/gc_object.c tests/unit/gc_object_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_object_test src/xalloc.c src/arena.c src/gc_object.c tests/unit/gc_object_test.c
 	/tmp/ziman_gc_object_test
 
 # src/gc_copy.c is src/value_copy.c's logic generalised onto gc_object.c's headers, with a dedup
@@ -200,16 +200,16 @@ test-gc-object: src/arena.c src/gc_object.c tests/unit/gc_object_test.c
 # not linked here) is stubbed inside the test itself; see its own header comment for why that's fine.
 # value.c's own value_string_copy now allocates through src/gc_thread_heap.c/gc_heap.c (docs/DESIGN.md's
 # "narrowest possible slice"), which pulls in gc_lookup.c/gc_scan.c/gc_mark.c transitively too.
-test-gc-copy: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_copy.c tests/unit/gc_copy_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_copy_test src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_copy.c tests/unit/gc_copy_test.c
+test-gc-copy: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_copy.c tests/unit/gc_copy_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_copy_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_copy.c tests/unit/gc_copy_test.c
 	/tmp/ziman_gc_copy_test
 
 # src/gc_lookup.c resolves a bare address (a future conservative stack scan's own candidate words,
 # docs/MEMORY.md Phase 3) to the gc_alloc'd object it falls within or inside, by walking arena.c's
 # own block layout via gc_object.c's gc_next_object -- no interpreter Value machinery needed, so
 # this stays as dependency-free as arena.c/gc_object.c's own tests, unlike gc_copy.c's.
-test-gc-lookup: src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_lookup_test src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup_test.c
+test-gc-lookup: src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_lookup_test src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup_test.c
 	/tmp/ziman_gc_lookup_test
 
 # src/gc_scan.c conservatively scans the calling thread's own C stack for roots into an arena, using
@@ -220,8 +220,8 @@ test-gc-lookup: src/arena.c src/gc_object.c src/gc_lookup.c tests/unit/gc_lookup
 # interaction Boehm's own collector has with valgrind). `valgrind --undef-value-errors=no` (memcheck's
 # other checks -- invalid read/write, leak detection -- still fully active) is the honest way to
 # confirm there is no *actual* memory-safety issue underneath that expected noise.
-test-gc-scan: src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_scan_test src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
+test-gc-scan: src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_scan_test src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
 	/tmp/ziman_gc_scan_test
 
 # src/gc_heap.c is Phase 3's actual collected heap -- a free-list-capable allocator on top of
@@ -231,8 +231,8 @@ test-gc-scan: src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stac
 # gc_mark.c together with gc_heap.c's own alloc/sweep, so this now needs their full dependency
 # chain too (real ArrayObj/StructObj/etc. construction for gc_mark.c, stack.c/error.c for
 # gc_scan.c), not just arena.c/gc_object.c on their own.
-test-gc-heap: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_env_roots.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/unit/gc_heap_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_heap_test src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_env_roots.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/unit/gc_heap_test.c
+test-gc-heap: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_env_roots.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/unit/gc_heap_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_heap_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_env_roots.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/unit/gc_heap_test.c
 	/tmp/ziman_gc_heap_test
 
 # src/gc_mark.c is the mark phase mark-sweep needs: walks a real Value graph by type.kind (mirroring
@@ -241,8 +241,8 @@ test-gc-heap: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/m
 # gc_lookup.c (interior-pointer resolution for string views and array slices during marking).
 # value.c's own value_string_copy now allocates through gc_thread_heap.c/gc_heap.c, which pulls in
 # gc_scan.c transitively too.
-test-gc-mark: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/unit/gc_mark_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_mark_test src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/unit/gc_mark_test.c
+test-gc-mark: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/unit/gc_mark_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_mark_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/unit/gc_mark_test.c
 	/tmp/ziman_gc_mark_test
 
 # src/gc_env_roots.c is the second root source a real collection cycle needs besides the
@@ -253,8 +253,8 @@ test-gc-mark: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/m
 # ordinary variable is affected, not just interpreter.c's t_defer_envs/t_env_pool, which is where
 # this gap was originally (too narrowly) expected to live -- see gc_env_roots.h's own header
 # comment and docs/MEMORY.md for the fuller story.
-test-gc-env-roots: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c tests/unit/gc_env_roots_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_env_roots_test src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c tests/unit/gc_env_roots_test.c
+test-gc-env-roots: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c tests/unit/gc_env_roots_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_env_roots_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c tests/unit/gc_env_roots_test.c
 	/tmp/ziman_gc_env_roots_test
 
 # src/gc_interp_roots.c aggregates every root source a real collection cycle needs beyond the
@@ -263,8 +263,8 @@ test-gc-env-roots: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c 
 # than read from interpreter.c's private state directly, since interpreter.c is too large to link
 # into a standalone test the way every other module here has been. This test builds synthetic
 # stand-ins for that state, exercising the identical code path a real interpreter would.
-test-gc-interp-roots: src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c src/gc_interp_roots.c tests/unit/gc_interp_roots_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_interp_roots_test src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c src/gc_interp_roots.c tests/unit/gc_interp_roots_test.c
+test-gc-interp-roots: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c src/gc_interp_roots.c tests/unit/gc_interp_roots_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_interp_roots_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c src/gc_interp_roots.c tests/unit/gc_interp_roots_test.c
 	/tmp/ziman_gc_interp_roots_test
 
 # docs/CORELIB.md and the manual in docs/lib/ are generated from the lib/core and lib/db modules' own `pub` declarations
@@ -323,6 +323,9 @@ syntax-check: $(BIN)
 # was failing on main for a while precisely because nothing did.
 libc-free-check:
 	python3 tools/check_libc_free.py
+
+xalloc-check:
+	python3 tools/check_xalloc.py
 
 docs-check: lib-manual-check not-yet-check experimental-check syntax-check design-index-check
 

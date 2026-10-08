@@ -1,5 +1,6 @@
 #include "error.h"
 #include "stack.h"
+#include "xalloc.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -182,14 +183,14 @@ static __thread int t_frame_capacity = 0;
 
 static void frames_grow(int capacity) {
 #ifdef ZIMAN_GC
-    ZimanFrame *fresh = GC_MALLOC_UNCOLLECTABLE(sizeof(ZimanFrame) * (size_t)capacity);
+    ZimanFrame *fresh = ziman_xcheck(GC_MALLOC_UNCOLLECTABLE(sizeof(ZimanFrame) * (size_t)capacity));
     if (t_frames != NULL) {
         memcpy(fresh, t_frames, sizeof(ZimanFrame) * (size_t)t_frame_count);
         GC_FREE(t_frames);
     }
     memset(fresh + t_frame_count, 0, sizeof(ZimanFrame) * (size_t)(capacity - t_frame_count));
 #else
-    ZimanFrame *fresh = realloc(t_frames, sizeof(ZimanFrame) * (size_t)capacity);
+    ZimanFrame *fresh = ziman_xrealloc(t_frames, sizeof(ZimanFrame) * (size_t)capacity);
     /* Every slot not yet in use is zeroed, which is what lets ziman_push_frame stay a single
      * unordered store and still be safe to sample from a signal handler -- see there. realloc does
      * not zero what it adds, and GC_MALLOC_UNCOLLECTABLE's own zeroing does not cover the copy
@@ -314,7 +315,7 @@ static void trace_add(TraceBuf *b, const char *s) {
     size_t add = strlen(s);
     if (b->len + add + 1 > b->cap) {
         while (b->len + add + 1 > b->cap) b->cap = b->cap == 0 ? 256 : b->cap * 2;
-        b->text = realloc(b->text, b->cap);
+        b->text = ziman_xrealloc(b->text, b->cap);
     }
     memcpy(b->text + b->len, s, add + 1);
     b->len += add;
@@ -392,7 +393,7 @@ void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
     va_copy(copy, args);
     int n = vsnprintf(NULL, 0, fmt, copy);
     va_end(copy);
-    char *message = malloc((size_t)(n > 0 ? n : 0) + 1);
+    char *message = ziman_xmalloc((size_t)(n > 0 ? n : 0) + 1);
     vsnprintf(message, (size_t)(n > 0 ? n : 0) + 1, fmt, args);
     va_end(args);
 
@@ -401,7 +402,7 @@ void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
         t_boundary = NULL;
         int has_file = g_error_file != NULL;
         size_t room = strlen(message) + (has_file ? strlen(g_error_file) : 0) + 96;
-        char *text = malloc(room);
+        char *text = ziman_xmalloc(room);
         snprintf(text, room, "runtime error at %d:%d%s%s: %s", line, col, has_file ? " in " : "", has_file ? g_error_file : "", message);
         free(message);
         b->message = text;
@@ -523,7 +524,7 @@ void ziman_warning(const char *file, int line, int col, const char *fmt, ...) {
     va_copy(copy, args);
     int n = vsnprintf(NULL, 0, fmt, copy);
     va_end(copy);
-    char *message = malloc((size_t)(n > 0 ? n : 0) + 1);
+    char *message = ziman_xmalloc((size_t)(n > 0 ? n : 0) + 1);
     vsnprintf(message, (size_t)(n > 0 ? n : 0) + 1, fmt, args);
     va_end(args);
 

@@ -1,11 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 #include "env.h"
+#include "xalloc.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 Env *env_new(Env *parent) {
-    Env *env = calloc(1, sizeof(Env));
+    Env *env = ziman_xcalloc(1, sizeof(Env));
     env->parent = parent;
     return env;
 }
@@ -36,7 +37,7 @@ int env_define(Env *env, const char *name, Type type, int is_mutable, Value valu
     }
     if (env->count == env->capacity) {
         env->capacity = env->capacity == 0 ? 8 : env->capacity * 2;
-        env->items = realloc(env->items, (size_t)env->capacity * sizeof(Binding));
+        env->items = ziman_xrealloc(env->items, (size_t)env->capacity * sizeof(Binding));
     }
     env->items[env->count].name = name;
     env->items[env->count].is_mutable = is_mutable;
@@ -54,9 +55,9 @@ static void record_capture(Env *boundary, const Binding *b) {
     }
     if (boundary->cap_count == boundary->cap_capacity) {
         boundary->cap_capacity = boundary->cap_capacity == 0 ? 4 : boundary->cap_capacity * 2;
-        boundary->caps = realloc(boundary->caps, (size_t)boundary->cap_capacity * sizeof(Capture));
+        boundary->caps = ziman_xrealloc(boundary->caps, (size_t)boundary->cap_capacity * sizeof(Capture));
     }
-    boundary->caps[boundary->cap_count].name = strdup(b->name);
+    boundary->caps[boundary->cap_count].name = ziman_xstrdup(b->name);
     boundary->caps[boundary->cap_count].type = b->type;
     boundary->caps[boundary->cap_count].is_mutable = b->is_mutable;
     boundary->cap_count++;

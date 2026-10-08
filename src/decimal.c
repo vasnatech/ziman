@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "decimal.h"
+#include "xalloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +26,7 @@ Decimal decimal_from_string(const char *s, int *ok) {
     char *digits_buf;
     int scale;
     if (dot == NULL) {
-        digits_buf = strdup(s);
+        digits_buf = ziman_xstrdup(s);
         scale = 0;
     } else {
         size_t int_len = (size_t)(dot - s); /* includes the leading '-', if any */
@@ -34,7 +35,7 @@ Decimal decimal_from_string(const char *s, int *ok) {
             *ok = 0;
             return decimal_from_i64(0);
         }
-        digits_buf = malloc(int_len + frac_len + 1);
+        digits_buf = ziman_xmalloc(int_len + frac_len + 1);
         memcpy(digits_buf, s, int_len);
         memcpy(digits_buf + int_len, dot + 1, frac_len);
         digits_buf[int_len + frac_len] = '\0';
@@ -60,7 +61,7 @@ char *decimal_to_string(Decimal d) {
     int sign = d.unscaled.sign;
 
     if (d.scale == 0) {
-        char *out = malloc(mag_len + 2);
+        char *out = ziman_xmalloc(mag_len + 2);
         size_t pos = 0;
         if (sign < 0) out[pos++] = '-';
         memcpy(out + pos, mag_str, mag_len);
@@ -78,19 +79,19 @@ char *decimal_to_string(Decimal d) {
     size_t padded_len;
     if (mag_len < needed) {
         padded_len = needed;
-        padded = malloc(padded_len + 1);
+        padded = ziman_xmalloc(padded_len + 1);
         size_t zeros = needed - mag_len;
         memset(padded, '0', zeros);
         memcpy(padded + zeros, mag_str, mag_len);
         padded[padded_len] = '\0';
     } else {
         padded_len = mag_len;
-        padded = strdup(mag_str);
+        padded = ziman_xstrdup(mag_str);
     }
     free(mag_str);
 
     size_t int_len = padded_len - (size_t)d.scale;
-    char *out = malloc(padded_len + 3); /* sign + '.' + NUL */
+    char *out = ziman_xmalloc(padded_len + 3); /* sign + '.' + NUL */
     size_t pos = 0;
     if (sign < 0) out[pos++] = '-';
     memcpy(out + pos, padded, int_len);

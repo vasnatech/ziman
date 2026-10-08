@@ -16,10 +16,11 @@
 #include "error.h"
 #include "gc_thread_heap.h"
 #include "value_copy.h"
+#include "xalloc.h"
 
 Value value_closure(FunctionDecl *fn, Value *captured, int ncaptured) {
     Value v;
-    ClosureObj *c = malloc(sizeof(ClosureObj));
+    ClosureObj *c = ziman_xmalloc(sizeof(ClosureObj));
     c->fn = fn;
     c->ncaptured = ncaptured;
     c->captured = captured;
@@ -84,7 +85,7 @@ const char *value_cstr(Value v) {
 Value value_bigint(BigNum n) {
     Value v;
     v.type = type_scalar(TY_BIGINT);
-    v.as.bi = malloc(sizeof(BigNum));
+    v.as.bi = ziman_xmalloc(sizeof(BigNum));
     *v.as.bi = n;
     return v;
 }
@@ -92,7 +93,7 @@ Value value_bigint(BigNum n) {
 Value value_decimal(Decimal d) {
     Value v;
     v.type = type_scalar(TY_DECIMAL);
-    v.as.dec = malloc(sizeof(Decimal));
+    v.as.dec = ziman_xmalloc(sizeof(Decimal));
     *v.as.dec = d;
     return v;
 }
@@ -143,7 +144,7 @@ size_t pack_elem_size(PackKind k) {
 }
 
 ArrayObj *array_obj_new_packed(PackKind k, void *data, int count) {
-    ArrayObj *a = calloc(1, sizeof(ArrayObj));
+    ArrayObj *a = ziman_xcalloc(1, sizeof(ArrayObj));
     switch (k) {
         case PK_BYTE: a->bytes = data; break;
         case PK_BOOL: a->bools = data; break;
@@ -164,7 +165,7 @@ Value array_get(const ArrayObj *a, int i) {
 }
 
 ArrayObj *array_obj_view(const ArrayObj *a, int start, int end) {
-    ArrayObj *v = calloc(1, sizeof(ArrayObj));
+    ArrayObj *v = ziman_xcalloc(1, sizeof(ArrayObj));
     v->boxed_items = a->boxed_items != NULL ? a->boxed_items + start : NULL;
     v->bytes = a->bytes != NULL ? a->bytes + start : NULL;
     v->bools = a->bools != NULL ? a->bools + start : NULL;
@@ -183,7 +184,7 @@ ArrayObj *array_push(const ArrayObj *old, Value x) {
     if (old->store != NULL && n < old->store->capacity) {
         int expected = n;
         if (__atomic_compare_exchange_n(&old->store->used, &expected, n + 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-            ArrayObj *grown = calloc(1, sizeof(ArrayObj));
+            ArrayObj *grown = ziman_xcalloc(1, sizeof(ArrayObj));
             *grown = *old;
             grown->count = n + 1;
             if (k == PK_NONE) grown->boxed_items[n] = x;
@@ -193,13 +194,13 @@ ArrayObj *array_push(const ArrayObj *old, Value x) {
     }
     /* copy into a buffer with room for about as many again */
     int capacity = n < 4 ? 8 : (n <= 1073741823 ? n * 2 : n + 1);
-    unsigned char *buf = k == PK_NONE ? calloc((size_t)capacity, esz) : zalloc_atomic(esz * (size_t)capacity);
+    unsigned char *buf = k == PK_NONE ? ziman_xcalloc((size_t)capacity, esz) : zalloc_atomic(esz * (size_t)capacity);
     if (n > 0) {
         const void *src = k == PK_NONE ? (const void *)old->boxed_items : k == PK_BYTE ? (const void *)old->bytes : k == PK_BOOL ? (const void *)old->bools
                           : k == PK_INT ? (const void *)old->ints : (const void *)old->floats;
         memcpy(buf, src, esz * (size_t)n);
     }
-    ArrayObj *grown = calloc(1, sizeof(ArrayObj));
+    ArrayObj *grown = ziman_xcalloc(1, sizeof(ArrayObj));
     switch (k) {
         case PK_NONE: grown->boxed_items = (Value *)buf; grown->boxed_items[n] = x; break;
         case PK_BYTE: grown->bytes = buf; pack_store(k, buf, n, x); break;
@@ -208,7 +209,7 @@ ArrayObj *array_push(const ArrayObj *old, Value x) {
         case PK_FLOAT: grown->floats = (double *)buf; pack_store(k, buf, n, x); break;
     }
     grown->count = n + 1;
-    grown->store = calloc(1, sizeof(ArrayStore));
+    grown->store = ziman_xcalloc(1, sizeof(ArrayStore));
     grown->store->capacity = capacity;
     grown->store->used = n + 1;
     return grown;
@@ -375,7 +376,7 @@ Value value_channel(Type channel_type, ChannelObj *ch) {
 }
 
 ChannelObj *channel_obj_new(int limit) {
-    ChannelObj *ch = malloc(sizeof(ChannelObj));
+    ChannelObj *ch = ziman_xmalloc(sizeof(ChannelObj));
     pthread_mutex_init(&ch->mutex, NULL);
     pthread_cond_init(&ch->not_empty, NULL);
     pthread_cond_init(&ch->not_full, NULL);
@@ -392,7 +393,7 @@ ChannelObj *channel_obj_new(int limit) {
 static void channel_push_locked(ChannelObj *ch, Value v, int needs_receive) {
     if (ch->count == ch->capacity) {
         int new_capacity = ch->capacity == 0 ? 4 : ch->capacity * 2;
-        ChannelMsg *bigger = malloc((size_t)new_capacity * sizeof(ChannelMsg));
+        ChannelMsg *bigger = ziman_xmalloc((size_t)new_capacity * sizeof(ChannelMsg));
         for (int i = 0; i < ch->count; i++) bigger[i] = ch->items[(ch->head + i) % ch->capacity];
         ch->items = bigger;
         ch->head = 0;
@@ -716,9 +717,9 @@ int value_equals(Value a, Value b) { return equals_inner(a, b, 0); }
 int value_key_equals(Value a, Value b) { return equals_inner(a, b, 1); }
 
 char *float_shortest_text(double d) {
-    if (d != d) return strdup("nan");
-    if (isinf(d)) return strdup(d < 0 ? "-inf" : "inf");
-    if (d == 0) return strdup(signbit(d) ? "-0" : "0");
+    if (d != d) return ziman_xstrdup("nan");
+    if (isinf(d)) return ziman_xstrdup(d < 0 ? "-inf" : "inf");
+    if (d == 0) return ziman_xstrdup(signbit(d) ? "-0" : "0");
     char e[48];
     for (int p = 0; p <= 16; p++) {
         snprintf(e, sizeof e, "%.*e", p, d);
@@ -749,7 +750,7 @@ char *float_shortest_text(double d) {
         memcpy(out + o, digits, (size_t)nd); o += (size_t)nd;
     }
     out[o] = '\0';
-    return strdup(out);
+    return ziman_xstrdup(out);
 }
 
 char *value_display(Value v) {
@@ -758,7 +759,7 @@ char *value_display(Value v) {
     switch (v.type.kind) {
         case TY_INT:
             snprintf(buf, sizeof(buf), "%lld", (long long)v.as.i);
-            return strdup(buf);
+            return ziman_xstrdup(buf);
         case TY_FLOAT: {
             /* float_shortest_text's own contract leaves a whole-number magnitude with no
              * '.' or 'e' ("10"), same text an int of the same value would have; a value
@@ -779,16 +780,16 @@ char *value_display(Value v) {
             return text;
         }
         case TY_BOOL:
-            return strdup(v.as.b ? "true" : "false");
+            return ziman_xstrdup(v.as.b ? "true" : "false");
         case TY_UNIT:
-            return strdup("unit");
+            return ziman_xstrdup("unit");
         case TY_BIGINT:
             return bignum_to_string(*v.as.bi);
         case TY_DECIMAL:
             return decimal_to_string(*v.as.dec);
         case TY_BYTE:
             snprintf(buf, sizeof(buf), "%d", v.as.by);
-            return strdup(buf);
+            return ziman_xstrdup(buf);
         case TY_STRING:
             {
                 char *copy = zalloc_atomic((size_t)v.as.str.len + 1);
@@ -797,7 +798,7 @@ char *value_display(Value v) {
                 return copy;
             }
         case TY_VOID:
-            return strdup("void");
+            return ziman_xstrdup("void");
         case TY_ARRAY: {
             ArrayObj *arr = v.as.arr;
             size_t cap = 32, len = 0;
@@ -805,18 +806,18 @@ char *value_display(Value v) {
             out[len++] = '[';
             for (int i = 0; i < arr->count; i++) {
                 if (i > 0) {
-                    if (len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+                    if (len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                     out[len++] = ',';
                     out[len++] = ' ';
                 }
                 char *piece = value_display(array_get(arr, i));
                 size_t piece_len = strlen(piece);
-                while (len + piece_len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+                while (len + piece_len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                 memcpy(out + len, piece, piece_len);
                 len += piece_len;
                 free(piece);
             }
-            if (len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+            if (len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
             out[len++] = ']';
             out[len] = '\0';
             return out;
@@ -827,7 +828,7 @@ char *value_display(Value v) {
             size_t cap = 32, len = 0;
             char *out = zalloc_atomic(cap);
             size_t name_len = strlen(type_display_name);
-            while (len + name_len + 3 > cap) { cap *= 2; out = realloc(out, cap); }
+            while (len + name_len + 3 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
             memcpy(out + len, type_display_name, name_len);
             len += name_len;
             out[len++] = ' ';
@@ -835,14 +836,14 @@ char *value_display(Value v) {
             out[len++] = ' ';
             for (int i = 0; i < st->count; i++) {
                 if (i > 0) {
-                    if (len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+                    if (len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                     out[len++] = ',';
                     out[len++] = ' ';
                 }
                 const char *field_name = st->field_names[i];
                 char *piece = value_display(st->fields[i]);
                 size_t field_len = strlen(field_name), piece_len = strlen(piece);
-                while (len + field_len + piece_len + 4 > cap) { cap *= 2; out = realloc(out, cap); }
+                while (len + field_len + piece_len + 4 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                 memcpy(out + len, field_name, field_len);
                 len += field_len;
                 out[len++] = ':';
@@ -851,7 +852,7 @@ char *value_display(Value v) {
                 len += piece_len;
                 free(piece);
             }
-            if (len + 3 > cap) { cap *= 2; out = realloc(out, cap); }
+            if (len + 3 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
             out[len++] = ' ';
             out[len++] = '}';
             out[len] = '\0';
@@ -868,7 +869,7 @@ char *value_display(Value v) {
         }
         case TY_ENUM: {
             EnumObj *en = v.as.en;
-            if (!en->has_payload) return strdup(en->variant_name);
+            if (!en->has_payload) return ziman_xstrdup(en->variant_name);
             char *inner = value_display(en->payload);
             size_t len = strlen(en->variant_name) + 1 + strlen(inner) + 1 + 1;
             char *out = zalloc_atomic(len);
@@ -888,7 +889,7 @@ char *value_display(Value v) {
                 char *k = value_display(keys[i]);
                 char *val = is_map ? value_display(vals[i]) : NULL;
                 size_t need = strlen(k) + (val != NULL ? strlen(val) : 0) + 8;
-                while (len + need > cap) { cap *= 2; out = realloc(out, cap); }
+                while (len + need > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                 if (i > 0) { out[len++] = ','; out[len++] = ' '; }
                 memcpy(out + len, k, strlen(k));
                 len += strlen(k);
@@ -899,23 +900,23 @@ char *value_display(Value v) {
                     len += strlen(val);
                 }
             }
-            if (len + 2 > cap) { cap += 2; out = realloc(out, cap); }
+            if (len + 2 > cap) { cap += 2; out = ziman_xrealloc(out, cap); }
             out[len++] = '}';
             out[len] = '\0';
             return out;
         }
         case TY_CHANNEL:
-            return strdup("Channel");
+            return ziman_xstrdup("Channel");
         case TY_FUNC: {
             const char *name = v.as.clo->fn->name;
             size_t len = strlen(name) + 12;
-            char *out = malloc(len);
+            char *out = ziman_xmalloc(len);
             snprintf(out, len, "<function %s>", name);
             return out;
         }
         case TY_TYPEVAR:
             ziman_error("runtime", 0, 0, "internal error: a runtime value should never have an unsubstituted type variable as its type");
-            return strdup("");
+            return ziman_xstrdup("");
     }
-    return strdup("");
+    return ziman_xstrdup("");
 }

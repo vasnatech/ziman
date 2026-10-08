@@ -12,6 +12,7 @@
 #include "error.h"
 #include "fmtstr.h"
 #include "stack.h"
+#include "xalloc.h"
 
 static FunctionDecl *find_function(Module *module, const char *name) {
     for (int i = 0; i < module->functions.count; i++) {
@@ -458,7 +459,7 @@ void typecheck_lint_note(void) { g_lint_count++; }
 static int lint_register_var(const char *name, int line, int col, int is_mutable) {
     if (g_lint_var_count == g_lint_var_cap) {
         g_lint_var_cap = g_lint_var_cap == 0 ? 16 : g_lint_var_cap * 2;
-        g_lint_vars = realloc(g_lint_vars, (size_t)g_lint_var_cap * sizeof(LintVar));
+        g_lint_vars = ziman_xrealloc(g_lint_vars, (size_t)g_lint_var_cap * sizeof(LintVar));
     }
     g_lint_vars[g_lint_var_count] = (LintVar){name, line, col, 0, 0, is_mutable};
     return ++g_lint_var_count; /* 1-based */
@@ -751,7 +752,7 @@ static Type check_unary(Module *module, Env *env, Expr *e) {
 static int scan_placeholders(Expr *fmt_expr, int **precisions) {
     const char *s = fmt_expr->as.string_val;
     size_t n = strlen(s), pos = 0;
-    int *found = malloc((n + 1) * sizeof(int));
+    int *found = ziman_xmalloc((n + 1) * sizeof(int));
     int count = 0;
     FmtPiece piece;
     char err[256];
@@ -974,8 +975,8 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * mechanisms in the language agree. */
 static int name_distance(const char *a, const char *b) {
     size_t la = strlen(a), lb = strlen(b);
-    int *prev = malloc((lb + 1) * sizeof(int));
-    int *cur = malloc((lb + 1) * sizeof(int));
+    int *prev = ziman_xmalloc((lb + 1) * sizeof(int));
+    int *cur = ziman_xmalloc((lb + 1) * sizeof(int));
     for (size_t j = 0; j <= lb; j++) prev[j] = (int)j;
     for (size_t i = 1; i <= la; i++) {
         cur[0] = (int)i;
@@ -1099,7 +1100,7 @@ static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
     int is_variadic = fn->params.count > 0 && fn->params.items[fn->params.count - 1].is_variadic;
     int fixed_count = is_variadic ? fn->params.count - 1 : fn->params.count;
     int argc = e->as.call.args.count;
-    Expr **reordered = malloc((size_t)fn->params.count * sizeof(Expr *));
+    Expr **reordered = ziman_xmalloc((size_t)fn->params.count * sizeof(Expr *));
     for (int i = 0; i < fn->params.count; i++) {
         reordered[i] = NULL;
     }
@@ -1476,8 +1477,8 @@ static int type_fully_bound(Type t, TypeParamList *params, const int *bound) {
  * before, just with a more specific message naming which one. */
 static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, FunctionDecl *fn) {
     int n_params = fn->type_params.count;
-    Type *bindings = calloc((size_t)n_params, sizeof(Type));
-    int *bound = calloc((size_t)n_params, sizeof(int));
+    Type *bindings = ziman_xcalloc((size_t)n_params, sizeof(Type));
+    int *bound = ziman_xcalloc((size_t)n_params, sizeof(int));
 
     int is_variadic = fn->params.count > 0 && fn->params.items[fn->params.count - 1].is_variadic;
     int fixed_count = is_variadic ? fn->params.count - 1 : fn->params.count;
@@ -1550,7 +1551,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     if (e->as.call.unresolved_qualifier) {
         const char *dot = strchr(name, '.');
         size_t qlen = (size_t)(dot - name);
-        char *qualifier = malloc(qlen + 1);
+        char *qualifier = ziman_xmalloc(qlen + 1);
         memcpy(qualifier, name, qlen);
         qualifier[qlen] = '\0';
         const char *member = dot + 1;
@@ -1609,13 +1610,13 @@ static Type check_call(Module *module, Env *env, Expr *e) {
          * once, here. */
         Expr *base_ref = expr_new(EXPR_IDENT, e->line, e->col);
         base_ref->as.ident_name = (char *)name; /* trimmed to the qualifier just below */
-        char *qual_only = malloc(qlen + 1);
+        char *qual_only = ziman_xmalloc(qlen + 1);
         memcpy(qual_only, name, qlen);
         qual_only[qlen] = '\0';
         base_ref->as.ident_name = qual_only;
         Expr *access = expr_new(EXPR_FIELD_ACCESS, e->line, e->col);
         access->as.field_access.base = base_ref;
-        access->as.field_access.field_name = strdup(member);
+        access->as.field_access.field_name = ziman_xstrdup(member);
         access->resolved_type = ft;
         base_ref->resolved_type = base->type;
         base_ref->resolved_depth = depth;
@@ -3082,11 +3083,11 @@ static void check_defer(Module *module, Env *env, Stmt *s) {
     replay->as.call.args.items = NULL;
     replay->as.call.args.count = 0;
     replay->as.call.args.capacity = 0;
-    char **hidden = malloc(sizeof(char *) * (size_t)(n > 0 ? n : 1));
+    char **hidden = ziman_xmalloc(sizeof(char *) * (size_t)(n > 0 ? n : 1));
     for (int i = 0; i < n; i++) {
         char name[48];
         snprintf(name, sizeof(name), "$defer%d$%d", id, i);
-        hidden[i] = strdup(name);
+        hidden[i] = ziman_xstrdup(name);
         Expr *ref = expr_new(EXPR_IDENT, call->line, call->col);
         ref->as.ident_name = hidden[i];
         ref->resolved_type = call->as.call.args.items[i]->resolved_type;
@@ -3268,15 +3269,15 @@ static void check_block(Module *module, Env *parent, Stmt *block, Type fn_return
  * deliberately no default arm -- that would reintroduce the silent case. */
 static Expr *mk_ident_expr(const char *name, int line, int col) {
     Expr *e = expr_new(EXPR_IDENT, line, col);
-    e->as.ident_name = strdup(name);
+    e->as.ident_name = ziman_xstrdup(name);
     return e;
 }
 
 static Expr *mk_enum_call_expr(const char *enum_name, const char *prefix, const char *variant, Expr *arg, int line, int col) {
     Expr *e = expr_new(EXPR_ENUM_ACCESS, line, col);
-    e->as.enum_access.enum_name = strdup(enum_name);
+    e->as.enum_access.enum_name = ziman_xstrdup(enum_name);
     size_t n = strlen(prefix) + strlen(variant) + 1;
-    e->as.enum_access.member_name = malloc(n);
+    e->as.enum_access.member_name = ziman_xmalloc(n);
     snprintf(e->as.enum_access.member_name, n, "%s%s", prefix, variant);
     expr_list_push(&e->as.enum_access.args, arg);
     e->as.enum_access.has_parens = 1;
@@ -3285,7 +3286,7 @@ static Expr *mk_enum_call_expr(const char *enum_name, const char *prefix, const 
 
 static Expr *mk_call_expr(const char *callee, Expr *arg, int line, int col) {
     Expr *e = expr_new(EXPR_CALL, line, col);
-    e->as.call.callee = strdup(callee);
+    e->as.call.callee = ziman_xstrdup(callee);
     expr_list_push(&e->as.call.args, arg);
     return e;
 }
@@ -3293,7 +3294,7 @@ static Expr *mk_call_expr(const char *callee, Expr *arg, int line, int col) {
 /* An arm's block with `val <binder> = <payload_expr>` put first. */
 static void prepend_binder(Stmt *body, const char *binder, Expr *payload_expr, int line, int col) {
     Stmt *decl = stmt_new(STMT_VAL, line, col);
-    decl->as.decl.name = strdup(binder);
+    decl->as.decl.name = ziman_xstrdup(binder);
     decl->as.decl.init = payload_expr;
     StmtList old = body->as.block.stmts;
     memset(&body->as.block.stmts, 0, sizeof body->as.block.stmts);
@@ -3307,7 +3308,7 @@ static void check_switch(Module *module, Env *env, Stmt *s, Type fn_return_type,
     SwitchArm *arms = s->as.switch_stmt.arms;
     int arm_count = s->as.switch_stmt.arm_count;
 
-    char *hidden = malloc(32);
+    char *hidden = ziman_xmalloc(32);
     snprintf(hidden, 32, "$sw%d", switch_counter++);
     Env *scope = env_new(env);
     Stmt *decl = stmt_new(STMT_VAL, s->line, s->col);
@@ -3330,8 +3331,8 @@ static void check_switch(Module *module, Env *env, Stmt *s, Type fn_return_type,
         return;
     }
 
-    int *seen = calloc((size_t)variant_count, sizeof(int));
-    int *arm_variant = malloc(sizeof(int) * (size_t)arm_count);
+    int *seen = ziman_xcalloc((size_t)variant_count, sizeof(int));
+    int *arm_variant = ziman_xmalloc(sizeof(int) * (size_t)arm_count);
     for (int a = 0; a < arm_count; a++) {
         SwitchArm *arm = &arms[a];
         int vi = -1;

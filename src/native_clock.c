@@ -9,6 +9,7 @@
 #include "error.h"
 #include "native.h"
 #include "value.h"
+#include "xalloc.h"
 
 /* One clock_gettime() call, both fields read atomically relative to
  * each other -- reading seconds and nanoseconds as two separate native
@@ -37,7 +38,7 @@ static Value native_clock_now_iso(Value *args, int argc, int line, int col) {
     char buf[48];
     size_t n = strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%S", &tm);
     snprintf(buf + n, sizeof buf - n, ".%03ldZ", ts.tv_nsec / 1000000);
-    return value_string(strdup(buf));
+    return value_string(ziman_xstrdup(buf));
 }
 
 /* clock.now_http_date(): the current time as an HTTP date, "Thu, 24 Sep 2026 12:00:00 GMT". */
@@ -52,7 +53,7 @@ static Value native_clock_now_http_date(Value *args, int argc, int line, int col
     snprintf(buf, sizeof buf, "%s, %02d %s %04d %02d:%02d:%02d GMT", days[tm.tm_wday], tm.tm_mday, months[tm.tm_mon], tm.tm_year + 1900,
              tm.tm_hour, tm.tm_min, tm.tm_sec);
     (void)line; (void)col;
-    return value_string(strdup(buf));
+    return value_string(ziman_xstrdup(buf));
 }
 
 static Value native_clock_sleep_millis(Value *args, int argc, int line, int col) {

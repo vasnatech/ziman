@@ -8,6 +8,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* xalloc-exempt: this file allocates with plain malloc/calloc and checks for NULL itself, rather
+ * than through ziman_xmalloc and friends, because it is the one place with something better to do
+ * than exit. Its buffers are the only ones here sized by user input up to MAX_MATCH_BYTES, so they
+ * are the only ones that can fail on a healthy machine -- and regex_search can report that as an
+ * ordinary Ziman runtime error (see its -1 return and native_regex.c) instead of taking a server
+ * down. See src/xalloc.h, and tools/check_xalloc.py, which reads this marker. */
+
 #define MAX_INSTRUCTIONS 20000
 #define MAX_CODEPOINT 0x10FFFF
 

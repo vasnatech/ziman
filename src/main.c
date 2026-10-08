@@ -35,6 +35,7 @@
 #include "native_random.h"
 #include "prelude.h"
 #include "typecheck.h"
+#include "xalloc.h"
 
 #ifndef ZIMAN_VERSION
 #define ZIMAN_VERSION "dev"
@@ -87,7 +88,7 @@ static char *read_whole(const char *path, size_t *len) {
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
-    char *buf = malloc((size_t)size + 1);
+    char *buf = ziman_xmalloc((size_t)size + 1);
     size_t n = fread(buf, 1, (size_t)size, f);
     fclose(f);
     buf[n] = '\0';
@@ -97,11 +98,11 @@ static char *read_whole(const char *path, size_t *len) {
 
 static char *read_stdin(size_t *len) {
     size_t cap = 4096, n = 0;
-    char *buf = malloc(cap);
+    char *buf = ziman_xmalloc(cap);
     size_t got;
     while ((got = fread(buf + n, 1, cap - n - 1, stdin)) > 0) {
         n += got;
-        if (n + 1 >= cap) { cap *= 2; buf = realloc(buf, cap); }
+        if (n + 1 >= cap) { cap *= 2; buf = ziman_xrealloc(buf, cap); }
     }
     buf[n] = '\0';
     *len = n;
@@ -356,7 +357,7 @@ int main(int argc, char **argv) {
     const char *coverage_lcov = NULL;
     long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0;
     const char *file = NULL;
-    char **files = malloc((size_t)argc * sizeof(char *));
+    char **files = ziman_xmalloc((size_t)argc * sizeof(char *));
     int n_files = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];

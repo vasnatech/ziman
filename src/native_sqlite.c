@@ -13,6 +13,7 @@
 #include "error.h"
 #include "handles.h"
 #include "native.h"
+#include "xalloc.h"
 
 /* The SQLite driver behind lib/db/sqlite.zm. Everything crossing the native
  * boundary is a primitive: a connection is an int handle (an index into
@@ -69,7 +70,7 @@ static Type string_type(void) { return type_scalar(TY_STRING); }
 
 static Value err_result(Type ok_type, const char *category, const char *message) {
     size_t n = strlen(category) + strlen(message) + 2;
-    char *s = malloc(n);
+    char *s = ziman_xmalloc(n);
     snprintf(s, n, "%s|%s", category, message);
     return value_result(type_result(ok_type, string_type()), result_obj_new(0, value_string(s)));
 }
@@ -116,7 +117,7 @@ static Value native_sqlite_open_raw(Value *args, int argc, int line, int col) {
         return r;
     }
 
-    DbConn *c = calloc(1, sizeof(DbConn));
+    DbConn *c = ziman_xcalloc(1, sizeof(DbConn));
     c->db = db;
     pthread_mutex_init(&c->mu, NULL);
 
@@ -160,7 +161,7 @@ static int bind_param(sqlite3_stmt *stmt, int index, const char *p) {
             size_t hex_len = strlen(p + 1);
             if (hex_len % 2 != 0) return -1;
             size_t n = hex_len / 2;
-            unsigned char *buf = malloc(n > 0 ? n : 1);
+            unsigned char *buf = ziman_xmalloc(n > 0 ? n : 1);
             for (size_t i = 0; i < n; i++) {
                 int hi = hexval(p[1 + 2 * i]), lo = hexval(p[2 + 2 * i]);
                 if (hi < 0 || lo < 0) { free(buf); return -1; }
@@ -203,7 +204,7 @@ static Value bind_error(Type ok_type, sqlite3 *db, int rc, int expected_hint, Ar
  * alone. */
 static char *rewrite_placeholders(const char *sql) {
     size_t n = strlen(sql);
-    char *out = malloc(n + 1);
+    char *out = ziman_xmalloc(n + 1);
     size_t o = 0;
     char quote = 0;
     for (size_t i = 0; i < n; i++) {
@@ -288,13 +289,13 @@ typedef struct {
 static void cellvec_push(CellVec *v, char *s) {
     if (v->count == v->capacity) {
         v->capacity = v->capacity == 0 ? 64 : v->capacity * 2;
-        v->items = realloc(v->items, sizeof(Value) * (size_t)v->capacity);
+        v->items = ziman_xrealloc(v->items, sizeof(Value) * (size_t)v->capacity);
     }
     v->items[v->count++] = value_string(s);
 }
 
 static char *prefixed(char tag, const char *payload, size_t len) {
-    char *s = malloc(len + 2);
+    char *s = ziman_xmalloc(len + 2);
     s[0] = tag;
     memcpy(s + 1, payload, len);
     s[len + 1] = '\0';
@@ -320,7 +321,7 @@ static char *encode_cell(sqlite3_stmt *stmt, int i) {
         case SQLITE_BLOB: {
             const unsigned char *b = sqlite3_column_blob(stmt, i);
             int n = sqlite3_column_bytes(stmt, i);
-            char *s = malloc((size_t)n * 2 + 2);
+            char *s = ziman_xmalloc((size_t)n * 2 + 2);
             s[0] = 'B';
             for (int k = 0; k < n; k++) snprintf(s + 1 + 2 * k, 3, "%02x", b[k]);
             s[1 + 2 * n] = '\0';
@@ -359,8 +360,8 @@ static Value native_sqlite_query_raw(Value *args, int argc, int line, int col) {
     int ncols = sqlite3_column_count(stmt);
     char buf[32];
     snprintf(buf, sizeof(buf), "%d", ncols);
-    cellvec_push(&cells, strdup(buf));
-    for (int i = 0; i < ncols; i++) cellvec_push(&cells, strdup(sqlite3_column_name(stmt, i)));
+    cellvec_push(&cells, ziman_xstrdup(buf));
+    for (int i = 0; i < ncols; i++) cellvec_push(&cells, ziman_xstrdup(sqlite3_column_name(stmt, i)));
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         for (int i = 0; i < ncols; i++) cellvec_push(&cells, encode_cell(stmt, i));
     }
@@ -436,7 +437,7 @@ static Value native_sqlite_cursor_open_raw(Value *args, int argc, int line, int 
         sqlite3_finalize(stmt);
         goto done;
     }
-    DbCursor *cur = calloc(1, sizeof(DbCursor));
+    DbCursor *cur = ziman_xcalloc(1, sizeof(DbCursor));
     cur->conn = c;
     cur->stmt = stmt;
     cur->ncols = sqlite3_column_count(stmt);
@@ -456,7 +457,7 @@ static Value native_sqlite_cursor_columns_raw(Value *args, int argc, int line, i
     DbCursor *cur = cursor_get(args[0].as.i, line, col);
     CellVec names = {0};
     if (cur->stmt != NULL) {
-        for (int i = 0; i < cur->ncols; i++) cellvec_push(&names, strdup(sqlite3_column_name(cur->stmt, i)));
+        for (int i = 0; i < cur->ncols; i++) cellvec_push(&names, ziman_xstrdup(sqlite3_column_name(cur->stmt, i)));
     }
     return value_array(type_array(string_type()), array_obj_new(names.items, names.count));
 }
@@ -513,7 +514,7 @@ static Value native_sqlite_float_to_text(Value *args, int argc, int line, int co
     (void)argc; (void)line; (void)col;
     char buf[40];
     snprintf(buf, sizeof(buf), "%.17g", args[0].as.f);
-    return value_string(strdup(buf));
+    return value_string(ziman_xstrdup(buf));
 }
 
 void native_sqlite_register(void) {

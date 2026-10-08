@@ -13,6 +13,7 @@
 #include "gc_mark.h"
 #include "handles.h"
 #include "native.h"
+#include "xalloc.h"
 
 static HandleSet g_iters = HANDLE_SET_INIT;
 static char *ITER_FIELD_NAMES[] = {"handle"};
@@ -40,7 +41,7 @@ Value iter_make(IterObj *it) {
 #ifdef ZIMAN_GC
     if (!it->no_finalizer) GC_REGISTER_FINALIZER_NO_ORDER(it, iter_finalizer, NULL, NULL, NULL);
 #endif
-    Value *fields = malloc(sizeof(Value));
+    Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)it);
     return value_struct(type_struct("Iter"), struct_obj_new(ITER_FIELD_NAMES, fields, 1));
 }
@@ -101,7 +102,7 @@ LineSource *line_source_open(const char *path) {
     }
 #endif
     if (f == NULL) return NULL;
-    LineSource *ls = calloc(1, sizeof(LineSource));
+    LineSource *ls = ziman_xcalloc(1, sizeof(LineSource));
     ls->file = f;
     return ls;
 }
@@ -173,10 +174,10 @@ static void from_release(IterObj *it) {
 
 static Value native_iter_from(Value *args, int argc, int line, int col) {
     (void)argc;
-    FromState *st = calloc(1, sizeof(FromState));
+    FromState *st = ziman_xcalloc(1, sizeof(FromState));
     st->next = args[0];
     st->close = args[1];
-    IterObj *it = calloc(1, sizeof(IterObj));
+    IterObj *it = ziman_xcalloc(1, sizeof(IterObj));
     it->next = from_next;
     it->release = from_release;
     it->state = st;
@@ -205,9 +206,9 @@ static Value native_iter_of_array(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    ArrayIterState *st = calloc(1, sizeof(ArrayIterState));
+    ArrayIterState *st = ziman_xcalloc(1, sizeof(ArrayIterState));
     st->items = args[0];
-    IterObj *it = calloc(1, sizeof(IterObj));
+    IterObj *it = ziman_xcalloc(1, sizeof(IterObj));
     it->next = array_iter_next;
     it->release = array_iter_release;
     it->state = st;

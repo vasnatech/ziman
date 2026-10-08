@@ -9,6 +9,7 @@
 #include "error.h"
 #include "lexer.h"
 #include "parser.h"
+#include "xalloc.h"
 
 /* ---------------------------------------------------------------------
  * A tiny growable buffer for the Ziman source text this pass generates.
@@ -27,7 +28,7 @@ typedef struct {
 
 static void cb_init(CodeBuf *cb) {
     cb->cap = 4096;
-    cb->data = malloc(cb->cap);
+    cb->data = ziman_xmalloc(cb->cap);
     cb->data[0] = '\0';
     cb->len = 0;
 }
@@ -45,7 +46,7 @@ static void cb_appendf(CodeBuf *cb, const char *fmt, ...) {
         }
         size_t needed_cap = cb->len + (size_t)needed + 1;
         while (cb->cap < needed_cap) cb->cap *= 2;
-        cb->data = realloc(cb->data, cb->cap);
+        cb->data = ziman_xrealloc(cb->data, cb->cap);
     }
 }
 
@@ -58,7 +59,7 @@ static char *fmt_str(const char *fmt, ...) {
     va_start(ap, fmt);
     int needed = vsnprintf(NULL, 0, fmt, ap);
     va_end(ap);
-    char *buf = malloc((size_t)needed + 1);
+    char *buf = ziman_xmalloc((size_t)needed + 1);
     va_start(ap, fmt);
     vsnprintf(buf, (size_t)needed + 1, fmt, ap);
     va_end(ap);
@@ -84,7 +85,7 @@ static char *fmt_str(const char *fmt, ...) {
 char *ziman_pascal_to_snake(const char *name);
 static char *pascal_to_snake(const char *name) {
     size_t len = strlen(name);
-    char *out = malloc(len * 2 + 1);
+    char *out = ziman_xmalloc(len * 2 + 1);
     size_t oi = 0;
     for (size_t i = 0; i < len; i++) {
         unsigned char c = (unsigned char)name[i];
@@ -110,7 +111,7 @@ char *ziman_compare_function_name(const char *type_name) {
     for (const char *p = strstr(bare, "::"); p != NULL; p = strstr(bare, "::")) bare = p + 2;
     char *snake = pascal_to_snake(bare);
     size_t prefix_len = (size_t)(bare - type_name);
-    char *out = malloc(prefix_len + strlen(snake) + strlen("_compare") + 1);
+    char *out = ziman_xmalloc(prefix_len + strlen(snake) + strlen("_compare") + 1);
     memcpy(out, type_name, prefix_len);
     strcpy(out + prefix_len, snake);
     strcat(out, "_compare");
@@ -127,7 +128,7 @@ char *ziman_message_function_name(const char *type_name) {
     for (const char *p = strstr(bare, "::"); p != NULL; p = strstr(bare, "::")) bare = p + 2;
     char *snake = pascal_to_snake(bare);
     size_t prefix_len = (size_t)(bare - type_name);
-    char *out = malloc(prefix_len + strlen(snake) + strlen("_message") + 1);
+    char *out = ziman_xmalloc(prefix_len + strlen(snake) + strlen("_message") + 1);
     memcpy(out, type_name, prefix_len);
     strcpy(out + prefix_len, snake);
     strcat(out, "_message");
@@ -139,7 +140,7 @@ char *ziman_compare_function_name_flat(const char *type_name) {
     for (const char *p = strstr(bare, "::"); p != NULL; p = strstr(bare, "::")) bare = p + 2;
     size_t prefix_len = (size_t)(bare - type_name);
     size_t bare_len = strlen(bare);
-    char *out = malloc(prefix_len + bare_len + strlen("_compare") + 1);
+    char *out = ziman_xmalloc(prefix_len + bare_len + strlen("_compare") + 1);
     memcpy(out, type_name, prefix_len);
     for (size_t i = 0; i < bare_len; i++) out[prefix_len + i] = (char)tolower((unsigned char)bare[i]);
     strcpy(out + prefix_len + bare_len, "_compare");
@@ -151,7 +152,7 @@ char *ziman_compare_function_name_flat(const char *type_name) {
  * here -- see docs/ROADMAP.md's derive entry. */
 static char *snake_to_camel(const char *name) {
     size_t len = strlen(name);
-    char *out = malloc(len + 1);
+    char *out = ziman_xmalloc(len + 1);
     size_t oi = 0;
     int capitalize_next = 0;
     for (size_t i = 0; i < len; i++) {
@@ -541,8 +542,8 @@ static char *generate_struct_to_json(StructDecl *sd) {
                decl_type_text(sd->name, &sd->type_params), converter_params_text(&sd->type_params, 1));
 
     int tmp = 0;
-    char **dst_vars = malloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
-    char **camel_keys = malloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
+    char **dst_vars = ziman_xmalloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
+    char **camel_keys = ziman_xmalloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
     for (int i = 0; i < sd->fields.count; i++) {
         Param *f = &sd->fields.items[i];
         char *dst = fmt_str("field_%s_json", f->name);
@@ -570,7 +571,7 @@ static char *generate_struct_from_json(StructDecl *sd) {
     cb_appendf(&cb, "    if !Json.is_JObject(j) { return err(\"expected a JSON object for %s\") }\n", sd->name);
 
     int tmp = 0;
-    char **field_vars = malloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
+    char **field_vars = ziman_xmalloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
     for (int i = 0; i < sd->fields.count; i++) {
         Param *f = &sd->fields.items[i];
         char *camel = snake_to_camel(f->name);
@@ -854,7 +855,7 @@ static char *generate_struct_from_row(StructDecl *sd) {
     char *fn_name = pascal_to_snake(sd->name);
     cb_appendf(&cb, "pub fn %s_from_row(row: Row) -> Result<%s, DbError> {\n", fn_name, sd->name);
     int tmp = 0;
-    char **field_vars = malloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
+    char **field_vars = ziman_xmalloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
     for (int i = 0; i < sd->fields.count; i++) {
         Param *f = &sd->fields.items[i];
         char *raw = fmt_str("field_%s_raw", f->name);
@@ -906,7 +907,7 @@ static char *generate_struct_to_params(StructDecl *sd) {
 
 static char *snake_to_kebab(const char *name) {
     size_t n = strlen(name);
-    char *out = malloc(n + 1);
+    char *out = ziman_xmalloc(n + 1);
     memcpy(out, name, n + 1);
     for (char *c = out; *c; c++) if (*c == '_') *c = '-';
     return out;

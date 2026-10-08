@@ -8,6 +8,7 @@
 
 #include "error.h"
 #include "native.h"
+#include "xalloc.h"
 
 /* csv.scan_cells(text, sep, typed) -> Result<[string], string>: the RFC 4180 scanner behind the
  * `csv` module. A flat array of strings, in reading order: each cell is a one-character tag
@@ -25,13 +26,13 @@ typedef struct {
 static void vbuf_push(ValueBuf *b, Value v) {
     if (b->count == b->cap) {
         b->cap = b->cap == 0 ? 64 : b->cap * 2;
-        b->items = realloc(b->items, b->cap * sizeof(Value));
+        b->items = ziman_xrealloc(b->items, b->cap * sizeof(Value));
     }
     b->items[b->count++] = v;
 }
 
 static Value tagged_cell(char tag, const char *text, size_t len) {
-    char *s = malloc(len + 2);
+    char *s = ziman_xmalloc(len + 2);
     s[0] = tag;
     memcpy(s + 1, text, len);
     s[len + 1] = '\0';
@@ -85,7 +86,7 @@ static Value scan_error(Type result_type, int line, const char *message, int oth
     char buf[160];
     if (other_line > 0) snprintf(buf, sizeof buf, "line %d: %s (opened on line %d)", line, message, other_line);
     else snprintf(buf, sizeof buf, "line %d: %s", line, message);
-    return value_result(result_type, result_obj_new(0, value_string(strdup(buf))));
+    return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(buf))));
 }
 
 static Value native_csv_scan_cells(Value *args, int argc, int line, int col) {
@@ -98,7 +99,7 @@ static Value native_csv_scan_cells(Value *args, int argc, int line, int col) {
     int typed = args[2].as.b;
 
     ValueBuf out = {0}, row = {0};
-    char *field = malloc(n + 1);
+    char *field = ziman_xmalloc(n + 1);
     size_t flen = 0;
     int quoted = 0, in_quotes = 0, started = 0;
     int line_no = 1, row_line = 1, quote_line = 0;
@@ -130,7 +131,7 @@ static Value native_csv_scan_cells(Value *args, int argc, int line, int col) {
                 for (size_t i = 0; i < row.count; i++) vbuf_push(&out, row.items[i]);
                 char marker[24];
                 snprintf(marker, sizeof marker, "\x01%d", row_line);
-                vbuf_push(&out, value_string(strdup(marker)));
+                vbuf_push(&out, value_string(ziman_xstrdup(marker)));
             }
             row.count = 0;
             line_no++;
@@ -149,12 +150,12 @@ static Value native_csv_scan_cells(Value *args, int argc, int line, int col) {
             for (size_t i = 0; i < row.count; i++) vbuf_push(&out, row.items[i]);
             char marker[24];
             snprintf(marker, sizeof marker, "\x01%d", row_line);
-            vbuf_push(&out, value_string(strdup(marker)));
+            vbuf_push(&out, value_string(ziman_xstrdup(marker)));
         }
     }
 #undef END_FIELD
     free(field);
-    Value items = value_array(type_array(string_type), array_obj_new(out.items != NULL ? out.items : malloc(sizeof(Value)), (int)out.count));
+    Value items = value_array(type_array(string_type), array_obj_new(out.items != NULL ? out.items : ziman_xmalloc(sizeof(Value)), (int)out.count));
     return value_result(result_type, result_obj_new(1, items));
 }
 

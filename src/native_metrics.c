@@ -10,6 +10,7 @@
 
 #include "error.h"
 #include "native.h"
+#include "xalloc.h"
 
 /* The `metrics` core module's natives: counters, gauges and histograms that several threads share,
  * and a render of them in the Prometheus text format. See lib/core/metrics.zm for the Ziman side,
@@ -140,7 +141,7 @@ static Series *series_for(Metric *m, const char *labels) {
     }
     Series *s = &m->series[m->nseries];
     memset(s, 0, sizeof *s);
-    s->labels = strdup(labels);
+    s->labels = ziman_xstrdup(labels);
     if (!s->labels) {
         m->dropped++;
         return NULL;
@@ -185,8 +186,8 @@ static Value native_declare(Value *args, int argc, int line, int col) {
     }
     Metric *m = &g_metrics[g_count];
     memset(m, 0, sizeof *m);
-    m->name = strdup(name);
-    m->help = strdup(help);
+    m->name = ziman_xstrdup(name);
+    m->help = ziman_xstrdup(help);
     m->kind = k;
     pthread_mutex_init(&m->mu, NULL);
     if (k == M_HISTOGRAM && bounds[0]) {
@@ -357,7 +358,7 @@ static void buf_appendf(Buf *b, const char *fmt, ...) {
     if (need > b->cap) {
         size_t cap = b->cap ? b->cap * 2 : 1024;
         while (cap < need) cap *= 2;
-        char *grown = realloc(b->data, cap);
+        char *grown = ziman_xrealloc(b->data, cap);
         if (!grown) return;
         b->data = grown;
         b->cap = cap;
@@ -440,7 +441,7 @@ static Value native_render(Value *args, int argc, int line, int col) {
     buf_appendf(&b, "# HELP ziman_metrics_dropped_series_total Writes dropped because a metric was at its series cap.\n");
     buf_appendf(&b, "# TYPE ziman_metrics_dropped_series_total counter\n");
     buf_appendf(&b, "ziman_metrics_dropped_series_total %llu\n", dropped_total);
-    if (!b.data) return value_string(strdup(""));
+    if (!b.data) return value_string(ziman_xstrdup(""));
     return value_string(b.data); /* the buffer is handed over, not copied */
 }
 

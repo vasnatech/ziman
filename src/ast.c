@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "ast.h"
 #include "stack.h"
+#include "xalloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +13,7 @@
 Type type_array(Type elem) {
     Type t = {0};
     t.kind = TY_ARRAY;
-    t.elem = malloc(sizeof(Type));
+    t.elem = ziman_xmalloc(sizeof(Type));
     *t.elem = elem;
     return t;
 }
@@ -20,16 +21,16 @@ Type type_array(Type elem) {
 Type type_struct(const char *name) {
     Type t = {0};
     t.kind = TY_STRUCT;
-    t.struct_name = strdup(name);
+    t.struct_name = ziman_xstrdup(name);
     return t;
 }
 
 Type type_result(Type ok_type, Type err_type) {
     Type t = {0};
     t.kind = TY_RESULT;
-    t.elem = malloc(sizeof(Type));
+    t.elem = ziman_xmalloc(sizeof(Type));
     *t.elem = ok_type;
-    t.elem_err = malloc(sizeof(Type));
+    t.elem_err = ziman_xmalloc(sizeof(Type));
     *t.elem_err = err_type;
     return t;
 }
@@ -37,14 +38,14 @@ Type type_result(Type ok_type, Type err_type) {
 Type type_enum(const char *name) {
     Type t = {0};
     t.kind = TY_ENUM;
-    t.enum_name = strdup(name);
+    t.enum_name = ziman_xstrdup(name);
     return t;
 }
 
 Type type_channel(Type elem) {
     Type t = {0};
     t.kind = TY_CHANNEL;
-    t.elem = malloc(sizeof(Type));
+    t.elem = ziman_xmalloc(sizeof(Type));
     *t.elem = elem;
     return t;
 }
@@ -52,9 +53,9 @@ Type type_channel(Type elem) {
 Type type_map(Type key, Type value) {
     Type t = {0};
     t.kind = TY_MAP;
-    t.elem = malloc(sizeof(Type));
+    t.elem = ziman_xmalloc(sizeof(Type));
     *t.elem = key;
-    t.elem_err = malloc(sizeof(Type));
+    t.elem_err = ziman_xmalloc(sizeof(Type));
     *t.elem_err = value;
     return t;
 }
@@ -62,7 +63,7 @@ Type type_map(Type key, Type value) {
 Type type_set(Type elem) {
     Type t = {0};
     t.kind = TY_SET;
-    t.elem = malloc(sizeof(Type));
+    t.elem = ziman_xmalloc(sizeof(Type));
     *t.elem = elem;
     return t;
 }
@@ -71,7 +72,7 @@ Type type_func(TypeList params, Type ret) {
     Type t = {0};
     t.kind = TY_FUNC;
     t.type_args = params;
-    t.elem = malloc(sizeof(Type));
+    t.elem = ziman_xmalloc(sizeof(Type));
     *t.elem = ret;
     return t;
 }
@@ -85,7 +86,7 @@ Type function_value_type(const FunctionDecl *fn) {
 Type type_typevar(const char *name) {
     Type t = {0};
     t.kind = TY_TYPEVAR;
-    t.type_var_name = strdup(name);
+    t.type_var_name = ziman_xstrdup(name);
     return t;
 }
 
@@ -116,41 +117,41 @@ int type_equals(Type a, Type b) {
 char *type_name(Type type) {
     ZIMAN_STACK_CHECK();
     switch (type.kind) {
-        case TY_VOID: return strdup("void");
-        case TY_INT: return strdup("int");
-        case TY_FLOAT: return strdup("float");
-        case TY_BOOL: return strdup("bool");
-        case TY_STRING: return strdup("string");
-        case TY_BIGINT: return strdup("bigint");
-        case TY_DECIMAL: return strdup("decimal");
-        case TY_BYTE: return strdup("byte");
-        case TY_UNIT: return strdup("unit");
-        case TY_TYPEVAR: return strdup(type.type_var_name);
+        case TY_VOID: return ziman_xstrdup("void");
+        case TY_INT: return ziman_xstrdup("int");
+        case TY_FLOAT: return ziman_xstrdup("float");
+        case TY_BOOL: return ziman_xstrdup("bool");
+        case TY_STRING: return ziman_xstrdup("string");
+        case TY_BIGINT: return ziman_xstrdup("bigint");
+        case TY_DECIMAL: return ziman_xstrdup("decimal");
+        case TY_BYTE: return ziman_xstrdup("byte");
+        case TY_UNIT: return ziman_xstrdup("unit");
+        case TY_TYPEVAR: return ziman_xstrdup(type.type_var_name);
         case TY_STRUCT: case TY_ENUM: {
             const char *base_name = type.kind == TY_STRUCT ? type.struct_name : type.enum_name;
-            if (type.type_args.count == 0) return strdup(base_name);
+            if (type.type_args.count == 0) return ziman_xstrdup(base_name);
             /* `Box<int>`, `Pair<int, string>`, ... */
             size_t cap = 64, len = 0;
-            char *out = malloc(cap);
+            char *out = ziman_xmalloc(cap);
             size_t base_len = strlen(base_name);
-            while (len + base_len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+            while (len + base_len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
             memcpy(out + len, base_name, base_len);
             len += base_len;
             out[len++] = '<';
             for (int i = 0; i < type.type_args.count; i++) {
                 if (i > 0) {
-                    if (len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+                    if (len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                     out[len++] = ',';
                     out[len++] = ' ';
                 }
                 char *arg = type_name(type.type_args.items[i]);
                 size_t arg_len = strlen(arg);
-                while (len + arg_len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+                while (len + arg_len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                 memcpy(out + len, arg, arg_len);
                 len += arg_len;
                 free(arg);
             }
-            if (len + 2 > cap) { cap *= 2; out = realloc(out, cap); }
+            if (len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
             out[len++] = '>';
             out[len] = '\0';
             return out;
@@ -158,7 +159,7 @@ char *type_name(Type type) {
         case TY_ARRAY: {
             char *inner = type_name(*type.elem);
             size_t len = strlen(inner) + 3; /* '[' + inner + ']' + '\0' */
-            char *buf = malloc(len);
+            char *buf = ziman_xmalloc(len);
             snprintf(buf, len, "[%s]", inner);
             free(inner);
             return buf;
@@ -167,7 +168,7 @@ char *type_name(Type type) {
             char *ok = type_name(*type.elem);
             char *err = type_name(*type.elem_err);
             size_t len = strlen(ok) + strlen(err) + 11; /* "Result<" (7) + ok + ", " (2) + err + ">" (1) + '\0' (1) */
-            char *buf = malloc(len);
+            char *buf = ziman_xmalloc(len);
             snprintf(buf, len, "Result<%s, %s>", ok, err);
             free(ok);
             free(err);
@@ -175,22 +176,22 @@ char *type_name(Type type) {
         }
         case TY_FUNC: {
             size_t cap = 32, len = 0;
-            char *out = malloc(cap);
+            char *out = ziman_xmalloc(cap);
             const char *head = "fn(";
             memcpy(out, head, 3);
             len = 3;
             for (int i = 0; i < type.type_args.count; i++) {
                 char *arg = type_name(type.type_args.items[i]);
                 size_t arg_len = strlen(arg);
-                while (len + arg_len + 3 > cap) { cap *= 2; out = realloc(out, cap); }
+                while (len + arg_len + 3 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                 if (i > 0) { out[len++] = ','; out[len++] = ' '; }
                 memcpy(out + len, arg, arg_len);
                 len += arg_len;
                 free(arg);
             }
-            char *ret = type.elem->kind == TY_VOID ? strdup("") : type_name(*type.elem);
+            char *ret = type.elem->kind == TY_VOID ? ziman_xstrdup("") : type_name(*type.elem);
             size_t ret_len = strlen(ret);
-            while (len + ret_len + 8 > cap) { cap *= 2; out = realloc(out, cap); }
+            while (len + ret_len + 8 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
             out[len++] = ')';
             if (type.elem->kind != TY_VOID) {
                 memcpy(out + len, " -> ", 4);
@@ -206,7 +207,7 @@ char *type_name(Type type) {
             char *k = type_name(*type.elem);
             char *v = type_name(*type.elem_err);
             size_t len = strlen(k) + strlen(v) + 8; /* "Map<" + k + ", " + v + ">" + '\0' */
-            char *buf = malloc(len);
+            char *buf = ziman_xmalloc(len);
             snprintf(buf, len, "Map<%s, %s>", k, v);
             free(k);
             free(v);
@@ -215,7 +216,7 @@ char *type_name(Type type) {
         case TY_SET: {
             char *inner = type_name(*type.elem);
             size_t len = strlen(inner) + 7; /* "Set<" + inner + ">" + '\0' */
-            char *buf = malloc(len);
+            char *buf = ziman_xmalloc(len);
             snprintf(buf, len, "Set<%s>", inner);
             free(inner);
             return buf;
@@ -223,17 +224,17 @@ char *type_name(Type type) {
         case TY_CHANNEL: {
             char *inner = type_name(*type.elem);
             size_t len = strlen(inner) + 10; /* "Channel<" (8) + inner + ">" (1) + '\0' (1) */
-            char *buf = malloc(len);
+            char *buf = ziman_xmalloc(len);
             snprintf(buf, len, "Channel<%s>", inner);
             free(inner);
             return buf;
         }
     }
-    return strdup("unknown");
+    return ziman_xstrdup("unknown");
 }
 
 Expr *expr_new(ExprKind kind, int line, int col) {
-    Expr *e = calloc(1, sizeof(Expr));
+    Expr *e = ziman_xcalloc(1, sizeof(Expr));
     e->kind = kind;
     e->line = line;
     e->col = col;
@@ -243,7 +244,7 @@ Expr *expr_new(ExprKind kind, int line, int col) {
 }
 
 Stmt *stmt_new(StmtKind kind, int line, int col) {
-    Stmt *s = calloc(1, sizeof(Stmt));
+    Stmt *s = ziman_xcalloc(1, sizeof(Stmt));
     s->kind = kind;
     s->line = line;
     s->col = col;
@@ -255,7 +256,7 @@ Stmt *stmt_new(StmtKind kind, int line, int col) {
     void fn_name(list_type *list, elem_type value) {                          \
         if (list->count == list->capacity) {                                  \
             list->capacity = list->capacity == 0 ? 4 : list->capacity * 2;    \
-            list->field = realloc(list->field, (size_t)list->capacity * sizeof(elem_type)); \
+            list->field = ziman_xrealloc(list->field, (size_t)list->capacity * sizeof(elem_type)); \
         }                                                                      \
         list->field[list->count++] = value;                                   \
     }

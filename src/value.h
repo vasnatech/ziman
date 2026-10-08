@@ -5,12 +5,17 @@
  * collector it is allocated "atomic", so it is never scanned for pointers --
  * cheaper to mark and immune to a stray text byte pattern looking like an
  * address. Without the collector it is plain malloc. */
+#include "xalloc.h"
 #ifdef ZIMAN_GC
 #include <gc.h>
-#define zalloc_atomic(n) GC_MALLOC_ATOMIC(n)
+/* Checked like every other allocation here (src/xalloc.h): a packed array's buffer is sized by the
+ * program, so it is one of the few that can genuinely fail, and it used to come back NULL and be
+ * memcpy'd into -- a segfault under a memory limit where the rest of the interpreter now reports
+ * (docs/reviews/tasks.md A20). */
+#define zalloc_atomic(n) ziman_xcheck(GC_MALLOC_ATOMIC(n))
 #else
 #include <stdlib.h>
-#define zalloc_atomic(n) malloc(n)
+#define zalloc_atomic(n) ziman_xmalloc(n)
 #endif
 
 #include <pthread.h>

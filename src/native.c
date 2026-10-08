@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "native.h"
+#include "xalloc.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -16,9 +17,9 @@ static int capacity = 0;
 void native_register(const char *qualified_name, NativeFn fn) {
     if (count == capacity) {
         capacity = capacity == 0 ? 8 : capacity * 2;
-        entries = realloc(entries, (size_t)capacity * sizeof(NativeEntry));
+        entries = ziman_xrealloc(entries, (size_t)capacity * sizeof(NativeEntry));
     }
-    entries[count].qualified_name = strdup(qualified_name);
+    entries[count].qualified_name = ziman_xstrdup(qualified_name);
     entries[count].fn = fn;
     count++;
 }

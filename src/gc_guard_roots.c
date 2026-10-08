@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "gc_mark.h"
+#include "xalloc.h"
 
 /* One record per currently-live Guard, on a global (non-`__thread`) list for the identical reason
  * native_thread.c's own ThreadInfo/g_threads is one: a guard's own finalizer can run on any thread,
@@ -19,7 +20,7 @@ static GuardRoot *g_roots = NULL;
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void ziman_guard_register(void *owner_heap, Value *message_slot) {
-    GuardRoot *r = malloc(sizeof(GuardRoot));
+    GuardRoot *r = ziman_xmalloc(sizeof(GuardRoot));
     r->owner_heap = owner_heap;
     r->message_slot = message_slot;
     pthread_mutex_lock(&g_lock);

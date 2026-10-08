@@ -6,6 +6,7 @@
 
 #include "gc_object.h"
 #include "mapobj.h"
+#include "xalloc.h"
 
 /* Insert-only, single-threaded open addressing, same hash and probe scheme as src/handles.c's
  * HandleSet -- no removal and no lock needed here, since a GcDedup lives for exactly one copy pass
@@ -28,7 +29,7 @@ static size_t hash_ptr(const void *p) {
 }
 
 GcDedup *gc_dedup_create(void) {
-    GcDedup *d = malloc(sizeof(GcDedup));
+    GcDedup *d = ziman_xmalloc(sizeof(GcDedup));
     d->keys = NULL;
     d->vals = NULL;
     d->capacity = 0;
@@ -44,8 +45,8 @@ void gc_dedup_destroy(GcDedup *d) {
 
 static void dedup_grow(GcDedup *d) {
     size_t new_capacity = d->capacity == 0 ? 64 : d->capacity * 2;
-    const void **fresh_keys = calloc(new_capacity, sizeof(void *));
-    void **fresh_vals = calloc(new_capacity, sizeof(void *));
+    const void **fresh_keys = ziman_xcalloc(new_capacity, sizeof(void *));
+    void **fresh_vals = ziman_xcalloc(new_capacity, sizeof(void *));
     for (size_t i = 0; i < d->capacity; i++) {
         if (d->keys[i] == NULL) continue;
         size_t at = hash_ptr(d->keys[i]) & (new_capacity - 1);

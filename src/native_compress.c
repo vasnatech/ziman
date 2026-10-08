@@ -9,13 +9,14 @@
 
 #include "error.h"
 #include "native.h"
+#include "xalloc.h"
 
 /* The `compress` core module's natives, on zlib: compress_raw(data, format) and
  * decompress_raw(data, max_size, format). format: 0 gzip, 1 zlib, 2 raw deflate, 3 (decompress
  * only) auto-detect gzip or zlib. See lib/core/compress.zm. */
 
 static Value err_of(Type ok_type, const char *message) {
-    return value_result(type_result(ok_type, type_scalar(TY_STRING)), result_obj_new(0, value_string(strdup(message))));
+    return value_result(type_result(ok_type, type_scalar(TY_STRING)), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 static Value native_compress_raw(Value *args, int argc, int line, int col) {
@@ -31,7 +32,7 @@ static Value native_compress_raw(Value *args, int argc, int line, int col) {
         ziman_error("runtime", line, col, "compress: cannot start compression");
     }
     uLong bound = deflateBound(&zs, (uLong)n) + 32;
-    unsigned char *out = malloc(bound);
+    unsigned char *out = ziman_xmalloc(bound);
     zs.next_in = in;
     zs.avail_in = (uInt)n;
     zs.next_out = out;
@@ -61,14 +62,14 @@ static Value native_decompress_raw(Value *args, int argc, int line, int col) {
     memset(&zs, 0, sizeof zs);
     if (inflateInit2(&zs, window) != Z_OK) { free(in); return err_of(bytes_type, "cannot start decompression"); }
     size_t cap = (size_t)n * 4 + 256, len = 0;
-    unsigned char *out = malloc(cap);
+    unsigned char *out = ziman_xmalloc(cap);
     zs.next_in = in;
     zs.avail_in = (uInt)n;
     int rc;
     do {
         if (len == cap) {
             cap *= 2;
-            out = realloc(out, cap);
+            out = ziman_xrealloc(out, cap);
         }
         zs.next_out = out + len;
         zs.avail_out = (uInt)(cap - len);

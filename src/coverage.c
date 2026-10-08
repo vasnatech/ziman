@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "coverage.h"
+#include "xalloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +43,7 @@ static FileCoverage *file_for(Coverage *cov, const char *file) {
     }
     if (cov->count == cov->capacity) {
         cov->capacity = cov->capacity == 0 ? 4 : cov->capacity * 2;
-        cov->files = realloc(cov->files, (size_t)cov->capacity * sizeof(FileCoverage));
+        cov->files = ziman_xrealloc(cov->files, (size_t)cov->capacity * sizeof(FileCoverage));
     }
     FileCoverage *fc = &cov->files[cov->count++];
     fc->file = file;
@@ -69,7 +70,7 @@ static void note_line(FileCoverage *fc, int line, long long count) {
     }
     if (fc->count == fc->capacity) {
         fc->capacity = fc->capacity == 0 ? 32 : fc->capacity * 2;
-        fc->lines = realloc(fc->lines, (size_t)fc->capacity * sizeof(LineHit));
+        fc->lines = ziman_xrealloc(fc->lines, (size_t)fc->capacity * sizeof(LineHit));
     }
     memmove(fc->lines + lo + 1, fc->lines + lo, (size_t)(fc->count - lo) * sizeof(LineHit));
     fc->lines[lo].line = line;
@@ -160,7 +161,7 @@ static void merge_existing_lcov(const char *path) {
             char *nl = strchr(line + 3, '\n');
             if (nl != NULL) *nl = '\0';
             /* strdup because the Coverage keeps the pointer and this buffer is reused per line. */
-            fc = file_for(&g_cov, strdup(line + 3));
+            fc = file_for(&g_cov, ziman_xstrdup(line + 3));
         } else if (strncmp(line, "DA:", 3) == 0 && fc != NULL) {
             char *comma = strchr(line + 3, ',');
             if (comma == NULL) continue;

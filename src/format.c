@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "format.h"
+#include "xalloc.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -21,7 +22,7 @@ typedef struct { Item *v; int n, cap; } Items;
 static void push(Items *it, Item x) {
     if (it->n == it->cap) {
         it->cap = it->cap ? it->cap * 2 : 256;
-        it->v = realloc(it->v, (size_t)it->cap * sizeof(Item));
+        it->v = ziman_xrealloc(it->v, (size_t)it->cap * sizeof(Item));
     }
     it->v[it->n++] = x;
 }
@@ -206,7 +207,7 @@ typedef struct { char *s; size_t n, cap; } Buf;
 static void put(Buf *b, const char *s, size_t n) {
     if (b->n + n + 1 > b->cap) {
         b->cap = (b->n + n + 1) * 2;
-        b->s = realloc(b->s, b->cap);
+        b->s = ziman_xrealloc(b->s, b->cap);
     }
     memcpy(b->s + b->n, s, n);
     b->n += n;
@@ -262,7 +263,7 @@ static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
     out->n = 0;
     put(out, "", 0);
     out->s[0] = '\0';
-    Open *stack = malloc((size_t)(items->n + 1) * sizeof(Open));
+    Open *stack = ziman_xmalloc((size_t)(items->n + 1) * sizeof(Open));
     int depth = 0;
     int cur_level = 0;
     int prev_line_continues = 0; /* the previous code line ended with an operator */
@@ -453,8 +454,8 @@ static char *align_trailing_comments(const Buf *out, const Items *items, const I
     /* line start offsets */
     int n_lines = 0;
     for (size_t i = 0; i < out->n; i++) if (out->s[i] == '\n') n_lines++;
-    size_t *starts = malloc((size_t)(n_lines + 1) * sizeof(size_t));
-    size_t *cstart = malloc((size_t)(n_lines + 1) * sizeof(size_t));
+    size_t *starts = ziman_xmalloc((size_t)(n_lines + 1) * sizeof(size_t));
+    size_t *cstart = ziman_xmalloc((size_t)(n_lines + 1) * sizeof(size_t));
     int line = 0;
     starts[0] = 0;
     for (size_t i = 0; i < out->n; i++) if (out->s[i] == '\n') starts[++line] = i + 1;
@@ -496,18 +497,18 @@ static char *align_trailing_comments(const Buf *out, const Items *items, const I
     }
     free(starts);
     free(cstart);
-    return res.s != NULL ? res.s : strdup("");
+    return res.s != NULL ? res.s : ziman_xstrdup("");
 }
 
 /* Sorts each run of consecutive `use` lines (no blank line, no comment line in between). */
 static void sort_use_runs(Items *items) {
     int n = items->n;
     if (n == 0) return;
-    int *line_of_first = malloc((size_t)(n + 1) * sizeof(int));
+    int *line_of_first = ziman_xmalloc((size_t)(n + 1) * sizeof(int));
     int n_lines = 0;
     for (int i = 0; i < n; i++) if (i == 0 || items->v[i].nl_before > 0) line_of_first[n_lines++] = i;
     line_of_first[n_lines] = n;
-    Item *result = malloc((size_t)n * sizeof(Item));
+    Item *result = ziman_xmalloc((size_t)n * sizeof(Item));
     int out_n = 0;
     int li = 0;
     while (li < n_lines) {
@@ -525,13 +526,13 @@ static void sort_use_runs(Items *items) {
             lj++;
         }
         int run = lj - li;
-        char **keys = malloc((size_t)run * sizeof(char *));
-        int *order = malloc((size_t)run * sizeof(int));
+        char **keys = ziman_xmalloc((size_t)run * sizeof(char *));
+        int *order = ziman_xmalloc((size_t)run * sizeof(int));
         for (int r = 0; r < run; r++) {
             int a = line_of_first[li + r], b = line_of_first[li + r + 1];
             size_t cap = 1;
             for (int i = a; i < b; i++) if (items->v[i].kind != K_COMMENT) cap += (size_t)items->v[i].len + 1;
-            keys[r] = malloc(cap);
+            keys[r] = ziman_xmalloc(cap);
             keys[r][0] = '\0';
             for (int i = a; i < b; i++) {
                 if (items->v[i].kind == K_COMMENT) continue;
@@ -656,7 +657,7 @@ char *format_source(const char *src, size_t len, int width, int canonical, char 
     sort_use_runs(&items);
     if (canonical) canonicalize_braces(&items);
 
-    ItemPos *pos = malloc((size_t)(items.n + 1) * sizeof(ItemPos));
+    ItemPos *pos = ziman_xmalloc((size_t)(items.n + 1) * sizeof(ItemPos));
     Buf out = {0};
     for (int pass = 0; pass < 60; pass++) {
         emit_pass(&items, &out, pos);

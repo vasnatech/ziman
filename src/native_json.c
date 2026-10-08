@@ -16,6 +16,7 @@
 #include "mapobj.h"
 #include "native.h"
 #include "utf8.h"
+#include "xalloc.h"
 
 /* The `json` core module's parser and serializer, natively: json.parse_native(text, proto,
  * number_proto, strict, exact) and json.to_string_native(value). `proto` is any Json value and
@@ -106,7 +107,7 @@ static char *parse_string_raw(Parser *ps, size_t *out_len) {
     size_t end = p;
     while (end < ps->n && s[end] != '"') end += s[end] == '\\' ? 2 : 1;
     if (end > ps->n) end = ps->n;
-    char *out = malloc(end - p + 8);
+    char *out = ziman_xmalloc(end - p + 8);
     size_t o = 0;
     while (1) {
         if (p >= ps->n) { free(out); fail(ps, "unterminated string"); return NULL; }
@@ -162,7 +163,7 @@ static char *decimal_text(int neg, const char *digits, size_t nd, long scale) {
     size_t zeros_after = scale < 0 ? (size_t)(-scale) : 0;
     size_t zeros_before = scale > 0 && (size_t)scale >= nd ? (size_t)scale - nd + 1 : 0;
     size_t total = zeros_before + nd + zeros_after;
-    char *out = malloc(total + 3);
+    char *out = ziman_xmalloc(total + 3);
     size_t o = 0;
     if (neg) out[o++] = '-';
     for (size_t i = 0; i < total; i++) {
@@ -213,7 +214,7 @@ static Value parse_number(Parser *ps) {
         if (p == ex) { fail(ps, "invalid number at position %zu", pos); return value_int(0); }
         if (exp_neg) exponent = -exponent;
     }
-    char *text = malloc(p - pos + 1);
+    char *text = ziman_xmalloc(p - pos + 1);
     memcpy(text, s + pos, p - pos);
     text[p - pos] = '\0';
     ps->p = p;
@@ -243,7 +244,7 @@ static Value parse_number(Parser *ps) {
             free(text);
             return value_int(0);
         }
-        char *digits = malloc(int_len + frac_len + 1);
+        char *digits = ziman_xmalloc(int_len + frac_len + 1);
         memcpy(digits, s + int_start, int_len);
         if (frac_len > 0) memcpy(digits + int_len, s + frac_start, frac_len);
         size_t nd = int_len + frac_len;
@@ -279,7 +280,7 @@ static Value parse_array(Parser *ps, int depth) {
     ps->p++;
     skip_ws(ps);
     size_t cap = 8, n = 0;
-    Value *items = malloc(cap * sizeof(Value));
+    Value *items = ziman_xmalloc(cap * sizeof(Value));
     Type arr_type = type_array(ps->json_type);
     if (ps->p < ps->n && ps->s[ps->p] == ']') {
         ps->p++;
@@ -288,7 +289,7 @@ static Value parse_array(Parser *ps, int depth) {
     while (1) {
         Value v = parse_value(ps, depth + 1);
         if (ps->failed) return value_int(0);
-        if (n == cap) { cap *= 2; items = realloc(items, cap * sizeof(Value)); }
+        if (n == cap) { cap *= 2; items = ziman_xrealloc(items, cap * sizeof(Value)); }
         items[n++] = v;
         skip_ws(ps);
         if (ps->p >= ps->n) { fail(ps, "unterminated array"); return value_int(0); }
@@ -392,7 +393,7 @@ static Value parse_json_text(const char *text, size_t n, Value sample, Value num
         skip_ws(&ps);
         if (ps.p != ps.n) fail(&ps, "trailing content at position %zu", ps.p);
     }
-    if (ps.failed) return value_result(result_type, result_obj_new(0, value_string(strdup(ps.err))));
+    if (ps.failed) return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(ps.err))));
     return value_result(result_type, result_obj_new(1, v));
 }
 
@@ -431,7 +432,7 @@ static int records_next(IterObj *it, Value *out) {
         if (r == 0) return 0;
         Type json_type = st->sample.type;
         if (r < 0) {
-            *out = value_result(type_result(json_type, str), result_obj_new(0, value_string(strdup(err))));
+            *out = value_result(type_result(json_type, str), result_obj_new(0, value_string(ziman_xstrdup(err))));
             return 1;
         }
         size_t a = 0;
@@ -444,7 +445,7 @@ static int records_next(IterObj *it, Value *out) {
             const char *msg = value_cstr(parsed.as.res->value);
             char buf[400];
             snprintf(buf, sizeof buf, "line %lld: %s", (long long)number, msg);
-            *out = value_result(type_result(json_type, str), result_obj_new(0, value_string(strdup(buf))));
+            *out = value_result(type_result(json_type, str), result_obj_new(0, value_string(ziman_xstrdup(buf))));
         }
         return 1;
     }
@@ -464,13 +465,13 @@ static Value native_ndjson_records_raw(Value *args, int argc, int line, int col)
     if (ls == NULL) {
         char msg[1024];
         snprintf(msg, sizeof msg, "cannot read '%s': %s", path, strerror(errno));
-        return value_result(type_result(iter_type, str), result_obj_new(0, value_string(strdup(msg))));
+        return value_result(type_result(iter_type, str), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
-    RecordsState *st = calloc(1, sizeof(RecordsState));
+    RecordsState *st = ziman_xcalloc(1, sizeof(RecordsState));
     st->lines = ls;
     st->sample = args[1];
     st->number_sample = args[2];
-    IterObj *it = calloc(1, sizeof(IterObj));
+    IterObj *it = ziman_xcalloc(1, sizeof(IterObj));
     it->next = records_next;
     it->release = records_release;
     it->state = st;
@@ -487,7 +488,7 @@ typedef struct {
 static void out_put(Out *o, const char *s, size_t n) {
     if (o->len + n + 1 > o->cap) {
         while (o->len + n + 1 > o->cap) o->cap = o->cap ? o->cap * 2 : 256;
-        o->buf = realloc(o->buf, o->cap);
+        o->buf = ziman_xrealloc(o->buf, o->cap);
     }
     memcpy(o->buf + o->len, s, n);
     o->len += n;
@@ -636,7 +637,7 @@ static Value native_json_to_string(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Out o = {0};
     write_json(&o, args[0]);
-    char *s = malloc(o.len + 1);
+    char *s = ziman_xmalloc(o.len + 1);
     memcpy(s, o.buf, o.len);
     s[o.len] = '\0';
     free(o.buf);

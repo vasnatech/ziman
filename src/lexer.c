@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "error.h"
+#include "xalloc.h"
 
 typedef struct {
     const char *src;
@@ -24,7 +25,7 @@ static void push_token(Lexer *lx, TokenType type, const char *start, int length,
     TokenList *list = &lx->tokens;
     if (list->count == list->capacity) {
         list->capacity = list->capacity == 0 ? 64 : list->capacity * 2;
-        list->items = realloc(list->items, (size_t)list->capacity * sizeof(Token));
+        list->items = ziman_xrealloc(list->items, (size_t)list->capacity * sizeof(Token));
     }
     list->items[list->count].type = type;
     list->items[list->count].start = start;
@@ -150,7 +151,7 @@ static void lex_text_block(Lexer *lx) {
 
     /* the raw text up to the closing delimiter, escapes untouched */
     size_t cap = 64, rawlen = 0;
-    char *raw = malloc(cap);
+    char *raw = ziman_xmalloc(cap);
     for (;;) {
         char c = peek(lx);
         if (c == '\0') ziman_error("lexical", line, col, "unterminated text block");
@@ -158,7 +159,7 @@ static void lex_text_block(Lexer *lx) {
             advance(lx); advance(lx); advance(lx);
             break;
         }
-        if (rawlen + 2 >= cap) { cap *= 2; raw = realloc(raw, cap); }
+        if (rawlen + 2 >= cap) { cap *= 2; raw = ziman_xrealloc(raw, cap); }
         raw[rawlen++] = advance(lx);
         if (c == '\\') {
             if (peek(lx) == '\0') ziman_error("lexical", line, col, "unterminated text block");
@@ -170,8 +171,8 @@ static void lex_text_block(Lexer *lx) {
     /* split into lines; the last one is the text before the closing delimiter */
     size_t nlines = 1;
     for (size_t i = 0; i < rawlen; i++) if (raw[i] == '\n') nlines++;
-    char **ls = malloc(nlines * sizeof(char *));
-    size_t *ln = malloc(nlines * sizeof(size_t));
+    char **ls = ziman_xmalloc(nlines * sizeof(char *));
+    size_t *ln = ziman_xmalloc(nlines * sizeof(size_t));
     size_t k = 0, start = 0;
     for (size_t i = 0; i <= rawlen; i++) {
         if (i == rawlen || raw[i] == '\n') {
@@ -202,7 +203,7 @@ static void lex_text_block(Lexer *lx) {
     }
     if (indent == (size_t)-1) indent = 0;
 
-    char *buf = malloc(rawlen + 1);
+    char *buf = ziman_xmalloc(rawlen + 1);
     size_t len = 0;
     for (size_t i = 0; i < nfull; i++) {
         size_t from = ln[i] >= indent ? indent : ln[i];
@@ -236,7 +237,7 @@ static void lex_string(Lexer *lx) {
      * store it via a synthetic Token whose start/length point at that
      * buffer, so the parser doesn't need to re-process escapes. */
     size_t cap = 16, len = 0;
-    char *buf = malloc(cap);
+    char *buf = ziman_xmalloc(cap);
     for (;;) {
         char c = peek(lx);
         if (c == '\0' || c == '\n') {
@@ -266,7 +267,7 @@ static void lex_string(Lexer *lx) {
         }
         if (len + 1 >= cap) {
             cap *= 2;
-            buf = realloc(buf, cap);
+            buf = ziman_xrealloc(buf, cap);
         }
         buf[len++] = out;
     }

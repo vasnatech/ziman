@@ -5,6 +5,7 @@
 
 #include "gc_heap.h"
 #include "gc_thread_heap.h"
+#include "xalloc.h"
 
 #define BITS 5
 #define FANOUT 32
@@ -29,7 +30,7 @@ struct MapNode {
 };
 
 static MapNode *node_alloc(int n) {
-    MapNode *node = calloc(1, sizeof(MapNode) + (size_t)n * sizeof(Slot)); /* zeroed: a slot holds a leaf or a child, never both */
+    MapNode *node = ziman_xcalloc(1, sizeof(MapNode) + (size_t)n * sizeof(Slot)); /* zeroed: a slot holds a leaf or a child, never both */
     node->bitmap = 0;
     node->n = n;
     return node;
@@ -205,7 +206,7 @@ MapObj *mapobj_set(const MapObj *m, Value key, Value val) {
  * value_copy.c needs this pair at all. node_alloc/node_insert are untouched: MapNode itself was never
  * part of the problem this exists to fix (it was never gc_heap-migrated in the first place). */
 MapObj *mapobj_empty_crossing(void) {
-    MapObj *m = malloc(sizeof(MapObj));
+    MapObj *m = ziman_xmalloc(sizeof(MapObj));
     m->root = node_alloc(0);
     m->count = 0;
     m->next_seq = 0;
@@ -213,13 +214,13 @@ MapObj *mapobj_empty_crossing(void) {
 }
 
 MapObj *mapobj_set_crossing(const MapObj *m, Value key, Value val) {
-    Leaf *nl = malloc(sizeof(Leaf));
+    Leaf *nl = ziman_xmalloc(sizeof(Leaf));
     nl->hash = map_hash(key);
     nl->key = key;
     nl->val = val;
     nl->seq = m->next_seq;
     int added = 0;
-    MapObj *out = malloc(sizeof(MapObj));
+    MapObj *out = ziman_xmalloc(sizeof(MapObj));
     out->root = node_insert(m->root, 0, nl, &added);
     out->count = m->count + added;
     out->next_seq = m->next_seq + added;
@@ -292,12 +293,12 @@ static int by_seq(const void *a, const void *b) {
 
 void mapobj_entries(const MapObj *m, Value **keys, Value **vals) {
     int count = m->count;
-    Leaf **leaves = malloc((size_t)(count > 0 ? count : 1) * sizeof(Leaf *));
+    Leaf **leaves = ziman_xmalloc((size_t)(count > 0 ? count : 1) * sizeof(Leaf *));
     int n = 0;
     collect(m->root, leaves, &n);
     qsort(leaves, (size_t)n, sizeof(Leaf *), by_seq);
-    if (keys != NULL) *keys = malloc((size_t)(count > 0 ? count : 1) * sizeof(Value));
-    if (vals != NULL) *vals = malloc((size_t)(count > 0 ? count : 1) * sizeof(Value));
+    if (keys != NULL) *keys = ziman_xmalloc((size_t)(count > 0 ? count : 1) * sizeof(Value));
+    if (vals != NULL) *vals = ziman_xmalloc((size_t)(count > 0 ? count : 1) * sizeof(Value));
     for (int i = 0; i < n; i++) {
         if (keys != NULL) (*keys)[i] = leaves[i]->key;
         if (vals != NULL) (*vals)[i] = leaves[i]->val;
@@ -350,7 +351,7 @@ static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, V
                 return;
             }
         }
-        node = realloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
+        node = ziman_xrealloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
         Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
         *nl = (Leaf){hash, key, val, seq};
         node->slots[node->n].leaf = nl;
@@ -363,7 +364,7 @@ static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, V
     uint32_t bit = bit_at(hash, depth);
     int pos = slot_pos(node->bitmap, bit);
     if (!(node->bitmap & bit)) {
-        node = realloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
+        node = ziman_xrealloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
         memmove(node->slots + pos + 1, node->slots + pos, (size_t)(node->n - pos) * sizeof(Slot));
         Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
         *nl = (Leaf){hash, key, val, seq};

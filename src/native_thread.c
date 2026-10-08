@@ -10,6 +10,7 @@
 #include "native.h"
 #include "stack.h"
 #include "value.h"
+#include "xalloc.h"
 
 /* One record per thread that has a name or a thread-local value. The records hang off a global list
  * (a garbage-collector root) rather than only off a `__thread` pointer, so the values in a thread's
@@ -36,9 +37,9 @@ static int64_t g_next_id = 1; /* the main thread is 0 */
 static int64_t g_next_key = 1;
 
 static ThreadInfo *make_info(int64_t id, const char *name) {
-    ThreadInfo *t = calloc(1, sizeof(ThreadInfo));
+    ThreadInfo *t = ziman_xcalloc(1, sizeof(ThreadInfo));
     t->id = id;
-    t->name = strdup(name);
+    t->name = ziman_xstrdup(name);
     pthread_mutex_lock(&g_lock);
     t->next = g_threads;
     g_threads = t;
@@ -93,13 +94,13 @@ static Value native_thread_id(Value *args, int argc, int line, int col) {
 
 static Value native_thread_name(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
-    return value_string(strdup(info()->name));
+    return value_string(ziman_xstrdup(info()->name));
 }
 
 static Value native_thread_set_name(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     ThreadInfo *t = info();
-    t->name = strdup(value_cstr(args[0]));
+    t->name = ziman_xstrdup(value_cstr(args[0]));
     return value_int(0);
 }
 
@@ -137,7 +138,7 @@ static Value native_thread_slot_set(Value *args, int argc, int line, int col) {
     if (s == NULL) {
         if (t->count == t->capacity) {
             int cap = t->capacity == 0 ? 4 : t->capacity * 2;
-            Slot *bigger = malloc((size_t)cap * sizeof(Slot));
+            Slot *bigger = ziman_xmalloc((size_t)cap * sizeof(Slot));
             if (t->count > 0) memcpy(bigger, t->slots, (size_t)t->count * sizeof(Slot));
             t->slots = bigger;
             t->capacity = cap;

@@ -17,6 +17,7 @@
 #include "format.h"
 #include "loader.h"
 #include "typecheck.h"
+#include "xalloc.h"
 
 /* ------------------------------------------------------------------- JSON */
 
@@ -33,7 +34,7 @@ typedef struct JVal {
 } JVal;
 
 static JVal *jnew(JKind k) {
-    JVal *v = calloc(1, sizeof(JVal));
+    JVal *v = ziman_xcalloc(1, sizeof(JVal));
     v->kind = k;
     return v;
 }
@@ -72,7 +73,7 @@ static int hex4(const char *p, unsigned *out) {
 static char *jparse_string(JParser *jp) {
     jp->p++; /* opening quote */
     size_t cap = (size_t)(jp->end - jp->p) + 1;
-    char *out = malloc(cap);
+    char *out = ziman_xmalloc(cap);
     size_t n = 0;
     while (jp->p < jp->end && *jp->p != '"') {
         if (*jp->p == '\\' && jp->p + 1 < jp->end) {
@@ -138,8 +139,8 @@ static JVal *jparse_value(JParser *jp, int depth) {
                 jp->p++;
             }
             JVal *item = jparse_value(jp, depth + 1);
-            v->items = realloc(v->items, (size_t)(v->count + 1) * sizeof(JVal *));
-            if (is_obj) v->keys = realloc(v->keys, (size_t)(v->count + 1) * sizeof(char *));
+            v->items = ziman_xrealloc(v->items, (size_t)(v->count + 1) * sizeof(JVal *));
+            if (is_obj) v->keys = ziman_xrealloc(v->keys, (size_t)(v->count + 1) * sizeof(char *));
             v->items[v->count] = item;
             if (is_obj) v->keys[v->count] = key;
             v->count++;
@@ -184,7 +185,7 @@ typedef struct { char *s; size_t n, cap; } SB;
 static void sb_grow(SB *b, size_t extra) {
     if (b->n + extra + 1 > b->cap) {
         b->cap = (b->n + extra + 1) * 2;
-        b->s = realloc(b->s, b->cap);
+        b->s = ziman_xrealloc(b->s, b->cap);
     }
 }
 
@@ -275,7 +276,7 @@ static char *read_message(size_t *len) {
         if (strncasecmp(line, "Content-Length:", 15) == 0) content_length = atol(line + 15);
     }
     if (content_length < 0) return NULL;
-    char *body = malloc((size_t)content_length + 1);
+    char *body = ziman_xmalloc((size_t)content_length + 1);
     size_t got = fread(body, 1, (size_t)content_length, stdin);
     body[got] = '\0';
     *len = got;
@@ -296,9 +297,9 @@ static int hexval(int c) {
 }
 
 static char *uri_to_path(const char *uri) {
-    if (strncmp(uri, "file://", 7) != 0) return strdup(uri);
+    if (strncmp(uri, "file://", 7) != 0) return ziman_xstrdup(uri);
     const char *p = uri + 7;
-    char *out = malloc(strlen(p) + 1);
+    char *out = ziman_xmalloc(strlen(p) + 1);
     size_t n = 0;
     for (; *p; p++) {
         if (*p == '%' && hexval(p[1]) >= 0 && hexval(p[2]) >= 0) {
@@ -335,12 +336,12 @@ static Doc *find_doc_by_path(const char *path) {
 static void set_doc(const char *uri, const char *text) {
     Doc *d = find_doc_by_uri(uri);
     if (d == NULL) {
-        g_docs = realloc(g_docs, (size_t)(g_ndocs + 1) * sizeof(Doc));
+        g_docs = ziman_xrealloc(g_docs, (size_t)(g_ndocs + 1) * sizeof(Doc));
         d = &g_docs[g_ndocs++];
-        d->uri = strdup(uri);
+        d->uri = ziman_xstrdup(uri);
         d->path = uri_to_path(uri);
     }
-    d->text = strdup(text);
+    d->text = ziman_xstrdup(text);
 }
 
 static void remove_doc(const char *uri) {
@@ -397,9 +398,9 @@ static const char *g_current_entry = NULL;
 
 static void diag_sink(const char *phase, const char *file, int line, int col, const char *context, const char *message) {
     (void)phase;
-    g_diags = realloc(g_diags, (size_t)(g_ndiags + 1) * sizeof(Diag));
+    g_diags = ziman_xrealloc(g_diags, (size_t)(g_ndiags + 1) * sizeof(Diag));
     Diag *d = &g_diags[g_ndiags++];
-    d->file = strdup(file != NULL ? file : g_current_entry != NULL ? g_current_entry : "");
+    d->file = ziman_xstrdup(file != NULL ? file : g_current_entry != NULL ? g_current_entry : "");
     d->line = line;
     d->col = col;
     if (context != NULL) {
@@ -407,7 +408,7 @@ static void diag_sink(const char *phase, const char *file, int line, int col, co
         sb_printf(&b, "(in %s) %s", context, message);
         d->message = b.s;
     } else {
-        d->message = strdup(message);
+        d->message = ziman_xstrdup(message);
     }
 }
 
@@ -441,8 +442,8 @@ static void cache_graph(const char *entry, Module *module) {
     for (int i = 0; i < g_n_graphs; i++) {
         if (strcmp(g_graphs[i].entry, entry) == 0) { g_graphs[i].module = module; return; }
     }
-    g_graphs = realloc(g_graphs, (size_t)(g_n_graphs + 1) * sizeof(CachedGraph));
-    g_graphs[g_n_graphs].entry = strdup(entry);
+    g_graphs = ziman_xrealloc(g_graphs, (size_t)(g_n_graphs + 1) * sizeof(CachedGraph));
+    g_graphs[g_n_graphs].entry = ziman_xstrdup(entry);
     g_graphs[g_n_graphs].module = module;
     g_n_graphs++;
 }
@@ -489,7 +490,7 @@ static int visit_complete_variants(EnumDecl *ed, void *ctx) {
  * the other -- and the collector build's no-op `free` then leaked whichever was libc's, while a real
  * `free` of the other would have been worse (docs/reviews/tasks.md A17). */
 static char *copy_prefix(const char *s, size_t n) {
-    char *out = malloc(n + 1);
+    char *out = ziman_xmalloc(n + 1);
     if (out == NULL) return NULL;
     memcpy(out, s, n);
     out[n] = '\0';
@@ -498,7 +499,7 @@ static char *copy_prefix(const char *s, size_t n) {
 
 static char *dirname_copy(const char *path) {
     const char *slash = strrchr(path, '/');
-    return slash != NULL ? copy_prefix(path, (size_t)(slash - path)) : strdup("");
+    return slash != NULL ? copy_prefix(path, (size_t)(slash - path)) : ziman_xstrdup("");
 }
 
 static int file_exists(const char *path) {
@@ -509,7 +510,7 @@ static int file_exists(const char *path) {
 /* The program a file belongs to: a `main.zm` in its directory or a parent (up to six
  * levels), else the file itself. */
 static char *find_entry(const char *path) {
-    char *dir = strdup(path);
+    char *dir = ziman_xstrdup(path);
     for (int level = 0; level < 6; level++) {
         char *slash = strrchr(dir, '/');
         if (slash == NULL) break;
@@ -518,7 +519,7 @@ static char *find_entry(const char *path) {
         sb_printf(&b, "%s/main.zm", dir);
         if (file_exists(b.s) || find_doc_by_path(b.s) != NULL) return b.s;
     }
-    return strdup(path);
+    return ziman_xstrdup(path);
 }
 
 static char **g_prev_diag_files = NULL;
@@ -569,8 +570,8 @@ static void publish(const char *path, int has_doc) {
 static void run_analysis(char *entry, const char *root) {
     g_current_entry = entry;
 
-    const char **paths = malloc((size_t)(g_ndocs + 1) * sizeof(char *));
-    const char **texts = malloc((size_t)(g_ndocs + 1) * sizeof(char *));
+    const char **paths = ziman_xmalloc((size_t)(g_ndocs + 1) * sizeof(char *));
+    const char **texts = ziman_xmalloc((size_t)(g_ndocs + 1) * sizeof(char *));
     for (int i = 0; i < g_ndocs; i++) { paths[i] = g_docs[i].path; texts[i] = g_docs[i].text; }
     loader_set_overrides(paths, texts, g_ndocs);
 
@@ -587,7 +588,7 @@ static void run_analysis(char *entry, const char *root) {
         g_module = loaded;
         cache_graph(entry, loaded);
         free(g_module_root);
-        g_module_root = root != NULL ? strdup(root) : dirname_copy(entry);
+        g_module_root = root != NULL ? ziman_xstrdup(root) : dirname_copy(entry);
         typecheck(loaded);
         ziman_recovery_pop();
     }
@@ -635,7 +636,7 @@ static void analyze(Doc *trigger) {
     }
 
     /* publish to every open document that has diagnostics now or had them before */
-    char **files = malloc((size_t)(g_ndocs + g_prev_n + g_ndiags + 2) * sizeof(char *));
+    char **files = ziman_xmalloc((size_t)(g_ndocs + g_prev_n + g_ndiags + 2) * sizeof(char *));
     int nfiles = 0;
     for (int i = 0; i < g_ndiags; i++) {
         int seen = 0;
@@ -651,11 +652,11 @@ static void analyze(Doc *trigger) {
         if (!seen) files[nfiles++] = g_prev_diag_files[i];
     }
     for (int i = 0; i < nfiles; i++) publish(files[i], 1);
-    char **next = malloc((size_t)(nfiles + 1) * sizeof(char *));
+    char **next = ziman_xmalloc((size_t)(nfiles + 1) * sizeof(char *));
     int n_current = 0;
     for (int i = 0; i < nfiles; i++)
         for (int k = 0; k < g_ndiags; k++)
-            if (strcmp(files[i], g_diags[k].file) == 0) { next[n_current++] = strdup(files[i]); break; }
+            if (strcmp(files[i], g_diags[k].file) == 0) { next[n_current++] = ziman_xstrdup(files[i]); break; }
     g_prev_diag_files = next;
     g_prev_n = n_current;
 }
@@ -672,11 +673,11 @@ static const char *bare_name(const char *qualified) {
 /* The last path segment of the module part of a qualified name ("models/user::greet" -> "user"). */
 static char *module_segment(const char *qualified) {
     const char *sep = strstr(qualified, "::");
-    if (sep == NULL) return strdup("");
+    if (sep == NULL) return ziman_xstrdup("");
     const char *start = qualified;
     for (const char *p = qualified; p < sep; p++) if (*p == '/') start = p + 1;
     size_t n = (size_t)(sep - start);
-    char *out = malloc(n + 1);
+    char *out = ziman_xmalloc(n + 1);
     memcpy(out, start, n);
     out[n] = '\0';
     return out;
@@ -690,7 +691,7 @@ static char *bounds_text(int bound) {
     if (bound & BOUND_EQ) { sb_puts(&b, "Eq"); any = 1; }
     if (bound & BOUND_HASH) { sb_puts(&b, any ? " + Hash" : "Hash"); any = 1; }
     if (bound & BOUND_ORD) { sb_puts(&b, any ? " + Ord" : "Ord"); }
-    return b.s != NULL ? b.s : strdup("");
+    return b.s != NULL ? b.s : ziman_xstrdup("");
 }
 
 static void write_type_params(SB *b, const TypeParamList *tp) {
@@ -789,7 +790,7 @@ static char *core_file(const char *use_path) {
     fputs(source, f);
     fclose(f);
     chmod(path.s, 0444);
-    names[n] = strdup(use_path);
+    names[n] = ziman_xstrdup(use_path);
     files[n] = path.s;
     return files[n++];
 }
@@ -829,7 +830,7 @@ static int already_has(const Sym *out, int n, const char *file, int line) {
 
 static Sym *collect_symbols(int *count) {
     int n = 0, cap = 64;
-    Sym *out = malloc((size_t)cap * sizeof(Sym));
+    Sym *out = ziman_xmalloc((size_t)cap * sizeof(Sym));
     /* The SAME declaration can carry a different `name` depending on which graph loaded it: bare
      * when the file loading it is itself that graph's entry (an entry is never a `use` target, so
      * it keeps its own bare names -- see load_module_graph's own comment), module-qualified
@@ -842,7 +843,7 @@ static Sym *collect_symbols(int *count) {
 #define ADD(nm, f, l, c, k, sig, pub, cr) do { \
     int dup = already_has(out, n, f, l); \
     if (dup < 0) { \
-        if (n == cap) { cap *= 2; out = realloc(out, (size_t)cap * sizeof(Sym)); } \
+        if (n == cap) { cap *= 2; out = ziman_xrealloc(out, (size_t)cap * sizeof(Sym)); } \
         out[n++] = (Sym){nm, f, l, c, k, sig, pub, cr}; \
     } else if (strstr(nm, "::") != NULL && strstr(out[dup].name, "::") == NULL) { \
         out[dup] = (Sym){nm, f, l, c, k, sig, pub, cr}; \
@@ -1018,7 +1019,7 @@ static char *canonical_module_path(const Doc *d, const char *path) {
         sb_printf(&out, "%s/%s", path, last);
         return out.s;
     }
-    return strdup(path);
+    return ziman_xstrdup(path);
 }
 
 typedef struct { const char *word; UseLine found; int hit; int want_name; const Doc *doc; } UseQuery;

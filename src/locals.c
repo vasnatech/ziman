@@ -8,6 +8,7 @@
 #include "env.h"
 #include "error.h"
 #include "value.h"
+#include "xalloc.h"
 
 /* A single value is truncated to this many characters. Long enough that an ordinary array, string
  * or struct is shown whole, short enough that one variable holding a hundred thousand elements
@@ -24,7 +25,7 @@ static void buf_add(Buf *b, const char *s) {
     size_t add = strlen(s);
     if (b->len + add + 1 > b->cap) {
         while (b->len + add + 1 > b->cap) b->cap = b->cap == 0 ? 256 : b->cap * 2;
-        b->text = realloc(b->text, b->cap);
+        b->text = ziman_xrealloc(b->text, b->cap);
     }
     memcpy(b->text + b->len, s, add + 1);
     b->len += add;
@@ -89,7 +90,7 @@ static char *render(void *env_void) {
             if (shadowed) continue;
             if (seen_count == seen_cap) {
                 seen_cap = seen_cap == 0 ? 8 : seen_cap * 2;
-                seen = realloc(seen, (size_t)seen_cap * sizeof(*seen));
+                seen = ziman_xrealloc(seen, (size_t)seen_cap * sizeof(*seen));
             }
             seen[seen_count++] = bind->name;
 

@@ -10,6 +10,7 @@
 #include "derive.h"
 #include "stack.h"
 #include "error.h"
+#include "xalloc.h"
 
 typedef struct {
     TokenList tokens;
@@ -63,7 +64,7 @@ static Token *expect(Parser *p, TokenType type, const char *what) {
 }
 
 static char *dup_token_text(Token *t) {
-    char *s = malloc((size_t)t->length + 1);
+    char *s = ziman_xmalloc((size_t)t->length + 1);
     memcpy(s, t->start, (size_t)t->length);
     s[t->length] = '\0';
     return s;
@@ -241,7 +242,7 @@ static Type parse_type(Parser *p) {
             Token *type_tok = expect(p, TOK_IDENT, "a type name");
             require_upper_start(type_tok, "a type name");
             size_t len = (size_t)t->length + 1 + (size_t)type_tok->length + 1;
-            char *qualified = malloc(len);
+            char *qualified = ziman_xmalloc(len);
             snprintf(qualified, len, "%.*s.%.*s", t->length, t->start, type_tok->length, type_tok->start);
             Type ty = type_struct(qualified);
             free(qualified);
@@ -344,7 +345,7 @@ static CallArgs parse_call_args(Parser *p, TokenType stop) {
         }
         expr_list_push(&result.args, parse_expr(p));
         if (is_named) {
-            result.names = realloc(result.names, (size_t)result.args.count * sizeof(char *));
+            result.names = ziman_xrealloc(result.names, (size_t)result.args.count * sizeof(char *));
             result.names[result.args.count - 1] = name;
         }
         skip_newlines(p);
@@ -426,7 +427,7 @@ static Expr *parse_primary(Parser *p) {
          * digits to bignum_from_string, which needs a clean, NUL-
          * terminated digit string. */
         int digit_len = t->length - 1;
-        char *digits = malloc((size_t)digit_len + 1);
+        char *digits = ziman_xmalloc((size_t)digit_len + 1);
         memcpy(digits, t->start, (size_t)digit_len);
         digits[digit_len] = '\0';
         int ok;
@@ -442,7 +443,7 @@ static Expr *parse_primary(Parser *p) {
         /* Same reasoning as TOK_BIGINT_LIT above -- strip the trailing
          * 'd' suffix before handing the digits to decimal_from_string. */
         int digit_len = t->length - 1;
-        char *digits = malloc((size_t)digit_len + 1);
+        char *digits = ziman_xmalloc((size_t)digit_len + 1);
         memcpy(digits, t->start, (size_t)digit_len);
         digits[digit_len] = '\0';
         int ok;
@@ -460,7 +461,7 @@ static Expr *parse_primary(Parser *p) {
          * strtol plus an explicit 0-255 range check, no bignum/decimal
          * parsing needed. */
         int digit_len = t->length - 1;
-        char *digits = malloc((size_t)digit_len + 1);
+        char *digits = ziman_xmalloc((size_t)digit_len + 1);
         memcpy(digits, t->start, (size_t)digit_len);
         digits[digit_len] = '\0';
         long v = strtol(digits, NULL, 10);
@@ -617,7 +618,7 @@ static Expr *parse_primary(Parser *p) {
                         type_args = parse_type_args(p);
                     }
                     size_t len = strlen(name) + 1 + (size_t)second->length + 1;
-                    char *qualified = malloc(len);
+                    char *qualified = ziman_xmalloc(len);
                     snprintf(qualified, len, "%s.%.*s", name, second->length, second->start);
                     free(name);
                     if (check(p, TOK_LBRACE)) {
@@ -674,7 +675,7 @@ static Expr *parse_primary(Parser *p) {
                     CallArgs args = parse_call_args(p, TOK_RPAREN);
                     expect(p, TOK_RPAREN, "')'");
                     size_t len = strlen(name) + 1 + (size_t)second->length + 1;
-                    char *qualified = malloc(len);
+                    char *qualified = ziman_xmalloc(len);
                     snprintf(qualified, len, "%s.%.*s", name, second->length, second->start);
                     free(name);
                     Expr *e = expr_new(EXPR_CALL, t->line, t->col);
@@ -688,7 +689,7 @@ static Expr *parse_primary(Parser *p) {
                     CallArgs args = parse_call_args(p, TOK_RPAREN);
                     expect(p, TOK_RPAREN, "')'");
                     size_t len = strlen(name) + 1 + (size_t)second->length + 1;
-                    char *qualified = malloc(len);
+                    char *qualified = ziman_xmalloc(len);
                     snprintf(qualified, len, "%s.%.*s", name, second->length, second->start);
                     free(name);
                     Expr *e = expr_new(EXPR_CALL, t->line, t->col);
@@ -774,7 +775,7 @@ static Expr *parse_primary(Parser *p) {
                         "top level, or bind a lambda to a val: 'val %.*s = fn(...) -> T { ... }'",
                         cur(p)->length, cur(p)->start, cur(p)->length, cur(p)->start);
         }
-        FunctionDecl *fn = calloc(1, sizeof(FunctionDecl));
+        FunctionDecl *fn = ziman_xcalloc(1, sizeof(FunctionDecl));
         fn->name = (char *)"lambda";
         fn->line = t->line;
         fn->col = t->col;
@@ -1037,8 +1038,8 @@ static int expr_is_pure(const Expr *e) {
  * conditionally, so a `try` in it is not hoisted. */
 static int expr_child_slots(Expr *e, Expr ****slots) {
     int n = 0, cap = 4;
-    Expr ***v = malloc((size_t)cap * sizeof(Expr **));
-#define ADD_SLOT(s) do { if (n == cap) { cap *= 2; v = realloc(v, (size_t)cap * sizeof(Expr **)); } v[n++] = (s); } while (0)
+    Expr ***v = ziman_xmalloc((size_t)cap * sizeof(Expr **));
+#define ADD_SLOT(s) do { if (n == cap) { cap *= 2; v = ziman_xrealloc(v, (size_t)cap * sizeof(Expr **)); } v[n++] = (s); } while (0)
     switch (e->kind) {
         case EXPR_TRY_UNWRAP: ADD_SLOT(&e->as.try_unwrap.inner); break;
         case EXPR_UNARY: ADD_SLOT(&e->as.unary.operand); break;
@@ -1267,7 +1268,7 @@ static GlobalValDecl *parse_global_val_decl(Parser *p, Visibility vis) {
     Token *kw = expect(p, TOK_VAL, "'val'");
     Token *name_tok = expect(p, TOK_IDENT, "a global value name");
     require_lower_start(name_tok, "a global value name");
-    GlobalValDecl *v = calloc(1, sizeof(GlobalValDecl));
+    GlobalValDecl *v = ziman_xcalloc(1, sizeof(GlobalValDecl));
     v->name = dup_token_text(name_tok);
     v->visibility = vis;
     v->line = kw->line;
@@ -1293,7 +1294,7 @@ static GlobalValDecl *parse_global_val_decl(Parser *p, Visibility vis) {
 
 static char *dup_text(const char *text) {
     size_t n = strlen(text) + 1;
-    char *out = malloc(n);
+    char *out = ziman_xmalloc(n);
     memcpy(out, text, n);
     return out;
 }
@@ -1361,7 +1362,7 @@ static Stmt *parse_if_binding(Parser *p, Token *kw, int allow_binding) {
     IfPart *parts = NULL;
     int n = 0;
     for (;;) {
-        parts = realloc(parts, (size_t)(n + 1) * sizeof(IfPart));
+        parts = ziman_xrealloc(parts, (size_t)(n + 1) * sizeof(IfPart));
         IfPart *part = &parts[n++];
         memset(part, 0, sizeof *part);
         part->line = cur(p)->line;
@@ -1588,7 +1589,7 @@ static Stmt *parse_switch(Parser *p) {
         arm.body = parse_block(p);
         if (s->as.switch_stmt.arm_count == capacity) {
             capacity = capacity == 0 ? 4 : capacity * 2;
-            s->as.switch_stmt.arms = realloc(s->as.switch_stmt.arms, sizeof(SwitchArm) * (size_t)capacity);
+            s->as.switch_stmt.arms = ziman_xrealloc(s->as.switch_stmt.arms, sizeof(SwitchArm) * (size_t)capacity);
         }
         s->as.switch_stmt.arms[s->as.switch_stmt.arm_count++] = arm;
         skip_newlines(p);
@@ -1626,7 +1627,7 @@ static Stmt *parse_spawn(Parser *p) {
     if (match(p, TOK_DOT)) {
         Token *second = expect(p, TOK_IDENT, "a function name");
         size_t len = strlen(callee) + 1 + (size_t)second->length + 1;
-        char *qualified = malloc(len);
+        char *qualified = ziman_xmalloc(len);
         snprintf(qualified, len, "%s.%.*s", callee, second->length, second->start);
         free(callee);
         callee = qualified;
@@ -1741,7 +1742,7 @@ static Stmt *parse_statement(Parser *p) {
 static int g_param_default_counter = 0;
 
 static char *param_default_key(const char *param_name, int name_len) {
-    char *key = malloc((size_t)name_len + 32);
+    char *key = ziman_xmalloc((size_t)name_len + 32);
     sprintf(key, "%.*s$default$%d", name_len, param_name, g_param_default_counter++);
     return key;
 }
@@ -1809,7 +1810,7 @@ static FunctionDecl *parse_function(Parser *p) {
     Token *name_tok = expect(p, TOK_IDENT, "a function name");
     require_lower_start(name_tok, "a function name");
 
-    FunctionDecl *fn = calloc(1, sizeof(FunctionDecl));
+    FunctionDecl *fn = ziman_xcalloc(1, sizeof(FunctionDecl));
     fn->name = dup_token_text(name_tok);
     fn->line = kw->line;
     fn->col = kw->col;
@@ -1864,7 +1865,7 @@ static FunctionDecl *parse_native_function(Parser *p) {
     Token *name_tok = expect(p, TOK_IDENT, "a function name");
     require_lower_start(name_tok, "a function name");
 
-    FunctionDecl *fn = calloc(1, sizeof(FunctionDecl));
+    FunctionDecl *fn = ziman_xcalloc(1, sizeof(FunctionDecl));
     fn->name = dup_token_text(name_tok);
     fn->is_native = 1;
     fn->line = kw->line;
@@ -2112,7 +2113,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
     Token *name_tok = expect(p, TOK_IDENT, "a struct name");
     require_upper_start(name_tok, "a struct name");
 
-    StructDecl *sd = calloc(1, sizeof(StructDecl));
+    StructDecl *sd = ziman_xcalloc(1, sizeof(StructDecl));
     sd->name = dup_token_text(name_tok);
     sd->line = kw->line;
     sd->col = kw->col;
@@ -2148,7 +2149,7 @@ static EnumDecl *parse_enum_decl(Parser *p) {
     Token *name_tok = expect(p, TOK_IDENT, "an enum name");
     require_upper_start(name_tok, "an enum name");
 
-    EnumDecl *ed = calloc(1, sizeof(EnumDecl));
+    EnumDecl *ed = ziman_xcalloc(1, sizeof(EnumDecl));
     ed->name = dup_token_text(name_tok);
     ed->line = kw->line;
     ed->col = kw->col;
@@ -2204,12 +2205,12 @@ static UseDecl parse_use_decl(Parser *p) {
     Token *kw = expect(p, TOK_USE, "'use'");
 
     size_t cap = 64, len = 0;
-    char *path = malloc(cap);
+    char *path = ziman_xmalloc(cap);
     path[0] = '\0';
 
     Token *last_seg = expect(p, TOK_IDENT, "a module path segment");
     size_t seg_len = (size_t)last_seg->length;
-    if (seg_len + 1 > cap) { cap = seg_len + 1; path = realloc(path, cap); }
+    if (seg_len + 1 > cap) { cap = seg_len + 1; path = ziman_xrealloc(path, cap); }
     memcpy(path, last_seg->start, seg_len);
     len = seg_len;
     path[len] = '\0';
@@ -2218,7 +2219,7 @@ static UseDecl parse_use_decl(Parser *p) {
         last_seg = expect(p, TOK_IDENT, "a module path segment");
         seg_len = (size_t)last_seg->length;
         size_t needed = len + 1 + seg_len + 1;
-        if (needed > cap) { cap = needed; path = realloc(path, cap); }
+        if (needed > cap) { cap = needed; path = ziman_xrealloc(path, cap); }
         path[len] = '/';
         memcpy(path + len + 1, last_seg->start, seg_len);
         len += 1 + seg_len;
@@ -2308,7 +2309,7 @@ typedef struct {
 static void derive_list_push(DeriveList *list, char *name) {
     if (list->count == list->capacity) {
         list->capacity = list->capacity == 0 ? 4 : list->capacity * 2;
-        list->names = realloc(list->names, sizeof(char *) * (size_t)list->capacity);
+        list->names = ziman_xrealloc(list->names, sizeof(char *) * (size_t)list->capacity);
     }
     list->names[list->count++] = name;
 }
@@ -2404,7 +2405,7 @@ static void parse_module_attributes(Parser *p, Module *module) {
 
 Module *parse(TokenList tokens) {
     Parser p = {tokens, 0};
-    Module *module = calloc(1, sizeof(Module));
+    Module *module = ziman_xcalloc(1, sizeof(Module));
 
     skip_newlines(&p);
     parse_module_attributes(&p, module);

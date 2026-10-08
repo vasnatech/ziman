@@ -17,6 +17,7 @@
 
 #include "error.h"
 #include "native.h"
+#include "xalloc.h"
 
 /* The `crypto` core module's natives, on OpenSSL's libcrypto (already linked for TLS):
  * SHA-1 / SHA-256 / SHA-512, HMAC, PBKDF2, Argon2id, AES-256-GCM, a constant-time comparison, base64 and
@@ -96,7 +97,7 @@ static Value pbkdf2_value(const EVP_MD *md, const char *name, Value *args, int l
     int pn = 0, sn = 0;
     uint8_t *pw = array_copy_bytes(args[0].as.arr, &pn);
     uint8_t *salt = array_copy_bytes(args[1].as.arr, &sn);
-    unsigned char *out = malloc((size_t)(length > 0 ? length : 1));
+    unsigned char *out = ziman_xmalloc((size_t)(length > 0 ? length : 1));
     if (PKCS5_PBKDF2_HMAC((const char *)pw, pn, salt, sn, (int)iterations, md, (int)length, out) != 1) {
         ziman_error("runtime", line, col, "crypto.%s failed", name);
     }
@@ -145,7 +146,7 @@ static const char B64_URL[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvw
 static Value base64_encode_with(Value data, const char *alphabet, int pad) {
     int n = 0;
     uint8_t *in = array_copy_bytes(data.as.arr, &n);
-    char *out = malloc(((size_t)(n + 2) / 3) * 4 + 1);
+    char *out = ziman_xmalloc(((size_t)(n + 2) / 3) * 4 + 1);
     size_t o = 0;
     for (int i = 0; i < n; i += 3) {
         uint32_t v = (uint32_t)in[i] << 16;
@@ -179,7 +180,7 @@ static int alphabet_value(const char *alphabet, char c) {
 }
 
 static Value base64_error(Type result_type, const char *message) {
-    return value_result(result_type, result_obj_new(0, value_string(strdup(message))));
+    return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 /* Strict: no whitespace, no characters outside the alphabet, padding only at the very end.
@@ -191,7 +192,7 @@ static Value base64_decode_with(Value text, const char *alphabet, int padded) {
     size_t n = text.as.str.len;
     if (padded && n % 4 != 0) return base64_error(result_type, "invalid base64: length is not a multiple of 4");
     if (!padded && n % 4 == 1) return base64_error(result_type, "invalid base64url: length is not valid");
-    unsigned char *out = malloc(n / 4 * 3 + 3);
+    unsigned char *out = ziman_xmalloc(n / 4 * 3 + 3);
     size_t o = 0;
     for (size_t i = 0; i < n; i += 4) {
         size_t group = n - i < 4 ? n - i : 4;
@@ -229,15 +230,15 @@ static Value native_base64url_decode(Value *args, int argc, int line, int col) {
 /* ------------------------------------------------------------- password hashing */
 
 static Value string_result_ok(const char *text) {
-    return value_result(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)), result_obj_new(1, value_string(strdup(text))));
+    return value_result(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)), result_obj_new(1, value_string(ziman_xstrdup(text))));
 }
 
 static Value string_result_err(const char *message) {
-    return value_result(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)), result_obj_new(0, value_string(strdup(message))));
+    return value_result(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 static char *copy_cstring(Value v) {
-    char *out = malloc((size_t)v.as.str.len + 1);
+    char *out = ziman_xmalloc((size_t)v.as.str.len + 1);
     memcpy(out, v.as.str.ptr, (size_t)v.as.str.len);
     out[v.as.str.len] = '\0';
     return out;
@@ -255,7 +256,7 @@ static Value native_bcrypt(Value *args, int argc, int line, int col) {
     if (crypt_gensalt_rn("$2b$", (unsigned long)cost, (const char *)rnd, (int)sizeof rnd, setting, (int)sizeof setting) == NULL) {
         return string_result_err("bcrypt: could not build a salt");
     }
-    struct crypt_data *data = calloc(1, sizeof *data);
+    struct crypt_data *data = ziman_xcalloc(1, sizeof *data);
     char *hash = crypt_r(password, setting, data);
     Value out = (hash != NULL && hash[0] == '$') ? string_result_ok(hash) : string_result_err("bcrypt: hashing failed");
     OPENSSL_cleanse(data, sizeof *data);
@@ -274,7 +275,7 @@ static Value native_bcrypt_verify(Value *args, int argc, int line, int col) {
     char *hash = copy_cstring(args[1]);
     int ok = 0;
     if (hash[0] == '$' && hash[1] == '2') {
-        struct crypt_data *data = calloc(1, sizeof *data);
+        struct crypt_data *data = ziman_xcalloc(1, sizeof *data);
         char *computed = crypt_r(password, hash, data);
         ok = computed != NULL && strlen(computed) == hn && CRYPTO_memcmp(computed, hash, hn) == 0;
         OPENSSL_cleanse(data, sizeof *data);
@@ -292,13 +293,13 @@ static Value native_argon2id_raw(Value *args, int argc, int line, int col) {
     Type result_type = type_result(byte_array_type(), type_scalar(TY_STRING));
     int64_t memory = args[2].as.i, iterations = args[3].as.i, lanes = args[4].as.i, length = args[5].as.i;
     if (memory < 8 || memory > (1 << 22) || iterations < 1 || iterations > 1000 || lanes < 1 || lanes > 64 || length < 4 || length > 1024) {
-        return value_result(result_type, result_obj_new(0, value_string(strdup("argon2id: parameters out of range"))));
+        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("argon2id: parameters out of range"))));
     }
     int pn = 0, sn = 0;
     uint8_t *pw = array_copy_bytes(args[0].as.arr, &pn);
     uint8_t *salt = array_copy_bytes(args[1].as.arr, &sn);
     uint32_t iter = (uint32_t)iterations, lane = (uint32_t)lanes, mem = (uint32_t)memory, threads = 1;
-    unsigned char *out = malloc((size_t)length);
+    unsigned char *out = ziman_xmalloc((size_t)length);
     OSSL_PARAM params[] = {
         OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, pw, (size_t)pn),
         OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, salt, (size_t)sn),
@@ -312,7 +313,7 @@ static Value native_argon2id_raw(Value *args, int argc, int line, int col) {
     EVP_KDF_CTX *ctx = kdf != NULL ? EVP_KDF_CTX_new(kdf) : NULL;
     int ok = ctx != NULL && EVP_KDF_derive(ctx, out, (size_t)length, params) == 1;
     Value v = ok ? value_result(result_type, result_obj_new(1, value_byte_array(out, (size_t)length)))
-                 : value_result(result_type, result_obj_new(0, value_string(strdup("argon2id: the derivation failed (a salt of at least 8 bytes is required)"))));
+                 : value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("argon2id: the derivation failed (a salt of at least 8 bytes is required)"))));
     EVP_KDF_CTX_free(ctx);
     EVP_KDF_free(kdf);
     OPENSSL_cleanse(pw, (size_t)pn);
@@ -328,7 +329,7 @@ static const size_t aes_gcm_nonce_len = 12;
 static const size_t aes_gcm_tag_len = 16;
 
 static Value bytes_result_err(Type result_type, const char *message) {
-    return value_result(result_type, result_obj_new(0, value_string(strdup(message))));
+    return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 /* aes_gcm_encrypt(key, plaintext): AES-256-GCM with a fresh random nonce, returned as
@@ -350,7 +351,7 @@ static Value native_aes_gcm_encrypt(Value *args, int argc, int line, int col) {
         free(plaintext);
         return bytes_result_err(result_type, "aes_gcm_encrypt: no random bytes available");
     }
-    unsigned char *ciphertext = malloc((size_t)(pn > 0 ? pn : 1));
+    unsigned char *ciphertext = ziman_xmalloc((size_t)(pn > 0 ? pn : 1));
     unsigned char tag[16];
     int len = 0, ciphertext_len = 0;
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
@@ -368,7 +369,7 @@ static Value native_aes_gcm_encrypt(Value *args, int argc, int line, int col) {
     Value v;
     if (ok) {
         size_t total = aes_gcm_nonce_len + (size_t)ciphertext_len + aes_gcm_tag_len;
-        unsigned char *out = malloc(total);
+        unsigned char *out = ziman_xmalloc(total);
         memcpy(out, nonce, aes_gcm_nonce_len);
         memcpy(out + aes_gcm_nonce_len, ciphertext, (size_t)ciphertext_len);
         memcpy(out + aes_gcm_nonce_len + (size_t)ciphertext_len, tag, aes_gcm_tag_len);
@@ -408,7 +409,7 @@ static Value native_aes_gcm_decrypt(Value *args, int argc, int line, int col) {
     unsigned char *ciphertext = blob + aes_gcm_nonce_len;
     int ciphertext_len = (int)((size_t)bn - aes_gcm_nonce_len - aes_gcm_tag_len);
     unsigned char *tag = blob + (size_t)bn - aes_gcm_tag_len;
-    unsigned char *plaintext = malloc((size_t)(ciphertext_len > 0 ? ciphertext_len : 1));
+    unsigned char *plaintext = ziman_xmalloc((size_t)(ciphertext_len > 0 ? ciphertext_len : 1));
     int len = 0, plaintext_len = 0;
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     int ok = ctx != NULL

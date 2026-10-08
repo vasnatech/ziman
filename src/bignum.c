@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "bignum.h"
+#include "xalloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +23,7 @@ static int mag_compare(const uint32_t *a, int na, const uint32_t *b, int nb) {
 
 static uint32_t *mag_add(const uint32_t *a, int na, const uint32_t *b, int nb, int *out_count) {
     int n = (na > nb ? na : nb) + 1;
-    uint32_t *out = calloc((size_t)n, sizeof(uint32_t));
+    uint32_t *out = ziman_xcalloc((size_t)n, sizeof(uint32_t));
     uint64_t carry = 0;
     for (int i = 0; i < n; i++) {
         uint64_t sum = carry;
@@ -39,7 +40,7 @@ static uint32_t *mag_add(const uint32_t *a, int na, const uint32_t *b, int nb, i
 
 /* Requires a >= b as magnitudes -- callers always compare first. */
 static uint32_t *mag_sub(const uint32_t *a, int na, const uint32_t *b, int nb, int *out_count) {
-    uint32_t *out = calloc((size_t)(na > 0 ? na : 1), sizeof(uint32_t));
+    uint32_t *out = ziman_xcalloc((size_t)(na > 0 ? na : 1), sizeof(uint32_t));
     int64_t borrow = 0;
     for (int i = 0; i < na; i++) {
         int64_t diff = (int64_t)a[i] - borrow - (i < nb ? (int64_t)b[i] : 0);
@@ -90,7 +91,7 @@ static int mag_mul_limb(uint32_t *out, const uint32_t *b, int nb, uint32_t limb)
 static uint32_t *mag_mul(const uint32_t *a, int na, const uint32_t *b, int nb, int *out_count) {
     if (na == 0 || nb == 0) {
         *out_count = 0;
-        return calloc(1, sizeof(uint32_t));
+        return ziman_xcalloc(1, sizeof(uint32_t));
     }
     int n = na + nb;
     /* The accumulator is pure scratch -- copied into `out` and dropped -- so it comes off the stack
@@ -99,7 +100,7 @@ static uint32_t *mag_mul(const uint32_t *a, int na, const uint32_t *b, int nb, i
      * covers any product up to MAG_SCRATCH_LIMBS*9 decimal digits, which is every `decimal` this
      * language has and all but enormous integers; anything larger still allocates. */
     uint64_t scratch[MAG_SCRATCH_LIMBS];
-    uint64_t *acc = n <= MAG_SCRATCH_LIMBS ? scratch : calloc((size_t)n, sizeof(uint64_t));
+    uint64_t *acc = n <= MAG_SCRATCH_LIMBS ? scratch : ziman_xcalloc((size_t)n, sizeof(uint64_t));
     if (acc == scratch) memset(acc, 0, (size_t)n * sizeof(uint64_t));
     for (int i = 0; i < na; i++) {
         if (a[i] == 0) continue;
@@ -118,7 +119,7 @@ static uint32_t *mag_mul(const uint32_t *a, int na, const uint32_t *b, int nb, i
             k++;
         }
     }
-    uint32_t *out = calloc((size_t)n, sizeof(uint32_t));
+    uint32_t *out = ziman_xcalloc((size_t)n, sizeof(uint32_t));
     for (int i = 0; i < n; i++) out[i] = (uint32_t)acc[i];
     if (acc != scratch) free(acc);
     int count = n;
@@ -137,18 +138,18 @@ static uint32_t *mag_mul(const uint32_t *a, int na, const uint32_t *b, int nb, i
 static void mag_divmod(const uint32_t *a, int na, const uint32_t *b, int nb,
                         uint32_t **out_quot, int *out_quot_count,
                         uint32_t **out_rem, int *out_rem_count) {
-    uint32_t *quot = calloc((size_t)(na > 0 ? na : 1), sizeof(uint32_t));
-    uint32_t *rem = calloc(1, sizeof(uint32_t));
+    uint32_t *quot = ziman_xcalloc((size_t)(na > 0 ? na : 1), sizeof(uint32_t));
+    uint32_t *rem = ziman_xcalloc(1, sizeof(uint32_t));
     int rem_count = 0;
 
     /* One product buffer for the whole division, reused by every bisection probe and by the
      * subtract below -- see mag_mul_limb for what this replaced. `nb + 1` is the most limbs a
      * single-limb product can have; the extra limb keeps mag_mul_limb's carry loop in bounds. */
     uint32_t prod_stack[MAG_SCRATCH_LIMBS];
-    uint32_t *prod = nb + 2 <= MAG_SCRATCH_LIMBS ? prod_stack : calloc((size_t)nb + 2, sizeof(uint32_t));
+    uint32_t *prod = nb + 2 <= MAG_SCRATCH_LIMBS ? prod_stack : ziman_xcalloc((size_t)nb + 2, sizeof(uint32_t));
 
     for (int i = na - 1; i >= 0; i--) {
-        uint32_t *shifted = calloc((size_t)(rem_count + 1), sizeof(uint32_t));
+        uint32_t *shifted = ziman_xcalloc((size_t)(rem_count + 1), sizeof(uint32_t));
         shifted[0] = a[i];
         for (int k = 0; k < rem_count; k++) shifted[k + 1] = rem[k];
         free(rem);
@@ -211,7 +212,7 @@ BigNum bignum_from_i64(int64_t v) {
     int sign = v < 0 ? -1 : 1;
     /* -INT64_MIN overflows int64_t; do the magnitude split in uint64_t. */
     uint64_t mag = v < 0 ? (uint64_t)(-(v + 1)) + 1u : (uint64_t)v;
-    uint32_t *digits = calloc(3, sizeof(uint32_t)); /* max ~1.8e19 needs 3 limbs of 1e9 */
+    uint32_t *digits = ziman_xcalloc(3, sizeof(uint32_t)); /* max ~1.8e19 needs 3 limbs of 1e9 */
     int count = 0;
     while (mag > 0) {
         digits[count++] = (uint32_t)(mag % BIGNUM_BASE);
@@ -241,7 +242,7 @@ BigNum bignum_from_string(const char *s, int *ok) {
     }
     int ndigits = (int)(len - i);
     int count = (ndigits + 8) / 9;
-    uint32_t *digits = calloc((size_t)(count > 0 ? count : 1), sizeof(uint32_t));
+    uint32_t *digits = ziman_xcalloc((size_t)(count > 0 ? count : 1), sizeof(uint32_t));
     /* Fill limbs from least-significant (the string's tail) backward. */
     int limb = 0;
     for (int end = (int)len; end > (int)i; end -= 9) {
@@ -259,9 +260,9 @@ BigNum bignum_from_string(const char *s, int *ok) {
 }
 
 char *bignum_to_string(BigNum a) {
-    if (a.count == 0) return strdup("0");
+    if (a.count == 0) return ziman_xstrdup("0");
     size_t cap = (size_t)a.count * 9 + 2;
-    char *out = malloc(cap);
+    char *out = ziman_xmalloc(cap);
     size_t len = 0;
     if (a.sign < 0) out[len++] = '-';
     len += (size_t)snprintf(out + len, cap - len, "%u", a.digits[a.count - 1]);
@@ -273,7 +274,7 @@ char *bignum_to_string(BigNum a) {
 
 BigNum bignum_negate(BigNum a) {
     if (a.sign == 0) return a;
-    uint32_t *digits = malloc((size_t)a.count * sizeof(uint32_t));
+    uint32_t *digits = ziman_xmalloc((size_t)a.count * sizeof(uint32_t));
     memcpy(digits, a.digits, (size_t)a.count * sizeof(uint32_t));
     return make(-a.sign, digits, a.count);
 }
@@ -384,7 +385,7 @@ int64_t bignum_to_i64_saturating(BigNum a) {
 
 BigNum bignum_pow10(int n) {
     if (n == 0) return bignum_from_i64(1);
-    char *s = malloc((size_t)n + 2);
+    char *s = ziman_xmalloc((size_t)n + 2);
     s[0] = '1';
     memset(s + 1, '0', (size_t)n);
     s[n + 1] = '\0';

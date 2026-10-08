@@ -11,6 +11,7 @@
 
 #include "regex.h"
 #include "value.h"
+#include "xalloc.h"
 
 /* A compiled pattern is immutable, so it is shared freely between threads and
  * never freed (like every other heap object in the default build); the
@@ -59,7 +60,7 @@ static void cache_store(const char *pattern, size_t len, RegexHandle *h) {
     pthread_mutex_lock(&g_cache_mu);
     CacheEntry *slot = &g_cache[g_cache_next];
     g_cache_next = (g_cache_next + 1) % CACHE_SIZE;
-    char *copy = malloc(len + 1);
+    char *copy = ziman_xmalloc(len + 1);
     memcpy(copy, pattern, len);
     copy[len] = '\0';
     slot->pattern = copy;
@@ -78,8 +79,8 @@ static Value native_regex_compile_raw(Value *args, int argc, int line, int col) 
     if (cached != NULL) return value_result(rt, result_obj_new(1, value_int((int64_t)(intptr_t)cached)));
     char err[256];
     Regex *re = regex_compile(pattern, plen, err, sizeof err);
-    if (re == NULL) return value_result(rt, result_obj_new(0, value_string(strdup(err))));
-    RegexHandle *h = malloc(sizeof(RegexHandle));
+    if (re == NULL) return value_result(rt, result_obj_new(0, value_string(ziman_xstrdup(err))));
+    RegexHandle *h = ziman_xmalloc(sizeof(RegexHandle));
     h->magic = REGEX_MAGIC;
     h->re = re;
     cache_store(pattern, plen, h);
@@ -92,7 +93,7 @@ static Value native_regex_group_count_raw(Value *args, int argc, int line, int c
 }
 
 static Value int_array(int *vals, int n) {
-    int64_t *wide = malloc((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+    int64_t *wide = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
     for (int i = 0; i < n; i++) wide[i] = vals[i];
     Value v = value_int_array(wide, (size_t)n);
     free(wide);
@@ -109,7 +110,7 @@ static Value native_regex_search_raw(Value *args, int argc, int line, int col) {
         ziman_error("runtime", line, col, "regex: start offset %lld is out of range for a text of length %zu", (long long)from, len);
     }
     int n = 2 * (regex_group_count(h->re) + 1);
-    int *caps = malloc((size_t)n * sizeof(int));
+    int *caps = ziman_xmalloc((size_t)n * sizeof(int));
     Value result;
     int found = regex_search(h->re, args[1].as.str.ptr, len, (size_t)from, caps);
     /* -1 is a failed allocation inside the matcher, not "no match" -- its size is already bounded
@@ -129,9 +130,9 @@ static Value native_regex_search_all_raw(Value *args, int argc, int line, int co
     const char *text = args[1].as.str.ptr;
     size_t len = args[1].as.str.len;
     int n = 2 * (regex_group_count(h->re) + 1);
-    int *caps = malloc((size_t)n * sizeof(int));
+    int *caps = ziman_xmalloc((size_t)n * sizeof(int));
     int cap = 64, count = 0;
-    int *all = malloc((size_t)cap * sizeof(int));
+    int *all = ziman_xmalloc((size_t)cap * sizeof(int));
     size_t from = 0;
     for (;;) {
         if (from > len) break;
@@ -140,7 +141,7 @@ static Value native_regex_search_all_raw(Value *args, int argc, int line, int co
         if (!found) break;
         if (count + n > cap) {
             while (count + n > cap) cap *= 2;
-            all = realloc(all, (size_t)cap * sizeof(int));
+            all = ziman_xrealloc(all, (size_t)cap * sizeof(int));
         }
         memcpy(all + count, caps, (size_t)n * sizeof(int));
         count += n;
@@ -162,10 +163,10 @@ static Value native_regex_group_names_raw(Value *args, int argc, int line, int c
     (void)argc;
     RegexHandle *h = handle_of(args[0], line, col);
     int n = regex_group_count(h->re);
-    Value *items = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    Value *items = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
     for (int g = 1; g <= n; g++) {
         const char *name = regex_group_name(h->re, g);
-        items[g - 1] = value_string(strdup(name != NULL ? name : ""));
+        items[g - 1] = value_string(ziman_xstrdup(name != NULL ? name : ""));
     }
     return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, n));
 }

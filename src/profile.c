@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include "error.h"
+#include "xalloc.h"
 
 /* Only for GC_set_on_collection_event -- a `make`/`make gc` build already force-includes src/zgc.h
  * into every translation unit; this explicit include is for gc.h's own declarations, the same reason
@@ -111,7 +112,7 @@ static void on_sigprof(int sig) {
 }
 
 void ziman_profile_start(void) {
-    g_samples = calloc(SAMPLE_CAPACITY, sizeof(*g_samples));
+    g_samples = ziman_xcalloc(SAMPLE_CAPACITY, sizeof(*g_samples));
     if (g_samples == NULL) {
         fprintf(stderr, "ziman: --profile: cannot allocate the sample buffer\n");
         return;
@@ -187,7 +188,7 @@ void ziman_profile_report(void) {
         if (found < 0) {
             if (tally_count == tally_cap) {
                 tally_cap = tally_cap == 0 ? 64 : tally_cap * 2;
-                tally = realloc(tally, (size_t)tally_cap * sizeof(Tally));
+                tally = ziman_xrealloc(tally, (size_t)tally_cap * sizeof(Tally));
             }
             found = tally_count++;
             tally[found].name = name;

@@ -15,6 +15,7 @@
 #include "iter.h"
 #include "native.h"
 #include "value.h"
+#include "xalloc.h"
 
 /* Every failing filesystem call is an expected condition (missing file,
  * permissions, full disk), so each one returns a Result with the OS's own
@@ -40,7 +41,7 @@ static const char *errno_category(void) {
 static Value fs_err(Type ok_type, const char *what, const char *path) {
     char msg[1024];
     snprintf(msg, sizeof(msg), "%s|%s '%s': %s", errno_category(), what, path, strerror(errno));
-    return value_result(type_result(ok_type, string_type()), result_obj_new(0, value_string(strdup(msg))));
+    return value_result(type_result(ok_type, string_type()), result_obj_new(0, value_string(ziman_xstrdup(msg))));
 }
 
 static Value fs_ok_int(int64_t n) {
@@ -139,7 +140,7 @@ static Value native_fs_read_text(Value *args, int argc, int line, int col) {
     if (strlen(buf) != n) {
         char msg[1024];
         snprintf(msg, sizeof(msg), "cannot read '%s': file contains a NUL byte", path);
-        return value_result(type_result(str, str), result_obj_new(0, value_string(strdup(msg))));
+        return value_result(type_result(str, str), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     return value_result(type_result(str, str), result_obj_new(1, value_string(buf)));
 }
@@ -157,19 +158,19 @@ static Value native_fs_list_dir(Value *args, int argc, int line, int col) {
     DIR *d = opendir(path);
     if (d == NULL) return fs_err(list_type, "cannot list", path);
     int cap = 16, n = 0;
-    char **names = malloc((size_t)cap * sizeof(char *));
+    char **names = ziman_xmalloc((size_t)cap * sizeof(char *));
     struct dirent *e;
     while ((e = readdir(d)) != NULL) {
         if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
         if (n == cap) {
             cap *= 2;
-            names = realloc(names, (size_t)cap * sizeof(char *));
+            names = ziman_xrealloc(names, (size_t)cap * sizeof(char *));
         }
-        names[n++] = strdup(e->d_name);
+        names[n++] = ziman_xstrdup(e->d_name);
     }
     closedir(d);
     qsort(names, (size_t)n, sizeof(char *), compare_names);
-    Value *items = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    Value *items = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
     for (int i = 0; i < n; i++) items[i] = value_string(names[i]);
     free(names);
     Value arr = value_array(list_type, array_obj_new(items, n));
@@ -189,13 +190,13 @@ static Value native_fs_read_bytes(Value *args, int argc, int line, int col) {
     FILE *f = fopen(path, "rb");
     if (f == NULL) return fs_err(bt, "cannot read", path);
     size_t cap = 4096, n = 0;
-    uint8_t *buf = malloc(cap);
+    uint8_t *buf = ziman_xmalloc(cap);
     for (;;) {
         size_t got = fread(buf + n, 1, cap - n, f);
         n += got;
         if (n < cap) break;
         cap *= 2;
-        buf = realloc(buf, cap);
+        buf = ziman_xrealloc(buf, cap);
     }
     int failed = ferror(f);
     fclose(f);
@@ -328,13 +329,13 @@ static int lines_next(IterObj *it, Value *out) {
     int r = line_source_next(ls, &line, &len, &number, err, sizeof err);
     if (r == 0) return 0;
     if (r < 0) {
-        *out = line_item(0, value_string(strdup(err)));
+        *out = line_item(0, value_string(ziman_xstrdup(err)));
         return 1;
     }
     if (memchr(line, '\0', len) != NULL) {
         char msg[128];
         snprintf(msg, sizeof(msg), "line %lld contains a NUL byte", (long long)number);
-        *out = line_item(0, value_string(strdup(msg)));
+        *out = line_item(0, value_string(ziman_xstrdup(msg)));
         return 1;
     }
     *out = line_item(1, value_string_copy(line, len));
@@ -351,7 +352,7 @@ static Value native_fs_lines(Value *args, int argc, int line, int col) {
     Type iter_type = type_struct("Iter");
     LineSource *ls = line_source_open(path);
     if (ls == NULL) return fs_err(iter_type, "cannot read", path);
-    IterObj *it = calloc(1, sizeof(IterObj));
+    IterObj *it = ziman_xcalloc(1, sizeof(IterObj));
     it->next = lines_next;
     it->release = lines_release;
     it->state = ls;
@@ -382,12 +383,12 @@ static int chunks_next(IterObj *it, Value *out) {
             st->failed = 1;
             char item_msg[512];
             snprintf(item_msg, sizeof item_msg, "%s|%s", errno_category(), strerror(errno));
-            *out = chunk_item(0, value_string(strdup(item_msg)));
+            *out = chunk_item(0, value_string(ziman_xstrdup(item_msg)));
             return 1;
         }
         return 0;
     }
-    uint8_t *copy = malloc(got);
+    uint8_t *copy = ziman_xmalloc(got);
     memcpy(copy, st->buf, got);
     *out = chunk_item(1, value_byte_array(copy, got));
     free(copy);
@@ -410,7 +411,7 @@ static Value native_fs_chunks(Value *args, int argc, int line, int col) {
     if (size < 1 || size > (int64_t)1 << 30) {
         char msg[128];
         snprintf(msg, sizeof msg, "chunk size %lld is out of range (1 to 1073741824)", (long long)size);
-        return value_result(type_result(iter_type, string_type()), result_obj_new(0, value_string(strdup(msg))));
+        return value_result(type_result(iter_type, string_type()), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     FILE *f = fopen(path, "rb");
 #ifdef ZIMAN_GC
@@ -421,11 +422,11 @@ static Value native_fs_chunks(Value *args, int argc, int line, int col) {
     }
 #endif
     if (f == NULL) return fs_err(iter_type, "cannot read", path);
-    ChunksState *st = calloc(1, sizeof(ChunksState));
+    ChunksState *st = ziman_xcalloc(1, sizeof(ChunksState));
     st->file = f;
     st->size = (size_t)size;
-    st->buf = malloc(st->size);
-    IterObj *it = calloc(1, sizeof(IterObj));
+    st->buf = ziman_xmalloc(st->size);
+    IterObj *it = ziman_xcalloc(1, sizeof(IterObj));
     it->next = chunks_next;
     it->release = chunks_release;
     it->state = st;
@@ -451,7 +452,7 @@ typedef struct {
 
 static char *join_path(const char *dir, const char *name) {
     size_t dl = strlen(dir), nl = strlen(name);
-    char *out = malloc(dl + nl + 2);
+    char *out = ziman_xmalloc(dl + nl + 2);
     memcpy(out, dir, dl);
     size_t at = dl;
     if (dl > 0 && dir[dl - 1] != '/') out[at++] = '/';
@@ -466,23 +467,23 @@ static int walk_push(WalkState *st, const char *path) {
     DIR *d = opendir(path);
     if (d == NULL) return 0;
     int cap = 16, n = 0;
-    char **names = malloc((size_t)cap * sizeof(char *));
+    char **names = ziman_xmalloc((size_t)cap * sizeof(char *));
     struct dirent *e;
     while ((e = readdir(d)) != NULL) {
         if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
         if (n == cap) {
             cap *= 2;
-            names = realloc(names, (size_t)cap * sizeof(char *));
+            names = ziman_xrealloc(names, (size_t)cap * sizeof(char *));
         }
-        names[n++] = strdup(e->d_name);
+        names[n++] = ziman_xstrdup(e->d_name);
     }
     closedir(d);
     qsort(names, (size_t)n, sizeof(char *), compare_names);
     if (st->depth == st->capacity) {
         st->capacity = st->capacity > 0 ? st->capacity * 2 : 8;
-        st->frames = realloc(st->frames, (size_t)st->capacity * sizeof(WalkFrame));
+        st->frames = ziman_xrealloc(st->frames, (size_t)st->capacity * sizeof(WalkFrame));
     }
-    st->frames[st->depth++] = (WalkFrame){strdup(path), names, n, 0};
+    st->frames[st->depth++] = (WalkFrame){ziman_xstrdup(path), names, n, 0};
     return 1;
 }
 
@@ -505,7 +506,7 @@ static int walk_next(IterObj *it, Value *out) {
             if (!walk_push(st, full)) {
                 char msg[1024];
                 snprintf(msg, sizeof msg, "%s|cannot list '%s': %s", errno_category(), full, strerror(errno));
-                *out = walk_item(0, strdup(msg));
+                *out = walk_item(0, ziman_xstrdup(msg));
                 return 1;
             }
             continue;
@@ -528,9 +529,9 @@ static Value native_fs_walk(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     const char *path = value_cstr(args[0]);
     Type iter_type = type_struct("Iter");
-    WalkState *st = calloc(1, sizeof(WalkState));
+    WalkState *st = ziman_xcalloc(1, sizeof(WalkState));
     if (!walk_push(st, path)) return fs_err(iter_type, "cannot list", path);
-    IterObj *it = calloc(1, sizeof(IterObj));
+    IterObj *it = ziman_xcalloc(1, sizeof(IterObj));
     it->next = walk_next;
     it->release = walk_release;
     it->state = st;

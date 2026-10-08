@@ -13,6 +13,7 @@
 #include "parser.h"
 #include "prelude.h"
 #include "stack.h"
+#include "xalloc.h"
 
 /* ---- small file/path helpers ---- */
 
@@ -30,14 +31,14 @@ void loader_set_overrides(const char **paths, const char **texts, int count) {
 
 static char *read_all(const char *path) {
     for (int i = 0; i < g_override_count; i++) {
-        if (strcmp(g_override_paths[i], path) == 0) return strdup(g_override_texts[i]);
+        if (strcmp(g_override_paths[i], path) == 0) return ziman_xstrdup(g_override_texts[i]);
     }
     FILE *f = fopen(path, "rb");
     if (f == NULL) return NULL;
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
-    char *buf = malloc((size_t)size + 1);
+    char *buf = ziman_xmalloc((size_t)size + 1);
     size_t read = fread(buf, 1, (size_t)size, f);
     buf[read] = '\0';
     fclose(f);
@@ -46,9 +47,9 @@ static char *read_all(const char *path) {
 
 static char *dirname_of(const char *path) {
     const char *slash = strrchr(path, '/');
-    if (slash == NULL) return strdup("");
+    if (slash == NULL) return ziman_xstrdup("");
     size_t len = (size_t)(slash - path);
-    char *dir = malloc(len + 1);
+    char *dir = ziman_xmalloc(len + 1);
     memcpy(dir, path, len);
     dir[len] = '\0';
     return dir;
@@ -63,7 +64,7 @@ static char *module_name_of(const char *path) {
     const char *base = slash != NULL ? slash + 1 : path;
     size_t len = strlen(base);
     if (len > 3 && strcmp(base + len - 3, ".zm") == 0) len -= 3;
-    char *name = malloc(len + 1);
+    char *name = ziman_xmalloc(len + 1);
     memcpy(name, base, len);
     name[len] = '\0';
     return name;
@@ -71,7 +72,7 @@ static char *module_name_of(const char *path) {
 
 static char *resolve_file_path(const char *project_root, const char *use_path) {
     size_t len = strlen(project_root) + strlen(use_path) + 6;
-    char *out = malloc(len);
+    char *out = ziman_xmalloc(len);
     if (project_root[0] == '\0') {
         snprintf(out, len, "%s.zm", use_path);
     } else {
@@ -104,7 +105,7 @@ static char *resolve_via_module_path(const char *use_path) {
         size_t dir_len = colon != NULL ? (size_t)(colon - p) : strlen(p);
         if (dir_len > 0) {
             size_t len = dir_len + strlen(use_path) + 6;
-            char *candidate = malloc(len);
+            char *candidate = ziman_xmalloc(len);
             snprintf(candidate, len, "%.*s/%s.zm", (int)dir_len, p, use_path);
             FILE *f = fopen(candidate, "rb");
             if (f != NULL) {
@@ -125,7 +126,7 @@ static char *resolve_via_module_path(const char *use_path) {
  * builtin) name, which never contains "::". */
 static char *qualify_name(const char *use_path, const char *bare_name) {
     size_t len = strlen(use_path) + 2 + strlen(bare_name) + 1;
-    char *q = malloc(len);
+    char *q = ziman_xmalloc(len);
     snprintf(q, len, "%s::%s", use_path, bare_name);
     return q;
 }
@@ -164,9 +165,9 @@ static Module *find_loaded(Loader *ldr, const char *use_path) {
 static void register_loaded(Loader *ldr, const char *use_path, Module *mod) {
     if (ldr->loaded_count == ldr->loaded_cap) {
         ldr->loaded_cap = ldr->loaded_cap == 0 ? 8 : ldr->loaded_cap * 2;
-        ldr->loaded = realloc(ldr->loaded, (size_t)ldr->loaded_cap * sizeof(LoadedEntry));
+        ldr->loaded = ziman_xrealloc(ldr->loaded, (size_t)ldr->loaded_cap * sizeof(LoadedEntry));
     }
-    ldr->loaded[ldr->loaded_count].use_path = strdup(use_path);
+    ldr->loaded[ldr->loaded_count].use_path = ziman_xstrdup(use_path);
     ldr->loaded[ldr->loaded_count].module = mod;
     ldr->loaded_count++;
 }
@@ -181,7 +182,7 @@ static int is_loading(Loader *ldr, const char *use_path) {
 static void push_loading(Loader *ldr, const char *use_path) {
     if (ldr->loading_count == ldr->loading_cap) {
         ldr->loading_cap = ldr->loading_cap == 0 ? 8 : ldr->loading_cap * 2;
-        ldr->loading_stack = realloc(ldr->loading_stack, (size_t)ldr->loading_cap * sizeof(char *));
+        ldr->loading_stack = ziman_xrealloc(ldr->loading_stack, (size_t)ldr->loading_cap * sizeof(char *));
     }
     ldr->loading_stack[ldr->loading_count++] = (char *)use_path;
 }
@@ -742,10 +743,10 @@ static void self_qualify_module(Module *mod, const char *own_path, NamedImport *
     int n_structs = mod->structs.count;
     int n_enums = mod->enums.count;
     int n_vals = mod->vals.count;
-    char **orig_fn_names = n_fns > 0 ? malloc((size_t)n_fns * sizeof(char *)) : NULL;
-    char **orig_struct_names = n_structs > 0 ? malloc((size_t)n_structs * sizeof(char *)) : NULL;
-    char **orig_enum_names = n_enums > 0 ? malloc((size_t)n_enums * sizeof(char *)) : NULL;
-    char **orig_val_names = n_vals > 0 ? malloc((size_t)n_vals * sizeof(char *)) : NULL;
+    char **orig_fn_names = n_fns > 0 ? ziman_xmalloc((size_t)n_fns * sizeof(char *)) : NULL;
+    char **orig_struct_names = n_structs > 0 ? ziman_xmalloc((size_t)n_structs * sizeof(char *)) : NULL;
+    char **orig_enum_names = n_enums > 0 ? ziman_xmalloc((size_t)n_enums * sizeof(char *)) : NULL;
+    char **orig_val_names = n_vals > 0 ? ziman_xmalloc((size_t)n_vals * sizeof(char *)) : NULL;
     for (int i = 0; i < n_fns; i++) orig_fn_names[i] = mod->functions.items[i]->name;
     for (int i = 0; i < n_structs; i++) orig_struct_names[i] = mod->structs.items[i]->name;
     for (int i = 0; i < n_enums; i++) orig_enum_names[i] = mod->enums.items[i]->name;
@@ -798,10 +799,10 @@ static UseDecl *find_use(Module *mod, const char *qualifier) {
 static void split_qualified(const char *dotted, char **qualifier_out, char **rest_out) {
     const char *dot = strchr(dotted, '.');
     size_t qlen = (size_t)(dot - dotted);
-    *qualifier_out = malloc(qlen + 1);
+    *qualifier_out = ziman_xmalloc(qlen + 1);
     memcpy(*qualifier_out, dotted, qlen);
     (*qualifier_out)[qlen] = '\0';
-    *rest_out = strdup(dot + 1);
+    *rest_out = ziman_xstrdup(dot + 1);
 }
 
 /* `p.to_string()` parses as a call into a module named `p`. The most common
@@ -1145,7 +1146,7 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
                          * message the author needs instead of "undefined
                          * variable 'util'". A leading '!' marks it as a hint. */
                         size_t n = strlen(u->path) + strlen(e->as.field_access.field_name) + 96;
-                        char *hint = malloc(n);
+                        char *hint = ziman_xmalloc(n);
                         if (is_not_visible) {
                             snprintf(hint, n, "!function '%s' in module '%s' is %s", e->as.field_access.field_name, u->path,
                                      visibility_violation_reason(found_vis));
@@ -1450,7 +1451,7 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, const char *
 
         if (count == cap) {
             cap = cap == 0 ? 4 : cap * 2;
-            imports = realloc(imports, (size_t)cap * sizeof(NamedImport));
+            imports = ziman_xrealloc(imports, (size_t)cap * sizeof(NamedImport));
         }
         imports[count].local_name = u->local_name;
         imports[count].qualified_name = qualified;
@@ -1476,7 +1477,7 @@ static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
     const char *slash = strrchr(u->path, '/');
     const char *last = slash != NULL ? slash + 1 : u->path;
     size_t n = strlen(u->path) + strlen(last) + 2;
-    char *inner = malloc(n);
+    char *inner = ziman_xmalloc(n);
     snprintf(inner, n, "%s/%s", u->path, last);
     file = resolve_file_path(ldr->project_root, inner);
     found = read_all(file);
@@ -1527,7 +1528,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
                         mod_path != NULL && mod_path[0] != '\0' ? ", then in ZIMAN_MODULE_PATH=" : "",
                         mod_path != NULL && mod_path[0] != '\0' ? mod_path : "");
         }
-        source = strdup(core_source);
+        source = ziman_xstrdup(core_source);
     }
     ziman_set_error_file(from_disk ? file_path : NULL);
     if (from_disk) ziman_register_source(file_path, source);
@@ -1570,7 +1571,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
 
 Module *load_module_graph(const char *entry_path, const char *project_root_override) {
     Loader ldr = {0};
-    ldr.project_root = project_root_override != NULL ? strdup(project_root_override) : dirname_of(entry_path);
+    ldr.project_root = project_root_override != NULL ? ziman_xstrdup(project_root_override) : dirname_of(entry_path);
 
     /* Parsed and resolved before anything else, and stashed on `ldr`
      * itself (not just merged in later, see the merge site below) --
@@ -1630,7 +1631,7 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
      * cross-module references resolved too. */
     int n_entry_imports = 0;
     NamedImport *entry_imports = resolve_named_imports(&ldr, entry_mod, entry_path, &n_entry_imports);
-    char **entry_val_names = entry_mod->vals.count > 0 ? malloc((size_t)entry_mod->vals.count * sizeof(char *)) : NULL;
+    char **entry_val_names = entry_mod->vals.count > 0 ? ziman_xmalloc((size_t)entry_mod->vals.count * sizeof(char *)) : NULL;
     for (int i = 0; i < entry_mod->vals.count; i++) entry_val_names[i] = entry_mod->vals.items[i]->name;
     check_no_val_shadowing(entry_mod, entry_val_names, entry_mod->vals.count, entry_imports, n_entry_imports);
     free(entry_val_names);
@@ -1638,7 +1639,7 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
     self_qualify_walk_module(entry_mod, &entry_ctx);
     resolve_cross_refs(&ldr, entry_mod);
 
-    Module *merged = calloc(1, sizeof(Module));
+    Module *merged = ziman_xcalloc(1, sizeof(Module));
     /* The prelude (see prelude.h) -- parsed and resolved up front, above
      * -- is merged into every program the same way the entry module's
      * own declarations are: bare names, no self-qualify pass, no `use`

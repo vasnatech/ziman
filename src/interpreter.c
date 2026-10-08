@@ -29,6 +29,7 @@
 #include "native.h"
 #include "value_copy.h"
 #include "value.h"
+#include "xalloc.h"
 
 /* CTRL_YIELD carries the value of an `if`/`switch` arm used as a value up to the
  * enclosing STMT_VALUE_BLOCK, the way CTRL_RETURN carries a return value. */
@@ -156,13 +157,13 @@ static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, in
     if (tail_count == 1 && tail_is_array_spread) {
         tail = args[fixed_count];
     } else {
-        Value *items = tail_count > 0 ? malloc((size_t)tail_count * sizeof(Value)) : NULL;
+        Value *items = tail_count > 0 ? ziman_xmalloc((size_t)tail_count * sizeof(Value)) : NULL;
         for (int i = 0; i < tail_count; i++) {
             items[i] = args[fixed_count + i];
         }
         tail = value_array(type_array(fn->params.items[fixed_count].type), array_obj_new(items, tail_count));
     }
-    Value *collapsed = malloc((size_t)fn->params.count * sizeof(Value));
+    Value *collapsed = ziman_xmalloc((size_t)fn->params.count * sizeof(Value));
     for (int i = 0; i < fixed_count; i++) {
         collapsed[i] = args[i];
     }
@@ -191,13 +192,13 @@ static __thread int t_defer_env_capacity = 0;
  * else -- an Env, say. So it is allocated uncollectable (a root the collector scans, which also keeps the tracked Envs alive) and given back when the thread ends. */
 static void defer_envs_grow(int capacity) {
 #ifdef ZIMAN_GC
-    Env **fresh = GC_MALLOC_UNCOLLECTABLE(sizeof(Env *) * (size_t)capacity);
+    Env **fresh = ziman_xcheck(GC_MALLOC_UNCOLLECTABLE(sizeof(Env *) * (size_t)capacity));
     if (t_defer_envs != NULL) {
         memcpy(fresh, t_defer_envs, sizeof(Env *) * (size_t)t_defer_env_count);
         GC_FREE(t_defer_envs);
     }
 #else
-    Env **fresh = realloc(t_defer_envs, sizeof(Env *) * (size_t)capacity);
+    Env **fresh = ziman_xrealloc(t_defer_envs, sizeof(Env *) * (size_t)capacity);
 #endif
     t_defer_envs = fresh;
     t_defer_env_capacity = capacity;
@@ -260,13 +261,13 @@ static __thread int t_active_iter_capacity = 0;
  * running thread, independent of this module's own gc_heap mark phase reading it correctly. */
 static void active_iters_grow(int capacity) {
 #ifdef ZIMAN_GC
-    Value *fresh = GC_MALLOC_UNCOLLECTABLE(sizeof(Value) * (size_t)capacity);
+    Value *fresh = ziman_xcheck(GC_MALLOC_UNCOLLECTABLE(sizeof(Value) * (size_t)capacity));
     if (t_active_iters != NULL) {
         memcpy(fresh, t_active_iters, sizeof(Value) * (size_t)t_active_iter_count);
         GC_FREE(t_active_iters);
     }
 #else
-    Value *fresh = realloc(t_active_iters, sizeof(Value) * (size_t)capacity);
+    Value *fresh = ziman_xrealloc(t_active_iters, sizeof(Value) * (size_t)capacity);
 #endif
     t_active_iters = fresh;
     t_active_iter_capacity = capacity;
@@ -318,13 +319,13 @@ static __thread int t_has_pending_handler = 0;
 
 static void env_pool_grow(int capacity) {
 #ifdef ZIMAN_GC
-    Env **fresh = GC_MALLOC_UNCOLLECTABLE(sizeof(Env *) * (size_t)capacity);
+    Env **fresh = ziman_xcheck(GC_MALLOC_UNCOLLECTABLE(sizeof(Env *) * (size_t)capacity));
     if (t_env_pool != NULL) {
         memcpy(fresh, t_env_pool, sizeof(Env *) * (size_t)t_env_pool_count);
         GC_FREE(t_env_pool);
     }
 #else
-    Env **fresh = realloc(t_env_pool, sizeof(Env *) * (size_t)capacity);
+    Env **fresh = ziman_xrealloc(t_env_pool, sizeof(Env *) * (size_t)capacity);
 #endif
     t_env_pool = fresh;
     t_env_pool_capacity = capacity;
@@ -433,7 +434,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
          * exactly the captured values *this* invocation itself received; copied (not aliased)
          * into their own array, the same way EXPR_LAMBDA's own creation-time capture copy
          * works, since `args` may be freed the line after this runs. */
-        Value *self_captured = fn->self_ncaptured > 0 ? malloc((size_t)fn->self_ncaptured * sizeof(Value)) : NULL;
+        Value *self_captured = fn->self_ncaptured > 0 ? ziman_xmalloc((size_t)fn->self_ncaptured * sizeof(Value)) : NULL;
         for (int i = 0; i < fn->self_ncaptured; i++) self_captured[i] = args[i];
         Value self_value = value_closure(fn, self_captured, fn->self_ncaptured);
         env_define(env, fn->self_name, self_value.type, 0, self_value);
@@ -479,7 +480,7 @@ static Value call_closure_value(Module *module, Value closure, Value *args, int 
     if (clo->ncaptured == 0) {
         result = call_function(module, clo->fn, args, argc, 0, 0, 0);
     } else {
-        Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
+        Value *all = ziman_xmalloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
         memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
         memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
         result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, 0, 0);
@@ -497,7 +498,7 @@ static void thread_failed(struct SpawnArgs *sa, const char *message) {
         ThreadBoundary inner;
         ziman_thread_boundary_enter(&inner);
         if (setjmp(inner.jb) == 0) {
-            Value arg = value_string(strdup(message));
+            Value arg = value_string(ziman_xstrdup(message));
             call_closure_value(sa->module, sa->handler, &arg, 1);
             ziman_thread_boundary_leave();
         } else {
@@ -912,7 +913,7 @@ static Value call_insert(Type array_type, Value arr, Value idx, Value x, int lin
     }
     if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 1, (int)i, x));
     int new_count = old->count + 1;
-    Value *items = malloc((size_t)new_count * sizeof(Value));
+    Value *items = ziman_xmalloc((size_t)new_count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
     items[i] = x;
     memcpy(items + i + 1, old->boxed_items + i, (size_t)(old->count - (int)i) * sizeof(Value));
@@ -927,7 +928,7 @@ static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, 
         ziman_error("runtime", line, col, "set index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
     if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 2, (int)i, x));
-    Value *items = malloc((size_t)old->count * sizeof(Value));
+    Value *items = ziman_xmalloc((size_t)old->count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)old->count * sizeof(Value));
     items[i] = x;
     return value_array(array_type, array_obj_new(items, old->count));
@@ -941,7 +942,7 @@ static Value call_remove(Type array_type, Value arr, Value idx, int line, int co
     }
     if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 3, (int)i, value_int(0)));
     int new_count = old->count - 1;
-    Value *items = malloc((size_t)new_count * sizeof(Value));
+    Value *items = ziman_xmalloc((size_t)new_count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
     memcpy(items + i, old->boxed_items + i + 1, (size_t)(new_count - (int)i) * sizeof(Value));
     return value_array(array_type, array_obj_new(items, new_count));
@@ -1015,7 +1016,7 @@ static Value call_format(Value *args, int argc) {
         }
         while (len + src_len + 1 > cap) {
             cap *= 2;
-            buf = realloc(buf, cap);
+            buf = ziman_xrealloc(buf, cap);
         }
         memcpy(buf + len, src, src_len);
         len += src_len;
@@ -1224,7 +1225,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
              * once per nested expression, so a large one would cost recursion depth. */
             Value inline_args[ARGS_INLINE];
             Value *args = argc == 0 ? NULL : (argc <= ARGS_INLINE ? inline_args
-                                                                  : malloc((size_t)argc * sizeof(Value)));
+                                                                  : ziman_xmalloc((size_t)argc * sizeof(Value)));
             gc_unsafe_enter();
             for (int i = 0; i < argc; i++) {
                 args[i] = eval_expr(module, env, e->as.call.args.items[i]);
@@ -1248,7 +1249,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     result = call_function(module, clo->fn, args, argc, 0, e->line, e->col);
                 } else {
                     /* A lambda's captured values are its first parameters. */
-                    Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
+                    Value *all = ziman_xmalloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
                     memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
                     memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
                     result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, e->line, e->col);
@@ -1343,7 +1344,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     if (clo->ncaptured == 0) {
                         verdict = call_function(module, clo->fn, call_args, nargs, 0, e->line, e->col);
                     } else {
-                        Value *all = malloc((size_t)(clo->ncaptured + nargs) * sizeof(Value));
+                        Value *all = ziman_xmalloc((size_t)(clo->ncaptured + nargs) * sizeof(Value));
                         memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
                         memcpy(all + clo->ncaptured, call_args, (size_t)nargs * sizeof(Value));
                         verdict = call_function(module, clo->fn, all, clo->ncaptured + nargs, 0, e->line, e->col);
@@ -1583,7 +1584,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         }
         case EXPR_ARRAY_LIT: {
             int count = e->as.array_lit.elements.count;
-            Value *items = count > 0 ? malloc((size_t)count * sizeof(Value)) : NULL;
+            Value *items = count > 0 ? ziman_xmalloc((size_t)count * sizeof(Value)) : NULL;
             gc_unsafe_enter();
             for (int i = 0; i < count; i++) {
                 items[i] = eval_expr(module, env, e->as.array_lit.elements.items[i]);
@@ -1605,8 +1606,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_STRUCT_LIT: {
             StructDecl *decl = find_struct(module, e->as.struct_lit.type_name);
             int count = decl->fields.count;
-            char **names = malloc((size_t)count * sizeof(char *));
-            Value *fields = malloc((size_t)count * sizeof(Value));
+            char **names = ziman_xmalloc((size_t)count * sizeof(char *));
+            Value *fields = ziman_xmalloc((size_t)count * sizeof(Value));
             gc_unsafe_enter();
             for (int i = 0; i < count; i++) {
                 names[i] = decl->fields.items[i].name; /* borrowed from the StructDecl, never freed */
@@ -1638,7 +1639,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             Value base = eval_expr(module, env, e->as.with_expr.base);
             StructObj *old = base.as.st;
             int count = old->count;
-            Value *fields = malloc((size_t)count * sizeof(Value));
+            Value *fields = ziman_xmalloc((size_t)count * sizeof(Value));
             memcpy(fields, old->fields, (size_t)count * sizeof(Value));
             /* Guarded from the memcpy onward, not just the override loop: every entry (memcpy'd or
              * about to be overridden) is equally unrooted until `fields` is fully handed off to
@@ -1667,7 +1668,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_LAMBDA: {
             FunctionDecl *lam = e->lambda_decl;
             int n = e->lambda_ncaptured;
-            Value *captured = n > 0 ? malloc((size_t)n * sizeof(Value)) : NULL;
+            Value *captured = n > 0 ? ziman_xmalloc((size_t)n * sizeof(Value)) : NULL;
             for (int i = 0; i < n; i++) captured[i] = env_lookup(env, lam->params.items[i].name)->value;
             return value_closure(lam, captured, n);
         }
@@ -2091,11 +2092,11 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
              * only reference to a crossing copy is invisible to the collector. */
             FunctionDecl *fn = find_function(module, s->as.spawn_stmt.callee);
             int argc = s->as.spawn_stmt.args.count;
-            Value *args = argc > 0 ? malloc((size_t)argc * sizeof(Value)) : NULL;
+            Value *args = argc > 0 ? ziman_xmalloc((size_t)argc * sizeof(Value)) : NULL;
             for (int i = 0; i < argc; i++) {
                 args[i] = value_copy_send(eval_expr(module, env, s->as.spawn_stmt.args.items[i]));
             }
-            SpawnArgs *sa = malloc(sizeof(SpawnArgs));
+            SpawnArgs *sa = ziman_xmalloc(sizeof(SpawnArgs));
             sa->module = module;
             sa->fn = fn;
             sa->args = args;
@@ -2146,7 +2147,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             }
             if (env->defer_count == env->defer_capacity) {
                 env->defer_capacity = env->defer_capacity == 0 ? 4 : env->defer_capacity * 2;
-                env->defers = realloc(env->defers, sizeof(Expr *) * (size_t)env->defer_capacity);
+                env->defers = ziman_xrealloc(env->defers, sizeof(Expr *) * (size_t)env->defer_capacity);
             }
             env->defers[env->defer_count++] = s->as.defer_stmt.replay;
             if (!env->defers_tracked) defer_env_track(env);
@@ -2269,7 +2270,7 @@ Value native_call_closure(Value fn, Value *args, int argc, int line, int col) {
     if (clo->ncaptured == 0) {
         result = call_function(g_program, clo->fn, args, argc, 0, line, col);
     } else {
-        Value *all = malloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
+        Value *all = ziman_xmalloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
         memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
         memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
         result = call_function(g_program, clo->fn, all, clo->ncaptured + argc, 0, line, col);

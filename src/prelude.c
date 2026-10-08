@@ -30,6 +30,7 @@
  * comment for why this file, uniquely among corelib's modules, is never
  * registered in corelib.c's CORE_MODULES table). */
 #include "prelude_source.h"
+#include "xalloc.h"
 
 /* PRELUDE_SOURCE is one long string literal, now that the prelude has
  * grown enough (StringBuilder among the latest additions) to exceed the
@@ -80,7 +81,7 @@ static Value native_parse_int(Value *args, int argc, int line, int col) {
     if (!int_text_ok(str, args[0].as.str.len) || endptr == str || *endptr != '\0' || errno == ERANGE || strlen(str) != args[0].as.str.len) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as int", str);
-        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
+        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     return value_result(result_type, result_obj_new(1, value_int((int64_t)v)));
 }
@@ -111,7 +112,7 @@ static Value native_parse_float(Value *args, int argc, int line, int col) {
     if (!float_text_ok(str, args[0].as.str.len) || endptr == str || *endptr != '\0' || range_error || strlen(str) != args[0].as.str.len) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as float", str);
-        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
+        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     return value_result(result_type, result_obj_new(1, value_float(v)));
 }
@@ -127,7 +128,7 @@ static Value native_parse_bigint(Value *args, int argc, int line, int col) {
     if (!ok) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as bigint", big_text);
-        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
+        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     return value_result(result_type, result_obj_new(1, value_bigint(n)));
 }
@@ -143,7 +144,7 @@ static Value native_parse_decimal(Value *args, int argc, int line, int col) {
     if (!ok) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as decimal", dec_text);
-        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
+        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     return value_result(result_type, result_obj_new(1, value_decimal(d)));
 }
@@ -170,7 +171,7 @@ static Value native_format_dynamic(Value *args, int argc, int line, int col) {
         size_t src_len = piece.len;
         if (piece.placeholder) {
             if (piece.precision >= 0) {
-                return value_result(result_type, result_obj_new(0, value_string(strdup(
+                return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(
                     "a precision ('{:.N}') needs a number, and format_dynamic's arguments are strings"))));
             }
             if (placeholders < given->count) {
@@ -184,16 +185,16 @@ static Value native_format_dynamic(Value *args, int argc, int line, int col) {
         }
         while (len + src_len + 1 > cap) {
             cap *= 2;
-            buf = realloc(buf, cap);
+            buf = ziman_xrealloc(buf, cap);
         }
         memcpy(buf + len, src, src_len);
         len += src_len;
     }
-    if (r < 0) return value_result(result_type, result_obj_new(0, value_string(strdup(err))));
+    if (r < 0) return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(err))));
     if (placeholders != given->count) {
         char msg[160];
         snprintf(msg, sizeof msg, "the template has %d placeholder(s) but %d argument(s) were given", placeholders, given->count);
-        return value_result(result_type, result_obj_new(0, value_string(strdup(msg))));
+        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     buf[len] = '\0';
     return value_result(result_type, result_obj_new(1, value_string(buf)));
@@ -345,7 +346,7 @@ static Value native_split(Value *args, int argc, int line, int col) {
         size_t piece_len = found >= 0 ? (size_t)found - cursor : ls - cursor;
         if (count == cap) {
             cap = cap == 0 ? 4 : cap * 2;
-            items = realloc(items, (size_t)cap * sizeof(Value));
+            items = ziman_xrealloc(items, (size_t)cap * sizeof(Value));
         }
         items[count++] = string_slice(args[0], cursor, piece_len);
         if (found < 0) break;
@@ -574,7 +575,7 @@ static void sb_ensure_capacity(StringBuilderBuf *buf, size_t additional) {
     while (new_capacity < needed) {
         new_capacity = (size_t)((double)new_capacity * buf->grow_factor) + 1;
     }
-    buf->data = realloc(buf->data, new_capacity);
+    buf->data = ziman_xrealloc(buf->data, new_capacity);
     buf->capacity = new_capacity;
 }
 
@@ -596,7 +597,7 @@ static Value native_sb_new(Value *args, int argc, int line, int col) {
         grow_factor = 2.0;
     }
 
-    StringBuilderBuf *buf = malloc(sizeof(StringBuilderBuf));
+    StringBuilderBuf *buf = ziman_xmalloc(sizeof(StringBuilderBuf));
     buf->capacity = (size_t)capacity;
     buf->length = 0;
     buf->grow_factor = grow_factor;
@@ -604,7 +605,7 @@ static Value native_sb_new(Value *args, int argc, int line, int col) {
 
     int64_t handle = sb_table_register(buf);
 
-    Value *fields = malloc(sizeof(Value));
+    Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
     return value_struct(type_struct("StringBuilder"), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
 }
@@ -726,8 +727,8 @@ static void ab_ensure_capacity(ArrayBuilderBuf *buf, size_t additional) {
     while (new_capacity < needed) {
         new_capacity = (size_t)((double)new_capacity * buf->grow_factor) + 1;
     }
-    if (buf->pkind != PK_NONE) buf->pdata = realloc(buf->pdata, new_capacity * pack_elem_size(buf->pkind));
-    else buf->items = realloc(buf->items, new_capacity * sizeof(Value));
+    if (buf->pkind != PK_NONE) buf->pdata = ziman_xrealloc(buf->pdata, new_capacity * pack_elem_size(buf->pkind));
+    else buf->items = ziman_xrealloc(buf->items, new_capacity * sizeof(Value));
     buf->capacity = new_capacity;
 }
 
@@ -744,17 +745,17 @@ static Value native_ab_new(Value *args, int argc, int line, int col) {
         grow_factor = 2.0;
     }
 
-    ArrayBuilderBuf *buf = malloc(sizeof(ArrayBuilderBuf));
+    ArrayBuilderBuf *buf = ziman_xmalloc(sizeof(ArrayBuilderBuf));
     buf->capacity = (size_t)capacity;
     buf->length = 0;
     buf->grow_factor = grow_factor;
-    buf->items = buf->capacity > 0 ? malloc(buf->capacity * sizeof(Value)) : NULL;
+    buf->items = buf->capacity > 0 ? ziman_xmalloc(buf->capacity * sizeof(Value)) : NULL;
     buf->pdata = NULL;
     buf->pkind = PK_NONE;
 
     int64_t handle = ab_table_register(buf);
 
-    Value *fields = malloc(sizeof(Value));
+    Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
     return value_struct(type_struct("ArrayBuilder"), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
 }
@@ -834,11 +835,11 @@ static Value native_bytes_to_string(Value *args, int argc, int line, int col) {
         char msg[80];
         snprintf(msg, sizeof msg, "bytes are not valid UTF-8 (invalid sequence at byte %ld)", bad);
         free(tmp);
-        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(strdup(msg))));
+        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     if (memchr(tmp, 0, (size_t)n) != NULL) {
         free(tmp);
-        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(strdup("bytes contain a NUL byte and cannot be a string"))));
+        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(ziman_xstrdup("bytes contain a NUL byte and cannot be a string"))));
     }
     char *s = (char *)tmp; /* already NUL-terminated by array_copy_bytes */
     return value_result(type_result(str_type, str_type), result_obj_new(1, value_string(s)));
@@ -864,7 +865,7 @@ static Value native_chars(Value *args, int argc, int line, int col) {
         }
         if (count == cap) {
             cap = cap == 0 ? 8 : cap * 2;
-            items = realloc(items, (size_t)cap * sizeof(Value));
+            items = ziman_xrealloc(items, (size_t)cap * sizeof(Value));
         }
         items[count++] = string_slice(args[0], pos, (size_t)n);
         pos += (size_t)n;
@@ -1033,7 +1034,7 @@ static Value permute_array(Type type, const ArrayObj *a, const int64_t *order, i
     }
     PackKind kind = array_pack_kind(a);
     if (kind == PK_NONE) {
-        Value *items = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+        Value *items = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
         for (int i = 0; i < n; i++) items[i] = a->boxed_items[order[i]];
         return value_array(type, array_obj_new(items, n));
     }
@@ -1090,7 +1091,7 @@ static Value native_concat_arrays(Value *args, int argc, int line, int col) {
         }
         return value_array(type_scalar(TY_VOID), array_obj_new_packed(kind, buf, total));
     }
-    Value *items = total > 0 ? malloc((size_t)total * sizeof(Value)) : NULL;
+    Value *items = total > 0 ? ziman_xmalloc((size_t)total * sizeof(Value)) : NULL;
     int pos = 0;
     for (int i = 0; i < parts->count; i++) {
         ArrayObj *part = array_get(parts, i).as.arr;
@@ -1127,7 +1128,7 @@ static Value native_ab_to_array(Value *args, int argc, int line, int col) {
         memcpy(out, buf->pdata, esz * buf->length);
         return value_array(type_scalar(TY_VOID), array_obj_new_packed(buf->pkind, out, (int)buf->length));
     }
-    Value *items = buf->length > 0 ? malloc(buf->length * sizeof(Value)) : NULL;
+    Value *items = buf->length > 0 ? ziman_xmalloc(buf->length * sizeof(Value)) : NULL;
     for (size_t i = 0; i < buf->length; i++) {
         items[i] = buf->items[i];
     }
@@ -1196,12 +1197,12 @@ static void mb_mark_contents(const Arena *a, StructObj *st) {
 }
 
 static Value mb_new_value(const char *type_name) {
-    MapBuilderBuf *buf = malloc(sizeof(MapBuilderBuf));
+    MapBuilderBuf *buf = ziman_xmalloc(sizeof(MapBuilderBuf));
     buf->magic = MB_MAGIC;
     buf->owner = pthread_self();
     buf->m = mapobj_mut_new();
     buf->shared = 0;
-    Value *fields = malloc(sizeof(Value));
+    Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)buf);
     return value_struct(type_struct(type_name), struct_obj_new(MAPBUILDER_FIELD_NAMES, fields, 1));
 }
@@ -1313,7 +1314,7 @@ static Value native_bytes_index_of(Value *args, int argc, int line, int col) {
 
 static Value native_guard_new(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    GuardBuf *g = malloc(sizeof(GuardBuf));
+    GuardBuf *g = ziman_xmalloc(sizeof(GuardBuf));
     g->magic = GUARD_MAGIC;
     g->ch = args[0].as.ch;
     g->message = args[1];
@@ -1329,7 +1330,7 @@ static Value native_guard_new(Value *args, int argc, int line, int col) {
      * some other value). Ordered keeps everything reachable from `g` alive until the finalizer has run. */
     GC_REGISTER_FINALIZER(g, guard_finalizer, NULL, NULL, NULL);
 #endif
-    Value *fields = malloc(sizeof(Value));
+    Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)g);
     static char *names[] = {"handle"};
     return value_struct(type_struct("Guard"), struct_obj_new(names, fields, 1));
@@ -1342,7 +1343,7 @@ static Value native_array_map(Value *args, int argc, int line, int col) {
     (void)argc;
     const ArrayObj *a = args[0].as.arr;
     int n = a->count;
-    Value *out = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    Value *out = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
     for (int i = 0; i < n; i++) {
         Value x = array_get(a, i);
         out[i] = native_call_closure(args[1], &x, 1, line, col);
@@ -1371,7 +1372,7 @@ static Value native_array_flat_map(Value *args, int argc, int line, int col) {
     (void)argc;
     const ArrayObj *a = args[0].as.arr;
     int n = a->count;
-    Value *parts = malloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    Value *parts = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
     for (int i = 0; i < n; i++) {
         Value x = array_get(a, i);
         parts[i] = native_call_closure(args[1], &x, 1, line, col);

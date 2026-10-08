@@ -26,6 +26,7 @@
 #include "handles.h"
 #include "native.h"
 #include "native_os.h"
+#include "xalloc.h"
 
 /* Blocking TCP behind lib/core/net.zm. A connection or listener is an int
  * handle into a table of file descriptors (same pattern as StringBuilder
@@ -90,7 +91,7 @@ static Type byte_array_type(void) { return type_array(type_scalar(TY_BYTE)); }
 
 static Value err_result(Type ok_type, const char *category, const char *message) {
     size_t n = strlen(category) + strlen(message) + 2;
-    char *s = malloc(n);
+    char *s = ziman_xmalloc(n);
     snprintf(s, n, "%s|%s", category, message);
     return value_result(type_result(ok_type, string_type()), result_obj_new(0, value_string(s)));
 }
@@ -109,7 +110,7 @@ static Value errno_result(Type ok_type, int e) {
 }
 
 static int64_t handle_register(int fd) {
-    NetHandle *h = calloc(1, sizeof(NetHandle));
+    NetHandle *h = ziman_xcalloc(1, sizeof(NetHandle));
     h->fd = fd;
     pthread_mutex_init(&h->tls_mu, NULL);
     handleset_add(&g_live, h);
@@ -319,15 +320,15 @@ static Value native_net_peer_address_raw(Value *args, int argc, int line, int co
     int fd = require_fd(args[0].as.i, "peer_address", line, col);
     struct sockaddr_storage ss;
     socklen_t len = sizeof(ss);
-    if (getpeername(fd, (struct sockaddr *)&ss, &len) != 0) return value_string(strdup(""));
+    if (getpeername(fd, (struct sockaddr *)&ss, &len) != 0) return value_string(ziman_xstrdup(""));
     char text[INET6_ADDRSTRLEN];
     const void *addr = NULL;
     if (ss.ss_family == AF_INET) addr = &((struct sockaddr_in *)&ss)->sin_addr;
     else if (ss.ss_family == AF_INET6) addr = &((struct sockaddr_in6 *)&ss)->sin6_addr;
     if (addr == NULL || inet_ntop(ss.ss_family, addr, text, sizeof text) == NULL) {
-        return value_string(strdup(""));
+        return value_string(ziman_xstrdup(""));
     }
-    return value_string(strdup(text));
+    return value_string(ziman_xstrdup(text));
 }
 
 static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
@@ -411,7 +412,7 @@ static Value native_net_read_raw(Value *args, int argc, int line, int col) {
     NetHandle *h = require_handle(args[0].as.i, "read", line, col);
     int64_t max = args[1].as.i;
     if (max <= 0) return err_result(arr_type, "io", "read: max must be positive");
-    unsigned char *buf = malloc((size_t)max);
+    unsigned char *buf = ziman_xmalloc((size_t)max);
     IoErr e;
     ssize_t n = io_read(h, buf, (size_t)max, &e);
     if (n < 0) { free(buf); return io_error_result(arr_type, &e); }
@@ -472,7 +473,7 @@ static Value native_net_read_text_raw(Value *args, int argc, int line, int col) 
     NetHandle *h = require_handle(args[0].as.i, "read_text", line, col);
     int64_t max = args[1].as.i;
     if (max <= 0) return err_result(str_type, "io", "read_text: max must be positive");
-    char *buf = malloc((size_t)max + 1);
+    char *buf = ziman_xmalloc((size_t)max + 1);
     IoErr e;
     ssize_t n = io_read(h, buf, (size_t)max, &e);
     if (n < 0) { free(buf); return io_error_result(str_type, &e); }
@@ -611,7 +612,7 @@ static Value native_net_idle_put_raw(Value *args, int argc, int line, int col) {
         for (int i = 1; i < IDLE_MAX; i++) if (g_idle[i].since < g_idle[slot].since) slot = i;
         idle_drop(&g_idle[slot]);
     }
-    g_idle[slot].key = strdup(key);
+    g_idle[slot].key = ziman_xstrdup(key);
     g_idle[slot].h = h;
     g_idle[slot].since = now;
     pthread_mutex_unlock(&g_idle_mu);

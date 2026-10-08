@@ -7,6 +7,7 @@
 #include "arena.h"
 #include "error.h"
 #include "interpreter.h"
+#include "xalloc.h"
 
 /* One record per thread that has registered below, on a global (non-`__thread`) list for exactly
  * the reason native_thread.c's own ThreadInfo/g_threads is one -- see this module's header comment.
@@ -69,7 +70,7 @@ void ziman_gc_install_boehm_root_hook(void) {
 
 void ziman_gc_register_thread_roots(void) {
 #ifdef ZIMAN_GC
-    ThreadRootInfo *t = calloc(1, sizeof(ThreadRootInfo));
+    ThreadRootInfo *t = ziman_xcalloc(1, sizeof(ThreadRootInfo));
     t->frames = ziman_frames_root_addrs();
     t->interp = ziman_interp_root_addrs();
     pthread_mutex_lock(&g_lock);

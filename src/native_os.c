@@ -18,6 +18,7 @@
 #include "interpreter.h"
 #include "native.h"
 #include "value.h"
+#include "xalloc.h"
 
 /* os.getenv_raw(name) -> Result<string, string>: Ok(value) if the variable
  * is set (an empty value included -- set-but-empty is not the same as
@@ -29,8 +30,8 @@ static Value native_os_getenv_raw(Value *args, int argc, int line, int col) {
     Type str = type_scalar(TY_STRING);
     Type result_type = type_result(str, str);
     const char *v = getenv(value_cstr(args[0]));
-    if (v == NULL) return value_result(result_type, result_obj_new(0, value_string(strdup(""))));
-    return value_result(result_type, result_obj_new(1, value_string(strdup(v))));
+    if (v == NULL) return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(""))));
+    return value_result(result_type, result_obj_new(1, value_string(ziman_xstrdup(v))));
 }
 
 static int g_prog_argc = 0;
@@ -44,8 +45,8 @@ void ziman_set_program_args(int count, char **args) {
 /* os.args() -> [string]: the program's own arguments (those after `--`). */
 static Value native_os_args(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
-    Value *items = malloc((size_t)(g_prog_argc > 0 ? g_prog_argc : 1) * sizeof(Value));
-    for (int i = 0; i < g_prog_argc; i++) items[i] = value_string(strdup(g_prog_argv[i]));
+    Value *items = ziman_xmalloc((size_t)(g_prog_argc > 0 ? g_prog_argc : 1) * sizeof(Value));
+    for (int i = 0; i < g_prog_argc; i++) items[i] = value_string(ziman_xstrdup(g_prog_argv[i]));
     return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, g_prog_argc));
 }
 
@@ -55,9 +56,9 @@ static Value native_os_cwd(Value *args, int argc, int line, int col) {
     Type str = type_scalar(TY_STRING);
     char buf[4096];
     if (getcwd(buf, sizeof buf) == NULL) {
-        return value_result(type_result(str, str), result_obj_new(0, value_string(strdup(strerror(errno)))));
+        return value_result(type_result(str, str), result_obj_new(0, value_string(ziman_xstrdup(strerror(errno)))));
     }
-    return value_result(type_result(str, str), result_obj_new(1, value_string(strdup(buf))));
+    return value_result(type_result(str, str), result_obj_new(1, value_string(ziman_xstrdup(buf))));
 }
 
 static Value native_os_pid(Value *args, int argc, int line, int col) {
@@ -175,7 +176,7 @@ static Value os_ok_int(int64_t n) {
 }
 
 static Value os_err_int(const char *message) {
-    return value_result(type_result(type_scalar(TY_INT), type_scalar(TY_STRING)), result_obj_new(0, value_string(strdup(message))));
+    return value_result(type_result(type_scalar(TY_INT), type_scalar(TY_STRING)), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 static Value os_ok_float(double x) {
@@ -183,7 +184,7 @@ static Value os_ok_float(double x) {
 }
 
 static Value os_err_float(const char *message) {
-    return value_result(type_result(type_scalar(TY_FLOAT), type_scalar(TY_STRING)), result_obj_new(0, value_string(strdup(message))));
+    return value_result(type_result(type_scalar(TY_FLOAT), type_scalar(TY_STRING)), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 /* The whole of a small /proc file into `buf` (NUL-terminated); 0 when it cannot be read. */
@@ -216,16 +217,16 @@ static Value native_os_cpu_count(Value *args, int argc, int line, int col) {
 static Value native_os_hostname(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
     char buf[256];
-    if (gethostname(buf, sizeof buf) != 0) return value_string(strdup(""));
+    if (gethostname(buf, sizeof buf) != 0) return value_string(ziman_xstrdup(""));
     buf[sizeof buf - 1] = '\0';
-    return value_string(strdup(buf));
+    return value_string(ziman_xstrdup(buf));
 }
 
 /* os.os_name() -> string: `linux`, `macos`, ... (the kernel's name, lower case, `darwin` as `macos`). */
 static Value native_os_os_name(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
     struct utsname u;
-    if (uname(&u) != 0) return value_string(strdup("unknown"));
+    if (uname(&u) != 0) return value_string(ziman_xstrdup("unknown"));
     char name[64];
     size_t i = 0;
     for (; u.sysname[i] != '\0' && i < sizeof name - 1; i++) {
@@ -233,16 +234,16 @@ static Value native_os_os_name(Value *args, int argc, int line, int col) {
         name[i] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
     }
     name[i] = '\0';
-    if (strcmp(name, "darwin") == 0) return value_string(strdup("macos"));
-    return value_string(strdup(name));
+    if (strcmp(name, "darwin") == 0) return value_string(ziman_xstrdup("macos"));
+    return value_string(ziman_xstrdup(name));
 }
 
 /* os.os_arch() -> string: `x86_64`, `aarch64`, ... */
 static Value native_os_os_arch(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
     struct utsname u;
-    if (uname(&u) != 0) return value_string(strdup("unknown"));
-    return value_string(strdup(u.machine));
+    if (uname(&u) != 0) return value_string(ziman_xstrdup("unknown"));
+    return value_string(ziman_xstrdup(u.machine));
 }
 
 /* os.load_average() -> Result<[float], string>: the 1, 5 and 15 minute load averages. */
@@ -252,9 +253,9 @@ static Value native_os_load_average(Value *args, int argc, int line, int col) {
     char buf[256];
     double a = 0, b = 0, c = 0;
     if (!os_read_small("/proc/loadavg", buf, sizeof buf) || sscanf(buf, "%lf %lf %lf", &a, &b, &c) != 3) {
-        return value_result(result_type, result_obj_new(0, value_string(strdup("not supported here: cannot read /proc/loadavg"))));
+        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("not supported here: cannot read /proc/loadavg"))));
     }
-    Value *items = malloc(3 * sizeof(Value));
+    Value *items = ziman_xmalloc(3 * sizeof(Value));
     items[0] = value_float(a);
     items[1] = value_float(b);
     items[2] = value_float(c);
@@ -335,12 +336,12 @@ static Value native_os_cpu_times_raw(Value *args, int argc, int line, int col) {
     long long v[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     if (!os_read_small("/proc/stat", buf, sizeof buf) ||
         sscanf(buf, "cpu %lld %lld %lld %lld %lld %lld %lld %lld", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7]) < 4) {
-        return value_result(result_type, result_obj_new(0, value_string(strdup("not supported here: cannot read /proc/stat"))));
+        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("not supported here: cannot read /proc/stat"))));
     }
     long long total = 0;
     for (int i = 0; i < 8; i++) total += v[i];
     long long idle = v[3] + v[4]; /* idle and iowait */
-    Value *items = malloc(2 * sizeof(Value));
+    Value *items = ziman_xmalloc(2 * sizeof(Value));
     items[0] = value_int((int64_t)(total - idle));
     items[1] = value_int((int64_t)total);
     return value_result(result_type, result_obj_new(1, value_array(type_array(type_scalar(TY_INT)), array_obj_new(items, 2))));
