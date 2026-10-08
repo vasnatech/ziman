@@ -181,24 +181,43 @@ static __thread ZimanFrame *t_frames = NULL;
 static __thread int t_frame_count = 0;
 static __thread int t_frame_capacity = 0;
 
+/* Grows the frame array, in an order a signal handler can survive: build the new block fully,
+ * publish it, and only then release the old one. --profile's SIGPROF handler reads `t_frames` on
+ * this very thread (ziman_frame_top_name), so it can land on any line in here -- and both paths
+ * used to free the old block while `t_frames` still pointed at it, leaving a window in which the
+ * handler read freed memory. Reversing the two statements closes it: before the store the handler
+ * reads the old array, which is still allocated and still correct, and after it the new one, which
+ * is a complete copy. The window was one `memset` long and needed --profile to be observed at all,
+ * which is why it was never seen -- it is still the one function here whose own comments promise
+ * signal safety (docs/reviews/tasks.md A23).
+ *
+ * The nogc path therefore cannot use `realloc`, which frees the old block before returning and so
+ * has the same window built into it. malloc-and-copy costs an extra copy on a path that runs
+ * O(log n) times per thread -- the capacity doubles -- and nothing on the hot path, where
+ * ziman_push_frame's single unordered store is unchanged and still the measured reason not to put
+ * a fence there.
+ *
+ * Every slot not yet handed out is zeroed, in both paths, which is what lets that store stay
+ * unordered and still be safe to sample: realloc does not zero what it adds and
+ * GC_MALLOC_UNCOLLECTABLE's zeroing does not cover the copy, so each does it explicitly. */
 static void frames_grow(int capacity) {
+    ZimanFrame *old = t_frames;
 #ifdef ZIMAN_GC
     ZimanFrame *fresh = ziman_xcheck(GC_MALLOC_UNCOLLECTABLE(sizeof(ZimanFrame) * (size_t)capacity));
-    if (t_frames != NULL) {
-        memcpy(fresh, t_frames, sizeof(ZimanFrame) * (size_t)t_frame_count);
-        GC_FREE(t_frames);
-    }
-    memset(fresh + t_frame_count, 0, sizeof(ZimanFrame) * (size_t)(capacity - t_frame_count));
 #else
-    ZimanFrame *fresh = ziman_xrealloc(t_frames, sizeof(ZimanFrame) * (size_t)capacity);
-    /* Every slot not yet in use is zeroed, which is what lets ziman_push_frame stay a single
-     * unordered store and still be safe to sample from a signal handler -- see there. realloc does
-     * not zero what it adds, and GC_MALLOC_UNCOLLECTABLE's own zeroing does not cover the copy
-     * above, so both paths do it explicitly. */
-    memset(fresh + t_frame_count, 0, sizeof(ZimanFrame) * (size_t)(capacity - t_frame_count));
+    ZimanFrame *fresh = ziman_xmalloc(sizeof(ZimanFrame) * (size_t)capacity);
 #endif
-    t_frames = fresh;
+    if (old != NULL) memcpy(fresh, old, sizeof(ZimanFrame) * (size_t)t_frame_count);
+    memset(fresh + t_frame_count, 0, sizeof(ZimanFrame) * (size_t)(capacity - t_frame_count));
+    t_frames = fresh;          /* published before the old block goes away, never after */
     t_frame_capacity = capacity;
+    if (old != NULL) {
+#ifdef ZIMAN_GC
+        GC_FREE(old);
+#else
+        free(old);
+#endif
+    }
 }
 
 void ziman_push_frame(const char *name, const char *file, int call_line, int call_col) {
