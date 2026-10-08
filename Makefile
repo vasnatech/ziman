@@ -38,7 +38,7 @@ all: $(BIN)
 # Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
 # `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
 # the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
-check: test test-nogc unit-tests fmt-check docs-check
+check: test test-nogc unit-tests fmt-check docs-check libc-free-check
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
@@ -321,6 +321,9 @@ syntax-check: $(BIN)
 # Every guard that keeps the documentation from drifting from the sources it describes, in one
 # target, because each of these is only useful if something actually runs it: `lib-manual-check`
 # was failing on main for a while precisely because nothing did.
+libc-free-check:
+	python3 tools/check_libc_free.py
+
 docs-check: lib-manual-check not-yet-check experimental-check syntax-check design-index-check
 
 clean:

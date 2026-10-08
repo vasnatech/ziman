@@ -127,10 +127,24 @@ int line_source_next(LineSource *ls, const char **line, size_t *len, int64_t *nu
     return 1;
 }
 
+/* libc's own `free`, for the one block here that libc allocated. `getline` grows `ls->buf` with
+ * realloc, so it belongs to libc -- while under the collector build zgc.h has redefined `free` to a
+ * no-op, on the reasoning that nothing the interpreter allocates is ever released by hand. That
+ * reasoning does not reach a buffer the collector never handed out: Boehm cannot reclaim it, so it
+ * stayed for the life of the process. 20,000 lines of 60 KB cost 1.27 GB of RSS that way, against
+ * 28 MB under ziman-nogc, whose `free` is real -- the collector build leaking where the build that
+ * "never frees anything" does not (docs/reviews/tasks.md A17). Suspended rather than undefined, so
+ * the rest of this file still allocates through the collector; the same idiom as
+ * src/native_http.c:15-27, which suspends these macros to read malloc.h. */
+#pragma push_macro("free")
+#undef free
+static void libc_free(void *p) { free(p); }
+#pragma pop_macro("free")
+
 void line_source_close(LineSource *ls) {
     if (ls->file != NULL) fclose(ls->file);
     ls->file = NULL;
-    free(ls->buf);
+    libc_free(ls->buf);
     ls->buf = NULL;
 }
 

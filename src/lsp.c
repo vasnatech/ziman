@@ -483,9 +483,22 @@ static int visit_complete_variants(EnumDecl *ed, void *ctx) {
     return 0;
 }
 
+/* The first `n` bytes of `s`, NUL-terminated, through the same allocator as everything else here.
+ * Deliberately not `strndup`: zgc.h redirects malloc/calloc/realloc/strdup to the collector but not
+ * strndup, so dirname_copy below used to return a libc block on one branch and a collector block on
+ * the other -- and the collector build's no-op `free` then leaked whichever was libc's, while a real
+ * `free` of the other would have been worse (docs/reviews/tasks.md A17). */
+static char *copy_prefix(const char *s, size_t n) {
+    char *out = malloc(n + 1);
+    if (out == NULL) return NULL;
+    memcpy(out, s, n);
+    out[n] = '\0';
+    return out;
+}
+
 static char *dirname_copy(const char *path) {
     const char *slash = strrchr(path, '/');
-    return slash != NULL ? strndup(path, (size_t)(slash - path)) : strdup("");
+    return slash != NULL ? copy_prefix(path, (size_t)(slash - path)) : strdup("");
 }
 
 static int file_exists(const char *path) {
@@ -796,7 +809,7 @@ static const char *sym_file(const char *name, const char *source_file, int *core
     if (source_file != NULL) return source_file;
     const char *sep = strstr(name, "::");
     if (sep == NULL) return NULL;
-    char *mod = strndup(name, (size_t)(sep - name));
+    char *mod = copy_prefix(name, (size_t)(sep - name));
     char *f = core_file(mod);
     free(mod);
     if (f != NULL) *core = 1;
