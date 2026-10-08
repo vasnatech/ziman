@@ -16,8 +16,29 @@ static size_t hash_ptr(void *p) {
     return (size_t)x;
 }
 
+/* What roots a handle, written down because the answer is not this table and the table looks like it
+ * (docs/reviews/tasks.md F16).
+ *
+ * The slots are `zalloc_atomic`, which means the collector never scans them, and that is deliberate:
+ * a set that kept every handle it had ever seen alive would be a leak with a membership test on top,
+ * and `net_finalizer`/`iter_finalizer` exist precisely to close a handle whose Ziman value nobody
+ * holds any more. So a pointer being *in* here keeps nothing alive.
+ *
+ * What keeps the object alive is the Ziman value that names it. `iter_make` boxes the address in an
+ * ordinary `Value` field (`src/iter.c`: `value_int((int64_t)(intptr_t)it)`), the struct's field array
+ * comes from the collector's own heap and is scanned, and Boehm is conservative -- an integer whose
+ * value happens to be the address is indistinguishable from a pointer to it, which is exactly what
+ * roots it. The handle survives as long as the `Iter` or `Socket` value does, and no longer.
+ *
+ * The edge in that argument, since it rests on where the integer lives rather than on what it is: a
+ * packed `[int]` array is `zalloc_atomic` too (`src/value.c`'s pack_kind path), so an address stored
+ * *there* would root nothing. That is reachable today only halfway -- `it.handle` is an ordinary int
+ * field and a Ziman program can read it (it prints a raw address) and put it in an array -- and it
+ * is harmless only because nothing in the language takes a bare int as a handle: every builtin wants
+ * the `Iter` or `Socket` value, which does the rooting. A native that accepted a handle integer
+ * directly would break this, and that is the thing to notice before adding one. */
 static void **alloc_slots(size_t n) {
-    void **slots = zalloc_atomic(n * sizeof(void *)); /* never scanned by the collector */
+    void **slots = zalloc_atomic(n * sizeof(void *)); /* never scanned by the collector -- see above */
     memset(slots, 0, n * sizeof(void *));
     return slots;
 }

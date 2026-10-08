@@ -20,6 +20,17 @@ typedef struct IterObj {
     int line, col;
     /* nonzero: the garbage collector must not run `release` (it runs Ziman code, which is not safe from
      * a finalizer), so the source is released only when finished or closed */
+    /* Set for an iterator whose `release` calls back into Ziman -- `iter_from`'s, which invokes the
+     * program's own `close` closure (src/iter.c's from_release). Such an iterator is deliberately
+     * *not* given a collector finalizer: Boehm runs finalizers at an arbitrary allocation point on
+     * whichever thread happens to allocate, and running interpreted code there would re-enter the
+     * interpreter from inside a collection, against an Iter whose owner thread is very likely not
+     * the one running the finalizer. The cost is that forgetting `close` on an `iter_from` leaks
+     * whatever that closure would have released -- stated rather than fixed, because the fix proposed
+     * for it was to register that finalizer anyway. What such an iterator does get is
+     * iter_drop_finalizer, which takes it out of the live set and runs no interpreted code, so an
+     * abandoned one no longer leaves a dangling pointer in the validation table either
+     * (docs/reviews/tasks.md F16). */
     int no_finalizer;
     /* the thread that made it: an Iter is a mutable cursor and belongs to that thread (`#[thread_bound]` in prelude.zm), so walking or closing it from
      * another thread is a runtime error. Set by iter_make. The collector's finalizer releases a dropped one from its own thread and is exempt. */

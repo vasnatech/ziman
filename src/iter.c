@@ -24,6 +24,18 @@ static void iter_finalizer(void *obj, void *client_data) {
     IterObj *it = obj;
     if (handleset_remove(&g_iters, it)) it->release(it);
 }
+
+/* For an iterator whose `release` runs Ziman code (IterObj.no_finalizer): take it out of the live
+ * set and release nothing. The set is a validation table, not a root -- see src/handles.c's own
+ * comment -- so an abandoned iterator that never gets here leaves its pointer in it for the life of
+ * the process, and the pointer is dangling the moment the collector takes the object. This is the
+ * part of a finalizer that is safe to run for them: no interpreted code, just the removal, which is
+ * the same handleset_remove the two existing finalizers already do from this context. What it
+ * deliberately does not do is call `release` -- see iter.h for why (docs/reviews/tasks.md F16). */
+static void iter_drop_finalizer(void *obj, void *client_data) {
+    (void)client_data;
+    handleset_remove(&g_iters, obj);
+}
 #endif
 
 /* Every walk or close of an Iter checks the calling thread: a cursor moved from a thread to another (through a closure, a global) would be walked by
@@ -39,7 +51,10 @@ Value iter_make(IterObj *it) {
     it->owner = pthread_self();
     handleset_add(&g_iters, it);
 #ifdef ZIMAN_GC
-    if (!it->no_finalizer) GC_REGISTER_FINALIZER_NO_ORDER(it, iter_finalizer, NULL, NULL, NULL);
+    /* Two finalizers, not one and a gap; see IterObj.no_finalizer in iter.h for why an iterator that
+     * would run Ziman code to close itself gets the removal-only one. */
+    GC_REGISTER_FINALIZER_NO_ORDER(it, it->no_finalizer ? iter_drop_finalizer : iter_finalizer, NULL,
+                                   NULL, NULL);
 #endif
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)it);
