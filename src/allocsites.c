@@ -90,4 +90,8 @@ __attribute__((destructor)) static void dump(void) {
     }
     pthread_mutex_unlock(&g_mu);
 }
+#else
+/* -Wpedantic refuses an empty translation unit, and this file is empty in every build but the
+ * profiling one. A typedef nobody uses is the standard way to give it something to read. */
+typedef int ziman_allocsites_unused_in_this_build;
 #endif

@@ -613,9 +613,9 @@ static Expr *parse_primary(Parser *p) {
                  * so, same as the unqualified case above, this always
                  * commits once seen, no backtracking left to do. */
                 if (starts_upper(second->start)) {
-                    TypeList type_args = {0};
+                    TypeList qualified_type_args = {0};
                     if (check(p, TOK_LT)) {
-                        type_args = parse_type_args(p);
+                        qualified_type_args = parse_type_args(p);
                     }
                     size_t len = strlen(name) + 1 + (size_t)second->length + 1;
                     char *qualified = ziman_xmalloc(len);
@@ -628,7 +628,7 @@ static Expr *parse_primary(Parser *p) {
                         Expr *e = expr_new(EXPR_STRUCT_LIT, t->line, t->col);
                         e->as.struct_lit.type_name = qualified;
                         e->as.struct_lit.fields = fields;
-                        e->as.struct_lit.type_args = type_args;
+                        e->as.struct_lit.type_args = qualified_type_args;
                         return e;
                     }
                     if (check(p, TOK_DOT)) {
@@ -647,7 +647,7 @@ static Expr *parse_primary(Parser *p) {
                         e->as.enum_access.member_name = member;
                         e->as.enum_access.args = args;
                         e->as.enum_access.has_parens = has_parens;
-                        e->as.enum_access.type_args = type_args;
+                        e->as.enum_access.type_args = qualified_type_args;
                         return e;
                     }
                     ziman_error("syntax", second->line, second->col, "expected '{' or '.' after '%s'", qualified);
@@ -659,7 +659,7 @@ static Expr *parse_primary(Parser *p) {
                  * returned above), so this is the only place left that
                  * needs it. */
                 if (check(p, TOK_LT) && next_looks_like_generic_call(p)) {
-                    TypeList type_args = parse_type_args(p);
+                    TypeList qualified_type_args = parse_type_args(p);
                     if (!check(p, TOK_LPAREN)) {
                         /* `mod.identity<int>` with no call: a generic function of another
                          * module used as a value. */
@@ -668,7 +668,7 @@ static Expr *parse_primary(Parser *p) {
                         Expr *fe = expr_new(EXPR_FIELD_ACCESS, t->line, t->col);
                         fe->as.field_access.base = base;
                         fe->as.field_access.field_name = dup_token_text(second);
-                        fe->fn_ref_type_args = type_args;
+                        fe->fn_ref_type_args = qualified_type_args;
                         return fe;
                     }
                     expect(p, TOK_LPAREN, "'('");
@@ -682,7 +682,7 @@ static Expr *parse_primary(Parser *p) {
                     e->as.call.callee = qualified;
                     e->as.call.args = args.args;
                     e->as.call.arg_names = args.names;
-                    e->as.call.type_args = type_args;
+                    e->as.call.type_args = qualified_type_args;
                     return e;
                 }
                 if (match(p, TOK_LPAREN)) {

@@ -19,14 +19,18 @@ GC_FLAGS := -DZIMAN_GC -DGC_THREADS -include src/zgc.h -I$(GC_DIR)/include -D_GN
 # -fwrapv: signed overflow in the C code itself is well defined (wraps) instead of
 # undefined behaviour the optimiser may exploit. Ziman's own `int` arithmetic
 # does not rely on it -- it traps on overflow explicitly (see interpreter.c).
-PLAIN_CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -g -pthread
+# -Wvla and -Wshadow earn their place; the rest of a much higher warning level was triaged and
+# rejected as noise (414 -Wswitch-enum by design, -Wlogical-op on the correct EAGAIN||EWOULDBLOCK
+# idiom, and so on -- docs/reviews/tasks.md F14). -Wvla had exactly one hit in the tree and it was
+# a real bug: the 96 KB variable-length array inside the regex matcher's recursion (A16).
+PLAIN_CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -Wvla -Wshadow -g -pthread
 CFLAGS := $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)"' $(GC_FLAGS) -MMD -MP
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check libc-free-check xalloc-check test-regex asan ubsan tsan sanitizers analyze
 
 all: $(BIN)
 
@@ -321,6 +325,88 @@ syntax-check: $(BIN)
 # Every guard that keeps the documentation from drifting from the sources it describes, in one
 # target, because each of these is only useful if something actually runs it: `lib-manual-check`
 # was failing on main for a while precisely because nothing did.
+# ---------------------------------------------------------------- sanitizers
+#
+# One target per sanitizer: build the plain (no-collector) configuration with it and run the whole
+# fixture suite. That configuration is the one that exercises this project's own collector, which is
+# where most of the C is; for the Boehm configuration add $(GC_FLAGS) and $(GC_LIB) to the line, as
+# the `gc` target does.
+#
+# There was no such target until 2026-10-08, so every review built its own -- and a standing one
+# would have caught A19's data race and A22's undefined memcpy without a review at all
+# (docs/reviews/tasks.md F14). Three things these targets know that a fresh attempt would have to
+# rediscover:
+#
+#   * halt_on_error=1 everywhere. A sanitizer report goes to stderr, and a fixture checked against a
+#     .out file passes regardless of what lands on stderr -- so without halting, the suite reports
+#     "888 passed" while printing undefined behaviour.
+#   * detect_stack_use_after_return=0 for ASan. Its fake-stack rewriting moves locals off the real
+#     stack, and src/stack.h's depth guard measures a local's address, so with it on the guard
+#     trips immediately and nothing runs.
+#   * SKIP, for one fixture each, and for different reasons. Under ASan,
+#     stack_depth_deep_recursion_works no longer fits: instrumented frames are several times larger,
+#     so 20,000 calls deep passes the 256 MB its own .args asks for. Under TSan,
+#     stack_depth_trace_bounded dies in TSan's own reporting -- a SEGV inside std::ostream::flush,
+#     because the fixture deliberately exhausts the stack and the reporter needs stack of its own.
+#     Every other stack-depth fixture reports its error normally under both. Neither is a bug in
+#     anything, and both were found by running these targets rather than reasoned about.
+#
+# `make tsan` currently fails, and should: on its first run it found a real data race in
+# src/native_net.c, filed as A24 in docs/reviews/tasks.md. That is the target earning its place, not
+# a defect in it -- see the A24 entry for the evidence.
+#
+# The runtime libraries are packaged separately on some distributions (libasan, libubsan, libtsan on
+# Fedora) and were not installed on the machine these targets were written on, so each recipe passes
+# $(LDFLAGS) through: a runtime unpacked elsewhere can be used without editing this file, and a link
+# that fails for that reason says so instead of printing a wall of ld output.
+SAN_CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Wpedantic -fno-omit-frame-pointer -pthread
+SAN_LIBS := -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
+# Deliberately without -fwrapv, which the ordinary build carries: with it, signed overflow is
+# defined and UBSan's integer checks have nothing to say. This is the build that found A21.
+UBSAN_CHECKS := -fsanitize=undefined,signed-integer-overflow,float-divide-by-zero,float-cast-overflow,bounds-strict,pointer-overflow,unreachable
+
+asan: $(SRC) $(CORELIB_HEADERS)
+	@$(CC) $(SAN_CFLAGS) -fwrapv -fsanitize=address -DZIMAN_VERSION='"$(ZIMAN_VERSION)-asan"' \
+	    -o ziman-asan $(SRC) $(LDFLAGS) $(SAN_LIBS) 2> .asan-link.log \
+	    || { cat .asan-link.log; rm -f .asan-link.log; \
+	         echo "make asan: that link needs the AddressSanitizer runtime (libasan), which this machine may not have"; \
+	         echo "  install it (Fedora: dnf install libasan), or point at an unpacked copy:"; \
+	         echo "  make asan LDFLAGS=\"-L/path/to/lib -Wl,-rpath,/path/to/lib\""; exit 1; }
+	@rm -f .asan-link.log
+	ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1 \
+	    BIN=./ziman-asan SKIP=stack_depth_deep_recursion_works ./tests/run_tests.sh
+
+ubsan: $(SRC) $(CORELIB_HEADERS)
+	@$(CC) $(SAN_CFLAGS) $(UBSAN_CHECKS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-ubsan"' \
+	    -o ziman-ubsan $(SRC) $(LDFLAGS) $(SAN_LIBS) 2> .ubsan-link.log \
+	    || { cat .ubsan-link.log; rm -f .ubsan-link.log; \
+	         echo "make ubsan: that link needs the UndefinedBehaviorSanitizer runtime (libubsan), which this machine may not have"; \
+	         echo "  install it (Fedora: dnf install libubsan), or point at an unpacked copy:"; \
+	         echo "  make ubsan LDFLAGS=\"-L/path/to/lib -Wl,-rpath,/path/to/lib\""; exit 1; }
+	@rm -f .ubsan-link.log
+	UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+	    BIN=./ziman-ubsan ./tests/run_tests.sh
+
+tsan: $(SRC) $(CORELIB_HEADERS)
+	@$(CC) $(SAN_CFLAGS) -fwrapv -fsanitize=thread -DZIMAN_VERSION='"$(ZIMAN_VERSION)-tsan"' \
+	    -o ziman-tsan $(SRC) $(LDFLAGS) $(SAN_LIBS) 2> .tsan-link.log \
+	    || { cat .tsan-link.log; rm -f .tsan-link.log; \
+	         echo "make tsan: that link needs the ThreadSanitizer runtime (libtsan), which this machine may not have"; \
+	         echo "  install it (Fedora: dnf install libtsan), or point at an unpacked copy:"; \
+	         echo "  make tsan LDFLAGS=\"-L/path/to/lib -Wl,-rpath,/path/to/lib\""; exit 1; }
+	@rm -f .tsan-link.log
+	TSAN_OPTIONS=halt_on_error=1:history_size=4 \
+	    BIN=./ziman-tsan SKIP=stack_depth_trace_bounded ./tests/run_tests.sh
+
+sanitizers: asan ubsan tsan
+
+# GCC's static analyzer over both configurations. Clean as of 2026-10-08 and deliberately not part of
+# `make check`: it takes minutes per configuration, where every other check here takes seconds.
+analyze:
+	$(CC) -std=c11 -O1 -fwrapv -pthread -fanalyzer -fsyntax-only $(GC_FLAGS) $(SRC)
+	$(CC) -std=c11 -O1 -fwrapv -pthread -fanalyzer -fsyntax-only $(SRC)
+	@echo "analyze: -fanalyzer clean on both configurations"
+
 libc-free-check:
 	python3 tools/check_libc_free.py
 
@@ -330,4 +416,4 @@ xalloc-check:
 docs-check: lib-manual-check not-yet-check experimental-check syntax-check design-index-check
 
 clean:
-	rm -f $(BIN) ziman-nogc ziman-allocprofile src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
+	rm -f $(BIN) ziman-nogc ziman-allocprofile ziman-asan ziman-ubsan ziman-tsan src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)

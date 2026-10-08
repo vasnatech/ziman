@@ -11,6 +11,11 @@
 #
 # Either kind may have a sibling name.env (KEY=VALUE lines) exported for its run.
 #
+# SKIP="name1 name2" leaves those fixtures out, reporting each as skipped. For a fixture that
+# cannot hold under a particular build rather than one that is broken: `make asan` uses it for
+# stack_depth_deep_recursion_works, whose frames are several times larger under the sanitizer than
+# the stack its own --stack-mb=256 asks for (docs/reviews/tasks.md F14).
+#
 # Multi-file fixtures: a directory tests/fixtures/name/ with an entry point at
 # name/main.zm (and whatever other .zm files it `use`s underneath it) is run
 # the same way, checked against sibling name.out / name.err files (outside
@@ -19,11 +24,20 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 BIN=${BIN:-./ziman}
+SKIP=${SKIP:-}
 pass=0
 fail=0
+skipped=0
 
 check_fixture() {
     local name="$1" entry="$2"
+    for s in $SKIP; do
+        if [ "$s" = "$name" ]; then
+            echo "SKIP $name"
+            skipped=$((skipped + 1))
+            return
+        fi
+    done
     local out_file="tests/fixtures/$name.out"
     local err_file="tests/fixtures/$name.err"
 
@@ -135,5 +149,5 @@ while IFS= read -r line; do
 done < <(BIN="$BIN" tests/run_shutdown_test.sh 2>&1)
 
 echo "----"
-echo "$pass passed, $fail failed"
+if [ "$skipped" -gt 0 ]; then echo "$pass passed, $fail failed, $skipped skipped"; else echo "$pass passed, $fail failed"; fi
 [ "$fail" -eq 0 ]
