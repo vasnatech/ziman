@@ -103,10 +103,24 @@ static void on_sigprof(int sig) {
      * can be delivered to any thread and two handlers can be in flight at once on different cores.
      * Relaxed ordering is enough -- each handler writes only the slot it claimed, and nothing reads
      * any of them until the timer is stopped. */
-    int idx = __atomic_fetch_add(&g_sample_count, 1, __ATOMIC_RELAXED);
-    if (idx >= SAMPLE_CAPACITY) {
-        __atomic_fetch_add(&g_dropped, 1, __ATOMIC_RELAXED);
-        return;
+    /* Claimed with a compare-exchange rather than a fetch-add so the counter stops at the capacity
+     * instead of climbing past it forever. The fetch-add it replaces kept incrementing after the
+     * buffer was full -- about nine minutes of CPU at 1000 Hz -- and `sig_atomic_t` is `int`, so
+     * after roughly 25 days of profiled CPU time it wrapped negative, at which point `idx >=
+     * SAMPLE_CAPACITY` is false for a negative index and the store below went outside the buffer
+     * (docs/reviews/tasks.md F15). Not reachable in a short run, and this is a handler that a
+     * long-lived server can have installed for days. */
+    sig_atomic_t idx;
+    for (;;) {
+        idx = __atomic_load_n(&g_sample_count, __ATOMIC_RELAXED);
+        if (idx >= SAMPLE_CAPACITY) {
+            __atomic_fetch_add(&g_dropped, 1, __ATOMIC_RELAXED);
+            return;
+        }
+        if (__atomic_compare_exchange_n(&g_sample_count, &idx, idx + 1, 1, __ATOMIC_RELAXED,
+                                        __ATOMIC_RELAXED)) {
+            break;
+        }
     }
     g_samples[idx] = name;
 }

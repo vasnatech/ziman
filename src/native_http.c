@@ -65,7 +65,7 @@
 #define RATE_KEY_MAX 96
 
 typedef struct {
-    char key[RATE_KEY_MAX]; /* "bucket\0key", empty when the slot is free */
+    char key[RATE_KEY_MAX]; /* "bucket\nkey" -- see the snprintf below; empty when the slot is free */
     long long window_start;
     long long count;
 } RateSlot;

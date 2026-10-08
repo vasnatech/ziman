@@ -1,5 +1,6 @@
 #include "mapobj.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -30,7 +31,7 @@ struct MapNode {
 };
 
 static MapNode *node_alloc(int n) {
-    MapNode *node = ziman_xcalloc(1, sizeof(MapNode) + (size_t)n * sizeof(Slot)); /* zeroed: a slot holds a leaf or a child, never both */
+    MapNode *node = ziman_xcalloc(1, offsetof(MapNode, slots) + (size_t)n * sizeof(Slot)); /* zeroed: a slot holds a leaf or a child, never both */
     node->bitmap = 0;
     node->n = n;
     return node;
@@ -351,7 +352,7 @@ static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, V
                 return;
             }
         }
-        node = ziman_xrealloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
+        node = ziman_xrealloc(node, offsetof(MapNode, slots) + (size_t)(node->n + 1) * sizeof(Slot));
         Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
         *nl = (Leaf){hash, key, val, seq};
         node->slots[node->n].leaf = nl;
@@ -364,7 +365,7 @@ static void node_insert_mut(MapNode **np, int depth, uint64_t hash, Value key, V
     uint32_t bit = bit_at(hash, depth);
     int pos = slot_pos(node->bitmap, bit);
     if (!(node->bitmap & bit)) {
-        node = ziman_xrealloc(node, sizeof(MapNode) + (size_t)(node->n + 1) * sizeof(Slot));
+        node = ziman_xrealloc(node, offsetof(MapNode, slots) + (size_t)(node->n + 1) * sizeof(Slot));
         memmove(node->slots + pos + 1, node->slots + pos, (size_t)(node->n - pos) * sizeof(Slot));
         Leaf *nl = gc_heap_alloc(ziman_thread_heap(), GC_MAP_LEAF, sizeof(Leaf));
         *nl = (Leaf){hash, key, val, seq};

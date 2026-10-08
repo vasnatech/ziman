@@ -34,6 +34,39 @@ static void die_oom(const char *what, size_t n, const char *file, int line) {
     exit(1);
 }
 
+/* An array whose own size does not fit a size_t: not an allocation failure but an impossible
+ * request, so it says so rather than reporting a wrapped byte count. */
+static void die_overflow(size_t count, size_t size, const char *file, int line) {
+    char msg[256];
+    int k = snprintf(msg, sizeof msg,
+                     "ziman: refusing an array of %zu elements of %zu bytes at %s:%d: the size overflows\n",
+                     count, size, file, line);
+    if (k > 0) {
+        size_t len = (size_t)k < sizeof msg ? (size_t)k : sizeof msg - 1;
+        ssize_t written = write(2, msg, len);
+        (void)written;
+    }
+    exit(1);
+}
+
+#ifdef ZIMAN_GC
+/* zgc.h's `calloc`; see its comment there. Defined here because this is where allocation policy
+ * lives, and only in the collector builds, since zgc.h is what redirects `calloc` at all. */
+void *ziman_gc_calloc_at(const char *file, int line, size_t count, size_t size) {
+    if (count != 0 && size > (size_t)-1 / count) die_overflow(count, size, file, line);
+    size_t want = count * size;
+    if (want == 0) want = 1;
+#ifdef ZIMAN_ALLOC_PROFILE
+    void *p = ziman_alloc_malloc(file, line, want);
+    if (p != NULL) memset(p, 0, want);
+#else
+    void *p = GC_MALLOC(want);
+#endif
+    if (p == NULL) die_oom("a zeroed allocation", want, file, line);
+    return p;
+}
+#endif
+
 void *ziman_xcheck_at(void *p, const char *file, int line) {
     if (p == NULL) die_oom("an allocation", 0, file, line);
     return p;
@@ -53,7 +86,7 @@ void *ziman_xmalloc_at(const char *file, int line, size_t n) {
 void *ziman_xcalloc_at(const char *file, int line, size_t count, size_t size) {
     /* The overflow check libc's calloc makes and zgc.h's `calloc` macro does not: it is
      * `GC_MALLOC((a) * (b))`, where the product wraps silently (docs/reviews/tasks.md F15). */
-    if (count != 0 && size > (size_t)-1 / count) die_oom("an array", count, file, line);
+    if (count != 0 && size > (size_t)-1 / count) die_overflow(count, size, file, line);
     size_t want = count * size;
     if (want == 0) want = 1;
 #ifdef ZIMAN_ALLOC_PROFILE
