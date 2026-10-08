@@ -13,3 +13,11 @@ tests/pg/.url
 tests/tls/.certs/
 tests/pg/.certs/
 editors/vscode/node_modules/
+
+# Log files the sample backend writes, relative to wherever it is run from
+# (application.properties: logging.file=logs/health-record.log), plus log.zm's
+# rotated `.1`, `.2`, ... siblings. The directory itself stays tracked, through
+# logs/.gitkeep: fs.append_text does not create a missing directory, it just
+# fails, so a fresh clone without logs/ would silently stop logging.
+logs/*.log
+logs/*.log.*
