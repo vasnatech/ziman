@@ -74,7 +74,8 @@ fn main() {
         max_connections: 4,
         log_requests: false,
         fault: None,
-        metrics: false
+        metrics: false,
+        max_connections_per_client: 0
     }
     spawn server.serve(listener, handle, options)
     val base = format("http://127.0.0.1:{}", net.listener_port(listener))
@@ -683,6 +684,14 @@ pub fn rate_reset()
 Forgets every counter. For a test that wants a known starting point -- a server calling this would
 hand every client a fresh allowance.
 
+### `open_connections_of`
+
+```
+pub fn open_connections_of(address: string) -> int
+```
+
+How many connections `address` holds open right now. For a test; a server has no reason to ask.
+
 ### `forwarded_for`
 
 ```
@@ -862,6 +871,20 @@ pub struct ServeOptions {
     // separate, on the route table (`metered_routes`), because only something that matched the request
     // knows the pattern to label it with -- and a pattern is the only label worth having.
     metrics: bool
+    // How many connections one address may hold at once. 0 is off, and is the default a server should keep
+    // unless it is reached directly by clients: behind a reverse proxy every connection carries the
+    // proxy's address, so any cap would be a cap on the proxy.
+    //
+    // This is the half a request throttle cannot cover. A client that opens connections and never sends a
+    // request is counted by no rate limit, and can fill every `max_connections` slot;
+    // `header_timeout_ms` frees such a slot within seconds, which bounds how long the flood holds one, not
+    // how many it holds at once. A refusal here closes the socket without writing anything -- answering
+    // would mean writing to a flooding client from the accept loop, where one slow read stalls every other
+    // connection's accept.
+    //
+    // The address is the socket's, necessarily: at accept time there is no request yet, so there is no
+    // `X-Forwarded-For` to consult even if it were trustworthy. That is the same reason the default is off.
+    max_connections_per_client: int
 }
 ```
 

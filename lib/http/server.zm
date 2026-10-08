@@ -1408,6 +1408,12 @@ native fn rate_allow_raw(bucket: string, key: string, limit: int, window_seconds
 
 native fn rate_reset_raw()
 
+native fn conn_acquire_raw(key: string, limit: int) -> bool
+
+native fn conn_release_raw(key: string)
+
+native fn conn_count_raw(key: string) -> int
+
 // Whether this event is within `limit` for `key` in the last `window_seconds` -- and asking counts it,
 // so ask exactly once per event. `bucket` separates unrelated limits that share a key: `"login"` and
 // `"register"` keyed by the same address are two allowances, not one.
@@ -1444,6 +1450,11 @@ pub fn rate_allow_at(bucket: string, key: string, limit: int, window_seconds: in
 // hand every client a fresh allowance.
 pub fn rate_reset() {
     rate_reset_raw()
+}
+
+// How many connections `address` holds open right now. For a test; a server has no reason to ask.
+pub fn open_connections_of(address: string) -> int {
+    return conn_count_raw(address)
 }
 
 // The address to rate-limit a request by, for a server that sits behind proxies **it owns**.
@@ -1883,6 +1894,20 @@ pub struct ServeOptions {
     // separate, on the route table (`metered_routes`), because only something that matched the request
     // knows the pattern to label it with -- and a pattern is the only label worth having.
     metrics: bool
+    // How many connections one address may hold at once. 0 is off, and is the default a server should keep
+    // unless it is reached directly by clients: behind a reverse proxy every connection carries the
+    // proxy's address, so any cap would be a cap on the proxy.
+    //
+    // This is the half a request throttle cannot cover. A client that opens connections and never sends a
+    // request is counted by no rate limit, and can fill every `max_connections` slot;
+    // `header_timeout_ms` frees such a slot within seconds, which bounds how long the flood holds one, not
+    // how many it holds at once. A refusal here closes the socket without writing anything -- answering
+    // would mean writing to a flooding client from the accept loop, where one slow read stalls every other
+    // connection's accept.
+    //
+    // The address is the socket's, necessarily: at accept time there is no request yet, so there is no
+    // `X-Forwarded-For` to consult even if it were trustworthy. That is the same reason the default is off.
+    max_connections_per_client: int
 }
 
 // What a connection's thread does when a runtime error in the handler (or anywhere in the thread) ends it: the error goes to stderr, and the client is answered
@@ -1901,6 +1926,16 @@ fn fail_connection(sock: Socket, message: string) {
     val _ = net.write_text(sock, concat(head, body))
 }
 
+// The key a connection is counted under: its address, or "" when the cap is off. Empty rather than an
+// Option so `serve_connection`'s release is unconditional -- a `defer` that has to ask whether to run is
+// how a release gets skipped on the path nobody tested.
+fn connection_key(sock: Socket, limit: int) -> string {
+    if limit < 1 {
+        return ""
+    }
+    return option_unwrap_or<string>(net.peer_address(sock), "")
+}
+
 fn serve_connection(
     sock: Socket,
     handler: fn(Request) -> Response,
@@ -1909,10 +1944,15 @@ fn serve_connection(
     log_requests: bool,
     fault: Option<fn(int, string) -> Response>,
     meter: bool,
+    client_key: string,
     slots: Channel<int>
 ) {
     defer send(slots, 1)  // the slot is returned on every way out
     defer net.close(sock)
+    // On every way out too, including a handler that failed: a release that is skipped leaks the cap
+    // downwards until the address can open nothing at all. `conn_release_raw` ignores an empty key, so
+    // this needs no condition -- see `connection_key`.
+    defer conn_release_raw(client_key)
     if meter {
         metrics.gauge_add(connections_metric, 1.0)
     }
@@ -1989,6 +2029,15 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
     while !os.shutdown_requested() {
         val client = net.accept(listener)
         if Ok(accepted) = client {
+            // Decided here, before a slot is taken and before a thread exists: the whole point of a
+            // connection cap is that refusing costs less than admitting, and that is only true if the
+            // refusal happens before either. Closed without a reply, for the reason on
+            // `max_connections_per_client`.
+            val client_key = connection_key(accepted, options.max_connections_per_client)
+            if !conn_acquire_raw(client_key, options.max_connections_per_client) {
+                net.close(accepted)
+                continue
+            }
             val slot = receive(slots)  // waits here while every slot is in use
             spawn serve_connection(
                 accepted,
@@ -1998,6 +2047,7 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
                 options.log_requests,
                 options.fault,
                 options.metrics,
+                client_key,
                 slots
             ) on_error fn(
                 message: string

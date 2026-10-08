@@ -71,6 +71,10 @@ typedef struct {
 } RateSlot;
 
 static RateSlot g_rate[RATE_SLOTS];
+/* The connection cap's own table, sharing RateSlot's shape and the one mutex: `count` is how many
+ * connections the key holds right now, and `window_start` is unused. One mutex for both because a server
+ * touches each at most once per connection or request, far too rarely for the two to contend. */
+static RateSlot g_conn[RATE_SLOTS];
 static pthread_mutex_t g_rate_mu = PTHREAD_MUTEX_INITIALIZER;
 
 static Value native_server_rate_allow(Value *args, int argc, int line, int col) {
@@ -116,12 +120,106 @@ static Value native_server_rate_allow(Value *args, int argc, int line, int col) 
     return value_bool(allowed);
 }
 
+/* ------------------------------------------------- per-client connection cap
+ *
+ * `server::conn_acquire_raw(key, limit)` / `server::conn_release_raw(key)`: how many connections one
+ * address has open right now, which is a different question from how many requests it has made and needs
+ * a different counter. `rate_allow` counts events in a window and never counts down; this one goes up on
+ * accept and down on close, so it bounds what a client is *holding* rather than what it has done.
+ *
+ * That distinction is the gap this closes. B10's throttle counts requests under `/api/auth/`, so a client
+ * that opens connections and never sends a request is not counted by it at all, and `max_connections`
+ * slots can still be filled from one address. `header_timeout_ms` frees such a slot within seconds, which
+ * bounds how long the flood holds it, not how many it holds at once.
+ *
+ * Returns whether the connection is admitted. A refusal is the caller's to act on, and `serve` acts on it
+ * by closing the socket without writing anything: answering would mean writing to a client that is
+ * already flooding, from the accept loop, where a slow read would stall every other connection's accept.
+ *
+ * Release must happen on every path out, including a handler that failed, or the cap leaks downwards
+ * until the address can open nothing. `serve_connection`'s `defer` is what guarantees that, which is why
+ * the key travels into the thread rather than being recomputed there.
+ *
+ * Same fixed table and same ceiling as the rate limiter, and the same reasoning for it -- but a different
+ * eviction rule, because this table's entries are *live state*, not a decaying measurement. A full table
+ * admits the connection and does not track it: refusing would deny service on the strength of a table
+ * being busy, and evicting someone else's live count would silently raise their cap. Tracking fewer
+ * clients than there are is the one failure here that loses nothing already promised. */
+static Value native_server_conn_acquire(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *key = value_cstr(args[0]);
+    long long limit = args[1].as.i;
+    if (limit < 1 || key[0] == '\0') {
+        /* Not configured to cap anything, or no address to count under (a socket whose peer could not be
+         * read). Admitted and untracked: a server must not refuse a connection because it could not
+         * identify it. */
+        return value_bool(1);
+    }
+    pthread_mutex_lock(&g_rate_mu);
+    RateSlot *found = NULL, *free_slot = NULL;
+    for (int i = 0; i < RATE_SLOTS; i++) {
+        RateSlot *s = &g_conn[i];
+        if (s->key[0] == '\0') {
+            if (free_slot == NULL) free_slot = s;
+            continue;
+        }
+        if (strcmp(s->key, key) == 0) { found = s; break; }
+    }
+    int admitted = 1;
+    if (found != NULL) {
+        if (found->count >= limit) admitted = 0;
+        else found->count++;
+    } else if (free_slot != NULL) {
+        snprintf(free_slot->key, sizeof free_slot->key, "%s", key);
+        free_slot->count = 1;
+        free_slot->window_start = 0;
+    }
+    /* No free slot and no entry: admitted and untracked, for the reason in the comment above. */
+    pthread_mutex_unlock(&g_rate_mu);
+    return value_bool(admitted);
+}
+
+static Value native_server_conn_release(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *key = value_cstr(args[0]);
+    /* An empty key is "the cap is off", which `connection_key` uses so that the caller's release can be
+     * unconditional. Nothing was acquired, so nothing is released. */
+    if (key[0] == '\0') return value_unit();
+    pthread_mutex_lock(&g_rate_mu);
+    for (int i = 0; i < RATE_SLOTS; i++) {
+        RateSlot *s = &g_conn[i];
+        if (s->key[0] != '\0' && strcmp(s->key, key) == 0) {
+            if (s->count > 0) s->count--;
+            /* The slot is freed at zero rather than kept: a client that has closed everything should not
+             * hold a slot against a client that has not, and the count is the only state here. */
+            if (s->count == 0) s->key[0] = '\0';
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_rate_mu);
+    return value_unit();
+}
+
+/* How many connections `key` holds right now, for a test. */
+static Value native_server_conn_count(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *key = value_cstr(args[0]);
+    long long n = 0;
+    pthread_mutex_lock(&g_rate_mu);
+    for (int i = 0; i < RATE_SLOTS; i++) {
+        if (g_conn[i].key[0] != '\0' && strcmp(g_conn[i].key, key) == 0) { n = g_conn[i].count; break; }
+    }
+    pthread_mutex_unlock(&g_rate_mu);
+    return value_int(n);
+}
+
 /* Forgets every counter. For a test that wants a known starting point; a server has no reason to call
  * it, and doing so would hand everyone a fresh allowance. */
 static Value native_server_rate_reset(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
     pthread_mutex_lock(&g_rate_mu);
     memset(g_rate, 0, sizeof g_rate);
+    memset(g_conn, 0, sizeof g_conn);
     pthread_mutex_unlock(&g_rate_mu);
     return value_unit();
 }
@@ -200,6 +298,9 @@ void native_http_register(void) {
     native_register("server::bound_malloc_arenas", native_server_bound_malloc_arenas);
     native_register("server::rate_allow_raw", native_server_rate_allow);
     native_register("server::rate_reset_raw", native_server_rate_reset);
+    native_register("server::conn_acquire_raw", native_server_conn_acquire);
+    native_register("server::conn_release_raw", native_server_conn_release);
+    native_register("server::conn_count_raw", native_server_conn_count);
     native_register("http::is_token", native_http_is_token);
     native_register("http::is_field_value", native_http_is_field_value);
 }

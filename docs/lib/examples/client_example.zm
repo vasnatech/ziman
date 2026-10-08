@@ -23,7 +23,8 @@ fn main() {
         max_connections: 4,
         log_requests: false,
         fault: None,
-        metrics: false
+        metrics: false,
+        max_connections_per_client: 0
     }
     spawn server.serve(listener, handle, options)
 

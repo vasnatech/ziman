@@ -1737,13 +1737,18 @@ from source.
   would justify them is a message catalog whose languages put the pieces in different orders; `format_dynamic`
   would take them first.
 
-- **`serve`: per-client connection cap -- not started.** `header_timeout_ms` (E7) frees a slot from a client that dawdles within seconds, but a
+- **`serve`: per-client connection cap -- done (2026-10-07).** `header_timeout_ms` (E7) frees a slot from a client that dawdles within seconds, but a
   flood from one address can still fill all `max_connections` slots. A cap per client address (`max_connections_per_client`, default 0 = off, since
   behind a reverse proxy every connection has the proxy's address) needs `net.peer_address(sock)` (`getpeername`) and a counter shared by every
   connection thread -- a native handle holding a mutex-guarded table, as `StringBuilder` and `Iter` hold theirs. Until then a firewall or the proxy in front does it.
-  *Update 2026-10-07: both things this was waiting for now exist. `net.peer_address(sock)` landed with B10, and `server.rate_allow` is exactly the
-  "native handle holding a mutex-guarded table" described above. What B10 does **not** cover is this entry: its throttle counts requests to
-  `/api/auth/*`, so a flood of connections that never send a request still fills every slot. Still not started, but no longer blocked.*
+  *Done 2026-10-07, as `ServeOptions.max_connections_per_client` (0 = off, the default, for the reason above). Both things this entry was waiting
+  for had landed with B10: `net.peer_address(sock)`, and the "native handle holding a mutex-guarded table" it described, which `server.rate_allow`
+  already was. The cap needed a different counter from the throttle even so -- a rate limiter counts events in a window and never counts down,
+  while a connection cap goes up on accept and down on close -- so `conn_acquire`/`conn_release` are their own table. Decided in the accept loop
+  before a slot is taken and before a thread exists, since a cap is only worth having if refusing costs less than admitting, and a refusal closes
+  the socket without a reply (answering a flooding client from the accept loop would let one slow read stall every other accept). On a full table a
+  connection is admitted and untracked, which is the one failure here that loses nothing already promised: refusing would deny service because a
+  table is busy, and evicting a live count would silently raise someone's cap.*
 
 - **health-record-backend-ziman: per-IP login throttle -- done (2026-10-07, B10).**
   E5 added the per-account lockout (`app.security.max-login-attempts`/`max-mfa-attempts`); B10 added the per-IP half the dev review also asked

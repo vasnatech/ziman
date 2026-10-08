@@ -62,6 +62,7 @@ them against the code.
 - [`--fmt --canonical`: settling brace placement, which plain `--fmt` will not (2026-10-07, F12)](#--fmt---canonical-settling-brace-placement-which-plain---fmt-will-not-2026-10-07-f12)
 - [`--coverage-lcov=F`: coverage something other than a person can read (2026-10-07, F13)](#--coverage-lcovf-coverage-something-other-than-a-person-can-read-2026-10-07-f13)
 - [A request knows where it came from, and a server can rate-limit on it (2026-10-07, B10)](#a-request-knows-where-it-came-from-and-a-server-can-rate-limit-on-it-2026-10-07-b10)
+- [A per-client connection cap, which a request throttle cannot be (2026-10-07)](#a-per-client-connection-cap-which-a-request-throttle-cannot-be-2026-10-07)
 - [The language server](#the-language-server)
 - [Map and Set](#map-and-set)
 - [JSON on Map](#json-on-map)
@@ -3926,6 +3927,38 @@ At 20 a minute the project's own suite failed three ways -- the lockout test mak
 on purpose, the MFA test more, and log rotation needs a run of registrations -- which is a fair model of
 several real users behind one NAT. At 100 a minute all twenty suites pass, and a flood of thousands a
 minute is still refused. A default that breaks legitimate use is worse than a high one.
+
+## A per-client connection cap, which a request throttle cannot be (2026-10-07)
+
+B10 gave the server a per-address request throttle. This is the half it cannot cover, and the reason the
+two are separate mechanisms rather than one: a client that opens connections and **sends nothing** is
+counted by no rate limit, because there is no request to count, and it can still fill every
+`max_connections` slot. `header_timeout_ms` frees such a slot within seconds, which bounds how long the
+flood holds one, not how many it holds at once.
+
+`ServeOptions.max_connections_per_client`, 0 = off and that is the default: behind a reverse proxy every
+connection carries the proxy's address, so a cap would cap the proxy. The address is necessarily the
+socket's -- at accept time there is no request, so there is no `X-Forwarded-For` to consult even if it
+were trustworthy -- which is the same reason the default is off.
+
+**Why a second counter rather than `rate_allow`.** A rate limiter counts events in a window and never
+counts down. A connection cap goes up on accept and down on close, so what it holds is live state, not a
+decaying measurement. That difference also changes what to do when the table is full: the rate limiter
+replaces the oldest window, while the cap **admits the connection and does not track it**. Refusing would
+deny service because a table is busy, and evicting someone else's live count would silently raise their
+cap; tracking fewer clients than there are is the only failure here that loses nothing already promised.
+
+**Decided in the accept loop**, before a slot is taken and before a thread is spawned, because a cap is
+only worth having if refusing costs less than admitting -- and that is only true if the refusal happens
+before both. A refusal closes the socket without writing anything: answering would mean writing to a
+flooding client from the accept loop, where one slow read stalls every other connection's accept.
+
+**The release is the part that can go wrong quietly.** It is a `defer` in the connection thread, so it
+runs on every path out including a handler that failed; a release that is ever skipped leaks the cap
+downwards until the address can open nothing at all. `connection_key` returns `""` when the cap is off and
+both natives ignore an empty key, so the `defer` needs no condition -- a `defer` that has to ask whether
+to run is how a release gets skipped on the path nobody tested. The fixture checks the count returns to
+zero after every connection closes, which is what would catch a leak.
 
 ## The language server
 

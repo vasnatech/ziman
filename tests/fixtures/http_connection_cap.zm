@@ -1,0 +1,81 @@
+// `max_connections_per_client`: how many connections one address may hold at once.
+//
+// This is the half a request throttle cannot cover, and the reason it exists as a separate mechanism. A
+// client that opens connections and sends nothing is counted by no rate limit -- there is no request to
+// count -- yet it can fill every `max_connections` slot. `header_timeout_ms` frees such a slot within
+// seconds, which bounds how long the flood holds one, not how many it holds at once.
+//
+// Decided in the accept loop, before a slot is taken and before a thread exists, because a cap is only
+// worth having if refusing costs less than admitting. A refusal closes the socket without a reply:
+// answering would mean writing to a flooding client from the accept loop, where one slow read stalls
+// every other connection's accept.
+//
+// The count going back to zero at the end is as much the point as the refusal: the release is a `defer`
+// in the connection thread, and if it were ever skipped the cap would leak downwards until the address
+// could open nothing at all.
+use clock
+use http
+use http.HttpMethod
+use net
+use server
+
+fn hello<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+    return server.text_response(200, "ok")
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, message)
+}
+
+val table = server.routes<int>([
+    server.Endpoint<int> { method: HttpMethod.Get, pattern: "/", handler: hello<int> }
+])
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    val options = server.ServeOptions {
+        idle_timeout_ms: 5000,
+        header_timeout_ms: 5000,
+        max_connections: 16,
+        log_requests: false,
+        fault: None,
+        metrics: false,
+        max_connections_per_client: 2
+    }
+    spawn server.serve(l, fn(req: http.Request) -> http.Response {
+        return server.dispatch<int>(table, 0, req, fault)
+    }, options) on_error fn(m: string) {
+        print(m)
+    }
+
+    // Four connections held open, sending nothing.
+    val held = ab_new<net.Socket>()
+    var opened = 0
+    for i in 0..4 {
+        val c = net.connect("127.0.0.1", port)
+        if is_ok(c) {
+            ab_append(held, unwrap(c))
+            opened = opened + 1
+        }
+    }
+    clock.sleep_millis(300)
+    printf("the client opened: {}\n", opened)
+    printf("the server counts for 127.0.0.1: {}\n", server.open_connections_of("127.0.0.1"))
+
+    var answered = 0
+    for c in ab_to_array(held) {
+        unwrap(net.set_timeout(c, 300))
+        val _ = net.write_text(c, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        val r = net.read_text(c, 64)
+        if is_ok(r) {
+            if len(unwrap(r)) > 0 {
+                answered = answered + 1
+            }
+        }
+        net.close(c)
+    }
+    printf("answered by the server: {}\n", answered)
+    clock.sleep_millis(300)
+    printf("counted after all are closed: {}\n", server.open_connections_of("127.0.0.1"))
+}

@@ -44,7 +44,8 @@ fn serve_with(fault: Option<fn(int, string) -> http.Response>) -> int {
         max_connections: 4,
         log_requests: false,
         fault: fault,
-        metrics: false
+        metrics: false,
+        max_connections_per_client: 0
     }
     spawn server.serve(l, handler, options)
     return port
