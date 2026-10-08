@@ -1413,6 +1413,9 @@ static void handle_completion(const JVal *id, const JVal *params) {
     send_result(id, b.s);
 }
 
+/* The largest formatted document this server will answer with; see handle_formatting. */
+#define LSP_MAX_FORMAT_REPLY (8u * 1024u * 1024u)
+
 static void handle_formatting(const JVal *id, const JVal *params) {
     const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
     Doc *d = uri != NULL ? find_doc_by_uri(uri) : NULL;
@@ -1421,6 +1424,21 @@ static void handle_formatting(const JVal *id, const JVal *params) {
     char *formatted = format_source(d->text, strlen(d->text), 120, 0, err, sizeof err);
     if (formatted == NULL) { send_error(id, -32803, err); return; }
     if (strcmp(formatted, d->text) == 0) { send_result(id, "[]"); return; }
+    /* A reply is built in memory and then escaped into JSON beside itself, so an answer this big
+     * costs several times its own size in a process the editor keeps open all day. The formatter's
+     * own nesting limit (format.c's FORMAT_MAX_NESTING) is what stops a small document from
+     * producing a huge answer; this is the backstop for a document that really is enormous, and it
+     * refuses rather than swallowing the memory (docs/reviews/tasks.md A18). */
+    size_t formatted_len = strlen(formatted);
+    if (formatted_len > LSP_MAX_FORMAT_REPLY) {
+        char too_big[192];
+        snprintf(too_big, sizeof too_big,
+                 "formatting this document would return %zu MB, past the %zu MB this server will send",
+                 (formatted_len + 1048575) / 1048576, (size_t)LSP_MAX_FORMAT_REPLY / 1048576);
+        free(formatted);
+        send_error(id, -32803, too_big);
+        return;
+    }
     int lines = 0;
     for (const char *p = d->text; *p; p++) if (*p == '\n') lines++;
     SB b = {0};

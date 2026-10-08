@@ -617,9 +617,42 @@ static void canonicalize_braces(Items *items) {
     }
 }
 
+/* Refuses nesting deep enough for the indentation itself to become the output. Every line is
+ * indented by four spaces per open bracket, so the text this produces is O(lines x depth) -- which
+ * for input that is *only* nesting is quadratic in its own size: 32 KB of nested blocks formatted
+ * to 256 MB, at 9.7 GB of peak RSS, and through the language server a 24 KB document became a
+ * 144 MB reply (docs/reviews/tasks.md A18). The quadratic output is correct, so it is the depth
+ * that has to be bounded, not the indenting; 200 is the same limit the regex compiler puts on its
+ * own nesting, and real code does not pass about 15. Checked once here rather than inside the
+ * emission passes, which run up to 60 times over the same items. Returns 0 and fills `err`. */
+#define FORMAT_MAX_NESTING 200
+
+static int nesting_within_limit(const Items *items, char *err, size_t err_size) {
+    int depth = 0, line = 1, worst = 0, worst_line = 1;
+    for (int i = 0; i < items->n; i++) {
+        const Item *it = &items->v[i];
+        line += it->nl_before;
+        if (it->kind == K_PUNCT && opens(it)) {
+            depth++;
+            if (depth > worst) { worst = depth; worst_line = line; }
+        } else if (it->kind == K_PUNCT && closes(it) && depth > 0) {
+            depth--;
+        }
+    }
+    if (worst > FORMAT_MAX_NESTING) {
+        snprintf(err, err_size,
+                 "line %d: nesting is too deep to format (%d brackets open; the limit is %d, and the "
+                 "indentation alone would be %d spaces a line)",
+                 worst_line, worst, FORMAT_MAX_NESTING, 4 * worst);
+        return 0;
+    }
+    return 1;
+}
+
 char *format_source(const char *src, size_t len, int width, int canonical, char *err, size_t err_size) {
     Items items = {0};
     if (!scan(src, len, &items, err, err_size)) { free(items.v); return NULL; }
+    if (!nesting_within_limit(&items, err, err_size)) { free(items.v); return NULL; }
     sort_use_runs(&items);
     if (canonical) canonicalize_braces(&items);
 
