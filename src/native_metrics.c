@@ -48,7 +48,12 @@ typedef enum { M_COUNTER, M_GAUGE, M_HISTOGRAM } MetricKind;
 
 typedef struct {
     char *labels; /* the canonical `k="v",k2="v2"` from the Ziman side; "" when there are none */
-    double value; /* a counter's total, a gauge's current value, a histogram's sum */
+    /* A counter's total, a gauge's current value, a histogram's sum -- held as the double's *bits*
+     * rather than as a double, which is what lets the three helpers below update it atomically
+     * without ever accessing one object through the other's type. It was a `double` written through
+     * an `unsigned long long *` cast, which is undefined by C11 6.5p7 in a build that carries no
+     * -fno-strict-aliasing (docs/reviews/tasks.md A19). Read it with bits_load_double. */
+    unsigned long long value_bits;
     unsigned long long count;
     unsigned long long bucket[METRICS_BUCKETS_MAX]; /* cumulative, histogram only */
 } Series;
@@ -85,26 +90,29 @@ static Metric *find(const char *name) {
  * increments/s on one thread against 2.1M on eight -- which is the very shape of problem this
  * module exists to diagnose (F7). Contending on one cache line still does not scale linearly, but
  * it no longer goes backwards. */
-static void atomic_add_double(double *p, double delta) {
-    unsigned long long seen, next;
+/* The three of these take the bits, never a `double *`, so nothing here casts one pointer type to
+ * the other -- see Series.value_bits. The seed of the loop is an atomic load for the same reason
+ * the exchange is atomic: a plain read of a word another thread's compare-exchange may be writing
+ * is a data race, which is what TSan reported twice over eight threads, and the fact that a torn
+ * read would merely cost the loop one more turn does not make the read defined. */
+static void bits_add_double(unsigned long long *p, double delta) {
+    unsigned long long seen = __atomic_load_n(p, __ATOMIC_RELAXED), next;
     double seenv, nextv;
-    memcpy(&seen, p, sizeof seen);
     do {
         memcpy(&seenv, &seen, sizeof seenv);
         nextv = seenv + delta;
         memcpy(&next, &nextv, sizeof next);
-    } while (!__atomic_compare_exchange_n((unsigned long long *)p, &seen, next, 0,
-                                          __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+    } while (!__atomic_compare_exchange_n(p, &seen, next, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
 }
 
-static void atomic_store_double(double *p, double v) {
+static void bits_store_double(unsigned long long *p, double v) {
     unsigned long long bits;
     memcpy(&bits, &v, sizeof bits);
-    __atomic_store_n((unsigned long long *)p, bits, __ATOMIC_RELAXED);
+    __atomic_store_n(p, bits, __ATOMIC_RELAXED);
 }
 
-static double atomic_load_double(const double *p) {
-    unsigned long long bits = __atomic_load_n((const unsigned long long *)p, __ATOMIC_RELAXED);
+static double bits_load_double(const unsigned long long *p) {
+    unsigned long long bits = __atomic_load_n(p, __ATOMIC_RELAXED);
     double v;
     memcpy(&v, &bits, sizeof v);
     return v;
@@ -218,11 +226,11 @@ static Value record(Value *args, MetricKind want, int op) {
         if (!s) return value_unit(); /* at the cap; dropped and counted */
     }
     if (op == 0) {
-        atomic_add_double(&s->value, v);
+        bits_add_double(&s->value_bits, v);
     } else if (op == 1) {
-        atomic_store_double(&s->value, v);
+        bits_store_double(&s->value_bits, v);
     } else {
-        atomic_add_double(&s->value, v);
+        bits_add_double(&s->value_bits, v);
         __atomic_fetch_add(&s->count, 1ULL, __ATOMIC_RELAXED);
         for (int i = 0; i < m->nbuckets; i++) {
             if (v <= m->bounds[i]) __atomic_fetch_add(&s->bucket[i], 1ULL, __ATOMIC_RELAXED);
@@ -275,11 +283,11 @@ static Value record_at(Value *args, int op) {
     Series *s = &m->series[si];
     double v = args[1].as.f;
     if (op == 0) {
-        atomic_add_double(&s->value, v);
+        bits_add_double(&s->value_bits, v);
     } else if (op == 1) {
-        atomic_store_double(&s->value, v);
+        bits_store_double(&s->value_bits, v);
     } else {
-        atomic_add_double(&s->value, v);
+        bits_add_double(&s->value_bits, v);
         __atomic_fetch_add(&s->count, 1ULL, __ATOMIC_RELAXED);
         for (int i = 0; i < m->nbuckets; i++) {
             if (v <= m->bounds[i]) __atomic_fetch_add(&s->bucket[i], 1ULL, __ATOMIC_RELAXED);
@@ -414,13 +422,13 @@ static Value native_render(Value *args, int argc, int line, int col) {
                 append_series_name(&b, m->name, "_bucket", s->labels, "le=\"+Inf\"");
                 buf_appendf(&b, "%llu\n", __atomic_load_n(&s->count, __ATOMIC_RELAXED));
                 append_series_name(&b, m->name, "_sum", s->labels, NULL);
-                append_value(&b, atomic_load_double(&s->value));
+                append_value(&b, bits_load_double(&s->value_bits));
                 buf_appendf(&b, "\n");
                 append_series_name(&b, m->name, "_count", s->labels, NULL);
                 buf_appendf(&b, "%llu\n", __atomic_load_n(&s->count, __ATOMIC_RELAXED));
             } else {
                 append_series_name(&b, m->name, "", s->labels, NULL);
-                append_value(&b, atomic_load_double(&s->value));
+                append_value(&b, bits_load_double(&s->value_bits));
                 buf_appendf(&b, "\n");
             }
         }
