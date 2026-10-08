@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "ast.h"
+#include "stack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -97,6 +98,7 @@ static int type_args_equal(TypeList a, TypeList b) {
 }
 
 int type_equals(Type a, Type b) {
+    ZIMAN_STACK_CHECK();
     if (a.kind != b.kind) return 0;
     if (a.kind == TY_ARRAY) return type_equals(*a.elem, *b.elem);
     if (a.kind == TY_RESULT) return type_equals(*a.elem, *b.elem) && type_equals(*a.elem_err, *b.elem_err);
@@ -112,6 +114,7 @@ int type_equals(Type a, Type b) {
 }
 
 char *type_name(Type type) {
+    ZIMAN_STACK_CHECK();
     switch (type.kind) {
         case TY_VOID: return strdup("void");
         case TY_INT: return strdup("int");

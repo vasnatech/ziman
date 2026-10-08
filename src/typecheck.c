@@ -157,6 +157,7 @@ static int is_option_type(Type t);
  * to `params`/`args` (e.g. a plain `int` field, or a reference to some
  * other struct's own type parameter) passes through unchanged. */
 static Type substitute_type(Type t, TypeParamList *params, TypeList *args) {
+    ZIMAN_STACK_CHECK();
     switch (t.kind) {
         case TY_TYPEVAR:
             for (int i = 0; i < params->count; i++) {
@@ -556,6 +557,7 @@ static FunctionDecl *find_message_function(Module *module, Type t) {
  * and -- recursively -- an array, an Option or a Result whose element/payload
  * types are ordered. Channels and bool don't. */
 static int type_supports_ordering(Module *module, Type t) {
+    ZIMAN_STACK_CHECK();
     switch (t.kind) {
         case TY_INT: case TY_FLOAT: case TY_STRING: case TY_BIGINT: case TY_DECIMAL: case TY_BYTE:
             return 1;
@@ -1303,6 +1305,7 @@ static Expr *mk_call_expr(const char *callee, Expr *arg, int line, int col);
 /* True when `t` names one of `params` anywhere in its shape -- whether a generic call's type argument for this
  * parameter can be learned from an argument checked against `t`. */
 static int type_mentions_any(Type t, TypeParamList *params) {
+    ZIMAN_STACK_CHECK();
     switch (t.kind) {
         case TY_TYPEVAR:
             for (int i = 0; i < params->count; i++) {
@@ -1374,6 +1377,7 @@ static int expr_needs_expected_type(const Expr *e) {
  * known -- but two arguments disagreeing about the same type parameter is a genuine inference conflict, reported at
  * `at`. */
 static void unify_type(Type pattern, Type actual, TypeParamList *params, Type *bindings, int *bound, const Expr *at) {
+    ZIMAN_STACK_CHECK();
     if (pattern.kind == TY_TYPEVAR) {
         for (int i = 0; i < params->count; i++) {
             if (strcmp(params->items[i].name, pattern.type_var_name) != 0) continue;
@@ -1428,6 +1432,7 @@ static void unify_type(Type pattern, Type actual, TypeParamList *params, Type *b
  * off `bindings` right now (see infer_call_type_args's variadic-tail case, the one place a pattern is needed before
  * every argument has been visited). */
 static int type_fully_bound(Type t, TypeParamList *params, const int *bound) {
+    ZIMAN_STACK_CHECK();
     switch (t.kind) {
         case TY_TYPEVAR:
             for (int i = 0; i < params->count; i++) {
@@ -4186,6 +4191,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
  * never produced by parse_type() directly (see ast.h's Type comment), so
  * reaching this function with one already means the loader resolved it. */
 static void check_type_well_formed(Module *module, Type t, int line, int col) {
+    ZIMAN_STACK_CHECK();
     if (t.kind == TY_ARRAY) {
         check_type_well_formed(module, *t.elem, line, col);
     } else if (t.kind == TY_RESULT) {

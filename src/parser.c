@@ -159,7 +159,14 @@ static int next_looks_like_generic_call(Parser *p) {
     }
 }
 
+/* Guarded like parse_unary and parse_block: a type is recursive syntax too (`[[[...]]]`,
+ * `fn(fn(...))`, `Result<Result<...>>`), and without the check a deep one runs off the end of
+ * the C stack instead of reporting it. The language server is the reason this matters more than
+ * the depth suggests: `lsp_main` returns before main.c reaches ziman_run_on_big_stack, so it
+ * works on whatever `ulimit -s` gives (8 MB typically) and no --stack-mb can raise it, which
+ * made a 68 KB document a SIGSEGV with no diagnostic rather than a reported error. */
 static Type parse_type(Parser *p) {
+    ZIMAN_STACK_CHECK();
     if (match(p, TOK_KW_INT)) return type_scalar(TY_INT);
     if (match(p, TOK_KW_FLOAT)) return type_scalar(TY_FLOAT);
     if (match(p, TOK_KW_BOOL)) return type_scalar(TY_BOOL);
@@ -1935,6 +1942,7 @@ static TypeParamList parse_type_param_list(Parser *p) {
  * once we know better" step, run right after each declaration's own
  * type_params are known. */
 static void reclassify_type_params(Type *t, TypeParamList *type_params) {
+    ZIMAN_STACK_CHECK();
     if (t->kind == TY_ARRAY) { reclassify_type_params(t->elem, type_params); return; }
     if (t->kind == TY_RESULT) {
         reclassify_type_params(t->elem, type_params);

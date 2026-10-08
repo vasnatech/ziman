@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -169,6 +170,13 @@ typedef struct {
     int json, lint, check_only, coverage, profile, locals;
     const char *coverage_lcov; /* NULL unless --coverage-lcov=PATH was given */
 } RunOptions;
+
+/* `--lsp` on a thread of its own, for ziman_run_on_big_stack -- see the call site. */
+static void *run_lsp(void *unused) {
+    (void)unused;
+    ziman_stack_mark_main();
+    return (void *)(intptr_t)lsp_main();
+}
 
 static void *run_program(void *raw) {
     RunOptions *o = raw;
@@ -383,7 +391,13 @@ int main(int argc, char **argv) {
     }
     if (lsp) {
         register_all_natives();
-        return lsp_main();
+        /* On the same big stack as a program run, and honouring the same options. The server
+         * recurses over whatever a user's editor has open, exactly as `--check` does, and used to
+         * run on the process stack instead: `ulimit -s` (8 MB typically), with --stack-mb accepted
+         * and then ignored -- so a deep type took the server down, and the "raise it with
+         * --stack-mb=N" the error suggests could not be acted on. */
+        ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
+        return (int)(intptr_t)ziman_run_on_big_stack(run_lsp, NULL);
     }
     if (fmt) {
         if (n_files == 0) { usage(stderr); return 2; }

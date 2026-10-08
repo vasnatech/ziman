@@ -12,6 +12,7 @@
 #include "lexer.h"
 #include "parser.h"
 #include "prelude.h"
+#include "stack.h"
 
 /* ---- small file/path helpers ---- */
 
@@ -263,6 +264,7 @@ static void retype_struct_as_enum(Type *t, char *enum_name) {
 }
 
 static void self_qualify_type(Type *t, SelfQualifyCtx *ctx) {
+    ZIMAN_STACK_CHECK();
     if (t->kind == TY_ARRAY) {
         self_qualify_type(t->elem, ctx);
         return;
@@ -982,6 +984,7 @@ static void resolve_type_or_enum_ref(Type *t, CrossRefCtx *ctx, int line, int co
 }
 
 static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
+    ZIMAN_STACK_CHECK();
     if (t->kind == TY_ARRAY) {
         resolve_type_refs(t->elem, ctx, line, col);
         return;
