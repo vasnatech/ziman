@@ -937,6 +937,15 @@ fn main() {
   write is what the rule below about bare names exists to prevent.
 - **`use path/to/mod.Name [as alias]`** imports one function/struct/enum, bound to a bare
   local name (`use uuid.Uuid` then just `Uuid`) — one name per import, no `{A, B, C}` list.
+  That last part is a decision, not an omission, and the reasons are worth having here because the
+  obvious complaint about it is correct: the reference backend has 1,275 `use` lines and one file
+  imports fifteen names from `time`. Three things outweigh that. `--fmt` already sorts runs of
+  consecutive `use` lines, so nothing has to find the right slot in an alphabetised run by hand. One
+  name per line is independently valid, so a mistake costs one line and the error points at it, where a
+  malformed group breaks the whole import. And one fact per line stays greppable: `use service.is_email`
+  is a searchable statement about one name, which a group is not. Against those, "one way to do a thing"
+  (DESIGN.md's second principle) decides it — a group would be a second way to import three names. See
+  DESIGN.md's "Grouped imports, declined" for the full argument.
   The bare name's casing must match `Name`'s own, checked at parse time (the parser already
   relies on casing alone to tell a struct literal from a call). Privacy-checked once, at the
   `use` line, exactly as a dotted reference would be. A compile-time error to import the same

@@ -63,6 +63,7 @@ them against the code.
 - [`--coverage-lcov=F`: coverage something other than a person can read (2026-10-07, F13)](#--coverage-lcovf-coverage-something-other-than-a-person-can-read-2026-10-07-f13)
 - [A request knows where it came from, and a server can rate-limit on it (2026-10-07, B10)](#a-request-knows-where-it-came-from-and-a-server-can-rate-limit-on-it-2026-10-07-b10)
 - [A per-client connection cap, which a request throttle cannot be (2026-10-07)](#a-per-client-connection-cap-which-a-request-throttle-cannot-be-2026-10-07)
+- [Grouped imports, declined (2026-10-07, C17)](#grouped-imports-declined-2026-10-07-c17)
 - [The language server](#the-language-server)
 - [Map and Set](#map-and-set)
 - [JSON on Map](#json-on-map)
@@ -3959,6 +3960,45 @@ downwards until the address can open nothing at all. `connection_key` returns `"
 both natives ignore an empty key, so the `defer` needs no condition -- a `defer` that has to ask whether
 to run is how a release gets skipped on the path nobody tested. The fixture checks the count returns to
 zero after every connection closes, which is what would catch a leak.
+
+## Grouped imports, declined (2026-10-07, C17)
+
+Whether `use mod.{A, B, C}` should exist. SYNTAX.md asserted "one name per import, no `{A, B, C}` list"
+without saying why, which is what put the question back on the table: a rule with no recorded reason is
+indistinguishable from an oversight.
+
+**The complaint is legitimate.** The reference backend has 1,275 `use` lines, and
+`service/medication_adherence.zm` imports fifteen names from `time` alone. The cost is not typing —
+emitting fifteen lines instead of one is nothing — it is *positional*: adding one name to an alphabetised
+run means finding the right slot. That friction is real enough that an earlier session wrote a script to
+maintain the ordering rather than do it by hand.
+
+**Three things outweigh it.**
+
+`--fmt` already sorts runs of consecutive `use` lines. The positional problem was solved before it was
+raised; the right response to it is to run the formatter, not to change the language. An argument that
+disappears once you use an existing tool is not an argument for new syntax.
+
+One name per line is independently valid. A mistake costs one line and the error points at it, while a
+malformed group — a missing brace, a stray comma — breaks the whole import and reports at the construct
+rather than at the mistake. This matters more for generated code than for typed code: one line at a time
+is the shape that goes wrong least.
+
+One fact per line stays greppable. `grep -rn "use service.is_email"` answers "who imports this?" exactly;
+with groups it becomes a multi-line pattern. For anything working in a repository larger than it can hold
+at once — a person with grep, or a model with a tool — a self-contained searchable line is worth more than
+brevity.
+
+**And the principle decides it.** "One way to do a thing. No syntactic synonyms" is this language's second
+principle, and a group is a second way to import three names. The places Ziman is actually hard to write
+correctly are the places with an unstated option, not the verbose ones: whether `defer` is block- or
+function-scoped (block, and the gap cost a silent bug in the metrics work), whether `\u` is a string escape
+(it is not), whether a `pub val` is reachable as `module.name` (it is not). None of those is a verbosity
+problem, and none would be helped by a shorter import.
+
+**What would change this.** A reader finding fifteen `use time.X` lines worse to read than they are to
+generate is a legitimate reason to revisit — the argument above is mostly about writing and searching, and
+reading is the one side of it that a human owns. Nothing measured here speaks to that.
 
 ## The language server
 
