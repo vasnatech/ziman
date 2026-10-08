@@ -91,10 +91,20 @@ static Value native_int_not(Value *args, int argc, int line, int col) {
  * every platform this project targets (and C23 makes it mandatory), so this is not relying on
  * anything the rest of the codebase doesn't already lean on (int_to_hex's own two's-complement
  * framing, for one). */
+/* The left shift goes through `uint64_t`, which the right one above does not need to. Bit 63 is
+ * why: check_shift_amount permits an amount of exactly 63, so `int_shift_left(1, 63)` shifts a 1
+ * into the sign bit of a signed 64-bit value, and C11 6.5.7p4 leaves that undefined -- UBSan says
+ * so ("left shift of 1 by 63 places cannot be represented in type 'long int'"). It worked, and the
+ * reason it worked was not `-fwrapv`: that flag covers signed overflow in arithmetic and was
+ * measured to make no difference here, the same bit pattern coming out under -O2, -O3, -fwrapv and
+ * -fstrict-overflow alike. It worked because GCC documents signed `<<` as acting on the bit
+ * pattern, an extension no other compiler owes us -- so this converts, which is defined
+ * everywhere, costs no instructions, and leaves bit 63 giving the same INT64_MIN it always did
+ * (docs/reviews/tasks.md A21). */
 static Value native_int_shift_left(Value *args, int argc, int line, int col) {
     (void)argc;
     check_shift_amount(args[1].as.i, "int_shift_left", line, col);
-    return value_int(args[0].as.i << args[1].as.i);
+    return value_int((int64_t)((uint64_t)args[0].as.i << args[1].as.i));
 }
 
 static Value native_int_shift_right(Value *args, int argc, int line, int col) {
