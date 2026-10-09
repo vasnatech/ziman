@@ -778,7 +778,7 @@ Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size
     uint64_t n_inst = (uint64_t)re->n_inst;
     uint64_t needed = 3u * n_inst * ncap * sizeof(int)        /* two capbufs and the save scratch */
                     + 2u * n_inst * sizeof(Thread)           /* the two thread arrays */
-                    + (2u * n_inst + 2u) * sizeof(Work)      /* add_thread's worklist */
+                    + (n_inst + 2u) * sizeof(Work)           /* add_thread's worklist */
                     + n_inst * sizeof(unsigned)              /* the mark array */
                     + 2u * ncap * sizeof(int);               /* `initial` and `best` */
     if (needed > MAX_MATCH_BYTES) {
@@ -821,7 +821,7 @@ typedef struct {
     size_t len;
     int ncap;
     unsigned *mark;
-    Work *work;      /* 2 * n_inst + 2 entries: see add_thread for why that bounds it */
+    Work *work;      /* n_inst + 2 entries: see add_thread for why that bounds it */
     int *savepool;   /* n_inst * ncap ints, bump-allocated per add_thread call */
 } Vm;
 
@@ -851,15 +851,25 @@ static int assertion_holds(const Vm *vm, Op op, size_t pos) {
  * buffers would exceed MAX_MATCH_BYTES, so neither can run away.
  *
  * Thread order is preserved exactly, which matters because the first thread to reach I_MATCH wins
- * and that is what makes the match leftmost-first: entries pop LIFO, and I_SPLIT pushes y before
- * x, so x and its whole subtree are visited before y -- the same depth-first, x-first order the
- * recursion had.
+ * and that is what makes the match leftmost-first. Three things together give that, and the third
+ * is the one that is easy to lose: entries pop LIFO; I_SPLIT pushes y before x, so x and its whole
+ * subtree are visited before y; and **`vm->mark[p]` is set when an entry is popped, not when it is
+ * pushed.** Marking on push is also LIFO and also pushes y first, so it looks equivalent and is
+ * not: it prunes a pc that a *higher-priority* path would have reached later, and produces
+ * different captures. An adversarial review measured the difference -- a mark-on-push variant
+ * disagrees with this one on 45,626 of 1,500,958 outputs, the smallest case being `c*?|` against
+ * "cb xa" (this engine and Python's re both say 0 0; mark-on-push says 0 1). It is the obvious way
+ * to shrink the worklist, so it is named here to be refused (docs/reviews/tasks.md A29).
  *
- * Two bounds, both from `vm->mark`, which admits each instruction once per generation. At most
- * n_inst entries are ever popped-and-processed and each pushes at most two, so 2 * n_inst + 2
- * worklist entries can never be exceeded. At most n_inst of those are I_SAVE, so the bump
- * allocator below cannot pass n_inst * ncap ints -- and it is reset on entry because nothing it
- * hands out survives the walk: the only thing kept is the copy into l->capbuf. */
+ * Two bounds, both from that same mark, which admits each instruction once per generation. A popped
+ * entry is processed once and pushes at most two, which is net **+1** per instruction -- so
+ * `top <= 1 + n_inst` and `n_inst + 2` slots can never be exceeded. (The first version of this
+ * comment said `2 * n_inst + 2`, adding the pushes without subtracting the pop; the allocation was
+ * correct and twice the size it needed, which also inflated the MAX_MATCH_BYTES estimate -- A30.)
+ * At most n_inst of those pops are I_SAVE, so the bump allocator below cannot pass n_inst * ncap
+ * ints -- a bound that is exactly tight, measured at 0.9995 of the allocation -- and it is reset on
+ * entry because nothing it hands out survives the walk: the only thing kept is the copy into
+ * l->capbuf. */
 static void add_thread(const Vm *vm, ThreadList *l, int pc, int *caps, size_t pos) {
     size_t top = 0, save_used = 0;
     vm->work[top].pc = pc;
@@ -926,7 +936,7 @@ int regex_search(const Regex *re, const char *text, size_t len, size_t from, int
     size_t ncap_bytes = (size_t)vm.ncap * sizeof(int);
     size_t capbuf_bytes = (size_t)re->n_inst * ncap_bytes;
     vm.mark = calloc((size_t)re->n_inst, sizeof(unsigned));
-    vm.work = malloc((2u * (size_t)re->n_inst + 2u) * sizeof(Work));
+    vm.work = malloc(((size_t)re->n_inst + 2u) * sizeof(Work));
     vm.savepool = malloc(capbuf_bytes);
 
     ThreadList lists[2];
