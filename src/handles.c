@@ -44,7 +44,7 @@ static void **alloc_slots(size_t n) {
 }
 
 /* Moves every entry into `fresh`, an empty table of `new_capacity` slots (a power of two). */
-static void rehash_into(HandleSet *s, void **fresh, size_t new_capacity) {
+static void rehash_into(HandleShard *s, void **fresh, size_t new_capacity) {
     void **old = s->slots;
     size_t old_capacity = s->capacity;
     s->slots = fresh;
@@ -61,13 +61,13 @@ static void rehash_into(HandleSet *s, void **fresh, size_t new_capacity) {
 }
 
 /* The capacity the table must be rehashed to before one more entry goes in, or 0 when it has room. */
-static size_t capacity_needed(const HandleSet *s) {
+static size_t capacity_needed(const HandleShard *s) {
     if (s->capacity == 0) return 64;
     if ((s->used + 1) * 2 <= s->capacity) return 0;
     return s->live * 4 >= s->capacity ? s->capacity * 2 : s->capacity;
 }
 
-void handleset_add(HandleSet *s, void *p) {
+static void shard_add(HandleShard *s, void *p) {
     pthread_mutex_lock(&s->mu);
     for (;;) {
         size_t need = capacity_needed(s);
@@ -91,7 +91,7 @@ void handleset_add(HandleSet *s, void *p) {
 }
 
 /* The probe itself. Called with the lock held. */
-static int present_locked(const HandleSet *s, void *p) {
+static int present_locked(const HandleShard *s, void *p) {
     if (s->capacity == 0 || p == NULL || p == TOMBSTONE) return 0;
     size_t at = hash_ptr(p) & (s->capacity - 1);
     while (s->slots[at] != NULL) {
@@ -101,14 +101,14 @@ static int present_locked(const HandleSet *s, void *p) {
     return 0;
 }
 
-int handleset_has(HandleSet *s, void *p) {
+static int shard_has(HandleShard *s, void *p) {
     pthread_mutex_lock(&s->mu);
     int found = present_locked(s, p);
     pthread_mutex_unlock(&s->mu);
     return found;
 }
 
-int handleset_has_then(HandleSet *s, void *p, void (*on_present)(void *)) {
+static int shard_has_then(HandleShard *s, void *p, void (*on_present)(void *)) {
     pthread_mutex_lock(&s->mu);
     int found = present_locked(s, p);
     if (found && on_present != NULL) on_present(p);
@@ -116,7 +116,7 @@ int handleset_has_then(HandleSet *s, void *p, void (*on_present)(void *)) {
     return found;
 }
 
-int handleset_remove(HandleSet *s, void *p) {
+static int shard_remove(HandleShard *s, void *p) {
     int found = 0;
     pthread_mutex_lock(&s->mu);
     if (s->capacity > 0 && p != NULL && p != TOMBSTONE) {
@@ -129,3 +129,17 @@ int handleset_remove(HandleSet *s, void *p) {
     pthread_mutex_unlock(&s->mu);
     return found;
 }
+
+/* Which shard a handle belongs to. Taken from the top bits of the hash, because the slot index uses
+ * the bottom ones (`hash_ptr(p) & (capacity - 1)`) -- sharing bits between the two would make the
+ * shards correlate with the table positions and fill unevenly. */
+static HandleShard *shard_for(HandleSet *s, void *p) {
+    return &s->shard[(hash_ptr(p) >> 57) & (HANDLESET_SHARDS - 1)];
+}
+
+void handleset_add(HandleSet *s, void *p) { shard_add(shard_for(s, p), p); }
+int handleset_has(HandleSet *s, void *p) { return shard_has(shard_for(s, p), p); }
+int handleset_has_then(HandleSet *s, void *p, void (*on_present)(void *)) {
+    return shard_has_then(shard_for(s, p), p, on_present);
+}
+int handleset_remove(HandleSet *s, void *p) { return shard_remove(shard_for(s, p), p); }
