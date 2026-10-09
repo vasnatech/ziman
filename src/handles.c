@@ -90,16 +90,28 @@ void handleset_add(HandleSet *s, void *p) {
     pthread_mutex_unlock(&s->mu);
 }
 
-int handleset_has(HandleSet *s, void *p) {
-    int found = 0;
-    pthread_mutex_lock(&s->mu);
-    if (s->capacity > 0 && p != NULL && p != TOMBSTONE) {
-        size_t at = hash_ptr(p) & (s->capacity - 1);
-        while (s->slots[at] != NULL) {
-            if (s->slots[at] == p) { found = 1; break; }
-            at = (at + 1) & (s->capacity - 1);
-        }
+/* The probe itself. Called with the lock held. */
+static int present_locked(const HandleSet *s, void *p) {
+    if (s->capacity == 0 || p == NULL || p == TOMBSTONE) return 0;
+    size_t at = hash_ptr(p) & (s->capacity - 1);
+    while (s->slots[at] != NULL) {
+        if (s->slots[at] == p) return 1;
+        at = (at + 1) & (s->capacity - 1);
     }
+    return 0;
+}
+
+int handleset_has(HandleSet *s, void *p) {
+    pthread_mutex_lock(&s->mu);
+    int found = present_locked(s, p);
+    pthread_mutex_unlock(&s->mu);
+    return found;
+}
+
+int handleset_has_then(HandleSet *s, void *p, void (*on_present)(void *)) {
+    pthread_mutex_lock(&s->mu);
+    int found = present_locked(s, p);
+    if (found && on_present != NULL) on_present(p);
     pthread_mutex_unlock(&s->mu);
     return found;
 }

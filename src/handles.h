@@ -23,6 +23,13 @@ typedef struct {
 
 void handleset_add(HandleSet *s, void *p);
 int handleset_has(HandleSet *s, void *p);
+/* `handleset_has`, with `on_present(p)` run **while the lock is still held** if it was there.
+ * That is how a caller takes a reference to an object it has just found without a window between
+ * the two: a concurrent close has to win the whole lock, so it either runs before (and the lookup
+ * fails) or after (and the reference is already counted). Checking and then referencing as two
+ * operations is the bug this exists to prevent -- see native_net.c's handle_use. The callback runs
+ * under the lock, so it must not allocate, block, or touch this set. */
+int handleset_has_then(HandleSet *s, void *p, void (*on_present)(void *));
 /* Returns 1 if `p` was in the set. */
 int handleset_remove(HandleSet *s, void *p);
 

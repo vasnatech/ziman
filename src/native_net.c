@@ -82,6 +82,17 @@ typedef struct {
      * TLS has since been torn down keeps the flag, so a reader still takes the lock and finds
      * `ssl` NULL, which is the answer it should get. */
     int tls;
+    /* How many threads are inside a call that is using this handle, and whether a close is waiting
+     * for them. Both exist so a descriptor cannot be closed -- and its *number* reused by the OS --
+     * while another thread still holds it: `accept_raw` in particular holds the number across an
+     * unbounded series of 250 ms poll waits, and that window was demonstrable, not theoretical
+     * (10 runs out of 10 produced ENOTSOCK from a pure-Ziman program; 6 out of 6 of another got
+     * accept(2) to consume a connection meant for a different listener -- docs/reviews/tasks.md
+     * A31). `refs` is incremented while `g_live`'s lock is held, so it cannot race the removal that
+     * decides a close, and atomically, because the decrement does not take that lock; it is
+     * decremented by whichever thread finishes last. */
+    int refs;
+    int closing;
     /* Touched only while holding `tls_mu`, never plainly. It used to be read here and freed in
      * release_handle with nothing between them, which is a use-after-free on an OpenSSL object --
      * worse than A24's recycled descriptor, because the memory is freed heap rather than a number.
@@ -98,6 +109,13 @@ typedef struct {
  * collected, and net_finalizer closes its descriptor -- so forgetting `net.close` no longer leaks
  * the descriptor for good (close it promptly anyway: a collection may be far off). */
 static HandleSet g_live = HANDLE_SET_INIT;
+
+#ifdef ZIMAN_GC
+/* Defined below, beside the rest of the handle bookkeeping; declared here because net_finalizer has
+ * to sit next to the allocation it finalizes and needs to retire one. Takes the handle as void * so
+ * this does not have to move the NetHandle typedef above the finalizer. */
+static int handle_retire_p(void *h);
+#endif
 
 /* Publishes an SSL on a handle: the pointer under `tls_mu`, then the flag with a release store, so
  * a thread that sees the flag set is guaranteed to see the pointer too. Until the flag is set, the
@@ -136,8 +154,7 @@ static void release_handle(NetHandle *h) {
 #ifdef ZIMAN_GC
 static void net_finalizer(void *obj, void *client_data) {
     (void)client_data;
-    NetHandle *h = obj;
-    if (handleset_remove(&g_live, h)) release_handle(h);
+    handle_retire_p(obj);
 }
 #endif
 
@@ -182,15 +199,72 @@ static NetHandle *handle_get(int64_t id) {
     return handleset_has(&g_live, h) ? h : NULL;
 }
 
+/* Called by handleset_has_then with `g_live`'s lock held: see handles.h. Atomic as well as locked,
+ * and both for different reasons -- the lock is what stops it racing the `handleset_remove` that
+ * decides a close, and the atomic is what stops it racing a *decrement*, which handle_unuse does
+ * without the lock. Getting that wrong is a real race and not a sanitizer artifact: with a plain
+ * `++` here, TSan reported it on four fixtures. */
+static void ref_inc(void *p) { __atomic_fetch_add(&((NetHandle *)p)->refs, 1, __ATOMIC_ACQ_REL); }
+
+/* The handle for `id`, with a reference held, or NULL if it is not live. The descriptor stays open
+ * until the matching handle_unuse, so the number cannot be recycled under the caller -- which is
+ * the whole point (A31). Every path out of a function that calls this must call handle_unuse: there
+ * is deliberately no ziman_error between the two anywhere in this file, because a longjmp past the
+ * release would leak the reference and the descriptor would never close, which is worse than the
+ * bug being fixed. */
+static NetHandle *handle_use(int64_t id) {
+    NetHandle *h = (NetHandle *)(intptr_t)id;
+    return handleset_has_then(&g_live, h, ref_inc) ? h : NULL;
+}
+
+/* The same for a handle already in hand: 1 if it was still live and a reference is now held. The
+ * NetHandle itself cannot go away under a caller -- it is collector memory, rooted by the Ziman
+ * Socket value that named it (see src/handles.c on what roots a handle) -- so this is only ever
+ * about the descriptor *number*, which is what gets recycled. */
+static int handle_acquire(NetHandle *h) {
+    return handleset_has_then(&g_live, h, ref_inc);
+}
+
+/* Releases the handle for good once the last user is gone and a close is waiting. Safe to reach
+ * from both sides of the race -- the closer, having seen `refs == 0`, and the last user, having
+ * seen `closing` -- because release_handle is idempotent by construction: it takes the descriptor
+ * with an atomic exchange (A24) and the SSL under `tls_mu` with a NULL check (A32), so whichever
+ * arrives second does nothing. */
+static void release_handle(NetHandle *h);
+
+static void handle_unuse(NetHandle *h) {
+    if (__atomic_sub_fetch(&h->refs, 1, __ATOMIC_ACQ_REL) == 0 &&
+        __atomic_load_n(&h->closing, __ATOMIC_ACQUIRE)) {
+        release_handle(h);
+    }
+}
+
+/* Takes the handle out of the live set -- after which no new reference can be taken -- and closes
+ * it if nobody is using it right now. 1 if this caller was the one that removed it. */
+static int handle_retire(NetHandle *h) {
+    if (h == NULL || !handleset_remove(&g_live, h)) return 0;
+    __atomic_store_n(&h->closing, 1, __ATOMIC_RELEASE);
+    if (__atomic_load_n(&h->refs, __ATOMIC_ACQUIRE) == 0) release_handle(h);
+    return 1;
+}
+
+#ifdef ZIMAN_GC
+static int handle_retire_p(void *h) { return handle_retire((NetHandle *)h); }
+#endif
+
+static NetHandle *require_use(int64_t id, const char *what, int line, int col) {
+    NetHandle *h = handle_use(id);
+    if (h == NULL) ziman_error("runtime", line, col, "net.%s: invalid or closed handle %lld", what, (long long)id);
+    return h;
+}
+
 static NetHandle *require_handle(int64_t id, const char *what, int line, int col) {
     NetHandle *h = handle_get(id);
     if (h == NULL) ziman_error("runtime", line, col, "net.%s: invalid or closed handle %lld", what, (long long)id);
     return h;
 }
 
-static int require_fd(int64_t id, const char *what, int line, int col) {
-    return __atomic_load_n(&require_handle(id, what, line, col)->fd, __ATOMIC_ACQUIRE);
-}
+
 
 /* ---- I/O over a plain socket or, after start_tls, over TLS ---- */
 
@@ -219,14 +293,18 @@ static void tls_error_message(IoErr *e, SSL *ssl) {
 static ssize_t io_read(NetHandle *h, void *buf, size_t n, IoErr *e) {
     memset(e, 0, sizeof(*e));
     if (!__atomic_load_n(&h->tls, __ATOMIC_ACQUIRE)) {
+        /* A reference across the recv, not just an atomic load of the number: a blocking read can
+         * sit here for as long as its timeout allows, and without the reference a close on another
+         * thread frees the number for the OS to hand to something else mid-read (A31). A handle
+         * already closed answers EBADF, which errno_result reports as the `closed` category -- the
+         * same answer the kernel would give, decided here instead of discovered there. */
+        if (!handle_acquire(h)) { e->errno_val = EBADF; return -1; }
         int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
-        /* Closed by another thread between the handle lookup and here. Answered as EBADF, which
-         * errno_result already reports as the `closed` category -- the same answer the kernel would
-         * give for a read on -1, decided here instead of discovered there. */
-        if (fd < 0) { e->errno_val = EBADF; return -1; }
+        if (fd < 0) { handle_unuse(h); e->errno_val = EBADF; return -1; }
         ssize_t r;
         do { r = recv(fd, buf, n, 0); } while (r < 0 && errno == EINTR);
         if (r < 0) e->errno_val = errno;
+        handle_unuse(h);
         return r;
     }
     pthread_mutex_lock(&h->tls_mu);
@@ -269,10 +347,14 @@ static ssize_t io_write(NetHandle *h, const unsigned char *data, size_t n, IoErr
     while (sent < n) {
         if (!__atomic_load_n(&h->tls, __ATOMIC_ACQUIRE)) {
             ssize_t w;
+            if (!handle_acquire(h)) { e->errno_val = EBADF; return -1; } /* see io_read */
             int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
-            if (fd < 0) { e->errno_val = EBADF; return -1; } /* see io_read */
+            if (fd < 0) { handle_unuse(h); e->errno_val = EBADF; return -1; }
             do { w = send(fd, data + sent, n - sent, MSG_NOSIGNAL); } while (w < 0 && errno == EINTR);
-            if (w < 0) { e->errno_val = errno; return -1; }
+            int failed = w < 0;
+            int saved = errno;
+            handle_unuse(h);
+            if (failed) { e->errno_val = saved; return -1; }
             sent += (size_t)w;
         } else {
             pthread_mutex_lock(&h->tls_mu);
@@ -374,13 +456,17 @@ static Value native_net_listen_raw(Value *args, int argc, int line, int col) {
 
 static Value native_net_listener_port_raw(Value *args, int argc, int line, int col) {
     (void)argc;
-    int fd = require_fd(args[0].as.i, "listener_port", line, col);
+    NetHandle *h = require_use(args[0].as.i, "listener_port", line, col);
+    int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
     struct sockaddr_storage ss;
     socklen_t len = sizeof(ss);
-    if (getsockname(fd, (struct sockaddr *)&ss, &len) != 0) return value_int(-1);
-    if (ss.ss_family == AF_INET) return value_int(ntohs(((struct sockaddr_in *)&ss)->sin_port));
-    if (ss.ss_family == AF_INET6) return value_int(ntohs(((struct sockaddr_in6 *)&ss)->sin6_port));
-    return value_int(-1);
+    int64_t port = -1;
+    if (getsockname(fd, (struct sockaddr *)&ss, &len) == 0) {
+        if (ss.ss_family == AF_INET) port = ntohs(((struct sockaddr_in *)&ss)->sin_port);
+        else if (ss.ss_family == AF_INET6) port = ntohs(((struct sockaddr_in6 *)&ss)->sin6_port);
+    }
+    handle_unuse(h);
+    return value_int(port);
 }
 
 /* The address at the other end of a connected socket, as text: "192.0.2.7" or "2001:db8::1", with no
@@ -394,38 +480,61 @@ static Value native_net_listener_port_raw(Value *args, int argc, int line, int c
  * has to say so itself and then read the header itself; the library will not guess. */
 static Value native_net_peer_address_raw(Value *args, int argc, int line, int col) {
     (void)argc;
-    int fd = require_fd(args[0].as.i, "peer_address", line, col);
+    NetHandle *h = require_use(args[0].as.i, "peer_address", line, col);
+    int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
     struct sockaddr_storage ss;
     socklen_t len = sizeof(ss);
-    if (getpeername(fd, (struct sockaddr *)&ss, &len) != 0) return value_string(ziman_xstrdup(""));
     char text[INET6_ADDRSTRLEN];
-    const void *addr = NULL;
-    if (ss.ss_family == AF_INET) addr = &((struct sockaddr_in *)&ss)->sin_addr;
-    else if (ss.ss_family == AF_INET6) addr = &((struct sockaddr_in6 *)&ss)->sin6_addr;
-    if (addr == NULL || inet_ntop(ss.ss_family, addr, text, sizeof text) == NULL) {
-        return value_string(ziman_xstrdup(""));
+    const char *out = "";
+    if (getpeername(fd, (struct sockaddr *)&ss, &len) == 0) {
+        const void *addr = NULL;
+        if (ss.ss_family == AF_INET) addr = &((struct sockaddr_in *)&ss)->sin_addr;
+        else if (ss.ss_family == AF_INET6) addr = &((struct sockaddr_in6 *)&ss)->sin6_addr;
+        if (addr != NULL && inet_ntop(ss.ss_family, addr, text, sizeof text) != NULL) out = text;
     }
-    return value_string(ziman_xstrdup(text));
+    handle_unuse(h);
+    return value_string(ziman_xstrdup(out));
 }
 
 static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     Type int_type = type_scalar(TY_INT);
-    int fd = require_fd(args[0].as.i, "accept", line, col);
+    /* One reference for the whole wait, which is the point of A31: this function holds the
+     * descriptor number across an unbounded series of 250 ms poll slices, so without a reference a
+     * close on another thread can free the number and the OS can hand it to something else before
+     * the accept(2) below runs -- demonstrably, 10 runs out of 10. */
+    NetHandle *h = require_use(args[0].as.i, "accept", line, col);
+    int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
     int c;
     /* Wait in short slices so a shutdown request (a signal can land on any
      * thread) is noticed instead of blocking in accept forever. */
     for (;;) {
-        if (ziman_shutdown_requested()) return errno_result(int_type, EINTR);
+        if (ziman_shutdown_requested()) { handle_unuse(h); return errno_result(int_type, EINTR); }
         struct pollfd pfd = {fd, POLLIN, 0};
         int ready = poll(&pfd, 1, 250);
-        if (ready < 0 && errno != EINTR) return errno_result(int_type, errno);
+        if (ready < 0 && errno != EINTR) { int se = errno; handle_unuse(h); return errno_result(int_type, se); }
         if (ready > 0) break;
     }
     do { c = accept(fd, NULL, NULL); } while (c < 0 && errno == EINTR);
     if (c < 0 && (errno == EMFILE || errno == ENFILE) && reclaim_descriptors()) c = accept(fd, NULL, NULL);
-    if (c < 0) return errno_result(int_type, errno);
-    SSL_CTX *server_ctx = require_handle(args[0].as.i, "accept", line, col)->server_ctx;
+    if (c < 0) {
+        /* `closed` rather than whatever errno the kernel chose, when the listener was closed by
+         * this program while we were waiting: accept(2) on a shut-down socket answers EINVAL, which
+         * errno_result would otherwise report as the `io` category -- true but unhelpful, since the
+         * caller is a server whose shutdown just worked. Only this handle's own flag is consulted,
+         * so a genuine EINVAL from anything else still reports as itself. */
+        int se = errno;
+        int closing = __atomic_load_n(&h->closing, __ATOMIC_ACQUIRE);
+        handle_unuse(h);
+        if (closing) return err_result(int_type, "closed", "the listener was closed");
+        return errno_result(int_type, se);
+    }
+    /* Read through the reference already held rather than looking the handle up again. The second
+     * lookup this replaces could fail -- the listener having been closed meanwhile -- and raise an
+     * error with `c` already accepted and not yet registered, leaking that descriptor for the life
+     * of the process; it is where the A31 reproduction landed, 6 times out of 6 (A33). */
+    SSL_CTX *server_ctx = h->server_ctx;
+    handle_unuse(h);
     if (server_ctx == NULL) return ok_result(int_type, value_int(handle_register(c)));
 
     /* A TLS listener: finish the handshake before handing the socket out, but never wait
@@ -566,15 +675,17 @@ static Value native_net_read_text_raw(Value *args, int argc, int line, int col) 
 static Value native_net_set_timeout_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     Type int_type = type_scalar(TY_INT);
-    int fd = require_fd(args[0].as.i, "set_timeout", line, col);
+    NetHandle *h = require_use(args[0].as.i, "set_timeout", line, col);
+    int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
     int64_t ms = args[1].as.i;
     struct timeval tv;
     tv.tv_sec = (time_t)(ms / 1000);
     tv.tv_usec = (suseconds_t)((ms % 1000) * 1000);
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
-        return errno_result(int_type, errno);
-    }
+    int failed = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
+                 setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0;
+    int saved_errno = errno;
+    handle_unuse(h);
+    if (failed) return errno_result(int_type, saved_errno);
     return ok_result(int_type, value_int(0));
 }
 
@@ -622,14 +733,20 @@ static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) 
     SSL *ssl = SSL_new(ctx);
     SSL_CTX_free(ctx); /* the SSL holds its own reference */
     if (ssl == NULL) { IoErr e; tls_error_message(&e, NULL); return err_result(int_type, "tls", e.message); }
+    /* A reference from here to the end of the handshake. `SSL_set_fd` copies the descriptor number
+     * into OpenSSL's BIO and `SSL_connect` then blocks on it for up to the socket's timeout, so
+     * this is the third place that holds a number across a wait -- and the only one where the
+     * number is held by a library rather than by this file (A31). */
+    if (!handle_acquire(h)) { SSL_free(ssl); return err_result(int_type, "closed", "connection closed"); }
     SSL_set_fd(ssl, __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE));
     if (!host_is_ip) SSL_set_tlsext_host_name(ssl, host);
     if (verify >= 2) {
         int ok = host_is_ip ? X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(ssl), host) : SSL_set1_host(ssl, host);
-        if (!ok) { SSL_free(ssl); return err_result(int_type, "tls", "cannot set the expected host name"); }
+        if (!ok) { handle_unuse(h); SSL_free(ssl); return err_result(int_type, "tls", "cannot set the expected host name"); }
     }
 
     int r = SSL_connect(ssl);
+    handle_unuse(h);
     if (r != 1) {
         IoErr e;
         int code = SSL_get_error(ssl, r);
@@ -665,10 +782,14 @@ static IdleEntry g_idle[IDLE_MAX];
 static pthread_mutex_t g_idle_mu = PTHREAD_MUTEX_INITIALIZER;
 
 static void idle_drop(IdleEntry *e) {
-    if (e->h != NULL && handleset_remove(&g_live, e->h)) {
+    if (e->h != NULL) {
+        /* Shut down first, retire second, and in that order for a reason: `shutdown` is what wakes
+         * a thread blocked reading this socket, and unlike `close` it does not free the descriptor
+         * *number*, so it is safe to call while another thread still holds one. Retiring first
+         * would leave a blocked reader holding a reference with nothing to wake it. */
         int fd = __atomic_load_n(&e->h->fd, __ATOMIC_ACQUIRE);
         if (fd >= 0) shutdown(fd, SHUT_RDWR);
-        release_handle(e->h);
+        handle_retire(e->h);
     }
     e->h = NULL;
     e->key = NULL;
@@ -730,10 +851,11 @@ static Value native_net_idle_clear_raw(Value *args, int argc, int line, int col)
 static Value native_net_close_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     NetHandle *h = (NetHandle *)(intptr_t)args[0].as.i;
-    if (h != NULL && handleset_remove(&g_live, h)) {
+    if (h != NULL) {
+        /* shutdown then retire; see idle_drop for why that order */
         int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
         if (fd >= 0) shutdown(fd, SHUT_RDWR); /* wakes a thread blocked reading this socket */
-        release_handle(h);
+        handle_retire(h);
     }
     return value_int(0);
 }
