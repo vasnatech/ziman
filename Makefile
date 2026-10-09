@@ -340,9 +340,18 @@ syntax-check: $(BIN)
 #   * halt_on_error=1 everywhere. A sanitizer report goes to stderr, and a fixture checked against a
 #     .out file passes regardless of what lands on stderr -- so without halting, the suite reports
 #     "888 passed" while printing undefined behaviour.
-#   * detect_stack_use_after_return=0 for ASan. Its fake-stack rewriting moves locals off the real
-#     stack, and src/stack.h's depth guard measures a local's address, so with it on the guard
-#     trips immediately and nothing runs.
+#   * detect_stack_use_after_return=0 for ASan -- and the reason is the collector, not the depth
+#     guard, which is what this comment used to say (docs/reviews/tasks.md F22). The guard does
+#     break: its probe is a local's address, and the fake stack moves locals, so with the option on
+#     nothing runs. But that part is fixable -- taking the probe from __builtin_frame_address(0)
+#     under __SANITIZE_ADDRESS__ works, because the fake stack moves locals and not the frame
+#     pointer. What is not fixable is that the interpreter's locals then live in ASan's
+#     heap-allocated fake frames, outside the range gc_scan.c walks: measured here over 60 fixtures,
+#     the conservative scan finds **45 roots with the option on against 92 with it off**, a 51%
+#     loss, and the suite passes either way -- so no test can tell you the collector has gone
+#     unsound. bdwgc hard-codes the same option off (vendor/bdwgc/os_dep.c:560-590) with the comment
+#     "TODO: support ASan fake stacks properly". Closing it for real means teaching gc_scan.c about
+#     __asan_get_current_fake_stack.
 #   * SKIP, for one fixture each, and for different reasons. Under ASan,
 #     stack_depth_deep_recursion_works no longer fits: instrumented frames are several times larger,
 #     so 20,000 calls deep passes the 256 MB its own .args asks for. Under TSan,
