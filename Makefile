@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check libc-free-check xalloc-check test-regex asan ubsan tsan sanitizers analyze
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check libc-free-check xalloc-check tls-if-available test-regex asan ubsan tsan sanitizers analyze
 
 all: $(BIN)
 
@@ -42,7 +42,7 @@ all: $(BIN)
 # Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
 # `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
 # the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
-check: test test-nogc unit-tests fmt-check docs-check libc-free-check xalloc-check
+check: test test-nogc unit-tests tls-if-available fmt-check docs-check libc-free-check xalloc-check
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
@@ -153,6 +153,20 @@ test-lsp: $(BIN)
 
 test-tls: $(BIN)
 	./tests/run_tls_tests.sh
+
+# The TLS suite as part of `make check`, when it can run. It needs `openssl` on PATH -- the harness
+# generates certificates with it and starts two `openssl s_server` processes -- which is why it was
+# left out of `check` in the first place. Leaving it out had a cost: **no TLS code path in this
+# project had ever run under a sanitizer**, and that is how a use-after-free on an `SSL` object
+# survived A24, a review specifically about races in that file (docs/reviews/tasks.md A36, and A32
+# for the bug). Skipped with a word rather than silently, so a machine without openssl still gets a
+# green `check` and knows what it did not run.
+tls-if-available: $(BIN)
+	@if command -v openssl >/dev/null 2>&1; then \
+	    ./tests/run_tls_tests.sh; \
+	else \
+	    echo "tls-if-available: skipped -- openssl is not on PATH, so the TLS suite cannot run"; \
+	fi
 
 # Unit tests for internal C modules that don't fit the language-level
 # tests/fixtures harness (e.g. bignum.c's own arithmetic correctness,
@@ -386,6 +400,9 @@ asan: $(SRC) $(CORELIB_HEADERS)
 	@rm -f .asan-link.log
 	ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1 \
 	    BIN=./ziman-asan SKIP=stack_depth_deep_recursion_works ./tests/run_tests.sh
+	@if command -v openssl >/dev/null 2>&1; then \
+	    ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1 BIN=./ziman-asan ./tests/run_tls_tests.sh; \
+	else echo "make asan: TLS suite skipped -- openssl is not on PATH"; fi
 
 ubsan: $(SRC) $(CORELIB_HEADERS)
 	@$(CC) $(SAN_CFLAGS) $(UBSAN_CHECKS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-ubsan"' \
@@ -397,6 +414,9 @@ ubsan: $(SRC) $(CORELIB_HEADERS)
 	@rm -f .ubsan-link.log
 	UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
 	    BIN=./ziman-ubsan ./tests/run_tests.sh
+	@if command -v openssl >/dev/null 2>&1; then \
+	    UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 BIN=./ziman-ubsan ./tests/run_tls_tests.sh; \
+	else echo "make ubsan: TLS suite skipped -- openssl is not on PATH"; fi
 
 tsan: $(SRC) $(CORELIB_HEADERS)
 	@$(CC) $(SAN_CFLAGS) -fwrapv -fsanitize=thread -DZIMAN_VERSION='"$(ZIMAN_VERSION)-tsan"' \
@@ -408,6 +428,9 @@ tsan: $(SRC) $(CORELIB_HEADERS)
 	@rm -f .tsan-link.log
 	TSAN_OPTIONS=halt_on_error=1:history_size=4 \
 	    BIN=./ziman-tsan SKIP=stack_depth_trace_bounded ./tests/run_tests.sh
+	@if command -v openssl >/dev/null 2>&1; then \
+	    TSAN_OPTIONS=halt_on_error=1:history_size=4 BIN=./ziman-tsan ./tests/run_tls_tests.sh; \
+	else echo "make tsan: TLS suite skipped -- openssl is not on PATH"; fi
 
 sanitizers: asan ubsan tsan
 
