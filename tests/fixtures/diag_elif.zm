@@ -1,0 +1,5 @@
+// C19: Python's spelling. Guarded on the closing brace before it, so an ordinary value named
+// `elif` is still allowed -- see diag_elif_is_a_fine_name.
+fn main() {
+    if 1 > 2 { print(1) } elif 1 > 0 { print(2) }
+}

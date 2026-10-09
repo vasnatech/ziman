@@ -1,0 +1,1 @@
+a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }'

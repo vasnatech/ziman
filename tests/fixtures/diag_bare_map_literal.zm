@@ -1,0 +1,6 @@
+// C19: the map literal nearly every other language spells this way. Ziman has one, but its type
+// arguments are always written, since `{}` alone cannot say what an empty map holds.
+fn main() {
+    val m = {"a": 1}
+    print(len(m))
+}

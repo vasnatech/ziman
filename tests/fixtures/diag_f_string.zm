@@ -1,0 +1,6 @@
+// C19: an f-string. A real call to a function named `f` is `f(...)`, so a string literal directly
+// after the name is unambiguous -- see diag_f_is_a_fine_name.
+fn main() {
+    val n = "a"
+    print(f"hi {n}")
+}

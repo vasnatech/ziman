@@ -1,0 +1,7 @@
+// C19: in most C-family languages `}` and `else` may sit on separate lines. Here a statement ends
+// at the newline, so the `}` has already closed the `if` -- the old message named the token that
+// stopped the parser ("expected an expression, found 'else'") rather than the habit.
+fn main() {
+    if 1 > 0 { print(1) }
+    else { print(2) }
+}

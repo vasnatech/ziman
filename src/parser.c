@@ -497,6 +497,23 @@ static Expr *parse_primary(Parser *p) {
                         "Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result "
                         "(one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant");
         }
+        /* `} elif cond {` -- Python's spelling, and C's `else if` is what Ziman wants. Guarded on the
+         * closing brace before it, so an ordinary value that happens to be named `elif` is left
+         * alone, the same caution the `match` check above takes. */
+        if ((strcmp(name, "elif") == 0 || strcmp(name, "elsif") == 0 || strcmp(name, "elseif") == 0) &&
+            p->pos > 1 && p->tokens.items[p->pos - 2].type == TOK_RBRACE) {
+            ziman_error("syntax", t->line, t->col,
+                        "Ziman has no '%s' -- write '} else if cond {', with the 'else' on the same line as the "
+                        "brace that closes the previous 'if'", name);
+        }
+        /* `f"hi {n}"` -- an f-string. A real call to a function named `f` is `f(...)`, so a string
+         * literal directly after the name is unambiguous. */
+        if (strcmp(name, "f") == 0 && check(p, TOK_STRING_LIT)) {
+            ziman_error("syntax", t->line, t->col,
+                        "Ziman has no string interpolation -- use 'format(\"hi {}\", n)' to build the string, or "
+                        "'printf(\"hi {}\\n\", n)' to write it straight out ('{}' is the placeholder, and '{:.2}' "
+                        "fixes a float's decimals)");
+        }
         /* `identity<int>(5)` -- a generic function call. Unlike a
          * struct/enum's `<`, this genuinely can't be told apart from a
          * real comparison (`x < y`) by casing alone, since a call's
@@ -839,6 +856,25 @@ static Expr *parse_primary(Parser *p) {
         (t->type == TOK_RBRACKET || t->type == TOK_RPAREN || t->type == TOK_RBRACE)) {
         ziman_error("syntax", previous(p)->line, previous(p)->col,
                     "a trailing comma is not allowed before %s -- remove it", token_type_name(t->type));
+    }
+    /* An `else` that starts a line. In most C-family languages `}` and `else` may be on separate
+     * lines; here a statement ends at the newline, so the `}` already closed the `if` and this
+     * `else` begins a statement of its own -- which is why the bare message named the token rather
+     * than the habit (docs/reviews/tasks.md C19). */
+    if (t->type == TOK_ELSE) {
+        ziman_error("syntax", t->line, t->col,
+                    "an 'else' has to be on the same line as the brace that closes its 'if' ('} else {') -- a "
+                    "statement ends at the newline, so the '}' above already finished the 'if' and this 'else' "
+                    "has nothing to attach to");
+    }
+    /* `{"a": 1}` -- the map literal nearly every other language spells this way. Ziman has `Map`
+     * and `Set` literals, but the type arguments are always written, because `{}` alone cannot say
+     * what an empty one holds. */
+    if (t->type == TOK_LBRACE) {
+        ziman_error("syntax", t->line, t->col,
+                    "a '{' cannot start an expression -- a map or set literal is written with its type arguments, "
+                    "as 'Map<string, int> { \"a\": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone "
+                    "cannot say what an empty one holds)");
     }
     ziman_error("syntax", t->line, t->col, "expected an expression, found %s", token_type_name(t->type));
     return NULL; /* unreachable */

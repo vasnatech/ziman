@@ -1,0 +1,18 @@
+// The other side of diag_elif and diag_f_string: the guards are narrow, so a value named `elif`
+// and a function named `f` both still work -- including `elif` assigned right after a `}`, which
+// is the shape that would misfire if the guard only looked at the previous token.
+fn f(s: string) -> string {
+    return s
+}
+
+struct P {
+    x: int
+}
+
+fn main() {
+    var elif = 1
+    val p = P { x: 1 }
+    elif = 4
+    print(elif + p.x)
+    print(f("ok"))
+}
