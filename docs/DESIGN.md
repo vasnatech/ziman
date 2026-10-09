@@ -4661,6 +4661,34 @@ what it touched.
 
 **Verified the check actually catches what it's for**, not just that it runs clean today: temporarily rewrote the `listen_tls` line back to its old, genuinely-stale wording ("Not yet: server-side TLS (`listen_tls`), client certificates, ..."), confirmed `make not-yet-check` fails naming both the doc line and the declaration site, then reverted. Wired in as `make not-yet-check` (`tools/check_not_yet.py`), following the existing `fmt-check`/`lib-manual-check` convention -- there is no CI pipeline in this repository yet (no `.github/workflows`), so "CI check" here means the same thing `fmt-check` and `lib-manual-check` already do: a `make` target a person (or a future CI config) runs by hand before trusting a change.
 
+**A second shape, added 2026-10-09: an absence claim in ROADMAP.md.** The entry above argues that
+this check should stay scoped to "a `Not yet` text naming a real identifier", and that is still the
+right scope for prose. But a roadmap item has a *structural* form the prose does not -- a bold
+headline opening with "No " is a claim about what the language lacks -- and that form turned out to
+be worth checking, because the North Star section was still listing "No map/dictionary type. Only
+`[T]` exists" among the things between Ziman and a backend, long after `Map<K, V>` and `Set<T>`
+became built-in types. What is instructive is *how* that was eventually found: the `Option<T>` entry
+two lines below it had been struck through properly, so a human reading the two together saw the
+contradiction. Nothing mechanical did, and the checkbox sections' own guards do not reach prose
+items.
+
+The vocabulary comes from `src/typecheck.c`'s `HARDCODED_GENERIC_TYPES`, parsed out of the source
+rather than copied into the script, so a sixth built-in parametric type is learned rather than
+remembered. **Only the headline is read, never the item's body** -- which is what makes striking an
+item through the correct fix instead of a way to hide from the check, since the resolution text
+under a struck item necessarily names the thing its headline denied.
+
+**Narrowed on purpose, and the narrowing was measured against four probes** (the same method the
+entry above used: reintroduce the staleness, confirm the failure, revert). The real wording is
+caught, naming the line and telling the writer to strike it through. A fabricated "No `listen_tls`
+on the server side" is caught against its declaration. A fabricated "No result caching for repeated
+queries" is **not** caught, which is the point of requiring a type name to be backticked,
+capitalised, or sitting beside the word "type" -- `Result` is both a built-in type and an ordinary
+English word, and a guard that fires on the word would be a guard nobody keeps. The cost of that
+narrowing is honest: "No optional/nullable type" would not have been caught either, because the
+word is "optional" and the type is `Option`. One shape of drift, again, not doc staleness
+generally.
+
 ## `concat` becomes variadic, and a real bug found testing it (2026-09-29)
 
 `concat(a: string, b: string) -> string` only ever took exactly two strings; joining three or more meant nesting (`concat(concat(a, b), c)`), which 18 real call sites in the backend were already doing rather than reach for `join`'s more awkward three-leading-`Option<string>` signature for the common "just glue these together" case. Changed to `concat(pieces: string...) -> string` -- `native_concat` now sums every piece's length and copies them all into one allocation instead of exactly two -- backward compatible with every existing two-argument call.
