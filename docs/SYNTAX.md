@@ -1748,7 +1748,10 @@ Hebrew Arabic Devanagari Thai Hiragana Katakana Hangul Han`; `\P{L}`/`\p{^L}` ne
 matches newline, `(?m)` `^`/`$` match at line breaks. Text is UTF-8, `.`/classes match a whole
 character, but `\d \w \s`/`(?i)` stay ASCII (use `\p{L}`/`\p{Nd}` for Unicode). `$` matches only
 the very end unless `(?m)` (`^...$` for the whole text). A repetition count caps at 1000, a
-compiled pattern at 20,000 instructions. `find_all` steps one character past an empty match;
+compiled pattern at 20,000 instructions, and a pattern whose matching would need more than 64 MB of
+capture buffers is refused when it compiles -- that last one is a cap on *capture groups* in
+practice (about 1,170 of them), and the error says so and suggests `(?:...)` for a group whose text
+you do not need. `find_all` steps one character past an empty match;
 `split` ignores empty matches.
 
 ## HTTP client (`client`)

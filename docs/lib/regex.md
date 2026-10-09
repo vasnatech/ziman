@@ -87,9 +87,15 @@ capture groups 1..n in order (`None` for a group that did not take part).
 pub fn compile(pattern: string) -> Result<Regex, string>
 ```
 
-Compiles `pattern`. An Err names the position of the problem. (A pattern compiled before is
-looked up, not recompiled: the last 256 distinct patterns are kept, so `compile` in a loop or
-on every request is cheap.)
+Compiles `pattern`. An Err usually names the position of the problem -- except when the pattern is
+refused for its size, where it names the size instead: a pattern needing more than 64 MB of
+capture buffers to match is refused here rather than attempted later, which in practice is a cap
+of about 1,170 capture groups and never one on pattern length.
+
+(A pattern compiled before is looked up, not recompiled: the last 256 distinct patterns are kept,
+so `compile` in a loop or on every request is cheap -- for patterns that compile. A *failed*
+compile is not cached, so a caller that recompiles a bad pattern per request pays for it every
+time.)
 
 ### `is_match`
 

@@ -3401,7 +3401,16 @@ it, and a bad pattern is a `Result`, not a compile error).
 ## The formatter (`ziman --fmt`, R17)
 
 **Extended by "Formatter: wrapping, comment alignment, sorted `use`, stdin" below
-(2026-10-07, F11).** This entry records the formatter as first built, and its
+(2026-10-07, F11), and bounded on 2026-10-08 (A18): nesting deeper than 200
+brackets is now refused rather than formatted. The reason is arithmetic rather
+than taste -- every line is indented four spaces per open bracket, so formatting
+input that is *only* nesting is quadratic in its own size, and 32 KB of nested
+blocks produced 256 MB of output at 9.7 GB of peak memory. Real code measured
+over 1,119 files reaches depth 10; generated code reaches 7; `<`/`>` are not
+counted, so generics are free. The field agrees with refusing: gofmt refuses at
+100,000, Prettier dies at about 250 with an uncaught RangeError, clang-format
+crashes, and only rustfmt passes the input through unformatted. What the limit
+does *not* bound is the output, which is A27.** This entry records the formatter as first built, and its
 "Not done" list below is what was missing *then*: that later entry is where the
 four items on it were added. A reader who stops here gets the state of an earlier
 version, which is the hazard F11 set out to fix -- this file is a dated log, so an
