@@ -42,7 +42,7 @@ all: $(BIN)
 # Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
 # `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
 # the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
-check: test test-nogc unit-tests tls-if-available fmt-check docs-check libc-free-check xalloc-check
+check: test test-nogc unit-tests tls-if-available northstar-if-available fmt-check docs-check libc-free-check xalloc-check
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
@@ -161,6 +161,15 @@ test-tls: $(BIN)
 # survived A24, a review specifically about races in that file (docs/reviews/tasks.md A36, and A32
 # for the bug). Skipped with a word rather than silently, so a machine without openssl still gets a
 # green `check` and knows what it did not run.
+# Type-checks and runs the North Star application -- the slice of the health-record backend
+# docs/ROADMAP.md's first section names as the target this language exists to reach. It lives in a
+# sibling checkout, so this follows tls-if-available: run it when it is there, say so when it is
+# not, never fail for its absence. It had been broken for some time before this existed
+# (docs/reviews/tasks.md F25), which is the argument for having it: nothing here was watching the
+# one application that defines "capable enough".
+northstar-if-available: $(BIN)
+	@./tests/run_northstar.sh $(BIN)
+
 tls-if-available: $(BIN)
 	@if command -v openssl >/dev/null 2>&1; then \
 	    ./tests/run_tls_tests.sh; \
