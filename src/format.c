@@ -202,9 +202,26 @@ static int need_space(const Item *p, const Item *c, const Item *pp, int in_use_l
 
 /* ------------------------------------------------------------------ emit */
 
-typedef struct { char *s; size_t n, cap; } Buf;
+/* The ceiling on one formatted document. The nesting limit above bounds *depth*, which is only one
+ * factor of the cost: the output is O(lines x depth), so a document of ordinary depth and very many
+ * lines passes that check and still blows up -- 764 KB of input at depth 190 formats to 45 MB at
+ * 235 MB of peak memory, and a 10 MB document reached 4.78 GB through the language server before
+ * its reply cap refused it, because that cap is tested against a string that has already been built
+ * (docs/reviews/tasks.md A27, correcting A18). This is the axis that matters, checked as the output
+ * is produced rather than afterwards.
+ *
+ * 16 MB is about 180x the largest file in this project or the reference backend (`lib/http/server.zm`,
+ * 89 KB, which formats to exactly its own size) and leaves a formatted document larger than any
+ * editor will happily open. */
+#define FORMAT_MAX_OUTPUT (16u * 1024u * 1024u)
+
+typedef struct { char *s; size_t n, cap; int over; } Buf;
 
 static void put(Buf *b, const char *s, size_t n) {
+    /* Once over the ceiling, stop appending rather than grow: the caller checks `over` and refuses,
+     * and nothing downstream needs the truncated text. */
+    if (b->over) return;
+    if (b->n + n + 1 > FORMAT_MAX_OUTPUT) { b->over = 1; return; }
     if (b->n + n + 1 > b->cap) {
         b->cap = (b->n + n + 1) * 2;
         b->s = ziman_xrealloc(b->s, b->cap);
@@ -261,6 +278,7 @@ typedef struct {
 /* One pass: lays `items` out into `out`, recording positions. */
 static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
     out->n = 0;
+    out->over = 0; /* each pass starts fresh; the caller refuses after the pass that trips it */
     put(out, "", 0);
     out->s[0] = '\0';
     Open *stack = ziman_xmalloc((size_t)(items->n + 1) * sizeof(Open));
@@ -680,6 +698,17 @@ char *format_source(const char *src, size_t len, int width, int canonical, char 
     Buf out = {0};
     for (int pass = 0; pass < 60; pass++) {
         emit_pass(&items, &out, pos);
+        if (out.over) {
+            snprintf(err, err_size,
+                     "formatting this would produce more than %u MB of output -- the indentation is "
+                     "four spaces per open bracket, so a deeply nested document of many lines grows "
+                     "much faster than its own size",
+                     (unsigned)(FORMAT_MAX_OUTPUT / 1048576u));
+            free(items.v);
+            free(pos);
+            free(out.s);
+            return NULL;
+        }
         int changed = normalize_vertical(&items, pos);
         if (width > 0 && wrap_once(&items, pos, &out, width)) changed = 1;
         if (!changed) break;

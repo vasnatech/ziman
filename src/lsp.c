@@ -333,6 +333,54 @@ static Doc *find_doc_by_path(const char *path) {
     return NULL;
 }
 
+static void set_doc(const char *uri, const char *text);
+static void analyze(Doc *trigger);
+
+/* The largest document this server will parse and type-check. There was no limit at all: the
+ * server analysed whatever arrived, so a client could hand it an arbitrarily large buffer on
+ * `didOpen` and pay for a full parse and typecheck of it on every keystroke afterwards
+ * (docs/reviews/tasks.md A27). 4 MB is about 45x the largest file in this project
+ * (`lib/http/server.zm`, 89 KB) and far past anything a person edits.
+ *
+ * Over the limit the text is still stored -- so hover, formatting and the rest answer rather than
+ * behaving as though the file were empty, and the formatter's own ceiling refuses it there -- but
+ * the analysis is skipped and one diagnostic says why. Skipping silently would be worse than
+ * refusing: a file with no diagnostics looks like a file with no errors. */
+#define LSP_MAX_DOCUMENT (4u * 1024u * 1024u)
+
+/* Publishes a single diagnostic of our own for `d`, at the top of the file. */
+static void send_one_diagnostic(const Doc *d, const char *message) {
+    SB b = {0};
+    sb_puts(&b, "{\"uri\":");
+    sb_json_string(&b, d->uri);
+    sb_puts(&b, ",\"diagnostics\":[{\"range\":{\"start\":{\"line\":0,\"character\":0},"
+                "\"end\":{\"line\":0,\"character\":1}},\"severity\":1,\"source\":\"ziman\",\"message\":");
+    sb_json_string(&b, message);
+    sb_puts(&b, "}]}");
+    send_notification("textDocument/publishDiagnostics", b.s);
+    free(b.s);
+}
+
+/* set_doc, then analyse -- unless the document is past LSP_MAX_DOCUMENT, in which case say so
+ * instead of silently not analysing it. Both didOpen and didChange go through here so the limit
+ * cannot apply to one and not the other. */
+static void set_doc_and_analyze(const char *uri, const char *text) {
+    size_t len = strlen(text);
+    set_doc(uri, text);
+    Doc *d = find_doc_by_uri(uri);
+    if (d == NULL) return;
+    if (len > LSP_MAX_DOCUMENT) {
+        char message[200];
+        snprintf(message, sizeof message,
+                 "this file is %zu MB; the language server analyses files up to %u MB, so there are "
+                 "no diagnostics for it",
+                 (len + 1048575) / 1048576, (unsigned)(LSP_MAX_DOCUMENT / 1048576u));
+        send_one_diagnostic(d, message);
+        return;
+    }
+    analyze(d);
+}
+
 static void set_doc(const char *uri, const char *text) {
     Doc *d = find_doc_by_uri(uri);
     if (d == NULL) {
@@ -1543,8 +1591,7 @@ static void handle_message(const JVal *msg) {
         JVal *td = jget(params, "textDocument");
         const char *uri = jstr(jget(td, "uri")), *text = jstr(jget(td, "text"));
         if (uri != NULL && text != NULL) {
-            set_doc(uri, text);
-            analyze(find_doc_by_uri(uri));
+            set_doc_and_analyze(uri, text);
         }
     } else if (strcmp(method, "textDocument/didChange") == 0) {
         const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
@@ -1552,8 +1599,7 @@ static void handle_message(const JVal *msg) {
         if (uri != NULL && changes != NULL && changes->kind == J_ARR && changes->count > 0) {
             const char *text = jstr(jget(changes->items[changes->count - 1], "text"));
             if (text != NULL) {
-                set_doc(uri, text);
-                analyze(find_doc_by_uri(uri));
+                set_doc_and_analyze(uri, text);
             }
         }
     } else if (strcmp(method, "textDocument/didSave") == 0) {
