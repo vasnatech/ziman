@@ -1,1 +1,1 @@
-nesting is too deep to format (261 brackets open; the limit is 200, and the indentation alone would be 1044 spaces a line)
+line 266: nesting is too deep to format (261 open: 0 '(', 0 '[', 261 '{'; the limit is 200, and the indentation alone would be 1044 spaces a line)

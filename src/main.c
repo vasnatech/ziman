@@ -69,6 +69,9 @@ static void usage(FILE *out) {
           "  --fmt            print the source formatted (several files allowed, `-` is\n"
           "                   stdin); with --write rewrite the files in place, with\n"
           "                   --check list the files that would change and exit 1;\n"
+          "                   a file it refuses (nesting past 200 brackets) is printed back\n"
+          "                   unchanged, with the reason on stderr and exit 2, so filtering a\n"
+          "                   buffer through `--fmt -` never empties it;\n"
           "                   --width=N wraps longer lines (default 120, 0 = never);\n"
           "                   --canonical also moves an opening brace onto the line of what it\n"
           "                   opens, and `else` onto the line of the brace that closed its `if`\n"
@@ -109,7 +112,10 @@ static char *read_stdin(size_t *len) {
     return buf;
 }
 
-/* `ziman --fmt [--width=N] [--canonical] [--write | --check] files...`; a file named `-` is stdin (printed to stdout). */
+/* `ziman --fmt [--width=N] [--canonical] [--write | --check] files...`; a file named `-` is stdin
+ * (printed to stdout). A file the formatter refuses is printed back unchanged with the reason on
+ * stderr and exit 2, so a buffer filtered through `--fmt -` survives a refusal even if the caller
+ * ignores the status (see run_format, and docs/reviews/tasks.md F17). */
 static int run_format(char **files, int n_files, int write, int check, int width, int canonical) {
     int changed = 0, failed = 0;
     for (int i = 0; i < n_files; i++) {
@@ -119,7 +125,20 @@ static int run_format(char **files, int n_files, int write, int check, int width
         if (src == NULL) { fprintf(stderr, "ziman: cannot open '%s'\n", files[i]); failed = 1; continue; }
         char err[256];
         char *out = format_source(src, len, width, canonical, err, sizeof err);
-        if (out == NULL) { fprintf(stderr, "%s: %s\n", files[i], err); failed = 1; free(src); continue; }
+        if (out == NULL) {
+            fprintf(stderr, "%s: %s\n", files[i], err);
+            failed = 1;
+            /* The input, unchanged, on the path that would otherwise print the formatted source.
+             * `--fmt -` is a documented stdin filter, and an editor that pipes a buffer through it
+             * and replaces the buffer with stdout -- without checking the exit status, which is the
+             * common shape -- would otherwise blank the file (docs/reviews/tasks.md F17). A careful
+             * caller still sees exit 2 and the message on stderr; a careless one gets its text
+             * back. Nothing is printed under --check, whose output is a list of filenames, and
+             * --write already leaves the file alone. */
+            if (!check && !write) fwrite(src, 1, len, stdout);
+            free(src);
+            continue;
+        }
         int differs = strlen(out) != len || memcmp(out, src, len) != 0;
         if (differs) changed++;
         if (check) {

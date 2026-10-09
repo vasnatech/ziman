@@ -630,21 +630,40 @@ static void canonicalize_braces(Items *items) {
 
 static int nesting_within_limit(const Items *items, char *err, size_t err_size) {
     int depth = 0, line = 1, worst = 0, worst_line = 1;
+    /* Counted per kind, because "202 brackets open" is not a number anyone can act on: a document
+     * reaching the limit is usually a deep call chain *or* a deep block nest, and the reader needs
+     * to know which to go and unnest. Snapshotted at the deepest point rather than totalled, so the
+     * three numbers always add up to the one beside them (docs/reviews/tasks.md F17). */
+    int open_paren = 0, open_square = 0, open_brace = 0;
+    int worst_paren = 0, worst_square = 0, worst_brace = 0;
     for (int i = 0; i < items->n; i++) {
         const Item *it = &items->v[i];
         line += it->nl_before;
         if (it->kind == K_PUNCT && opens(it)) {
             depth++;
-            if (depth > worst) { worst = depth; worst_line = line; }
+            if (is(it, "(")) open_paren++;
+            else if (is(it, "[")) open_square++;
+            else open_brace++;
+            if (depth > worst) {
+                worst = depth;
+                worst_line = line;
+                worst_paren = open_paren;
+                worst_square = open_square;
+                worst_brace = open_brace;
+            }
         } else if (it->kind == K_PUNCT && closes(it) && depth > 0) {
             depth--;
+            if (is(it, ")")) open_paren--;
+            else if (is(it, "]")) open_square--;
+            else open_brace--;
         }
     }
     if (worst > FORMAT_MAX_NESTING) {
         snprintf(err, err_size,
-                 "line %d: nesting is too deep to format (%d brackets open; the limit is %d, and the "
-                 "indentation alone would be %d spaces a line)",
-                 worst_line, worst, FORMAT_MAX_NESTING, 4 * worst);
+                 "line %d: nesting is too deep to format (%d open: %d '(', %d '[', %d '{'; the limit "
+                 "is %d, and the indentation alone would be %d spaces a line)",
+                 worst_line, worst, worst_paren, worst_square, worst_brace, FORMAT_MAX_NESTING,
+                 4 * worst);
         return 0;
     }
     return 1;
