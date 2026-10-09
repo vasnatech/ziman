@@ -70,11 +70,11 @@ done
 #   gc_copy, gc_heap,     the leaks are AST type names from ast.c's type_struct/type_enum, which
 #   gc_env_roots,         nothing frees either -- same class.
 #   gc_mark
-#   regex                 the compiled Regex it never frees, because there is no regex_free. That
-#                         is A35, and when A35 lands this test can join the list above.
+# (regex was on this list until A35 added regex_free; the test frees its patterns now and is
+# leak-checked below.)
 for t in /tmp/ziman_arena_test /tmp/ziman_gc_object_test /tmp/ziman_gc_lookup_test \
          /tmp/ziman_gc_interp_roots_test /tmp/ziman_handles_test /tmp/ziman_gc_scan_test \
-         /tmp/ziman_coverage_test; do
+         /tmp/ziman_coverage_test /tmp/ziman_regex_test; do
     [ -x "$t" ] || continue
     check "$(basename "$t")" leaks "$t"
 done

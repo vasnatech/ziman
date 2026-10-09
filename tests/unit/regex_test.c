@@ -76,6 +76,7 @@ static void expect_caps(const char *pattern, const char *text, int n, const int 
         }
     }
     free(caps);
+    regex_free(re);
 }
 
 int main(void) {
@@ -99,6 +100,7 @@ int main(void) {
             int *caps = __real_malloc((size_t)ncap * sizeof(int));
             ok(regex_search(re, "zz", 2, 0, caps) == 1, "1,000 capture groups match without recursing");
             free(caps);
+            regex_free(re);
         }
         free(wide);
     }
@@ -118,6 +120,7 @@ int main(void) {
         memset(err, 0, sizeof err);
         Regex *re2 = regex_compile(noncap, strlen(noncap), err, sizeof err);
         ok(re2 != NULL, "the same width as non-capturing groups is accepted");
+        regex_free(re2);
         free(noncap);
     }
 
@@ -139,6 +142,7 @@ int main(void) {
         }
         ok(wrong == 0, "a failed allocation in the matcher is reported, never read as no-match");
         free(caps);
+        regex_free(re);
     }
 
     /* The work ceiling (A28). The memory budget does not bound time: these patterns all compile,
@@ -168,6 +172,7 @@ int main(void) {
                 }
                 if (r == -2) refused++; else allowed++;
                 free(caps);
+                regex_free(re);
             }
             free(pat);
         }

@@ -762,6 +762,19 @@ static void free_partial_regex(Regex *re) {
     free(re);
 }
 
+/* Releases a compiled pattern. The same work as free_partial_regex above, which is the half-built
+ * case; this is the finished one, and they are kept apart because a caller should not have to know
+ * that a failed compile and a finished one own the same things.
+ *
+ * Note what this means per build, because it is not the same thing twice: under `nogc` it really
+ * frees, and under the default build `zgc.h` has made `free` a no-op, so it does nothing and the
+ * collector reclaims the pattern when nothing references it. That is why the pattern cache in
+ * native_regex.c does *not* call this on eviction -- see its own comment (docs/reviews/tasks.md
+ * A35). */
+void regex_free(Regex *re) {
+    free_partial_regex(re);
+}
+
 Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size) {
     Regex *re = calloc(1, sizeof(Regex));
     Parser ps;

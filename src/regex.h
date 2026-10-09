@@ -21,6 +21,13 @@ typedef struct Regex Regex;
 /* NULL on a bad pattern, with a message (including the position) in `err`. */
 Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size);
 
+/* Releases a pattern from regex_compile. Only meaningful where `free` is real: in the default
+ * build every allocation here goes through the collector, so this is a no-op and an unreferenced
+ * pattern is reclaimed without it. A compiled Regex is immutable and may be shared, so the caller
+ * has to know that nothing else is using it -- which is exactly why native_regex.c's cache cannot
+ * call this when it evicts one (docs/reviews/tasks.md A35). */
+void regex_free(Regex *re);
+
 /* Number of capture groups, not counting the whole match. */
 int regex_group_count(const Regex *re);
 

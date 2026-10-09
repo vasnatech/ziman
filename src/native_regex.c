@@ -60,6 +60,20 @@ static void cache_store(const char *pattern, size_t len, RegexHandle *h) {
     pthread_mutex_lock(&g_cache_mu);
     CacheEntry *slot = &g_cache[g_cache_next];
     g_cache_next = (g_cache_next + 1) % CACHE_SIZE;
+    /* The evicted entry's pattern text, which nothing outside this table ever sees -- cache_lookup
+     * only memcmps it -- so this is the one part of an eviction that is safe to release. It was
+     * leaked before (docs/reviews/tasks.md A35).
+     *
+     * The compiled pattern itself is deliberately *not* freed here, and `regex_free` exists without
+     * being called from this line. Two reasons, one per build. Under the default build the Regex is
+     * collector memory, so an evicted one that no Ziman value still names is reclaimed on its own
+     * and freeing it by hand would be the no-op `free` anyway. Under `nogc` freeing it would be a
+     * use-after-free: a handle is handed to Ziman as an integer and cache_lookup hands the same one
+     * to every caller, so a program can still be holding a pattern whose slot has been reused, and
+     * nothing in that build can tell -- which is the same reason nothing else in this interpreter
+     * is freed there either (docs/DESIGN.md's "Memory reclamation"). */
+    free(slot->pattern);
+    slot->pattern = NULL;
     char *copy = ziman_xmalloc(len + 1);
     memcpy(copy, pattern, len);
     copy[len] = '\0';
