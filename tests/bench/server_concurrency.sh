@@ -38,10 +38,19 @@ if ! kill -0 "$PID" 2>/dev/null || ! curl -s -o /dev/null "$BASE_URL/health"; th
   echo "Error: the server did not start:" >&2; cat "$WORK/server.log" >&2; exit 1
 fi
 
-TOKEN="$(curl -s -X POST "$BASE_URL/api/auth/register" -H 'Content-Type: application/json' \
-    -d "{\"name\":\"Bench Runner\",\"email\":\"bench-$$@example.com\",\"password\":\"bench runner password\"}" \
+# Register, then log in for the token. Registration deliberately returns no token (health-record
+# 36aa350, task B11: it answers identically whether or not the email is taken, so it cannot be used
+# to find out which addresses exist), which broke this script silently -- it extracted an empty
+# token and exited before running a single benchmark. Found on 2026-10-08 by a review that was
+# asked to measure with it; see docs/reviews/tasks.md F20.
+EMAIL="bench-$$@example.com"
+PASSWORD="bench runner password"
+curl -s -o /dev/null -X POST "$BASE_URL/api/auth/register" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"Bench Runner\",\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"
+TOKEN="$(curl -s -X POST "$BASE_URL/api/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
     | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
-[ -n "$TOKEN" ] || { echo "Error: could not register the runner's account:" >&2; cat "$WORK/server.log" >&2; exit 1; }
+[ -n "$TOKEN" ] || { echo "Error: could not register and log in the runner's account:" >&2; cat "$WORK/server.log" >&2; exit 1; }
 
 echo "binary=$(basename "$BIN") port=$PORT requests=$N"
 for C in $LEVELS; do

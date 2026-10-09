@@ -346,7 +346,10 @@ pub fn close(s: Socket)
 ```
 
 Closes the socket (and, for TLS, sends close_notify first). Safe to call once; a socket used after
-this gives a runtime error. Another thread blocked reading it is woken with an error.
+this gives a runtime error. Another thread blocked reading it is woken with `NetError.Closed` --
+closing from a different thread than the reader is supported, not merely tolerated: the socket
+holds a reference while a read is in flight, so the descriptor cannot be closed and its number
+handed to something else underneath it (docs/reviews/tasks.md A31).
 
 ### `close_listener`
 
@@ -354,4 +357,6 @@ this gives a runtime error. Another thread blocked reading it is woken with an e
 pub fn close_listener(l: Listener)
 ```
 
-Stops listening and closes the listener's socket. A thread blocked in `accept` on it gets an error.
+Stops listening and closes the listener's socket. A thread blocked in `accept` on it gets
+`NetError.Closed` -- which is how a server shuts down, so it is supported rather than tolerated:
+see `close` just above on what makes that safe.
