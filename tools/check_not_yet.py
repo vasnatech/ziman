@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Catches a doc claiming a feature is missing once it actually exists.
 
-Two shapes, both of them "the docs say Ziman cannot do X" where the code says otherwise. The
+Three shapes, all of them "the docs say Ziman cannot do X" where the code says otherwise. The
 second was added on 2026-10-09 after the North Star section of docs/ROADMAP.md was found still
 listing "No map/dictionary type. Only `[T]` exists" among the things standing between the
 language and a backend -- long after `Map<K, V>` and `Set<T>` became built-in types. The entry
@@ -27,6 +27,15 @@ DESIGN.md entry quotes the stale sentence that motivated the check), not claimin
 Scans source only: docs/SYNTAX.md and docs/DESIGN.md (hand-written) and lib/**/*.zm (the doc comments
 docs/lib/*.md and docs/CORELIB.md are generated from) -- not the generated .md files
 themselves, since they can only ever repeat whatever the source already says.
+
+**Shape three: a "Still ahead" list in docs/ROADMAP.md**, added 2026-10-09 after the North Star
+section was found still describing `fs` without directory listing or append, `net` and `http` as
+unwritten, and the pure-Ziman-versus-native database question as open -- all of it shipped, some of
+it months earlier. It needed its own vocabulary because such a list names *modules*, and a module
+is not a `pub fn`: `net` exists because `lib/core/net.zm` does, which is what the check now reads.
+An item carrying an "*Update <date>:*" note is skipped, because annotating a stale sentence in
+place rather than rewriting it is this file's own convention for recording a resolution -- without
+that, the check would fire precisely on the entries someone had fixed properly.
 
 **Shape two: an absence claim in docs/ROADMAP.md.** A list item whose bold headline starts with
 "No " is a claim about what the language lacks, and it is flagged when the headline names
@@ -67,6 +76,16 @@ BACKTICK_NAME = re.compile(r"`([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*
 # nested or not. A struck-through item (`- ~~**No ...**~~`) is the resolved form and is skipped --
 # group 1 is what distinguishes them.
 ABSENCE_HEADLINE = re.compile(r"^\s*-\s+(~~)?\*\*(No\b[^*]*)\*\*")
+# A ROADMAP list item that says what is still to come. The same shape as a "Not yet" claim, but it
+# names *modules* rather than functions, which is why it needs its own vocabulary below: `net` and
+# `http` are not `pub fn` declarations, so the original check read right past an entry whose whole
+# "still ahead" list had shipped (docs/reviews/tasks.md, the 2026-10-09 North Star correction).
+STILL_AHEAD = re.compile(r"Still ahead\b[:,]?\s*(.*)")
+# An "*Update <date>:*" note inside the same item means the claim above it has already been
+# answered in place, which is this file's convention for a resolved entry -- the stale sentence is
+# deliberately left standing with the correction underneath it. Without this, the check would fire
+# on exactly the entries that have been fixed properly.
+UPDATE_NOTE = re.compile(r"\*Update \d{4}-\d{2}-\d{2}")
 # src/typecheck.c's own list, so a sixth built-in type needs no edit here.
 HARDCODED_TYPES = re.compile(r"HARDCODED_GENERIC_TYPES\[\]\s*=\s*\{([^}]*)\}")
 
@@ -91,6 +110,44 @@ def builtin_type_names():
         print("check_not_yet.py: cannot find HARDCODED_GENERIC_TYPES in src/typecheck.c", file=sys.stderr)
         sys.exit(1)
     return [s.strip().strip('"') for s in m.group(1).split(",") if s.strip().strip('"') not in ("", "NULL")]
+
+
+def module_names():
+    """Every bundled module, by file name: `lib/core/net.zm` means the module `net` exists."""
+    found = {}
+    for path in glob.glob(os.path.join(ROOT, "lib", "**", "*.zm"), recursive=True):
+        base = os.path.basename(path)[:-3]
+        found.setdefault(base, os.path.relpath(path, ROOT))
+    return found
+
+
+def still_ahead_problems(modules):
+    """ROADMAP list items whose "Still ahead" names a module that now exists."""
+    path = os.path.join(ROOT, "docs", "ROADMAP.md")
+    rel = os.path.relpath(path, ROOT)
+    with open(path) as f:
+        lines = f.read().split("\n")
+    # Item boundaries first, so a claim can be read together with any Update note under it.
+    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*-\s", l)]
+    problems = []
+    for idx, start in enumerate(starts):
+        end = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
+        item = lines[start:end]
+        body = "\n".join(item)
+        if UPDATE_NOTE.search(body):
+            continue  # answered in place, which is how this file records a resolution
+        m = STILL_AHEAD.search(body)
+        if m is None:
+            continue
+        for name in BACKTICK_NAME.findall(m.group(1)):
+            bare = name.rsplit(".", 1)[-1]
+            if bare in modules:
+                problems.append(
+                    "%s:%d: says `%s` is still ahead, but lib/%s exists. If it has landed, add an "
+                    "\"*Update <date>: ...*\" note under the item saying so, as the other resolved "
+                    "entries do." % (rel, start + 1, name, os.path.basename(modules[bare]))
+                )
+    return problems
 
 
 def absence_problems(names, types):
@@ -200,6 +257,7 @@ def main():
                         "pub at %s:%d" % (rel, lineno, name, decl_file, decl_line)
                     )
     problems += absence_problems(names, builtin_type_names())
+    problems += still_ahead_problems(module_names())
     if problems:
         for p in problems:
             print("check_not_yet.py: %s" % p, file=sys.stderr)

@@ -75,7 +75,26 @@ one that never lands. The architecture to get there:
   either as pure Ziman speaking a DB's wire protocol directly over `net`,
   or as a native module wrapping an existing C client library (e.g.
   libpq/sqlite) if hand-rolling the wire protocol turns out not to be
-  worth it. ~~`json` (encode/decode) is flagged separately below since
+  worth it.
+  *Update 2026-10-09: that whole "still ahead" list has landed, and this
+  paragraph had gone on describing a state months out of date. `fs` has
+  append (`append_text`/`append_bytes`), directory listing (`list_dir`,
+  `walk`), atomic writes, byte and line/chunk access, and the path and
+  metadata functions. `net` exists with TLS on both ends, and `http`,
+  `server` and `client` are pure Ziman on top of it -- the six native
+  functions in `lib/http/server.zm` are policy primitives (arena bounds,
+  the rate limiter, the per-client connection cap), not protocol parsing.*
+  *The open design question in this entry got answered **both ways, split
+  by engine**, which is the part worth keeping: `pg` and `mysql` are pure
+  Ziman speaking the wire protocol over `net` (`pg` has exactly one native
+  function, `float_to_text`, a number-formatting helper), while `sqlite`
+  is the native route, nine native functions wrapping the bundled C
+  library. So "if hand-rolling the wire protocol turns out not to be worth
+  it" was not a single verdict: it was worth it for the two networked
+  engines and not for the embedded one, where there is no wire protocol to
+  hand-roll in the first place. Both `pg` and `mysql` carry
+  `#![experimental]` (see DESIGN.md's F4 entry) -- shipped, not yet
+  hardened.* ~~`json` (encode/decode) is flagged separately below since
   it hits a real language gap, not just missing library code.~~
   Implemented — see the `json` core module entry further below; the
   suspected language gap (a self-referential `Json` type) turned out
