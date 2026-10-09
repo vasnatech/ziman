@@ -85,10 +85,23 @@ Building any of this will surface language gaps that don't show up in
 toy programs — worth calling out now rather than discovering them one at
 a time mid-implementation:
 
-- **No map/dictionary type.** Only `[T]` exists. A backend needs
-  key-value lookups constantly (headers, query params, JSON objects,
-  config). Same "one collection type" question arrays already went
-  through, but for `{K: V}`-shaped data instead of a sequence.
+- ~~**No map/dictionary type.**~~ `Map<K, V>` and `Set<T>` are built-in
+  types now, on a 32-way bitmap-compressed persistent hash trie
+  (O(log32 n), value semantics like every other Ziman value, so `set` and
+  `remove` return a new map and share the untouched structure) -- see the
+  "[Resolved: `Map`/`Set` are now built-in types...]" entry below for how
+  that was decided, and SYNTAX.md "Maps and sets" for the operations.
+  Keys must support `==` and hashing, which is the `Hash` rule rather than
+  a special case for maps.
+  The "one collection type" question this entry posed did get answered,
+  and not the way the entry assumed: there is no `{K: V}` type syntax.
+  A map is written `Map<string, int> { "apple": 4 }`, with the type
+  arguments always spelled out, because `{...}` alone could not say what
+  an empty literal meant and the sequence brackets stay scoped to
+  sequences -- the same reasoning that gave `Result<T, E>` angle brackets.
+  Still unfinished underneath, and recorded in docs/DESIGN.md rather than
+  here: the trie is not arena-routed, so a map crossing a thread is
+  allocated the way everything was before that work.
 - ~~**No optional/nullable type.**~~ `Option<T>` exists now (built on
   generics, not a hardcoded parametric type like `Result<T, E>` after
   all — see the "Generics" and "Collections module" entries below for
