@@ -1,0 +1,4 @@
+3,000 atoms   -> compiled, matches: true
+20,000 atoms  -> refused: pattern is too large
+group of 3,000 -> compiled, matches: true
+alt of 3,000   -> compiled, matches: true

@@ -610,7 +610,33 @@ static void gen(Emit *em, const Node *n) {
         case N_EOL: emit(em, I_EOL, 0, 0, 0); break;
         case N_WORDB: emit(em, I_WORDB, 0, 0, 0); break;
         case N_NWORDB: emit(em, I_NWORDB, 0, 0, 0); break;
-        case N_CAT: gen(em, n->a); gen(em, n->b); break;
+        case N_CAT: {
+            /* A concatenation is a left-leaning chain, one N_CAT per atom (parse_cat), so recursing
+             * into `n->a` here cost one frame per *character* of the pattern -- and `gen` descends
+             * that whole spine before emitting a single instruction, which is why
+             * MAX_INSTRUCTIONS could not see it and the post-compile MAX_MATCH_BYTES was never
+             * reached: a 20,000-character pattern segfaulted on a 1 MB stack, and a spawned worker
+             * at ZIMAN_THREAD_STACK_MB=1 took the whole process down (docs/reviews/tasks.md A25).
+             * Walking the spine in a loop instead leaves `gen`'s recursion bounded by the pattern's
+             * *nesting*, which the parser already caps at 200 -- the same move as A16's, one
+             * function over, and it refuses no pattern that used to compile.
+             *
+             * Order is unchanged: the chain's leftmost leaf is emitted first, then each right-hand
+             * child on the way back up, which is exactly what `gen(n->a); gen(n->b)` did. */
+            int links = 0;
+            for (const Node *w = n; w->kind == N_CAT; w = w->a) links++;
+            const Node **rights = malloc((size_t)links * sizeof(*rights));
+            if (rights == NULL) {
+                if (!em->failed) { snprintf(em->err, em->err_size, "out of memory compiling the pattern"); em->failed = 1; }
+                return;
+            }
+            const Node *left = n;
+            for (int i = 0; i < links; i++) { rights[i] = left->b; left = left->a; }
+            gen(em, left);
+            for (int i = links - 1; i >= 0 && !em->failed; i--) gen(em, rights[i]);
+            free(rights);
+            break;
+        }
         case N_ALT: {
             int split = emit(em, I_SPLIT, 0, 0, 0);
             if (em->failed) return;
@@ -665,11 +691,28 @@ static void gen(Emit *em, const Node *n) {
     }
 }
 
+/* Frees the tree without recursing, for the same reason gen() no longer does (A25): the tree is a
+ * left-leaning chain one node deep per atom, so the recursive version cost a frame per character of
+ * the pattern -- on the failure paths especially, which are reached with whatever stack is left.
+ *
+ * Rotate-and-free, the standard way to destroy a binary tree in constant space: a node with no left
+ * child is freed and we continue into its right child; a node with one is rotated up, taking its own
+ * right subtree with it, which strictly reduces the left spine. Every node is therefore freed
+ * exactly once, in O(nodes) total, with no stack and no allocation -- the last mattering because
+ * this runs on the out-of-memory path too. */
 static void free_node(Node *n) {
-    if (n == NULL) return;
-    free_node(n->a);
-    free_node(n->b);
-    free(n);
+    while (n != NULL) {
+        if (n->a == NULL) {
+            Node *right = n->b;
+            free(n);
+            n = right;
+        } else {
+            Node *left = n->a;
+            n->a = left->b;
+            left->b = n;
+            n = left;
+        }
+    }
 }
 
 Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size) {
