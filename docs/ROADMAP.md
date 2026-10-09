@@ -374,6 +374,20 @@ against)**
   it before writing a byte is not. `make fmt-check` never sees this
   because real code is not nested 8,000 deep -- an editor and a fuzzer
   both are.*
+  *Update 2026-10-09: bounded, and the 2026-10-08 note above was half
+  wrong about why. Capping nesting depth (A18) did not remove the
+  blowup, because the cost is O(lines x depth) and only depth was
+  capped -- a document of ordinary depth and very many lines passed the
+  check and still grew without limit. The output itself is now capped at
+  16 MB as it is appended (A27), which is ~180x the largest file here, and
+  the language server will not analyse a document over 4 MB. At depth 190,
+  inside the nesting limit: 60,000 lines used to produce 45 MB of output
+  at 235 MB RSS and is now refused at 70 MB. Through the language server,
+  that same document's `textDocument/formatting` reply is now a 4,682-byte
+  refusal. (The 24 KB / 144 MB case in the note above was already refused
+  by A18's depth limit; what A27 adds is the ordinary-depth document, which
+  that limit cannot see.) Streaming the output, which the note above implied
+  was the fix, was not needed and was not built.*
 - [x] **R18. Split README.md into sections.** *Done: README.md is now ~900 words (a taste, the language at a glance, a module table, tooling); the old wall of prose lives in docs/FEATURE-NOTES.md under ten headings.* It is ~3,000 words in
   essentially one paragraph, and it is the document most likely to be
   pasted into a model's context as "the language".

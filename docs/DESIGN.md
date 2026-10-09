@@ -151,6 +151,7 @@ them against the code.
 - [Three tools that each cost nothing because the interpreter already kept what they needed (2026-10-05)](#three-tools-that-each-cost-nothing-because-the-interpreter-already-kept-what-they-needed-2026-10-05)
 - [When a library error gets a type, and why counting `Result<_, string>` misleads (2026-10-06)](#when-a-library-error-gets-a-type-and-why-counting-result_-string-misleads-2026-10-06)
 - [Three allocation sites, and what they did to F7 (2026-10-07)](#three-allocation-sites-and-what-they-did-to-f7-2026-10-07)
+- [Two regex ceilings, and a free that is impossible in both builds (2026-10-09, A28 and A35)](#two-regex-ceilings-and-a-free-that-is-impossible-in-both-builds-2026-10-09-a28-and-a35)
 
 <!-- end index -->
 
@@ -3410,7 +3411,18 @@ over 1,119 files reaches depth 10; generated code reaches 7; `<`/`>` are not
 counted, so generics are free. The field agrees with refusing: gofmt refuses at
 100,000, Prettier dies at about 250 with an uncaught RangeError, clang-format
 crashes, and only rustfmt passes the input through unformatted. What the limit
-does *not* bound is the output, which is A27.** This entry records the formatter as first built, and its
+does *not* bound is the output, which was A27 -- **done 2026-10-09: the output is
+now bounded too, at 16 MB, checked in `put` where the formatter appends rather
+than afterwards.** That is the same cost measured on the axis the depth limit
+cannot see: the blowup is O(lines x depth) and A18 had capped one factor, so a
+document of ordinary depth and very many lines passed the check and still grew
+without limit. At depth 190, inside the nesting limit, 60,000 lines used to
+produce 45 MB of output at 235 MB of peak memory and is now refused at 70 MB;
+200,000 lines was multiple gigabytes and is refused at 131 MB. 16 MB is about
+180x the largest file here (`lib/http/server.zm`, 89 KB, which formats to exactly
+its own size). The nesting limit stays, because it fails early and cheaply, which
+also means A18's over-refusal of a one-line deeply nested expression stays with
+it.** This entry records the formatter as first built, and its
 "Not done" list below is what was missing *then*: that later entry is where the
 four items on it were added. A reader who stops here gets the state of an earlier
 version, which is the hazard F11 set out to fix -- this file is a dated log, so an
@@ -4018,7 +4030,16 @@ and unwinds to an outermost recovery point; loader source overrides
 (`loader_set_overrides`) so unsaved editor buffers are what gets parsed; and
 `typecheck_skip_main_check` so a library file is not reported for lacking `main`.
 Each edit re-analyses the whole program (entry = nearest `main.zm`, else the file)
-and republishes per-file diagnostics; declarations carry `source_file`, which is
+and republishes per-file diagnostics -- up to a size: a document over 4 MB is
+stored but not analysed, and gets one diagnostic saying so (2026-10-09, A27).
+There was no limit at all before, so a client could hand the server an
+arbitrarily large buffer on `didOpen` and pay a full parse and typecheck of it on
+every keystroke after. The limit is applied in one place that both `didOpen` and
+`didChange` go through, so it cannot hold for one and not the other, and 4 MB is
+about 45x the largest file here. Measured over the real protocol: a 4.3 MB
+document costs 74 MB of peak memory in 0.09 s, where a *smaller* 2.1 MB one that
+is analysed costs 207 MB in 0.43 s. Skipping silently would have been worse than
+refusing, because a file with no diagnostics looks like a file with no errors; declarations carry `source_file`, which is
 what go-to-definition, hover and symbols read. Positions convert between Ziman's
 byte columns and LSP's UTF-16 units. Hover and definition resolve by identifier
 (plus a `module.` qualifier), not by scope, so a local shadowing a global name
@@ -4117,7 +4138,9 @@ global table, which kept every socket and connection ever opened reachable forev
 `net.close` or `datasource.close` leaked the descriptor or the database for good (measured: 300 unclosed
 connects exhausted `ulimit -n 300`; each unclosed in-memory database held ~88 KB). The integer is
 now the native object's *address*, and a `HandleSet` (src/handles.c, a hash set in memory the
-collector does not scan) says which addresses are open, so a closed or made-up handle is still an
+collector does not scan; **since 2026-10-09 it is 64 shards under their own locks rather than one
+lock, which took a socket operation from 158.4 ns to 18.6 ns at sixteen threads -- A34, and read
+that entry for why the same change is +0.3% end to end**) says which addresses are open, so a closed or made-up handle is still an
 error and not a crash, while being in the set does not keep the object alive. When nothing holds the
 Socket/Connection value any more the collector finalizes it (closing the descriptor, freeing the SSL
 object, closing the database), and out of descriptors (`EMFILE`) `net` collects at once and retries.
@@ -5546,3 +5569,49 @@ Chasing that number down to a branch that cannot ask for more than ~550 bytes is
 Separately, a first reading of the argument-array change looked like +58% because one baseline run
 was low, and a first depth probe that doubled its step reported "recursion depth halved" where
 bisection says 9%. Every figure above is a median of paired, interleaved rounds for that reason.
+
+## Two regex ceilings, and a free that is impossible in both builds (2026-10-09, A28 and A35)
+
+The memory budget A16 put on the regex engine (64 MB of capture buffers, refused at compile time)
+bounds *space* and was mistaken for bounding *time*. A pattern sitting just inside it cost about 9 ms
+per input byte -- roughly 2.5 CPU-hours for a 1 MB subject inside a single request -- so there is now
+a second ceiling on the **work** a match may do.
+
+**The unit was chosen by measuring, not by taste.** Work is counted in capture-vector int-copies
+(`ncap` ints per thread parked and per `I_SAVE`), because that is where a Pike VM spends itself.
+Against a 1 MB subject, this repo's own patterns cost between **7 and 34 copies per byte** (`\w+` 7,
+`(.*)dog` 12, a three-named-group date 28, `(\w+)@(\w+)\.com` 34). The pathological end is four to
+five orders of magnitude away: 400 empty groups on 200 bytes is 647,226 per byte, and 1,000 empty
+groups is 4,030,056. That gap is the whole reason a limit is possible without guessing a number, and
+it is worth re-measuring before anyone tightens it.
+
+**Shaped as a floor plus a rate, because the two costs are not the same cost.** The first position
+pays a full epsilon closure whatever the subject's length, so a flat cap punishes a short subject for
+a large pattern, while the per-byte term is what a long subject legitimately spends. 256M copies plus
+100,000 per byte leaves about 3,000x headroom over anything real. PCRE2 is the precedent for having
+such a limit at all (`match_limit`, `depth_limit`, `heap_limit`); unlike PCRE2's, this one is not
+caller-settable, and if that is ever wanted the **rate** is the number to expose, not the floor.
+
+**The mistake worth recording, because it is a general one about limits.** The first version put the
+budget on a single `regex_search` call, and `find_all` walked straight through it: 201 searches over a
+200-byte subject, each comfortably inside a per-call budget, 8e8 copies in total. **A limit has to
+bound the operation the caller asked for, not one of its steps.** The counter is now carried across a
+scan (`regex_search_budgeted`, with `search_all_raw` keeping one counter for its whole loop), which is
+why regex.h grew a second entry point instead of changing the first.
+
+**And the cache cannot free what it evicts -- in either build, which is the opposite of how it was
+filed.** A35 was recorded as an unbounded leak: 2,000 distinct patterns cost 1.14 GB under `nogc`
+against 48 MB under the collector. The second look overturns that. A handle goes to Ziman as an
+integer and `cache_lookup` hands the same one to every caller, so a program can still be holding a
+pattern whose slot has been reused. Under `nogc` nothing can tell, and under the default build the
+`free` would be `zgc.h`'s no-op anyway, because the `Regex` is collector memory and is reclaimed on
+its own once nothing names it. So the 1.14 GB is **this build's documented behaviour** -- nothing the
+interpreter allocates is freed under `nogc`, see "Memory reclamation" -- and not a defect in the
+cache; it would look the same for 2,000 distinct arrays. Calling it A17's class in reverse was wrong:
+A17 was a libc block the collector *could not* reclaim.
+
+What was genuinely fixable is small and is stated as small: the evicted entry's pattern *text* is
+owned by nobody but the table (`cache_lookup` only `memcmp`s it), so it is freed on eviction, worth
+3.6 MB of that 1.14 GB. `regex_free` now exists, which was the real gap -- a C caller had no way to
+release a compiled pattern, and `tests/unit/regex_test.c` could not be leak-checked without one. It
+frees its patterns now and has joined `make valgrind`'s leak-checked set.

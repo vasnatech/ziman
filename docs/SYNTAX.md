@@ -1751,8 +1751,12 @@ the very end unless `(?m)` (`^...$` for the whole text). A repetition count caps
 compiled pattern at 20,000 instructions, and a pattern whose matching would need more than 64 MB of
 capture buffers is refused when it compiles -- that last one is a cap on *capture groups* in
 practice (about 1,170 of them), and the error says so and suggests `(?:...)` for a group whose text
-you do not need. `find_all` steps one character past an empty match;
-`split` ignores empty matches.
+you do not need. A match is also bounded in *work*, which that budget does not bound: a pattern that
+is cheap to compile can still be expensive per input byte, so a search that would do more work than
+its subject's length allows stops with a runtime error naming the subject's size, and a `find_all`
+is budgeted as one scan rather than per match. Real patterns use a ten-thousandth of what is
+allowed; what hits this is hundreds of capture groups over a short subject. `find_all` steps one
+character past an empty match; `split` ignores empty matches.
 
 ## HTTP client (`client`)
 
@@ -2329,6 +2333,12 @@ rather than undefined behavior or a crash:
 | `bigint`/exact-`decimal` digit count (`parse_json_exact`, literals) | 1,000 digits | `json`'s number parser |
 | A parsed number's exponent size | 100,000 | `json`'s number parser |
 | `parse_json` nesting depth | 512 levels | `json` |
+| A regex repetition count | 1,000 | `regex`, when it compiles |
+| A compiled regex | 20,000 instructions, and 64 MB of capture buffers (~1,170 capture groups) | `regex`, when it compiles |
+| The work one regex match may do | 256M capture-vector copies plus 100,000 per subject byte (a real pattern uses 7-34 per byte) | `regex`, while matching |
+| `--fmt` nesting depth | 200 brackets | the formatter, which prints the input back unchanged |
+| `--fmt` output size | 16 MB (~180x the largest file here) | the formatter, as it appends |
+| A document the language server analyses | 4 MB, stored but not analysed past it | `--lsp`, which says so in a diagnostic |
 | HTTP request headers | 16 KiB total, fixed | `server` (`HeadersTooLarge`, 431) |
 | HTTP request body | 1 MiB, fixed | `server` (`BodyTooLarge`, 413) |
 | Server connections | whatever `ServeOptions.max_connections` says, no built-in default | `server`'s `serve` |

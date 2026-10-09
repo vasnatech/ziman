@@ -208,14 +208,22 @@ make check
 
 Everything that needs nothing but this repo and a C toolchain: every fixture in
 `tests/fixtures/` on both builds (`make test`, `make test-nogc` — see `tests/run_tests.sh`), the
-standalone C unit tests (`make unit-tests`), formatting (`make fmt-check`), and the documentation
-guards (`make docs-check`, which checks that `docs/lib/` and `docs/CORELIB.md` still match the
+standalone C unit tests (`make unit-tests`), the TLS suite when `openssl` is on the machine
+(`make tls-if-available`, skipped with a note when it is not), formatting (`make fmt-check`), and
+the documentation guards (`make docs-check`, which checks that `docs/lib/` and `docs/CORELIB.md` still match the
 sources they are generated from, that no doc calls a `pub` name "not yet" supported once it exists,
 and that this file's own module table agrees with each module's `#![experimental]`).
 
 The rest need something the repo can't supply, so they are separate: `make test-pg` and
-`make test-mysql` want a container runtime and a database image, `make test-tls` wants the
-`openssl` binary, and `tests/bench/` wants `ab` and a checkout of the sample backend.
+`make test-mysql` want a container runtime and a database image, and `tests/bench/` wants `ab` and
+a checkout of the sample backend.
+
+The sanitizers are separate for a different reason -- they are slow, not unsupported: `make asan`,
+`make ubsan`, `make tsan` (or `make sanitizers` for all three) rebuild and run the suite under
+Clang's or GCC's instrumentation, `make valgrind` runs a narrow set of fixtures and every C unit
+test under Memcheck with `tools/valgrind.supp` for the conservative stack scanner's deliberate
+reads, and `make analyze` runs GCC's static analyzer. If a sanitizer runtime isn't installed
+system-wide, pass its location in `LDFLAGS`.
 
 ## Documentation
 

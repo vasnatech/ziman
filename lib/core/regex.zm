@@ -54,6 +54,13 @@ pub struct Match {
 // capture buffers to match is refused here rather than attempted later, which in practice is a cap
 // of about 1,170 capture groups and never one on pattern length.
 //
+// That budget bounds the memory a match needs, not the time: a pattern that compiles cheaply can
+// still be expensive per input byte. So matching is bounded too, and a search that would do more
+// work than its subject's length allows stops with a runtime error naming the subject's size. The
+// headroom is wide -- a real pattern uses a ten-thousandth of what is allowed, and what reaches the
+// ceiling is hundreds of capture groups over a short subject -- and `find_all` is budgeted as one
+// scan rather than once per match, so stepping through a subject cannot evade it.
+//
 // (A pattern compiled before is looked up, not recompiled: the last 256 distinct patterns are kept,
 // so `compile` in a loop or on every request is cheap -- for patterns that compile. A *failed*
 // compile is not cached, so a caller that recompiles a bad pattern per request pays for it every
