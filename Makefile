@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check libc-free-check xalloc-check tls-if-available test-regex asan ubsan tsan sanitizers analyze
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze
 
 all: $(BIN)
 
@@ -235,9 +235,14 @@ test-gc-lookup: src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c tests/u
 # candidate word -- see its own header comment on why this test cannot be fully valgrind-clean in the
 # strict sense every earlier module here is: reading genuinely uninitialised stack memory and
 # comparing it as a possible pointer is what conservative scanning *is*, not a bug (the same
-# interaction Boehm's own collector has with valgrind). `valgrind --undef-value-errors=no` (memcheck's
-# other checks -- invalid read/write, leak detection -- still fully active) is the honest way to
-# confirm there is no *actual* memory-safety issue underneath that expected noise.
+# interaction Boehm's own collector has with valgrind).
+#
+# `valgrind --undef-value-errors=no` used to be the advice here, and it is no longer the best one:
+# it switches off memcheck's uninitialised-value checking *process-wide*, which is the one check
+# nothing else in this toolchain provides. `make valgrind` instead runs this test, its neighbours
+# and three fixtures with `tools/valgrind.supp`, which suppresses exactly the conservative scan's
+# own reads and leaves that checking on everywhere else -- 0 errors from 0 contexts, 215
+# suppressed (docs/reviews/tasks.md F23).
 test-gc-scan: src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_scan_test src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/unit/gc_scan_test.c
 	/tmp/ziman_gc_scan_test
@@ -434,6 +439,19 @@ tsan: $(SRC) $(CORELIB_HEADERS)
 
 sanitizers: asan ubsan tsan
 
+# memcheck, narrowly -- see tests/run_valgrind.sh for what it covers and why it is not a whole-suite
+# sweep, and tools/valgrind.supp for the conservative-scanner suppressions it needs. Built with
+# -fno-omit-frame-pointer, without which those suppressions do not match (several contexts unwind
+# as `???` and the frame they key on never appears). Not in `make check`: valgrind is about 100x
+# slower than ASan. What it buys that the sanitizer targets cannot is uninitialised-value checking,
+# which ASan does not do and MSan is not here to do, plus the leak checker that found A26.
+ziman-vg: $(SRC) $(CORELIB_HEADERS)
+	$(CC) $(PLAIN_CFLAGS) -fno-omit-frame-pointer -DZIMAN_VERSION='"$(ZIMAN_VERSION)-vg"' \
+	    -o ziman-vg $(SRC) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
+
+valgrind: ziman-vg test-gc-scan test-gc-lookup test-arena test-gc-object
+	./tests/run_valgrind.sh ./ziman-vg
+
 # GCC's static analyzer over both configurations. Clean as of 2026-10-08 and deliberately not part of
 # `make check`: it takes minutes per configuration, where every other check here takes seconds.
 analyze:
@@ -450,4 +468,4 @@ xalloc-check:
 docs-check: lib-manual-check not-yet-check experimental-check syntax-check design-index-check
 
 clean:
-	rm -f $(BIN) ziman-nogc ziman-allocprofile ziman-asan ziman-ubsan ziman-tsan src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
+	rm -f $(BIN) ziman-nogc ziman-allocprofile ziman-asan ziman-ubsan ziman-tsan ziman-vg src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)

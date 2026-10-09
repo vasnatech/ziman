@@ -1,0 +1,53 @@
+# Conservative stack scanning, which is not a bug.
+#
+# src/gc_scan.c reads every pointer-aligned word between the current stack pointer and the top of
+# the thread's stack and asks gc_lookup whether each one addresses a heap object. Most of those
+# words are genuinely uninitialised -- that is what a conservative collector is -- so memcheck
+# reports them, and the taint propagates out of gc_lookup into arena.c and gc_mark.c as the
+# candidate is carried along. The entries are therefore keyed on `gc_scan_stack_roots`, the one
+# frame every context shares, rather than on the innermost one, which varies.
+#
+# Two things to know before editing this file (docs/reviews/tasks.md F23):
+#   * It only works with frame pointers. At -O2 without -fno-omit-frame-pointer, several contexts
+#     unwind as `??? / ???` and `gc_scan_stack_roots` never appears in them, so they escape these
+#     entries. `make valgrind` passes that flag for exactly this reason.
+#   * It is what lets memcheck's uninitialised-value checking stay on at all. The alternative, and
+#     what this project did before, is `--undef-value-errors=no`, which switches that check off
+#     process-wide -- and nothing else in this toolchain provides it, since ASan does not check
+#     uninitialised reads and MSan is not in use.
+{
+   ziman-conservative-stack-scan-cond
+   Memcheck:Cond
+   ...
+   fun:gc_scan_stack_roots
+}
+{
+   ziman-conservative-stack-scan-value8
+   Memcheck:Value8
+   ...
+   fun:gc_scan_stack_roots
+}
+# The collector build adds Boehm's own conservative scanner, which is the same thing one layer
+# down. libgc.a is built -DNDEBUG without -g, so these match by function name only. They are
+# precisely the functions bdwgc itself marks GC_ATTR_NO_SANITIZE_ADDR for the ASan equivalent of
+# this problem (vendor/bdwgc/mark.c, mach_dep.c).
+{
+   bdwgc-conservative-scan-cond
+   Memcheck:Cond
+   fun:GC_mark_from
+}
+{
+   bdwgc-conservative-scan-value8
+   Memcheck:Value8
+   fun:GC_mark_from
+}
+{
+   bdwgc-push-all-eager-cond
+   Memcheck:Cond
+   fun:GC_push_all_eager
+}
+{
+   bdwgc-push-all-eager-value8
+   Memcheck:Value8
+   fun:GC_push_all_eager
+}
