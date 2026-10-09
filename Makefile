@@ -449,7 +449,7 @@ ziman-vg: $(SRC) $(CORELIB_HEADERS)
 	$(CC) $(PLAIN_CFLAGS) -fno-omit-frame-pointer -DZIMAN_VERSION='"$(ZIMAN_VERSION)-vg"' \
 	    -o ziman-vg $(SRC) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
 
-valgrind: ziman-vg test-gc-scan test-gc-lookup test-arena test-gc-object
+valgrind: ziman-vg test-gc-scan test-gc-lookup test-arena test-gc-object test-gc-interp-roots test-handles test-coverage
 	./tests/run_valgrind.sh ./ziman-vg
 
 # GCC's static analyzer over both configurations. Clean as of 2026-10-08 and deliberately not part of

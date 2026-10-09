@@ -37,10 +37,20 @@ static Coverage g_cov = {0};
 
 void ziman_coverage_enable(void) { ziman_coverage_on = 1; }
 
-static FileCoverage *file_for(Coverage *cov, const char *file) {
+/* The entry for `file`, or NULL. Split out of file_for so a caller holding a borrowed string can
+ * ask without having to allocate a copy it may not need -- see merge_existing_lcov. */
+static FileCoverage *file_find(Coverage *cov, const char *file) {
     for (int i = 0; i < cov->count; i++) {
         if (strcmp(cov->files[i].file, file) == 0) return &cov->files[i];
     }
+    return NULL;
+}
+
+/* Takes ownership of `file` **only when the entry is new**; for one it already has, the caller's
+ * string is left to the caller. */
+static FileCoverage *file_for(Coverage *cov, const char *file) {
+    FileCoverage *existing = file_find(cov, file);
+    if (existing != NULL) return existing;
     if (cov->count == cov->capacity) {
         cov->capacity = cov->capacity == 0 ? 4 : cov->capacity * 2;
         cov->files = ziman_xrealloc(cov->files, (size_t)cov->capacity * sizeof(FileCoverage));
@@ -160,8 +170,12 @@ static void merge_existing_lcov(const char *path) {
         if (strncmp(line, "SF:", 3) == 0) {
             char *nl = strchr(line + 3, '\n');
             if (nl != NULL) *nl = '\0';
-            /* strdup because the Coverage keeps the pointer and this buffer is reused per line. */
-            fc = file_for(&g_cov, ziman_xstrdup(line + 3));
+            /* strdup only when the entry is new, because file_for keeps the pointer it is given
+             * for a file it has not seen and leaves it to the caller for one it has. Copying
+             * unconditionally leaked one name per repeated `SF:` line -- which is every line of a
+             * merge whose file this run also covered, so the common case (F24). */
+            fc = file_find(&g_cov, line + 3);
+            if (fc == NULL) fc = file_for(&g_cov, ziman_xstrdup(line + 3));
         } else if (strncmp(line, "DA:", 3) == 0 && fc != NULL) {
             char *comma = strchr(line + 3, ',');
             if (comma == NULL) continue;

@@ -59,7 +59,22 @@ for name in error_stack_trace error_stack_trace_recursive stack_depth_trace_boun
     check "$name" noleaks "$BIN" "${args[@]}" "tests/fixtures/$name.zm"
 done
 
-for t in /tmp/ziman_gc_scan_test /tmp/ziman_gc_lookup_test /tmp/ziman_arena_test /tmp/ziman_gc_object_test; do
+# Leak-checked, because every one of them is clean and their subjects have explicit lifetimes --
+# arena_destroy, gc_heap_destroy, handleset_remove -- so a leak here would be a real finding.
+#
+# Deliberately not in this list, with the reason, because F24's premise (that the leaks were the
+# tests failing to tidy up) turned out to be wrong for most of them:
+#   bignum, decimal       their values have no free function at all, by design: nothing in this
+#                         interpreter frees a bignum or a decimal, so there is nothing for a test
+#                         to call. Leak-checking them would need a design change, not a tidy-up.
+#   gc_copy, gc_heap,     the leaks are AST type names from ast.c's type_struct/type_enum, which
+#   gc_env_roots,         nothing frees either -- same class.
+#   gc_mark
+#   regex                 the compiled Regex it never frees, because there is no regex_free. That
+#                         is A35, and when A35 lands this test can join the list above.
+for t in /tmp/ziman_arena_test /tmp/ziman_gc_object_test /tmp/ziman_gc_lookup_test \
+         /tmp/ziman_gc_interp_roots_test /tmp/ziman_handles_test /tmp/ziman_gc_scan_test \
+         /tmp/ziman_coverage_test; do
     [ -x "$t" ] || continue
     check "$(basename "$t")" leaks "$t"
 done

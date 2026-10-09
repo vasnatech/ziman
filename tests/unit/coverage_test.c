@@ -77,12 +77,29 @@ static Module *one_function(const char *file, int ran_first, int ran_second) {
     return m;
 }
 
+/* Releases what one_function built. The real interpreter never frees a Module -- nothing in it has
+ * a free function, by design (docs/DESIGN.md's "Memory reclamation") -- but this test built the
+ * tree itself with calloc, so it owns it, and freeing it is what lets `make valgrind` leak-check
+ * this test rather than skip it (docs/reviews/tasks.md F24). `ziman_coverage_accumulate` only reads
+ * the tree, so this is safe once the last check that depends on it has run. */
+static void free_one_function(Module *m) {
+    FunctionDecl *fn = m->functions.items[0];
+    Stmt *body = fn->body;
+    for (int i = 0; i < body->as.block.stmts.count; i++) free(body->as.block.stmts.items[i]);
+    free(body->as.block.stmts.items);
+    free(body);
+    free(fn);
+    free(m->functions.items);
+    free(m);
+}
+
 int main(void) {
     const char *path = "/tmp/ziman_coverage_test.info";
     remove(path);
 
     /* First run: line 2 ran five times, line 3 never. */
-    ziman_coverage_accumulate(one_function("subject.zm", 5, 0));
+    Module *first_run = one_function("subject.zm", 5, 0);
+    ziman_coverage_accumulate(first_run);
     check("writing lcov succeeds", ziman_coverage_write_lcov(path) == 0);
     check("the section names the source file", file_has(path, "SF:subject.zm"));
     check("a line that ran carries its count", da_count(path, 2) == 5);
@@ -98,13 +115,17 @@ int main(void) {
      * the file are read and added to, so a line this run never touched keeps its earlier count and a
      * line the earlier run never touched gains this one's. The cross-process case was checked by hand
      * (two runs of one program down different branches took LH from 4 to 6). */
-    ziman_coverage_accumulate(one_function("subject.zm", 0, 7));
+    Module *second_run = one_function("subject.zm", 0, 7);
+    ziman_coverage_accumulate(second_run);
     check("writing again succeeds", ziman_coverage_write_lcov(path) == 0);
     check("a line this run did not touch keeps its count from the file", da_count(path, 2) == 5 + 5);
     check("a line the file had at 0 gains this run's count", da_count(path, 3) == 7);
     check("lines hit is now 2, from the union", file_has(path, "LH:2"));
     check("still one record per file, not two", !file_has(path, "SF:subject.zmSF:"));
 
+    remove(path);
+    free_one_function(first_run);
+    free_one_function(second_run);
     remove(path);
     printf("%d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
