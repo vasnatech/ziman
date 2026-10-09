@@ -28,6 +28,30 @@
  * 20 capture groups needs about 35 KB. */
 #define MAX_MATCH_BYTES (64u * 1024u * 1024u)
 
+/* A ceiling on the *work* one match may do, which MAX_MATCH_BYTES is a poor proxy for: a pattern
+ * just inside the memory budget cost about 9 ms per input byte, roughly 2.5 CPU-hours for a 1 MB
+ * subject in a single request (docs/reviews/tasks.md A28). Counted in capture-vector int-copies,
+ * which is what the matcher actually spends its time on -- `ncap` ints per thread parked and per
+ * I_SAVE.
+ *
+ * Shaped as a floor plus a rate rather than a flat number, because the two costs are different:
+ * the first position pays a full epsilon closure whatever the subject's length, so a flat cap would
+ * punish a short subject for a big pattern, while the per-byte term is what a long subject
+ * legitimately spends. Measured over this repo's own patterns against a 1 MB subject, real work is
+ * **7 to 34 copies per byte** (`\w+` 7, `(.*)dog` 12, a 3-named-group date 28, `(\w+)@(\w+)\.com`
+ * 34). The pathological end is four to five orders of magnitude away: 400 empty groups on 200 bytes
+ * is 647,226 per byte and 1,000 empty groups is 4,030,056. So 100,000 per byte leaves ~3,000x
+ * headroom over anything real and still refuses the shape this task is about, and the floor of 256M
+ * copies -- about 1 GB of memory traffic -- is set to let a legal-but-enormous pattern complete its
+ * closure on a short subject (400 groups on 200 bytes needs 1.29e8 and is allowed; 1,000 groups
+ * needs 8.06e8 and is not).
+ *
+ * PCRE2 is the precedent for having such a limit at all -- `match_limit`, `depth_limit`,
+ * `heap_limit`, each settable per match. This one is not settable; if that is ever wanted, the rate
+ * is the number to expose, not the floor. */
+#define MATCH_WORK_FLOOR (256u * 1000u * 1000u)
+#define MATCH_WORK_PER_BYTE 100000u
+
 /* One thread of the matcher: an instruction and the capture offsets it reached there with. Declared
  * up here, away from the matcher itself, because regex_compile's size check needs sizeof(Thread)
  * and sizeof(Work) to say what a match would cost. */
@@ -835,6 +859,14 @@ typedef struct {
     unsigned *mark;
     Work *work;      /* n_inst + 2 entries: see add_thread for why that bounds it */
     int *savepool;   /* n_inst * ncap ints, bump-allocated per add_thread call */
+    /* Capture-vector int-copies done so far, against the ceiling for this subject (see
+     * MATCH_WORK_FLOOR). A *pointer*, because the counter has to outlive one search: `find_all`
+     * scans a subject with one regex_search per match position, and the expensive shape spreads its
+     * cost across all of them -- 201 calls each comfortably inside a per-call budget, 8e8 copies in
+     * total. The limit belongs to the operation the caller asked for, not to one of its steps.
+     * Written only by the scanning thread, so no atomics. */
+    uint64_t *spent;
+    uint64_t allowed;
 } Vm;
 
 static int assertion_holds(const Vm *vm, Op op, size_t pos) {
@@ -909,6 +941,7 @@ static void add_thread(const Vm *vm, ThreadList *l, int pc, int *caps, size_t po
                 top++;
                 break;
             case I_SAVE: {
+                *vm->spent += (uint64_t)vm->ncap;
                 int *saved = vm->savepool + save_used;
                 save_used += (size_t)vm->ncap;
                 memcpy(saved, c, (size_t)vm->ncap * sizeof(int));
@@ -926,6 +959,7 @@ static void add_thread(const Vm *vm, ThreadList *l, int pc, int *caps, size_t po
                 }
                 break;
             default: {
+                *vm->spent += (uint64_t)vm->ncap;
                 int *slot = l->capbuf + (size_t)l->n * (size_t)vm->ncap;
                 memcpy(slot, c, (size_t)vm->ncap * sizeof(int));
                 l->t[l->n].pc = p;
@@ -940,11 +974,19 @@ static void add_thread(const Vm *vm, ThreadList *l, int pc, int *caps, size_t po
 /* -1 when a buffer could not be allocated, which regex_compile's MAX_MATCH_BYTES check makes a
  * real out-of-memory rather than a big pattern; the caller turns it into a runtime error. */
 int regex_search(const Regex *re, const char *text, size_t len, size_t from, int *out_caps) {
+    uint64_t spent = 0;
+    return regex_search_budgeted(re, text, len, from, out_caps, &spent);
+}
+
+int regex_search_budgeted(const Regex *re, const char *text, size_t len, size_t from, int *out_caps,
+                          uint64_t *spent) {
     Vm vm;
     vm.re = re;
     vm.text = (const unsigned char *)text;
     vm.len = len;
     vm.ncap = 2 * (re->n_groups + 1);
+    vm.spent = spent;
+    vm.allowed = (uint64_t)MATCH_WORK_FLOOR + (uint64_t)len * (uint64_t)MATCH_WORK_PER_BYTE;
     size_t ncap_bytes = (size_t)vm.ncap * sizeof(int);
     size_t capbuf_bytes = (size_t)re->n_inst * ncap_bytes;
     vm.mark = calloc((size_t)re->n_inst, sizeof(unsigned));
@@ -974,7 +1016,11 @@ int regex_search(const Regex *re, const char *text, size_t len, size_t from, int
     cur->n = 0;
 
     size_t pos = from;
+    int over_budget = 0;
     for (;;) {
+        /* Once per position, not once per copy: a comparison per input byte instead of per int
+         * copied, and the most it can overshoot by is one position's worth of work. */
+        if (*vm.spent > vm.allowed) { over_budget = 1; break; }
         if (!matched) {
             for (int i = 0; i < vm.ncap; i++) initial[i] = -1;
             add_thread(&vm, cur, 0, initial, pos);
@@ -1022,6 +1068,15 @@ int regex_search(const Regex *re, const char *text, size_t len, size_t from, int
         pos += (size_t)w;
     }
 
+    if (over_budget) {
+        for (int i = 0; i < 2; i++) { free(lists[i].t); free(lists[i].capbuf); }
+        free(initial);
+        free(best);
+        free(vm.mark);
+        free(vm.work);
+        free(vm.savepool);
+        return -2;
+    }
     if (matched) memcpy(out_caps, best, (size_t)vm.ncap * sizeof(int));
     for (int i = 0; i < 2; i++) { free(lists[i].t); free(lists[i].capbuf); }
     free(initial);

@@ -113,8 +113,11 @@ static Value native_regex_search_raw(Value *args, int argc, int line, int col) {
     int *caps = ziman_xmalloc((size_t)n * sizeof(int));
     Value result;
     int found = regex_search(h->re, args[1].as.str.ptr, len, (size_t)from, caps);
-    /* -1 is a failed allocation inside the matcher, not "no match" -- its size is already bounded
-     * at compile time (regex.c's MAX_MATCH_BYTES), so this is a real out-of-memory. */
+    /* Neither negative return means "no match", and they mean different things: -1 is a failed
+     * allocation inside the matcher, whose size regex_compile has already bounded, so it is a real
+     * out-of-memory; -2 is the work ceiling, which a pattern reaches by being expensive per input
+     * byte rather than by being large (regex.c's MATCH_WORK_FLOOR, docs/reviews/tasks.md A28). */
+    if (found == -2) ziman_error("runtime", line, col, "regex: this pattern needs too much work to match a subject of %zu bytes", len);
     if (found < 0) ziman_error("runtime", line, col, "regex: out of memory while matching");
     if (found) result = int_array(caps, n);
     else result = int_array(caps, 0);
@@ -134,9 +137,12 @@ static Value native_regex_search_all_raw(Value *args, int argc, int line, int co
     int cap = 64, count = 0;
     int *all = ziman_xmalloc((size_t)cap * sizeof(int));
     size_t from = 0;
+    /* One budget for the whole scan, not one per match: see regex_search_budgeted. */
+    uint64_t spent = 0;
     for (;;) {
         if (from > len) break;
-        int found = regex_search(h->re, text, len, from, caps);
+        int found = regex_search_budgeted(h->re, text, len, from, caps, &spent);
+        if (found == -2) ziman_error("runtime", line, col, "regex: this pattern needs too much work to match a subject of %zu bytes", len); /* see search_raw */
         if (found < 0) ziman_error("runtime", line, col, "regex: out of memory while matching");
         if (!found) break;
         if (count + n > cap) {

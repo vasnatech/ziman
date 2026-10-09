@@ -141,6 +141,41 @@ int main(void) {
         free(caps);
     }
 
+    /* The work ceiling (A28). The memory budget does not bound time: these patterns all compile,
+     * and the expensive one is expensive per input byte rather than large. The counter has to be
+     * carried across the scan, because `find_all`'s shape is one search per match position and each
+     * one on its own is cheap -- that is how this used to get through. */
+    {
+        char *subject = repeated("ab", 100);
+        int refused = 0, allowed = 0;
+        const int counts[] = {200, 1000}; /* 200 is inside the ceiling, 1,000 is well past it; the
+                                           * boundary on a 200-byte subject sits between 400 and 600 */
+        for (unsigned ci = 0; ci < sizeof counts / sizeof *counts; ci++) {
+            int groups = counts[ci];
+            char *pat = repeated("()", groups);
+            char err[256] = {0};
+            Regex *re = regex_compile(pat, strlen(pat), err, sizeof err);
+            if (re != NULL) {
+                int ncap = 2 * (regex_group_count(re) + 1);
+                int *caps = __real_malloc((size_t)ncap * sizeof(int));
+                uint64_t spent = 0;
+                size_t from = 0, len = strlen(subject);
+                int r = 1;
+                while (from <= len && (r = regex_search_budgeted(re, subject, len, from, caps, &spent)) == 1) {
+                    size_t end = (size_t)caps[1];
+                    if (caps[1] == caps[0]) end++;
+                    from = end;
+                }
+                if (r == -2) refused++; else allowed++;
+                free(caps);
+            }
+            free(pat);
+        }
+        ok(allowed == 1, "a scan with 200 capture groups stays inside the work ceiling");
+        ok(refused == 1, "a scan with 1,000 capture groups is refused by the work ceiling");
+        free(subject);
+    }
+
     printf("%d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
