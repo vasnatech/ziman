@@ -96,6 +96,14 @@ typedef struct {
     size_t err_size;
     int failed;
     int depth;
+    /* Every Node this parse has made, in the order it made them. The parser is the owner, not the
+     * tree: a parse that fails abandons nodes that were never linked into anything a tree walk
+     * could reach, and that is what leaked -- 600 bytes for one malformed pattern, every time,
+     * since a failed compile is not cached (docs/reviews/tasks.md A26). With one list there is one
+     * place that frees them, reached identically whether the parse succeeded or not, and no tree
+     * walk at all -- so this also retires the recursion A25 had to flatten in free_node. */
+    Node **nodes;
+    int n_nodes, cap_nodes;
 } Parser;
 
 static void fail(Parser *ps, const char *msg) {
@@ -105,10 +113,28 @@ static void fail(Parser *ps, const char *msg) {
     }
 }
 
-static Node *node(NodeKind k) {
+static Node *node(Parser *ps, NodeKind k) {
     Node *n = calloc(1, sizeof(Node));
+    if (n == NULL) { fail(ps, "out of memory"); return NULL; }
+    if (ps->n_nodes == ps->cap_nodes) {
+        int cap = ps->cap_nodes == 0 ? 64 : ps->cap_nodes * 2;
+        Node **fresh = realloc(ps->nodes, (size_t)cap * sizeof(Node *));
+        if (fresh == NULL) { free(n); fail(ps, "out of memory"); return NULL; }
+        ps->nodes = fresh;
+        ps->cap_nodes = cap;
+    }
+    ps->nodes[ps->n_nodes++] = n;
     n->kind = k;
     return n;
+}
+
+/* Frees every node this parse made, and the list. Called exactly once per regex_compile, on both
+ * the failure and the success path -- see Parser.nodes. */
+static void free_nodes(Parser *ps) {
+    for (int i = 0; i < ps->n_nodes; i++) free(ps->nodes[i]);
+    free(ps->nodes);
+    ps->nodes = NULL;
+    ps->n_nodes = ps->cap_nodes = 0;
 }
 
 static int class_new(Parser *ps) {
@@ -375,7 +401,7 @@ static Node *parse_class(Parser *ps) {
         c = &ps->re->classes[idx];
         class_add(c, lo, hi);
     }
-    Node *n = node(N_CLASS);
+    Node *n = node(ps, N_CLASS);
     n->idx = idx;
     return n;
 }
@@ -423,6 +449,7 @@ static Node *parse_atom(Parser *ps) {
                 for (int g = 1; g <= ps->re->n_groups; g++) {
                     if (ps->re->group_names != NULL && ps->re->group_names[g] != NULL && strcmp(ps->re->group_names[g], group_name) == 0) {
                         fail(ps, "duplicate group name");
+                        free(group_name); /* not stored in group_names, so nothing else owns it */
                         return NULL;
                     }
                 }
@@ -447,15 +474,15 @@ static Node *parse_atom(Parser *ps) {
         if (ps->failed) return NULL;
         if (peek(ps) != ')') { fail(ps, "missing closing parenthesis"); return NULL; }
         ps->pos++;
-        Node *g = node(N_GROUP);
+        Node *g = node(ps, N_GROUP);
         g->idx = group;
         g->a = inner;
         return g;
     }
     if (c == '[') { ps->pos++; return parse_class(ps); }
-    if (c == '.') { ps->pos++; return node(N_ANY); }
-    if (c == '^') { ps->pos++; return node(N_BOL); }
-    if (c == '$') { ps->pos++; return node(N_EOL); }
+    if (c == '.') { ps->pos++; return node(ps, N_ANY); }
+    if (c == '^') { ps->pos++; return node(ps, N_BOL); }
+    if (c == '$') { ps->pos++; return node(ps, N_EOL); }
     if (c == '\\') {
         ps->pos++;
         int e = peek(ps);
@@ -463,7 +490,7 @@ static Node *parse_atom(Parser *ps) {
             ps->pos++;
             int idx = class_new(ps);
             class_add_perl(&ps->re->classes[idx], (char)e);
-            Node *n = node(N_CLASS);
+            Node *n = node(ps, N_CLASS);
             n->idx = idx;
             return n;
         }
@@ -471,15 +498,15 @@ static Node *parse_atom(Parser *ps) {
             ps->pos++;
             int idx = class_new(ps);
             if (!parse_property(ps, idx, e == 'P')) return NULL;
-            Node *n = node(N_CLASS);
+            Node *n = node(ps, N_CLASS);
             n->idx = idx;
             return n;
         }
-        if (e == 'b') { ps->pos++; return node(N_WORDB); }
-        if (e == 'B') { ps->pos++; return node(N_NWORDB); }
+        if (e == 'b') { ps->pos++; return node(ps, N_WORDB); }
+        if (e == 'B') { ps->pos++; return node(ps, N_NWORDB); }
         uint32_t cp;
         if (!parse_escape_char(ps, &cp)) return NULL;
-        Node *n = node(N_CHAR);
+        Node *n = node(ps, N_CHAR);
         n->cp = cp;
         return n;
     }
@@ -488,7 +515,7 @@ static Node *parse_atom(Parser *ps) {
     uint32_t cp;
     int w = decode(ps->p, ps->len, ps->pos, &cp);
     ps->pos += (size_t)w;
-    Node *n = node(N_CHAR);
+    Node *n = node(ps, N_CHAR);
     n->cp = cp;
     return n;
 }
@@ -530,7 +557,7 @@ static Node *parse_repeat(Parser *ps) {
             fail(ps, "nothing to repeat");
             return NULL;
         }
-        Node *r = node(N_REPEAT);
+        Node *r = node(ps, N_REPEAT);
         r->a = atom;
         r->min = min;
         r->max = max;
@@ -549,13 +576,13 @@ static Node *parse_cat(Parser *ps) {
         if (head == NULL) {
             head = r;
         } else {
-            Node *cat = node(N_CAT);
+            Node *cat = node(ps, N_CAT);
             cat->a = head;
             cat->b = r;
             head = cat;
         }
     }
-    return head != NULL ? head : node(N_EMPTY);
+    return head != NULL ? head : node(ps, N_EMPTY);
 }
 
 static Node *parse_alt(Parser *ps) {
@@ -565,7 +592,7 @@ static Node *parse_alt(Parser *ps) {
         ps->pos++;
         Node *right = parse_cat(ps);
         if (right == NULL) return NULL;
-        Node *alt = node(N_ALT);
+        Node *alt = node(ps, N_ALT);
         alt->a = left;
         alt->b = right;
         left = alt;
@@ -691,28 +718,24 @@ static void gen(Emit *em, const Node *n) {
     }
 }
 
-/* Frees the tree without recursing, for the same reason gen() no longer does (A25): the tree is a
- * left-leaning chain one node deep per atom, so the recursive version cost a frame per character of
- * the pattern -- on the failure paths especially, which are reached with whatever stack is left.
- *
- * Rotate-and-free, the standard way to destroy a binary tree in constant space: a node with no left
- * child is freed and we continue into its right child; a node with one is rotated up, taking its own
- * right subtree with it, which strictly reduces the left spine. Every node is therefore freed
- * exactly once, in O(nodes) total, with no stack and no allocation -- the last mattering because
- * this runs on the out-of-memory path too. */
-static void free_node(Node *n) {
-    while (n != NULL) {
-        if (n->a == NULL) {
-            Node *right = n->b;
-            free(n);
-            n = right;
-        } else {
-            Node *left = n->a;
-            n->a = left->b;
-            left->b = n;
-            n = left;
-        }
+
+/* Everything a half-built Regex owns. The three refusal paths in regex_compile used to free
+ * different subsets of it -- the parse failure and the "pattern is too large" failure left
+ * `group_names` and every name string behind, which for `(?P<nN>a|b)` x 6000 is **82,898 bytes**
+ * (48,008 direct plus 34,890 indirect, measured with valgrind), and a failed compile is not cached,
+ * so a client sending a different malformed pattern per request leaked that every time, in the path
+ * src/regex.h advertises as safe for request input (docs/reviews/tasks.md A26). One function now,
+ * so the three paths cannot drift apart again. */
+static void free_partial_regex(Regex *re) {
+    if (re == NULL) return;
+    free(re->prog);
+    for (int i = 0; i < re->n_classes; i++) free(re->classes[i].ranges);
+    free(re->classes);
+    if (re->group_names != NULL) {
+        for (int i = 0; i <= re->n_groups; i++) free(re->group_names[i]);
+        free(re->group_names);
     }
+    free(re);
 }
 
 Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size) {
@@ -746,11 +769,8 @@ Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size
     Node *root = parse_alt(&ps);
     if (!ps.failed && root != NULL && ps.pos < len) fail(&ps, "unmatched closing parenthesis");
     if (ps.failed || root == NULL) {
-        free_node(root);
-        free(re->prog);
-        for (int i = 0; i < re->n_classes; i++) free(re->classes[i].ranges);
-        free(re->classes);
-        free(re);
+        free_nodes(&ps);
+        free_partial_regex(re);
         return NULL;
     }
 
@@ -761,12 +781,9 @@ Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size
     gen(&em, root);
     emit(&em, I_SAVE, 1, 0, 0);
     emit(&em, I_MATCH, 0, 0, 0);
-    free_node(root);
+    free_nodes(&ps);
     if (em.failed) {
-        free(re->prog);
-        for (int i = 0; i < re->n_classes; i++) free(re->classes[i].ranges);
-        free(re->classes);
-        free(re);
+        free_partial_regex(re);
         return NULL;
     }
 
@@ -787,12 +804,7 @@ Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size
                  "(the limit is %u MB; use (?:...) for a group whose text you do not need)",
                  (unsigned long long)((needed + 1048575u) / 1048576u), re->n_groups, re->n_inst,
                  (unsigned)(MAX_MATCH_BYTES / 1048576u));
-        free(re->prog);
-        for (int i = 0; i < re->n_classes; i++) free(re->classes[i].ranges);
-        free(re->classes);
-        for (int i = 0; i <= re->n_groups && re->group_names != NULL; i++) free(re->group_names[i]);
-        free(re->group_names);
-        free(re);
+        free_partial_regex(re);
         return NULL;
     }
     return re;
