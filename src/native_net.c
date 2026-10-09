@@ -76,6 +76,17 @@ typedef struct {
      * this field a data race TSan reported on six fixtures (docs/reviews/tasks.md A24). The clear is
      * an exchange, so exactly one thread ever passes the descriptor to close(2). */
     int fd;
+    /* Whether this handle has ever carried TLS. Set once, released, and never cleared -- it exists
+     * so the plain-socket path can decide without taking `tls_mu`, which on that path would be a
+     * lock per read and write (see A34 for what the one lock already on it costs). A handle whose
+     * TLS has since been torn down keeps the flag, so a reader still takes the lock and finds
+     * `ssl` NULL, which is the answer it should get. */
+    int tls;
+    /* Touched only while holding `tls_mu`, never plainly. It used to be read here and freed in
+     * release_handle with nothing between them, which is a use-after-free on an OpenSSL object --
+     * worse than A24's recycled descriptor, because the memory is freed heap rather than a number.
+     * It stayed invisible because `test-tls` is not in `make check`, so no TLS path has ever run
+     * under a sanitizer (docs/reviews/tasks.md A32). */
     SSL *ssl;
     SSL_CTX *server_ctx; /* non-NULL on a TLS listener: accept() completes a handshake with it */
     pthread_mutex_t tls_mu;
@@ -88,15 +99,33 @@ typedef struct {
  * the descriptor for good (close it promptly anyway: a collection may be far off). */
 static HandleSet g_live = HANDLE_SET_INIT;
 
+/* Publishes an SSL on a handle: the pointer under `tls_mu`, then the flag with a release store, so
+ * a thread that sees the flag set is guaranteed to see the pointer too. Until the flag is set, the
+ * handle reads and writes as a plain socket, which is what it still is. */
+static void install_ssl(NetHandle *h, SSL *ssl) {
+    pthread_mutex_lock(&h->tls_mu);
+    h->ssl = ssl;
+    pthread_mutex_unlock(&h->tls_mu);
+    __atomic_store_n(&h->tls, 1, __ATOMIC_RELEASE);
+}
+
 static void release_handle(NetHandle *h) {
     if (h->server_ctx != NULL) {
         SSL_CTX_free(h->server_ctx);
         h->server_ctx = NULL;
     }
-    if (h->ssl != NULL) {
-        SSL_free(h->ssl);
-        h->ssl = NULL;
+    /* Under `tls_mu`, which every TLS read and write also holds: a thread inside SSL_read therefore
+     * finishes before the object is freed, and one arriving afterwards finds NULL and is told the
+     * socket is closed. The shutdown goes here too -- its callers used to read `h->ssl` plainly to
+     * decide whether to send a close_notify, which was the same race one line earlier. */
+    pthread_mutex_lock(&h->tls_mu);
+    SSL *ssl = h->ssl;
+    h->ssl = NULL;
+    if (ssl != NULL) {
+        SSL_shutdown(ssl); /* sends close_notify; the peer's reply isn't awaited */
+        SSL_free(ssl);
     }
+    pthread_mutex_unlock(&h->tls_mu);
     /* Take the descriptor out of the handle and close the copy: an exchange, so a second caller
      * racing here gets -1 and closes nothing, and every later reader sees -1 rather than a number
      * that is on its way to being closed. */
@@ -189,7 +218,7 @@ static void tls_error_message(IoErr *e, SSL *ssl) {
  * connection cleanly, or -1 with *e filled in. */
 static ssize_t io_read(NetHandle *h, void *buf, size_t n, IoErr *e) {
     memset(e, 0, sizeof(*e));
-    if (h->ssl == NULL) {
+    if (!__atomic_load_n(&h->tls, __ATOMIC_ACQUIRE)) {
         int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
         /* Closed by another thread between the handle lookup and here. Answered as EBADF, which
          * errno_result already reports as the `closed` category -- the same answer the kernel would
@@ -201,10 +230,18 @@ static ssize_t io_read(NetHandle *h, void *buf, size_t n, IoErr *e) {
         return r;
     }
     pthread_mutex_lock(&h->tls_mu);
+    /* Read once, under the lock, and used throughout: the handle's own field may be cleared by a
+     * close the moment this lock is released. */
+    SSL *ssl = h->ssl;
+    if (ssl == NULL) { /* closed by another thread; see the field's own comment */
+        pthread_mutex_unlock(&h->tls_mu);
+        e->errno_val = EBADF;
+        return -1;
+    }
     ERR_clear_error();
-    int r = SSL_read(h->ssl, buf, (int)n);
+    int r = SSL_read(ssl, buf, (int)n);
     if (r > 0) { pthread_mutex_unlock(&h->tls_mu); return r; }
-    int code = SSL_get_error(h->ssl, r);
+    int code = SSL_get_error(ssl, r);
     ssize_t out = -1;
     if (code == SSL_ERROR_ZERO_RETURN) {
         out = 0;
@@ -216,10 +253,10 @@ static ssize_t io_read(NetHandle *h, void *buf, size_t n, IoErr *e) {
             else if (errno == 0) out = 0; /* peer closed without a close_notify */
             else e->errno_val = errno;
         } else {
-            tls_error_message(e, h->ssl);
+            tls_error_message(e, ssl);
         }
     } else {
-        tls_error_message(e, h->ssl);
+        tls_error_message(e, ssl);
     }
     pthread_mutex_unlock(&h->tls_mu);
     return out;
@@ -230,7 +267,7 @@ static ssize_t io_write(NetHandle *h, const unsigned char *data, size_t n, IoErr
     memset(e, 0, sizeof(*e));
     size_t sent = 0;
     while (sent < n) {
-        if (h->ssl == NULL) {
+        if (!__atomic_load_n(&h->tls, __ATOMIC_ACQUIRE)) {
             ssize_t w;
             int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
             if (fd < 0) { e->errno_val = EBADF; return -1; } /* see io_read */
@@ -239,18 +276,24 @@ static ssize_t io_write(NetHandle *h, const unsigned char *data, size_t n, IoErr
             sent += (size_t)w;
         } else {
             pthread_mutex_lock(&h->tls_mu);
+            SSL *ssl = h->ssl; /* once, under the lock -- see io_read */
+            if (ssl == NULL) {
+                pthread_mutex_unlock(&h->tls_mu);
+                e->errno_val = EBADF;
+                return -1;
+            }
             ERR_clear_error();
-            int w = SSL_write(h->ssl, data + sent, (int)(n - sent));
+            int w = SSL_write(ssl, data + sent, (int)(n - sent));
             if (w > 0) {
                 pthread_mutex_unlock(&h->tls_mu);
                 sent += (size_t)w;
                 continue;
             }
-            int code = SSL_get_error(h->ssl, w);
+            int code = SSL_get_error(ssl, w);
             if (code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) e->errno_val = EAGAIN;
             else if (code == SSL_ERROR_SYSCALL && ERR_peek_error() == 0) e->errno_val = errno != 0 ? errno : EPIPE;
             else if (code == SSL_ERROR_ZERO_RETURN) e->errno_val = EPIPE;
-            else tls_error_message(e, h->ssl);
+            else tls_error_message(e, ssl);
             pthread_mutex_unlock(&h->tls_mu);
             return -1;
         }
@@ -405,7 +448,7 @@ static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
     setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &none, sizeof none);
     setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &none, sizeof none);
     int64_t id = handle_register(c);
-    handle_get(id)->ssl = ssl;
+    install_ssl(handle_get(id), ssl);
     return ok_result(int_type, value_int(id));
 }
 
@@ -551,7 +594,9 @@ static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) 
     const char *host = value_cstr(args[1]);
     int64_t verify = args[2].as.i;
     const char *ca_file = value_cstr(args[3]);
-    if (h->ssl != NULL) return err_result(int_type, "tls", "connection is already using TLS");
+    /* The set-once flag, not the pointer: a connection that had TLS and has since been closed is
+     * still not a plain socket, and reading the pointer here would be the same race again. */
+    if (__atomic_load_n(&h->tls, __ATOMIC_ACQUIRE)) return err_result(int_type, "tls", "connection is already using TLS");
 
     unsigned char addr[sizeof(struct in6_addr)];
     int host_is_ip = inet_pton(AF_INET, host, addr) == 1 || inet_pton(AF_INET6, host, addr) == 1;
@@ -600,7 +645,7 @@ static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) 
         SSL_free(ssl);
         return err_result(int_type, "tls", e.message);
     }
-    h->ssl = ssl;
+    install_ssl(h, ssl);
     return ok_result(int_type, value_int(0));
 }
 
@@ -621,7 +666,6 @@ static pthread_mutex_t g_idle_mu = PTHREAD_MUTEX_INITIALIZER;
 
 static void idle_drop(IdleEntry *e) {
     if (e->h != NULL && handleset_remove(&g_live, e->h)) {
-        if (e->h->ssl != NULL) SSL_shutdown(e->h->ssl);
         int fd = __atomic_load_n(&e->h->fd, __ATOMIC_ACQUIRE);
         if (fd >= 0) shutdown(fd, SHUT_RDWR);
         release_handle(e->h);
@@ -687,7 +731,6 @@ static Value native_net_close_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     NetHandle *h = (NetHandle *)(intptr_t)args[0].as.i;
     if (h != NULL && handleset_remove(&g_live, h)) {
-        if (h->ssl != NULL) SSL_shutdown(h->ssl); /* sends close_notify; the peer's reply isn't awaited */
         int fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
         if (fd >= 0) shutdown(fd, SHUT_RDWR); /* wakes a thread blocked reading this socket */
         release_handle(h);
