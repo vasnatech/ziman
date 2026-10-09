@@ -152,6 +152,7 @@ them against the code.
 - [When a library error gets a type, and why counting `Result<_, string>` misleads (2026-10-06)](#when-a-library-error-gets-a-type-and-why-counting-result_-string-misleads-2026-10-06)
 - [Three allocation sites, and what they did to F7 (2026-10-07)](#three-allocation-sites-and-what-they-did-to-f7-2026-10-07)
 - [Two regex ceilings, and a free that is impossible in both builds (2026-10-09, A28 and A35)](#two-regex-ceilings-and-a-free-that-is-impossible-in-both-builds-2026-10-09-a28-and-a35)
+- [The `Row` bound, and why `from_row` cannot work the way `compare` does (2026-10-09, C18)](#the-row-bound-and-why-from_row-cannot-work-the-way-compare-does-2026-10-09-c18)
 
 <!-- end index -->
 
@@ -4405,7 +4406,7 @@ The language-design review (P2-2) named a real inconsistency: `Eq`, `Hash` and `
 
 **Decision: still no general trait/interface system.** The general form needs coherence rules (what happens when two modules each declare a bound for the same type), orphan rules, default method bodies, and eventually dynamic dispatch for a heterogeneous `[dyn Ord]`-shaped collection -- exactly the "behavior depends on where in a hierarchy an override lives, not on anything visible at the call site" complexity principle #1 already rejected classes for (see "Structs are plain..." above). And there is still no concrete program that needs it: `health-record-backend-ziman` (about 13,000 lines) has never once written a generic function over an *unbounded* `T`'s JSON-ness or row-ness -- every real use (`service/crud.zm`'s `Crud<E, Req, Res>`, built for E9) is "this one concrete type has this one function," already expressible with a plain top-level function and a derive. The deferral rule from day one -- "revisit only once a concrete program needs it and free functions plus nominal typing genuinely can't express it" -- has not been tripped for a *general* mechanism; it has only been tripped for the narrower "let `Eq`/`Hash`/`Ord`'s bound *mechanism* itself cover a fourth case."
 
-**What changes: the bound list grows by one, `Row`.** `Eq`/`Hash`/`Ord` were never three unrelated special cases; each already means "the type has a function of this exact signature," resolved by the type's own derived or hand-written name (`<snake_type>_compare` for `Ord`, and so on) -- a function-typed bound, just not named that and not opened past three instances. `Row` is added to the same closed list on the strength of a concrete pain point this session's E9 work hit directly: `Crud<E, Req, Res>` cannot express "`E` already has a `#[derive(Row)]` pair," so every migrated resource's service file plumbs `from_row`/`to_params` through the `Crud` literal by hand as two function-value fields -- boilerplate, and nothing stops a copy-paste mistake wiring one resource's `from_row` to another's `to_params`, since both are just function values of matching shape. `E: Row` closes both: `crud_find_by_id_and_patient_id<E: Row, ...>` would resolve `E`'s row functions the same way `compare<T: Ord>` already resolves `T`'s, and the two fields disappear from every `Crud` literal. Implementation is its own pass (ROADMAP.md, "Larger, needs its own design pass") -- this entry is the decision, not the patch.
+**What changes: the bound list grows by one, `Row`.** `Eq`/`Hash`/`Ord` were never three unrelated special cases; each already means "the type has a function of this exact signature," resolved by the type's own derived or hand-written name (`<snake_type>_compare` for `Ord`, and so on) -- a function-typed bound, just not named that and not opened past three instances. `Row` is added to the same closed list on the strength of a concrete pain point this session's E9 work hit directly: `Crud<E, Req, Res>` cannot express "`E` already has a `#[derive(Row)]` pair," so every migrated resource's service file plumbs `from_row`/`to_params` through the `Crud` literal by hand as two function-value fields -- boilerplate, and nothing stops a copy-paste mistake wiring one resource's `from_row` to another's `to_params`, since both are just function values of matching shape. `E: Row` closes both: `crud_find_by_id_and_patient_id<E: Row, ...>` would resolve `E`'s row functions the same way `compare<T: Ord>` already resolves `T`'s, and the two fields disappear from every `Crud` literal. Implementation is its own pass (ROADMAP.md, "Larger, needs its own design pass") -- this entry is the decision, not the patch. **That pass was done on 2026-10-09 (docs/reviews/tasks.md C18) and it does not support this paragraph: see "The `Row` bound, and why `from_row` cannot work the way `compare` does" below. The sentence above that `E: Row` "would resolve `E`'s row functions the same way `compare<T: Ord>` already resolves `T`'s" is true of `to_params` and false of `from_row`, for a structural reason this entry did not see. The decision to add `Row` to the closed list is withdrawn until something listed there changes.**
 
 **What does not change: `Json` stays outside the bound list.** No generic function anywhere in the library or the reference backend needs `<T: Json>` -- `#[derive(Json)]` on a generic struct already resolves each type parameter's converter individually at the derive site (R14), which is the only real need seen so far. Adding a bound nobody calls would be exactly the "add more convention-dispatched protocols" this task exists to stop doing casually. Revisit if a concrete generic-over-Json function shows up.
 
@@ -5643,3 +5644,62 @@ owned by nobody but the table (`cache_lookup` only `memcmp`s it), so it is freed
 3.6 MB of that 1.14 GB. `regex_free` now exists, which was the real gap -- a C caller had no way to
 release a compiled pattern, and `tests/unit/regex_test.c` could not be leak-checked without one. It
 frees its patterns now and has joined `make valgrind`'s leak-checked set.
+
+## The `Row` bound, and why `from_row` cannot work the way `compare` does (2026-10-09, C18)
+
+F1 above decided to grow the closed bound list from three to four, on the strength of a concrete
+pain point: `Crud<E, Req, Res>` cannot say "`E` already has a `#[derive(Row)]` pair", so every
+migrated resource plumbs `from_row`/`to_params` through the literal by hand. The implementation pass
+that decision deferred was done, and it ends in a different place than the decision expected. Three
+findings, each checked against the code rather than argued.
+
+**1. `Ord`'s mechanism is runtime dispatch on a value, and one of the two row functions has no
+value to dispatch on.** `compare<T: Ord>` works because the *value* carries its own type:
+`value_compare` reads `a.type.struct_name` and looks up `<snake_type>_compare` from it
+(src/interpreter.c, the `TY_STRUCT` arm). Generics are erased -- `call_function` takes no type
+arguments at all, so inside a generic body there is nothing that knows what `T` was bound to. Now
+compare the two halves of `#[derive(Row)]`:
+
+- `to_params: fn(E) -> [SqlValue]` takes a value of type `E`, so it dispatches exactly as `compare`
+  does. This half genuinely does fit the existing mechanism.
+- `from_row: fn(Row) -> Result<E, DbError>` takes a `Row` and *returns* an `E`. `E` appears only in
+  the return type, so at the moment of the call there is no value of type `E` in existence. There is
+  nothing to dispatch on, and the type that would choose the function has been erased.
+
+A constructor-shaped function cannot be resolved by value dispatch. Making it work needs a witness
+passed per bounded type parameter (dictionary passing, how Haskell implements classes) or
+monomorphisation, so that the body of `crud_get<Allergy, ...>` is a distinct body that can name
+`allergy_from_row`. Both are the general trait machinery F1 spends its first paragraph refusing, and
+neither is a four-line addition to a bound list. **The `Row` bound could cover `to_params` alone,
+and that is worse than covering nothing**: a bound named after a derive pair that supplies one of
+its two functions is a feature whose name lies about what it does.
+
+**2. "The two fields disappear from every `Crud` literal" needs a second, unrelated feature.** A
+struct literal here must set every field -- `P { a: 1 }` on a two-field struct is "missing field
+'b'" -- and there are no struct-field defaults. So even for the half that does fit, nothing can
+*disappear*; it would at best be written more briefly. Delivering the sentence as written is three
+features, not one: resolution from a type argument, a defaultable field, and a marker tying the two
+together.
+
+**3. The safety argument in F1 is already covered by the type checker, which the entry did not
+check.** It says "nothing stops a copy-paste mistake wiring one resource's `from_row` to another's
+`to_params`, since both are just function values of matching shape". They are not of matching shape,
+and it is caught today: `Crud<Allergy> { from_row: allergy_from_row, to_params: encounter_to_params }`
+is rejected with *field 'to_params' of 'Crud' expects fn(Allergy) -> [int], found fn(Encounter) ->
+[int]*. Verified directly. So the bound buys no soundness that nominal typing does not already buy.
+
+**What is left of the motivation, measured.** Nine `Crud` literals, two lines each: eighteen lines
+of boilerplate in one file of one sibling repository, against a language feature that needs either
+dictionary passing or monomorphisation to be honest about its own name. **Decision: `Row` is not
+added, and F1's decision to add it is withdrawn** -- recorded there rather than only here, since
+that entry is where the next reader will look.
+
+**What would reverse this, in the order that would make it cheapest.** (a) Monomorphisation arriving
+for its own reasons -- it is a prerequisite of the bytecode/native compilation entry in ROADMAP.md --
+after which both halves are resolvable and this becomes a small addition rather than a new
+mechanism. (b) Struct-field defaults arriving for independent reasons, which would make the
+`to_params` half nearly free, though still half. (c) F1's own deferral test being tripped properly:
+a *second* abstraction of `Crud`'s shape, so the boilerplate is per-resource times per-abstraction
+rather than eighteen lines in one place. None of the three has happened; (c) is the one to watch,
+because it is the test F1 itself set and it is about real programs rather than about implementation
+convenience.

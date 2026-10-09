@@ -1610,7 +1610,19 @@ from source.
   values -- a real `serve(listener, handler)` and route table on top of
   the same matcher.
 
-- **A `Row` bound, generalizing `Eq`/`Hash`/`Ord`'s mechanism to a fourth case** (see
+- ~~**A `Row` bound, generalizing `Eq`/`Hash`/`Ord`'s mechanism to a fourth case**~~ **-- design
+  pass done 2026-10-09 (C18), and the answer is no, with F1's decision to add it withdrawn.**
+  `Ord`'s mechanism is runtime dispatch on a value's own type and generics are erased, so
+  `to_params: fn(E) -> [SqlValue]` fits it and `from_row: fn(Row) -> Result<E, DbError>` cannot:
+  `E` is only in the return type, so at the call there is no value to dispatch on. Covering one of
+  a derive pair's two functions under a bound named after the pair is worse than covering neither.
+  Two further findings, both checked rather than argued: struct literals have no field defaults, so
+  nothing could "disappear" from a literal without a second feature; and F1's safety argument is
+  already covered by the type checker, which rejects the cross-wiring it worried about. What is
+  left is eighteen lines of boilerplate in one file of one sibling repo. Full reasoning, and the
+  three things that would reverse it, in docs/DESIGN.md "The `Row` bound, and why `from_row` cannot
+  work the way `compare` does". Original entry below, unchanged, since it is what the decision was
+  taken against (see
   docs/DESIGN.md "The traits/interfaces stance", F1). `Crud<E, Req, Res>` (E9,
   `health-record-backend-ziman`'s `service/crud.zm`) needs `from_row: fn(Row) ->
   Result<E, DbError>` and `to_params: fn(E) -> [SqlValue]` as explicit function-value
