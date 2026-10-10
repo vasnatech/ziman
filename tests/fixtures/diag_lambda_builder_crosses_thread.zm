@@ -1,0 +1,13 @@
+// F40: the guard that makes capturing a builder safe (A14). The lambda carries
+// Type.func_captures_thread_bound, set where it is checked, so `spawn` refuses it even though its
+// written type -- fn() -- says nothing about a builder. Without this the program type-checked and
+// failed on the receiving thread instead.
+fn run(f: fn()) {
+    f()
+}
+
+fn main() {
+    val b = mapb_new<string, int>()
+    val f = fn() { mapb_set(b, "x", 1) }
+    spawn run(f)
+}

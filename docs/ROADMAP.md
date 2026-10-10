@@ -1526,8 +1526,33 @@ from source.
   outlive the function that built it -- `fn multiplier(by: int) -> fn(int) ->
   int { return fn(n) { n * by } }` works, capturing a parameter. Verified by
   running each case rather than from this entry.
-  **The one thing still missing is capturing a `var`**, so a lambda cannot
-  hold mutable state: the classic `fn counter() -> fn() -> int { var n = 0
+  **Dropped 2026-10-10 (F40): mutable state in a lambda is already both
+  expressible and guarded, so there is nothing here worth a language feature.**
+  Capture is by value and what gets copied is a *handle*, so a lambda holding a
+  `MapBuilder`/`StringBuilder`/`ArrayBuilder` mutates shared state through it --
+  a memoising closure with a live cache needs no change (fixture
+  `closure_builder_capture`). The unsafe case is a compile error: a lambda that
+  captured a builder carries `Type.func_captures_thread_bound`, so `spawn` and
+  `send` refuse it even though its written type (`fn()`) says nothing about a
+  builder (A14; fixture `diag_lambda_builder_crosses_thread`). And the
+  accumulate shape that looks like it needs a mutable capture is what `fold`
+  is for, with the accumulator in the signature instead of hidden in a capture.
+  So the `var` rule costs a spelling, not a capability -- and it buys something:
+  since captures are by value, allowing a `var` would leave `fn(n) { n * factor }`
+  ambiguous about whether it sees later writes, while a handle puts shared
+  mutable state at its declaration where it is visible.
+  *Also corrected: `metrics.zm`'s header gives the capture rule as the reason
+  its counters are native, and that overstates it -- the binding reason is that
+  a builder cannot cross a `spawn` at all, so thread-shared state needs native
+  atomics regardless.*
+  **What remains, and it is a parser gap rather than a feature:** a function
+  type cannot be written as a *type argument*, so `Channel<fn(int) -> int>` is
+  inexpressible -- `f: fn(int) -> int` as a parameter and `val f: fn(int) -> int`
+  as an annotation both work. The `send`-side thread-bound guard is therefore
+  present but unreachable, written for a case the parser forbids; whoever fixes
+  the parser should know that check is already waiting for it.
+  **The original framing, kept for the record -- capturing a `var`**, so that a
+  lambda could hold mutable state directly: the classic `fn counter() -> fn() -> int { var n = 0
   return fn() { n = n + 1 return n } }` is refused, with a message that says
   why -- captures are by value, so capturing a `var` would silently snapshot
   something the author expects to stay live. That is not academic:
