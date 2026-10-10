@@ -9,6 +9,10 @@
  * returns on all statically-reachable paths" rule. */
 void typecheck(Module *module);
 
+/* Levenshtein edit distance, shared so every "did you mean" in the compiler ranks candidates the
+ * same way (see typecheck.c's own comment for why the cutoff is what it is). */
+int ziman_name_distance(const char *a, const char *b);
+
 /* The language server checks any file, not just a program: no `main` is required. */
 void typecheck_skip_main_check(int skip);
 

@@ -57,8 +57,30 @@ static int match_ident(Parser *p, const char *word) {
     return 0;
 }
 
+/* Two token pairs that are a habit from another language rather than a typo, caught here because
+ * this is where both of them surface whatever the surrounding construct is. Each was written by
+ * five of the ten cold attempts in the 2026-10-09 benchmark pilot, and neither had a diagnostic:
+ * `--` reported `expected 'fn', found '-'`, which says nothing about comments, and `=>` reported
+ * whatever the construct happened to want next (docs/reviews/llm-benchmark-2026-10-09.md, F28). */
+static void report_habit_token_pair(Parser *p) {
+    Token *t = cur(p);
+    Token *next = p->pos + 1 < p->tokens.count ? &p->tokens.items[p->pos + 1] : NULL;
+    if (next == NULL) return;
+    if (t->type == TOK_MINUS && next->type == TOK_MINUS) {
+        ziman_error("syntax", t->line, t->col,
+                    "'--' does not start a comment in Ziman -- use '//' to the end of the line (there is no block "
+                    "comment form)");
+    }
+    if (t->type == TOK_EQ && next->type == TOK_GT) {
+        ziman_error("syntax", t->line, t->col,
+                    "Ziman has no '=>' -- a switch arm is written 'Variant(name) { ... }' with a block and no arrow, "
+                    "and a lambda is 'fn(x) { x + 1 }'");
+    }
+}
+
 static Token *expect(Parser *p, TokenType type, const char *what) {
     if (check(p, type)) return advance_tok(p);
+    report_habit_token_pair(p);
     ziman_error("syntax", cur(p)->line, cur(p)->col, "expected %s, found %s", what, token_type_name(cur(p)->type));
     return NULL; /* unreachable */
 }
@@ -86,6 +108,18 @@ static void require_lower_start(Token *t, const char *what) {
 
 static void require_upper_start(Token *t, const char *what) {
     if (!starts_upper(t->start)) {
+        /* When this fires on a *type* position the bare rule is misleading, because the built-in
+         * types really are lowercase: a reader who writes `u64`, is told to capitalise, and then
+         * meets "unknown struct or enum type 'U64'" has been walked away from the answer, which is
+         * `int`. That two-error dead end was the largest consumer of the fix budget in the
+         * 2026-10-09 benchmark pilot (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28). The
+         * rule is true of names the program declares, so say that, and name the exceptions. */
+        if (strcmp(what, "a type name") == 0) {
+            ziman_error("syntax", t->line, t->col,
+                        "a struct or enum name must start with an uppercase letter -- but the built-in types are "
+                        "lowercase (int, float, bool, string, byte, bigint, decimal), so '%.*s' may just need one of "
+                        "those instead", t->length, t->start);
+        }
         ziman_error("syntax", t->line, t->col, "%s must start with an uppercase letter", what);
     }
 }

@@ -1,0 +1,6 @@
+// F28: the pilot's largest cost. `Int`/`String`/`Str`/`I64` got "unknown struct or enum type 'X'"
+// with no suggestion, while the lowercase spelling got "a type name must start with an uppercase
+// letter" -- advice away from the answer, since the built-ins really are lowercase.
+fn widen(n: Int) -> Int {
+    return n
+}

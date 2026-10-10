@@ -1,0 +1,6 @@
+// F28: five of ten cold attempts wrote `=>`, which lexes as '=' then '>' and so reported whatever
+// the surrounding construct wanted next.
+fn main() {
+    val g = fn(x) => x + 1
+    print(g(1))
+}

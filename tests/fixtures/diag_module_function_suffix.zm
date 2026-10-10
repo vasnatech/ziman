@@ -1,0 +1,8 @@
+// F28: one pilot run brute-forced eight names before reaching `fs.write_text`. Edit distance
+// cannot find it -- `write` to `write_text` is five inserts -- so the prefix is what gets matched,
+// and several are offered, because choosing between _text and _bytes is a choice a reader can make.
+use fs
+
+fn main() {
+    val r = fs.write("greeting.txt", "hello")
+}

@@ -1,0 +1,5 @@
+// F28: seven of ten cold attempts wrote a unit return type, the most frequent habit in the pilot's
+// set. The old message framed a deletion as a missing type definition.
+fn main() -> Unit {
+    print(1)
+}

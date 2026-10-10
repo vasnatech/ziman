@@ -973,7 +973,7 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * distance (inserts, deletes, substitutions), same algorithm and the same "strictly less than 3"
  * cutoff as `properties.zm`'s own `check_unknown`/`suggestion`, so the two "did you mean"
  * mechanisms in the language agree. */
-static int name_distance(const char *a, const char *b) {
+int ziman_name_distance(const char *a, const char *b) {
     size_t la = strlen(a), lb = strlen(b);
     int *prev = ziman_xmalloc((lb + 1) * sizeof(int));
     int *cur = ziman_xmalloc((lb + 1) * sizeof(int));
@@ -998,6 +998,50 @@ static int name_distance(const char *a, const char *b) {
     return result;
 }
 
+/* The built-in type a reader probably meant when they wrote `name` and no such struct or enum
+ * exists, or NULL. Added after the 2026-10-09 benchmark pilot, where this was the single largest
+ * consumer of the fix budget: five of ten runs spent between two edits and fifteen throwaway
+ * compiles brute-forcing the primitives, and one task failed for this reason alone, one edit short
+ * of compiling (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28).
+ *
+ * Two mechanisms, because one does not cover it. A case-insensitive hit catches the capitalised
+ * spellings every C-family and ML-family language uses (`Int`, `String`, `Bool`, `Float`), which is
+ * most of what was observed. The alias table catches names too far away for edit distance to
+ * reach: `Str` to `string` is three edits, `I64` to `int` is also three, and the cutoff elsewhere
+ * in this file is strictly less than three. The table is foreign spellings only -- no Ziman name is
+ * in its left column -- so it can never suggest something that would then fail for another
+ * reason. */
+static const char *const PRIMITIVE_TYPES[] = {"int", "float", "bool", "string", "byte", "bigint", "decimal", NULL};
+static const struct { const char *foreign, *ziman; } TYPE_ALIASES[] = {
+    {"str", "string"},    {"text", "string"},  {"char", "string"},   {"i8", "int"},
+    {"i16", "int"},       {"i32", "int"},      {"i64", "int"},       {"u8", "int"},
+    {"u16", "int"},       {"u32", "int"},      {"u64", "int"},       {"uint", "int"},
+    {"usize", "int"},     {"isize", "int"},    {"long", "int"},      {"short", "int"},
+    {"integer", "int"},   {"num", "int"},      {"number", "int"},    {"nat", "int"},
+    {"double", "float"},  {"f32", "float"},    {"f64", "float"},     {"real", "float"},
+    {"boolean", "bool"},  {"bigdecimal", "decimal"}, {"bignum", "bigint"}, {"biginteger", "bigint"},
+    {NULL, NULL},
+};
+
+static int ascii_eq_ignore_case(const char *a, const char *b) {
+    for (; *a != '\0' && *b != '\0'; a++, b++) {
+        char ca = *a >= 'A' && *a <= 'Z' ? (char)(*a + 32) : *a;
+        char cb = *b >= 'A' && *b <= 'Z' ? (char)(*b + 32) : *b;
+        if (ca != cb) return 0;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+static const char *suggest_primitive_type(const char *name) {
+    for (size_t k = 0; PRIMITIVE_TYPES[k] != NULL; k++) {
+        if (ascii_eq_ignore_case(name, PRIMITIVE_TYPES[k])) return PRIMITIVE_TYPES[k];
+    }
+    for (size_t k = 0; TYPE_ALIASES[k].foreign != NULL; k++) {
+        if (ascii_eq_ignore_case(name, TYPE_ALIASES[k].foreign)) return TYPE_ALIASES[k].ziman;
+    }
+    return NULL;
+}
+
 /* The closest candidate to `name` among the module's own function/struct/enum names and the
  * builtins that can be called bare, or NULL for none close enough. Deliberately does not search
  * other modules' exports (including ones not `use`d) -- suggesting a name that still needs its
@@ -1008,7 +1052,7 @@ static const char *suggest_function_name(Module *module, const char *name) {
     for (size_t k = 0; BUILTINS_NO_NAMED_ARGS[k] != NULL; k++) {
         const char *cand = BUILTINS_NO_NAMED_ARGS[k];
         if (cand[0] == '$' || strcmp(cand, name) == 0) continue;
-        int d = name_distance(name, cand);
+        int d = ziman_name_distance(name, cand);
         if (d < best_distance) {
             best = cand;
             best_distance = d;
@@ -1017,7 +1061,7 @@ static const char *suggest_function_name(Module *module, const char *name) {
     for (int i = 0; i < module->functions.count; i++) {
         const char *cand = module->functions.items[i]->name;
         if (strcmp(cand, name) == 0) continue;
-        int d = name_distance(name, cand);
+        int d = ziman_name_distance(name, cand);
         if (d < best_distance) {
             best = cand;
             best_distance = d;
@@ -1025,7 +1069,7 @@ static const char *suggest_function_name(Module *module, const char *name) {
     }
     for (int i = 0; i < module->structs.count; i++) {
         const char *cand = module->structs.items[i]->name;
-        int d = name_distance(name, cand);
+        int d = ziman_name_distance(name, cand);
         if (d < best_distance) {
             best = cand;
             best_distance = d;
@@ -1033,7 +1077,7 @@ static const char *suggest_function_name(Module *module, const char *name) {
     }
     for (int i = 0; i < module->enums.count; i++) {
         const char *cand = module->enums.items[i]->name;
-        int d = name_distance(name, cand);
+        int d = ziman_name_distance(name, cand);
         if (d < best_distance) {
             best = cand;
             best_distance = d;
@@ -4201,7 +4245,30 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
     } else if (t.kind == TY_STRUCT) {
         StructDecl *decl = find_struct(module, t.struct_name);
         if (decl == NULL) {
-            ziman_error("type", line, col, "unknown struct or enum type '%s'", t.struct_name);
+            /* `Unit`/`Void` are not a misspelling of anything: Ziman has no unit type, and the fix
+             * is to delete the clause rather than to name it. Seven of ten cold attempts in the
+             * 2026-10-09 pilot wrote one, making it the most frequent habit in that set, and the
+             * old message framed a deletion as a missing type -- so a reader went looking for the
+             * right name, or defined one. */
+            if (ascii_eq_ignore_case(t.struct_name, "unit") || ascii_eq_ignore_case(t.struct_name, "void") ||
+                ascii_eq_ignore_case(t.struct_name, "nil") || ascii_eq_ignore_case(t.struct_name, "none")) {
+                ziman_error("type", line, col,
+                            "Ziman has no '%s' type -- a function that returns no value leaves the '->' clause off "
+                            "altogether, as 'fn main() { ... }'", t.struct_name);
+            }
+            const char *primitive = suggest_primitive_type(t.struct_name);
+            if (primitive != NULL) {
+                ziman_error("type", line, col,
+                            "unknown type '%s' -- did you mean '%s'? (the built-in types are lowercase: int, float, "
+                            "bool, string, byte, bigint, decimal)", t.struct_name, primitive);
+            }
+            const char *near = suggest_function_name(module, t.struct_name);
+            if (near != NULL) {
+                ziman_error("type", line, col, "unknown struct or enum type '%s' -- did you mean '%s'?", t.struct_name, near);
+            }
+            ziman_error("type", line, col,
+                        "unknown struct or enum type '%s' (the built-in types are lowercase: int, float, bool, "
+                        "string, byte, bigint, decimal)", t.struct_name);
         }
         if (t.type_args.count != decl->type_params.count) {
             ziman_error("type", line, col, "'%s' takes %d type argument(s), found %d", t.struct_name, decl->type_params.count, t.type_args.count);

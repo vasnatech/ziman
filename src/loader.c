@@ -872,6 +872,54 @@ static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line
         if (strcmp(target->functions.items[i]->name, qualified) == 0) { found = target->functions.items[i]; break; }
     }
     if (found == NULL) {
+        /* A dead end before this: the message confirmed the negative and stopped, though the
+         * module's whole function list is right here. In the 2026-10-09 benchmark pilot one run
+         * brute-forced eight names (`write_file`, `writeFile`, `write_string`, `save`, `put`, ...)
+         * before reaching `fs.write_text`, with no other way to recover the name -- library sources
+         * being off limits is the point of that measurement, and is also the position any reader
+         * without the docs open is in (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28).
+         * Edit distance alone does not solve this one, which is worth recording: `write` to
+         * `write_text` is five inserts, well past the "strictly less than 3" cutoff the rest of the
+         * compiler uses, so the closest *name* is not the answer. What a reader has actually got
+         * right is the stem, and what they are missing is this library's suffix convention
+         * (`_text`, `_bytes`, `_dir`). So prefix matches come first and several are offered -- the
+         * choice between `read_text` and `read_bytes` is one a reader can make, while guessing that
+         * a suffix exists at all is not. Edit distance is kept as the fallback for an ordinary
+         * misspelling. Visible functions only, so a suggestion cannot fail for a second reason. */
+        const char *prefixed[3];
+        int n_prefixed = 0;
+        const char *best = NULL;
+        int best_distance = 3;
+        size_t rest_len = strlen(rest);
+        for (int i = 0; i < target->functions.count; i++) {
+            FunctionDecl *cand = target->functions.items[i];
+            if (!visibility_allows(cand->visibility, ctx->mod, target)) continue;
+            const char *bare = strstr(cand->name, "::");
+            bare = bare != NULL ? bare + 2 : cand->name;
+            if (rest_len > 1 && strncmp(bare, rest, rest_len) == 0 && n_prefixed < 3) {
+                prefixed[n_prefixed++] = bare;
+                continue;
+            }
+            int d = ziman_name_distance(rest, bare);
+            if (d < best_distance) {
+                best_distance = d;
+                best = bare;
+            }
+        }
+        if (n_prefixed == 1) {
+            ziman_error("module", line, col, "module '%s' has no function '%s' -- did you mean '%s'?", u->path, rest, prefixed[0]);
+        }
+        if (n_prefixed == 2) {
+            ziman_error("module", line, col, "module '%s' has no function '%s' -- did you mean '%s' or '%s'?", u->path, rest,
+                        prefixed[0], prefixed[1]);
+        }
+        if (n_prefixed >= 3) {
+            ziman_error("module", line, col, "module '%s' has no function '%s' -- did you mean '%s', '%s' or '%s'?", u->path,
+                        rest, prefixed[0], prefixed[1], prefixed[2]);
+        }
+        if (best != NULL) {
+            ziman_error("module", line, col, "module '%s' has no function '%s' -- did you mean '%s'?", u->path, rest, best);
+        }
         ziman_error("module", line, col, "module '%s' has no function '%s'", u->path, rest);
     }
     if (!visibility_allows(found->visibility, ctx->mod, target)) {

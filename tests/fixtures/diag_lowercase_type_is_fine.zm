@@ -1,0 +1,6 @@
+// The other end of diag_primitive_type_name: the uppercase rule now says it applies to names the
+// program declares, and names the lowercase built-ins, so a reader who wrote `u64` is pointed at
+// `int` rather than at `U64`.
+fn widen(n: u64) -> u64 {
+    return n
+}

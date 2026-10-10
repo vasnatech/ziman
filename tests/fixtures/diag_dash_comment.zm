@@ -1,0 +1,4 @@
+-- Five of ten cold attempts in the pilot opened the file with a comment like this one (F28).
+fn main() {
+    print(1)
+}
