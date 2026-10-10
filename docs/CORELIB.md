@@ -212,6 +212,10 @@ pub fn distinct<T: Eq + Hash>(items: [T]) -> [T]
 
 pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]>
 
+pub fn join(items: [string], sep: string) -> string
+
+pub fn sum(items: [int]) -> int
+
 pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int>
 
 pub fn index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T>
@@ -336,25 +340,36 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
 ## `fs`
 
 ```
-pub native fn read_text(path: string) -> Result<string, string>
+pub enum FsError {
+    NotFound(string)
+    Denied(string)
+    IsDirectory(string)
+    NotDirectory(string)
+    Exists(string)
+    Other(string)
+}
 
-pub native fn lines(path: string) -> Result<Iter<Result<string, string>>, string>
+pub fn fs_error_message(e: FsError) -> string
 
-pub native fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, string>
+pub fn read_text(path: string) -> Result<string, FsError>
 
-pub native fn walk(dir: string) -> Result<Iter<Result<string, string>>, string>
+pub fn lines(path: string) -> Result<Iter<Result<string, string>>, FsError>
 
-pub native fn write_text(path: string, text: string) -> Result<int, string>
+pub fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, FsError>
 
-pub native fn append_text(path: string, text: string) -> Result<int, string>
+pub fn walk(dir: string) -> Result<Iter<Result<string, string>>, FsError>
 
-pub native fn write_text_atomic(path: string, text: string) -> Result<int, string>
+pub fn write_text(path: string, text: string) -> Result<int, FsError>
 
-pub native fn read_bytes(path: string) -> Result<[byte], string>
+pub fn append_text(path: string, text: string) -> Result<int, FsError>
 
-pub native fn write_bytes(path: string, data: [byte]) -> Result<int, string>
+pub fn write_text_atomic(path: string, text: string) -> Result<int, FsError>
 
-pub native fn append_bytes(path: string, data: [byte]) -> Result<int, string>
+pub fn read_bytes(path: string) -> Result<[byte], FsError>
+
+pub fn write_bytes(path: string, data: [byte]) -> Result<int, FsError>
+
+pub fn append_bytes(path: string, data: [byte]) -> Result<int, FsError>
 
 pub native fn exists(path: string) -> bool
 
@@ -362,23 +377,23 @@ pub native fn is_dir(path: string) -> bool
 
 pub native fn is_file(path: string) -> bool
 
-pub native fn size(path: string) -> Result<int, string>
+pub fn size(path: string) -> Result<int, FsError>
 
-pub native fn modified_seconds(path: string) -> Result<int, string>
+pub fn modified_seconds(path: string) -> Result<int, FsError>
 
-pub native fn list_dir(path: string) -> Result<[string], string>
+pub fn list_dir(path: string) -> Result<[string], FsError>
 
 pub fn resolve(name: string) -> Option<string>
 
-pub native fn remove(path: string) -> Result<unit, string>
+pub fn remove(path: string) -> Result<unit, FsError>
 
-pub native fn make_dir(path: string) -> Result<unit, string>
+pub fn make_dir(path: string) -> Result<unit, FsError>
 
-pub native fn make_dirs(path: string) -> Result<unit, string>
+pub fn make_dirs(path: string) -> Result<unit, FsError>
 
-pub native fn rename(from: string, to: string) -> Result<unit, string>
+pub fn rename(from: string, to: string) -> Result<unit, FsError>
 
-pub native fn copy_file(from: string, to: string) -> Result<int, string>
+pub fn copy_file(from: string, to: string) -> Result<int, FsError>
 
 pub fn path_join(pieces: string...) -> string
 
@@ -614,6 +629,63 @@ pub fn is_nan(x: float) -> bool
 
 ```
 
+## `metrics`
+
+```
+pub fn counter(name: string, help: string) -> bool
+
+pub fn gauge(name: string, help: string) -> bool
+
+pub fn histogram(name: string, help: string, buckets: [float]) -> bool
+
+pub fn increment(name: string)
+
+pub fn add(name: string, delta: float)
+
+pub fn set(name: string, value: float)
+
+pub fn gauge_add(name: string, delta: float)
+
+pub fn gauge_add_with(name: string, delta: float, labels: Map<string, string>)
+
+pub fn observe(name: string, value: float)
+
+pub fn increment_with(name: string, labels: Map<string, string>)
+
+pub fn add_with(name: string, delta: float, labels: Map<string, string>)
+
+pub fn set_with(name: string, value: float, labels: Map<string, string>)
+
+pub fn observe_with(name: string, value: float, labels: Map<string, string>)
+
+pub struct Series {
+    handle: int
+}
+
+pub fn series(name: string, labels: Map<string, string>) -> Series
+
+pub fn series_of(key_name: string, key: string) -> Series
+
+pub fn plain_series(name: string) -> Series
+
+pub fn increment_at(s: Series)
+
+pub fn add_at(s: Series, delta: float)
+
+pub fn set_at(s: Series, value: float)
+
+pub fn observe_at(s: Series, value: float)
+
+pub fn gauge_add_at(s: Series, delta: float)
+
+pub fn render() -> string
+
+pub fn reset()
+
+pub fn record_runtime()
+
+```
+
 ## `mime`
 
 Media types (`type/subtype; name=value`): parse, write, match with wildcards, and the type of a file by its extension.
@@ -728,11 +800,17 @@ pub fn net_error_message(e: NetError) -> string
 
 pub fn connect(host: string, port: int) -> Result<Socket, NetError>
 
+pub fn connect_unix(path: string) -> Result<Socket, NetError>
+
+pub fn listen_unix(path: string) -> Result<Listener, NetError>
+
 pub fn listen(host: string, port: int) -> Result<Listener, NetError>
 
 pub fn listen_tls(host: string, port: int, cert_file: string, key_file: string) -> Result<Listener, NetError>
 
 pub fn listener_port(l: Listener) -> int
+
+pub fn peer_address(s: Socket) -> Option<string>
 
 pub fn accept(l: Listener) -> Result<Socket, NetError>
 
@@ -1108,6 +1186,15 @@ pub fn reset<T>(key: ThreadLocal<T>)
 pub fn parse_toml(text: string) -> Result<Json, string>
 
 pub fn toml_to_string(j: Json) -> Result<string, string>
+
+```
+
+## `url`
+
+```
+pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string>
+
+pub fn percent_encode(s: string, plus_for_space: bool) -> string
 
 ```
 
@@ -1490,6 +1577,8 @@ pub val status_unsupported_media_type = 415
 
 pub val status_unprocessable_entity = 422
 
+pub val status_too_many_requests = 429
+
 pub val status_header_fields_too_large = 431
 
 pub val status_internal_server_error = 500
@@ -1526,6 +1615,21 @@ pub struct Request {
     version: string
     headers: [Header]
     body: [byte]
+    // The address at the other end of the connection this request arrived on, as text ("192.0.2.7" or
+    // "2001:db8::1"), with no port. `None` on a Request that did not come off a socket -- one built by
+    // hand in a test, or by `write_error`'s stub -- which is the honest answer rather than a placeholder.
+    //
+    // **The transport peer, and only that.** Not `X-Forwarded-For`: that header is written by whatever
+    // is in front, and a client that is not behind a proxy can put anything in it, so a server reading
+    // it by default would let every caller choose its own identity -- backwards for the thing an
+    // address is wanted for, which is telling one client from another in order to rate-limit (B10). An
+    // application behind a proxy it trusts reads the header itself, knowing how many hops it owns;
+    // `server.forwarded_for` is there to help once that decision has been made explicitly.
+    //
+    // A field rather than a synthetic header, deliberately: a header could be spoofed by a client
+    // sending that exact name unless the parser stripped it, and relying on that is the same subtlety
+    // this field exists to avoid. Where the value comes from should be visible in the type.
+    peer: Option<string>
 }
 
 pub struct Response {
@@ -1541,6 +1645,32 @@ pub fn request_text(req: Request) -> Result<string, string>
 pub fn header(req: Request, name: string) -> Option<string>
 
 pub fn header_value(headers: [Header], name: string) -> Option<string>
+
+pub struct CookiePair {
+    name: string
+    value: string
+}
+
+pub fn request_cookies(req: Request) -> [CookiePair]
+
+pub fn request_cookie(req: Request, name: string) -> Option<string>
+
+pub struct SetCookie {
+    name: string
+    value: string
+    path: string
+    domain: string
+    max_age_seconds: int
+    secure: bool
+    http_only: bool
+    same_site: string
+}
+
+pub fn session_cookie(name: string, value: string) -> SetCookie
+
+pub fn set_cookie_header(c: SetCookie) -> Header
+
+pub fn delete_cookie_header(name: string, path: string, domain: string) -> Header
 
 pub fn content_type(headers: [Header]) -> Option<mime.MediaType>
 
@@ -1609,9 +1739,15 @@ pub fn method_not_allowed(allowed: string...) -> Response
 
 pub fn error_response(e: HttpError) -> Response
 
+pub fn error_status(e: HttpError) -> int
+
+pub fn error_text(e: HttpError) -> string
+
 pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<bool, HttpError>
 
 pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError>
+
+pub fn write_error_with(
 
 pub fn path_params(pattern: string, path: string) -> Option<Params>
 
@@ -1681,9 +1817,45 @@ pub struct Routes<C> {
     patterns: [Pattern]
     by_method: Map<string, [int]>
     by_length: Map<int, [int]>
+    // Whether `dispatch` records a metric per request. Set by `metered_routes`, not by `routes`:
+    // the matched pattern is known here and nowhere else, which is the one label worth having and
+    // the reason this lives on the table rather than in `ServeOptions`.
+    meter: bool
 }
 
+pub fn rate_allow(bucket: string, key: string, limit: int, window_seconds: int) -> bool
+
+pub fn rate_allow_at(bucket: string, key: string, limit: int, window_seconds: int, now_seconds: int) -> bool
+
+pub fn rate_reset()
+
+pub fn open_connections_of(address: string) -> int
+
+pub fn forwarded_for(req: Request, trusted_hops: int) -> Option<string>
+
+pub fn declare_metrics()
+
+pub fn metrics_response() -> Response
+
+pub fn metrics_handler<C>(ctx: C, req: Request, params: Params) -> Response
+
 pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C>
+
+pub fn metered_routes<C>(endpoints: [Endpoint<C>]) -> Routes<C>
+
+pub struct CorsPolicy {
+    allowed_origins: [string]
+    allowed_methods: string
+    allowed_headers: string
+    max_age_seconds: int
+    allow_credentials: bool
+}
+
+pub fn cors_policy(origins: [string]) -> CorsPolicy
+
+pub fn cors_preflight(policy: CorsPolicy, req: Request, fault: fn(int, string) -> Response) -> Option<Response>
+
+pub fn cors_apply(policy: CorsPolicy, req: Request, answer: Response) -> Response
 
 pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
 
@@ -1692,6 +1864,37 @@ pub struct ServeOptions {
     header_timeout_ms: int
     max_connections: int
     log_requests: bool
+    // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
+    // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
+    // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.
+    //
+    // Pass the same renderer the application gives `dispatch`, and a client sees one error shape from the whole
+    // server instead of two: a browser that cannot read the body of its own 413 because it arrived in a
+    // different shape with none of the application's headers is the reason this exists. Whatever it returns is
+    // written as-is, so an HSTS header it adds is on the rejection too.
+    //
+    // It gets a status and a sentence, not the Request: these failures happen while the request is being read,
+    // so there may be no parsed request to pass -- which is also why a per-request header like
+    // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
+    fault: Option<fn(int, string) -> Response>
+    // Whether to record `http_open_connections` and the two byte counters. Per-request metrics are
+    // separate, on the route table (`metered_routes`), because only something that matched the request
+    // knows the pattern to label it with -- and a pattern is the only label worth having.
+    metrics: bool
+    // How many connections one address may hold at once. 0 is off, and is the default a server should keep
+    // unless it is reached directly by clients: behind a reverse proxy every connection carries the
+    // proxy's address, so any cap would be a cap on the proxy.
+    //
+    // This is the half a request throttle cannot cover. A client that opens connections and never sends a
+    // request is counted by no rate limit, and can fill every `max_connections` slot;
+    // `header_timeout_ms` frees such a slot within seconds, which bounds how long the flood holds one, not
+    // how many it holds at once. A refusal here closes the socket without writing anything -- answering
+    // would mean writing to a flooding client from the accept loop, where one slow read stalls every other
+    // connection's accept.
+    //
+    // The address is the socket's, necessarily: at accept time there is no request yet, so there is no
+    // `X-Forwarded-For` to consult even if it were trustworthy. That is the same reason the default is off.
+    max_connections_per_client: int
 }
 
 pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions)

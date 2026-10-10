@@ -869,6 +869,32 @@ missing wherever one module's error type has to become another's -- `fs` answers
 caller whose own errors are strings wants `try result_map_err(fs.read_text(p), fs.fs_error_message)`
 rather than four lines of switch at every call.
 
+### `lines`
+
+```
+pub fn lines(text: string) -> [string]
+```
+
+The lines of `text`, without their terminators. Written because a cold model reaching for
+`text.lines()` was sent to `split(text, "\n")`, which is close but not the same thing: `split`
+leaves a `\r` on every line of CRLF text and leaves a trailing empty string after a final
+newline, so "a\nb\n" splits into three pieces where it has two lines. Both of those are the
+kind of difference that shows up as an off-by-one in someone's line count rather than as an
+error (docs/reviews/tasks.md F35).
+
+A final newline is a terminator, not a separator -- "a\nb\n" and "a\nb" both have two lines --
+which is how every line-oriented tool reads a text file. An empty string has no lines.
+
+### `reverse_string`
+
+```
+pub fn reverse_string(s: string) -> string
+```
+
+`s` with its characters in the opposite order. Reverses *code points*, not bytes, so reversing
+text outside ASCII gives text rather than mojibake -- the byte-level version of this is the
+classic way to corrupt UTF-8, and `chars` already answers in code points.
+
 ### `result_to_option`
 
 ```

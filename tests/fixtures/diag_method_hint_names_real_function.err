@@ -1,1 +1,1 @@
-call a function on it instead, e.g. split(text, "\n")
+call a function on it instead, e.g. lines(text)

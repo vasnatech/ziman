@@ -884,9 +884,9 @@ void ziman_report_unknown_module_call(const char *qualifier, const char *member,
          * function is worse than one that names none, because the reader spends a round finding out
          * (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28). */
     } else if (strcmp(member, "lines") == 0) {
-        snprintf(hint, sizeof hint, "split(%s, \"\\n\")", qualifier);
+        snprintf(hint, sizeof hint, "lines(%s)", qualifier);
     } else if (strcmp(member, "join") == 0) {
-        snprintf(hint, sizeof hint, "concat or format in a loop (there is no list-join function, and 'join' is a path join)");
+        snprintf(hint, sizeof hint, "collections.join(%s, sep) (the builtin 'join' is a path join over strings)", qualifier);
     } else if (strcmp(member, "sort") == 0 || strcmp(member, "sorted") == 0) {
         snprintf(hint, sizeof hint, "collections.sort<T>(%s), after 'use collections'", qualifier);
     } else if (strcmp(member, "keys") == 0) {
@@ -894,9 +894,9 @@ void ziman_report_unknown_module_call(const char *qualifier, const char *member,
     } else if (strcmp(member, "values") == 0) {
         snprintf(hint, sizeof hint, "map_values(%s)", qualifier);
     } else if (strcmp(member, "reverse") == 0 || strcmp(member, "reversed") == 0) {
-        snprintf(hint, sizeof hint, "collections.reverse(%s) for an array -- a string has no reverse, build one with substring", qualifier);
+        snprintf(hint, sizeof hint, "collections.reverse(%s) for an array, or reverse_string(%s) for text", qualifier, qualifier);
     } else if (strcmp(member, "sum") == 0) {
-        snprintf(hint, sizeof hint, "a 'for' loop, or collections.fold (there is no sum function)");
+        snprintf(hint, sizeof hint, "collections.sum(%s) for ints, or collections.fold for anything else", qualifier);
     } else {
         /* The free-function *form*, not a claim that such a function exists -- this pass has no
          * scope to look the name up in, and the measured cases above are where guessing wrong

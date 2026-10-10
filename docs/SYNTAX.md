@@ -328,7 +328,10 @@ for x in seen { ... }                    // a set has one binder
   `set_map<T, U>(s, f)` merges elements mapping to the same value; `map_entries<K, V>(m)` is an
   array of `MapEntry<K, V> { key, value }` in map order. In `collections`: `frequencies<T>`
   counts into `Map<T, int>`, `index_by<T, K>(items, key)` builds `Map<K, T>` (later element wins;
-  `group_by` keeps them all).
+  `group_by` keeps them all), `join(items: [string], sep)` puts `sep` *between* the pieces (the
+  builtin `join` is a path join over strings, not this), and `sum(items: [int])` totals them --
+  integers only, since `+` traps on overflow so the answer is exact or an error, where a float
+  total depends on summation order and `fold` expresses whichever order you want.
 - **Builders**: `MapBuilder<K, V>` (`mapb_new`/`_set`/`_get`/`_remove`/`_contains`/`_len`/
   `_to_map`) and `SetBuilder<T>` (`setb_new`/`_add`/`_remove`/`_contains`/`_len`/`_to_set`), the
   `ArrayBuilder` counterparts. Mutates its own private trie in place (O(n) total instead of
@@ -2431,7 +2434,14 @@ a type error.
   `char_count(s) -> int` (cheaper than `len(chars(s))`), `truncate_chars(s, max_chars) ->
   string` (shortened without cutting a code point in half; `max_chars >= char_count(s)` returns
   `s` unchanged, negative is a runtime error).
-- `trim(s) -> string` — leading/trailing whitespace removed. `is_empty(s) -> bool` (`s == ""`);
+- `trim(s) -> string` — leading/trailing whitespace removed.
+- `lines(text) -> [string]` — the lines, without their terminators. Not the same as
+  `split(text, "\n")`: a `\r` is removed from each line of CRLF text, and a final newline
+  *terminates* the last line rather than starting an empty one, so `"a\nb\n"` and `"a\nb"` both
+  have two lines. A blank line in the middle is a real line and stays; an empty string has none.
+- `reverse_string(s) -> string` — `s` with its characters in the opposite order, reversing *code
+  points* rather than bytes, so text outside ASCII comes back as text. `collections.reverse` is the
+  array version. `is_empty(s) -> bool` (`s == ""`);
   `is_blank(s) -> bool` (empty or only whitespace). `to_upper`/`to_lower(s) -> string` — ASCII only.
 - `parse_int`/`parse_float`/`parse_bigint`/`parse_decimal(s) -> Result<_, string>` — parses all
   of `s`; `Err` on leading/trailing junk (blanks, a leading `+`) or a non-parse. A number is an

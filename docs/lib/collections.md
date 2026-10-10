@@ -311,14 +311,39 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]>
 The elements grouped by `key`: a map from each key to the elements that have it, in input
 order, with the keys in the order they first appear.
 
+### `join`
+
+```
+pub fn join(items: [string], sep: string) -> string
+```
+
+How many times each distinct element occurs: `frequencies<string>(["a", "b", "a"])` is `{a: 2, b: 1}`, keys
+in the order they first appear.
+The pieces of `items` with `sep` between them. Written because there was no concise way to do
+this at all: a cold model reaching for `parts.join("-")` was pointed at the builtin `join`, which
+is a *path* join over strings and cannot take a list, and then had to write a loop with `format`
+(docs/reviews/tasks.md F35). `sep` goes between, not after, so a single element joins to itself
+and an empty array to the empty string.
+
+### `sum`
+
+```
+pub fn sum(items: [int]) -> int
+```
+
+The total of `items`. A left fold with `+`, which is what anyone writes by hand, but `+` on
+`int` traps on overflow in this language -- so this either answers the exact total or stops with
+an error, and never the silently wrong number a wrapping sum would give.
+
+Integers only, deliberately: a float total depends on summation order for precision, so the
+right answer there is a decision (naive, pairwise, Kahan) rather than a default, and `fold`
+already expresses whichever one a caller wants.
+
 ### `frequencies`
 
 ```
 pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int>
 ```
-
-How many times each distinct element occurs: `frequencies<string>(["a", "b", "a"])` is `{a: 2, b: 1}`, keys
-in the order they first appear.
 
 ### `index_by`
 

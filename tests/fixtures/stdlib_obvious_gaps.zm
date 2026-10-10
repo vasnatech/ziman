@@ -1,0 +1,30 @@
+// F35: four functions a cold model reached for and this library did not have (the 2026-10-09
+// generation runs). The edge cases are the point -- each is where `lines` differs from
+// `split(s, "\n")`, or where a join or a sum is easy to get wrong by one.
+use collections
+
+fn main() {
+    // A final newline terminates the last line rather than starting an empty one, which is how
+    // every line-oriented tool reads a file -- and is exactly where split(s, "\n") differs.
+    print(len(lines("a\nb\n")))
+    print(len(lines("a\nb")))
+    // A blank line in the middle is a real line and stays.
+    print(len(lines("a\n\nb")))
+    // CRLF: the \r goes, which split would leave on every line.
+    print(lines("a\r\nb")[0] == "a")
+    print(len(lines("")))
+
+    // Reversal is by code point, so text outside ASCII comes back as text.
+    print(reverse_string("abc"))
+    print(reverse_string("añb"))
+    print(reverse_string(""))
+
+    // `sep` goes between, not after.
+    print(collections.join(["2026", "10", "09"], "-"))
+    print(collections.join(["solo"], "-"))
+    print(collections.join([], "-") == "")
+
+    print(collections.sum([3, 1, 4, 1, 5]))
+    print(collections.sum([]))
+    print(collections.sum([-2, 2]))
+}

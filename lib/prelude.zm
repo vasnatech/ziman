@@ -468,6 +468,45 @@ fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F>
     }
 }
 
+// The lines of `text`, without their terminators. Written because a cold model reaching for
+// `text.lines()` was sent to `split(text, "\n")`, which is close but not the same thing: `split`
+// leaves a `\r` on every line of CRLF text and leaves a trailing empty string after a final
+// newline, so "a\nb\n" splits into three pieces where it has two lines. Both of those are the
+// kind of difference that shows up as an off-by-one in someone's line count rather than as an
+// error (docs/reviews/tasks.md F35).
+//
+// A final newline is a terminator, not a separator -- "a\nb\n" and "a\nb" both have two lines --
+// which is how every line-oriented tool reads a text file. An empty string has no lines.
+pub fn lines(text: string) -> [string] {
+    if len(text) == 0 {
+        return []
+    }
+    var out: [string] = []
+    for piece in split(text, "\n") {
+        out = push(out, if ends_with(piece, "\r") { substring(piece, 0, len(piece) - 1) } else { piece })
+    }
+    // Only a *trailing* newline produces that last empty piece; a blank line in the middle is a
+    // real empty line and stays.
+    if ends_with(text, "\n") {
+        return slice<string>(out, 0, len(out) - 1)
+    }
+    return out
+}
+
+// `s` with its characters in the opposite order. Reverses *code points*, not bytes, so reversing
+// text outside ASCII gives text rather than mojibake -- the byte-level version of this is the
+// classic way to corrupt UTF-8, and `chars` already answers in code points.
+pub fn reverse_string(s: string) -> string {
+    val cs = chars(s)
+    var out = ""
+    var i = len(cs)
+    while i > 0 {
+        i = i - 1
+        out = concat(out, cs[i])
+    }
+    return out
+}
+
 pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T> {
     return switch r {
         Ok(value) { Option<T>.Some(value) }

@@ -3,6 +3,10 @@
 // cannot take a list (`join` is a path join over strings). A hint that names the wrong function is
 // worse than one that names none, because the reader spends a round finding out. These seven names
 // were measured -- each is one a cold model reached for -- and now map to what Ziman actually has.
+// Updated by F35: this hint used to say `split(text, "\n")`, because that was the closest thing
+// the library had. `lines` exists now and differs in two ways that matter (CRLF, and a final
+// newline terminating a line rather than starting an empty one), so the hint names it instead.
+// A fixture catching that change is exactly why a message's text is pinned.
 fn main() {
     val text = "a\nb"
     print(len(text.lines()))
