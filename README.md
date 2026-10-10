@@ -209,8 +209,10 @@ make check
 Everything that needs nothing but this repo and a C toolchain: every fixture in
 `tests/fixtures/` on both builds (`make test`, `make test-nogc` — see `tests/run_tests.sh`), the
 standalone C unit tests (`make unit-tests`), the TLS suite when `openssl` is on the machine
-(`make tls-if-available`, skipped with a note when it is not), formatting (`make fmt-check`), and
-the documentation guards (`make docs-check`, which checks that `docs/lib/` and `docs/CORELIB.md` still match the
+(`make tls-if-available`, skipped with a note when it is not), the North Star application when a
+checkout of it is beside this one (`make northstar-if-available` — both its entry points
+type-check, its demo runs, and its own ~980-check behavioural suite passes over the real HTTP API),
+formatting (`make fmt-check`), and the documentation guards (`make docs-check`, which checks that `docs/lib/` and `docs/CORELIB.md` still match the
 sources they are generated from, that no doc calls a `pub` name "not yet" supported once it exists,
 and that this file's own module table agrees with each module's `#![experimental]`).
 

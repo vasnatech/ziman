@@ -20,7 +20,8 @@
 # usage: tests/run_northstar.sh [ziman-binary]
 #   ZIMAN_NORTHSTAR=path   where the backend checkout is (default ../health-record/health-record-backend-ziman)
 #
-# Checks both entry points and runs the one that terminates. See the loop below for why both.
+# Checks both entry points, runs the one that terminates, and then runs the application's own
+# behavioural suite when python3 is there. See the loop below for why both entry points.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 BIN=$(cd "$(dirname "${1:-./ziman}")" && pwd)/$(basename "${1:-./ziman}")
@@ -31,6 +32,8 @@ if [ ! -f "$APP/src/main/ziman/main.zm" ]; then
     exit 0
 fi
 APP=$(cd "$APP" && pwd)
+tmp_log=$(mktemp)
+trap 'rm -f "$tmp_log"' EXIT
 
 echo "run_northstar.sh: $APP"
 # Both entry points, because there are two and they share no code: main.zm walks the controllers the
@@ -70,4 +73,32 @@ if [ -z "$out" ]; then
     exit 1
 fi
 echo "ok   run ($(printf '%s\n' "$out" | wc -l) lines of output)"
-echo "run_northstar.sh: the North Star application type-checks and runs"
+
+# The application's own behavioural suite, which is a far stronger test of this language than
+# anything in tests/fixtures: 20 suites, ~1,000 checks, over the real HTTP API -- auth, MFA,
+# throttling, CORS, audit, migrations, log rotation and the resource CRUD across 65 routes. It
+# existed for some time with nothing in this repository running it, which is how nine diagnostic
+# changes on 2026-10-09 could have shipped without once exercising the application they were for.
+#
+# SQLite only here. The suite's own default is both engines, and its header records why (a schema
+# divergence survived two commits because nothing ran --postgres) -- but Postgres needs a container
+# runtime, and a `make check` that silently depends on one is the thing this script exists to avoid.
+# Run `src/test/other/run-all.sh --both` by hand, or in whatever runs before a release.
+if [ ! -x "$APP/src/test/other/run-all.sh" ]; then
+    echo "run_northstar.sh: skipped the behavioural suite -- $APP/src/test/other/run-all.sh is not there"
+elif ! command -v python3 >/dev/null 2>&1; then
+    echo "run_northstar.sh: skipped the behavioural suite -- python3 is not on PATH"
+else
+    if ! (cd "$APP/src/test/other" && ZIMAN="$BIN" ./run-all.sh --sqlite > "$tmp_log" 2>&1); then
+        echo "run_northstar.sh: FAIL -- the North Star application's behavioural suite does not pass" >&2
+        # The failing suites first and the per-engine summary after, rather than the tail of the
+        # log: the passes outnumber the failures, so a tail hides the thing being reported.
+        grep -E "^  FAIL" "$tmp_log" >&2
+        grep -E "^(sqlite|postgres): " "$tmp_log" >&2
+        echo "  (full log was $tmp_log, now removed; re-run src/test/other/run-all.sh --sqlite to see it)" >&2
+        exit 1
+    fi
+    echo "ok   behavioural suite ($(grep -c '^  PASS' "$tmp_log") suites, $(awk 'match($0, /\([0-9]+ checks\)/) { n += substr($0, RSTART + 1, RLENGTH - 9) } END { print n + 0 }' "$tmp_log") checks)"
+fi
+
+echo "run_northstar.sh: the North Star application type-checks, runs, and passes its own suite"
