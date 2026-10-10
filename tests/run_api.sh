@@ -19,7 +19,15 @@ has() { # has <name> <pattern> <text>
 
 listing=$("$BIN" --api 2>&1)
 has "a bare --api lists bundled modules" "fs" "$listing"
-has "and says builtins need no use"      "need no 'use' at all" "$listing"
+has "and points at the builtins"         "ziman --api builtins" "$listing"
+
+# The gap wave three of the benchmark found: --api listed modules, so a run hunting a string's
+# characters never saw `chars` (a builtin) and used split(word, "") instead, which type-checks and
+# fails at runtime. Another concluded "there is no keys function" when map_keys is a builtin.
+builtins=$("$BIN" --api builtins 2>&1)
+has "builtins lists chars"               "chars" "$builtins"
+has "builtins lists map_keys"            "map_keys" "$builtins"
+has "builtins names the lowercase types" "int  float  bool  string" "$builtins"
 
 fs=$("$BIN" --api fs 2>&1)
 has "fs names write_text"                "fn write_text(" "$fs"

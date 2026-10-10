@@ -173,8 +173,10 @@ can hold something that should not reach a log; a name shadowed by an inner bloc
 the binding that was live, a string is quoted so it cannot be read as a number, and a long value is
 truncated. `ziman --api <module>` prints what a module offers -- its `pub` types and function
 signatures, in the language's own notation, read from the parsed declarations rather than scanned
-out of text, so it is what the compiler sees. `ziman --api` with no module lists the bundled ones
-and says that the builtins need no `use`. It takes a bundled name (`--api fs`) or a path to a `.zm`
+out of text, so it is what the compiler sees. `ziman --api` with no module lists the bundled ones,
+and `ziman --api builtins` lists the functions that need no `use` at all -- the prelude's with
+their signatures, then the ones the interpreter dispatches by name, which have no declaration to
+print one from. It takes a bundled name (`--api fs`) or a path to a `.zm`
 file, so it answers for your own modules too. It exists because of a measurement: in the 2026-10-09
 generation benchmark, *name discovery* -- not syntax -- was the single largest consumer of a cold
 model's effort, with runs brute-forcing eight candidate names before reaching `fs.write_text` and

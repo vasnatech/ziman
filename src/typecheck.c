@@ -966,6 +966,21 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", NULL,
 };
 
+/* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
+ * hole this list fills: `--api` listed the bundled *modules*, so a run looking for a string's
+ * characters never saw `chars` and used `split(word, "")`, which type-checks and then fails at
+ * runtime; another concluded "there is no `keys` function" when `map_keys` is a builtin. A command
+ * that answers "what exists" has to include the things that need no `use`
+ * (docs/reviews/llm-benchmark-2026-10-09.md, wave three). */
+int ziman_builtin_count(void) {
+    return (int)(sizeof(BUILTINS_NO_NAMED_ARGS) / sizeof(BUILTINS_NO_NAMED_ARGS[0]));
+}
+
+const char *ziman_builtin_name(int i) {
+    if (i < 0 || i >= ziman_builtin_count()) return NULL;
+    return BUILTINS_NO_NAMED_ARGS[i];
+}
+
 /* "did you mean" support (LLM-generation benchmark, docs/reviews/llm-benchmark-2026-09-28.md:
  * an "undefined variable"/"undefined function" with no suggestion was the one diagnostic class
  * that never let a model self-correct from zero context, where a habit with a named fix -- a

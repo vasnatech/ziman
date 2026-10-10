@@ -402,8 +402,47 @@ static int run_api(const char *module_name) {
     if (module_name == NULL) {
         printf("bundled modules (ziman --api <name> for one of them):\n");
         for (int i = 0; i < corelib_module_count(); i++) printf("  %s\n", corelib_module_name(i));
-        printf("\nBuiltins like print, len, format, str, concat, substring, split, push, set,\n"
-               "map_get and contains need no 'use' at all -- see docs/SYNTAX.md \"Builtins\".\n");
+        printf("\n  builtins   the functions that need no 'use' at all -- ziman --api builtins\n");
+        return 0;
+    }
+    /* Not a module, but the answer to the same question -- and the one the 2026-10-10 benchmark wave
+     * showed was missing: a run that wanted a string's characters never found `chars`, because it is
+     * a builtin and `--api` listed only modules, so it used `split(word, "")` instead, which
+     * type-checks and then fails at runtime.
+     *
+     * Printed from `lib/prelude.zm` itself rather than from a list kept here. A first version did
+     * keep one, reusing typecheck.c's `BUILTINS_NO_NAMED_ARGS` -- and it did not contain `chars`,
+     * because that table is the subset of builtins taking no named arguments, not the builtins. An
+     * incomplete answer to "what exists" is worse than none, since it reads as "`chars` does not
+     * exist". The prelude declares all of them with real signatures, so it is the honest source. */
+    if (strcmp(module_name, "builtins") == 0) {
+        TokenList prelude_tokens = lex(prelude_source());
+        Module *prelude = parse(prelude_tokens);
+        printf("builtins -- callable with no 'use', from any program\n");
+        for (int i = 0; i < prelude->functions.count; i++) {
+            FunctionDecl *f = prelude->functions.items[i];
+            /* The prelude's own non-pub helpers are not callable from a program. */
+            if (f->visibility != VIS_PUBLIC && !f->is_native) continue;
+            printf("\nfn %s", f->name);
+            print_type_params(&f->type_params);
+            printf("(");
+            for (int pi = 0; pi < f->params.count; pi++) {
+                if (pi > 0) printf(", ");
+                printf("%s: ", f->params.items[pi].name);
+                print_type("", f->params.items[pi].type);
+            }
+            printf(")");
+            if (f->return_type.kind != TY_VOID) print_type(" -> ", f->return_type);
+        }
+        /* And the ones the *interpreter* dispatches by name, which have no declaration anywhere to
+         * print a signature from -- `map_keys`, `push`, `set`, `contains` and the rest. Leaving
+         * them out was the second half of the same mistake: a run concluded "there is no `keys`
+         * function" when `map_keys` is one of these. Names only, and said to be names only. */
+        printf("\n\nalso builtin, dispatched by the interpreter (names only -- these have no declared\n"
+               "signature to print; docs/SYNTAX.md \"Builtins\" has what each one takes):\n");
+        for (int i = 0; i < ziman_builtin_count(); i++) printf("  %s\n", ziman_builtin_name(i));
+        printf("\nbuilt-in types, which are lowercase:\n  int  float  bool  string  byte  bigint  decimal\n"
+               "  [T] (an array)  Map<K, V>  Set<T>  Option<T>  Result<T, E>  Channel<T>\n");
         return 0;
     }
     const char *source = corelib_source_for(module_name);
