@@ -166,6 +166,32 @@ pub fn connect(host: string, port: int) -> Result<Socket, NetError>
 
 `host` is a name or an address (IPv4 or IPv6).
 
+### `connect_unix`
+
+```
+pub fn connect_unix(path: string) -> Result<Socket, NetError>
+```
+
+Connects to a Unix-domain socket, which is a filesystem path rather than a host and port -- a
+local PostgreSQL or MySQL usually listens on one, and it is the usual way to talk to a service on
+the same machine without going near the network stack. The `Socket` it answers behaves exactly
+like a TCP one: `read`, `write`, `lines`, `set_timeout` and `close` all work unchanged, and so
+does `start_tls`, though TLS over a local socket is rarely what you want.
+
+### `listen_unix`
+
+```
+pub fn listen_unix(path: string) -> Result<Listener, NetError>
+```
+
+Listens on a Unix-domain socket path. Two things differ from `listen`, both reported rather than
+hidden: the path has an operating-system limit of 107 bytes (much shorter than a file path's), and
+binding fails if the path already exists -- including when it is a socket left behind by a process
+that has gone. It is not removed for you, because a stale socket and a live one are
+indistinguishable from here and removing the wrong one would take down a running server; the error
+says so, and `fs.remove` is the answer once you know which it is. `listener_port` answers -1 for
+one of these, there being no port to answer.
+
 ### `listen`
 
 ```
@@ -193,7 +219,8 @@ from `listen_tls` itself means the certificate or key could not be used, or the 
 pub fn listener_port(l: Listener) -> int
 ```
 
-The port a listener is bound to (useful after `listen(host, 0)`, which picks a free one).
+The port a listener is bound to (useful after `listen(host, 0)`, which picks a free one), or -1
+for a Unix-domain listener, which has a path instead.
 
 ### `peer_address`
 

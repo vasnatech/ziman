@@ -1,0 +1,38 @@
+// R: ROADMAP.md's `net` follow-ups asked for Unix-domain sockets, local Postgres being the concrete
+// consumer. The path is per-process so two runs of the suite cannot collide, and the fixture covers
+// the two things that differ from a TCP listener: binding a path that exists is refused (a stale
+// socket and a live one are indistinguishable, so it is not removed for you), and a path past the
+// operating system's 107-byte limit is refused rather than silently truncated.
+use clock
+use fs
+use net
+use os
+
+fn serve(listener: net.Listener) {
+    val conn = unwrap(net.accept(listener))
+    val asked = unwrap(net.read_text(conn, 16))
+    unwrap(net.write_text(conn, concat("pong:", asked)))
+    net.close(conn)
+}
+
+fn main() {
+    val path = format("/tmp/ziman-fixture-unix-{}.sock", str(os.pid()))
+    val listener = unwrap(net.listen_unix(path))
+    print(net.listener_port(listener))
+
+    spawn serve(listener)
+    val client = unwrap(net.connect_unix(path))
+    unwrap(net.write_text(client, "ping"))
+    print(unwrap(net.read_text(client, 16)))
+    net.close(client)
+    clock.sleep_millis(80)
+    net.close_listener(listener)
+
+    print(is_ok(net.listen_unix(path)))
+    unwrap(fs.remove(path))
+    print(fs.exists(path))
+
+    var long_path = "/tmp/"
+    for i in 0..120 { long_path = concat(long_path, "x") }
+    print(is_ok(net.listen_unix(long_path)))
+}

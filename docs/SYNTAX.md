@@ -1556,6 +1556,14 @@ fn main() {
 The `net` core module is blocking TCP; `[byte]` helpers are prelude builtins, plus binary
 encodings in `number`.
 
+`net.connect_unix(path)` and `net.listen_unix(path)` do the same over a Unix-domain socket, which is
+a filesystem path rather than a host and port -- a local PostgreSQL or MySQL usually listens on one.
+The `Socket` behaves identically afterwards (`read`, `write`, `lines`, `set_timeout`, `close`, even
+`start_tls`). Two differences, both reported rather than hidden: the path is limited to 107 bytes by
+the operating system, and binding a path that already exists is refused -- a socket left by a
+process that has gone looks exactly like a live one from here, so it is not removed for you
+(`fs.remove` it once you know which it is). `listener_port` answers -1 for such a listener.
+
 ```ziman
 use net
 fn serve(l: net.Listener) {

@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
@@ -444,6 +445,76 @@ static Value open_socket(const char *host, int64_t port, int listener) {
     return ok_result(int_type, value_int(handle_register(fd)));
 }
 
+/* A Unix-domain socket, which `open_socket` above cannot reach: getaddrinfo resolves host and port
+ * and there is neither here, only a filesystem path (ROADMAP.md's `net` follow-ups -- local
+ * Postgres usually listens on one, which is the concrete consumer).
+ *
+ * Two things a caller has to know, and both are reported rather than papered over. The path has a
+ * hard limit well under PATH_MAX -- `sun_path` is 108 bytes on Linux including its terminator -- so
+ * a long path is refused with a message naming the limit instead of being silently truncated, which
+ * is the classic way to end up bound to a path you did not ask for. And `bind` fails if the path
+ * already exists, even when it is a leftover from a process that died: this does *not* unlink it
+ * first, because a stale socket and a live one look identical from here and unlinking the wrong one
+ * would take down a running server. The error says what to do. */
+static Value open_unix_socket(const char *path, int listener) {
+    Type int_type = type_scalar(TY_INT);
+    struct sockaddr_un addr;
+    size_t len = strlen(path);
+    if (len == 0) return err_result(int_type, "io", "a Unix-domain socket path cannot be empty");
+    if (len >= sizeof addr.sun_path) {
+        char msg[160];
+        snprintf(msg, sizeof msg,
+                 "this Unix-domain socket path is %zu bytes; the limit is %zu, which is the operating system's, "
+                 "not this language's", len, sizeof addr.sun_path - 1);
+        return err_result(int_type, "io", msg);
+    }
+    memset(&addr, 0, sizeof addr);
+    addr.sun_family = AF_UNIX;
+    memcpy(addr.sun_path, path, len + 1);
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0 && (errno == EMFILE || errno == ENFILE) && reclaim_descriptors()) {
+        fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    }
+    if (fd < 0) return errno_result(int_type, errno);
+
+    int ok;
+    if (listener) {
+        ok = bind(fd, (struct sockaddr *)&addr, (socklen_t)sizeof addr) == 0 && listen(fd, 128) == 0;
+        if (!ok && errno == EADDRINUSE) {
+            int saved = errno;
+            close(fd);
+            (void)saved;
+            char msg[320];
+            snprintf(msg, sizeof msg,
+                     "'%s' already exists, so it cannot be bound -- remove it with fs.remove if it is a socket "
+                     "left behind by a process that has gone, and note that a live listener's path looks exactly "
+                     "the same from here, which is why this is not removed for you", path);
+            return err_result(int_type, "io", msg);
+        }
+    } else {
+        int r;
+        do { r = connect(fd, (struct sockaddr *)&addr, (socklen_t)sizeof addr); } while (r < 0 && errno == EINTR);
+        ok = r == 0;
+    }
+    if (!ok) {
+        int saved = errno;
+        close(fd);
+        return errno_result(int_type, saved);
+    }
+    return ok_result(int_type, value_int(handle_register(fd)));
+}
+
+static Value native_net_connect_unix_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return open_unix_socket(value_cstr(args[0]), 0);
+}
+
+static Value native_net_listen_unix_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return open_unix_socket(value_cstr(args[0]), 1);
+}
+
 static Value native_net_connect_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     return open_socket(value_cstr(args[0]), args[1].as.i, 0);
@@ -864,6 +935,8 @@ void native_net_register(void) {
     signal(SIGPIPE, SIG_IGN);
     native_register("net::connect_raw", native_net_connect_raw);
     native_register("net::listen_raw", native_net_listen_raw);
+    native_register("net::connect_unix_raw", native_net_connect_unix_raw);
+    native_register("net::listen_unix_raw", native_net_listen_unix_raw);
     native_register("net::listener_port_raw", native_net_listener_port_raw);
     native_register("net::peer_address_raw", native_net_peer_address_raw);
     native_register("net::accept_raw", native_net_accept_raw);

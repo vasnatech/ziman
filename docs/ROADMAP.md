@@ -1626,9 +1626,13 @@ from source.
   value (docs/SYNTAX.md "Arrays"). Measured 2026-10-10 rather than trusting
   the doc: two million `[byte]` elements cost 40.9 MB against 540.2 MB for two
   million boxed one-field structs, 13x, so there is nothing left to pack.**
-  Unix-domain sockets
-  (local Postgres often uses one), UDP, and a connect timeout beyond the
-  OS default. ~~An `http` module (server first, pure Ziman on `net`)~~
+  ~~Unix-domain sockets
+  (local Postgres often uses one)~~ **done 2026-10-10: `net.connect_unix(path)`
+  and `net.listen_unix(path)`, with the `Socket` behaving identically afterwards.
+  The two differences from a TCP listener are reported rather than hidden -- the
+  107-byte path limit, and that binding an existing path is refused because a
+  stale socket and a live one are indistinguishable from there.** UDP, and a
+  connect timeout beyond the OS default, remain. ~~An `http` module (server first, pure Ziman on `net`)~~
   **done as a toolkit** (docs/DESIGN.md's `http` entry); still open there:
   ~~TLS (`listen_tls`), chunked request bodies~~ **done**, HTTP/2 (its own entry below), multipart,
   compression, `Date`/`Server` headers, and -- once Ziman has function
