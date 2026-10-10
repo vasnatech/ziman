@@ -1619,8 +1619,14 @@ from source.
   literals, multiple result sets (only the last is kept), prepared-
   statement reuse, and decoding DECIMAL/DATE/DATETIME/TIME/JSON columns
   into their Ziman types rather than through `Text`.
-- **`net` follow-ups.** A packed byte-buffer type (`[byte]` is an array
-  of interpreter values -- wasteful for bulk data), Unix-domain sockets
+- **`net` follow-ups.** ~~A packed byte-buffer type (`[byte]` is an array
+  of interpreter values -- wasteful for bulk data)~~ **done, and this entry
+  had gone stale: `[byte]`, `[bool]`, `[int]` and `[float]` are stored packed
+  -- one real byte/byte/int64/double per element rather than an 80-byte boxed
+  value (docs/SYNTAX.md "Arrays"). Measured 2026-10-10 rather than trusting
+  the doc: two million `[byte]` elements cost 40.9 MB against 540.2 MB for two
+  million boxed one-field structs, 13x, so there is nothing left to pack.**
+  Unix-domain sockets
   (local Postgres often uses one), UDP, and a connect timeout beyond the
   OS default. ~~An `http` module (server first, pure Ziman on `net`)~~
   **done as a toolkit** (docs/DESIGN.md's `http` entry); still open there:
