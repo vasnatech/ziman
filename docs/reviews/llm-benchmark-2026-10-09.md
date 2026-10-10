@@ -192,3 +192,90 @@ because discovery happens in throwaway probe files. Count invocations. And a run
 "compiles" is not a run that ends in "correct" -- two of the ten compile and print the right thing
 only under their task file's stated flexibility, which is why that flexibility has to be written
 down before the run rather than adjudicated after it.
+
+## The holdout: 10 untouched tasks against the fixed compiler (F27)
+
+The pilot's round-2 figure of 10/10 was measured on the same ten tasks whose errors produced the
+fixes, which is fitting and evaluating on one sample. This is the holdout that was missing: **ten of
+the thirty tasks nothing in this project had looked at**, chosen to match the pilot's category
+spread (strings, splitting, arrays, maps, numerics, control flow, records, errors, file IO, JSON) so
+the comparison would isolate generalisation rather than difficulty.
+
+All three method corrections the pilot earned were applied from the start, which is the other thing
+being tested here: compiler **invocations** counted rather than edits, `--lsp` forbidden in the
+prompt, and each task's grading flexibility checked before the run rather than adjudicated after
+(the check found nothing to fix, which is the correction working).
+
+### Round 1: 0 of 10 compiled
+
+Third independent replication of that figure -- 2026-09-28, the pilot, and now this -- across 30
+distinct tasks. All ten passed the contamination screen.
+
+**But the two batches are not drawn from the same habit distribution, and the comparison is weaker
+for it.** This is the pilot's mix against the holdout's:
+
+| habit | pilot | holdout |
+|---|---|---|
+| `--` comments | 5/10 | **10/10** |
+| `do ... end` bodies | 2/10 | **10/10** |
+| `import` | 2/10 | **9/10** |
+| `let` | 7/10 | 7/10 |
+| effect row `/ {IO}` | 4/10 | **0/10** |
+| `=>` | 5/10 | 2/10 |
+| semicolons | 1/10 | 0/10 |
+
+The pilot's attempts were a Rust/ML/Haskell mix; the holdout's were almost uniformly
+Haskell/Idris -- `--` was the *first* error in all ten. So this batch is a strong test of three
+things F28 added (the comment message, `import`, `= do ... end`) and barely tests the effect-row
+message at all. The holdout's round-2 number stands on its own; the delta against the pilot's
+pre-fix 7/10 is suggestive and not more than that, which is a limit of the design rather than of
+the result.
+
+### Round 2: 10 of 10 compiled
+
+**Every one of the ten reached a compiling program**, from cold attempts written in a dialect Ziman
+is not, using nothing but `--check` and its own throwaway probe files. That is the generalisation
+evidence the pilot could not give: these tasks' errors played no part in choosing the nine
+diagnostics C19 and F28 added, and the compiler still talked all ten home.
+
+| task | compiles | edits | compiler invocations |
+|---|---|---|---|
+| 13 palindrome_check | yes | 1 | 10 |
+| 16 join_with_dashes | yes | 2 | 12 |
+| 22 binary_search | yes | 1 | 9 |
+| 24 group_by_first_letter | yes | 1 | 12 |
+| 27 primes_under_30 | yes | 1 | 7 |
+| 29 average_two_decimals | yes | 1 | 8 |
+| 33 aggregate_by_group | yes | 1 | 14 |
+| 37 chain_fallible | yes | 1 | 25 |
+| 42 count_lines_in_file | yes | 1 | 11 |
+| 44 parse_json_field | yes | 1 | 16 |
+
+**Correct output: 7 of 10**, and the three misses are a defect in the task set rather than in the
+language: 22 printed `found 7 at index 3`, 42 printed `lines: 3`, 37 printed `ok: 4`. Each computed
+the right answer and labelled it, against an expected block holding a bare number -- and the prompts
+never said to print only the value. A person would label it too. Task 08 had the pattern from the
+start ("prints *just* the count"); 22, 37 and 42 have been brought into line, and the README now
+states the rule. **Scored as failures here regardless**, because the flexibility was not
+pre-registered and the whole point of pre-registering is that it costs something when the result
+arrives.
+
+**The edit/invocation columns settle the method question the pilot raised.** Nine of ten runs made a
+single edit to the working file, while invoking the compiler between 7 and 25 times (median 11.5).
+Discovery happens in throwaway probes, so counting edits understates the real cost by about an order
+of magnitude. Count invocations.
+
+### What generalised, and what this still does not say
+
+On the measure that is actually about the language -- *can the compiler talk a cold attempt into
+compiling* -- the holdout matches the pilot's post-fix 10/10 and beats its pre-fix 7/10, on tasks
+whose errors never shaped a single message. Agents named the same messages as decisive, unprompted
+and repeatedly: `--` to `//`, `import` to `use` (with "builtins need no use", which several said
+saved probes), `let` to `val`/`var`, the lowercase built-in type list, "Ziman has no methods", the
+discarded-`Result` message, and `'+' doesn't join strings`. Five of those seven were written on
+2026-10-09.
+
+What it does not say: the holdout's habit mix was far more uniformly Haskell than the pilot's, so
+the fixes being exercised were disproportionately the comment, `import` and `do ... end` messages.
+"F28 generalises" is supported for those; the effect-row message was not tested at all here, having
+appeared in 0 of 10 cold attempts. One instance per task remains one sample.

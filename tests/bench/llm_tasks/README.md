@@ -65,6 +65,14 @@ the prompt would quietly turn a cold-generation measurement into a reading-compr
 re-verify, write solutions outside the tree and diff each against the fenced block in its task
 file.
 
+**A task must say what to print, not only what to compute.** The 2026-10-09 holdout lost 3 of 10
+to this: the programs were right and said so in a sentence (`found 7 at index 3`, `lines: 3`,
+`ok: 4`) where the expected block was a bare number. A human would label it too, so the fault is
+the prompt's. Task 08 had the pattern from the start -- "prints **just** the count" -- and tasks 22,
+37 and 42 have been brought into line with it. When a new task's answer is a bare value, say so in
+the prompt; when any shape is acceptable, say that in the `## Expected stdout` heading *before* the
+run, never after seeing a result.
+
 **What this does not make comparable.** The 2026-09-28 numbers (0/10 cold, 4/10 after compiler
 iteration) are for tasks 01-10. A 50-task run produces a new baseline, not a continuation of that
 one -- the per-number comparison to keep is within a single run.
