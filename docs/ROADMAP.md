@@ -1513,6 +1513,17 @@ from source.
 - **String interpolation.** Once string concatenation is settled, decide
   whether interpolation is a second way to do the same thing (against
   principle #2) or genuinely a different need.
+  *Update 2026-10-10 (F38): measured, and there is no AI-first case for it.*
+  **Across all 30 cold benchmark attempts no interpolation form appears even
+  once** -- `f"..."` 0/30, `"${x}"` 0/30, `"#{x}"` 0/30. What models reach for
+  is `+` (16/30) and `++` (8/30) for concatenation, 24 of 30 between them, and
+  that collision is already handled the way this language says it should be:
+  it fails at compile time with the sentence that fixes it, a message several
+  benchmark runs called the best in the set. So the question this entry poses
+  is unchanged by the evidence and the entry stays open on its own terms.
+  Recorded because the opposite was assumed -- the 2026-10-10 priority ranking
+  put interpolation in tier 1 on the reasoning that a model writes an
+  f-string by reflex, which the data refutes.
 - **A real package registry** (npm/crates.io-shaped, not Maven Central-
   shaped). Worth naming the distinction: Java's JARs are *compiled*
   artifacts, but Ziman modules are plain `.zm` source with no bytecode/
