@@ -1,0 +1,9 @@
+// F28, from the 2026-10-09 runs: the no-methods hint used to name `member(receiver, ...)` blindly,
+// which for `.lines()` pointed at a function that does not exist and for `.join(sep)` at one that
+// cannot take a list (`join` is a path join over strings). A hint that names the wrong function is
+// worse than one that names none, because the reader spends a round finding out. These seven names
+// were measured -- each is one a cold model reached for -- and now map to what Ziman actually has.
+fn main() {
+    val text = "a\nb"
+    print(len(text.lines()))
+}

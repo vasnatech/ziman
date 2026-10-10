@@ -823,7 +823,31 @@ void ziman_report_unknown_module_call(const char *qualifier, const char *member,
         snprintf(hint, sizeof hint, "len(%s)", qualifier);
     } else if (strcmp(member, "push") == 0 || strcmp(member, "append") == 0) {
         snprintf(hint, sizeof hint, "%s = push(%s, item)", qualifier, qualifier);
+        /* The names below were measured, not guessed: each is one a cold model reached for in the
+         * 2026-10-09 benchmark runs, where the bare `member(qualifier, ...)` fallback below sent it
+         * to a function that does not exist (`lines`) or cannot take the receiver (`join`, which is
+         * a path join over strings, not a separator join over a list). A hint that names the wrong
+         * function is worse than one that names none, because the reader spends a round finding out
+         * (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28). */
+    } else if (strcmp(member, "lines") == 0) {
+        snprintf(hint, sizeof hint, "split(%s, \"\\n\")", qualifier);
+    } else if (strcmp(member, "join") == 0) {
+        snprintf(hint, sizeof hint, "concat or format in a loop (there is no list-join function, and 'join' is a path join)");
+    } else if (strcmp(member, "sort") == 0 || strcmp(member, "sorted") == 0) {
+        snprintf(hint, sizeof hint, "collections.sort<T>(%s), after 'use collections'", qualifier);
+    } else if (strcmp(member, "keys") == 0) {
+        snprintf(hint, sizeof hint, "map_keys(%s), which answers a Set (set_items turns it into an array)", qualifier);
+    } else if (strcmp(member, "values") == 0) {
+        snprintf(hint, sizeof hint, "map_values(%s)", qualifier);
+    } else if (strcmp(member, "reverse") == 0 || strcmp(member, "reversed") == 0) {
+        snprintf(hint, sizeof hint, "collections.reverse(%s) for an array -- a string has no reverse, build one with substring", qualifier);
+    } else if (strcmp(member, "sum") == 0) {
+        snprintf(hint, sizeof hint, "a 'for' loop, or collections.fold (there is no sum function)");
     } else {
+        /* The free-function *form*, not a claim that such a function exists -- this pass has no
+         * scope to look the name up in, and the measured cases above are where guessing wrong
+         * actually cost something. An earlier version hedged with "if there is such a function",
+         * which read as noise in the common case where the guess is right (`s.trim()`). */
         snprintf(hint, sizeof hint, "%s(%s, ...)", member, qualifier);
     }
     ziman_error("module", line, col,
