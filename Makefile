@@ -178,6 +178,14 @@ northstar-if-available: $(BIN)
 # still open: the suite's own header records a schema divergence (TEXT foreign keys onto columns a
 # migration had made uuid) that survived two commits, failing 17 of 19 suites on Postgres while
 # every SQLite run stayed green. `check` would not have caught it then and will not now.
+# Everything worth running before a release that `check` leaves out: the three sanitizers,
+# memcheck, the static analyzer, the two-engine behavioural suite and the two database suites. It
+# probes for each prerequisite and says what it skipped and why, so "I ran preflight" is checkable
+# rather than "I ran the parts that happened to work" -- see tools/preflight.sh's own header for why
+# this exists at all. Still a command a person runs: there is no CI here.
+preflight: $(BIN)
+	@./tools/preflight.sh
+
 northstar-both: $(BIN)
 	@set -e; app=$${ZIMAN_NORTHSTAR:-../health-record/health-record-backend-ziman}; 	if [ ! -x "$$app/src/test/other/run-all.sh" ]; then 	    echo "northstar-both: no North Star checkout at $$app (set ZIMAN_NORTHSTAR)"; exit 1; 	fi; 	cd "$$app/src/test/other" && ZIMAN=$(abspath $(BIN)) ./run-all.sh --both
 

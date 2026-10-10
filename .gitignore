@@ -25,3 +25,6 @@ editors/vscode/node_modules/
 # fails, so a fresh clone without logs/ would silently stop logging.
 logs/*.log
 logs/*.log.*
+
+# tools/preflight.sh writes one log per step
+.preflight-*.log

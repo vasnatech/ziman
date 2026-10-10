@@ -220,6 +220,14 @@ The rest need something the repo can't supply, so they are separate: `make test-
 `make test-mysql` want a container runtime and a database image, and `tests/bench/` wants `ab` and
 a checkout of the sample backend.
 
+`make preflight` is the occasion for all of the below at once -- the three sanitizers, memcheck,
+the static analyzer, the North Star suite against *both* database engines, and the two database
+suites. It probes each prerequisite and prints what it skipped and why, which matters because
+several of these need something this machine may not have; `tools/preflight.sh --only STEP` re-runs
+one after a failure. Expect 15-25 minutes. Nothing runs it automatically, because there is no CI in
+this repository -- it is the documented thing to do before a release, and it exists because every
+target it calls was previously a command with no occasion that ran it.
+
 The sanitizers are separate for a different reason -- they are slow, not unsupported: `make asan`,
 `make ubsan`, `make tsan` (or `make sanitizers` for all three) rebuild and run the suite under
 Clang's or GCC's instrumentation, `make valgrind` runs a narrow set of fixtures and every C unit
