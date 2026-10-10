@@ -170,6 +170,17 @@ test-tls: $(BIN)
 northstar-if-available: $(BIN)
 	@./tests/run_northstar.sh $(BIN)
 
+# The North Star's behavioural suite against BOTH database engines, which `check` deliberately does
+# not do: Postgres needs a container runtime, and the first run pulls an image.
+#
+# Nothing runs this automatically, and there is no CI in this repository or in the backend's -- so
+# this target is a named command, not a guard. Said plainly because the gap it covers is real and
+# still open: the suite's own header records a schema divergence (TEXT foreign keys onto columns a
+# migration had made uuid) that survived two commits, failing 17 of 19 suites on Postgres while
+# every SQLite run stayed green. `check` would not have caught it then and will not now.
+northstar-both: $(BIN)
+	@set -e; app=$${ZIMAN_NORTHSTAR:-../health-record/health-record-backend-ziman}; 	if [ ! -x "$$app/src/test/other/run-all.sh" ]; then 	    echo "northstar-both: no North Star checkout at $$app (set ZIMAN_NORTHSTAR)"; exit 1; 	fi; 	cd "$$app/src/test/other" && ZIMAN=$(abspath $(BIN)) ./run-all.sh --both
+
 tls-if-available: $(BIN)
 	@if command -v openssl >/dev/null 2>&1; then \
 	    ./tests/run_tls_tests.sh; \
