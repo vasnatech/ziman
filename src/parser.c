@@ -1809,6 +1809,17 @@ static Stmt *parse_statement(Parser *p) {
                     plus ? "++" : "--", start->length, start->start, start->length, start->start,
                     plus ? '+' : '-');
     }
+    /* `let x: int = 1` / `const`, `mut`. The un-annotated `let x = 1` already gets a good message
+     * from the type checker, but with an annotation the parse fails first -- on the ':' -- so that
+     * message never runs, and the most common binding habit loses its fix exactly when a reader has
+     * written the fuller form. The 2026-10-09 benchmark holdout found it (tasks.md F28): "expected
+     * an expression, found ':'", with no mention of `let` at all. */
+    if (start->type == TOK_IDENT && check_ahead(p, 1, TOK_IDENT) && check_ahead(p, 2, TOK_COLON) &&
+        (token_text_is(start, "let") || token_text_is(start, "const") || token_text_is(start, "mut"))) {
+        ziman_error("syntax", start->line, start->col,
+                    "Ziman has no '%.*s' -- declare with 'val' (never reassigned) or 'var' (may be), and the type "
+                    "comes after the name: 'val x: int = 1'", start->length, start->start);
+    }
     Expr *first = parse_expr(p);
     if (match(p, TOK_EQ)) {
         if (first->kind != EXPR_IDENT) {

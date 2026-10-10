@@ -1,0 +1,7 @@
+// F28, from the 2026-10-09 holdout: `let x = 1` gets a good message from the type checker, but with
+// a type annotation the parse fails first on the ':' and that message never runs -- so the most
+// common binding habit lost its fix exactly where a reader wrote the fuller form.
+fn main() {
+    let total: int = 0
+    print(total)
+}

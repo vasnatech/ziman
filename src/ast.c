@@ -114,6 +114,29 @@ int type_equals(Type a, Type b) {
     return 1;
 }
 
+/* A qualified struct or enum name as a *reader* must write it. Internally the loader joins a
+ * module path to a name with "::" (qualify_name, chosen so it can never collide with a bare name),
+ * but the syntax for one is `fs.FsError`, so printing the internal form in a diagnostic hands the
+ * reader a spelling the parser then refuses. The 2026-10-09 benchmark holdout caught exactly that
+ * round trip: an agent copied `Result<int, fs::FsError>` out of one message and the next message
+ * blamed the lowercase `fs` and suggested a primitive type instead, costing two probe rounds
+ * (docs/reviews/llm-benchmark-2026-10-09.md). Fixed where it starts, rather than by teaching the
+ * downstream message about "::". */
+static char *display_name(const char *qualified) {
+    char *out = ziman_xstrdup(qualified);
+    char *from = out, *to = out;
+    while (*from != '\0') {
+        if (from[0] == ':' && from[1] == ':') {
+            *to++ = '.';
+            from += 2;
+            continue;
+        }
+        *to++ = *from++;
+    }
+    *to = '\0';
+    return out;
+}
+
 char *type_name(Type type) {
     ZIMAN_STACK_CHECK();
     switch (type.kind) {
@@ -128,8 +151,9 @@ char *type_name(Type type) {
         case TY_UNIT: return ziman_xstrdup("unit");
         case TY_TYPEVAR: return ziman_xstrdup(type.type_var_name);
         case TY_STRUCT: case TY_ENUM: {
-            const char *base_name = type.kind == TY_STRUCT ? type.struct_name : type.enum_name;
-            if (type.type_args.count == 0) return ziman_xstrdup(base_name);
+            char *shown = display_name(type.kind == TY_STRUCT ? type.struct_name : type.enum_name);
+            const char *base_name = shown;
+            if (type.type_args.count == 0) return shown;
             /* `Box<int>`, `Pair<int, string>`, ... */
             size_t cap = 64, len = 0;
             char *out = ziman_xmalloc(cap);
@@ -154,6 +178,7 @@ char *type_name(Type type) {
             if (len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
             out[len++] = '>';
             out[len] = '\0';
+            free(shown); /* only the no-type-args path hands it straight back */
             return out;
         }
         case TY_ARRAY: {

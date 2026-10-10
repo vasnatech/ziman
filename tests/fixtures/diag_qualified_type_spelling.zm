@@ -1,0 +1,9 @@
+// F28, the round trip the holdout caught: the compiler used to print a module-qualified type with
+// the loader's internal '::' separator, so a reader copied `fs::FsError` out of one message and the
+// next message blamed the lowercase `fs` and suggested a primitive. Messages now print the
+// spelling that parses, and this fixture pins that: the discarded-Result error names fs.FsError.
+use fs
+
+fn main() {
+    fs.write_text("greeting.txt", "hello")
+}
