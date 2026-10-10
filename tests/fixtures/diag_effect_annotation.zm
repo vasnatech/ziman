@@ -1,0 +1,6 @@
+// F28, continued down the pilot's ranking: four of ten cold attempts wrote an effect row. The
+// bare "expected '{', found '/'" left a reader unable to tell whether the syntax was wrong or the
+// feature absent.
+fn main() -> unit / {IO} {
+    print(1)
+}

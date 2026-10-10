@@ -1,0 +1,4 @@
+// F28: an ML-style body. The old message named the '=' and not the shape.
+fn main() = do
+    print(1)
+end

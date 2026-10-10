@@ -1,0 +1,7 @@
+// F28: two of ten cold attempts opened with an import. The old message said what was not allowed
+// at the top level, but not what to write, nor that the builtins need nothing.
+import std.string
+
+fn main() {
+    print(1)
+}

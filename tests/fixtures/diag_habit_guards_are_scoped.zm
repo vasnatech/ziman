@@ -1,0 +1,12 @@
+// The four messages in diag_effect_annotation, diag_do_end_body, diag_import_keyword and
+// diag_type_declaration are each scoped to what the parser was asking for, so none of them can
+// fire on legal code that happens to use the same token or word: a division, a value named `type`,
+// and an ordinary `use` with builtins alongside it.
+use fs
+
+fn main() {
+    val type = 3
+    print(10 / 2)
+    print(type)
+    print(len("abc"))
+}

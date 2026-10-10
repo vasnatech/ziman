@@ -62,10 +62,41 @@ static int match_ident(Parser *p, const char *word) {
  * five of the ten cold attempts in the 2026-10-09 benchmark pilot, and neither had a diagnostic:
  * `--` reported `expected 'fn', found '-'`, which says nothing about comments, and `=>` reported
  * whatever the construct happened to want next (docs/reviews/llm-benchmark-2026-10-09.md, F28). */
-static void report_habit_token_pair(Parser *p) {
+static int token_text_is(Token *t, const char *word) {
+    size_t n = strlen(word);
+    return t->type == TOK_IDENT && (size_t)t->length == n && memcmp(t->start, word, n) == 0;
+}
+
+static void report_habit_token_pair(Parser *p, const char *what) {
     Token *t = cur(p);
     Token *next = p->pos + 1 < p->tokens.count ? &p->tokens.items[p->pos + 1] : NULL;
     if (next == NULL) return;
+    /* These four are scoped by what the parser was asking for, so the advice cannot fire in an
+     * unrelated failure that happens to stop on the same word -- a value named `type` is legal, and
+     * a division is legal. Frequencies are from the 2026-10-09 pilot's ten cold attempts
+     * (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28). */
+    if (strcmp(what, "'{'") == 0 && t->type == TOK_SLASH && next->type == TOK_LBRACE) {
+        /* `-> unit / {IO}`: an effect row, which four of ten cold attempts wrote. The bare message
+         * named the '/' and left a reader unable to tell whether the syntax was wrong or the
+         * feature absent. */
+        ziman_error("syntax", t->line, t->col,
+                    "Ziman has no effect annotations -- a function's type is just its return type, so drop the "
+                    "'/ { ... }' (effects are not tracked in the type system at all)");
+    }
+    if (strcmp(what, "'{'") == 0 && t->type == TOK_EQ && token_text_is(next, "do")) {
+        ziman_error("syntax", t->line, t->col,
+                    "a function body is a brace block, not '= do ... end' -- write 'fn name(...) -> T { ... }'");
+    }
+    if (strcmp(what, "'fn'") == 0 && token_text_is(t, "import")) {
+        ziman_error("syntax", t->line, t->col,
+                    "Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' "
+                    "for one name), and the builtins like 'print' and 'len' need no 'use' at all");
+    }
+    if (strcmp(what, "'fn'") == 0 && token_text_is(t, "type")) {
+        ziman_error("syntax", t->line, t->col,
+                    "Ziman has no 'type' declaration -- a record is 'struct Point { x: int }' with one field per "
+                    "line and no commas, and a tagged union is 'enum Shape { Circle(float) ... }'");
+    }
     if (t->type == TOK_MINUS && next->type == TOK_MINUS) {
         ziman_error("syntax", t->line, t->col,
                     "'--' does not start a comment in Ziman -- use '//' to the end of the line (there is no block "
@@ -80,7 +111,7 @@ static void report_habit_token_pair(Parser *p) {
 
 static Token *expect(Parser *p, TokenType type, const char *what) {
     if (check(p, type)) return advance_tok(p);
-    report_habit_token_pair(p);
+    report_habit_token_pair(p, what);
     ziman_error("syntax", cur(p)->line, cur(p)->col, "expected %s, found %s", what, token_type_name(cur(p)->type));
     return NULL; /* unreachable */
 }

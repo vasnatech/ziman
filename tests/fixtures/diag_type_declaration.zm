@@ -1,0 +1,9 @@
+// F28: two pilot runs guessed `struct` after `type X = { ... }` was refused with only
+// "expected 'fn', found identifier".
+type Point = {
+    x: int
+}
+
+fn main() {
+    print(1)
+}

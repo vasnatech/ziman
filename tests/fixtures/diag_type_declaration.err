@@ -1,0 +1,1 @@
+Ziman has no 'type' declaration -- a record is 'struct Point { x: int }'
