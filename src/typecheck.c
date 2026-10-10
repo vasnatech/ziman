@@ -2582,6 +2582,21 @@ static Type check_index(Module *module, Env *env, Expr *e) {
     reject_element_used_as_index(e);
     Type arr_type = check_expr(module, env, e->as.index.array);
     if (arr_type.kind != TY_ARRAY) {
+        /* A map is the common case here, and `m[k]` is how most languages read one. Naming the
+         * alternative matters because the getter's name is not guessable: in the F28 validation run
+         * one agent brute-forced six candidates (`lookup`, `at`, `value_at`, `fetch`, `find`,
+         * `map_get`) after `get(m, k)` had suggested `set` -- the mutator, which is the wrong
+         * direction entirely (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28). */
+        if (arr_type.kind == TY_MAP) {
+            ziman_error("type", e->as.index.array->line, e->as.index.array->col,
+                        "a map is not indexed with '[...]' -- read one with 'map_get(m, key)', which answers "
+                        "'Option<V>' ('Some(v)' or 'None'), and write one with 'm = set(m, key, value)'");
+        }
+        if (arr_type.kind == TY_SET) {
+            ziman_error("type", e->as.index.array->line, e->as.index.array->col,
+                        "a set is not indexed with '[...]' -- test membership with 'contains(s, value)', and add "
+                        "with 's = set(s, value)'");
+        }
         ziman_error("type", e->as.index.array->line, e->as.index.array->col, "cannot index into %s (not an array)", type_name(arr_type));
     }
     Type idx_type = check_expr(module, env, e->as.index.index);
@@ -3478,6 +3493,19 @@ static void check_switch(Module *module, Env *env, Stmt *s, Type fn_return_type,
 static void init_mismatch(const char *name, Type declared, Type actual, int line, int col) {
     if (name == NULL) {
         ziman_error("type", line, col, "an arm of this 'if'/'switch' has type %s but %s is expected here", type_name(actual), type_name(declared));
+    }
+    /* An `int` where a wider scalar is declared is almost always a missing literal suffix rather
+     * than a real type confusion: bare digits mean `int`, and the wider types are written `1n`,
+     * `1d`, `1b`. Found by the F28 validation run -- the one step in it the compiler did not
+     * direct was guessing `1n`, after `bigint(1)` was rejected too (there is no conversion-call
+     * form). Worth saying here, because this is the message a reader actually meets. */
+    if (actual.kind == TY_INT) {
+        const char *suffix = declared.kind == TY_BIGINT ? "n" : (declared.kind == TY_DECIMAL ? "d" : (declared.kind == TY_BYTE ? "b" : NULL));
+        if (suffix != NULL) {
+            ziman_error("type", line, col,
+                        "cannot initialize '%s' of declared type %s with a value of type int -- bare digits mean "
+                        "'int', so write the literal with its suffix, as '1%s'", name, type_name(declared), suffix);
+        }
     }
     ziman_error("type", line, col, "cannot initialize '%s' of declared type %s with a value of type %s", name, type_name(declared), type_name(actual));
 }

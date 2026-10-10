@@ -1,0 +1,6 @@
+// F28, from the validation run: the one step the compiler did not direct was guessing `1n`, after
+// `bigint(1)` was rejected too (there is no conversion-call form). Bare digits mean `int`.
+fn main() {
+    var total: bigint = 1
+    print(total)
+}

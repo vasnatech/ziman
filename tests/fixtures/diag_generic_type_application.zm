@@ -1,0 +1,5 @@
+// F28: two pilot runs found `[T]` by probing rather than by being told, and both filed it as the
+// last remaining gap. The old error was a positional "expected ')', found '('".
+fn longest(xs: List(Int)) -> int {
+    return 1
+}

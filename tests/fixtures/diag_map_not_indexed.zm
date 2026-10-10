@@ -1,0 +1,6 @@
+// F28: `get(m, k)` suggested `set` -- the mutator, the wrong direction -- and one agent then
+// brute-forced six candidate names before reaching `map_get`. Indexing was the other dead end.
+fn main() {
+    val codes = Map<string, string> { "nl": "Netherlands" }
+    print(codes["nl"])
+}

@@ -151,3 +151,44 @@ tasks. And three honest irregularities, recorded rather than smoothed:
 
 One defect in the task set itself: task 45's expected output did not say whitespace may vary, so a
 semantically identical JSON document needed a hand judgement. Fixed in the task file.
+
+## Validation: the three failures re-run against the fixed compiler (same day, F28)
+
+The five messages F28 added were chosen from the ranking above. The honest test of a diagnostic
+change is not that it reads better, so the three tasks that ran out of budget were re-run from
+**the same cold attempts**, with the **same five-edit budget**, against the fixed compiler. All
+three now compile, and all three produce the right answer.
+
+| task | before F28 | after F28 | what carried it |
+|---|---|---|---|
+| 18 sort_numbers | no compile, 5 edits | **correct**, 4 edits | the `--` comment message, and `unknown type 'Int' -- did you mean 'int'?` |
+| 23 invert_map | no compile, 5 edits | **correct**, 2 edits | the `Unit`, `--`, `let`, `match` and map-literal messages, which it said "carried the whole rewrite" |
+| 28 big_factorial | no compile, 5 edits | **correct**, 1 edit | the lowercase-types list, which handed it `bigint` and made its hand-rolled bignum arithmetic unnecessary |
+
+**Round 2 therefore moves from 7/10 to 10/10** on this pilot's ten tasks. Read it as what it is:
+the same ten tasks that produced the ranking, so this measures whether the fixes address what was
+measured, not whether they generalise. The 40 remaining tasks are where that question gets answered,
+and F27 stays open for them.
+
+Task 28 is the one worth keeping. It had failed *one edit short*, and the message that fixed it did
+not just name a type -- it listed the built-ins, which revealed `bigint` and collapsed a
+hand-written decimal-digit multiplication into a three-line loop. A diagnostic that names the
+neighbourhood, not only the token, can change what a program *is*.
+
+**Two more gaps surfaced by the validation itself**, both fixed the same day:
+
+- **`bigint` literals.** `var x: bigint = 1` said only *cannot initialize 'x' of declared type
+  bigint with a value of type int*, and `bigint(1)` was rejected too, so there was no path to `1n`
+  but guessing. The mismatch message now names the suffix (`1n`, `1d`, `1b`).
+- **Reading a map.** `get(m, k)` suggested `set` -- the *mutator*, the wrong direction -- and one
+  agent then brute-forced six names (`lookup`, `at`, `value_at`, `fetch`, `find`) before reaching
+  `map_get`. Indexing was the other dead end: `m["k"]` said only *cannot index into
+  Map<string, string> (not an array)*. Both now name `map_get(m, key)` and its `Option<V>` result,
+  and the set case names `contains`.
+
+**What the pilot says about the method, having now run it twice.** The five-edit budget is the wrong
+unit: these runs used 10, 15 and 10 compiler invocations respectively while making 4, 2 and 1 edits,
+because discovery happens in throwaway probe files. Count invocations. And a run that ends in
+"compiles" is not a run that ends in "correct" -- two of the ten compile and print the right thing
+only under their task file's stated flexibility, which is why that flexibility has to be written
+down before the run rather than adjudicated after it.

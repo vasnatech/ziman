@@ -1,0 +1,1 @@
+bare digits mean 'int', so write the literal with its suffix, as '1n'

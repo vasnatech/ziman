@@ -291,6 +291,18 @@ static Type parse_type(Parser *p) {
             return ty;
         }
         require_upper_start(t, "a type name");
+        /* `List(Int)`, `List[Int]`, `Array[T]`, `Vec[T]` -- generic type *application* in the shape
+         * other languages use. Ziman writes an array as `[T]` and applies type arguments with
+         * angle brackets, and the old errors here were a positional `expected ')', found '('` that
+         * named neither. Two runs of the 2026-10-09 benchmark pilot found their way to `[T]` by
+         * probing rather than by being told, and both filed it as the last remaining gap
+         * (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28). */
+        if (check(p, TOK_LPAREN) || check(p, TOK_LBRACKET)) {
+            ziman_error("syntax", cur(p)->line, cur(p)->col,
+                        "a type's arguments go in angle brackets, not '%s' -- write '%.*s<...>'; and there is no "
+                        "List/Array/Vec type, because an array of T is written '[T]' (so '[int]', not 'List(int)')",
+                        check(p, TOK_LPAREN) ? "(" : "[", t->length, t->start);
+        }
         char *name = dup_token_text(t);
         Type ty = type_struct(name);
         free(name); /* type_struct() dups it into the Type itself */
