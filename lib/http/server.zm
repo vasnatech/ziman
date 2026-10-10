@@ -1546,6 +1546,12 @@ pub fn declare_metrics() {
 // and which routes exist, so put it behind the same `who` as the rest of an internal API, or on a
 // listener that only your network can reach.
 pub fn metrics_response() -> Response {
+    // Samples the runtime's own gauges first, so a scrape carries the collector's heap and
+    // collection count, the thread count and the open descriptors alongside the application's own
+    // numbers without every application remembering to ask (ROADMAP.md's metrics item 3). This is
+    // what Prometheus' own client libraries do with their process and GC collectors. An application
+    // that does not want them can render `metrics.render()` itself.
+    metrics.record_runtime()
     return with_header(
         response(status_ok, string_to_bytes(metrics.render())),
         "Content-Type",

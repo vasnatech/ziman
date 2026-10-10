@@ -233,3 +233,26 @@ pub fn reset()
 
 Forgets every metric and every series. For a test that wants an empty registry; a server has no
 reason to call it, and a scraper that sees a counter restart reads it as a process restart.
+
+### `record_runtime`
+
+```
+pub fn record_runtime()
+```
+
+Samples the runtime's own numbers into gauges, so they render alongside an application's: the
+collector's heap bytes and collection count, the live thread count, and the open file
+descriptors (ROADMAP.md's metrics item 3). Call it immediately before `render()` -- these are
+sampled, not accumulated, so a value is only as fresh as the last call. `server.metrics_response`
+does it for you.
+
+Gauges rather than counters even for the collection count, which is monotonic: a counter in this
+module is something *we* add to, and this number is read out of the collector, so modelling it as
+a counter would claim an accounting we are not doing. Prometheus is content to compute a rate
+over a gauge.
+
+What each answers per build, because the two differ and the difference is not hidden:
+`ziman_gc_heap_bytes` is the whole process's mapped heap under the default build and the
+*calling thread's* reserved bytes under `nogc`, where the heap is per thread;
+`ziman_gc_collections` is -1 under `nogc`, which records no collection count -- -1 rather than 0,
+since 0 would read as "none have happened".

@@ -9,6 +9,11 @@
 #include <string.h>
 
 #include "error.h"
+#include "gc_heap.h"
+#include "gc_thread_heap.h"
+#ifdef ZIMAN_GC
+#include "gc.h"
+#endif
 #include "native.h"
 #include "xalloc.h"
 
@@ -467,6 +472,36 @@ static Value native_reset(Value *args, int argc, int line, int col) {
     return value_unit();
 }
 
+/* The collector's own numbers, for item 3 of ROADMAP.md's metrics plan (runtime metrics through the
+ * same module). The two builds answer differently, and both answer honestly.
+ *
+ * Under the default build these come straight from Boehm: `GC_get_heap_size` is the heap it has
+ * mapped, `GC_get_gc_no` the number of collections it has run. The latter is documented as
+ * unsynchronised, which is acceptable for a value sampled for a scrape -- a torn read misreports
+ * one sample of a monotonic number, it does not corrupt anything.
+ *
+ * Under `nogc` there is no process-wide heap to report: it is per thread (`ziman_thread_heap`), so
+ * this answers the *calling* thread's own reserved bytes, and -1 for a collection count that build
+ * does not record. -1 rather than 0, because 0 would read as "no collections have happened", which
+ * is a claim this build cannot make. */
+static Value native_metrics_runtime_heap_bytes(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+#ifdef ZIMAN_GC
+    return value_int((int64_t)GC_get_heap_size());
+#else
+    return value_int((int64_t)gc_heap_reserved(ziman_thread_heap()));
+#endif
+}
+
+static Value native_metrics_runtime_collections(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+#ifdef ZIMAN_GC
+    return value_int((int64_t)GC_get_gc_no());
+#else
+    return value_int(-1);
+#endif
+}
+
 void native_metrics_register(void) {
     native_register("metrics::declare_raw", native_declare);
     native_register("metrics::add_raw", native_add);
@@ -480,4 +515,6 @@ void native_metrics_register(void) {
     native_register("metrics::observe_at_raw", native_observe_at);
     native_register("metrics::render_raw", native_render);
     native_register("metrics::reset_raw", native_reset);
+    native_register("metrics::runtime_heap_bytes_raw", native_metrics_runtime_heap_bytes);
+    native_register("metrics::runtime_collections_raw", native_metrics_runtime_collections);
 }

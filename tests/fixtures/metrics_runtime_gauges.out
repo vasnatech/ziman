@@ -1,0 +1,5 @@
+ziman_gc_heap_bytes: declared=true has_help=true
+ziman_gc_collections: declared=true has_help=true
+ziman_threads: declared=true has_help=true
+ziman_open_descriptors: declared=true has_help=true
+true

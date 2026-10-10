@@ -1,0 +1,19 @@
+// R: ROADMAP.md's metrics item 3, runtime metrics through the same module. The values themselves
+// are machine- and moment-dependent, so this pins the shape instead: the four gauges are declared,
+// rendered with their help text, and carry a number. The one value that is fixed is the collection
+// count under `nogc`, which is -1 because that build keeps no count -- and this fixture runs on
+// both builds, so it asserts only what both can say.
+use metrics
+
+fn main() {
+    metrics.record_runtime()
+    val out = metrics.render()
+    for name in ["ziman_gc_heap_bytes", "ziman_gc_collections", "ziman_threads", "ziman_open_descriptors"] {
+        printf("{}: declared={} has_help={}\n", name,
+               str(contains(out, concat(name, " "))),
+               str(contains(out, concat("# HELP ", name))))
+    }
+    // sampled again after the first render, to show these are samples rather than accumulations
+    metrics.record_runtime()
+    print(contains(metrics.render(), "ziman_threads "))
+}

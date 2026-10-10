@@ -87,6 +87,7 @@ flowchart LR
     log --> number
     log --> os
     metrics --> collections
+    metrics --> os
     migrate --> collections
     migrate --> crypto
     migrate --> datasource
@@ -145,8 +146,8 @@ otherwise: everything on a layer depends only on lower layers.
 | Layer | Modules |
 |---|---|
 | 0 | `bits`, `clock`, `collections`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
-| 1 | `crypto`, `json`, `metrics`, `os`, `url` |
-| 2 | `db`, `fs`, `http`, `jwt`, `ndjson`, `otp`, `toml`, `yaml` |
+| 1 | `crypto`, `json`, `os`, `url` |
+| 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `toml`, `yaml` |
 | 3 | `csv`, `log`, `mysql`, `pg`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
 | 4 | `datasource`, `time` |
 | 5 | `client`, `migrate` |
@@ -170,14 +171,14 @@ otherwise: everything on a layer depends only on lower layers.
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `number`, `os` | - |
 | `math` | - | - |
-| `metrics` | `collections` | `server` |
+| `metrics` | `collections`, `os` | `server` |
 | `migrate` | `collections`, `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
 | `mime` | - | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
 | `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
-| `os` | `clock` | `client`, `fs`, `log`, `migrate`, `properties`, `server`, `zone` |
+| `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `properties` | `fs`, `os` | - |

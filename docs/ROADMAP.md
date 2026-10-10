@@ -1908,7 +1908,20 @@ from source.
   2. **`server` records its own metrics**: requests by method, route pattern and status, request latency, open
      connections, bytes in and out, and serves them from a `/metrics` endpoint an application mounts with one line.
      `dispatch` already knows the matched pattern, which is the low-cardinality label to use (never the raw path).
-  3. **Runtime metrics through the same module**: GC heap size and collections, live threads, channel depths.
+  3. ~~**Runtime metrics through the same module**: GC heap size and collections, live threads, channel depths.~~
+     **Done 2026-10-10 (F32), except channel depths.** `metrics.record_runtime()` samples four
+     gauges -- `ziman_gc_heap_bytes`, `ziman_gc_collections`, `ziman_threads`,
+     `ziman_open_descriptors` -- and `server.metrics_response` calls it, so a scrape carries them
+     without every application remembering to ask, the way Prometheus' own client libraries ship
+     process and GC collectors. Gauges rather than counters even for the monotonic collection count,
+     because a counter in this module is something *we* add to and these are read out of the
+     runtime. The two builds answer differently and the difference is documented rather than hidden:
+     the heap is the whole process's mapped heap under the default build and the *calling thread's*
+     reserved bytes under `nogc`, where the heap is per thread, and the collection count is -1 there
+     because that build keeps none (-1 rather than 0, which would read as "none have happened").
+     **Channel depths are deliberately left out:** a useful depth needs per-channel identity, which
+     means a label per channel, and an unbounded label set is exactly what item 1's 128-series cap
+     exists to prevent -- `channel_len` already answers for a channel you hold.
   4. **Trace context**: W3C `traceparent` read by `server`, passed on by `client`, and written into `log` lines, so a
      request can be followed across services; then, if wanted, an OpenTelemetry (OTLP over HTTP/JSON) exporter on top
      of `client` and `json`, which needs a background thread to batch.
