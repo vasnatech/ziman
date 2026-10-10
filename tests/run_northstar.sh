@@ -19,6 +19,8 @@
 #
 # usage: tests/run_northstar.sh [ziman-binary]
 #   ZIMAN_NORTHSTAR=path   where the backend checkout is (default ../health-record/health-record-backend-ziman)
+#
+# Checks both entry points and runs the one that terminates. See the loop below for why both.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 BIN=$(cd "$(dirname "${1:-./ziman}")" && pwd)/$(basename "${1:-./ziman}")
@@ -31,12 +33,27 @@ fi
 APP=$(cd "$APP" && pwd)
 
 echo "run_northstar.sh: $APP"
-if ! (cd "$APP/src/main/ziman" && "$BIN" --check main.zm); then
-    echo "run_northstar.sh: FAIL -- the North Star application does not type-check against this build" >&2
-    exit 1
-fi
-echo "ok   --check"
+# Both entry points, because there are two and they share no code: main.zm walks the controllers the
+# way the routes call them, and serve.zm is the actual HTTP server -- the thing that runs in
+# production. Neither references the other (checked: zero references each way), so checking main.zm
+# alone leaves the server unguarded, which is what the first version of this script did. That is the
+# same mistake F25 was filed for, one level down: a guard that covers what its author happened to
+# look at rather than what matters.
+for entry in main.zm serve.zm; do
+    if [ ! -f "$APP/src/main/ziman/$entry" ]; then
+        echo "run_northstar.sh: FAIL -- $entry is missing from the North Star checkout" >&2
+        exit 1
+    fi
+    if ! (cd "$APP/src/main/ziman" && "$BIN" --check "$entry"); then
+        echo "run_northstar.sh: FAIL -- the North Star application's $entry does not type-check against this build" >&2
+        exit 1
+    fi
+    echo "ok   --check $entry"
+done
 
+# Only main.zm is run. serve.zm binds a port and serves until it is told to stop, so running it
+# here would hang the suite; type-checking it is the half that can be done unattended, and the TLS
+# and bench suites are where the server is actually exercised.
 # Run from the resources directory, which is where application.properties is read from.
 out=$(cd "$APP/src/main/resources" && \
     JWT_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '\n') \

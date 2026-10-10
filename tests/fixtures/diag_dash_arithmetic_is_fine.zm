@@ -1,0 +1,12 @@
+// The other side of diag_dash_comment_in_body: the rule requires the space a comment actually has,
+// so `--x` (an attempt at prefix decrement) is left to its existing behaviour rather than being
+// answered with advice about comments, and every arithmetic form still works.
+fn main() {
+    val x = 5
+    print(x - -3)
+    print(
+        - -x
+    )
+    print(5 - 3)
+    print(-5)
+}

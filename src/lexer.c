@@ -82,6 +82,21 @@ static char advance(Lexer *lx) {
     return c;
 }
 
+/* The character `n` positions ahead, or '\0' at the end. */
+static char peek_at(Lexer *lx, int n) {
+    for (int i = 0; i < n; i++) {
+        if (lx->src[lx->pos + i] == '\0') return '\0';
+    }
+    return lx->src[lx->pos + n];
+}
+
+/* Whether `at` is the first non-whitespace character on its line. */
+static int line_starts_here(Lexer *lx, const char *at) {
+    const char *p = at;
+    while (p > lx->src && (p[-1] == ' ' || p[-1] == '\t')) p--;
+    return p == lx->src || p[-1] == '\n';
+}
+
 static void emit(Lexer *lx, TokenType type, const char *start, int length, int line, int col) {
     push_token(lx, type, start, length, line, col);
     if (type != TOK_NEWLINE) {
@@ -420,6 +435,29 @@ TokenList lex(const char *source) {
             case '/': advance(&lx); emit(&lx, TOK_SLASH, start, 1, line, col); continue;
             case '%': advance(&lx); emit(&lx, TOK_PERCENT, start, 1, line, col); continue;
             case '-':
+                /* `-- a comment`, where the `--` opens a line. Five of the ten cold attempts in the
+                 * 2026-10-09 benchmark pilot wrote comments this way (docs/reviews/tasks.md F28).
+                 * The parser catches the pair when it stops a declaration, but inside a function
+                 * body `-- a note` is a legal double negation of `a`, so by the time anything fails
+                 * the message is about an undefined variable and the comment is invisible.
+                 *
+                 * Scoped to a line's first non-whitespace deliberately: that is where a comment
+                 * goes, and it leaves every arithmetic use alone. `x - -y` has a space and is not
+                 * two adjacent dashes; `- -x` on its own line likewise; `--x` as a decrement is
+                 * handled in parse_statement. A trailing `x = 1  -- why` is still missed, which is
+                 * the honest limit of a lexical rule here.
+                 *
+                 * The whitespace after `--` matters: a comment is written `-- note`, while `--x`
+                 * with no space is far more likely an attempt at prefix decrement, and answering
+                 * that with advice about comments would be worse than the silence it gets today
+                 * (it parses as a double negation). Prefix decrement has no diagnostic of its own;
+                 * the postfix `x--` does, in parse_statement. */
+                if (peek_at(&lx, 1) == '-' && (peek_at(&lx, 2) == ' ' || peek_at(&lx, 2) == '\t') &&
+                    line_starts_here(&lx, start)) {
+                    ziman_error("lexical", line, col,
+                                "'--' does not start a comment in Ziman -- use '//' to the end of the line (there "
+                                "is no block comment form)");
+                }
                 advance(&lx);
                 if (peek(&lx) == '>') { advance(&lx); emit(&lx, TOK_ARROW, start, 2, line, col); }
                 else emit(&lx, TOK_MINUS, start, 1, line, col);

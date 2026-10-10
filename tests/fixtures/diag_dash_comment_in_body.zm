@@ -1,0 +1,8 @@
+// F28, the half left open when the parser-level check landed: inside a function body `-- a note`
+// is a legal double negation of `a`, so nothing failed until an unrelated "undefined variable",
+// and the comment was invisible. A lexical rule scoped to a line's first non-whitespace reaches it
+// without touching arithmetic.
+fn main() {
+    -- count the items
+    print(1)
+}
