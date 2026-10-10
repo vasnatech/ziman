@@ -1856,6 +1856,17 @@ from source.
   `health-record-backend-ziman`'s `src/test/ziman/`, reserved for exactly this, alongside `src/main/ziman/`) --
   but a marker would still let the language server, `ziman --check` and `ziman --fmt` find a project's root
   without hunting for `main.zm`.
+  *Update 2026-10-10 (F33): done, as a search path rather than a new root.* `ziman.toml` marks a
+  project's root and its directory joins the `use` search path, tried after the importing file's own
+  directory and before `ZIMAN_MODULE_PATH`. **Deliberately not a second resolution scheme:** this
+  entry was written before `ZIMAN_MODULE_PATH` existed, and that variable already solves the
+  test-tree case, so making the marker change the *root* would have been two ways to do one thing.
+  One mechanism, two ways to point it at a directory -- a variable for a harness, a file in the tree
+  for everyone else. Its contents are not read; the name is taken now so a later manifest lands in
+  the file that already marks the root. The search stops after eight levels, so a stray marker in a
+  home directory cannot claim every file beneath it. `tests/run_module_path.sh` (in `make check`)
+  covers it, and is a script rather than a fixture because the entry file has to sit *below* the
+  root, which the fixture runner's `name/main.zm` layout cannot express.
 
 - **`format`/`str` follow-ups -- done (D2); one idea left.** `str`/`print`/`format` display a `float` as the
   shortest round-trip text; `format` has `{:.N}` precision (float and decimal) and `{{`/`}}` escapes;

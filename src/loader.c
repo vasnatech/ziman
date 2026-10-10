@@ -81,6 +81,41 @@ static char *resolve_file_path(const char *project_root, const char *use_path) {
     return out;
 }
 
+/* The directory of the nearest `ziman.toml` at or above `start`, or NULL when there is none within
+ * eight levels -- a bound rather than a walk to `/`, so a stray marker in a home directory cannot
+ * silently claim every file beneath it, the same reasoning as lsp.c's six-level `main.zm` hunt.
+ *
+ * ROADMAP.md asked for this marker so that a test under `test/` could `use` a module under `src/`,
+ * and so that tooling could find a project's root without hunting for `main.zm`. The first half was
+ * already solved by ZIMAN_MODULE_PATH below, so the marker does **not** introduce a second way to
+ * resolve a module: its directory simply joins that same search path, which is why it is declared
+ * here rather than next to the project root. One mechanism, two ways to point it at a directory --
+ * an environment variable for a harness, a file in the tree for everyone else.
+ *
+ * **Its contents are not read.** `ziman.toml` is the name the roadmap reserved for a manifest that
+ * does not exist yet; naming the marker now means that manifest later lands in the file already
+ * marking the root instead of a second file appearing beside it. An empty file is the usual case. */
+static char *find_project_marker(const char *start) {
+    char *dir = ziman_xstrdup(start);
+    for (int level = 0; level < 8; level++) {
+        size_t len = strlen(dir) + sizeof "/ziman.toml";
+        char *probe = ziman_xmalloc(len);
+        snprintf(probe, len, "%s/ziman.toml", dir[0] == '\0' ? "." : dir);
+        FILE *f = fopen(probe, "rb");
+        free(probe);
+        if (f != NULL) {
+            fclose(f);
+            return dir;
+        }
+        char *slash = strrchr(dir, '/');
+        if (slash == NULL) break;
+        *slash = '\0';
+        if (dir[0] == '\0') break; /* reached the filesystem root */
+    }
+    free(dir);
+    return NULL;
+}
+
 /* `use foo` looks for `foo.zm` beside the importing file and nowhere else, which is enough for a program
  * laid out in one tree and not enough for the convention every language this one borrows from uses for
  * tests: the tests in a directory of their own, importing the code they test. `src/test/ziman/calc_test.zm`
@@ -96,7 +131,23 @@ static char *resolve_file_path(const char *project_root, const char *use_path) {
  *
  * Returns a readable path from the list, or NULL when none of them is readable (the caller then reports
  * using the project-relative name, which is the one the author wrote and expects to see). */
-static char *resolve_via_module_path(const char *use_path) {
+static char *resolve_via_module_path(const char *use_path, const char *marker_dir) {
+    /* The project marker's own directory is tried first, before anything ZIMAN_MODULE_PATH names:
+     * a file committed in the tree describes that tree better than an environment variable a
+     * harness happened to export, and a harness that wants to win can still point the entry file
+     * somewhere else. Both are tried only after the importing file's own directory, so nothing that
+     * resolves today resolves differently. */
+    if (marker_dir != NULL) {
+        size_t len = strlen(marker_dir) + strlen(use_path) + 6;
+        char *candidate = ziman_xmalloc(len);
+        snprintf(candidate, len, "%s/%s.zm", marker_dir, use_path);
+        FILE *f = fopen(candidate, "rb");
+        if (f != NULL) {
+            fclose(f);
+            return candidate;
+        }
+        free(candidate);
+    }
     const char *env = getenv("ZIMAN_MODULE_PATH");
     if (env == NULL || env[0] == '\0') return NULL;
     const char *p = env;
@@ -140,6 +191,9 @@ typedef struct {
 
 typedef struct {
     const char *project_root;
+    /* The nearest `ziman.toml`'s directory, or NULL -- see find_project_marker. Computed once per
+     * load rather than per `use`, since it cannot change while a graph is loading. */
+    char *marker_dir;
     LoadedEntry *loaded;
     int loaded_count;
     int loaded_cap;
@@ -1575,7 +1629,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     char *source = read_all(file_path);
     if (source == NULL) {
         /* Beside the importing file wins; ZIMAN_MODULE_PATH is only consulted when that misses. */
-        char *from_path = resolve_via_module_path(use_path);
+        char *from_path = resolve_via_module_path(use_path, ldr->marker_dir);
         if (from_path != NULL) {
             source = read_all(from_path);
             if (source != NULL) {
@@ -1641,9 +1695,11 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     return mod;
 }
 
+
 Module *load_module_graph(const char *entry_path, const char *project_root_override) {
     Loader ldr = {0};
     ldr.project_root = project_root_override != NULL ? ziman_xstrdup(project_root_override) : dirname_of(entry_path);
+    ldr.marker_dir = find_project_marker(ldr.project_root);
 
     /* Parsed and resolved before anything else, and stashed on `ldr`
      * itself (not just merged in later, see the merge site below) --

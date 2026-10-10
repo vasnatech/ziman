@@ -42,7 +42,7 @@ all: $(BIN)
 # Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
 # `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
 # the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
-check: test test-nogc unit-tests tls-if-available northstar-if-available fmt-check docs-check libc-free-check xalloc-check
+check: test test-nogc unit-tests module-path-check tls-if-available northstar-if-available fmt-check docs-check libc-free-check xalloc-check
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
@@ -167,6 +167,13 @@ test-tls: $(BIN)
 # not, never fail for its absence. It had been broken for some time before this existed
 # (docs/reviews/tasks.md F25), which is the argument for having it: nothing here was watching the
 # one application that defines "capable enough".
+# How `use` finds a module that is not beside the importing file: ZIMAN_MODULE_PATH, and a
+# `ziman.toml` marking the project root. A script rather than a fixture because the entry file has
+# to sit *below* the root, which tests/run_tests.sh's `name/main.zm` layout cannot express -- see
+# the script's own header.
+module-path-check: $(BIN)
+	@./tests/run_module_path.sh $(BIN)
+
 northstar-if-available: $(BIN)
 	@./tests/run_northstar.sh $(BIN)
 

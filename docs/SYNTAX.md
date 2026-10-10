@@ -984,13 +984,22 @@ fn main() {
   a circular `use` is a compile error rather than infinite recursion. The entry file is never
   itself a `use` target, so a program with no `use` at all behaves exactly as before modules
   existed.
-- **Where `use foo` looks**: `foo.zm` beside the importing file first, then each directory in
-  `ZIMAN_MODULE_PATH` (colon-separated, in order, first match winning), then the bundled core
-  modules. Beside the file always wins, so nothing that resolves without the variable resolves
-  differently with it. The variable is what lets tests live in a directory of their own --
-  `ZIMAN_MODULE_PATH=src/main/ziman` makes `src/test/ziman/calc_test.zm` able to `use calc` --
-  and a module found through the path resolves its own `use` lines the same way, so it may import
-  too. Same shape and spelling as `ZIMAN_RESOURCE_PATH`, which does this for resources.
+- **Where `use foo` looks**: `foo.zm` beside the importing file first, then the directory of the
+  nearest `ziman.toml` at or above it, then each directory in `ZIMAN_MODULE_PATH` (colon-separated,
+  in order, first match winning), then the bundled core modules. Beside the file always wins, so
+  nothing that resolved before either of the middle two resolves differently now. Both exist for the
+  same reason -- letting tests live in a directory of their own -- and are two ways to point one
+  search path at a directory, not two mechanisms: `ZIMAN_MODULE_PATH=src/main/ziman` makes
+  `src/test/ziman/calc_test.zm` able to `use calc`, and a `ziman.toml` at a project's root lets
+  anything under it write the project-relative path instead (`use src/main/ziman/calc`), which is
+  the same path a file beside the subject would use. A module found either way resolves its own
+  `use` lines the same way, so it may import too. `ZIMAN_MODULE_PATH` has the same shape and
+  spelling as `ZIMAN_RESOURCE_PATH`, which does this for resources.
+- **`ziman.toml`** marks a project's root and **nothing reads its contents** -- an empty file is the
+  usual case. It is the name reserved for a manifest that does not exist yet, taken now so that
+  manifest later lands in the file already marking the root rather than a second file appearing
+  beside it. The search for it stops after eight levels, so a stray one in a home directory cannot
+  quietly claim every file beneath it.
 - **`native fn name[<TypeParams>](params) -> type`** declares a function with no body — its
   implementation is a C function registered under its exact fully-qualified name, looked up at
   call time; calling one with nothing registered is a runtime error. A generic native fn takes
