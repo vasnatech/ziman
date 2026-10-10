@@ -1055,6 +1055,22 @@ from source.
   also entangled with the module system above: an effect story and a
   native-vs-pure-Ziman module boundary are naturally related questions
   (does calling into a native module always count as an effect?).
+  *Update 2026-10-10: considered under the AI-first ranking and deliberately
+  left here rather than promoted.* The gap is real and easy to show -- a pure
+  `tidy(name: string) -> string` and a `tidy_and_log` that writes and deletes
+  a file have **identical signatures**, so `--api`, the type checker and a
+  reader all see the same thing. And the notation is in the training
+  distribution: cold benchmark attempts wrote `/ {IO}`, `! {IO}` and `-> T !
+  IO` unprompted. But it is **4 of 30 attempts, all in the first wave and none
+  in the two since**, so this is a habit models carry rather than a thing they
+  repeatedly fail on -- the AI-first case is weak and the case for it remains
+  the design one above. The native-boundary question now has a number against
+  it too: `fs` declares 21 natives and `os` 28, so "calling a native is an
+  effect" makes nearly everything effectful and the annotation stops
+  discriminating, while "it isn't" leaves `fs.write_text` invisible -- failing
+  at the exact case that motivates the feature. Propagation is the other cost:
+  every caller inherits transitively, and every generic function needs effect
+  polymorphism.
 - ~~**Modules / multi-file programs.**~~ Implemented (`src/loader.c`):
   - **One file = one module**, identified by its filesystem path — no
     separate `module Foo` declaration to keep in sync with the filename.
