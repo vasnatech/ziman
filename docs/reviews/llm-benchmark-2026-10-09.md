@@ -279,3 +279,54 @@ What it does not say: the holdout's habit mix was far more uniformly Haskell tha
 the fixes being exercised were disproportionately the comment, `import` and `do ... end` messages.
 "F28 generalises" is supported for those; the effect-row message was not tested at all here, having
 appeared in 0 of 10 cold attempts. One instance per task remains one sample.
+
+## Wave three, 2026-10-10: ten more tasks, and the first run with `ziman --api`
+
+Ten of the twenty tasks still untouched (12, 19, 21, 25, 26, 32, 35, 40, 46, 48), one instance each.
+Two things differ from the holdout, and the second is the point: `lines`, `reverse_string`,
+`collections.join` and `collections.sum` now exist (F35), and **round 2 was allowed `ziman --api`**
+(F34), which makes this a measurement of that feature rather than only of the diagnostics.
+
+### Round 1: 0 of 10 compiled
+
+Fourth independent replication, now across **40 distinct tasks**. All ten clean on the contamination
+screen. This batch's habits skewed Rust/Python where the holdout's skewed Haskell -- semicolons in
+3 of 10, `let` nearly everywhere, `Int`/`String` capitalised -- which is more evidence that the
+habit mix varies per batch and that no single batch should be read as the distribution.
+
+Five of the ten first-errors were messages written on 2026-10-09: the semicolon rule, `let`, the
+lowercase-types list, and `import`.
+
+### Round 2 with `--api`: 10 of 10 compiled, 9 of 10 correct
+
+| task | compiles | edits | compiler invocations | did `--api` help? |
+|---|---|---|---|---|
+| 26 gcd | yes | 1 | **3** | no -- the lowercase-types message was the whole fix |
+| 32 filter_records | yes | 2 | 4 | marginally |
+| 19 remove_duplicates | yes | 1 | 5 | **decisively** -- found `collections.distinct` |
+| 21 zip_two_lists | yes | 1 | 5 | modestly |
+| 35 parse_command | yes | 1 | 6 | barely |
+| 40 recursive_tree_sum | yes | 1 | 6 | barely |
+| 48 roman_numerals | yes | 3 | 6 | mildly |
+| 12 count_vowels | yes | 1 | 7 | no -- it has no `chars`, so it nearly misled |
+| 46 word_frequencies | yes | 1 | 8 | **yes** -- ruled out a `strings` module outright |
+| 25 char_frequency | yes | 1 | 22 | **decisively** -- found `collections.frequencies` |
+
+**Median invocations 6, against the holdout's 11.5 without `--api`** -- roughly half the compiler
+traffic for the same outcome. Both decisive cases are the same shape: a run had hand-rolled a loop,
+`--api collections` showed the function that already did it (`distinct`, `frequencies`), and the
+program collapsed to one call. That is the cost `--api` was built to remove, and it removed it.
+
+**The one wrong answer is the most useful result here.** Task 25 compiles and then dies at runtime
+with *split: separator must not be empty*: the run wanted a string's characters, `chars(s)` is
+exactly that, and **`--api` never showed it, because `chars` is a builtin and `--api` lists
+modules**. The same gap made task 46 conclude "there is no `keys` function" when `map_keys` is a
+builtin, and made task 12 say `--api` "would have misled me". So the feature has a hole in precisely
+the place it was meant to fix, and the fix is to list the builtins and the primitive type names, not
+only mention them in a sentence. Task 26's run said the same thing unprompted: "that is a
+naming-discovery cost that `--api` does not currently cover".
+
+Secondary finding, reported by three runs independently: **one bad `let` produces two or three
+cascading errors** ("assignment to undefined variable", then "use of undefined variable"), so three
+bad lines gave seven errors. The first message is the good one; the rest is noise a blind fixer can
+chase.
