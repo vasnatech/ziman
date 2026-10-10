@@ -1155,7 +1155,14 @@ from source.
     "no operator overloading" reason (see docs/DESIGN.md's "Numbers"
     entry) — those stay hardcoded in `eval_binary`/`check_binary`
     regardless of what happens to function-shaped builtins.
-- **Generics — in progress, now a five-stage plan.** Design decided
+- ~~**Generics — in progress, now a five-stage plan.**~~ **All five stages are
+  implemented (2026-10-10, F39): this heading outlived them.** Generic structs,
+  bounded type parameters, generic enums, cross-module generics and generic
+  functions all shipped and are struck through below. The only residue is the
+  limit stated in this paragraph -- a generic function body can do nothing with
+  an abstract `T` beyond `Eq`/`Hash`/`Ord` -- and extending *that* was the `Row`
+  bound, which C18 withdrew on 2026-10-09 after finding it cannot work the way
+  `compare` does. Design decided
   (docs/DESIGN.md's "Generics" entry): explicit type arguments everywhere
   (no inference), a new `TY_TYPEVAR` substituted on demand rather than
   monomorphized (`Value` is already runtime-type-erased, so there's no
@@ -1496,7 +1503,31 @@ from source.
   shipped -- function types and references to named top-level functions, no
   capture; see docs/DESIGN.md's function-values entry. What follows is the
   original reasoning, kept for the record; capturing lambdas are still
-  open.* Originally: function calls only
+  open.*
+  *Update 2026-10-10 (F39): that "no capture" is out of date, and what is left
+  is one specific thing rather than "closures".* **Capture by value shipped:**
+  a lambda literal captures a `val` (`fn(n) { n * factor }`), and it may
+  outlive the function that built it -- `fn multiplier(by: int) -> fn(int) ->
+  int { return fn(n) { n * by } }` works, capturing a parameter. Verified by
+  running each case rather than from this entry.
+  **The one thing still missing is capturing a `var`**, so a lambda cannot
+  hold mutable state: the classic `fn counter() -> fn() -> int { var n = 0
+  return fn() { n = n + 1 return n } }` is refused, with a message that says
+  why -- captures are by value, so capturing a `var` would silently snapshot
+  something the author expects to stay live. That is not academic:
+  `lib/core/metrics.zm`'s own header gives it as the reason every counter,
+  gauge and histogram in that module is native ("a Ziman lambda cannot mutate
+  what it captures, so state shared across threads has to sit behind a handle
+  the way `StringBuilder` and `Iter` do"). So the open question is narrower
+  and sharper than "closures": should a lambda capture a `var` by reference,
+  what owns the cell, and what does that mean across threads -- which is the
+  "new runtime representation bundling code + captured environment" this entry
+  anticipated, plus the thread-safety question the metrics module already
+  answers in C.
+  *Separately, and small: `multiplier(3)(5)` does not parse (`expected ')',
+  found '('`) -- calling a returned function requires binding it first. A
+  parser limitation, independent of capture.*
+  Originally: function calls only
   resolve a bare identifier at parse time; no function values, no passing
   a function as an argument. Considered building this before `spawn`
   (whose natural long-run shape would take a closure) and deliberately

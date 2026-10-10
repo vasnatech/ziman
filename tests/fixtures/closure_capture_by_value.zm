@@ -1,0 +1,29 @@
+// F39: what capture actually does today, pinned, because the roadmap entry said "no capture" long
+// after capture by value had shipped. A lambda captures a `val`, and may outlive the function that
+// built it -- the `multiplier` case below captures a parameter and is called after `multiplier` has
+// returned. What it cannot capture is a `var`, which is the single open piece and has its own
+// fixture in diag_lambda_captures_var.
+fn apply(f: fn(int) -> int, x: int) -> int {
+    return f(x)
+}
+
+fn double(n: int) -> int {
+    return n * 2
+}
+
+fn multiplier(by: int) -> fn(int) -> int {
+    return fn(n) { n * by }
+}
+
+fn main() {
+    print(apply(double, 5))
+    print(apply(fn(n) { n * 2 }, 5))
+    val factor = 3
+    print(apply(fn(n) { n * factor }, 5))
+    val triple = multiplier(3)
+    print(triple(5))
+    // a `val` copied from a `var` captures fine, which is what the diagnostic tells you to do
+    var running = 4
+    val fixed = running
+    print(apply(fn(n) { n * fixed }, 5))
+}

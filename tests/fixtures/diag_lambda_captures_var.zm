@@ -1,0 +1,13 @@
+// F39: the one piece of closures still open -- a lambda cannot capture a `var`, so it cannot hold
+// mutable state, and the classic counter is inexpressible. Deliberate: captures are by value, so
+// capturing a `var` would silently snapshot something the author expects to stay live.
+// lib/core/metrics.zm's header gives this as the reason its counters and gauges are native.
+fn counter() -> fn() -> int {
+    var n = 0
+    return fn() { n = n + 1 return n }
+}
+
+fn main() {
+    val next = counter()
+    print(next())
+}

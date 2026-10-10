@@ -1,0 +1,1 @@
+a lambda cannot capture 'n' because it is a 'var' -- copy it into a 'val' first
