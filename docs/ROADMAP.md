@@ -2020,6 +2020,19 @@ from source.
      request can be followed across services; then, if wanted, an OpenTelemetry (OTLP over HTTP/JSON) exporter on top
      of `client` and `json`, which needs a background thread to batch.
   5. **`log`**: an optional JSON line format carrying a request id.
+     *Investigated 2026-10-10, not yet built -- the one design decision it needs is settled, so the
+     next attempt should not re-derive it.* **Escape through the `json` module, not by hand.**
+     `log`'s existing `single_line` escapes control bytes as `\xNN`, which is not valid JSON, and a
+     hand-rolled JSON escaper in `log.zm` would reproduce exactly what A8 fixed: invalid UTF-8
+     flowing into a document that other parsers reject. `json.json_to_string(Json.JString(s))`
+     quotes and escapes correctly (verified: `he said \"hi\"`, `a\nb\tc`) and substitutes U+FFFD for
+     invalid sequences. There is no import cycle -- `json` imports only `number.float_to_text` --
+     and the cost is that every program using `log` then loads `json`, which is the right trade
+     against emitting malformed JSON. Remaining shape: a `json: bool` on `Logger` set through
+     `logger(...)`'s `Option` parameters like `timestamps`, a request id carried the way `prefix`
+     is (with a `with_request_id` returning a copy, mirroring `with_prefix`), the id omitted rather
+     than `null` when absent, and `prefix` as its own field rather than glued to the message, since
+     a field is the point of a structured line.
   Out of scope: an agent or collector of our own; the module only exposes numbers for one to scrape.
   *Update 2026-10-07 (F10): 1 and 2 are done. `lib/core/metrics.zm` over `src/native_metrics.c` has counters, gauges and histograms with
   `Map<string, string>` labels, a documented 128-series cap per metric whose drops are themselves rendered, and `render()` in the Prometheus
