@@ -734,6 +734,20 @@ from source.
 
   Ranked by what the measurements actually point at, each with its mechanism already identified:
 
+  **Re-measured 2026-10-10 (F31), and (1) below is mis-ranked: the wrapper allocation is not the
+  cost, and (2) is not merely "what makes that allocation expensive" -- it is the whole of it.** An
+  `Option.Some` allocation on its own costs ~94-123ns. The same allocation with a 100,000-entry map
+  alive costs **~6,800ns, a 41x slowdown of an allocation that has nothing to do with the map**, and
+  `map_get` (6,424ns net) versus `map_get_or` (106ns net) is that same 60x, not nine tenths of a
+  wrapper. So removing the `Option` would not win 9x; anything else allocating in that loop pays the
+  same toll. `map_get_or` is already the non-allocating path, at 106ns against CPython's 87ns for
+  `dict.get`. **And the one fix this entry suggested for (2) was tried and does nothing:** a
+  one-entry last-block-found cache in `gc_lookup`, reverted after paired interleaved rounds showed
+  set 231->216ms, get 565->570ms and the 41x case 6,782->6,821ms, all inside the run-to-run spread --
+  marking's locality is not block-local, so the cached block misses. That makes four cheap fixes for
+  (2) measured and reverted; what is left is the per-arena sorted block index, which is the only
+  suggestion never tried, and it is not cheap.
+
   1. **`get` allocates an `Option` and `contains` does not, which costs ~9x.** Same trie descent,
      1856ns against 214ns (and 2989 against 254 for the immutable `Map`), where Python's own two are
      87 and 64. So roughly nine tenths of `get` is the wrapper allocation and the collection work it
