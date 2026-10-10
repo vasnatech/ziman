@@ -22,4 +22,10 @@
 
 const char *corelib_source_for(const char *use_path);
 
+/* The bundled modules, for `ziman --api` with no module named: a reader (or a model) with no
+ * documentation open has otherwise no way to ask what exists, which the 2026-10-09 benchmark
+ * measured as the single largest consumer of its fix budget. */
+int corelib_module_count(void);
+const char *corelib_module_name(int i);
+
 #endif

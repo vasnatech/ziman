@@ -100,6 +100,15 @@ static const CoreModule CORE_MODULES[] = {
 };
 #pragma GCC diagnostic pop
 
+int corelib_module_count(void) {
+    return (int)(sizeof(CORE_MODULES) / sizeof(CORE_MODULES[0]));
+}
+
+const char *corelib_module_name(int i) {
+    if (i < 0 || i >= corelib_module_count()) return NULL;
+    return CORE_MODULES[i].name;
+}
+
 const char *corelib_source_for(const char *use_path) {
     size_t n = sizeof(CORE_MODULES) / sizeof(CORE_MODULES[0]);
     for (size_t i = 0; i < n; i++) {

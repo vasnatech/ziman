@@ -149,8 +149,8 @@ mutable) as `file:line:col: warning: ...`, or JSON with `"severity":"warning"`,
 and exits 1 if there are any; `--coverage` runs the program and then reports to stderr, per file, how many
 lines of your own code executed and which ones did not (`file.zm: 3/5 lines (60%)` and a `not run:`
 list), exiting 1 if any did not -- stderr so the program's own stdout is unchanged, the same rule
-`--profile` and `--locals` follow, while the tools that do not run your program (`--check`, `--fmt`,
-`--lint`) report on stdout because their findings are the whole output -- an executable line is one some statement starts on, so a `}`, a
+`--profile` and `--locals` follow, while the tools that do not run your program (`--api`, `--check`,
+`--fmt`, `--lint`) report on stdout because their findings are the whole output -- an executable line is one some statement starts on, so a `}`, a
 blank line and a block's opening brace are never counted against you, and bundled modules and
 `#[derive]`-generated code are left out the same way `--lint` leaves them out; `ziman test
 --coverage file.zm ...` does the same across a whole suite, merging files parsed once per test file
@@ -171,7 +171,14 @@ the post-mortem half of a debugger, which arrives on the first failure with no s
 in a CI run or a crash someone else reported. Opt-in because a value can be large and a variable
 can hold something that should not reach a log; a name shadowed by an inner block is shown once, as
 the binding that was live, a string is quoted so it cannot be read as a number, and a long value is
-truncated. `--fmt file.zm...` prints the source formatted
+truncated. `ziman --api <module>` prints what a module offers -- its `pub` types and function
+signatures, in the language's own notation, read from the parsed declarations rather than scanned
+out of text, so it is what the compiler sees. `ziman --api` with no module lists the bundled ones
+and says that the builtins need no `use`. It takes a bundled name (`--api fs`) or a path to a `.zm`
+file, so it answers for your own modules too. It exists because of a measurement: in the 2026-10-09
+generation benchmark, *name discovery* -- not syntax -- was the single largest consumer of a cold
+model's effort, with runs brute-forcing eight candidate names before reaching `fs.write_text` and
+six before `map_get`. `--fmt file.zm...` prints the source formatted
 (`--fmt --write` rewrites the files, `--fmt --check` lists the ones that would
 change and exits 1, `--fmt -` reads stdin, `--width=N` sets the wrap column,
 default 120, 0 = never, and `--canonical` also settles brace placement -- a line-leading `{` joins

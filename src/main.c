@@ -23,6 +23,9 @@
 #include "profile.h"
 #include "error.h"
 #include "interpreter.h"
+#include "corelib.h"
+#include "parser.h"
+#include "lexer.h"
 #include "loader.h"
 #include "native_clock.h"
 #include "native_crypto.h"
@@ -48,7 +51,11 @@ static void usage(FILE *out) {
           "  test             run every #[test] function in the given files (see\n"
           "                   docs/SYNTAX.md \"Testing\"); PASS/FAIL per test, then a\n"
           "                   summary; exit 1 if any failed\n"
-          "  --check          load and type-check only; do not run the program\n"
+          "  --api [module]   what a module offers: its `pub` types and function signatures, in\n"
+        "                   the language's own notation. With no module, lists the bundled\n"
+        "                   ones. Takes a bundled name (`--api fs`) or a path to a .zm file,\n"
+        "                   so it works on your own modules too\n"
+        "  --check          load and type-check only; do not run the program\n"
           "  --json           report errors as one JSON object per error on stderr\n"
           "                   (with --check, print {\"ok\":true} on success)\n"
           "  --lint           report style findings (a `var` never reassigned) in your own\n"
@@ -306,6 +313,129 @@ static void *run_tests_program(void *raw) {
     exit(total_failed != 0 ? 1 : (uncovered == 0 ? 0 : 1));
 }
 
+/* `ziman --api [module]`: what a module offers, in the language's own notation.
+ *
+ * This exists because of a measurement rather than a hunch. In the 2026-10-09 generation benchmark
+ * (docs/reviews/llm-benchmark-2026-10-09.md) the single largest consumer of the fix budget was not
+ * syntax but *name discovery*: with no documentation to hand, runs brute-forced eight candidates
+ * before reaching `fs.write_text`, six before `map_get`, and thirteen to fifteen probe compiles
+ * hunting `int` and `string`. One reached for `--lsp` completion precisely because no command-line
+ * way to ask existed. Diagnostics can name a fix for a habit somebody anticipated; they cannot
+ * enumerate a library.
+ *
+ * Printed from the parsed declarations, not by scanning text, so what it says is what the compiler
+ * sees -- and `pub` only, since anything else is not callable from outside the module anyway. */
+static void print_type(const char *prefix, Type t) {
+    char *shown = type_name(t);
+    printf("%s%s", prefix, shown);
+    free(shown);
+}
+
+/* `<T: Ord, K>` -- the bounds matter as much as the names here: the benchmark's runs had to
+ * discover by probing that `collections.sort` needs its type argument written out, which a
+ * signature without its type parameters cannot tell anyone. */
+static void print_type_params(const TypeParamList *tp) {
+    if (tp->count == 0) return;
+    printf("<");
+    for (int i = 0; i < tp->count; i++) {
+        if (i > 0) printf(", ");
+        printf("%s", tp->items[i].name);
+        int bound = tp->items[i].bound, any = 0;
+        if (bound & BOUND_EQ) { printf(": Eq"); any = 1; }
+        if (bound & BOUND_HASH) { printf("%s", any ? " + Hash" : ": Hash"); any = 1; }
+        if (bound & BOUND_ORD) { printf("%s", any ? " + Ord" : ": Ord"); }
+    }
+    printf(">");
+}
+
+static void print_api_module(const char *name, Module *m) {
+    printf("module %s%s\n", name, m->experimental ? "  (experimental)" : "");
+    for (int i = 0; i < m->structs.count; i++) {
+        StructDecl *s = m->structs.items[i];
+        if (s->visibility != VIS_PUBLIC) continue;
+        printf("\nstruct %s", s->name);
+        print_type_params(&s->type_params);
+        printf(" {\n");
+        for (int f = 0; f < s->fields.count; f++) {
+            printf("    %s: ", s->fields.items[f].name);
+            print_type("", s->fields.items[f].type);
+            printf("\n");
+        }
+        printf("}\n");
+    }
+    for (int i = 0; i < m->enums.count; i++) {
+        EnumDecl *e = m->enums.items[i];
+        if (e->visibility != VIS_PUBLIC) continue;
+        printf("\nenum %s", e->name);
+        print_type_params(&e->type_params);
+        printf(" {\n");
+        for (int v = 0; v < e->variants.count; v++) {
+            printf("    %s", e->variants.items[v].name);
+            if (e->variants.items[v].has_payload) {
+                print_type("(", e->variants.items[v].payload_type);
+                printf(")");
+            }
+            printf("\n");
+        }
+        printf("}\n");
+    }
+    int printed_fns = 0;
+    for (int i = 0; i < m->functions.count; i++) {
+        FunctionDecl *f = m->functions.items[i];
+        if (f->visibility != VIS_PUBLIC) continue;
+        if (!printed_fns) { printf("\n"); printed_fns = 1; }
+        printf("fn %s", f->name);
+        print_type_params(&f->type_params);
+        printf("(");
+        for (int p = 0; p < f->params.count; p++) {
+            if (p > 0) printf(", ");
+            printf("%s: ", f->params.items[p].name);
+            print_type("", f->params.items[p].type);
+        }
+        printf(")");
+        if (f->return_type.kind != TY_VOID) print_type(" -> ", f->return_type);
+        printf("\n");
+    }
+}
+
+static int run_api(const char *module_name) {
+    if (module_name == NULL) {
+        printf("bundled modules (ziman --api <name> for one of them):\n");
+        for (int i = 0; i < corelib_module_count(); i++) printf("  %s\n", corelib_module_name(i));
+        printf("\nBuiltins like print, len, format, str, concat, substring, split, push, set,\n"
+               "map_get and contains need no 'use' at all -- see docs/SYNTAX.md \"Builtins\".\n");
+        return 0;
+    }
+    const char *source = corelib_source_for(module_name);
+    char *owned = NULL;
+    if (source == NULL) {
+        /* Not bundled: try it as a file, so this works on a project's own modules too. */
+        size_t len = strlen(module_name) + 4;
+        char *path = ziman_xmalloc(len);
+        snprintf(path, len, "%s.zm", module_name);
+        FILE *f = fopen(strstr(module_name, ".zm") != NULL ? module_name : path, "rb");
+        free(path);
+        if (f == NULL) {
+            fprintf(stderr, "ziman: no bundled module or file named '%s' -- 'ziman --api' lists the bundled ones\n",
+                    module_name);
+            return 1;
+        }
+        fseek(f, 0, SEEK_END);
+        long size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        owned = ziman_xmalloc((size_t)size + 1);
+        size_t got = fread(owned, 1, (size_t)size, f);
+        owned[got] = '\0';
+        fclose(f);
+        source = owned;
+    }
+    TokenList tokens = lex(source);
+    Module *m = parse(tokens);
+    print_api_module(module_name, m);
+    free(owned);
+    return 0;
+}
+
 static int run_tests_main(int argc, char **argv) {
     /* Accept --coverage anywhere among the file names and strip it, so `ziman test --coverage a.zm`
      * and `ziman test a.zm --coverage` both work and neither leaves the flag to be opened as a
@@ -396,6 +526,11 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--profile") == 0) profile = 1;
         else if (strcmp(a, "--locals") == 0) locals = 1;
         else if (strcmp(a, "--fmt") == 0) fmt = 1;
+        else if (strcmp(a, "--api") == 0) {
+            /* The module name is optional: `--api` alone lists what exists, which is the first
+             * question a reader without documentation has. */
+            return run_api(i + 1 < argc ? argv[i + 1] : NULL);
+        }
         else if (strcmp(a, "--lsp") == 0) lsp = 1;
         else if (strcmp(a, "--write") == 0) fmt_write = 1;
         else if (strncmp(a, "--width=", 8) == 0) fmt_width = atoi(a + 8);
