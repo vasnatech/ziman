@@ -1,0 +1,36 @@
+// F54: starting another program. Until this existed Ziman could not write a test harness, a build
+// script or a deploy tool -- found missing by the reference backend's test migration, where 19 of
+// 20 suites start the server as a child process.
+//
+// Note every call names its arguments: an optional parameter can be left out only in a named call,
+// so `process.run(program: "/bin/echo", args: [])` is the spelling, not `run("/bin/echo", [])`.
+use process
+
+fn main() {
+    val code = switch process.run(program: "/bin/echo", args: ["hello"]) {
+        Ok(c) { c }
+        Err(e) { print(concat("run failed: ", e)) 0 - 1 }
+    }
+    print(concat("echo exits ", str(code)))
+
+    // a non-zero exit is a value, not an error: the program ran and said no
+    val refused = switch process.run(program: "/bin/false", args: []) {
+        Ok(c) { str(c) }
+        Err(e) { concat("<", e, ">") }
+    }
+    print(concat("false exits ", refused))
+
+    // a program that is not there is an error, and the message says which program
+    val missing = switch process.run(program: "/no/such/program", args: []) {
+        Ok(c) { concat("unexpectedly ok ", str(c)) }
+        Err(e) { e }
+    }
+    print(missing)
+
+    // stdout captured as a string
+    val text = switch process.output(program: "/bin/echo", args: ["captured"]) {
+        Ok(t) { trim(t) }
+        Err(e) { concat("<", e, ">") }
+    }
+    print(concat("output is '", text, "'"))
+}

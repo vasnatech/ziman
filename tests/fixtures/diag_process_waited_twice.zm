@@ -1,0 +1,18 @@
+// F54: `wait` reaps the child and ends the handle, so a second `wait` has nothing to answer. The
+// message says both things it could mean, because this is the one place a double wait lands -- a
+// check inside `wait` itself would be unreachable, which an earlier version of native_process.c
+// had and which calling `wait` twice is what found.
+use process
+
+fn main() {
+    val p = switch process.start(program: "/bin/true", args: []) {
+        Ok(proc) { proc }
+        Err(e) { print(e) return }
+    }
+    val first = process.wait(p)
+    if Err(e) = first {
+        print(concat("unexpected: ", e))
+    }
+    val _again = process.wait(p)
+    print("not reached")
+}

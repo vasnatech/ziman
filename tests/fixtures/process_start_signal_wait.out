@@ -1,0 +1,3 @@
+pid is positive: true
+in /etc with GREETING=hi
+terminated exit code 143

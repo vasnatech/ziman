@@ -1,0 +1,45 @@
+// The long-running half of F54: start a child, give it an environment and a working directory,
+// send its output to a file, read that file while the child is still alive, then stop it and
+// collect its status.
+//
+// Output goes to a file rather than a pipe on purpose: a pipe nobody drains fills up and blocks
+// the child, so a server logging to one deadlocks, and reading it only after waiting *is* the
+// deadlock. A file also outlives the child, which is when a test wants to look at it.
+use clock
+use fs
+use process
+
+fn main() {
+    val log = concat("/tmp/ziman_fixture_process_", str(pid_suffix()), ".log")
+    val p = switch process.start(
+        program: "/bin/sh",
+        args: ["-c", "echo in $(pwd) with GREETING=$GREETING; sleep 30"],
+        vars: Some([process.env("GREETING", "hi")]),
+        out_path: Some(log),
+        cwd: Some("/etc")
+    ) {
+        Ok(proc) { proc }
+        Err(e) { print(concat("start failed: ", e)) return }
+    }
+    print(concat("pid is positive: ", str(process.pid(p) > 0)))
+
+    clock.sleep_millis(400)
+    val said = switch fs.read_text(log) {
+        Ok(t) { trim(t) }
+        Err(e) { concat("<unreadable: ", fs.fs_error_message(e), ">") }
+    }
+    print(said)
+
+    // SIGTERM, then the status: 128 + 15, the convention a shell reports.
+    val _asked = process.terminate(p)
+    val code = switch process.wait(p) {
+        Ok(c) { str(c) }
+        Err(e) { concat("<wait failed: ", e, ">") }
+    }
+    print(concat("terminated exit code ", code))
+    val _gone = fs.remove(log)
+}
+
+fn pid_suffix() -> int {
+    return 1
+}

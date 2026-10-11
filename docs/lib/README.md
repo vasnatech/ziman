@@ -48,6 +48,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 |---|---|
 | [`fs`](fs.md) | The filesystem: files, directories and paths. |
 | [`os`](os.md) | The process and its environment. |
+| [`process`](process.md) | Starting another program, waiting for it, signalling it. |
 | [`thread`](thread.md) | What a thread can ask about itself, and values that are different on every thread. |
 | [`log`](log.md) | Levelled logging to stderr or to a file. |
 | [`metrics`](metrics.md) | Counters, gauges and histograms that the threads of a server share, and a render of them in the Prometheus text format for something to scrape. |

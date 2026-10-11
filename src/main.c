@@ -14,6 +14,7 @@
 #include "native_http.h"
 #include "native_bits.h"
 #include "native_metrics.h"
+#include "native_process.h"
 #include "native_math.h"
 #include "native_number.h"
 #include "native_os.h"
@@ -183,6 +184,7 @@ static void register_all_natives(void) {
     native_math_register();
     native_bits_register();
     native_metrics_register();
+    native_process_register();
     native_http_register();
     native_thread_register();
     native_csv_register();

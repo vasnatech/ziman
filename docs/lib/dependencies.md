@@ -26,6 +26,7 @@ flowchart LR
         number["number"]
         os["os"]
         otp["otp"]
+        process["process"]
         properties["properties"]
         random["random"]
         regex["regex"]
@@ -110,6 +111,8 @@ flowchart LR
     pg --> net
     pg --> number
     pg --> random
+    process --> fs
+    process --> os
     properties --> fs
     properties --> os
     server --> clock
@@ -152,7 +155,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 0 | `bits`, `clock`, `collections`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
 | 1 | `crypto`, `json`, `os`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `toml`, `yaml` |
-| 3 | `csv`, `log`, `mysql`, `pg`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
+| 3 | `csv`, `log`, `mysql`, `pg`, `process`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
 | 4 | `datasource`, `time` |
 | 5 | `client`, `migrate` |
 
@@ -169,7 +172,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
 | `db` | `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
-| `fs` | `os` | `csv`, `log`, `migrate`, `properties`, `zone` |
+| `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `zone` |
 | `http` | `mime`, `number`, `random`, `url` | `client`, `server` |
 | `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
@@ -182,9 +185,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `mysql`, `pg`, `server` |
 | `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
-| `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `properties`, `server`, `zone` |
+| `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
+| `process` | `fs`, `os` | - |
 | `properties` | `fs`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |

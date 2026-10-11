@@ -1,0 +1,5 @@
+hello
+echo exits 0
+false exits 1
+cannot start '/no/such/program': No such file or directory
+output is 'captured'

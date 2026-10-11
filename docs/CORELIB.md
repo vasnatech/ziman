@@ -1033,6 +1033,38 @@ pub fn provisioning_uri(issuer: string, account: string, secret: string) -> stri
 
 ```
 
+## `process`
+
+```
+pub struct Process {
+    handle: int
+}
+
+pub struct EnvVar {
+    name: string
+    value: string
+}
+
+pub fn env(name: string, value: string) -> EnvVar
+
+pub fn start(
+
+pub fn wait(p: Process) -> Result<int, string>
+
+pub fn terminate(p: Process) -> Result<unit, string>
+
+pub fn kill(p: Process) -> Result<unit, string>
+
+pub fn release(p: Process)
+
+pub fn pid(p: Process) -> int
+
+pub fn run(
+
+pub fn output(
+
+```
+
 ## `properties`
 
 ```

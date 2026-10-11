@@ -1,0 +1,144 @@
+# `process`
+
+Starting another program, waiting for it, signalling it.
+
+Ziman had no way to do this until F54, which made a whole class of program -- a test harness, a
+build script, a deploy tool -- impossible to write in it. It was found missing by the reference
+backend's own test migration: 19 of its 20 suites start the server as a child process.
+
+Output goes to a **file**, not a pipe. `start` takes optional paths for the child's stdout and
+stderr; given none, the child inherits this process's. There is no pipe-reading API on purpose --
+a pipe nobody drains fills up and blocks the child, so a server logging to one deadlocks after a
+few kilobytes, and "read it after waiting" is itself the deadlock. A file has no such limit, and
+is still there to read with `fs.read_text` after the child is gone, which is when a test wants it.
+
+`use process` -- or `use process.Name` to bring one item in bare.
+
+### `Process`
+
+```
+pub struct Process {
+    handle: int
+}
+```
+
+A running (or finished) child. Hold it, wait for it, signal it; the handle stops being valid once
+`wait` or `release` has reaped the child, and using it after that is a runtime error rather than a
+quietly wrong answer.
+
+### `EnvVar`
+
+```
+pub struct EnvVar {
+    name: string
+    value: string
+}
+```
+
+One `NAME=value` setting for a child's environment. A pair rather than two parallel arrays so a
+caller cannot get them out of step, and a struct rather than a map because order is preserved and
+a repeated name is a caller's bug worth seeing rather than one silently collapsed.
+
+### `env`
+
+```
+pub fn env(name: string, value: string) -> EnvVar
+```
+
+### `start`
+
+```
+pub fn start(
+    program: string,
+    args: [string],
+    vars: Option<[EnvVar]> = None,
+    out_path: Option<string> = None,
+    err_path: Option<string> = None,
+    cwd: Option<string> = None
+) -> Result<Process, string>
+```
+
+Starts `program` with `args`, which are the arguments *after* the program name -- argv[0] is the
+program itself, the way a shell and exec already do it, so the name is never repeated.
+
+`vars` are applied over this process's own environment: a name already present is replaced, not
+duplicated, and an empty value is kept, since `PROFILE_ACTIVE=""` is a setting and not a request
+to unset. `out_path`/`err_path` redirect the child's output to those files, truncating them;
+`None` leaves the child sharing this process's. `cwd` is the directory to run in.
+
+The program is looked up on PATH when it has no '/' in it, as a shell would.
+
+### `wait`
+
+```
+pub fn wait(p: Process) -> Result<int, string>
+```
+
+Blocks until the child ends, then answers its exit code -- or `128 + signal` for one a signal
+ended, the convention a shell reports, so `terminate` then `wait` reads as 143. Reaps the child,
+so it may be called only once: the status is gone afterwards, and a second call is a runtime
+error rather than an invented -1.
+
+### `terminate`
+
+```
+pub fn terminate(p: Process) -> Result<unit, string>
+```
+
+Asks the child to stop (SIGTERM). Returns without error if it has already ended -- a child that
+beat you to it is not a failure. Follow it with `wait` to collect the status.
+
+### `kill`
+
+```
+pub fn kill(p: Process) -> Result<unit, string>
+```
+
+Stops the child outright (SIGKILL), for one that ignored `terminate`.
+
+### `release`
+
+```
+pub fn release(p: Process)
+```
+
+Kills, reaps and forgets the child, ignoring every failure. For a cleanup path that must not
+leave a zombie and has nothing useful to do if it cannot -- a test whose assertions already
+failed, say, where reporting a second problem would bury the first.
+
+### `pid`
+
+```
+pub fn pid(p: Process) -> int
+```
+
+### `run`
+
+```
+pub fn run(
+    program: string,
+    args: [string],
+    vars: Option<[EnvVar]> = None,
+    out_path: Option<string> = None,
+    err_path: Option<string> = None,
+    cwd: Option<string> = None
+) -> Result<int, string>
+```
+
+Starts a program and waits for it, answering its exit code. For the common one-shot case where
+there is nothing to do while it runs.
+
+### `output`
+
+```
+pub fn output(
+    program: string,
+    args: [string],
+    vars: Option<[EnvVar]> = None,
+    cwd: Option<string> = None
+) -> Result<string, string>
+```
+
+`run`, with the child's output captured to a temporary file and returned as a string. The file is
+removed before returning, so a caller gets the text and no cleanup. Both streams go to the same
+file, in the order the child wrote them, which is what a reader of a transcript wants.
