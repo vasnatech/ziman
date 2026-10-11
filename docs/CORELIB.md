@@ -1055,6 +1055,10 @@ pub fn terminate(p: Process) -> Result<unit, string>
 
 pub fn kill(p: Process) -> Result<unit, string>
 
+pub fn interrupt(p: Process) -> Result<unit, string>
+
+pub fn wait_for(p: Process, millis: int) -> Result<Option<int>, string>
+
 pub fn release(p: Process)
 
 pub fn pid(p: Process) -> int

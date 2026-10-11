@@ -1,0 +1,4 @@
+while running:  still running
+after kill:     exited 137
+a prompt child: exited 0
+interrupt ends it: yes

@@ -30,6 +30,8 @@ native fn start_raw(
 native fn wait_raw(handle: int) -> Result<int, string>
 native fn terminate_raw(handle: int) -> Result<unit, string>
 native fn kill_raw(handle: int) -> Result<unit, string>
+native fn interrupt_raw(handle: int) -> Result<unit, string>
+native fn wait_for_raw(handle: int, millis: int) -> Result<int, string>
 native fn release_raw(handle: int)
 native fn pid_raw(handle: int) -> int
 
@@ -96,6 +98,28 @@ pub fn terminate(p: Process) -> Result<unit, string> {
 // Stops the child outright (SIGKILL), for one that ignored `terminate`.
 pub fn kill(p: Process) -> Result<unit, string> {
     return kill_raw(p.handle)
+}
+
+// Interrupts the child (SIGINT) -- what a terminal sends on ctrl-C, and a different thing from
+// `terminate` to a program that installs a shutdown handler. Three named signals rather than a raw
+// number: these are what a caller wants, and a number would be less readable and less portable.
+pub fn interrupt(p: Process) -> Result<unit, string> {
+    return interrupt_raw(p.handle)
+}
+
+// `wait`, but giving up after `millis`: `Some(code)` if the child ended in time, `None` if it is
+// still running. Only a child that ended is reaped, so after a `None` a caller can escalate --
+// `kill` then `wait` -- rather than being stuck.
+//
+// Prefer this to `wait` wherever a hang is possible. `wait` on a child that never exits blocks for
+// good, which turns "the server did not shut down" from a failing test into one that never
+// finishes.
+pub fn wait_for(p: Process, millis: int) -> Result<Option<int>, string> {
+    val code = try wait_for_raw(p.handle, millis)
+    if code < 0 {
+        return ok(Option<int>.None)
+    }
+    return ok(Option<int>.Some(code))
 }
 
 // Kills, reaps and forgets the child, ignoring every failure. For a cleanup path that must not

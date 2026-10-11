@@ -96,6 +96,30 @@ pub fn kill(p: Process) -> Result<unit, string>
 
 Stops the child outright (SIGKILL), for one that ignored `terminate`.
 
+### `interrupt`
+
+```
+pub fn interrupt(p: Process) -> Result<unit, string>
+```
+
+Interrupts the child (SIGINT) -- what a terminal sends on ctrl-C, and a different thing from
+`terminate` to a program that installs a shutdown handler. Three named signals rather than a raw
+number: these are what a caller wants, and a number would be less readable and less portable.
+
+### `wait_for`
+
+```
+pub fn wait_for(p: Process, millis: int) -> Result<Option<int>, string>
+```
+
+`wait`, but giving up after `millis`: `Some(code)` if the child ended in time, `None` if it is
+still running. Only a child that ended is reaped, so after a `None` a caller can escalate --
+`kill` then `wait` -- rather than being stuck.
+
+Prefer this to `wait` wherever a hang is possible. `wait` on a child that never exits blocks for
+good, which turns "the server did not shut down" from a failing test into one that never
+finishes.
+
 ### `release`
 
 ```

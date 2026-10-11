@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "error.h"
@@ -250,6 +251,61 @@ static Value native_process_kill(Value *args, int argc, int line, int col) {
     return signal_child(args, SIGKILL, line, col);
 }
 
+/* SIGINT, which is a different thing from SIGTERM to a program that installs a shutdown handler --
+ * the reference backend's own lifecycle test asserts on both, and found this missing. Three named
+ * signals rather than a raw number: `interrupt`, `terminate`, `kill` cover what a caller actually
+ * wants, and a number would be both less readable and less portable. */
+static Value native_process_interrupt(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return signal_child(args, SIGINT, line, col);
+}
+
+/* process::wait_for_raw(handle, millis) -> Result<int, string>: the exit code, or -1 when the child
+ * is still running after the budget. Polling rather than a signal handler or waitid's timeout
+ * because this has to work from any thread of a multithreaded interpreter without installing
+ * anything process-wide, and a 10 ms tick is far below the granularity any caller of this cares
+ * about.
+ *
+ * It exists because `wait` alone makes a hung child hang its caller for good: a test that should
+ * report "the server did not exit" would instead never finish, which is the worst way for a test
+ * to fail. Only a run that *did* exit reaps and ends the handle, so a caller can escalate to
+ * `kill` and `wait` after a timeout. */
+static Value native_process_wait_for(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Type int_type = type_scalar(TY_INT);
+    Child *c = child_get(args[0].as.i, line, col);
+    int64_t budget = args[1].as.i;
+    if (budget < 0) budget = 0;
+    pthread_mutex_lock(&c->mu);
+    int64_t waited = 0;
+    int status = 0;
+    pid_t got = 0;
+    for (;;) {
+        do {
+            got = waitpid(c->pid, &status, WNOHANG);
+        } while (got < 0 && errno == EINTR);
+        if (got != 0) break;            /* exited, or an error worth reporting */
+        if (waited >= budget) {
+            pthread_mutex_unlock(&c->mu);
+            return ok_result(int_type, value_int(-1));
+        }
+        struct timespec tick = {0, 10 * 1000 * 1000};
+        nanosleep(&tick, NULL);
+        waited += 10;
+    }
+    if (got < 0) {
+        int e = errno;
+        pthread_mutex_unlock(&c->mu);
+        return err_resultf(int_type, "cannot wait for the process", e);
+    }
+    c->reaped = 1;
+    c->status = status;
+    pthread_mutex_unlock(&c->mu);
+    handleset_remove(&g_live, c);
+    int code = WIFEXITED(status) ? WEXITSTATUS(status) : (WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1);
+    return ok_result(int_type, value_int(code));
+}
+
 /* process::release_raw(handle) -> unit: SIGKILL, reap, drop the handle, ignoring every failure.
  * For a cleanup path that must not leave a zombie behind and has nothing useful to do if it
  * cannot -- a test whose assertions already failed, say. */
@@ -284,6 +340,8 @@ void native_process_register(void) {
     native_register("process::wait_raw", native_process_wait);
     native_register("process::terminate_raw", native_process_terminate);
     native_register("process::kill_raw", native_process_kill);
+    native_register("process::interrupt_raw", native_process_interrupt);
+    native_register("process::wait_for_raw", native_process_wait_for);
     native_register("process::release_raw", native_process_release);
     native_register("process::pid_raw", native_process_pid);
 }

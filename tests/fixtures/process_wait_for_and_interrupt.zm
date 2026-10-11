@@ -1,0 +1,56 @@
+// F55: `wait_for`, and `interrupt`. Both were found missing by the reference backend's lifecycle
+// suite, which asserts on SIGINT as distinct from SIGTERM and gives every wait a deadline.
+//
+// `wait_for` matters more than it looks: `wait` on a child that never exits blocks for good, so a
+// test that should report "the server did not shut down" would instead never finish -- the worst
+// way for a test to fail. Only a child that ended is reaped, so after `None` a caller can escalate
+// to `kill` and ask again, which is what this file does.
+use process
+
+fn describe(r: Result<Option<int>, string>) -> string {
+    return switch r {
+        Ok(maybe) {
+            switch maybe {
+                Some(code) { concat("exited ", str(code)) }
+                None { "still running" }
+            }
+        }
+        Err(e) { concat("error: ", e) }
+    }
+}
+
+fn main() {
+    val slow = switch process.start(program: "/bin/sh", args: ["-c", "sleep 30"]) {
+        Ok(p) { p }
+        Err(e) { print(e) return }
+    }
+    // The budget expires and the handle stays usable, which is the whole point.
+    print(concat("while running:  ", describe(process.wait_for(slow, 200))))
+    val _killed = process.kill(slow)
+    // 128 + 9: the shell convention for a child a signal ended.
+    print(concat("after kill:     ", describe(process.wait_for(slow, 3000))))
+
+    val quick = switch process.start(program: "/bin/true", args: []) {
+        Ok(p) { p }
+        Err(e) { print(e) return }
+    }
+    print(concat("a prompt child: ", describe(process.wait_for(quick, 3000))))
+
+    // SIGINT ends it too. Only *that* it ended is asserted, not the code: whether a
+    // non-interactive shell runs its INT trap or dies of the signal is the shell's business.
+    val interrupted = switch process.start(program: "/bin/sh", args: ["-c", "sleep 30"]) {
+        Ok(p) { p }
+        Err(e) { print(e) return }
+    }
+    val _asked = process.interrupt(interrupted)
+    val ended = switch process.wait_for(interrupted, 3000) {
+        Ok(maybe) {
+            switch maybe {
+                Some(_) { "yes" }
+                None { "no -- it ignored SIGINT" }
+            }
+        }
+        Err(e) { concat("error: ", e) }
+    }
+    print(concat("interrupt ends it: ", ended))
+}
