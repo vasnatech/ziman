@@ -1965,6 +1965,14 @@ from source.
   needed yet: indexed placeholders (`{0}`, `{1}`) so a translation can reorder its arguments -- the case that
   would justify them is a message catalog whose languages put the pieces in different orders; `format_dynamic`
   would take them first.
+  *Checked 2026-10-10 (F44) and still not needed, with the trigger further off than this entry
+  implies.* **No message catalogue exists** in this library or in the reference backend -- the only
+  mentions of one are `format_dynamic`'s own doc comment and `time.zm` saying it has **no locale,
+  month-name or weekday support at all**. So the justifying case is not merely absent: the
+  groundwork for it is absent too, and indexed placeholders would be among the *last* pieces an
+  i18n story needed rather than the first. **And there is no AI-first case either:** `{0}`-style
+  placeholders appear in **0 of 30** cold benchmark attempts. Sequenced behind a decision about
+  localisation that nobody has asked for; `format_dynamic` remains where they would land.
 
 - **`serve`: per-client connection cap -- done (2026-10-07).** `header_timeout_ms` (E7) frees a slot from a client that dawdles within seconds, but a
   flood from one address can still fill all `max_connections` slots. A cap per client address (`max_connections_per_client`, default 0 = off, since
