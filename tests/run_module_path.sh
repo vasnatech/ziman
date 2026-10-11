@@ -65,5 +65,26 @@ rm "$work/ziman.toml"
 check "ZIMAN_MODULE_PATH, no marker" "8" \
     "$(ZIMAN_MODULE_PATH=$work/src/util "$BIN" "$work/test/beside_test.zm" 2>&1 | head -1)"
 
+# A *relative* entry path, which is how the README and every handwritten invocation spell it. Every
+# case above names the entry file absolutely, which is the only reason F33 could ship with the
+# marker doing nothing in the common invocation: the upward walk ran out of slashes at the first
+# path component and never probed the current directory, so `ziman src/test/x_test.zm` from a
+# project root found no marker while `ziman /abs/src/test/x_test.zm` found one (tasks.md F52).
+touch "$work/ziman.toml"
+check "marker: relative entry path from the project root" "42" \
+    "$(cd "$work" && "$BIN" test/double_test.zm 2>&1 | head -1)"
+check "marker: relative entry path spelled './...'" "42" \
+    "$(cd "$work" && "$BIN" ./test/double_test.zm 2>&1 | head -1)"
+
+# The limit of a relative walk, stated so it is a decision and not a surprise: it cannot rise above
+# the directory it starts in, because a relative path has no way to spell the parent. Run from the
+# project root, or name the entry file absolutely.
+out="$(cd "$work/test" && "$BIN" double_test.zm 2>&1 | head -1)"
+case "$out" in
+    *"cannot find module 'src/util/math'"*) check "relative walk does not rise above the cwd" yes yes ;;
+    *) check "relative walk does not rise above the cwd" yes "no ($out)" ;;
+esac
+rm "$work/ziman.toml"
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

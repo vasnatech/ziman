@@ -98,17 +98,36 @@ static char *resolve_file_path(const char *project_root, const char *use_path) {
 static char *find_project_marker(const char *start) {
     char *dir = ziman_xstrdup(start);
     for (int level = 0; level < 8; level++) {
-        size_t len = strlen(dir) + sizeof "/ziman.toml";
+        /* The "." substitution below is one byte longer than the empty `dir` it stands in for, so
+         * size the buffer for what is actually written -- not for `dir`, which silently truncated
+         * the probe to "./ziman.tom" and made the current-directory case fail. */
+        const char *probe_dir = dir[0] == '\0' ? "." : dir;
+        size_t len = strlen(probe_dir) + sizeof "/ziman.toml";
         char *probe = ziman_xmalloc(len);
-        snprintf(probe, len, "%s/ziman.toml", dir[0] == '\0' ? "." : dir);
+        snprintf(probe, len, "%s/ziman.toml", probe_dir);
         FILE *f = fopen(probe, "rb");
         free(probe);
         if (f != NULL) {
             fclose(f);
+            if (dir[0] == '\0') { /* the marker is in the current directory: return a usable path */
+                free(dir);
+                return ziman_xstrdup(".");
+            }
             return dir;
         }
         char *slash = strrchr(dir, '/');
-        if (slash == NULL) break;
+        if (slash == NULL) {
+            /* A *relative* start -- `src/test/ziman`, which is how the README and every handwritten
+             * invocation spell it -- runs out of slashes while one directory is still untried: the
+             * current one. Without this the walk stopped at `src` and never probed `./ziman.toml`,
+             * so the marker worked only when the entry file was named by an absolute path (which
+             * always has a leading '/' to walk down to). F33 exists precisely so a project's tests
+             * can import its modules, and that is the one invocation where it silently did nothing
+             * (tasks.md F52). */
+            if (dir[0] == '\0') break; /* "." has already been probed */
+            dir[0] = '\0';
+            continue;
+        }
         *slash = '\0';
         if (dir[0] == '\0') break; /* reached the filesystem root */
     }
