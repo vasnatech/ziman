@@ -1,0 +1,23 @@
+// The other half of thread_bound_lambda_sent_over_channel: a lambda that captured nothing
+// thread-bound travels over a channel freely, is received on the other side, and is called there.
+// A channel's element type can be a function type -- `channel_new()` takes the element type from
+// the annotation, so this needs no type argument (see F45 for the call-position case).
+fn worker(jobs: Channel<fn(int) -> int>, out: Channel<int>) {
+    val f = receive(jobs)
+    send(out, f(20))
+}
+
+fn main() {
+    val jobs: Channel<fn(int) -> int> = channel_new()
+    val out: Channel<int> = channel_new()
+
+    spawn worker(jobs, out)
+    send(jobs, fn(a: int) -> int { a + 22 })
+    print(receive(out))
+
+    // and one sent, received and called on this thread
+    val here: Channel<fn() -> string> = channel_new()
+    send(here, fn() -> string { "pure" })
+    val g = receive(here)
+    print(g())
+}

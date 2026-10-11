@@ -1,0 +1,11 @@
+// The second entry point for the same guard. `try_send` carries its own reject_thread_bound call
+// marked `/* see 'send' */`, so it would be easy to fix one and leave the other; this file is here
+// so that cannot happen quietly. See thread_bound_lambda_sent_over_channel for the `send` case.
+fn main() {
+    val sb = sb_new()
+    sb_append(sb, "owned by main")
+
+    val ch: Channel<fn() -> string> = channel_new()
+    val ok = try_send(ch, fn() -> string { sb_to_string(sb) })
+    print("not reached")
+}

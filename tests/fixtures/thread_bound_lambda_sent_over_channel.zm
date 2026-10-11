@@ -1,0 +1,16 @@
+// F46: the `send` side of A14's guard. typecheck.c's 'send' branch says this case was a real bug
+// -- "Without this, `send(ch, fn() { sb_append(sb, "x") })` type-checked and failed on the
+// receiving thread instead" -- and the fix is why the value's own type is checked and not only the
+// channel's declared element type: they differ for exactly one thing, a lambda carrying
+// Type.func_captures_thread_bound, which `Channel<fn() -> string>` as written cannot say.
+// Every other thread_bound fixture went through `spawn`, or sent a builder directly as the
+// element type (thread_bound_channel_rejected); none sent a *lambda that captured one*, so the
+// branch this file exercises had no test until now.
+fn main() {
+    val sb = sb_new()
+    sb_append(sb, "owned by main")
+
+    val ch: Channel<fn() -> string> = channel_new()
+    send(ch, fn() -> string { sb_to_string(sb) })
+    print("not reached")
+}
