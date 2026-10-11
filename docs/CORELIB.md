@@ -1655,6 +1655,29 @@ pub fn request_text(req: Request) -> Result<string, string>
 
 pub fn header(req: Request, name: string) -> Option<string>
 
+pub struct TraceParent {
+    // 32 lowercase hex characters, the same for every hop of one request.
+    trace_id: string
+    // 16 lowercase hex characters, this hop's own. A callee makes a child rather than reusing it.
+    span_id: string
+    // The one flag anything acts on: whether the trace was sampled for recording.
+    sampled: bool
+}
+
+pub val traceparent_header_name = "traceparent"
+
+pub fn traceparent_parse(value: string) -> Option<TraceParent>
+
+pub fn traceparent_new() -> TraceParent
+
+pub fn traceparent_child(p: TraceParent) -> TraceParent
+
+pub fn traceparent_value(p: TraceParent) -> string
+
+pub fn traceparent_of(req: Request) -> TraceParent
+
+pub fn traceparent_header_for(p: TraceParent) -> Header
+
 pub fn header_value(headers: [Header], name: string) -> Option<string>
 
 pub struct CookiePair {

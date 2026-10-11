@@ -1778,6 +1778,22 @@ is budgeted as one scan rather than per match. Real patterns use a ten-thousandt
 allowed; what hits this is hundreds of capture groups over a short subject. `find_all` steps one
 character past an empty match; `split` ignores empty matches.
 
+### Trace context
+
+`http` reads and writes W3C Trace Context's `traceparent`, so one request can be followed across
+services. `traceparent_of(req)` answers the incoming trace, or a new one when the header is absent
+or malformed -- a restart is what the spec requires of a receiver that cannot parse it, so this is
+not an error path. `traceparent_header_for(p)` is the `Header` to put on an outgoing request: the
+same `trace_id`, a new `span_id`, and the sampling decision inherited rather than retaken.
+`traceparent_parse`/`_new`/`_child`/`_value` are the pieces underneath, and `p.trace_id` is what
+goes to `log.with_request_id` so every line of a request carries it.
+
+Four validation rules are easy to get wrong and are all enforced: an all-zero trace or span id is
+invalid even though it is well-formed hex; version `ff` is reserved; an upper-case hex field is
+rejected rather than lower-cased, because the header is compared as bytes elsewhere; and undefined
+flag bits are ignored rather than refused. A *future* version parses when the rest of the value
+does, since refusing one would break against a future sender for no gain.
+
 ## HTTP client (`client`)
 
 `client.get(url)`, `client.post_json(url, body)`, and the general `client.request(method, url,

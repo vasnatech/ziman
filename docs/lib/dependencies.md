@@ -76,6 +76,7 @@ flowchart LR
     fs --> os
     http --> mime
     http --> number
+    http --> random
     http --> url
     json --> number
     jwt --> clock
@@ -167,7 +168,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
 | `db` | `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `properties`, `zone` |
-| `http` | `mime`, `number`, `url` | `client`, `server` |
+| `http` | `mime`, `number`, `random`, `url` | `client`, `server` |
 | `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `json`, `number`, `os` | - |
@@ -183,7 +184,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `otp` | `crypto`, `random` | - |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `properties` | `fs`, `os` | - |
-| `random` | - | `crypto`, `otp`, `pg`, `uuid` |
+| `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |
 | `server` | `clock`, `http`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |

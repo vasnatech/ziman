@@ -334,6 +334,93 @@ pub fn header(req: Request, name: string) -> Option<string>
 
 The value of the header called `name` in `req` (case-insensitive), or None.
 
+## Trace context
+
+### `TraceParent`
+
+```
+pub struct TraceParent {
+    // 32 lowercase hex characters, the same for every hop of one request.
+    trace_id: string
+    // 16 lowercase hex characters, this hop's own. A callee makes a child rather than reusing it.
+    span_id: string
+    // The one flag anything acts on: whether the trace was sampled for recording.
+    sampled: bool
+}
+```
+
+W3C Trace Context's `traceparent`, which is how one request is followed across services: the
+caller sends it, the callee reads it and sends its own child onward, and every log line in
+between carries the same `trace_id` (ROADMAP.md's metrics item 4). The header is
+`version-traceid-spanid-flags`, as in
+`00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`.
+
+### `traceparent_header_name`
+
+```
+pub val traceparent_header_name = "traceparent"
+```
+
+### `traceparent_parse`
+
+```
+pub fn traceparent_parse(value: string) -> Option<TraceParent>
+```
+
+A `traceparent` value, or None when it is not one. Rejecting is the normal path for a malformed
+header, not an error: the spec says a receiver that cannot parse it must *restart* the trace, so
+callers pair this with `traceparent_new` (which `traceparent_of` does).
+
+The two rules that are easy to miss are both here: an all-zero trace or span id is invalid even
+though it is well-formed hex, and version `ff` is reserved and never valid. A version above `00`
+is accepted when the rest parses, which is what the spec requires of a forward-compatible
+receiver -- refusing it would break against a future sender for no gain.
+
+### `traceparent_new`
+
+```
+pub fn traceparent_new() -> TraceParent
+```
+
+A new trace: a fresh id for the whole request and a fresh id for this hop. Sampled, because a
+service that starts a trace and then marks it unsampled has recorded nothing and told nobody.
+
+### `traceparent_child`
+
+```
+pub fn traceparent_child(p: TraceParent) -> TraceParent
+```
+
+The same trace, a new hop -- what a service sends onward. The sampling decision is inherited, not
+retaken, which is the whole point of propagating it.
+
+### `traceparent_value`
+
+```
+pub fn traceparent_value(p: TraceParent) -> string
+```
+
+The header value to send. Always version `00`, the only version this writes.
+
+### `traceparent_of`
+
+```
+pub fn traceparent_of(req: Request) -> TraceParent
+```
+
+The incoming request's trace, or a new one when the header is absent or malformed -- the
+restart the spec calls for. A handler's first line, and `trace_id` is what goes to
+`log.with_request_id`.
+
+### `traceparent_header_for`
+
+```
+pub fn traceparent_header_for(p: TraceParent) -> Header
+```
+
+The header to put on an outgoing request so the next service joins this trace rather than
+starting its own: a child of `p`, as a `Header` ready for `client.request`'s list.
+
 ### `header_value`
 
 ```

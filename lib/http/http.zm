@@ -5,6 +5,7 @@
 use mime
 use number.byte_from_hex
 use number.byte_to_hex
+use random.random_bytes
 use url
 
 // True if `s` is a non-empty run of the characters RFC 7230 allows in a "token": letters, digits and
@@ -140,6 +141,132 @@ pub fn request_text(req: Request) -> Result<string, string> {
 // The value of the header called `name` in `req` (case-insensitive), or None.
 pub fn header(req: Request, name: string) -> Option<string> {
     return header_value(req.headers, name)
+}
+
+// ---------------------------------------------------------------- trace context
+//
+// W3C Trace Context's `traceparent`, which is how one request is followed across services: the
+// caller sends it, the callee reads it and sends its own child onward, and every log line in
+// between carries the same `trace_id` (ROADMAP.md's metrics item 4). The header is
+// `version-traceid-spanid-flags`, as in
+// `00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`.
+pub struct TraceParent {
+    // 32 lowercase hex characters, the same for every hop of one request.
+    trace_id: string
+    // 16 lowercase hex characters, this hop's own. A callee makes a child rather than reusing it.
+    span_id: string
+    // The one flag anything acts on: whether the trace was sampled for recording.
+    sampled: bool
+}
+
+pub val traceparent_header_name = "traceparent"
+
+fn hex_of(n: int) -> string {
+    val out = sb_new()
+    for b in random_bytes(n) {
+        sb_append(out, byte_to_hex(b))
+    }
+    return sb_to_string(out)
+}
+
+fn all_hex(s: string, want_len: int) -> bool {
+    if len(s) != want_len {
+        return false
+    }
+    for i in 0..len(s) {
+        val c = char_at(s, i)
+        // Lowercase only: the spec says a receiver must treat an upper-case field as invalid
+        // rather than lower-casing it, because the header is compared as bytes elsewhere.
+        if !contains("0123456789abcdef", c) {
+            return false
+        }
+    }
+    return true
+}
+
+fn all_zeros(s: string) -> bool {
+    for i in 0..len(s) {
+        if char_at(s, i) != "0" {
+            return false
+        }
+    }
+    return true
+}
+
+// A `traceparent` value, or None when it is not one. Rejecting is the normal path for a malformed
+// header, not an error: the spec says a receiver that cannot parse it must *restart* the trace, so
+// callers pair this with `traceparent_new` (which `traceparent_of` does).
+//
+// The two rules that are easy to miss are both here: an all-zero trace or span id is invalid even
+// though it is well-formed hex, and version `ff` is reserved and never valid. A version above `00`
+// is accepted when the rest parses, which is what the spec requires of a forward-compatible
+// receiver -- refusing it would break against a future sender for no gain.
+pub fn traceparent_parse(value: string) -> Option<TraceParent> {
+    val parts = split(trim(value), "-")
+    if len(parts) < 4 {
+        return Option<TraceParent>.None
+    }
+    val version = parts[0]
+    val trace_id = parts[1]
+    val span_id = parts[2]
+    val flags = parts[3]
+    if !all_hex(version, 2) || version == "ff" {
+        return Option<TraceParent>.None
+    }
+    if !all_hex(trace_id, 32) || all_zeros(trace_id) {
+        return Option<TraceParent>.None
+    }
+    if !all_hex(span_id, 16) || all_zeros(span_id) {
+        return Option<TraceParent>.None
+    }
+    if !all_hex(flags, 2) {
+        return Option<TraceParent>.None
+    }
+    // Only bit 0 of the flags is defined; the rest are for future use and must be ignored rather
+    // than rejected.
+    val sampled_bit = switch byte_from_hex(flags) {
+        Ok(b) { (b as int) % 2 == 1 }
+        Err(e) { false }
+    }
+    return Option<TraceParent>.Some(TraceParent { trace_id: trace_id, span_id: span_id, sampled: sampled_bit })
+}
+
+// A new trace: a fresh id for the whole request and a fresh id for this hop. Sampled, because a
+// service that starts a trace and then marks it unsampled has recorded nothing and told nobody.
+pub fn traceparent_new() -> TraceParent {
+    return TraceParent { trace_id: hex_of(16), span_id: hex_of(8), sampled: true }
+}
+
+// The same trace, a new hop -- what a service sends onward. The sampling decision is inherited, not
+// retaken, which is the whole point of propagating it.
+pub fn traceparent_child(p: TraceParent) -> TraceParent {
+    return TraceParent { trace_id: p.trace_id, span_id: hex_of(8), sampled: p.sampled }
+}
+
+// The header value to send. Always version `00`, the only version this writes.
+pub fn traceparent_value(p: TraceParent) -> string {
+    return format("00-{}-{}-{}", p.trace_id, p.span_id, if p.sampled { "01" } else { "00" })
+}
+
+// The incoming request's trace, or a new one when the header is absent or malformed -- the
+// restart the spec calls for. A handler's first line, and `trace_id` is what goes to
+// `log.with_request_id`.
+pub fn traceparent_of(req: Request) -> TraceParent {
+    switch header(req, traceparent_header_name) {
+        Some(value) {
+            switch traceparent_parse(value) {
+                Some(p) { return p }
+                None { return traceparent_new() }
+            }
+        }
+        None { return traceparent_new() }
+    }
+}
+
+// The header to put on an outgoing request so the next service joins this trace rather than
+// starting its own: a child of `p`, as a `Header` ready for `client.request`'s list.
+pub fn traceparent_header_for(p: TraceParent) -> Header {
+    return Header { name: traceparent_header_name, value: traceparent_value(traceparent_child(p)) }
 }
 
 // The value of the first header called `name` (case-insensitive), or None.

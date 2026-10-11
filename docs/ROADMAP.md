@@ -2016,7 +2016,15 @@ from source.
      **Channel depths are deliberately left out:** a useful depth needs per-channel identity, which
      means a label per channel, and an unbounded label set is exactly what item 1's 128-series cap
      exists to prevent -- `channel_len` already answers for a channel you hold.
-  4. **Trace context**: W3C `traceparent` read by `server`, passed on by `client`, and written into `log` lines, so a
+  4. ~~**Trace context**~~ **-- the propagation half done 2026-10-10 (F42); the OTLP exporter remains
+     the deferred part.** `http.traceparent_of(req)` reads the incoming trace or restarts it,
+     `http.traceparent_header_for(p)` is the child header to send onward (same trace, new span,
+     sampling inherited), and `p.trace_id` goes to `log.with_request_id` so every line of a request
+     carries it. The four rules worth enforcing are: all-zero trace or span ids invalid though
+     well-formed hex, version `ff` reserved, an upper-case field rejected rather than lower-cased,
+     and undefined flag bits ignored -- while a *future* version parses when the rest does, since
+     refusing one breaks against a future sender for nothing. Originally:
+     **Trace context**: W3C `traceparent` read by `server`, passed on by `client`, and written into `log` lines, so a
      request can be followed across services; then, if wanted, an OpenTelemetry (OTLP over HTTP/JSON) exporter on top
      of `client` and `json`, which needs a background thread to batch.
   5. ~~**`log`**: an optional JSON line format carrying a request id.~~ **Done 2026-10-10 (F41):**

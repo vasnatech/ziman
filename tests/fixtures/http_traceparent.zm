@@ -1,0 +1,67 @@
+// Tier 3 item 9 (F42): W3C Trace Context, so one request can be followed across services. The
+// spec's own example value is here, together with the rules that are easy to get wrong -- an
+// all-zero trace or span id is invalid even though it is well-formed hex, version `ff` is reserved,
+// an upper-case field must be rejected rather than lower-cased, and undefined flag bits must be
+// ignored rather than refused. A future version parses, because refusing one breaks against a
+// future sender for nothing.
+use fs
+use http
+use log
+use os
+
+fn verdict(value: string) -> string {
+    return switch http.traceparent_parse(value) {
+        Some(p) { format("trace={} sampled={}", p.trace_id, str(p.sampled)) }
+        None { "rejected" }
+    }
+}
+
+fn request_with(headers: [http.Header]) -> http.Request {
+    return http.Request {
+        method: http.HttpMethod.Get,
+        target: "/",
+        path: "/",
+        query: "",
+        version: "HTTP/1.1",
+        headers: headers,
+        body: [],
+        peer: None
+    }
+}
+
+fn main() {
+    val example = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    print(verdict(example))
+    print(verdict("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-09"))
+    print(verdict("01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"))
+    print(verdict("ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"))
+    print(verdict("00-00000000000000000000000000000000-00f067aa0ba902b7-01"))
+    print(verdict("00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01"))
+    print(verdict("00-4BF92F3577B34DA6A3CE929D0E0E4736-00f067aa0ba902b7-01"))
+    print(verdict(""))
+
+    // A request carrying a valid header joins that trace; one without starts a new one, which is
+    // the restart the spec requires of a receiver that cannot parse it.
+    val carried = http.traceparent_of(request_with([http.Header { name: "traceparent", value: example }]))
+    print(carried.trace_id)
+    val restarted = http.traceparent_of(request_with([http.Header { name: "traceparent", value: "nonsense" }]))
+    print(restarted.trace_id != carried.trace_id)
+    print(len(http.traceparent_of(request_with([])).trace_id))
+
+    // What a service sends onward: the same trace, a new span, the sampling decision inherited.
+    val onward = http.traceparent_header_for(carried)
+    print(onward.name)
+    print(contains(onward.value, carried.trace_id))
+    print(contains(onward.value, "00f067aa0ba902b7"))
+
+    // And what ties it to the logs: the trace id as the request id on every line. Written to a
+    // file and printed, so the assertion is on stdout where the harness compares it.
+    val path = format("/tmp/ziman-fixture-trace-{}.jsonl", str(os.pid()))
+    val l = log.with_request_id(
+        log.logger(level: log.Level.Info, file: Some(path), json: true, timestamps: false),
+        carried.trace_id
+    )
+    log.info(l, "handled")
+    print(trim(unwrap(fs.read_text(path))))
+    unwrap(fs.remove(path))
+}
