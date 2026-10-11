@@ -1,0 +1,7 @@
+// F47: `channel(...)` is a reasonable guess for how to make a channel, and the old message sent it
+// to `Channel<int> { }`, which is a syntax error -- a second failure for following the advice. The
+// message now names channel_new() and where the element type comes from.
+fn main() {
+    val c = channel<int>()
+    print(1)
+}

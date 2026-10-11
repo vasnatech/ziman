@@ -1,0 +1,1 @@
+'Result' is a built-in generic type, not a function: construct one with the functions 'ok(value)' and 'err(problem)' ('Ok(v)'/'Err(e)' are its variant names in a 'switch' arm, not constructors)

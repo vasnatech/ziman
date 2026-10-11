@@ -1,0 +1,1 @@
+'Channel' is a built-in generic type, not a function: make one with 'channel_new()', which takes its element type from the annotation, as in 'val ch: Channel<int> = channel_new()'

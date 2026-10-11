@@ -1,0 +1,53 @@
+// F47: every construction form the "'X' is a built-in generic type, not a function" diagnostic
+// recommends, written out and run. The point of this fixture is not that these forms work -- it is
+// that the *diagnostic* keeps naming forms that work. The message used to tell all five types to
+// use `X<...> { ... }`, which is a dead end for three of them, so a model that followed it failed a
+// second time; if someone changes one of these forms, this file breaks next to the message that
+// recommends it. Paired with diag_builtin_generic_type_called, which pins the sentences.
+fn make_ok() -> Result<int, string> {
+    return ok(1)
+}
+
+fn make_err() -> Result<int, string> {
+    return err("bad")
+}
+
+fn main() {
+    // Map
+    val m = Map<string, int> { "key": 1 }
+    print(len(m))
+    val mb = mapb_new<string, int>()
+    mapb_set(mb, "k", 2)
+    print(len(mapb_to_map(mb)))
+
+    // Set
+    val s = Set<int> { 1, 2 }
+    print(len(s))
+
+    // Option
+    val o = Option<int>.Some(4)
+    val n = Option<int>.None
+    switch o {
+        Some(v) { print(v) }
+        None { print("none") }
+    }
+    switch n {
+        Some(v) { print(v) }
+        None { print("none") }
+    }
+
+    // Result -- constructed with ok()/err(), matched with Ok/Err
+    switch make_ok() {
+        Ok(v) { print(v) }
+        Err(e) { print(e) }
+    }
+    switch make_err() {
+        Ok(v) { print(v) }
+        Err(e) { print(e) }
+    }
+
+    // Channel
+    val ch: Channel<int> = channel_new()
+    send(ch, 7)
+    print(receive(ch))
+}

@@ -1121,6 +1121,24 @@ static const char *matching_generic_type(const char *name) {
     return NULL;
 }
 
+/* How each of HARDCODED_GENERIC_TYPES is *actually* constructed. These five do not share one
+ * shape, and the single sentence this used to print ("construct one with 'X<...> { ... }', e.g.
+ * 'Map<string, int> { \"key\": value }'") was right for Map and Set and a dead end for the other
+ * three: `Option<int> { }` is "no struct named 'Option'", `Result<int, string> { }` and
+ * `Channel<int> { }` are syntax errors. A model that wrote `channel(...)`, followed this, and
+ * wrote `Channel<int> { }` got a *second* failure for its trouble -- the opposite of the stated
+ * goal that a habit should fail with the sentence that fixes it, since the sentence was wrong.
+ * Note Result's constructors are the lowercase functions `ok`/`err`; `Ok`/`Err` are the names of
+ * its variants in a `switch` arm, which is a different position. (tasks.md F47) */
+static const char *generic_type_construction(const char *canonical) {
+    if (strcmp(canonical, "Map") == 0) return "write one as 'Map<string, int> { \"key\": value }', or build one with 'mapb_new<string, int>()'";
+    if (strcmp(canonical, "Set") == 0) return "write one as 'Set<int> { 1, 2 }'";
+    if (strcmp(canonical, "Option") == 0) return "construct one as 'Option<int>.Some(4)' or 'Option<int>.None'";
+    if (strcmp(canonical, "Result") == 0) return "construct one with the functions 'ok(value)' and 'err(problem)' ('Ok(v)'/'Err(e)' are its variant names in a 'switch' arm, not constructors)";
+    if (strcmp(canonical, "Channel") == 0) return "make one with 'channel_new()', which takes its element type from the annotation, as in 'val ch: Channel<int> = channel_new()'";
+    return NULL;
+}
+
 /* A named call (`f(y: 2, x: 1)`) is reordered here, once, into the same
  * positional order the rest of check_call (and, downstream, the
  * interpreter) already expects -- so nothing past this point ever needs
@@ -2295,10 +2313,10 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         const char *generic_type = matching_generic_type(name);
         if (generic_type != NULL) {
+            const char *how = generic_type_construction(generic_type);
             ziman_error("type", e->line, e->col,
-                        "call to undefined function '%s' -- '%s' is a built-in generic type, not a function: "
-                        "construct one with '%s<...> { ... }', e.g. 'Map<string, int> { \"key\": value }'",
-                        name, generic_type, generic_type);
+                        "call to undefined function '%s' -- '%s' is a built-in generic type, not a function: %s",
+                        name, generic_type, how);
         }
         for (size_t k = 0; MAP_MEMBERSHIP_SYNONYMS[k] != NULL; k++) {
             if (strcmp(name, MAP_MEMBERSHIP_SYNONYMS[k]) == 0) {

@@ -1,1 +1,1 @@
-'Map' is a built-in generic type, not a function: construct one with 'Map<...> { ... }'
+'Map' is a built-in generic type, not a function: write one as 'Map<string, int> { "key": value }', or build one with 'mapb_new<string, int>()'

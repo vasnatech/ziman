@@ -1,0 +1,8 @@
+// F47, the subtle one: Result's constructors are the lowercase functions ok()/err(), while Ok/Err
+// are its variant names in a switch arm. A model that found `Ok(v)` in a switch and reached for
+// `Ok(1)` to build one gets told the difference, rather than being pointed at `Result<...> { }`,
+// which does not parse.
+fn main() {
+    val r = result(1)
+    print(1)
+}
