@@ -1815,6 +1815,12 @@ pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, st
 
 pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O>
 
+pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> Decoder<I>
+
+pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O>
+
+pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]>
+
 pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encoder<O>
 
 pub enum Denied {

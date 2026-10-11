@@ -1881,7 +1881,14 @@ from source.
   `body_handler` in `public_` and `secure_` forms, `Denied`, `dispatch`), where a handler takes the decoded request and
   returns the resource or the application's own error, and the library checks `Content-Type` (415), negotiates `Accept`
   (406), decodes (400) and encodes with the declared status. The health-record backend runs on it. Still to do: ranking by
-  `q` weights (today the first encoder the client allows wins, in the endpoint's own order); and encoders a derive emits
+  `q` weights (today the first encoder the client allows wins, in the endpoint's own order); and ~~encoders a derive emits~~
+  **done 2026-10-10 (F43): `server.json_decoder`, `json_encoder` and `json_list_encoder` turn a
+  `#[derive(Json)]` pair into the `Decoder`/`Encoder` an endpoint wants, one call per direction.
+  Promoted out of the reference backend rather than invented -- it had written the same three
+  itself, and its own comment says why: "every endpoint below used to spell these out, 105 times
+  between them", 105 places for the media type or the JSON writing to drift apart. Any second JSON
+  service would have written them again, which is what makes them the library's job.** The original
+  note: encoders a derive emits
   (`#[derive(Json)]` already gives the function; an `Encoder` for JSON, YAML or CSV from one declaration would shorten the
   table). Streaming bodies (an `InputStream`/`OutputStream` analogue: a request body read in blocks, a response written
   as it is produced) are not planned until an endpoint needs them.

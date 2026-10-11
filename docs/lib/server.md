@@ -438,6 +438,44 @@ pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O>
 
 An encoder for answers of `media`, to bytes.
 
+## JSON endpoints, from a `#[derive(Json)]` pair
+
+### `json_decoder`
+
+```
+pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> Decoder<I>
+```
+
+`#[derive(Json)]` already gives a type its `<snake_type>_to_json` and `<snake_type>_from_json`;
+these three turn one of those into the `Decoder`/`Encoder` an endpoint wants, so a typed JSON
+endpoint is one call per direction instead of a closure spelled out at every route.
+
+Promoted out of the reference backend rather than invented here: it had written `json_encoder`,
+`list_encoder` and `json_decoder` itself, and its own comment records why -- "every endpoint
+below used to spell these out, **105 times** between them", with the list form running to seven
+lines each, "which is 105 places for the media type or the JSON writing to drift apart". Any
+second JSON service would have written the same three functions, which is what makes them the
+library's job (ROADMAP.md's content-types entry, tasks.md F43).
+
+`media` is `application/json` and not an argument: an endpoint that answers some other media type
+wants `encoder`/`decoder` directly, and offering a media parameter here would only let these two
+disagree about what they are for.
+
+### `json_encoder`
+
+```
+pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O>
+```
+
+### `json_list_encoder`
+
+```
+pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]>
+```
+
+The list counterpart, which is the one worth having: written out it is a `collections.map` into a
+`JArray` at every route that answers a collection.
+
 ### `text_encoder`
 
 ```

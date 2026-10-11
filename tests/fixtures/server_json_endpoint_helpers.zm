@@ -1,0 +1,47 @@
+// Tier 3 item 10 (F43): a Decoder/Encoder built from what `#[derive(Json)]` already gives, so a
+// typed JSON endpoint is one call per direction. Promoted out of the reference backend, which had
+// written these three itself after spelling them out at 105 endpoints.
+//
+// The round trip is the test: a derived `_to_json` through `json_encoder` produces the bytes a
+// client gets, and those bytes back through `json_decoder` produce the value again. The list form
+// is the one worth having -- written out it is a `collections.map` into a `JArray` at every route
+// that answers a collection.
+use json
+use server
+
+#[derive(Json)]
+struct Point {
+    x: int
+    y: int
+}
+
+fn main() {
+    val enc = server.json_encoder<Point>(point_to_json)
+    val one = enc.encode(Point { x: 3, y: 4 })
+    print(unwrap(bytes_to_string(one)))
+
+    val dec = server.json_decoder<Point>(point_from_json)
+    print(switch dec.decode(one) {
+        Ok(p) { format("{},{}", str(p.x), str(p.y)) }
+        Err(e) { concat("rejected: ", e) }
+    })
+
+    val list = server.json_list_encoder<Point>(point_to_json)
+    print(unwrap(bytes_to_string(list.encode([Point { x: 1, y: 2 }, Point { x: 5, y: 6 }]))))
+    print(unwrap(bytes_to_string(list.encode([]))))
+
+    // Both failures a caller can cause, kept distinct: not JSON at all, versus JSON that is not
+    // this model. Only the first carries the parser's own message.
+    print(switch dec.decode(string_to_bytes("not json")) {
+        Ok(p) { "accepted" }
+        Err(e) { e }
+    })
+    print(switch dec.decode(string_to_bytes("{\"x\":1}")) {
+        Ok(p) { "accepted" }
+        Err(e) { e }
+    })
+
+    // And the media type both sides declare, which is why it is not an argument.
+    print(enc.media.subtype)
+    print(dec.media.subtype)
+}

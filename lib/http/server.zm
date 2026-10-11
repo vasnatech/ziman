@@ -48,6 +48,7 @@ val http_1_1 = "HTTP/1.1"
 val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
 
 use clock
+use collections
 use http.Header
 use http.HttpMethod
 use http.Request
@@ -85,6 +86,9 @@ use http.status_too_many_requests
 use http.status_unauthorized
 use http.status_unprocessable_entity
 use http.status_unsupported_media_type
+use json.Json
+use json.json_to_bytes
+use json.parse_json_bytes
 use metrics
 use mime
 use net
@@ -987,6 +991,51 @@ pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, st
 // An encoder for answers of `media`, to bytes.
 pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O> {
     return Encoder<O> { media: media, encode: encode }
+}
+
+// ---- JSON endpoints, from a `#[derive(Json)]` pair ----
+//
+// `#[derive(Json)]` already gives a type its `<snake_type>_to_json` and `<snake_type>_from_json`;
+// these three turn one of those into the `Decoder`/`Encoder` an endpoint wants, so a typed JSON
+// endpoint is one call per direction instead of a closure spelled out at every route.
+//
+// Promoted out of the reference backend rather than invented here: it had written `json_encoder`,
+// `list_encoder` and `json_decoder` itself, and its own comment records why -- "every endpoint
+// below used to spell these out, **105 times** between them", with the list form running to seven
+// lines each, "which is 105 places for the media type or the JSON writing to drift apart". Any
+// second JSON service would have written the same three functions, which is what makes them the
+// library's job (ROADMAP.md's content-types entry, tasks.md F43).
+//
+// `media` is `application/json` and not an argument: an endpoint that answers some other media type
+// wants `encoder`/`decoder` directly, and offering a media parameter here would only let these two
+// disagree about what they are for.
+pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> Decoder<I> {
+    val read = from_json
+    return decoder<I>(mime.application_json(), fn(data: [byte]) -> Result<I, string> {
+        return switch parse_json_bytes(data) {
+            // Distinguished on purpose: a body that is not JSON at all and a body that is JSON but
+            // not this model are different mistakes by the caller, and only the first is worth
+            // naming the parser's own message for.
+            Ok(tree) { read(tree) }
+            Err(message) { err(concat("malformed JSON: ", message)) }
+        }
+    })
+}
+
+pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O> {
+    val write = to_json
+    return encoder<O>(mime.application_json(), fn(value: O) -> [byte] {
+        return json_to_bytes(write(value))
+    })
+}
+
+// The list counterpart, which is the one worth having: written out it is a `collections.map` into a
+// `JArray` at every route that answers a collection.
+pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]> {
+    val write = to_json
+    return encoder<[O]>(mime.application_json(), fn(items: [O]) -> [byte] {
+        return json_to_bytes(Json.JArray(collections.map<O, Json>(items, write)))
+    })
 }
 
 // An encoder for answers of `media` that are text: `encode` writes a string and the encoder turns it into bytes.

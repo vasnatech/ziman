@@ -113,7 +113,9 @@ flowchart LR
     properties --> fs
     properties --> os
     server --> clock
+    server --> collections
     server --> http
+    server --> json
     server --> metrics
     server --> mime
     server --> net
@@ -161,7 +163,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `bits` | - | - |
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `server`, `time`, `uuid` |
-| `collections` | - | `metrics`, `migrate` |
+| `collections` | - | `metrics`, `migrate`, `server` |
 | `compress` | - | `client` |
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
@@ -169,7 +171,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `db` | `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `properties`, `zone` |
 | `http` | `mime`, `number`, `random`, `url` | `client`, `server` |
-| `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
+| `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `json`, `number`, `os` | - |
 | `math` | - | - |
@@ -186,7 +188,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `properties` | `fs`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |
-| `server` | `clock`, `http`, `metrics`, `mime`, `net`, `number`, `os` | - |
+| `server` | `clock`, `collections`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
 | `test` | - | - |
 | `thread` | - | - |
