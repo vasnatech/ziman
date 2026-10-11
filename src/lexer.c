@@ -97,6 +97,22 @@ static int line_starts_here(Lexer *lx, const char *at) {
     return p == lx->src || p[-1] == '\n';
 }
 
+/* Whether the logical line holding `at` opens a `type` declaration (`type X = ...`, or
+ * `pub type X = ...`). Needed because a `|` is fatal here in the lexer, so `type Light = Red |
+ * Green | Amber` never reaches the parser's own "Ziman has no 'type' declaration" message, which
+ * already names `enum` -- the reader saw "did you mean '||'?" instead, a boolean operator where a
+ * variant type was meant (tasks.md F51). */
+static int line_opens_type_decl(Lexer *lx, const char *at) {
+    const char *p = at;
+    while (p > lx->src && p[-1] != '\n') p--;
+    while (*p == ' ' || *p == '\t') p++;
+    if (strncmp(p, "pub", 3) == 0 && (p[3] == ' ' || p[3] == '\t')) {
+        p += 3;
+        while (*p == ' ' || *p == '\t') p++;
+    }
+    return strncmp(p, "type", 4) == 0 && (p[4] == ' ' || p[4] == '\t');
+}
+
 static void emit(Lexer *lx, TokenType type, const char *start, int length, int line, int col) {
     push_token(lx, type, start, length, line, col);
     if (type != TOK_NEWLINE) {
@@ -490,7 +506,25 @@ TokenList lex(const char *source) {
             case '|':
                 advance(&lx);
                 if (peek(&lx) == '|') { advance(&lx); emit(&lx, TOK_PIPEPIPE, start, 2, line, col); continue; }
-                ziman_error("lexical", line, col, "unexpected character '|' (did you mean '||'?)");
+                /* Both of these were measured in the 2026-10-10 benchmark wave, in two of ten cold
+                 * attempts, and both used to get "did you mean '||'?" -- the one reading that
+                 * cannot be right for either (tasks.md F51). */
+                if (peek(&lx) == '>') {
+                    ziman_error("lexical", line, col,
+                                "there is no '|>' pipeline operator in Ziman -- nest the calls, as "
+                                "'collections.sum(collections.map(evens, triple))', or give each step its own "
+                                "'val', as 'val evens = collections.filter(xs, is_even)'");
+                }
+                if (line_opens_type_decl(&lx, start)) {
+                    ziman_error("lexical", line, col,
+                                "a variant type is not written with '|' -- Ziman has no 'type' declaration at "
+                                "all: a tagged union is 'enum Light { Red, Green, Amber }' (read one back with "
+                                "'switch', one arm per variant), and a record is 'struct Point { x: int }'");
+                }
+                ziman_error("lexical", line, col,
+                            "unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, "
+                            "bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type "
+                            "is 'enum Name { A, B }', and there is no '|>' pipeline");
                 continue;
             default:
                 if (c == ';') {

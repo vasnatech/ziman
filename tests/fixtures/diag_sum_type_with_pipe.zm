@@ -1,0 +1,9 @@
+// F51: the exact shape task 34's cold attempt wrote in the 2026-10-10 benchmark wave. The '|' is
+// fatal in the lexer, so this never reached the parser's own "Ziman has no 'type' declaration"
+// message -- which already names enum -- and the reader got "did you mean '||'?" instead: a boolean
+// operator where a variant type was meant.
+type Light = Red | Green | Amber
+
+fn main() {
+    print(1)
+}
