@@ -1,0 +1,39 @@
+// F45: a function type as a generic call's explicit type argument. This parsed everywhere else
+// already -- annotations, array elements, Channel/Map/Box type arguments -- but the one-token
+// lookahead that tells `ident <` apart from a real comparison did not list `fn`, so a function
+// type worked as the *second* type argument of a call and not as the first. There was no
+// workaround in that position: omitting the type argument reaches the inference error, which says
+// to write it explicitly, which was the thing being refused. An ArrayBuilder of callbacks was
+// inexpressible.
+fn identity<T>(x: T) -> T {
+    return x
+}
+
+fn main() {
+    // first type argument of a generic call: the case that used to fail
+    val b = ab_new<fn(int) -> int>()
+    ab_append(b, fn(a: int) -> int { a + 1 })
+    ab_append(b, fn(a: int) -> int { a * 2 })
+    var acc = 20
+    for f in ab_to_array(b) {
+        acc = f(acc)
+    }
+    print(acc)
+
+    // a function type round-tripped through a generic function
+    val g = identity<fn(int) -> int>(fn(a: int) -> int { a + 1 })
+    print(g(41))
+
+    // second type argument: worked before, still works
+    val m = mapb_new<string, fn(int) -> int>()
+    mapb_set(m, "triple", fn(a: int) -> int { a * 3 })
+    val handlers = mapb_to_map(m)
+    switch map_get(handlers, "triple") {
+        Some(triple) { print(triple(14)) }
+        None { print("missing") }
+    }
+
+    // a real '<' comparison is still a comparison
+    val x = 3
+    print(x < 7)
+}

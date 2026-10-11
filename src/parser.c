@@ -184,7 +184,21 @@ static TypeList parse_type_args(Parser *p) {
  * needed for a call. Peeks at the token immediately *after* the `<`
  * (not yet consumed -- `p`'s current token is still the `<` itself) and
  * says yes only if it looks like the start of a type: a primitive
- * keyword, an uppercase identifier, `[`, `Result`, or `Channel`. A real
+ * keyword, an uppercase identifier, `[`, `Result`, `Channel`, or `fn`.
+ *
+ * `fn` is here for the same reason `[` is, and is no more ambiguous: a
+ * lambda is never a numeric operand, so `x < fn(...)` is not a real
+ * comparison in any program that type-checks. Its absence made a
+ * function type parse everywhere *except* as the first type argument of
+ * a generic call -- `mapb_new<string, fn(int) -> int>()` worked (the
+ * `string` got the lookahead over the line and `parse_type` handled the
+ * rest), while `ab_new<fn(int) -> int>()` did not, and failed as
+ * `expected a parameter name, found 'int'` from the lambda parser
+ * several tokens away from the real problem. There was no workaround in
+ * that position either: dropping the type argument reaches the
+ * inference error, which says to "write it explicitly, e.g.
+ * 'ab_new<...>(...)'" -- the exact thing the parser was refusing. So an
+ * ArrayBuilder of callbacks was inexpressible. (tasks.md F45) A real
  * comparison's right-hand side can still coincidentally start with one
  * of these (`x < Point { ... }`, `x < [1, 2, 3]`), but `<`/`>` only
  * type-check between two numeric operands, so a false positive here
@@ -210,6 +224,7 @@ static int next_looks_like_generic_call(Parser *p) {
         case TOK_KW_INT: case TOK_KW_FLOAT: case TOK_KW_BOOL: case TOK_KW_STRING: case TOK_KW_BIGINT: case TOK_KW_DECIMAL:
         case TOK_KW_BYTE:
         case TOK_LBRACKET: case TOK_RESULT: case TOK_CHANNEL: case TOK_MAP: case TOK_SET:
+        case TOK_FN:
             return 1;
         case TOK_IDENT:
             if (starts_upper(after_lt->start)) return 1;
