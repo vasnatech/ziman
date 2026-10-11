@@ -43,6 +43,7 @@ them against the code.
 - [R16: naming convention](#r16-naming-convention)
 - [R17: `--lint`](#r17---lint)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
+- [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
 - [`if` and `switch` as values (R21)](#if-and-switch-as-values-r21)
 - [Packed byte arrays (R23)](#packed-byte-arrays-r23)
@@ -3185,7 +3186,9 @@ in the most common operations: `arr = push(arr, x)` for `arr.push(x)`,
 no methods, no `if` expression as an operand, lambdas that must spell out their types and cannot capture a `var`, `for i in 0..n` for the C loop.
 Those are accepted for the principles above, knowingly, and the mitigation is
 the **diagnostic**: a model's habit should fail at compile time with the
-sentence that fixes it. Probed on 2026-09-24, each habit now does:
+sentence that fixes it. The most-asked-about one of them, `+` on strings, has
+its own entry below -- including a measurement that cut its supposed frequency
+in half. Probed on 2026-09-24, each habit now does:
 `"a" + "b"` (use `concat`/`format`), `a.push(x)` and `s.len()` (no methods; call
 `push(a, x)` / `len(s)`), `match` (use `switch`), `s.length` (use `len(s)`),
 `for (...; ...; ...)` (no `;`; use `for i in 0..n`), `if` as an expression
@@ -3201,6 +3204,82 @@ features that address those are the ones the goal most supports: exhaustive
 copy-pasted blocks (R13), `--json` diagnostics (R8) and `--lint` (R17). New
 work should be weighed against that list before adding another
 local-syntax restriction.
+
+## `+` does not join strings (2026-10-10)
+
+The most frequently raised habit collision, and the reason it stays refused is
+**principle 1, not coercion**. The earlier note in the backlog called `+` on
+strings "implicit coercion by another name"; that argument does not survive
+being read closely, and defending a decision with a wrong reason is how a
+decision gets reopened every few months.
+
+**The two proposals are different, and only one of them is coercion.**
+`"a" + "b"` converts nothing -- both operands are strings, the result is a
+string. `"a" + 1` does require a silent `str(1)`, and that one is ruled out
+directly by "No implicit coercion" above. So the coercion objection applies to
+the second form only, while the habit being argued about is mostly the first.
+
+**What actually rules out `"a" + "b"`:**
+
+1. **Principle 1 forbids it by name:** "no operator overloading". One token
+   meaning numeric addition and string joining, selected by operand type, is
+   exactly that. This is a principle, not a v0 decision, and it needs no help
+   from the coercion argument.
+2. **Principle 2, "one way to do a thing"**, says Ziman "doesn't add a second
+   way without removing the first" -- and `concat` is the first. The only
+   principle-2-compliant version of this change is `+` *replacing* `concat`,
+   which would break every call site and is not what anyone proposes.
+3. **`+` in a loop is quadratic.** `--lint` already flags `x = concat(x, ..)`
+   for precisely this (see R17 and the accumulate-in-a-loop sweep); making it
+   an operator makes the trap more inviting and the lint harder to phrase.
+4. **A partial `+` teaches "sometimes".** Accepting `"a" + "b"` while still
+   rejecting `"a" + 1` splits one habit into two outcomes: a model that learns
+   `+` joins strings writes `"n=" + n` next and fails anyway. Today both forms
+   fail identically, with one sentence naming `concat`, `format` and `str`. A
+   uniform refusal carrying the fix is a better signal than conditional
+   success.
+
+**The frequency argument, re-counted 2026-10-10 -- and it was wrong.** The
+backlog recorded "24 of 30 cold attempts reach for `+`/`++`", on a split of
+16 `+` and 8 `++`. Re-counted by hand from the surviving round-1 attempt files
+across all three waves, classifying every `+` by whether its operands are
+actually strings (`i = i + 1` is not this habit), the `++` half was right and
+the `+` half was not:
+
+| habit | recorded | actual |
+|---|---|---|
+| `++` (Haskell's operator) | 8 of 30 | **8 of 30** |
+| `+` on strings | 16 of 30 | **6 of 30** |
+| either operator | 24 of 30 | **14 of 30** |
+| no concatenation operator at all | 6 of 30 | **16 of 30** |
+
+Supporting `+` would therefore address **6 of 30 attempts, not 24**, and more
+than half of the operator habit that remains is `++` -- which no one proposes
+adding, and which principle 2 would refuse on its own as a second spelling of
+a thing that already has one. The strongest argument for the change was its
+frequency, and the frequency was less than half what the record claimed.
+
+(The two counts disagree because the original appears to have counted `+`
+tokens rather than string concatenations: numeric `i = i + 1` and
+`(lo + hi) / 2` appear in most of these files. The lesson is the one in the
+benchmark README -- a habit count has to name the shape it counted.)
+
+**And the refusal is cheap.** All **14 of 14** attempts that reached for an
+operator resolved it: 8 to `format`, 5 to `concat`, and one restructured so it
+no longer built a string that way. **None kept the operator.** Agents named
+`'+' doesn't join strings ... use concat(a, b), or format("{}{}", a, b)` among
+the messages they found decisive, unprompted (see the 2026-10-09 benchmark
+report).
+
+**What this does not say.** The round-1 captures hold only the *first*
+diagnostic, and only for one of the three waves, so the **number of edits** a
+model spends on this specific message is not measured -- an earlier syntax
+error usually masks it. If that number ever turns out to be large, the cost
+side of this entry is the part to revisit; the frequency and the principle are
+not affected by it. Interpolation is not an escape hatch either: 0 of 30 cold
+attempts reached for any interpolation form (F38), so adding one would not
+absorb this habit.
+
 
 ## Array slices are views
 

@@ -1588,7 +1588,10 @@ from source.
   *Update 2026-10-10 (F38): measured, and there is no AI-first case for it.*
   **Across all 30 cold benchmark attempts no interpolation form appears even
   once** -- `f"..."` 0/30, `"${x}"` 0/30, `"#{x}"` 0/30. What models reach for
-  is `+` (16/30) and `++` (8/30) for concatenation, 24 of 30 between them, and
+  is an operator for concatenation -- **re-counted 2026-10-10 (F48) as `+`
+  6/30 and `++` 8/30, 14 of 30 between them**, not the 16/8/24 first recorded
+  here, which had counted `+` tokens rather than string concatenations (`i = i
+  + 1` is in most of these files) -- and
   that collision is already handled the way this language says it should be:
   it fails at compile time with the sentence that fixes it, a message several
   benchmark runs called the best in the set. So the question this entry poses
