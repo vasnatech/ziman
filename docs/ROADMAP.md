@@ -734,6 +734,14 @@ from source.
 
   Ranked by what the measurements actually point at, each with its mechanism already identified:
 
+  **Re-measured 2026-10-11 (F56): the "41x" above is really a quadratic, and the entry attributes it
+  to the wrong map size.** The 6,829ms figure it reports "with a 100,000-entry map alive" reproduces
+  at **200,000** entries, not 100,000; at 100,000 the same loop costs ~1,800ms. Measured across
+  sizes on one machine in one sitting: 215ms with nothing alive, 1,787ms at 100k, 6,303ms at 200k,
+  23,852ms at 400k -- four times the cost for twice the heap. So the shape to remember is not "a 41x
+  toll on allocation" but "collection is quadratic in live heap size", which is objects x blocks and
+  is exactly what (2)'s index removes.
+
   **Re-measured 2026-10-10 (F31), and (1) below is mis-ranked: the wrapper allocation is not the
   cost, and (2) is not merely "what makes that allocation expensive" -- it is the whole of it.** An
   `Option.Some` allocation on its own costs ~94-123ns. The same allocation with a 100,000-entry map
@@ -759,8 +767,20 @@ from source.
      `arena_block_content` 48% of the profile against `mapobj_get`'s 2.6%. Fix is a per-arena block
      index sorted by address and binary-searched, or a one-entry last-block-found cache since marking
      has real locality. Contained to `arena.c`/`gc_lookup.c`, and it speeds up everything that marks,
-     not only maps. Three cheaper attempts at this are already ruled out by measurement -- see
-     docs/DESIGN.md's "MapBuilder vs CPython dict" entry before trying another.
+     not only maps. Four cheaper attempts at this are already ruled out by measurement -- see
+     **tasks.md F31** before trying another. (*Corrected 2026-10-11: that pointer used to name a
+     DESIGN.md entry, "MapBuilder vs CPython dict", which does not exist and never did; the record
+     is F31's own entry.*)
+
+     ***Done 2026-10-11 (F56): the per-arena sorted block index, and it is the whole of (2).***
+     Measured paired and interleaved, baseline against indexed: the 1,000,000-allocation loop with a
+     live map went **1,831-1,967ms -> 531-551ms at 100k entries, 6,472-6,527ms -> 1,189-1,263ms at
+     200k, and 23,950-24,636ms -> 2,614-2,801ms at 400k**; `map_get` 184-234ms -> 66-78ms and
+     `map_set` 108-117ms -> 63-66ms. An allocation with *nothing* alive is unchanged (221-251ms ->
+     241-250ms), which is the control: a one-block arena's binary search is one comparison.
+     **And the cost is no longer quadratic in live heap size** -- four times the time for twice the
+     heap became roughly two, which is what taking the block count out of the per-object question
+     means. The numbers this entry reported for (2) are corrected below.
   3. **`MapNode` has no capacity field**, so every insert `realloc`s the node to exact fit and
      `memmove`s to open a slot: a node filling to 32 slots does ~32 reallocs where `dict` amortises
      by doubling. Growing capacity geometrically (4/8/16/32) is contained to `mapobj.c` and is the

@@ -31,10 +31,40 @@ typedef struct ArenaBlock {
     char data[];
 } ArenaBlock;
 
+/* How many blocks an arena indexes without any allocation of its own. Almost every arena ever
+ * created has exactly one block -- `arena_create_scanned` runs once per `Channel` message -- so the
+ * index must cost nothing until a heap actually grows, which is why these sit in the struct rather
+ * than behind a pointer. Eight is two cache lines' worth, and covers a 2 MB heap at the 256 KB
+ * ARENA_BLOCK_SIZE; past that the index spills to a mapping of its own. */
+#define ARENA_INDEX_INLINE 8
+
 struct Arena {
     ArenaBlock *current;
     size_t reserved;
     int scanned; /* see arena_create_scanned */
+    /* Every block of this arena, sorted by the address its content starts at, so `gc_lookup` can
+     * binary-search for the block holding an address instead of walking the list. Marking visits
+     * every live object and asks that question once per object, so the walk made collection
+     * quadratic in live heap size: a 1,000,000-allocation loop with a map alive cost 215ms at zero
+     * entries, 1,787ms at 100,000, 6,303ms at 200,000 and 23,852ms at 400,000 -- four times the
+     * cost for twice the heap, which is objects x blocks. (docs/reviews/tasks.md F56.)
+     *
+     * Deliberately plain, with no atomics and no versioning. Only the thread that owns this arena
+     * ever touches these: it is the only one that allocates (arena_alloc), the only one that
+     * reclaims (arena_reclaim_block, from its own sweep) and the only one that collects. The one
+     * other reader of an arena's blocks is Boehm's root walk in ziman_arena_push_scanned_roots,
+     * and that walks the *list*, never this index -- so the list keeps its release stores and this
+     * needs none. If anything ever reads the index from another thread, that stops being true.
+     *
+     * Kept correct eagerly, on each add and each reclaim, rather than rebuilt lazily behind a
+     * version counter: a block add is rare (one per block, a hundred-odd for a large heap) so an
+     * O(n) insert costs nothing, and eager maintenance keeps every function here non-const
+     * instead of mutating a cache through the `const Arena *` that gc_lookup holds. */
+    ArenaBlock **index;
+    size_t index_count;
+    size_t index_cap;
+    size_t index_map_bytes; /* the mapping's length, or 0 while the inline array is in use */
+    ArenaBlock *index_inline[ARENA_INDEX_INLINE];
     /* g_scanned's own links, unused unless `scanned`. Doubly linked purely so that unlinking is
      * O(1): a `Channel` under load creates and destroys one scanned arena per message, so a
      * singly-linked list's own walk-to-find-the-predecessor makes the registry quadratic in how
@@ -46,6 +76,10 @@ struct Arena {
     struct Arena *next_scanned;
     struct Arena *prev_scanned;
 };
+
+/* Defined further down, beside arena_alloc, which is their other caller. */
+static void index_insert(Arena *a, ArenaBlock *b);
+static void index_remove(Arena *a, const ArenaBlock *b);
 
 /* C11's max_align_t is the portable way to ask for "however aligned the strictest C type needs to
  * be," but this codebase targets C11 without pulling in <stdalign.h> elsewhere; 16 is that
@@ -245,6 +279,11 @@ static Arena *arena_create_impl(int scanned) {
     first->used += round_up(sizeof(Arena), ARENA_ALIGN);
     a->current = first;
     a->reserved = first->size;
+    a->index = a->index_inline;
+    a->index_count = 0;
+    a->index_cap = ARENA_INDEX_INLINE;
+    a->index_map_bytes = 0;
+    index_insert(a, first);
     a->scanned = scanned;
     a->next_scanned = NULL;
     a->prev_scanned = NULL;
@@ -260,6 +299,93 @@ Arena *arena_create(void) {
 
 Arena *arena_create_scanned(void) {
     return arena_create_impl(1);
+}
+
+/* The content start of `b`, which is what the index is keyed on. Stable for the life of the block:
+ * `arena_block_content`'s length moves as `used` grows, but its start never does. */
+static const char *block_start(const ArenaBlock *b) {
+    const char *start;
+    size_t len;
+    arena_block_content(b, &start, &len);
+    return start;
+}
+
+/* Where `addr` belongs among the first `count` entries: the number of entries whose content starts
+ * at or before it. So `index[pos - 1]` is the only block that can hold `addr`, and `pos` is where a
+ * new block with that start would be inserted. */
+static size_t index_upper_bound(ArenaBlock *const *index, size_t count, const char *addr) {
+    size_t lo = 0;
+    size_t hi = count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (block_start(index[mid]) <= addr) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
+/* Makes room for one more entry, moving off the inline array and then doubling. mmap rather than
+ * realloc for the reason this whole file uses it: a ZIMAN_GC build redirects malloc and friends
+ * (src/zgc.h), and the arena deliberately owns its memory outright. */
+static void index_reserve_one(Arena *a) {
+    if (a->index_count < a->index_cap) return;
+    /* `index_cap` is ARENA_INDEX_INLINE from arena_create_impl onwards and only ever doubles, so
+     * there is no zero case to handle here. */
+    size_t want = a->index_cap * 2;
+    size_t bytes = round_up(want * sizeof(ArenaBlock *), page_size());
+    ArenaBlock **grown = mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (grown == MAP_FAILED) {
+        abort();
+    }
+    for (size_t i = 0; i < a->index_count; i++) {
+        grown[i] = a->index[i];
+    }
+    if (a->index_map_bytes != 0) munmap(a->index, a->index_map_bytes);
+    a->index = grown;
+    a->index_cap = bytes / sizeof(ArenaBlock *);
+    a->index_map_bytes = bytes;
+}
+
+static void index_insert(Arena *a, ArenaBlock *b) {
+    index_reserve_one(a);
+    size_t pos = index_upper_bound(a->index, a->index_count, block_start(b));
+    for (size_t i = a->index_count; i > pos; i--) {
+        a->index[i] = a->index[i - 1];
+    }
+    a->index[pos] = b;
+    a->index_count++;
+}
+
+static void index_remove(Arena *a, const ArenaBlock *b) {
+    size_t pos = index_upper_bound(a->index, a->index_count, block_start(b));
+    /* `upper_bound` lands one past the entry whose start equals this one's, and starts are unique
+     * because blocks never overlap -- so the entry itself is at pos - 1. */
+    if (pos == 0 || a->index[pos - 1] != b) return; /* not indexed; nothing to do */
+    for (size_t i = pos - 1; i + 1 < a->index_count; i++) {
+        a->index[i] = a->index[i + 1];
+    }
+    a->index_count--;
+}
+
+/* The block whose content holds `addr`, or NULL. The whole point of the index: marking asks this
+ * once per live object, and walking the block list made that cost grow with the number of blocks.
+ *
+ * An address inside a block's *header or bitmap* rather than its content correctly answers NULL,
+ * the same as the list walk did: it is below that block's content start, so the search lands on an
+ * earlier-addressed block, whose content ends before this block's mapping begins. */
+const ArenaBlock *arena_block_containing(const Arena *a, const void *addr) {
+    const char *at = (const char *)addr;
+    size_t pos = index_upper_bound(a->index, a->index_count, at);
+    if (pos == 0) return NULL;
+    const ArenaBlock *b = a->index[pos - 1];
+    const char *start;
+    size_t len;
+    arena_block_content(b, &start, &len);
+    if (at < start || at >= start + len) return NULL;
+    return b;
 }
 
 void *arena_alloc(Arena *a, size_t size) {
@@ -283,6 +409,12 @@ void *arena_alloc(Arena *a, size_t size) {
         fresh->next = cur;
         __atomic_store_n(&a->current, fresh, __ATOMIC_RELEASE);
         a->reserved += fresh->size;
+        /* After the list store, not before: the index is this thread's own lookup structure, while
+         * the list is what a concurrent root walk reads, so the list's publication is what has to
+         * happen first. Indexed before any allocation can come out of the block (`used` still sits
+         * at the content offset here), so no address the collector could ask about belongs to a
+         * block the index does not know. */
+        index_insert(a, fresh);
         cur = fresh;
     }
     void *p = cur->data + (cur->used - ARENA_HEADER);
@@ -298,6 +430,15 @@ void arena_destroy(Arena *a) {
     /* Off the list first, every block only after that -- see scanned_unlink's own comment. */
     if (a->scanned) scanned_unlink(a);
 #endif
+    /* The index's own mapping, before the blocks: `a` lives inside the first block, so reading
+     * `a->index_map_bytes` after that block is gone would be a use-after-unmap. Nothing to do when
+     * the inline array was enough, which is every arena that never grew past one block. */
+    if (a->index_map_bytes != 0) {
+        munmap(a->index, a->index_map_bytes);
+        a->index = a->index_inline;
+        a->index_map_bytes = 0;
+        a->index_count = 0;
+    }
     ArenaBlock *b = a->current;
     while (b != NULL) {
         ArenaBlock *next = b->next;
@@ -318,6 +459,9 @@ void arena_reclaim_block(Arena *a, ArenaBlock *prev, ArenaBlock *b) {
      * and the single aligned pointer store means a collection interrupting this either still sees
      * `b` (mapped -- munmap is below) or already skips it. */
     __atomic_store_n(&prev->next, b->next, __ATOMIC_RELEASE);
+    /* Out of the index before the mapping goes away: `index_remove` reads `b`'s own content start
+     * to find it. */
+    index_remove(a, b);
     size_t size = b->size;
     a->reserved -= size;
     munmap(b, size);

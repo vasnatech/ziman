@@ -134,6 +134,12 @@ const void *arena_block_alloc_start_at_or_before(const ArenaBlock *b, const void
  * nothing here stops the call, but the result would not parse into real objects. */
 void arena_block_content(const ArenaBlock *b, const char **out_start, size_t *out_len);
 
+/* The block whose content holds `addr`, or NULL -- a binary search of this arena's own
+ * address-sorted block index, which is what keeps `gc_lookup` from walking the block list once per
+ * live object during marking. See the index's comment in arena.c for why it needs no atomics: the
+ * owning thread is the only one that reads or writes it. */
+const ArenaBlock *arena_block_containing(const Arena *a, const void *addr);
+
 /* Unlinks `b` from `a`'s own block list and releases it exactly like one iteration of
  * arena_destroy's own loop would -- for a caller (gc_heap_sweep) that has independently established
  * nothing in `b` is still live. Unlinking is also what stops a scanned arena's block being scanned,

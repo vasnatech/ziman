@@ -1,18 +1,16 @@
 #include "gc_lookup.h"
 
+#include "arena.h"
 #include "gc_object.h"
 
 const void *gc_lookup(const Arena *a, const void *candidate) {
     const char *addr = (const char *)candidate;
-    for (const ArenaBlock *b = arena_first_block(a); b != NULL; b = arena_next_block(b)) {
-        const char *start;
-        size_t len;
-        arena_block_content(b, &start, &len);
-        if (addr < start || addr >= start + len) continue; /* not even in this block's own content */
-
-        /* Blocks never overlap, so this is the only block that can hold `addr` -- whatever this
-         * block answers is the answer, and there is no reason to look at the rest. */
-
+    /* One binary search of the arena's address-sorted block index, rather than a walk of its block
+     * list. Blocks never overlap, so at most one can hold `addr`, and whatever that block answers
+     * is the answer. The walk this replaces is what made collection quadratic in live heap size --
+     * marking asks this question once per live object (tasks.md F56). */
+    const ArenaBlock *b = arena_block_containing(a, addr);
+    if (b != NULL) {
         /* The question nearly every call is actually asking (`gc_mark.c`'s `is_gc_heap_object`, of
          * essentially every pointer it marks): is `addr` an object's own payload start? Which is
          * exactly "did an allocation start one header-span earlier" -- a single bit test. */

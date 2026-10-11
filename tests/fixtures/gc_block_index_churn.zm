@@ -1,0 +1,31 @@
+// F56: the arena's address-sorted block index, exercised where it can actually go wrong. The index
+// is maintained on every block add and every reclaim, so a heap that grows past the inline capacity
+// (8 blocks) and is then dropped and regrown several times is what proves it stays sorted and
+// complete -- a stale or mis-ordered entry makes gc_lookup answer about the wrong block, which
+// either loses a live object or returns an address inside a reclaimed mapping.
+//
+// The interior-pointer cases are the point of the strings and slices, not filler: a substring and a
+// slice are addresses *inside* an object, which is the gc_lookup path that is not a simple
+// allocation-start bit test and so depends on having found the right block.
+fn main() {
+    var checksum = 0
+    for round in 0..3 {
+        val mb = mapb_new<int, string>()
+        for i in 0..20000 {
+            mapb_set<int, string>(mb, i, concat("value-", str(i)))
+        }
+        val m = mapb_to_map<int, string>(mb)
+        if Some(v) = map_get<int, string>(m, 42) {
+            checksum = checksum + len(v)
+        }
+        val parts = ab_new<string>()
+        for i in 0..8000 {
+            ab_append(parts, substring(concat("slice-me-", str(i)), 2, 7))
+        }
+        val items = ab_to_array<string>(parts)
+        checksum = checksum + len(items[7999])
+        val window = slice<string>(items, 1000, 1200)
+        checksum = checksum + len(window[0])
+    }
+    print(concat("checksum=", str(checksum)))
+}
