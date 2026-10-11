@@ -1,0 +1,23 @@
+// The other half of F53, and the reason its diagnostic can say "none is needed": a variadic
+// parameter accepts an array, loose arguments, or nothing at all, and forwarding one to another
+// variadic is just passing it along.
+fn total(ns: int...) -> int {
+    var sum = 0
+    for n in ns {
+        sum = sum + n
+    }
+    return sum
+}
+
+fn forward(ns: int...) -> int {
+    return total(ns)
+}
+
+fn main() {
+    val args = [1, 2, 3]
+    print(total(args))
+    print(total(1, 2, 3))
+    print(total())
+    print(forward(4, 5))
+    print(forward(args))
+}

@@ -437,6 +437,19 @@ static CallArgs parse_call_args(Parser *p, TokenType stop) {
                         "a call's arguments must be either all positional or all named, not a mix");
         }
         expr_list_push(&result.args, parse_expr(p));
+        /* `f(args...)` -- a spread, which Ziman has no syntax for and does not need: a variadic
+         * parameter takes an array directly, so `f(args)` already does it. Reaching for `...` is a
+         * Rust/JS/Python habit, and it failed as `expected ')', found '..'` -- the token, not the
+         * fix, several characters from the real question. Found writing the reference backend's
+         * first Ziman test, where I believed the error and wrote the call out four times instead
+         * (tasks.md F53). */
+        if (check(p, TOK_DOTDOT) && p->pos + 1 < p->tokens.count &&
+            p->tokens.items[p->pos + 1].type == TOK_DOT) {
+            ziman_error("syntax", cur(p)->line, cur(p)->col,
+                        "there is no '...' spread in a call, and none is needed: a variadic parameter takes an "
+                        "array directly, so write 'f(args)', not 'f(args...)' ('...' marks a parameter variadic "
+                        "where it is declared, not an argument where it is passed)");
+        }
         if (is_named) {
             result.names = ziman_xrealloc(result.names, (size_t)result.args.count * sizeof(char *));
             result.names[result.args.count - 1] = name;
