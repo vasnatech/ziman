@@ -1,0 +1,5 @@
+{"level":"info","message":"started"}
+{"level":"warn","message":"he said \"hi\"\nand left"}
+{"level":"error","prefix":"api","request_id":"req-7","message":"failed"}
+{"level":"info","message":"plain"}
+true

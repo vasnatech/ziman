@@ -2019,7 +2019,12 @@ from source.
   4. **Trace context**: W3C `traceparent` read by `server`, passed on by `client`, and written into `log` lines, so a
      request can be followed across services; then, if wanted, an OpenTelemetry (OTLP over HTTP/JSON) exporter on top
      of `client` and `json`, which needs a background thread to batch.
-  5. **`log`**: an optional JSON line format carrying a request id.
+  5. ~~**`log`**: an optional JSON line format carrying a request id.~~ **Done 2026-10-10 (F41):**
+     `log.logger(..., json: true)` writes one JSON object per line, and `with_request_id` stamps a
+     logger the way `with_prefix` does, so a handler sets it once per request. Level lowercased and
+     prefix trimmed, since the text format's padding is presentation; both `prefix` and
+     `request_id` omitted when empty rather than `null`. The investigation note below is what
+     shaped it.
      *Investigated 2026-10-10, not yet built -- the one design decision it needs is settled, so the
      next attempt should not re-derive it.* **Escape through the `json` module, not by hand.**
      `log`'s existing `single_line` escapes control bytes as `\xNN`, which is not valid JSON, and a

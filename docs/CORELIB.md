@@ -558,11 +558,22 @@ pub struct Logger {
     console: bool
     max_bytes: int
     keep_files: int
+    // One JSON object per line instead of the text format, for a log a machine reads. See `write`
+    // for the field names and why the escaping goes through `json` rather than `single_line`.
+    json: bool
+    // Carried on the logger rather than passed to every call, so a request's handler sets it once
+    // (`with_request_id`) and every line it logs afterwards carries it -- the same shape as
+    // `prefix`, and the reason this is a field and not a parameter. Empty means no id, and the
+    // field is then left out of the object rather than written as null, which is friendlier to
+    // whatever indexes the log.
+    request_id: string
 }
 
 pub fn logger(
 
 pub fn with_prefix(l: Logger, prefix: string) -> Logger
+
+pub fn with_request_id(l: Logger, id: string) -> Logger
 
 pub fn level_rank(level: Level) -> int
 

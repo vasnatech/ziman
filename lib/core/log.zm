@@ -16,6 +16,8 @@
 // does it, or nothing does).
 use clock.now_iso
 use fs
+use json.Json
+use json.json_to_string
 use number.byte_to_hex
 use os
 
@@ -36,6 +38,15 @@ pub struct Logger {
     console: bool
     max_bytes: int
     keep_files: int
+    // One JSON object per line instead of the text format, for a log a machine reads. See `write`
+    // for the field names and why the escaping goes through `json` rather than `single_line`.
+    json: bool
+    // Carried on the logger rather than passed to every call, so a request's handler sets it once
+    // (`with_request_id`) and every line it logs afterwards carries it -- the same shape as
+    // `prefix`, and the reason this is a field and not a parameter. Empty means no id, and the
+    // field is then left out of the object rather than written as null, which is friendlier to
+    // whatever indexes the log.
+    request_id: string
 }
 
 fn open_rotation_lock() -> Channel<int> {
@@ -60,7 +71,8 @@ pub fn logger(
     prefix: Option<string>,
     console: Option<bool>,
     max_bytes: Option<int>,
-    keep_files: Option<int>
+    keep_files: Option<int>,
+    json: Option<bool>
 ) -> Logger {
     return Logger {
         level: level,
@@ -69,21 +81,25 @@ pub fn logger(
         prefix: option_unwrap_or<string>(prefix, ""),
         console: option_unwrap_or<bool>(console, false),
         max_bytes: option_unwrap_or<int>(max_bytes, 0),
-        keep_files: option_unwrap_or<int>(keep_files, 5)
+        keep_files: option_unwrap_or<int>(keep_files, 5),
+        json: option_unwrap_or<bool>(json, false),
+        request_id: ""
     }
 }
 
 // The same logger with `prefix` in front of every message -- one per component.
+//
+// Written with `with` rather than by naming all nine fields: the field-by-field version silently
+// dropped whatever was added to `Logger` later, which is exactly how `json` and `request_id` would
+// have been lost here when they arrived.
 pub fn with_prefix(l: Logger, prefix: string) -> Logger {
-    return Logger {
-        level: l.level,
-        file: l.file,
-        timestamps: l.timestamps,
-        prefix: prefix,
-        console: l.console,
-        max_bytes: l.max_bytes,
-        keep_files: l.keep_files
-    }
+    return with l { prefix: prefix }
+}
+
+// The same logger stamping `id` on every line it writes -- set once where a request begins, so the
+// handler's own logging needs no extra argument. An empty `id` clears it again.
+pub fn with_request_id(l: Logger, id: string) -> Logger {
+    return with l { request_id: id }
 }
 
 // 0 for Debug up to 3 for Error: the order of severity.
@@ -188,8 +204,45 @@ fn rotate_if_full(path: string, max_bytes: int, keep: int) {
 // `<timestamp> <LEVEL> <prefix><message>`. Line breaks in `message` are written as `\n` and `\r`, so
 // one call is always one line. To stderr, or appended to the logger's file (falling back
 // to stderr if the file cannot be written, and also written to stderr when the logger is a `console` one).
+// One JSON object, one line, ending in a newline. Field names are the conventional ones a log
+// pipeline expects (`time`, `level`, `message`), with `prefix` and `request_id` as their own fields
+// rather than glued into the message -- a field is the whole point of a structured line, and a
+// reader that wants to filter by component or follow one request can then do it without parsing
+// prose. Both are omitted entirely when empty, rather than written as null.
+//
+// The escaping goes through `json` and not through `single_line`. `single_line` writes a control
+// byte as `\xNN`, which is not valid JSON, and a hand-rolled escaper here would reproduce the bug
+// A8 fixed: invalid UTF-8 flowing into a document other parsers reject. `json_to_string` on a
+// `JString` quotes, escapes, and substitutes U+FFFD for an invalid sequence -- so a log line
+// carrying bytes from a user is still a document something else can read.
+fn json_line(l: Logger, level: Level, message: string) -> string {
+    val out = sb_new()
+    sb_append(out, "{")
+    if l.timestamps {
+        sb_append(out, "\"time\":", json_to_string(Json.JString(now_iso())), ",")
+    }
+    // `level_name` pads to five characters so the text format's columns line up ("INFO "), and the
+    // prefix carries its own trailing space for the same reason -- both are presentation, and both
+    // would arrive in a log index as part of the value. Trimmed here, and the level lowercased,
+    // which is what every JSON log schema uses.
+    sb_append(out, "\"level\":", json_to_string(Json.JString(to_lower(trim(level_name(level))))))
+    val component = trim(l.prefix)
+    if len(component) > 0 {
+        sb_append(out, ",\"prefix\":", json_to_string(Json.JString(component)))
+    }
+    if len(l.request_id) > 0 {
+        sb_append(out, ",\"request_id\":", json_to_string(Json.JString(l.request_id)))
+    }
+    sb_append(out, ",\"message\":", json_to_string(Json.JString(message)), "}\n")
+    return sb_to_string(out)
+}
+
 pub fn write(l: Logger, level: Level, message: string) {
     if !enabled(l, level) {
+        return
+    }
+    if l.json {
+        write_line(l, json_line(l, level, message))
         return
     }
     var line = ""
@@ -197,6 +250,14 @@ pub fn write(l: Logger, level: Level, message: string) {
         line = format("{} ", now_iso())
     }
     line = format("{}{} {}{}\n", line, level_name(level), l.prefix, single_line(message))
+    write_line(l, line)
+}
+
+// Where a composed line goes: the file if there is one (rotating first if it has grown past
+// `max_bytes`), stderr as well when `console` is set, and stderr alone if the append failed or no
+// file was configured. Factored out of `write` when the JSON format arrived, so the two formats
+// cannot drift apart on rotation, fallback or the console rule.
+fn write_line(l: Logger, line: string) {
     switch l.file {
         Some(path) {
             if l.max_bytes > 0 {

@@ -84,6 +84,7 @@ flowchart LR
     jwt --> number
     log --> clock
     log --> fs
+    log --> json
     log --> number
     log --> os
     metrics --> collections
@@ -167,9 +168,9 @@ otherwise: everything on a layer depends only on lower layers.
 | `db` | `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `properties`, `zone` |
 | `http` | `mime`, `number`, `url` | `client`, `server` |
-| `json` | `number` | `csv`, `jwt`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
+| `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
-| `log` | `clock`, `fs`, `number`, `os` | - |
+| `log` | `clock`, `fs`, `json`, `number`, `os` | - |
 | `math` | - | - |
 | `metrics` | `collections`, `os` | `server` |
 | `migrate` | `collections`, `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |

@@ -1832,6 +1832,17 @@ write `<timestamp> LEVEL prefix message` to stderr, or append to `file` (falling
 stderr); below the logger's level is dropped. `with_prefix` makes a per-component logger,
 `level_parse("warn")` reads a level from configuration.
 
+`log.logger(..., json: true)` writes one JSON object per line instead -- `{"time":...,"level":
+"info","prefix":...,"request_id":...,"message":...}` -- for a log something else reads. The level is
+lowercased and the prefix trimmed, since the text format's column padding is presentation and has no
+business in an indexed field; `prefix` and `request_id` are left out entirely when empty rather than
+written as `null`. `with_request_id(logger, id)` stamps every line a logger writes from then on, so a
+request's handler sets it once instead of threading it through every call -- the same shape as
+`with_prefix`, and an empty id clears it. Escaping goes through `json`, so a message carrying
+arbitrary bytes from a user is still a document another parser accepts (the text format's `\xNN` for
+a control byte is deliberately not valid JSON, and a hand-rolled escaper here would reproduce the
+invalid-UTF-8 bug A8 fixed).
+
 A logger with `file` can rotate: `log.logger(..., max_bytes: 10485760, keep_files: 5)`. A file
 at `max_bytes` is renamed `<file>.1` before the next write to a fresh `<file>` (`.1`→`.2`, ... up
 to `.<keep_files>`, the one past that deleted; `keep_files: 0` just deletes). Without

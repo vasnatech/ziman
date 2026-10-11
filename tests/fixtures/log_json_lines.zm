@@ -1,0 +1,37 @@
+// Tier 3 item 8 (F41): one JSON object per line, with a request id. Logged to a file and then
+// printed, which keeps the output on stdout where the harness compares it and exercises the file
+// sink at the same time. Timestamps are off so the output is deterministic -- `time`'s value is
+// nobody's business to assert, only that the field appears when asked for, which the last case does.
+//
+// The cases that matter are the escaping ones: a quote and a newline inside a message must come out
+// as a valid JSON document, which is why this goes through `json` rather than `single_line` (that
+// writes a control byte as \xNN -- not valid JSON). And the padding `level_name` adds for the text
+// format's columns must not leak into a machine-read field.
+use fs
+use log
+use os
+
+fn main() {
+    val path = format("/tmp/ziman-fixture-log-{}.jsonl", str(os.pid()))
+    val base = log.logger(level: log.Level.Info, file: Some(path), json: true, timestamps: false)
+    log.info(base, "started")
+    log.warn(base, "he said \"hi\"\nand left")
+
+    val tagged = log.with_request_id(log.with_prefix(base, "api "), "req-7")
+    log.error(tagged, "failed")
+
+    // an empty id clears it again, and prefix and request_id are then absent rather than null
+    log.info(log.with_request_id(log.with_prefix(base, ""), ""), "plain")
+
+    // a level below the logger's own is dropped in JSON mode too
+    log.debug(tagged, "not printed")
+
+    print(trim(unwrap(fs.read_text(path))))
+
+    // and with timestamps on, the field is there -- its value is the clock's business, not ours
+    val stamped = log.logger(level: log.Level.Info, file: Some(path), json: true)
+    unwrap(fs.remove(path))
+    log.info(stamped, "timed")
+    print(starts_with(trim(unwrap(fs.read_text(path))), "{\"time\":\""))
+    unwrap(fs.remove(path))
+}

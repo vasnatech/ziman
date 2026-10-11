@@ -76,6 +76,15 @@ pub struct Logger {
     console: bool
     max_bytes: int
     keep_files: int
+    // One JSON object per line instead of the text format, for a log a machine reads. See `write`
+    // for the field names and why the escaping goes through `json` rather than `single_line`.
+    json: bool
+    // Carried on the logger rather than passed to every call, so a request's handler sets it once
+    // (`with_request_id`) and every line it logs afterwards carries it -- the same shape as
+    // `prefix`, and the reason this is a field and not a parameter. Empty means no id, and the
+    // field is then left out of the object rather than written as null, which is friendlier to
+    // whatever indexes the log.
+    request_id: string
 }
 ```
 
@@ -91,7 +100,8 @@ pub fn logger(
     prefix: Option<string>,
     console: Option<bool>,
     max_bytes: Option<int>,
-    keep_files: Option<int>
+    keep_files: Option<int>,
+    json: Option<bool>
 ) -> Logger
 ```
 
@@ -109,6 +119,19 @@ pub fn with_prefix(l: Logger, prefix: string) -> Logger
 ```
 
 The same logger with `prefix` in front of every message -- one per component.
+
+Written with `with` rather than by naming all nine fields: the field-by-field version silently
+dropped whatever was added to `Logger` later, which is exactly how `json` and `request_id` would
+have been lost here when they arrived.
+
+### `with_request_id`
+
+```
+pub fn with_request_id(l: Logger, id: string) -> Logger
+```
+
+The same logger stamping `id` on every line it writes -- set once where a request begins, so the
+handler's own logging needs no extra argument. An empty `id` clears it again.
 
 ### `level_rank`
 
@@ -148,11 +171,6 @@ True if a message at `level` would be written by `l`.
 ```
 pub fn write(l: Logger, level: Level, message: string)
 ```
-
-Writes `message` at `level` if the logger's level allows it: a line of the form
-`<timestamp> <LEVEL> <prefix><message>`. Line breaks in `message` are written as `\n` and `\r`, so
-one call is always one line. To stderr, or appended to the logger's file (falling back
-to stderr if the file cannot be written, and also written to stderr when the logger is a `console` one).
 
 ### `debug`
 
