@@ -330,3 +330,96 @@ Secondary finding, reported by three runs independently: **one bad `let` produce
 cascading errors** ("assignment to undefined variable", then "use of undefined variable"), so three
 bad lines gave seven errors. The first message is the good one; the rest is noise a blind fixer can
 chase.
+
+## Wave four, 2026-10-10: the last ten tasks -- the set is now complete (F49)
+
+The ten tasks never run (14, 17, 20, 34, 38, 39, 43, 47, 49, 50), one instance each, same method as
+wave three: cold round 1, then round 2 with `ziman --check` and `ziman --api` and a five-edit budget.
+**All 50 tasks have now been run at least once.**
+
+A process note first, because it affected what was measured. The first batch of ten round-1 attempts
+was generated from prompts transcribed by hand rather than from each task's verbatim "## Prompt"
+block, and four diverged enough to change the problem (task 17 got a different list, task 20 a
+different range, task 34 different state names and a different number of steps, task 49 lost the
+"space-separated" clause the expected stdout depends on). Grading those against the task's expected
+output would have measured a different question, so **the whole batch was discarded** -- not just
+the four -- and the wave re-run with each agent reading its own `prompt.txt`. The voided attempts
+are kept with a note rather than deleted.
+
+### Round 1: 0 of 10 compiled
+
+**Fifth independent replication**, and the first that completes the set. All ten clean on the
+contamination screen.
+
+| habit | cold attempts |
+|---|---|
+| `let` for a binding | **10 of 10** |
+| semicolon terminators | 5 of 10 |
+| `mut` | 4 of 10 |
+| method calls (`x.f()`) | 3 of 10 |
+| capitalised `Int`/`String`/`Bool` | 3 of 10 |
+| `match`, `=>`, `import`, string `+`, `type X = A \| B` | 1 of 10 each |
+
+`let` at 10 of 10 is the most uniform habit any wave has produced. Absent from all ten: `--`
+comments, `++`, and every interpolation form -- consistent with F38 and F48.
+
+### Round 2: 10 of 10 correct
+
+Graded by script, not by the agents' own reports. Self-reported edits were 2,2,2,2,2,3,3,3,4,4
+(median 2.5) -- but note these are *edits*, and this wave did not instrument *invocations*, which
+wave three established is the honest unit because discovery happens in throwaway probes. The edit
+figures are therefore not comparable to wave three's median of 6 invocations.
+
+### The finding: the flagship diagnostic does not survive method chaining
+
+Two of the ten cold attempts wrote a **chain** -- `word.slice(0, 1).to_upper()` and
+`template.replace("{name}", name).replace("{age}", to_string(age))` -- and neither reached the
+"Ziman has no methods" message that earlier reports single out as the standard the rest should meet
+("names the fix *and* teaches the design rule in one sentence"). Probed directly afterwards:
+
+```
+s.trim()                 -> 's.trim(...)': 's' is not an imported module, and Ziman has no
+                            methods -- if 's' is a value, call a function on it instead ...
+s.to_upper().len()       -> expected ')', found '('
+s.slice(0, 1).to_upper() -> expected ')', found '('
+s.a(1).b(2)              -> expected ')', found '('
+```
+
+**A single method call gets the exemplary message; a chained one fails in the parser and never
+reaches the typechecker that produces it.** This is the wrong way round: chaining is the *more*
+idiomatic form in the training distribution (`text.split(" ").map(f).join(" ")` is how Python, JS,
+Rust and Kotlin all write this task), so the shape a model is most likely to produce gets a bare
+positional error naming nothing, while the simpler shape gets the good sentence. Filed as a task.
+
+### Two more misleading messages, both the same character
+
+`'|'` appeared in two attempts, in unrelated roles, and both got
+`unexpected character '|' (did you mean '||'?)` -- a suggestion that is never what either meant:
+
+- `type Light = Red | Green | Amber` (task 34), a sum type in ML/Haskell/TypeScript style. Ziman
+  writes `enum Light { Red, Green, Amber }`. There is already a habit message for `type X = {...}`;
+  the `A | B` form was not covered.
+- `|> filter(...) |> map(...) |> sum()` (task 39), the F#/Elixir/OCaml pipeline.
+
+Guessing `||` is the one reading that cannot be right in either case: a boolean operator where a
+type declaration or a pipeline was meant. Both filed.
+
+### What the completed set does and does not say
+
+Round 1 is now **0 of 50** across five independent batches with five different habit mixes
+(Rust/ML, Haskell, Rust/Python, and this one's uniform `let`). That is as settled as this benchmark
+can make it.
+
+Round 2 does **not** aggregate cleanly, and the reason is worth stating rather than papering over:
+the waves did not all report the same measure. Tasks 11-50 reached a **compiling** program in
+**40 of 40**, but *correctness* was only reported as a headline for three of those four waves --
+the pilot 10/10, wave three 9/10, wave four 10/10, so **29 of 30** where it was stated, with the
+holdout reporting only that all ten compiled. Tasks 01-10 predate the C19/F28 diagnostics and stand
+at **4 of 10 correct**. The defensible summary is therefore: *every* cold attempt on tasks 11-50 was
+talked into compiling using nothing but the compiler's own output, and nearly every one that was
+graded for output was also right -- which supports the thesis that diagnostics rather than
+documentation carry a cold model, without pretending to a single 50-task number that was never
+measured.
+
+Still **one instance per task**. Nothing here measures variance between two runs of the *same*
+task, which remains the open methodological gap -- every per-task number in this report is n=1.

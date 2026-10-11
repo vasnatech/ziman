@@ -79,7 +79,10 @@ one -- the per-number comparison to keep is within a single run.
 
 ## Results
 
-See the dated report this run produced: `docs/reviews/llm-benchmark-2026-09-28.md`. Re-run by
+See the dated reports: `docs/reviews/llm-benchmark-2026-09-28.md` (tasks 01-10) and
+`docs/reviews/llm-benchmark-2026-10-09.md` (tasks 11-50, in four waves). **As of 2026-10-10 all 50
+tasks have been run at least once**, one instance each; round 1 is 0 of 50 across five independent
+batches. A second instance per task is still unrun, and is the remaining methodological gap. Re-run by
 hand (spawn a fresh agent per task per round, save its output under a scratch directory, grade
 with the `ziman` binary) -- there is no automated runner, since driving an actual model
 generation is not a shell script's job. The task files themselves are the fixed, reusable part.
