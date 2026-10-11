@@ -1,0 +1,17 @@
+// The same guard reached by a nested field rather than a chained call. A field holding a function
+// value is real (C15) but callable only on a plain variable, so `o.inner.go(1)` is a syntax error
+// too -- which is why the message names both readings and gives one fix that serves them: bind the
+// receiver. See diag_method_chain for the chained-call case, and method_call_on_variable for the
+// form that does work.
+struct Inner {
+    go: fn(int) -> int
+}
+
+struct Outer {
+    inner: Inner
+}
+
+fn main() {
+    val o = Outer { inner: Inner { go: fn(a: int) -> int { a + 1 } } }
+    print(o.inner.go(41))
+}

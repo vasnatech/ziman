@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "derive.h"
+#include "loader.h" /* ziman_report_method_chain_call -- see parse_postfix (F50) */
 #include "stack.h"
 #include "error.h"
 #include "xalloc.h"
@@ -988,6 +989,15 @@ static Expr *parse_postfix(Parser *p) {
         } else if (check(p, TOK_DOT)) {
             Token *dot = advance_tok(p);
             Token *field_tok = expect(p, TOK_IDENT, "a field name");
+            /* `expr.field(` -- a method call on something that is not a plain variable. Reaching
+             * here at all means parse_primary's `name.member(...)` path did not apply, so no
+             * legitimate form of this exists today: every one of `s.a().b()`, `o.inner.go(1)` and
+             * `hs[0].go(1)` was a bare `expected ')', found '('` before this check. See
+             * ziman_report_method_chain_call for why both readings are named (F50). */
+            if (check(p, TOK_LPAREN)) {
+                char *field_name = dup_token_text(field_tok);
+                ziman_report_method_chain_call(field_name, field_tok->line, field_tok->col);
+            }
             Expr *access = expr_new(EXPR_FIELD_ACCESS, dot->line, dot->col);
             access->as.field_access.base = e;
             access->as.field_access.field_name = dup_token_text(field_tok);

@@ -1,0 +1,11 @@
+// F50: a chained method call used to fail as a bare `expected ')', found '('` from the parser,
+// several tokens from the real problem, because only `name.member(...)` reaches parse_primary's
+// qualified-call path -- everything else became a field access that no '(' could follow. So the
+// "Ziman has no methods" sentence, which earlier benchmark reports single out as the standard the
+// rest should meet, fired for `s.trim()` and not for `s.to_upper().len()`. That is backwards:
+// chaining is the more common shape in the training distribution, and two of ten cold attempts in
+// the 2026-10-10 wave wrote one (tasks 14 and 47) without ever seeing the message.
+fn main() {
+    val word = "hello"
+    print(word.slice(0, 1).to_upper())
+}

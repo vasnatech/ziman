@@ -1,0 +1,17 @@
+// The other half of F50: what still works, so the new parser check cannot quietly swallow it.
+// A function-valued field called on a plain variable (C15), an ordinary field read, a module
+// function, and a single-method mistake that still gets the loader's own no-methods message --
+// all unchanged.
+struct Handler {
+    run: fn(int) -> int
+    name: string
+}
+
+fn main() {
+    val h = Handler { run: fn(a: int) -> int { a + 1 }, name: "inc" }
+    print(h.run(41))
+    print(h.name)
+    val nested = Handler { run: fn(a: int) -> int { a * 2 }, name: "double" }
+    val g = nested.run
+    print(g(21))
+}

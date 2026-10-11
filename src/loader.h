@@ -30,5 +30,6 @@ void loader_set_overrides(const char **paths, const char **texts, int count);
  * rather than here for a dotted call whose qualifier might be a local: see Expr's `unresolved_qualifier`
  * (ast.h) and check_call. Kept in loader.c because the wording is about modules and imports. */
 void ziman_report_unknown_module_call(const char *qualifier, const char *member, int line, int col);
+void ziman_report_method_chain_call(const char *member, int line, int col);
 
 #endif

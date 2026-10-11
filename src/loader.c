@@ -869,14 +869,18 @@ static void split_qualified(const char *dotted, char **qualifier_out, char **res
  * first has been removed again -- it described a workaround that is no longer needed. What is left is the
  * case this pass can still be sure about: the qualifier is neither an imported module nor a local with a
  * callable field, so either a free function was meant or a `use` is missing. */
-void ziman_report_unknown_module_call(const char *qualifier, const char *member, int line, int col) {
-    char hint[160];
+/* The free-function form for a member a model reached for with method syntax, written against
+ * `qualifier` as the receiver. Factored out of ziman_report_unknown_module_call so the chained-call
+ * diagnostic (ziman_report_method_chain_call, added for F50) names the same measured functions --
+ * those entries exist because naming the wrong one costs the reader a round, and that is just as
+ * true when the receiver is an expression as when it is a variable. */
+static void method_call_hint(const char *member, const char *qualifier, char *hint, size_t cap) {
     if (strcmp(member, "to_string") == 0 || strcmp(member, "toString") == 0 || strcmp(member, "to_str") == 0) {
-        snprintf(hint, sizeof hint, "str(%s)", qualifier);
+        snprintf(hint, cap, "str(%s)", qualifier);
     } else if (strcmp(member, "len") == 0 || strcmp(member, "length") == 0 || strcmp(member, "size") == 0) {
-        snprintf(hint, sizeof hint, "len(%s)", qualifier);
+        snprintf(hint, cap, "len(%s)", qualifier);
     } else if (strcmp(member, "push") == 0 || strcmp(member, "append") == 0) {
-        snprintf(hint, sizeof hint, "%s = push(%s, item)", qualifier, qualifier);
+        snprintf(hint, cap, "%s = push(%s, item)", qualifier, qualifier);
         /* The names below were measured, not guessed: each is one a cold model reached for in the
          * 2026-10-09 benchmark runs, where the bare `member(qualifier, ...)` fallback below sent it
          * to a function that does not exist (`lines`) or cannot take the receiver (`join`, which is
@@ -884,26 +888,57 @@ void ziman_report_unknown_module_call(const char *qualifier, const char *member,
          * function is worse than one that names none, because the reader spends a round finding out
          * (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28). */
     } else if (strcmp(member, "lines") == 0) {
-        snprintf(hint, sizeof hint, "lines(%s)", qualifier);
+        snprintf(hint, cap, "lines(%s)", qualifier);
     } else if (strcmp(member, "join") == 0) {
-        snprintf(hint, sizeof hint, "collections.join(%s, sep) (the builtin 'join' is a path join over strings)", qualifier);
+        snprintf(hint, cap, "collections.join(%s, sep) (the builtin 'join' is a path join over strings)", qualifier);
     } else if (strcmp(member, "sort") == 0 || strcmp(member, "sorted") == 0) {
-        snprintf(hint, sizeof hint, "collections.sort<T>(%s), after 'use collections'", qualifier);
+        snprintf(hint, cap, "collections.sort<T>(%s), after 'use collections'", qualifier);
     } else if (strcmp(member, "keys") == 0) {
-        snprintf(hint, sizeof hint, "map_keys(%s), which answers a Set (set_items turns it into an array)", qualifier);
+        snprintf(hint, cap, "map_keys(%s), which answers a Set (set_items turns it into an array)", qualifier);
     } else if (strcmp(member, "values") == 0) {
-        snprintf(hint, sizeof hint, "map_values(%s)", qualifier);
+        snprintf(hint, cap, "map_values(%s)", qualifier);
     } else if (strcmp(member, "reverse") == 0 || strcmp(member, "reversed") == 0) {
-        snprintf(hint, sizeof hint, "collections.reverse(%s) for an array, or reverse_string(%s) for text", qualifier, qualifier);
+        snprintf(hint, cap, "collections.reverse(%s) for an array, or reverse_string(%s) for text", qualifier, qualifier);
     } else if (strcmp(member, "sum") == 0) {
-        snprintf(hint, sizeof hint, "collections.sum(%s) for ints, or collections.fold for anything else", qualifier);
+        snprintf(hint, cap, "collections.sum(%s) for ints, or collections.fold for anything else", qualifier);
     } else {
         /* The free-function *form*, not a claim that such a function exists -- this pass has no
          * scope to look the name up in, and the measured cases above are where guessing wrong
          * actually cost something. An earlier version hedged with "if there is such a function",
          * which read as noise in the common case where the guess is right (`s.trim()`). */
-        snprintf(hint, sizeof hint, "%s(%s, ...)", member, qualifier);
+        snprintf(hint, cap, "%s(%s, ...)", member, qualifier);
     }
+}
+
+/* `expr.member(...)` where the receiver is not a plain variable -- a chained method call
+ * (`s.to_upper().len()`), or one on an index or a nested field (`hs[0].go(1)`, `o.inner.go(1)`).
+ * Only `name.member(...)` reaches parse_primary's qualified-call path; everything else became a
+ * field access that no `(` could follow, so the whole family used to fail as a bare
+ * `expected ')', found '('` from several tokens away. Two of ten cold attempts in the 2026-10-10
+ * benchmark wave wrote a chain and neither ever saw the "Ziman has no methods" sentence, which is
+ * backwards: chaining is the *more* common shape in the training distribution, so the likelier
+ * mistake was getting the worse message (tasks.md F50, F49).
+ *
+ * Both readings are named because the parser cannot tell them apart and both are true. If a method
+ * was meant, there are none, and the fix is to nest the calls or bind each step. If `member` is a
+ * field holding a function value, that is real (C15) but callable only on a plain variable today --
+ * `o.inner.go(1)` and `hs[0].go(1)` are both still syntax errors -- so binding the receiver is the
+ * fix for that reading too, which makes one sentence serve both. */
+void ziman_report_method_chain_call(const char *member, int line, int col) {
+    char hint[160];
+    method_call_hint(member, "v", hint, sizeof hint);
+    ziman_error("syntax", line, col,
+                "Ziman has no methods, so '.%s(...)' cannot be called on the result of an expression -- a "
+                "function takes its receiver as an argument instead: bind the inner expression with "
+                "'val v = ...' and write '%s', or nest the calls directly. (If '%s' is a struct field "
+                "holding a function value, that is callable too, but only on a plain variable, so the same "
+                "binding is the fix.)",
+                member, hint, member);
+}
+
+void ziman_report_unknown_module_call(const char *qualifier, const char *member, int line, int col) {
+    char hint[160];
+    method_call_hint(member, qualifier, hint, sizeof hint);
     ziman_error("module", line, col,
                 "'%s.%s(...)': '%s' is not an imported module, and Ziman has no methods -- if '%s' is a value, call a function on it instead, e.g. %s "
                 "(if '%s' should be a module, add 'use %s')",
