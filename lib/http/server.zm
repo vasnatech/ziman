@@ -1727,6 +1727,16 @@ pub fn cors_policy(origins: [string]) -> CorsPolicy {
     }
 }
 
+// `Vary: Origin`, unless the policy is a wildcard and so genuinely does not depend on the origin.
+// One function rather than the same `if` in two places, because the preflight refusal and the
+// ordinary answer must not drift apart on this.
+fn cors_vary(policy: CorsPolicy, answer: Response) -> Response {
+    if cors_wildcard(policy) {
+        return answer
+    }
+    return with_header(answer, "Vary", "Origin")
+}
+
 fn cors_origin_allowed(policy: CorsPolicy, origin: string) -> bool {
     for allowed in policy.allowed_origins {
         if allowed == "*" || allowed == origin {
@@ -1757,7 +1767,10 @@ pub fn cors_preflight(policy: CorsPolicy, req: Request, fault: fn(int, string) -
         return None
     }
     if !cors_origin_allowed(policy, origin) {
-        return Some(fault(status_forbidden, "Invalid CORS request"))
+        // The refusal varies by origin too -- this same request from an allowed origin is a 204 --
+        // so it carries `Vary: Origin` like every other answer here, which is what stops a shared
+        // cache serving this 403 to an origin that should have been allowed.
+        return Some(cors_vary(policy, fault(status_forbidden, "Invalid CORS request")))
     }
     val requested = switch header(req, "Access-Control-Request-Headers") {
         Some(value) { value }
@@ -1780,17 +1793,33 @@ pub fn cors_preflight(policy: CorsPolicy, req: Request, fault: fn(int, string) -
 // what makes the browser withhold it, and is the whole mechanism: a server does not refuse the request, it
 // declines to say the answer may be read.
 pub fn cors_apply(policy: CorsPolicy, req: Request, answer: Response) -> Response {
+    // `Vary: Origin` on every answer this touches, not only the ones that end up carrying
+    // `Access-Control-Allow-Origin` -- because whether that header is there *is* what varies by
+    // origin, so a shared cache that stores one answer and serves it to a different origin is wrong
+    // either way: it can hand an allowed origin's `Access-Control-Allow-Origin` to a page that must
+    // not see the answer (the hazard worth caring about), or hand a cached refusal to an origin that
+    // should have been allowed. Omitted only for a wildcard policy, where the answer genuinely does
+    // not depend on the origin.
+    //
+    // Appended rather than replacing any `Vary` the handler already set: several `Vary` fields mean
+    // the same thing as one comma-joined list, so this composes with a handler that varies on
+    // `Accept-Encoding` without having to know about it.
+    //
+    // The reference backend's own `route_cors` set this header; the first generalisation of that
+    // code into this module dropped it, and nothing noticed because the backend went on running its
+    // own copy (tasks.md F59).
+    val varied = cors_vary(policy, answer)
     val origin = switch header(req, "Origin") {
         Some(value) { value }
-        None { return answer }
+        None { return varied }
     }
     if !cors_origin_allowed(policy, origin) {
-        return answer
+        return varied
     }
     // `*` is echoed as `*`, not as the origin: echoing turns a public API into one that looks
     // origin-specific, and a browser will not accept `*` with credentials anyway.
     val allow = if cors_wildcard(policy) { "*" } else { origin }
-    val with_origin = with_header(answer, "Access-Control-Allow-Origin", allow)
+    val with_origin = with_header(varied, "Access-Control-Allow-Origin", allow)
     if policy.allow_credentials && !cors_wildcard(policy) {
         return with_header(with_origin, "Access-Control-Allow-Credentials", "true")
     }

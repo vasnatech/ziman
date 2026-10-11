@@ -1,6 +1,13 @@
 // CORS, generalised from the reference backend's own `route_cors`: every browser-facing server writes the
 // same thirty lines. Two functions rather than one handler-wrapping closure, so it composes with `dispatch`,
 // a hand-written router or anything else by sitting either side of it, and allocates nothing per request.
+//
+// `Vary=Origin` on every line but the wildcard is the point of F59, and this fixture is where the bug
+// lived: it already printed every header, so its recorded output *was* the defect -- a test that locks a
+// mistake in rather than one that misses it. The header matters because a shared cache without it may hand
+// an allowed origin's `Access-Control-Allow-Origin` to a page that must not read the answer, or hand a
+// cached refusal to an origin that should have been allowed. The wildcard line has none because that
+// answer genuinely does not depend on the origin.
 use http
 use server
 fn fault(status: int, message: string) -> http.Response {

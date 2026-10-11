@@ -2137,6 +2137,17 @@ from source.
   (through libxcrypt, so `$2a$`/`$2b$` hashes written by other systems verify) and Argon2id (OpenSSL), with
   `password_hash`, `password_verify` and `password_needs_rehash`; `jwt` signs and verifies HS256/384/512 tokens. The
   health-record backend registers and logs in with them. Still to do, in order: the authenticate step in `server` is done (`secure_*` builders: `who` runs first and hands `run` its caller); still to do are
-  interceptors for CORS and request logging, as a wrapper around `dispatch`, an `otp` module (HOTP/TOTP and base32) for MFA; OAuth2 login
+  ~~interceptors for CORS~~ (**done** -- see below), request logging as an interceptor, an `otp` module (HOTP/TOTP and base32) for MFA; OAuth2 login
   (Google, Microsoft) on `client`; and RS256/ES256 for tokens verified with a public key, which needs public-key
   operations in `crypto`.
+
+  *Update 2026-10-11 (F59): CORS is done, and not in the shape this entry asked for.* `server` offers
+  `cors_policy`/`cors_preflight`/`cors_apply` -- two functions sitting either side of the dispatch rather than
+  one wrapper around it, because a wrapper would have to return a closure and allocate one per request. The
+  work left in it was not the shape but the proving: the library's CORS said it was "generalised from the
+  reference backend's own `route_cors`" while the backend went on running its own copy, so nothing exercised
+  the library version. Migrating the backend onto it (52 lines out, 16 in) found **`Vary: Origin` missing from
+  the whole CORS section** -- and `http_server_cors`, which prints every header of every case, had recorded
+  that omission as its expected output. A test that locks a mistake in, not one that misses it. Fixed, and the
+  backend now keeps the library exercised. Request logging as an interceptor is still open;
+  `ServeOptions.log_requests` covers the server-level case.

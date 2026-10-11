@@ -1,7 +1,7 @@
-preflight allowed: 204 [Access-Control-Allow-Methods=GET, POST, PUT, PATCH, DELETE, OPTIONS, Access-Control-Allow-Headers=Authorization, Content-Type, Access-Control-Max-Age=3600, Access-Control-Allow-Origin=https://app.example, Access-Control-Allow-Credentials=true]
-preflight denied: 403 []
+preflight allowed: 204 [Access-Control-Allow-Methods=GET, POST, PUT, PATCH, DELETE, OPTIONS, Access-Control-Allow-Headers=Authorization, Content-Type, Access-Control-Max-Age=3600, Vary=Origin, Access-Control-Allow-Origin=https://app.example, Access-Control-Allow-Credentials=true]
+preflight denied: 403 [Vary=Origin]
 plain is preflight: false
-allowed origin: 200 [Access-Control-Allow-Origin=https://app.example, Access-Control-Allow-Credentials=true]
-other origin: 200 []
-no origin: 200 []
+allowed origin: 200 [Vary=Origin, Access-Control-Allow-Origin=https://app.example, Access-Control-Allow-Credentials=true]
+other origin: 200 [Vary=Origin]
+no origin: 200 [Vary=Origin]
 wildcard: 200 [Access-Control-Allow-Origin=*]
