@@ -1,0 +1,4 @@
+# The caret belongs on the chained call itself. Before F50 this failed several tokens away, as
+# `expected ')', found '('` at the following parenthesis -- a message naming the right problem in
+# the wrong place, which a .err fixture cannot tell from the right one.
+syntax 10:28 Ziman has no methods

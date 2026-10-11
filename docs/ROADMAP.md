@@ -620,9 +620,24 @@ from source.
     already made. A real `match` expression (exhaustiveness checking,
     binding syntax) is its own design pass, deliberately not attempted
     alongside the enum type itself.
-- **A real test harness beyond tests/run_tests.sh's stdout/substring
+- ~~**A real test harness beyond tests/run_tests.sh's stdout/substring
   matching** — fine for now, will need line/col assertions once
-  diagnostics get richer.
+  diagnostics get richer.~~ **Done 2026-10-11 (F57).** The line/col assertions this asked for, as a
+  third fixture kind: `name.diag` holds `<phase> <line>:<col>` and an optional message substring,
+  one line per diagnostic in order, compared against `ziman --json` by `tools/check_diag.py`. No new
+  compiler work was needed -- `--json` already emitted `phase`/`line`/`col`/`message` per
+  diagnostic (principle 5), and the harness simply ignored it.
+
+  **The gap was demonstrated, not argued.** A `.err` fixture asserts that a message appears
+  somewhere in stderr and nothing about where it was reported, so a diagnostic naming the right
+  problem in the wrong place passes it -- which is what F50 and F53 both turned out to be. Shifting
+  one reported column by one in `src/parser.c`: the `.err` fixture **passed**, the `.diag` fixture
+  failed with `col is 29, wanted 28`.
+
+  Leaving the substring off asserts position alone, so a fixture about *where* an error lands no
+  longer breaks when someone rewords the message -- the churn that made `diag_map_as_function` fail
+  on a reworded but correct hint earlier the same day. A trailing `...` allows further diagnostics,
+  which cascades need: one stray `let` produces five.
 - ~~**"Did you mean...?" suggestions on an undefined name.**~~ Done 2026-09-28: edit-distance
   search (same algorithm and "strictly less than 3" cutoff as `properties.check_unknown`'s own
   suggestion) over the module's own functions/structs/enums and the callable builtins, on both

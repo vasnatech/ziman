@@ -8,6 +8,18 @@
 #     tests) and print exactly that on stdout.
 #   - if name.err exists, the program must exit non-zero and that file's content
 #     must appear as a substring somewhere in stderr.
+#   - if name.diag exists, the program must exit non-zero and its `--json`
+#     diagnostics must match that file line for line: `<phase> <line>:<col>`
+#     and an optional message substring, one line per diagnostic in order
+#     (`...` as a last line allows more after those). `--json` is added to the
+#     run automatically, since that is what a .diag fixture is for.
+#
+#     This is the one kind that can assert *where* an error was reported. A .err
+#     fixture says a message appeared somewhere in stderr and nothing about its
+#     position, so a diagnostic that names the right problem at the wrong place
+#     passes it -- which is exactly what tasks.md F50 and F53 turned out to be.
+#     Leaving the substring off asserts position alone, so a fixture about where
+#     an error lands does not break when someone rewords the message.
 #
 # Either kind may have a sibling name.env (KEY=VALUE lines) exported for its run.
 #
@@ -62,6 +74,13 @@ check_fixture() {
     if [ -f "$args_file" ]; then
         read -r -a cli_args < "$args_file"
     fi
+    # A .diag fixture asserts the structured diagnostics, so it gets --json whether it asked or
+    # not: forgetting it would make the fixture compare an empty JSON stream against expectations
+    # and fail for a reason that has nothing to do with what it is testing.
+    local diag_file="tests/fixtures/$name.diag"
+    if [ -f "$diag_file" ]; then
+        cli_args=("--json" "${cli_args[@]+"${cli_args[@]}"}")
+    fi
 
     local stdout status stderr
     # `timeout` guards against a genuine deadlock in a spawn/Channel fixture
@@ -97,6 +116,21 @@ check_fixture() {
             echo "  --- actual stderr ---"; echo "$stderr" | sed 's/^/  /'
             fail=$((fail + 1))
         fi
+    elif [ -f "$diag_file" ]; then
+        local report
+        printf '%s\n' "$stderr" > "/tmp/ziman_diag_actual.$$"
+        report=$(python3 tools/check_diag.py "$diag_file" "/tmp/ziman_diag_actual.$$" 2>&1)
+        local diag_status=$?
+        rm -f "/tmp/ziman_diag_actual.$$"
+        if [ "$status" -ne 0 ] && [ "$diag_status" -eq 0 ]; then
+            echo "PASS $name"
+            pass=$((pass + 1))
+        else
+            echo "FAIL $name (diagnostics do not match $diag_file)"
+            echo "  exit=$status"
+            [ -n "$report" ] && echo "$report"
+            fail=$((fail + 1))
+        fi
     elif [ -f "$err_file" ]; then
         local needle
         needle=$(cat "$err_file")
@@ -110,7 +144,7 @@ check_fixture() {
             fail=$((fail + 1))
         fi
     else
-        echo "SKIP $name (no .out or .err fixture)"
+        echo "SKIP $name (no .out, .diag or .err fixture)"
     fi
 }
 

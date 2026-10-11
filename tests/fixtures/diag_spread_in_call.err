@@ -1,1 +1,0 @@
-there is no '...' spread in a call, and none is needed: a variadic parameter takes an array directly
