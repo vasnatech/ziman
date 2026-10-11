@@ -809,7 +809,16 @@ from source.
   elsewhere, since the LLM benchmark's own finding was that diagnostics -- not step-debugging --
   were what let a model correct itself.
 
-- **Grow the LLM-generation benchmark from 10 tasks to the 50 the review asked for.** Also split out
+- **Grow the LLM-generation benchmark from 10 tasks to the 50 the review asked for.**
+  *Done 2026-10-10 (F26 wrote the 50 tasks; F27/F34/F36/F49 ran them).* All 50 tasks exist and have
+  now been run at least once: round 1 is **0 of 50** across five independent batches with five
+  different habit mixes, and round 2 talked every cold attempt on tasks 11-50 into compiling using
+  nothing but the compiler's own output. **What this entry asked for is finished; what replaces it
+  is variance, not scope** -- every per-task figure is n=1 (the "two independent fresh model
+  instances" below means one per *round*, which is isolation, not replication), so nothing yet
+  measures two runs of the same task. The 2026-10-10 wave is also the clearest case for reading the
+  attempts rather than the score: it scored 10/10 in round 2 and still contained three real
+  diagnostic defects (F50, F51). Also split out
   of F6 on 2026-10-05 rather than closed with it, because 10 tasks is a fifth of the asked-for scope
   and calling that done would misrepresent it. `tests/bench/llm_tasks/` holds the fixed 10-task set
   and docs/reviews/llm-benchmark-2026-09-28.md the method -- each task run cold with zero Ziman
