@@ -687,10 +687,20 @@ from source.
   hand-written and the fourth copy. `pg`, `mysql`, `toml` and `yaml` carry the attribute, and their
   header comments keep the module-specific *reason* while no longer repeating the label.
   `#![deprecated]` is refused with a message saying why, since what it should warn about is still
-  undecided. Still open: `#[deprecated]` on a `struct`/`enum`/`val` (rejected with a clear message
-  today rather than silently ignored, since nothing reads it there); whether a deprecation should
-  ever be a warning by default (still needs "warnings/notes as a separate severity") or a hard error
-  under a "deny" policy. The original entry follows.
+  undecided. ~~Still open: `#[deprecated]` on a `struct`/`enum`/`val`~~ **Done for `struct` and `enum`
+  2026-10-11 (F58):** naming either from another module -- a struct literal, an enum access -- is a
+  `--lint` warning carrying the attribute's message, and same-module use stays silent, exactly as
+  the function case already worked. **Deliberately not warned on a type annotation:** a function
+  migrating away from a deprecated type still has to name it to accept one, so warning there would
+  be loudest in the code doing the migration. **`val` is still refused**, now with a message that
+  says what it would take rather than only that it is unsupported: a module-level val becomes a
+  plain binding in the global scope (`check_global_vals`), so a reference to it carries nothing back
+  to the declaration for a lint to read, unlike a struct literal or an enum access which resolve
+  through `find_struct`/`find_enum`. Supporting it means carrying the deprecation on the binding.
+  **Still open and blocked on something that does not exist:** whether a deprecation should ever be
+  a warning by default (needs "warnings/notes as a separate severity") or a hard error under a
+  "deny" policy. That is a language-wide decision about diagnostic severities, not a deprecation
+  question, and nothing here should guess it. The original entry follows.
 
   F4 (2026-09-28) just labeled `pg`/`mysql`/`toml`/`yaml`
   "experimental" the only way available today: a sentence in each module's

@@ -2617,10 +2617,8 @@ Module *parse(TokenList tokens) {
             if (derives.is_test) {
                 ziman_error("syntax", sd->line, sd->col, "#[test] applies to a function, not to struct '%s'", sd->name);
             }
-            if (derives.deprecated) {
-                ziman_error("syntax", sd->line, sd->col,
-                            "#[deprecated] applies to a function; nothing reads it on struct '%s' yet (docs/ROADMAP.md)", sd->name);
-            }
+            sd->deprecated = derives.deprecated;
+            sd->deprecated_message = derives.deprecated_message;
             struct_list_push(&module->structs, sd);
         } else if (check(&p, TOK_ENUM)) {
             EnumDecl *ed = parse_enum_decl(&p);
@@ -2636,10 +2634,8 @@ Module *parse(TokenList tokens) {
             if (derives.is_test) {
                 ziman_error("syntax", ed->line, ed->col, "#[test] applies to a function, not to enum '%s'", ed->name);
             }
-            if (derives.deprecated) {
-                ziman_error("syntax", ed->line, ed->col,
-                            "#[deprecated] applies to a function; nothing reads it on enum '%s' yet (docs/ROADMAP.md)", ed->name);
-            }
+            ed->deprecated = derives.deprecated;
+            ed->deprecated_message = derives.deprecated_message;
             enum_list_push(&module->enums, ed);
         } else if (derives.count > 0 || derives.thread_bound || derives.thread_key) {
             ziman_error("syntax", cur(&p)->line, cur(&p)->col,
@@ -2659,8 +2655,16 @@ Module *parse(TokenList tokens) {
                 ziman_error("syntax", v->line, v->col, "#[test] applies to a function, not to a val ('%s')", v->name);
             }
             if (derives.deprecated) {
+                /* Still refused, now for a reason this message can state: a module-level val
+                 * becomes an ordinary binding in the global env (typecheck.c's
+                 * check_global_vals), so a reference to it is an identifier lookup that has no
+                 * link back to this declaration -- unlike a struct literal or an enum access,
+                 * which both resolve through find_struct/find_enum and so can be linted.
+                 * Supporting it means carrying the deprecation on the binding (tasks.md F58). */
                 ziman_error("syntax", v->line, v->col,
-                            "#[deprecated] applies to a function; nothing reads it on a val ('%s') yet (docs/ROADMAP.md)", v->name);
+                            "#[deprecated] works on a function, a struct and an enum, but not yet on a val ('%s') -- "
+                            "a module-level val becomes a plain binding in the global scope, so a reference to it "
+                            "carries nothing back to this declaration for a lint to read (docs/ROADMAP.md)", v->name);
             }
             global_val_list_push(&module->vals, v);
         } else {

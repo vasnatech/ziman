@@ -1,0 +1,28 @@
+use oldlib
+
+// A parameter naming the deprecated type is deliberately NOT a warning: a function migrating away
+// from it still has to accept one, so warning here would be loudest in the code doing the work.
+fn sum_of(p: oldlib.Point2) -> int {
+    return p.x + p.y
+}
+
+fn main() {
+    val old = oldlib.Point2 { x: 1, y: 2 }        // warns, with the message
+    val legacy = oldlib.Legacy { note: "n" }      // warns, no message
+    val fresh = oldlib.Point3 { x: 1, y: 2, z: 3 } // not deprecated: silent
+    val status = oldlib.OldStatus.On              // warns, with the message
+    val ok = oldlib.Status.On                     // not deprecated: silent
+    print(sum_of(old) + legacy_len(legacy) + fresh.z + flag(status) + flag2(ok))
+}
+
+fn legacy_len(l: oldlib.Legacy) -> int {
+    return len(l.note)
+}
+
+fn flag(s: oldlib.OldStatus) -> int {
+    return if oldlib.OldStatus.is_On(s) { 1 } else { 0 }
+}
+
+fn flag2(s: oldlib.Status) -> int {
+    return if oldlib.Status.is_On(s) { 1 } else { 0 }
+}

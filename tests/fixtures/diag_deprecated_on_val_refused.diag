@@ -1,0 +1,1 @@
+syntax 7:5 #[deprecated] works on a function, a struct and an enum, but not yet on a val

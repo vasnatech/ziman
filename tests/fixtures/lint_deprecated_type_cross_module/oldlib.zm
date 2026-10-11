@@ -1,0 +1,40 @@
+// `#[deprecated]` on a struct and on an enum (F58). Naming either from another module is a `--lint`
+// warning, with the attribute's own message when it gave one; naming it from *this* module stays
+// silent, which is what lets a library keep a superseded type working for its existing users
+// without warning about every internal use it makes of it.
+#[deprecated("use Point3 instead")]
+pub struct Point2 {
+    x: int
+    y: int
+}
+
+#[deprecated]
+pub struct Legacy {
+    note: string
+}
+
+pub struct Point3 {
+    x: int
+    y: int
+    z: int
+}
+
+#[deprecated("use Status instead")]
+pub enum OldStatus {
+    On
+    Off
+}
+
+pub enum Status {
+    On
+    Off
+}
+
+// Same-module use of both: silent, by design.
+pub fn internal_origin() -> Point2 {
+    return Point2 { x: 0, y: 0 }
+}
+
+pub fn internal_status() -> OldStatus {
+    return OldStatus.On
+}

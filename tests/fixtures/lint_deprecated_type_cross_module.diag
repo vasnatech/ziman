@@ -1,0 +1,10 @@
+# F58, asserted with F57's .diag so the *positions* are pinned: a deprecation warning that landed
+# on the wrong line would be as unhelpful as one that never fired, and a .err substring match
+# cannot tell those apart. The three in main() are a struct literal with a message, one without,
+# and an enum access; the fourth is the enum access inside flag(), which is a use a programmer
+# wrote and so is linted like any other. oldlib's own internal uses of both deprecated types are
+# absent from this list on purpose -- same-module use is silent.
+lint 10:15 'oldlib::Point2' is deprecated: use Point3 instead
+lint 11:18 'oldlib::Legacy' is deprecated
+lint 13:18 'oldlib::OldStatus' is deprecated: use Status instead
+lint 23:15 'oldlib::OldStatus' is deprecated: use Status instead

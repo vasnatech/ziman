@@ -445,6 +445,33 @@ static void lint_deprecated_use(const FunctionDecl *fn, int line, int col) {
     }
     g_lint_count++;
 }
+/* The same rule as lint_deprecated_use, for a type: naming a `#[deprecated]` struct or enum from
+ * another module is a warning, same-module use is silent. Only the sites a programmer actually
+ * writes are linted -- a struct literal and an enum access -- and deliberately not a type
+ * annotation: a function migrating away from a deprecated type still has to name it to accept one,
+ * so warning there would be loudest in exactly the code doing the migration (tasks.md F58). */
+static void lint_deprecated_struct(const StructDecl *sd, int line, int col) {
+    if (!g_lint_active || sd == NULL || !sd->deprecated) return;
+    if (lint_same_source(sd->source_file, g_lint_file)) return;
+    if (sd->deprecated_message != NULL) {
+        ziman_warning(g_lint_file, line, col, "'%s' is deprecated: %s", sd->name, sd->deprecated_message);
+    } else {
+        ziman_warning(g_lint_file, line, col, "'%s' is deprecated", sd->name);
+    }
+    g_lint_count++;
+}
+
+static void lint_deprecated_enum(const EnumDecl *ed, int line, int col) {
+    if (!g_lint_active || ed == NULL || !ed->deprecated) return;
+    if (lint_same_source(ed->source_file, g_lint_file)) return;
+    if (ed->deprecated_message != NULL) {
+        ziman_warning(g_lint_file, line, col, "'%s' is deprecated: %s", ed->name, ed->deprecated_message);
+    } else {
+        ziman_warning(g_lint_file, line, col, "'%s' is deprecated", ed->name);
+    }
+    g_lint_count++;
+}
+
 static int g_skip_main_check = 0;
 void typecheck_skip_main_check(int skip) { g_skip_main_check = skip; }
 int typecheck_lint_count(void) { return g_lint_count; }
@@ -2729,6 +2756,7 @@ static Type check_struct_literal(Module *module, Env *env, Expr *e) {
     if (decl == NULL) {
         ziman_error("type", e->line, e->col, "no struct named '%s'", type_name_str);
     }
+    lint_deprecated_struct(decl, e->line, e->col);
     TypeList *type_args = &e->as.struct_lit.type_args;
     /* Explicit type arguments everywhere, no inference: a generic struct's
      * construction must always spell out `Name<Arg, ...>`, and a
@@ -2908,6 +2936,7 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
     if (decl == NULL) {
         ziman_error("type", e->line, e->col, "no enum named '%s'", enum_name);
     }
+    lint_deprecated_enum(decl, e->line, e->col);
     TypeList *type_args = &e->as.enum_access.type_args;
 
     for (int i = 0; i < decl->variants.count; i++) {

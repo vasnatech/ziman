@@ -665,6 +665,14 @@ typedef struct {
     /* `#[thread_key]`: a value of this type is an immutable key naming a slot that has a different value on every thread (`thread.ThreadLocal<T>`), so it holds nothing
      * that belongs to a thread even when its type argument is a `#[thread_bound]` type -- a `ThreadLocal<MapBuilder<..>>` may be a module-level `val`. */
     int thread_key;
+    /* `#[deprecated]` / `#[deprecated("use X instead")]`: naming this type from *another* module --
+     * a struct literal, an enum access -- is a `--lint` warning, carrying `deprecated_message`
+     * when one was given. Same-module use is silent, for the reason the function case is: the
+     * author already knows. Deliberately *not* warned on a type annotation, because a function
+     * migrating away from a deprecated type still has to name it to accept one, so warning there
+     * would be loudest in exactly the code doing the migration (tasks.md F58). */
+    int deprecated;
+    const char *deprecated_message;
     int line, col;
     const char *source_file; /* the file it was loaded from; NULL for a bundled module */
 } StructDecl;
@@ -712,6 +720,10 @@ typedef struct {
     /* Same `#[derive(...)]` mechanism as StructDecl -- see src/derive.c. */
     char **derives;
     int derive_count;
+    /* Same `#[deprecated]` as StructDecl -- an enum access from another module is a `--lint`
+     * warning. See StructDecl's own comment for why a type annotation is not one. */
+    int deprecated;
+    const char *deprecated_message;
     int line, col;
     const char *source_file;
 } EnumDecl;
