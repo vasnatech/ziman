@@ -134,7 +134,25 @@ check("completion after a bundled module's qualifier", "essence" in labels and "
 r = request("workspace/symbol", {"query": "doub"})
 check("workspace symbols by name", any(x["name"] == "double" and x["location"]["uri"] == util_uri for x in r["result"]), r)
 r = request("textDocument/documentHighlight", {"textDocument": {"uri": main_uri}, "position": {"line": 9, "character": 8}})
-check("document highlight finds every use of a name", len(r["result"]) >= 5, r)
+# Exactly five, not "at least": `val a = 21` and its four uses. The `>= 5` this replaces passed
+# just as happily on the textual version, which answered with every word that matched -- so the
+# assertion sanctioned the defect it was meant to cover (docs/reviews/tasks.md F77).
+check("document highlight finds every use of a name", len(r["result"]) == 5, r)
+
+# The shape that showed the old handler was textual: a field declaration, a struct-literal field
+# label, `p.x`, and a shadowing binding with its own use, all spelled `x`. Seven hits before, two
+# now -- the declaration and its one real use.
+shadow = ('struct Holder {\n    x: int\n}\n\nfn main() {\n    val x = 1\n    val p = Holder { x: 9 }\n'
+          '    print(x + p.x)\n    if true {\n        val x = 2\n        print(x)\n    }\n}\n')
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 9}, "contentChanges": [{"text": shadow}]})
+diagnostics_for(main_uri)
+r = request("textDocument/documentHighlight", {"textDocument": {"uri": main_uri}, "position": {"line": 5, "character": 8}})
+lines = sorted(h["range"]["start"]["line"] for h in r["result"])
+check("document highlight resolves rather than matching text", lines == [5, 7], lines)
+# And from the shadow's own side: its declaration and its use, not the outer binding's.
+r = request("textDocument/documentHighlight", {"textDocument": {"uri": main_uri}, "position": {"line": 10, "character": 14}})
+lines = sorted(h["range"]["start"]["line"] for h in r["result"])
+check("document highlight sees the inner binding from inside the shadow", lines == [9, 10], lines)
 
 # a folder holds its own module under its own name: `use shapes` is shapes/shapes.zm
 os.makedirs(os.path.join(tmp, "shapes"))

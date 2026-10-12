@@ -1537,6 +1537,58 @@ static void handle_workspace_symbol(const JVal *id, const JVal *params) {
 }
 
 /* Every other place the word under the cursor appears in the file (outside `//` comments). */
+/* A name followed by `:` whose nearest preceding non-space character is `{`, `,` or `(` is a
+ * *label* rather than a use: a struct literal's field (`Holder { x: 9 }`), a struct declaration's
+ * field (`x: int`), or a named argument (`f(a: 1)`). Each of those names a field or a parameter,
+ * which is a different thing from a local that happens to share the spelling. The scan crosses
+ * newlines on purpose, since a field declaration's `{` is usually on the line above.
+ *
+ * The declaration itself is checked for separately by the caller, so a parameter's own
+ * `(count: int` is not mistaken for a label and dropped from its own highlight list. */
+static int looks_like_label(const char *text, size_t word_start, size_t word_end) {
+    size_t i = word_end;
+    while (text[i] == ' ' || text[i] == '\t') i++;
+    if (text[i] != ':') return 0;
+    size_t j = word_start;
+    while (j > 0) {
+        char ch = text[j - 1];
+        if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') { j--; continue; }
+        return ch == '{' || ch == ',' || ch == '(';
+    }
+    return 0;
+}
+
+/* Whether the name at `word_start` is introduced by a `val` or `var` immediately before it, so the
+ * occurrence *declares* a binding rather than using one.
+ *
+ * This is needed for a shadow's own declaration, which is the one case resolution cannot settle: at
+ * the position of `val x = 2` the inner `x` is not in scope yet, so the name there still resolves to
+ * the outer binding and looks like a use of it. A `val` in front says otherwise.
+ *
+ * Covers `val` and `var` only. A nested `for` binder or a lambda parameter of the same name can
+ * still come back as a use; those are other spellings of the same situation and are recorded in
+ * docs/reviews/tasks.md F77 rather than guessed at here. */
+static int declares_here(const char *text, size_t word_start) {
+    size_t j = word_start;
+    while (j > 0 && (text[j - 1] == ' ' || text[j - 1] == '\t')) j--;
+    if (j < 3) return 0;
+    if (j >= 3 && strncmp(text + j - 3, "val", 3) == 0 && (j == 3 || !isalnum((unsigned char)text[j - 4])))
+        return 1;
+    if (j >= 3 && strncmp(text + j - 3, "var", 3) == 0 && (j == 3 || !isalnum((unsigned char)text[j - 4])))
+        return 1;
+    return 0;
+}
+
+/* The nearest preceding non-space character, or 0 at the start of the document. */
+static char char_before(const char *text, size_t at) {
+    while (at > 0) {
+        char ch = text[at - 1];
+        if (ch != ' ' && ch != '\t') return ch;
+        at--;
+    }
+    return 0;
+}
+
 static void handle_document_highlight(const JVal *id, const JVal *params) {
     const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
     JVal *pos = jget(params, "position");
@@ -1547,6 +1599,45 @@ static void handle_document_highlight(const JVal *id, const JVal *params) {
         return;
     }
     int wl = (int)strlen(c.word);
+    int line0 = jint(jget(pos, "line"), 0);
+
+    /* What the cursor actually names, rather than how it is spelled. A local resolves to its own
+     * declaration, and an occurrence elsewhere is a use of *this* binding only when it resolves to
+     * the same declaration -- which is exactly what tells a shadowing `val x` in an inner block
+     * apart from the `x` outside it. Before this, the reply was every word that matched the text,
+     * so an editor rendered a field declaration, a field label, `p.x` and both sides of a shadow
+     * as "other uses of this symbol" (docs/reviews/tasks.md F77).
+     *
+     * A name that is not a local -- a function, a type, a module-level val -- still answers by
+     * spelling, because resolving every occurrence of a global would mean doing the type checker's
+     * work here. What it no longer does is match inside a string or after a dot. */
+    int dl = -1, dc = -1;
+    int is_local = !c.after_dot && find_local(d, line0, c.start_byte, c.word, &dl, &dc);
+    /* The cursor may be sitting *on* the declaration, where there is nothing earlier to resolve to
+     * and `find_local` correctly fails. Taking that as "not a local" was the first version's bug:
+     * it switched resolution off for the one request where someone most often asks, with the
+     * cursor on `val x`, so a shadow still came back as a use. If any later occurrence resolves
+     * back to this exact position, this position is the declaration. */
+    if (!is_local && !c.after_dot) {
+        int line_n = 0;
+        for (const char *q = d->text; *q != '\0';) {
+            const char *nl = strchr(q, '\n');
+            int len = nl != NULL ? (int)(nl - q) : (int)strlen(q);
+            for (int i = 0; i + wl <= len && !is_local; i++) {
+                if (!word_at(q, i, c.word, wl)) continue;
+                int ol = -1, oc = -1;
+                if (find_local(d, line_n, i, c.word, &ol, &oc) && ol == line0 && oc == c.start_byte) {
+                    dl = line0;
+                    dc = c.start_byte;
+                    is_local = 1;
+                }
+            }
+            if (nl == NULL || is_local) break;
+            q = nl + 1;
+            line_n++;
+        }
+    }
+
     SB b = {0};
     sb_puts(&b, "[");
     int first = 1, line = 0;
@@ -1554,9 +1645,25 @@ static void handle_document_highlight(const JVal *id, const JVal *params) {
     while (*p != '\0') {
         const char *nl = strchr(p, '\n');
         int len = nl != NULL ? (int)(nl - p) : (int)strlen(p);
+        int in_string = 0;
         for (int i = 0; i + wl <= len; i++) {
-            if (p[i] == '/' && p[i + 1] == '/') break;
+            if (!in_string && p[i] == '/' && p[i + 1] == '/') break;
+            if (p[i] == '"' && (i == 0 || p[i - 1] != '\\')) in_string = !in_string;
+            if (in_string) continue;
             if (!word_at(p, i, c.word, wl)) continue;
+            size_t abs_start = (size_t)(p - d->text) + (size_t)i;
+            int is_decl = is_local && line == dl && i == dc;
+            if (!is_decl) {
+                /* `p.x` names a field of `p`, not this binding. */
+                if (!c.after_dot && char_before(d->text, abs_start) == '.') continue;
+                if (looks_like_label(d->text, abs_start, abs_start + (size_t)wl)) continue;
+                /* A `val`/`var` here declares a different binding of the same name. */
+                if (is_local && declares_here(d->text, abs_start)) continue;
+                if (is_local) {
+                    int ol = -1, oc = -1;
+                    if (!find_local(d, line, i, c.word, &ol, &oc) || ol != dl || oc != dc) continue;
+                }
+            }
             if (!first) sb_puts(&b, ",");
             first = 0;
             int sc = utf16_of_bytes(p, i);
