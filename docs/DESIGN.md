@@ -43,6 +43,7 @@ them against the code.
 - [R16: naming convention](#r16-naming-convention)
 - [R17: `--lint`](#r17---lint)
 - [Two silences the compiler no longer keeps (F85, F86, 2026-10-12)](#two-silences-the-compiler-no-longer-keeps-f85-f86-2026-10-12)
+- [`--api` prints doc comments, because a signature is not a behaviour (F89, 2026-10-12)](#--api-prints-doc-comments-because-a-signature-is-not-a-behaviour-f89-2026-10-12)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
 - [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
@@ -3223,6 +3224,27 @@ point. `print` and the channel builtins are out for the same reason. Both fixtur
 fault to prove the guard is live: widening the interpolation rule breaks `dollar_brace_not_
 interpolation`, and adding `unwrap` to the pure list breaks `discarded_pure_builtin` **and 59 other
 fixtures**, which is the measurement of how deliberate that idiom is.
+
+## `--api` prints doc comments, because a signature is not a behaviour (F89, 2026-10-12)
+
+Round 3 of the generation benchmark measured `--api`'s worth at 897 compiler invocations down to
+119, and found the one thing it does not carry. **Two of the twelve tasks turned on behaviour that
+a signature cannot state, and both were answerable from the function's own doc comment:**
+`46-fold-average` answered **wrongly** because it chose `number.float_to_text` off its signature and
+could not know that a whole-number float prints as `18` -- the comment above that function gives
+`150` as an example -- and `15-sha256-hex` was right only because it *distrusted*
+`number.bytes_to_hex`'s unstated output format and hand-rolled hex at a cost of 14 extra compiles,
+when that function's comment states the format exactly. The information existed, in the library, and
+`--api` hid it.
+
+**The comments come from the lexer, not from re-reading the file.** The parser still drops them, as
+the formatter entry above says; the lexer now records each `//` line beside the token stream
+(`lex_comments`) and `--api` walks back from a declaration's line to collect the run immediately
+above it. So the signature still comes from the parse -- "what it says is what the compiler sees" --
+and the prose comes from the same lexing of the same source, rather than a text scan that could
+disagree with it. **Contiguity is the whole rule:** a `// ---------- section` banner is separated
+from the next declaration by a blank line, which is what keeps it out of that declaration's
+documentation, and `make api-check` asserts both halves of that.
 
 ## What the AI-first goal does and does not justify
 

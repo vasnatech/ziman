@@ -350,12 +350,41 @@ static void print_type_params(const TypeParamList *tp) {
     printf(">");
 }
 
+/* A declaration's doc comment: the run of `//` lines immediately above it, with no blank line in
+ * between. Printed because round 3 of the 2026-10-12 benchmark measured the cost of leaving it out
+ * -- 46-fold-average answered wrongly because it chose `number.float_to_text` off its signature and
+ * could not know that a whole-number float prints as `18`, while the function's own comment gives
+ * `150` as an example; and 15-sha256-hex spent 14 extra compiles hand-rolling hex because it would
+ * not trust `bytes_to_hex`'s output format, which that function's comment states exactly. A
+ * signature is not a behaviour. The comments come from the lexer's own record (lex_comments), so
+ * this is still what the compiler saw rather than a re-scan of the file; contiguity is what keeps a
+ * `// ----- section` banner, which a blank line separates, out of the next function's docs. */
+static void print_doc_comment(int decl_line) {
+    int count = 0;
+    const CommentLine *all = lex_comments(&count);
+    int first = -1;
+    for (int want = decl_line - 1; ; want--) {
+        int found = -1;
+        for (int i = 0; i < count; i++) {
+            if (all[i].line == want) { found = i; break; }
+        }
+        if (found < 0) break;
+        first = found;
+    }
+    if (first < 0) return;
+    for (int i = first; i < count && all[i].line < decl_line; i++) {
+        printf("    // %.*s\n", all[i].length, all[i].text);
+    }
+}
+
 static void print_api_module(const char *name, Module *m) {
     printf("module %s%s\n", name, m->experimental ? "  (experimental)" : "");
     for (int i = 0; i < m->structs.count; i++) {
         StructDecl *s = m->structs.items[i];
         if (s->visibility != VIS_PUBLIC) continue;
-        printf("\nstruct %s", s->name);
+        printf("\n");
+        print_doc_comment(s->line);
+        printf("struct %s", s->name);
         print_type_params(&s->type_params);
         printf(" {\n");
         for (int f = 0; f < s->fields.count; f++) {
@@ -368,7 +397,9 @@ static void print_api_module(const char *name, Module *m) {
     for (int i = 0; i < m->enums.count; i++) {
         EnumDecl *e = m->enums.items[i];
         if (e->visibility != VIS_PUBLIC) continue;
-        printf("\nenum %s", e->name);
+        printf("\n");
+        print_doc_comment(e->line);
+        printf("enum %s", e->name);
         print_type_params(&e->type_params);
         printf(" {\n");
         for (int v = 0; v < e->variants.count; v++) {
@@ -385,7 +416,9 @@ static void print_api_module(const char *name, Module *m) {
     for (int i = 0; i < m->functions.count; i++) {
         FunctionDecl *f = m->functions.items[i];
         if (f->visibility != VIS_PUBLIC) continue;
-        if (!printed_fns) { printf("\n"); printed_fns = 1; }
+        printf("\n");
+        printed_fns = 1;
+        print_doc_comment(f->line);
         printf("fn %s", f->name);
         print_type_params(&f->type_params);
         printf("(");

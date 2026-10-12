@@ -68,6 +68,27 @@ static int can_end_statement(TokenType type) {
     }
 }
 
+/* Recorded by lex() for `--api`'s doc comments; see lexer.h. One table, reset per lex(), because
+ * only the one module being printed is ever asked about. */
+static CommentLine *g_comments = NULL;
+static int g_comment_count = 0, g_comment_cap = 0;
+
+const CommentLine *lex_comments(int *count) {
+    *count = g_comment_count;
+    return g_comments;
+}
+
+static void record_comment(int line, const char *text, int length) {
+    if (g_comment_count == g_comment_cap) {
+        g_comment_cap = g_comment_cap ? g_comment_cap * 2 : 64;
+        g_comments = ziman_xrealloc(g_comments, (size_t)g_comment_cap * sizeof *g_comments);
+    }
+    g_comments[g_comment_count].line = line;
+    g_comments[g_comment_count].text = text;
+    g_comments[g_comment_count].length = length;
+    g_comment_count++;
+}
+
 static char peek(Lexer *lx) { return lx->src[lx->pos]; }
 static char peek_next(Lexer *lx) { return lx->src[lx->pos] == '\0' ? '\0' : lx->src[lx->pos + 1]; }
 
@@ -375,6 +396,7 @@ static void lex_ident(Lexer *lx) {
 }
 
 TokenList lex(const char *source) {
+    g_comment_count = 0;
     Lexer lx = {0};
     lx.src = source;
     lx.pos = 0;
@@ -404,7 +426,12 @@ TokenList lex(const char *source) {
         }
 
         if (c == '/' && peek_next(&lx) == '/') {
+            int comment_line = lx.line;
+            advance(&lx); advance(&lx);
+            while (peek(&lx) == ' ') advance(&lx);
+            const char *text = lx.src + lx.pos;
             while (peek(&lx) != '\n' && peek(&lx) != '\0') advance(&lx);
+            record_comment(comment_line, text, (int)((lx.src + lx.pos) - text));
             continue;
         }
 

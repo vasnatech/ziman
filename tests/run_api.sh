@@ -73,6 +73,34 @@ else
     pass=$((pass + 1)); echo "ok   a private function stays out of a file's api"
 fi
 
+# F89: a declaration's doc comment travels with its signature. Round 3 of the 2026-10-12 benchmark
+# measured what leaving it out costs: 46-fold-average answered wrongly after picking
+# `number.float_to_text` off its signature, not knowing a whole-number float prints as `18` -- which
+# that function's own comment says, giving `150` as an example -- and 15-sha256-hex spent 14 extra
+# compiles hand-rolling hex rather than trust `bytes_to_hex`'s unstated output format, which its
+# comment states exactly. Both are asserted here because both are the reason this exists.
+number=$("$BIN" --api number 2>&1)
+has "a doc comment travels with its signature"  "The shortest text that reads back as exactly" "$number"
+has "and the one that decided 15-sha256-hex"    "Lowercase hex text of a byte array" "$number"
+
+# The contiguity rule: a `// ---- section` banner is separated from the next declaration by a blank
+# line, so it must not be read as that declaration's documentation.
+cat > "$work/doc.zm" <<'ZM'
+// ---------------- a banner
+
+// The real doc for one.
+pub fn one() -> int {
+    return 1
+}
+ZM
+docs=$("$BIN" --api "$work/doc.zm" 2>&1)
+has "a doc comment above a declaration"  "The real doc for one." "$docs"
+if printf '%s' "$docs" | grep -qF "a banner"; then
+    fail=$((fail + 1)); echo "FAIL a section banner leaked into a declaration's docs" >&2
+else
+    pass=$((pass + 1)); echo "ok   a blank line keeps a banner out of the docs"
+fi
+
 "$BIN" --api nosuchthing >/dev/null 2>&1
 if [ $? -eq 1 ]; then pass=$((pass + 1)); echo "ok   an unknown name exits 1"
 else fail=$((fail + 1)); echo "FAIL an unknown name should exit 1" >&2; fi
