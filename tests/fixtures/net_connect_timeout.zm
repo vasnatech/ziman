@@ -1,0 +1,46 @@
+// F60: `net.connect_timeout`, which bounds the connect itself rather than leaving it to the
+// operating system's SYN retry budget -- about 130 seconds on Linux, whatever the caller asked for.
+//
+// The two cases here are the ones that can be asserted deterministically on any machine: a live
+// listener is connected to well inside the budget, and a closed port comes back *refused* rather
+// than waiting out the timeout, which is what shows the non-blocking connect reads the socket's own
+// SO_ERROR instead of treating every non-immediate answer as a timeout.
+//
+// The timeout path itself needs a host that silently drops SYNs, which no fixture can arrange
+// portably -- a sandbox with no route answers instantly instead. It was measured by hand against
+// TEST-NET-1 (192.0.2.1): 1,001ms for a 1,000ms budget, against 135,942ms before this existed.
+use net
+fn main() {
+    val listener = switch net.listen("127.0.0.1", 0) {
+        Ok(l) { l }
+        Err(e) { print(concat("could not listen: ", net.net_error_message(e))) return }
+    }
+    val port = net.listener_port(listener)
+
+    switch net.connect_timeout("127.0.0.1", port, 5000) {
+        Ok(s) {
+            print("a live listener connects")
+            net.close(s)
+        }
+        Err(e) { print(concat("unexpected failure: ", net.net_error_message(e))) }
+    }
+    net.close_listener(listener)
+
+    // The same port with nothing listening any more: refused, and promptly, not timed out.
+    switch net.connect_timeout("127.0.0.1", port, 5000) {
+        Ok(s) {
+            print("unexpectedly connected to a closed port")
+            net.close(s)
+        }
+        Err(e) {
+            print(concat("a closed port is refused, not timed out: ", switch e {
+                ConnectionRefused(_) { "refused" }
+                Timeout(_) { "TIMEOUT -- wrong" }
+                HostNotFound(_) { "notfound" }
+                Closed(_) { "closed" }
+                Tls(_) { "tls" }
+                Io(_) { "io" }
+            }))
+        }
+    }
+}

@@ -811,6 +811,8 @@ pub fn net_error_message(e: NetError) -> string
 
 pub fn connect(host: string, port: int) -> Result<Socket, NetError>
 
+pub fn connect_timeout(host: string, port: int, timeout_ms: int) -> Result<Socket, NetError>
+
 pub fn connect_unix(path: string) -> Result<Socket, NetError>
 
 pub fn listen_unix(path: string) -> Result<Listener, NetError>

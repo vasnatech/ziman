@@ -71,6 +71,7 @@ pub struct Listener {
 }
 
 native fn connect_raw(host: string, port: int) -> Result<int, string>
+native fn connect_timeout_raw(host: string, port: int, millis: int) -> Result<int, string>
 native fn idle_put_raw(key: string, handle: int) -> bool
 native fn idle_take_raw(key: string) -> int
 native fn idle_clear_raw() -> int
@@ -132,6 +133,27 @@ fn net_error_from_raw(raw: string) -> NetError {
 // `host` is a name or an address (IPv4 or IPv6).
 pub fn connect(host: string, port: int) -> Result<Socket, NetError> {
     val r = connect_raw(host, port)
+    if Err(e) = r {
+        return err(net_error_from_raw(e))
+    }
+    return Socket { handle: unwrap(r) }
+}
+
+// `connect`, giving up after `timeout_ms` instead of after the operating system's own SYN retry
+// budget -- which on Linux is about 130 seconds and ignores whatever the caller had in mind. A
+// client asking for a one-second timeout and waiting two minutes is the concrete reason this
+// exists (ziman tasks.md F60).
+//
+// A separate function rather than an optional parameter on `connect`, because an optional parameter
+// can be left out only in a *named* call, so adding one would break every existing
+// `net.connect(host, port)`.
+//
+// The budget covers the whole attempt, not each address: a host resolving to three addresses gets
+// `timeout_ms` in total, not three times it. The socket is blocking afterwards exactly as
+// `connect`'s is, so `set_timeout` remains how reads and writes are bounded, and a timeout is
+// reported as `NetError.Timeout`.
+pub fn connect_timeout(host: string, port: int, timeout_ms: int) -> Result<Socket, NetError> {
+    val r = connect_timeout_raw(host, port, timeout_ms)
     if Err(e) = r {
         return err(net_error_from_raw(e))
     }

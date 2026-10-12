@@ -522,7 +522,7 @@ fn fail_closed(s: Socket, e: ClientError) -> Result<Socket, ClientError> {
 // the https-through-proxy case is handled here.
 fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: int) -> Result<Socket, ClientError> {
     if Some(p) = proxy {
-        val sock = try lift<Socket>(net.connect(p.host, p.port))
+        val sock = try lift<Socket>(net.connect_timeout(p.host, p.port, timeout_ms))
         if !u.secure {
             return ok(sock)
         }
@@ -553,12 +553,23 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
             Err(e) { fail_closed(sock, e) }
         }
     }
-    val direct = try lift<Socket>(if u.secure {
-        net.connect_tls_with(u.host, u.port, net.TlsVerify.Full, ca_file)
-    } else {
-        net.connect(u.host, u.port)
-    })
-    return ok(direct)
+    // `timeout_ms` has to bound the *connect* as well, not only the reads and writes after it.
+    // Before this the connect used the OS's own SYN retry budget, so a request to an unroutable
+    // address with `timeout_ms: Some(1000)` took 135,942ms -- and then reported "request timed
+    // out", which read as if the caller's deadline had fired (ziman tasks.md F60).
+    //
+    // The TLS case connects and hands the socket to `start_tls_with` rather than calling
+    // `connect_tls_with`, which is that same pair with an untimed `connect` inside it. The
+    // handshake that follows is bounded by `set_timeout`, which every caller of this already sets.
+    val direct = try lift<Socket>(net.connect_timeout(u.host, u.port, timeout_ms))
+    if !u.secure {
+        return ok(direct)
+    }
+    val timeout_set = net.set_timeout(direct, timeout_ms)
+    return switch lift<unit>(net.start_tls_with(direct, u.host, net.TlsVerify.Full, ca_file)) {
+        Ok(_) { ok(direct) }
+        Err(e) { fail_closed(direct, e) }
+    }
 }
 
 // What one exchange produced: the response, and whether the connection is fit for reuse.

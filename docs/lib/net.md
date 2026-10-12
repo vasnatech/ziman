@@ -166,6 +166,26 @@ pub fn connect(host: string, port: int) -> Result<Socket, NetError>
 
 `host` is a name or an address (IPv4 or IPv6).
 
+### `connect_timeout`
+
+```
+pub fn connect_timeout(host: string, port: int, timeout_ms: int) -> Result<Socket, NetError>
+```
+
+`connect`, giving up after `timeout_ms` instead of after the operating system's own SYN retry
+budget -- which on Linux is about 130 seconds and ignores whatever the caller had in mind. A
+client asking for a one-second timeout and waiting two minutes is the concrete reason this
+exists (ziman tasks.md F60).
+
+A separate function rather than an optional parameter on `connect`, because an optional parameter
+can be left out only in a *named* call, so adding one would break every existing
+`net.connect(host, port)`.
+
+The budget covers the whole attempt, not each address: a host resolving to three addresses gets
+`timeout_ms` in total, not three times it. The socket is blocking afterwards exactly as
+`connect`'s is, so `set_timeout` remains how reads and writes are bounded, and a timeout is
+reported as `NetError.Timeout`.
+
 ### `connect_unix`
 
 ```

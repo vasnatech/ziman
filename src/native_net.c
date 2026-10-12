@@ -5,6 +5,7 @@
 #include <gc.h>
 #endif
 #include <errno.h>
+#include <fcntl.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <openssl/err.h>
@@ -405,7 +406,69 @@ static int reclaim_descriptors(void) {
 /* Resolves host:port and returns a socket that either connected
  * (listener == 0) or is bound+listening (listener == 1), or a Result
  * error. */
-static Value open_socket(const char *host, int64_t port, int listener) {
+/* Monotonic milliseconds, for sharing one connect budget across several candidate addresses.
+ * CLOCK_MONOTONIC rather than wall time so a clock adjustment mid-connect cannot lengthen or
+ * shorten the deadline. */
+static int64_t connect_now_millis(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* Connects `fd` with a deadline, which plain `connect` cannot do: the OS gives up only after its
+ * own SYN retry budget, ~130s on Linux, whatever the caller asked for. Returns 0 on success, or the
+ * errno to report -- ETIMEDOUT when the budget ran out.
+ *
+ * The socket is put back in blocking mode either way, because everything downstream (`read`,
+ * `write`, the TLS handshake) is written against a blocking socket and `net.set_timeout` is how a
+ * caller bounds those.
+ *
+ * `remaining_ms` is passed in and decremented by the caller across getaddrinfo candidates: a host
+ * with three addresses must not get three times the timeout it asked for, which is the bug a
+ * per-attempt deadline would quietly have. */
+static int connect_with_deadline(int fd, const struct sockaddr *addr, socklen_t addrlen, int remaining_ms) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return errno;
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return errno;
+
+    int result = 0;
+    int r;
+    do { r = connect(fd, addr, addrlen); } while (r < 0 && errno == EINTR);
+    if (r < 0 && errno != EINPROGRESS) {
+        result = errno;
+    } else if (r < 0) {
+        /* In flight: wait for writability, which is how a non-blocking connect reports either
+         * outcome, then ask the socket itself which it was. */
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        pfd.revents = 0;
+        int p;
+        do { p = poll(&pfd, 1, remaining_ms); } while (p < 0 && errno == EINTR);
+        if (p == 0) {
+            result = ETIMEDOUT;
+        } else if (p < 0) {
+            result = errno;
+        } else {
+            int so_error = 0;
+            socklen_t len = sizeof(so_error);
+            if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len) < 0) {
+                result = errno;
+            } else {
+                result = so_error; /* 0 when the connection is up */
+            }
+        }
+    }
+    /* Restored even on failure: the caller closes the fd on error, but a future change that reuses
+     * it must not inherit O_NONBLOCK from here. */
+    fcntl(fd, F_SETFL, flags);
+    return result;
+}
+
+/* `timeout_ms` of 0 means "the OS default", which is what `net.connect` has always done and what
+ * every existing caller gets. A positive value bounds the whole attempt across every address the
+ * host resolves to. */
+static Value open_socket_timeout(const char *host, int64_t port, int listener, int64_t timeout_ms) {
     Type int_type = type_scalar(TY_INT);
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
@@ -421,6 +484,7 @@ static Value open_socket(const char *host, int64_t port, int listener) {
 
     int last_errno = 0;
     int fd = -1;
+    int64_t spent = 0; /* across every candidate, so three addresses do not get three timeouts */
     for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (fd < 0 && (errno == EMFILE || errno == ENFILE) && reclaim_descriptors()) {
@@ -431,10 +495,21 @@ static Value open_socket(const char *host, int64_t port, int listener) {
             int one = 1;
             setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
             if (bind(fd, ai->ai_addr, ai->ai_addrlen) == 0 && listen(fd, 128) == 0) break;
-        } else {
+        } else if (timeout_ms <= 0) {
             int r;
             do { r = connect(fd, ai->ai_addr, ai->ai_addrlen); } while (r < 0 && errno == EINTR);
             if (r == 0) break;
+        } else {
+            int64_t spent_before = connect_now_millis();
+            int budget = (int)(timeout_ms - spent);
+            if (budget <= 0) budget = 1; /* one last attempt rather than reporting a budget nobody used */
+            int failed = connect_with_deadline(fd, ai->ai_addr, ai->ai_addrlen, budget);
+            spent += connect_now_millis() - spent_before;
+            if (failed == 0) break;
+            last_errno = failed;
+            close(fd);
+            fd = -1;
+            continue;
         }
         last_errno = errno;
         close(fd);
@@ -443,6 +518,10 @@ static Value open_socket(const char *host, int64_t port, int listener) {
     freeaddrinfo(res);
     if (fd < 0) return errno_result(int_type, last_errno != 0 ? last_errno : EIO);
     return ok_result(int_type, value_int(handle_register(fd)));
+}
+
+static Value open_socket(const char *host, int64_t port, int listener) {
+    return open_socket_timeout(host, port, listener, 0);
 }
 
 /* A Unix-domain socket, which `open_socket` above cannot reach: getaddrinfo resolves host and port
@@ -518,6 +597,13 @@ static Value native_net_listen_unix_raw(Value *args, int argc, int line, int col
 static Value native_net_connect_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     return open_socket(value_cstr(args[0]), args[1].as.i, 0);
+}
+
+/* net::connect_timeout_raw(host, port, millis) -> Result<int, string>: `connect` with a deadline of
+ * the caller's choosing instead of the OS's SYN retry budget. See connect_with_deadline. */
+static Value native_net_connect_timeout_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return open_socket_timeout(value_cstr(args[0]), args[1].as.i, 0, args[2].as.i);
 }
 
 static Value native_net_listen_raw(Value *args, int argc, int line, int col) {
@@ -934,6 +1020,7 @@ static Value native_net_close_raw(Value *args, int argc, int line, int col) {
 void native_net_register(void) {
     signal(SIGPIPE, SIG_IGN);
     native_register("net::connect_raw", native_net_connect_raw);
+    native_register("net::connect_timeout_raw", native_net_connect_timeout_raw);
     native_register("net::listen_raw", native_net_listen_raw);
     native_register("net::connect_unix_raw", native_net_connect_unix_raw);
     native_register("net::listen_unix_raw", native_net_listen_unix_raw);
