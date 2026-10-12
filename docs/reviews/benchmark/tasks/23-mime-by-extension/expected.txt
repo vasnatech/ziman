@@ -1,0 +1,4 @@
+json -> application/json
+png -> image/png
+html -> text/html
+zzz -> unknown

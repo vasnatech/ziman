@@ -1,0 +1,6 @@
+Write a Ziman program that parses this YAML and prints each name on its own line:
+
+    names:
+      - Ada
+      - Alan
+      - Grace

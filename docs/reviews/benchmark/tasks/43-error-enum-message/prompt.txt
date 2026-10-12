@@ -1,0 +1,3 @@
+Write a Ziman program with an enum of three application errors -- a not-found carrying a name, a
+conflict carrying a name, and a timeout with no payload -- and a function turning each into a
+sentence. Print the sentence for a not-found "user", a conflict "email" and a timeout, one per line.

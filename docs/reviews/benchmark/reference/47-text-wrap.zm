@@ -1,0 +1,17 @@
+fn main() {
+    val words = split("the quick brown fox jumps over the lazy dog", " ")
+    val limit = 16
+    var line = ""
+    for w in words {
+        val candidate = if len(line) == 0 { w } else { concat(line, " ", w) }
+        if len(candidate) > limit && len(line) > 0 {
+            print(line)
+            line = w
+        } else {
+            line = candidate
+        }
+    }
+    if len(line) > 0 {
+        print(line)
+    }
+}

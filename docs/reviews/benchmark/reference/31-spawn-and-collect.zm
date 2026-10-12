@@ -1,0 +1,21 @@
+use collections
+
+fn square(n: int, out: Channel<int>) {
+    send(out, n * n)
+}
+
+fn main() {
+    val results: Channel<int> = channel_new()
+    for n in [2, 3, 4] {
+        spawn square(n, results)
+    }
+    val got = ab_new<int>()
+    var i = 0
+    while i < 3 {
+        ab_append(got, receive(results))
+        i = i + 1
+    }
+    for v in collections.sort<int>(ab_to_array(got)) {
+        print(v)
+    }
+}

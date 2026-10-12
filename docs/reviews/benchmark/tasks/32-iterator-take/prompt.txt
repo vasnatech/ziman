@@ -1,0 +1,2 @@
+Write a Ziman program that makes an iterator over the array [10, 20, 30, 40, 50] and prints only
+its first three values, one per line, without consuming the rest.

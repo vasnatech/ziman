@@ -1,0 +1,26 @@
+use json
+use yaml
+
+fn main() {
+    val doc = unwrap(yaml.parse_yaml("names:\n  - Ada\n  - Alan\n  - Grace\n"))
+    val names = unwrap(json.json_require_field(doc, "names"))
+    switch names {
+        JArray(items) {
+            for item in items {
+                switch item {
+                    JString(s) { print(s) }
+                    JNull { print("?") }
+                    JBool(_) { print("?") }
+                    JNumber(_) { print("?") }
+                    JArray(_) { print("?") }
+                    JObject(_) { print("?") }
+                }
+            }
+        }
+        JNull { print("not a list") }
+        JBool(_) { print("not a list") }
+        JNumber(_) { print("not a list") }
+        JString(_) { print("not a list") }
+        JObject(_) { print("not a list") }
+    }
+}

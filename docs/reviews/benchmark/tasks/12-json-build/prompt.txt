@@ -1,0 +1,2 @@
+Write a Ziman program that builds a JSON object with a string field `status` set to "ok" and an
+integer field `count` set to 3, and prints it as JSON text.

@@ -1,0 +1,6 @@
+Write a Ziman program that counts how often each word appears in this sentence:
+
+    the quick brown fox jumps over the lazy dog the fox
+
+Words are separated by single spaces. Print one line per distinct word, ordered by
+descending count and then alphabetically for ties, in the form `word: count`.

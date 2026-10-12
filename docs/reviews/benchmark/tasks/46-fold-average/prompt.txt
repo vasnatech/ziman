@@ -1,0 +1,2 @@
+Write a Ziman program that computes the mean of [4, 8, 15, 16, 23, 42] as a float and prints it,
+then prints how many values are above that mean.

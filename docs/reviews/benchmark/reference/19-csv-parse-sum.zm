@@ -1,0 +1,17 @@
+use csv
+
+fn main() {
+    val text = "name,age\nAda,36\nAlan,41\nGrace,45\n"
+    val rows = unwrap(csv.parse_csv_rows(text))
+    var total = 0
+    var count = 0
+    var i = 1
+    while i < len(rows) {
+        val row = rows[i]
+        printf("{} is {}\n", row[0], row[1])
+        total = total + unwrap(parse_int(row[1]))
+        count = count + 1
+        i = i + 1
+    }
+    printf("average: {}\n", str(total / count))
+}

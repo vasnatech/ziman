@@ -1,0 +1,10 @@
+use fs
+use process
+
+fn main() {
+    val out = "/tmp/ziman_bench_37.out"
+    val p = unwrap(process.start(program: "echo", args: ["hello from a child"], out_path: Option<string>.Some(out)))
+    val status = unwrap(process.wait(p))
+    print(trim(unwrap(fs.read_text(out))))
+    printf("exit: {}\n", str(status))
+}

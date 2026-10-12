@@ -1,0 +1,20 @@
+fn add_text(a: string, b: string) -> Result<int, string> {
+    val x = switch parse_int(a) {
+        Ok(v) { v }
+        Err(_) { return err(concat("not a number: ", a)) }
+    }
+    val y = switch parse_int(b) {
+        Ok(v) { v }
+        Err(_) { return err(concat("not a number: ", b)) }
+    }
+    return ok(x + y)
+}
+
+fn main() {
+    for pair in [["12", "30"], ["7", "x"], ["abc", "1"]] {
+        print(switch add_text(pair[0], pair[1]) {
+            Ok(v) { str(v) }
+            Err(e) { concat("error: ", e) }
+        })
+    }
+}

@@ -1,0 +1,3 @@
+42
+error: not a number: x
+error: not a number: abc

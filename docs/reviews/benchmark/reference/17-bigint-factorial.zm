@@ -1,0 +1,13 @@
+fn factorial(n: int) -> bigint {
+    var total = 1n
+    var i = 2
+    while i <= n {
+        total = total * (i as bigint)
+        i = i + 1
+    }
+    return total
+}
+
+fn main() {
+    print(factorial(25))
+}

@@ -1,0 +1,12 @@
+use fs
+
+fn main() {
+    val path = "/tmp/ziman_bench_21.txt"
+    val _ = unwrap(fs.write_text(path, "alpha\nbeta\ngamma\n"))
+    val text = unwrap(fs.read_text(path))
+    var i = 1
+    for line in split(trim(text), "\n") {
+        printf("{}: {}\n", str(i), line)
+        i = i + 1
+    }
+}

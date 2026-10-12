@@ -1,0 +1,3 @@
+read: yes
+write: no
+execute: yes

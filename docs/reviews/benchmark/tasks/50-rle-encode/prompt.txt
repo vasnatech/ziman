@@ -1,0 +1,3 @@
+Write a Ziman program that run-length encodes the string "aaabccddddbbb" so that each run becomes
+the character followed by its length, and prints the result on one line. Then print the decoded
+string to show the encoding round-trips.

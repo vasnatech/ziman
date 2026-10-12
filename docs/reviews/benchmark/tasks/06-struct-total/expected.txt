@@ -1,0 +1,4 @@
+pen: 150
+notebook: 320
+eraser: 95
+total: 565

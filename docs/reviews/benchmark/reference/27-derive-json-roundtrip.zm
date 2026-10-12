@@ -1,0 +1,16 @@
+use json
+
+#[derive(Json)]
+struct User {
+    id: int
+    name: string
+    active: bool
+}
+
+fn main() {
+    val u = User { id: 7, name: "Ada", active: true }
+    val text = json.json_to_string(user_to_json(u))
+    print(text)
+    val back = unwrap(user_from_json(unwrap(json.parse_json(text))))
+    print(back.name)
+}

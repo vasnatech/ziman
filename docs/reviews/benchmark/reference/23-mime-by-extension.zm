@@ -1,0 +1,10 @@
+use mime
+
+fn main() {
+    for ext in ["json", "png", "html", "zzz"] {
+        printf("{} -> {}\n", ext, switch mime.of_extension(ext) {
+            Some(m) { mime.essence(m) }
+            None { "unknown" }
+        })
+    }
+}

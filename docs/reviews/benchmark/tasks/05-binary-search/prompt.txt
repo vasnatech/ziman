@@ -1,0 +1,3 @@
+Write a Ziman program with a function that finds a value in a sorted array of ints by binary
+search, returning its index or -1 when absent. Use it on the array
+[2, 3, 5, 7, 11, 13, 17, 19, 23] and print the index of 2, 11, 23 and 4, one per line.

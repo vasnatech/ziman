@@ -1,0 +1,8 @@
+use json
+
+fn main() {
+    val fields = mapb_new<string, json.Json>()
+    mapb_set(fields, "status", json.Json.JString("ok"))
+    mapb_set(fields, "count", json.Json.JNumber(json.Number.Int(3)))
+    print(json.json_to_string(json.Json.JObject(mapb_to_map(fields))))
+}

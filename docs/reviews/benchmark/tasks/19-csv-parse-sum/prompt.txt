@@ -1,0 +1,7 @@
+Write a Ziman program that parses this CSV text and prints each person's name and age as
+`name is age`, then a final line `average: N` with the mean age rounded down to a whole number.
+
+    name,age
+    Ada,36
+    Alan,41
+    Grace,45

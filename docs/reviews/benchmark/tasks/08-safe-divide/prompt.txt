@@ -1,0 +1,3 @@
+Write a Ziman program with a function that divides two ints and returns no value when the divisor
+is zero. Print the result of dividing 10 by 2, 7 by 3 and 5 by 0, one per line: print the number
+when there is one and `undefined` when there is not.

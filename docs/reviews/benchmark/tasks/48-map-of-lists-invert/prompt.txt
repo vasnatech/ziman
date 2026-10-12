@@ -1,0 +1,3 @@
+Write a Ziman program that starts from a mapping of teacher to subjects -- Ada teaches maths and
+logic, Alan teaches logic and crypto -- and prints the inverted mapping of subject to teachers,
+subjects in alphabetical order, as `subject: teacher, teacher`.

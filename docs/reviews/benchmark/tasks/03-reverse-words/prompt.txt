@@ -1,0 +1,2 @@
+Write a Ziman program that takes the string "hello world from ziman" and prints its words in
+reverse order, separated by single spaces, on one line.

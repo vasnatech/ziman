@@ -1,0 +1,1 @@
+Write a Ziman program that prints the integer 1234567 with thousands separators, as 1,234,567.

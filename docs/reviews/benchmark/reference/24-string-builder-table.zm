@@ -1,0 +1,11 @@
+fn main() {
+    for i in 1..6 {
+        val sb = sb_new()
+        sb_append(sb, str(i))
+        while sb_len(sb) < 2 {
+            sb_append(sb, " ")
+        }
+        sb_append(sb, " | ", str(i * i * i))
+        print(sb_to_string(sb))
+    }
+}

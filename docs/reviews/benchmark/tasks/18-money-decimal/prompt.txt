@@ -1,0 +1,2 @@
+Write a Ziman program that adds the exact amounts 19.99, 5.01 and 0.50 using a decimal type (not
+floating point) and prints the total.

@@ -1,0 +1,4 @@
+Ada is 36
+Alan is 41
+Grace is 45
+average: 40

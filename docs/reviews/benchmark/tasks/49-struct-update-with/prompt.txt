@@ -1,0 +1,4 @@
+Write a Ziman program that declares a struct `Config` with a `host`, a `port` and a `debug` flag,
+makes a default of localhost/80/false, then makes a second value that changes only the port to 8443
+and the debug flag to true, without restating the host. Print both as `host:port debug` on their
+own lines.

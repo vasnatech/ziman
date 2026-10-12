@@ -1,0 +1,18 @@
+use collections
+
+fn main() {
+    val text = "the quick brown fox jumps over the lazy dog the fox"
+    val counts = mapb_new<string, int>()
+    for w in split(text, " ") {
+        mapb_set(counts, w, mapb_get_or<string, int>(counts, w, 0) + 1)
+    }
+    val m = mapb_to_map(counts)
+    val words = collections.sort_with<string>(set_items(map_keys(m)), fn(a: string, b: string) -> int {
+        val ca = switch map_get(m, a) { Some(n) { n } None { 0 } }
+        val cb = switch map_get(m, b) { Some(n) { n } None { 0 } }
+        return if ca != cb { compare(cb, ca) } else { compare(a, b) }
+    })
+    for w in words {
+        printf("{}: {}\n", w, str(switch map_get(m, w) { Some(n) { n } None { 0 } }))
+    }
+}

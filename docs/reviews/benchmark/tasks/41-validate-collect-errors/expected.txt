@@ -1,0 +1,4 @@
+name must not be empty
+age must be between 18 and 120
+email must contain @
+problems: 3

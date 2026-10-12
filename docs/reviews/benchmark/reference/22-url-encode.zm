@@ -1,0 +1,8 @@
+use url
+
+fn main() {
+    val original = "name=Ada Lovelace&role=pioneer"
+    val encoded = url.percent_encode(original, true)
+    print(encoded)
+    print(unwrap(url.percent_decode(encoded, true)))
+}

@@ -1,0 +1,3 @@
+Write a Ziman program that declares a struct `Item` with a `name` (string) and a `price` (int, in
+cents), builds an array of three items -- "pen" 150, "notebook" 320, "eraser" 95 -- then prints
+each as `name: price` and finally `total: N` with the sum.

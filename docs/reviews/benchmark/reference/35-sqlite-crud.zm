@@ -1,0 +1,19 @@
+use db
+use fs
+use sqlite
+
+fn main() {
+    val path = "/tmp/ziman_bench_35.db"
+    val _ = fs.remove(path)
+    val conn = unwrap(sqlite.open(path))
+    unwrap(sqlite.execute(conn, "CREATE TABLE task (id INTEGER, title TEXT)"))
+    for pair in [["1", "write"], ["2", "review"], ["3", "ship"]] {
+        unwrap(sqlite.execute(conn, concat("INSERT INTO task VALUES (", pair[0], ", '", pair[1], "')")))
+    }
+    for row in unwrap(sqlite.query(conn, "SELECT id, title FROM task ORDER BY id")) {
+        val id = unwrap(db.sql_as_int(unwrap(db.row_get(row, "id"))))
+        val title = unwrap(db.sql_as_text(unwrap(db.row_get(row, "title"))))
+        printf("{}: {}\n", str(id), title)
+    }
+    sqlite.close(conn)
+}

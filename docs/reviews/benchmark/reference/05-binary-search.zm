@@ -1,0 +1,22 @@
+fn find(sorted: [int], target: int) -> int {
+    var lo = 0
+    var hi = len(sorted) - 1
+    while lo <= hi {
+        val mid = (lo + hi) / 2
+        if sorted[mid] == target {
+            return mid
+        } else if sorted[mid] < target {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return -1
+}
+
+fn main() {
+    val primes = [2, 3, 5, 7, 11, 13, 17, 19, 23]
+    for t in [2, 11, 23, 4] {
+        print(find(primes, t))
+    }
+}

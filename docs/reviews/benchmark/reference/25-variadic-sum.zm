@@ -1,0 +1,13 @@
+fn total(values: int...) -> int {
+    var sum = 0
+    for v in values {
+        sum = sum + v
+    }
+    return sum
+}
+
+fn main() {
+    print(total())
+    print(total(5))
+    print(total(1, 2, 3, 4))
+}

@@ -1,0 +1,11 @@
+fn work() {
+    print("start")
+    defer print("first")
+    defer print("second")
+    defer print("third")
+    print("end")
+}
+
+fn main() {
+    work()
+}

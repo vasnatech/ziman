@@ -1,0 +1,32 @@
+fn to_int(text: string) -> Result<int, string> {
+    return switch parse_int(text) {
+        Ok(v) { ok(v) }
+        Err(_) { err(concat("not a number: ", text)) }
+    }
+}
+
+fn doubled(n: int) -> Result<int, string> {
+    if n < 0 {
+        return err("negative numbers are not allowed")
+    }
+    return ok(n * 2)
+}
+
+fn described(n: int) -> Result<string, string> {
+    return ok(concat("value is ", str(n)))
+}
+
+fn pipeline(text: string) -> Result<string, string> {
+    val parsed = try to_int(text)
+    val twice = try doubled(parsed)
+    return described(twice)
+}
+
+fn main() {
+    for text in ["21", "-3", "x"] {
+        print(switch pipeline(text) {
+            Ok(s) { s }
+            Err(e) { concat("failed: ", e) }
+        })
+    }
+}

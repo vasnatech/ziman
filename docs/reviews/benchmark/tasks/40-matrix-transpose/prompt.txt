@@ -1,0 +1,2 @@
+Write a Ziman program that transposes the 2x3 matrix [[1, 2, 3], [4, 5, 6]] into a 3x2 matrix and
+prints each resulting row as space-separated numbers, one row per line.

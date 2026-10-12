@@ -1,0 +1,2 @@
+Write a Ziman program that percent-encodes the string `name=Ada Lovelace&role=pioneer` for use in a
+URL query (spaces as `+`), prints it, then decodes it back and prints the result.

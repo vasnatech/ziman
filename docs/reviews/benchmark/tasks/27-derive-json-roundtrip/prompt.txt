@@ -1,0 +1,4 @@
+Write a Ziman program that declares a struct `User` with an `id` (int), a `name` (string) and an
+`active` (bool), and uses the language's JSON derivation rather than building the JSON by hand.
+Create a user with id 7, name "Ada" and active true, print it as JSON text, then parse that text
+back into a `User` and print its name.

@@ -1,0 +1,10 @@
+fn main() {
+    val words = split("hello world from ziman", " ")
+    val out = ab_new<string>()
+    var i = len(words) - 1
+    while i >= 0 {
+        ab_append(out, words[i])
+        i = i - 1
+    }
+    print(join(separator: " ", pieces: ab_to_array(out)))
+}

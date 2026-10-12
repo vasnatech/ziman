@@ -1,0 +1,2 @@
+Write a Ziman program that prints the sum of the squares of the even numbers from 1 to 20
+inclusive. Print only the number.

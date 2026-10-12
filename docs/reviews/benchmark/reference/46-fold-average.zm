@@ -1,0 +1,16 @@
+fn main() {
+    val values = [4, 8, 15, 16, 23, 42]
+    var sum = 0
+    for v in values {
+        sum = sum + v
+    }
+    val mean = (sum as float) / (len(values) as float)
+    print(mean)
+    var above = 0
+    for v in values {
+        if (v as float) > mean {
+            above = above + 1
+        }
+    }
+    print(above)
+}

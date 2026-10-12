@@ -1,0 +1,32 @@
+use collections
+
+struct Product {
+    name: string
+    category: string
+}
+
+fn main() {
+    val products = [
+        Product { name: "apple", category: "fruit" },
+        Product { name: "carrot", category: "veg" },
+        Product { name: "banana", category: "fruit" },
+        Product { name: "leek", category: "veg" },
+        Product { name: "cherry", category: "fruit" }
+    ]
+    val groups = mapb_new<string, [string]>()
+    for p in products {
+        val so_far: [string] = switch mapb_get<string, [string]>(groups, p.category) {
+            Some(xs) { xs }
+            None { [] }
+        }
+        mapb_set(groups, p.category, push(so_far, p.name))
+    }
+    val m = mapb_to_map(groups)
+    for cat in collections.sort<string>(set_items(map_keys(m))) {
+        val names: [string] = switch map_get(m, cat) {
+            Some(xs) { xs }
+            None { [] }
+        }
+        printf("{}: {}\n", cat, join(separator: ", ", pieces: names))
+    }
+}

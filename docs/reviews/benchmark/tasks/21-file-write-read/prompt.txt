@@ -1,0 +1,3 @@
+Write a Ziman program that writes three lines of text -- "alpha", "beta", "gamma" -- to a file
+called `/tmp/ziman_bench_21.txt`, reads the file back, and prints each line with its 1-based line
+number as `N: line`.

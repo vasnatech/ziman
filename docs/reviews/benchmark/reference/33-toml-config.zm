@@ -1,0 +1,9 @@
+use json
+use toml
+
+fn main() {
+    val cfg = unwrap(toml.parse_toml("host = \"localhost\"\nport = 8080\ndebug = true\n"))
+    print(unwrap(json.json_require_string_field(cfg, "host")))
+    print(unwrap(json.json_require_int_field(cfg, "port")))
+    print(unwrap(json.json_require_bool_field(cfg, "debug")))
+}

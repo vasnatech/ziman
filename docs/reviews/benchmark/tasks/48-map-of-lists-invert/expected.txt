@@ -1,0 +1,3 @@
+crypto: Alan
+logic: Ada, Alan
+maths: Ada

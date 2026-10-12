@@ -1,0 +1,4 @@
+Write a Ziman program that validates a registration: the name must not be empty, the age must be
+between 18 and 120, and the email must contain an `@`. Report every problem, not just the first.
+Check name "", age 15, email "nope" and print each problem on its own line, then a final line
+`problems: N`.

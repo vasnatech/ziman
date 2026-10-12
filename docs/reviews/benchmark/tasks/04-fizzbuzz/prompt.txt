@@ -1,0 +1,2 @@
+Write a Ziman program that prints the numbers 1 to 20, one per line, except that multiples of 3
+print `Fizz`, multiples of 5 print `Buzz`, and multiples of both print `FizzBuzz`.

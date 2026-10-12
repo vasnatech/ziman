@@ -1,0 +1,8 @@
+use time
+
+fn main() {
+    val start = unwrap(time.localdate_of(2024, 2, 28))
+    print(time.localdate_to_string(start))
+    print(time.localdate_to_string(time.localdate_add_days(start, 1)))
+    print(time.localdate_to_string(time.localdate_add_days(start, 30)))
+}

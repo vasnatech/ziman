@@ -1,0 +1,27 @@
+struct Registration {
+    name: string
+    age: int
+    email: string
+}
+
+fn problems_of(r: Registration) -> [string] {
+    val found = ab_new<string>()
+    if len(r.name) == 0 {
+        ab_append(found, "name must not be empty")
+    }
+    if r.age < 18 || r.age > 120 {
+        ab_append(found, "age must be between 18 and 120")
+    }
+    if !contains(r.email, "@") {
+        ab_append(found, "email must contain @")
+    }
+    return ab_to_array(found)
+}
+
+fn main() {
+    val found = problems_of(Registration { name: "", age: 15, email: "nope" })
+    for p in found {
+        print(p)
+    }
+    printf("problems: {}\n", str(len(found)))
+}

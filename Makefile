@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze
 
 all: $(BIN)
 
@@ -42,7 +42,7 @@ all: $(BIN)
 # Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
 # `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
 # the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
-check: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available northstar-if-available fmt-check docs-check grammar-check libc-free-check xalloc-check
+check: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available northstar-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
@@ -141,8 +141,8 @@ test-mysql: $(BIN)
 # naming: `--canonical` settles brace placement, so this repo now requires K&R braces where plain
 # `--fmt` would also accept Allman.
 fmt-check: $(BIN)
-	./$(BIN) --fmt --check $$(find lib docs/lib/examples tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm')
-	./$(BIN) --fmt --canonical --check $$(find lib docs/lib/examples tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm')
+	./$(BIN) --fmt --check $$(find lib docs/lib/examples docs/reviews/benchmark/reference tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm')
+	./$(BIN) --fmt --canonical --check $$(find lib docs/lib/examples docs/reviews/benchmark/reference tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm')
 
 # The sample backend (health-record-backend-ziman), which is kept formatted the same way but lives
 # next door, so this is separate from `fmt-check` and skips cleanly when it is not checked out.
@@ -357,6 +357,16 @@ lib-manual-check: $(BIN)
 	python3 tools/gen_lib_manual.py
 	python3 tools/gen_lib_deps.py
 	git diff --exit-code --stat -- docs/lib
+
+# Fails when the generation benchmark's own reference solutions stop compiling or stop printing what
+# their task says they print. The benchmark is 50 task prompts with expected outputs
+# (docs/reviews/benchmark); an `expected.txt` records what Ziman did on the day it was written, not
+# what it must do forever, so a failure here means a language or library change has moved under the
+# task set and the *tasks* need revisiting. Half a second, because it is 50 small programs.
+benchmark-check: $(BIN)
+	@./docs/reviews/benchmark/run.sh docs/reviews/benchmark/reference ./$(BIN) | tail -1
+	@./docs/reviews/benchmark/run.sh docs/reviews/benchmark/reference ./$(BIN) | grep -q "50 compiled, 50 correct, 0 missing" \
+	    || { echo "benchmark-check: the reference solutions no longer match their expected output"; exit 1; }
 
 # Fails when the editor grammar stops giving a token the scope it is meant to. The grammar had no
 # test of any kind until 2026-10-12 -- nothing loaded it, nothing asserted a scope -- and three real

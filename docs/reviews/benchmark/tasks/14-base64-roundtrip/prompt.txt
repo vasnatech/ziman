@@ -1,0 +1,2 @@
+Write a Ziman program that base64-encodes the text "ziman benchmark", prints the encoded string,
+decodes it back, and prints the decoded text.

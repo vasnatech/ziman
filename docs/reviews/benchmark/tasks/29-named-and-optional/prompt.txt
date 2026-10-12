@@ -1,0 +1,4 @@
+Write a Ziman program with a function that formats a label from a required `text` and an optional
+`width`, padding the text on the right with dots up to `width` when one is given and leaving it
+alone when none is. Print the result for the text "ok" with width 6, and for the text "ok" with no
+width, one per line.

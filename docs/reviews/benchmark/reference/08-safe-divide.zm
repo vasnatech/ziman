@@ -1,0 +1,15 @@
+fn divide(a: int, b: int) -> Option<int> {
+    if b == 0 {
+        return Option<int>.None
+    }
+    return Option<int>.Some(a / b)
+}
+
+fn main() {
+    for pair in [[10, 2], [7, 3], [5, 0]] {
+        print(switch divide(pair[0], pair[1]) {
+            Some(v) { str(v) }
+            None { "undefined" }
+        })
+    }
+}

@@ -1,0 +1,4 @@
+fn main() {
+    val total = 19.99d + 5.01d + 0.50d
+    print(total)
+}

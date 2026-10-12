@@ -1,0 +1,19 @@
+enum AppError {
+    NotFound(string)
+    Conflict(string)
+    Timeout
+}
+
+fn message_of(e: AppError) -> string {
+    return switch e {
+        NotFound(what) { concat("no such ", what) }
+        Conflict(what) { concat(what, " already exists") }
+        Timeout { "the request timed out" }
+    }
+}
+
+fn main() {
+    for e in [AppError.NotFound("user"), AppError.Conflict("email"), AppError.Timeout] {
+        print(message_of(e))
+    }
+}

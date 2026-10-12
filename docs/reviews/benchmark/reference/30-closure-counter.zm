@@ -1,0 +1,10 @@
+fn multiplier(by: int) -> fn(int) -> int {
+    return fn(n: int) -> int { return n * by }
+}
+
+fn main() {
+    val double = multiplier(2)
+    val triple = multiplier(3)
+    print(double(5))
+    print(triple(5))
+}

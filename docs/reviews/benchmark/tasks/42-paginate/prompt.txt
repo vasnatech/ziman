@@ -1,0 +1,2 @@
+Write a Ziman program that pages the numbers 1 to 10 into pages of 3. Print each page as
+`page N: a, b, c`, one line per page.

@@ -1,0 +1,20 @@
+fn main() {
+    val items = ab_new<int>()
+    for i in 1..11 {
+        ab_append(items, i)
+    }
+    val all = ab_to_array(items)
+    val size = 3
+    var page = 1
+    var start = 0
+    while start < len(all) {
+        val stop = if start + size < len(all) { start + size } else { len(all) }
+        val names = ab_new<string>()
+        for v in slice<int>(all, start, stop) {
+            ab_append(names, str(v))
+        }
+        printf("page {}: {}\n", str(page), join(separator: ", ", pieces: ab_to_array(names)))
+        page = page + 1
+        start = start + size
+    }
+}

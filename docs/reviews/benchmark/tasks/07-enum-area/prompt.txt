@@ -1,0 +1,4 @@
+Write a Ziman program with an enum `Shape` having a `Circle` holding a radius (float), a `Square`
+holding a side (float), and a `Point` with no payload. Write a function returning each shape's
+area (a point is 0.0) and print the areas of a circle of radius 2.0, a square of side 3.0 and a
+point, one per line. Use 3.14159 for pi.

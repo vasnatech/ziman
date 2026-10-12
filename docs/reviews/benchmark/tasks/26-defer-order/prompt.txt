@@ -1,0 +1,3 @@
+Write a Ziman program with a function that prints "start", then schedules three deferred prints of
+"first", "second" and "third" in that order, then prints "end". Call it and let the output show the
+order the deferred calls actually run in.

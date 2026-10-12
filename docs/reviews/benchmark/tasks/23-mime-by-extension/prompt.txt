@@ -1,0 +1,2 @@
+Write a Ziman program that prints the media type for each of the file extensions `json`, `png`,
+`html` and `zzz`, one per line, as `ext -> type` or `ext -> unknown` when there is none.

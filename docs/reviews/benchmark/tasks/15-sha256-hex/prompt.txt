@@ -1,0 +1,1 @@
+Write a Ziman program that prints the SHA-256 hash of the text "ziman" as lowercase hexadecimal.

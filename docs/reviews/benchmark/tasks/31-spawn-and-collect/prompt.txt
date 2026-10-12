@@ -1,0 +1,3 @@
+Write a Ziman program that starts three concurrent workers, each squaring one of the numbers 2, 3
+and 4 and sending the result over a channel. Collect all three results, then print them in
+ascending order, one per line.

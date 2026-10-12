@@ -1,0 +1,2 @@
+Write a Ziman program that wraps the text "the quick brown fox jumps over the lazy dog" into lines
+of at most 16 characters without splitting a word, and prints each line.

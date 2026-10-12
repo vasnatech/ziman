@@ -1,0 +1,4 @@
+Write a Ziman program that parses this JSON text and prints the name, then the age, then the city,
+one per line:
+
+    {"name": "Ada", "age": 36, "address": {"city": "London"}}

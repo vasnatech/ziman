@@ -1,0 +1,12 @@
+fn main() {
+    val it = iter_of_array<int>([10, 20, 30, 40, 50])
+    var taken = 0
+    while taken < 3 {
+        switch iter_next<int>(it) {
+            Some(v) { print(v) }
+            None { taken = 3 }
+        }
+        taken = taken + 1
+    }
+    iter_close<int>(it)
+}

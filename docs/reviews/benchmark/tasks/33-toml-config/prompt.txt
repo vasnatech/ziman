@@ -1,0 +1,6 @@
+Write a Ziman program that parses this TOML configuration and prints the host, then the port, then
+whether debug is on, one per line:
+
+    host = "localhost"
+    port = 8080
+    debug = true

@@ -1,0 +1,3 @@
+Write a Ziman program that declares a struct `Score` with a `points` (int) and a `player`
+(string), derives an ordering for it, and prints the players of five scores -- Ada 40, Alan 55,
+Grace 55, Bob 10, Eve 70 -- sorted from lowest to highest, one per line.

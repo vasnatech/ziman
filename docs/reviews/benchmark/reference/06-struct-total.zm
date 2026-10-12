@@ -1,0 +1,18 @@
+struct Item {
+    name: string
+    price: int
+}
+
+fn main() {
+    val items = [
+        Item { name: "pen", price: 150 },
+        Item { name: "notebook", price: 320 },
+        Item { name: "eraser", price: 95 }
+    ]
+    var total = 0
+    for it in items {
+        printf("{}: {}\n", it.name, str(it.price))
+        total = total + it.price
+    }
+    printf("total: {}\n", str(total))
+}

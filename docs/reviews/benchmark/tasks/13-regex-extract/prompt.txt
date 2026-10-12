@@ -1,0 +1,2 @@
+Write a Ziman program that finds every number in the string "order 12 has 3 items costing 450" and
+prints them one per line, in the order they appear.

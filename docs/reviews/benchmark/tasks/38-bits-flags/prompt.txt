@@ -1,0 +1,3 @@
+Write a Ziman program that treats an int as a set of flags where bit 0 is READ, bit 1 is WRITE and
+bit 2 is EXECUTE. Build a value with READ and EXECUTE set, then print `read: yes/no`,
+`write: yes/no` and `execute: yes/no`, one per line.

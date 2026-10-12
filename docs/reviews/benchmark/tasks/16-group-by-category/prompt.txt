@@ -1,0 +1,4 @@
+Write a Ziman program that declares a struct `Product` with a `name` and a `category`, builds this
+list -- apple/fruit, carrot/veg, banana/fruit, leek/veg, cherry/fruit -- and prints one line per
+category in alphabetical order, as `category: name, name, name` with the names in the order they
+appeared.
