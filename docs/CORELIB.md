@@ -1992,6 +1992,15 @@ pub fn cors_apply(policy: CorsPolicy, req: Request, answer: Response) -> Respons
 
 pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
 
+pub struct RequestLog {
+    method: HttpMethod
+    target: string
+    status: int
+    duration_ms: int
+    response_bytes: int
+    peer: Option<string>
+}
+
 pub struct ServeOptions {
     idle_timeout_ms: int
     header_timeout_ms: int
@@ -2010,6 +2019,26 @@ pub struct ServeOptions {
     // so there may be no parsed request to pass -- which is also why a per-request header like
     // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
     fault: Option<fn(int, string) -> Response>
+    // Called once per finished exchange, with everything the server knows about it. This is the
+    // composable half of request logging: `log_requests` gives the library's one fixed line, and
+    // this gives the application the fields to write its own -- through the `log` module, as JSON,
+    // with a request id, or wherever its logs actually go. The two are independent; setting both
+    // prints the built-in line *and* calls this.
+    //
+    // A field on the options, not a wrapper around `dispatch` as the roadmap first imagined: a
+    // wrapper would have to return a closure and allocate one per request, which is the same reason
+    // the CORS pair is two plain functions (tasks.md F59). One function value is stored here once.
+    //
+    // **Only completed exchanges.** A request the server rejects before parsing one -- a malformed
+    // request line, a client that stops mid-head, a body over the cap -- never reaches this, because
+    // there is no request to describe; the same reason `fault` above takes a status and a sentence
+    // rather than a `Request`. Those rejections are `fault`'s to render.
+    //
+    // Typed `fn(RequestLog)` and not `fn(RequestLog) -> unit`: a void function's type *is* the
+    // former, so an application writes `fn note(entry: RequestLog) { ... }` and passes it, with no
+    // `-> unit` to remember. This is the library's first callback that returns nothing, so the
+    // spelling is set here.
+    on_request: Option<fn(RequestLog)>
     // Whether to record `http_open_connections` and the two byte counters. Per-request metrics are
     // separate, on the route table (`metered_routes`), because only something that matched the request
     // knows the pattern to label it with -- and a pattern is the only label worth having.

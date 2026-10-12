@@ -1,0 +1,91 @@
+// F71: `ServeOptions.on_request`, the composable half of request logging. `log_requests` gives one
+// fixed line to stdout; this hands the application the fields and lets it decide the format and the
+// destination. A field on the options rather than a wrapper around `dispatch`, for the reason F59
+// recorded when it rejected the same shape for CORS: a wrapper would have to return a closure and
+// allocate one per request.
+//
+// Both halves run here, and the built-in line had **no coverage at all** before this fixture --
+// nothing in the tree ever set `log_requests: true`, so the one format the library ships was never
+// once checked.
+//
+// `duration_ms` is a real elapsed time, so printing it would make this fixture fail on a slow
+// machine. It is asserted as a **band** instead, which is what makes the assertion worth having: a
+// handler that sleeps 150ms must land at 50ms or more, and the three trivial handlers must land
+// under 50ms. A timer stuck at zero, or one reading the clock in the wrong order, fails the first;
+// a duration that accidentally measured the whole connection (including the client's own sleep
+// before connecting) fails the others. "Is it plausible" -- the first thing this printed -- would
+// have passed with the field hardcoded to 0.
+use clock
+use http
+use net
+use server
+
+val port = 18791
+
+fn handler(req: http.Request) -> http.Response {
+    if req.path == "/slow" {
+        clock.sleep_millis(150)
+        return server.text_response(200, "slept")
+    }
+    if req.path == "/missing" {
+        return server.not_found()
+    }
+    if req.path == "/head" {
+        return server.text_response(200, "a body a HEAD request will not receive")
+    }
+    return server.text_response(200, "hello")
+}
+
+// Collected rather than printed as it arrives: the server runs on its own thread, so printing from
+// there would interleave with main's output differently from run to run.
+val seen: Channel<string> = channel_new()
+
+fn note(entry: server.RequestLog) {
+    send(seen, format(
+        "{} {} -> {} ({} bytes, peer {}, duration {})",
+        http.method_name(entry.method),
+        entry.target,
+        entry.status,
+        entry.response_bytes,
+        switch entry.peer { Some(p) { p } None { "none" } },
+        if entry.duration_ms >= 50 { "50ms or more" } else { "under 50ms" }
+    ))
+}
+
+fn serve_it() {
+    val l = unwrap(net.listen("127.0.0.1", port))
+    server.serve(l, handler, with server.serve_options() {
+        log_requests: true,
+        on_request: Option<fn(server.RequestLog)>.Some(note)
+    })
+}
+
+fn get(path: string, method: string) {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.write_text(s, concat(method, " ", path, " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")))
+    var all = ""
+    while true {
+        switch net.read_text(s, 4096) {
+            Ok(chunk) { all = concat(all, chunk) }
+            Err(_) { break }
+        }
+    }
+    net.close(s)
+}
+
+fn main() {
+    spawn serve_it()
+    clock.sleep_millis(200)
+
+    get("/hello", "GET")
+    get("/slow", "GET")
+    get("/missing", "GET")
+    get("/head", "HEAD")
+
+    // One line per exchange, in the order they were served.
+    var i = 0
+    while i < 4 {
+        print(receive(seen))
+        i = i + 1
+    }
+}

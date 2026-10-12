@@ -1,0 +1,8 @@
+GET /hello -> 200
+GET /slow -> 200
+GET /missing -> 404
+HEAD /head -> 200
+GET /hello -> 200 (5 bytes, peer 127.0.0.1, duration under 50ms)
+GET /slow -> 200 (5 bytes, peer 127.0.0.1, duration 50ms or more)
+GET /missing -> 404 (34 bytes, peer 127.0.0.1, duration under 50ms)
+HEAD /head -> 200 (38 bytes, peer 127.0.0.1, duration under 50ms)

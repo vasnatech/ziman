@@ -1020,50 +1020,16 @@ GET is served.
 
 ## Serve
 
-### `ServeOptions`
+### `RequestLog`
 
 ```
-pub struct ServeOptions {
-    idle_timeout_ms: int
-    header_timeout_ms: int
-    max_connections: int
-    log_requests: bool
-    // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
-    // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
-    // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.
-    //
-    // Pass the same renderer the application gives `dispatch`, and a client sees one error shape from the whole
-    // server instead of two: a browser that cannot read the body of its own 413 because it arrived in a
-    // different shape with none of the application's headers is the reason this exists. Whatever it returns is
-    // written as-is, so an HSTS header it adds is on the rejection too.
-    //
-    // It gets a status and a sentence, not the Request: these failures happen while the request is being read,
-    // so there may be no parsed request to pass -- which is also why a per-request header like
-    // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
-    fault: Option<fn(int, string) -> Response>
-    // Whether to record `http_open_connections` and the two byte counters. Per-request metrics are
-    // separate, on the route table (`metered_routes`), because only something that matched the request
-    // knows the pattern to label it with -- and a pattern is the only label worth having.
-    metrics: bool
-    // Gzip a response when the client offers it and the body is at least 1 KiB -- see `compressed`,
-    // which this simply turns on. Off by default on purpose: compressing a response that carries a
-    // secret alongside attacker-influenced text leaks it through the length (BREACH), and an API
-    // whose login answer holds a JWT is that shape. Ask for it per server rather than inheriting it.
-    compress_responses: bool
-    // How many connections one address may hold at once. 0 is off, and is the default a server should keep
-    // unless it is reached directly by clients: behind a reverse proxy every connection carries the
-    // proxy's address, so any cap would be a cap on the proxy.
-    //
-    // This is the half a request throttle cannot cover. A client that opens connections and never sends a
-    // request is counted by no rate limit, and can fill every `max_connections` slot;
-    // `header_timeout_ms` frees such a slot within seconds, which bounds how long the flood holds one, not
-    // how many it holds at once. A refusal here closes the socket without writing anything -- answering
-    // would mean writing to a flooding client from the accept loop, where one slow read stalls every other
-    // connection's accept.
-    //
-    // The address is the socket's, necessarily: at accept time there is no request yet, so there is no
-    // `X-Forwarded-For` to consult even if it were trustworthy. That is the same reason the default is off.
-    max_connections_per_client: int
+pub struct RequestLog {
+    method: HttpMethod
+    target: string
+    status: int
+    duration_ms: int
+    response_bytes: int
+    peer: Option<string>
 }
 ```
 
@@ -1089,6 +1055,90 @@ stalled read. `header_timeout_ms` (use a few seconds; it should not exceed `idle
 request to send its head once it has begun: an honest client needs milliseconds, so a client that opens connections and dawdles is dropped fast and cannot hold
 every one of the `max_connections` slots for `idle_timeout_ms` at a time. It cannot tell one client from another, so a determined flood from many
 addresses is a job for a firewall or the proxy in front (see the roadmap).
+One finished exchange, for `ServeOptions.on_request`.
+
+A struct rather than a handful of parameters **because the library builds it and the application
+only reads it**: a field added here later cannot break a caller, which is the opposite of the
+`ServeOptions` literal problem F61 ran into, where every field of a struct the *caller* builds is
+required. So this is a shape that can grow.
+
+`duration_ms` is the time to *serve*: from the request being fully read to its response being
+written. It deliberately excludes the client's own slowness in sending and the idle wait on a
+keep-alive connection, neither of which is work this server did -- a log line blaming the server
+for a client typing slowly would be worse than no line at all.
+
+`response_bytes` is the body's size, which is what a `HEAD` request reports without sending, and
+is measured *after* `compressed` has had its say, so it is what went on the wire.
+
+`peer` is the transport address, `None` on a request that did not come off a socket. It is not
+`X-Forwarded-For`, which is `forwarded_for`'s job and a different question.
+
+### `ServeOptions`
+
+```
+pub struct ServeOptions {
+    idle_timeout_ms: int
+    header_timeout_ms: int
+    max_connections: int
+    log_requests: bool
+    // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
+    // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
+    // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.
+    //
+    // Pass the same renderer the application gives `dispatch`, and a client sees one error shape from the whole
+    // server instead of two: a browser that cannot read the body of its own 413 because it arrived in a
+    // different shape with none of the application's headers is the reason this exists. Whatever it returns is
+    // written as-is, so an HSTS header it adds is on the rejection too.
+    //
+    // It gets a status and a sentence, not the Request: these failures happen while the request is being read,
+    // so there may be no parsed request to pass -- which is also why a per-request header like
+    // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
+    fault: Option<fn(int, string) -> Response>
+    // Called once per finished exchange, with everything the server knows about it. This is the
+    // composable half of request logging: `log_requests` gives the library's one fixed line, and
+    // this gives the application the fields to write its own -- through the `log` module, as JSON,
+    // with a request id, or wherever its logs actually go. The two are independent; setting both
+    // prints the built-in line *and* calls this.
+    //
+    // A field on the options, not a wrapper around `dispatch` as the roadmap first imagined: a
+    // wrapper would have to return a closure and allocate one per request, which is the same reason
+    // the CORS pair is two plain functions (tasks.md F59). One function value is stored here once.
+    //
+    // **Only completed exchanges.** A request the server rejects before parsing one -- a malformed
+    // request line, a client that stops mid-head, a body over the cap -- never reaches this, because
+    // there is no request to describe; the same reason `fault` above takes a status and a sentence
+    // rather than a `Request`. Those rejections are `fault`'s to render.
+    //
+    // Typed `fn(RequestLog)` and not `fn(RequestLog) -> unit`: a void function's type *is* the
+    // former, so an application writes `fn note(entry: RequestLog) { ... }` and passes it, with no
+    // `-> unit` to remember. This is the library's first callback that returns nothing, so the
+    // spelling is set here.
+    on_request: Option<fn(RequestLog)>
+    // Whether to record `http_open_connections` and the two byte counters. Per-request metrics are
+    // separate, on the route table (`metered_routes`), because only something that matched the request
+    // knows the pattern to label it with -- and a pattern is the only label worth having.
+    metrics: bool
+    // Gzip a response when the client offers it and the body is at least 1 KiB -- see `compressed`,
+    // which this simply turns on. Off by default on purpose: compressing a response that carries a
+    // secret alongside attacker-influenced text leaks it through the length (BREACH), and an API
+    // whose login answer holds a JWT is that shape. Ask for it per server rather than inheriting it.
+    compress_responses: bool
+    // How many connections one address may hold at once. 0 is off, and is the default a server should keep
+    // unless it is reached directly by clients: behind a reverse proxy every connection carries the
+    // proxy's address, so any cap would be a cap on the proxy.
+    //
+    // This is the half a request throttle cannot cover. A client that opens connections and never sends a
+    // request is counted by no rate limit, and can fill every `max_connections` slot;
+    // `header_timeout_ms` frees such a slot within seconds, which bounds how long the flood holds one, not
+    // how many it holds at once. A refusal here closes the socket without writing anything -- answering
+    // would mean writing to a flooding client from the accept loop, where one slow read stalls every other
+    // connection's accept.
+    //
+    // The address is the socket's, necessarily: at accept time there is no request yet, so there is no
+    // `X-Forwarded-For` to consult even if it were trustworthy. That is the same reason the default is off.
+    max_connections_per_client: int
+}
+```
 
 ### `serve_options`
 

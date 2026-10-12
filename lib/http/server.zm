@@ -2275,6 +2275,32 @@ fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, stri
 // request to send its head once it has begun: an honest client needs milliseconds, so a client that opens connections and dawdles is dropped fast and cannot hold
 // every one of the `max_connections` slots for `idle_timeout_ms` at a time. It cannot tell one client from another, so a determined flood from many
 // addresses is a job for a firewall or the proxy in front (see the roadmap).
+// One finished exchange, for `ServeOptions.on_request`.
+//
+// A struct rather than a handful of parameters **because the library builds it and the application
+// only reads it**: a field added here later cannot break a caller, which is the opposite of the
+// `ServeOptions` literal problem F61 ran into, where every field of a struct the *caller* builds is
+// required. So this is a shape that can grow.
+//
+// `duration_ms` is the time to *serve*: from the request being fully read to its response being
+// written. It deliberately excludes the client's own slowness in sending and the idle wait on a
+// keep-alive connection, neither of which is work this server did -- a log line blaming the server
+// for a client typing slowly would be worse than no line at all.
+//
+// `response_bytes` is the body's size, which is what a `HEAD` request reports without sending, and
+// is measured *after* `compressed` has had its say, so it is what went on the wire.
+//
+// `peer` is the transport address, `None` on a request that did not come off a socket. It is not
+// `X-Forwarded-For`, which is `forwarded_for`'s job and a different question.
+pub struct RequestLog {
+    method: HttpMethod
+    target: string
+    status: int
+    duration_ms: int
+    response_bytes: int
+    peer: Option<string>
+}
+
 pub struct ServeOptions {
     idle_timeout_ms: int
     header_timeout_ms: int
@@ -2293,6 +2319,26 @@ pub struct ServeOptions {
     // so there may be no parsed request to pass -- which is also why a per-request header like
     // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
     fault: Option<fn(int, string) -> Response>
+    // Called once per finished exchange, with everything the server knows about it. This is the
+    // composable half of request logging: `log_requests` gives the library's one fixed line, and
+    // this gives the application the fields to write its own -- through the `log` module, as JSON,
+    // with a request id, or wherever its logs actually go. The two are independent; setting both
+    // prints the built-in line *and* calls this.
+    //
+    // A field on the options, not a wrapper around `dispatch` as the roadmap first imagined: a
+    // wrapper would have to return a closure and allocate one per request, which is the same reason
+    // the CORS pair is two plain functions (tasks.md F59). One function value is stored here once.
+    //
+    // **Only completed exchanges.** A request the server rejects before parsing one -- a malformed
+    // request line, a client that stops mid-head, a body over the cap -- never reaches this, because
+    // there is no request to describe; the same reason `fault` above takes a status and a sentence
+    // rather than a `Request`. Those rejections are `fault`'s to render.
+    //
+    // Typed `fn(RequestLog)` and not `fn(RequestLog) -> unit`: a void function's type *is* the
+    // former, so an application writes `fn note(entry: RequestLog) { ... }` and passes it, with no
+    // `-> unit` to remember. This is the library's first callback that returns nothing, so the
+    // spelling is set here.
+    on_request: Option<fn(RequestLog)>
     // Whether to record `http_open_connections` and the two byte counters. Per-request metrics are
     // separate, on the route table (`metered_routes`), because only something that matched the request
     // knows the pattern to label it with -- and a pattern is the only label worth having.
@@ -2352,6 +2398,7 @@ fn serve_connection(
     log_requests: bool,
     compress_responses: bool,
     fault: Option<fn(int, string) -> Response>,
+    on_request: Option<fn(RequestLog)>,
     meter: bool,
     client_key: string,
     slots: Channel<int>
@@ -2383,20 +2430,16 @@ fn serve_connection(
         } else {
             val exchange = unwrap(next)
             session = exchange.session  // carries any bytes read past this request
+            // The clock starts once the request is *read*, so the idle wait on a keep-alive
+            // connection and a client that drips its request are not counted as time this server
+            // spent. What is left is the work: the handler, and writing the answer.
+            val serve_started = clock.monotonic_millis()
             if meter {
                 metrics.add(received_metric, (len(exchange.request.body) as float))
             }
             val response = handler(exchange.request)
             if meter {
                 metrics.add(sent_metric, (len(response.body) as float))
-            }
-            if log_requests {
-                printf(
-                    "{} {} -> {}\n",
-                    method_name(exchange.request.method),
-                    exchange.request.target,
-                    response.status
-                )
             }
             // 1 KiB: below a packet's worth there is nothing to win, and gzip's own 18-byte
             // header plus a short body can come out larger -- which `compressed` checks anyway.
@@ -2412,6 +2455,28 @@ fn serve_connection(
                     }
                 }
                 Err(_) { open = false }
+            }
+            // Reported after the write, not before it: only here are the status and the bytes that
+            // actually went out both known, `compressed` having possibly replaced the body. The
+            // built-in line and the hook describe the same completed exchange, so neither can
+            // disagree with the other about what happened.
+            if log_requests {
+                printf(
+                    "{} {} -> {}\n",
+                    method_name(exchange.request.method),
+                    exchange.request.target,
+                    to_send.status
+                )
+            }
+            if Some(report) = on_request {
+                report(RequestLog {
+                    method: exchange.request.method,
+                    target: exchange.request.target,
+                    status: to_send.status,
+                    duration_ms: clock.monotonic_millis() - serve_started,
+                    response_bytes: len(to_send.body),
+                    peer: exchange.request.peer
+                })
             }
         }
     }
@@ -2444,6 +2509,7 @@ pub fn serve_options() -> ServeOptions {
         log_requests: false,
         compress_responses: false,
         fault: Option<fn(int, string) -> Response>.None,
+        on_request: Option<fn(RequestLog)>.None,
         metrics: false,
         max_connections_per_client: 0
     }
@@ -2493,6 +2559,7 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
                 options.log_requests,
                 options.compress_responses,
                 options.fault,
+                options.on_request,
                 options.metrics,
                 client_key,
                 slots

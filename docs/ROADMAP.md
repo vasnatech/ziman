@@ -2244,7 +2244,7 @@ from source.
   (through libxcrypt, so `$2a$`/`$2b$` hashes written by other systems verify) and Argon2id (OpenSSL), with
   `password_hash`, `password_verify` and `password_needs_rehash`; `jwt` signs and verifies HS256/384/512 tokens. The
   health-record backend registers and logs in with them. Still to do, in order: the authenticate step in `server` is done (`secure_*` builders: `who` runs first and hands `run` its caller); still to do are
-  ~~interceptors for CORS~~ (**done** -- see below), request logging as an interceptor, an `otp` module (HOTP/TOTP and base32) for MFA; OAuth2 login
+  ~~interceptors for CORS~~ (**done** -- see below), ~~request logging as an interceptor~~ (**done 2026-10-11, F71, and not as an interceptor**: `ServeOptions.on_request` is a field holding one function value, called once per finished exchange with a `RequestLog` of method, target, status, `duration_ms`, `response_bytes` and `peer`. A wrapper around `dispatch` -- what "interceptor" meant here -- would have to return a closure and allocate one per request, which is the same reason the CORS pair is two plain functions rather than a wrapper (F59); and a wrapper could not see what `serve` knows anyway: the peer, the bytes actually written after `compressed` had its say, and when the read finished. `log_requests` stays as the zero-config default line, and the two are independent), an `otp` module (HOTP/TOTP and base32) for MFA; OAuth2 login
   (Google, Microsoft) on `client`; and RS256/ES256 for tokens verified with a public key, which needs public-key
   operations in `crypto`.
 
