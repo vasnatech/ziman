@@ -1,0 +1,134 @@
+// F65: ALPN -- the application protocol a TLS handshake agrees on, which is what lets one port
+// serve two protocols and is the first thing the HTTP/2 roadmap entry asks for.
+//
+// The listener's list is its order of preference, which is the choice RFC 7301 leaves to the
+// server: the cases below pin that the *server's* order decides and not the client's, because the
+// two orders disagree on purpose. A client that offers ALPN and shares nothing with the listener is
+// refused outright rather than served a protocol it did not ask for -- serving one would look like
+// success to the client and then fail as a protocol error on the first byte.
+//
+// Certificates come from tests/run_tls_tests.sh.
+use net
+use net.NetError
+use net.TlsVerify
+
+val cert = "tests/tls/.certs/a.pem"
+val key = "tests/tls/.certs/a.key"
+
+fn kind(e: NetError) -> string {
+    return switch e {
+        ConnectionRefused(_) { "refused" }
+        HostNotFound(_) { "host not found" }
+        Timeout(_) { "timeout" }
+        Closed(_) { "closed" }
+        Io(_) { "io" }
+        Tls(_) { "tls" }
+    }
+}
+
+// A protocol name of `n` bytes, for the length check below.
+fn name_of_length(n: int) -> string {
+    val sb = sb_new()
+    var i = 0
+    while i < n {
+        sb_append(sb, "x")
+        i = i + 1
+    }
+    return sb_to_string(sb)
+}
+
+fn named(p: Option<string>) -> string {
+    return switch p {
+        Some(name) { name }
+        None { "none" }
+    }
+}
+
+// Reports what each accepted connection agreed to speak, then echoes a byte so the client can tell
+// an accepted handshake from one the server refused after the client's side had finished.
+fn serve(l: net.Listener, results: Channel<string>, count: int) {
+    var n = 0
+    while n < count {
+        switch net.accept(l) {
+            Ok(s) {
+                send(results, named(net.negotiated_protocol(s)))
+                if Ok(got) = net.read(s, 10) {
+                    val _ = net.write(s, got)
+                }
+                net.close(s)
+            }
+            Err(e) { send(results, concat("refused at the handshake (", kind(e), ")")) }
+        }
+        n = n + 1
+    }
+}
+
+fn offering(protocols: [string]) -> net.TlsClientOptions {
+    return with net.tls_client_options() {
+        verify: TlsVerify.Full,
+        ca_file: Option<string>.Some(cert),
+        alpn: protocols
+    }
+}
+
+fn attempt(label: string, port: int, options: net.TlsClientOptions, results: Channel<string>) {
+    switch net.connect_tls_with_options("127.0.0.1", port, options) {
+        Ok(s) {
+            printf("{}: client sees {}", label, named(net.negotiated_protocol(s)))
+            printf(", first exchange {}\n", switch net.write(s, [104b, 105b]) {
+                Err(e) { kind(e) }
+                Ok(_) { switch net.read(s, 10) {
+                    Ok(_) { "ok" }
+                    Err(e) { kind(e) }
+                } }
+            })
+            net.close(s)
+        }
+        Err(e) { printf("{}: handshake failed ({})\n", label, kind(e)) }
+    }
+    printf("    server agreed: {}\n", receive(results))
+}
+
+fn main() {
+    // The listener prefers h2; the clients below offer their own orders, and the server's wins.
+    val l = unwrap(net.listen_tls_with_options("127.0.0.1", 0, with net.tls_server_options(cert, key) {
+        alpn: ["h2", "http/1.1"]
+    }))
+    val port = net.listener_port(l)
+    val results: Channel<string> = channel_new()
+    spawn serve(l, results, 5)
+
+    attempt("client offers both, its order reversed", port, offering(["http/1.1", "h2"]), results)
+    attempt("client offers only http/1.1", port, offering(["http/1.1"]), results)
+    attempt("client offers only h2", port, offering(["h2"]), results)
+    attempt("client offers none", port, offering([]), results)
+    // Nothing in common: refused, and the client finds out on the handshake itself here -- unlike a
+    // rejected client certificate, which TLS 1.3 only reports afterwards.
+    attempt("client offers only a protocol the server lacks", port, offering(["spdy/3"]), results)
+
+    // A listener that offers no ALPN agrees on nothing, however much a client asks.
+    val quiet = unwrap(net.listen_tls("127.0.0.1", 0, cert, key))
+    val quiet_port = net.listener_port(quiet)
+    val quiet_results: Channel<string> = channel_new()
+    spawn serve(quiet, quiet_results, 1)
+    attempt("listener offers no ALPN", quiet_port, offering(["h2", "http/1.1"]), quiet_results)
+
+    // A name has to fit in the single length byte the wire format gives it, and cannot be empty.
+    // Caught where the list is given rather than at the handshake.
+    printf(
+        "empty protocol name, listener: {}\n",
+        switch net.listen_tls_with_options("127.0.0.1", 0, with net.tls_server_options(cert, key) {
+            alpn: ["h2", ""]
+        }) {
+            Ok(_) { "accepted, which it should not be" }
+            Err(e) { net.net_error_message(e) }
+        }
+    )
+    printf(
+        "overlong protocol name, client: {}\n",
+        switch net.connect_tls_with_options("127.0.0.1", quiet_port, offering([name_of_length(256)])) {
+            Ok(_) { "connected, which it should not be" }
+            Err(e) { net.net_error_message(e) }
+        }
+    )
+}

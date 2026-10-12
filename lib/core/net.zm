@@ -86,12 +86,14 @@ native fn listen_tls_raw(
     cert_file: string,
     key_file: string,
     client_ca_file: string,
-    require_client_cert: bool
+    require_client_cert: bool,
+    alpn: [string]
 ) -> Result<int, string>
 native fn listener_port_raw(handle: int) -> int
 
 native fn peer_address_raw(handle: int) -> string
 native fn peer_certificate_raw(handle: int) -> Result<string, string>
+native fn negotiated_protocol_raw(handle: int) -> Result<string, string>
 native fn accept_raw(handle: int) -> Result<int, string>
 native fn read_raw(handle: int, max: int) -> Result<[byte], string>
 native fn read_exact_raw(handle: int, count: int) -> Result<[byte], string>
@@ -105,7 +107,8 @@ native fn start_tls_raw(
     verify: int,
     ca_file: string,
     cert_file: string,
-    key_file: string
+    key_file: string,
+    alpn: [string]
 ) -> Result<int, string>
 native fn close_raw(handle: int)
 
@@ -230,11 +233,18 @@ pub fn listen_tls(host: string, port: int, cert_file: string, key_file: string) 
 // verifies a certificate it asks the client for. `require_client_cert` then decides what a client
 // that sends none gets -- a refused handshake, or a connection where `peer_certificate_subject` is
 // `None`. Leaving the CA file `None` asks for nothing, which is the ordinary HTTPS case.
+//
+// `alpn` names the application protocols this listener speaks, **in its own order of preference**,
+// which is the choice RFC 7301 leaves to the server: offering `["h2", "http/1.1"]` to a client that
+// offers both agrees on `h2`. An empty list offers no ALPN at all, and then
+// `negotiated_protocol` is `None` however much the client asked for. A client that offers ALPN and
+// shares none of these is **refused**, rather than served a protocol it did not ask for.
 pub struct TlsServerOptions {
     cert_file: string
     key_file: string
     client_ca_file: Option<string>
     require_client_cert: bool
+    alpn: [string]
 }
 
 // `TlsServerOptions` for a plain HTTPS listener: the certificate and key, no client certificate
@@ -244,7 +254,8 @@ pub fn tls_server_options(cert_file: string, key_file: string) -> TlsServerOptio
         cert_file: cert_file,
         key_file: key_file,
         client_ca_file: Option<string>.None,
-        require_client_cert: false
+        require_client_cert: false,
+        alpn: []
     }
 }
 
@@ -260,7 +271,8 @@ pub fn listen_tls_with_options(host: string, port: int, options: TlsServerOption
         options.cert_file,
         options.key_file,
         option_unwrap_or<string>(options.client_ca_file, ""),
-        options.require_client_cert
+        options.require_client_cert,
+        options.alpn
     )
     if Err(e) = r {
         return err(net_error_from_raw(e))
@@ -476,6 +488,9 @@ pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Optio
 // cannot be used. Setting them on a connection to a server that never asks costs nothing -- the
 // certificate is only sent when requested.
 //
+// `alpn` names the application protocols to offer; the server picks one of them, which
+// `negotiated_protocol` then reports. An empty list offers none.
+//
 // **A successful handshake does not mean the server accepted your certificate.** In TLS 1.3 the
 // client finishes its own side before the server validates what it sent, so a server that refuses
 // the certificate answers with an alert afterwards: `start_tls_with_options` returns `Ok` and the
@@ -486,6 +501,7 @@ pub struct TlsClientOptions {
     ca_file: Option<string>
     cert_file: Option<string>
     key_file: Option<string>
+    alpn: [string]
 }
 
 // `TlsClientOptions` that verify the server fully against the system CA store and present no
@@ -495,7 +511,8 @@ pub fn tls_client_options() -> TlsClientOptions {
         verify: TlsVerify.Full,
         ca_file: Option<string>.None,
         cert_file: Option<string>.None,
-        key_file: Option<string>.None
+        key_file: Option<string>.None,
+        alpn: []
     }
 }
 
@@ -509,7 +526,8 @@ pub fn start_tls_with_options(s: Socket, host: string, options: TlsClientOptions
         tls_verify_level(options.verify),
         option_unwrap_or<string>(options.ca_file, ""),
         option_unwrap_or<string>(options.cert_file, ""),
-        option_unwrap_or<string>(options.key_file, "")
+        option_unwrap_or<string>(options.key_file, ""),
+        options.alpn
     ) {
         Ok(_) { unit }
         Err(e) { err(net_error_from_raw(e)) }
@@ -561,6 +579,23 @@ pub fn connect_tls_with_options(host: string, port: int, options: TlsClientOptio
 //
 // On the client side this is the server's certificate, already verified to the degree
 // `TlsClientOptions.verify` asked for.
+//
+// `negotiated_protocol` answers the other half of "what did this handshake agree to".
+// The application protocol the TLS handshake agreed on through ALPN ("h2", "http/1.1"), or `None`
+// when there is none -- a plain socket, or a handshake where either side offered no protocols.
+//
+// A server reads this on an accepted socket to learn which protocol the client expects to speak,
+// which is what makes one port able to serve two: the listener offers both and this says which it
+// is. A client reads it to confirm the server took one of the protocols it offered -- a handshake
+// that got this far agreed on something, since a server with no protocol in common refuses the
+// connection instead of answering with a surprise.
+pub fn negotiated_protocol(s: Socket) -> Option<string> {
+    return switch negotiated_protocol_raw(s.handle) {
+        Ok(name) { if len(name) > 0 { Option<string>.Some(name) } else { Option<string>.None } }
+        Err(_) { Option<string>.None }
+    }
+}
+
 pub fn peer_certificate_subject(s: Socket) -> Option<string> {
     return switch peer_certificate_raw(s.handle) {
         Ok(subject) { if len(subject) > 0 { Option<string>.Some(subject) } else { Option<string>.None } }

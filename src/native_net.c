@@ -65,6 +65,81 @@
  * read and write -- and because a server that closes from its accepting
  * thread, which is what `server.zm` does, never opens the window. */
 
+/* ALPN: the protocol names a connection offers, in the wire format TLS uses -- each name prefixed by
+ * its own single length byte and concatenated, so ["h2", "http/1.1"] is "\x02h2\x08http/1.1". */
+typedef struct {
+    unsigned char *data;
+    size_t len;
+} AlpnList;
+
+static void alpn_free(AlpnList *l) {
+    if (l == NULL) return;
+    free(l->data);
+    free(l);
+}
+
+/* Encodes `names` into an AlpnList, or NULL. `*bad_len` is set to the length of the first name that
+ * cannot be encoded -- empty, or longer than the single length byte allows -- and to SIZE_MAX when
+ * every name is fine, which includes the list being absent or empty: the ordinary "offer no ALPN".
+ *
+ * The length and not the name, because the name can be 255 bytes of anything and the message has to
+ * stay a message. An earlier version put the name in it, and a 256-byte one pushed the explanation
+ * off the end of the buffer, so the error said what was wrong in bytes the reader never saw. */
+static AlpnList *alpn_encode(ArrayObj *names, size_t *bad_len) {
+    *bad_len = SIZE_MAX;
+    int count = names == NULL ? 0 : names->count;
+    if (count == 0) return NULL;
+    size_t total = 0;
+    for (int i = 0; i < count; i++) {
+        const char *name = value_cstr(names->boxed_items[i]);
+        size_t n = strlen(name);
+        if (n == 0 || n > 255) { *bad_len = n; return NULL; }
+        total += n + 1;
+    }
+    AlpnList *l = ziman_xmalloc(sizeof *l);
+    l->data = ziman_xmalloc(total);
+    l->len = total;
+    size_t at = 0;
+    for (int i = 0; i < count; i++) {
+        const char *name = value_cstr(names->boxed_items[i]);
+        size_t n = strlen(name);
+        l->data[at++] = (unsigned char)n;
+        memcpy(l->data + at, name, n);
+        at += n;
+    }
+    return l;
+}
+
+/* Picks the first of the listener's protocols that the client also offered: the listener's order is
+ * its preference, which is the choice RFC 7301 leaves to the server.
+ *
+ * Written out rather than left to `SSL_select_next_proto`, whose two list parameters are named for
+ * NPN -- where the *client* chose -- so which list's order decides is exactly the thing a reader of
+ * this callback would otherwise have to guess.
+ *
+ * No overlap is a fatal `no_application_protocol` alert, as RFC 7301 says: a client that offered
+ * only protocols this server does not speak has told us it cannot use the connection, and serving
+ * it something it did not ask for is worse than refusing. `*out` points into the listener's own
+ * list, which lives as long as the listener, rather than into `in`, which does not outlive the
+ * callback. */
+static int alpn_select(SSL *ssl, const unsigned char **out, unsigned char *outlen,
+                       const unsigned char *in, unsigned int inlen, void *arg) {
+    (void)ssl;
+    const AlpnList *mine = arg;
+    for (size_t i = 0; i < mine->len; i += 1u + mine->data[i]) {
+        unsigned char n = mine->data[i];
+        const unsigned char *name = mine->data + i + 1;
+        for (unsigned int j = 0; j < inlen; j += 1u + in[j]) {
+            if (in[j] == n && memcmp(in + j + 1, name, n) == 0) {
+                *out = name;
+                *outlen = n;
+                return SSL_TLSEXT_ERR_OK;
+            }
+        }
+    }
+    return SSL_TLSEXT_ERR_ALERT_FATAL;
+}
+
 /* `ssl` is non-NULL once start_tls has upgraded the connection; every
  * read/write/close then goes through it (see io_read/io_write below), so
  * read/read_exact/write/read_text/set_timeout work over TLS without the
@@ -102,6 +177,11 @@ typedef struct {
      * under a sanitizer (docs/reviews/tasks.md A32). */
     SSL *ssl;
     SSL_CTX *server_ctx; /* non-NULL on a TLS listener: accept() completes a handshake with it */
+    /* The ALPN protocols a TLS listener offers, in wire format. The select callback is registered on
+     * the SSL_CTX and reads this through its `arg`, so it has to outlive every handshake on this
+     * listener; it is freed beside the SSL_CTX when the listener closes. The client side needs no
+     * such field -- `SSL_CTX_set_alpn_protos` copies the list. */
+    AlpnList *alpn;
     pthread_mutex_t tls_mu;
 } NetHandle;
 
@@ -134,6 +214,9 @@ static void release_handle(NetHandle *h) {
         SSL_CTX_free(h->server_ctx);
         h->server_ctx = NULL;
     }
+    /* After the SSL_CTX, which is what holds the callback that reads this. */
+    alpn_free(h->alpn);
+    h->alpn = NULL;
     /* Under `tls_mu`, which every TLS read and write also holds: a thread inside SSL_read therefore
      * finishes before the object is freed, and one arriving afterwards finds NULL and is told the
      * socket is closed. The shutdown goes here too -- its callers used to read `h->ssl` plainly to
@@ -718,7 +801,7 @@ static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
     return ok_result(int_type, value_int(id));
 }
 
-/* listen_tls_raw(host, port, cert_file, key_file, client_ca_file, require_client_cert): a listener
+/* listen_tls_raw(host, port, cert_file, key_file, client_ca_file, require_client_cert, alpn): a listener
  * whose accepted sockets are already TLS (TLS 1.2 or later, the certificate chain from a PEM file
  * and its private key).
  *
@@ -768,11 +851,43 @@ static Value native_net_listen_tls_raw(Value *args, int argc, int line, int col)
         if (names != NULL) SSL_CTX_set_client_CA_list(ctx, names);
         SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | (require_client ? SSL_VERIFY_FAIL_IF_NO_PEER_CERT : 0), NULL);
     }
+    size_t bad_len = SIZE_MAX;
+    AlpnList *alpn = alpn_encode(args[6].as.arr, &bad_len);
+    if (bad_len != SIZE_MAX) {
+        char msg[120];
+        snprintf(msg, sizeof msg, "an ALPN protocol name is 1 to 255 bytes, and one of these is %zu", bad_len);
+        SSL_CTX_free(ctx);
+        return err_result(int_type, "tls", msg);
+    }
+    if (alpn != NULL) SSL_CTX_set_alpn_select_cb(ctx, alpn_select, alpn);
     Value opened = open_socket(value_cstr(args[0]), args[1].as.i, 1);
-    if (!opened.as.res->is_ok) { SSL_CTX_free(ctx); return opened; }
+    if (!opened.as.res->is_ok) { SSL_CTX_free(ctx); alpn_free(alpn); return opened; }
     NetHandle *h = handle_get(opened.as.res->value.as.i);
     h->server_ctx = ctx;
+    h->alpn = alpn;
     return opened;
+}
+
+/* negotiated_protocol_raw(handle) -> Result<string, string>: the ALPN protocol the handshake agreed
+ * on, or "" when there is none -- neither side offered any, or the connection is not TLS. */
+static Value native_net_negotiated_protocol_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Type str_type = type_scalar(TY_STRING);
+    NetHandle *h = require_handle(args[0].as.i, "negotiated_protocol", line, col);
+    if (!handle_acquire(h)) return err_result(str_type, "closed", "connection closed");
+    SSL *ssl = h->ssl;
+    const unsigned char *name = NULL;
+    unsigned int len = 0;
+    if (ssl != NULL) SSL_get0_alpn_selected(ssl, &name, &len);
+    char out[260];
+    if (name != NULL && len > 0 && len < sizeof out) {
+        memcpy(out, name, len);
+        out[len] = '\0';
+    } else {
+        out[0] = '\0';
+    }
+    handle_unuse(h);
+    return ok_result(str_type, value_string(out));
 }
 
 /* peer_certificate_raw(handle) -> Result<string, string>: the one-line subject name of the
@@ -908,7 +1023,7 @@ static Value native_net_set_timeout_raw(Value *args, int argc, int line, int col
     return ok_result(int_type, value_int(0));
 }
 
-/* net.start_tls_raw(handle, host, verify, ca_file, cert_file, key_file) -> Result<int, string>:
+/* net.start_tls_raw(handle, host, verify, ca_file, cert_file, key_file, alpn) -> Result<int, string>:
  * upgrades an already-connected socket to TLS in place (a client
  * handshake). `verify`: 0 = do not verify the certificate at all
  * (encryption only -- open to a man in the middle), 1 = verify the chain
@@ -964,6 +1079,24 @@ static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) 
             snprintf(msg, sizeof msg, "cannot use client certificate '%s' and key '%s': %s", cert_file, key_file, e.message);
             SSL_CTX_free(ctx);
             return err_result(int_type, "tls", msg);
+        }
+    }
+    size_t bad_alpn_len = SIZE_MAX;
+    AlpnList *alpn = alpn_encode(args[6].as.arr, &bad_alpn_len);
+    if (bad_alpn_len != SIZE_MAX) {
+        char msg[120];
+        snprintf(msg, sizeof msg, "an ALPN protocol name is 1 to 255 bytes, and one of these is %zu", bad_alpn_len);
+        SSL_CTX_free(ctx);
+        return err_result(int_type, "tls", msg);
+    }
+    /* `SSL_CTX_set_alpn_protos` copies the list, so this one is freed either way -- and it answers 0
+     * for success, unlike almost everything else here. */
+    if (alpn != NULL) {
+        int set = SSL_CTX_set_alpn_protos(ctx, alpn->data, (unsigned int)alpn->len);
+        alpn_free(alpn);
+        if (set != 0) {
+            SSL_CTX_free(ctx);
+            return err_result(int_type, "tls", "cannot offer those ALPN protocols");
         }
     }
     SSL *ssl = SSL_new(ctx);
@@ -1111,6 +1244,7 @@ void native_net_register(void) {
     native_register("net::idle_clear_raw", native_net_idle_clear_raw);
     native_register("net::listen_tls_raw", native_net_listen_tls_raw);
     native_register("net::peer_certificate_raw", native_net_peer_certificate_raw);
+    native_register("net::negotiated_protocol_raw", native_net_negotiated_protocol_raw);
     native_register("net::read_raw", native_net_read_raw);
     native_register("net::read_exact_raw", native_net_read_exact_raw);
     native_register("net::write_raw", native_net_write_raw);

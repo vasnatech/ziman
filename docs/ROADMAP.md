@@ -1746,7 +1746,7 @@ from source.
   exist (docs/DESIGN.md's `db`/`datasource`, `net`, `crypto`/`pg` and `mysql`
   entries); SQLite, Postgres and MySQL are the three backends. Still open: (1) ~~TLS~~ **done for clients** (docs/DESIGN.md's TLS entry) -- ~~still
   open: server-side TLS (`listen_tls`, for an HTTPS server), client
-  certificates~~, ALPN;
+  certificates, ALPN~~ -- **all three now done** (F64, F65);
 
   *Update 2026-10-11 (F64): two of those three were already or are now done.* **Server-side TLS
   has existed for some time** -- `net.listen_tls`, with its own TLS suite test, and `http`'s own
@@ -1762,7 +1762,13 @@ from source.
   complaint about the certificate. **Not done: mutual TLS through `http.client`**, which threads a
   lone `ca_file` positionally through six call layers; the right fix is to thread a
   `net.TlsClientOptions` there instead, which is mechanical but wide enough to be its own task.
-  ALPN is next (F65). (2) ~~scoped cleanup~~ **done as `defer`** (docs/DESIGN.md's `defer` entry).
+
+  *Update 2026-10-11 (F65): ALPN closes this list.* `TlsServerOptions.alpn` and
+  `TlsClientOptions.alpn` offer protocol lists and `net.negotiated_protocol` reports what was
+  agreed -- the signature the HTTP/2 entry below guessed, down to the name. The listener's order is
+  its preference, which is the choice RFC 7301 leaves to the server, and the test pins that by
+  having the two sides disagree on purpose. A client that offers ALPN and shares nothing with the
+  listener is **refused** with a fatal alert rather than served a protocol it did not ask for. (2) ~~scoped cleanup~~ **done as `defer`** (docs/DESIGN.md's `defer` entry).
   What remains of it: a block form (`defer { ... }`), the deferred call's
   discarded `Result` (a failing cleanup is invisible), fatal errors
   skipping defers, and no true `with_transaction(fn)` (no closures); (3) ~~connection pool~~ **done as v1**
@@ -1997,13 +2003,17 @@ from source.
   as it is produced) are not planned until an endpoint needs them.
 
 - **HTTP/2 -- not started; worth doing when something needs to serve browsers or gRPC directly.** `server` and `client`
-  speak HTTP/1.1 (and 1.0), `server` in pure Ziman on `net`, over TLS from the system OpenSSL, with no ALPN. Behind a reverse
+  speak HTTP/1.1 (and 1.0), `server` in pure Ziman on `net`, over TLS from the system OpenSSL. Behind a reverse
   proxy that terminates HTTP/2 and talks HTTP/1.1 upstream (the usual deployment, and the health-record backend's) nothing is
   missing, so this waits for a direct-exposure or gRPC need. What it takes, in order:
-  1. **ALPN in `net`.** The server side offers `h2` and `http/1.1` on `listen_tls` (`SSL_CTX_set_alpn_select_cb`) and the
+  1. ~~**ALPN in `net`.** The server side offers `h2` and `http/1.1` on `listen_tls` (`SSL_CTX_set_alpn_select_cb`) and the
      accepted socket says which was chosen (something like `net.negotiated_protocol(sock) -> Option<string>`); the client side
-     offers a list on `connect_tls_with`. Small, and useful on its own. Cleartext HTTP/2 would be prior-knowledge only: the
-     `Upgrade: h2c` route was dropped from the standard (RFC 9113) and is not planned.
+     offers a list on `connect_tls_with`. Small, and useful on its own.~~ **Done 2026-10-11 (F65)**, and this entry guessed
+     its own answer: `net.negotiated_protocol(sock) -> Option<string>` is the name. The lists are
+     `TlsServerOptions.alpn` and `TlsClientOptions.alpn` rather than parameters on `listen_tls` and `connect_tls_with`,
+     since those two keep their signatures and the options structs are where new TLS settings now go. So **step 1 of HTTP/2
+     is no longer in the way of step 2** -- what remains here is framing and HPACK. Cleartext HTTP/2 would be
+     prior-knowledge only: the `Upgrade: h2c` route was dropped from the standard (RFC 9113) and is not planned.
   2. **Framing and HPACK, and the bit operations they need.** A 9-byte frame header (24-bit length, type, flags, 31-bit stream
      id), `DATA`/`HEADERS`/`CONTINUATION`/`SETTINGS`/`PING`/`GOAWAY`/`RST_STREAM`/`WINDOW_UPDATE` (`PRIORITY` read and
      ignored), and HPACK: the static and dynamic tables, prefix-coded integers and Huffman decoding. All of it is bit work.

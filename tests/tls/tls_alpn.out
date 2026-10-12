@@ -1,0 +1,14 @@
+client offers both, its order reversed: client sees h2, first exchange ok
+    server agreed: h2
+client offers only http/1.1: client sees http/1.1, first exchange ok
+    server agreed: http/1.1
+client offers only h2: client sees h2, first exchange ok
+    server agreed: h2
+client offers none: client sees none, first exchange ok
+    server agreed: none
+client offers only a protocol the server lacks: handshake failed (tls)
+    server agreed: refused at the handshake (tls)
+listener offers no ALPN: client sees none, first exchange ok
+    server agreed: none
+empty protocol name, listener: TLS error: an ALPN protocol name is 1 to 255 bytes, and one of these is 0
+overlong protocol name, client: TLS error: an ALPN protocol name is 1 to 255 bytes, and one of these is 256

@@ -826,6 +826,7 @@ pub struct TlsServerOptions {
     key_file: string
     client_ca_file: Option<string>
     require_client_cert: bool
+    alpn: [string]
 }
 
 pub fn tls_server_options(cert_file: string, key_file: string) -> TlsServerOptions
@@ -863,6 +864,7 @@ pub struct TlsClientOptions {
     ca_file: Option<string>
     cert_file: Option<string>
     key_file: Option<string>
+    alpn: [string]
 }
 
 pub fn tls_client_options() -> TlsClientOptions
@@ -874,6 +876,8 @@ pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
 pub fn connect_tls_with(
 
 pub fn connect_tls_with_options(host: string, port: int, options: TlsClientOptions) -> Result<Socket, NetError>
+
+pub fn negotiated_protocol(s: Socket) -> Option<string>
 
 pub fn peer_certificate_subject(s: Socket) -> Option<string>
 

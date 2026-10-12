@@ -241,6 +241,7 @@ pub struct TlsServerOptions {
     key_file: string
     client_ca_file: Option<string>
     require_client_cert: bool
+    alpn: [string]
 }
 ```
 
@@ -252,6 +253,12 @@ so a field added here later does not break callers the way a struct literal woul
 verifies a certificate it asks the client for. `require_client_cert` then decides what a client
 that sends none gets -- a refused handshake, or a connection where `peer_certificate_subject` is
 `None`. Leaving the CA file `None` asks for nothing, which is the ordinary HTTPS case.
+
+`alpn` names the application protocols this listener speaks, **in its own order of preference**,
+which is the choice RFC 7301 leaves to the server: offering `["h2", "http/1.1"]` to a client that
+offers both agrees on `h2`. An empty list offers no ALPN at all, and then
+`negotiated_protocol` is `None` however much the client asked for. A client that offers ALPN and
+shares none of these is **refused**, rather than served a protocol it did not ask for.
 
 ### `tls_server_options`
 
@@ -410,6 +417,7 @@ pub struct TlsClientOptions {
     ca_file: Option<string>
     cert_file: Option<string>
     key_file: Option<string>
+    alpn: [string]
 }
 ```
 
@@ -421,6 +429,9 @@ its own. Build one with `tls_client_options` and override what you need
 certificate rather than by a password or token. They go together: a certificate with no key
 cannot be used. Setting them on a connection to a server that never asks costs nothing -- the
 certificate is only sent when requested.
+
+`alpn` names the application protocols to offer; the server picks one of them, which
+`negotiated_protocol` then reports. An empty list offers none.
 
 **A successful handshake does not mean the server accepted your certificate.** In TLS 1.3 the
 client finishes its own side before the server validates what it sent, so a server that refuses
@@ -479,10 +490,10 @@ pub fn connect_tls_with_options(host: string, port: int, options: TlsClientOptio
 `connect_tls` with the rest of `TlsClientOptions`, including a client certificate to present.
 The socket is closed if the handshake fails.
 
-### `peer_certificate_subject`
+### `negotiated_protocol`
 
 ```
-pub fn peer_certificate_subject(s: Socket) -> Option<string>
+pub fn negotiated_protocol(s: Socket) -> Option<string>
 ```
 
 The subject name of the certificate the other end presented ("/CN=client.example/O=Acme"), or
@@ -497,6 +508,22 @@ what -- for which the subject name is the identity to match against.
 
 On the client side this is the server's certificate, already verified to the degree
 `TlsClientOptions.verify` asked for.
+
+`negotiated_protocol` answers the other half of "what did this handshake agree to".
+The application protocol the TLS handshake agreed on through ALPN ("h2", "http/1.1"), or `None`
+when there is none -- a plain socket, or a handshake where either side offered no protocols.
+
+A server reads this on an accepted socket to learn which protocol the client expects to speak,
+which is what makes one port able to serve two: the listener offers both and this says which it
+is. A client reads it to confirm the server took one of the protocols it offered -- a handshake
+that got this far agreed on something, since a server with no protocol in common refuses the
+connection instead of answering with a surprise.
+
+### `peer_certificate_subject`
+
+```
+pub fn peer_certificate_subject(s: Socket) -> Option<string>
+```
 
 ## Idle connections
 
