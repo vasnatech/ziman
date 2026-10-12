@@ -1,0 +1,27 @@
+compiles: yes
+edits: 1
+compiler_invocations: 33
+saw: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: expected 'fn', found identifier
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 's'
+saw: use of undefined variable 's'
+saw: unknown struct or enum type 'List' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: 'xs.sort(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. collections.sort<T>(xs), after 'use collections' (if 'xs' should be a module, add 'use xs')
+saw: 'xs.push(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. xs = push(xs, item) (if 'xs' should be a module, add 'use xs')
+saw: 'xs.len(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. len(xs) (if 'xs' should be a module, add 'use xs')
+saw: 'xs.join(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. collections.join(xs, sep) (the builtin 'join' is a path join over strings) (if 'xs' should be a module, add 'use xs')
+saw: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'list' may just need one of those instead
+saw: an array element cannot be assigned: arrays are values, not mutable containers -- write 'arr = set(arr, i, value)' (and see ArrayBuilder for building one up in a loop)
+saw: module 'collections' has no function 'insert'
+saw: module 'collections' has no function 'contains_key'
+saw: call to undefined function 'has' -- a Map or Set has no membership method: use 'contains(m, key)' to test for one, or 'map_get(m, key)' (an Option<V>) to look up the value at the same time
+saw: module 'collections' has no function 'keys'
+saw: call to undefined function 'keys'
+saw: argument 1 of 'collections::sort' expects [string], found Set<string>
+saw: a map is not indexed with '[...]' -- read one with 'map_get(m, key)', which answers 'Option<V>' ('Some(v)' or 'None'), and write one with 'm = set(m, key, value)'
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: left-hand side of assignment must be a variable name
+saw: expected an expression, found '>'

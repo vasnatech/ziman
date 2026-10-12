@@ -1,0 +1,12 @@
+compiles: yes
+edits: 1
+compiler_invocations: 10
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: type error at 2:5 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p3.zm: assignment to undefined variable 's'
+saw: ziman: type error at 4:17 in p3.zm: 'for' can only iterate an array, a map, a set, an Iter or a range, found fn(string) -> [string]
+saw: ziman: module error at 3:17 in p4.zm: 's.split(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. split(s, ...) (if 's' should be a module, add 'use s')
+saw: ziman: syntax error at 13:19 in p6.zm: expected '{', found identifier
+saw: ziman: syntax error at 15:11 in p6.zm: an 'else' has to be on the same line as the brace that closes its 'if' ('} else {') -- a statement ends at the newline, so the '}' above already finished the 'if' and this 'else' has nothing to attach to
+saw: ziman: syntax error at 18:5 in p6.zm: expected 'fn', found '}'
+saw: ziman: type error at 9:21 in p6.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

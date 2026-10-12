@@ -1,0 +1,59 @@
+use json
+
+fn show(j: json.Json) {
+    switch j {
+        JNull { print("null") }
+        JBool(b) { print(b) }
+        JNumber(n) {
+            switch n {
+                Int(i) { print(i) }
+                Float(f) { print(f) }
+                Bigint(g) { print(g) }
+                Decimal(d) { print(d) }
+            }
+        }
+        JString(s) { print(s) }
+        JArray(a) { print(a) }
+        JObject(o) { print("object") }
+    }
+}
+
+fn show_field(o: Map<string, json.Json>, k: string) {
+    switch map_get(o, k) {
+        Some(v) { show(v) }
+        None { print("missing") }
+    }
+}
+
+fn main() {
+    val text = "{\"name\": \"Ada\", \"age\": 36, \"address\": {\"city\": \"London\"}}"
+    switch json.parse_json(text) {
+        Ok(root) {
+            switch root {
+                JNull { print("not an object") }
+                JBool(b) { print("not an object") }
+                JNumber(n) { print("not an object") }
+                JString(s) { print("not an object") }
+                JArray(a) { print("not an object") }
+                JObject(o) {
+                    show_field(o, "name")
+                    show_field(o, "age")
+                    switch map_get(o, "address") {
+                        Some(addr) {
+                            switch addr {
+                                JNull { print("no city") }
+                                JBool(b) { print("no city") }
+                                JNumber(n) { print("no city") }
+                                JString(s) { print("no city") }
+                                JArray(a) { print("no city") }
+                                JObject(ao) { show_field(ao, "city") }
+                            }
+                        }
+                        None { print("missing") }
+                    }
+                }
+            }
+        }
+        Err(e) { print(e) }
+    }
+}

@@ -1,0 +1,18 @@
+use json
+
+// json.json_from_map needs a converter from the map's value type to
+// json.Json; the values are already json.Json, so the converter is identity.
+fn as_json(value: json.Json) -> json.Json {
+  return value
+}
+
+fn main() {
+  val fields = Map<string, json.Json> {
+    "status": json.string_to_json("ok"),
+    "count": json.int_to_json(3),
+  }
+
+  val document = json.json_from_map<json.Json>(fields, as_json)
+
+  print(json.json_to_string(document))
+}

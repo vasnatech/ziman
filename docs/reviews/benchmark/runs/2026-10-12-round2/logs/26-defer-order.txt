@@ -1,0 +1,8 @@
+compiles: yes
+edits: 1
+compiler_invocations: 8
+saw: ziman: type error at 2:5 in p3.zm: call to undefined function 'nosuchthing'
+saw: ziman: syntax error at 2:5 in p4.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: type error at 2:5 in p5.zm: use of undefined variable 'deferx'
+saw: ziman: syntax error at 2:11 in p6.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: ziman: syntax error at 5:5 in p6.zm: expected 'fn', found identifier

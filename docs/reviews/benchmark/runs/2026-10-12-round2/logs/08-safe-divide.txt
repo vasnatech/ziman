@@ -1,0 +1,14 @@
+compiles: yes
+edits: 1
+compiler_invocations: 10
+saw: syntax error at 1:35: expected '{', found '?'
+saw: type error at 2:12: use of undefined variable 'none'
+saw: syntax error at 1:17: expected a type, found '?'
+saw: type error at 1:1: unknown struct or enum type 'Zzzq' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: syntax error at 10:5: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: syntax error at 11:9: left-hand side of assignment must be a variable name
+saw: syntax error at 12:15: expected an expression, found '>'
+saw: syntax error at 14:1: expected 'fn', found '}'
+saw: type error at 9:5: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 9:9: assignment to undefined variable 'r'
+saw: type error at 10:12: use of undefined variable 'r'

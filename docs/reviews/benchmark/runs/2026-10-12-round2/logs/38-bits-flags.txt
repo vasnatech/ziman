@@ -1,0 +1,15 @@
+compiles: yes
+edits: 1
+compiler_invocations: 22
+saw: ziman: lexical error at 4:15 in p2.zm: unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type is 'enum Name { A, B }', and there is no '|>' pipeline
+saw: ziman: lexical error at 4:15 in p3.zm: unexpected character '&' (did you mean '&&'?)
+saw: ziman: type error at 4:5 in p4.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 4:9 in p4.zm: assignment to undefined variable 'v'
+saw: ziman: type error at 6:8 in p4.zm: use of undefined variable 'r'
+saw: ziman: syntax error at 3:1 in p5.zm: expected 'fn', found identifier
+saw: ziman: syntax error at 10:5 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: syntax error at 3:5 in p6.zm: a global value name must not start with an uppercase letter (uppercase is reserved for type names)
+saw: ziman: type error at 16:20 in p7.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: module error at 4:13 in p9.zm: module 'bits' has no function 'int_frobnicate'
+saw: ziman: module error at 4:13 in q_int_bit.zm: module 'bits' has no function 'int_bit' -- did you mean 'int_not'?
+saw: ziman: type error at 4:13 in q_int_not.zm: function 'bits::int_not' expects 1 argument(s), found 2

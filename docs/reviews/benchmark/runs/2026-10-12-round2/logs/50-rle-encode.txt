@@ -1,0 +1,24 @@
+compiles: yes
+edits: 1
+compiler_invocations: 17
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: lexical error at 2:28 in p5.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: type error at 2:5 in p6.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p6.zm: assignment to undefined variable 's'
+saw: ziman: type error at 4:11 in p6.zm: use of undefined variable 'n'
+saw: ziman: type error at 9:9 in p6.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 5:13 in p7.zm: cannot index into string (not an array)
+saw: ziman: type error at 7:15 in p7.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 9:11 in p8.zm: call to undefined function 'substr'
+saw: ziman: type error at 10:11 in p8.zm: call to undefined function 'charAt' -- did you mean 'char_at'?
+saw: ziman: type error at 4:5 in p9.zm: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 13:11 in p9.zm: call to undefined function 'repeat'
+saw: ziman: syntax error at 6:11 in pa.zm: expected an expression, found 'int'
+saw: ziman: type error at 6:11 in pb.zm: call to undefined function 'to_int'
+saw: ziman: type error at 7:11 in pb.zm: function 'index_of' expects 3 argument(s), found 2
+saw: ziman: type error at 20:21 in pd.zm: cannot assign a value of type Result<int, string> to 'count' (declared as int)
+saw: ziman: module error at 3:13 in pe.zm: 'r.unwrap(...)': 'r' is not an imported module, and Ziman has no methods -- if 'r' is a value, call a function on it instead, e.g. unwrap(r, ...) (if 'r' should be a module, add 'use r')
+saw: ziman: syntax error at 3:5 in pf.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 4:9 in pf.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 7:1 in pf.zm: expected 'fn', found '}'

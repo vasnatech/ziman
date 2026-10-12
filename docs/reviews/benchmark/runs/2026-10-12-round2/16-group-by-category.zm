@@ -1,0 +1,49 @@
+struct Product {
+    name: string
+    category: string
+}
+
+fn main() {
+    val products = [
+        Product { name: "apple", category: "fruit" },
+        Product { name: "carrot", category: "veg" },
+        Product { name: "banana", category: "fruit" },
+        Product { name: "leek", category: "veg" },
+        Product { name: "cherry", category: "fruit" }
+    ]
+
+    var cats: [string] = []
+    for p in products {
+        if !contains(cats, p.category) {
+            cats = push(cats, p.category)
+        }
+    }
+
+    var i = 1
+    while i < len(cats) {
+        val cur = cats[i]
+        var j = i - 1
+        while j >= 0 && cats[j] > cur {
+            cats = set(cats, j + 1, cats[j])
+            j = j - 1
+        }
+        cats = set(cats, j + 1, cur)
+        i = i + 1
+    }
+
+    for c in cats {
+        var names = ""
+        var first = true
+        for p in products {
+            if p.category == c {
+                if first {
+                    names = p.name
+                    first = false
+                } else {
+                    names = concat(names, concat(", ", p.name))
+                }
+            }
+        }
+        print(concat(c, concat(": ", names)))
+    }
+}

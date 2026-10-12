@@ -1,0 +1,32 @@
+use bits
+
+// Bit 0 is READ, bit 1 is WRITE, bit 2 is EXECUTE.
+val flag_read: int = bits.int_shift_left(1, 0)
+val flag_write: int = bits.int_shift_left(1, 1)
+val flag_execute: int = bits.int_shift_left(1, 2)
+
+fn flags_set(a: int, b: int) -> int {
+    return bits.int_or(a, b)
+}
+
+fn has_flag(flags: int, flag: int) -> bool {
+    return bits.int_and(flags, flag) != 0
+}
+
+fn yes_no(b: bool) -> string {
+    if b {
+        return "yes"
+    }
+    return "no"
+}
+
+fn show(name: string, flags: int, flag: int) {
+    print(format("{}: {}", name, yes_no(has_flag(flags, flag))))
+}
+
+fn main() {
+    val perms = flags_set(flag_read, flag_execute)
+    show("read", perms, flag_read)
+    show("write", perms, flag_write)
+    show("execute", perms, flag_execute)
+}

@@ -1,0 +1,50 @@
+// Parse a small TOML configuration and print host, port and debug flag.
+
+struct Config {
+    host: string
+    port: int
+    debug: bool
+}
+
+fn parse_config(src: string) -> Config {
+    var host = ""
+    var port = 0
+    var debug = false
+    for line in lines(src) {
+        val t = trim(line)
+        if len(t) == 0 {
+            continue
+        }
+        if starts_with(t, "#") {
+            continue
+        }
+        if !contains(t, "=") {
+            continue
+        }
+        val parts = split(t, "=")
+        if len(parts) < 2 {
+            continue
+        }
+        val key = trim(parts[0])
+        val raw = trim(parts[1])
+        if key == "host" {
+            host = replace(raw, "\"", "")
+        } else if key == "port" {
+            switch parse_int(raw) {
+                Ok(v) { port = v }
+                Err(e) { print(format("invalid port: {}", e)) }
+            }
+        } else if key == "debug" {
+            debug = raw == "true"
+        }
+    }
+    return Config { host: host, port: port, debug: debug }
+}
+
+fn main() {
+    val src = "host = \"localhost\"\nport = 8080\ndebug = true"
+    val cfg = parse_config(src)
+    print(cfg.host)
+    print(cfg.port)
+    print(cfg.debug)
+}

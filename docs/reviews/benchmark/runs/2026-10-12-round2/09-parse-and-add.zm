@@ -1,0 +1,27 @@
+// Parse two strings as ints and add them, or report the first one that
+// was not a number.
+
+fn parse_and_add(a: string, b: string) -> Result<int, string> {
+    switch parse_int(a) {
+        Ok(x) {
+            switch parse_int(b) {
+                Ok(y) { return ok(x + y) }
+                Err(eb) { return err(format("{} is not a number", b)) }
+            }
+        }
+        Err(ea) { return err(format("{} is not a number", a)) }
+    }
+}
+
+fn show(a: string, b: string) {
+    switch parse_and_add(a, b) {
+        Ok(sum) { print(str(sum)) }
+        Err(message) { print(concat("error: ", message)) }
+    }
+}
+
+fn main() {
+    show("12", "30")
+    show("7", "x")
+    show("abc", "1")
+}

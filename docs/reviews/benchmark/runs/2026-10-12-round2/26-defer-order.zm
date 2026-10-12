@@ -1,0 +1,18 @@
+// Deferred calls: the order they are scheduled vs. the order they run.
+
+fn demo() {
+    print("start")
+
+    // Three deferred prints, scheduled in this order.
+    defer print("first")
+    defer print("second")
+    defer print("third")
+
+    print("end")
+    // Leaving demo() here: the deferred prints fire now, and the
+    // output below "end" shows the order they actually run in.
+}
+
+fn main() {
+    demo()
+}

@@ -1,0 +1,38 @@
+use collections
+
+// The keys of a string-to-subjects map, in alphabetical order.
+fn sorted_keys(m: Map<string, [string]>) -> [string] {
+    var out: [string] = []
+    for k in map_keys(m) {
+        out = push(out, k)
+    }
+    return collections.sort<string>(out)
+}
+
+// The value stored at 'k', or an empty array when there is none.
+fn lookup(m: Map<string, [string]>, k: string) -> [string] {
+    switch map_get(m, k) {
+        Some(v) { return v }
+        None { return [] }
+    }
+}
+
+fn main() {
+    val teaches = Map<string, [string]> {
+        "Ada": ["maths", "logic"],
+        "Alan": ["logic", "crypto"],
+    }
+
+    // Invert: walk the teachers alphabetically so each subject's
+    // teacher list comes out alphabetical too.
+    var taught_by = Map<string, [string]> {}
+    for teacher in sorted_keys(teaches) {
+        for subject in lookup(teaches, teacher) {
+            taught_by = set(taught_by, subject, push(lookup(taught_by, subject), teacher))
+        }
+    }
+
+    for subject in sorted_keys(taught_by) {
+        print(format("{}: {}", subject, collections.join(lookup(taught_by, subject), ", ")))
+    }
+}

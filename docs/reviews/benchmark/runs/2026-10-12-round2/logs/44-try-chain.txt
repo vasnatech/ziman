@@ -1,0 +1,16 @@
+compiles: yes
+edits: 1
+compiler_invocations: 17
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: syntax error at 9:5 in p4.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: type error at 2:12 in p6.zm: call to undefined function 'Ok' -- did you mean 'ok'?
+saw: ziman: syntax error at 1:28 in p7.zm: expected '{', found '!'
+saw: ziman: syntax error at 1:28 in p8.zm: expected '{', found identifier
+saw: ziman: syntax error at 5:21 in p10.zm: there is no postfix '?': write 'try <expression>' in front of the Option or Result instead (e.g. 'val x = try parse(s)')
+saw: ziman: syntax error at 9:5 in p10.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 10:15 in p10.zm: expected an expression, found '->'
+saw: ziman: syntax error at 13:1 in p10.zm: expected 'fn', found '}'
+saw: ziman: syntax error at 2:18 in p13.zm: Ziman has no methods, so '.to_int(...)' cannot be called on the result of an expression -- a function takes its receiver as an argument instead: bind the inner expression with 'val v = ...' and write 'to_int(v, ...)', or nest the calls directly. (If 'to_int' is a struct field holding a function value, that is callable too, but only on a plain variable, so the same binding is the fix.)
+saw: ziman: type error at 2:17 in p14.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 3:18 in p15.zm: cannot initialize 'b' of declared type int with a value of type Result<int, string>

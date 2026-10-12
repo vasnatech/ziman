@@ -1,0 +1,19 @@
+compiles: yes
+edits: 1
+compiler_invocations: 21
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: type error at 2:5 in p6.zm: call to undefined function 'println' -- did you mean 'print'?
+saw: ziman: type error at 1:8 in p7.zm: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 5:5 in p8.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 5:9 in p8.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 6:11 in p8.zm: use of undefined variable 'x'
+saw: ziman: syntax error at 3:13 in p10.zm: expected an expression, found 'int'
+saw: ziman: module error at 3:13 in p12.zm: 's.parse_int(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. parse_int(s, ...) (if 's' should be a module, add 'use s')
+saw: ziman: type error at 2:19 in p14.zm: cannot initialize 'n' of declared type bool with a value of type Result<int, string>
+saw: ziman: type error at 4:13 in p15.zm: argument 1 of 'f' expects int, found Result<int, string>
+saw: ziman: syntax error at 3:5 in p16.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 4:9 in p16.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 7:1 in p16.zm: expected 'fn', found '}'
+saw: ziman: type error at 5:32 in p19.zm: call to undefined function 'Ok' -- did you mean 'ok'?
+saw: ziman: type error at 15:34 in p19.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

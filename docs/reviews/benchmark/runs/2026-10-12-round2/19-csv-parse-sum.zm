@@ -1,0 +1,25 @@
+fn main() {
+    val csv = "name,age\nAda,36\nAlan,41\nGrace,45"
+    val lines = split(csv, "\n")
+    var total: int = 0
+    var count: int = 0
+    for i in 1..len(lines) {
+        val line = trim(lines[i])
+        if len(line) == 0 {
+            continue
+        }
+        val parts = split(line, ",")
+        val name = trim(parts[0])
+        var age: int = 0
+        switch parse_int(trim(parts[1])) {
+            Ok(v) { age = v }
+            Err(e) { print(format("bad age: {}", e)) }
+        }
+        total = total + age
+        count = count + 1
+        print(format("{} is {}", name, age))
+    }
+    if count > 0 {
+        print(format("average: {}", total / count))
+    }
+}

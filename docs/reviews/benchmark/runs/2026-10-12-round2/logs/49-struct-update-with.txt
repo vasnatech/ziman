@@ -1,0 +1,19 @@
+compiles: yes
+edits: 1
+compiler_invocations: 23
+saw: lexical error at 8:63 in p1.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: syntax error at 2:15 in p2.zm: expected a field name, found ','
+saw: type error at 2:3 in p3.zm: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: type error at 8:3 in p4.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 8:7 in p4.zm: assignment to undefined variable 'a'
+saw: type error at 9:9 in p4.zm: use of undefined variable 'a'
+saw: syntax error at 9:18 in p6.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: syntax error at 10:3 in p6.zm: expected 'fn', found identifier
+saw: syntax error at 9:20 in p7.zm: expected a field name, found '..'
+saw: syntax error at 9:22 in q.zm: expected '{', found ':'
+saw: syntax error at 9:23 in q.zm: expected ')', found ':'
+saw: syntax error at 9:52 in q.zm: expected '{', found newline
+saw: syntax error at 9:13 in q.zm: expected a field name, found 'with'
+saw: lexical error at 9:15 in q.zm: unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type is 'enum Name { A, B }', and there is no '|>' pipeline
+saw: syntax error at 9:23 in q.zm: expected ')', found '='
+saw: type error at 9:18 in q.zm: use of undefined variable 'x'

@@ -1,0 +1,28 @@
+compiles: yes
+edits: 1
+compiler_invocations: 44
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: type error at 2:5 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p3.zm: assignment to undefined variable 'x'
+saw: ziman: syntax error at 1:1 in p4.zm: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+saw: ziman: module error at 1:1 in p6.zm: cannot find module 'nosuchmodule' (looked for nosuchmodule.zm, and it's not a bundled core module)
+saw: ziman: module error at 4:13 in p7.zm: module 'sqlite' has no function 'nosuchfn'
+saw: ziman: type error at 4:13 in q_execute.zm: function 'sqlite::execute' expects at least 2 argument(s), found 1
+saw: ziman: module error at 4:13 in q_exec.zm: module 'sqlite' has no function 'exec' -- did you mean 'execute'?
+saw: ziman: type error at 4:26 in q_close.zm: argument 1 of 'sqlite::close' expects sqlite.Connection, found string
+saw: ziman: type error at 5:5 in r1.zm: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 5:28 in r2.zm: argument 1 of 'sqlite::execute' expects sqlite.Connection, found Result<sqlite.Connection, db.DbError>
+saw: ziman: syntax error at 4:37 in s1.zm: there is no postfix '?': write 'try <expression>' in front of the Option or Result instead (e.g. 'val x = try parse(s)')
+saw: ziman: type error at 4:13 in s2.zm: 'try' on a Result<T, E> value requires the enclosing function or lambda to return Result<..., db.DbError>, found void -- give it that return type (a lambda needs it written out: 'fn(...) -> Result<T, db.DbError> { ... }')
+saw: ziman: syntax error at 4:5 in s3.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 5:9 in s3.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 8:1 in s3.zm: expected 'fn', found '}'
+saw: ziman: syntax error at 4:21 in t1.zm: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'void' may just need one of those instead
+saw: ziman: type error at 6:26 in t2.zm: cannot initialize 'n' of declared type int with a value of type sqlite.Connection
+saw: ziman: type error at 5:18 in u1.zm: cannot initialize 'n' of declared type int with a value of type Result<int, db.DbError>
+saw: ziman: type error at 9:12 in u2.zm: call to undefined function 'Ok' -- did you mean 'ok'?
+saw: ziman: type error at 7:18 in u3.zm: no field 'nosuchfield' on struct 'db::Row'
+saw: ziman: type error at 9:17 in w1.zm: db.SqlValue has no variant 'Nope' (its variants: Null, Int, Float, Text, Bool, Bytes)
+saw: ziman: type error at 5:81 in x1.zm: argument 3 of 'sqlite::execute' expects db.SqlValue, found int
+saw: ziman: type error at 3:20 in x3.zm: '+' doesn't join strings (found string and int) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 26:9 in z1.zm: cannot use a void value with 'try'

@@ -1,0 +1,53 @@
+fn count_of(m: Map<string, int>, k: string) -> int {
+    switch map_get(m, k) {
+        Some(v) {
+            return v
+        }
+        None {
+            return 0
+        }
+    }
+}
+
+fn less(m: Map<string, int>, a: string, b: string) -> bool {
+    val ca = count_of(m, a)
+    val cb = count_of(m, b)
+    if ca > cb {
+        return true
+    }
+    if ca < cb {
+        return false
+    }
+    return compare(a, b) < 0
+}
+
+fn main() {
+    val text = "the quick brown fox jumps over the lazy dog the fox"
+    val words = split(text, " ")
+    var counts = Map<string, int> { }
+    for w in words {
+        counts = set(counts, w, count_of(counts, w) + 1)
+    }
+    var keys: [string] = []
+    for k, v in counts {
+        keys = push(keys, k)
+    }
+    var i = 0
+    while i < len(keys) {
+        var best = i
+        var j = i + 1
+        while j < len(keys) {
+            if less(counts, keys[j], keys[best]) {
+                best = j
+            }
+            j = j + 1
+        }
+        val tmp = keys[i]
+        keys = set(keys, i, keys[best])
+        keys = set(keys, best, tmp)
+        i = i + 1
+    }
+    for k in keys {
+        print(format("{}: {}", k, count_of(counts, k)))
+    }
+}

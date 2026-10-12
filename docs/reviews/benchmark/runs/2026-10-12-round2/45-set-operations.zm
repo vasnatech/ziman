@@ -1,0 +1,40 @@
+fn render(label: string, items: [int]) -> string {
+    var body = ""
+    var first = true
+    for x in items {
+        if first {
+            body = str(x)
+            first = false
+        } else {
+            body = format("{}, {}", body, str(x))
+        }
+    }
+    return format("{}: {}", label, body)
+}
+
+fn main() {
+    val first = [1, 2, 3, 4, 5]
+    val second = [4, 5, 6, 7]
+
+    var both: [int] = []
+    var only_first: [int] = []
+    var only_second: [int] = []
+
+    for x in first {
+        if contains(second, x) {
+            both = push(both, x)
+        } else {
+            only_first = push(only_first, x)
+        }
+    }
+
+    for y in second {
+        if !contains(first, y) {
+            only_second = push(only_second, y)
+        }
+    }
+
+    print(render("both", both))
+    print(render("only first", only_first))
+    print(render("only second", only_second))
+}

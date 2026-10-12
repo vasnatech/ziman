@@ -1,0 +1,39 @@
+// Report whether each text is a palindrome, ignoring case and spaces.
+
+fn normalize(s: string) -> string {
+    val cs = chars(to_lower(s))
+    val n = len(cs)
+    var out = ""
+    var i = 0
+    while i < n {
+        if cs[i] != " " {
+            out = concat(out, cs[i])
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn is_palindrome(s: string) -> bool {
+    val cs = chars(normalize(s))
+    val n = len(cs)
+    var i = 0
+    while i < n / 2 {
+        if cs[i] != cs[n - 1 - i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fn main() {
+    val texts = ["racecar", "A man a plan a canal Panama", "ziman"]
+    for t in texts {
+        if is_palindrome(t) {
+            print(format("{}: yes", t))
+        } else {
+            print(format("{}: no", t))
+        }
+    }
+}

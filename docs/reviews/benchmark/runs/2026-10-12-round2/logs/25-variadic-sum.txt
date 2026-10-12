@@ -1,0 +1,9 @@
+compiles: yes
+edits: 1
+compiler_invocations: 9
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:12: expected a type, found '..'
+saw: ziman: syntax error at 1:10: expected ':', found '..'
+saw: ziman: type error at 6:11: function 'sum' is missing required argument 'xs'
+saw: ziman: syntax error at 1:12: expected a type, found '*'
+saw: ziman: syntax error at 1:12: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'variadic' may just need one of those instead

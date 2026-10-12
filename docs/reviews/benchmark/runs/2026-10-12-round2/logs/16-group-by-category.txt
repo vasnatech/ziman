@@ -1,0 +1,16 @@
+compiles: yes
+edits: 1
+compiler_invocations: 14
+saw: ziman: type error at 0:0: no 'main' function found
+saw: syntax error at 2:17: expected a field name, found ','
+saw: type error at 2:5: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 2:9: assignment to undefined variable 'xs'
+saw: type error at 3:14: use of undefined variable 'xs'
+saw: type error at 2:5: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: module error at 6:11: 'xs.len(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. len(xs) (if 'xs' should be a module, add 'use xs')
+saw: syntax error at 9:52: a trailing comma is not allowed before ']' -- remove it
+saw: type error at 12:26: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: type error at 4:14: call to undefined function 'sort' -- did you mean 'str'?
+saw: type error at 5:33: function 'join' expects at least 3 argument(s), found 2
+saw: type error at 4:16: argument 1 of 'join' expects Option<string> or string, found [string]
+saw: syntax error at 27:13: an array element cannot be assigned: arrays are values, not mutable containers -- write 'arr = set(arr, i, value)' (and see ArrayBuilder for building one up in a loop)

@@ -1,0 +1,22 @@
+// Builds a two-column table of 1..5 and their cubes using a string builder.
+
+fn pad_right(s: string, width: int) -> string {
+    var out = s
+    while len(out) < width {
+        out = concat(out, " ")
+    }
+    return out
+}
+
+fn main() {
+    val sb = sb_new()
+    var i = 1
+    while i <= 5 {
+        sb_append(sb, pad_right(str(i), 2))
+        sb_append(sb, " | ")
+        sb_append(sb, str(i * i * i))
+        sb_append(sb, "\n")
+        i = i + 1
+    }
+    print(sb_to_string(sb))
+}

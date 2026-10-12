@@ -1,0 +1,58 @@
+// Run-length encode and decode a string.
+
+fn is_digit(c: string) -> bool {
+    return c >= "0" && c <= "9"
+}
+
+fn rle_encode(s: string) -> string {
+    val a = chars(s)
+    val n = len(a)
+    var out = ""
+    var i = 0
+    while i < n {
+        var j = i
+        while j < n && a[j] == a[i] {
+            j = j + 1
+        }
+        out = concat(out, format("{}{}", a[i], str(j - i)))
+        i = j
+    }
+    return out
+}
+
+fn rle_decode(e: string) -> string {
+    val a = chars(e)
+    val n = len(a)
+    var out = ""
+    var i = 0
+    while i < n {
+        val ch = a[i]
+        i = i + 1
+        var digits = ""
+        while i < n && is_digit(a[i]) {
+            digits = concat(digits, a[i])
+            i = i + 1
+        }
+        var count = 1
+        if len(digits) > 0 {
+            switch parse_int(digits) {
+                Ok(v) { count = v }
+                Err(msg) { print(format("bad count: {}", msg)) }
+            }
+        }
+        var k = 0
+        while k < count {
+            out = concat(out, ch)
+            k = k + 1
+        }
+    }
+    return out
+}
+
+fn main() {
+    val original = "aaabccddddbbb"
+    val encoded = rle_encode(original)
+    print(encoded)
+    val decoded = rle_decode(encoded)
+    print(decoded)
+}

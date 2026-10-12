@@ -1,0 +1,33 @@
+use json
+
+#[derive(Json)]
+struct User {
+    id: int
+    name: string
+    active: bool
+}
+
+fn main() {
+    val user = User { id: 7, name: "Ada", active: true }
+
+    // The derived 'user_to_json' builds a json.Json value for us.
+    val text = json.json_to_string(user_to_json(user))
+    print(text)
+
+    // Parse the text back and rebuild the struct with the derived reader.
+    switch json.parse_json(text) {
+        Ok(value) {
+            switch user_from_json(value) {
+                Ok(parsed) {
+                    print(parsed.name)
+                }
+                Err(message) {
+                    print(message)
+                }
+            }
+        }
+        Err(message) {
+            print(message)
+        }
+    }
+}

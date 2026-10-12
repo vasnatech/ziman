@@ -1,0 +1,14 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+saw: ziman: type error at 1:10 in <path>/p2.zm: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 6:5 in <path>/p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 6:9 in <path>/p2.zm: assignment to undefined variable 's'
+saw: ziman: type error at 9:15 in <path>/p2.zm: use of undefined variable 'n'
+saw: ziman: module error at 7:13 in <path>/p2.zm: 's.len(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. len(s) (if 's' should be a module, add 'use s')
+saw: ziman: type error at 12:14 in <path>/p2.zm: 'for' can only iterate an array, a map, a set, an Iter or a range, found string
+saw: ziman: type error at 5:13 in <path>/p3.zm: cannot index into string (not an array)
+saw: ziman: type error at 7:13 in <path>/p3.zm: call to undefined function 'lower'
+saw: ziman: type error at 17:11 in <path>/p3.zm: call to undefined function 'toLower' -- did you mean 'to_lower'?
+saw: ziman: type error at 18:13 in <path>/p3.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 4:18 in <path>/p4.zm: cannot initialize 'q' of declared type int with a value of type [string]

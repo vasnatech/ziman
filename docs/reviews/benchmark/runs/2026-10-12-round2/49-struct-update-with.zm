@@ -1,0 +1,13 @@
+struct Config {
+  host: string
+  port: int
+  debug: bool
+}
+
+fn main() {
+  val default_config = Config { host: "localhost", port: 80, debug: false }
+  val secure_config = with default_config { port: 8443, debug: true }
+
+  print("${default_config.host}:${default_config.port} ${default_config.debug}")
+  print("${secure_config.host}:${secure_config.port} ${secure_config.debug}")
+}

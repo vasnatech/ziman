@@ -1,0 +1,26 @@
+// Divide two ints, returning no value when the divisor is zero.
+fn safe_divide(a: int, b: int) -> Option<int> {
+    if b == 0 {
+        return None
+    }
+    return Some(a / b)
+}
+
+// Print the quotient when there is one, 'undefined' when there is not.
+fn print_quotient(a: int, b: int) {
+    val result = safe_divide(a, b)
+    switch result {
+        Some(value) {
+            print(value)
+        }
+        None {
+            print("undefined")
+        }
+    }
+}
+
+fn main() {
+    print_quotient(10, 2)
+    print_quotient(7, 3)
+    print_quotient(5, 0)
+}

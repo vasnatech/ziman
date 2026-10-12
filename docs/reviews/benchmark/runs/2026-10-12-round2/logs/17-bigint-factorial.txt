@@ -1,0 +1,11 @@
+compiles: yes
+edits: 1
+compiler_invocations: 9
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: unknown type 'BigInt' -- did you mean 'bigint'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: cannot initialize 'b' of declared type bigint with a value of type int -- bare digits mean 'int', so write the literal with its suffix, as '1n'
+saw: unknown struct or enum type 'Nonexistent' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: arithmetic operator requires two operands of the same numeric type, found bigint and int (use 'as' to cast explicitly)
+saw: expected an expression, found '='
+saw: expected 'fn', found identifier
+saw: '+' doesn't join strings (found string and bigint) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

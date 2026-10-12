@@ -1,0 +1,23 @@
+enum Shape {
+    Circle(float)
+    Square(float)
+    Point
+}
+
+fn area(s: Shape) -> float {
+    switch s {
+        Circle(r) { return 3.14159 * r * r }
+        Square(side) { return side * side }
+        Point { return 0.0 }
+    }
+}
+
+fn main() {
+    val c = Shape.Circle(2.0)
+    val sq = Shape.Square(3.0)
+    val p = Shape.Point
+
+    print(area(c))
+    print(area(sq))
+    print(area(p))
+}

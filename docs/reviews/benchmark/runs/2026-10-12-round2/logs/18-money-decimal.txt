@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 18
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: type error at 2:5 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p5.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 3:11 in p5.zm: use of undefined variable 'x'
+saw: ziman: type error at 2:5 in p7.zm: unknown type 'Decimal' -- did you mean 'decimal'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 2:5 in p8.zm: unknown struct or enum type 'Nope' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 2:22 in p9.zm: cannot initialize 'a' of declared type decimal with a value of type float
+saw: ziman: type error at 2:27 in t.zm: use of undefined variable 'm'
+saw: ziman: syntax error at 2:22 in t.zm: expected an expression, found 'decimal'

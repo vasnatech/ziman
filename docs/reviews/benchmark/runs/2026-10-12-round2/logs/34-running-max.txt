@@ -1,0 +1,7 @@
+compiles: yes
+edits: 1
+compiler_invocations: 5
+saw: ziman: type error at 2:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p2.zm: assignment to undefined variable 'xs'
+saw: ziman: type error at 3:9 in p2.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 4:14 in p2.zm: use of undefined variable 'xs'

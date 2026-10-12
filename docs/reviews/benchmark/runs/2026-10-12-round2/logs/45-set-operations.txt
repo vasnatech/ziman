@@ -1,0 +1,16 @@
+compiles: yes
+edits: 1
+compiler_invocations: 9
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: type error at 2:5 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p3.zm: assignment to undefined variable 'a'
+saw: ziman: type error at 4:14 in p3.zm: use of undefined variable 'a'
+saw: ziman: type error at 10:13 in p4.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 4:15 in p5.zm: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: ziman: type error at 10:11 in p5.zm: function 'join' expects at least 3 argument(s), found 2
+saw: ziman: type error at 3:11 in p6.zm: call to undefined function 'append'
+saw: ziman: type error at 4:16 in p6.zm: argument 1 of 'join' expects Option<string> or string, found [int]
+saw: ziman: type error at 4:5 in p7.zm: call to undefined function 'add' -- did you mean 'abs'?
+saw: ziman: module error at 5:5 in p7.zm: 'out.push(...)': 'out' is not an imported module, and Ziman has no methods -- if 'out' is a value, call a function on it instead, e.g. out = push(out, item) (if 'out' should be a module, add 'use out')
+saw: ziman: type error at 6:15 in p7.zm: '+' doesn't join arrays (found [int] and [int]) -- use push(arr, item) to add one element or concat_arrays<T>(a, b) to join two
+saw: ziman: type error at 7:11 in p7.zm: call to undefined function 'joinList'

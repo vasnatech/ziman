@@ -1,0 +1,35 @@
+compiles: yes
+edits: 1
+compiler_invocations: 131
+saw: ziman: lexical error at 19:15 in <path>/p2.zm: unexpected character '&' (did you mean '&&'?)
+saw: ziman: syntax error at 17:5 in <path>/p3.zm: an array element cannot be assigned: arrays are values, not mutable containers -- write 'arr = set(arr, i, value)' (and see ArrayBuilder for building one up in a loop)
+saw: ziman: type error at 6:5 in <path>/p4.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 6:9 in <path>/p4.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 10:11 in <path>/p4.zm: use of undefined variable 'z'
+saw: ziman: module error at 12:13 in <path>/p5.zm: 's.len(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. len(s) (if 's' should be a module, add 'use s')
+saw: ziman: module error at 1:1 in <path>/p6.zm: cannot find module 'foo' (looked for <path>/foo.zm, and it's not a bundled core module)
+saw: ziman: syntax error at 6:5 in <path>/p7.zm: expected a module path segment, found 'string'
+saw: ziman: module error at 4:11 in <path>/p9.zm: module 'crypto' has no function 'nonexistent_thing'
+saw: ziman: type error at 4:25 in <path>/f_sha256.zm: argument 1 of 'crypto::sha256' expects [byte], found string
+saw: ziman: module error at 4:11 in <path>/f_sha_256.zm: module 'crypto' has no function 'sha_256' -- did you mean 'sha256'?
+saw: ziman: module error at 4:11 in <path>/f_hmac.zm: module 'crypto' has no function 'hmac' -- did you mean 'hmac_sha1', 'hmac_sha256' or 'hmac_sha384'?
+saw: ziman: type error at 2:13 in <path>/p10.zm: call to undefined function 'frobnicate'
+saw: ziman: type error at 2:11 in <path>/g_hex.zm: call to undefined function 'hex' -- did you mean 'len'?
+saw: ziman: module error at 4:11 in <path>/c_bytes.zm: module 'crypto' has no function 'bytes' -- did you mean 'bytes_xor' or 'bytes_equal'?
+saw: ziman: type error at 2:11 in <path>/g2_char_at.zm: function 'char_at' expects 2 argument(s), found 1
+saw: ziman: type error at 2:11 in <path>/g2_push.zm: 'push' takes exactly 2 argument(s), found 1
+saw: ziman: type error at 2:15 in <path>/g2_str.zm: 'str' expects an int, float, bool, bigint, decimal, or byte, found string (it's already a string)
+saw: ziman: type error at 2:11 in <path>/g2_ord.zm: call to undefined function 'ord' -- did you mean 'ok'?
+saw: ziman: syntax error at 2:11 in <path>/g2_int.zm: expected an expression, found 'int'
+saw: ziman: type error at 2:11 in <path>/g2_slice.zm: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: ziman: type error at 2:11 in <path>/g2_join.zm: function 'join' expects at least 3 argument(s), found 1
+saw: ziman: type error at 2:11 in <path>/g2_map.zm: call to undefined function 'map' -- 'Map' is a built-in generic type, not a function: write one as 'Map<string, int> { "key": value }', or build one with 'mapb_new<string, int>()'
+saw: ziman: type error at 4:18 in <path>/p11.zm: cannot initialize 'n' of declared type int with a value of type string
+saw: ziman: type error at 2:19 in <path>/p12.zm: cannot initialize 'b' of declared type byte with a value of type int -- bare digits mean 'int', so write the literal with its suffix, as '1b'
+saw: ziman: type error at 6:20 in <path>/p13.zm: cannot initialize 'bad' of declared type int with a value of type [byte]
+saw: ziman: module error at 3:11 in <path>/b_to_hex.zm: module 'bits' has no function 'to_hex'
+saw: ziman: type error at 3:13 in <path>/p14.zm: call to undefined function 'to_int'
+saw: ziman: type error at 3:16 in <path>/p16.zm: arithmetic operator requires two operands of the same numeric type, found byte and byte (use 'as' to cast explicitly)
+saw: ziman: syntax error at 2:17 in <path>/p17.zm: expected an expression, found '<'
+saw: ziman: syntax error at 5:1 in <path>/p17.zm: expected 'fn', found '}'
+saw: ziman: syntax error at 2:16 in <path>/p18.zm: expected '{', found identifier

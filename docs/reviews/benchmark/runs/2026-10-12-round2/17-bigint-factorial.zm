@@ -1,0 +1,16 @@
+// Factorial of 25 computed exactly with arbitrary-precision integers.
+
+fn factorial(n: int) -> bigint {
+    var acc: bigint = 1n
+    var i: int = 2
+    while i <= n {
+        acc = acc * (i as bigint)
+        i = i + 1
+    }
+    return acc
+}
+
+fn main() {
+    val result: bigint = factorial(25)
+    print(format("25! = {}", result))
+}

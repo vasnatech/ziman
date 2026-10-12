@@ -1,0 +1,59 @@
+val hex_digits = "0123456789ABCDEF"
+
+val ascii = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+
+val unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
+
+fn code_of(c: string) -> int {
+    return index_of(ascii, c, 0) + 32
+}
+
+fn hex2(n: int) -> string {
+    return concat(char_at(hex_digits, n / 16), char_at(hex_digits, n % 16))
+}
+
+fn url_encode(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        if c == " " {
+            out = concat(out, "+")
+        } else if contains(unreserved, c) {
+            out = concat(out, c)
+        } else {
+            out = concat(out, format("%{}", hex2(code_of(c))))
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn url_decode(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        if c == "+" {
+            out = concat(out, " ")
+            i = i + 1
+        } else if c == "%" {
+            val hi = index_of(hex_digits, char_at(s, i + 1), 0)
+            val lo = index_of(hex_digits, char_at(s, i + 2), 0)
+            out = concat(out, char_at(ascii, hi * 16 + lo - 32))
+            i = i + 3
+        } else {
+            out = concat(out, c)
+            i = i + 1
+        }
+    }
+    return out
+}
+
+fn main() {
+    val original = "name=Ada Lovelace&role=pioneer"
+    val encoded = url_encode(original)
+    print(encoded)
+    val decoded = url_decode(encoded)
+    print(decoded)
+}

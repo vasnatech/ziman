@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 8
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:10 in p3.zm: expected ':', found ')'
+saw: ziman: lexical error at 2:12 in p4.zm: unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type is 'enum Name { A, B }', and there is no '|>' pipeline
+saw: ziman: type error at 1:9 in p5.zm: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 5:5 in p6.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 5:9 in p6.zm: assignment to undefined variable 'd'
+saw: ziman: type error at 6:11 in p6.zm: call to undefined function 'd' -- did you mean 'ok'?

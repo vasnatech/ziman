@@ -1,0 +1,20 @@
+// Print an integer with thousands separators: 1234567 -> 1,234,567
+
+fn with_separators(n: int) -> string {
+    val digits: string = str(n)
+    val ln: int = len(digits)
+    var out: string = ""
+    var i: int = 0
+    while i < ln {
+        if i > 0 && (ln - i) % 3 == 0 {
+            out = concat(out, ",")
+        }
+        out = concat(out, char_at(digits, i))
+        i = i + 1
+    }
+    return out
+}
+
+fn main() {
+    print(with_separators(1234567))
+}

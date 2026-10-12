@@ -1,0 +1,37 @@
+// Run `echo "hello from a child"`, wait for it, then print its output and exit status.
+//
+// `process.start` hands the child's stdout to a file (`out_path`), `process.wait`
+// blocks until the child is gone and yields its exit code, and `fs.read_text`
+// reads back what the child wrote.
+
+use process
+use fs
+
+fn main() {
+    val out_path = "/tmp/ziman-echo-output.txt"
+
+    val started = process.start(
+        program: "echo",
+        args: ["hello from a child"],
+        out_path: out_path
+    )
+
+    switch started {
+        Err(start_error) { print(format("could not start echo: {}", start_error)) }
+        Ok(child) {
+            val waited = process.wait(p: child)
+            switch waited {
+                Err(wait_error) { print(format("could not wait for echo: {}", wait_error)) }
+                Ok(code) {
+                    val captured = fs.read_text(out_path)
+                    switch captured {
+                        Err(read_error) { print(format("could not read echo output: {}", read_error)) }
+                        Ok(text) { print(trim(text)) }
+                    }
+                    print(format("exit: {}", code))
+                }
+            }
+            val _ = fs.remove(out_path)
+        }
+    }
+}

@@ -1,0 +1,31 @@
+compiles: yes
+edits: 1
+compiler_invocations: 109
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: type error at 2:3 in p4.zm: call to undefined function 'println' -- did you mean 'print'?
+saw: ziman: type error at 2:3 in p5.zm: call to undefined function 'json_foo'
+saw: ziman: type error at 3:3 in p5.zm: call to undefined function 'json' -- did you mean 'join'?
+saw: ziman: type error at 3:3 in p7.zm: 'str' takes exactly 1 argument, found 0
+saw: ziman: type error at 4:3 in p7.zm: 'format' requires at least a format string argument
+saw: ziman: type error at 7:3 in p7.zm: 'push' takes exactly 2 argument(s), found 0
+saw: ziman: type error at 2:3 in q.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:7 in q.zm: assignment to undefined variable 'x'
+saw: ziman: syntax error at 2:5 in q.zm: expected an expression, found ':'
+saw: ziman: syntax error at 2:3 in q.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: syntax error at 2:11 in q.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: ziman: syntax error at 3:3 in q.zm: expected 'fn', found identifier
+saw: ziman: type error at 7:13 in q2.zm: 'str' expects an int, float, bool, bigint, decimal, or byte, found Foo (it's already a string)
+saw: ziman: syntax error at 1:1 in q3.zm: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+saw: ziman: type error at 2:3 in q4.zm: unknown struct or enum type 'Json' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: module error at 1:1 in q6.zm: cannot find module 'zzz' (looked for zzz.zm, and it's not a bundled core module)
+saw: ziman: module error at 3:3 in q7.zm: module 'json' has no function 'zzz'
+saw: ziman: module error at 1:1 in q8.zm: module 'json' has no function, struct, enum, or global val 'zzz'
+saw: ziman: module error at 3:3 in r.zm: module 'json' has no function 'pars' -- did you mean 'parse_json', 'parse_json_strict' or 'parse_json_bytes'?
+saw: ziman: syntax error at 3:8 in r.zm: expected '{' or '.' after 'json.Jso'
+saw: ziman: type error at 3:3 in r.zm: function 'json::parse_json' is missing required argument 's'
+saw: ziman: type error at 4:19 in r.zm: argument 1 of 'json::parse_json' expects string, found Zq
+saw: ziman: type error at 4:3 in r2.zm: cannot infer type argument 'V' of 'json::json_from_map' from its arguments; write it explicitly, e.g. 'json::json_from_map<...>(...)'
+saw: ziman: type error at 6:15 in r2.zm: cannot initialize 'x' of declared type Zq with a value of type string
+saw: ziman: type error at 7:11 in r3.zm: function 'json::json_from_map' expects 2 argument(s), found 1
+saw: ziman: type error at 8:44 in r4.zm: argument 2 of 'json::json_from_map' expects fn(json.Json) -> json.Json, found Zq
+saw: ziman: type error at 3:16 in r6.zm: cannot initialize 's' of declared type int with a value of type Result<Map<string, string>, string>

@@ -1,0 +1,20 @@
+compiles: yes
+edits: 1
+compiler_invocations: 10
+saw: call to undefined function 'println' -- did you mean 'print'?
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 's'
+saw: use of undefined variable 's'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: cannot index into string (not an array)
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: call to undefined function 'charAt' -- did you mean 'char_at'?
+saw: call to undefined function 'toInt'
+saw: call to undefined function 'isDigit'
+saw: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: call to undefined function 'find' -- did you mean 'min'?
+saw: call to undefined function 'regex'
+saw: Ziman has no 'Unit' type -- a function that returns no value leaves the '->' clause off altogether, as 'fn main() { ... }'
+saw: unknown type 'Bool' -- did you mean 'bool'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: argument 1 of 'want' expects bool, found string
+saw: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])

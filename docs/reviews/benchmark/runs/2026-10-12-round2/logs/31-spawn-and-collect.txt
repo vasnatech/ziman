@@ -1,0 +1,18 @@
+compiles: yes
+edits: 1
+compiler_invocations: 12
+saw: ziman: syntax error at 3:11 in p2.zm: expected a function name, found '{'
+saw: ziman: syntax error at 6:5 in p2.zm: expected 'fn', found identifier
+saw: ziman: syntax error at 1:13 in p3.zm: expected ':', found ','
+saw: ziman: type error at 1:11 in p4.zm: unknown struct or enum type 'Chan' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 2:5 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p5.zm: assignment to undefined variable 'ch'
+saw: ziman: type error at 3:11 in p5.zm: use of undefined variable 'ch'
+saw: ziman: type error at 2:14 in p6.zm: call to undefined function 'channel' -- 'Channel' is a built-in generic type, not a function: make one with 'channel_new()', which takes its element type from the annotation, as in 'val ch: Channel<int> = channel_new()'
+saw: ziman: type error at 8:13 in p7.zm: call to undefined function 'recv'
+saw: ziman: type error at 5:13 in p8.zm: call to undefined function 'channel_recv'
+saw: ziman: module error at 6:13 in p8.zm: 'ch.recv(...)': 'ch' is not an imported module, and Ziman has no methods -- if 'ch' is a value, call a function on it instead, e.g. recv(ch, ...) (if 'ch' should be a module, add 'use ch')
+saw: ziman: type error at 2:5 in p9.zm: unknown struct or enum type 'List' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 3:14 in p9.zm: call to undefined function 'sort' -- did you mean 'str'?
+saw: ziman: type error at 4:5 in p10.zm: unknown struct or enum type 'Array' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 5:5 in p10.zm: unknown struct or enum type 'Vec' -- did you mean 'len'?

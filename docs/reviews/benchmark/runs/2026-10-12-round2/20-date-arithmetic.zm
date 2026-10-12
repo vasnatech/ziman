@@ -1,0 +1,62 @@
+fn is_leap(y: int) -> bool {
+  if y % 400 == 0 {
+    return true
+  }
+  if y % 100 == 0 {
+    return false
+  }
+  return y % 4 == 0
+}
+
+fn days_in_month(y: int, m: int) -> int {
+  if m == 2 {
+    if is_leap(y) {
+      return 29
+    }
+    return 28
+  }
+  if m == 4 || m == 6 || m == 9 || m == 11 {
+    return 30
+  }
+  return 31
+}
+
+fn two(n: int) -> string {
+  if n < 10 {
+    return concat("0", str(n))
+  }
+  return str(n)
+}
+
+fn show(y: int, m: int, d: int) {
+  print(format("{}-{}-{}", str(y), two(m), two(d)))
+}
+
+fn main() {
+  val year0: int = 2024
+  val month0: int = 2
+  val day0: int = 28
+
+  show(year0, month0, day0)
+
+  var y = year0
+  var m = month0
+  var d = day0
+  var i = 0
+  while i < 30 {
+    d = d + 1
+    if d > days_in_month(y, m) {
+      d = 1
+      m = m + 1
+      if m > 12 {
+        m = 1
+        y = y + 1
+      }
+    }
+    i = i + 1
+    if i == 1 {
+      show(y, m, d)
+    }
+  }
+  show(y, m, d)
+}

@@ -1,0 +1,19 @@
+fn main() {
+    val text = "the quick brown fox jumps over the lazy dog"
+    val width = 16
+    val words = split(text, " ")
+    var line = ""
+    for w in words {
+        if len(line) == 0 {
+            line = w
+        } else if len(line) + 1 + len(w) <= width {
+            line = concat(line, concat(" ", w))
+        } else {
+            print(line)
+            line = w
+        }
+    }
+    if len(line) > 0 {
+        print(line)
+    }
+}

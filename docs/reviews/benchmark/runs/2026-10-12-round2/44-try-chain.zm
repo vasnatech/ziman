@@ -1,0 +1,36 @@
+fn parse_number(s: string) -> Result<int, string> {
+    switch parse_int(s) {
+        Ok(v) { return ok(v) }
+        Err(m) { return err(format("'{}' is not a number", s)) }
+    }
+}
+
+fn double_it(n: int) -> Result<int, string> {
+    if n < 0 {
+        return err(format("{} is negative", n))
+    }
+    return ok(n * 2)
+}
+
+fn format_it(n: int) -> Result<string, string> {
+    return ok(format("value: {}", n))
+}
+
+fn run(s: string) -> Result<string, string> {
+    val n = try parse_number(s)
+    val d = try double_it(n)
+    return format_it(d)
+}
+
+fn report(s: string) {
+    switch run(s) {
+        Ok(v) { print(v) }
+        Err(m) { print(format("failed: {}", m)) }
+    }
+}
+
+fn main() {
+    report("21")
+    report("-3")
+    report("x")
+}

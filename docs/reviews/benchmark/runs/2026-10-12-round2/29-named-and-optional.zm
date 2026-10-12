@@ -1,0 +1,22 @@
+// Formats a label from a required `text` and an optional `width`.
+// When a width is given, the text is padded on the right with dots
+// up to that width; with no width the text is returned unchanged.
+fn format_label(text: string, width: Option<int> = None) -> string {
+    switch width {
+        Some(w) {
+            var out = text
+            while len(out) < w {
+                out = concat(out, ".")
+            }
+            return out
+        }
+        None {
+            return text
+        }
+    }
+}
+
+fn main() {
+    print(format_label(text: "ok", width: 6))
+    print(format_label(text: "ok"))
+}

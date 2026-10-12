@@ -1,0 +1,23 @@
+compiles: yes
+edits: 1
+compiler_invocations: 12
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 's'
+saw: use of undefined variable 'n'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: 's.chars(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. chars(s, ...) (if 's' should be a module, add 'use s')
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: call to undefined function 'ord' -- did you mean 'ok'?
+saw: call to undefined function 'chr' -- did you mean 'str'?
+saw: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: function 'index_of' expects 3 argument(s), found 2
+saw: call to undefined function 'upper'
+saw: call to undefined function 'to_hex'
+saw: malformed placeholder in format string (expected '{}' or '{:.N}', found stray '{'; write '{{' for a literal one)
+saw: cannot index into string (not an array)
+saw: expected an expression, found 'int'
+saw: call to undefined function 'bytes'
+saw: function 'join' expects at least 3 argument(s), found 2
+saw: cannot initialize 'j' of declared type string with a value of type int
+saw: cannot initialize 'q' of declared type string with a value of type Result<int, string>
+saw: a global value name must not start with an uppercase letter (uppercase is reserved for type names)

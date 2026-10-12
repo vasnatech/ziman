@@ -1,0 +1,42 @@
+compiles: yes
+edits: 2
+compiler_invocations: 264
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'x'
+saw: use of undefined variable 'x'
+saw: call to undefined function 'run_command'
+saw: expected an expression, found 'spawn'
+saw: call to undefined function 'run' -- did you mean 'len'?
+saw: expected a function name, found '}'
+saw: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+saw: cannot find module 'std' (looked for <path>/std.zm, and it's not a bundled core module)
+saw: module 'process' has no function, struct, enum, or global val 'zzz'
+saw: function 'process::run' is missing required argument 'program'
+saw: function 'process::run' expects 6 argument(s), found 1
+saw: expected ')', found '='
+saw: function 'process::run' has no parameter named 'zzz'
+saw: argument 2 of 'process::run' expects [string], found int
+saw: cannot access field 'zzz' on Result<int, string> (not a struct)
+saw: argument 6 of 'process::run' expects Option<string> or string, found int
+saw: argument 1 of 'process::wait' expects process.Process, found Result<process.Process, string>
+saw: 'r.unwrap(...)': 'r' is not an imported module, and Ziman has no methods -- if 'r' is a value, call a function on it instead, e.g. unwrap(r, ...) (if 'r' should be a module, add 'use r')
+saw: call to undefined function 'unwrapp' -- did you mean 'unwrap'?
+saw: call to undefined function 'expect'
+saw: cannot infer the type of 'ok(...)' here; it takes its type from the context, so it needs one: a val/var with an explicit Result<T, E> annotation, a struct literal field, a 'with' override, a function's returned value, or an argument whose parameter type says which Result it is
+saw: 'str' expects an int, float, bool, bigint, decimal, or byte, found Result<string, string> (it's already a string)
+saw: call to undefined function 'assert' -- did you mean 'insert'?
+saw: call to undefined function 'fail' -- did you mean 'main'?
+saw: no field 'zzz' on struct 'process::Process'
+saw: argument 3 of 'process::run' expects Option<[process.EnvVar]> or [process.EnvVar], found int
+saw: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: argument 4 of 'process::run' expects Option<string> or string, found int
+saw: argument 5 of 'process::run' expects Option<string> or string, found int
+saw: function 'process::start' expects 6 argument(s), found 1
+saw: argument 4 of 'process::output' expects Option<string> or string, found int
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: left-hand side of assignment must be a variable name
+saw: a variant name must start with an uppercase letter
+saw: expected 'fn', found identifier
+saw: this Result<unit, fs.FsError> is discarded, silently dropping a possible error -- bind it ('val _ = ...' to discard on purpose), or use 'try' to propagate the error
+saw: a call's arguments must be either all positional or all named, not a mix

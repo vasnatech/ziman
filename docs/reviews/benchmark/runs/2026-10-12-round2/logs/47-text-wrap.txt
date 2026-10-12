@@ -1,0 +1,14 @@
+compiles: yes
+edits: 1
+compiler_invocations: 9
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: type error at 2:5 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p3.zm: assignment to undefined variable 's'
+saw: ziman: type error at 5:11 in p3.zm: use of undefined variable 's'
+saw: ziman: module error at 3:11 in p4.zm: 's.len(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. len(s) (if 's' should be a module, add 'use s')
+saw: ziman: type error at 5:11 in p4.zm: string has no field 'length' -- use len(x) for its length
+saw: ziman: type error at 6:11 in p4.zm: cannot index into string (not an array)
+saw: ziman: type error at 7:13 in p4.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 8:14 in p4.zm: 'for' can only iterate an array, a map, a set, an Iter or a range, found string
+saw: ziman: type error at 7:13 in p5.zm: function 'join' expects at least 3 argument(s), found 2
+saw: ziman: type error at 3:18 in p6.zm: argument 1 of 'join' expects Option<string> or string, found [string]

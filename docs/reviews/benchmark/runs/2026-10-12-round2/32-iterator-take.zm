@@ -1,0 +1,33 @@
+// Make an iterator over an array and print only its first three values.
+// Ziman values are immutable, so the iterator's cursor lives in an
+// ArrayBuilder handle: the lambda captures it by value, but the handle
+// refers to shared storage, so ab_len tracks how far we have advanced.
+
+fn main() {
+    val values = [10, 20, 30, 40, 50]
+    val cursor = ab_new<int>()
+
+    val pull = fn() -> Option<int> {
+        val i = ab_len(cursor)
+        if i >= len(values) {
+            return None
+        }
+        ab_append(cursor, i)
+        return Some(values[i])
+    }
+
+    val it = iter_from<int>(next: pull, close: fn() { })
+
+    // Pull exactly three values; 40 and 50 stay in the iterator.
+    var printed = 0
+    while printed < 3 {
+        switch iter_next(it) {
+            Some(v) {
+                print(v)
+            }
+            None {
+            }
+        }
+        printed = printed + 1
+    }
+}

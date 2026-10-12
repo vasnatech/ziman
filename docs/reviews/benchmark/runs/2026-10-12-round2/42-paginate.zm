@@ -1,0 +1,21 @@
+fn main() {
+    val total = 10
+    val size = 3
+    var page = 1
+    var start = 1
+    while start <= total {
+        var items = ""
+        var n = start
+        while n < start + size && n <= total {
+            if n == start {
+                items = str(n)
+            } else {
+                items = format("{}, {}", items, str(n))
+            }
+            n = n + 1
+        }
+        print(format("page {}: {}", page, items))
+        start = start + size
+        page = page + 1
+    }
+}

@@ -1,0 +1,32 @@
+// Media type lookup by file extension.
+
+// Returns the media type for a known extension, or None when there is none.
+fn mime_for(ext: string) -> Option<string> {
+    if ext == "json" {
+        return Option<string>.Some("application/json")
+    }
+    if ext == "png" {
+        return Option<string>.Some("image/png")
+    }
+    if ext == "html" {
+        return Option<string>.Some("text/html")
+    }
+    return Option<string>.None
+}
+
+fn describe(ext: string) -> string {
+    switch mime_for(ext) {
+        Some(media_type) {
+            return format("{} -> {}", ext, media_type)
+        }
+        None {
+            return format("{} -> unknown", ext)
+        }
+    }
+}
+
+fn main() {
+    for ext in ["json", "png", "html", "zzz"] {
+        print(describe(ext))
+    }
+}

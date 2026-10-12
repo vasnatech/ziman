@@ -1,0 +1,11 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+saw: ziman: type error at 2:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p2.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:13 in p2.zm: assignment to undefined variable 'i'
+saw: ziman: type error at 3:11 in p2.zm: use of undefined variable 'i'
+saw: ziman: type error at 10:17 in p3.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 13:21 in p3.zm: '+' doesn't join strings (found string and int) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: syntax error at 2:17 in p4.zm: expected an expression, found '='
+saw: ziman: syntax error at 6:5 in p4.zm: expected 'fn', found identifier

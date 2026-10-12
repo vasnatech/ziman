@@ -1,0 +1,34 @@
+compiles: yes
+edits: 1
+compiler_invocations: 38
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'v'
+saw: use of undefined variable 'v'
+saw: call to undefined function 'json_parse'
+saw: call to undefined function 'nonexistent_fn_xyz'
+saw: call to undefined function 'parse_json'
+saw: call to undefined function 'json' -- did you mean 'join'?
+saw: no enum named 'Json'
+saw: no enum named 'JSON'
+saw: 'json.parse(...)': 'json' is not an imported module, and Ziman has no methods -- if 'json' is a value, call a function on it instead, e.g. parse(json, ...) (if 'json' should be a module, add 'use json')
+saw: call to undefined function 'to_string'
+saw: call to undefined function 'println' -- did you mean 'print'?
+saw: cannot find module 'blahblah' (looked for <path>/blahblah.zm, and it's not a bundled core module)
+saw: module 'json' has no function 'bogus_thing_here'
+saw: module 'json' has no function 'parse' -- did you mean 'parse_json', 'parse_json_strict' or 'parse_json_bytes'?
+saw: module 'json' has no function 'decode'
+saw: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: cannot initialize 'v' of declared type int with a value of type Result<json.Json, string>
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: left-hand side of assignment must be a variable name
+saw: expected 'fn', found '}'
+saw: Result<json.Json, string> has no variant 'Bogus' (its variants: Ok, Err)
+saw: json.Json has no variant 'Bogus' (its variants: JNull, JBool, JNumber, JString, JArray, JObject)
+saw: module 'json' has no function 'get_field'
+saw: cannot initialize 'x' of declared type int with a value of type bool
+saw: cannot initialize 'x' of declared type int with a value of type json.Number
+saw: cannot initialize 'x' of declared type int with a value of type [json.Json]
+saw: cannot initialize 'x' of declared type int with a value of type Map<string, json.Json>
+saw: json.Number has no variant 'Bogus' (its variants: Int, Float, Bigint, Decimal)
+saw: call to undefined function 'get' -- did you mean 'set'?
+saw: a map is not indexed with '[...]' -- read one with 'map_get(m, key)', which answers 'Option<V>' ('Some(v)' or 'None'), and write one with 'm = set(m, key, value)'

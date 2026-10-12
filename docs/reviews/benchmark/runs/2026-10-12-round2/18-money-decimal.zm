@@ -1,0 +1,12 @@
+// Add exact money amounts using the built-in `decimal` type.
+// Decimal literals use the `d` suffix, so no floating-point rounding occurs.
+
+fn main() {
+    val a: decimal = 19.99d
+    val b: decimal = 5.01d
+    val c: decimal = 0.50d
+
+    val total: decimal = a + b + c
+
+    print("Total: ${total}")
+}

@@ -1,0 +1,11 @@
+// Walk [3, 1, 4, 1, 5, 9, 2, 6] and print the running maximum after each element.
+fn main() {
+    val xs = [3, 1, 4, 1, 5, 9, 2, 6]
+    var best = xs[0]
+    for x in xs {
+        if x > best {
+            best = x
+        }
+        print(best)
+    }
+}

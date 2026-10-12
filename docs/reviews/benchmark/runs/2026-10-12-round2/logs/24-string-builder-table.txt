@@ -1,0 +1,18 @@
+compiles: yes
+edits: 1
+compiler_invocations: 15
+saw: ziman: type error at 0:0: no 'main' function found
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 's'
+saw: use of undefined variable 'i'
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: call to undefined function 'pad_right'
+saw: call to undefined function 'pad' -- did you mean 'max'?
+saw: call to undefined function 'StringBuilder' -- did you mean 'StringBuilder'?
+saw: no enum named 'StringBuilder'
+saw: missing field 'handle' in construction of 'StringBuilder'
+saw: call to undefined function 'concatt' -- did you mean 'concat'?
+saw: call to undefined function 'sb_appendd' -- did you mean 'sb_append'?
+saw: malformed placeholder in format string (expected '{}' or '{:.N}', found stray '{'; write '{{' for a literal one)
+saw: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)

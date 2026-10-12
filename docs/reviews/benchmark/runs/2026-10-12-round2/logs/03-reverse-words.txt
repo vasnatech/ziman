@@ -1,0 +1,19 @@
+compiles: yes
+edits: 1
+compiler_invocations: 10
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: type error at 2:5 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p5.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 3:5 in p5.zm: call to undefined function 'println' -- did you mean 'print'?
+saw: ziman: module error at 3:13 in p6.zm: 's.split(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. split(s, ...) (if 's' should be a module, add 'use s')
+saw: ziman: type error at 5:13 in p7.zm: call to undefined function 'reverse'
+saw: ziman: type error at 6:13 in p7.zm: function 'join' expects at least 3 argument(s), found 2
+saw: ziman: type error at 4:18 in p8.zm: argument 1 of 'join' expects Option<string> or string, found [string]
+saw: ziman: type error at 3:20 in p9.zm: argument 1 of 'concat' expects string, found [string]
+saw: ziman: type error at 4:13 in p9.zm: call to undefined function 'joined' -- did you mean 'join'?
+saw: ziman: type error at 5:13 in p9.zm: call to undefined function 'str_join'
+saw: ziman: type error at 6:13 in p9.zm: call to undefined function 'reversed'
+saw: ziman: type error at 8:13 in p9.zm: call to undefined function 'append'
+saw: ziman: type error at 10:13 in p9.zm: call to undefined function 'get' -- did you mean 'set'?
+saw: ziman: type error at 6:19 in p10.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

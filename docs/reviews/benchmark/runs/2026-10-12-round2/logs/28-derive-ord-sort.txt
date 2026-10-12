@@ -1,0 +1,18 @@
+compiles: yes
+edits: 1
+compiler_invocations: 22
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: syntax error at 2:16 in p4.zm: expected a field name, found ','
+saw: ziman: type error at 7:5 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 7:9 in p5.zm: assignment to undefined variable 's'
+saw: ziman: type error at 8:11 in p5.zm: use of undefined variable 's'
+saw: ziman: syntax error at 1:14 in p8.zm: expected '{', found identifier
+saw: ziman: lexical error at 1:1 in p9.zm: unexpected character '@'
+saw: ziman: syntax error at 1:13 in pa.zm: expected '{', found ':'
+saw: ziman: syntax error at 2:1 in pb.zm: unknown derive target 'Bogus' on struct 'Score'
+saw: ziman: syntax error at 10:45 in pc.zm: a trailing comma is not allowed before ']' -- remove it
+saw: ziman: type error at 12:14 in pd.zm: call to undefined function 'sort' -- did you mean 'str'?
+saw: ziman: module error at 12:14 in pe.zm: 'xs.sort(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. collections.sort<T>(xs), after 'use collections' (if 'xs' should be a module, add 'use xs')
+saw: ziman: type error at 12:14 in pe.zm: cannot access field 'sort' on [Score] (not a struct)
+saw: ziman: type error at 14:14 in pg.zm: type argument Score does not satisfy bound 'Ord' required by type parameter 'T' (it must be a number, string or byte, or a struct/enum with a '<type>_compare(a, b) -> int' function -- '#[derive(Ord)]' writes one)

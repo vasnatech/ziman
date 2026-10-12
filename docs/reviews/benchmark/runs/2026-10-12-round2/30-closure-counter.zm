@@ -1,0 +1,12 @@
+// Returns a function that multiplies its argument by `n`.
+fn multiplier(n: int) -> fn(int) -> int {
+    return fn(x: int) -> int { return x * n }
+}
+
+fn main() {
+    val doubler = multiplier(2)
+    val tripler = multiplier(3)
+
+    print(doubler(5))
+    print(tripler(5))
+}

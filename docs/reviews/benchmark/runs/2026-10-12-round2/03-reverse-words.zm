@@ -1,0 +1,13 @@
+fn main() {
+    val words = split("hello world from ziman", " ")
+    var out = ""
+    var i = len(words) - 1
+    while i >= 0 {
+        out = concat(out, words[i])
+        if i > 0 {
+            out = concat(out, " ")
+        }
+        i = i - 1
+    }
+    print(out)
+}

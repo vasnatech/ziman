@@ -1,0 +1,34 @@
+// Parse a simple YAML block-sequence under a given key and print each entry.
+
+fn parse_list(src: string, key: string) -> [string] {
+    var out: [string] = []
+    var in_key = false
+    for line in split(src, "\n") {
+        val t = trim(line)
+        if t == "" {
+            continue
+        }
+        if t == concat(key, ":") {
+            in_key = true
+            continue
+        }
+        if in_key && starts_with(t, "- ") {
+            push(out, trim(substring(t, 2, len(t))))
+        } else {
+            in_key = false
+        }
+    }
+    return out
+}
+
+fn main() {
+    val yaml = """
+names:
+  - Ada
+  - Alan
+  - Grace
+"""
+    for name in parse_list(yaml, "names") {
+        print(name)
+    }
+}

@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+saw: ziman: type error at 2:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p2.zm: assignment to undefined variable 'xs'
+saw: ziman: type error at 4:14 in p2.zm: use of undefined variable 'xs'
+saw: ziman: module error at 8:8 in p2.zm: 's.contains(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. contains(s, ...) (if 's' should be a module, add 'use s')
+saw: ziman: type error at 11:24 in p2.zm: '+' doesn't join strings (found string and int) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 2:20 in p3.zm: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: ziman: type error at 5:9 in p3.zm: call to undefined function 'append'
+saw: ziman: type error at 4:5 in p4.zm: call to undefined function 'add' -- did you mean 'abs'?
+saw: ziman: type error at 5:25 in p4.zm: '+' doesn't join arrays (found [string] and [string]) -- use push(arr, item) to add one element or concat_arrays<T>(a, b) to join two
+saw: ziman: type error at 6:23 in p4.zm: argument 1 of 'concat' expects string, found [string]

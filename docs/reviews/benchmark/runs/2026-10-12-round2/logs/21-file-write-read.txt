@@ -1,0 +1,19 @@
+compiles: yes
+edits: 1
+compiler_invocations: 16
+saw: call to undefined function 'write_file'
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 's'
+saw: use of undefined variable 's'
+saw: call to undefined function 'open' -- did you mean 'len'?
+saw: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+saw: module 'fs' has no function 'bogus_name'
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: this Result<int, fs.FsError> is discarded, silently dropping a possible error -- bind it ('val _ = ...' to discard on purpose), or use 'try' to propagate the error
+saw: argument 1 of 'split' expects string, found Result<string, fs.FsError>
+saw: 'try' on a Result<T, E> value requires the enclosing function or lambda to return Result<..., fs.FsError>, found void -- give it that return type (a lambda needs it written out: 'fn(...) -> Result<T, fs.FsError> { ... }')
+saw: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'void' may just need one of those instead
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: left-hand side of assignment must be a variable name
+saw: expected 'fn', found '}'
+saw: call to undefined function 'Ok' -- did you mean 'ok'?

@@ -1,0 +1,11 @@
+compiles: yes
+edits: 1
+compiler_invocations: 9
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in b.zm: expected 'fn', found identifier
+saw: ziman: type error at 2:3 in e.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:7 in e.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:11 in e.zm: assignment to undefined variable 'i'
+saw: ziman: type error at 3:9 in e.zm: use of undefined variable 'i'
+saw: ziman: type error at 3:13 in g.zm: '+' doesn't join strings (found string and int) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 2:3 in h.zm: 'print' takes exactly 1 argument, found 0

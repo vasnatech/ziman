@@ -1,0 +1,36 @@
+use fs
+
+// Write three lines to a file, read them back, and print each with its
+// 1-based line number as "N: line".
+
+fn run() -> Result<int, fs.FsError> {
+    val path = "/tmp/ziman_bench_21.txt"
+
+    val _ = try fs.write_text(path, "alpha\nbeta\ngamma\n")
+
+    val text = try fs.read_text(path)
+    val lines = split(text, "\n")
+
+    var i = 0
+    var shown = 0
+    while i < len(lines) {
+        val line = lines[i]
+        if len(line) > 0 {
+            shown = shown + 1
+            print(format("{}: {}", shown, line))
+        }
+        i = i + 1
+    }
+
+    return ok(shown)
+}
+
+fn main() {
+    switch run() {
+        Ok(n) {
+        }
+        Err(e) {
+            print(format("file error: {}", e))
+        }
+    }
+}

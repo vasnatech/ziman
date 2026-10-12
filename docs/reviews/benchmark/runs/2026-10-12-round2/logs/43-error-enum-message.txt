@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 7
+saw: ziman: type error at 0:0: no 'main' function found
+saw: syntax error at 2:21: expected a variant name, found ','
+saw: syntax error at 8:5: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: syntax error at 9:17: expected an expression, found ':'
+saw: syntax error at 13:1: expected 'fn', found '}'
+saw: type error at 2:5: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: type error at 9:44: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

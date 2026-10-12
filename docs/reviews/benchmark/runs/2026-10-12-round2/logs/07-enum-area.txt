@@ -1,0 +1,10 @@
+compiles: yes
+edits: 2
+compiler_invocations: 8
+saw: ziman: syntax error at 2:18 in p2.zm: expected a variant name, found ','
+saw: ziman: syntax error at 8:5 in p4.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 9:25 in p4.zm: expected an expression, found '->'
+saw: ziman: syntax error at 13:1 in p4.zm: expected 'fn', found '}'
+saw: ziman: type error at 16:5 in 07-enum-area.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 16:9 in 07-enum-area.zm: assignment to undefined variable 'c'
+saw: ziman: type error at 20:16 in 07-enum-area.zm: use of undefined variable 'c'

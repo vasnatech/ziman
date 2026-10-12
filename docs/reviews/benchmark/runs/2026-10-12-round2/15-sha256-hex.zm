@@ -1,0 +1,26 @@
+use crypto
+
+// Returns the lowercase hexadecimal digit for a nibble value 0..15.
+fn hex_digit(v: int) -> string {
+    val digits = "0123456789abcdef"
+    return substring(digits, v, v + 1)
+}
+
+// Encodes a byte array as a lowercase hexadecimal string.
+fn hex_encode(data: [byte]) -> string {
+    var out = ""
+    var i = 0
+    while i < len(data) {
+        val v = data[i] as int
+        out = concat(out, hex_digit(v / 16), hex_digit(v % 16))
+        i = i + 1
+    }
+    return out
+}
+
+fn main() {
+    // The UTF-8 bytes of "ziman": z i m a n
+    val message: [byte] = [122b, 105b, 109b, 97b, 110b]
+    val digest = crypto.sha256(message)
+    print(hex_encode(digest))
+}

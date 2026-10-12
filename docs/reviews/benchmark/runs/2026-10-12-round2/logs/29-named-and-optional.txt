@@ -1,0 +1,25 @@
+compiles: yes
+edits: 1
+compiler_invocations: 32
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: type error at 2:5 in p5.zm: call to undefined function 'println' -- did you mean 'print'?
+saw: ziman: type error at 2:5 in p6.zm: 'print' takes exactly 1 argument, found 2
+saw: ziman: type error at 1:10 in p7.zm: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: syntax error at 1:34 in p9.zm: expected ')', found '?'
+saw: ziman: syntax error at 1:31 in pa.zm: expected a type, found '?'
+saw: ziman: type error at 6:11 in pa.zm: function 'label' expects 2 argument(s), found 1
+saw: ziman: type error at 1:37 in pa.zm: a default value is only legal for an Option<T> parameter (parameter 'width' is int)
+saw: ziman: syntax error at 1:29 in pa.zm: expected ':', found '?'
+saw: ziman: syntax error at 1:31 in pa.zm: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'optional' may just need one of those instead
+saw: ziman: lexical error at 1:34 in pa.zm: unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type is 'enum Name { A, B }', and there is no '|>' pipeline
+saw: ziman: type error at 1:45 in pb.zm: use of undefined variable 'none'
+saw: ziman: type error at 1:45 in pb.zm: enum 'Option' has no variant or function 'none'
+saw: ziman: type error at 1:45 in pb.zm: call to undefined function 'none'
+saw: ziman: syntax error at 6:22 in pc.zm: expected ')', found '='
+saw: ziman: syntax error at 6:30 in pc.zm: a call's arguments must be either all positional or all named, not a mix
+saw: ziman: syntax error at 6:17 in pc.zm: expected an expression, found '.'
+saw: ziman: syntax error at 2:5 in pe.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 3:9 in pe.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 6:9 in pe.zm: expected 'fn', found identifier
+saw: ziman: type error at 6:27 in pg.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

@@ -1,0 +1,24 @@
+fn sum(xs: [int]) -> int {
+  var total = 0
+  for x in xs {
+    total = total + x
+  }
+  return total
+}
+
+fn count_above(xs: [int], limit: float) -> int {
+  var above = 0
+  for x in xs {
+    if (x as float) > limit {
+      above = above + 1
+    }
+  }
+  return above
+}
+
+fn main() {
+  val xs = [4, 8, 15, 16, 23, 42]
+  val mean = (sum(xs) as float) / (len(xs) as float)
+  print(format("mean: {}", mean))
+  print(format("values above mean: {}", count_above(xs, mean)))
+}

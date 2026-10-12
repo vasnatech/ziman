@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 11
+saw: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'exts'
+saw: use of undefined variable 'exts'
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: expected an expression, found '->'
+saw: expected 'fn', found '}'
+saw: 'Option' is generic and requires explicit type arguments, e.g. 'Option<...>.Some'
+saw: variant 'Option.None' takes no payload -- write 'Option.None' without parentheses

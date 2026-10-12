@@ -1,0 +1,27 @@
+compiles: yes
+edits: 1
+compiler_invocations: 48
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: lexical error at 2:19 in p3.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: type error at 1:1 in p4.zm: Ziman has no 'Unit' type -- a function that returns no value leaves the '->' clause off altogether, as 'fn main() { ... }'
+saw: ziman: type error at 8:5 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 8:9 in p5.zm: assignment to undefined variable 'u'
+saw: ziman: type error at 9:11 in p5.zm: use of undefined variable 'u'
+saw: ziman: syntax error at 1:1 in p7.zm: expected 'fn', found identifier
+saw: ziman: lexical error at 1:1 in p8.zm: unexpected character '@'
+saw: ziman: syntax error at 1:13 in q3.zm: expected '{', found identifier
+saw: ziman: syntax error at 1:2 in q5.zm: expected '[', found identifier
+saw: ziman: syntax error at 2:1 in r1.zm: unknown derive target 'Nonsense' on struct 'User'
+saw: ziman: module error at 9:11 in r2.zm: 'u.to_json(...)': 'u' is not an imported module, and Ziman has no methods -- if 'u' is a value, call a function on it instead, e.g. to_json(u, ...) (if 'u' should be a module, add 'use u')
+saw: ziman: type error at 9:11 in r3.zm: call to undefined function 'to_json'
+saw: ziman: module error at 10:11 in r4.zm: module 'json' has no function 'stringify'
+saw: ziman: module error at 8:11 in t_parse.zm: module 'json' has no function 'parse' -- did you mean 'parse_json', 'parse_json_strict' or 'parse_json_bytes'?
+saw: ziman: module error at 8:11 in t_json.zm: module 'json' has no function 'json' -- did you mean 'json_to_bytes', 'json_to_string' or 'json_object_get'?
+saw: ziman: module error at 1:1 in t_mod.zm: cannot find module 'jsonzzz' (looked for .../jsonzzz.zm, and it's not a bundled core module)
+saw: ziman: module error at 2:19 in u_json_from.zm: module 'json' has no function 'json_from' -- did you mean 'json_from_map' or 'json_from_json'?
+saw: ziman: type error at 1:13 in v1.zm: call to undefined function 'prnt' -- did you mean 'print'?
+saw: ziman: type error at 7:11 in v3.zm: no enum named 'User'
+saw: ziman: type error at 9:24 in w1.zm: cannot initialize 'text' of declared type string with a value of type json.Json
+saw: ziman: type error at 13:37 in w2.zm: argument 1 of 'user_from_json' expects json.Json, found Result<json.Json, string>
+saw: ziman: syntax error at 12:5 in x1.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 13:9 in x1.zm: left-hand side of assignment must be a variable name
