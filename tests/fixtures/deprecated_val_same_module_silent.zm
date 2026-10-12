@@ -1,0 +1,14 @@
+// F69: a `#[deprecated]` val read in the file that declares it is silent, the same rule every other
+// deprecated declaration follows -- whoever wrote it is the one person who does not need telling,
+// and a module keeping a superseded val for its existing readers would otherwise warn at itself.
+//
+// This file was `diag_deprecated_on_val_refused` until F69, where it asserted the parser's refusal.
+// The refusal is gone, so the program it held became a test of the opposite thing: it now compiles,
+// and the `.diag` beside it expects **no diagnostics at all**, which is what pins the silence. A
+// `.out` fixture could not: those compare stdout only, and a stray warning goes to stderr.
+#[deprecated("use limit instead")]
+pub val old_limit = 10
+
+fn main() {
+    print(old_limit)
+}

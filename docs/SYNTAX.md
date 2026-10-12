@@ -1346,10 +1346,10 @@ it. `pg`, `mysql`, `toml` and `yaml` carry it. `#![deprecated]` is deliberately 
 what a deprecated *module* should warn about -- every `use`, or every call into it -- is undecided
 (docs/ROADMAP.md).
 
-`#[deprecated]`, or `#[deprecated("use X instead")]`, marks a function, `struct` or `enum` that
-still works but should not be used in new code. Using it *from another module* -- calling it,
-naming it as a value, writing a struct literal, reaching an enum variant -- is a **warning on every
-compile**, quoting the message when one was given:
+`#[deprecated]`, or `#[deprecated("use X instead")]`, marks a function, `struct`, `enum` or
+module-level `val` that still works but should not be used in new code. Using it *from another
+module* -- calling it, naming it as a value, writing a struct literal, reaching an enum variant,
+reading a val -- is a **warning on every compile**, quoting the message when one was given:
 
 ```ziman ignore: a signature with no body, showing what the attribute is written on
 #[deprecated("use open_session_with_timeouts, which also bounds the request head")]
@@ -1372,9 +1372,7 @@ function working for its existing callers would otherwise warn on every internal
 itself, and whoever wrote the deprecated thing is the one person who does not need telling. A
 **type annotation naming a deprecated type is also silent**: a function migrating away from one
 still has to name it to accept one, so warning there would be loudest in exactly the code doing the
-migration. On a `val` the attribute is still rejected rather than silently ignored: a module-level
-`val` becomes a plain global binding, so a reference to it carries nothing back to the declaration
-for the check to read.
+migration. All four declaration kinds carry the attribute; there is no kind it is rejected on.
 
 `#[thread_bound]` marks a struct that belongs to the thread that made it (as `StringBuilder`/
 `ArrayBuilder`/`MapBuilder`/`SetBuilder`/`Iter` are). A type containing one is refused as a

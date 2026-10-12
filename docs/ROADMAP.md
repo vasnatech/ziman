@@ -717,11 +717,17 @@ from source.
   `--lint` warning carrying the attribute's message, and same-module use stays silent, exactly as
   the function case already worked. **Deliberately not warned on a type annotation:** a function
   migrating away from a deprecated type still has to name it to accept one, so warning there would
-  be loudest in the code doing the migration. **`val` is still refused**, now with a message that
-  says what it would take rather than only that it is unsupported: a module-level val becomes a
-  plain binding in the global scope (`check_global_vals`), so a reference to it carries nothing back
-  to the declaration for a lint to read, unlike a struct literal or an enum access which resolve
-  through `find_struct`/`find_enum`. Supporting it means carrying the deprecation on the binding.
+  be loudest in the code doing the migration. ~~**`val` is still refused**~~ **-- done 2026-10-11 (F69), and
+  without carrying anything on the binding.** F58's message said supporting it meant putting the
+  deprecation on the `Binding`, which would have widened the interpreter's hottest allocation
+  (one per binding per call) for a rare attribute. A side table keyed by name avoids that, and is
+  sound on two guarantees rather than hopes: the loader merges every module into one and
+  self-qualifies global-val names, so a name is unique program-wide, and a local can never shadow
+  a global val, so an identifier matching one is that val. The read is caught at `EXPR_IDENT`,
+  which its own comment already called "the one place a name is read". **All four declaration
+  kinds now carry the attribute and none rejects it.** One limit recorded rather than discovered
+  later: a read inside *another* module's global val initializer does not warn, because the
+  user-code gate is set per function and global vals are checked before any function body.
   ~~**Still open and blocked on something that does not exist:** whether a deprecation should ever
   be a warning by default (needs "warnings/notes as a separate severity") or a hard error under a
   "deny" policy.~~ **Decided and done 2026-10-11 (F68): a deprecation warns on every compile.**

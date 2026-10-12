@@ -1,0 +1,12 @@
+#[deprecated("use max_retries instead")]
+pub val retry_limit = 3
+
+#[deprecated]
+pub val legacy_flag = true
+
+pub val max_retries = 5
+
+// The declaring module reading its own deprecated val: silent, like every other same-module use.
+pub fn limit_plus(n: int) -> int {
+    return retry_limit + n
+}

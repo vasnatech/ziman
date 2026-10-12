@@ -1,0 +1,2 @@
+# F69: no diagnostics. An empty expectation is not a formality -- check_diag.py requires the
+# actual count to match, so a warning appearing here would fail this fixture.

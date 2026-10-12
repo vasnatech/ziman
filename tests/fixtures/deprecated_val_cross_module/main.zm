@@ -1,0 +1,21 @@
+// F69: `#[deprecated]` on a module-level `val`, the last of the four declaration kinds. The parser
+// used to refuse it, and the reason it gave was real -- a global val becomes a plain binding, so a
+// reference carries nothing back to the declaration -- but surmountable without widening `Binding`,
+// which is the interpreter's hottest allocation. A side table keyed by name is sound because the
+// loader merges every module into one and self-qualifies these names, and a local can never shadow
+// a global val, so one name means one declaration.
+//
+// A cross-module val is reached by importing the symbol (`use mod.NAME`); there is no dotted
+// `mod.NAME` bare access for vals, so an import is the only way to write this at all.
+use oldlib
+use oldlib.retry_limit
+use oldlib.legacy_flag
+use oldlib.max_retries
+
+fn main() {
+    print(retry_limit)                  // warns, with the message
+    print(legacy_flag)                  // warns, no message
+    print(max_retries)                  // not deprecated: silent
+    print(retry_limit + max_retries)    // warns again -- each read is its own site
+    print(oldlib.limit_plus(1))         // oldlib reading its own: silent
+}

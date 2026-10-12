@@ -2654,18 +2654,8 @@ Module *parse(TokenList tokens) {
             if (derives.is_test) {
                 ziman_error("syntax", v->line, v->col, "#[test] applies to a function, not to a val ('%s')", v->name);
             }
-            if (derives.deprecated) {
-                /* Still refused, now for a reason this message can state: a module-level val
-                 * becomes an ordinary binding in the global env (typecheck.c's
-                 * check_global_vals), so a reference to it is an identifier lookup that has no
-                 * link back to this declaration -- unlike a struct literal or an enum access,
-                 * which both resolve through find_struct/find_enum and so can be linted.
-                 * Supporting it means carrying the deprecation on the binding (tasks.md F58). */
-                ziman_error("syntax", v->line, v->col,
-                            "#[deprecated] works on a function, a struct and an enum, but not yet on a val ('%s') -- "
-                            "a module-level val becomes a plain binding in the global scope, so a reference to it "
-                            "carries nothing back to this declaration for a lint to read (docs/ROADMAP.md)", v->name);
-            }
+            v->deprecated = derives.deprecated;
+            v->deprecated_message = derives.deprecated_message;
             global_val_list_push(&module->vals, v);
         } else {
             FunctionDecl *fn = parse_function(&p);

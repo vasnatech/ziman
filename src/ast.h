@@ -796,6 +796,8 @@ typedef struct {
     Visibility visibility;
     int line, col;
     const char *source_file;
+    int deprecated;                  /* `#[deprecated]` or `#[deprecated("...")]` was written on it */
+    const char *deprecated_message;  /* the `("...")` text, or NULL for the bare form */
 } GlobalValDecl;
 
 typedef struct {

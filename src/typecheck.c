@@ -419,6 +419,23 @@ static int g_lint_active = 0;             /* a style lint should run here: --lin
  * redundant `as` alias) stay behind the flag. Separating the two is the whole of F68: these used to
  * share `g_lint_active`, so a deprecation only reached anyone who ran a second command. */
 static int g_user_code = 0;
+
+/* Module-level vals carrying `#[deprecated]`. A side table rather than two more fields on
+ * `Binding`, which is allocated once per binding per call and was measured as the interpreter's
+ * hottest allocation (docs/DESIGN.md's "Binding names are borrowed") -- a rare attribute has no
+ * business widening it.
+ *
+ * Keyed by name alone, which is sound here for two reasons the language guarantees rather than
+ * hopes: the loader merges every module into one and self-qualifies these names, so a name is
+ * unique program-wide; and a local can never shadow a global val (ast.h's GlobalValDecl comment),
+ * so an identifier matching one of these names is that val and nothing else. */
+typedef struct {
+    const char *name;
+    const char *message;
+    const char *source_file;
+} DeprecatedVal;
+static DeprecatedVal *g_deprecated_vals = NULL;
+static int g_deprecated_val_count = 0, g_deprecated_val_cap = 0;
 static const char *g_lint_file = NULL;
 
 void typecheck_enable_lint(void) { g_lint_on = 1; }
@@ -466,6 +483,31 @@ static void lint_deprecated_struct(const StructDecl *sd, int line, int col) {
         ziman_warning(g_lint_file, line, col, "'%s' is deprecated", sd->name);
     }
     g_lint_count++;
+}
+
+/* The same rule again for a module-level `val`: reading one declared elsewhere warns, reading one
+ * from its own module is silent. The read is caught at `EXPR_IDENT`, which its own comment calls
+ * "the one place a name is read" -- so this covers a bare reference wherever a function body makes
+ * it, which is where essentially all of them are.
+ *
+ * Not covered, and worth stating rather than discovering: a read inside *another* module's global
+ * val initializer. `g_user_code` is set per function in check_function, and global vals are checked
+ * before any function body, so during that pass this gate is off. Fixing it means tracking the
+ * declaring file across check_global_vals, which is more machinery than the case is worth until
+ * something actually chains deprecated vals between modules. */
+static void lint_deprecated_val(const char *name, int line, int col) {
+    if (!g_user_code || name == NULL) return;
+    for (int i = 0; i < g_deprecated_val_count; i++) {
+        if (strcmp(g_deprecated_vals[i].name, name) != 0) continue;
+        if (lint_same_source(g_deprecated_vals[i].source_file, g_lint_file)) return;
+        if (g_deprecated_vals[i].message != NULL) {
+            ziman_warning(g_lint_file, line, col, "'%s' is deprecated: %s", name, g_deprecated_vals[i].message);
+        } else {
+            ziman_warning(g_lint_file, line, col, "'%s' is deprecated", name);
+        }
+        g_lint_count++;
+        return;
+    }
 }
 
 static void lint_deprecated_enum(const EnumDecl *ed, int line, int col) {
@@ -3096,6 +3138,7 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
             if (b != NULL && b->lint_id > 0 && b->lint_id - 1 < g_lint_var_count) {
                 g_lint_vars[b->lint_id - 1].used = 1;
             }
+            lint_deprecated_val(e->as.ident_name, e->line, e->col);
             if (b == NULL) {
                 Type ft;
                 if (resolve_function_reference(module, e, &ft)) {
@@ -4451,6 +4494,17 @@ static void check_global_vals(Module *module) {
         synthetic.as.decl.has_declared_type = v->has_declared_type;
         synthetic.as.decl.init = v->init;
         check_stmt(module, g_global_env, &synthetic, type_scalar(TY_VOID), 0);
+        if (v->deprecated) {
+            if (g_deprecated_val_count == g_deprecated_val_cap) {
+                g_deprecated_val_cap = g_deprecated_val_cap == 0 ? 8 : g_deprecated_val_cap * 2;
+                g_deprecated_vals = ziman_xrealloc(g_deprecated_vals,
+                                                   (size_t)g_deprecated_val_cap * sizeof *g_deprecated_vals);
+            }
+            g_deprecated_vals[g_deprecated_val_count].name = v->name;
+            g_deprecated_vals[g_deprecated_val_count].message = v->deprecated_message;
+            g_deprecated_vals[g_deprecated_val_count].source_file = v->source_file;
+            g_deprecated_val_count++;
+        }
         Binding *made = env_lookup(g_global_env, v->name);
         if (made != NULL) reject_thread_bound(module, made->type, "the type of a module-level val (every thread would share it)", v->line, v->col);
     }

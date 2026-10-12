@@ -1,0 +1,6 @@
+# F69: three warnings from a plain compile. oldlib's own read of retry_limit (inside limit_plus) is
+# absent on purpose -- same-module use is silent -- and max_retries is not deprecated at all.
+# Line 19 reads retry_limit a second time and warns again: each read is its own site.
+lint 16:11 'oldlib::retry_limit' is deprecated: use max_retries instead
+lint 17:11 'oldlib::legacy_flag' is deprecated
+lint 19:11 'oldlib::retry_limit' is deprecated: use max_retries instead
