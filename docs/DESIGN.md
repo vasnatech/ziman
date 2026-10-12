@@ -155,6 +155,7 @@ them against the code.
 - [Two regex ceilings, and a free that is impossible in both builds (2026-10-09, A28 and A35)](#two-regex-ceilings-and-a-free-that-is-impossible-in-both-builds-2026-10-09-a28-and-a35)
 - [The `Row` bound, and why `from_row` cannot work the way `compare` does (2026-10-09, C18)](#the-row-bound-and-why-from_row-cannot-work-the-way-compare-does-2026-10-09-c18)
 - [Pattern matching, measured rather than argued (2026-10-11, F67)](#pattern-matching-measured-rather-than-argued-2026-10-11-f67)
+- [Four formatter rules that lived only in comments (2026-10-12, F73 and F79)](#four-formatter-rules-that-lived-only-in-comments-2026-10-12-f73-and-f79)
 
 <!-- end index -->
 
@@ -5804,3 +5805,55 @@ The enum entry in ROADMAP.md has carried "**`match`/pattern matching** ... is it
 
 **What this entry is for.** The roadmap bullet was a standing invitation to re-litigate `match` from first principles every time someone read it. Replacing "its own design pass, deliberately not attempted" with a number and a named open question means the next reader inherits the measurement instead of repeating the argument. If the four nesting sites become forty, or if someone makes the case for literal patterns, this entry is what they are revising -- and the number to re-run is in it.
 
+## Four formatter rules that lived only in comments (2026-10-12, F73 and F79)
+
+The 2026-10-11 style review asked for a formatting reference a programmer could follow by hand, and
+found four rules that `--fmt` enforces or deliberately declines but that no document stated. Each is
+written out here, verified by running the formatter rather than by reading it.
+
+**A broken call goes fully vertical, whatever its width.** Breaking a call or a struct literal
+between its arguments *at all* makes the formatter put every argument on its own line and the
+brackets on theirs -- even when the whole thing would fit well inside the width:
+
+```ziman ignore: the point is the two layouts, not a program
+val short = g(1,
+    2, 3)
+```
+
+becomes `g(\n 1,\n 2,\n 3\n)`. This is the most surprising thing the formatter does, because the
+input fits on one line and the author's own break was only a hint. It is deliberate -- an argument
+list is either one line or one argument per line, never a ragged fill -- but it lived at
+`src/format.c`'s `normalize_vertical` and nowhere else, so the only way to learn it was to be
+surprised by it.
+
+**An array literal is the exception, and fills greedily.** The same over-width `[...]` does *not* go
+one element per line; it fills to the width and wraps. So the bracket decides the shape, which is
+the one place the formatter is not uniform:
+
+```ziman ignore: the two shapes side by side
+val arr = [1, 2, 3,
+    4, 5]
+```
+
+stays exactly as written. **The reason is the content, not an oversight** (`vertical` is never set
+for `[`): an array's elements are homogeneous, and forty integers one per line is a column nobody
+wants to read or review, while a call's arguments are heterogeneous and each earns a line of its
+own. Menderes confirmed this reading on 2026-10-12 when the review raised it as a question; the
+alternative -- one rule for all three brackets -- was considered and declined because it would turn
+every numeric and string table in the library into a tall column.
+
+**`<` and `>` keep the spacing the source had, and the house rule is unwritten and unenforced.**
+The formatter cannot tell `a < b` from `List<int>` without parsing, so it collapses runs of spaces
+and otherwise leaves them alone (see "What it cannot decide without parsing" above). That means the
+corpus's actual convention -- generics tight (`Option<int>`), comparisons spaced (`short < 5`), with
+no counterexample anywhere in `lib/` -- is a convention held by hand. It is stated here so that a
+reader who wants to match the library knows what to match; nothing checks it.
+
+**A trailing comment is normalised to two spaces, or aligned to its run.** The R17 entry above says
+a trailing comment "keeps its distance from the code so aligned comments survive", which is the
+intent but reads as though any distance is preserved. What actually happens: a *lone* trailing
+comment is set to two spaces however far out it was written, and a *run* of them is aligned to the
+longest code line in the run plus two. So alignment survives as a group, not per line -- and a
+hand-aligned column in a document will usually differ from the formatter's computed one, which is
+why a blanket `--fmt --check` over `docs/SYNTAX.md`'s examples disagrees with 40 of its 46 blocks
+without any of them being wrong (F74).
