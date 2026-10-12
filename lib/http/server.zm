@@ -55,7 +55,6 @@ use http.Header
 use http.HttpMethod
 use http.Request
 use http.Response
-use http.accepts
 use http.content_type
 use http.header
 use http.header_value
@@ -64,6 +63,7 @@ use http.is_token
 use http.method_name
 use http.method_parse
 use http.percent_decode
+use http.quality
 use http.status_accepted
 use http.status_bad_request
 use http.status_conflict
@@ -1264,6 +1264,13 @@ pub struct Decoder<I> {
 }
 
 // How to encode an answer `O` as `media`. Build one with `encoder` (to bytes) or `text_encoder` (to text).
+//
+// An endpoint may list several, and **which one answers is the client's choice, not the order here**: each
+// one's media type gets the request's `Accept` weight (`http.quality`) and the heaviest wins, so an endpoint
+// offering `text/plain` and `text/csv` answers `Accept: text/csv, text/plain;q=0.5` with CSV. This order
+// breaks a tie, which makes it the server's preference among types the client likes equally. A type the
+// client gave `q=0` is refused rather than used as a last resort, and an endpoint whose every encoder is
+// refused answers 406.
 pub struct Encoder<O> {
     media: mime.MediaType
     encode: fn(O) -> [byte]
@@ -1345,13 +1352,24 @@ pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encode
     return Encoder<O> { media: media, encode: fn(value: O) -> [byte] { return string_to_bytes(go(value)) } }
 }
 
+// The encoder the client most wants, or `None` -- a 406 -- when it wants none of them.
+//
+// **The client's `q` weights decide, not the order the endpoint lists its encoders in**, which is the whole
+// point: an endpoint that can write `text/plain` and `text/csv` answers `Accept: text/csv, text/plain;q=0.5`
+// with CSV, where listing `text_out` first used to win regardless of what the client asked for. The
+// endpoint's order still breaks a tie, so it remains the server's preference among equals -- and since
+// nothing is chosen at weight zero, `q=0` is a refusal rather than a last resort.
 fn negotiate<O>(encoders: [Encoder<O>], req: Request) -> Option<Encoder<O>> {
+    var best = Option<Encoder<O>>.None
+    var best_q = 0.0
     for w in encoders {
-        if accepts(req.headers, w.media) {
-            return Option<Encoder<O>>.Some(w)
+        val q = quality(req.headers, w.media)
+        if q > best_q {
+            best_q = q
+            best = Option<Encoder<O>>.Some(w)
         }
     }
-    return Option<Encoder<O>>.None
+    return best
 }
 
 // The first decoder whose media type the request's `Content-Type` is.

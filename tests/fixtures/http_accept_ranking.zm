@@ -1,0 +1,94 @@
+// F63: `Accept` quality weights, ranked rather than merely tested for zero.
+//
+// `accepts` answered a yes/no question, so the server's own encoder order decided what a client got and
+// the weights it sent were read only for a refusal. `quality` gives the number, which is what lets
+// `best_media` and the typed endpoints send what the client most wants.
+//
+// Two rules carry the behaviour. The **most specific** matching range decides -- `type/subtype`, then
+// `type/*`, then `*/*` -- which is RFC 9110's rule and the reason `*/*, text/*;q=0` is a refusal rather
+// than a wildcard rescue. And **nothing is ever chosen at zero**, so `q=0` refuses instead of ranking last.
+use http
+use mime
+fn h(name: string, value: string) -> http.Header {
+    return http.Header { name: name, value: value }
+}
+
+fn headers(accept: string) -> [http.Header] {
+    return [h("Accept", accept)]
+}
+
+fn q(accept: string, media: mime.MediaType) -> string {
+    return concat(mime.essence(media), "=", str(http.quality(headers(accept), media)))
+}
+
+val json = mime.application_json()
+val plain = mime.text_plain()
+val csv = mime.text_csv()
+
+fn show(accept: string) {
+    printf("{}  ->  {}  {}  {}\n", accept, q(accept, json), q(accept, plain), q(accept, csv))
+}
+
+fn best(accept: string, candidates: [mime.MediaType]) -> string {
+    return switch http.best_media(headers(accept), candidates) {
+        Some(m) { mime.essence(m) }
+        None { "none acceptable" }
+    }
+}
+
+fn main() {
+    // No `Accept` at all is full acceptance of everything, which is what the grammar says absence means.
+    printf("no Accept header  ->  {} {} {}\n",
+           str(http.quality([], json)), str(http.quality([], plain)), str(http.quality([], csv)))
+
+    // A range with no `q` weighs 1.0; a named one weighs what it says.
+    show("application/json")
+    show("application/json;q=0.5, text/plain")
+    show("text/*;q=0.8")
+    show("*/*;q=0.3")
+
+    // The most specific match decides, in both directions: a wildcard cannot rescue what a narrower range
+    // refused, and a narrower range's weight is not diluted by a wildcard that also matches.
+    show("*/*, text/*;q=0")
+    show("*/*;q=0.1, text/plain;q=0.9")
+    show("text/*;q=0.2, text/csv")
+    show("application/json;q=0, */*")
+
+    // Equally specific ranges that both match: the larger weight wins rather than the first written.
+    show("text/*;q=0.2, text/*;q=0.9")
+
+    // A weight that is not a number is one malformed parameter, not a reason to refuse a client that did
+    // say what it wanted, so it reads as the absent default of 1.0.
+    show("text/plain;q=high")
+    show("text/plain;q=")
+
+    // Out of range on purpose: `q=5` outranks `q=1` because that is plainly what was meant, and a negative
+    // weight refuses the type, since nothing is chosen at zero or below.
+    show("text/plain;q=5, text/csv")
+    show("text/plain;q=-1, text/csv;q=0.1")
+
+    // Unparseable ranges are skipped, not fatal; a header of nothing but one accepts nothing.
+    show("not a media type, text/plain;q=0.4")
+    show("")
+
+    // `best_media` over what a handler can write: the highest weight, the candidate order breaking a tie,
+    // and `None` -- a 406 -- when every candidate is refused.
+    printf("\n")
+    printf("prefers csv            -> {}\n", best("text/csv, text/plain;q=0.5", [plain, csv]))
+    printf("prefers plain          -> {}\n", best("text/csv;q=0.4, text/plain;q=0.8", [plain, csv]))
+    printf("no preference          -> {}\n", best("text/csv, text/plain", [plain, csv]))
+    printf("no preference, csv 1st -> {}\n", best("text/csv, text/plain", [csv, plain]))
+    printf("wildcard only          -> {}\n", best("*/*", [plain, csv]))
+    printf("refuses both           -> {}\n", best("*/*, text/*;q=0", [plain, csv]))
+    printf("refuses one            -> {}\n", best("text/plain;q=0, text/csv", [plain, csv]))
+    printf("wants what is not here -> {}\n", best("application/xml", [plain, csv]))
+    printf("no candidates          -> {}\n", best("*/*", []))
+
+    // `accepts` is `quality` above zero, and its own documented cases are unchanged by the ranking.
+    printf("\n")
+    printf("accepts json, weighted    -> {}\n", str(http.accepts(headers("text/html, application/json;q=0.5"), json)))
+    printf("accepts json, zero exact  -> {}\n", str(http.accepts(headers("application/json;q=0, */*"), json)))
+    printf("accepts json, zero spelt  -> {}\n", str(http.accepts([h("accept", "application/json;q=0.0")], json)))
+    printf("accepts json, no header   -> {}\n", str(http.accepts([], json)))
+    printf("accepts json, wildcard    -> {}\n", str(http.accepts(headers("*/*"), json)))
+}

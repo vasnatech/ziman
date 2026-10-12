@@ -294,6 +294,14 @@ fn main() {
         request("GET", "/items/7", [], ""),
         request("GET", "/items/7", [h("Accept", "text/csv")], ""),
         request("GET", "/items/7", [h("Accept", "text/*, text/csv;q=0")], ""),
+        // The endpoint lists text/plain first, so these three are what the client's `q` weights decide and
+        // the endpoint's own order does not: csv when the client prefers csv, plain when it prefers plain,
+        // and the endpoint's first choice only when the two weigh the same.
+        request("GET", "/items/7", [h("Accept", "text/csv, text/plain;q=0.5")], ""),
+        request("GET", "/items/7", [h("Accept", "text/csv;q=0.4, text/plain;q=0.8")], ""),
+        request("GET", "/items/7", [h("Accept", "text/csv, text/plain")], ""),
+        // The most specific matching range decides, so a wildcard cannot rescue what `text/*;q=0` refused.
+        request("GET", "/items/7", [h("Accept", "*/*, text/*;q=0")], ""),
         request("GET", "/items/7", [h("Accept", "application/json")], ""),
         request("GET", "/items/x", [], ""),
         request("GET", "/items/0", [], ""),

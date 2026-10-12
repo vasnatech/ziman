@@ -1,6 +1,10 @@
 GET /items/7 -> 200 [text/plain] item 7
 GET /items/7 -> 200 [text/csv] id|7|
 GET /items/7 -> 200 [text/plain] item 7
+GET /items/7 -> 200 [text/csv] id|7|
+GET /items/7 -> 200 [text/plain] item 7
+GET /items/7 -> 200 [text/plain] item 7
+GET /items/7 -> 406 [text/plain; charset=utf-8] fault 406: not acceptable: this route produces text/plain, text/csv
 GET /items/7 -> 406 [text/plain; charset=utf-8] fault 406: not acceptable: this route produces text/plain, text/csv
 GET /items/x -> 400 [text/plain; charset=utf-8] fault 400: bad id
 GET /items/0 -> 422 [text/plain; charset=utf-8] failure: no such item

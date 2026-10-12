@@ -1956,8 +1956,8 @@ from source.
   `Encoder` built with `decoder`/`encoder` over bytes or `text_decoder`/`text_encoder` over text, `handler`, `path_handler`,
   `body_handler` in `public_` and `secure_` forms, `Denied`, `dispatch`), where a handler takes the decoded request and
   returns the resource or the application's own error, and the library checks `Content-Type` (415), negotiates `Accept`
-  (406), decodes (400) and encodes with the declared status. The health-record backend runs on it. Still to do: ranking by
-  `q` weights (today the first encoder the client allows wins, in the endpoint's own order); and ~~encoders a derive emits~~
+  (406), decodes (400) and encodes with the declared status. The health-record backend runs on it. ~~Still to do: ranking by
+  `q` weights (today the first encoder the client allows wins, in the endpoint's own order)~~; and ~~encoders a derive emits~~
   **done 2026-10-10 (F43): `server.json_decoder`, `json_encoder` and `json_list_encoder` turn a
   `#[derive(Json)]` pair into the `Decoder`/`Encoder` an endpoint wants, one call per direction.
   Promoted out of the reference backend rather than invented -- it had written the same three
@@ -1966,7 +1966,18 @@ from source.
   service would have written them again, which is what makes them the library's job.** The original
   note: encoders a derive emits
   (`#[derive(Json)]` already gives the function; an `Encoder` for JSON, YAML or CSV from one declaration would shorten the
-  table). Streaming bodies (an `InputStream`/`OutputStream` analogue: a request body read in blocks, a response written
+  table).
+
+  *Update 2026-10-11 (F63): `q` ranking is done, so both follow-ups under this entry are closed.*
+  `http.quality(headers, media)` gives the weight as a number, `http.best_media` picks the best of
+  what a handler can write, and the typed endpoints negotiate with it -- so an endpoint offering
+  `text/plain` and `text/csv` answers `Accept: text/csv, text/plain;q=0.5` with **CSV**, where the
+  endpoint's own listing order used to decide regardless of what the client asked. That order now
+  breaks ties only, which keeps it as the server's preference among equals. The second half was not
+  on the entry at all: the **most specific** matching range decides (`type/subtype`, `type/*`,
+  `*/*`), per RFC 9110, so `*/*, text/*;q=0` is a refusal rather than a wildcard rescue -- and that
+  rule *subsumes* the exact-match `q=0` case the old two-pass code handled specially, which is why
+  removing it regresses behaviour that shipped before the ranking existed. Streaming bodies (an `InputStream`/`OutputStream` analogue: a request body read in blocks, a response written
   as it is produced) are not planned until an endpoint needs them.
 
 - **HTTP/2 -- not started; worth doing when something needs to serve browsers or gRPC directly.** `server` and `client`

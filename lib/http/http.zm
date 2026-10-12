@@ -401,44 +401,94 @@ pub fn content_type(headers: [Header]) -> Option<mime.MediaType> {
     }
 }
 
-// True when `m`'s `q` parameter is some spelling of zero ("0", "0.0", "0.00", ...). Stripping
-// every "0" and "." and checking for an empty result avoids parsing the value as a float, which
-// would also have to tolerate a malformed quality weight without failing the whole Accept header.
-fn is_zero_quality(m: mime.MediaType) -> bool {
+// The weight a range's `q` parameter gives it: its value as a number, or 1.0 when the range has no `q`,
+// which is what the grammar says absence means. A `q` that is not a number is **also** 1.0 -- it is one
+// malformed parameter in one range, and refusing the whole header over it would answer 406 to a client that
+// did say what it wanted. (An earlier version detected only `q=0` by stripping "0" and "." from the string,
+// precisely to avoid parsing a float. Ranking needs the number itself, so the parse is now real and the
+// tolerance that comment wanted is this fallback.)
+fn range_quality(m: mime.MediaType) -> float {
     return switch mime.param(m, "q") {
-        None { false }
-        Some(q) { replace(replace(q, "0", ""), ".", "") == "" }
+        None { 1.0 }
+        Some(q) {
+            switch parse_float(trim(q)) {
+                Ok(v) { v }
+                Err(_) { 1.0 }
+            }
+        }
     }
 }
 
-// Whether a client whose headers are `headers` accepts a response of type `media`: true when there is no
-// `Accept` header, or when one of its ranges (`application/json`, `text/*`, `*/*`) matches `media`. A range
-// naming `media` exactly with `q=0` refuses it even when a wildcard would allow it. Other quality weights
-// are not ranked; any positive one counts as acceptance.
-pub fn accepts(headers: [Header], media: mime.MediaType) -> bool {
+// How specific a range is, so that the most specific match is the one that decides: `type/subtype` (2) beats
+// `type/*` (1) beats `*/*` (0). This is RFC 9110's rule, and the reason `Accept: */*, text/*;q=0` refuses
+// `text/plain` instead of letting the wildcard allow it. Parameters beyond `q` do not count --
+// `text/html;level=1` is no more specific here than `text/html` -- a distinction only the 1990s needed.
+fn range_specificity(m: mime.MediaType) -> int {
+    if m.type == "*" {
+        return 0
+    }
+    if m.subtype == "*" {
+        return 1
+    }
+    return 2
+}
+
+// The client's quality weight for a response of type `media`, read from `Accept`: 1.0 when there is no
+// `Accept` header at all, otherwise the `q` of the **most specific** range that matches `media`, and 0.0
+// when no range matches. Where two ranges are equally specific the larger weight wins.
+//
+// Comparing these weights is what lets a server send what the client most wants rather than the first thing
+// it happens to be able to write (`best_media`, and `server`'s typed endpoints); `accepts` is this being
+// positive.
+//
+// A weight outside 0..1 is used as it was sent, neither clamped nor rejected: a negative one refuses the
+// type, since nothing is ever chosen at 0.0 or below, and `q=5` really does outrank `q=1`, which is what a
+// client sending it meant even though the grammar does not allow it.
+pub fn quality(headers: [Header], media: mime.MediaType) -> float {
     val value = switch header_value(headers, "Accept") {
         Some(v) { v }
-        None { return true }
+        None { return 1.0 }
     }
-    val ranges = ab_new<mime.MediaType>()
+    var best = 0.0
+    var best_specificity = -1
     for item in split(value, ",") {
-        val range = mime.parse(item)
-        if Ok(r) = range {
-            ab_append(ranges, r)
+        if Ok(r) = mime.parse(item) {
+            if mime.matches(r, media) {
+                val s = range_specificity(r)
+                val q = range_quality(r)
+                if s > best_specificity || (s == best_specificity && q > best) {
+                    best_specificity = s
+                    best = q
+                }
+            }
         }
     }
-    val all = ab_to_array(ranges)
-    for r in all {
-        if is_zero_quality(r) && mime.essence(r) == mime.essence(media) {
-            return false
+    return best
+}
+
+// Whether a client whose headers are `headers` accepts a response of type `media`: `quality` above zero, so
+// true when there is no `Accept` header, or when the most specific of its ranges (`application/json`,
+// `text/*`, `*/*`) matching `media` carries a positive weight. A `q=0` there refuses `media` even when a
+// less specific range would allow it.
+pub fn accepts(headers: [Header], media: mime.MediaType) -> bool {
+    return quality(headers, media) > 0.0
+}
+
+// The one of `candidates` the client most wants, or `None` when it accepts none of them: the highest
+// `quality`, with the order of `candidates` -- the server's own preference -- breaking a tie, and a
+// candidate at weight zero never chosen. For a handler that can write several representations by hand;
+// `server`'s typed endpoints negotiate their encoders the same way.
+pub fn best_media(headers: [Header], candidates: [mime.MediaType]) -> Option<mime.MediaType> {
+    var best = Option<mime.MediaType>.None
+    var best_q = 0.0
+    for c in candidates {
+        val q = quality(headers, c)
+        if q > best_q {
+            best_q = q
+            best = Option<mime.MediaType>.Some(c)
         }
     }
-    for r in all {
-        if !is_zero_quality(r) && mime.matches(r, media) {
-            return true
-        }
-    }
-    return false
+    return best
 }
 
 // %XX escapes; `plus_is_space` is for query strings ("a+b" is "a b" there, but a literal plus in a path).

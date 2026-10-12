@@ -1746,7 +1746,11 @@ pub fn delete_cookie_header(name: string, path: string, domain: string) -> Heade
 
 pub fn content_type(headers: [Header]) -> Option<mime.MediaType>
 
+pub fn quality(headers: [Header], media: mime.MediaType) -> float
+
 pub fn accepts(headers: [Header], media: mime.MediaType) -> bool
+
+pub fn best_media(headers: [Header], candidates: [mime.MediaType]) -> Option<mime.MediaType>
 
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string>
 

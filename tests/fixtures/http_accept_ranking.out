@@ -1,0 +1,32 @@
+no Accept header  ->  1.0 1.0 1.0
+application/json  ->  application/json=1.0  text/plain=0.0  text/csv=0.0
+application/json;q=0.5, text/plain  ->  application/json=0.5  text/plain=1.0  text/csv=0.0
+text/*;q=0.8  ->  application/json=0.0  text/plain=0.8  text/csv=0.8
+*/*;q=0.3  ->  application/json=0.3  text/plain=0.3  text/csv=0.3
+*/*, text/*;q=0  ->  application/json=1.0  text/plain=0.0  text/csv=0.0
+*/*;q=0.1, text/plain;q=0.9  ->  application/json=0.1  text/plain=0.9  text/csv=0.1
+text/*;q=0.2, text/csv  ->  application/json=0.0  text/plain=0.2  text/csv=1.0
+application/json;q=0, */*  ->  application/json=0.0  text/plain=1.0  text/csv=1.0
+text/*;q=0.2, text/*;q=0.9  ->  application/json=0.0  text/plain=0.9  text/csv=0.9
+text/plain;q=high  ->  application/json=0.0  text/plain=1.0  text/csv=0.0
+text/plain;q=  ->  application/json=0.0  text/plain=1.0  text/csv=0.0
+text/plain;q=5, text/csv  ->  application/json=0.0  text/plain=5.0  text/csv=1.0
+text/plain;q=-1, text/csv;q=0.1  ->  application/json=0.0  text/plain=-1.0  text/csv=0.1
+not a media type, text/plain;q=0.4  ->  application/json=0.0  text/plain=0.4  text/csv=0.0
+  ->  application/json=0.0  text/plain=0.0  text/csv=0.0
+
+prefers csv            -> text/csv
+prefers plain          -> text/plain
+no preference          -> text/plain
+no preference, csv 1st -> text/csv
+wildcard only          -> text/plain
+refuses both           -> none acceptable
+refuses one            -> text/csv
+wants what is not here -> none acceptable
+no candidates          -> none acceptable
+
+accepts json, weighted    -> true
+accepts json, zero exact  -> false
+accepts json, zero spelt  -> false
+accepts json, no header   -> true
+accepts json, wildcard    -> true

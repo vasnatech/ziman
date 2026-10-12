@@ -516,16 +516,45 @@ pub fn content_type(headers: [Header]) -> Option<mime.MediaType>
 
 The `Content-Type` in `headers` as a media type, or None when there is none or it is not a valid media type.
 
+### `quality`
+
+```
+pub fn quality(headers: [Header], media: mime.MediaType) -> float
+```
+
+The client's quality weight for a response of type `media`, read from `Accept`: 1.0 when there is no
+`Accept` header at all, otherwise the `q` of the **most specific** range that matches `media`, and 0.0
+when no range matches. Where two ranges are equally specific the larger weight wins.
+
+Comparing these weights is what lets a server send what the client most wants rather than the first thing
+it happens to be able to write (`best_media`, and `server`'s typed endpoints); `accepts` is this being
+positive.
+
+A weight outside 0..1 is used as it was sent, neither clamped nor rejected: a negative one refuses the
+type, since nothing is ever chosen at 0.0 or below, and `q=5` really does outrank `q=1`, which is what a
+client sending it meant even though the grammar does not allow it.
+
 ### `accepts`
 
 ```
 pub fn accepts(headers: [Header], media: mime.MediaType) -> bool
 ```
 
-Whether a client whose headers are `headers` accepts a response of type `media`: true when there is no
-`Accept` header, or when one of its ranges (`application/json`, `text/*`, `*/*`) matches `media`. A range
-naming `media` exactly with `q=0` refuses it even when a wildcard would allow it. Other quality weights
-are not ranked; any positive one counts as acceptance.
+Whether a client whose headers are `headers` accepts a response of type `media`: `quality` above zero, so
+true when there is no `Accept` header, or when the most specific of its ranges (`application/json`,
+`text/*`, `*/*`) matching `media` carries a positive weight. A `q=0` there refuses `media` even when a
+less specific range would allow it.
+
+### `best_media`
+
+```
+pub fn best_media(headers: [Header], candidates: [mime.MediaType]) -> Option<mime.MediaType>
+```
+
+The one of `candidates` the client most wants, or `None` when it accepts none of them: the highest
+`quality`, with the order of `candidates` -- the server's own preference -- breaking a tie, and a
+candidate at weight zero never chosen. For a handler that can write several representations by hand;
+`server`'s typed endpoints negotiate their encoders the same way.
 
 ### `percent_decode`
 

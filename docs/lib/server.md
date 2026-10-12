@@ -542,6 +542,13 @@ pub struct Encoder<O> {
 
 How to encode an answer `O` as `media`. Build one with `encoder` (to bytes) or `text_encoder` (to text).
 
+An endpoint may list several, and **which one answers is the client's choice, not the order here**: each
+one's media type gets the request's `Accept` weight (`http.quality`) and the heaviest wins, so an endpoint
+offering `text/plain` and `text/csv` answers `Accept: text/csv, text/plain;q=0.5` with CSV. This order
+breaks a tie, which makes it the server's preference among types the client likes equally. A type the
+client gave `q=0` is refused rather than used as a last resort, and an endpoint whose every encoder is
+refused answers 406.
+
 ### `decoder`
 
 ```
