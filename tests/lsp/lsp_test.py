@@ -154,6 +154,62 @@ r = request("textDocument/documentHighlight", {"textDocument": {"uri": main_uri}
 lines = sorted(h["range"]["start"]["line"] for h in r["result"])
 check("document highlight sees the inner binding from inside the shadow", lines == [9, 10], lines)
 
+# Semantic tokens. The point of the layer is `mutable` on a `var`'s *uses*, which no regex grammar
+# can mark because it would have to resolve the name to its declaration -- and the use site is
+# where a one-character val/var typo does its damage (docs/DESIGN.md's own note, F76, F78).
+legend = init["result"]["capabilities"]["semanticTokensProvider"]["legend"]
+types, mods = legend["tokenTypes"], legend["tokenModifiers"]
+check("semantic tokens are advertised with a legend", "variable" in types and "mutable" in mods, legend)
+
+sem = ('fn helper(count: int) -> int {\n    return count\n}\n\nfn main() {\n    val fixed = 1\n'
+       '    var moving = 2\n    moving = moving + fixed\n    print(helper(moving))\n}\n')
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 11}, "contentChanges": [{"text": sem}]})
+diagnostics_for(main_uri)
+r = request("textDocument/semanticTokens/full", {"textDocument": {"uri": main_uri}})
+data = r["result"]["data"]
+check("semantic tokens come back delta-encoded in fives", data and len(data) % 5 == 0, len(data) if data else data)
+
+# Decode to (line, col, text, type, [modifiers]) so the assertions below read as what they mean.
+decoded, line_n, col_n = [], 0, 0
+src_lines = sem.split("\n")
+for k in range(0, len(data), 5):
+    dl, dc, length, ty, mo = data[k:k + 5]
+    line_n += dl
+    col_n = dc if dl else col_n + dc
+    decoded.append((line_n, col_n, src_lines[line_n][col_n:col_n + length], types[ty],
+                    sorted(mods[i] for i in range(len(mods)) if mo >> i & 1)))
+
+moving = [d for d in decoded if d[2] == "moving"]
+check("every occurrence of a `var` is marked mutable, not just its declaration",
+      len(moving) == 4 and all("mutable" in d[4] for d in moving), moving)
+check("the `var`'s declaration is the only one marked as such",
+      sum(1 for d in moving if "declaration" in d[4]) == 1, moving)
+fixed_toks = [d for d in decoded if d[2] == "fixed"]
+check("a `val` is readonly at its uses too",
+      len(fixed_toks) == 2 and all("readonly" in d[4] for d in fixed_toks), fixed_toks)
+check("a parameter is a parameter and is readonly",
+      all(d[3] == "parameter" and "readonly" in d[4] for d in decoded if d[2] == "count"),
+      [d for d in decoded if d[2] == "count"])
+check("a function is a function", any(d[2] == "helper" and d[3] == "function" for d in decoded), decoded)
+
+# `defaultLibrary` replaces a hand-maintained list of names with a fact, and `deprecated` gives the
+# compiler's own warning a place in the editor.
+lib = ('use net\n\nfn main() {\n    val l = unwrap(net.listen("127.0.0.1", 0))\n    print(str(net.listener_port(l)))\n}\n')
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 12}, "contentChanges": [{"text": lib}]})
+diagnostics_for(main_uri)
+r = request("textDocument/semanticTokens/full", {"textDocument": {"uri": main_uri}})
+data = r["result"]["data"]
+lib_lines = lib.split("\n")
+line_n = col_n = 0
+seen = {}
+for k in range(0, len(data), 5):
+    dl, dc, length, ty, mo = data[k:k + 5]
+    line_n += dl
+    col_n = dc if dl else col_n + dc
+    seen[lib_lines[line_n][col_n:col_n + length]] = sorted(mods[i] for i in range(len(mods)) if mo >> i & 1)
+check("a bundled-module function is marked defaultLibrary",
+      "defaultLibrary" in seen.get("listen", []), seen)
+
 # a folder holds its own module under its own name: `use shapes` is shapes/shapes.zm
 os.makedirs(os.path.join(tmp, "shapes"))
 shapes_path = os.path.join(tmp, "shapes", "shapes.zm")

@@ -850,7 +850,7 @@ static char *core_file(const char *use_path) {
  * in suggestions the compiler's own enforcement (loader.c's `visibility_allows`) doesn't share --
  * getting this exactly right would mean teaching the LSP the same same-package tracking the
  * compiler has, for a suggestion list's own sake, which the value doesn't clearly justify yet. */
-typedef struct { const char *name; const char *file; int line, col; int kind; char *signature; int visible_outside; int core; } Sym;
+typedef struct { const char *name; const char *file; int line, col; int kind; char *signature; int visible_outside; int core; int deprecated; } Sym;
 
 /* The file a declaration lives in: its own, or for a bundled core module (`mime::parse`) the cached copy. */
 static const char *sym_file(const char *name, const char *source_file, int *core) {
@@ -888,13 +888,13 @@ static Sym *collect_symbols(int *count) {
      * doesn't have; dropping the duplicate instead would silently break every cross-file,
      * qualified reference to a symbol whose file also happens to be some *other* graph's entry
      * (lib/http/client.zm's own net.zm dependency, say, when net.zm is independently open too). */
-#define ADD(nm, f, l, c, k, sig, pub, cr) do { \
+#define ADD(nm, f, l, c, k, sig, pub, cr, dep) do { \
     int dup = already_has(out, n, f, l); \
     if (dup < 0) { \
         if (n == cap) { cap *= 2; out = ziman_xrealloc(out, (size_t)cap * sizeof(Sym)); } \
-        out[n++] = (Sym){nm, f, l, c, k, sig, pub, cr}; \
+        out[n++] = (Sym){nm, f, l, c, k, sig, pub, cr, dep}; \
     } else if (strstr(nm, "::") != NULL && strstr(out[dup].name, "::") == NULL) { \
-        out[dup] = (Sym){nm, f, l, c, k, sig, pub, cr}; \
+        out[dup] = (Sym){nm, f, l, c, k, sig, pub, cr, dep}; \
     } } while (0)
     for (int gi = 0; gi < g_n_graphs; gi++) {
         Module *m = g_graphs[gi].module;
@@ -905,22 +905,22 @@ static Sym *collect_symbols(int *count) {
             FunctionDecl *fn = m->functions.items[i];
             if (fn->derived_from != NULL || fn->name[0] == '$') continue;
             if ((file = sym_file(fn->name, fn->source_file, &core)) == NULL || fn->line <= 0) continue;
-            ADD(fn->name, file, fn->line, fn->col, 12, fn_signature(fn), fn->visibility != VIS_PRIVATE, core);
+            ADD(fn->name, file, fn->line, fn->col, 12, fn_signature(fn), fn->visibility != VIS_PRIVATE, core, fn->deprecated);
         }
         for (int i = 0; i < m->structs.count; i++) {
             StructDecl *sd = m->structs.items[i];
             if ((file = sym_file(sd->name, sd->source_file, &core)) == NULL || sd->line <= 0) continue;
-            ADD(sd->name, file, sd->line, sd->col, 23, struct_signature(sd), sd->visibility != VIS_PRIVATE, core);
+            ADD(sd->name, file, sd->line, sd->col, 23, struct_signature(sd), sd->visibility != VIS_PRIVATE, core, sd->deprecated);
         }
         for (int i = 0; i < m->enums.count; i++) {
             EnumDecl *ed = m->enums.items[i];
             if ((file = sym_file(ed->name, ed->source_file, &core)) == NULL || ed->line <= 0) continue;
-            ADD(ed->name, file, ed->line, ed->col, 10, enum_signature(ed), ed->visibility != VIS_PRIVATE, core);
+            ADD(ed->name, file, ed->line, ed->col, 10, enum_signature(ed), ed->visibility != VIS_PRIVATE, core, ed->deprecated);
         }
         for (int i = 0; i < m->vals.count; i++) {
             GlobalValDecl *v = m->vals.items[i];
             if ((file = sym_file(v->name, v->source_file, &core)) == NULL || v->line <= 0) continue;
-            ADD(v->name, file, v->line, v->col, 13, val_signature(v), v->visibility != VIS_PRIVATE, core);
+            ADD(v->name, file, v->line, v->col, 13, val_signature(v), v->visibility != VIS_PRIVATE, core, v->deprecated);
         }
     }
 #undef ADD
@@ -1568,14 +1568,24 @@ static int looks_like_label(const char *text, size_t word_start, size_t word_end
  * Covers `val` and `var` only. A nested `for` binder or a lambda parameter of the same name can
  * still come back as a use; those are other spellings of the same situation and are recorded in
  * docs/reviews/tasks.md F77 rather than guessed at here. */
+static char declaring_keyword(const char *text, size_t word_start);
+
 static int declares_here(const char *text, size_t word_start) {
+    return declaring_keyword(text, word_start) != 0;
+}
+
+/* Which keyword introduces the name at `word_start`: 'l' for `val`, 'r' for `var`, 0 for neither.
+ * The one fact that decides `readonly` against `mutable`, and the reason semantic tokens can do
+ * what no regex grammar can -- the keyword is at the declaration, and the modifier belongs on
+ * every *use*. */
+static char declaring_keyword(const char *text, size_t word_start) {
     size_t j = word_start;
     while (j > 0 && (text[j - 1] == ' ' || text[j - 1] == '\t')) j--;
     if (j < 3) return 0;
-    if (j >= 3 && strncmp(text + j - 3, "val", 3) == 0 && (j == 3 || !isalnum((unsigned char)text[j - 4])))
-        return 1;
-    if (j >= 3 && strncmp(text + j - 3, "var", 3) == 0 && (j == 3 || !isalnum((unsigned char)text[j - 4])))
-        return 1;
+    int boundary = (j == 3) || !isalnum((unsigned char)text[j - 4]);
+    if (!boundary) return 0;
+    if (strncmp(text + j - 3, "val", 3) == 0) return 'l';
+    if (strncmp(text + j - 3, "var", 3) == 0) return 'r';
     return 0;
 }
 
@@ -1678,6 +1688,132 @@ static void handle_document_highlight(const JVal *id, const JVal *params) {
     send_result(id, b.s);
 }
 
+/* ---------------------------------------------------------------- semantic tokens
+ *
+ * What a TextMate grammar structurally cannot do. A regex sees spelling; these see what a name
+ * *refers to*, which is the only way to mark a `var`'s **uses** -- and the use site is where a
+ * one-character `val`/`var` typo does its damage, which docs/DESIGN.md asked a future tool to make
+ * visible and the grammar could not (docs/reviews/tasks.md F76, F78).
+ *
+ * This is a first cut over identifiers only. Keywords, strings, numbers and attributes are left to
+ * the grammar, which already does them well and which an editor layers underneath these: a token
+ * emitted here refines what is already coloured rather than replacing it. What it emits:
+ *
+ *   variable   a local, with `mutable` on a `var` and `readonly` on a `val`, at the declaration
+ *              and at every use, plus `declaration` on the binding site itself
+ *   parameter  a local whose declaration is introduced by neither keyword, always `readonly`
+ *   function   a resolved function, `defaultLibrary` when it comes from a bundled module
+ *   struct     a resolved struct, same
+ *   enum       a resolved enum, same
+ *
+ * and `deprecated` on any of the resolved kinds whose declaration carries `#[deprecated]`, which
+ * gives the compiler's own warning a place in the editor.
+ *
+ * Deliberately deferred, from the style report's own ordering: `namespace`, `property`,
+ * `enumMember`, `typeParameter`, and the non-standard `threadBound` and `optional`. Each needs a
+ * resolution this file does not have yet (a field's owning struct, a variant's enum, a type
+ * parameter's scope), and shipping the ones that close a standing finding first is worth more than
+ * a legend that is complete and half-populated. */
+#define TOK_VARIABLE 0
+#define TOK_PARAMETER 1
+#define TOK_FUNCTION 2
+#define TOK_STRUCT 3
+#define TOK_ENUM 4
+
+#define MOD_DECLARATION 1
+#define MOD_READONLY 2
+#define MOD_MUTABLE 4
+#define MOD_DEPRECATED 8
+#define MOD_DEFAULT_LIBRARY 16
+
+/* The legend, in the order the bit and index constants above assume. `mutable` is not in the LSP's
+ * standard modifier set and Ziman names it, which the protocol allows and which is the point:
+ * nothing standard says "this name refers to something you may reassign". */
+#define SEMANTIC_LEGEND \
+    "{\"tokenTypes\":[\"variable\",\"parameter\",\"function\",\"struct\",\"enum\"]," \
+    "\"tokenModifiers\":[\"declaration\",\"readonly\",\"mutable\",\"deprecated\",\"defaultLibrary\"]}"
+
+static void handle_semantic_tokens(const JVal *id, const JVal *params) {
+    const char *uri = jstr(jget(jget(params, "textDocument"), "uri"));
+    Doc *d = uri != NULL ? find_doc_by_uri(uri) : NULL;
+    if (d == NULL) {
+        send_result(id, "{\"data\":[]}");
+        return;
+    }
+    int nsyms;
+    Sym *syms = collect_symbols(&nsyms);
+
+    SB b = {0};
+    sb_puts(&b, "{\"data\":[");
+    int first = 1, line = 0, prev_line = 0, prev_col = 0;
+    const char *p = d->text;
+    while (*p != '\0') {
+        const char *nl = strchr(p, '\n');
+        int len = nl != NULL ? (int)(nl - p) : (int)strlen(p);
+        int in_string = 0;
+        for (int i = 0; i < len; i++) {
+            if (!in_string && p[i] == '/' && p[i + 1] == '/') break;
+            if (p[i] == '"' && (i == 0 || p[i - 1] != '\\')) { in_string = !in_string; continue; }
+            if (in_string) continue;
+            if (!(isalpha((unsigned char)p[i]) || p[i] == '_')) continue;
+            /* not mid-identifier */
+            if (i > 0 && (isalnum((unsigned char)p[i - 1]) || p[i - 1] == '_')) continue;
+            int j = i;
+            while (j < len && (isalnum((unsigned char)p[j]) || p[j] == '_')) j++;
+            int wl = j - i;
+            if (wl >= 128) { i = j - 1; continue; }
+            char word[128];
+            memcpy(word, p + i, (size_t)wl);
+            word[wl] = '\0';
+
+            int type = -1, mods = 0;
+            size_t abs_start = (size_t)(p - d->text) + (size_t)i;
+            int dline = -1, dcol = -1;
+            if (find_local(d, line, i, word, &dline, &dcol) || declares_here(d->text, abs_start)) {
+                /* A local: its own declaration says whether it may be reassigned, and that answer
+                 * belongs on every use, not only where the keyword is. */
+                size_t decl_at = abs_start;
+                if (dline >= 0) {
+                    const char *dl_ptr = line_ptr(d->text, dline);
+                    if (dl_ptr != NULL) decl_at = (size_t)(dl_ptr - d->text) + (size_t)dcol;
+                }
+                char kw = declaring_keyword(d->text, decl_at);
+                type = kw == 0 ? TOK_PARAMETER : TOK_VARIABLE;
+                mods |= kw == 'r' ? MOD_MUTABLE : MOD_READONLY;
+                if (dline < 0 || (line == dline && i == dcol)) mods |= MOD_DECLARATION;
+            } else {
+                Cursor c;
+                if (!cursor_at(d, line, utf16_of_bytes(p, i), &c) || c.word[0] == '\0') { i = j - 1; continue; }
+                int found;
+                Sym *s = lookup(d, &c, syms, nsyms, &found);
+                if (s == NULL) { i = j - 1; continue; }
+                if (s->kind == 12) type = TOK_FUNCTION;
+                else if (s->kind == 23) type = TOK_STRUCT;
+                else if (s->kind == 10) type = TOK_ENUM;
+                else type = TOK_VARIABLE, mods |= MOD_READONLY; /* a module-level val */
+                if (s->core) mods |= MOD_DEFAULT_LIBRARY;
+                if (s->deprecated) mods |= MOD_DEPRECATED;
+            }
+            if (type >= 0) {
+                int col16 = utf16_of_bytes(p, i);
+                int dl = line - prev_line;
+                int dc = dl == 0 ? col16 - prev_col : col16;
+                if (!first) sb_puts(&b, ",");
+                first = 0;
+                sb_printf(&b, "%d,%d,%d,%d,%d", dl, dc, utf16_of_bytes(p + i, wl), type, mods);
+                prev_line = line;
+                prev_col = col16;
+            }
+            i = j - 1;
+        }
+        if (nl == NULL) break;
+        p = nl + 1;
+        line++;
+    }
+    sb_puts(&b, "]}");
+    send_result(id, b.s);
+}
+
 static void handle_message(const JVal *msg) {
     const char *method = jstr(jget(msg, "method"));
     JVal *id = jget(msg, "id");
@@ -1687,7 +1823,9 @@ static void handle_message(const JVal *msg) {
         send_result(id,
                     "{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":{}},"
                     "\"documentFormattingProvider\":true,\"hoverProvider\":true,\"definitionProvider\":true,"
-                    "\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"documentHighlightProvider\":true,\"completionProvider\":{\"triggerCharacters\":[\".\"]}},"
+                    "\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"documentHighlightProvider\":true,"
+                    "\"semanticTokensProvider\":{\"legend\":" SEMANTIC_LEGEND ",\"full\":true},"
+                    "\"completionProvider\":{\"triggerCharacters\":[\".\"]}},"
                     "\"serverInfo\":{\"name\":\"ziman\"}}");
     } else if (strcmp(method, "shutdown") == 0) {
         g_shutdown = 1;
@@ -1735,6 +1873,8 @@ static void handle_message(const JVal *msg) {
         handle_workspace_symbol(id, params);
     } else if (strcmp(method, "textDocument/documentHighlight") == 0) {
         handle_document_highlight(id, params);
+    } else if (strcmp(method, "textDocument/semanticTokens/full") == 0) {
+        handle_semantic_tokens(id, params);
     } else if (strcmp(method, "textDocument/completion") == 0) {
         handle_completion(id, params);
     } else if (id != NULL) {
