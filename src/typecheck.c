@@ -593,6 +593,144 @@ static void lint_quadratic_accumulation(const Stmt *s) {
     g_lint_count++;
 }
 
+
+/* --lint: reading a builder by converting it, inside a loop that keeps adding to it.
+ *
+ * `val seen = mapb_to_map(counts)` in a loop whose next statement does `mapb_set(counts, ..)`
+ * materialises the whole map on every pass, when `mapb_get`/`mapb_get_or`/`mapb_contains`/
+ * `mapb_len` read a builder in place. That is what a builder is for. The same goes for
+ * `ab_to_array` against `ab_len`, and `sb_to_string` against `sb_len`.
+ *
+ * `lint_quadratic_accumulation` above cannot see this: it matches a variable rebuilt *from
+ * itself* (`x = concat(x, ..)`), and this shape has no self-reference.
+ *
+ * **The obvious predicate is unusable, which is why this one is narrow.** "A builder conversion
+ * inside a loop" gives 14 hits across lib/, the reference backend and the benchmark, and 13 are
+ * correct code: a conversion on the way out of a loop (`return ok(ab_to_array(out))`) runs once,
+ * and a convert-then-reset (`csv.zm`'s `cells`, `migrate.zm`'s `current`) converts one batch and
+ * replaces the builder, which is linear overall. A rule that noisy gets switched off.
+ *
+ * So all three of these must hold, and each of the 13 fails at least one:
+ *   1. the conversion's result is bound by a `val`/`var` in the loop body -- not returned, not
+ *      passed straight on, so the loop keeps going with it;
+ *   2. a later statement in the *same* block appends to that same builder; and
+ *   3. the builder is not reassigned between the two, since a reset means the next conversion is
+ *      of a fresh builder.
+ *
+ * Found one live instance when it was written: `lib/core/fs.zm`'s `path_join` converted the whole
+ * accumulated path on every piece to look at its last character. Measurably superlinear --
+ * 0.02s, 0.04s, 0.09s, 0.35s at 2,000 to 16,000 pieces (docs/reviews/tasks.md F84). */
+static const char *builder_reader_for(const char *conversion) {
+    if (strcmp(conversion, "mapb_to_map") == 0) return "mapb_get, mapb_get_or, mapb_contains or mapb_len";
+    if (strcmp(conversion, "ab_to_array") == 0) return "ab_len, or an ArrayBuilder you finish once after the loop";
+    if (strcmp(conversion, "sb_to_string") == 0) return "sb_len, or a StringBuilder you finish once after the loop";
+    if (strcmp(conversion, "setb_to_set") == 0) return "setb_contains or setb_len";
+    return NULL;
+}
+
+static const char *appender_for(const char *conversion) {
+    if (strcmp(conversion, "mapb_to_map") == 0) return "mapb_set";
+    if (strcmp(conversion, "ab_to_array") == 0) return "ab_append";
+    if (strcmp(conversion, "sb_to_string") == 0) return "sb_append";
+    if (strcmp(conversion, "setb_to_set") == 0) return "setb_add";
+    return NULL;
+}
+
+/* The bare name of a call's callee, without a module qualifier. */
+static const char *callee_tail(const Expr *e) {
+    if (e == NULL || e->kind != EXPR_CALL || e->as.call.callee == NULL) return NULL;
+    const char *callee = e->as.call.callee;
+    const char *dot = strrchr(callee, '.');
+    return dot != NULL ? dot + 1 : callee;
+}
+
+/* Whether `e`, or anything inside it, is `<conversion>(<builder>)`. Set `*found` to the conversion
+ * name and `*builder` to the argument's identifier. Only a direct identifier argument counts: a
+ * conversion of some other expression is not a builder this block can see being appended to. */
+static int finds_builder_conversion(const Expr *e, const char **found, const char **builder) {
+    if (e == NULL) return 0;
+    if (e->kind == EXPR_CALL) {
+        const char *name = callee_tail(e);
+        if (name != NULL && builder_reader_for(name) != NULL && e->as.call.args.count == 1) {
+            const Expr *arg = e->as.call.args.items[0];
+            if (arg->kind == EXPR_IDENT) {
+                *found = name;
+                *builder = arg->as.ident_name;
+                return 1;
+            }
+        }
+        for (int i = 0; i < e->as.call.args.count; i++) {
+            if (finds_builder_conversion(e->as.call.args.items[i], found, builder)) return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether `s` calls `appender(builder, ..)`, i.e. the loop keeps growing it. */
+static int statement_appends_to(const Stmt *s, const char *appender, const char *builder) {
+    if (s == NULL || s->kind != STMT_EXPR) return 0;
+    const Expr *e = s->as.expr_stmt.expr;
+    const char *name = callee_tail(e);
+    if (name == NULL || strcmp(name, appender) != 0 || e->as.call.args.count < 1) return 0;
+    const Expr *first = e->as.call.args.items[0];
+    return first->kind == EXPR_IDENT && strcmp(first->as.ident_name, builder) == 0;
+}
+
+/* Whether `s` assigns to `builder`, which resets it and ends the run. */
+static int statement_reassigns(const Stmt *s, const char *builder) {
+    return s != NULL && s->kind == STMT_ASSIGN && s->as.assign.name != NULL
+           && strcmp(s->as.assign.name, builder) == 0;
+}
+
+/* Each block *within* the loop is examined, not only the loop's own statement list: the pattern
+ * usually sits inside an `if`, which is where `fs.zm`'s `path_join` had it -- the first version of
+ * this check looked only at the loop body's immediate statements and missed the one live instance
+ * in the library. A nested loop is descended into as well, since the shape is the same there. */
+static void lint_builder_read_by_conversion(const Stmt *body);
+
+static void lint_builder_blocks_within(const Stmt *s) {
+    if (s == NULL) return;
+    switch (s->kind) {
+        case STMT_BLOCK: lint_builder_read_by_conversion(s); break;
+        case STMT_IF:
+            lint_builder_blocks_within(s->as.if_stmt.then_block);
+            lint_builder_blocks_within(s->as.if_stmt.else_block);
+            break;
+        case STMT_WHILE: lint_builder_blocks_within(s->as.while_stmt.body); break;
+        case STMT_FOR: lint_builder_blocks_within(s->as.for_stmt.body); break;
+        case STMT_SWITCH:
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) {
+                lint_builder_blocks_within(s->as.switch_stmt.arms[i].body);
+            }
+            break;
+        default: break;
+    }
+}
+
+static void lint_builder_read_by_conversion(const Stmt *body) {
+    if (body == NULL || body->kind != STMT_BLOCK) return;
+    const StmtList *stmts = &body->as.block.stmts;
+    for (int i = 0; i < stmts->count; i++) {
+        lint_builder_blocks_within(stmts->items[i]);
+    }
+    for (int i = 0; i < stmts->count; i++) {
+        const Stmt *s = stmts->items[i];
+        if (s->kind != STMT_VAL && s->kind != STMT_VAR) continue;
+        const char *conversion = NULL, *builder = NULL;
+        if (!finds_builder_conversion(s->as.decl.init, &conversion, &builder)) continue;
+        for (int j = i + 1; j < stmts->count; j++) {
+            if (statement_reassigns(stmts->items[j], builder)) break;
+            if (!statement_appends_to(stmts->items[j], appender_for(conversion), builder)) continue;
+            ziman_warning(g_lint_file, s->line, s->col,
+                          "'%s' converts the whole of '%s' on every pass of this loop, and the loop keeps "
+                          "adding to it (quadratic); read it in place with %s",
+                          conversion, builder, builder_reader_for(conversion));
+            g_lint_count++;
+            break;
+        }
+    }
+}
+
 static int type_supports_ordering(Module *module, Type t);
 static FunctionDecl *find_compare_function(Module *module, Type t) {
     const char *type_name_str = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
@@ -4187,6 +4325,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             if (cond_type.kind != TY_BOOL) {
                 ziman_error("type", s->as.while_stmt.cond->line, s->as.while_stmt.cond->col, "'while' condition must be bool, found %s", type_name(cond_type));
             }
+            if (g_lint_active) lint_builder_read_by_conversion(s->as.while_stmt.body);
             check_block(module, env, s->as.while_stmt.body, fn_return_type, 1);
             break;
         }
@@ -4241,6 +4380,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 Expr *iterable = s->as.for_stmt.iterable;
                 push_loop_binder(s->as.for_stmt.binder1, iterable->kind == EXPR_IDENT && iterable->resolved_type.kind == TY_ARRAY ? iterable->as.ident_name : NULL);
             }
+            if (g_lint_active) lint_builder_read_by_conversion(s->as.for_stmt.body);
             check_stmts_in_scope(module, scope, s->as.for_stmt.body, fn_return_type, 1);
             g_loop_binder_count = binders_pushed_from;
             env_free(scope);

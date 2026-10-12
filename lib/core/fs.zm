@@ -337,18 +337,28 @@ pub fn copy_file(from: string, to: string) -> Result<int, FsError> {
 pub fn path_join(pieces: string...) -> string {
     val out = sb_new()
     var first = true
+    // Whether what has been appended so far ends in "/", tracked rather than rediscovered. This
+    // used to call `sb_to_string(out)` on every piece purely to look at its last character, which
+    // copies the whole accumulated path each time: measurably superlinear past a few thousand
+    // pieces (0.02s, 0.04s, 0.09s, 0.35s at 2,000 to 16,000), and the shape `--lint` now reports
+    // (docs/reviews/tasks.md F84). A real path has a handful of pieces, so this was never a
+    // practical cost -- it is fixed because the library is the code people read for the idiom.
+    var ends_with_slash = false
     for piece in pieces {
         if len(piece) == 0 {
             continue
         }
-        if first {
+        val appended = if first {
             sb_append(out, piece)
             first = false
+            piece
         } else {
-            val left = sb_to_string(out)
             val right = if is_char_at(piece, 0, "/") { substring(piece, 1, len(piece)) } else { piece }
-            sb_append(out, if is_char_at(left, len(left) - 1, "/") { "" } else { "/" }, right)
+            sb_append(out, if ends_with_slash { "" } else { "/" }, right)
+            right
         }
+        // An empty `right` leaves the separator as the last character, which is itself a "/".
+        ends_with_slash = if len(appended) == 0 { !first } else { is_char_at(appended, len(appended) - 1, "/") }
     }
     return sb_to_string(out)
 }

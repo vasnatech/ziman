@@ -1,0 +1,82 @@
+// F84: `--lint` reports reading a builder by converting it inside a loop that keeps adding to it.
+//
+// Only the first function below is the defect. The other three are the shapes a naive "a builder
+// conversion inside a loop" rule would also flag -- it gives 14 hits across `lib/`, the reference
+// backend and the benchmark, and 13 are correct code, which is why the rule asks for all three of:
+// the result is bound by a val/var in the loop, a later statement in the same block appends to the
+// same builder, and the builder is not reassigned between the two.
+//
+// So this fixture's `.diag` expecting exactly one diagnostic is the whole point: a rule that fired
+// on the other three would be noise and would be turned off.
+use collections
+
+// WARNS: convert, read, keep growing -- `mapb_get_or` reads it in place.
+fn counted(words: [string]) -> int {
+    val counts = mapb_new<string, int>()
+    for w in words {
+        val seen = mapb_to_map(counts)
+        mapb_set(counts, w, switch map_get(seen, w) { Some(n) { n + 1 } None { 1 } })
+    }
+    return mapb_len(counts)
+}
+
+// Silent: converts one batch and then replaces the builder, so each conversion is one batch's
+// worth and the whole loop is linear. This is `csv.zm`'s and `migrate.zm`'s shape.
+fn batched(items: [string]) -> [string] {
+    val out = ab_new<string>()
+    var batch = ab_new<string>()
+    for item in items {
+        if item == "|" {
+            val done = ab_to_array(batch)
+            ab_append(out, join(separator: "+", pieces: done))
+            batch = ab_new<string>()
+        } else {
+            ab_append(batch, item)
+        }
+    }
+    return ab_to_array(out)
+}
+
+// Silent: the conversion is on the way out of the loop, so it runs once however long the loop is.
+fn first_pair(items: [string]) -> [string] {
+    val out = ab_new<string>()
+    for item in items {
+        ab_append(out, item)
+        if ab_len(out) == 2 {
+            return ab_to_array(out)
+        }
+    }
+    return ab_to_array(out)
+}
+
+// Silent, and this is the case the reassignment check exists for: convert, replace the builder,
+// then append to the *fresh* one -- all in the same block, so the convert-then-append pair is
+// there, but the reset between them means each pass starts from empty and the loop is linear.
+// Without that check this would warn, which is why it is a case here and not only a condition in
+// the code.
+fn rolling(items: [string]) -> string {
+    var sb = sb_new()
+    for item in items {
+        val snapshot = sb_to_string(sb)
+        sb = sb_new()
+        sb_append(sb, snapshot, item)
+    }
+    return sb_to_string(sb)
+}
+
+// Silent: the builder is finished after the loop, which is what a builder is for.
+fn all_of(items: [string]) -> string {
+    val sb = sb_new()
+    for item in items {
+        sb_append(sb, item, ";")
+    }
+    return sb_to_string(sb)
+}
+
+fn main() {
+    print(counted(["a", "b", "a"]))
+    print(join(separator: ",", pieces: batched(["x", "y", "|", "z", "|"])))
+    print(join(separator: ",", pieces: first_pair(["p", "q", "r"])))
+    print(rolling(["m", "n"]))
+    print(all_of(["m", "n"]))
+}

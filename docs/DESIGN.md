@@ -3156,6 +3156,28 @@ linted through the program that uses it) and derived functions are skipped.
 It also adds the first `file` field to a diagnostic (warnings only). A
 formatter is a separate, larger project (the parser drops comments and layout).
 
+*Update 2026-10-12 (F84): a third rule, and the sentence above about bundled
+modules turned out to be the interesting one.* **Reading a builder by converting
+it, inside a loop that keeps adding to it** -- `val seen = mapb_to_map(counts)`
+followed by `mapb_set(counts, ..)` -- materialises the whole map on every pass
+when `mapb_get_or` reads it in place. The existing quadratic rule cannot see
+this: it matches a variable rebuilt *from itself*, and this shape has no
+self-reference. **The obvious predicate is unusable, which is the design
+content:** "a builder conversion inside a loop" gives 14 hits across `lib/`, the
+reference backend and the benchmark and 13 are correct code -- a conversion on
+the way out of a loop runs once, and a convert-then-reset converts one batch. So
+the rule requires all three of: the result bound by a `val`/`var` in the loop, a
+later statement in the same block appending to that same builder, and no
+reassignment of the builder in between. **And the `source_file` sentence above
+is why the library's own instance had to be found by hand**: `fs.zm`'s
+`path_join` converted the whole accumulated path on every piece to read its last
+character (0.02s to 0.35s across 2,000 to 16,000 pieces, now 0.01s to 0.03s and
+linear), and no amount of `--lint` would ever have reported it, because a
+bundled module is deliberately not linted through the program that uses it. That
+is the right trade -- a warning about code the caller cannot change is noise --
+but it means the library is checked by review, and this rule is for the code
+people write.
+
 ## What the AI-first goal does and does not justify
 
 (External review, roadmap R20, 2026-09-24.) "Cheap for an LLM to generate

@@ -1,0 +1,4 @@
+# F84: exactly one. The other three functions in the file are the shapes a naive rule would also
+# flag -- convert-then-reset, convert-on-the-way-out, and finish-after-the-loop -- and 13 of the 14
+# hits such a rule gives across lib/ and the backend are of exactly those kinds.
+lint 17:9 'mapb_to_map' converts the whole of 'counts' on every pass of this loop
