@@ -1,0 +1,14 @@
+#[deprecated("use doubled instead")]
+pub fn twice(n: int) -> int {
+    return n * 2
+}
+
+pub fn doubled(n: int) -> int {
+    return n * 2
+}
+
+// A deprecated function the module still uses itself: same-source use stays silent, so this must
+// not appear in the expected diagnostics even though it is a call to a deprecated function.
+pub fn quadrupled(n: int) -> int {
+    return twice(twice(n))
+}

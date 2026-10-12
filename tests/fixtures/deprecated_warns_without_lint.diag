@@ -1,0 +1,3 @@
+# F68: both warnings come from a plain `ziman --json main.zm` -- no `--lint` in any .args.
+# oldlib.quadrupled is a deprecated call too, but inside oldlib itself, so it is silent.
+lint 13:11 'oldlib::twice' is deprecated: use doubled instead

@@ -413,7 +413,12 @@ static int g_lint_on = 0;
 static int g_lint_count = 0;
 static LintVar *g_lint_vars = NULL;
 static int g_lint_var_count = 0, g_lint_var_cap = 0;
-static int g_lint_active = 0;             /* the function being checked is user code */
+static int g_lint_active = 0;             /* a style lint should run here: --lint is on and this is user code */
+/* The same "this is user code, not a derive expansion" test without the `--lint` half, because
+ * `#[deprecated]` reports on every compile while the style lints (a `var` never reassigned, a
+ * redundant `as` alias) stay behind the flag. Separating the two is the whole of F68: these used to
+ * share `g_lint_active`, so a deprecation only reached anyone who ran a second command. */
+static int g_user_code = 0;
 static const char *g_lint_file = NULL;
 
 void typecheck_enable_lint(void) { g_lint_on = 1; }
@@ -431,12 +436,14 @@ static int lint_same_source(const char *a, const char *b) {
  * Same-source use is silent on purpose -- whoever wrote the deprecated thing is the one person who
  * does not need telling, and a library keeping a superseded function working for its existing
  * callers (lib/http's own `open_session_with_timeout`) would otherwise warn on every internal call
- * it makes to itself. `--lint`-only, which is also what keeps this out of the way of the still-open
- * question of whether Ziman should have compiler warnings on by default at all (docs/ROADMAP.md).
- * `g_lint_active` already means "the function being checked is user code, not a derive expansion",
- * so it is exactly the right gate. */
+ * it makes to itself. Reported on **every compile**, not only under `--lint`: a
+ * deprecation that needs a second command to see is one almost nobody sees, and the point of the
+ * attribute is to move callers. Warnings never change the exit code, so this cannot break a build
+ * that was passing; `--lint` still counts them as findings and still exits 1, because there asking
+ * for findings is the whole request. `g_user_code`, not `g_lint_active`, is the gate -- the style
+ * lints stay behind the flag (docs/ROADMAP.md's `#[deprecated]` entry, F68). */
 static void lint_deprecated_use(const FunctionDecl *fn, int line, int col) {
-    if (!g_lint_active || fn == NULL || !fn->deprecated) return;
+    if (!g_user_code || fn == NULL || !fn->deprecated) return;
     if (lint_same_source(fn->source_file, g_lint_file)) return;
     if (fn->deprecated_message != NULL) {
         ziman_warning(g_lint_file, line, col, "'%s' is deprecated: %s", fn->name, fn->deprecated_message);
@@ -451,7 +458,7 @@ static void lint_deprecated_use(const FunctionDecl *fn, int line, int col) {
  * annotation: a function migrating away from a deprecated type still has to name it to accept one,
  * so warning there would be loudest in exactly the code doing the migration (tasks.md F58). */
 static void lint_deprecated_struct(const StructDecl *sd, int line, int col) {
-    if (!g_lint_active || sd == NULL || !sd->deprecated) return;
+    if (!g_user_code || sd == NULL || !sd->deprecated) return;
     if (lint_same_source(sd->source_file, g_lint_file)) return;
     if (sd->deprecated_message != NULL) {
         ziman_warning(g_lint_file, line, col, "'%s' is deprecated: %s", sd->name, sd->deprecated_message);
@@ -462,7 +469,7 @@ static void lint_deprecated_struct(const StructDecl *sd, int line, int col) {
 }
 
 static void lint_deprecated_enum(const EnumDecl *ed, int line, int col) {
-    if (!g_lint_active || ed == NULL || !ed->deprecated) return;
+    if (!g_user_code || ed == NULL || !ed->deprecated) return;
     if (lint_same_source(ed->source_file, g_lint_file)) return;
     if (ed->deprecated_message != NULL) {
         ziman_warning(g_lint_file, line, col, "'%s' is deprecated: %s", ed->name, ed->deprecated_message);
@@ -4507,7 +4514,8 @@ static void check_function(Module *module, FunctionDecl *fn) {
      * registered for it, not something this pass can see into. */
     if (!fn->is_native) {
         int lint_first_var = g_lint_var_count;
-        g_lint_active = g_lint_on && fn->source_file != NULL && fn->derived_from == NULL;
+        g_user_code = fn->source_file != NULL && fn->derived_from == NULL;
+        g_lint_active = g_lint_on && g_user_code;
         g_lint_file = fn->source_file;
         int errors_before_body = ziman_error_count();
         for (int i = 0; i < fn->body->as.block.stmts.count; i++) {

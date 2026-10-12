@@ -1346,9 +1346,10 @@ it. `pg`, `mysql`, `toml` and `yaml` carry it. `#![deprecated]` is deliberately 
 what a deprecated *module* should warn about -- every `use`, or every call into it -- is undecided
 (docs/ROADMAP.md).
 
-`#[deprecated]`, or `#[deprecated("use X instead")]`, marks a function that still works but should
-not be used in new code. Calling it -- or naming it as a value -- *from another module* is a
-`--lint` warning that quotes the message when one was given:
+`#[deprecated]`, or `#[deprecated("use X instead")]`, marks a function, `struct` or `enum` that
+still works but should not be used in new code. Using it *from another module* -- calling it,
+naming it as a value, writing a struct literal, reaching an enum variant -- is a **warning on every
+compile**, quoting the message when one was given:
 
 ```ziman ignore: a signature with no body, showing what the attribute is written on
 #[deprecated("use open_session_with_timeouts, which also bounds the request head")]
@@ -1356,16 +1357,24 @@ pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session
 ```
 
 ```
-$ ziman --lint app.zm
+$ ziman app.zm
 app.zm:12:18: warning: 'server::open_session_with_timeout' is deprecated: use open_session_with_timeouts, which also bounds the request head
 ```
 
+**A warning never changes the exit code**, so a deprecation cannot break a build that was passing;
+it is reported because a warning nobody can see without running a second command moves nobody off
+the old API. `ziman --lint` reports the same warnings *and* exits 1, since there finding things is
+the whole request -- that is where the style findings (a `var` never reassigned, a declaration
+nothing reads, a redundant `as` alias) live, and those stay behind the flag.
+
 Use from *within* the declaring module is deliberately silent: a library keeping a superseded
 function working for its existing callers would otherwise warn on every internal call it makes to
-itself, and whoever wrote the deprecated thing is the one person who does not need telling. It is a
-`--lint` finding rather than a warning by default, because Ziman has no warning severity outside
-`--lint` yet. On anything other than a function (a `struct`, `enum` or `val`) the attribute is
-rejected rather than silently ignored, since nothing reads it there yet.
+itself, and whoever wrote the deprecated thing is the one person who does not need telling. A
+**type annotation naming a deprecated type is also silent**: a function migrating away from one
+still has to name it to accept one, so warning there would be loudest in exactly the code doing the
+migration. On a `val` the attribute is still rejected rather than silently ignored: a module-level
+`val` becomes a plain global binding, so a reference to it carries nothing back to the declaration
+for the check to read.
 
 `#[thread_bound]` marks a struct that belongs to the thread that made it (as `StringBuilder`/
 `ArrayBuilder`/`MapBuilder`/`SetBuilder`/`Iter` are). A type containing one is refused as a

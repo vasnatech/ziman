@@ -122,12 +122,25 @@ check_fixture() {
         report=$(python3 tools/check_diag.py "$diag_file" "/tmp/ziman_diag_actual.$$" 2>&1)
         local diag_status=$?
         rm -f "/tmp/ziman_diag_actual.$$"
-        if [ "$status" -ne 0 ] && [ "$diag_status" -eq 0 ]; then
+        # Diagnostics do not always mean failure. A `#[deprecated]` use is a warning on an ordinary
+        # compile, so the program type-checks and exits 0 while still reporting something -- which
+        # this branch used to call a failure, because when .diag was added (F57) every diagnostic was
+        # an error. `name.exit` names the status to require, exactly as it does for a .out fixture;
+        # with no such file the rule is the original "must have failed" (F68).
+        local diag_expected_status=""
+        [ -f "tests/fixtures/$name.exit" ] && diag_expected_status=$(cat "tests/fixtures/$name.exit")
+        local status_ok=0
+        if [ -n "$diag_expected_status" ]; then
+            [ "$status" -eq "$diag_expected_status" ] && status_ok=1
+        else
+            [ "$status" -ne 0 ] && status_ok=1
+        fi
+        if [ "$status_ok" -eq 1 ] && [ "$diag_status" -eq 0 ]; then
             echo "PASS $name"
             pass=$((pass + 1))
         else
             echo "FAIL $name (diagnostics do not match $diag_file)"
-            echo "  exit=$status"
+            echo "  exit=$status${diag_expected_status:+, wanted $diag_expected_status}"
             [ -n "$report" ] && echo "$report"
             fail=$((fail + 1))
         fi

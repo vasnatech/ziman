@@ -722,10 +722,22 @@ from source.
   plain binding in the global scope (`check_global_vals`), so a reference to it carries nothing back
   to the declaration for a lint to read, unlike a struct literal or an enum access which resolve
   through `find_struct`/`find_enum`. Supporting it means carrying the deprecation on the binding.
-  **Still open and blocked on something that does not exist:** whether a deprecation should ever be
-  a warning by default (needs "warnings/notes as a separate severity") or a hard error under a
-  "deny" policy. That is a language-wide decision about diagnostic severities, not a deprecation
-  question, and nothing here should guess it. The original entry follows.
+  ~~**Still open and blocked on something that does not exist:** whether a deprecation should ever
+  be a warning by default (needs "warnings/notes as a separate severity") or a hard error under a
+  "deny" policy.~~ **Decided and done 2026-10-11 (F68): a deprecation warns on every compile.**
+  That bullet was wrong about the blocker -- `ziman_warning` already existed and already emitted
+  `{"severity":"warning","phase":"lint",...}`, so the severity was there; what was missing was that
+  the deprecation checks shared a gate with the *style* lints and so only ran under `--lint`.
+  Splitting the gate is the whole change. **Menderes chose "every compile"** over keeping it
+  lint-only, on the argument that carries this item: the 2026-10-09 benchmark found diagnostics are
+  what let a model self-correct, and a warning behind an opt-in command is invisible to anything
+  that just runs the program. **A warning never changes the exit code**, so this cannot break a
+  passing build; `--lint` still reports the same warnings and still exits 1, and the style findings
+  stay behind the flag. **A deny policy was deliberately not added** -- a flag with no consumer,
+  and nothing in the tree or the backend is asking to enforce a migration yet. One consequence
+  worth recording: `.diag` fixtures required a *non-zero* exit, because when F57 added them every
+  diagnostic was an error; a warning on a successful compile falsified that, so a `.diag` fixture
+  now honours `name.exit` exactly as a `.out` fixture does. The original entry follows.
 
   F4 (2026-09-28) just labeled `pg`/`mysql`/`toml`/`yaml`
   "experimental" the only way available today: a sentence in each module's

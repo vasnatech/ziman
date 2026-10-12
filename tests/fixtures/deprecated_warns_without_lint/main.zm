@@ -1,0 +1,16 @@
+// F68: a `#[deprecated]` use is reported on an ordinary compile, with no `--lint` anywhere -- which
+// is the whole point of the change, since a warning that needs a second command is one almost
+// nobody sees. The two older fixtures (`lint_deprecated_cross_module`,
+// `lint_deprecated_type_cross_module`) still pass `--lint` and still assert that it reports these
+// too and exits 1; this one asserts that the flag is no longer what makes them appear.
+//
+// It also pins the part that makes the change safe: the program **type-checks and runs**, printing
+// its answer and exiting 0. A warning is not an error, so turning this on cannot break a build that
+// was passing -- which is why there is a `.exit` of 0 beside the `.diag`.
+use oldlib
+
+fn main() {
+    print(oldlib.twice(5))
+    print(oldlib.doubled(5))
+    print(oldlib.quadrupled(1))
+}
