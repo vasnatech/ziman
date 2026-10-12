@@ -285,7 +285,6 @@ static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
     int depth = 0;
     int cur_level = 0;
     int prev_line_continues = 0; /* the previous code line ended with an operator */
-    int cont_from_prev = 0;
     const Item *last_code = NULL, *before_last_code = NULL;
     int wrote_any = 0;
     int line_ends_with_open = 0;
@@ -308,8 +307,17 @@ static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
             int first_is_closer = it->kind == K_PUNCT && closes(it);
             if (first_is_closer && depth > 0) level = stack[depth - 1].opener_level;
             else level = depth == 0 ? 0 : stack[depth - 1].opener_level + 1;
-            if (!first_is_closer && prev_line_continues && !cont_from_prev) { level += 1; cont_from_prev = 1; }
-            else cont_from_prev = 0;
+            /* A line continuing the previous one (which ended with a binary operator) is indented one
+             * level past it, and *every* line of the run gets the same one level -- `level` is
+             * recomputed from the bracket stack each time round, so this never accumulates.
+             *
+             * It used to carry a `cont_from_prev` flag meant to stop exactly that accumulation, and it
+             * did so by skipping the increment on the second line of a run, clearing the flag, and
+             * indenting the third again: `+1, +0, +1, +0`. A five-term sum therefore zigzagged between
+             * 8 and 4 spaces, and because the output was *stable*, `--fmt --check` required the zigzag
+             * of anyone who had written it aligned. The library only ever escaped it by having no
+             * continuation run longer than one line (docs/reviews/tasks.md F72). */
+            if (!first_is_closer && prev_line_continues) level += 1;
             cur_level = level;
             line_is_use = it->kind == K_WORD && word_is(it, "use");
             line_is_attr = is(it, "#");

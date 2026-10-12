@@ -1,0 +1,37 @@
+// F72: every line of an operator-continued run is indented one level past the line it continues,
+// and the run never accumulates further levels however long it is.
+//
+// The input below is written the way `--fmt` itself used to produce, because the old code indented
+// `+1, +0, +1, +0`: it skipped the increment on the second line of a run, cleared the flag that had
+// recorded the first, and indented the third again. That output was *stable*, so `--fmt --check`
+// required the zigzag of anyone who had written the run aligned -- and it had already been baked
+// into 12 files of the reference backend before this was found.
+//
+// The flag existed to stop a run accumulating `+1, +2, +3`, which the seven-term sum here would
+// expose if the fix had simply removed the guard without the per-line `level` recomputation that
+// makes one increment enough.
+fn f(a: int, b: int) -> int {
+    return a + b
+}
+
+fn main() {
+    val two_lines = 1 +
+        2
+    val seven = 1 +
+        2 +
+        3 +
+        4 +
+        5 +
+        6 +
+        7
+    val nested = f(
+        1 +
+            2 +
+            3,
+        4
+    )
+    val logical = seven > 0 &&
+        nested > 0 &&
+        two_lines > 0
+    printf("{} {} {} {}\n", str(two_lines), str(seven), str(nested), str(logical))
+}

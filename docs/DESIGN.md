@@ -3522,7 +3522,13 @@ inside a block, trailing whitespace removed, comments re-indented (a trailing
 comment keeps its distance from the code so aligned comments survive), a final
 newline. It never moves a line break and does not reflow long lines: where you
 broke a line is where it stays, and a line ending in an operator indents its
-continuation one level. It needs only lexable text (an unterminated string
+continuation one level. **That sentence was right and the code was not, until
+2026-10-12 (docs/reviews/tasks.md F72):** a run of three or more continued lines
+indented `+1, +0, +1, +0`, because the flag that stopped the run accumulating
+`+1, +2, +3` did it by skipping every other increment. The output was stable, so
+`--fmt --check` *required* the zigzag, and 12 files of the reference backend had
+already been written that way. Every line of a run now takes the one level this
+entry always promised. It needs only lexable text (an unterminated string
 literal is the one error), so it works on a file the compiler rejects.
 
 **What it cannot decide without parsing.** `<` and `>` are a comparison or a
