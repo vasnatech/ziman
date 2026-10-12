@@ -154,6 +154,7 @@ them against the code.
 - [Three allocation sites, and what they did to F7 (2026-10-07)](#three-allocation-sites-and-what-they-did-to-f7-2026-10-07)
 - [Two regex ceilings, and a free that is impossible in both builds (2026-10-09, A28 and A35)](#two-regex-ceilings-and-a-free-that-is-impossible-in-both-builds-2026-10-09-a28-and-a35)
 - [The `Row` bound, and why `from_row` cannot work the way `compare` does (2026-10-09, C18)](#the-row-bound-and-why-from_row-cannot-work-the-way-compare-does-2026-10-09-c18)
+- [Pattern matching, measured rather than argued (2026-10-11, F67)](#pattern-matching-measured-rather-than-argued-2026-10-11-f67)
 
 <!-- end index -->
 
@@ -5782,3 +5783,18 @@ a *second* abstraction of `Crud`'s shape, so the boilerplate is per-resource tim
 rather than eighteen lines in one place. None of the three has happened; (c) is the one to watch,
 because it is the test F1 itself set and it is about real programs rather than about implementation
 convenience.
+
+## Pattern matching, measured rather than argued (2026-10-11, F67)
+
+The enum entry in ROADMAP.md has carried "**`match`/pattern matching** ... is its own design pass" since enums shipped. This is that pass. **The answer is "not yet", and it is a measurement rather than a preference.**
+
+**Most of what the bullet asked for arrived by other routes, which is why the bullet reads worse than the language is.** It was written when "the predicate-plus-unwrap style is the only way to consume a variant". Since then: `switch` arrived with exhaustiveness checking and no default arm, so adding a variant to an enum breaks every `switch` over it until each is handled -- the thing `match` is usually wanted for. `switch` is usable as a *value* in most positions, so `val label = switch s { ... }` is ordinary code rather than a statement-only construct. `if Some(x) = opt` binds. A payload binder names its value. What a real `match` would add on top is five separate things, and they are worth separating because they have different answers.
+
+**Nested patterns: measured, and rejected.** `match`'s headline over `switch` is destructuring several levels at once -- `Ok(Some(n))` in one arm instead of a `switch` inside a `switch`. So the question is how often real Ziman nests. Across `lib/` and the 13,000-line `health-record-backend-ziman`: **304 `switch` sites, of which 4 have an arm whose body immediately re-destructures.** Four places in roughly 25,000 lines. A syntax every reader of the language must learn, to flatten four call sites, is not a trade this project makes -- and the deferral rule ("revisit once a concrete program needs it") is designed to answer exactly this way when the evidence says no, rather than being quoted only when it says yes.
+
+**Guards, destructuring of structs and arrays, and or-patterns: no observed demand.** Each is a real feature in other languages and each would carry its own syntax, its own exhaustiveness interaction, and its own failure modes. Nothing in the library or the reference backend is shaped like a workaround for their absence. They are not rejected on principle; there is simply nothing to point at.
+
+**Literal patterns are the honest open question, and the measurement cannot see them.** Switching on an `int` or a `string` -- `match code { 404 { ... } 500 { ... } }` -- is the one piece whose demand is **structurally invisible** to the count above. An if-else chain on a string does not look like a failed `switch`; it looks like an if-else chain. No grep over this tree can distinguish "nobody wants literal patterns" from "everybody writes the chain and thinks nothing of it". So this entry deliberately does **not** claim literal patterns are unwanted. It claims only that the evidence for them has to come from a writer's judgement about writing Ziman, and that absence of evidence here is a property of the instrument, not of the need.
+
+**What this entry is for.** The roadmap bullet was a standing invitation to re-litigate `match` from first principles every time someone read it. Replacing "its own design pass, deliberately not attempted" with a number and a named open question means the next reader inherits the measurement instead of repeating the argument. If the four nesting sites become forty, or if someone makes the case for literal patterns, this entry is what they are revising -- and the number to re-run is in it.
+

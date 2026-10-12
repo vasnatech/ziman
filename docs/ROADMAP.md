@@ -465,10 +465,14 @@ from source.
   recover from instead of crashing on unconditionally, with `unwrap`
   as the explicit, opt-in way back to a fatal error when that's what
   you actually want. Deliberately left out, not overlooked:
-  - **No `?`-style propagation operator.** Chaining several fallible
-    calls means repeating `if is_ok(...) { ... } else { return
-    err(...) }` at each step — real, Go-style verbosity, accepted for
-    now rather than designing a shorthand speculatively.
+  - ~~**No `?`-style propagation operator.**~~ **Done as `try`, and F67 checked it:**
+    `val s = try connect(host, port)` yields the `Ok` payload and returns the `Err` from the
+    enclosing function, and `try` is used throughout `lib/`, so this bullet has described a gap
+    the language does not have for some time. The shorthand was not designed speculatively; it
+    was designed once the verbosity was real, which is what the bullet asked for. The original
+    note: chaining several fallible calls means repeating `if is_ok(...) { ... } else { return
+    err(...) }` at each step — real, Go-style verbosity, accepted for now rather than designing a
+    shorthand speculatively.
   - **`io.write_file` isn't migrated** — still fatal on failure. Not a
     design gap, just not done; the exact same treatment `read_file` got
     would apply.
@@ -484,9 +488,12 @@ from source.
     `>` in any error message that printed a Result type name — nothing
     had exercised that path before this feature's own error messages
     did.
-  - **`Option<T>`** (for the still-separate optional/nullable-type gap
+  - ~~**`Option<T>`** (for the still-separate optional/nullable-type gap
     above) would very likely use this exact same trick — not designed,
-    but the precedent now exists.
+    but the precedent now exists.~~ **Done, and the guess was right (F67 checked it):**
+    `Option<T>` exists and uses exactly this mechanism — `peer: None` and
+    `cert_file: Some("client.pem")` are written bare, with the type coming from context. The
+    "still-separate optional/nullable-type gap above" has closed too.
   - ~~**An empty array literal isn't inferred as an ordinary enum variant
     constructor's argument**~~ **-- done 2026-10-11 (F66).** A variant's payload now goes through
     the same check a call argument gets, so every form that needs an expected type works there:
@@ -622,11 +629,22 @@ from source.
   works now, generic or not) — turned out not to need its own separate
   effort once cross-module generics needed the same second dot anyway.
   Still open, not yet decided:
-  - **`match`/pattern matching.** The predicate-plus-unwrap style above
-    is the only way to consume a variant in v0 — same choice `Result`
-    already made. A real `match` expression (exhaustiveness checking,
-    binding syntax) is its own design pass, deliberately not attempted
-    alongside the enum type itself.
+  - **`match`/pattern matching — design pass done 2026-10-11 (F67), and the answer is "not
+    yet", on a measurement rather than an argument.** Most of what this bullet asked for has
+    arrived by other routes: `switch` is exhaustive with no default arm and *is* usable as a
+    value in most positions, `if Some(x) = ...` binds, and a payload binder names its value.
+    What a real `match` adds beyond that is nested patterns, guards, literal patterns,
+    destructuring and or-patterns. **Nested patterns were measured and rejected: across `lib/`
+    and the 13,000-line reference backend there are 304 `switch` sites, of which 4 immediately
+    re-destructure** — the feature would flatten four places in about 25,000 lines of real
+    Ziman. That is the deferral rule answering in the negative with evidence rather than a
+    shrug. **Guards, destructuring and or-patterns** show no demand either, and each is a syntax
+    a reader must learn. **Literal patterns are the honest open question**, because demand for
+    them is structurally invisible to that measurement: an if-else chain on a string is not a
+    failed `switch`, so nothing in the tree looks like a missing feature. Revisit on a writer's
+    judgement, not on a grep. See docs/DESIGN.md's "Pattern matching, measured rather than
+    argued" entry. The original note: the predicate-plus-unwrap style above is the only way to
+    consume a variant in v0 — same choice `Result` already made.
 - ~~**A real test harness beyond tests/run_tests.sh's stdout/substring
   matching** — fine for now, will need line/col assertions once
   diagnostics get richer.~~ **Done 2026-10-11 (F57).** The line/col assertions this asked for, as a
