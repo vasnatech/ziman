@@ -1620,6 +1620,36 @@ from source.
 - **Compilation to bytecode or native code.** v0 is a tree-walking
   interpreter on purpose — revisit only once the language design itself
   has stabilized against real use, not before.
+
+  *Update 2026-10-12 (F82): measured, and the answer is "not yet" on this entry's own criterion
+  rather than on appetite.* **The gate here is language stabilisation, not speed**, and it is
+  plainly unmet: 31 commits in the two days to 2026-10-12 changed the language or its library --
+  `#[deprecated]` gained two declaration kinds and a module form, `ServeOptions` gained fields
+  twice, the type checker's expected-type plumbing changed, and the *formatter's output* changed,
+  which reformatted 12 files of the reference backend. A bytecode backend is a second consumer of
+  every such decision; F66 is the sharpest case, where one call site passing no expected type was a
+  six-form bug.
+
+  **"Bytecode or native" is three different projects, and two of them are already answered.**
+  *Startup* is **3.5ms** for a trivial program (process, prelude, type check), so there is nothing
+  to win and a compile step to lose. *Throughput* is about **19M loop iterations per second** on a
+  tree-walker that has already had its easy wins taken (F2 found the GC rather than `strcmp` was
+  the cost, dispatch is cached, slots are pre-resolved) -- a bytecode VM buys 2-5x over a *naive*
+  walker and less over this one, and no program is waiting on it: the reference backend serves
+  about 1,600 rps at concurrency 8. *A deployable artifact* bytecode does not give you at all --
+  you would still ship the interpreter plus a blob -- and plain `.zm` modules with no bytecode
+  format are an **AI-first feature**, since a model can read the library.
+
+  **Two arguments that look like they favour it and do not.** A faster interpreter would not speed
+  the generation benchmark, whose cost is agent time. And it would not speed `make check`: the 957
+  fixtures take **25 seconds** of a roughly twelve-minute gate, the rest being two C builds and the
+  backend's 40 server-spawning suites. **The cost nobody had priced** is a second execution engine
+  against two collector builds, every change having to stay green in all of them.
+
+  **What would reopen it**, so this is a testable "not yet" rather than a standing no: a real
+  program where Ziman's speed is the blocker; `make check` becoming interpreter-bound (it is off by
+  a factor of about 25); or the language going quiet for a sustained stretch, which is what this
+  entry asked for in the first place.
 - **First-class functions / closures.** *Update 2026-09-23 (R13): stage 1
   shipped -- function types and references to named top-level functions, no
   capture; see docs/DESIGN.md's function-values entry. What follows is the
