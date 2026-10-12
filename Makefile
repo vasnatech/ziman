@@ -135,15 +135,22 @@ test-mysql: $(BIN)
 # it used to be in this one, which made a gate on *this* repo fail for a file in another, and meant
 # anyone without that checkout could not run `make fmt-check` at all. Found when `make check` first
 # ran the whole set together: it had been failing on three of the backend's files.
+# `--canonical` as well as plain `--fmt`, added 2026-10-12 (docs/reviews/tasks.md F80). Both corpora
+# already passed it, so this changed no file -- what it changes is that they are now *held* to it
+# rather than happening to agree, and that the flag is exercised by something. The consequence worth
+# naming: `--canonical` settles brace placement, so this repo now requires K&R braces where plain
+# `--fmt` would also accept Allman.
 fmt-check: $(BIN)
 	./$(BIN) --fmt --check $$(find lib docs/lib/examples tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm')
+	./$(BIN) --fmt --canonical --check $$(find lib docs/lib/examples tests/pg tests/mysql tests/tls tests/shutdown tests/bench -name '*.zm')
 
 # The sample backend (health-record-backend-ziman), which is kept formatted the same way but lives
 # next door, so this is separate from `fmt-check` and skips cleanly when it is not checked out.
 BACKEND_DIR := ../health-record/health-record-backend-ziman
 fmt-check-backend: $(BIN)
 	@if [ -d "$(BACKEND_DIR)/src" ]; then \
-	    ./$(BIN) --fmt --check $$(find $(BACKEND_DIR)/src -name '*.zm'); \
+	    ./$(BIN) --fmt --check $$(find $(BACKEND_DIR)/src -name '*.zm') && \
+	    ./$(BIN) --fmt --canonical --check $$(find $(BACKEND_DIR)/src -name '*.zm'); \
 	else \
 	    echo "SKIP fmt-check-backend: $(BACKEND_DIR)/src is not checked out"; \
 	fi
