@@ -1,0 +1,6 @@
+# Three, all in `fires`, and nothing from `quiet`. The count matters more than the wording here:
+# dropping the name list and flagging every discarded value instead adds a fourth from `unwrap(r)`,
+# which is what the corpus proved wrong (docs/lib/examples had 30 such lines, all deliberate).
+type 7:5 returned by 'push' is discarded
+type 9:5 returned by 'set' is discarded
+type 10:5 returned by 'len' is discarded

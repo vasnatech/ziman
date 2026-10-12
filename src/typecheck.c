@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include <ctype.h>
 #include "typecheck.h"
 #include "loader.h"
 
@@ -1175,6 +1176,78 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
  * parameter list here for a named call to reorder against. Named
  * arguments are for real (user or prelude) `fn`/`native fn`
  * declarations only. */
+/* Ziman has no string interpolation (docs/SYNTAX.md: "No interpolation in v0"), so `"total: ${t}"`
+ * is a string containing those characters and prints as them. Round 2 of the 2026-10-12 generation
+ * benchmark found that this is the costliest silence in the language: two of fifty attempts printed
+ * `${total}` to stdout with --check exiting 0, and two agents reading only --check concluded that
+ * interpolation *works*, one of them reporting it "stringifies int/bool". A compile-clean program
+ * with silently wrong output is exactly what a model iterating against the compiler cannot find.
+ *
+ * The rule is deliberately narrow, and the corpus is what narrowed it. A lexical "any `${`" warning
+ * fires 19 times across lib/, the tests and the reference backend, and **every one of those is
+ * correct code**: `format("${}", i)` is a literal dollar followed by Ziman's own `{}` placeholder,
+ * which is how the backend writes Postgres `$1` parameters, and `properties` and `regex` both take
+ * `${name}` as their own template syntax in data. So this warns only when the braces hold a plain
+ * identifier (or a path whose first segment is one) that is *a binding in scope right here* -- the
+ * shape that can only be a mistaken
+ * interpolation, since the author has that very value to hand. There is no escape for the rare
+ * case where a name in scope is also wanted as text: an escaped `\$` is already decoded by the time
+ * the checker sees the literal, so a `\$` escape could not suppress this and was dropped rather than
+ * shipped as a language change that does nothing -- such a string is written concat("$", "{name}"). */
+static void warn_dollar_brace_interpolation(Env *env, Expr *e) {
+    const char *s = e->as.string_val;
+    if (s == NULL || env == NULL) return;
+    for (const char *p = s; p[0] != '\0' && p[1] != '\0'; p++) {
+        if (p[0] != '$' || p[1] != '{') continue;
+        const char *name = p + 2;
+        size_t head = 0;   /* the first path segment: `${cfg.host}` is the same mistake as `${cfg}` */
+        while (isalnum((unsigned char)name[head]) || name[head] == '_') head++;
+        size_t n = head;
+        while (name[n] != '\0' && name[n] != '}'
+               && (isalnum((unsigned char)name[n]) || name[n] == '_' || name[n] == '.')) n++;
+        if (head == 0 || name[n] != '}') continue; /* `${}`, `${ x }`, `${a-b}`: not a name path */
+        char ident[64];
+        if (head >= sizeof ident) continue;
+        memcpy(ident, name, head);
+        ident[head] = '\0';
+        if (env_lookup(env, ident) == NULL) continue; /* a template placeholder, not a local */
+        char path[128];
+        if (n >= sizeof path) continue;
+        memcpy(path, name, n);
+        path[n] = '\0';
+        ziman_warning(ziman_error_file(), e->line, e->col,
+                      "'${%s}' in this string is not interpolation -- Ziman has none, so it prints "
+                      "as those characters; '%s' is in scope here, so you probably meant "
+                      "format(\"...{}...\", %s) -- or concat(\"$\", \"{...}\") if the text is meant literally",
+                      path, ident, path);
+    }
+}
+
+/* Builtins that compute a value and do nothing else. Discarding one in statement position is
+ * always a mistake, which is what makes the check in check_stmt's STMT_EXPR safe to apply without
+ * an effect system: a user function may well be called for its effects and its return value
+ * ignored, but none of these can be. print/printf and the channel builtins are left out on
+ * purpose -- they are called precisely for their effects. So are unwrap/unwrap_err/unwrap_Some,
+ * and that one is not a judgement call: adding them reported 30 errors across docs/lib/examples
+ * alone, because `unwrap(fs.write_text(...))` is the corpus's own idiom for "abort if this
+ * failed" -- the value is genuinely unwanted and the abort is the point. */
+static const char *const PURE_BUILTINS[] = {
+    "push", "insert", "set", "remove",
+    "len", "str", "format", "contains", "abs", "min", "max", "hash", "compare", "error_message",
+    "is_ok", "is_Some", "is_None",
+    "map_get", "map_get_or", "map_keys", "map_values", "map_merge", "map_filter",
+    "map_remove_all", "map_from_arrays",
+    "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
+    "set_from_array", "set_insert_all", "set_filter",
+    NULL};
+
+static int is_pure_builtin_name(const char *name) {
+    for (size_t i = 0; PURE_BUILTINS[i] != NULL; i++) {
+        if (strcmp(name, PURE_BUILTINS[i]) == 0) return 1;
+    }
+    return 0;
+}
+
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
@@ -3261,7 +3334,10 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
             t = type_scalar(TY_INT);
             break;
         case EXPR_FLOAT: t = type_scalar(TY_FLOAT); break;
-        case EXPR_STRING: t = type_scalar(TY_STRING); break;
+        case EXPR_STRING:
+            warn_dollar_brace_interpolation(env, e);
+            t = type_scalar(TY_STRING);
+            break;
         case EXPR_BOOL: t = type_scalar(TY_BOOL); break;
         case EXPR_UNIT: t = type_scalar(TY_UNIT); break;
         case EXPR_BIGINT: t = type_scalar(TY_BIGINT); break;
@@ -4514,6 +4590,33 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                     ziman_error("type", s->as.expr_stmt.expr->line, s->as.expr_stmt.expr->col,
                                 "this %s is discarded, silently dropping a possible error -- bind it ('val _ = ...' "
                                 "to discard on purpose), or use 'try' to propagate the error", type_name(t));
+                }
+                /* The same discard, one layer out: a pure builtin called in statement position. Its
+                 * whole output is the value it returns, so throwing that away cannot have been meant
+                 * -- and the 2026-10-12 benchmark round 2 shows it is a habit, not a typo. `push(arr, x)`
+                 * compiled and did nothing in four of fifty attempts, because arrays are values and the
+                 * new array went nowhere; two of those printed an empty result. The names below are
+                 * builtins with no effects, so unlike a user function none of them can be called for
+                 * one; channel and print builtins are deliberately absent. `val _ = ...` still discards
+                 * on purpose, exactly as it does for a Result above. */
+                else if (s->as.expr_stmt.expr->kind == EXPR_CALL && t.kind != TY_VOID
+                         && s->as.expr_stmt.expr->as.call.callee != NULL
+                         && is_pure_builtin_name(s->as.expr_stmt.expr->as.call.callee)) {
+                    const char *name = s->as.expr_stmt.expr->as.call.callee;
+                    if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0
+                        || strcmp(name, "remove") == 0) {
+                        ziman_error("type", s->as.expr_stmt.expr->line, s->as.expr_stmt.expr->col,
+                                    "the %s returned by '%s' is discarded, and '%s' does not modify its argument -- "
+                                    "arrays, maps and sets are values, so assign the result back "
+                                    "('arr = %s(arr, ...)'), or build one up with ArrayBuilder/MapBuilder "
+                                    "('val _ = ...' discards on purpose)",
+                                    type_name(t), name, name, name);
+                    } else {
+                        ziman_error("type", s->as.expr_stmt.expr->line, s->as.expr_stmt.expr->col,
+                                    "the %s returned by '%s' is discarded, and '%s' has no other effect -- "
+                                    "bind the result ('val x = %s(...)', or 'val _ = ...' to discard on purpose)",
+                                    type_name(t), name, name, name);
+                    }
                 }
             }
             break;

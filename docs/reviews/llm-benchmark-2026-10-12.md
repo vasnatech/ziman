@@ -167,8 +167,17 @@ these five are scored as failures although each satisfies its prompt as written:
 | 44-try-chain | `value: 42` | `value is 42` | "the formatted value", format free |
 
 The correct reading of these five is **44 of 50 by intent, 39 of 50 by byte equality**, and the honest
-statement is that this set's `expected.txt` files are stricter than its prompts. Either the prompts
-pin the output or the grader allows the slack; today it does neither.
+statement is that this set's `expected.txt` files are stricter than its prompts.
+
+**Fixed and verified the same day (F85).** All fifty prompts were swept for the same ambiguity, not
+just the five that happened to fail -- the other thirteen candidates a word-match flags turned out to
+be properly pinned (`total: N`, `average: N`, `exit: N`, `problems: N`, `both: ...`), so the five
+were the whole of it. Each now pins its wording without revealing any computed value: `17` says
+"print only the number", `46` "only the two numbers, with no labels", and `09`, `43`, `44` give their
+message texts. **Re-running those five under the same round-2 conditions scored 5 of 5 correct**,
+which is what makes "grading artifact" a finding rather than an excuse: the attempts were already
+right, and the instrument was reading them wrong. Expected outputs were not touched, and
+`run.sh reference` still reports 50/50, so the only thing that moved is the prompt.
 
 ## The finding: two ways to write a compile-clean program that is silently wrong
 
@@ -253,9 +262,24 @@ Reported limits of that channel, which is the only discovery channel there is:
 - **Signatures are never shown**; arity, parameter names, types and return type each need a separate
   deliberately-wrong probe.
 
-This is the `--api` case, now with a number attached: **tier 1's first item would have removed most
-of 735 invocations across five tasks.** It is the same conclusion the lost 2026-10-09 wave reached,
+This is the `--api` case, now with a number attached: **a module listing would have removed most of
+735 invocations across five tasks.** It is the same conclusion the lost 2026-10-09 wave reached,
 reproduced on a committed instrument.
+
+**Correction, found while acting on the above and before anyone relied on it: `ziman --api` already
+exists.** F34 built it and F37 added `--api builtins`; `./ziman --api fs` prints the module's `pub`
+types and signatures today, and `make api-check` gates it. The paragraph above originally called it
+unbuilt tier-1 work, which was wrong -- inherited from a stale note in my own memory and not checked
+against the binary, the exact failure this project has recorded a dozen times (see tasks.md F67,
+F81). What round 2 measured is therefore **not** a missing feature but a protocol: the run prompt
+forbids `--api` on purpose, so that the diagnostics are measured alone.
+
+That makes the real open question a different and better one. The cost is real and `--api` answers
+it, so what is unmeasured is **whether a cold model reaches for `--api` at all** when nothing tells
+it the flag exists. The earlier wave's note that one run used `--lsp` "because no CLI equivalent
+exists" is stale for the same reason. The next measurement is a **round 3 on this committed
+instrument with `--api` allowed and advertised, and a fourth arm where it is allowed but not
+mentioned** -- the second is the one that says whether discoverability or the feature is the gap.
 
 ## Smaller defects worth fixing, each reported independently
 

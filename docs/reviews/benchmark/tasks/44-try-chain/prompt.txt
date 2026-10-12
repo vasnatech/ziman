@@ -1,4 +1,6 @@
 Write a Ziman program with three functions that each may fail with a message: one parses a string
 to an int, one doubles it but fails on a negative, and one formats it. Chain them so the first
 failure stops the chain and its message is reported. Print the outcome for "21", "-3" and "x", one
-per line, as the formatted value or `failed: <message>`.
+per line. A success prints `value is <n>`. A failure prints `failed: <message>`, where the message
+is `negative numbers are not allowed` for a negative and `not a number: <the string>` for an
+unparsable one.

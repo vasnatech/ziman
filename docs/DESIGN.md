@@ -42,6 +42,7 @@ them against the code.
 - [`sb_append_byte`](#sb_append_byte)
 - [R16: naming convention](#r16-naming-convention)
 - [R17: `--lint`](#r17---lint)
+- [Two silences the compiler no longer keeps (F85, F86, 2026-10-12)](#two-silences-the-compiler-no-longer-keeps-f85-f86-2026-10-12)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
 - [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
@@ -3177,6 +3178,39 @@ bundled module is deliberately not linted through the program that uses it. That
 is the right trade -- a warning about code the caller cannot change is noise --
 but it means the library is checked by review, and this rule is for the code
 people write.
+
+## Two silences the compiler no longer keeps (F85, F86, 2026-10-12)
+
+Round 2 of the committed generation benchmark took a cold model from 0 of 50 compiling to 50 of 50,
+and then found the limit of the compiler-as-documentation premise: **6 of those 50 programs were
+compile-clean and silently wrong**, in two shapes. Both are now diagnosed, and in both cases the
+corpus decided the rule's shape rather than taste.
+
+**`${name}` in a string literal.** Ziman has no interpolation (see the string-literal entry above),
+so `"total: ${t}"` prints those characters. Two attempts printed `${total}` to stdout, and -- the
+part that makes this worse than a missing feature -- **two agents reading only `--check` concluded
+that interpolation works**, one reporting it "stringifies int/bool". The warning fires only when the
+braces hold a name path whose first segment **is a binding in scope at that point**, and that
+narrowness is not a preference: a lexical "any `${`" rule fires 19 times across `lib/`, the tests
+and the reference backend, and **all 19 are correct code** -- `format("${}", i)` is a literal dollar
+plus Ziman's own `{}` placeholder, which is how the backend writes Postgres `$1` parameters, while
+`properties` and `regex` both take `${name}` as their own template syntax in data. Scope-gated, the
+same sweep reports **zero**. There is deliberately no escape: a `\$` was written and then removed,
+because the checker sees the literal after escape decoding and so could not have honoured it --
+shipping it would have added a language feature that did nothing. A dollar meant literally next to a
+name in scope is written `concat("$", "{name}")`.
+
+**A discarded pure builtin.** `push(arr, item)` in statement position compiled and did nothing in
+four of the fifty attempts -- arrays are values, so the new array went nowhere, and two of those four
+printed an empty result. The mechanism was already here for `Result`, which refuses to be discarded
+and names `val _ =` and `try`; this extends the same rule to a fixed list of builtins that compute a
+value and have no other effect. **The list is a list, not a predicate, and `unwrap` is why:** adding
+it reported 30 errors in `docs/lib/examples` alone, because `unwrap(fs.write_text(...))` is the
+corpus's own idiom for "abort if this failed" -- the value is genuinely unwanted and the abort is the
+point. `print` and the channel builtins are out for the same reason. Both fixtures reintroduce their
+fault to prove the guard is live: widening the interpolation rule breaks `dollar_brace_not_
+interpolation`, and adding `unwrap` to the pure list breaks `discarded_pure_builtin` **and 59 other
+fixtures**, which is the measurement of how deliberate that idiom is.
 
 ## What the AI-first goal does and does not justify
 

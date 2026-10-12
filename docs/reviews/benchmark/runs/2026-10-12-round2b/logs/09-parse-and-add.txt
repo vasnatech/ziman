@@ -1,0 +1,18 @@
+compiles: yes
+edits: 1
+compiler_invocations: 21
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p2.zm: expected 'fn', found '?'
+saw: ziman: type error at 6:5 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 6:9 in p5.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 7:11 in p5.zm: use of undefined variable 'x'
+saw: ziman: module error at 3:13 in p8.zm: 's.to_int(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. to_int(s, ...) (if 's' should be a module, add 'use s')
+saw: ziman: syntax error at 3:11 in p9.zm: expected an expression, found 'int'
+saw: ziman: type error at 4:16 in pa.zm: argument 1 of 'want' expects string, found Result<int, string>
+saw: ziman: type error at 2:11 in pc.zm: call to undefined function 'nosuchfunction'
+saw: ziman: syntax error at 3:5 in pd.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 4:9 in pd.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 7:1 in pd.zm: expected 'fn', found '}'
+saw: ziman: syntax error at 2:25 in pe.zm: there is no postfix '?': write 'try <expression>' in front of the Option or Result instead (e.g. 'val x = try parse(s)')
+saw: ziman: type error at 4:12 in pg.zm: call to undefined function 'Ok' -- did you mean 'ok'?
+saw: ziman: type error at 2:37 in pj.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

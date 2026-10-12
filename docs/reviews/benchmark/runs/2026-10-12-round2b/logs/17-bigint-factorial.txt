@@ -1,0 +1,11 @@
+compiles: yes
+edits: 1
+compiler_invocations: 9
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in .../p3.zm: expected 'fn', found identifier
+saw: ziman: type error at 2:5 in .../p6.zm: call to undefined function 'println' -- did you mean 'print'?
+saw: ziman: type error at 2:5 in .../p7.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in .../p7.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 3:11 in .../p7.zm: use of undefined variable 'x'
+saw: ziman: type error at 2:5 in .../p8.zm: unknown type 'BigInt' -- did you mean 'bigint'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 2:21 in .../p10.zm: cannot initialize 'x' of declared type bigint with a value of type int -- bare digits mean 'int', so write the literal with its suffix, as '1n'

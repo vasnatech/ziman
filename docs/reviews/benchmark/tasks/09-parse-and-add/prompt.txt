@@ -1,3 +1,4 @@
 Write a Ziman program with a function that takes two strings, parses each as an int, and returns
 their sum or an error message naming the first string that was not a number. Print the outcome for
-("12", "30"), ("7", "x") and ("abc", "1"), one per line: the sum, or `error: <message>`.
+("12", "30"), ("7", "x") and ("abc", "1"), one per line: the sum on its own, or the failure as
+`error: not a number: <the string>`.

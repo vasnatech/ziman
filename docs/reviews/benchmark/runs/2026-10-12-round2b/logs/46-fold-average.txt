@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 10
+saw: ziman: type error at 2:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p2.zm: assignment to undefined variable 'xs'
+saw: ziman: type error at 4:14 in p2.zm: use of undefined variable 'xs'
+saw: ziman: module error at 3:11 in p5.zm: 'xs.len(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. len(xs) (if 'xs' should be a module, add 'use xs')
+saw: ziman: type error at 3:15 in p6.zm: cannot cast int to Float (only casts between int/float/bigint/decimal, or int/byte, are supported)
+saw: ziman: type error at 3:5 in p7.zm: unknown type 'Float' -- did you mean 'float'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 3:13 in p9.zm: call to undefined function 'fold'

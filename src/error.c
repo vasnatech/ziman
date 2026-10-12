@@ -44,6 +44,7 @@ void ziman_reset_errors(void) {
 }
 
 void ziman_set_error_file(const char *file) { g_error_file = file; }
+const char *ziman_error_file(void) { return g_error_file; }
 int ziman_error_count(void) { return g_error_count; }
 
 /* file/text pairs registered so far, for the excerpt-and-caret ziman_flush_errors prints; see ziman_register_source's own comment in error.h. */

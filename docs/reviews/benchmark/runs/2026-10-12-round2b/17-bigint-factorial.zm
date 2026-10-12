@@ -1,0 +1,9 @@
+fn main() {
+    var acc: bigint = 1n
+    var i: bigint = 2n
+    while i <= 25n {
+        acc = acc * i
+        i = i + 1n
+    }
+    print(acc)
+}

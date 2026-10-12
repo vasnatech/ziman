@@ -48,6 +48,8 @@ void ziman_finish_errors(void);
  * bundled core-library module has no real file of its own, so its errors stay
  * unnamed on purpose -- see docs/DESIGN.md). */
 void ziman_set_error_file(const char *file);
+/* The file set above, for a diagnostic that must name it explicitly (ziman_warning takes one). */
+const char *ziman_error_file(void);
 
 /* Registers `text` as `file`'s source, so a later error at a line in `file`
  * (`ziman_flush_errors`, text mode only) can print that line with a caret under

@@ -1,0 +1,18 @@
+compiles: yes
+edits: 1
+compiler_invocations: 14
+saw: syntax error at 1:1 in p1.zm: expected 'fn', found identifier
+saw: syntax error at 4:3 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: type error at 4:3 in p4.zm: call to undefined function 'println' -- did you mean 'print'?
+saw: type error at 5:3 in p4.zm: call to undefined function 'foo' -- did you mean 'ok'?
+saw: type error at 2:10 in p5.zm: cannot infer the type of 'ok(...)' here; it takes its type from the context, so it needs one: a val/var with an explicit Result<T, E> annotation, a struct literal field, a 'with' override, a function's returned value, or an argument whose parameter type says which Result it is
+saw: type error at 3:33 in p6.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: syntax error at 14:19 in p7.zm: there is no postfix '?': write 'try <expression>' in front of the Option or Result instead (e.g. 'val x = try parse(s)')
+saw: type error at 3:11 in p9.zm: call to undefined function 'to_int'
+saw: type error at 4:11 in p9.zm: call to undefined function 'int_of'
+saw: type error at 5:11 in p9.zm: call to undefined function 'toint' -- did you mean 'print'?
+saw: type error at 6:11 in p9.zm: call to undefined function 'num'
+saw: type error at 2:16 in p10.zm: cannot initialize 'a' of declared type int with a value of type Result<int, string>
+saw: syntax error at 3:3 in p11.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: syntax error at 4:5 in p11.zm: left-hand side of assignment must be a variable name
+saw: syntax error at 7:1 in p11.zm: expected 'fn', found '}'

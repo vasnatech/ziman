@@ -1,0 +1,38 @@
+fn parse_number(s: string) -> Result<int, string> {
+  val r: Result<int, string> = parse_int(s)
+  switch r {
+    Ok(v) { return ok(v) }
+    Err(e) { return err(format("not a number: {}", s)) }
+  }
+}
+
+fn double(n: int) -> Result<int, string> {
+  if n < 0 {
+    return err("negative numbers are not allowed")
+  }
+  return ok(n * 2)
+}
+
+fn describe(n: int) -> Result<string, string> {
+  return ok(format("value is {}", n))
+}
+
+fn run(s: string) -> Result<string, string> {
+  val n = try parse_number(s)
+  val d = try double(n)
+  return ok(try describe(d))
+}
+
+fn report(s: string) {
+  val outcome: Result<string, string> = run(s)
+  switch outcome {
+    Ok(line) { print(line) }
+    Err(message) { print(format("failed: {}", message)) }
+  }
+}
+
+fn main() {
+  report("21")
+  report("-3")
+  report("x")
+}

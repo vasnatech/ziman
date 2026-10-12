@@ -1,0 +1,19 @@
+fn main() {
+    val xs = [4, 8, 15, 16, 23, 42]
+
+    var total = 0
+    for x in xs {
+        total = total + x
+    }
+
+    val mean: float = (total as float) / (len(xs) as float)
+    print(mean)
+
+    var above = 0
+    for x in xs {
+        if (x as float) > mean {
+            above = above + 1
+        }
+    }
+    print(above)
+}

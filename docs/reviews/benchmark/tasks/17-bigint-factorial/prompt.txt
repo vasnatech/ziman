@@ -1,1 +1,2 @@
 Write a Ziman program that prints the factorial of 25 exactly, using arbitrary-precision integers.
+Print only the number, on one line, with no label or other text.

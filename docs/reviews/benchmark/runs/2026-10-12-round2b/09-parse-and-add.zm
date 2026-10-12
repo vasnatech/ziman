@@ -1,0 +1,27 @@
+fn add_parsed(a: string, b: string) -> Result<int, string> {
+    val ra = parse_int(a)
+    switch ra {
+        Ok(x) {
+            val rb = parse_int(b)
+            switch rb {
+                Ok(y) { return ok(x + y) }
+                Err(eb) { return err(b) }
+            }
+        }
+        Err(ea) { return err(a) }
+    }
+}
+
+fn show(a: string, b: string) {
+    val r = add_parsed(a, b)
+    switch r {
+        Ok(n) { print(str(n)) }
+        Err(bad) { print(format("error: not a number: {}", bad)) }
+    }
+}
+
+fn main() {
+    show("12", "30")
+    show("7", "x")
+    show("abc", "1")
+}

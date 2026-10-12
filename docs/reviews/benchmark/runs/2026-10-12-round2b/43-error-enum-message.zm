@@ -1,0 +1,25 @@
+enum AppError {
+  NotFound(string)
+  Conflict(string)
+  Timeout
+}
+
+fn describe(e: AppError) -> string {
+  switch e {
+    NotFound(name) {
+      return format("no such {}", name)
+    }
+    Conflict(name) {
+      return format("{} already exists", name)
+    }
+    Timeout {
+      return "the request timed out"
+    }
+  }
+}
+
+fn main() {
+  print(describe(AppError.NotFound("user")))
+  print(describe(AppError.Conflict("email")))
+  print(describe(AppError.Timeout))
+}

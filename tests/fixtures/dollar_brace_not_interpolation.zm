@@ -1,0 +1,22 @@
+// Round 2 of the 2026-10-12 benchmark: two attempts printed `${total}` to stdout with --check
+// exiting 0, and two agents reading only --check reported that interpolation works. The quiet half
+// of this fixture is the part that matters: a lexical "any ${" rule fires 19 times across lib/, the
+// tests and the reference backend, and every one of those 19 is correct code.
+struct Config {
+    host: string
+    port: int
+}
+
+fn main() {
+    val total = 25
+    val cfg = Config { host: "localhost", port: 80 }
+    print("Total: ${total}")
+    print("${cfg.host}:${cfg.port}")
+
+    // Quiet, and each for its own reason.
+    print(format("${}", total))              // literal '$' then Ziman's own {} placeholder: the backend's Postgres $1
+    print("${missing}")                      // no such binding: someone else's template syntax, as in properties/regex
+    print("${ total }")                      // not a name path
+    print(concat("$", "{total}"))            // meant literally: the message names this form
+    print(format("{}", total))               // the fix the warning names
+}

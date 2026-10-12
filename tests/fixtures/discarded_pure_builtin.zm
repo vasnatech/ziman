@@ -1,0 +1,25 @@
+// Round 2 of the 2026-10-12 generation benchmark: `push(arr, x)` in statement position compiled and
+// did nothing in four of fifty attempts, because arrays are values and the new array went nowhere.
+// Two of those four printed an empty result. The fires-here cases are below; the silent ones are in
+// `quiet` and are the whole reason the rule is a name list rather than "any discarded value".
+fn fires() {
+    var names: [string] = []
+    push(names, "ada")
+    val m = Map<string, int> { "a": 1 }
+    set(m, "b", 2)
+    len(names)
+}
+
+fn quiet(r: Result<int, string>) {
+    var names: [string] = []
+    names = push(names, "ada")
+    val _ = push(names, "grace")
+    print(len(names))
+    // `unwrap` is absent from the rule on purpose: discarding its value while keeping its
+    // abort-on-Err effect is the corpus's own idiom, 30 instances in docs/lib/examples alone.
+    unwrap(r)
+}
+
+fn main() {
+    quiet(ok(1))
+}
