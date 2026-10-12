@@ -1190,16 +1190,27 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
  * `${name}` as their own template syntax in data. So this warns only when the braces hold a plain
  * identifier (or a path whose first segment is one) that is *a binding in scope right here* -- the
  * shape that can only be a mistaken
- * interpolation, since the author has that very value to hand. There is no escape for the rare
- * case where a name in scope is also wanted as text: an escaped `\$` is already decoded by the time
- * the checker sees the literal, so a `\$` escape could not suppress this and was dropped rather than
- * shipped as a language change that does nothing -- such a string is written concat("$", "{name}"). */
-static void warn_dollar_brace_interpolation(Env *env, Expr *e) {
+ * interpolation, since the author has that very value to hand. Both spellings are covered, `${name}`
+ * and the bare `{name}` that round 3 found a third agent inventing, so the way to write those braces
+ * as text is to split them from the name: concat("{", "name}") is quiet and prints `{name}`. A `\$`
+ * escape was written for this and dropped instead of shipped -- the checker sees the literal after
+ * escape decoding, so it could not have suppressed anything. Note `"{{name}}"` is **not** a way to
+ * write it: `{{` is a format-string escape, and in a plain literal it prints both braces. */
+static void warn_brace_interpolation(Env *env, Expr *e) {
     const char *s = e->as.string_val;
     if (s == NULL || env == NULL) return;
-    for (const char *p = s; p[0] != '\0' && p[1] != '\0'; p++) {
-        if (p[0] != '$' || p[1] != '{') continue;
-        const char *name = p + 2;
+    for (const char *p = s; p[0] != '\0'; p++) {
+        /* `${name}` and `{name}` are two spellings of the same mistake, and both reach here only in
+         * a plain literal: `format`/`printf` never pass their format string through check_expr (it
+         * is typed directly and scanned by scan_placeholders), so a real placeholder is never seen
+         * by this function and a malformed one is already a hard error there. */
+        int dollar = (p[0] == '$' && p[1] == '{');
+        if (!dollar) {
+            if (p[0] != '{') continue;
+            if (p[1] == '{') { p++; continue; }       /* `{{`: two literal braces, not a name */
+            if (p > s && p[-1] == '$') continue;      /* already handled as the `${` form */
+        }
+        const char *name = p + (dollar ? 2 : 1);
         size_t head = 0;   /* the first path segment: `${cfg.host}` is the same mistake as `${cfg}` */
         while (isalnum((unsigned char)name[head]) || name[head] == '_') head++;
         size_t n = head;
@@ -1216,10 +1227,12 @@ static void warn_dollar_brace_interpolation(Env *env, Expr *e) {
         memcpy(path, name, n);
         path[n] = '\0';
         ziman_warning(ziman_error_file(), e->line, e->col,
-                      "'${%s}' in this string is not interpolation -- Ziman has none, so it prints "
+                      "'%s%s}' in this string is not interpolation -- Ziman has none, so it prints "
                       "as those characters; '%s' is in scope here, so you probably meant "
-                      "format(\"...{}...\", %s) -- or concat(\"$\", \"{...}\") if the text is meant literally",
-                      path, ident, path);
+                      "format(\"...{}...\", %s). A '{}' placeholder only means anything in the format "
+                      "string of 'format' or 'printf'; for the braces as text, split them from the "
+                      "name, as concat(\"{\", \"%s}\")",
+                      dollar ? "${" : "{", path, ident, path, path);
     }
 }
 
@@ -3335,7 +3348,7 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
             break;
         case EXPR_FLOAT: t = type_scalar(TY_FLOAT); break;
         case EXPR_STRING:
-            warn_dollar_brace_interpolation(env, e);
+            warn_brace_interpolation(env, e);
             t = type_scalar(TY_STRING);
             break;
         case EXPR_BOOL: t = type_scalar(TY_BOOL); break;

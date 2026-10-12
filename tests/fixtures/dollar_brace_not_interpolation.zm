@@ -12,11 +12,13 @@ fn main() {
     val cfg = Config { host: "localhost", port: 80 }
     print("Total: ${total}")
     print("${cfg.host}:${cfg.port}")
+    print("{cfg.host} and {total}")          // round 3: the bare-brace spelling, same mistake
 
     // Quiet, and each for its own reason.
     print(format("${}", total))              // literal '$' then Ziman's own {} placeholder: the backend's Postgres $1
     print("${missing}")                      // no such binding: someone else's template syntax, as in properties/regex
     print("${ total }")                      // not a name path
-    print(concat("$", "{total}"))            // meant literally: the message names this form
+    print("{{total}}")                       // `{{` is a format escape; in a plain literal it is two braces
+    print(concat("{", "total}"))             // meant literally: split the brace from the name
     print(format("{}", total))               // the fix the warning names
 }

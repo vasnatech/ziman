@@ -1,6 +1,10 @@
-# Three warnings, all from the two strings above the comment: `${total}`, then `${cfg.host}` and
-# `${cfg.port}` from the same literal (each `${` is its own site, as deprecation warnings are).
-# Nothing from the five quiet lines. Widening the rule to any `${` adds two of them and breaks this.
+# Five warnings from the three strings above the comment, and nothing from the six quiet lines.
+# `${name}` and the bare `{name}` are the same mistake in two spellings -- round 2 found the first,
+# round 3 found an agent inventing the second and concluding from --check that it works. Each `{`
+# is its own site, as deprecation warnings are. Widening the rule to any brace adds two of the
+# quiet lines; dropping the scope gate adds `${missing}` as well.
 lint 13:11 '${total}' in this string is not interpolation
 lint 14:11 '${cfg.host}' in this string is not interpolation
 lint 14:11 '${cfg.port}' in this string is not interpolation
+lint 15:11 '{cfg.host}' in this string is not interpolation
+lint 15:11 '{total}' in this string is not interpolation

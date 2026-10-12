@@ -3186,8 +3186,8 @@ and then found the limit of the compiler-as-documentation premise: **6 of those 
 compile-clean and silently wrong**, in two shapes. Both are now diagnosed, and in both cases the
 corpus decided the rule's shape rather than taste.
 
-**`${name}` in a string literal.** Ziman has no interpolation (see the string-literal entry above),
-so `"total: ${t}"` prints those characters. Two attempts printed `${total}` to stdout, and -- the
+**`${name}` or `{name}` in a string literal.** Ziman has no interpolation (see the string-literal
+entry above), so `"total: ${t}"` prints those characters. Two attempts printed `${total}` to stdout, and -- the
 part that makes this worse than a missing feature -- **two agents reading only `--check` concluded
 that interpolation works**, one reporting it "stringifies int/bool". The warning fires only when the
 braces hold a name path whose first segment **is a binding in scope at that point**, and that
@@ -3195,10 +3195,22 @@ narrowness is not a preference: a lexical "any `${`" rule fires 19 times across 
 and the reference backend, and **all 19 are correct code** -- `format("${}", i)` is a literal dollar
 plus Ziman's own `{}` placeholder, which is how the backend writes Postgres `$1` parameters, while
 `properties` and `regex` both take `${name}` as their own template syntax in data. Scope-gated, the
-same sweep reports **zero**. There is deliberately no escape: a `\$` was written and then removed,
-because the checker sees the literal after escape decoding and so could not have honoured it --
-shipping it would have added a language feature that did nothing. A dollar meant literally next to a
-name in scope is written `concat("$", "{name}")`.
+same sweep reports **zero**.
+
+*Extended 2026-10-12 (F88), because round 3 found a third agent inventing a third spelling.* The
+bare `{name}` form is covered too: arm B's 49 concluded from `--check` that `"{expr.field}"`
+interpolates, and that attempt was one of its two wrong answers. The extension turned out to need
+**no format-string exemption at all**, which was the risk that made it look hard: `format` and
+`printf` never pass their format string through `check_expr` -- it is typed directly and scanned by
+`scan_placeholders` -- so a real `{}` placeholder is never seen by this check, and a malformed one
+like `format("{host}", host)` is already a hard error there. The corpus sweep after the extension
+still reports **zero** across 1,303 files.
+
+There is deliberately no escape character: a `\$` was written and then removed, because the checker
+sees the literal after escape decoding and so could not have honoured it -- shipping it would have
+added a language feature that did nothing. Braces wanted as text are split from the name instead:
+`concat("{", "name}")` is quiet and prints `{name}`. Note `"{{name}}"` is **not** a way to write it;
+`{{` is a format-string escape, and in a plain literal it prints both braces.
 
 **A discarded pure builtin.** `push(arr, item)` in statement position compiled and did nothing in
 four of the fifty attempts -- arrays are values, so the new array went nowhere, and two of those four
