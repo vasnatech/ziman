@@ -837,7 +837,10 @@ A user-declared tagged union — the first parametric-free type *users* can decl
 a plain product type like `struct`.
 
 ```ziman
-struct RectDims { width: float  height: float }
+struct RectDims {
+    width: float
+    height: float
+}
 enum Shape { Circle(float) Rectangle(RectDims) Point }
 
 fn area(s: Shape) -> float {
@@ -1104,8 +1107,8 @@ no month/day names, no locale-awareness; an unrecognized run length of a token l
 
 ```ziman
 use time.LocalDate
-use time.localdate_of
 use time.localdate_add_months
+use time.localdate_of
 use time.localdate_to_string
 
 fn main() {
@@ -1181,10 +1184,10 @@ overlapping work.
 The `json` core module (`use json.Name`) is a parser/serializer, pure Ziman.
 
 ```ziman
-use json.parse_json
-use json.json_to_string
 use json.Json
 use json.json_object_get
+use json.json_to_string
+use json.parse_json
 
 fn main() {
     val j = unwrap(parse_json("{\"name\": \"Ada\", \"age\": 210}"))
@@ -1243,8 +1246,8 @@ Each format is a pure-Ziman module that converts text to and from a `Json` tree,
 `#[derive(Json)]` types decode from (and encode to) every format for free:
 
 ```ziman
-use toml
 use json.Json
+use toml
 
 #[derive(Json)]
 struct Server { host: string  port: int  tags: [string]  limits: Map<string, int> }
@@ -1918,8 +1921,8 @@ OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt; `[byte]
 
 ```ziman fragment
 use crypto.base64_decode
-use jwt
 use json.Json
+use jwt
 
 val secret = "c2hhcmVkLXNlY3JldC1vZi0zMi1ieXRlcy0xMjM0NTY="   // 32 random bytes, base64
 val key = unwrap(base64_decode(secret))
@@ -2029,8 +2032,8 @@ The `number` core module is shared formatting/parsing across `int`/`float`/`bigi
 `byte`, pure Ziman on top of each type's own `str()`.
 
 ```ziman
-use number.parse_pattern
 use number.format_int
+use number.parse_pattern
 
 fn main() {
     val fmt = parse_pattern("#,###.00")

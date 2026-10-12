@@ -26,6 +26,12 @@ How a block is treated depends on its fence's info string:
 ("this Result is discarded") stops demonstrating anything the day it starts compiling, and that
 is a silent failure no other check would see.
 
+It also checks that each block's `use` lines are in the order `--fmt` sorts them, since the
+formatter reorders them and a block showing another order teaches an import list that changes the
+moment a reader formats it. Deliberately *not* a blanket `--fmt --check`: that disagrees with 40 of
+the 46 blocks, nearly all of them hand-aligned comment columns rather than errors -- see
+`use_order`'s own comment for the measurement.
+
 What this does not do: run anything. A block that compiles may still print something other than
 what its comments claim, and the `ignore:` blocks (a BNF grammar, a `{ ... }` placeholder, a
 signature with no body, a two-file example) are unverifiable this way by construction. Those
@@ -61,6 +67,47 @@ def blocks(text):
         else:
             i += 1
     return out
+
+
+def use_order(body, tmp):
+    """Whether a block's `use` lines are in the order `--fmt` puts them.
+
+    Narrow on purpose. A blanket `--fmt --check` over every block was measured and rejected: it
+    disagrees with 40 of the 46 `ziman` blocks, and almost every one of those is a column of
+    hand-aligned trailing comments, which is a readability device in a hand-written reference and
+    not an error (the formatter normalises a lone trailing comment to two spaces and aligns a run
+    to its own longest line, so a document aligned by eye will differ from it almost everywhere).
+    Adopting that check would mean reformatting the reference to the formatter's columns -- a real
+    choice, but a 40-block one, and not this guard's to make.
+
+    `use` order is the opposite case: the formatter sorts these lines, so a block showing another
+    order teaches an import list that changes under `--fmt`, with nothing about alignment or taste
+    in it. Five blocks were wrong this way when the check was written (docs/reviews/tasks.md F74).
+    """
+    lines = body.split("\n")
+    runs, cur = [], []
+    for line in lines:
+        if line.startswith("use "):
+            cur.append(line)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    for run in runs:
+        if len(run) < 2:
+            continue
+        path = os.path.join(tmp, "uses.zm")
+        with open(path, "w") as f:
+            f.write("\n".join(run) + "\n\nfn main() {}\n")
+        r = subprocess.run([ZIMAN, "--fmt", path], capture_output=True, text=True)
+        if r.returncode != 0:
+            continue
+        got = [l for l in r.stdout.split("\n") if l.startswith("use ")]
+        if got != run:
+            return ("`use` lines are not in the order `--fmt` sorts them: expected "
+                    + ", ".join(got) + " -- a reader who formats this block gets a different import list")
+    return None
 
 
 def check(body, mode, tmp):
@@ -129,6 +176,11 @@ def main():
             bad = check(body, mode, tmp)
             if bad:
                 problems.append((line, bad))
+            # Checked for every compiled block, `fails` included: an example that is meant not to
+            # compile still shows its reader an import list.
+            misordered = use_order(body, tmp)
+            if misordered:
+                problems.append((line, misordered))
 
     print(
         "SYNTAX.md examples: {module} compiled, {fragment} fragments, {fails} expected to fail, "
