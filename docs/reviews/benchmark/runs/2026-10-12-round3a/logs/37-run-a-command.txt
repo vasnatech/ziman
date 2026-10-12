@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 8
+api_calls: 5
+saw: ziman: syntax error at 5:5 in p2.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 6:9 in p2.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 9:1 in p2.zm: expected 'fn', found '}'
+saw: ziman: type error at 4:5 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 4:9 in p3.zm: assignment to undefined variable 'r'
+saw: ziman: type error at 5:12 in p3.zm: use of undefined variable 'r'
+saw: p5.zm:3:11: warning: '${n}' in this string is not interpolation -- Ziman has none, so it prints as those characters; 'n' is in scope here, so you probably meant format("...{}...", n) -- or concat("$", "{...}") if the text is meant literally
+saw: ziman: type error at 4:5 in p5.zm: format string has 0 placeholder(s) but 1 argument(s) were provided
+saw: ziman: type error at 22:13 in p6.zm: this Result<unit, fs.FsError> is discarded, silently dropping a possible error -- bind it ('val _ = ...' to discard on purpose), or use 'try' to propagate the error

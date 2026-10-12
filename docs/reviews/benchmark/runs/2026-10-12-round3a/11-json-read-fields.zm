@@ -1,0 +1,16 @@
+use json
+
+fn main() {
+    val text = "{\"name\": \"Ada\", \"age\": 36, \"address\": {\"city\": \"London\"}}"
+
+    val doc = unwrap(json.parse_json(text))
+
+    val name = unwrap(json.json_require_string_field(doc, "name"))
+    val age = unwrap(json.json_require_int_field(doc, "age"))
+    val address = unwrap(json.json_require_field(doc, "address"))
+    val city = unwrap(json.json_require_string_field(address, "city"))
+
+    print(name)
+    print(str(age))
+    print(city)
+}

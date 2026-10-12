@@ -1,0 +1,24 @@
+use crypto
+
+val hex_digits = "0123456789abcdef"
+
+fn hex_digit(v: int) -> string {
+    return substring(hex_digits, v, v + 1)
+}
+
+fn bytes_to_hex_lower(data: [byte]) -> string {
+    var out = ""
+    for b in data {
+        var v = b as int
+        if v < 0 {
+            v = v + 256
+        }
+        out = format("{}{}{}", out, hex_digit(v / 16), hex_digit(v % 16))
+    }
+    return out
+}
+
+fn main() {
+    val digest = crypto.sha256(string_to_bytes("ziman"))
+    print(bytes_to_hex_lower(digest))
+}

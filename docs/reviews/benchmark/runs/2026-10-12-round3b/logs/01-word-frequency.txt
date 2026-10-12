@@ -1,0 +1,11 @@
+compiles: yes
+edits: 1
+compiler_invocations: 5
+other_commands:
+ziman --help
+ziman --api
+ziman --api builtins
+ziman --api collections
+saw: ziman: type error at 2:5 in .../probes3b/01-word-frequency/a.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: .../probes3b/01-word-frequency/a.zm:10:15: warning: '${w}' in this string is not interpolation -- Ziman has none, so it prints as those characters; 'w' is in scope here, so you probably meant format("...{}...", w) -- or concat("$", "{...}") if the text is meant literally
+saw: ziman: type error at 8:41 in .../probes3b/01-word-frequency/a.zm: argument 1 of 'collections::sort_with' expects [string], found Set<string>

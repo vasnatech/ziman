@@ -1,0 +1,21 @@
+use collections
+
+// Count how often each word appears in a sentence, then print one line per
+// distinct word ordered by descending count, alphabetically for ties.
+fn main() {
+    val text = "the quick brown fox jumps over the lazy dog the fox"
+    val words = split(text, " ")
+    val freq = collections.frequencies(words)
+    val distinct_words = set_items(map_keys(freq))
+    val ordered = collections.sort_with(distinct_words, fn(a: string, b: string) -> int {
+        val count_a = map_get_or(freq, a, 0)
+        val count_b = map_get_or(freq, b, 0)
+        if count_b != count_a {
+            return count_b - count_a
+        }
+        return compare(a, b)
+    })
+    for word in ordered {
+        print(format("{}: {}", word, map_get_or(freq, word, 0)))
+    }
+}

@@ -1,0 +1,29 @@
+// Take the first three values of an iterator, one per line,
+// leaving whatever follows unconsumed.
+
+fn print_first(it: Iter<int>, n: int) {
+    var taken: int = 0
+    while taken < n {
+        switch iter_next(it) {
+            Some(v) {
+                print(str(v))
+                taken = taken + 1
+            }
+            None {
+                // the iterator ran dry before n values
+                return
+            }
+        }
+    }
+}
+
+fn main() {
+    val nums: [int] = [10, 20, 30, 40, 50]
+    val it: Iter<int> = iter_of_array(nums)
+
+    // pulls exactly three values; 40 and 50 are never asked for
+    print_first(it, 3)
+
+    // release the iterator without draining what is left in it
+    iter_close(it)
+}

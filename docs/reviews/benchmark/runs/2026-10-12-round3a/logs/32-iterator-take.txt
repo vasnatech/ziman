@@ -1,0 +1,14 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+api_calls: 3
+saw: lexical error at 2:36 in <path>/p1.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: type error at 2:5 in <path>/p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 2:9 in <path>/p2.zm: assignment to undefined variable 'nums'
+saw: type error at 4:9 in <path>/p2.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 5:11 in <path>/p2.zm: use of undefined variable 'i'
+saw: syntax error at 3:9 in <path>/p4.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: syntax error at 4:13 in <path>/p4.zm: left-hand side of assignment must be a variable name
+saw: syntax error at 5:19 in <path>/p4.zm: expected an expression, found '>'
+saw: syntax error at 8:1 in <path>/p4.zm: expected 'fn', found '}'
+saw: type error at 14:42 in <path>/p5.zm: 'str' expects an int, float, bool, bigint, decimal, or byte, found Option<int> (it's already a string)

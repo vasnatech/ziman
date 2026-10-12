@@ -1,0 +1,29 @@
+use process
+use fs
+use os
+
+// Runs `echo "hello from a child"`, waits for it, then prints the
+// command's output followed by its exit status as `exit: N`.
+fn main() {
+    val out_path = format("/tmp/ziman-run-a-command-{}.out", os.pid())
+
+    val started = process.start("echo", ["hello from a child"], None, Some(out_path), None, None)
+    switch started {
+        Ok(child) {
+            val status = process.wait(child)
+            switch status {
+                Ok(code) {
+                    val captured = fs.read_text(out_path)
+                    switch captured {
+                        Ok(text) { print(trim(text)) }
+                        Err(e) { os.write_stderr(concat("could not read output: ", fs.fs_error_message(e), "\n")) }
+                    }
+                    print(format("exit: {}", code))
+                }
+                Err(e) { os.write_stderr(concat("wait failed: ", e, "\n")) }
+            }
+            val _ = fs.remove(out_path)
+        }
+        Err(e) { os.write_stderr(concat("could not start echo: ", e, "\n")) }
+    }
+}

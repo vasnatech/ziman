@@ -1,0 +1,47 @@
+// An int used as a set of permission flags:
+//   bit 0 = READ, bit 1 = WRITE, bit 2 = EXECUTE.
+use bits
+
+struct Flag {
+    name: string
+    mask: int
+}
+
+fn flag(name: string, bit: int) -> Flag {
+    return Flag { name: name, mask: bits.int_shift_left(1, bit) }
+}
+
+fn all_flags() -> [Flag] {
+    return [flag("read", 0), flag("write", 1), flag("execute", 2)]
+}
+
+fn add(flags: int, f: Flag) -> int {
+    return bits.int_or(flags, f.mask)
+}
+
+fn has(flags: int, f: Flag) -> bool {
+    return bits.int_and(flags, f.mask) != 0
+}
+
+fn yesno(b: bool) -> string {
+    if b {
+        return "yes"
+    } else {
+        return "no"
+    }
+}
+
+fn main() {
+    val flags: [Flag] = all_flags()
+    val read: Flag = flags[0]
+    val execute: Flag = flags[2]
+
+    // Build a value with READ and EXECUTE set (0b101 == 5).
+    var perms: int = 0
+    perms = add(perms, read)
+    perms = add(perms, execute)
+
+    for f in flags {
+        print(format("{}: {}", f.name, yesno(has(perms, f))))
+    }
+}

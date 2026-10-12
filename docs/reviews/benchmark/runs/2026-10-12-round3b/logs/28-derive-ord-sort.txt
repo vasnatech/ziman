@@ -1,0 +1,11 @@
+compiles: yes
+edits: 1
+compiler_invocations: 5
+other_commands: ziman --help
+ziman --api
+ziman --api builtins
+ziman --api collections
+saw: ziman: syntax error at 5:16 in .../probes3b/28-derive-ord-sort/p1.zm: expected a field name, found ','
+saw: ziman: syntax error at 15:44 in .../probes3b/28-derive-ord-sort/p1.zm: a trailing comma is not allowed before ']' -- remove it
+saw: ziman: type error at 10:5 in .../probes3b/28-derive-ord-sort/p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 16:19 in .../probes3b/28-derive-ord-sort/p4.zm: type argument Score does not satisfy bound 'Ord' required by type parameter 'T' (it must be a number, string or byte, or a struct/enum with a '<type>_compare(a, b) -> int' function -- '#[derive(Ord)]' writes one)

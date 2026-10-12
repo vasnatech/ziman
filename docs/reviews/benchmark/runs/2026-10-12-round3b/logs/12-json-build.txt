@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 5
+other_commands: ziman --help
+ziman --api
+ziman --api json
+ziman --api builtins
+saw: ziman: type error at 4:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 8:11 in p2.zm: call to undefined function 'json_to_string'
+saw: ziman: syntax error at 5:33 in p3.zm: expected '{' or '.' after 'json.JString'

@@ -1,0 +1,32 @@
+use json
+
+// Parse a JSON document and print the name, the age and the nested city,
+// one value per line.
+fn main() {
+    val text = "{\"name\": \"Ada\", \"age\": 36, \"address\": {\"city\": \"London\"}}"
+
+    switch json.parse_json(text) {
+        Ok(doc) {
+            switch json.json_require_string_field(doc, "name") {
+                Ok(name) { print(name) }
+                Err(name_err) { print(name_err) }
+            }
+
+            switch json.json_require_int_field(doc, "age") {
+                Ok(age) { print(str(age)) }
+                Err(age_err) { print(age_err) }
+            }
+
+            switch json.json_require_field(doc, "address") {
+                Ok(address) {
+                    switch json.json_require_string_field(address, "city") {
+                        Ok(city) { print(city) }
+                        Err(city_err) { print(city_err) }
+                    }
+                }
+                Err(address_err) { print(address_err) }
+            }
+        }
+        Err(parse_err) { print(parse_err) }
+    }
+}

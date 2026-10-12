@@ -1,0 +1,14 @@
+// Build a JSON object { "status": "ok", "count": 3 } and print it as JSON text.
+use json
+
+fn build_payload(status: string, count: int) -> json.Json {
+    val fields = mapb_new<string, json.Json>()
+    mapb_set(fields, "status", json.string_to_json(status))
+    mapb_set(fields, "count", json.int_to_json(count))
+    return json.Json.JObject(mapb_to_map(fields))
+}
+
+fn main() {
+    val payload = build_payload("ok", 3)
+    print(json.json_to_string(payload))
+}

@@ -1,0 +1,25 @@
+// Binary search over a sorted array of ints.
+// Returns the index of `target`, or -1 when it is absent.
+fn binary_search(a: [int], target: int) -> int {
+    var lo = 0
+    var hi = len(a) - 1
+    while lo <= hi {
+        val mid = lo + (hi - lo) / 2
+        if a[mid] == target {
+            return mid
+        } else if a[mid] < target {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return -1
+}
+
+fn main() {
+    val sorted = [2, 3, 5, 7, 11, 13, 17, 19, 23]
+    print(binary_search(sorted, 2))
+    print(binary_search(sorted, 11))
+    print(binary_search(sorted, 23))
+    print(binary_search(sorted, 4))
+}

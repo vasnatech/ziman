@@ -1,0 +1,17 @@
+use collections
+
+fn main() {
+    val values: [float] = [4.0, 8.0, 15.0, 16.0, 23.0, 42.0]
+
+    val total: float = collections.fold(values, 0.0, fn(acc: float, x: float) -> float {
+        return acc + x
+    })
+
+    val mean: float = total / 6.0
+    print(mean)
+
+    val above: int = collections.count(values, fn(x: float) -> bool {
+        return x > mean
+    })
+    print(above)
+}

@@ -1,0 +1,9 @@
+compiles: yes
+edits: 1
+compiler_invocations: 8
+api_calls: 3
+saw: ziman: lexical error at 1:16 in p1.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: syntax error at 4:5 in p1.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: syntax error at 5:91 in p1.zm: expected 'fn', found ')'
+saw: ziman: lexical error at 5:47 in p3.zm: unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type is 'enum Name { A, B }', and there is no '|>' pipeline
+saw: ziman: syntax error at 5:78 in a2.zm: Ziman has no '=>' -- a switch arm is written 'Variant(name) { ... }' with a block and no arrow, and a lambda is 'fn(x) { x + 1 }'

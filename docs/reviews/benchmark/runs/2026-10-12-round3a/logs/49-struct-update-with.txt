@@ -1,0 +1,27 @@
+compiles: yes
+edits: 1
+compiler_invocations: 32
+api_calls: 1
+saw: lexical error at 8:68: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: syntax error at 2:17: expected a field name, found ','
+saw: type error at 8:5: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 8:9: assignment to undefined variable 'base'
+saw: type error at 9:11: use of undefined variable 'base'
+saw: syntax error at 10:25: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: syntax error at 11:5: expected 'fn', found identifier
+saw: syntax error at 9:24: expected a field name, found '..'
+saw: syntax error at 9:20: expected a field name, found 'with'
+saw: syntax error at 9:29: expected '{', found ':'
+saw: syntax error at 9:30: expected ')', found ':'
+saw: syntax error at 9:29: expected ':', found 'with'
+saw: type error at 9:15: use of undefined variable 'Config'
+saw: syntax error at 9:59: expected '{', found newline
+saw: syntax error at 9:28: expected ':', found ','
+saw: type error at 9:15: missing field 'host' in construction of 'Config'
+saw: type error at 9:20: cannot initialize 'alt' of declared type int with a value of type Config
+saw: syntax error at 10:1: expected 'fn', found '}'
+saw: type error at 9:25: use of undefined variable 'foo'
+saw: type error at 9:32: no field 'bogus' on struct 'Config'
+saw: type error at 9:38: field 'port' of 'Config' expects int, found string
+saw: type error at 9:25: 'with' requires a struct value, found int
+saw: type error at 9:23: cannot initialize 'alt' of declared type Config with a value of type int

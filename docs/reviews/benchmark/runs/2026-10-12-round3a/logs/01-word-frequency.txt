@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+api_calls: 3
+saw: ziman: lexical error at 2:34 in probes/01-word-frequency/p1.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: type error at 4:5 in probes/01-word-frequency/p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 4:9 in probes/01-word-frequency/p2.zm: assignment to undefined variable 's'
+saw: ziman: type error at 16:14 in probes/01-word-frequency/p2.zm: use of undefined variable 'sorted'
+saw: ziman: type error at 8:40 in probes/01-word-frequency/p2.zm: argument 1 of 'collections::sort_with' expects [string], found Set<string>
+saw: ziman: type error at 17:9 in probes/01-word-frequency/p2.zm: format string has 0 placeholder(s) but 2 argument(s) were provided

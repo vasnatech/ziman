@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 7
+other_commands:
+ziman --help
+ziman --api
+ziman --api builtins
+ziman --api bits
+saw: ziman: syntax error at 3:1 in p1.zm: expected 'fn', found identifier
+saw: ziman: syntax error at 15:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: type error at 19:20 in p3.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: syntax error at 4:17 in p5.zm: expected a field name, found ','
+saw: ziman: syntax error at 24:65 in p5.zm: a trailing comma is not allowed before ']' -- remove it

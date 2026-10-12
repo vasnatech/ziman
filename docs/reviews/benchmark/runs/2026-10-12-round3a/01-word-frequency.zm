@@ -1,0 +1,19 @@
+use collections
+
+fn main() {
+    val sentence = "the quick brown fox jumps over the lazy dog the fox"
+    val words = split(sentence, " ")
+    val freq = collections.frequencies(words)
+    val distinct = set_items(map_keys(freq))
+    val ordered = collections.sort_with(distinct, fn(a: string, b: string) -> int {
+        val ca = map_get_or(freq, a, 0)
+        val cb = map_get_or(freq, b, 0)
+        if ca != cb {
+            return compare(cb, ca)
+        }
+        return compare(a, b)
+    })
+    for word in ordered {
+        print(concat(word, ": ", str(map_get_or(freq, word, 0))))
+    }
+}

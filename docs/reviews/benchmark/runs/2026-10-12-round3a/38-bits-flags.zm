@@ -1,0 +1,24 @@
+use bits
+
+// Permission flags: bit 0 = READ, bit 1 = WRITE, bit 2 = EXECUTE.
+val flag_read: int = 1
+val flag_write: int = 2
+val flag_execute: int = 4
+
+fn has_flag(flags: int, flag: int) -> bool {
+    return bits.int_and(flags, flag) != 0
+}
+
+fn yes_no(b: bool) -> string {
+    if b {
+        return "yes"
+    }
+    return "no"
+}
+
+fn main() {
+    val flags: int = bits.int_or(flag_read, flag_execute)
+    print(concat("read: ", yes_no(has_flag(flags, flag_read))))
+    print(concat("write: ", yes_no(has_flag(flags, flag_write))))
+    print(concat("execute: ", yes_no(has_flag(flags, flag_execute))))
+}

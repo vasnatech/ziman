@@ -1,0 +1,7 @@
+use crypto
+use number
+
+fn main() {
+    val digest = crypto.sha256(string_to_bytes("ziman"))
+    print(to_lower(number.bytes_to_hex(digest)))
+}

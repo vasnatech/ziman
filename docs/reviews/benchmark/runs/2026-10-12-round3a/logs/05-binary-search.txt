@@ -1,0 +1,8 @@
+compiles: yes
+edits: 1
+compiler_invocations: 4
+api_calls: 2
+saw: ziman: lexical error at 2:15 in <path>/p1.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: type error at 2:5 in <path>/p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in <path>/p2.zm: assignment to undefined variable 'lo'
+saw: ziman: type error at 4:11 in <path>/p2.zm: use of undefined variable 'lo'

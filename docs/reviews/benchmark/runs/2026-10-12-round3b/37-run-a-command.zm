@@ -1,0 +1,45 @@
+// Run `echo "hello from a child"`, wait for it, then print its output
+// followed by `exit: N`.
+//
+// process.output() captures a command's stdout but discards the exit status,
+// and process.run() reports the status but not the output, so this starts the
+// child with its stdout redirected to a scratch file, waits for it, and then
+// reads that file back.
+
+use process
+use fs
+use os
+
+fn read_output(path: string) -> string {
+    val text = fs.read_text(path)
+    switch text {
+        Ok(s) { return s }
+        Err(e) { return concat("<could not read the output: ", fs.fs_error_message(e), ">\n") }
+    }
+}
+
+fn fail(message: string) {
+    os.write_stderr(concat(message, "\n"))
+    os.exit(1)
+}
+
+fn main() {
+    val out_path = concat("/tmp/ziman-echo-", str(os.pid()), ".out")
+
+    val started = process.start("echo", ["hello from a child"], None, Some(out_path), None, None)
+    switch started {
+        Err(e) { fail(concat("could not start echo: ", e)) }
+        Ok(child) {
+            val status = process.wait(child)
+            switch status {
+                Err(e) { fail(concat("could not wait for echo: ", e)) }
+                Ok(code) {
+                    val captured = read_output(out_path)
+                    val removed = fs.remove(out_path)
+                    // `captured` already ends in echo's own newline.
+                    printf("{}exit: {}\n", captured, code)
+                }
+            }
+        }
+    }
+}

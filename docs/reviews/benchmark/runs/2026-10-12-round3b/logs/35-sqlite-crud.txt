@@ -1,0 +1,15 @@
+compiles: yes
+edits: 1
+compiler_invocations: 8
+other_commands:
+ziman --help
+ziman --api
+ziman --api sqlite
+ziman --api db
+ziman --api builtins
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'conn'
+saw: use of undefined variable 'rows'
+saw: a global value name must not start with an uppercase letter (uppercase is reserved for type names)
+saw: there is no postfix '?': write 'try <expression>' in front of the Option or Result instead (e.g. 'val x = try parse(s)')
+saw: a trailing comma is not allowed before ']' -- remove it

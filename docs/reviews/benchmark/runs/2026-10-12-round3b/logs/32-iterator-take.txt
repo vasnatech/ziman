@@ -1,0 +1,11 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+other_commands:
+ziman --help
+ziman --api
+ziman --api builtins
+ziman --api collections
+saw: ziman: lexical error at 2:43 in <path>/p1.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: syntax error at 2:5 in <path>/p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: syntax error at 4:9 in <path>/p4.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant

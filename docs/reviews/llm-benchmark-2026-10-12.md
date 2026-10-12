@@ -306,3 +306,113 @@ It does not establish variance (still n=1), that these fifty tasks are represent
 about the pre-F83 numbers. And the 39/50 correctness figure is **not** a clean measure of model
 capability, because five of its eleven failures are the task set's strictness rather than the
 model's error — which is the next thing to fix in the instrument.
+
+---
+
+# Round 3, same day: what `--api` is worth, and whether a model finds it
+
+Round 2's cost finding -- 1,401 compiler invocations, nearly all name-fishing -- was measured with
+`--api` **forbidden by the protocol**. `--api` exists (F34, F37), so the open question was never
+whether to build it but what it is worth and whether a cold model reaches for it. This round answers
+both, and the second answer is not the one the plan assumed.
+
+**Design: paired, not another full wave.** Twelve tasks spanning round 2's invocation distribution
+(264 down to 4), with the two cheapest as controls, run in two conditions. Round 2's own numbers for
+the same twelve are the third condition, already measured, which makes every comparison within-task
+rather than across samples. 24 runs instead of 100.
+
+- **Arm A** -- `--api` named in the prompt, with its three forms, and explicitly encouraged.
+- **Arm B** -- `--api` never mentioned. The rules permit running the binary "with whatever arguments
+  it accepts" and forbid only `--lsp`, `--fmt`, `--lint` and executing the program. Nothing points
+  at `--api`; `--help` is reachable, exactly as it is for a developer.
+
+Attempts and per-run logs: `docs/reviews/benchmark/runs/2026-10-12-round3a/` and `-round3b/`.
+
+## The numbers
+
+| task | round 2 (no `--api`) | 3a (advertised) | 3b (not mentioned) |
+|---|---|---|---|
+| 37-run-a-command | 264 | 8 | 6 |
+| 32-iterator-take | 167 | 6 | 6 |
+| 15-sha256-hex | 131 | 3 | 17 |
+| 12-json-build | 109 | 12 | 5 |
+| 01-word-frequency | 64 | 6 | 5 |
+| 35-sqlite-crud | 44 | 8 | 8 |
+| 11-json-read-fields | 38 | 10 | 5 |
+| 49-struct-update-with | 23 | 32 | 18 |
+| 28-derive-ord-sort | 22 | 16 | 5 |
+| 38-bits-flags | 22 | 6 | 7 |
+| 46-fold-average | 9 | 8 | 4 |
+| 05-binary-search | 4 | 4 | 7 |
+| **total** | **897** | **119** | **93** |
+
+Correctness: **arm A 12 of 12**, arm B 10 of 12, against round 2's 39 of 50 strict on the full set.
+
+## Finding 1: the cost is a protocol artefact, not a gap in the compiler
+
+**897 invocations become 119.** On the heaviest task, 264 become 8. That is the measured worth of a
+module listing, and it is the same conclusion the lost 2026-10-09 wave reached, now reproduced on the
+committed instrument with a paired design.
+
+The honest restatement of round 2's headline: *a model restricted to `--check` burns roughly ten
+times the compiler calls, and nothing in `--check`'s output points at `--api`.* The library surface
+was never undiscoverable; it was fenced off by the measurement.
+
+## Finding 2: discoverability is not the gap -- 12 of 12 found it unprompted
+
+Every arm-B run ran `ziman --help`, found `--api`, and used it without being told it existed. **Arm B
+is cheaper than arm A** (93 against 119) because those agents went to `--help` *first* and then read
+exactly the one module they needed, where several arm-A agents probed first and consulted `--api`
+later. The fourth arm this report originally proposed -- "allowed but not mentioned" as a separate
+discoverability test -- was answered by arm B itself, and the premise behind proposing it was wrong.
+
+Two tasks got *worse* with `--api` available, and both are the control working: **05-binary-search**
+(4 to 7) needs no library at all, so the `--help`/`--api` detour is pure overhead, and
+**49-struct-update-with** (23, 32, 18) is a *syntax* feature -- prefix `with` -- that no module
+listing can reveal. `--api` buys nothing where the answer is not a name.
+
+## Finding 3, new and unfixed: a signature is not a behaviour
+
+**Two of arm B's three errors trace to one cause, and it is the limit of `--api` rather than of the
+diagnostics.** A listing gives names, types and arity -- not what a function prints.
+
+- **46-fold-average is wrong** because `number.float_to_text(18.0)` prints `18`, not `18.0`. The
+  agent chose the function off its signature and could not check its output, because the protocol
+  forbids running the program.
+- **15-sha256-hex is right in spite of the same doubt**, and said so: it found `number.bytes_to_hex`
+  and *declined to use it*, hand-rolling a hex encoder instead, "because the exact output format of
+  `bytes_to_hex` (possible `0x` prefix or separators) could not be verified without executing the
+  program". The uncertainty cost correctness in one task and 14 extra invocations in the other.
+
+`--api` prints signatures only; the modules' own doc comments are right there in the source and do
+not appear in its output. Putting the one-line doc comment next to each signature is the obvious fix
+and would have decided both cases.
+
+## Finding 4: a third interpolation syntax, and today's fix does not catch it
+
+F86 made `"${name}"` warn when the braces hold a binding in scope. Arm B's 49 invented a **fourth**
+form and concluded from `--check` that it works, reporting "String interpolation is
+`\"{expr.field}\"`" -- the brace-only shape, no dollar. Verified directly:
+
+```
+print("{cfg.host}:{cfg.port}")   -->  --check exits 0, warns nothing
+                                  -->  prints  {cfg.host}:{cfg.port}
+```
+
+That attempt is one of arm B's two wrong answers. So three agents across two rounds have invented
+three different interpolation syntaxes (`${}`, `${a.b}`, `{a.b}`), and the committed rule covers the
+first two. **The brace-only form is a harder rule and needs its own corpus sweep**, because `{}` is
+Ziman's own format placeholder: any such warning has to exempt a literal that is the format argument
+of `format`/`printf`, where braces are not only legal but required. That is the next piece of work,
+and it came out of this round rather than the last.
+
+## What round 3 establishes, and what it does not
+
+It establishes the worth of `--api` within-task (897 to 119), that a cold model finds it from
+`--help` without being told (12 of 12), that it buys nothing for syntax features, and that its
+signature-only output leaves a semantic gap that cost one of twelve tasks its correctness.
+
+It does not establish anything at n=1 per cell about variance, and twelve tasks chosen *because*
+round 2 found them expensive is a biased sample for the 10x figure -- deliberately so, since the
+point was to measure the ceiling on the tasks where name discovery dominates. The two controls are
+in the table for exactly that reason, and they are where the effect reverses.

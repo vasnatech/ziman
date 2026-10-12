@@ -1,0 +1,18 @@
+// Print the first three values of an iterator over [10, 20, 30, 40, 50].
+// Only three `iter_next` calls are made, so the remaining elements stay in
+// the iterator, unconsumed and still available to any later reader.
+
+fn print_first<T>(it: Iter<T>, n: int) {
+    for _ in 0..n {
+        switch iter_next(it) {
+            Some(v) { print(v) }
+            None { return }
+        }
+    }
+}
+
+fn main() {
+    val nums = [10, 20, 30, 40, 50]
+    val it = iter_of_array(nums)
+    print_first(it, 3)
+}

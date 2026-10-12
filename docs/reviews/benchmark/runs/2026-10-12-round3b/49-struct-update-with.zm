@@ -1,0 +1,17 @@
+struct Config {
+    host: string
+    port: int
+    debug: bool
+}
+
+fn describe(c: Config) -> string {
+    return "{c.host}:{c.port} {c.debug}"
+}
+
+fn main() {
+    val defaults = Config { host: "localhost", port: 80, debug: false }
+    val secure = with defaults { port: 8443, debug: true }
+
+    print(describe(defaults))
+    print(describe(secure))
+}

@@ -1,0 +1,18 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+other_commands:
+ziman --help
+ziman --api
+ziman --api process
+ziman --api builtins
+ziman --api fs
+ziman --api os
+saw: ziman: syntax error at 5:5 in p1.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 6:9 in p1.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 9:1 in p1.zm: expected 'fn', found '}'
+saw: ziman: type error at 4:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 4:9 in p2.zm: assignment to undefined variable 'r'
+saw: ziman: type error at 5:12 in p2.zm: use of undefined variable 'r'
+saw: ziman: type error at 2:5 in p5.zm: format string has 3 placeholder(s) but 2 argument(s) were provided
+saw: ziman: type error at 3:5 in p5.zm: format string has 0 placeholder(s) but 1 argument(s) were provided

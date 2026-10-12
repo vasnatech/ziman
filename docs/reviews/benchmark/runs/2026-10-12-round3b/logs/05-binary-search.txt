@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 7
+other_commands:
+ziman --help
+ziman --api
+saw: ziman: lexical error at 2:21 in .../probes3b/05-binary-search/b.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: syntax error at 1:1 in .../probes3b/05-binary-search/c.zm: expected 'fn', found identifier
+saw: ziman: module error at 3:14 in .../probes3b/05-binary-search/d.zm: 'a.len(...)': 'a' is not an imported module, and Ziman has no methods -- if 'a' is a value, call a function on it instead, e.g. len(a) (if 'a' should be a module, add 'use a')
+saw: ziman: type error at 18:5 in .../probes3b/05-binary-search/d.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 18:9 in .../probes3b/05-binary-search/d.zm: assignment to undefined variable 'arr'
+saw: ziman: type error at 19:19 in .../probes3b/05-binary-search/d.zm: use of undefined variable 'arr'
+saw: ziman: type error at 2:5 in .../probes3b/05-binary-search/f.zm: call to undefined function 'println' -- did you mean 'print'?

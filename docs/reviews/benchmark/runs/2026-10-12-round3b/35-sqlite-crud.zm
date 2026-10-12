@@ -1,0 +1,54 @@
+use sqlite
+use db
+
+val db_path = "/tmp/ziman_bench_35.db"
+
+struct Task {
+    id: int
+    title: string
+}
+
+fn create_schema(conn: sqlite.Connection) -> Result<int, db.DbError> {
+    try sqlite.execute(conn, "drop table if exists task")
+    return sqlite.execute(conn, "create table task (id integer primary key, title text not null)")
+}
+
+fn insert_task(conn: sqlite.Connection, t: Task) -> Result<int, db.DbError> {
+    return sqlite.execute(conn,
+        "insert into task (id, title) values (?, ?)",
+        db.SqlValue.Int(t.id),
+        db.SqlValue.Text(t.title))
+}
+
+fn read_task(row: db.Row) -> Result<Task, db.DbError> {
+    val id = try db.sql_as_int(try db.row_get(row, "id"))
+    val title = try db.sql_as_text(try db.row_get(row, "title"))
+    return ok(Task { id: id, title: title })
+}
+
+fn run() -> Result<int, db.DbError> {
+    val conn = try sqlite.open(db_path)
+    try create_schema(conn)
+    val tasks = [
+        Task { id: 1, title: "write" },
+        Task { id: 2, title: "review" },
+        Task { id: 3, title: "ship" }
+    ]
+    for t in tasks {
+        try insert_task(conn, t)
+    }
+    val rows = try sqlite.query(conn, "select id, title from task order by id")
+    for row in rows {
+        val t = try read_task(row)
+        print(format("{}: {}", t.id, t.title))
+    }
+    sqlite.close(conn)
+    return ok(len(tasks))
+}
+
+fn main() {
+    val r = run()
+    if !is_ok(r) {
+        print(concat("error: ", db.db_error_message(unwrap_err(r))))
+    }
+}

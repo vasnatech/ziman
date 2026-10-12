@@ -1,0 +1,20 @@
+use collections
+
+#[derive(Ord)]
+struct Score {
+  points: int
+  player: string
+}
+
+fn main() {
+  val scores = [
+    Score { points: 40, player: "Ada" },
+    Score { points: 55, player: "Alan" },
+    Score { points: 55, player: "Grace" },
+    Score { points: 10, player: "Bob" },
+    Score { points: 70, player: "Eve" }
+  ]
+  for s in collections.sort(scores) {
+    print(s.player)
+  }
+}

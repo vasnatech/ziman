@@ -1,0 +1,12 @@
+// Build a JSON object { "status": "ok", "count": 3 } and print it as JSON text.
+use json
+use json.Json
+
+fn main() {
+    val fields = mapb_new<string, Json>()
+    mapb_set(fields, "status", Json.JString("ok"))
+    mapb_set(fields, "count", json.int_to_json(3))
+
+    val obj = Json.JObject(mapb_to_map(fields))
+    print(json.json_to_string(obj))
+}

@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 4
+other_commands: --help
+--api
+--api collections
+--api number
+saw: ziman: type error at 2:5 in p1.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p1.zm: assignment to undefined variable 'xs'
+saw: ziman: module error at 3:11 in p1.zm: 'xs.len(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. len(xs) (if 'xs' should be a module, add 'use xs')

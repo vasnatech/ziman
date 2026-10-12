@@ -1,0 +1,24 @@
+compiles: yes
+edits: 2
+compiler_invocations: 17
+other_commands:
+ziman --help
+ziman --api
+ziman --api crypto
+ziman --api bits
+ziman --api number
+ziman --api os
+saw: ziman: syntax error at 1:1 in .../probes3b/15-sha256-hex/a.zm: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+saw: ziman: syntax error at 5:53 in .../probes3b/15-sha256-hex/a.zm: Ziman has no methods, so '.bytes(...)' cannot be called on the result of an expression -- a function takes its receiver as an argument instead: bind the inner expression with 'val v = ...' and write 'bytes(v, ...)', or nest the calls directly. (If 'bytes' is a struct field holding a function value, that is callable too, but only on a plain variable, so the same binding is the fix.)
+saw: ziman: type error at 5:45 in .../probes3b/15-sha256-hex/b.zm: call to undefined function 'bytes'
+saw: ziman: type error at 2:13 in .../probes3b/15-sha256-hex/c.zm: call to undefined function 'to_bytes'
+saw: ziman: type error at 2:13 in .../probes3b/15-sha256-hex/e.zm: call to undefined function 'lower'
+saw: ziman: syntax error at 7:17 in .../probes3b/15-sha256-hex/g.zm: expected an expression, found 'int'
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: type error at 2:13 in .../probes3b/15-sha256-hex/h.zm: call to undefined function 'byte_to_int'
+saw: ziman: type error at 7:13 in .../probes3b/15-sha256-hex/i.zm: argument 1 of 'f' expects byte, found int
+saw: ziman: type error at 11:19 in .../probes3b/15-sha256-hex/j.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 2:11 in .../probes3b/15-sha256-hex/l.zm: function 'substring' expects 3 argument(s), found 1
+saw: ziman: type error at 3:11 in .../probes3b/15-sha256-hex/l.zm: function 'to_lower' is missing required argument 's'
+saw: ziman: type error at 2:11 in .../probes3b/15-sha256-hex/n.zm: function 'substring' has no parameter named 'zzz'
+saw: ziman: syntax error at 3:5 in .../attempts/round3b/15-sha256-hex.zm: a global value name must not start with an uppercase letter (uppercase is reserved for type names)

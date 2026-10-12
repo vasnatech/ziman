@@ -1,0 +1,17 @@
+compiles: yes
+edits: 1
+compiler_invocations: 12
+api_calls: 3
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'mb'
+saw: use of undefined variable 'mb'
+saw: call to undefined function 'json_to_string'
+saw: unknown struct or enum type 'Json' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: call to undefined function 'JObject'
+saw: expected an imported name, found '*'
+saw: expected 'fn', found ':'
+saw: expected an imported name, found '{'
+saw: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+saw: expected '{' or '.' after 'json.JString'
+saw: module 'json' has no function, struct, enum, or global val 'JObject'
+saw: 'json.int_to_json(...)': 'json' is not an imported module, and Ziman has no methods -- if 'json' is a value, call a function on it instead, e.g. int_to_json(json, ...) (if 'json' should be a module, add 'use json')

@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 8
+api_calls: 4
+saw: there is no postfix '?': write 'try <expression>' in front of the Option or Result instead (e.g. 'val x = try parse(s)')
+saw: expected an identifier, found '='
+saw: expected an expression, found 'val'
+saw: unknown struct or enum type 'DbError' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: 'main' must take no parameters and return nothing
+saw: a trailing comma is not allowed before ')' -- remove it

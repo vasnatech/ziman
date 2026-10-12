@@ -1,0 +1,8 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+api_calls: 2
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: 'print' takes exactly 1 argument, found 2
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: a global value name must not start with an uppercase letter (uppercase is reserved for type names)

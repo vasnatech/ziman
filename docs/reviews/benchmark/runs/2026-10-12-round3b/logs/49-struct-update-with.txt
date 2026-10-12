@@ -1,0 +1,22 @@
+compiles: yes
+edits: 1
+compiler_invocations: 18
+other_commands:
+ziman --help
+ziman --api
+saw: ziman: syntax error at 2:17 in p1.zm: expected a field name, found ','
+saw: ziman: type error at 2:5 in p2.zm: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 8:5 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 8:9 in p3.zm: assignment to undefined variable 'a'
+saw: ziman: type error at 9:5 in p3.zm: call to undefined function 'println' -- did you mean 'print'?
+saw: ziman: syntax error at 9:22 in v1.zm: expected a field name, found '..'
+saw: ziman: syntax error at 10:5 in v1.zm: expected 'fn', found identifier
+saw: ziman: syntax error at 9:20 in v2.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: ziman: syntax error at 9:15 in v4.zm: expected a field name, found 'with'
+saw: ziman: type error at 10:5 in v5.zm: call to undefined function 'printl' -- did you mean 'print'?
+saw: ziman: syntax error at 9:24 in w1.zm: expected '{', found ':'
+saw: ziman: syntax error at 9:25 in w2.zm: expected ')', found ':'
+saw: ziman: syntax error at 9:25 in w3.zm: expected '{', found '='
+saw: ziman: syntax error at 9:54 in w4.zm: expected '{', found newline
+saw: ziman: type error at 10:5 in s1.zm: 'print' takes exactly 1 argument, found 7
+saw: ziman: type error at 2:5 in s2.zm: 'print' takes exactly 1 argument, found 0
