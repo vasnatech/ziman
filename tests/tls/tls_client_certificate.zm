@@ -1,0 +1,197 @@
+// F64: mutual TLS -- a listener that authenticates its clients by certificate, and a client that
+// presents one. Certificates come from tests/run_tls_tests.sh: `a` is the server's, valid for
+// 127.0.0.1, and `b` is a different self-signed certificate, so it serves here as both a client
+// certificate and its own CA. Nothing in the harness needed changing to test this.
+//
+// The two cases that matter are the ones a password check cannot express: a client the server has
+// never heard of cannot complete the handshake at all, and a client that *is* trusted arrives with
+// a name the application can authorize against. Verification is OpenSSL's job and is already done
+// by the time `accept` returns, so a subject reported here was checked against the CA file.
+use net
+use net.NetError
+use net.TlsVerify
+
+val server_cert = "tests/tls/.certs/a.pem"
+val server_key = "tests/tls/.certs/a.key"
+val client_cert = "tests/tls/.certs/b.pem"
+val client_key = "tests/tls/.certs/b.key"
+
+fn kind(e: NetError) -> string {
+    return switch e {
+        ConnectionRefused(_) { "refused" }
+        HostNotFound(_) { "host not found" }
+        Timeout(_) { "timeout" }
+        Closed(_) { "closed" }
+        Io(_) { "io" }
+        Tls(_) { "tls" }
+    }
+}
+
+// Reports, for each connection it accepts, who the client turned out to be -- or that the handshake
+// never completed -- and echoes a byte to whoever got in. One connection at a time, so the
+// transcript below is in the order main connects.
+fn serve(l: net.Listener, results: Channel<string>, count: int) {
+    var n = 0
+    while n < count {
+        switch net.accept(l) {
+            Ok(s) {
+                send(results, switch net.peer_certificate_subject(s) {
+                    Some(subject) { concat("accepted ", subject) }
+                    None { "accepted, no client certificate" }
+                })
+                if Ok(got) = net.read(s, 10) {
+                    val _ = net.write(s, got)
+                }
+                net.close(s)
+            }
+            Err(e) { send(results, concat("rejected at the handshake (", kind(e), ")")) }
+        }
+        n = n + 1
+    }
+}
+
+fn client_options(cert: Option<string>, key: Option<string>) -> net.TlsClientOptions {
+    return with net.tls_client_options() {
+        verify: TlsVerify.Full,
+        ca_file: Option<string>.Some(server_cert),
+        cert_file: cert,
+        key_file: key
+    }
+}
+
+// Connects, then actually exchanges a byte, then prints what the server saw.
+//
+// **The exchange is the point, not a formality.** A client whose certificate the server refuses
+// still finishes its own side of a TLS 1.3 handshake, because the server validates the certificate
+// only after the client's Finished message; the rejection comes back as an alert afterwards. So
+// `connect_tls_with_options` returning `Ok` does **not** mean the server accepted you, and the
+// transcript below shows exactly where that is discovered instead -- on the first read.
+fn attempt(label: string, port: int, options: net.TlsClientOptions, results: Channel<string>) {
+    switch net.connect_tls_with_options("127.0.0.1", port, options) {
+        Ok(s) {
+            printf("{}: handshake returned Ok, server is {}\n", label, switch net.peer_certificate_subject(s) {
+                Some(subject) { subject }
+                None { "unidentified" }
+            })
+            printf("    then the first exchange: {}\n", switch net.write(s, [104b, 105b]) {
+                Err(e) { kind(e) }
+                Ok(_) { switch net.read(s, 10) {
+                    Ok(got) { concat("echoed ", str(len(got)), " bytes") }
+                    Err(e) { kind(e) }
+                } }
+            })
+            net.close(s)
+        }
+        Err(e) { printf("{}: handshake failed ({})\n", label, kind(e)) }
+    }
+    printf("    server saw: {}\n", receive(results))
+}
+
+fn main() {
+    // A listener that asks every client for a certificate and verifies it against `b`, but lets a
+    // client that has none through -- so the application decides what an anonymous caller may do.
+    val optional = unwrap(net.listen_tls_with_options(
+        "127.0.0.1",
+        0,
+        with net.tls_server_options(server_cert, server_key) {
+            client_ca_file: Option<string>.Some(client_cert)
+        }
+    ))
+    val optional_port = net.listener_port(optional)
+    val results: Channel<string> = channel_new()
+    spawn serve(optional, results, 3)
+
+    attempt(
+        "trusted client certificate",
+        optional_port,
+        client_options(Option<string>.Some(client_cert), Option<string>.Some(client_key)),
+        results
+    )
+    attempt(
+        "no client certificate",
+        optional_port,
+        client_options(Option<string>.None, Option<string>.None),
+        results
+    )
+    // The server's own certificate is not signed by the CA it trusts for clients, so presenting it
+    // is refused -- an untrusted certificate is not better than none.
+    attempt(
+        "untrusted client certificate",
+        optional_port,
+        client_options(Option<string>.Some(server_cert), Option<string>.Some(server_key)),
+        results
+    )
+
+    // The same listener, now requiring a certificate: an anonymous client cannot get in at all.
+    val required = unwrap(net.listen_tls_with_options(
+        "127.0.0.1",
+        0,
+        with net.tls_server_options(server_cert, server_key) {
+            client_ca_file: Option<string>.Some(client_cert),
+            require_client_cert: true
+        }
+    ))
+    val required_port = net.listener_port(required)
+    val strict: Channel<string> = channel_new()
+    spawn serve(required, strict, 2)
+
+    attempt(
+        "required, and presented",
+        required_port,
+        client_options(Option<string>.Some(client_cert), Option<string>.Some(client_key)),
+        strict
+    )
+    attempt(
+        "required, and absent",
+        required_port,
+        client_options(Option<string>.None, Option<string>.None),
+        strict
+    )
+
+    // Requiring a certificate with no CA file to check it against is a configuration error, caught
+    // at `listen` rather than failing every connection with a complaint about the certificate.
+    printf(
+        "require without a CA file: {}\n",
+        switch net.listen_tls_with_options("127.0.0.1", 0, with net.tls_server_options(server_cert, server_key) {
+            require_client_cert: true
+        }) {
+            Ok(_) { "accepted, which it should not be" }
+            Err(e) { net.net_error_message(e) }
+        }
+    )
+
+    // A plain listener asks for nothing, which is the ordinary HTTPS case and `listen_tls`'s default.
+    val plain = unwrap(net.listen_tls("127.0.0.1", 0, server_cert, server_key))
+    val plain_port = net.listener_port(plain)
+    val quiet: Channel<string> = channel_new()
+    spawn serve(plain, quiet, 1)
+    attempt(
+        "plain listener, client offers a certificate anyway",
+        plain_port,
+        client_options(Option<string>.Some(client_cert), Option<string>.Some(client_key)),
+        quiet
+    )
+
+    // A certificate without its key cannot be used, and saying so names the configuration rather
+    // than letting the handshake fail with the server's complaint.
+    // The OpenSSL detail at the end of that message varies, so what is asserted is that the message
+    // names the configuration rather than reporting a handshake failure.
+    printf(
+        "certificate without a key: {}\n",
+        switch net.connect_tls_with_options(
+            "127.0.0.1",
+            plain_port,
+            client_options(Option<string>.Some(client_cert), Option<string>.None)
+        ) {
+            Ok(_) { "connected, which it should not be" }
+            Err(e) {
+                val message = net.net_error_message(e)
+                if contains(message, "cannot use client certificate") {
+                    concat(kind(e), ", naming the certificate and key")
+                } else {
+                    concat(kind(e), ", but the message blames the handshake: ", message)
+                }
+            }
+        }
+    )
+}

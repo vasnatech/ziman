@@ -821,6 +821,17 @@ pub fn listen(host: string, port: int) -> Result<Listener, NetError>
 
 pub fn listen_tls(host: string, port: int, cert_file: string, key_file: string) -> Result<Listener, NetError>
 
+pub struct TlsServerOptions {
+    cert_file: string
+    key_file: string
+    client_ca_file: Option<string>
+    require_client_cert: bool
+}
+
+pub fn tls_server_options(cert_file: string, key_file: string) -> TlsServerOptions
+
+pub fn listen_tls_with_options(host: string, port: int, options: TlsServerOptions) -> Result<Listener, NetError>
+
 pub fn listener_port(l: Listener) -> int
 
 pub fn peer_address(s: Socket) -> Option<string>
@@ -847,9 +858,24 @@ pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError>
 
 pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError>
 
+pub struct TlsClientOptions {
+    verify: TlsVerify
+    ca_file: Option<string>
+    cert_file: Option<string>
+    key_file: Option<string>
+}
+
+pub fn tls_client_options() -> TlsClientOptions
+
+pub fn start_tls_with_options(s: Socket, host: string, options: TlsClientOptions) -> Result<unit, NetError>
+
 pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
 
 pub fn connect_tls_with(
+
+pub fn connect_tls_with_options(host: string, port: int, options: TlsClientOptions) -> Result<Socket, NetError>
+
+pub fn peer_certificate_subject(s: Socket) -> Option<string>
 
 pub fn close(s: Socket)
 

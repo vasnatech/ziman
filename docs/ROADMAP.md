@@ -1744,9 +1744,25 @@ from source.
 - **Database access follow-ups.** `db`/`datasource`, `#[derive(Row)]`, `net`,
   `crypto`, a shared URL parser (now in `db`), and Postgres/MySQL drivers (`pg`/`mysql`)
   exist (docs/DESIGN.md's `db`/`datasource`, `net`, `crypto`/`pg` and `mysql`
-  entries); SQLite, Postgres and MySQL are the three backends. Still open: (1) ~~TLS~~ **done for clients** (docs/DESIGN.md's TLS entry) -- still
+  entries); SQLite, Postgres and MySQL are the three backends. Still open: (1) ~~TLS~~ **done for clients** (docs/DESIGN.md's TLS entry) -- ~~still
   open: server-side TLS (`listen_tls`, for an HTTPS server), client
-  certificates, ALPN; (2) ~~scoped cleanup~~ **done as `defer`** (docs/DESIGN.md's `defer` entry).
+  certificates~~, ALPN;
+
+  *Update 2026-10-11 (F64): two of those three were already or are now done.* **Server-side TLS
+  has existed for some time** -- `net.listen_tls`, with its own TLS suite test, and `http`'s own
+  docs tell you to hand `serve` a listener from it -- so this list outlived its first item.
+  **Client certificates are now done on both sides**: `net.TlsServerOptions` (`client_ca_file`,
+  `require_client_cert`, via `listen_tls_with_options`) makes a listener authenticate its clients,
+  `net.TlsClientOptions` (`cert_file`, `key_file`, via `start_tls_with_options` /
+  `connect_tls_with_options`) presents one, and `net.peer_certificate_subject` is the identity to
+  authorize against. Two things the test transcript records because neither is obvious: a client
+  whose certificate is refused still gets `Ok` from the handshake and only learns on the first read
+  (TLS 1.3 validates the client certificate after its Finished), and requiring a certificate with
+  no CA file to check it against is refused at `listen` rather than failing every connection with a
+  complaint about the certificate. **Not done: mutual TLS through `http.client`**, which threads a
+  lone `ca_file` positionally through six call layers; the right fix is to thread a
+  `net.TlsClientOptions` there instead, which is mechanical but wide enough to be its own task.
+  ALPN is next (F65). (2) ~~scoped cleanup~~ **done as `defer`** (docs/DESIGN.md's `defer` entry).
   What remains of it: a block form (`defer { ... }`), the deferred call's
   discarded `Result` (a failing cleanup is invisible), fatal errors
   skipping defers, and no true `with_transaction(fn)` (no closures); (3) ~~connection pool~~ **done as v1**

@@ -718,11 +718,26 @@ static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
     return ok_result(int_type, value_int(id));
 }
 
-/* listen_tls_raw(host, port, cert_file, key_file): a listener whose accepted sockets are already
- * TLS (TLS 1.2 or later, the certificate chain from a PEM file and its private key). */
+/* listen_tls_raw(host, port, cert_file, key_file, client_ca_file, require_client_cert): a listener
+ * whose accepted sockets are already TLS (TLS 1.2 or later, the certificate chain from a PEM file
+ * and its private key).
+ *
+ * A non-empty `client_ca_file` turns on mutual TLS: the handshake asks the client for a certificate
+ * and verifies it against that PEM file of CAs. `require_client_cert` decides what happens when the
+ * client sends none -- refuse the handshake, or let it through with no peer certificate for
+ * `peer_certificate_raw` to report. Requiring one without a CA file to check it against is refused
+ * here rather than at the handshake, because OpenSSL would otherwise demand a certificate it has no
+ * way to verify and fail every connection with an error about the certificate rather than the
+ * configuration. */
 static Value native_net_listen_tls_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type int_type = type_scalar(TY_INT);
+    const char *client_ca = value_cstr(args[4]);
+    int require_client = args[5].as.b ? 1 : 0;
+    if (require_client && client_ca[0] == '\0') {
+        return err_result(int_type, "tls",
+                          "a client certificate cannot be required without a CA file to verify it against");
+    }
     ERR_clear_error();
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     if (ctx == NULL) { IoErr e; tls_error_message(&e, NULL); return err_result(int_type, "tls", e.message); }
@@ -738,11 +753,58 @@ static Value native_net_listen_tls_raw(Value *args, int argc, int line, int col)
         SSL_CTX_free(ctx);
         return err_result(int_type, "tls", msg);
     }
+    if (client_ca[0] != '\0') {
+        if (SSL_CTX_load_verify_locations(ctx, client_ca, NULL) != 1) {
+            IoErr e;
+            tls_error_message(&e, NULL);
+            char msg[400];
+            snprintf(msg, sizeof msg, "cannot load client CAs from '%s': %s", client_ca, e.message);
+            SSL_CTX_free(ctx);
+            return err_result(int_type, "tls", msg);
+        }
+        /* Tell the client which issuers are acceptable, so one holding several certificates can pick
+         * the right one instead of guessing. Advisory, so its failure is not the listener's. */
+        STACK_OF(X509_NAME) *names = SSL_load_client_CA_file(client_ca);
+        if (names != NULL) SSL_CTX_set_client_CA_list(ctx, names);
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | (require_client ? SSL_VERIFY_FAIL_IF_NO_PEER_CERT : 0), NULL);
+    }
     Value opened = open_socket(value_cstr(args[0]), args[1].as.i, 1);
     if (!opened.as.res->is_ok) { SSL_CTX_free(ctx); return opened; }
     NetHandle *h = handle_get(opened.as.res->value.as.i);
     h->server_ctx = ctx;
     return opened;
+}
+
+/* peer_certificate_raw(handle) -> Result<string, string>: the one-line subject name of the
+ * certificate the peer presented ("/CN=client.example/O=Acme"), or "" when it presented none, which
+ * is the ordinary case on both a plain socket and a TLS one that did not ask for a certificate.
+ *
+ * The subject and nothing else: it answers "who is this", which is what an application needs to
+ * authorize a caller. Whether to trust it is already settled by the time this returns -- OpenSSL
+ * verified the chain during the handshake and a listener that required a certificate refused the
+ * connection outright -- so this never reports a certificate that failed verification. */
+static Value native_net_peer_certificate_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Type str_type = type_scalar(TY_STRING);
+    NetHandle *h = require_handle(args[0].as.i, "peer_certificate", line, col);
+    if (!handle_acquire(h)) return err_result(str_type, "closed", "connection closed");
+    SSL *ssl = h->ssl;
+    if (ssl == NULL) {
+        handle_unuse(h);
+        return ok_result(str_type, value_string(""));
+    }
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    X509 *cert = SSL_get1_peer_certificate(ssl);
+#else
+    X509 *cert = SSL_get_peer_certificate(ssl);
+#endif
+    handle_unuse(h);
+    if (cert == NULL) return ok_result(str_type, value_string(""));
+    char subject[512];
+    const char *name = X509_NAME_oneline(X509_get_subject_name(cert), subject, (int)sizeof subject);
+    Value out = ok_result(str_type, value_string(name == NULL ? "" : subject));
+    X509_free(cert);
+    return out;
 }
 
 /* Reads up to `max` bytes (at least one -- blocks until something is
@@ -846,7 +908,7 @@ static Value native_net_set_timeout_raw(Value *args, int argc, int line, int col
     return ok_result(int_type, value_int(0));
 }
 
-/* net.start_tls_raw(handle, host, verify, ca_file) -> Result<int, string>:
+/* net.start_tls_raw(handle, host, verify, ca_file, cert_file, key_file) -> Result<int, string>:
  * upgrades an already-connected socket to TLS in place (a client
  * handshake). `verify`: 0 = do not verify the certificate at all
  * (encryption only -- open to a man in the middle), 1 = verify the chain
@@ -886,6 +948,23 @@ static Value native_net_start_tls_raw(Value *args, int argc, int line, int col) 
         }
     } else {
         SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+    }
+    /* A client certificate to present when the server asks for one. Both halves or neither: a
+     * certificate without its key cannot be used, and failing here names the configuration instead
+     * of letting the handshake fail later with the server's complaint about a missing certificate. */
+    const char *cert_file = value_cstr(args[4]);
+    const char *key_file = value_cstr(args[5]);
+    if (cert_file[0] != '\0') {
+        if (SSL_CTX_use_certificate_chain_file(ctx, cert_file) != 1 ||
+            SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) != 1 ||
+            SSL_CTX_check_private_key(ctx) != 1) {
+            IoErr e;
+            tls_error_message(&e, NULL);
+            char msg[400];
+            snprintf(msg, sizeof msg, "cannot use client certificate '%s' and key '%s': %s", cert_file, key_file, e.message);
+            SSL_CTX_free(ctx);
+            return err_result(int_type, "tls", msg);
+        }
     }
     SSL *ssl = SSL_new(ctx);
     SSL_CTX_free(ctx); /* the SSL holds its own reference */
@@ -1031,6 +1110,7 @@ void native_net_register(void) {
     native_register("net::idle_take_raw", native_net_idle_take_raw);
     native_register("net::idle_clear_raw", native_net_idle_clear_raw);
     native_register("net::listen_tls_raw", native_net_listen_tls_raw);
+    native_register("net::peer_certificate_raw", native_net_peer_certificate_raw);
     native_register("net::read_raw", native_net_read_raw);
     native_register("net::read_exact_raw", native_net_read_exact_raw);
     native_register("net::write_raw", native_net_write_raw);

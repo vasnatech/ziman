@@ -1,0 +1,20 @@
+trusted client certificate: handshake returned Ok, server is /CN=a
+    then the first exchange: echoed 2 bytes
+    server saw: accepted /CN=b
+no client certificate: handshake returned Ok, server is /CN=a
+    then the first exchange: echoed 2 bytes
+    server saw: accepted, no client certificate
+untrusted client certificate: handshake returned Ok, server is /CN=a
+    then the first exchange: tls
+    server saw: rejected at the handshake (tls)
+required, and presented: handshake returned Ok, server is /CN=a
+    then the first exchange: echoed 2 bytes
+    server saw: accepted /CN=b
+required, and absent: handshake returned Ok, server is /CN=a
+    then the first exchange: tls
+    server saw: rejected at the handshake (tls)
+require without a CA file: TLS error: a client certificate cannot be required without a CA file to verify it against
+plain listener, client offers a certificate anyway: handshake returned Ok, server is /CN=a
+    then the first exchange: echoed 2 bytes
+    server saw: accepted, no client certificate
+certificate without a key: tls, naming the certificate and key

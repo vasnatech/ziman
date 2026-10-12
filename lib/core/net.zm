@@ -80,10 +80,18 @@ native fn listen_raw(host: string, port: int) -> Result<int, string>
 native fn connect_unix_raw(path: string) -> Result<int, string>
 
 native fn listen_unix_raw(path: string) -> Result<int, string>
-native fn listen_tls_raw(host: string, port: int, cert_file: string, key_file: string) -> Result<int, string>
+native fn listen_tls_raw(
+    host: string,
+    port: int,
+    cert_file: string,
+    key_file: string,
+    client_ca_file: string,
+    require_client_cert: bool
+) -> Result<int, string>
 native fn listener_port_raw(handle: int) -> int
 
 native fn peer_address_raw(handle: int) -> string
+native fn peer_certificate_raw(handle: int) -> Result<string, string>
 native fn accept_raw(handle: int) -> Result<int, string>
 native fn read_raw(handle: int, max: int) -> Result<[byte], string>
 native fn read_exact_raw(handle: int, count: int) -> Result<[byte], string>
@@ -91,7 +99,14 @@ native fn write_raw(handle: int, data: [byte]) -> Result<int, string>
 native fn read_text_raw(handle: int, max: int) -> Result<string, string>
 native fn write_text_raw(handle: int, text: string) -> Result<int, string>
 native fn set_timeout_raw(handle: int, millis: int) -> Result<int, string>
-native fn start_tls_raw(handle: int, host: string, verify: int, ca_file: string) -> Result<int, string>
+native fn start_tls_raw(
+    handle: int,
+    host: string,
+    verify: int,
+    ca_file: string,
+    cert_file: string,
+    key_file: string
+) -> Result<int, string>
 native fn close_raw(handle: int)
 
 // The error as one line of text, for logging or showing to a user: `connection refused: ...`.
@@ -204,7 +219,49 @@ pub fn listen(host: string, port: int) -> Result<Listener, NetError> {
 // failed handshake is an `Err(Tls)` from `accept`, so an accept loop just goes round again. An Err
 // from `listen_tls` itself means the certificate or key could not be used, or the port is not available.
 pub fn listen_tls(host: string, port: int, cert_file: string, key_file: string) -> Result<Listener, NetError> {
-    val r = listen_tls_raw(host, port, cert_file, key_file)
+    return listen_tls_with_options(host, port, tls_server_options(cert_file, key_file))
+}
+
+// What a TLS listener presents and what it asks of the client. Build one with `tls_server_options`
+// and override what you need (`with net.tls_server_options(cert, key) { require_client_cert: true }`),
+// so a field added here later does not break callers the way a struct literal would.
+//
+// `client_ca_file` is what turns on **mutual TLS**: a PEM file of CAs, against which the handshake
+// verifies a certificate it asks the client for. `require_client_cert` then decides what a client
+// that sends none gets -- a refused handshake, or a connection where `peer_certificate_subject` is
+// `None`. Leaving the CA file `None` asks for nothing, which is the ordinary HTTPS case.
+pub struct TlsServerOptions {
+    cert_file: string
+    key_file: string
+    client_ca_file: Option<string>
+    require_client_cert: bool
+}
+
+// `TlsServerOptions` for a plain HTTPS listener: the certificate and key, no client certificate
+// asked for.
+pub fn tls_server_options(cert_file: string, key_file: string) -> TlsServerOptions {
+    return TlsServerOptions {
+        cert_file: cert_file,
+        key_file: key_file,
+        client_ca_file: Option<string>.None,
+        require_client_cert: false
+    }
+}
+
+// `listen_tls` with the rest of `TlsServerOptions` -- a listener that also authenticates its
+// clients by certificate. An `Err` means the certificate, the key or the client CA file could not
+// be used, the port is unavailable, or a client certificate was required with no CA file to verify
+// it against, which would otherwise fail every connection with a complaint about the certificate
+// rather than about the configuration.
+pub fn listen_tls_with_options(host: string, port: int, options: TlsServerOptions) -> Result<Listener, NetError> {
+    val r = listen_tls_raw(
+        host,
+        port,
+        options.cert_file,
+        options.key_file,
+        option_unwrap_or<string>(options.client_ca_file, ""),
+        options.require_client_cert
+    )
     if Err(e) = r {
         return err(net_error_from_raw(e))
     }
@@ -404,8 +461,56 @@ pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError> {
 // trusted CAs to use instead of the system store (e.g. a private CA, or a
 // self-signed test certificate).
 pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError> {
-    val ca = option_unwrap_or<string>(ca_file, "")
-    return switch start_tls_raw(s.handle, host, tls_verify_level(verify), ca) {
+    return start_tls_with_options(s, host, with tls_client_options() {
+        verify: verify,
+        ca_file: ca_file
+    })
+}
+
+// How a client verifies the server, and what it presents when the server asks for a certificate of
+// its own. Build one with `tls_client_options` and override what you need
+// (`with net.tls_client_options() { cert_file: Some("client.pem"), key_file: Some("client.key") }`).
+//
+// `cert_file` and `key_file` are for **mutual TLS**, where the server authenticates the client by
+// certificate rather than by a password or token. They go together: a certificate with no key
+// cannot be used. Setting them on a connection to a server that never asks costs nothing -- the
+// certificate is only sent when requested.
+//
+// **A successful handshake does not mean the server accepted your certificate.** In TLS 1.3 the
+// client finishes its own side before the server validates what it sent, so a server that refuses
+// the certificate answers with an alert afterwards: `start_tls_with_options` returns `Ok` and the
+// refusal appears on the first read or write as an `Err(Tls)`. Code that must know it is
+// authenticated has to exchange something, not merely connect.
+pub struct TlsClientOptions {
+    verify: TlsVerify
+    ca_file: Option<string>
+    cert_file: Option<string>
+    key_file: Option<string>
+}
+
+// `TlsClientOptions` that verify the server fully against the system CA store and present no
+// certificate of their own, which is what an ordinary HTTPS client wants.
+pub fn tls_client_options() -> TlsClientOptions {
+    return TlsClientOptions {
+        verify: TlsVerify.Full,
+        ca_file: Option<string>.None,
+        cert_file: Option<string>.None,
+        key_file: Option<string>.None
+    }
+}
+
+// `start_tls` with the rest of `TlsClientOptions`. An `Err` naming the client certificate means it
+// or its key could not be read; one from the handshake itself means the server rejected what was
+// presented, or presented something this would not accept.
+pub fn start_tls_with_options(s: Socket, host: string, options: TlsClientOptions) -> Result<unit, NetError> {
+    return switch start_tls_raw(
+        s.handle,
+        host,
+        tls_verify_level(options.verify),
+        option_unwrap_or<string>(options.ca_file, ""),
+        option_unwrap_or<string>(options.cert_file, ""),
+        option_unwrap_or<string>(options.key_file, "")
+    ) {
         Ok(_) { unit }
         Err(e) { err(net_error_from_raw(e)) }
     }
@@ -425,13 +530,41 @@ pub fn connect_tls_with(
     verify: TlsVerify,
     ca_file: Option<string>
 ) -> Result<Socket, NetError> {
+    return connect_tls_with_options(host, port, with tls_client_options() {
+        verify: verify,
+        ca_file: ca_file
+    })
+}
+
+// `connect_tls` with the rest of `TlsClientOptions`, including a client certificate to present.
+// The socket is closed if the handshake fails.
+pub fn connect_tls_with_options(host: string, port: int, options: TlsClientOptions) -> Result<Socket, NetError> {
     val s = try connect(host, port)
-    return switch start_tls_with(s, host, verify, ca_file) {
+    return switch start_tls_with_options(s, host, options) {
         Ok(_) { s }
         Err(e) {
             close(s)
             err(e)
         }
+    }
+}
+
+// The subject name of the certificate the other end presented ("/CN=client.example/O=Acme"), or
+// `None` when it presented none -- the ordinary answer on a plain socket, and on a TLS one whose
+// listener did not ask for a client certificate.
+//
+// **Whether to trust it is already settled** by the time this returns: OpenSSL verified the chain
+// against `TlsServerOptions.client_ca_file` during the handshake, and a listener with
+// `require_client_cert` refused the connection outright, so this never reports a certificate that
+// failed verification. What is left to the application is *authorization* -- which subjects may do
+// what -- for which the subject name is the identity to match against.
+//
+// On the client side this is the server's certificate, already verified to the degree
+// `TlsClientOptions.verify` asked for.
+pub fn peer_certificate_subject(s: Socket) -> Option<string> {
+    return switch peer_certificate_raw(s.handle) {
+        Ok(subject) { if len(subject) > 0 { Option<string>.Some(subject) } else { Option<string>.None } }
+        Err(_) { Option<string>.None }
     }
 }
 
