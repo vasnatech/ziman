@@ -890,7 +890,8 @@ static Expr *make_default_ref_expr(Param *param, int line, int col) {
  * on success; returns 0 and sets `*out_arg_type` to the value's actual
  * type so the caller (which knows whether it's reporting a bad argument
  * or a bad default) can build its own error message. */
-static int check_value_against_param_type(Module *module, Env *env, Expr **arg_slot, Type param_type, Type *out_arg_type) {
+static int check_value_against_param_type(Module *module, Env *env, Expr **arg_slot, Type param_type, Type *out_arg_type,
+                                          const char *void_context) {
     Expr *arg = *arg_slot;
     Type arg_type;
     /* An empty array literal (`[]`) has no elements to infer a type
@@ -940,7 +941,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
         return 1;
     } else {
         arg_type = check_expr(module, env, arg);
-        require_not_void(arg, "as an argument");
+        require_not_void(arg, void_context);
     }
     if (type_equals(arg_type, param_type)) {
         return 1;
@@ -1704,7 +1705,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         for (int i = 0; i < e->as.call.args.count; i++) {
             Type arg_type;
-            if (!check_value_against_param_type(module, env, &e->as.call.args.items[i], ft.type_args.items[i], &arg_type)) {
+            if (!check_value_against_param_type(module, env, &e->as.call.args.items[i], ft.type_args.items[i], &arg_type,
+                                                 "as an argument")) {
                 ziman_error("type", e->as.call.args.items[i]->line, e->as.call.args.items[i]->col,
                             "argument %d of '%s' (a %s) expects %s, found %s", i + 1, name, type_name(ft),
                             type_name(ft.type_args.items[i]), type_name(arg_type));
@@ -1761,7 +1763,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
             for (int i = 0; i < e->as.call.args.count; i++) {
                 Type arg_type;
-                if (!check_value_against_param_type(module, env, &e->as.call.args.items[i], ft.type_args.items[i], &arg_type)) {
+                if (!check_value_against_param_type(module, env, &e->as.call.args.items[i], ft.type_args.items[i], &arg_type,
+                                                 "as an argument")) {
                     ziman_error("type", e->as.call.args.items[i]->line, e->as.call.args.items[i]->col,
                                 "argument %d of '%s' (a %s) expects %s, found %s", i + 1, e->as.call.local_name, type_name(ft),
                                 type_name(ft.type_args.items[i]), type_name(arg_type));
@@ -2396,7 +2399,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     for (int i = 0; i < fixed_count; i++) {
         Type expected = substitute_type(fn->params.items[i].type, &fn->type_params, type_args);
         Type arg_type;
-        if (!check_value_against_param_type(module, env, &e->as.call.args.items[i], expected, &arg_type)) {
+        if (!check_value_against_param_type(module, env, &e->as.call.args.items[i], expected, &arg_type,
+                                            "as an argument")) {
             Expr *arg = e->as.call.args.items[i];
             if (is_option_type(expected)) {
                 ziman_error("type", arg->line, arg->col,
@@ -2742,7 +2746,7 @@ static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type e
     }
     if (is_option_type(expected) || expected.kind == TY_RESULT) {
         Type arg_type;
-        if (check_value_against_param_type(module, env, e_slot, expected, &arg_type)) {
+        if (check_value_against_param_type(module, env, e_slot, expected, &arg_type, "as a value")) {
             return expected;
         }
         return arg_type;
@@ -2964,11 +2968,30 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
                             "variant '%s.%s' takes exactly one payload value, e.g. %s.%s(...)",
                             enum_name, member, enum_name, member);
             }
-            Expr *arg = e->as.enum_access.args.items[0];
-            Type arg_type = check_expr(module, env, arg);
-            require_not_void(arg, "as a variant payload");
+            /* The payload type first, then the same check a call argument gets. A variant has exactly
+             * one declared payload type, which says as precisely as a parameter does what the value
+             * must be -- so the forms that can only be checked with an expected type in hand (an empty
+             * `[]`, an unannotated lambda, `ok`/`err`, `channel_new()`, an `if`/`switch` used as a
+             * value, a bare value auto-wrapped to Option/Result) work here for the same reason they
+             * already work in a struct literal field and a call argument.
+             *
+             * Before this, `Json.JArray([])` was the one place that asymmetry showed: `Holder { items:
+             * [] }` worked because a struct literal pushes its field type down, while a variant whose
+             * payload type is just as statically fixed did not, and the writer had to bind the empty
+             * array to a separately annotated `val` first (ROADMAP.md, the `Result<T, E>` entry's last
+             * bullet, which found it while simplifying `[Json]`-returning code).
+             *
+             * The helper raises the void-value error itself, which is why it takes the context word:
+             * a `require_not_void` call out here would be dead, and leaving the helper's own default
+             * would have quietly changed this message from "as a variant payload" to "as an
+             * argument". The slot is re-read rather than held, since an auto-wrap replaces the
+             * expression in place. */
             Type payload_type = substitute_type(v->payload_type, &decl->type_params, type_args);
-            if (!type_equals(arg_type, payload_type)) {
+            Type arg_type;
+            int payload_ok = check_value_against_param_type(module, env, &e->as.enum_access.args.items[0],
+                                                            payload_type, &arg_type, "as a variant payload");
+            Expr *arg = e->as.enum_access.args.items[0];
+            if (!payload_ok) {
                 ziman_error("type", arg->line, arg->col, "variant '%s.%s' expects %s, found %s",
                             enum_name, member, type_name(payload_type), type_name(arg_type));
             }
@@ -3635,7 +3658,8 @@ static Type check_initializer(Module *module, Env *env, Expr **init_slot, int ha
          * so a successful wrap persists into the AST the
          * interpreter later evaluates). */
         Type arg_type;
-        if (check_value_against_param_type(module, env, init_slot, declared_type, &arg_type)) {
+        if (check_value_against_param_type(module, env, init_slot, declared_type, &arg_type,
+                                           "as an initializer")) {
             declared = declared_type;
         } else {
             init_mismatch(name_for_msg, declared_type, arg_type, init->line, init->col);
@@ -4459,7 +4483,8 @@ static void check_function(Module *module, FunctionDecl *fn) {
                             param->name);
             }
             Type arg_type;
-            if (!check_value_against_param_type(module, g_global_env, &param->default_expr, param->type, &arg_type)) {
+            if (!check_value_against_param_type(module, g_global_env, &param->default_expr, param->type, &arg_type,
+                                                "as a default value")) {
                 ziman_error("type", param->default_expr->line, param->default_expr->col,
                             "default value for parameter '%s' expects %s or %s, found %s",
                             param->name, type_name(param->type), type_name(option_elem_type(param->type)), type_name(arg_type));

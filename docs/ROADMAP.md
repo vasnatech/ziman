@@ -487,8 +487,15 @@ from source.
   - **`Option<T>`** (for the still-separate optional/nullable-type gap
     above) would very likely use this exact same trick — not designed,
     but the precedent now exists.
-  - **An empty array literal isn't inferred as an ordinary enum variant
-    constructor's argument**, even though a struct literal field gets
+  - ~~**An empty array literal isn't inferred as an ordinary enum variant
+    constructor's argument**~~ **-- done 2026-10-11 (F66).** A variant's payload now goes through
+    the same check a call argument gets, so every form that needs an expected type works there:
+    the empty `[]`, an unannotated lambda, `ok`/`err`, `channel_new()`, an `if`/`switch` used as
+    a value, and a bare value auto-wrapped to Option or Result -- all of which were equally
+    refused, not just the array this bullet noticed. No new mechanism: the asymmetry was that one
+    call site passed no expected type, and the general mechanism this bullet asked for already
+    existed. The original note, which described it exactly:
+    even though a struct literal field gets
     exactly this treatment (`Holder { items: [] }` works;
     `Json.JArray([])` doesn't, "cannot infer the element type of an
     empty array literal", even though `JArray`'s one field type is just

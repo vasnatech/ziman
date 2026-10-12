@@ -1,0 +1,13 @@
+struct literal field: 0 item(s)
+empty array payload: []
+nested empty array: [[]]
+user enum, empty payload: 0 row(s)
+unannotated lambda payload: 21
+bare value into Option payload: 5
+bare value into Result payload: 5
+ok() into Result payload: 9
+err() into Result payload: no
+channel payload: 11
+if as payload: 100
+switch as payload: 1
+done

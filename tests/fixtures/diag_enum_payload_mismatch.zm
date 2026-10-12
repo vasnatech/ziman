@@ -1,0 +1,7 @@
+// F66: a payload of the wrong type still names the variant and both types, rather than reporting
+// whatever the shared argument-checking helper would have said about a parameter.
+enum Count { Of(int) }
+fn main() {
+    val c = Count.Of("seven")
+    printf("{}\n", str(1))
+}

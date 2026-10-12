@@ -1,0 +1,11 @@
+// F66: routing a variant payload through the same check a call argument gets must not blur the
+// message. The helper raises the void-value error itself, so it takes the context word -- without
+// that, this said "as an argument", which a payload is not.
+enum Count { Of(int) }
+fn nothing() {
+}
+
+fn main() {
+    val c = Count.Of(nothing())
+    printf("{}\n", str(1))
+}

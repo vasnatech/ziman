@@ -278,7 +278,8 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   notion of mutability in Ziman, only a *binding* does).
 - **An empty array literal (`[]`) has nothing to infer a type from** -- legal only where an
   expected array type is already known (an annotated `val`/`var`, a struct field/`with`
-  override, a `return`); elsewhere it's a type error. A non-empty literal infers its element
+  override, a `return`, a call argument, an enum variant's payload); elsewhere it's a type
+  error. A non-empty literal infers its element
   type from the first element, requiring every other to match exactly (`[1, "two"]` errors).
 - **Indexing and `set`/`insert`'s index are bounds-checked at runtime** (a computed index can't
   be checked earlier) -- out of range is a runtime error, like division by zero. `insert`'s
@@ -815,7 +816,9 @@ fn main() {
   A type parameter appearing only in the return type (`fn make<T>() -> [T]`) has nothing to
   infer from and still needs `make<int>()`. An argument needing its own expected type first (an
   empty array literal, `ok`/`err`/`channel_new()`, an unannotated lambda, an `if`/`switch`
-  value) contributes nothing and is checked normally once inference finishes. Two arguments
+  value) contributes nothing and is checked normally once inference finishes. Those same forms
+  are what an enum variant's payload accepts, for the same reason: one declared payload type
+  says what the value must be as precisely as a parameter does. Two arguments
   binding the same type parameter to different types is a compile error naming both. This
   never changes a struct/enum construction, `ok`/`err`/`channel_new()`, or `spawn` of a generic
   function -- those stay always-explicit. Explicit type arguments still work as given, no

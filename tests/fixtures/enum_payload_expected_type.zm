@@ -1,0 +1,79 @@
+// F66: a variant's declared payload type is an expected type, the way a struct field and a call
+// argument already were.
+//
+// `Holder { items: [] }` worked because a struct literal pushes its field type down; `JArray([])`
+// did not, although a variant's one payload type is just as statically fixed. The workaround was to
+// bind the empty array to a separately annotated `val` first, which is what made this worth fixing:
+// the asymmetry was invisible from the outside and the error said "add a type annotation" at a place
+// where the type was already written.
+//
+// Routing the payload through the same check a call argument gets brings all of its forms along, not
+// just the empty array: a lambda, `ok`/`err`, `channel_new()`, an `if`/`switch` used as a value, and
+// a bare value auto-wrapped to Option or Result. Each is below, because each was equally refused.
+use json
+enum Rows { Empty Some_([json.Json]) }
+enum Handler { Of(fn(int) -> int) }
+enum Maybe { Of(Option<int>) }
+enum Outcome { Of(Result<int, string>) }
+enum Chan { Of(Channel<int>) }
+enum Count { Of(int) }
+
+struct Holder { items: [int] }
+
+fn apply(h: Handler, n: int) -> int {
+    return switch h {
+        Of(f) { f(n) }
+    }
+}
+
+fn main() {
+    // What already worked, for comparison.
+    val h = Holder { items: [] }
+    printf("struct literal field: {} item(s)\n", len(h.items))
+
+    // The case the roadmap named: an empty array literal straight into a variant.
+    printf("empty array payload: {}\n", json.json_to_string(json.Json.JArray([])))
+    printf("nested empty array: {}\n", json.json_to_string(json.Json.JArray([json.Json.JArray([])])))
+    printf("user enum, empty payload: {}\n", switch Rows.Some_([]) {
+        Empty { "empty variant" }
+        Some_(rows) { concat(str(len(rows)), " row(s)") }
+    })
+
+    // An unannotated lambda: its parameter type comes from the payload type, as in a call.
+    printf("unannotated lambda payload: {}\n", str(apply(Handler.Of(fn(n) { return n * 3 }), 7)))
+
+    // A bare value where the payload is an Option or a Result: auto-wrapped, as in a call.
+    printf("bare value into Option payload: {}\n", switch Maybe.Of(5) {
+        Of(o) { switch o { Some(n) { str(n) } None { "none" } } }
+    })
+    printf("bare value into Result payload: {}\n", switch Outcome.Of(5) {
+        Of(r) { switch r { Ok(n) { str(n) } Err(e) { e } } }
+    })
+    printf("ok() into Result payload: {}\n", switch Outcome.Of(ok(9)) {
+        Of(r) { switch r { Ok(n) { str(n) } Err(e) { e } } }
+    })
+    printf("err() into Result payload: {}\n", switch Outcome.Of(err("no")) {
+        Of(r) { switch r { Ok(n) { str(n) } Err(e) { e } } }
+    })
+
+    // `channel_new()`, which likewise has no type of its own until something says what it carries.
+    val c = Chan.Of(channel_new())
+    switch c {
+        Of(ch) {
+            send(ch, 11)
+            printf("channel payload: {}\n", str(receive(ch)))
+        }
+    }
+
+    // An `if` and a `switch` used as the payload value.
+    printf("if as payload: {}\n", switch Count.Of(if len(h.items) == 0 { 100 } else { 200 }) {
+        Of(n) { str(n) }
+    })
+    printf("switch as payload: {}\n", switch Count.Of(switch Rows.Empty { Empty { 1 } Some_(_) { 2 } }) {
+        Of(n) { str(n) }
+    })
+
+    // Still refused, and still with the message about the payload rather than about inference: a
+    // value of the wrong type, and a void one.
+    printf("done\n")
+}
