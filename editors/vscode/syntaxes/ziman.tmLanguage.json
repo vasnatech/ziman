@@ -76,9 +76,9 @@
       "match": "\\b(int|float|bool|string|bigint|decimal|byte|unit)\\b"
     },
     "attributes": {
-      "comment": "#[derive(Json, Ord, ...)]",
+      "comment": "#[derive(Json, Ord, ...)] and the module-level #![experimental] / #![deprecated(\"...\")]. The `!` is optional: without it this rule did not match the module form at all, so the `!` coloured as logical-not and the attribute name was left bare (docs/reviews/tasks.md F75).",
       "name": "meta.attribute.ziman",
-      "match": "#\\[[^\\]]*\\]"
+      "match": "#!?\\[[^\\]]*\\]"
     },
     "builtin-types": {
       "comment": "the language's built-in generic types",
@@ -131,8 +131,18 @@
           "match": "\\b(with)\\b"
         },
         {
+          "comment": "All three visibility levels. `internal` was missing, so one of exactly three was invisible; it is a soft keyword, so `val internal = 1` miscolours it -- the same trade the grammar already accepts for `unit` (docs/reviews/tasks.md F75).",
           "name": "storage.modifier.ziman",
-          "match": "\\b(pub|native|val|var)\\b"
+          "match": "\\b(pub|internal|native)\\b"
+        },
+        {
+          "comment": "val and var are separate scopes so a theme can tell them apart. They differ by one character and that character flips mutability, which DESIGN.md's own \"val/var differ by one character\" entry names as a hazard and names colour as the answer; sharing one scope made that impossible. A use site still has no scope -- that needs semantic tokens (docs/reviews/tasks.md F76).",
+          "name": "storage.modifier.immutable.ziman",
+          "match": "\\b(val)\\b"
+        },
+        {
+          "name": "storage.modifier.mutable.ziman",
+          "match": "\\b(var)\\b"
         },
         {
           "comment": "Bare fn/struct/enum fallback -- 'declarations' already handles the common case of a keyword immediately followed by a valid name.",

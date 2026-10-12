@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze
 
 all: $(BIN)
 
@@ -42,7 +42,7 @@ all: $(BIN)
 # Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
 # `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
 # the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
-check: test test-nogc unit-tests api-check module-path-check tls-if-available northstar-if-available fmt-check docs-check libc-free-check xalloc-check
+check: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available northstar-if-available fmt-check docs-check grammar-check libc-free-check xalloc-check
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
@@ -155,6 +155,9 @@ fmt-check-backend: $(BIN)
 	    echo "SKIP fmt-check-backend: $(BACKEND_DIR)/src is not checked out"; \
 	fi
 
+# In `make check` since 2026-10-12. It was not, which is how a `len(result) >= 5` assertion on
+# document highlight survived while the handler answered with every word that matched the text:
+# nothing in the gate ran the file that would have been strengthened (docs/reviews/tasks.md F77).
 test-lsp: $(BIN)
 	python3 tests/lsp/lsp_test.py ./$(BIN)
 
@@ -354,6 +357,13 @@ lib-manual-check: $(BIN)
 	python3 tools/gen_lib_manual.py
 	python3 tools/gen_lib_deps.py
 	git diff --exit-code --stat -- docs/lib
+
+# Fails when the editor grammar stops giving a token the scope it is meant to. The grammar had no
+# test of any kind until 2026-10-12 -- nothing loaded it, nothing asserted a scope -- and three real
+# gaps sat in it unnoticed (`internal` matched nothing, `#![...]` was not an attribute, `val`/`var`
+# shared one scope). It needs no binary: the grammar is data and this reads it.
+grammar-check:
+	python3 tools/check_grammar.py
 
 # Fails when docs/SYNTAX.md or a lib/**/*.zm doc comment claims some `pub` name is "not yet"
 # supported when it's already declared -- see tools/check_not_yet.py's own header comment.
