@@ -117,6 +117,7 @@ flowchart LR
     properties --> os
     server --> clock
     server --> collections
+    server --> compress
     server --> http
     server --> json
     server --> metrics
@@ -167,7 +168,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `server`, `time`, `uuid` |
 | `collections` | - | `metrics`, `migrate`, `server` |
-| `compress` | - | `client` |
+| `compress` | - | `client`, `server` |
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
@@ -192,7 +193,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `properties` | `fs`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |
-| `server` | `clock`, `collections`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
+| `server` | `clock`, `collections`, `compress`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
 | `test` | - | - |
 | `thread` | - | - |

@@ -1,0 +1,73 @@
+// F61: opt-in gzip of a response body. `compressed` is a function rather than something the server
+// does for you, so it composes the way the CORS pair does -- in front of whichever code writes.
+//
+// Off unless asked for, and that default is a security choice: compressing a response holding a
+// secret alongside attacker-influenced text leaks the secret through the compressed length (the
+// BREACH class), and an API whose login answer carries a JWT is exactly that shape.
+//
+// Every line below is a condition that has to hold, or one that must stop it: offered encoding,
+// an already-encoded body, the size floor, and an incompressible body whose gzip comes out larger.
+// `Vary: Accept-Encoding` is on all of them, compressed or not, for the same reason cors_apply
+// sets `Vary: Origin` -- whether the body is gzipped is itself what varies by the header.
+use http
+use random
+use server
+fn req_of(headers: [http.Header]) -> http.Request {
+    return http.Request {
+        method: http.HttpMethod.Get,
+        target: "/x",
+        path: "/x",
+        query: "",
+        version: "HTTP/1.1",
+        headers: headers,
+        body: [],
+        peer: None
+    }
+}
+
+fn accepting(encoding: string) -> http.Request {
+    return req_of([http.Header { name: "Accept-Encoding", value: encoding }])
+}
+
+fn show(label: string, r: http.Response) {
+    val out = ab_new<string>()
+    for h in r.headers {
+        ab_append(out, concat(h.name, "=", h.value))
+    }
+    printf("{}: {} bytes [{}]\n", label, len(r.body), join(separator: ", ", pieces: ab_to_array(out)))
+}
+
+fn main() {
+    // A kilobyte of repeating text, which gzip reduces hard.
+    val sb = sb_new()
+    for i in 0..200 {
+        sb_append(sb, "compress me please ")
+    }
+    val big = server.response(200, string_to_bytes(sb_to_string(sb)))
+    printf("original: {} bytes\n", len(big.body))
+
+    show("gzip offered", server.compressed(accepting("gzip, deflate"), big, 1024))
+    show("gzip refused by q=0", server.compressed(accepting("gzip;q=0"), big, 1024))
+    show("identity only", server.compressed(accepting("identity"), big, 1024))
+    show("no Accept-Encoding", server.compressed(req_of([]), big, 1024))
+    show("under the floor", server.compressed(accepting("gzip"), server.response(200, string_to_bytes("tiny")), 1024))
+
+    // A handler that already encoded its body is left alone -- no second gzip, and no Vary either,
+    // since this function did not decide anything about the encoding.
+    val already = server.with_header(big, "Content-Encoding", "br")
+    show("already encoded", server.compressed(accepting("gzip"), already, 1024))
+
+    // Incompressible: gzip of genuinely random bytes comes out *larger*, so the original has to be
+    // kept. Random rather than a pattern -- a first attempt used `(i * 7919) % 251`, which looks
+    // unstructured and gzips to a seventh of its size, so it tested the opposite of what it claimed.
+    // Only the decision is printed, never a size, since random input makes the gzipped length vary.
+    val noise = server.response(200, random.random_bytes(4096))
+    val tried = server.compressed(accepting("gzip"), noise, 1024)
+    var encoded = false
+    for h in tried.headers {
+        if equals_ignore_case(h.name, "Content-Encoding") {
+            encoded = true
+        }
+    }
+    printf("random body kept uncompressed: {}, body unchanged: {}\n", !encoded, len(tried.body) == 4096)
+}

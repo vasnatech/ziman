@@ -40,7 +40,7 @@ fn main() {
 
     val l = unwrap(net.listen("127.0.0.1", 0))
     val port = net.listener_port(l)
-    val options = server.ServeOptions {
+    val options = with server.serve_options() {
         idle_timeout_ms: 1000,
         header_timeout_ms: 1000,
         max_connections: 4,

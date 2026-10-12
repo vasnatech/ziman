@@ -1789,9 +1789,21 @@ from source.
   connect timeout beyond the OS default, remain. ~~An `http` module (server first, pure Ziman on `net`)~~
   **done as a toolkit** (docs/DESIGN.md's `http` entry); still open there:
   ~~TLS (`listen_tls`), chunked request bodies~~ **done**, HTTP/2 (its own entry below), multipart,
-  compression, `Date`/`Server` headers, and -- once Ziman has function
+  ~~compression, `Date`/`Server` headers~~, and -- once Ziman has function
   values -- a real `serve(listener, handler)` and route table on top of
   the same matcher.
+
+  *Update 2026-10-11 (F61): three of those four are settled, and only one needed code.* `Date` was
+  already on every response, and `Server` is a decided **no** -- the library does not say what it is,
+  because that only tells an attacker what to look for, and the backend's `headers_test` asserts the
+  absence. Response **compression** is now `server.compressed`, **off unless asked for**
+  (`ServeOptions.compress_responses`): compressing a response that holds a secret beside
+  attacker-influenced text leaks it through the length (BREACH), and an API whose login answer carries
+  a JWT is that shape. 13,200 bytes to 117 on the wire when enabled. **Multipart remains and is
+  deliberately left**: nothing parses it and the backend's stats hardcode `documents: 0`, so the
+  feature it would serve does not exist -- the same reasoning as UDP in F60. Adding one
+  `ServeOptions` field broke eight call sites, so `serve_options()` now supplies the defaults and
+  `with server.serve_options() { .. }` is the way to build them; that was the last such break.
 
 - ~~**A `Row` bound, generalizing `Eq`/`Hash`/`Ord`'s mechanism to a fourth case**~~ **-- design
   pass done 2026-10-09 (C18), and the answer is no, with F1's decision to add it withdrawn.**

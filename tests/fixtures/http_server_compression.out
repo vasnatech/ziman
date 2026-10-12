@@ -1,0 +1,8 @@
+original: 3800 bytes
+gzip offered: 64 bytes [Vary=Accept-Encoding, Content-Encoding=gzip]
+gzip refused by q=0: 3800 bytes [Vary=Accept-Encoding]
+identity only: 3800 bytes [Vary=Accept-Encoding]
+no Accept-Encoding: 3800 bytes [Vary=Accept-Encoding]
+under the floor: 4 bytes [Vary=Accept-Encoding]
+already encoded: 3800 bytes [Content-Encoding=br]
+random body kept uncompressed: true, body unchanged: true

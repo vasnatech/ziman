@@ -10,7 +10,7 @@ fn main() {
     os.install_shutdown_handler()
     val listener = unwrap(net.listen("127.0.0.1", 0))
     printf("listening {}\n", net.listener_port(listener))
-    val options = server.ServeOptions {
+    val options = with server.serve_options() {
         idle_timeout_ms: 1000,
         header_timeout_ms: 1000,
         max_connections: 4,

@@ -49,6 +49,7 @@ val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
 
 use clock
 use collections
+use compress
 use http.Header
 use http.HttpMethod
 use http.Request
@@ -741,6 +742,73 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
     val sent = if HttpMethod.is_Head(req.method) { head } else { bytes_concat(head, resp.body) }
     try lift<int>(net.write(sock, sent))
     return keep
+}
+
+// ------------------------------------------------------------ response compression
+//
+// `resp` with its body gzipped, when that is both allowed and worth doing; `resp` unchanged
+// otherwise. A separate function rather than something `write_response` does for you, for the same
+// reason the CORS pair is two functions: it composes with `serve`, a hand-written loop or a static
+// file handler by sitting in front of whichever one writes.
+//
+// **Off unless asked for** (`ServeOptions.compress`), and that default is a security choice, not
+// caution about the CPU. Compressing a response that holds a secret alongside attacker-influenced
+// text leaks the secret through the compressed length -- the BREACH class -- and an API whose login
+// answer carries a JWT is exactly that shape. A server that wants the bandwidth asks for it; no
+// existing server gets a compression oracle switched on underneath it.
+//
+// Four conditions, all of which have to hold:
+//   * the request's `Accept-Encoding` offers gzip (`identity` and absence both mean no),
+//   * the handler has not already set `Content-Encoding` -- it may be sending something already
+//     compressed, and gzipping that twice is slower and larger,
+//   * the body is at least `min_bytes`; under a packet's worth there is nothing to win and gzip's
+//     own header can make it bigger,
+//   * and the result is actually smaller than the input, which incompressible bodies (a JPEG, an
+//     already-encrypted blob) fail -- checked rather than assumed.
+//
+// `Vary: Accept-Encoding` goes on every answer this touches, compressed or not, for the same reason
+// `cors_apply` sets `Vary: Origin`: whether the body is gzipped is what varies by the header, so a
+// shared cache without it can hand a gzipped body to a client that never asked for one
+// (tasks.md F61, and F59 for the identical hazard with Origin).
+pub fn compressed(req: Request, resp: Response, min_bytes: int) -> Response {
+    for h in resp.headers {
+        if equals_ignore_case(h.name, "Content-Encoding") {
+            return resp
+        }
+    }
+    val varied = with_header(resp, "Vary", "Accept-Encoding")
+    if !accepts_gzip(req) || len(resp.body) < min_bytes {
+        return varied
+    }
+    val packed = compress.gzip(resp.body)
+    if len(packed) >= len(resp.body) {
+        return varied
+    }
+    return Response {
+        status: varied.status,
+        headers: push(varied.headers, Header { name: "Content-Encoding", value: "gzip" }),
+        body: packed
+    }
+}
+
+// Whether `req` says it will take gzip. A q-value of 0 is a refusal -- `gzip;q=0` means "not gzip"
+// -- so it is read rather than ignored; anything else offering gzip counts. Full q-value ranking is
+// its own roadmap item and this needs none of it: the only question here is yes or no.
+fn accepts_gzip(req: Request) -> bool {
+    val offered = switch header(req, "Accept-Encoding") {
+        Some(value) { to_lower(value) }
+        None { return false }
+    }
+    for piece in split(offered, ",") {
+        val spec = trim(piece)
+        if starts_with(spec, "gzip") {
+            if contains(spec, "q=0") && !contains(spec, "q=0.") {
+                return false
+            }
+            return true
+        }
+    }
+    return false
 }
 
 // Sends the response for a request that couldn't be read (see
@@ -1978,6 +2046,11 @@ pub struct ServeOptions {
     // separate, on the route table (`metered_routes`), because only something that matched the request
     // knows the pattern to label it with -- and a pattern is the only label worth having.
     metrics: bool
+    // Gzip a response when the client offers it and the body is at least 1 KiB -- see `compressed`,
+    // which this simply turns on. Off by default on purpose: compressing a response that carries a
+    // secret alongside attacker-influenced text leaks it through the length (BREACH), and an API
+    // whose login answer holds a JWT is that shape. Ask for it per server rather than inheriting it.
+    compress_responses: bool
     // How many connections one address may hold at once. 0 is off, and is the default a server should keep
     // unless it is reached directly by clients: behind a reverse proxy every connection carries the
     // proxy's address, so any cap would be a cap on the proxy.
@@ -2026,6 +2099,7 @@ fn serve_connection(
     idle_timeout_ms: int,
     header_timeout_ms: int,
     log_requests: bool,
+    compress_responses: bool,
     fault: Option<fn(int, string) -> Response>,
     meter: bool,
     client_key: string,
@@ -2073,7 +2147,14 @@ fn serve_connection(
                     response.status
                 )
             }
-            switch write_response(sock, exchange.request, response) {
+            // 1 KiB: below a packet's worth there is nothing to win, and gzip's own 18-byte
+            // header plus a short body can come out larger -- which `compressed` checks anyway.
+            val to_send = if compress_responses {
+                compressed(exchange.request, response, 1024)
+            } else {
+                response
+            }
+            switch write_response(sock, exchange.request, to_send) {
                 Ok(k) {
                     if !k {
                         open = false
@@ -2087,6 +2168,36 @@ fn serve_connection(
 
 // Serves `listener` until a shutdown is requested, answering each request with `handler`; see
 // `ServeOptions` for the limits and the description above for how connections and shutdown behave.
+// `ServeOptions` with defaults a small server can take as they are, to be narrowed with `with`:
+//
+//     server.serve(listener, handler, with server.serve_options() { log_requests: true })
+//
+// Prefer this to writing the struct out. Every field of a struct literal is required, so a server
+// that lists all of them stops compiling the day this struct gains one -- which is exactly what
+// happened to four fixtures and the reference backend when `compress_responses` was added
+// (tasks.md F61). Built with `with`, the same code keeps working and picks up the new field's
+// default.
+//
+// The defaults, and why: a 30-second idle timeout and 10-second header timeout, which are long
+// enough for a slow mobile client and short enough that a stalled one frees its thread; 64
+// connections, since each is a thread; no request logging, because a log line per request is a
+// decision about volume; no `fault` renderer, so the library's own JSON shape is used; no metrics
+// and no response compression, both off for the reasons their own comments give; and no per-client
+// connection cap, which is wrong by default behind a reverse proxy where every connection carries
+// the proxy's address.
+pub fn serve_options() -> ServeOptions {
+    return ServeOptions {
+        idle_timeout_ms: 30000,
+        header_timeout_ms: 10000,
+        max_connections: 64,
+        log_requests: false,
+        compress_responses: false,
+        fault: Option<fn(int, string) -> Response>.None,
+        metrics: false,
+        max_connections_per_client: 0
+    }
+}
+
 pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions) {
     // Here rather than at interpreter start-up, so only a program that actually serves adopts it: this
     // is a policy for thread-per-connection code that hashes passwords, not for every Ziman program.
@@ -2129,6 +2240,7 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
                 options.idle_timeout_ms,
                 options.header_timeout_ms,
                 options.log_requests,
+                options.compress_responses,
                 options.fault,
                 options.metrics,
                 client_key,

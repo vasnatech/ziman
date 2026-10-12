@@ -3,7 +3,6 @@ use http
 use http.HttpMethod
 use net
 use server
-use server.ServeOptions
 
 // A tiny server and a client in one program, talking over the loopback interface.
 fn handle(req: http.Request) -> http.Response {
@@ -17,7 +16,7 @@ fn handle(req: http.Request) -> http.Response {
 fn main() {
     val listener = unwrap(net.listen("127.0.0.1", 0))
     val port = net.listener_port(listener)
-    val options = ServeOptions {
+    val options = with server.serve_options() {
         idle_timeout_ms: 2000,
         header_timeout_ms: 2000,
         max_connections: 4,

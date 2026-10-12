@@ -53,7 +53,6 @@ use http
 use http.HttpMethod
 use net
 use server
-use server.ServeOptions
 
 // Routes with path parameters, a JSON reply, and a 404 for everything else. The client module's
 // example shows the same server from the other side.
@@ -68,7 +67,7 @@ fn handle(req: http.Request) -> http.Response {
 
 fn main() {
     val listener = unwrap(net.listen("127.0.0.1", 0))
-    val options = ServeOptions {
+    val options = with server.serve_options() {
         idle_timeout_ms: 2000,
         header_timeout_ms: 2000,
         max_connections: 4,
@@ -299,6 +298,39 @@ says whether the connection stays open for another request: HTTP/1.1
 keeps alive unless either side asked to close, HTTP/1.0 only if the
 client asked to keep it. A `HEAD` request gets the headers, with the
 Content-Length the body would have had, and no body.
+
+## Response compression
+
+### `compressed`
+
+```
+pub fn compressed(req: Request, resp: Response, min_bytes: int) -> Response
+```
+
+`resp` with its body gzipped, when that is both allowed and worth doing; `resp` unchanged
+otherwise. A separate function rather than something `write_response` does for you, for the same
+reason the CORS pair is two functions: it composes with `serve`, a hand-written loop or a static
+file handler by sitting in front of whichever one writes.
+
+**Off unless asked for** (`ServeOptions.compress`), and that default is a security choice, not
+caution about the CPU. Compressing a response that holds a secret alongside attacker-influenced
+text leaks the secret through the compressed length -- the BREACH class -- and an API whose login
+answer carries a JWT is exactly that shape. A server that wants the bandwidth asks for it; no
+existing server gets a compression oracle switched on underneath it.
+
+Four conditions, all of which have to hold:
+  * the request's `Accept-Encoding` offers gzip (`identity` and absence both mean no),
+  * the handler has not already set `Content-Encoding` -- it may be sending something already
+    compressed, and gzipping that twice is slower and larger,
+  * the body is at least `min_bytes`; under a packet's worth there is nothing to win and gzip's
+    own header can make it bigger,
+  * and the result is actually smaller than the input, which incompressible bodies (a JPEG, an
+    already-encrypted blob) fail -- checked rather than assumed.
+
+`Vary: Accept-Encoding` goes on every answer this touches, compressed or not, for the same reason
+`cors_apply` sets `Vary: Origin`: whether the body is gzipped is what varies by the header, so a
+shared cache without it can hand a gzipped body to a client that never asked for one
+(tasks.md F61, and F59 for the identical hazard with Origin).
 
 ### `write_error`
 
@@ -909,6 +941,11 @@ pub struct ServeOptions {
     // separate, on the route table (`metered_routes`), because only something that matched the request
     // knows the pattern to label it with -- and a pattern is the only label worth having.
     metrics: bool
+    // Gzip a response when the client offers it and the body is at least 1 KiB -- see `compressed`,
+    // which this simply turns on. Off by default on purpose: compressing a response that carries a
+    // secret alongside attacker-influenced text leaks it through the length (BREACH), and an API
+    // whose login answer holds a JWT is that shape. Ask for it per server rather than inheriting it.
+    compress_responses: bool
     // How many connections one address may hold at once. 0 is off, and is the default a server should keep
     // unless it is reached directly by clients: behind a reverse proxy every connection carries the
     // proxy's address, so any cap would be a cap on the proxy.
@@ -949,11 +986,37 @@ request to send its head once it has begun: an honest client needs milliseconds,
 every one of the `max_connections` slots for `idle_timeout_ms` at a time. It cannot tell one client from another, so a determined flood from many
 addresses is a job for a firewall or the proxy in front (see the roadmap).
 
+### `serve_options`
+
+```
+pub fn serve_options() -> ServeOptions
+```
+
+Serves `listener` until a shutdown is requested, answering each request with `handler`; see
+`ServeOptions` for the limits and the description above for how connections and shutdown behave.
+`ServeOptions` with defaults a small server can take as they are, to be narrowed with `with`:
+
+
+```
+server.serve(listener, handler, with server.serve_options() { log_requests: true })
+```
+
+Prefer this to writing the struct out. Every field of a struct literal is required, so a server
+that lists all of them stops compiling the day this struct gains one -- which is exactly what
+happened to four fixtures and the reference backend when `compress_responses` was added
+(tasks.md F61). Built with `with`, the same code keeps working and picks up the new field's
+default.
+
+The defaults, and why: a 30-second idle timeout and 10-second header timeout, which are long
+enough for a slow mobile client and short enough that a stalled one frees its thread; 64
+connections, since each is a thread; no request logging, because a log line per request is a
+decision about volume; no `fault` renderer, so the library's own JSON shape is used; no metrics
+and no response compression, both off for the reasons their own comments give; and no per-client
+connection cap, which is wrong by default behind a reverse proxy where every connection carries
+the proxy's address.
+
 ### `serve`
 
 ```
 pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions)
 ```
-
-Serves `listener` until a shutdown is requested, answering each request with `handler`; see
-`ServeOptions` for the limits and the description above for how connections and shutdown behave.

@@ -1817,6 +1817,8 @@ pub fn error_text(e: HttpError) -> string
 
 pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<bool, HttpError>
 
+pub fn compressed(req: Request, resp: Response, min_bytes: int) -> Response
+
 pub fn write_error(sock: Socket, e: HttpError) -> Result<bool, HttpError>
 
 pub fn write_error_with(
@@ -1959,6 +1961,11 @@ pub struct ServeOptions {
     // separate, on the route table (`metered_routes`), because only something that matched the request
     // knows the pattern to label it with -- and a pattern is the only label worth having.
     metrics: bool
+    // Gzip a response when the client offers it and the body is at least 1 KiB -- see `compressed`,
+    // which this simply turns on. Off by default on purpose: compressing a response that carries a
+    // secret alongside attacker-influenced text leaks it through the length (BREACH), and an API
+    // whose login answer holds a JWT is that shape. Ask for it per server rather than inheriting it.
+    compress_responses: bool
     // How many connections one address may hold at once. 0 is off, and is the default a server should keep
     // unless it is reached directly by clients: behind a reverse proxy every connection carries the
     // proxy's address, so any cap would be a cap on the proxy.
@@ -1974,6 +1981,8 @@ pub struct ServeOptions {
     // `X-Forwarded-For` to consult even if it were trustworthy. That is the same reason the default is off.
     max_connections_per_client: int
 }
+
+pub fn serve_options() -> ServeOptions
 
 pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions)
 
