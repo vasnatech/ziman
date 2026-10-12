@@ -1,0 +1,165 @@
+// F62: reading a `multipart/form-data` request body.
+//
+// The parser works in bytes, not text, because a part may be a file: the binary case below carries a
+// NUL and a 0xFF through untouched, and the text helper reports the failure rather than mangling it.
+//
+// `multipart_boundary` is separate from `multipart` so a handler can tell the two answers apart: a
+// request that is not multipart at all is a 415, while every error from `multipart` is about the body
+// and is a 400.
+//
+// The cases that earn the scanner over a split on ";" are the filename holding a semicolon and the one
+// holding an escaped quote -- a browser sends the name the user's filesystem had, not a safe one.
+use http
+use server
+use server.multipart_max_parts
+fn req_of(media: string, body: [byte]) -> http.Request {
+    return http.Request {
+        method: http.HttpMethod.Post,
+        target: "/upload",
+        path: "/upload",
+        query: "",
+        version: "HTTP/1.1",
+        headers: [http.Header { name: "Content-Type", value: media }],
+        body: body,
+        peer: None
+    }
+}
+
+val boundary = "--zimanBoundary7"
+val content_type = concat("multipart/form-data; boundary=", boundary)
+
+// A part, written out the way a client sends it: the boundary line, the headers, a blank line, bytes.
+fn part_bytes(headers: string, body: [byte]) -> [byte] {
+    return concat_arrays<byte>([
+        string_to_bytes(concat("--", boundary, "\r\n", headers, "\r\n\r\n")),
+        body,
+        string_to_bytes("\r\n")
+    ])
+}
+
+fn body_of(parts: [[byte]]) -> [byte] {
+    return concat_arrays<byte>([
+        concat_arrays<byte>(parts),
+        string_to_bytes(concat("--", boundary, "--\r\n"))
+    ])
+}
+
+fn text_part(headers: string, body: string) -> [byte] {
+    return part_bytes(headers, string_to_bytes(body))
+}
+
+fn describe(p: server.Part) -> string {
+    val text = switch bytes_to_string(p.body) {
+        Ok(s) { concat("\"", replace(replace(s, "\r", "\\r"), "\n", "\\n"), "\"") }
+        Err(_) { concat(str(len(p.body)), " bytes, not text") }
+    }
+    return concat("name=", p.name,
+                  " filename=", switch p.filename { Some(f) { f } None { "-" } },
+                  " type=", switch p.content_type { Some(t) { t } None { "-" } },
+                  " body=", text)
+}
+
+// The three answers `part_text` distinguishes: text, bytes that are not text, and no such field.
+fn as_text(parts: [server.Part], name: string) -> string {
+    return switch server.part_text(parts, name) {
+        Ok(found) { switch found { Some(s) { concat("\"", s, "\"") } None { "no such field" } } }
+        Err(_) { "not text" }
+    }
+}
+
+fn show(label: string, req: http.Request) {
+    switch server.multipart(req) {
+        Ok(parts) {
+            printf("{}: {} part(s)\n", label, len(parts))
+            for p in parts {
+                printf("    {}\n", describe(p))
+            }
+        }
+        Err(e) { printf("{}: {} -> {}\n", label, server.error_status(e), server.error_text(e)) }
+    }
+}
+
+fn main() {
+    // A text field and an upload, which is what a form with a file input sends.
+    show("a field and a file", req_of(content_type, body_of([
+        text_part("Content-Disposition: form-data; name=\"title\"", "Blood test"),
+        text_part(concat("Content-Disposition: form-data; name=\"report\"; filename=\"r.txt\"\r\n",
+                         "Content-Type: text/plain"), "line one\r\nline two")
+    ])))
+
+    // Bytes that are not text, and an empty part: both have to come through as they went in.
+    show("binary and empty", req_of(content_type, body_of([
+        part_bytes(concat("Content-Disposition: form-data; name=\"blob\"; filename=\"b.bin\"\r\n",
+                          "Content-Type: application/octet-stream"),
+                   [1 as byte, 0 as byte, 255 as byte, 2 as byte]),
+        text_part("Content-Disposition: form-data; name=\"note\"", "")
+    ])))
+
+    // A filename with a separator in it, and one with a quote: the reason this scans the line.
+    show("awkward filenames", req_of(content_type, body_of([
+        text_part("Content-Disposition: form-data; name=\"a\"; filename=\"one;two.txt\"", "x"),
+        text_part("Content-Disposition: form-data; name=\"b\"; filename=\"say \\\"hi\\\".txt\"", "y")
+    ])))
+
+    // Header and parameter names are case-insensitive, and a parameter value may be unquoted.
+    show("case and quoting", req_of(concat("MULTIPART/FORM-DATA; BOUNDARY=", boundary), body_of([
+        text_part("CONTENT-DISPOSITION: form-data; NAME=plain", "no quotes")
+    ])))
+
+    // RFC 2046 says to ignore what sits before the first boundary and after the last.
+    show("preamble and epilogue", req_of(content_type, concat_arrays<byte>([
+        string_to_bytes("a preamble some clients send\r\n"),
+        body_of([text_part("Content-Disposition: form-data; name=\"only\"", "kept")]),
+        string_to_bytes("an epilogue\r\n")
+    ])))
+
+    // Nothing but the terminator is a well-formed body with no parts.
+    show("no parts", req_of(content_type, string_to_bytes(concat("--", boundary, "--\r\n"))))
+
+    // Bodies this must refuse, each a 400.
+    show("no boundary in the body", req_of(content_type, string_to_bytes("just some bytes")))
+    show("no closing boundary", req_of(content_type, concat_arrays<byte>([
+        text_part("Content-Disposition: form-data; name=\"a\"", "x")
+    ])))
+    show("headers never end", req_of(content_type, body_of([
+        string_to_bytes(concat("--", boundary, "\r\nContent-Disposition: form-data; name=\"a\"\r\n"))
+    ])))
+    show("a part with no name", req_of(content_type, body_of([
+        text_part("Content-Type: text/plain", "x")
+    ])))
+
+    // Not multipart at all: `multipart_boundary` is None, which a handler answers 415. `multipart`
+    // reports it as a 400, since it is only ever asked about a body.
+    val json = req_of("application/json", string_to_bytes("{}"))
+    val no_boundary = req_of("multipart/form-data", string_to_bytes("x"))
+    printf("boundary of json: {}\n", switch server.multipart_boundary(json) { Some(b) { b } None { "none" } })
+    printf("boundary when the Content-Type omits it: {}\n",
+           switch server.multipart_boundary(no_boundary) { Some(b) { b } None { "none" } })
+    show("json body", json)
+
+    // The part cap, which keeps a body of boundary lines from becoming one value per 40 bytes.
+    val many = req_of(content_type, body_of([
+        text_part("Content-Disposition: form-data; name=\"a\"", "1"),
+        text_part("Content-Disposition: form-data; name=\"b\"", "2"),
+        text_part("Content-Disposition: form-data; name=\"c\"", "3")
+    ]))
+    printf("default cap: {}\n", multipart_max_parts)
+    switch server.multipart_with(many, 2) {
+        Ok(parts) { printf("two allowed: {} part(s)\n", len(parts)) }
+        Err(e) { printf("two allowed: {} -> {}\n", server.error_status(e), server.error_text(e)) }
+    }
+
+    // Looking a part up by name: the first wins when a form repeats a field.
+    val repeated = req_of(content_type, body_of([
+        text_part("Content-Disposition: form-data; name=\"tag\"", "first"),
+        text_part("Content-Disposition: form-data; name=\"tag\"", "second"),
+        part_bytes("Content-Disposition: form-data; name=\"raw\"", [0 as byte, 255 as byte])
+    ]))
+    if Ok(parts) = server.multipart(repeated) {
+        printf("tag: {}\n", switch server.part(parts, "tag") { Some(p) { describe(p) } None { "missing" } })
+        printf("absent: {}\n", switch server.part(parts, "absent") { Some(p) { describe(p) } None { "missing" } })
+        printf("tag as text: {}\n", as_text(parts, "tag"))
+        printf("raw as text: {}\n", as_text(parts, "raw"))
+        printf("absent as text: {}\n", as_text(parts, "absent"))
+    }
+}

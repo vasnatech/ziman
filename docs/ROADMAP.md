@@ -1788,8 +1788,8 @@ from source.
   stale socket and a live one are indistinguishable from there.** UDP, and a
   connect timeout beyond the OS default, remain. ~~An `http` module (server first, pure Ziman on `net`)~~
   **done as a toolkit** (docs/DESIGN.md's `http` entry); still open there:
-  ~~TLS (`listen_tls`), chunked request bodies~~ **done**, HTTP/2 (its own entry below), multipart,
-  ~~compression, `Date`/`Server` headers~~, and -- once Ziman has function
+  ~~TLS (`listen_tls`), chunked request bodies~~ **done**, HTTP/2 (its own entry below), ~~multipart,
+  compression, `Date`/`Server` headers~~, and -- once Ziman has function
   values -- a real `serve(listener, handler)` and route table on top of
   the same matcher.
 
@@ -1799,11 +1799,18 @@ from source.
   absence. Response **compression** is now `server.compressed`, **off unless asked for**
   (`ServeOptions.compress_responses`): compressing a response that holds a secret beside
   attacker-influenced text leaks it through the length (BREACH), and an API whose login answer carries
-  a JWT is that shape. 13,200 bytes to 117 on the wire when enabled. **Multipart remains and is
-  deliberately left**: nothing parses it and the backend's stats hardcode `documents: 0`, so the
-  feature it would serve does not exist -- the same reasoning as UDP in F60. Adding one
+  a JWT is that shape. 13,200 bytes to 117 on the wire when enabled. **Multipart was left for F62** (below). Adding one
   `ServeOptions` field broke eight call sites, so `serve_options()` now supplies the defaults and
   `with server.serve_options() { .. }` is the way to build them; that was the last such break.
+
+  *Update 2026-10-11 (F62): the fourth is done too, so this list is closed.* `server.multipart(req)`
+  reads a `multipart/form-data` body into `Part` values -- bytes, not text, because a part may be a
+  file. I argued against building it on the grounds that nothing consumes one yet; Menderes decided
+  to build it, and file upload being on the roadmap makes a parser worth having before its first
+  caller. `multipart_boundary` is deliberately a separate function so a handler can answer **415**
+  for a request that is not multipart at all while every rejection of a body is a **400**, and
+  `Part.filename` is documented as the client's claim rather than a path, because it is the one
+  field here that invites a traversal. What remains under this entry is HTTP/2 alone.
 
 - ~~**A `Row` bound, generalizing `Eq`/`Hash`/`Ord`'s mechanism to a fourth case**~~ **-- design
   pass done 2026-10-09 (C18), and the answer is no, with F1's decision to add it withdrawn.**

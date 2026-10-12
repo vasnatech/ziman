@@ -1833,6 +1833,25 @@ pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Respon
 
 pub fn query_param(req: Request, name: string) -> Option<string>
 
+pub struct Part {
+    name: string
+    filename: Option<string>
+    content_type: Option<string>
+    body: [byte]
+}
+
+pub val multipart_max_parts = 128
+
+pub fn multipart_boundary(req: Request) -> Option<string>
+
+pub fn multipart(req: Request) -> Result<[Part], HttpError>
+
+pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
+
+pub fn part(parts: [Part], name: string) -> Option<Part>
+
+pub fn part_text(parts: [Part], name: string) -> Result<Option<string>, string>
+
 pub struct Endpoint<C> {
     method: HttpMethod
     pattern: string

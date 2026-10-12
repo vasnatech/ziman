@@ -14,8 +14,9 @@
 // across requests on one connection (including pipelined requests already in the buffer);
 // `Expect: 100-continue`; `HEAD` (headers only). Every response carries `Date` and `X-Content-Type-Options: nosniff`, and none says
 // what server it is (a `Server` header only tells an attacker what to look for); a handler that sets either header itself is not overridden. What it
-// does not: other transfer encodings (answered 501), HTTP/2, multipart bodies, compression, and
-// request trailers (read and ignored). TLS is the socket's business: hand `serve` a listener from
+// does not: other transfer encodings (answered 501), HTTP/2, and
+// request trailers (read and ignored). `multipart/form-data` bodies are read on request (see
+// `multipart`) and responses are gzipped on request (see `compressed`); neither happens unasked. TLS is the socket's business: hand `serve` a listener from
 // `net.listen_tls` and every connection is HTTPS. Request and response bodies are `[byte]` and may
 // hold any byte, including a NUL -- only the request line and headers are read as text, so a NUL
 // there (not in the body) is what gets a 400 (a Ziman `string` cannot hold one).
@@ -751,7 +752,7 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
 // reason the CORS pair is two functions: it composes with `serve`, a hand-written loop or a static
 // file handler by sitting in front of whichever one writes.
 //
-// **Off unless asked for** (`ServeOptions.compress`), and that default is a security choice, not
+// **Off unless asked for** (`ServeOptions.compress_responses`), and that default is a security choice, not
 // caution about the CPU. Compressing a response that holds a secret alongside attacker-influenced
 // text leaks the secret through the compressed length -- the BREACH class -- and an API whose login
 // answer carries a JWT is exactly that shape. A server that wants the bandwidth asks for it; no
@@ -990,6 +991,238 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
         }
     }
     return Option<string>.None
+}
+
+// -------------------------------------------------------------- multipart/form-data
+//
+// A `multipart/form-data` body is a sequence of parts separated by a boundary the client chose and
+// named in the `Content-Type`. Each part has its own small header block -- a `Content-Disposition`
+// naming the form field, a filename when it is an upload, and an optional `Content-Type` -- then a
+// blank line, then bytes. `multipart` reads one into `Part` values; the bytes stay bytes, so a part
+// may hold a NUL, invalid UTF-8, or a whole image.
+//
+//     if Some(_) = server.multipart_boundary(req) {
+//         switch server.multipart(req) {
+//             Ok(parts) {
+//                 if Some(p) = server.part(parts, "report") { store(p.filename, p.body) }
+//             }
+//             Err(e) { return server.error_response(e) }   // a malformed body is a 400
+//         }
+//     } else {
+//         return fault(status_unsupported_media_type, "expected multipart/form-data")
+//     }
+//
+// The whole body is already in memory -- `read_request` caps it at `ServeOptions.max_body_bytes` --
+// so this parses it in one pass and streams nothing. `multipart` stops at `multipart_max_parts`
+// parts, since a body of nothing but boundary lines would otherwise make one value per 40 bytes.
+
+// One part of a `multipart/form-data` body: the form field's `name`, a `filename` that is `Some` only for
+// an upload, the `Content-Type` the part declared, and its bytes.
+//
+// `filename` and `content_type` are **the client's claims about its own data**, not facts. The filename is
+// the name some other machine's filesystem had: show it, store it as text, but never open it as a path --
+// it may be `../../etc/passwd`, an absolute path, or 300 bytes of control characters. The content type is
+// likewise a claim; sniff the bytes if what they are matters.
+//
+// `body` is bytes rather than a string because a part may be a file: it can hold a NUL, invalid UTF-8 or a
+// JPEG, and nothing here decodes or validates it.
+pub struct Part {
+    name: string
+    filename: Option<string>
+    content_type: Option<string>
+    body: [byte]
+}
+
+// How many parts `multipart` reads before it refuses the body; `multipart_with` takes another limit. A body
+// of nothing but boundary lines would otherwise make one value per 40 bytes of request.
+pub val multipart_max_parts = 128
+
+// The boundary from the request's `Content-Type`, when that is a `multipart/form-data` giving one; `None`
+// otherwise.
+//
+// This is separate from `multipart` so a handler can tell two different answers apart: a request that is
+// not multipart at all is a **415**, while everything `multipart` rejects is about the body and is a
+// **400**. Check this first when that difference matters -- `multipart` on a JSON body reports a 400,
+// since a body is all it is ever asked about.
+pub fn multipart_boundary(req: Request) -> Option<string> {
+    if Some(media) = content_type(req.headers) {
+        // `mime.parse` has already lowered the type, the subtype and the parameter names; a boundary's
+        // value it leaves alone, which it must, since a boundary is matched byte for byte.
+        if media.type == "multipart" && media.subtype == "form-data" {
+            if Some(b) = mime.param(media, "boundary") {
+                if len(b) > 0 {
+                    return Option<string>.Some(b)
+                }
+            }
+        }
+    }
+    return Option<string>.None
+}
+
+// The value of parameter `key` in a `Content-Disposition` line (`form-data; name="f"; filename="a;b.txt"`).
+// Scans the line rather than splitting it on ";", so a quoted value may hold a separator, and `\"` inside
+// one is an escaped quote. Names are matched without regard to case. `None` when the parameter is absent --
+// including RFC 2231's `filename*=`, which is a different name, and whose encoding this does not decode.
+fn disposition_param(line: string, key: string) -> Option<string> {
+    val n = len(line)
+    var i = 0
+    while i < n {
+        if char_at(line, i) != ";" {
+            i = i + 1
+            continue
+        }
+        i = i + 1
+        while i < n && (char_at(line, i) == " " || char_at(line, i) == "\t") {
+            i = i + 1
+        }
+        val eq = index_of(line, "=", i)
+        if eq < 0 {
+            return Option<string>.None
+        }
+        val name = trim(substring(line, i, eq))
+        i = eq + 1
+        var value = ""
+        if i < n && char_at(line, i) == "\"" {
+            i = i + 1
+            val out = sb_new()
+            while i < n && char_at(line, i) != "\"" {
+                if char_at(line, i) == "\\" && i + 1 < n {
+                    i = i + 1
+                }
+                sb_append(out, char_at(line, i))
+                i = i + 1
+            }
+            i = i + 1
+            value = sb_to_string(out)
+        } else {
+            var end = i
+            while end < n && char_at(line, end) != ";" {
+                end = end + 1
+            }
+            value = trim(substring(line, i, end))
+            i = end
+        }
+        if equals_ignore_case(name, key) {
+            return Option<string>.Some(value)
+        }
+    }
+    return Option<string>.None
+}
+
+// A header's value out of a part's own header block, matched without regard to case; "" when absent.
+fn part_header(block: string, name: string) -> string {
+    for line in split(block, "\r\n") {
+        val colon = index_of(line, ":", 0)
+        if colon > 0 && equals_ignore_case(trim(substring(line, 0, colon)), name) {
+            return trim(substring(line, colon + 1, len(line)))
+        }
+    }
+    return ""
+}
+
+// One part, from its headers through to the end of its bytes.
+fn part_of(chunk: [byte]) -> Result<Part, HttpError> {
+    val blank = bytes_index_of(chunk, string_to_bytes("\r\n\r\n"), 0)
+    if blank < 0 {
+        return err(HttpError.BadRequest("a multipart part has no blank line after its headers"))
+    }
+    val block = switch bytes_to_string(slice<byte>(chunk, 0, blank)) {
+        Ok(text) { text }
+        Err(_) { return err(HttpError.BadRequest("a multipart part's headers are not text")) }
+    }
+    val disposition = part_header(block, "Content-Disposition")
+    val name = switch disposition_param(disposition, "name") {
+        Some(n) { n }
+        None { return err(HttpError.BadRequest("a multipart part has no name in its Content-Disposition")) }
+    }
+    val declared = part_header(block, "Content-Type")
+    return ok(Part {
+        name: name,
+        filename: disposition_param(disposition, "filename"),
+        content_type: if len(declared) > 0 { Option<string>.Some(declared) } else { Option<string>.None },
+        body: slice<byte>(chunk, blank + 4, len(chunk))
+    })
+}
+
+// The parts of a `multipart/form-data` request body, up to `multipart_max_parts` of them. Every `Err` is a
+// `BadRequest`, so `error_response` answers it 400: the `Content-Type` gave no boundary, the body contained
+// none, it ran out before the closing `--boundary--`, a part had no blank line after its headers or no
+// `name` in its `Content-Disposition`, or there were more parts than the limit.
+//
+// The whole body is already in memory -- `read_request` caps it at `ServeOptions.max_body_bytes`, 1 MiB by
+// default -- so this is one pass over bytes and streams nothing. Raise that cap before expecting large
+// uploads, and remember it applies to the encoded body, boundaries included.
+//
+// What it handles, because a real client sends it: a preamble before the first boundary and an epilogue
+// after the last (RFC 2046 says to ignore both); parts with no `Content-Type`; empty parts; header and
+// parameter names in any case; parameter values quoted or bare; and a quoted `filename` holding a `;` or an
+// escaped `\"`, which is why the `Content-Disposition` line is scanned rather than split on ";". What it
+// does not: RFC 2231's `filename*=` extended form is a different parameter name, so it reads as absent
+// rather than being decoded, and a nested `multipart/mixed` part is returned as the bytes it is.
+pub fn multipart(req: Request) -> Result<[Part], HttpError> {
+    return multipart_with(req, multipart_max_parts)
+}
+
+// `multipart` with its own limit on how many parts to read.
+pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError> {
+    val boundary = switch multipart_boundary(req) {
+        Some(b) { b }
+        None { return err(HttpError.BadRequest("expected a multipart/form-data Content-Type with a boundary")) }
+    }
+    // Every boundary but the first is preceded by a CRLF that belongs to the delimiter, not to the part
+    // before it. Prepending one lets the first be found the same way instead of as a special case, and
+    // costs a copy of a body already bounded by `max_body_bytes`.
+    val body = concat_arrays<byte>([string_to_bytes("\r\n"), req.body])
+    val delim = string_to_bytes(concat("\r\n--", boundary))
+    val close = string_to_bytes("--")
+    val line_end = string_to_bytes("\r\n")
+    val out = ab_new<Part>()
+    var at = bytes_index_of(body, delim, 0)
+    if at < 0 {
+        return err(HttpError.BadRequest("the multipart body contains no boundary"))
+    }
+    while true {
+        var from = at + len(delim)
+        // `--boundary--` ends the body. Anything after it is an epilogue, which RFC 2046 says to ignore.
+        if from + 2 <= len(body) && slice<byte>(body, from, from + 2) == close {
+            return ok(ab_to_array(out))
+        }
+        val next = bytes_index_of(body, delim, from)
+        if next < 0 {
+            return err(HttpError.BadRequest("the multipart body ends without a closing boundary"))
+        }
+        if ab_len(out) >= max_parts {
+            return err(HttpError.BadRequest(concat("a multipart body of more than ", str(max_parts), " parts")))
+        }
+        // The CRLF that ends the boundary line is not part of the part's headers.
+        if from + 2 <= len(body) && slice<byte>(body, from, from + 2) == line_end {
+            from = from + 2
+        }
+        ab_append(out, try part_of(slice<byte>(body, from, next)))
+        at = next
+    }
+    return ok(ab_to_array(out))
+}
+
+// The first part with that field name, since a form may repeat one.
+pub fn part(parts: [Part], name: string) -> Option<Part> {
+    for p in parts {
+        if p.name == name {
+            return Option<Part>.Some(p)
+        }
+    }
+    return Option<Part>.None
+}
+
+// The first part named `name` as text: `Ok(None)` when no part has that name, and `Err` when the part is
+// there but its bytes are not text. The error is the outer answer so a caller that is already returning a
+// `Result` can `try` this and go on with an `Option<string>`; an absent field and a field holding a JPEG
+// are different things, and neither is silently the other.
+pub fn part_text(parts: [Part], name: string) -> Result<Option<string>, string> {
+    if Some(p) = part(parts, name) {
+        return ok(Option<string>.Some(try bytes_to_string(p.body)))
+    }
+    return ok(Option<string>.None)
 }
 
 // -------------------------------------------------------------- typed endpoints

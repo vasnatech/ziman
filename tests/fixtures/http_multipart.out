@@ -1,0 +1,28 @@
+a field and a file: 2 part(s)
+    name=title filename=- type=- body="Blood test"
+    name=report filename=r.txt type=text/plain body="line one\r\nline two"
+binary and empty: 2 part(s)
+    name=blob filename=b.bin type=application/octet-stream body=4 bytes, not text
+    name=note filename=- type=- body=""
+awkward filenames: 2 part(s)
+    name=a filename=one;two.txt type=- body="x"
+    name=b filename=say "hi".txt type=- body="y"
+case and quoting: 1 part(s)
+    name=plain filename=- type=- body="no quotes"
+preamble and epilogue: 1 part(s)
+    name=only filename=- type=- body="kept"
+no parts: 0 part(s)
+no boundary in the body: 400 -> the multipart body contains no boundary
+no closing boundary: 400 -> the multipart body ends without a closing boundary
+headers never end: 400 -> a multipart part has no blank line after its headers
+a part with no name: 400 -> a multipart part has no name in its Content-Disposition
+boundary of json: none
+boundary when the Content-Type omits it: none
+json body: 400 -> expected a multipart/form-data Content-Type with a boundary
+default cap: 128
+two allowed: 400 -> a multipart body of more than 2 parts
+tag: name=tag filename=- type=- body="first"
+absent: missing
+tag as text: "first"
+raw as text: not text
+absent as text: no such field

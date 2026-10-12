@@ -16,8 +16,9 @@ and an optional body (`Content-Length`, or `Transfer-Encoding: chunked`, decoded
 across requests on one connection (including pipelined requests already in the buffer);
 `Expect: 100-continue`; `HEAD` (headers only). Every response carries `Date` and `X-Content-Type-Options: nosniff`, and none says
 what server it is (a `Server` header only tells an attacker what to look for); a handler that sets either header itself is not overridden. What it
-does not: other transfer encodings (answered 501), HTTP/2, multipart bodies, compression, and
-request trailers (read and ignored). TLS is the socket's business: hand `serve` a listener from
+does not: other transfer encodings (answered 501), HTTP/2, and
+request trailers (read and ignored). `multipart/form-data` bodies are read on request (see
+`multipart`) and responses are gzipped on request (see `compressed`); neither happens unasked. TLS is the socket's business: hand `serve` a listener from
 `net.listen_tls` and every connection is HTTPS. Request and response bodies are `[byte]` and may
 hold any byte, including a NUL -- only the request line and headers are read as text, so a NUL
 there (not in the body) is what gets a 400 (a Ziman `string` cannot hold one).
@@ -312,7 +313,7 @@ otherwise. A separate function rather than something `write_response` does for y
 reason the CORS pair is two functions: it composes with `serve`, a hand-written loop or a static
 file handler by sitting in front of whichever one writes.
 
-**Off unless asked for** (`ServeOptions.compress`), and that default is a security choice, not
+**Off unless asked for** (`ServeOptions.compress_responses`), and that default is a security choice, not
 caution about the CPU. Compressing a response that holds a secret alongside attacker-influenced
 text leaks the secret through the compressed length -- the BREACH class -- and an API whose login
 answer carries a JWT is exactly that shape. A server that wants the bandwidth asks for it; no
@@ -407,6 +408,102 @@ pub fn query_param(req: Request, name: string) -> Option<string>
 
 A query-string value by name, percent-decoded ("+" is a space); the
 first one if it is repeated. `None` if absent.
+
+## Multipart/form-data
+
+### `Part`
+
+```
+pub struct Part {
+    name: string
+    filename: Option<string>
+    content_type: Option<string>
+    body: [byte]
+}
+```
+
+One part of a `multipart/form-data` body: the form field's `name`, a `filename` that is `Some` only for
+an upload, the `Content-Type` the part declared, and its bytes.
+
+`filename` and `content_type` are **the client's claims about its own data**, not facts. The filename is
+the name some other machine's filesystem had: show it, store it as text, but never open it as a path --
+it may be `../../etc/passwd`, an absolute path, or 300 bytes of control characters. The content type is
+likewise a claim; sniff the bytes if what they are matters.
+
+`body` is bytes rather than a string because a part may be a file: it can hold a NUL, invalid UTF-8 or a
+JPEG, and nothing here decodes or validates it.
+
+### `multipart_max_parts`
+
+```
+pub val multipart_max_parts = 128
+```
+
+How many parts `multipart` reads before it refuses the body; `multipart_with` takes another limit. A body
+of nothing but boundary lines would otherwise make one value per 40 bytes of request.
+
+### `multipart_boundary`
+
+```
+pub fn multipart_boundary(req: Request) -> Option<string>
+```
+
+The boundary from the request's `Content-Type`, when that is a `multipart/form-data` giving one; `None`
+otherwise.
+
+This is separate from `multipart` so a handler can tell two different answers apart: a request that is
+not multipart at all is a **415**, while everything `multipart` rejects is about the body and is a
+**400**. Check this first when that difference matters -- `multipart` on a JSON body reports a 400,
+since a body is all it is ever asked about.
+
+### `multipart`
+
+```
+pub fn multipart(req: Request) -> Result<[Part], HttpError>
+```
+
+The parts of a `multipart/form-data` request body, up to `multipart_max_parts` of them. Every `Err` is a
+`BadRequest`, so `error_response` answers it 400: the `Content-Type` gave no boundary, the body contained
+none, it ran out before the closing `--boundary--`, a part had no blank line after its headers or no
+`name` in its `Content-Disposition`, or there were more parts than the limit.
+
+The whole body is already in memory -- `read_request` caps it at `ServeOptions.max_body_bytes`, 1 MiB by
+default -- so this is one pass over bytes and streams nothing. Raise that cap before expecting large
+uploads, and remember it applies to the encoded body, boundaries included.
+
+What it handles, because a real client sends it: a preamble before the first boundary and an epilogue
+after the last (RFC 2046 says to ignore both); parts with no `Content-Type`; empty parts; header and
+parameter names in any case; parameter values quoted or bare; and a quoted `filename` holding a `;` or an
+escaped `\"`, which is why the `Content-Disposition` line is scanned rather than split on ";". What it
+does not: RFC 2231's `filename*=` extended form is a different parameter name, so it reads as absent
+rather than being decoded, and a nested `multipart/mixed` part is returned as the bytes it is.
+
+### `multipart_with`
+
+```
+pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
+```
+
+`multipart` with its own limit on how many parts to read.
+
+### `part`
+
+```
+pub fn part(parts: [Part], name: string) -> Option<Part>
+```
+
+The first part with that field name, since a form may repeat one.
+
+### `part_text`
+
+```
+pub fn part_text(parts: [Part], name: string) -> Result<Option<string>, string>
+```
+
+The first part named `name` as text: `Ok(None)` when no part has that name, and `Err` when the part is
+there but its bytes are not text. The error is the outer answer so a caller that is already returning a
+`Result` can `try` this and go on with an `Option<string>`; an absent field and a field holding a JPEG
+are different things, and neither is silently the other.
 
 ## Typed endpoints
 
