@@ -711,8 +711,16 @@ from source.
   faithful; `make experimental-check` holds `README.md`'s own table to it, that one being
   hand-written and the fourth copy. `pg`, `mysql`, `toml` and `yaml` carry the attribute, and their
   header comments keep the module-specific *reason* while no longer repeating the label.
-  `#![deprecated]` is refused with a message saying why, since what it should warn about is still
-  undecided. ~~Still open: `#[deprecated]` on a `struct`/`enum`/`val`~~ **Done for `struct` and `enum`
+  ~~`#![deprecated]` is refused with a message saying why, since what it should warn about is still
+  undecided.~~ **Done 2026-10-11 (F70): it warns at each `use` of the module.** That is the answer
+  to the question the refusal named -- "every `use`, or every call into it" -- and the `use` line
+  wins because it is the one place the dependency is written, and so the one line that dropping it
+  means editing; warning at every call would bury the answer under repetition. Both import forms
+  count, since each is a line that has to go. It lives in `loader.c`'s `resolve_named_imports`
+  rather than in the type checker, for the reason the redundant-`as` lint already records there: a
+  module's `use` list belongs to the loader and is **already gone** from the merged Module the type
+  checker is handed. On the entry file it warns nowhere, since nothing imports an entry file --
+  pinned as a fixture so it is not later mistaken for a gap. ~~Still open: `#[deprecated]` on a `struct`/`enum`/`val`~~ **Done for `struct` and `enum`
   2026-10-11 (F58):** naming either from another module -- a struct literal, an enum access -- is a
   `--lint` warning carrying the attribute's message, and same-module use stays silent, exactly as
   the function case already worked. **Deliberately not warned on a type annotation:** a function

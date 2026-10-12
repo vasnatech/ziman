@@ -1,0 +1,12 @@
+// F70: `#![deprecated]` on the program's own entry file warns nowhere, and that is correct rather
+// than a gap: the warning is reported at each `use` of a deprecated module, and nothing imports the
+// entry file. Stated as a fixture so it is not later mistaken for a fault and "fixed" into a
+// warning no one could act on -- there is no line to change.
+//
+// This file was `module_attr_deprecated_rejected` until F70, where it pinned the parser's refusal.
+// The refusal is gone, so the program became a test of what accepting it actually does here.
+#![deprecated("nothing imports an entry file, so this says nothing to anyone")]
+
+fn main() {
+    print(1)
+}

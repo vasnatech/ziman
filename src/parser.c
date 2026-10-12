@@ -2552,12 +2552,16 @@ static void parse_module_attributes(Parser *p, Module *module) {
             if (name->length == 12 && strncmp(name->start, "experimental", 12) == 0) {
                 module->experimental = 1;
             } else if (name->length == 10 && strncmp(name->start, "deprecated", 10) == 0) {
-                ziman_error("syntax", name->line, name->col,
-                            "#![deprecated] is not supported yet -- what a deprecated *module* should warn about "
-                            "is still undecided (docs/ROADMAP.md); #[deprecated] on each function works today");
+                /* Takes an optional message in quotes, exactly as the declaration-level form does. */
+                module->deprecated = 1;
+                if (match(p, TOK_LPAREN)) {
+                    Token *msg = expect(p, TOK_STRING_LIT, "a message in quotes, or no argument at all");
+                    module->deprecated_message = (const char *)msg->start;
+                    expect(p, TOK_RPAREN, "')'");
+                }
             } else {
                 ziman_error("syntax", name->line, name->col,
-                            "unknown module attribute '%.*s' (the only one is 'experimental')", name->length, name->start);
+                            "unknown module attribute '%.*s' (the two are 'experimental' and 'deprecated')", name->length, name->start);
             }
         } while (match(p, TOK_COMMA));
         expect(p, TOK_RBRACKET, "']'");

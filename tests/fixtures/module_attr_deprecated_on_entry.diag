@@ -1,0 +1,1 @@
+# F70: no diagnostics. check_diag.py compares counts, so a warning appearing here would fail.

@@ -1,0 +1,7 @@
+#![deprecated("use newmod, which keeps its own connection pool")]
+
+pub fn answer() -> int {
+    return 7
+}
+
+pub val name = "old"

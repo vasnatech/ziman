@@ -1506,6 +1506,30 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, const char *
      * lint rules in typecheck.c because a module's `use` list is the loader's: it is already gone from
      * the merged Module the type checker is handed, which cost a first attempt at this rule. Reported at
      * the alias, since that is the word to delete. */
+    /* `#![deprecated]` on a whole module, reported at each `use` of it -- the one line where the
+     * dependency is written, and so the one line that changing it means editing. Not behind
+     * `--lint`, unlike the alias rule below: a deprecation warns on every compile (tasks.md F68).
+     *
+     * Only from a file that is not itself a bundled module, which lands the same rule the
+     * function, struct, enum and val cases use: a user file importing a deprecated module warns,
+     * and one bundled module importing another stays silent, since typecheck.c's lint_same_source
+     * already treats two bundled modules as the same source. The entry module is nobody's import,
+     * so `#![deprecated]` on the program's own file warns nowhere -- correct, and stated here so
+     * it is not later mistaken for a fault. */
+    if (!mod->is_corelib) {
+        for (int i = 0; i < mod->uses.count && file != NULL; i++) {
+            UseDecl *u = &mod->uses.items[i];
+            Module *target = find_loaded(ldr, u->path);
+            if (target == NULL || !target->deprecated) continue;
+            if (target->deprecated_message != NULL) {
+                ziman_warning(file, u->line, u->col, "module '%s' is deprecated: %s",
+                              u->path, target->deprecated_message);
+            } else {
+                ziman_warning(file, u->line, u->col, "module '%s' is deprecated", u->path);
+            }
+            typecheck_lint_note();
+        }
+    }
     if (typecheck_lint_enabled() && !mod->is_corelib) {
         for (int i = 0; i < mod->uses.count && file != NULL; i++) {
             UseDecl *u = &mod->uses.items[i];

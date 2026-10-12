@@ -1,0 +1,7 @@
+# F70: four warnings, one per `use` of a deprecated module -- both the whole-module form and the
+# per-name form, since each is a line that has to go. `use newmod` is absent on purpose: it is not
+# deprecated, which is what makes this fixture test selectivity rather than just that warnings fire.
+lint 8:1 module 'oldmod' is deprecated: use newmod, which keeps its own connection pool
+lint 9:1 module 'oldmod' is deprecated: use newmod, which keeps its own connection pool
+lint 10:1 module 'bare' is deprecated
+lint 11:1 module 'bare' is deprecated

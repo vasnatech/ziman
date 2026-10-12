@@ -824,10 +824,17 @@ typedef struct {
      * to the file it is in, the same inner/outer split Rust draws. Carries no compile-time or
      * runtime behaviour on purpose: its job is to be the *one* place a module is called
      * experimental, which the documentation generators read (tools/gen_corelib_reference.sh,
-     * tools/gen_lib_manual.py) instead of each hand-repeating the claim. See docs/ROADMAP.md for
-     * why a module-level `#![deprecated]` is deliberately not accepted yet -- what it should warn
-     * about (every `use`? every call?) is undecided. */
+     * tools/gen_lib_manual.py) instead of each hand-repeating the claim. */
     int experimental;
+    /* `#![deprecated]` or `#![deprecated("...")]` at the top of this module's own file: the whole
+     * module should not be used in new code. Reported at each `use` of it from a file that is not
+     * itself a bundled module -- the `use` line being the one place the dependency is written, and
+     * so the one line changing it means editing. Warned about in loader.c's resolve_named_imports,
+     * not in typecheck.c, because a module's `use` list belongs to the loader and is already gone
+     * from the merged Module the type checker is handed (the same reason the redundant-`as` lint
+     * lives there). See docs/ROADMAP.md, F70. */
+    int deprecated;
+    const char *deprecated_message;
 } Module;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --

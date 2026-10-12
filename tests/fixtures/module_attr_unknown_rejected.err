@@ -1,1 +1,1 @@
-unknown module attribute 'nonsense' (the only one is 'experimental')
+unknown module attribute 'nonsense' (the two are 'experimental' and 'deprecated')

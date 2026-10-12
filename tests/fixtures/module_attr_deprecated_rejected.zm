@@ -1,5 +1,0 @@
-#![deprecated]
-
-fn main() {
-    print(1)
-}

@@ -1342,9 +1342,23 @@ whose surface is more likely to have a gap than the rest of the library. It chan
 compile time or runtime by design; its job is to be the single place that claim lives, so that
 docs/CORELIB.md and docs/lib/*.md can generate the "Experimental" callout from the source rather
 than each repeating it by hand, and `make experimental-check` can hold the README's own table to
-it. `pg`, `mysql`, `toml` and `yaml` carry it. `#![deprecated]` is deliberately refused for now:
-what a deprecated *module* should warn about -- every `use`, or every call into it -- is undecided
-(docs/ROADMAP.md).
+it. `pg`, `mysql`, `toml` and `yaml` carry it.
+
+`#![deprecated]`, or `#![deprecated("use newmod instead")]`, says the whole module should not be
+used in new code. It is reported **at each `use` of it** -- the one place the dependency is
+written, and so the one line that dropping it means editing -- rather than at every call into the
+module, which would bury the answer under repetition. Both import forms count, since each is a
+`use` that has to go:
+
+```
+$ ziman app.zm
+app.zm:8:1: warning: module 'oldmod' is deprecated: use newmod instead
+app.zm:9:1: warning: module 'oldmod' is deprecated: use newmod instead
+```
+
+A `use` from inside a bundled module is silent, the same same-source rule the declaration-level
+attribute follows. On the program's own entry file the attribute warns nowhere, because nothing
+imports an entry file -- there is no line for a warning to point at.
 
 `#[deprecated]`, or `#[deprecated("use X instead")]`, marks a function, `struct`, `enum` or
 module-level `val` that still works but should not be used in new code. Using it *from another

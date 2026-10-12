@@ -1,0 +1,19 @@
+// F70: `#![deprecated]` on a whole module, which the parser refused until now because "what a
+// deprecated module should warn about is still undecided". It is decided: the `use` line, which is
+// the one place the dependency is written and so the one line that dropping it means editing.
+//
+// Both import forms are reported, because both are a `use` of the module: the whole-module form and
+// the per-name form. Each `use` is its own site, so importing two names from one deprecated module
+// warns twice -- that is the honest answer, since each line has to go.
+use oldmod
+use oldmod.name
+use bare
+use bare.twice
+use newmod
+
+fn main() {
+    print(oldmod.answer())
+    print(name)
+    print(twice(21))
+    print(newmod.answer())
+}
