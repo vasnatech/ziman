@@ -1,0 +1,11 @@
+fn main() {
+    let total = 0;
+    let n = 1;
+    while n <= 20 {
+        if n % 2 == 0 {
+            total = total + n * n;
+        }
+        n = n + 1;
+    }
+    print(total);
+}

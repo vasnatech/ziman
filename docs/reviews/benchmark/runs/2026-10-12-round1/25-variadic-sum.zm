@@ -1,0 +1,13 @@
+fn sum(nums: ...int) -> int {
+    let mut total: int = 0;
+    for n in nums {
+        total = total + n;
+    }
+    return total;
+}
+
+fn main() {
+    print(sum());
+    print(sum(5));
+    print(sum(1, 2, 3, 4));
+}

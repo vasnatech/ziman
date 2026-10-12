@@ -1,0 +1,23 @@
+fn is_digit(c: char) -> bool {
+    return c >= '0' && c <= '9';
+}
+
+fn main() {
+    let text = "order 12 has 3 items costing 450";
+    let mut number = "";
+
+    for c in text {
+        if is_digit(c) {
+            number = number + c;
+        } else {
+            if number != "" {
+                print(number);
+                number = "";
+            }
+        }
+    }
+
+    if number != "" {
+        print(number);
+    }
+}

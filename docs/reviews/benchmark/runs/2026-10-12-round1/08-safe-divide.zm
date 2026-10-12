@@ -1,0 +1,19 @@
+fn safe_divide(a: Int, b: Int) -> Option<Int> {
+    if b == 0 {
+        return None;
+    }
+    return Some(a / b);
+}
+
+fn show(result: Option<Int>) {
+    match result {
+        Some(value) => print(value),
+        None => print("undefined"),
+    }
+}
+
+fn main() {
+    show(safe_divide(10, 2));
+    show(safe_divide(7, 3));
+    show(safe_divide(5, 0));
+}

@@ -1,0 +1,13 @@
+fn multiplier(n: Int) -> fn(Int) -> Int {
+    return fn(x: Int) -> Int {
+        return x * n
+    }
+}
+
+fn main() {
+    let doubler = multiplier(2)
+    let tripler = multiplier(3)
+
+    print(doubler(5))
+    print(tripler(5))
+}

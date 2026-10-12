@@ -1,0 +1,60 @@
+fn sort_strings(items) {
+    let mut result = []
+    for item in items {
+        push(result, item)
+    }
+    let mut i = 0
+    while i < len(result) {
+        let mut smallest = i
+        let mut j = i + 1
+        while j < len(result) {
+            if result[j] < result[smallest] {
+                smallest = j
+            }
+            j = j + 1
+        }
+        let tmp = result[i]
+        result[i] = result[smallest]
+        result[smallest] = tmp
+        i = i + 1
+    }
+    return result
+}
+
+fn index_of(items, value) {
+    let mut i = 0
+    while i < len(items) {
+        if items[i] == value {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn main() {
+    let teaches = {
+        "Ada": ["maths", "logic"],
+        "Alan": ["logic", "crypto"]
+    }
+
+    let mut subjects = []
+    let mut taught_by = []
+
+    for teacher in sort_strings(keys(teaches)) {
+        for subject in teaches[teacher] {
+            let at = index_of(subjects, subject)
+            if at == -1 {
+                push(subjects, subject)
+                push(taught_by, teacher)
+            } else {
+                taught_by[at] = taught_by[at] + ", " + teacher
+            }
+        }
+    }
+
+    for subject in sort_strings(subjects) {
+        let at = index_of(subjects, subject)
+        print(subject + ": " + taught_by[at])
+    }
+}

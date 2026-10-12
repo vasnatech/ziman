@@ -1,0 +1,43 @@
+fn normalize(text) {
+    let flat = lower(text);
+    let out = "";
+    let i = 0;
+    while i < len(flat) {
+        let c = flat[i];
+        if c != " " {
+            out = out + c;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+fn is_palindrome(text) {
+    let s = normalize(text);
+    let i = 0;
+    let j = len(s) - 1;
+    while i < j {
+        if s[i] != s[j] {
+            return false;
+        }
+        i = i + 1;
+        j = j - 1;
+    }
+    return true;
+}
+
+fn main() {
+    let samples = ["racecar", "A man a plan a canal Panama", "ziman"];
+    let i = 0;
+    while i < len(samples) {
+        let text = samples[i];
+        if is_palindrome(text) {
+            print(text + ": yes");
+        } else {
+            print(text + ": no");
+        }
+        i = i + 1;
+    }
+}
+
+main();

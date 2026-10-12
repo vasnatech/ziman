@@ -1,0 +1,10 @@
+fn main() {
+    let values = [10, 20, 30, 40, 50];
+
+    let it = values.iter();
+    let first_three = it.take(3);
+
+    for v in first_three {
+        println(v);
+    }
+}

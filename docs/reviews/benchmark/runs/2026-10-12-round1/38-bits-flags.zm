@@ -1,0 +1,22 @@
+let READ: Int = 1
+let WRITE: Int = 2
+let EXECUTE: Int = 4
+
+fn has(flags: Int, flag: Int) -> Bool {
+    return (flags & flag) != 0
+}
+
+fn yesno(value: Bool) -> String {
+    if value {
+        return "yes"
+    }
+    return "no"
+}
+
+fn main() {
+    let perms: Int = READ | EXECUTE
+
+    print("read: " + yesno(has(perms, READ)))
+    print("write: " + yesno(has(perms, WRITE)))
+    print("execute: " + yesno(has(perms, EXECUTE)))
+}

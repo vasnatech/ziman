@@ -1,0 +1,30 @@
+fn main() {
+    let csv = "name,age\nAda,36\nAlan,41\nGrace,45"
+
+    var total = 0
+    var count = 0
+
+    for line in csv.split("\n") {
+        let row = line.trim()
+        if row == "" {
+            continue
+        }
+
+        let fields = row.split(",")
+        let name = fields[0].trim()
+        let age_text = fields[1].trim()
+
+        if name == "name" {
+            continue
+        }
+
+        let age = int(age_text)
+        print(name + " is " + str(age))
+
+        total = total + age
+        count = count + 1
+    }
+
+    let average = total / count
+    print("average: " + str(average))
+}

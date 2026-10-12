@@ -1,0 +1,9 @@
+import std.io;
+import std.process;
+
+fn main() {
+    let result = process.run("echo", ["hello from a child"]);
+
+    io.print(result.stdout);
+    io.println("exit: {}", result.status);
+}

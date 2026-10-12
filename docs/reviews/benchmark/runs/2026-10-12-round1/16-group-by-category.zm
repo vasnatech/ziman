@@ -1,0 +1,55 @@
+struct Product {
+    name: String,
+    category: String,
+}
+
+fn main() {
+    let products = [
+        Product { name: "apple", category: "fruit" },
+        Product { name: "carrot", category: "veg" },
+        Product { name: "banana", category: "fruit" },
+        Product { name: "leek", category: "veg" },
+        Product { name: "cherry", category: "fruit" },
+    ];
+
+    let mut categories: [String] = [];
+    for p in products {
+        let mut seen = false;
+        for c in categories {
+            if c == p.category {
+                seen = true;
+            }
+        }
+        if !seen {
+            categories.push(p.category);
+        }
+    }
+
+    let mut i = 1;
+    while i < categories.len() {
+        let mut j = i;
+        while j > 0 && categories[j - 1] > categories[j] {
+            let swap = categories[j - 1];
+            categories[j - 1] = categories[j];
+            categories[j] = swap;
+            j = j - 1;
+        }
+        i = i + 1;
+    }
+
+    for c in categories {
+        let mut line = c + ":";
+        let mut first = true;
+        for p in products {
+            if p.category == c {
+                if first {
+                    line = line + " " + p.name;
+                    first = false;
+                } else {
+                    line = line + ", " + p.name;
+                }
+            }
+        }
+        print(line);
+    }
+}

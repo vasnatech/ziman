@@ -1,0 +1,20 @@
+fn mime_for(ext: String) -> Option<String> {
+    match ext {
+        "json" => Some("application/json"),
+        "png" => Some("image/png"),
+        "html" => Some("text/html"),
+        _ => None,
+    }
+}
+
+fn main() {
+    let exts = ["json", "png", "html", "zzz"]
+
+    for ext in exts {
+        let label = match mime_for(ext) {
+            Some(mime) => mime,
+            None => "unknown",
+        }
+        print(ext + " -> " + label)
+    }
+}

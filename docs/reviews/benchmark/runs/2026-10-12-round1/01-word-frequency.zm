@@ -1,0 +1,60 @@
+fn main() {
+    let text = "the quick brown fox jumps over the lazy dog the fox"
+    let words = split(text, " ")
+
+    var keys = []
+    var counts = []
+
+    for w in words {
+        var found = -1
+        var i = 0
+        while i < len(keys) {
+            if keys[i] == w {
+                found = i
+            }
+            i = i + 1
+        }
+        if found < 0 {
+            push(keys, w)
+            push(counts, 1)
+        } else {
+            counts[found] = counts[found] + 1
+        }
+    }
+
+    var n = len(keys)
+    var a = 0
+    while a < n {
+        var b = 0
+        while b < n - 1 - a {
+            var swap = false
+            if counts[b] < counts[b + 1] {
+                swap = true
+            } else {
+                if counts[b] == counts[b + 1] {
+                    if keys[b] > keys[b + 1] {
+                        swap = true
+                    }
+                }
+            }
+            if swap {
+                let tk = keys[b]
+                keys[b] = keys[b + 1]
+                keys[b + 1] = tk
+                let tc = counts[b]
+                counts[b] = counts[b + 1]
+                counts[b + 1] = tc
+            }
+            b = b + 1
+        }
+        a = a + 1
+    }
+
+    var k = 0
+    while k < n {
+        print(keys[k] + ": " + str(counts[k]))
+        k = k + 1
+    }
+}
+
+main()

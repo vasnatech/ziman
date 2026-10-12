@@ -1,0 +1,124 @@
+fn char_at(s: String, i: Int) -> String {
+    return substring(s, i, i + 1);
+}
+
+fn is_space(c: String) -> Bool {
+    return c == " " || c == "\t" || c == "\r" || c == "\n";
+}
+
+fn trim_left(s: String, i: Int) -> Int {
+    if i < len(s) && is_space(char_at(s, i)) {
+        return trim_left(s, i + 1);
+    }
+    return i;
+}
+
+fn trim_right(s: String, j: Int) -> Int {
+    if j > 0 && is_space(char_at(s, j - 1)) {
+        return trim_right(s, j - 1);
+    }
+    return j;
+}
+
+fn trim(s: String) -> String {
+    let start = trim_left(s, 0);
+    let end = trim_right(s, len(s));
+    if end <= start {
+        return "";
+    }
+    return substring(s, start, end);
+}
+
+fn find(s: String, needle: String, i: Int) -> Int {
+    if i >= len(s) {
+        return -1;
+    }
+    if char_at(s, i) == needle {
+        return i;
+    }
+    return find(s, needle, i + 1);
+}
+
+fn line_end(s: String, i: Int) -> Int {
+    if i >= len(s) {
+        return i;
+    }
+    if char_at(s, i) == "\n" {
+        return i;
+    }
+    return line_end(s, i + 1);
+}
+
+fn unquote(s: String) -> String {
+    if len(s) >= 2 && char_at(s, 0) == "\"" && char_at(s, len(s) - 1) == "\"" {
+        return substring(s, 1, len(s) - 1);
+    }
+    return s;
+}
+
+fn digit_value(d: String, k: Int) -> Int {
+    if k > 9 {
+        return -1;
+    }
+    if char_at("0123456789", k) == d {
+        return k;
+    }
+    return digit_value(d, k + 1);
+}
+
+fn digits_to_int(s: String, i: Int, acc: Int) -> Int {
+    if i >= len(s) {
+        return acc;
+    }
+    let d = digit_value(char_at(s, i), 0);
+    if d < 0 {
+        return acc;
+    }
+    return digits_to_int(s, i + 1, acc * 10 + d);
+}
+
+fn to_int(s: String) -> Int {
+    if len(s) > 0 && char_at(s, 0) == "-" {
+        return 0 - digits_to_int(s, 1, 0);
+    }
+    if len(s) > 0 && char_at(s, 0) == "+" {
+        return digits_to_int(s, 1, 0);
+    }
+    return digits_to_int(s, 0, 0);
+}
+
+fn to_bool(s: String) -> Bool {
+    return s == "true";
+}
+
+fn lookup_from(text: String, key: String, i: Int) -> String {
+    if i >= len(text) {
+        return "";
+    }
+    let stop = line_end(text, i);
+    let line = trim(substring(text, i, stop));
+    let eq = find(line, "=", 0);
+    if eq > 0 {
+        let name = trim(substring(line, 0, eq));
+        if name == key {
+            return trim(substring(line, eq + 1, len(line)));
+        }
+    }
+    return lookup_from(text, key, stop + 1);
+}
+
+fn lookup(text: String, key: String) -> String {
+    return lookup_from(text, key, 0);
+}
+
+fn main() {
+    let config = "host = \"localhost\"\nport = 8080\ndebug = true\n";
+
+    let host = unquote(lookup(config, "host"));
+    let port = to_int(lookup(config, "port"));
+    let debug = to_bool(lookup(config, "debug"));
+
+    print(host);
+    print(port);
+    print(debug);
+}

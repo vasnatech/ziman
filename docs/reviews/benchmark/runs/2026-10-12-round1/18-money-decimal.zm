@@ -1,0 +1,9 @@
+fn main() {
+    let a: Decimal = Decimal.parse("19.99")
+    let b: Decimal = Decimal.parse("5.01")
+    let c: Decimal = Decimal.parse("0.50")
+
+    let total: Decimal = a + b + c
+
+    println("19.99 + 5.01 + 0.50 = ${total}")
+}

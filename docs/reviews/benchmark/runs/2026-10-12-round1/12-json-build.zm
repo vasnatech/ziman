@@ -1,0 +1,8 @@
+import json
+
+fn main() {
+    let obj = json.object()
+    obj.set("status", json.string("ok"))
+    obj.set("count", json.int(3))
+    print(json.stringify(obj))
+}

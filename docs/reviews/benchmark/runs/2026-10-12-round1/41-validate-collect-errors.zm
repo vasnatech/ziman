@@ -1,0 +1,27 @@
+fn validate(name: String, age: Int, email: String) -> List<String> {
+    let mut problems: List<String> = []
+
+    if name == "" {
+        problems.push("name must not be empty")
+    }
+
+    if age < 18 || age > 120 {
+        problems.push("age must be between 18 and 120")
+    }
+
+    if !email.contains("@") {
+        problems.push("email must contain @")
+    }
+
+    return problems
+}
+
+fn main() {
+    let problems = validate("", 15, "nope")
+
+    for problem in problems {
+        print(problem)
+    }
+
+    print("problems: ${problems.len()}")
+}

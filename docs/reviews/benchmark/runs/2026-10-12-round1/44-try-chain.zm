@@ -1,0 +1,75 @@
+fn parse_int(text: String) -> Result<Int, String> {
+    if text.len() == 0 {
+        return Err("empty input");
+    }
+
+    let digits = "0123456789";
+    let mut index = 0;
+    let mut negative = false;
+    let mut value = 0;
+    let mut seen = false;
+
+    if text.char_at(0) == '-' {
+        negative = true;
+        index = 1;
+    }
+
+    while index < text.len() {
+        let c = text.char_at(index);
+        let mut found = -1;
+        let mut d = 0;
+        while d < digits.len() {
+            if digits.char_at(d) == c {
+                found = d;
+            }
+            d = d + 1;
+        }
+        if found < 0 {
+            return Err("not a number: " + text);
+        }
+        value = value * 10 + found;
+        seen = true;
+        index = index + 1;
+    }
+
+    if !seen {
+        return Err("not a number: " + text);
+    }
+
+    if negative {
+        return Ok(0 - value);
+    }
+
+    Ok(value)
+}
+
+fn double_it(value: Int) -> Result<Int, String> {
+    if value < 0 {
+        return Err("cannot double a negative: " + value.to_string());
+    }
+    Ok(value * 2)
+}
+
+fn format_it(value: Int) -> Result<String, String> {
+    Ok("value = " + value.to_string())
+}
+
+fn chain(text: String) -> Result<String, String> {
+    let number = parse_int(text)?;
+    let doubled = double_it(number)?;
+    let formatted = format_it(doubled)?;
+    Ok(formatted)
+}
+
+fn report(text: String) {
+    match chain(text) {
+        Ok(message) => print(message),
+        Err(message) => print("failed: " + message),
+    }
+}
+
+fn main() {
+    report("21");
+    report("-3");
+    report("x");
+}

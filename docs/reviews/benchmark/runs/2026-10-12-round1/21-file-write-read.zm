@@ -1,0 +1,21 @@
+fn main() {
+    let path = "/tmp/ziman_bench_21.txt";
+    let names = ["alpha", "beta", "gamma"];
+
+    let mut text = "";
+    for name in names {
+        text = text + name + "\n";
+    }
+    write_file(path, text);
+
+    let content = read_file(path);
+    let lines = content.split("\n");
+
+    let mut n = 1;
+    for line in lines {
+        if line != "" {
+            print(str(n) + ": " + line);
+            n = n + 1;
+        }
+    }
+}

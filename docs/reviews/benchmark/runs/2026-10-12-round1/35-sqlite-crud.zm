@@ -1,0 +1,23 @@
+import std.sqlite
+
+fn main() {
+    let path = "/tmp/ziman_bench_35.db"
+    let db = sqlite.open(path)
+
+    db.exec("DROP TABLE IF EXISTS task")
+    db.exec("CREATE TABLE task (id INTEGER PRIMARY KEY, title TEXT NOT NULL)")
+
+    let seed = [(1, "write"), (2, "review"), (3, "ship")]
+    for (id, title) in seed {
+        db.exec("INSERT INTO task (id, title) VALUES (?, ?)", id, title)
+    }
+
+    let rows = db.query("SELECT id, title FROM task ORDER BY id ASC")
+    for row in rows {
+        let id = row.int(0)
+        let title = row.text(1)
+        println("{}: {}", id, title)
+    }
+
+    db.close()
+}

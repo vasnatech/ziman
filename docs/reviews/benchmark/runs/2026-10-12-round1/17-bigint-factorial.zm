@@ -1,0 +1,37 @@
+fn digit_text(d: Int) -> String {
+    let table: [String; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    return table[d];
+}
+
+fn main() {
+    let mut digits: [Int; 128] = [0; 128];
+    digits[0] = 1;
+    let mut len: Int = 1;
+
+    let mut n: Int = 2;
+    while n <= 25 {
+        let mut carry: Int = 0;
+        let mut i: Int = 0;
+        while i < len {
+            let product: Int = digits[i] * n + carry;
+            digits[i] = product % 10;
+            carry = product / 10;
+            i = i + 1;
+        }
+        while carry > 0 {
+            digits[len] = carry % 10;
+            carry = carry / 10;
+            len = len + 1;
+        }
+        n = n + 1;
+    }
+
+    let mut out: String = "";
+    let mut k: Int = len - 1;
+    while k >= 0 {
+        out = out + digit_text(digits[k]);
+        k = k - 1;
+    }
+
+    println(out);
+}

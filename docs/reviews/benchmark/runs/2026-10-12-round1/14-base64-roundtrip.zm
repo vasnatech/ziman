@@ -1,0 +1,166 @@
+fn lower_chars() -> Str {
+    return "abcdefghijklmnopqrstuvwxyz";
+}
+
+fn upper_chars() -> Str {
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+}
+
+fn digit_chars() -> Str {
+    return "0123456789";
+}
+
+fn b64_alphabet() -> Str {
+    return upper_chars() + lower_chars() + digit_chars() + "+/";
+}
+
+fn index_of(text: Str, target: Str) -> Int {
+    let n = len(text);
+    let mut i = 0;
+    while i < n {
+        if text[i] == target {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn ord(c: Str) -> Int {
+    let lower = lower_chars();
+    let li = index_of(lower, c);
+    if li >= 0 {
+        return 97 + li;
+    }
+    let upper = upper_chars();
+    let ui = index_of(upper, c);
+    if ui >= 0 {
+        return 65 + ui;
+    }
+    let digits = digit_chars();
+    let di = index_of(digits, c);
+    if di >= 0 {
+        return 48 + di;
+    }
+    if c == " " {
+        return 32;
+    }
+    if c == "+" {
+        return 43;
+    }
+    if c == "/" {
+        return 47;
+    }
+    if c == "=" {
+        return 61;
+    }
+    return 0;
+}
+
+fn chr(code: Int) -> Str {
+    if code >= 97 && code <= 122 {
+        let lower = lower_chars();
+        return lower[code - 97];
+    }
+    if code >= 65 && code <= 90 {
+        let upper = upper_chars();
+        return upper[code - 65];
+    }
+    if code >= 48 && code <= 57 {
+        let digits = digit_chars();
+        return digits[code - 48];
+    }
+    if code == 32 {
+        return " ";
+    }
+    if code == 43 {
+        return "+";
+    }
+    if code == 47 {
+        return "/";
+    }
+    if code == 61 {
+        return "=";
+    }
+    return "?";
+}
+
+fn base64_encode(input: Str) -> Str {
+    let alphabet = b64_alphabet();
+    let n = len(input);
+    let mut out = "";
+    let mut i = 0;
+    while i < n {
+        let b0 = ord(input[i]);
+        let mut b1 = 0;
+        let mut b2 = 0;
+        let mut has1 = false;
+        let mut has2 = false;
+        if i + 1 < n {
+            b1 = ord(input[i + 1]);
+            has1 = true;
+        }
+        if i + 2 < n {
+            b2 = ord(input[i + 2]);
+            has2 = true;
+        }
+        let v0 = b0 / 4;
+        let v1 = (b0 % 4) * 16 + b1 / 16;
+        let v2 = (b1 % 16) * 4 + b2 / 64;
+        let v3 = b2 % 64;
+        out = out + alphabet[v0];
+        out = out + alphabet[v1];
+        if has1 {
+            out = out + alphabet[v2];
+        } else {
+            out = out + "=";
+        }
+        if has2 {
+            out = out + alphabet[v3];
+        } else {
+            out = out + "=";
+        }
+        i = i + 3;
+    }
+    return out;
+}
+
+fn base64_decode(input: Str) -> Str {
+    let alphabet = b64_alphabet();
+    let n = len(input);
+    let mut out = "";
+    let mut i = 0;
+    while i + 4 <= n {
+        let c0 = input[i];
+        let c1 = input[i + 1];
+        let c2 = input[i + 2];
+        let c3 = input[i + 3];
+        let v0 = index_of(alphabet, c0);
+        let v1 = index_of(alphabet, c1);
+        let mut v2 = 0;
+        let mut v3 = 0;
+        if c2 != "=" {
+            v2 = index_of(alphabet, c2);
+        }
+        if c3 != "=" {
+            v3 = index_of(alphabet, c3);
+        }
+        out = out + chr(v0 * 4 + v1 / 16);
+        if c2 != "=" {
+            out = out + chr((v1 % 16) * 16 + v2 / 4);
+            if c3 != "=" {
+                out = out + chr((v2 % 4) * 64 + v3);
+            }
+        }
+        i = i + 4;
+    }
+    return out;
+}
+
+fn main() {
+    let text = "ziman benchmark";
+    let encoded = base64_encode(text);
+    print(encoded);
+    let decoded = base64_decode(encoded);
+    print(decoded);
+}

@@ -1,0 +1,50 @@
+ziman: syntax error at 21:13 in 01-word-frequency.zm: an array element cannot be assigned: arrays are values, not mutable containers -- write 'arr = set(arr, i, value)' (and see ArrayBuilder for building one up in a loop)
+ziman: lexical error at 2:18 in 02-sum-even-squares.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:40 in 03-reverse-words.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: syntax error at 2:17 in 04-fizzbuzz.zm: expected an expression, found '='
+ziman: lexical error at 2:20 in 05-binary-search.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 11:6 in 06-struct-total.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 16:36 in 07-enum-area.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 3:20 in 08-safe-divide.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 3:9 in 09-parse-and-add.zm: unexpected character '''
+ziman: lexical error at 2:27 in 10-palindrome.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: syntax error at 1:1 in 11-json-read-fields.zm: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+ziman: syntax error at 1:1 in 12-json-build.zm: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+ziman: lexical error at 2:17 in 13-regex-extract.zm: unexpected character '''
+ziman: lexical error at 2:40 in 14-base64-roundtrip.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:22 in 15-sha256-hex.zm: unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type is 'enum Name { A, B }', and there is no '|>' pipeline
+ziman: lexical error at 13:6 in 16-group-by-category.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:23 in 17-bigint-factorial.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: syntax error at 2:5 in 18-money-decimal.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+ziman: syntax error at 14:30 in 19-csv-parse-sum.zm: Ziman has no methods, so '.trim(...)' cannot be called on the result of an expression -- a function takes its receiver as an argument instead: bind the inner expression with 'val v = ...' and write 'trim(v, ...)', or nest the calls directly. (If 'trim' is a struct field holding a function value, that is callable too, but only on a plain variable, so the same binding is the fix.)
+ziman: lexical error at 2:14 in 20-date-arithmetic.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:41 in 21-file-write-read.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:84 in 22-url-encode.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: syntax error at 2:5 in 23-mime-by-extension.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+ziman: lexical error at 2:27 in 24-string-builder-table.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:27 in 25-variadic-sum.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:19 in 26-defer-order.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 9:57 in 27-derive-json-roundtrip.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 14:6 in 28-derive-ord-sort.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: syntax error at 1:34 in 29-named-and-optional.zm: expected ')', found '?'
+ziman: type error at 1:15 in 30-closure-counter.zm: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+ziman: syntax error at 2:19 in 31-spawn-and-collect.zm: expected an expression, found 'int'
+ziman: lexical error at 2:38 in 32-iterator-take.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:34 in 33-toml-config.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:40 in 34-running-max.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: syntax error at 1:1 in 35-sqlite-crud.zm: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+ziman: lexical error at 2:56 in 36-yaml-list.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 1:14 in 37-run-a-command.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 6:19 in 38-bits-flags.zm: unexpected character '&' (did you mean '&&'?)
+ziman: lexical error at 2:68 in 39-number-format.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 2:27 in 40-matrix-transpose.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: syntax error at 2:9 in 41-validate-collect-errors.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+ziman: lexical error at 2:19 in 42-paginate.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 16:47 in 43-error-enum-message.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: lexical error at 3:34 in 44-try-chain.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: type error at 1:1 in 45-set-operations.zm: 'contains' is a builtin function and cannot be redefined
+ziman: lexical error at 4:32 in 46-fold-average.zm: unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type is 'enum Name { A, B }', and there is no '|>' pipeline
+ziman: lexical error at 2:61 in 47-text-wrap.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+ziman: syntax error at 1:22 in 48-map-of-lists-invert.zm: expected ':', found ')'
+ziman: syntax error at 2:17 in 49-struct-update-with.zm: expected a field name, found ','
+ziman: lexical error at 2:30 in 50-rle-encode.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'

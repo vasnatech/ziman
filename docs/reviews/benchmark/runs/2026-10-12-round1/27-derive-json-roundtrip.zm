@@ -1,0 +1,16 @@
+#[derive(Json)]
+struct User {
+    id: int,
+    name: string,
+    active: bool,
+}
+
+fn main() {
+    let user = User { id: 7, name: "Ada", active: true };
+
+    let text = user.to_json();
+    print(text);
+
+    let parsed = User.from_json(text);
+    print(parsed.name);
+}

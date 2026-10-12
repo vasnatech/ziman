@@ -1,0 +1,17 @@
+struct Config {
+    host: String,
+    port: Int,
+    debug: Bool,
+}
+
+fn show(c: Config) -> String {
+    return "${c.host}:${c.port} ${c.debug}"
+}
+
+fn main() {
+    let base = Config { host: "localhost", port: 80, debug: false }
+    let secure = base with { port: 8443, debug: true }
+
+    println(show(base))
+    println(show(secure))
+}

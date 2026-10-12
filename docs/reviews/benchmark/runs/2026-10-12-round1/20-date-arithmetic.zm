@@ -1,0 +1,109 @@
+fn div(a, b) {
+    let q = 0;
+    let r = a;
+    while (r >= b) {
+        r = r - b;
+        q = q + 1;
+    }
+    return q;
+}
+
+fn mod(a, b) {
+    return a - div(a, b) * b;
+}
+
+fn digit(n) {
+    if (n == 0) {
+        return "0";
+    }
+    if (n == 1) {
+        return "1";
+    }
+    if (n == 2) {
+        return "2";
+    }
+    if (n == 3) {
+        return "3";
+    }
+    if (n == 4) {
+        return "4";
+    }
+    if (n == 5) {
+        return "5";
+    }
+    if (n == 6) {
+        return "6";
+    }
+    if (n == 7) {
+        return "7";
+    }
+    if (n == 8) {
+        return "8";
+    }
+    return "9";
+}
+
+fn pad2(n) {
+    return digit(div(n, 10)) + digit(mod(n, 10));
+}
+
+fn pad4(n) {
+    return digit(div(n, 1000)) + digit(mod(div(n, 100), 10)) + digit(mod(div(n, 10), 10)) + digit(mod(n, 10));
+}
+
+fn is_leap(y) {
+    if (mod(y, 400) == 0) {
+        return true;
+    }
+    if (mod(y, 100) == 0) {
+        return false;
+    }
+    if (mod(y, 4) == 0) {
+        return true;
+    }
+    return false;
+}
+
+fn days_in_month(y, m) {
+    if (m == 1 || m == 3 || m == 5 || m == 7 || m == 8 || m == 10 || m == 12) {
+        return 31;
+    }
+    if (m == 4 || m == 6 || m == 9 || m == 11) {
+        return 30;
+    }
+    if (is_leap(y)) {
+        return 29;
+    }
+    return 28;
+}
+
+fn format_date(y, m, d) {
+    return pad4(y) + "-" + pad2(m) + "-" + pad2(d);
+}
+
+fn main() {
+    let year = 2024;
+    let month = 2;
+    let day = 28;
+
+    print(format_date(year, month, day));
+
+    let steps = 0;
+    while (steps < 30) {
+        day = day + 1;
+        if (day > days_in_month(year, month)) {
+            day = 1;
+            month = month + 1;
+            if (month > 12) {
+                month = 1;
+                year = year + 1;
+            }
+        }
+        steps = steps + 1;
+        if (steps == 1) {
+            print(format_date(year, month, day));
+        }
+    }
+
+    print(format_date(year, month, day));
+}

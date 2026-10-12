@@ -1,0 +1,15 @@
+fn label(text: String, width: Int? = nil) -> String {
+    if let w = width {
+        let mut out = text
+        while len(out) < w {
+            out = out + "."
+        }
+        return out
+    }
+    return text
+}
+
+fn main() {
+    print(label(text: "ok", width: 6))
+    print(label(text: "ok"))
+}

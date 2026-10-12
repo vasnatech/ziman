@@ -1,0 +1,43 @@
+fn transpose(matrix) {
+    let rows = len(matrix);
+    let cols = len(matrix[0]);
+    let mut result = [];
+
+    let mut c = 0;
+    while c < cols {
+        let mut row = [];
+        let mut r = 0;
+        while r < rows {
+            push(row, matrix[r][c]);
+            r = r + 1;
+        }
+        push(result, row);
+        c = c + 1;
+    }
+
+    return result;
+}
+
+fn row_to_text(row) {
+    let mut text = "";
+    let mut i = 0;
+    while i < len(row) {
+        if i > 0 {
+            text = text + " ";
+        }
+        text = text + str(row[i]);
+        i = i + 1;
+    }
+    return text;
+}
+
+fn main() {
+    let matrix = [[1, 2, 3], [4, 5, 6]];
+    let transposed = transpose(matrix);
+
+    let mut i = 0;
+    while i < len(transposed) {
+        print(row_to_text(transposed[i]));
+        i = i + 1;
+    }
+}

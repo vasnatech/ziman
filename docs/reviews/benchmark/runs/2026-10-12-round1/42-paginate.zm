@@ -1,0 +1,25 @@
+fn main() {
+    let total = 10;
+    let size = 3;
+
+    let mut page = 1;
+    let mut start = 1;
+
+    while start <= total {
+        let mut line = "page " + str(page) + ": ";
+        let mut i = start;
+
+        while i < start + size && i <= total {
+            if i > start {
+                line = line + ", ";
+            }
+            line = line + str(i);
+            i = i + 1;
+        }
+
+        println(line);
+
+        page = page + 1;
+        start = start + size;
+    }
+}

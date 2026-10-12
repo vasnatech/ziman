@@ -1,0 +1,21 @@
+#[derive(Ord)]
+struct Score {
+    points: Int,
+    player: String,
+}
+
+fn main() {
+    let mut scores = [
+        Score { points: 40, player: "Ada" },
+        Score { points: 55, player: "Alan" },
+        Score { points: 55, player: "Grace" },
+        Score { points: 10, player: "Bob" },
+        Score { points: 70, player: "Eve" },
+    ];
+
+    scores.sort();
+
+    for score in scores {
+        println(score.player);
+    }
+}

@@ -1,0 +1,19 @@
+enum AppError {
+    NotFound(String),
+    Conflict(String),
+    Timeout,
+}
+
+fn message(err: AppError) -> String {
+    match err {
+        AppError::NotFound(name) => "The " + name + " could not be found.",
+        AppError::Conflict(name) => "The " + name + " already exists.",
+        AppError::Timeout => "The operation timed out.",
+    }
+}
+
+fn main() {
+    print(message(AppError::NotFound("user")));
+    print(message(AppError::Conflict("email")));
+    print(message(AppError::Timeout));
+}

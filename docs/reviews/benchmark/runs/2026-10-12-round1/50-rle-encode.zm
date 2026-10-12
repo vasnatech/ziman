@@ -1,0 +1,67 @@
+fn num_to_text(n: int) -> string {
+    let digits = "0123456789";
+    if n == 0 {
+        return "0";
+    }
+    let mut out = "";
+    let mut rest = n;
+    while rest > 0 {
+        out = digits[rest % 10] + out;
+        rest = rest / 10;
+    }
+    return out;
+}
+
+fn digit_value(c: string) -> int {
+    let digits = "0123456789";
+    let mut i = 0;
+    while i < len(digits) {
+        if digits[i] == c {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn encode(source: string) -> string {
+    let mut out = "";
+    let mut i = 0;
+    while i < len(source) {
+        let current = source[i];
+        let mut count = 0;
+        while i < len(source) and source[i] == current {
+            count = count + 1;
+            i = i + 1;
+        }
+        out = out + current + num_to_text(count);
+    }
+    return out;
+}
+
+fn decode(source: string) -> string {
+    let mut out = "";
+    let mut i = 0;
+    while i < len(source) {
+        let current = source[i];
+        i = i + 1;
+        let mut count = 0;
+        while i < len(source) and digit_value(source[i]) >= 0 {
+            count = count * 10 + digit_value(source[i]);
+            i = i + 1;
+        }
+        let mut k = 0;
+        while k < count {
+            out = out + current;
+            k = k + 1;
+        }
+    }
+    return out;
+}
+
+fn main() {
+    let original = "aaabccddddbbb";
+    let encoded = encode(original);
+    println(encoded);
+    println(decode(encoded));
+}

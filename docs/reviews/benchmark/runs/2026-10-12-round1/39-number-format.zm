@@ -1,0 +1,36 @@
+fn format_thousands(n: Int) -> String {
+    let digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+    if n == 0 {
+        return "0";
+    }
+
+    let mut negative = false;
+    let mut value = n;
+    if value < 0 {
+        negative = true;
+        value = -value;
+    }
+
+    let mut out = "";
+    let mut count = 0;
+    while value > 0 {
+        let d = value % 10;
+        value = value / 10;
+        if count > 0 && count % 3 == 0 {
+            out = "," + out;
+        }
+        out = digits[d] + out;
+        count = count + 1;
+    }
+
+    if negative {
+        out = "-" + out;
+    }
+
+    return out;
+}
+
+fn main() {
+    println(format_thousands(1234567));
+}

@@ -1,0 +1,21 @@
+fn main() {
+    let text = "the quick brown fox jumps over the lazy dog";
+    let width = 16;
+    let words = split(text, " ");
+    let mut line = "";
+
+    for word in words {
+        if len(line) == 0 {
+            line = word;
+        } else if len(line) + 1 + len(word) <= width {
+            line = line + " " + word;
+        } else {
+            print(line);
+            line = word;
+        }
+    }
+
+    if len(line) > 0 {
+        print(line);
+    }
+}

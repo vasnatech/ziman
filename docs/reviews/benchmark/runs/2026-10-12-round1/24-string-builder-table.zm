@@ -1,0 +1,45 @@
+fn digit(d: Int) -> String {
+    if d == 0 { return "0"; }
+    if d == 1 { return "1"; }
+    if d == 2 { return "2"; }
+    if d == 3 { return "3"; }
+    if d == 4 { return "4"; }
+    if d == 5 { return "5"; }
+    if d == 6 { return "6"; }
+    if d == 7 { return "7"; }
+    if d == 8 { return "8"; }
+    return "9";
+}
+
+fn number_to_string(n: Int) -> String {
+    if n < 10 { return digit(n); }
+    return number_to_string(n / 10) + digit(n % 10);
+}
+
+fn digit_count(n: Int) -> Int {
+    if n < 10 { return 1; }
+    return 1 + digit_count(n / 10);
+}
+
+fn spaces(n: Int) -> String {
+    if n <= 0 { return ""; }
+    return " " + spaces(n - 1);
+}
+
+fn pad_right(n: Int, width: Int) -> String {
+    return number_to_string(n) + spaces(width - digit_count(n));
+}
+
+fn row(n: Int) -> String {
+    return pad_right(n, 2) + " | " + number_to_string(n * n * n);
+}
+
+fn build(n: Int, last: Int) -> String {
+    if n > last { return ""; }
+    if n == last { return row(n); }
+    return row(n) + "\n" + build(n + 1, last);
+}
+
+fn main() {
+    print(build(1, 5));
+}

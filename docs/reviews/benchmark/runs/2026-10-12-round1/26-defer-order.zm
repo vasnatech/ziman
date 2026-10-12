@@ -1,0 +1,13 @@
+fn show_defer_order() {
+    print("start");
+
+    defer print("first");
+    defer print("second");
+    defer print("third");
+
+    print("end");
+}
+
+fn main() {
+    show_defer_order();
+}

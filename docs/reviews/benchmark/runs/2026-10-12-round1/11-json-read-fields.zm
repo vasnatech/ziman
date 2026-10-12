@@ -1,0 +1,11 @@
+import json
+
+fn main() {
+    let text = "{\"name\": \"Ada\", \"age\": 36, \"address\": {\"city\": \"London\"}}"
+
+    let data = json.parse(text)
+
+    println(data["name"])
+    println(data["age"])
+    println(data["address"]["city"])
+}

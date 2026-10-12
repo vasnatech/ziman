@@ -1,0 +1,15 @@
+fn main() {
+    let text = "hello world from ziman";
+    let words = text.split(" ");
+
+    let mut result = "";
+    for word in words {
+        if result == "" {
+            result = word;
+        } else {
+            result = word + " " + result;
+        }
+    }
+
+    print(result);
+}

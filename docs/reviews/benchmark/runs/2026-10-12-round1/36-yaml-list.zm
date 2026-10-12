@@ -1,0 +1,22 @@
+fn main() {
+    let yaml = "names:\n  - Ada\n  - Alan\n  - Grace\n";
+
+    let mut in_names = false;
+
+    for line in yaml.split("\n") {
+        let trimmed = line.trim();
+
+        if trimmed == "" {
+            continue;
+        }
+
+        if trimmed.starts_with("- ") {
+            if in_names {
+                let parts = trimmed.split("- ");
+                println(parts[1].trim());
+            }
+        } else {
+            in_names = trimmed == "names:";
+        }
+    }
+}
