@@ -35,8 +35,15 @@
 // operation is serialised by a lock, so it is safe but a blocked read
 // delays a write.
 //
-// Server-side TLS is `listen_tls`. Not yet: client certificates, ALPN,
-// Unix-domain sockets, UDP, and a connect timeout beyond the OS default.
+// Server-side TLS is `listen_tls`, client certificates `TlsServerOptions`/`TlsClientOptions`, ALPN
+// their `alpn` field, Unix-domain sockets `connect_unix`/`listen_unix`, and a connect timeout
+// `connect_timeout`.
+//
+// **Not here, and not planned: UDP.** Nothing in this library or the reference backend has wanted a
+// datagram, and the one place that might look like a consumer is not one -- HTTP/3's QUIC is its own
+// UDP transport rather than a framing layer over these sockets, so it would not be built on a
+// `net.udp` even if HTTP/3 were started (docs/ROADMAP.md, and docs/reviews/tasks.md F81). The rule
+// this module follows is the project's: add it when a concrete program cannot be written without it.
 
 // Why a network call failed; each carries the system's message. `Closed` is a peer that hung up,
 // `Timeout` a deadline set with `set_timeout`, `Tls` a handshake or certificate failure.

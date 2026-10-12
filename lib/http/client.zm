@@ -21,7 +21,12 @@
 // A response comes back as an `http.Response` whose `body` is `[byte]`: images, files and other binary data as they are,
 // and text through `http.response_text` (or `bytes_to_string`). **Any** status, including 404 or 500, is `Ok` -- an `Err`
 // means the exchange itself failed (bad URL, network, timeout, malformed response, too large). Bodies are capped at 8 MiB
-// after decompression (`TooLarge`). Not yet: request bodies streamed from a file, HTTP/2, streaming responses.
+// after decompression (`TooLarge`). Response bodies can be streamed block by block with `stream`.
+// Not yet: request bodies streamed from a file, HTTP/2, and mutual TLS.
+//
+// Mutual TLS is absent here rather than in `net`, which has the client-certificate surface: this
+// module threads a lone `ca_file` through six call layers and would have to carry that options
+// struct instead, which is mechanical but wide (docs/reviews/tasks.md F64).
 
 use clock.now_raw
 use compress.decompress
