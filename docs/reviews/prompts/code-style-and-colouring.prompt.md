@@ -36,7 +36,7 @@ If you think a formatter decision is wrong, that is a **finding** — a question
 - A real application, as evidence of the style under pressure: `/home/mfg/workspace/vasna.tech/repos/health-record/health-record-backend-ziman` (about 13,000 lines of Ziman; its README explains it).
 - The editor integration: `editors/vscode/` as listed above. `src/lsp.c` is the language server (`./ziman --lsp`).
 - Scratch files go **only** under `/tmp/ziman_style/`, never inside either repository. `git status` in both repos must show nothing but your report when you finish.
-- Useful commands: `./ziman file.zm` runs, `./ziman --check file.zm` type-checks, `./ziman --fmt file.zm` formats, `./ziman --fmt --canonical file.zm` formats more aggressively, `./ziman --fmt-width N file.zm` changes the target width, `./ziman --lint file.zm` reports style findings. `./ziman --help` is the full list.
+- Useful commands: `./ziman file.zm` runs, `./ziman --check file.zm` type-checks, `./ziman --fmt file.zm` formats, `./ziman --fmt --canonical file.zm` formats more aggressively, `./ziman --fmt --width=N file.zm` changes the wrap width (default 120, `0` never wraps; check `./ziman --help` for the exact spelling rather than trusting this line), `./ziman --lint file.zm` reports style findings. `./ziman --help` is the full list.
 - Earlier reviews are in `docs/reviews/*.md`. Read them AFTER forming your own view, then say which of their formatting or tooling findings are now fixed, which still hold, and which you disagree with — checking by re-running their reproductions rather than trusting the text.
 
 ## Learning the language first
@@ -59,7 +59,7 @@ Do not skip this and do not skim. Read `docs/SYNTAX.md`, then write and run seve
 Write it so that a programmer could read it front to back and then format Ziman by hand the way `--fmt` would. Every item below needs at least one worked example taken from a real run, shown as input and output where they differ:
 
 1. **Indentation**: width, what increases it, what does not.
-2. **Line length and wrapping**: the default target width; where a long function signature breaks; a long call; a long type; a long condition. Say what `--fmt-width` changes and what it does not.
+2. **Line length and wrapping**: the default target width; where a long function signature breaks; a long call; a long type; a long condition. Say what `--width=N` changes and what it does not. Establish early whether the formatter ever *moves* a line break the author wrote, or only decides where to add one: the answer governs most of this part.
 3. **Declarations**: functions (generic, variadic, with optional parameters), `struct`, `enum`, module-level `val`, `native fn`, visibility markers.
 4. **Statements and expressions**: `if`/`else`, `switch` and its arms, `for`, `while`, `defer`, `spawn`, lambdas, `try`, and the binding forms (`if Some(x) = ...`).
 5. **Literals and collections**: arrays, maps, sets, struct literals, `with` overrides, and long literal lists.
@@ -77,7 +77,7 @@ The deliverable is not a palette. It is **what the colours mean** and **which di
 
 1. **What the TextMate grammar already does.** Enumerate the scopes in `ziman.tmLanguage.json`, say what each matches, and group them into a small number of semantic categories a theme author can reason about. Justify each mapping. Then find the gaps: name any construct in `SYNTAX.md` that has **no scope at all**. Finding those is the work, not a formality.
 2. **What a regex grammar structurally cannot do.** Be concrete and verify each claim against the grammar file. A TextMate grammar cannot tell a type parameter from a struct name, a `var` from a `val` at its use site, a deprecated symbol from a live one, an imported name from a locally declared one, or a shadowed binding from what it shadows. For each distinction: is it worth colouring, and why?
-3. **The semantic-token layer.** Check what `src/lsp.c` advertises in its initialize response before relying on it — at the time this prompt was written it offered `documentHighlightProvider` and **no semantic tokens**, which you should confirm or correct. Propose the token types and modifiers Ziman should emit, mapped onto the LSP's standard set where one fits and named explicitly where none does, and say what each buys that layer 1 cannot.
+3. **The semantic-token layer.** Check what `src/lsp.c` advertises in its initialize response before relying on it — at the time this prompt was written it offered `documentHighlightProvider` and **no semantic tokens**, which you should confirm or correct. Do not read `documentHighlightProvider` as evidence that occurrence resolution already exists: establish by experiment whether it resolves a binding or merely matches the word, because the answer decides whether a token layer is new work or a re-export of something already computed. Propose the token types and modifiers Ziman should emit, mapped onto the LSP's standard set where one fits and named explicitly where none does, and say what each buys that layer 1 cannot.
 
 Then give the strategy itself:
 
