@@ -1947,6 +1947,59 @@ from source.
   `E`s in the same file -- the exact copy-paste-mismatch class this bound exists to
   rule out at compile time, not just tidy up.
 
+- **`Cell<T>`: one primitive that makes the mutable layer open to library code.** Raised 2026-10-13 by
+  Menderes, out of planning to use Ziman on other projects -- UI applications among them -- where the
+  objection is structural rather than about any one type: *"every time we hit a wall we have to change ziman
+  itself to add mutable types instead of implementing one with ziman."* That is correct today, and it is the
+  reason to do this; it is not a complaint about the five that exist.
+
+  **What is already open, which narrows the problem a long way.** `#[thread_bound]` is a user-available
+  attribute, not an internal marker: a struct written in Ziman carries it and gets the compile-time refusals
+  (not a `Channel` element, not a `spawn` argument, not a module-level `val`), and those refusals are
+  transitive -- verified through a struct field, an `Option<ArrayBuilder<int>>` and an `[ArrayBuilder<int>]`,
+  on both boundaries, with a lambda that captured one refused where it is written. So the safety story a new
+  mutable type would need is already there and already generalises. What is closed is exactly one thing:
+  **there is no way to make a field change.**
+
+  **And that wall is lower than it looks.** A mutable type is expressible in Ziman *today*, with a
+  one-element `ArrayBuilder` standing in for a cell -- a `Counter` struct whose `ab_get`/`ab_set` pair gives
+  bump-and-read, copied by value while the state behind the handle is shared, usable from a closure, and
+  still refused across a thread. It works; it is simply unnameable and nobody would guess the API. The gap
+  is a name and an honest signature, not a capability.
+
+  **The proposal.** One new native generic, `Cell<T>`, `#[thread_bound]`, with `cell_new(value)`,
+  `cell_get(c)` and `cell_set(c, value)`. Three functions, one type. Everything open-ended then composes in
+  library code rather than in C: a ring buffer is a struct over `MutArray` plus two `Cell<int>`s; an LRU is
+  `MutMap` plus `MutArray` plus a cell; a UI signal is a `Cell<T>` plus a `MutArray` of subscribers; a node
+  with mutable children is a struct holding a `MutArray<Node>`, and the tracing collector already handles the
+  cycles a parent pointer makes. The language stops growing each time a new mutable shape is wanted.
+
+  **What this is not, and should not become: mutable struct fields.** A struct is a value and is copied, so a
+  mutable field means mutating a copy and wondering why the original did not change -- the aliasing confusion
+  the language has avoided everywhere else, and `with` already covers update-as-a-value. `Cell` keeps the
+  distinction visible: the struct stays a value, the cell is plainly a handle. No methods are needed either.
+
+  **A decision this has to make, found while checking the above and worth fixing either way.** A struct
+  holding a handle is **comparable and hashable today**, by accident rather than by decision: the handle is
+  an `int` field, so `Counter { slot: ab_new<int>() } == Counter { slot: ab_new<int>() }` is `false` (two
+  empty builders, unequal), `hash` of one is stable within a run, and such a struct is accepted as a `Map`
+  key. That is identity equality wearing value equality's clothes, keyed on a pointer value that means
+  nothing across runs -- exactly where a UI framework's memoisation key or node comparison would go wrong.
+  `Cell` should be **neither comparable nor hashable**, as `Channel` already is not, so a struct containing
+  one is refused as a `Map` key and `==` on it is a type error rather than a surprise; and the four builders
+  should be changed to match, which is a small breaking change nothing in this repository or the reference
+  backend relies on (checked).
+
+  **Cost, honestly.** A mutable type built in Ziman is a function call per operation through a handle, where
+  `MutArray<int>` is a packed buffer -- so the native collections stay as the fast paths and `Cell` is for
+  shapes, not for hot loops.
+
+  **Do it when a real program asks.** The same test every other decision here takes: not before something
+  concrete wants a mutable type the five do not cover. A UI project is the likely first caller, and the
+  cheapest thing to do first is the one named at the end of the mutability discussion -- a worked actor
+  example (a counter or small cache owned by a spawned loop, talked to over a `Channel`), which would show
+  whether process-lifetime mutable state needs anything new at all.
+
 - **Interval notation for ranges: `[a..b]`, `(a..b)`, `[a..b)`, `(a..b]`.** Raised 2026-10-12 by
   Menderes. **Undecided, and may well be declined** -- recorded so that both the option and its price
   are on the record rather than rediscovered. The idea is that each end's bracket states its own
