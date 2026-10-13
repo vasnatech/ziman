@@ -2000,6 +2000,19 @@ from source.
   example (a counter or small cache owned by a spawned loop, talked to over a `Channel`), which would show
   whether process-lifetime mutable state needs anything new at all.
 
+  *Update 2026-10-13: designed in full the same day, and renamed. The type is `Mutable<T>` and the
+  functions are `mutable_new`/`mutable_get`/`mutable_set`, plus a fourth, `mutable_update(c, f)`.
+  `Cell` was dropped because the companion decision renaming the builders makes "every `Mutable*`
+  type is thread-bound" a rule, and `Cell` would have been a third type outside it after
+  `StringBuilder` and `Iter`; `Mutable<T>` is instead the root that `MutableArray`/`MutableMap`/
+  `MutableSet` specialise -- which is also what the `MutArray`/`MutMap` spellings above became. The
+  equality and hashing decision this entry raised stands and is now joined by two more found while
+  checking it: a handle prints a raw address, and `#[derive(Json)]` does not refuse a handle field.
+  Everything else here -- the objection, the transitive `#[thread_bound]` story, the refusal of
+  mutable struct fields, the cost, and "do it when a real program asks" -- is unchanged. See
+  docs/DESIGN.md, "`Mutable<T>`: the root of the family, and why there is no `MutableInt`" and "The
+  builders become mutable collections".*
+
 - **Interval notation for ranges: `[a..b]`, `(a..b)`, `[a..b)`, `(a..b]`.** Raised 2026-10-12 by
   Menderes. **Undecided, and may well be declined** -- recorded so that both the option and its price
   are on the record rather than rediscovered. The idea is that each end's bracket states its own
