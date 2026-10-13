@@ -416,3 +416,84 @@ It does not establish anything at n=1 per cell about variance, and twelve tasks 
 round 2 found them expensive is a biased sample for the 10x figure -- deliberately so, since the
 point was to measure the ceiling on the tasks where name discovery dominates. The two controls are
 in the table for exactly that reason, and they are where the effect reverses.
+
+---
+
+# Variance: a second instance, against a pinned round-2 compiler
+
+Round 2 ran at n=1, and by the time variance was worth measuring the compiler had changed under it --
+F86 and F88 made two silently-wrong programs into diagnostics, F90 a third message. A second instance
+against today's binary would have mixed variance with those fixes, so **the round-2 compiler was
+rebuilt from its own commit** (`21f1d0c`) in a worktree and verified to behave as it did: it accepts a
+discarded `push` silently, emits no interpolation warning, and self-checks 50/50 on the reference
+solutions. Both the attempts and the scoring use that binary.
+
+**45 of the 50 tasks, not all 50.** F85 amended five prompts, so those five cannot be compared across
+instances; `round2b/` is already their second instance under the new wording. The other 45 prompts
+were taken from the pinned worktree and `cmp`-verified identical, and exactly five differed, which is
+the check that the exclusion is right rather than assumed.
+
+## The aggregate is stable; the individual task is not
+
+| | round 2 | second instance |
+|---|---|---|
+| compiled | 45/45 | **45/45** |
+| correct | 39/45 | **37/45** |
+| invocations, total | 1,338 | **1,194** |
+| invocations, median | 12 | **13** |
+| invocations, max | 264 | **194** |
+
+**Per-task agreement is the real finding: 35 right in both, 4 wrong in both, and 6 of 45 flipped
+(13%).** Two tasks round 2 got wrong came out right, and four it got right came out wrong:
+
+| task | round 2 | instance 2 | |
+|---|---|---|---|
+| 14-base64-roundtrip | wrong | right | the discarded `push` did not recur |
+| 40-matrix-transpose | wrong | right | ditto -- and its log shows why: the *no-methods* message handed this run `xs = push(xs, item)` |
+| 22-url-encode | right | wrong | |
+| 26-defer-order | right | wrong | |
+| 45-set-operations | right | wrong | its log states "`push(v, x)` mutates a `var` array in place" -- the same false belief, in a task that did not hit it in round 2 |
+| 48-map-of-lists-invert | right | wrong | |
+
+So **a single instance of this benchmark predicts the headline to about ±2 of 45 and an individual
+task's outcome only about 87% of the time.** Any claim of the form "this task fails" needs n>1; a
+claim of the form "roughly six of these fail" is safe at n=1. That is the honest licence for every
+per-task statement made earlier in this report, and the four tasks wrong in both instances
+(18-money-decimal, 36-yaml-list, 41-validate-collect-errors, 49-struct-update-with) are the ones that
+earned their findings twice over.
+
+**Cost varies much less than the per-task outcome.** The per-task ratio has a median of exactly 1.00
+and 41 of 45 tasks land within 2x of their first instance. The tail moves most: `12-json-build` fell
+109 to 33, `01-word-frequency` 64 to 26, while `10-palindrome` rose 6 to 18 and `32-iterator-take`
+167 to 194. The 10x `--api` effect measured in round 3 is an order of magnitude larger than this
+spread, so that finding survives the variance; a 20% difference in invocations would not have.
+
+## What the second instance found that the first did not
+
+Two of the three defects this report already names **recurred in tasks that had not shown them**,
+which is stronger evidence than the original instance gave:
+
+- **The discarded `push`**: `45-set-operations` wrote down "`push(v, x)` mutates a `var` array in
+  place" and was wrong for it, where in round 2 that task was correct and four *other* tasks carried
+  the bug. The mistake is a property of the language's surface, not of particular tasks.
+- **Interpolation**: `49-struct-update-with` and `21-file-write-read` both recorded `"${x}"` as
+  working. Across rounds 2, 3 and this instance, **four independent agents reached that belief**, in
+  three different spellings.
+
+And one new, verified defect, from the run that cost the most (`32-iterator-take`, 194 invocations):
+**the no-methods message invents a function that does not exist.** `a.iter()` is answered with "call a
+function on it instead, e.g. `iter(a, ...)`" -- there is no `iter`. The message is not guessing
+blindly either, which is what makes it fixable: for `a.len()` it prints `len(a)`, with the right
+arity, so it already looks the name up and knows when it exists. That run concluded `Iter<T>` is
+"visible in the type system and unreachable from source", while `iter_of_array` exists and round 3's
+arm A found it immediately through `--api builtins`. Filed rather than fixed here.
+
+## What variance establishes, and what it does not
+
+It establishes that this instrument's aggregate is reproducible (45/45 compiled twice, 39 vs 37 of 45
+correct) while its per-task verdicts are not (13% flip), that cost is stable in the median and noisy
+in the tail, and that the two language defects recur across instances in different tasks.
+
+It does not establish variance for the five amended tasks, anything at n>2, or that the flip rate is
+13% rather than some nearby number -- 6 flips out of 45 is itself a small count, and a third instance
+could move it by several points.

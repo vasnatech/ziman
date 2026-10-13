@@ -1,0 +1,23 @@
+// Reverse the words of a string and print them separated by single spaces.
+//
+// Ziman notes learned from the compiler:
+//   - bindings are 'val' (immutable) / 'var' (mutable); there is no 'let'
+//   - there are no methods: call free functions, e.g. split(s, " ")
+//   - '+' does not join strings; use concat(a, b) or format("{}{}", a, b)
+
+fn main() {
+    val text = "hello world from ziman"
+    val words = split(text, " ")
+
+    var out = ""
+    var i = len(words) - 1
+    while i >= 0 {
+        out = concat(out, words[i])
+        if i > 0 {
+            out = concat(out, " ")
+        }
+        i = i - 1
+    }
+
+    print(out)
+}

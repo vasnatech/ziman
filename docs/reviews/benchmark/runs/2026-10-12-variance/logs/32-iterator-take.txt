@@ -1,0 +1,51 @@
+compiles: yes
+edits: 1
+compiler_invocations: 194
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'a'
+saw: use of undefined variable 'n'
+saw: 'a.iter(...)': 'a' is not an imported module, and Ziman has no methods -- if 'a' is a value, call a function on it instead, e.g. iter(a, ...) (if 'a' should be a module, add 'use a')
+saw: call to undefined function 'iter' -- did you mean 'Iter'?
+saw: call to undefined function 'next' -- did you mean 'set'?
+saw: call to undefined function 'Iter' -- did you mean 'Iter'?
+saw: 'Iter' takes 1 type argument(s), found 0
+saw: a type's arguments go in angle brackets, not '[' -- write 'Iter<...>'; and there is no List/Array/Vec type, because an array of T is written '[T]' (so '[int]', not 'List(int)')
+saw: cannot initialize 'it' of declared type Iter<int> with a value of type [int]
+saw: call to undefined function 'iterate'
+saw: no 'main' function found
+saw: no field 'v' on struct 'Iter'
+saw: expected ':', found '}'
+saw: expected 'fn', found identifier
+saw: 'Iter' is generic and requires explicit type arguments, e.g. 'Iter<...> { ... }'
+saw: missing field 'handle' in construction of 'Iter'
+saw: field 'handle' of 'Iter' expects int, found string
+saw: call to undefined function 'slic' -- did you mean 'slice'?
+saw: 'len' expects an array, string, map or set, found Iter<int>
+saw: expected a function name, found '('
+saw: call to undefined function 'recv'
+saw: 'send' takes exactly 2 arguments, found 0
+saw: function 'chars' is missing required argument 's'
+saw: cannot infer the type of 'err(...)' here; it takes its type from the context, so it needs one: a val/var with an explicit Result<T, E> annotation, a struct literal field, a 'with' override, a function's returned value, or an argument whose parameter type says which Result it is
+saw: function 'slice' expects 3 argument(s), found 1
+saw: expected an expression, found '..'
+saw: expected ']', found 'for'
+saw: argument 1 of 'f' expects Iter<int>, found [int]
+saw: expected an expression, found 'spawn'
+saw: argument 1 of 'send' expects a Channel, found Iter<int>
+saw: unknown struct or enum type 'Chan' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: expected ',', found '>'
+saw: unknown struct or enum type 'Gen' -- did you mean 'len'?
+saw: expected an expression, found 'Channel'
+saw: call to undefined function 'some'
+saw: use of undefined variable 'none'
+saw: cannot find module 'std' (looked for std.zm, and it's not a bundled core module)
+saw: expected a module path segment, found 'string'
+saw: module 'collections' has no function 'zzz'
+saw: expected an expression, found 'int'
+saw: 'print' takes exactly 1 argument, found 0
+saw: an 'else' has to be on the same line as the brace that closes its 'if' ('} else {') -- a statement ends at the newline, so the '}' above already finished the 'if' and this 'else' has nothing to attach to
+saw: 'send' is a builtin, not a function value -- wrap it in a function of your own to pass it around
+saw: Ziman has no 'const' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: cannot cast [int] to Iter<int> (only casts between int/float/bigint/decimal, or int/byte, are supported)
+saw: a field cannot be assigned: a struct is a value -- write 'p = with p { field: value }' to make a copy with that field changed
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

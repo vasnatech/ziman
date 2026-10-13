@@ -1,0 +1,71 @@
+// Parse a small YAML document and print every entry of the
+// block sequence that lives under a given top-level key.
+
+// Number of leading spaces on a line.
+fn indent_of(line: string) -> int {
+    var n = 0
+    while n < len(line) && substring(line, n, n + 1) == " " {
+        n = n + 1
+    }
+    return n
+}
+
+// YAML scalars may be quoted; the quotes are not part of the value.
+fn unquote(s: string) -> string {
+    if len(s) >= 2 {
+        val first = substring(s, 0, 1)
+        val last = substring(s, len(s) - 1, len(s))
+        if (first == "\"" && last == "\"") || (first == "'" && last == "'") {
+            return substring(s, 1, len(s) - 1)
+        }
+    }
+    return s
+}
+
+// Collect the "- item" entries of the block sequence under `key`.
+fn sequence_under(doc: string, key: string) -> [string] {
+    var items: [string] = []
+    val lines = split(doc, "\n")
+    val header = concat(key, ":")
+    var in_block = false
+    var key_indent = 0
+    var i = 0
+    while i < len(lines) {
+        val line = lines[i]
+        i = i + 1
+        val text = trim(line)
+        if text == "" || starts_with(text, "#") {
+            continue
+        }
+        val ind = indent_of(line)
+        if !in_block {
+            if text == header {
+                in_block = true
+                key_indent = ind
+            }
+            continue
+        }
+        if starts_with(text, "- ") && ind > key_indent {
+            push(items, unquote(trim(substring(text, 2, len(text)))))
+            continue
+        }
+        if ind <= key_indent {
+            // The block ended: a sibling or parent key begins here.
+            break
+        }
+    }
+    return items
+}
+
+fn main() {
+    val doc = """
+names:
+  - Ada
+  - Alan
+  - Grace
+"""
+    val names = sequence_under(doc, "names")
+    for name in names {
+        print(name)
+    }
+}

@@ -1,0 +1,33 @@
+// Parse a small CSV of names and ages, print each row, then the floor mean age.
+
+fn main() {
+    val csv = "name,age\nAda,36\nAlan,41\nGrace,45"
+    val lines = split(csv, "\n")
+
+    var total = 0
+    var count = 0
+
+    // Row 0 is the header, so start at 1.
+    var i = 1
+    while i < len(lines) {
+        val fields = split(lines[i], ",")
+        val name = fields[0]
+
+        var age = 0
+        switch parse_int(fields[1]) {
+            Ok(v) { age = v }
+            Err(e) { print(format("bad age on line {}: {}", i, e)) }
+        }
+
+        print(format("{} is {}", name, age))
+
+        total = total + age
+        count = count + 1
+        i = i + 1
+    }
+
+    if count > 0 {
+        // Integer division truncates, which is the floor for non-negative ages.
+        print(format("average: {}", total / count))
+    }
+}

@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+saw: ziman: syntax error at 2:17 in p2.zm: expected a field name, found ','
+saw: ziman: syntax error at 10:43 in p2.zm: a trailing comma is not allowed before ']' -- remove it
+saw: ziman: type error at 7:5 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 7:9 in p3.zm: assignment to undefined variable 'items'
+saw: ziman: type error at 12:9 in p3.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 13:15 in p3.zm: use of undefined variable 'items'
+saw: ziman: type error at 14:23 in p4.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

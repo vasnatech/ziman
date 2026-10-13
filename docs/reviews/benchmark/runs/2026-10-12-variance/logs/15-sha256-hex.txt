@@ -1,0 +1,37 @@
+compiles: yes
+edits: 1
+compiler_invocations: 153
+saw: unexpected character '&' (did you mean '&&'?)
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'i'
+saw: use of undefined variable 'i'
+saw: call to undefined function 'band' -- did you mean 'send'?
+saw: call to undefined function 'bitand'
+saw: expected ')', found identifier
+saw: call to undefined function 'and' -- did you mean 'abs'?
+saw: cannot access field 'and' on int (not a struct)
+saw: 'x.band(...)': 'x' is not an imported module, and Ziman has no methods -- if 'x' is a value, call a function on it instead, e.g. band(x, ...) (if 'x' should be a module, add 'use x')
+saw: cannot find module 'zzzz' (looked for <path>/zzzz.zm, and it's not a bundled core module)
+saw: call to undefined function 'sha256'
+saw: expected a module path segment, found 'string'
+saw: cannot find module 'str'
+saw: module 'crypto' has no function 'zzz'
+saw: module 'bits' has no function 'zzz'
+saw: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: argument 1 of 'crypto::sha256' expects [byte], found string
+saw: function 'crypto::sha256' is missing required argument 'data'
+saw: 'len' takes exactly 1 argument, found 0
+saw: 'format' requires at least a format string argument
+saw: 'send' takes exactly 2 arguments, found 0
+saw: expected an expression, found 'spawn'
+saw: 'push' takes exactly 2 argument(s), found 0
+saw: cannot cast string to [byte] (only casts between int/float/bigint/decimal, or int/byte, are supported)
+saw: cannot index into string (not an array)
+saw: cannot initialize 'x' of declared type byte with a value of type int -- bare digits mean 'int', so write the literal with its suffix, as '1b'
+saw: cannot initialize 'h' of declared type int with a value of type [byte]
+saw: format string has 0 placeholder(s) but 1 argument(s) were provided
+saw: malformed placeholder in format string (expected '{}' or '{:.N}', found stray '{'; write '{{' for a literal one)
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: function 'char_at' expects 2 argument(s), found 1
+saw: cannot initialize 'q' of declared type int with a value of type [string]

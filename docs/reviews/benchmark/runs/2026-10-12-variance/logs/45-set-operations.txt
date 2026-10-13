@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 7
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'xs'
+saw: use of undefined variable 'xs'
+saw: 'xs.len(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. len(xs) (if 'xs' should be a module, add 'use xs')
+saw: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: call to undefined function 'append'
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: function 'join' expects at least 3 argument(s), found 2
+saw: argument 1 of 'join' expects Option<string> or string, found [int]
+saw: call to undefined function 'sort' -- did you mean 'str'?

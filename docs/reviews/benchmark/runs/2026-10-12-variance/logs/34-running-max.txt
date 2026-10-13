@@ -1,0 +1,11 @@
+compiles: yes
+edits: 1
+compiler_invocations: 8
+saw: use of undefined variable 'zzz'
+saw: use of undefined variable 'qqq'
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'xs'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'm'
+saw: use of undefined variable 'xs'
+saw: call to undefined function 'println' -- did you mean 'print'?

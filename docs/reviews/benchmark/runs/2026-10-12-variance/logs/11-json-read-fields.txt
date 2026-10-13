@@ -1,0 +1,46 @@
+compiles: yes
+edits: 1
+compiler_invocations: 25
+saw: no 'main' function found
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'x'
+saw: use of undefined variable 'x'
+saw: call to undefined function 'zzz_unknown_thing'
+saw: call to undefined function 'json_parse'
+saw: call to undefined function 'json' -- did you mean 'join'?
+saw: call to undefined function 'parse'
+saw: call to undefined function 'charat' -- did you mean 'char_at'?
+saw: call to undefined function 'lenn' -- did you mean 'len'?
+saw: call to undefined function 'tointt'
+saw: call to undefined function 'splitt' -- did you mean 'split'?
+saw: call to undefined function 'slize' -- did you mean 'slice'?
+saw: call to undefined function 'indexo' -- did you mean 'index_of'?
+saw: call to undefined function 'trimm' -- did you mean 'trim'?
+saw: call to undefined function 'pushh' -- did you mean 'push'?
+saw: call to undefined function 'append'
+saw: call to undefined function 'printn' -- did you mean 'print'?
+saw: call to undefined function 'to_int'
+saw: call to undefined function 'to_string'
+saw: call to undefined function 'upper'
+saw: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: function 'index_of' expects 3 argument(s), found 2
+saw: argument 1 of 'index_of' expects string, found bool
+saw: 'len' expects an array, string, map or set, found bool
+saw: 'contains' expects a string, array, map or set as its first argument, found bool
+saw: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: function 'join' expects at least 3 argument(s), found 2
+saw: argument 1 of 'push' expects an array (or, for set/insert/remove, a map or set), found bool
+saw: cannot use a void value to initialize a variable
+saw: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'map' may just need one of those instead
+saw: expected 'fn', found identifier
+saw: expected ')', found '['
+saw: unknown struct or enum type 'Array' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: expected a field name, found ','
+saw: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: a map is not indexed with '[...]' -- read one with 'map_get(m, key)', which answers 'Option<V>' ('Some(v)' or 'None'), and write one with 'm = set(m, key, value)'
+saw: argument 1 of 'want_int' expects int, found string
+saw: argument 1 of 'want_int' expects int, found Result<int, string>
+saw: argument 1 of 'want_int' expects int, found bool
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: left-hand side of assignment must be a variable name
+saw: expected 'fn', found '}'

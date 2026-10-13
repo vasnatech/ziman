@@ -1,0 +1,18 @@
+compiles: yes
+edits: 1
+compiler_invocations: 20
+saw: ziman: syntax error at 2:17 in p2.zm: expected a field name, found ','
+saw: ziman: type error at 2:5 in p3.zm: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 8:5 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 8:9 in p5.zm: assignment to undefined variable 'a'
+saw: ziman: type error at 9:11 in p5.zm: use of undefined variable 'a'
+saw: ziman: syntax error at 10:22 in p6.zm: expected a field name, found '..'
+saw: ziman: syntax error at 11:5 in p6.zm: expected 'fn', found identifier
+saw: ziman: syntax error at 9:20 in pv.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: ziman: syntax error at 9:15 in pv.zm: expected a field name, found 'with'
+saw: ziman: syntax error at 9:23 in pw2.zm: expected ':', found ','
+saw: ziman: module error at 9:13 in pw3.zm: 'a.copy(...)': 'a' is not an imported module, and Ziman has no methods -- if 'a' is a value, call a function on it instead, e.g. copy(a, ...) (if 'a' should be a module, add 'use a')
+saw: ziman: type error at 9:13 in pw5.zm: use of undefined variable 'Config'
+saw: ziman: syntax error at 9:24 in pw6.zm: expected '{', found ':'
+saw: ziman: syntax error at 9:25 in pw7.zm: expected ')', found ':'
+saw: ziman: type error at 9:22 in q1.zm: no field 'bogus' on struct 'Config'

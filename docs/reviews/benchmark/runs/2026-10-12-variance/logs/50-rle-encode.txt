@@ -1,0 +1,30 @@
+compiles: yes
+edits: 1
+compiler_invocations: 15
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 's'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: use of undefined variable 'i'
+saw: 's.len(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. len(s) (if 's' should be a module, add 'use s')
+saw: 'for' can only iterate an array, a map, a set, an Iter or a range, found string
+saw: 'x.to_string(...)': 'x' is not an imported module, and Ziman has no methods -- if 'x' is a value, call a function on it instead, e.g. str(x) (if 'x' should be a module, add 'use x')
+saw: cannot index into string (not an array)
+saw: call to undefined function 'substr'
+saw: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: call to undefined function 'to_chars'
+saw: cannot initialize 'a' of declared type int with a value of type [string]
+saw: cannot initialize 'c' of declared type int with a value of type string
+saw: expected an expression, found 'int'
+saw: call to undefined function 'to_int'
+saw: call to undefined function 'is_digit'
+saw: call to undefined function 'num'
+saw: call to undefined function 'repeat'
+saw: function 'join' expects at least 3 argument(s), found 2
+saw: expected an expression, found '||'
+saw: function 'is_digit' does not return a value on every path
+saw: cannot initialize 'a' of declared type bool with a value of type Result<int, string>
+saw: argument 1 of 'join' expects Option<string> or string, found [string]
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: left-hand side of assignment must be a variable name
+saw: expected 'fn', found '}'
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

@@ -1,0 +1,29 @@
+compiles: yes
+edits: 1
+compiler_invocations: 33
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'x'
+saw: use of undefined variable 'x'
+saw: call to undefined function 'nonexistent_thing'
+saw: call to undefined function 'json' -- did you mean 'join'?
+saw: call to undefined function 'map' -- 'Map' is a built-in generic type, not a function: write one as 'Map<string, int> { "key": value }', or build one with 'mapb_new<string, int>()'
+saw: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'json' may just need one of those instead
+saw: unknown struct or enum type 'Json' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: expected a field name, found ','
+saw: expected an expression, found 'string'
+saw: 'n.to_string(...)': 'n' is not an imported module, and Ziman has no methods -- if 'n' is a value, call a function on it instead, e.g. str(n) (if 'n' should be a module, add 'use n')
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: module 'json' has no function 'object'
+saw: cannot find module 'zqwfp' (looked for <path>/zqwfp.zm, and it's not a bundled core module)
+saw: use of undefined variable 'json'
+saw: module 'json' has no function 'parse' -- did you mean 'parse_json', 'parse_json_strict' or 'parse_json_bytes'?
+saw: module 'json' has no function 'json' -- did you mean 'json_to_bytes', 'json_to_string' or 'json_object_get'?
+saw: module 'json' has no function 'json_object' -- did you mean 'json_object_get'?
+saw: argument 1 of 'json::json_to_string' expects json.Json, found int
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: expected an expression, found '>'
+saw: expected 'fn', found '}'
+saw: json.Json has no variant 'Bogus' (its variants: JNull, JBool, JNumber, JString, JArray, JObject)
+saw: variant 'json::Json.JObject' expects Map<string, json.Json>, found int
+saw: variant 'json::Json.JNumber' expects json.Number, found string
+saw: json.Number has no variant 'Bogus' (its variants: Int, Float, Bigint, Decimal)

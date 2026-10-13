@@ -1,0 +1,26 @@
+compiles: yes
+edits: 1
+compiler_invocations: 24
+saw: call to undefined function 'write_file'
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 's'
+saw: use of undefined variable 's'
+saw: call to undefined function 'open' -- did you mean 'len'?
+saw: call to undefined function 'read' -- did you mean 'send'?
+saw: call to undefined function 'writ' -- did you mean 'print'?
+saw: function 'lines' is missing required argument 'text'
+saw: function 'split' is missing required argument 's'
+saw: 'fs.write(...)': 'fs' is not an imported module, and Ziman has no methods -- if 'fs' is a value, call a function on it instead, e.g. write(fs, ...) (if 'fs' should be a module, add 'use fs')
+saw: no enum named 'File'
+saw: cannot find module 'io' (looked for <path>/io.zm, and it's not a bundled core module)
+saw: module 'fs' has no function 'nonexistent_thing'
+saw: module 'fs' has no function 'write' -- did you mean 'write_text', 'write_text_atomic' or 'write_bytes'?
+saw: module 'fs' has no function 'read' -- did you mean 'read_text' or 'read_bytes'?
+saw: argument 1 of 'lines' expects string, found Result<string, fs.FsError>
+saw: there is no postfix '?': write 'try <expression>' in front of the Option or Result instead (e.g. 'val x = try parse(s)')
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: left-hand side of assignment must be a variable name
+saw: expected 'fn', found '}'
+saw: 'try' on a Result<T, E> value requires the enclosing function or lambda to return Result<..., fs.FsError>, found void -- give it that return type (a lambda needs it written out: 'fn(...) -> Result<T, fs.FsError> { ... }')
+saw: '+' doesn't join strings (found int and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: call to undefined function 'to_string'

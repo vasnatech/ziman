@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 12
+saw: syntax error at 3:16: expected a field name, found ','
+saw: type error at 8:5: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 8:9: assignment to undefined variable 's'
+saw: type error at 9:11: use of undefined variable 's'
+saw: syntax error at 10:45: a trailing comma is not allowed before ']' -- remove it
+saw: type error at 12:14: call to undefined function 'sort' -- did you mean 'str'?
+saw: module error at 12:14: 'xs.sort(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. collections.sort<T>(xs), after 'use collections' (if 'xs' should be a module, add 'use xs')
+saw: module error at 12:14: 'xs.sorted(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. collections.sort<T>(xs), after 'use collections' (if 'xs' should be a module, add 'use xs')
+saw: type error at 13:14: type argument Score does not satisfy bound 'Ord' required by type parameter 'T' (it must be a number, string or byte, or a struct/enum with a '<type>_compare(a, b) -> int' function -- '#[derive(Ord)]' writes one)
+saw: syntax error at 2:1: unknown derive target 'Bogus' on struct 'Score'

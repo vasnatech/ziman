@@ -1,0 +1,26 @@
+fn binary_search(xs: [int], target: int) -> int {
+    var lo = 0
+    var hi = len(xs) - 1
+    while lo <= hi {
+        val mid = lo + (hi - lo) / 2
+        val v = xs[mid]
+        if v == target {
+            return mid
+        } else {
+            if v < target {
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+    }
+    return -1
+}
+
+fn main() {
+    val data = [2, 3, 5, 7, 11, 13, 17, 19, 23]
+    print(binary_search(data, 2))
+    print(binary_search(data, 11))
+    print(binary_search(data, 23))
+    print(binary_search(data, 4))
+}

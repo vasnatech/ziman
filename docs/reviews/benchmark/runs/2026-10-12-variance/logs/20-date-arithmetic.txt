@@ -1,0 +1,17 @@
+compiles: yes
+edits: 1
+compiler_invocations: 15
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p2.zm: expected 'fn', found identifier
+saw: ziman: lexical error at 2:14 in p4.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: type error at 1:8 in p5.zm: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 6:5 in p6.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 6:9 in p6.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 9:8 in p6.zm: use of undefined variable 'y'
+saw: ziman: type error at 3:17 in p8.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 5:18 in p8.zm: '+' doesn't join strings (found string and int) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: module error at 9:11 in p8.zm: 'n.to_string(...)': 'n' is not an imported module, and Ziman has no methods -- if 'n' is a value, call a function on it instead, e.g. str(n) (if 'n' should be a module, add 'use n')
+saw: ziman: type error at 3:18 in p9.zm: malformed placeholder in format string (expected '{}' or '{:.N}', found stray '{'; write '{{' for a literal one)
+saw: ziman: type error at 3:11 in p10.zm: call to undefined function 'pad_left'
+saw: ziman: module error at 1:1 in p11.zm: cannot find module 'date' (looked for date.zm, and it's not a bundled core module)
+saw: ziman: type error at 6:11 in p12.zm: call to undefined function 'zzz_nope'

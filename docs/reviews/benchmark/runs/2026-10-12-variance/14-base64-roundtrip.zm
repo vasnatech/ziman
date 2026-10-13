@@ -1,0 +1,88 @@
+val ascii = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+fn code_of(c: string) -> int {
+    return 32 + index_of(ascii, c, 0)
+}
+
+fn char_of(v: int) -> string {
+    return char_at(ascii, v - 32)
+}
+
+fn base64_encode(input: string) -> string {
+    val n = len(input)
+    var out = ""
+    var i = 0
+    while i < n {
+        val remaining = n - i
+        val b0 = code_of(char_at(input, i))
+        var b1 = 0
+        var b2 = 0
+        if remaining > 1 {
+            b1 = code_of(char_at(input, i + 1))
+        }
+        if remaining > 2 {
+            b2 = code_of(char_at(input, i + 2))
+        }
+        val triple = b0 * 65536 + b1 * 256 + b2
+        out = concat(out, char_at(alphabet, triple / 262144))
+        out = concat(out, char_at(alphabet, (triple / 4096) % 64))
+        if remaining > 1 {
+            out = concat(out, char_at(alphabet, (triple / 64) % 64))
+        } else {
+            out = concat(out, "=")
+        }
+        if remaining > 2 {
+            out = concat(out, char_at(alphabet, triple % 64))
+        } else {
+            out = concat(out, "=")
+        }
+        i = i + 3
+    }
+    return out
+}
+
+fn base64_decode(input: string) -> string {
+    val n = len(input)
+    var out = ""
+    var i = 0
+    while i + 3 < n {
+        val s0 = char_at(input, i)
+        val s1 = char_at(input, i + 1)
+        val s2 = char_at(input, i + 2)
+        val s3 = char_at(input, i + 3)
+        val c0 = index_of(alphabet, s0, 0)
+        val c1 = index_of(alphabet, s1, 0)
+        var c2 = 0
+        var c3 = 0
+        var pad = 0
+        if s2 == "=" {
+            pad = pad + 1
+        } else {
+            c2 = index_of(alphabet, s2, 0)
+        }
+        if s3 == "=" {
+            pad = pad + 1
+        } else {
+            c3 = index_of(alphabet, s3, 0)
+        }
+        val triple = c0 * 262144 + c1 * 4096 + c2 * 64 + c3
+        out = concat(out, char_of(triple / 65536))
+        if pad < 2 {
+            out = concat(out, char_of((triple / 256) % 256))
+        }
+        if pad < 1 {
+            out = concat(out, char_of(triple % 256))
+        }
+        i = i + 4
+    }
+    return out
+}
+
+fn main() {
+    val text = "ziman benchmark"
+    val encoded = base64_encode(text)
+    print(encoded)
+    val decoded = base64_decode(encoded)
+    print(decoded)
+}

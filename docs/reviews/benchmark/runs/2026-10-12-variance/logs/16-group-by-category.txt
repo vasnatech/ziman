@@ -1,0 +1,24 @@
+compiles: yes
+edits: 1
+compiler_invocations: 11
+saw: ziman: syntax error at 2:17 in wave-2026-10-12/probes2v/16-group-by-category/p2.zm: expected a field name, found ','
+saw: ziman: syntax error at 9:52 in wave-2026-10-12/probes2v/16-group-by-category/p2.zm: a trailing comma is not allowed before ']' -- remove it
+saw: ziman: type error at 2:5 in wave-2026-10-12/probes2v/16-group-by-category/p3.zm: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: syntax error at 26:13 in wave-2026-10-12/probes2v/16-group-by-category/p4.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: ziman: syntax error at 27:5 in wave-2026-10-12/probes2v/16-group-by-category/p4.zm: expected 'fn', found identifier
+saw: ziman: type error at 7:5 in wave-2026-10-12/probes2v/16-group-by-category/p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 7:9 in wave-2026-10-12/probes2v/16-group-by-category/p5.zm: assignment to undefined variable 'items'
+saw: ziman: type error at 11:14 in wave-2026-10-12/probes2v/16-group-by-category/p5.zm: use of undefined variable 'items'
+saw: ziman: module error at 24:5 in wave-2026-10-12/probes2v/16-group-by-category/p5.zm: 'acc.push(...)': 'acc' is not an imported module, and Ziman has no methods -- if 'acc' is a value, call a function on it instead, e.g. acc = push(acc, item) (if 'acc' should be a module, add 'use acc')
+saw: ziman: module error at 29:14 in wave-2026-10-12/probes2v/16-group-by-category/p5.zm: 'm.keys(...)': 'm' is not an imported module, and Ziman has no methods -- if 'm' is a value, call a function on it instead, e.g. map_keys(m), which answers a Set (set_items turns it into an array) (if 'm' should be a module, add 'use m')
+saw: ziman: type error at 12:26 in wave-2026-10-12/probes2v/16-group-by-category/p6.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 16:13 in wave-2026-10-12/probes2v/16-group-by-category/p6.zm: call to undefined function 'sorted'
+saw: ziman: type error at 20:11 in wave-2026-10-12/probes2v/16-group-by-category/p6.zm: function 'join' expects at least 3 argument(s), found 2
+saw: ziman: type error at 25:9 in wave-2026-10-12/probes2v/16-group-by-category/p6.zm: a map has no 'insert' -- use set(map, key, value) to add or replace an entry
+saw: ziman: type error at 26:11 in wave-2026-10-12/probes2v/16-group-by-category/p6.zm: call to undefined function 'get' -- did you mean 'set'?
+saw: ziman: type error at 5:13 in wave-2026-10-12/probes2v/16-group-by-category/p7.zm: call to undefined function 'sort' -- did you mean 'str'?
+saw: ziman: type error at 7:16 in wave-2026-10-12/probes2v/16-group-by-category/p7.zm: argument 1 of 'join' expects Option<string> or string, found [string]
+saw: ziman: type error at 11:11 in wave-2026-10-12/probes2v/16-group-by-category/p7.zm: a map is not indexed with '[...]' -- read one with 'map_get(m, key)', which answers 'Option<V>' ('Some(v)' or 'None'), and write one with 'm = set(m, key, value)'
+saw: ziman: syntax error at 8:5 in wave-2026-10-12/probes2v/16-group-by-category/p8.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 9:9 in wave-2026-10-12/probes2v/16-group-by-category/p8.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 10:15 in wave-2026-10-12/probes2v/16-group-by-category/p8.zm: expected an expression, found '>'

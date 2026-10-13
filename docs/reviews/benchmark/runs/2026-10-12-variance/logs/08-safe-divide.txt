@@ -1,0 +1,17 @@
+compiles: yes
+edits: 1
+compiler_invocations: 15
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:33 in p3.zm: expected '{', found '?'
+saw: ziman: type error at 1:6 in p4.zm: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: syntax error at 1:23 in q.zm: a type's arguments go in angle brackets, not '[' -- write 'Option<...>'; and there is no List/Array/Vec type, because an array of T is written '[T]' (so '[int]', not 'List(int)')
+saw: ziman: syntax error at 1:17 in q.zm: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'option' may just need one of those instead
+saw: ziman: type error at 1:1 in q.zm: unknown struct or enum type 'Maybe' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: syntax error at 1:17 in q.zm: expected a type, found '?'
+saw: ziman: syntax error at 9:3 in q2.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 10:5 in q2.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 11:11 in q2.zm: expected an expression, found '>'
+saw: ziman: syntax error at 13:1 in q2.zm: expected 'fn', found '}'
+saw: ziman: type error at 8:3 in q3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 8:7 in q3.zm: assignment to undefined variable 'r'
+saw: ziman: type error at 9:10 in q3.zm: use of undefined variable 'r'

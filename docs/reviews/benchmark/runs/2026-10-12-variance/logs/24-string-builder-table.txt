@@ -1,0 +1,27 @@
+compiles: yes
+edits: 1
+compiler_invocations: 15
+saw: lexical error at 2:21: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: type error at 2:5: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 2:9: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 2:13: assignment to undefined variable 's'
+saw: type error at 7:11: use of undefined variable 's'
+saw: type error at 5:15: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: type error at 2:13: call to undefined function 'pad_right'
+saw: type error at 5:13: call to undefined function 'pad' -- did you mean 'max'?
+saw: type error at 7:20: malformed placeholder in format string (expected '{}' or '{:.N}', found stray '{'; write '{{' for a literal one)
+saw: type error at 9:13: call to undefined function 'StringBuilder' -- did you mean 'StringBuilder'?
+saw: type error at 2:13: use of undefined variable 'StringBuilder'
+saw: type error at 3:13: missing field 'handle' in construction of 'StringBuilder'
+saw: type error at 4:13: no enum named 'StringBuilder'
+saw: type error at 10:13: no struct named 'StringBuildr'
+saw: type error at 2:13: function 'sb_new' expects 2 argument(s), found 3
+saw: type error at 3:13: call to undefined function 'sb_appnd' -- did you mean 'sb_append'?
+saw: type error at 9:13: call to undefined function 'sb_toString' -- did you mean 'sb_to_string'?
+saw: type error at 2:23: argument 1 of 'sb_append' expects StringBuilder, found int
+saw: type error at 6:13: 'str' takes exactly 1 argument, found 9
+saw: type error at 8:13: 'push' takes exactly 2 argument(s), found 9
+saw: type error at 2:21: argument 1 of 'sb_new' expects Option<int> or int, found string
+saw: type error at 2:25: argument 2 of 'sb_new' expects Option<float> or float, found string
+saw: type error at 7:14: call to undefined function 'space' -- did you mean 'slice'?
+saw: type error at 13:5: call to undefined function 'println' -- did you mean 'print'?

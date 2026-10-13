@@ -1,0 +1,45 @@
+use collections
+
+// Invert a mapping of teacher -> subjects into subject -> teachers.
+fn main() {
+    val teachers = Map<string, [string]> {
+        "Ada": ["maths", "logic"],
+        "Alan": ["logic", "crypto"],
+    }
+
+    // Walk the teachers in a stable (alphabetical) order so that the
+    // teacher lists of each subject come out in a predictable order.
+    val names = collections.sort<string>(set_items(map_keys(teachers)))
+
+    var inverted = Map<string, [string]> {}
+    for name in names {
+        switch map_get(teachers, name) {
+            Some(subjects) {
+                for subject in subjects {
+                    switch map_get(inverted, subject) {
+                        Some(current) {
+                            inverted = set(inverted, subject, push(current, name))
+                        }
+                        None {
+                            inverted = set(inverted, subject, [name])
+                        }
+                    }
+                }
+            }
+            None {
+            }
+        }
+    }
+
+    val subjects = collections.sort<string>(set_items(map_keys(inverted)))
+    for subject in subjects {
+        switch map_get(inverted, subject) {
+            Some(who) {
+                val line = collections.join(who, ", ")
+                print("{subject}: {line}")
+            }
+            None {
+            }
+        }
+    }
+}

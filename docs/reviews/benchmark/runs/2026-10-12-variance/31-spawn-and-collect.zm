@@ -1,0 +1,41 @@
+// Start three concurrent workers, each squaring one number and sending the
+// result over a shared channel. Collect all three results, then print them
+// in ascending order, one per line.
+
+fn square_worker(out: Channel<int>, n: int) {
+    send(out, n * n)
+}
+
+fn main() {
+    val results: Channel<int> = channel_new()
+
+    spawn square_worker(results, 2)
+    spawn square_worker(results, 3)
+    spawn square_worker(results, 4)
+
+    // Results may arrive in any order, so collect all three first.
+    var a = receive(results)
+    var b = receive(results)
+    var c = receive(results)
+
+    // Sort the three collected values ascending.
+    if a > b {
+        val t = a
+        a = b
+        b = t
+    }
+    if b > c {
+        val t = b
+        b = c
+        c = t
+    }
+    if a > b {
+        val t = a
+        a = b
+        b = t
+    }
+
+    print(a)
+    print(b)
+    print(c)
+}

@@ -1,0 +1,20 @@
+// Shows the order in which deferred calls actually run.
+//
+// "first", "second" and "third" are scheduled in that order, but they
+// are deferred, so they run after "end" -- in reverse of scheduling
+// order (last scheduled runs first).
+
+fn demo() {
+    print("start")
+
+    defer print("deferred: first (scheduled 1st)")
+    defer print("deferred: second (scheduled 2nd)")
+    defer print("deferred: third (scheduled 3rd)")
+
+    print("end")
+}
+
+fn main() {
+    demo()
+    print("back in main")
+}

@@ -1,0 +1,14 @@
+compiles: yes
+edits: 1
+compiler_invocations: 19
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1: expected 'fn', found identifier
+saw: ziman: type error at 2:5: call to undefined function 'println' -- did you mean 'print'?
+saw: ziman: type error at 2:5: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9: assignment to undefined variable 'x'
+saw: ziman: type error at 3:11: use of undefined variable 'x'
+saw: ziman: lexical error at 4:15: unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type is 'enum Name { A, B }', and there is no '|>' pipeline
+saw: ziman: lexical error at 3:10: unexpected character '&' (did you mean '&&'?)
+saw: ziman: module error at 6:13: module 'bits' has no function 'int_shl'
+saw: ziman: syntax error at 8:9: a variable name must not start with an uppercase letter (uppercase is reserved for type names)
+saw: ziman: type error at 9:21: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

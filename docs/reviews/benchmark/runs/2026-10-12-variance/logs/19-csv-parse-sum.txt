@@ -1,0 +1,16 @@
+compiles: yes
+edits: 1
+compiler_invocations: 12
+saw: ziman: type error at 0:0: no 'main' function found
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'xs'
+saw: use of undefined variable 'xs'
+saw: 'xs.len(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. len(xs) (if 'xs' should be a module, add 'use xs')
+saw: call to undefined function 'to_string'
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: arithmetic operator requires two operands of the same numeric type, found int and Result<int, string> (use 'as' to cast explicitly)
+saw: call to undefined function 'unwrap_or' -- did you mean 'unwrap_err'?
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: left-hand side of assignment must be a variable name
+saw: expected 'fn', found '}'

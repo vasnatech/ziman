@@ -1,0 +1,32 @@
+use fs
+
+// Writes three lines to a file, reads the file back, and prints every
+// line prefixed with its 1-based line number as "N: line".
+fn main() {
+    val path = "/tmp/ziman_bench_21.txt"
+    val content = "alpha\nbeta\ngamma\n"
+
+    val written = fs.write_text(path, content)
+    switch written {
+        Ok(ok) {
+            val loaded = fs.read_text(path)
+            switch loaded {
+                Ok(text) {
+                    var n = 1
+                    for line in lines(text) {
+                        if len(line) > 0 {
+                            print(format("{}: {}", n, line))
+                            n = n + 1
+                        }
+                    }
+                }
+                Err(e) {
+                    print(format("could not read {}: {}", path, e))
+                }
+            }
+        }
+        Err(e) {
+            print(format("could not write {}: {}", path, e))
+        }
+    }
+}

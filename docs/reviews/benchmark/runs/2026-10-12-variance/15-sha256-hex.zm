@@ -1,0 +1,25 @@
+// Print the SHA-256 hash of the text "ziman" as lowercase hexadecimal.
+use crypto
+
+// Lowercase hex digit for a nibble in 0..15.
+fn hexdigit(n: int) -> string {
+    val digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+    return digits[n]
+}
+
+// Lowercase hex encoding of a byte string.
+fn hex(data: [byte]) -> string {
+    var out = ""
+    for i in 0..len(data) {
+        val v = data[i] as int
+        out = concat(out, hexdigit(v / 16))
+        out = concat(out, hexdigit(v % 16))
+    }
+    return out
+}
+
+fn main() {
+    // ASCII bytes of "ziman": z i m a n
+    val message: [byte] = [122b, 105b, 109b, 97b, 110b]
+    print(hex(crypto.sha256(message)))
+}

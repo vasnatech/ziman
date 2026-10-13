@@ -1,0 +1,76 @@
+fn is_leap(y: int) -> bool {
+    if y % 400 == 0 {
+        return true
+    }
+    if y % 100 == 0 {
+        return false
+    }
+    if y % 4 == 0 {
+        return true
+    }
+    return false
+}
+
+fn days_in_month(y: int, m: int) -> int {
+    if m == 2 {
+        if is_leap(y) {
+            return 29
+        }
+        return 28
+    }
+    if m == 4 || m == 6 || m == 9 || m == 11 {
+        return 30
+    }
+    return 31
+}
+
+fn pad2(n: int) -> string {
+    if n < 10 {
+        return concat("0", str(n))
+    }
+    return str(n)
+}
+
+fn format_date(y: int, m: int, d: int) -> string {
+    return format("{}-{}-{}", str(y), pad2(m), pad2(d))
+}
+
+fn main() {
+    var year = 2024
+    var month = 2
+    var day = 28
+
+    print(format_date(year, month, day))
+
+    var steps = 0
+    while steps < 1 {
+        day = day + 1
+        if day > days_in_month(year, month) {
+            day = 1
+            month = month + 1
+            if month > 12 {
+                month = 1
+                year = year + 1
+            }
+        }
+        steps = steps + 1
+    }
+
+    print(format_date(year, month, day))
+
+    var more = 0
+    while more < 29 {
+        day = day + 1
+        if day > days_in_month(year, month) {
+            day = 1
+            month = month + 1
+            if month > 12 {
+                month = 1
+                year = year + 1
+            }
+        }
+        more = more + 1
+    }
+
+    print(format_date(year, month, day))
+}

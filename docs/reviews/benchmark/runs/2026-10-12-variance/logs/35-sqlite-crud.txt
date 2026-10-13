@@ -1,0 +1,39 @@
+compiles: yes
+edits: 1
+compiler_invocations: 58
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'x'
+saw: call to undefined function 'nonexistent_function_xyz'
+saw: call to undefined function 'sqlite_open'
+saw: call to undefined function 'sqlite' -- did you mean 'split'?
+saw: call to undefined function 'open' -- did you mean 'len'?
+saw: Ziman has no 'import' -- a bundled module is brought in with 'use fs' (or 'use fs.read_text' for one name), and the builtins like 'print' and 'len' need no 'use' at all
+saw: module 'sqlite' has no function 'zzz'
+saw: module 'sqlite' has no function, struct, enum, or global val 'zzz'
+saw: module 'sqlite' has no function 'exec' -- did you mean 'execute'?
+saw: function 'sqlite::execute' is missing required argument 'conn'
+saw: module 'sqlite' has no function 'one' -- did you mean 'open'?
+saw: module 'sqlite' has no function 'row' -- did you mean 'rows'?
+saw: function 'sqlite::open' is missing required argument 'path'
+saw: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: cannot initialize 'q' of declared type int with a value of type Result<sqlite.Connection, db.DbError>
+saw: function 'sqlite::execute' expects at least 2 argument(s), found 1
+saw: argument 1 of 'sqlite::close' expects sqlite.Connection, found Result<sqlite.Connection, db.DbError>
+saw: there is no postfix '?': write 'try <expression>' in front of the Option or Result instead (e.g. 'val x = try parse(s)')
+saw: Ziman has no methods, so '.unwrap(...)' cannot be called on the result of an expression -- a function takes its receiver as an argument instead: bind the inner expression with 'val v = ...' and write 'unwrap(v, ...)', or nest the calls directly. (If 'unwrap' is a struct field holding a function value, that is callable too, but only on a plain variable, so the same binding is the fix.)
+saw: 'try' on a Result<T, E> value requires the enclosing function or lambda to return Result<..., db.DbError>, found void -- give it that return type (a lambda needs it written out: 'fn(...) -> Result<T, db.DbError> { ... }')
+saw: cannot initialize 'x' of declared type int with a value of type sqlite.Connection
+saw: cannot initialize 'z' of declared type int with a value of type [db.Row]
+saw: cannot initialize 'v' of declared type int with a value of type Iter<Result<db.Row, db.DbError>>
+saw: module 'db' has no function 'zzz'
+saw: module 'db' has no function 'row_int' -- did you mean 'row_get'?
+saw: function 'db::row_get' is missing required argument 'row'
+saw: function 'db::row_get' expects 2 argument(s), found 1
+saw: cannot initialize 'i' of declared type int with a value of type Result<db.SqlValue, db.DbError>
+saw: no field 'zzz' on struct 'db::Row'
+saw: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: expected 'fn', found '}'
+saw: db.SqlValue has no variant 'Zzz' (its variants: Null, Int, Float, Text, Bool, Bytes)
+saw: argument 3 of 'sqlite::execute' expects db.SqlValue or [db.SqlValue], found int
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: a trailing comma is not allowed before ')' -- remove it

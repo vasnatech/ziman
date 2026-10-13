@@ -1,0 +1,31 @@
+// Run `echo "hello from a child"`, wait for it, then report its exit status.
+//
+// process.start(program, args, env, cwd, _, _) -> Result<process.Process, string>
+// process.wait(p)                              -> Result<int, string>
+//
+// The child inherits this program's stdout, so its own output is printed as
+// soon as it runs; once wait() has returned we know it finished, and we print
+// the exit status after it.
+
+use process
+
+fn main() {
+    val started = process.start("echo", ["hello from a child"], None, None, None, None)
+
+    switch started {
+        Ok(child) {
+            val finished = process.wait(child)
+            switch finished {
+                Ok(code) {
+                    print(format("exit: {}", code))
+                }
+                Err(message) {
+                    print(format("could not wait for the child: {}", message))
+                }
+            }
+        }
+        Err(message) {
+            print(format("could not start echo: {}", message))
+        }
+    }
+}

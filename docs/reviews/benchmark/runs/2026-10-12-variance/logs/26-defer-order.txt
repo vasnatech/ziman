@@ -1,0 +1,9 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+saw: ziman: type error at 2:5 in p3.zm: call to undefined function 'nosuchfn'
+saw: ziman: syntax error at 3:11 in p4.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: ziman: syntax error at 6:5 in p4.zm: expected 'fn', found identifier
+saw: ziman: type error at 3:5 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 3:9 in p5.zm: assignment to undefined variable 'n'
+saw: ziman: type error at 4:30 in p5.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

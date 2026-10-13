@@ -1,0 +1,47 @@
+// Set operations on two groups of numbers.
+
+// Render an ascending list of numbers as a comma-separated string.
+fn render(xs: [int]) -> string {
+    var out = ""
+    var first = true
+    for x in xs {
+        if first {
+            out = str(x)
+            first = false
+        } else {
+            out = format("{}, {}", out, str(x))
+        }
+    }
+    return out
+}
+
+// Numbers present in both groups.
+fn intersection(a: [int], b: [int]) -> [int] {
+    var result: [int] = []
+    for x in a {
+        if contains(b, x) {
+            push(result, x)
+        }
+    }
+    return result
+}
+
+// Numbers present in 'a' but not in 'b'.
+fn difference(a: [int], b: [int]) -> [int] {
+    var result: [int] = []
+    for x in a {
+        if !contains(b, x) {
+            push(result, x)
+        }
+    }
+    return result
+}
+
+fn main() {
+    val first = [1, 2, 3, 4, 5]
+    val second = [4, 5, 6, 7]
+
+    print(format("both: {}", render(intersection(first, second))))
+    print(format("only first: {}", render(difference(first, second))))
+    print(format("only second: {}", render(difference(second, first))))
+}

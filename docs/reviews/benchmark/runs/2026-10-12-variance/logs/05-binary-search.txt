@@ -1,0 +1,8 @@
+compiles: yes
+edits: 1
+compiler_invocations: 6
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: type error at 6:5 in wave-2026-10-12/probes2v/05-binary-search/p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 6:9 in wave-2026-10-12/probes2v/05-binary-search/p3.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 7:11 in wave-2026-10-12/probes2v/05-binary-search/p3.zm: use of undefined variable 'x'
+saw: ziman: type error at 11:9 in wave-2026-10-12/probes2v/05-binary-search/p3.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'

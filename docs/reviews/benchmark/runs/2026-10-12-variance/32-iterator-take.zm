@@ -1,0 +1,33 @@
+// An iterator over an array: it holds the array and the position of the
+// next element, and is advanced by making a copy with the position moved
+// on (Ziman structs are values, so 'with' is how you step the cursor).
+struct ArrayIter {
+    items: [int]
+    pos: int
+}
+
+fn has_next(it: ArrayIter) -> bool {
+    return it.pos < len(it.items)
+}
+
+fn peek(it: ArrayIter) -> int {
+    return it.items[it.pos]
+}
+
+fn advance(it: ArrayIter) -> ArrayIter {
+    return with it { pos: it.pos + 1 }
+}
+
+fn main() {
+    val nums = [10, 20, 30, 40, 50]
+    var it = ArrayIter { items: nums, pos: 0 }
+
+    // Take only the first three values; the iterator stops at index 3,
+    // so 40 and 50 are never visited.
+    var taken = 0
+    while taken < 3 && has_next(it) {
+        print(peek(it))
+        it = advance(it)
+        taken = taken + 1
+    }
+}

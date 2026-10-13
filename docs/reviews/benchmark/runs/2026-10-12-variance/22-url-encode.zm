@@ -1,0 +1,83 @@
+fn ascii_table() -> string {
+    return " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+}
+
+fn hex_digits() -> string {
+    return "0123456789ABCDEF"
+}
+
+fn code_of(c: string) -> int {
+    val i = index_of(ascii_table(), c, 0)
+    if i < 0 {
+        return -1
+    }
+    return 32 + i
+}
+
+fn char_of(code: int) -> string {
+    if code < 32 || code > 126 {
+        return "?"
+    }
+    return char_at(ascii_table(), code - 32)
+}
+
+fn is_unreserved(c: string) -> bool {
+    val safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
+    return index_of(safe, c, 0) >= 0
+}
+
+fn url_encode(s: string) -> string {
+    var out = ""
+    for i in 0..len(s) {
+        val c = char_at(s, i)
+        if c == " " {
+            out = concat(out, "+")
+        } else if is_unreserved(c) {
+            out = concat(out, c)
+        } else {
+            val code = code_of(c)
+            val hi = char_at(hex_digits(), code / 16)
+            val lo = char_at(hex_digits(), code % 16)
+            out = concat(out, concat("%", concat(hi, lo)))
+        }
+    }
+    return out
+}
+
+fn hex_value(c: string) -> int {
+    val i = index_of(hex_digits(), c, 0)
+    if i >= 0 {
+        return i
+    }
+    return index_of("0123456789abcdef", c, 0)
+}
+
+fn url_decode(s: string) -> string {
+    var out = ""
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        if c == "+" {
+            out = concat(out, " ")
+            i = i + 1
+        } else if c == "%" && i + 2 < len(s) {
+            val hi = hex_value(char_at(s, i + 1))
+            val lo = hex_value(char_at(s, i + 2))
+            out = concat(out, char_of(hi * 16 + lo))
+            i = i + 3
+        } else {
+            out = concat(out, c)
+            i = i + 1
+        }
+    }
+    return out
+}
+
+fn main() {
+    val original = "name=Ada Lovelace&role=pioneer"
+    print(format("original: {}", original))
+    val encoded = url_encode(original)
+    print(format("encoded:  {}", encoded))
+    val decoded = url_decode(encoded)
+    print(format("decoded:  {}", decoded))
+}

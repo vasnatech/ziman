@@ -1,0 +1,35 @@
+// Print an integer with thousands separators, e.g. 1234567 -> 1,234,567
+
+fn with_separators(n: int) -> string {
+    if n == 0 {
+        return "0"
+    }
+
+    var negative = false
+    var x = n
+    if x < 0 {
+        negative = true
+        x = 0 - x
+    }
+
+    var s = ""
+    var digits = 0
+    while x > 0 {
+        val d = x % 10
+        x = x / 10
+        s = concat(str(d), s)
+        digits = digits + 1
+        if digits % 3 == 0 && x > 0 {
+            s = concat(",", s)
+        }
+    }
+
+    if negative {
+        s = concat("-", s)
+    }
+    return s
+}
+
+fn main() {
+    print(with_separators(1234567))
+}

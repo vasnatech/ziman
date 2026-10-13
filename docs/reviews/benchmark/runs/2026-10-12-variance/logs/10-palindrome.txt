@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 18
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: type error at 2:3 in p5.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:7 in p5.zm: assignment to undefined variable 's'
+saw: ziman: type error at 4:9 in p5.zm: use of undefined variable 'n'
+saw: ziman: type error at 9:11 in p8.zm: cannot index into string (not an array)
+saw: ziman: type error at 14:11 in p8.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 3:11 in p9.zm: call to undefined function 'charAt' -- did you mean 'char_at'?
+saw: ziman: type error at 4:9 in p11.zm: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: ziman: type error at 5:9 in p11.zm: call to undefined function 'lower'

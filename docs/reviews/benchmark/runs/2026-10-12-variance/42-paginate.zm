@@ -1,0 +1,21 @@
+fn main() {
+    var page = 1
+    var start = 1
+    while start <= 10 {
+        var line = format("page {}:", page)
+        var i = start
+        var first = true
+        while i < start + 3 && i <= 10 {
+            if first {
+                line = format("{} {}", line, i)
+                first = false
+            } else {
+                line = format("{}, {}", line, i)
+            }
+            i = i + 1
+        }
+        print(line)
+        start = start + 3
+        page = page + 1
+    }
+}

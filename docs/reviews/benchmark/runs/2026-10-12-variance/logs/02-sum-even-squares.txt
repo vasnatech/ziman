@@ -1,0 +1,7 @@
+compiles: yes
+edits: 1
+compiler_invocations: 4
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'total'
+saw: use of undefined variable 'i'

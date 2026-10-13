@@ -1,0 +1,34 @@
+use bits
+
+// Permission flags: bit 0 = READ, bit 1 = WRITE, bit 2 = EXECUTE.
+fn flag_read() -> int {
+    return bits.int_shift_left(1, 0)
+}
+
+fn flag_write() -> int {
+    return bits.int_shift_left(1, 1)
+}
+
+fn flag_execute() -> int {
+    return bits.int_shift_left(1, 2)
+}
+
+fn has(flags: int, mask: int) -> bool {
+    return bits.int_and(flags, mask) != 0
+}
+
+fn label(name: string, on: bool) -> string {
+    if on {
+        return format("{}: yes", name)
+    }
+    return format("{}: no", name)
+}
+
+fn main() {
+    // READ and EXECUTE set, WRITE clear.
+    val perms = bits.int_or(flag_read(), flag_execute())
+
+    print(label("read", has(perms, flag_read())))
+    print(label("write", has(perms, flag_write())))
+    print(label("execute", has(perms, flag_execute())))
+}

@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 7
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 's'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: use of undefined variable 'i'
+saw: 's.len(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. len(s) (if 's' should be a module, add 'use s')
+saw: cannot index into string (not an array)
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

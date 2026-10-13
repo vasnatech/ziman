@@ -1,0 +1,40 @@
+// Parse a small TOML configuration and print host, port and debug flag.
+
+// Find the raw (untrimmed of quotes) value for `key` in the TOML text.
+fn lookup(text: string, key: string) -> string {
+    val lines = split(text, "\n")
+    for line in lines {
+        val t = trim(line)
+        if contains(t, "=") {
+            val parts = split(t, "=")
+            val k = trim(parts[0])
+            val v = trim(parts[1])
+            if k == key {
+                return v
+            }
+        }
+    }
+    return ""
+}
+
+// A TOML basic string is wrapped in double quotes; strip them.
+fn unquote(raw: string) -> string {
+    return replace(raw, "\"", "")
+}
+
+fn main() {
+    val toml = "host = \"localhost\"\nport = 8080\ndebug = true"
+
+    val host = unquote(lookup(toml, "host"))
+    print(host)
+
+    var port = 0
+    switch parse_int(lookup(toml, "port")) {
+        Ok(v) { port = v }
+        Err(e) { port = 0 }
+    }
+    print(port)
+
+    val debug = lookup(toml, "debug") == "true"
+    print(debug)
+}

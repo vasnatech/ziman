@@ -1,0 +1,19 @@
+enum Shape {
+    Circle(float)
+    Square(float)
+    Point
+}
+
+fn area(s: Shape) -> float {
+    switch s {
+        Circle(r) { return 3.14159 * r * r }
+        Square(a) { return a * a }
+        Point { return 0.0 }
+    }
+}
+
+fn main() {
+    print(area(Shape.Circle(2.0)))
+    print(area(Shape.Square(3.0)))
+    print(area(Shape.Point))
+}

@@ -1,0 +1,8 @@
+compiles: yes
+edits: 1
+compiler_invocations: 5
+saw: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'd'
+saw: use of undefined variable 'd'
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

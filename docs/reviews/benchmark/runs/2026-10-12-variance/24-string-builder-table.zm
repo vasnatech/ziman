@@ -1,0 +1,22 @@
+// Build a two-column table of 1..5 and their cubes with a StringBuilder.
+// Each line: the number padded to width 2 on the right, then " | ", then the cube.
+
+fn pad_right_to(s: string, width: int) -> string {
+    var out = s
+    while len(out) < width {
+        out = concat(out, " ")
+    }
+    return out
+}
+
+fn main() {
+    val sb = sb_new(64, 2.0)
+    for i in 1..6 {
+        val cube = i * i * i
+        sb_append(sb, pad_right_to(str(i), 2))
+        sb_append(sb, " | ")
+        sb_append(sb, str(cube))
+        sb_append(sb, "\n")
+    }
+    print(sb_to_string(sb))
+}

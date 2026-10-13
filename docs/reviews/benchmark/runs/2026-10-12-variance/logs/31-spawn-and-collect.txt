@@ -1,0 +1,18 @@
+compiles: yes
+edits: 1
+compiler_invocations: 13
+saw: syntax error at 3:11: expected a function name, found '{'
+saw: syntax error at 6:5: expected 'fn', found identifier
+saw: syntax error at 1:12: expected ':', found ','
+saw: type error at 1:11: unknown struct or enum type 'Chan' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: syntax error at 1:9: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'chan' may just need one of those instead
+saw: syntax error at 4:16: expected '<', found '['
+saw: type error at 6:5: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 6:9: assignment to undefined variable 'c'
+saw: type error at 7:18: use of undefined variable 'c'
+saw: type error at 6:13: call to undefined function 'channel' -- 'Channel' is a built-in generic type, not a function: make one with 'channel_new()', which takes its element type from the annotation, as in 'val ch: Channel<int> = channel_new()'
+saw: type error at 8:13: call to undefined function 'recv'
+saw: type error at 5:13: call to undefined function 'channel_send' -- did you mean 'channel_len'?
+saw: module error at 6:13: 'c.recv(...)': 'c' is not an imported module, and Ziman has no methods -- if 'c' is a value, call a function on it instead, e.g. recv(c, ...) (if 'c' should be a module, add 'use c')
+saw: type error at 2:5: unknown struct or enum type 'List' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: type error at 4:13: call to undefined function 'sort' -- did you mean 'str'?

@@ -1,0 +1,8 @@
+compiles: yes
+edits: 1
+compiler_invocations: 7
+saw: ziman: syntax error at 2:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: type error at 2:22 in p3.zm: cannot initialize 'a' of declared type decimal with a value of type float
+saw: ziman: type error at 2:27 in p5.zm: use of undefined variable 'm'
+saw: ziman: syntax error at 2:13 in p6.zm: expected an expression, found 'decimal'
+saw: ziman: type error at 6:21 in p7.zm: '+' doesn't join strings (found string and decimal) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

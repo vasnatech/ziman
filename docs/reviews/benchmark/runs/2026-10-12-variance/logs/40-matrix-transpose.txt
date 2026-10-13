@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 9
+saw: ziman: type error at 2:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p2.zm: assignment to undefined variable 'm'
+saw: ziman: type error at 3:11 in p2.zm: use of undefined variable 'm'
+saw: ziman: type error at 5:11 in p7.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 2:14 in p8.zm: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: ziman: module error at 3:5 in p9.zm: 'xs.push(...)': 'xs' is not an imported module, and Ziman has no methods -- if 'xs' is a value, call a function on it instead, e.g. xs = push(xs, item) (if 'xs' should be a module, add 'use xs')
+saw: ziman: type error at 1:1 in p11.zm: function 'transpose' does not return a value on every path

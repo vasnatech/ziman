@@ -1,0 +1,25 @@
+compiles: yes
+edits: 1
+compiler_invocations: 19
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 's'
+saw: use of undefined variable 'n'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: cannot index into string (not an array)
+saw: call to undefined function 'bytes'
+saw: call to undefined function 'charAt' -- did you mean 'char_at'?
+saw: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: function 'index_of' expects 3 argument(s), found 2
+saw: cannot initialize 'c0' of declared type int with a value of type string
+saw: cannot initialize 'b' of declared type byte with a value of type int -- bare digits mean 'int', so write the literal with its suffix, as '1b'
+saw: call to undefined function 'code_at'
+saw: expected an expression, found 'byte'
+saw: undefined function 'ab' -- did you mean 'abs'
+saw: unexpected character '&' (did you mean '&&'?)
+saw: expected an expression, found '<'
+saw: function 'join' expects at least 3 argument(s), found 2
+saw: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: argument 1 of 'join' expects Option<string> or string, found [string]
+saw: a global value name must not start with an uppercase letter (uppercase is reserved for type names)

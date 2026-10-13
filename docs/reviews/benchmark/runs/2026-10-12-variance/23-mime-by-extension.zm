@@ -1,0 +1,20 @@
+// Print the media type for a few file extensions, one per line.
+
+fn mime_types() -> Map<string, string> {
+    return Map<string, string> {
+        "json": "application/json",
+        "png": "image/png",
+        "html": "text/html",
+    }
+}
+
+fn main() {
+    val types = mime_types()
+    val exts = ["json", "png", "html", "zzz"]
+    for ext in exts {
+        switch map_get(types, ext) {
+            Some(media_type) { print(format("{} -> {}", ext, media_type)) }
+            None { print(format("{} -> unknown", ext)) }
+        }
+    }
+}

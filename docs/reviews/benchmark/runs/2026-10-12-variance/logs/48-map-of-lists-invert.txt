@@ -1,0 +1,28 @@
+compiles: yes
+edits: 1
+compiler_invocations: 25
+saw: syntax error at 3:13 in p2.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: syntax error at 4:5 in p2.zm: expected 'fn', found 'for'
+saw: type error at 2:5 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: type error at 2:9 in p3.zm: assignment to undefined variable 'xs'
+saw: type error at 4:14 in p3.zm: use of undefined variable 'xs'
+saw: syntax error at 10:17 in p4.zm: an array element cannot be assigned: arrays are values, not mutable containers -- write 'arr = set(arr, i, value)' (and see ArrayBuilder for building one up in a loop)
+saw: syntax error at 12:23 in p4.zm: Ziman has no methods, so '.push(...)' cannot be called on the result of an expression -- a function takes its receiver as an argument instead: bind the inner expression with 'val v = ...' and write 'v = push(v, item)', or nest the calls directly. (If 'push' is a struct field holding a function value, that is callable too, but only on a plain variable, so the same binding is the fix.)
+saw: syntax error at 15:31 in p4.zm: Ziman has no methods, so '.sorted(...)' cannot be called on the result of an expression -- a function takes its receiver as an argument instead: bind the inner expression with 'val v = ...' and write 'collections.sort<T>(v), after 'use collections'', or nest the calls directly. (If 'sorted' is a struct field holding a function value, that is callable too, but only on a plain variable, so the same binding is the fix.)
+saw: type error at 4:15 in p5.zm: unknown struct or enum type 'List' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: syntax error at 5:18 in p6.zm: expected '=', found '['
+saw: type error at 4:5 in p7.zm: unknown struct or enum type 'Array' (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: module error at 6:14 in p8.zm: 'm.keys(...)': 'm' is not an imported module, and Ziman has no methods -- if 'm' is a value, call a function on it instead, e.g. map_keys(m), which answers a Set (set_items turns it into an array) (if 'm' should be a module, add 'use m')
+saw: type error at 5:9 in p9.zm: call to undefined function 'map_put' -- did you mean 'map_get'?
+saw: type error at 9:17 in p9.zm: call to undefined function 'map_fetch'
+saw: type error at 6:13 in p11.zm: call to undefined function 'map_contains' -- did you mean 'mapb_contains'?
+saw: type error at 5:9 in p12.zm: cannot use a void value in an assignment
+saw: type error at 8:13 in p12.zm: call to undefined function 'arrb_new' -- did you mean 'ab_new'?
+saw: type error at 11:21 in p15.zm: a map is not indexed with '[...]' -- read one with 'map_get(m, key)', which answers 'Option<V>' ('Some(v)' or 'None'), and write one with 'm = set(m, key, value)'
+saw: syntax error at 7:5 in p16.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: syntax error at 8:17 in p16.zm: expected an expression, found '->'
+saw: type error at 8:19 in p17.zm: function 'join' expects at least 3 argument(s), found 2
+saw: type error at 15:13 in p17.zm: call to undefined function 'unwrap_or' -- did you mean 'unwrap_err'?
+saw: type error at 3:16 in p18.zm: argument 1 of 'join' expects Option<string> or string, found [string]
+saw: module error at 2:1 in p20.zm: cannot find module 'strings' (looked for strings.zm, and it's not a bundled core module)
+saw: type error at 7:11 in p21.zm: call to undefined function 'joined' -- did you mean 'join'?

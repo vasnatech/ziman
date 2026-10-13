@@ -1,0 +1,12 @@
+fn make_multiplier(factor: int) -> fn(int) -> int {
+    return fn(x: int) -> int {
+        return x * factor
+    }
+}
+
+fn main() {
+    val doubler = make_multiplier(2)
+    val tripler = make_multiplier(3)
+    print(doubler(5))
+    print(tripler(5))
+}

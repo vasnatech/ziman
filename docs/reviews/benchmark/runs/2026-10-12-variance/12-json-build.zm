@@ -1,0 +1,10 @@
+use json
+
+fn main() {
+    val fields = Map<string, json.Json> {
+        "status": json.Json.JString("ok"),
+        "count": json.Json.JNumber(json.Number.Int(3))
+    }
+    val doc = json.Json.JObject(fields)
+    print(json.json_to_string(doc))
+}

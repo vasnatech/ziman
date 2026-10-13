@@ -1,0 +1,24 @@
+compiles: yes
+edits: 1
+compiler_invocations: 20
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1: expected 'fn', found identifier
+saw: ziman: lexical error at 2:19: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: type error at 2:5: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9: assignment to undefined variable 'x'
+saw: ziman: type error at 3:5: call to undefined function 'println' -- did you mean 'print'?
+saw: ziman: type error at 5:13: cannot index into string (not an array)
+saw: ziman: type error at 7:15: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 3:11: call to undefined function 'charAt' -- did you mean 'char_at'?
+saw: ziman: type error at 6:11: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: ziman: type error at 8:11: call to undefined function 'ord' -- did you mean 'ok'?
+saw: ziman: type error at 9:11: call to undefined function 'chr' -- did you mean 'str'?
+saw: ziman: type error at 10:11: call to undefined function 'upper'
+saw: ziman: type error at 11:11: call to undefined function 'indexOf' -- did you mean 'index_of'?
+saw: ziman: type error at 4:5: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: type error at 5:11: call to undefined function 'code_at'
+saw: ziman: type error at 3:18: cannot initialize 'c' of declared type int with a value of type string
+saw: ziman: type error at 7:19: function 'index_of' expects 3 argument(s), found 2
+saw: ziman: syntax error at 4:18: expected an expression, found 'int'
+saw: ziman: type error at 7:18: cannot initialize 'g' of declared type int with a value of type Result<int, string>
+saw: ziman: type error at 8:21: call to undefined function 'hex' -- did you mean 'len'?

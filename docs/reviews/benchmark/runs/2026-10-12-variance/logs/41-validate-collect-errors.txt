@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 7
+saw: ziman: type error at 2:5 in p2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p2.zm: assignment to undefined variable 'name'
+saw: ziman: type error at 5:9 in p2.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 6:8 in p2.zm: use of undefined variable 'name'
+saw: ziman: module error at 12:9 in p2.zm: 'email.contains(...)': 'email' is not an imported module, and Ziman has no methods -- if 'email' is a value, call a function on it instead, e.g. contains(email, ...) (if 'email' should be a module, add 'use email')
+saw: ziman: type error at 5:20 in p3.zm: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: ziman: type error at 18:24 in p4.zm: '+' doesn't join strings (found string and int) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

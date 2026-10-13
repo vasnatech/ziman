@@ -1,0 +1,144 @@
+// A small JSON reader: enough of a parser to walk objects and pull out fields.
+
+struct Str {
+    value: string
+    next: int
+}
+
+fn is_space(c: string) -> bool {
+    return c == " " || c == "\n" || c == "\t" || c == "\r"
+}
+
+fn skip_ws(s: string, from: int) -> int {
+    var p = from
+    while p < len(s) {
+        if is_space(char_at(s, p)) {
+            p = p + 1
+        } else {
+            return p
+        }
+    }
+    return p
+}
+
+// Reads the string literal that starts at `from` (on its opening quote).
+fn read_string(s: string, from: int) -> Str {
+    var p = from + 1
+    var out = ""
+    while p < len(s) {
+        val c = char_at(s, p)
+        if c == "\"" {
+            return Str { value: out, next: p + 1 }
+        } else if c == "\\" {
+            val e = char_at(s, p + 1)
+            if e == "n" {
+                out = concat(out, "\n")
+            } else if e == "t" {
+                out = concat(out, "\t")
+            } else {
+                out = concat(out, e)
+            }
+            p = p + 2
+        } else {
+            out = concat(out, c)
+            p = p + 1
+        }
+    }
+    return Str { value: out, next: p }
+}
+
+// Returns the index just past the value that starts at `from`.
+fn skip_value(s: string, from: int) -> int {
+    val c = char_at(s, from)
+    if c == "\"" {
+        val r = read_string(s, from)
+        return r.next
+    } else if c == "{" || c == "[" {
+        var p = from
+        var depth = 0
+        while p < len(s) {
+            val d = char_at(s, p)
+            if d == "\"" {
+                val inner = read_string(s, p)
+                p = inner.next
+            } else {
+                if d == "{" || d == "[" {
+                    depth = depth + 1
+                } else if d == "}" || d == "]" {
+                    depth = depth - 1
+                }
+                p = p + 1
+                if depth == 0 {
+                    return p
+                }
+            }
+        }
+        return p
+    } else {
+        var q = from
+        while q < len(s) {
+            val d = char_at(s, q)
+            if d == "," || d == "}" || d == "]" || is_space(d) {
+                return q
+            }
+            q = q + 1
+        }
+        return q
+    }
+}
+
+// Finds `key` in the object that starts at `from`; answers the index of its
+// value, or -1 when the key is absent.
+fn field_at(s: string, from: int, key: string) -> int {
+    var p = skip_ws(s, from + 1)
+    while p < len(s) {
+        if char_at(s, p) == "}" {
+            return -1
+        }
+        val k = read_string(s, p)
+        var q = skip_ws(s, k.next)
+        q = skip_ws(s, q + 1)
+        if k.value == key {
+            return q
+        }
+        var r = skip_ws(s, skip_value(s, q))
+        if r < len(s) {
+            if char_at(s, r) == "," {
+                r = skip_ws(s, r + 1)
+            }
+        }
+        p = r
+    }
+    return -1
+}
+
+fn string_field(s: string, obj: int, key: string) -> string {
+    val at = field_at(s, obj, key)
+    if at < 0 {
+        return ""
+    }
+    val r = read_string(s, at)
+    return r.value
+}
+
+fn int_field(s: string, obj: int, key: string) -> int {
+    val at = field_at(s, obj, key)
+    if at < 0 {
+        return 0
+    }
+    val text = substring(s, at, skip_value(s, at))
+    switch parse_int(text) {
+        Ok(v) { return v }
+        Err(msg) { return 0 }
+    }
+}
+
+fn main() {
+    val doc = "{\"name\": \"Ada\", \"age\": 36, \"address\": {\"city\": \"London\"}}"
+
+    print(string_field(doc, 0, "name"))
+    print(int_field(doc, 0, "age"))
+
+    val address = field_at(doc, 0, "address")
+    print(string_field(doc, address, "city"))
+}

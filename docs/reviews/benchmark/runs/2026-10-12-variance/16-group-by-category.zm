@@ -1,0 +1,76 @@
+struct Product {
+    name: string
+    category: string
+}
+
+fn join_names(names: [string]) -> string {
+    var out = ""
+    var i = 0
+    while i < len(names) {
+        if i > 0 {
+            out = concat(out, ", ")
+        }
+        out = concat(out, names[i])
+        i = i + 1
+    }
+    return out
+}
+
+fn sort_strings(input: [string]) -> [string] {
+    var result: [string] = []
+    for s in input {
+        var pos = 0
+        while pos < len(result) && result[pos] < s {
+            pos = pos + 1
+        }
+        var next: [string] = []
+        var i = 0
+        while i < len(result) {
+            if i == pos {
+                next = push(next, s)
+            }
+            next = push(next, result[i])
+            i = i + 1
+        }
+        if pos == len(result) {
+            next = push(next, s)
+        }
+        result = next
+    }
+    return result
+}
+
+fn main() {
+    val items = [
+        Product { name: "apple", category: "fruit" },
+        Product { name: "carrot", category: "veg" },
+        Product { name: "banana", category: "fruit" },
+        Product { name: "leek", category: "veg" },
+        Product { name: "cherry", category: "fruit" }
+    ]
+
+    var groups = Map<string, [string]> {}
+    var cats: [string] = []
+
+    for p in items {
+        switch map_get(groups, p.category) {
+            Some(names) {
+                groups = set(groups, p.category, push(names, p.name))
+            }
+            None {
+                cats = push(cats, p.category)
+                groups = set(groups, p.category, [p.name])
+            }
+        }
+    }
+
+    for c in sort_strings(cats) {
+        switch map_get(groups, c) {
+            Some(names) {
+                print(format("{}: {}", c, join_names(names)))
+            }
+            None {
+            }
+        }
+    }
+}

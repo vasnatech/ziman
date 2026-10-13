@@ -1,0 +1,44 @@
+use sqlite
+use db
+
+fn as_text(v: db.SqlValue) -> string {
+    switch v {
+        Null { return "" }
+        Int(n) { return str(n) }
+        Float(f) { return str(f) }
+        Text(t) { return t }
+        Bool(b) { return str(b) }
+        Bytes(y) { return "" }
+    }
+}
+
+fn run(path: string) -> Result<int, db.DbError> {
+    val conn = try sqlite.open(path)
+    try sqlite.execute(conn, "DROP TABLE IF EXISTS task")
+    try sqlite.execute(conn, "CREATE TABLE task (id INTEGER PRIMARY KEY, title TEXT NOT NULL)")
+
+    val titles = ["write", "review", "ship"]
+    var i = 0
+    while i < len(titles) {
+        try sqlite.execute(conn, "INSERT INTO task (id, title) VALUES (?, ?)", db.SqlValue.Int(i + 1), db.SqlValue.Text(titles[i]))
+        i = i + 1
+    }
+
+    val rows = try sqlite.query(conn, "SELECT id, title FROM task ORDER BY id")
+    for row in rows {
+        val id = try db.row_get(row, "id")
+        val title = try db.row_get(row, "title")
+        print(format("{}: {}", as_text(id), as_text(title)))
+    }
+
+    sqlite.close(conn)
+    return len(rows)
+}
+
+fn main() {
+    val outcome = run("/tmp/ziman_bench_35.db")
+    switch outcome {
+        Ok(n) {}
+        Err(e) { print(format("database error: {}", e)) }
+    }
+}

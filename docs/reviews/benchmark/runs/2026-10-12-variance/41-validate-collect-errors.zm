@@ -1,0 +1,21 @@
+fn validate(name: string, age: int, email: string) -> [string] {
+    var problems: [string] = []
+    if len(name) == 0 {
+        push(problems, "name must not be empty")
+    }
+    if age < 18 || age > 120 {
+        push(problems, format("age must be between 18 and 120 (got {})", age))
+    }
+    if !contains(email, "@") {
+        push(problems, format("email must contain '@' (got '{}')", email))
+    }
+    return problems
+}
+
+fn main() {
+    val problems = validate("", 15, "nope")
+    for p in problems {
+        print(p)
+    }
+    print(format("problems: {}", len(problems)))
+}

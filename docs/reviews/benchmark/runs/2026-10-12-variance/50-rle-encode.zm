@@ -1,0 +1,59 @@
+// Run-length encoding / decoding in Ziman.
+
+fn is_digit(c: string) -> bool {
+    return c == "0" || c == "1" || c == "2" || c == "3" || c == "4" || c == "5" || c == "6" || c == "7" || c == "8" || c == "9"
+}
+
+fn to_num(s: string) -> int {
+    switch parse_int(s) {
+        Ok(v) { return v }
+        Err(e) { return 0 }
+    }
+}
+
+fn encode(s: string) -> string {
+    val cs = chars(s)
+    val n = len(cs)
+    var out = ""
+    var i = 0
+    while i < n {
+        var j = i
+        while j < n && cs[j] == cs[i] {
+            j = j + 1
+        }
+        out = format("{}{}{}", out, cs[i], str(j - i))
+        i = j
+    }
+    return out
+}
+
+fn decode(s: string) -> string {
+    val cs = chars(s)
+    val n = len(cs)
+    var out = ""
+    var i = 0
+    while i < n {
+        val c = cs[i]
+        var j = i + 1
+        var digits = ""
+        while j < n && is_digit(cs[j]) {
+            digits = concat(digits, cs[j])
+            j = j + 1
+        }
+        val count = to_num(digits)
+        var k = 0
+        while k < count {
+            out = concat(out, c)
+            k = k + 1
+        }
+        i = j
+    }
+    return out
+}
+
+fn main() {
+    val original = "aaabccddddbbb"
+    val encoded = encode(original)
+    print(encoded)
+    print(decode(encoded))
+}

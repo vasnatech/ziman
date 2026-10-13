@@ -1,0 +1,10 @@
+compiles: yes
+edits: 1
+compiler_invocations: 13
+saw: ziman: syntax error at 1:1 in p1.zm: expected 'fn', found identifier
+saw: ziman: syntax error at 1:12 in p4.zm: expected a type, found '..'
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:13 in p6.zm: expected a type, found ']'
+saw: ziman: type error at 1:8 in p8.zm: unknown struct or enum type 'Zork' -- did you mean 'ok'?
+saw: ziman: syntax error at 1:10 in p9.zm: expected ':', found '..'
+saw: ziman: type error at 2:5 in p12.zm: call to undefined function 'println' -- did you mean 'print'?

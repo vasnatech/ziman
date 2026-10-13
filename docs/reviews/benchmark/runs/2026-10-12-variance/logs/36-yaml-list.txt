@@ -1,0 +1,12 @@
+compiles: yes
+edits: 1
+compiler_invocations: 16
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'xs'
+saw: use of undefined variable 'xs'
+saw: 's.split(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. split(s, ...) (if 's' should be a module, add 'use s')
+saw: call to undefined function 'startsWith' -- did you mean 'starts_with'?
+saw: a type's arguments go in angle brackets, not '[' -- write 'List<...>'; and there is no List/Array/Vec type, because an array of T is written '[T]' (so '[int]', not 'List(int)')
+saw: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

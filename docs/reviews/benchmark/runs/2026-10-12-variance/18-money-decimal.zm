@@ -1,0 +1,13 @@
+// Add exact money amounts using the `decimal` type (not floating point).
+// Decimal literals carry the `d` suffix: 19.99d
+
+fn main() {
+    val price: decimal = 19.99d
+    val tax: decimal = 5.01d
+    val shipping: decimal = 0.50d
+
+    val total: decimal = price + tax + shipping
+
+    print(format("{} + {} + {} = {}", price, tax, shipping, total))
+    print(format("Total: {}", total))
+}

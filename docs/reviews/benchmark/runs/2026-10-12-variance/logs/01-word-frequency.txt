@@ -1,0 +1,27 @@
+compiles: yes
+edits: 1
+compiler_invocations: 26
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: lexical error at 2:19 in p5.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: ziman: type error at 2:5 in p6.zm: call to undefined function 'println' -- did you mean 'print'?
+saw: ziman: type error at 2:5 in p8.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p8.zm: assignment to undefined variable 's'
+saw: ziman: type error at 3:11 in p8.zm: use of undefined variable 's'
+saw: ziman: module error at 3:17 in p10.zm: 's.split(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. split(s, ...) (if 's' should be a module, add 'use s')
+saw: ziman: syntax error at 7:13 in p11.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: ziman: syntax error at 3:5 in p13.zm: an array element cannot be assigned: arrays are values, not mutable containers -- write 'arr = set(arr, i, value)' (and see ArrayBuilder for building one up in a loop)
+saw: ziman: type error at 5:25 in p14.zm: a map is not indexed with '[...]' -- read one with 'map_get(m, key)', which answers 'Option<V>' ('Some(v)' or 'None'), and write one with 'm = set(m, key, value)'
+saw: ziman: type error at 7:14 in p14.zm: call to undefined function 'keys'
+saw: ziman: syntax error at 5:5 in p15.zm: Ziman has no 'match' -- use 'switch value { Variant(name) { ... } ... }' over an enum, an Option or a Result (one arm per variant, no default arm), or 'if Enum.is_Variant(v)' to test one variant
+saw: ziman: syntax error at 6:9 in p15.zm: left-hand side of assignment must be a variable name
+saw: ziman: syntax error at 7:15 in p15.zm: expected an expression, found '>'
+saw: ziman: type error at 10:11 in p16.zm: call to undefined function 'sort' -- did you mean 'str'?
+saw: ziman: type error at 11:11 in p16.zm: call to undefined function 'append'
+saw: ziman: syntax error at 2:13 in p17.zm: expected '{' or '.' after type arguments
+saw: ziman: type error at 2:13 in p18.zm: use of undefined variable 'ArrayBuilder'
+saw: ziman: type error at 2:13 in p19.zm: missing field 'handle' in construction of 'ArrayBuilder'
+saw: ziman: type error at 2:13 in p20.zm: no enum named 'ArrayBuilder'
+saw: ziman: type error at 6:20 in p22.zm: argument 1 of 'concat' expects string, found [int]
+saw: ziman: type error at 22:11 in p23.zm: a set has no 'set' -- use insert(set, item) to add an item
+saw: ziman: type error at 23:11 in p23.zm: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'

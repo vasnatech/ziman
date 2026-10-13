@@ -1,0 +1,38 @@
+fn transpose(m: [[int]]) -> [[int]] {
+    val rows = len(m)
+    val cols = len(m[0])
+    var out: [[int]] = []
+    var c = 0
+    while c < cols {
+        var row: [int] = []
+        var r = 0
+        while r < rows {
+            row = push(row, m[r][c])
+            r = r + 1
+        }
+        out = push(out, row)
+        c = c + 1
+    }
+    return out
+}
+
+fn rowToString(row: [int]) -> string {
+    var s = ""
+    var i = 0
+    while i < len(row) {
+        if i > 0 {
+            s = concat(s, " ")
+        }
+        s = concat(s, str(row[i]))
+        i = i + 1
+    }
+    return s
+}
+
+fn main() {
+    val m = [[1, 2, 3], [4, 5, 6]]
+    val t = transpose(m)
+    for row in t {
+        print(rowToString(row))
+    }
+}

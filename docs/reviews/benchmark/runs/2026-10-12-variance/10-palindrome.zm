@@ -1,0 +1,26 @@
+fn is_palindrome(s: string) -> bool {
+  val cleaned = to_lower(replace(s, " ", ""))
+  val cs = chars(cleaned)
+  val n = len(cs)
+  var i = 0
+  var j = n - 1
+  while i < j {
+    if cs[i] != cs[j] {
+      return false
+    }
+    i = i + 1
+    j = j - 1
+  }
+  return true
+}
+
+fn main() {
+  val texts = ["racecar", "A man a plan a canal Panama", "ziman"]
+  for t in texts {
+    if is_palindrome(t) {
+      print(format("{}: yes", t))
+    } else {
+      print(format("{}: no", t))
+    }
+  }
+}
