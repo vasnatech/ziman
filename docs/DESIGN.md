@@ -49,6 +49,7 @@ them against the code.
 - [The variadic marker is a keyword after all: `xs: variadic int` (F94, 2026-10-12)](#the-variadic-marker-is-a-keyword-after-all-xs-variadic-int-f94-2026-10-12)
 - [`let x = 1` is parsed as the `val` it meant (F95, 2026-10-12)](#let-x-1-is-parsed-as-the-val-it-meant-f95-2026-10-12)
 - [ArrayBuilder reads back in place, and iterates (F96, 2026-10-13)](#arraybuilder-reads-back-in-place-and-iterates-f96-2026-10-13)
+- [The builders become mutable collections (2026-10-13)](#the-builders-become-mutable-collections-2026-10-13)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
 - [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
@@ -3455,6 +3456,270 @@ with single-writer actors over `Channel<T>`, and a name that reads as "an ordina
 struct and send to another thread" would be a worse lie than "Builder" is. Completing the API is worth doing
 either way, which is why it went first.
 
+**Extended by** "The builders become mutable collections" (2026-10-13), which settles the second
+step: the names are `MutableArray`/`MutableMap`/`MutableSet`, not the `Mut*` spelling guessed here.
+
+## The builders become mutable collections (2026-10-13)
+
+The second step F96 named, decided in full and not yet built: `ArrayBuilder`, `MapBuilder` and
+`SetBuilder` become `MutableArray`, `MutableMap` and `MutableSet`, with a surface wide enough that
+nothing has to leave the mutable side to get work done. Nothing here exists yet; the names below
+are the specification, and the two gates at the end sit in front of the first line of code.
+
+**The disease is the name, and the copies are the symptom.** The builders are named for a phase of
+a computation -- accumulate, then freeze -- and the surface enforced it, so the moment a program
+wanted to *read* what it had accumulated it had to leave:
+
+```ziman
+val entries = ab_new<Entry>()
+for row in rows { ab_append(entries, entry_of(row)) }
+if len(ab_to_array(entries)) == 0 { ... }     // an O(n) copy to ask what the buffer knows
+```
+
+F96 closed the worst of that for arrays. But a handle you can read, index, sort and iterate is not
+a builder, it is a mutable array, and the call sites that route around the gap are only half the
+cost. The other half is that a model generating Ziman does not look for a builder, so it does not
+find the type at all -- which is the measurement that gates this work.
+
+### One prefix per shape, one `mutable_` to cross worlds
+
+| shape | value | handle |
+|---|---|---|
+| array | `[T]` · `array_*` | `MutableArray<T>` · `mutable_array_*` |
+| map | `Map<K, V>` · `map_*` | `MutableMap<K, V>` · `mutable_map_*` |
+| set | `Set<T>` · `set_*` | `MutableSet<T>` · `mutable_set_*` |
+
+`StringBuilder` keeps its name: it is a real builder, append-only and frozen once, with a prior in
+every other language, and nothing about it wants to be read back in place.
+
+The long spelling is deliberate. `MutArr` is shorter across 667 call sites, but a model that reads
+`MutableArray` in a signature writes `mutable_array_push`, and an abbreviation has to be guessed
+twice -- once per half. Guessability is the whole point of the exercise, so it wins over typing.
+
+**Each verb means one thing, and matches its immutable twin where one exists.** `push` appends to
+an array's tail -- `push(arr, x)` on a value, `mutable_array_push(xs, x)` on a handle. `insert`
+puts a thing at a position, shifting what follows (`insert(arr, i, x)`, `mutable_array_insert`).
+`set` replaces at a key or index (`set(arr, i, x)`, `set(map, k, v)`, `mutable_array_set`,
+`mutable_map_set`). `add` hands a thing to a set and lets it decide (`mutable_set_add`).
+
+The one divergence is that set: immutably it is `insert(s, x)`, mutably it is `mutable_set_add`.
+That is deliberate -- `insert` should mean *positional*, and on a hash set it cannot; the immutable
+spelling predates the distinction and is not worth a breaking rename. The verb that would have
+unified everything is `add` on both sides, and it is unavailable: see the end of this section.
+
+**`_all` takes the plural of what the singular takes.** `mutable_map_remove(key)` →
+`remove_all(variadic K)`; `mutable_map_set(key, value)` → `set_all(Map)`; `mutable_set_add(item)` →
+`add_all(variadic T)`; `mutable_array_push(item)` → `push_all(variadic T)`. The singular is never
+variadic, which is what keeps `MutableArray<[int]>` from being a special case:
+`mutable_array_push(xs, [1, 2])` appends exactly one element, because the only variadic forms are
+the `_all` ones.
+
+### The surface
+
+Every `Mutable*` type also answers the bare builtins `len`, `contains` and `clear`.
+
+```
+MutableArray<T>
+  mutable_array_new<T>(capacity: Option<int>, grow_factor: Option<float>)
+  mutable_array_from<T>(xs: [T] | MutableArray<T>) -> MutableArray<T>
+  mutable_array_get<T>(xs, index) -> T
+  mutable_array_set<T>(xs, index, value)
+  mutable_array_push<T>(xs, item: T)
+  mutable_array_push_all<T>(xs, items: variadic T)
+  mutable_array_insert<T>(xs, index, value)              O(n); index may equal len(xs)
+  mutable_array_remove<T>(xs, index) -> T                O(n); answers what it removed
+  mutable_array_truncate<T>(xs, length)
+  mutable_array_swap<T>(xs, i, j)
+  mutable_array_filter<T>(xs, keep: fn(T) -> bool)
+  mutable_array_reverse<T>(xs)
+  mutable_array_sort<T: Ord>(xs)
+  mutable_array_sort_desc<T: Ord>(xs)
+  mutable_array_sort_with<T>(xs, cmp: fn(T, T) -> int)
+  mutable_array_snapshot<T>(xs) -> [T]
+  len(xs)   contains(xs, v)   clear(xs)
+  for x in xs    for i, x in xs
+
+MutableMap<K: Eq + Hash, V>
+  mutable_map_new<K, V>()
+  mutable_map_from<K, V>(m: Map<K,V> | MutableMap<K,V>) -> MutableMap<K, V>
+  mutable_map_get<K, V>(m, key) -> Option<V>
+  mutable_map_get_or<K, V>(m, key, default_value) -> V
+  mutable_map_set<K, V>(m, key, value)
+  mutable_map_set_all<K, V>(m, values: Map<K,V> | MutableMap<K,V>)
+  mutable_map_update<K, V>(m, key, f: fn(Option<V>) -> V) -> V
+  mutable_map_update_all<K, V>(m, f: fn(K, V) -> V)
+  mutable_map_filter<K, V>(m, keep: fn(K, V) -> bool)
+  mutable_map_remove<K, V>(m, key) -> Option<V>
+  mutable_map_remove_all<K, V>(m, keys: variadic K) -> bool
+  mutable_map_keys<K, V>(m) -> Set<K>
+  mutable_map_values<K, V>(m) -> [V]
+  mutable_map_snapshot<K, V>(m) -> Map<K, V>
+  len(m)   contains(m, key)   clear(m)
+  for k in m    for k, v in m
+
+MutableSet<T: Eq + Hash>
+  mutable_set_new<T>()
+  mutable_set_from<T>(s: Set<T> | MutableSet<T>) -> MutableSet<T>
+  mutable_set_from_array<T>(xs: [T] | MutableArray<T>) -> MutableSet<T>
+  mutable_set_add<T>(s, item) -> bool                    true if added
+  mutable_set_add_all<T>(s, items: variadic T) -> bool   true if at least one was added
+  mutable_set_remove<T>(s, item) -> bool                 true if removed
+  mutable_set_remove_all<T>(s, items: variadic T) -> bool
+  mutable_set_filter<T>(s, keep: fn(T) -> bool)
+  mutable_set_union<T>(s, other: Set<T> | MutableSet<T>)
+  mutable_set_intersect<T>(s, other: Set<T> | MutableSet<T>)
+  mutable_set_difference<T>(s, other: Set<T> | MutableSet<T>)
+  mutable_set_is_subset<T>(s, other: Set<T> | MutableSet<T>) -> bool
+  mutable_set_items<T>(s) -> [T]
+  mutable_set_snapshot<T>(s) -> Set<T>
+  len(s)   contains(s, x)   clear(s)
+  for x in s
+```
+
+`contains` is O(1) on a map and a set and **O(n) on a `MutableArray`** -- one bare name over two
+cost classes, which the documentation has to carry because the call site cannot.
+
+### Five rules that decided the rest
+
+**1. A pipeline, not a parallel universe.** The mutable side is `new` → mutate → `snapshot`, and
+*no `mutable_*` function returns a handle except the `mutable_*_from*` constructors*. So
+`mutable_map_keys` answers `Set<K>` and `mutable_set_items` answers `[T]`: those results are nearly
+always consumed by a `for` or returned from a function, and handing back a handle would allocate a
+thread-bound object per loop for nothing. The alternative -- every reader staying mutable --
+doubles the surface and makes the mutable side somewhere a program lives rather than somewhere it
+passes through. This rule is also why there is no `mutable_set_map`: it would have to return
+`MutableSet<U>`, and `set_map` already does the job. `set_map`'s own body is
+`setb_new`/`setb_add`/`setb_to_set` -- the mutable path, encapsulated, which is where it belongs.
+
+**2. Reading functions accept either world.** `mutable_map_set_all`, both `from` constructors per
+type, and `mutable_set_union`/`_intersect`/`_difference`/`_is_subset` take the value *or* the
+handle. This is the dispatch `len`, `contains` and `clear` already do inside the native, and it is
+what keeps the conversion matrix from being thirty functions; it also makes clone free, since
+`mutable_map_from(other)` on a handle is a copy. The cost is error messages: a function accepting
+two types has to name both when handed a third.
+
+**3. A fused conversion earns a name only when composition costs an extra full copy.**
+`mutable_set_from_array(xs)` is one pass where `mutable_set_from(set_from_array(xs))` is two, so it
+exists. `mutable_array_from_set` does not: it is `mutable_array_from(set_items(s))` at one extra
+copy and nothing asks for it. Nor does `mutable_map_from_arrays`.
+
+**4. Hashed handles iterate a snapshot; indexed handles iterate live.** `for x in xs` over a
+`MutableArray` re-reads the length each pass and sees appends made inside the loop (F96). A map and
+a set cannot -- a rehash leaves no stable index to re-read -- so they walk a snapshot of their keys
+in insertion order. The consequence for arrays is that sorting or reversing during a `for` reorders
+what the loop has not reached, the same class as appending during iteration, and belongs in the
+same sentence of the docs.
+
+**5. The library stays in `collections`.** `fold`, `group_by`, `index_by`, `frequencies`,
+`binary_search`, `min_by` and the rest return new collections, so routing them through a snapshot
+costs one copy and is honest about it; mirroring them onto the handles would double the surface and
+hide that. A function is promoted to the prelude only when it has a counterpart already there -- a
+`map_*`/`set_*` twin, or a `mutable_*` twin.
+
+### What this changes outside the three types
+
+**`array_sort`, `array_sort_desc` and `array_sort_with` get promoted** to the prelude, so the
+immutable side is no harder to reach than the mutable one. Otherwise `mutable_array_sort(xs)` would
+be bare while `collections.sort(xs)` needs an import, which in a value-semantics-first language is
+a nudge in exactly the wrong direction -- and it is the rename that creates it. The sorting natives
+(`sort_scalars`, `sort_positions`, `sort_scalar_order`) are already in `lib/prelude.zm`, so this is
+three thin exports. `collections.sort` and friends stay as the wrappers they already are; 113 call
+sites do not move.
+
+**The four that are already bare get documented.** `array_map`, `array_filter`, `array_flat_map`
+and `array_reverse` are natives in `lib/prelude.zm` today with *zero* call sites outside the four
+`collections` wrappers that delegate to them -- promoted in fact, invisible in practice, because
+SYNTAX.md lists the bare `map_*` and `set_*` helpers and never mentions them. All seven belong in
+that list.
+
+**`Mutable*` types are thread-bound, as a rule.** One-directional: every `Mutable*` type is
+`#[thread_bound]`, but not every thread-bound type is named `Mutable*` -- `StringBuilder` and
+`Iter` are not. Stating it once beats repeating it in three doc comments, but the cross-thread
+error still has to say it at the point of failure, because the name does not. `ArrayBuilder` at
+least implied a local scratch object; `MutableArray` implies nothing, which is the lie F96's entry
+warned about and the reason the first gate below exists.
+
+**None of the three is comparable or hashable**, which is a behaviour change rather than a rename.
+Today a struct holding a builder handle is accidentally both, comparing pointer identity, which is
+never what anyone means. It becomes a typecheck error with its own message. Nothing relies on the
+current behaviour: `client.StreamResponse` and the test harness's `Tally` are the only structs with
+such a field, and neither compares nor keys them.
+
+### Deliberately absent
+
+- **`mutable_array_push_front`** -- it reads as `mutable_array_push`'s twin, which is exactly the
+  problem: it would promise amortised O(1) while costing O(n), and a loop of them is quadratic.
+  `mutable_array_insert(xs, 0, v)` is honest, because nobody reads "insert at an index" as constant
+  time. Building in reverse is `push` then one `reverse`. If
+  head pushes ever need to be O(1) that is a `start` offset on the buffer -- a representation
+  change, roughly twenty lines, and nothing here forecloses it.
+- **`mutable_set_map`** -- see rule 1.
+- **`is_sorted`, `binary_search`, `lower_bound`, `upper_bound`** on `MutableArray`. The strongest
+  case in the not-a-mutation column: reads that would otherwise force an O(n) snapshot to answer an
+  O(log n) question. But nothing keeps a sorted `MutableArray` today. *Trigger:* the first program
+  that calls `mutable_array_sort` and then searches the result.
+- **Deleting the `collections.*` wrappers** in favour of the bare `array_*` spelling. The end state
+  is one spelling per operation; the way there breaks 113 call sites for cosmetics. Not now -- but
+  the docs should say which spelling is canonical, so the duplication reads as a migration in
+  progress rather than a coin flip.
+
+Two overlaps are kept on purpose: `clear(xs)` and `mutable_array_truncate(xs, 0)` do the same
+thing, and `mutable_array_push_all(xs, items)` overlaps what a variadic singular would have covered.
+Both are cheap, and the explicit spelling is the one a reader can be sure of.
+
+### Aliasing: three types, three answers
+
+Each needs its own fixture, because the correct behaviour differs:
+
+| call | answer |
+|---|---|
+| `mutable_array_push_all(xs, xs)` | **doubles** the array -- read the source length first, then append |
+| `mutable_map_set_all(m, m)` | a no-op -- return early on handle identity, never iterate a table being written |
+| `mutable_set_union(s, s)` · `_intersect(s, s)` | no-ops, same early return |
+| `mutable_set_difference(s, s)` | **empties** the set -- it is `clear(s)`, not a no-op |
+
+### Why `add` is not the array's verb
+
+The tidy answer would have been `add` everywhere: `add(arr, x)` on a value and
+`mutable_array_add(xs, x)` on a handle, one verb for "hand it over, the collection decides". It is
+impossible, and the reason is worth recording because the result looks arbitrary without it.
+
+A builtin name is reserved language-wide -- `fn push(a: int, b: int)` is rejected with *"'push' is
+a builtin function and cannot be redefined"*. `push` survives that because nobody names a function
+`push`. `add` would not: it is the most common example-function name there is, and it already
+appears 14 times in this repo alone -- four `named_args_*` fixtures, `collections_higher_order`,
+`fmt_idempotent`, the `38-bits-flags` benchmark and others. Promoting `add` to a builtin would make
+every one of them, and most people's first Ziman function, a type error.
+
+So the array keeps `push` in both worlds, and `add` survives only where it is namespaced and
+collides with nothing: `mutable_set_add`.
+
+### Before any of this lands
+
+1. **Does `#[thread_bound]` survive the name?** The `Mutable*` rule covers the documentation half.
+   The cross-thread error wording and the unknown-type hint are still open -- a model will write
+   `MutableMap` before this ships and `MutMap` after, and the suggester has to reach both.
+2. **Do cold models find the builders at all?** The generation benchmark (`docs/reviews/benchmark/`)
+   is the number that justifies the migration. If models already find `ab_new`, the case rests on
+   the read-in-place gap alone, which is smaller.
+
+### Migration
+
+Measured scope, excluding `lib/prelude.zm` itself: **667 call sites** (`ab_` 578, `mapb_` 83,
+`setb_` 6) plus 65 type mentions across `ziman` and `health-record-backend-ziman`, with docs,
+fixtures and the C source on top.
+
+Big bang, no deprecation window. A window is for a language with outside users who cannot be
+edited; here it costs something specific -- while both spellings work, the benchmark in gate 2
+cannot tell whether models reach for the new name, because the old one still passes. The two repos
+cannot land together, since renaming the prelude breaks every call site in the same tree:
+
+1. **ziman** -- prelude, interpreter, typechecker, its own call sites, fixtures and docs, one
+   commit, gate green.
+2. **ziman** -- promote the three sorts; document the seven `array_*` helpers in SYNTAX.md.
+3. **health-record-backend-ziman** -- the remaining sites, mechanical, once it picks up the new
+   binary. Red in between.
+
 ## What the AI-first goal does and does not justify
 
 (External review, roadmap R20, 2026-09-24.) "Cheap for an LLM to generate
@@ -4507,6 +4772,10 @@ export-sized data.
 
 ## MapBuilder and SetBuilder
 
+**Superseded in part** by "The builders become mutable collections" (2026-10-13): the two types
+are renamed `MutableMap`/`MutableSet` and gain a full read/update surface. The storage design
+below -- the private trie, snapshot-not-freeze, and the `shared` flag -- is unchanged by that.
+
 A persistent `Map`/`Set` copies the trie nodes on the path to every changed entry, which is
 cheap per call but adds up when a loop builds a whole map: measured in the non-GC build,
 `collections.group_by` and `distinct` on 1,000 items produced 4.3 MB and 1.2 MB of garbage.
@@ -4567,6 +4836,9 @@ has not closed yet). Errors of other phases, and errors on the main thread, are 
 Not done: nothing catches a *native* crash (a segfault); and an error while a native holds a lock would leave it held (none does).
 
 ## `push` is amortised O(1) (2026-09)
+
+This is the *immutable* array's append and it keeps its name. Its mutable counterpart is
+`mutable_array_push` -- see "The builders become mutable collections" (2026-10-13).
 
 An `ArrayObj` built by `push` carries an `ArrayStore { capacity, used }` shared by every array that views the same buffer. `push` on an array of length n whose store has room
 and whose `used == n` (it is the newest version, the "tip") claims slot n with a compare-and-swap on `used`, writes the element there and returns a new `ArrayObj` of length n+1
