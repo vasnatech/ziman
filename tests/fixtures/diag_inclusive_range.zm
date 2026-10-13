@@ -1,0 +1,11 @@
+// F93: round 1 of the 2026-10-12 benchmark had `for i in 1..=20` answered with "expected an
+// expression, found '='" plus a bogus "expected 'fn'" on the next line, and four later runs across
+// rounds 2 and the variance wave avoided ranges altogether rather than risk an off-by-one the
+// compiler would not settle -- one wrote "`--check` alone cannot distinguish the two". The exclusive
+// end has been in docs/SYNTAX.md all along; a program being measured cannot read it, so the
+// diagnostic says it. Reporting this in the lexer is also what ends the cascade.
+fn main() {
+    for i in 1..=20 {
+        print(i)
+    }
+}

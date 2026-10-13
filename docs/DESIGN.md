@@ -45,6 +45,7 @@ them against the code.
 - [Two silences the compiler no longer keeps (F85, F86, 2026-10-12)](#two-silences-the-compiler-no-longer-keeps-f85-f86-2026-10-12)
 - [`--api` prints doc comments, because a signature is not a behaviour (F89, 2026-10-12)](#--api-prints-doc-comments-because-a-signature-is-not-a-behaviour-f89-2026-10-12)
 - [The no-methods hint speaks only about functions that exist (F92, 2026-10-12)](#the-no-methods-hint-speaks-only-about-functions-that-exist-f92-2026-10-12)
+- [Three diagnostics now say that `a..b` stops before `b` (F93, 2026-10-12)](#three-diagnostics-now-say-that-ab-stops-before-b-f93-2026-10-12)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
 - [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
@@ -3273,6 +3274,28 @@ When the prelude does not have it, the message says so and points at `--api buil
 prelude is itself being parsed the answer is *unknown* rather than *absent*, and the hint falls back
 to the old behaviour. Two fixtures, one per half: dropping the lookup fails the absent-name one and
 leaves the real-name one passing, which is what makes the pair a guard rather than a transcript.
+
+## Three diagnostics now say that `a..b` stops before `b` (F93, 2026-10-12)
+
+`a..b` has been exclusive of `b` since the beginning and `docs/SYNTAX.md` has said so in those words
+the whole time. The benchmark measured what that is worth to someone who cannot read it: **`..=` got
+a bare "expected an expression, found '='" plus a bogus "expected 'fn'" on the next line, and four
+runs across three waves avoided ranges altogether rather than risk an off-by-one**, one of them
+writing that "`--check` alone cannot distinguish the two" and switching to `while` with explicit
+counters. Nothing was *wrong* with those programs; the cost was paid in the shape of the code and in
+compiler calls spent hedging.
+
+Two kinds of fix, and the second is the one that reaches people. **`..=` is now rejected in the
+lexer** with the semantics stated -- which also ends the cascade, since a lexical error stops before
+the parser can invent a second complaint about the following line. But an author who writes `0..n`
+directly, correctly, and simply wonders never sees that message at all. So **the two diagnostics that
+already named the range form now say what it means**: the stray-semicolon lexical error, which
+already volunteered "loops are `for i in 0..n`" and which **30 of 50 cold attempts hit** -- by far the
+widest-reach sentence in the compiler -- and the `for`-iterable type error. The rule worth
+generalising: when a message names a construct in passing, that is the cheapest place in the whole
+compiler to say what the construct means.
+
+`..` followed by a third `.` is still the variadic `xs: int...`; only `..=` is refused.
 
 ## What the AI-first goal does and does not justify
 

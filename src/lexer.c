@@ -470,7 +470,23 @@ TokenList lex(const char *source) {
             case '#': advance(&lx); emit(&lx, TOK_HASH, start, 1, line, col); continue;
             case '.':
                 advance(&lx);
-                if (peek(&lx) == '.') { advance(&lx); emit(&lx, TOK_DOTDOT, start, 2, line, col); }
+                if (peek(&lx) == '.') {
+                    advance(&lx);
+                    /* `a..=b` is the Rust inclusive range, and it is never valid here: `..` may be
+                     * followed by a third `.` (the variadic `xs: int...`) but never by `=`. Saying so
+                     * in the lexer also ends the cascade -- round 1 of the 2026-10-12 benchmark had
+                     * `for i in 1..=20` report "expected an expression, found '='" and then a bogus
+                     * "expected 'fn'" on the following line, and four later runs avoided ranges
+                     * altogether rather than risk an off-by-one the compiler would not settle
+                     * (tasks.md F93). The semantics are the part worth saying: docs/SYNTAX.md has
+                     * had "`a..b` is exclusive of `b`" all along, and a program may not read it. */
+                    if (peek(&lx) == '=') {
+                        ziman_error("lexical", line, col,
+                                    "Ziman has no '..=' -- a range is written 'a..b' and stops before 'b', so an "
+                                    "inclusive end is written 'a..b + 1' ('for i in 0..n' runs n times, from 0 to n - 1)");
+                    }
+                    emit(&lx, TOK_DOTDOT, start, 2, line, col);
+                }
                 else emit(&lx, TOK_DOT, start, 1, line, col);
                 continue;
             case '+': advance(&lx); emit(&lx, TOK_PLUS, start, 1, line, col); continue;
@@ -555,7 +571,7 @@ TokenList lex(const char *source) {
                 continue;
             default:
                 if (c == ';') {
-                    ziman_error("lexical", line, col, "unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'");
+                    ziman_error("lexical", line, col, "unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' (which stops before n) and 'while cond'");
                 }
                 ziman_error("lexical", line, col, "unexpected character '%c'", c);
         }

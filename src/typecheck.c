@@ -4462,7 +4462,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                               strcmp(iter_type.struct_name, "Iter") == 0 && iter_type.type_args.count == 1;
                 if (iter_type.kind != TY_ARRAY && iter_type.kind != TY_MAP && iter_type.kind != TY_SET && !is_iter) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
-                                "'for' can only iterate an array, a map, a set, an Iter or a range, found %s", type_name(iter_type));
+                                "'for' can only iterate an array, a map, a set, an Iter or a range ('a..b', which stops before b), found %s", type_name(iter_type));
                 }
                 if (is_iter && s->as.for_stmt.binder2 != NULL) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,

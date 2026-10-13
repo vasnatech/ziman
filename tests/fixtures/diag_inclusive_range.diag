@@ -1,0 +1,3 @@
+# One diagnostic, not two: the count is the half of this that catches a regression back to the
+# parser, where the same mistake produced a second, unrelated "expected 'fn'" on the following line.
+lexical 8:15 Ziman has no '..=' -- a range is written 'a..b' and stops before 'b'
