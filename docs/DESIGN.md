@@ -50,6 +50,7 @@ them against the code.
 - [`let x = 1` is parsed as the `val` it meant (F95, 2026-10-12)](#let-x-1-is-parsed-as-the-val-it-meant-f95-2026-10-12)
 - [ArrayBuilder reads back in place, and iterates (F96, 2026-10-13)](#arraybuilder-reads-back-in-place-and-iterates-f96-2026-10-13)
 - [The builders become mutable collections (2026-10-13)](#the-builders-become-mutable-collections-2026-10-13)
+- [`Mutable<T>`: the root of the family, and why there is no `MutableInt` (2026-10-13)](#mutablet-the-root-of-the-family-and-why-there-is-no-mutableint-2026-10-13)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
 - [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
@@ -3639,6 +3640,27 @@ error still has to say it at the point of failure, because the name does not. `A
 least implied a local scratch object; `MutableArray` implies nothing, which is the lie F96's entry
 warned about and the reason the first gate below exists.
 
+**And the rule is checked, not merely documented.** A user type named `Mutable*` must be
+thread-bound -- declared `#[thread_bound]`, or transitively containing something that is -- and
+otherwise is refused: *"a type named `Mutable*` must be thread-bound -- add `#[thread_bound]`, or
+rename it."* Without that, `struct MutableCache { entries: int }` is a plain value, copied on
+assignment and freely sendable, wearing a name that promises the opposite, and a reader has no way
+to tell which `Mutable*` types the rule covers. That is a false guarantee rather than a style
+violation, which is what separates this from R16's documented-but-unenforced convention.
+
+The check is cheaper than it sounds and costs legitimate users nothing, because a struct holding a
+handle is *already* thread-bound transitively: `struct MutableRingBuffer { buf: MutableArray<int>,
+head: Mutable<int> }` passes with no annotation, and the error fires only on a `Mutable*` name with
+nothing mutable inside. The matcher triggers on `Mutable` followed by an uppercase letter or the
+end of the name, so `MutablesRegistry` is not caught by accident. Not the converse: a thread-bound
+type need not be named `Mutable*`, or `StringBuilder` and `Iter` would both have to be renamed.
+
+The four built-in names need no such check -- a builtin type name is already unavailable, though by
+two different routes and one bad message: `struct Map` is a syntax error naming a reserved word,
+while `struct ArrayBuilder` is *"struct 'ArrayBuilder' is already defined"*, which is misleading
+because the user defined nothing. That message should say it is a builtin, whichever names it
+guards.
+
 **None of the three is comparable or hashable**, which is a behaviour change rather than a rename.
 Today a struct holding a builder handle is accidentally both, comparing pointer identity, which is
 never what anyone means. It becomes a typecheck error with its own message. Nothing relies on the
@@ -3719,6 +3741,158 @@ cannot land together, since renaming the prelude breaks every call site in the s
 2. **ziman** -- promote the three sorts; document the seven `array_*` helpers in SYNTAX.md.
 3. **health-record-backend-ziman** -- the remaining sites, mechanical, once it picks up the new
    binary. Red in between.
+
+## `Mutable<T>`: the root of the family, and why there is no `MutableInt` (2026-10-13)
+
+Designed alongside the entry above and not yet built. One native generic, `Mutable<T>`,
+`#[thread_bound]`, holding exactly one value of any type. It is the proposal recorded in
+docs/ROADMAP.md as `Cell<T>`; the name changed here, and the reason the name changed is most of
+what this entry is about.
+
+**The objection it answers is structural.** Raised while planning to use Ziman on other projects,
+UI among them: *"every time we hit a wall we have to change ziman itself to add mutable types
+instead of implementing one with ziman."* That is true today. `#[thread_bound]` is already a
+user-available attribute whose refusals are transitive -- verified through a struct field, an
+`Option<T>` and a `[T]`, on both the `spawn` and the `Channel` boundary -- so the safety story a
+new mutable type needs is already there and already generalises. Exactly one thing is closed:
+**a field cannot change.** With one cell, it opens: a ring buffer is a struct over a
+`MutableArray` plus two `Mutable<int>`s, an LRU is a `MutableMap` plus a `MutableArray` plus a
+cell, a UI signal is a cell plus a `MutableArray` of subscribers. The language stops growing a
+type each time a new mutable shape is wanted.
+
+### Why `Mutable<T>` rather than `Cell<T>`
+
+The entry above makes "every `Mutable*` type is thread-bound" a rule, and notes it is
+one-directional because `StringBuilder` and `Iter` are thread-bound without the name. `Cell` would
+have made a third unnamed one, and a rule with a growing exception list stops being worth reading.
+
+`Mutable<T>` is not an exception. It is the **root the other three are specialisations of**:
+
+```
+Mutable<T>            a mutable anything
+MutableArray<T>       a mutable array
+MutableMap<K, V>      a mutable map
+MutableSet<T>         a mutable set
+```
+
+`Mutable` stops being a prefix and becomes a word with a meaning, which is worth more than
+matching Rust's and OCaml's spelling: a model that has seen the other three writes `Mutable<int>`
+without being told, where `Cell<int>` has to be imported from another language's idiom. And it
+costs almost nothing to type, because there is no shape word to carry --
+`mutable_set(n, mutable_get(n) + 1)` against `cell_set(n, cell_get(n) + 1)`.
+
+**The cost is one adjacency, accepted deliberately.** `mutable_set(c, v)` sits beside
+`mutable_set_new`, `mutable_set_add` and `mutable_set_remove`: the first is `Mutable`'s `set`, the
+rest are `MutableSet`'s, and an underscore is all that separates them. Two alternatives were
+weighed -- giving the cell a unique verb (`mutable_put`/`mutable_write`), which breaks the
+one-verb-one-meaning rule the entry above codifies for a single special case, and `MutableValue<T>`,
+which loses the root-of-the-family reading. Neither is worth it: the two names differ in arity and
+in first-argument type, so a confusion is a type error at the call site rather than a silent wrong
+behaviour, and `set` keeping one meaning across the family is worth a reader's double-take.
+
+### The surface
+
+```
+Mutable<T>                                   #[thread_bound]
+  mutable_new<T>(value) -> Mutable<T>
+  mutable_get<T>(c) -> T
+  mutable_set<T>(c, value)
+  mutable_update<T>(c, f: fn(T) -> T) -> T   the new value, as mutable_map_update
+```
+
+**There is no `from`/`snapshot` pair**, which every other mutable type needs. A handle and a value
+are different shapes for an array, a map and a set, so each needs two world-crossings; a cell's
+crossing *is* its API -- `mutable_new` takes a value and `mutable_get` returns one. That is why
+four functions is enough here where sixteen were needed there.
+
+**Always initialised.** There is no empty `mutable_new<T>()`, because `T` may have no zero. A cell
+never holds nothing, so nothing has to say what reading an unset one does.
+
+**`T` is unrestricted, handles included.** `Mutable<MutableArray<int>>` is exactly what the ring
+buffer and LRU shapes want. `Mutable<T>` is thread-bound whatever `T` is, and `T`'s own
+thread-boundness propagates; both fall out of the existing transitive check without new work.
+
+**Not comparable, not hashable, not a `Map` key**, and neither is a struct holding one -- the same
+decision the four builders take in the entry above, for the same reason: a handle's identity is a
+pointer value that means nothing across runs, and `==` on it would be identity equality wearing
+value equality's clothes.
+
+**No `mutable_swap(c, v) -> T`.** It composes in two lines, it is rare, and the atomicity argument
+that justifies it elsewhere does not exist here -- thread-bound means single-threaded by
+construction.
+
+**Still not mutable struct fields.** A struct is a value and is copied, so a mutable field means
+mutating a copy and wondering why the original did not change. `Mutable` keeps the distinction
+visible: the struct stays a value, the cell is plainly a handle. No methods are needed either.
+
+### Why there is no `MutableInt`, `MutableFloat`, …
+
+Two separate questions hide in that one, and the repository has already answered both.
+
+**Speed is a representation question, and Ziman has solved it once already.** `[int]`, `[float]`,
+`[bool]` and `[byte]` are stored unboxed behind the ordinary `[T]` type -- a `Value` is 80 bytes,
+so a million `[int]` cost 80 MB boxed and 8 MB packed, and `ArrayObj` simply carries an `ints`
+field instead of `boxed_items`. There is no `IntArray` type and there does not need to be.
+`Mutable<int>` should pick an unboxed slot by `T` the same way, invisibly.
+
+**Convenience is blocked by something else entirely.** `mutable_add(c, 1)` reads better than
+`mutable_update(c, fn(x) { x + 1 })`, and it cannot be written generically because the language has
+no numeric bound: there are three bounds, `Eq`, `Hash` and `Ord`, and *any other bound name is a
+compile error*. That is what makes a specialised type look necessary. It is not the cheapest
+answer. Held in reserve, in order of cost: `mutable_add` as a name-special-cased builtin accepting
+`Mutable<int>` and `Mutable<float>` only (one function, no bound, like `len` and `push`); then a
+fourth bound, which is a language feature with every generic in the stdlib as a candidate; then
+specialised types, which is the thing this design exists to avoid. *Trigger:* a real program where
+the lambda is measurably in the way, not the aesthetics of `n++`.
+
+A specialised family would not even replace the generic. `Mutable<MyEnum>`, `Mutable<Option<T>>`
+and `Mutable<MutableArray<int>>` all need `Mutable<T>` regardless, so it would ship two mechanisms
+for one job and leave everyone a choice to get wrong.
+
+### Two things found by testing rather than by argument
+
+**`print` does not diverge on a cycle, and that is not the problem with it.** Library code can now
+build one -- `struct Node { name: string, children: MutableArray<Node> }` holding itself -- and
+printing it twice is fine, because `print` does not follow a handle:
+
+```
+Node { name: a, children: ArrayBuilder { handle: 139806342961664 } }
+```
+
+It prints **a raw address**, which is the same defect being removed from `==` and `hash`, in the
+one place nobody had looked. A pointer value is not reproducible across runs, so any output
+carrying it is unstable by construction -- and nothing depends on it: no file under `tests/` or
+`docs/` contains a printed handle address, which is what you would expect of a value that could
+never be a stable expectation. So:
+
+> **A handle prints as a summary -- its type and its size -- never an address, and never by
+> following into another handle.**
+
+`MutableArray(3 items)`, `MutableMap(2 entries)`, `Mutable(5)`. The cell follows one level into its
+value, which stays bounded precisely because a nested handle stops at a summary: a
+`Mutable<Node>` prints the node's fields and summarises its array. No recursion, no address,
+reproducible output. This lands with the rename, not after it.
+
+**`#[derive(Json)]` does not refuse a handle field -- it fails incidentally, and invites a fix.**
+A struct with an `ArrayBuilder` field is rejected with "call to undefined function
+`array_builder_to_json` ... or write `array_builder_to_json` by hand and import it with `use`".
+Write that function and the derive succeeds. Serialising a handle is meaningless, because whatever
+is emitted cannot decode back to the same mutable object. This needs to be a refusal **by name**,
+saying a handle has no serialisation, for `Json`, `Row` and `Properties` alike -- and for the
+existing builders, which have the identical hole today. It matters more after this work than
+before, since `Mutable<T>` makes a handle in a struct an ordinary pattern rather than a curiosity.
+
+### Cost, and when
+
+A mutable type built in Ziman is a function call per operation through a handle, where
+`MutableArray<int>` is a packed buffer. The native collections stay the fast paths; `Mutable` is
+for shapes, not for hot loops.
+
+**Do it when a real program asks** -- the same test every other decision here takes, and not before
+something concrete wants a mutable shape the four do not cover. A UI project is the likely first
+caller. The cheapest thing to do ahead of it is still a worked actor example: a counter or small
+cache owned by a spawned loop and talked to over a `Channel`, which is what shows the thread-bound
+story working rather than asserting it.
 
 ## What the AI-first goal does and does not justify
 
