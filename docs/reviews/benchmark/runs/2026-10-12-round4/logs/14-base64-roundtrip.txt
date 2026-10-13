@@ -1,0 +1,32 @@
+compiles: yes
+edits: 1
+compiler_invocations: 36
+warnings_seen: none
+saw: ziman: type error at 2:5 in a1.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in a1.zm: assignment to undefined variable 's'
+saw: ziman: type error at 4:9 in a1.zm: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 5:17 in a1.zm: use of undefined variable 'n'
+saw: ziman: module error at 3:11 in a2.zm: 's.len(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. len(s) (if 's' should be a module, add 'use s')
+saw: ziman: type error at 1:8 in a3.zm: unknown type 'Int' -- did you mean 'int'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: module error at 1:1 in b2.zm: cannot find module 'base64' (looked for base64.zm, and it's not a bundled core module)
+saw: ziman: type error at 3:11 in b3.zm: cannot index into string (not an array)
+saw: ziman: type error at 4:11 in b3.zm: call to undefined function 'bytes'
+saw: ziman: syntax error at 1:5 in m_string.zm: expected a module path segment, found 'string'
+saw: ziman: type error at 3:3 in names.zm: the int returned by 'len' is discarded, and 'len' has no other effect -- bind the result ('val x = len(...)', or 'val _ = ...' to discard on purpose)
+saw: ziman: type error at 5:3 in names.zm: 'push' takes exactly 2 argument(s), found 1
+saw: ziman: type error at 9:3 in names.zm: function 'join' expects at least 3 argument(s), found 1
+saw: ziman: type error at 10:3 in names.zm: function 'split' expects 2 argument(s), found 1
+saw: ziman: type error at 13:3 in names.zm: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: ziman: type error at 20:7 in names.zm: 'str' expects an int, float, bool, bigint, decimal, or byte, found string (it's already a string)
+saw: ziman: type error at 24:3 in names.zm: this Result<int, string> is discarded, silently dropping a possible error -- bind it ('val _ = ...' to discard on purpose), or use 'try' to propagate the error
+saw: ziman: type error at 25:10 in names.zm: 'format' requires its first argument to be a string literal, not a computed value
+saw: ziman: too many errors (25); stopping
+saw: ziman: type error at 4:18 in c1.zm: cannot initialize 'x' of declared type int with a value of type [string]
+saw: ziman: syntax error at 6:13 in c2.zm: expected an expression, found 'int'
+saw: ziman: type error at 3:15 in d2.zm: cannot cast string to int (only casts between int/float/bigint/decimal, or int/byte, are supported)
+saw: ziman: type error at 4:19 in d2.zm: cannot initialize 'm' of declared type byte with a value of type int -- bare digits mean 'int', so write the literal with its suffix, as '1b'
+saw: ziman: type error at 7:19 in e1.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 10:5 in e1.zm: the [int] returned by 'push' is discarded, and 'push' does not modify its argument -- arrays, maps and sets are values, so assign the result back ('arr = push(arr, ...)'), or build one up with ArrayBuilder/MapBuilder ('val _ = ...' discards on purpose)
+saw: ziman: type error at 13:18 in e1.zm: argument 1 of 'join' expects Option<string> or string, found [int]
+saw: ziman: lexical error at 10:15 in f1.zm: unexpected character '&' (did you mean '&&'?)
+saw: ziman: type error at 2:30 in h1.zm: argument 2 of 'substring' expects int, found string

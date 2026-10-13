@@ -1,0 +1,17 @@
+compiles: yes
+edits: 1
+compiler_invocations: 12
+warnings_seen: none
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: type error at 2:3 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:7 in p3.zm: assignment to undefined variable 'm'
+saw: ziman: type error at 4:9 in p3.zm: use of undefined variable 'n'
+saw: ziman: type error at 13:15 in p4.zm: '+' doesn't join strings (found string and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+saw: ziman: type error at 13:14 in p5.zm: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: ziman: type error at 16:9 in p5.zm: function 'join' expects at least 3 argument(s), found 2
+saw: ziman: type error at 2:14 in p6.zm: argument 1 of 'join' expects Option<string> or string, found [int]
+saw: ziman: type error at 6:9 in p6.zm: 'join' takes a variable number of arguments, so it can't be used as a value -- wrap it in a function with a fixed parameter list
+saw: ziman: syntax error at 2:15 in p8.zm: expected an expression, found '='
+saw: ziman: syntax error at 3:1 in p8.zm: expected 'fn', found '}'
+saw: ziman: syntax error at 2:15 in p9.zm: expected an expression, found '<'
+saw: ziman: syntax error at 4:12 in p10.zm: expected an expression, found '..'

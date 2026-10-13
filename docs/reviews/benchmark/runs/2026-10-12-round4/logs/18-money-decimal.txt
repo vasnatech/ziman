@@ -1,0 +1,17 @@
+compiles: yes
+edits: 1
+compiler_invocations: 24
+warnings_seen: none
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 1:1 in p3.zm: expected 'fn', found identifier
+saw: ziman: type error at 2:5 in p6.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in p6.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 3:11 in p6.zm: use of undefined variable 'x'
+saw: ziman: syntax error at 2:5 in p7.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: type error at 2:22 in p10.zm: cannot initialize 'x' of declared type decimal with a value of type float
+saw: ziman: type error at 2:5 in p11.zm: unknown type 'Decimal' -- did you mean 'decimal'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: syntax error at 2:12 in p12.zm: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'money' may just need one of those instead
+saw: ziman: type error at 2:27 in q.zm: use of undefined variable 'm'
+saw: ziman: syntax error at 2:22 in q.zm: expected an expression, found 'decimal'
+saw: ziman: lexical error at 2:27 in q.zm: unexpected character '''
+saw: ziman: type error at 6:21 in r1.zm: '+' doesn't join strings (found string and decimal) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

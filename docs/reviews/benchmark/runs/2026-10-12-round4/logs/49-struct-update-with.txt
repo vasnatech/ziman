@@ -1,0 +1,17 @@
+compiles: yes
+edits: 1
+compiler_invocations: 10
+warnings_seen: '{c.host}' in this string is not interpolation -- Ziman has none, so it prints as those characters; 'c' is in scope here, so you probably meant format("...{}...", c.host). A '{}' placeholder only means anything in the format string of 'format' or 'printf'; for the braces as text, split them from the name, as concat("{", "c.host}")
+'{c.port}' in this string is not interpolation -- Ziman has none, so it prints as those characters; 'c' is in scope here, so you probably meant format("...{}...", c.port). A '{}' placeholder only means anything in the format string of 'format' or 'printf'; for the braces as text, split them from the name, as concat("{", "c.port}")
+'{c.debug}' in this string is not interpolation -- Ziman has none, so it prints as those characters; 'c' is in scope here, so you probably meant format("...{}...", c.debug). A '{}' placeholder only means anything in the format string of 'format' or 'printf'; for the braces as text, split them from the name, as concat("{", "c.debug}")
+saw: lexical error at 8:65 in p1.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' and 'while cond'
+saw: syntax error at 2:17 in p2.zm: expected a field name, found ','
+saw: type error at 2:5 in p3.zm: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: type error at 8:5 in p4.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: syntax error at 10:22 in p5.zm: expected a field name, found '..'
+saw: syntax error at 9:20 in px.zm: a '{' cannot start an expression -- a map or set literal is written with its type arguments, as 'Map<string, int> { "a": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one holds)
+saw: syntax error at 9:21 in py1.zm: expected '{', found newline
+saw: type error at 9:13 in pz1.zm: missing field 'host' in construction of 'Config'
+saw: module error at 9:13 in pz2.zm: 'a.copy(...)': 'a' is not an imported module, and Ziman has no methods -- if 'a' is a value, call a function on it instead, e.g. copy(a, ...) (if 'a' should be a module, add 'use a')
+saw: type error at 9:22 in pw3.zm: no field 'rest' on struct 'Config'
+saw: syntax error at 9:27 in pw4.zm: a call's arguments must be either all positional or all named, not a mix

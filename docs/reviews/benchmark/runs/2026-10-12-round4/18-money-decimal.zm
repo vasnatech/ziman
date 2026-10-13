@@ -1,0 +1,16 @@
+// Add exact money amounts using Ziman's built-in `decimal` type
+// (exact base-10 arithmetic -- not floating point).
+// Decimal literals carry the `d` suffix: 19.99d
+
+fn main() {
+    val price: decimal = 19.99d
+    val tax: decimal = 5.01d
+    val fee: decimal = 0.50d
+
+    val total: decimal = price + tax + fee
+
+    print(concat("Price: ", str(price)))
+    print(concat("Tax:   ", str(tax)))
+    print(concat("Fee:   ", str(fee)))
+    print(format("Total: {}", total))
+}

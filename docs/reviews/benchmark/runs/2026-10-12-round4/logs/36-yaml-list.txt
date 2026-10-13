@@ -1,0 +1,16 @@
+compiles: yes
+edits: 1
+compiler_invocations: 14
+warnings_seen: none
+saw: ziman: syntax error at 3:1 in p2.zm: expected an expression, found '}'
+saw: ziman: type error at 2:5 in p3.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: module error at 3:17 in p4.zm: 's.split(...)': 's' is not an imported module, and Ziman has no methods -- if 's' is a value, call a function on it instead, e.g. split(s, ...) (if 's' should be a module, add 'use s')
+saw: ziman: type error at 8:11 in p5.zm: call to undefined function 'startsWith' -- did you mean 'starts_with'?
+saw: ziman: lexical error at 2:15 in p6.zm: a text block's opening """ must end its line
+saw: ziman: type error at 11:24 in p7.zm: cannot infer type argument 'T' of 'slice' from its arguments; write it explicitly, e.g. 'slice<...>(...)'
+saw: ziman: type error at 3:11 in q.zm: function 'substring' expects 3 argument(s), found 2
+saw: ziman: type error at 3:11 in q.zm: call to undefined function 'substr'
+saw: ziman: type error at 1:16 in p9.zm: unknown type 'String' -- did you mean 'string'? (the built-in types are lowercase: int, float, bool, string, byte, bigint, decimal)
+saw: ziman: syntax error at 1:32 in p9.zm: a struct or enum name must start with an uppercase letter -- but the built-in types are lowercase (int, float, bool, string, byte, bigint, decimal), so 'list' may just need one of those instead
+saw: ziman: type error at 2:18 in pa.zm: cannot initialize 'x' of declared type int with a value of type [string]
+saw: ziman: type error at 11:17 in pb.zm: the [string] returned by 'push' is discarded, and 'push' does not modify its argument -- arrays, maps and sets are values, so assign the result back ('arr = push(arr, ...)'), or build one up with ArrayBuilder/MapBuilder ('val _ = ...' discards on purpose)

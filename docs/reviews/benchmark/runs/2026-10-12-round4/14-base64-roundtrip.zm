@@ -1,0 +1,90 @@
+fn printable() -> string {
+    return " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+}
+
+fn alphabet() -> string {
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+}
+
+fn ord(c: string) -> int {
+    return index_of(printable(), c, 0) + 32
+}
+
+fn chr(n: int) -> string {
+    return substring(printable(), n - 32, n - 31)
+}
+
+fn digit(v: int) -> string {
+    return substring(alphabet(), v, v + 1)
+}
+
+fn b64_encode(s: string) -> string {
+    var out = ""
+    val n = len(s)
+    var i = 0
+    while i < n {
+        val rem = n - i
+        val b0 = ord(substring(s, i, i + 1))
+        var b1 = 0
+        var b2 = 0
+        if rem > 1 {
+            b1 = ord(substring(s, i + 1, i + 2))
+        }
+        if rem > 2 {
+            b2 = ord(substring(s, i + 2, i + 3))
+        }
+        out = concat(out, digit(b0 / 4))
+        out = concat(out, digit((b0 % 4) * 16 + b1 / 16))
+        if rem > 1 {
+            out = concat(out, digit((b1 % 16) * 4 + b2 / 64))
+        } else {
+            out = concat(out, "=")
+        }
+        if rem > 2 {
+            out = concat(out, digit(b2 % 64))
+        } else {
+            out = concat(out, "=")
+        }
+        i = i + 3
+    }
+    return out
+}
+
+fn b64_decode(s: string) -> string {
+    var out = ""
+    val n = len(s)
+    var i = 0
+    while i + 3 < n {
+        val c0 = substring(s, i, i + 1)
+        val c1 = substring(s, i + 1, i + 2)
+        val c2 = substring(s, i + 2, i + 3)
+        val c3 = substring(s, i + 3, i + 4)
+        val v0 = index_of(alphabet(), c0, 0)
+        val v1 = index_of(alphabet(), c1, 0)
+        var v2 = 0
+        var v3 = 0
+        if c2 != "=" {
+            v2 = index_of(alphabet(), c2, 0)
+        }
+        if c3 != "=" {
+            v3 = index_of(alphabet(), c3, 0)
+        }
+        out = concat(out, chr(v0 * 4 + v1 / 16))
+        if c2 != "=" {
+            out = concat(out, chr((v1 % 16) * 16 + v2 / 4))
+        }
+        if c3 != "=" {
+            out = concat(out, chr((v2 % 4) * 64 + v3))
+        }
+        i = i + 4
+    }
+    return out
+}
+
+fn main() {
+    val text = "ziman benchmark"
+    val encoded = b64_encode(text)
+    print(encoded)
+    val decoded = b64_decode(encoded)
+    print(decoded)
+}

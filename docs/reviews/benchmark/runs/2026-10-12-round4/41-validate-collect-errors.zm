@@ -1,0 +1,30 @@
+// Validate a registration, collecting every problem instead of stopping at the first.
+// Arrays in Ziman are values, so each check assigns the pushed result back.
+
+fn validate(name: string, age: int, email: string) -> [string] {
+    var problems: [string] = []
+
+    if len(name) == 0 {
+        problems = push(problems, "name must not be empty")
+    }
+
+    if age < 18 || age > 120 {
+        problems = push(problems, format("age must be between 18 and 120 (got {})", age))
+    }
+
+    if !contains(email, "@") {
+        problems = push(problems, format("email must contain '@' (got '{}')", email))
+    }
+
+    return problems
+}
+
+fn main() {
+    val problems = validate("", 15, "nope")
+
+    for p in problems {
+        print(p)
+    }
+
+    print(format("problems: {}", len(problems)))
+}

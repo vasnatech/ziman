@@ -1,0 +1,39 @@
+// Parse a small YAML document holding a list of names and print each name.
+
+// Collect the items of the block sequence that follows the 'names:' key.
+fn parse_names(doc: string) -> [string] {
+    var names: [string] = []
+    var in_names = false
+
+    for line in split(doc, "\n") {
+        val text = trim(line)
+
+        if text == "" {
+            continue
+        }
+
+        if starts_with(text, "- ") {
+            if in_names {
+                names = push(names, trim(substring(text, 2, len(text))))
+            }
+        } else {
+            // Any other key ends the 'names:' sequence and may start a new one.
+            in_names = text == "names:"
+        }
+    }
+
+    return names
+}
+
+fn main() {
+    val doc = """
+        names:
+          - Ada
+          - Alan
+          - Grace
+        """
+
+    for name in parse_names(doc) {
+        print(name)
+    }
+}

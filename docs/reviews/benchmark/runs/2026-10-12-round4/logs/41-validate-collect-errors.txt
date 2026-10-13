@@ -1,0 +1,13 @@
+compiles: yes
+edits: 1
+compiler_invocations: 7
+warnings_seen: none
+saw: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: assignment to undefined variable 'name'
+saw: Ziman has no 'mut' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: use of undefined variable 'name'
+saw: 'email.contains(...)': 'email' is not an imported module, and Ziman has no methods -- if 'email' is a value, call a function on it instead, e.g. contains(email, ...) (if 'email' should be a module, add 'use email')
+saw: 'problems.len(...)': 'problems' is not an imported module, and Ziman has no methods -- if 'problems' is a value, call a function on it instead, e.g. len(problems) (if 'problems' should be a module, add 'use problems')
+saw: cannot infer the element type of an empty array literal; add a type annotation (e.g. val x: [int] = [])
+saw: the [string] returned by 'push' is discarded, and 'push' does not modify its argument -- arrays, maps and sets are values, so assign the result back ('arr = push(arr, ...)'), or build one up with ArrayBuilder/MapBuilder ('val _ = ...' discards on purpose)
+saw: '+' doesn't join strings (found string and int) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)

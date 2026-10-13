@@ -1,0 +1,32 @@
+fn main() {
+  val m = [[1, 2, 3], [4, 5, 6]]
+  val nr = len(m)
+  val nc = len(m[0])
+
+  var t: [[int]] = []
+  var j = 0
+  while j < nc {
+    var row: [int] = []
+    var i = 0
+    while i < nr {
+      row = push(row, m[i][j])
+      i = i + 1
+    }
+    t = push(t, row)
+    j = j + 1
+  }
+
+  for r in t {
+    var s = ""
+    var first = true
+    for v in r {
+      if first {
+        s = str(v)
+        first = false
+      } else {
+        s = concat(s, concat(" ", str(v)))
+      }
+    }
+    print(s)
+  }
+}

@@ -1,0 +1,15 @@
+compiles: yes
+edits: 1
+compiler_invocations: 18
+saw: ziman: syntax error at 1:1 in b.zm: expected 'fn', found identifier
+saw: ziman: type error at 0:0: no 'main' function found
+saw: ziman: syntax error at 2:5 in d1.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), and the type comes after the name: 'val x: int = 1'
+saw: ziman: type error at 2:5 in d2.zm: Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be), e.g. 'val x = 1' or 'var x = 1'
+saw: ziman: type error at 2:9 in d2.zm: assignment to undefined variable 'x'
+saw: ziman: type error at 3:11 in d2.zm: use of undefined variable 'x'
+saw: ziman: type error at 2:22 in e1.zm: cannot initialize 'x' of declared type decimal with a value of type float
+saw: ziman: type error at 2:5 in e3.zm: unknown struct or enum type 'Qux' -- did you mean 'max'?
+saw: ziman: syntax error at 2:22 in f2.zm: expected an expression, found 'decimal'
+saw: ziman: type error at 2:27 in f3.zm: use of undefined variable 'm'
+saw: ziman: type error at 2:22 in f4.zm: cannot initialize 'x' of declared type decimal with a value of type int -- bare digits mean 'int', so write the literal with its suffix, as '1d'
+saw: ziman: type error at 2:22 in f5.zm: cannot initialize 'x' of declared type decimal with a value of type string
