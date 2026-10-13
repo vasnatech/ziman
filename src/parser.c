@@ -98,6 +98,18 @@ static void report_habit_token_pair(Parser *p, const char *what) {
                     "Ziman has no 'type' declaration -- a record is 'struct Point { x: int }' with one field per "
                     "line and no commas, and a tagged union is 'enum Shape { Circle(float) ... }'");
     }
+    /* The same wrong binding word one level out: `let top = 1` between declarations, where
+     * parse_statement's rewrite cannot see it and the bare message was "expected 'fn', found
+     * identifier" -- which names neither `let` nor what replaces it. Scoped to a following
+     * identifier so a *value* named `let` in some other failing construct stays unaffected. */
+    if (strcmp(what, "'fn'") == 0 && t->type == TOK_IDENT && next->type == TOK_IDENT) {
+        const char *binding_kw = ziman_foreign_decl_keyword(t->start, t->length);
+        if (binding_kw != NULL) {
+            ziman_error("syntax", t->line, t->col,
+                        "Ziman has no '%s' -- a top-level value is declared with 'val' ('pub val' to export it), "
+                        "and there are no mutable globals, so no 'var' out here: 'val top = 1'", binding_kw);
+        }
+    }
     if (t->type == TOK_MINUS && next->type == TOK_MINUS) {
         ziman_error("syntax", t->line, t->col,
                     "'--' does not start a comment in Ziman -- use '//' to the end of the line (there is no block "
@@ -1847,16 +1859,23 @@ static Stmt *parse_statement(Parser *p) {
                     plus ? "++" : "--", start->length, start->start, start->length, start->start,
                     plus ? '+' : '-');
     }
-    /* `let x: int = 1` / `const`, `mut`. The un-annotated `let x = 1` already gets a good message
-     * from the type checker, but with an annotation the parse fails first -- on the ':' -- so that
-     * message never runs, and the most common binding habit loses its fix exactly when a reader has
-     * written the fuller form. The 2026-10-09 benchmark holdout found it (tasks.md F28): "expected
-     * an expression, found ':'", with no mention of `let` at all. */
-    if (start->type == TOK_IDENT && check_ahead(p, 1, TOK_IDENT) && check_ahead(p, 2, TOK_COLON) &&
-        (token_text_is(start, "let") || token_text_is(start, "const") || token_text_is(start, "mut"))) {
-        ziman_error("syntax", start->line, start->col,
-                    "Ziman has no '%.*s' -- declare with 'val' (never reassigned) or 'var' (may be), and the type "
-                    "comes after the name: 'val x: int = 1'", start->length, start->start);
+    /* `let x = 1`, `let x: int = 1`, and the same with `const`/`mut`/`auto`: another language's
+     * binding keyword, which is the most common binding habit there is. Parsed as the `val` (or,
+     * for `mut`, the `var`) it was meant to be, with the word recorded on the statement for
+     * check_stmt to report -- see Stmt.foreign_decl_keyword for why reporting it here instead
+     * would be worse. Two earlier attempts at this line are what the rewrite replaces: the
+     * annotated form failed on the ':' with no mention of `let` at all (tasks.md F28), and the
+     * bare form reached the type checker as two statements -- an expression `let` and an
+     * assignment to an undeclared `x` -- so it said the right thing once and then reported the
+     * name as undefined at every later mention (tasks.md F95). `IDENT IDENT` begins no valid
+     * statement, so there is nothing legal to shadow here. */
+    const char *foreign_kw = start->type == TOK_IDENT ? ziman_foreign_decl_keyword(start->start, start->length) : NULL;
+    if (foreign_kw != NULL && check_ahead(p, 1, TOK_IDENT) &&
+        (check_ahead(p, 2, TOK_COLON) || check_ahead(p, 2, TOK_EQ))) {
+        advance_tok(p); /* the foreign keyword, now standing in for 'val'/'var' */
+        Stmt *rewritten = parse_decl(p, strcmp(foreign_kw, "mut") == 0 ? STMT_VAR : STMT_VAL);
+        rewritten->foreign_decl_keyword = foreign_kw;
+        return rewritten;
     }
     Expr *first = parse_expr(p);
     if (match(p, TOK_EQ)) {

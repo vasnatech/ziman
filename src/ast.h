@@ -398,6 +398,16 @@ struct Stmt {
      * declaring one. */
     int resolved_depth;
     int resolved_slot;
+    /* `"let"`, `"const"`, `"mut"` or `"auto"` when this statement was written with another
+     * language's binding keyword, NULL (the ordinary case) otherwise. The parser rewrites
+     * `let x = 1` into the `val` it meant and records the word here instead of reporting it,
+     * because a parser error skips the rest of the declaration: the type checker reports it
+     * once per statement, from check_stmt, and the recovery that follows poisons the name the
+     * rewrite bound -- so one wrong word costs one diagnostic instead of an error at every
+     * mention of the name (5 to 9 of them in the 2026-10-12 benchmark; tasks.md F95). On the
+     * Stmt rather than inside `decl`, since `let x = if c { 1 } else { 2 }` parses to a
+     * STMT_VALUE_BLOCK and the mistake cannot be allowed to go unreported in that one shape. */
+    const char *foreign_decl_keyword;
 
     union {
         struct { char *name; Type declared_type; int has_declared_type; Expr *init; } decl;

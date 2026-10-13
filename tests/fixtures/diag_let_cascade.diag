@@ -1,0 +1,6 @@
+# Three diagnostics for three causes, and the count is the whole point: two wrong binding words and
+# the one real error on the last line. It was eight for the same file -- six of them about names
+# whose declaration had already been reported.
+syntax 8:5 Ziman has no 'let'
+syntax 9:5 Ziman has no 'let'
+type 14:11 use of undefined variable 'nope'

@@ -1,0 +1,3 @@
+# One diagnostic, which is the half of this a .err file could not assert: `let x = 5` reported the
+# right thing and then two more errors about `x` being undefined (F95).
+syntax 2:5 Ziman has no 'let' -- declare with 'val' (never reassigned) or 'var' (may be)

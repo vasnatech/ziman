@@ -1,5 +1,7 @@
 #include "token.h"
 
+#include <string.h>
+
 const char *token_type_name(TokenType type) {
     switch (type) {
         case TOK_EOF: return "end of file";
@@ -77,4 +79,14 @@ const char *token_type_name(TokenType type) {
         case TOK_BANG: return "'!'";
     }
     return "unknown token";
+}
+
+static const char *const FOREIGN_DECL_KEYWORDS[] = {"let", "const", "mut", "auto"};
+
+const char *ziman_foreign_decl_keyword(const char *name, int length) {
+    for (size_t i = 0; i < sizeof FOREIGN_DECL_KEYWORDS / sizeof FOREIGN_DECL_KEYWORDS[0]; i++) {
+        const char *word = FOREIGN_DECL_KEYWORDS[i];
+        if ((int)strlen(word) == length && strncmp(word, name, (size_t)length) == 0) return word;
+    }
+    return NULL;
 }

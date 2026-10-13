@@ -1,0 +1,8 @@
+// F95, the same wrong word one level out, where parse_statement never sees it: this reported
+// "expected 'fn', found identifier", naming neither `let` nor what replaces it. A top-level binding
+// is also the one place the answer is not "val or var" -- Ziman has no mutable globals.
+let top = 1
+
+fn main() {
+    print(top)
+}

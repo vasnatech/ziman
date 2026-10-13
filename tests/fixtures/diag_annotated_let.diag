@@ -1,0 +1,4 @@
+# The annotated form is now the same one diagnostic as the bare one, from the same place: the
+# parser used to fail on the ':' before any of this ran (F28), and then reported it from the parser,
+# where it could say nothing about the lines after it (F95).
+syntax 5:5 and the type, when written, comes after the name: 'val x = 1', 'var total: int = 0'

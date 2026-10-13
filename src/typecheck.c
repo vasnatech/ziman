@@ -13,6 +13,7 @@
 #include "error.h"
 #include "fmtstr.h"
 #include "stack.h"
+#include "token.h"
 #include "xalloc.h"
 
 static FunctionDecl *find_function(Module *module, const char *name) {
@@ -1408,7 +1409,6 @@ static const char *suggest_function_name(Module *module, const char *name) {
  * like one once case is ignored (task 08's `map(...)` for `Map<K, V> { ... }`), and -- found on
  * re-validating that same task's fix -- a membership-test method name from another language
  * (`.has`/`has_key`/...), which has no Ziman equivalent at all: the real answer is `contains`. */
-static const char *const FOREIGN_DECL_KEYWORDS[] = {"let", "const", "mut", "auto", NULL};
 static const char *const HARDCODED_GENERIC_TYPES[] = {"Map", "Set", "Option", "Result", "Channel", NULL};
 static const char *const MAP_MEMBERSHIP_SYNONYMS[] = {
     "has", "has_key", "hasKey", "contains_key", "containsKey", "has_value", "hasValue", "exists", NULL,
@@ -3393,12 +3393,13 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
                                     "'%s' is a builtin, not a function value -- wrap it in a function of your own to pass it around", e->as.ident_name);
                     }
                 }
-                for (size_t k = 0; FOREIGN_DECL_KEYWORDS[k] != NULL; k++) {
-                    if (strcmp(e->as.ident_name, FOREIGN_DECL_KEYWORDS[k]) == 0) {
-                        ziman_error("type", e->line, e->col,
-                                    "Ziman has no '%s' -- declare with 'val' (never reassigned) or 'var' (may be), "
-                                    "e.g. 'val x = 1' or 'var x = 1'", e->as.ident_name);
-                    }
+                /* A foreign binding keyword that reached an expression -- so not `let x = 1`, which
+                 * the parser rewrites and check_stmt reports (see Stmt.foreign_decl_keyword), but a
+                 * bare `let` somewhere no name follows it. */
+                if (ziman_foreign_decl_keyword(e->as.ident_name, (int)strlen(e->as.ident_name)) != NULL) {
+                    ziman_error("type", e->line, e->col,
+                                "Ziman has no '%s' -- declare with 'val' (never reassigned) or 'var' (may be), "
+                                "e.g. 'val x = 1' or 'var x = 1'", e->as.ident_name);
                 }
                 ziman_error("type", e->line, e->col, "use of undefined variable '%s'", e->as.ident_name);
             }
@@ -4270,6 +4271,16 @@ static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type
 
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
     ZIMAN_STACK_CHECK();
+    /* The one statement the parser deliberately left for here: `let x = 1` and its relatives,
+     * rewritten into the declaration they meant so that this reports the word once and the
+     * recovery around this call poisons the name, rather than the program reporting it undefined
+     * at every mention. See Stmt.foreign_decl_keyword. */
+    if (s->foreign_decl_keyword != NULL) {
+        ziman_error("syntax", s->line, s->col,
+                    "Ziman has no '%s' -- declare with 'val' (never reassigned) or 'var' (may be), and the type, "
+                    "when written, comes after the name: 'val x = 1', 'var total: int = 0'",
+                    s->foreign_decl_keyword);
+    }
     switch (s->kind) {
         case STMT_SWITCH:
             check_switch(module, env, s, fn_return_type, in_loop);

@@ -1,0 +1,15 @@
+// F95: the measured shape. One `let` used to fan out into "Ziman has no 'let'" plus "assignment to
+// undefined variable" on its own line, and then "use of undefined variable" at every later mention
+// -- 5 to 9 errors from one cause, reported by at least eight runs of the 2026-10-12 benchmark. The
+// count below is the whole assertion: one diagnostic per wrong binding word and nothing else, which
+// is what the parser's rewrite to a real `val` and the poisoning that follows it buy. The genuine
+// error on the last line has to survive, or the cure would be worse than the noise.
+fn main() {
+    let total = 0
+    let name = "ada"
+    total = total + 5
+    print(total)
+    print(name)
+    print(format("{}: {}", name, total))
+    print(nope)
+}

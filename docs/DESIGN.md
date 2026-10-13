@@ -47,6 +47,7 @@ them against the code.
 - [The no-methods hint speaks only about functions that exist (F92, 2026-10-12)](#the-no-methods-hint-speaks-only-about-functions-that-exist-f92-2026-10-12)
 - [Three diagnostics now say that `a..b` stops before `b` (F93, 2026-10-12)](#three-diagnostics-now-say-that-ab-stops-before-b-f93-2026-10-12)
 - [The variadic marker is a keyword after all: `xs: variadic int` (F94, 2026-10-12)](#the-variadic-marker-is-a-keyword-after-all-xs-variadic-int-f94-2026-10-12)
+- [`let x = 1` is parsed as the `val` it meant (F95, 2026-10-12)](#let-x-1-is-parsed-as-the-val-it-meant-f95-2026-10-12)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
 - [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
@@ -3369,6 +3370,49 @@ declares none, so it needed no change, which is itself the measure of how small 
 is. One commit, because a half-migrated corpus does not compile: the prelude declares seven
 variadics and is built into the binary.
 
+## `let x = 1` is parsed as the `val` it meant (F95, 2026-10-12)
+
+**The cascade was the single noisiest thing the 2026-10-12 benchmark measured: 5 to 9 errors from
+one wrong word, in at least eight of the fifty runs.** `let total = 0` is not a declaration to the
+parser -- it is two statements, an expression `let` and an assignment to an undeclared `total` -- so
+it reported "Ziman has no 'let'" (correctly, and with the fix in it), then "assignment to undefined
+variable 'total'" on the same line, and then "use of undefined variable" at every later mention. A
+model reading that cannot tell one mistake from eight.
+
+**The suppression machinery already existed and the construct could not reach it.** "Reporting
+several errors per run" above poisons the name a failed `val`/`var` declared, precisely so one bad
+line is not re-reported at every use. It keys off the statement *being* a declaration. `let` never
+was one.
+
+**So the parser now rewrites it.** `let`/`const`/`auto` `name [: T] = expr` parses through
+`parse_decl` as a `val` (`mut` as a `var`), exactly as if the right word had been written, and the
+wrong word is recorded on the statement (`Stmt.foreign_decl_keyword`) rather than reported on the
+spot. **Reporting it in the parser is the thing to avoid**, and the previous two attempts at this
+line are both examples of why: a parser error jumps to the recovery point *between declarations*, so
+it takes the rest of the function with it -- F28's fix for the annotated `let x: int = 1` bought one
+diagnostic for a whole `fn main`, and a file with three `let`s reported one of them. The type
+checker reports it instead, from the top of `check_stmt`, once per statement; the recovery that
+follows poisons the name the rewrite bound, and the cascade is gone with nothing new written to
+suppress it. Eight errors became three on the measured file -- two wrong words and the one genuine
+error on a later line, which **has to survive**, or the cure is worse than the noise.
+
+**The field is on `Stmt`, not inside `decl`.** `let x = if c { 1 } else { 2 }` parses to a
+STMT_VALUE_BLOCK, not a declaration node, and a rewrite that silently accepted `let` in one shape
+would be a far worse defect than the cascade. One field, set on whatever `parse_decl` returns, is
+how that shape cannot be forgotten -- and `make test` proves it: removing the `check_stmt` report
+makes three fixtures fail, not none.
+
+**The same wrong word one level out gets its own answer**, since `parse_statement` never sees it:
+`let top = 1` between declarations reported "expected 'fn', found identifier", naming neither `let`
+nor what replaces it. It now reports through the `expect` hook that already answers `import` and
+`type`, with the one piece of advice that differs out there -- a top-level binding is `val` or `pub
+val`, and there is no `var`, because Ziman has no mutable globals.
+
+**One list, two positions.** `FOREIGN_DECL_KEYWORDS` moved from typecheck.c to token.c as
+`ziman_foreign_decl_keyword`, because a second copy in the parser is exactly the kind of list that
+drifts: the parser catches the three declaration shapes, the type checker still answers a bare `let`
+that reaches an expression on its own.
+
 ## What the AI-first goal does and does not justify
 
 (External review, roadmap R20, 2026-09-24.) "Cheap for an LLM to generate
@@ -4076,6 +4120,9 @@ first-error-wins.
 its name is still defined but *poisoned*; a later statement that reads or assigns
 it is skipped silently (a quiet jump to the recovery point). Without this, one
 undefined function would be reported again at every line that uses its result.
+**Extended by (2026-10-12, F95) "`let x = 1` is parsed as the `val` it meant" below**: this
+mechanism only ever covered a statement the parser recognised *as* a declaration, which is why
+`let x = 1` -- not a declaration to the parser at all -- cascaded anyway.
 The checker's own state (the value-block context, the generic parameter list, lint
 state) is saved and restored around each recovery, because the jump leaves it
 pointing into frames that no longer exist; loop variables around a `setjmp` are
