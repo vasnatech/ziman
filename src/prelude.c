@@ -1117,6 +1117,70 @@ static Value native_slice(Value *args, int argc, int line, int col) {
     return value_array(type_scalar(TY_VOID), array_obj_view(arr, (int)start, (int)end));
 }
 
+/* One element of a builder, whichever representation it is in -- `array_get`'s shape against the
+ * builder's own buffer rather than an ArrayObj. */
+static Value ab_element_at(const ArrayBuilderBuf *buf, size_t i) {
+    switch (buf->pkind) {
+        case PK_BYTE: return value_byte(((unsigned char *)buf->pdata)[i]);
+        case PK_BOOL: return value_bool(((unsigned char *)buf->pdata)[i] != 0);
+        case PK_INT: return value_int(((int64_t *)buf->pdata)[i]);
+        case PK_FLOAT: return value_float(((double *)buf->pdata)[i]);
+        case PK_NONE: break;
+    }
+    return buf->items[i];
+}
+
+/* Reading and writing a builder in place, so that a loop that needs what it has already appended does not
+ * have to call ab_to_array -- which copies the whole buffer every time it is called, and in a loop is the
+ * quadratic cost ArrayBuilder exists to avoid (`--lint` already flags that shape; see
+ * lint_builder_read_by_conversion). MapBuilder and SetBuilder have had `get`/`contains` from the start; this
+ * is the same thing for the one builder that was append-only. */
+static Value native_ab_get(Value *args, int argc, int line, int col) {
+    (void)argc;
+    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    int64_t i = args[1].as.i;
+    if (i < 0 || (size_t)i >= buf->length) {
+        ziman_error("runtime", line, col, "get index %lld out of bounds (ArrayBuilder length %lld)",
+                    (long long)i, (long long)buf->length);
+    }
+    return ab_element_at(buf, (size_t)i);
+}
+
+static Value native_ab_set(Value *args, int argc, int line, int col) {
+    (void)argc;
+    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    int64_t i = args[1].as.i;
+    if (i < 0 || (size_t)i >= buf->length) {
+        ziman_error("runtime", line, col, "set index %lld out of bounds (ArrayBuilder length %lld)",
+                    (long long)i, (long long)buf->length);
+    }
+    if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)i, args[2]);
+    else buf->items[i] = args[2];
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
+/* Empties the builder, keeping the buffer it has already grown: the point is to reuse one across rounds of
+ * work without paying for the growth again. The packed kind is kept too, which is safe because the element
+ * type cannot change -- a builder is `ArrayBuilder<T>` for one T. */
+static Value native_ab_clear(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    buf->length = 0;
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
+/* What the interpreter's `for x in builder` needs: the two of these are the whole of its access, and they
+ * take the same ownership check every other builder call takes (ab_table_get). */
+int ziman_array_builder_length(Value ab) {
+    return (int)ab_table_get(ab_handle_of(ab))->length;
+}
+
+Value ziman_array_builder_at(Value ab, int i) {
+    return ab_element_at(ab_table_get(ab_handle_of(ab)), (size_t)i);
+}
+
 static Value native_ab_to_array(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -1451,6 +1515,9 @@ void prelude_register(void) {
     native_register("sb_len", native_sb_len);
     native_register("ab_new", native_ab_new);
     native_register("ab_append", native_ab_append);
+    native_register("ab_get", native_ab_get);
+    native_register("ab_set", native_ab_set);
+    native_register("ab_clear", native_ab_clear);
     native_register("ab_to_array", native_ab_to_array);
     native_register("ab_len", native_ab_len);
 

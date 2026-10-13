@@ -1,0 +1,6 @@
+// `ab_set` overwrites; it never extends. Setting one past the end is a mistake, not an append.
+fn main() {
+    val ab = ab_new<string>()
+    ab_append(ab, "ada")
+    ab_set(ab, 1, "grace")
+}

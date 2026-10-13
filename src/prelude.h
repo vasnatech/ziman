@@ -1,6 +1,8 @@
 #ifndef ZIMAN_PRELUDE_H
 #define ZIMAN_PRELUDE_H
 
+#include "value.h"
+
 /* Ziman's prelude: everything declared in lib/prelude.zm -- native
  * functions, but also ordinary Ziman types/functions/vals -- is always
  * available, bare and unqualified, in every program, no `use` needed,
@@ -39,5 +41,11 @@ const char *prelude_source(void);
  * name (native_register, from native.h) -- call once at startup, before
  * any Ziman program runs, same as native_io_register(). */
 void prelude_register(void);
+
+/* An ArrayBuilder's length, and one of its elements -- what `for x in builder` needs from the interpreter
+ * (see exec_stmt's STMT_FOR). Both take the builder's own thread-ownership check, as every other call on one
+ * does, so a builder read from the wrong thread fails there rather than here. */
+int ziman_array_builder_length(Value ab);
+Value ziman_array_builder_at(Value ab, int i);
 
 #endif

@@ -290,9 +290,11 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
 - **`push` in a loop costs what you'd expect; `insert`/`set`/`remove` don't.** `arr = push(arr,
   x)` is amortised O(1) (spare room kept, the next `push` on that exact array writes into it
   instead of copying); `insert`/`set`/`remove` always copy the whole array, so replacing every
-  element one `set` at a time is O(n²) -- `ArrayBuilder<T>` (`ab_new`/`ab_append`/`ab_to_array`)
-  is the right tool for building/editing a large array piece by piece. See "Builtins" for exact
-  signatures.
+  element one `set` at a time is O(n²) -- `ArrayBuilder<T>` (`ab_new`/`ab_append`/`ab_get`/
+  `ab_set`/`ab_len`/`ab_clear`/`ab_to_array`) is the right tool for building/editing a large
+  array piece by piece. It reads back in place: `ab_get`/`ab_len` and `for x in ab` cost nothing,
+  where `ab_to_array` copies the whole buffer every call (`--lint` flags that in a loop). See
+  "Builtins" for exact signatures.
 
 ## Maps and sets
 
@@ -373,6 +375,11 @@ for i in 0..len(arr) { ... }  // index only -- i: int, counting a range
 for i, x in arr { ... }       // index + value together
 ```
 
+- **`for x in ab`** also walks an `ArrayBuilder<T>`, in both shapes an array takes (`for x in ab`
+  and `for i, x in ab`) -- which is how a builder is read without `ab_to_array`'s copy. It reads
+  the live buffer: a body that appends sees its own additions, as it would in the array the
+  builder is becoming, and one that calls `ab_clear` ends the loop. Neither can read past the
+  end, since the length is read again on every pass.
 - **`for x in iter`** also walks an `Iter<T>` (a lazy source like `fs.lines(path)`), one binder,
   no index. Nothing is read ahead (the source can exceed memory); `break`/`return`/`try` inside
   the loop closes it, and one never finished is closed on garbage collection. Take items by hand

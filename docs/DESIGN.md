@@ -48,6 +48,7 @@ them against the code.
 - [Three diagnostics now say that `a..b` stops before `b` (F93, 2026-10-12)](#three-diagnostics-now-say-that-ab-stops-before-b-f93-2026-10-12)
 - [The variadic marker is a keyword after all: `xs: variadic int` (F94, 2026-10-12)](#the-variadic-marker-is-a-keyword-after-all-xs-variadic-int-f94-2026-10-12)
 - [`let x = 1` is parsed as the `val` it meant (F95, 2026-10-12)](#let-x-1-is-parsed-as-the-val-it-meant-f95-2026-10-12)
+- [ArrayBuilder reads back in place, and iterates (F96, 2026-10-13)](#arraybuilder-reads-back-in-place-and-iterates-f96-2026-10-13)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
 - [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
@@ -3412,6 +3413,47 @@ val`, and there is no `var`, because Ziman has no mutable globals.
 `ziman_foreign_decl_keyword`, because a second copy in the parser is exactly the kind of list that
 drifts: the parser catches the three declaration shapes, the type checker still answers a bare `let`
 that reaches an expression on its own.
+
+## ArrayBuilder reads back in place, and iterates (F96, 2026-10-13)
+
+**The gap was an asymmetry nobody had looked at squarely.** `MapBuilder` and `SetBuilder` have had
+`_get`/`_contains`/`_len`/`_remove` from the day they were written -- a builder you can ask about. The
+`ArrayBuilder` beside them had `ab_new`, `ab_append`, `ab_to_array` and `ab_len`, and nothing else: no way to
+read an element, no way to replace one, and `for x in ab` was a type error. Anything that needed what it had
+already appended had to call `ab_to_array`, which is **a full copy of the buffer per call** (prelude.c's
+`native_ab_to_array`, memcpy for a packed kind and element-by-element otherwise) -- in a loop, exactly the
+quadratic cost the builder exists to avoid. The project already knew that shape was a mistake: `--lint`'s
+`lint_builder_read_by_conversion` flags it. What it could offer as a remedy, for an array, was "`ab_len`, or
+an ArrayBuilder you finish once after the loop", because there was nothing else to suggest.
+
+**What it answers is a real line of the reference backend**, which is where this came from: a loop that
+collected matching records into a builder and then converted the whole thing to ask `len()`. Three separable
+things were wrong with it, and only the third is the language's: the code wanted a counter, not a builder;
+`ab_len` already existed and would have done; and there was no way to read an element back.
+
+**Added: `ab_get`, `ab_set`, `ab_clear`, and `for x in ab`.** `ab_get`/`ab_set` are bounds-checked against
+the *length*, not the capacity -- a builder keeps a grown buffer, so reading element 0 of an empty one would
+otherwise hand back whatever that buffer happens to hold. `ab_set` overwrites and never extends: appending is
+`ab_append`, and setting one past the end is a mistake rather than a push. `ab_clear` keeps the buffer, which
+is the point of it -- a builder reused across rounds of work should not pay for the growth again -- and keeps
+the packed kind, which is safe because an `ArrayBuilder<T>` is one T for life.
+
+**Iteration reads the live buffer, deliberately, and the alternative was worse.** A snapshot would have been
+safe by construction, but `for x in ab` would then have been `for x in ab_to_array(ab)` with nicer syntax and
+a hidden O(n) copy -- the exact cost this change exists to remove, moved somewhere a reader cannot see it. So
+the loop walks by index and reads the length again on every pass: a body that appends sees its own additions,
+as it would in the array the builder is becoming; a body that calls `ab_clear` ends the loop; and neither can
+read past the end. Nothing is copied.
+
+**Not added: a pop.** `ab_remove_last`/truncate has an obvious shape and no caller asking for it -- the same
+"hardcode the minimum, not general machinery" the `Range` and `BitSet`-builder decisions already took.
+
+**This is step one of two.** The second -- renaming the three builders to `MutArray`/`MutMap`/`MutSet` and
+treating them as mutable collections rather than things you finish -- is a separate decision, and the thing
+to be careful about is that these are `#[thread_bound]` native handles: that is what keeps them compatible
+with single-writer actors over `Channel<T>`, and a name that reads as "an ordinary value I can put in a
+struct and send to another thread" would be a worse lie than "Builder" is. Completing the API is worth doing
+either way, which is why it went first.
 
 ## What the AI-first goal does and does not justify
 

@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "interpreter.h"
 #include "iter.h"
+#include "prelude.h"
 #include "native_thread.h"
 #include "stack.h"
 
@@ -2034,6 +2035,29 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                     }
                 }
                 active_iter_pop();
+                env_pool_release(scope);
+                return no_ctrl();
+            }
+            if (iterable.type.kind == TY_STRUCT && iterable.type.struct_name != NULL &&
+                strcmp(iterable.type.struct_name, "ArrayBuilder") == 0) {
+                /* The live buffer, by index, re-reading its length every pass: a body that appends sees its
+                 * own additions (as it would in the array this is becoming) and one that clears ends the
+                 * loop, and neither can read past the end. Nothing is copied, which is the whole reason a
+                 * builder is iterable at all -- ab_to_array copies all of it, per call. */
+                Type elem_type = s->as.for_stmt.iterable->resolved_type.type_args.items[0];
+                Env *scope = env_pool_acquire(env);
+                for (int i = 0; i < ziman_array_builder_length(iterable); i++) {
+                    env_reset(scope);
+                    if (s->as.for_stmt.binder2 == NULL) {
+                        env_define(scope, s->as.for_stmt.binder1, elem_type, 0, ziman_array_builder_at(iterable, i));
+                    } else {
+                        env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(i));
+                        env_define(scope, s->as.for_stmt.binder2, elem_type, 0, ziman_array_builder_at(iterable, i));
+                    }
+                    ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
+                    if (result.kind == CTRL_RETURN) { env_pool_release(scope); return result; }
+                    if (result.kind == CTRL_BREAK) break;
+                }
                 env_pool_release(scope);
                 return no_ctrl();
             }

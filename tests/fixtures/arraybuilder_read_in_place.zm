@@ -1,0 +1,61 @@
+// F96: an ArrayBuilder can be read and written in place, and iterated. Before this it was append-only, so a
+// loop that needed what it had already appended had to call `ab_to_array` -- a full copy per call, which in
+// a loop is the quadratic cost a builder exists to avoid (`--lint` flags that shape, and its message now
+// names `ab_get`). MapBuilder and SetBuilder have had `get`/`contains`/`len` from the start; this is the
+// same thing for the one builder that did not.
+fn main() {
+    val ab = ab_new<int>()
+    ab_append(ab, 10, 20, 30)
+    print(ab_get(ab, 0))
+    print(ab_get(ab, ab_len(ab) - 1))
+
+    // Overwriting what is there, which is not appending: the length does not change.
+    ab_set(ab, 1, 99)
+    print(ab_to_array(ab))
+    print(ab_len(ab))
+
+    // Both loop shapes an array takes, over the builder itself -- nothing is copied.
+    for i, x in ab {
+        printf("{}={} ", i, x)
+    }
+    print("")
+    var total = 0
+    for x in ab {
+        total = total + x
+    }
+    print(total)
+
+    // The boxed path: an element type that is not byte/bool/int/float keeps Values rather than packing.
+    val names = ab_new<string>()
+    ab_append(names, "ada", "grace")
+    print(ab_get(names, 1))
+    for n in names {
+        print(n)
+    }
+
+    // A body that appends sees its own additions, as it would in the array this is becoming, and the loop
+    // still ends: each pass reads the length as it is then.
+    val growing = ab_new<int>()
+    ab_append(growing, 1)
+    for x in growing {
+        if x < 4 {
+            ab_append(growing, x + 1)
+        }
+    }
+    print(ab_to_array(growing))
+
+    // And a body that empties it ends the loop rather than reading past the end.
+    val emptied = ab_new<int>()
+    ab_append(emptied, 1, 2, 3)
+    var seen = 0
+    for _ in emptied {
+        seen = seen + 1
+        ab_clear(emptied)
+    }
+    print(seen)
+    print(ab_len(emptied))
+
+    // Clearing keeps the buffer, so the builder is reusable.
+    ab_append(emptied, 5, 6)
+    print(ab_to_array(emptied))
+}

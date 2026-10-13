@@ -624,7 +624,7 @@ static void lint_quadratic_accumulation(const Stmt *s) {
  * 0.02s, 0.04s, 0.09s, 0.35s at 2,000 to 16,000 pieces (docs/reviews/tasks.md F84). */
 static const char *builder_reader_for(const char *conversion) {
     if (strcmp(conversion, "mapb_to_map") == 0) return "mapb_get, mapb_get_or, mapb_contains or mapb_len";
-    if (strcmp(conversion, "ab_to_array") == 0) return "ab_len, or an ArrayBuilder you finish once after the loop";
+    if (strcmp(conversion, "ab_to_array") == 0) return "ab_get, ab_len or 'for x in <the builder>'";
     if (strcmp(conversion, "sb_to_string") == 0) return "sb_len, or a StringBuilder you finish once after the loop";
     if (strcmp(conversion, "setb_to_set") == 0) return "setb_contains or setb_len";
     return NULL;
@@ -4471,9 +4471,18 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 Type iter_type = check_expr(module, env, s->as.for_stmt.iterable);
                 int is_iter = iter_type.kind == TY_STRUCT && iter_type.struct_name != NULL &&
                               strcmp(iter_type.struct_name, "Iter") == 0 && iter_type.type_args.count == 1;
-                if (iter_type.kind != TY_ARRAY && iter_type.kind != TY_MAP && iter_type.kind != TY_SET && !is_iter) {
+                /* An ArrayBuilder iterates like the array it is becoming, which is the point: reading one
+                 * back used to mean ab_to_array, a full copy per call (`--lint` flags that in a loop). The
+                 * loop reads the live buffer by index and stops at whatever the length is then, so a body
+                 * that appends sees its own additions and one that clears ends the loop -- neither can read
+                 * past the end. */
+                int is_array_builder = iter_type.kind == TY_STRUCT && iter_type.struct_name != NULL &&
+                                       strcmp(iter_type.struct_name, "ArrayBuilder") == 0 &&
+                                       iter_type.type_args.count == 1;
+                if (iter_type.kind != TY_ARRAY && iter_type.kind != TY_MAP && iter_type.kind != TY_SET &&
+                    !is_iter && !is_array_builder) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
-                                "'for' can only iterate an array, a map, a set, an Iter or a range ('a..b', which stops before b), found %s", type_name(iter_type));
+                                "'for' can only iterate an array, an ArrayBuilder, a map, a set, an Iter or a range ('a..b', which stops before b), found %s", type_name(iter_type));
                 }
                 if (is_iter && s->as.for_stmt.binder2 != NULL) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
@@ -4489,6 +4498,14 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                     if (s->as.for_stmt.binder2 != NULL) env_define(scope, s->as.for_stmt.binder2, *iter_type.elem_err, 0, value_int(0));
                 } else if (is_iter) {
                     env_define(scope, s->as.for_stmt.binder1, iter_type.type_args.items[0], 0, value_int(0));
+                } else if (is_array_builder) {
+                    /* `for x in ab` and `for i, x in ab`, the same two shapes an array takes. */
+                    if (s->as.for_stmt.binder2 == NULL) {
+                        env_define(scope, s->as.for_stmt.binder1, iter_type.type_args.items[0], 0, value_int(0));
+                    } else {
+                        env_define(scope, s->as.for_stmt.binder1, type_scalar(TY_INT), 0, value_int(0));
+                        env_define(scope, s->as.for_stmt.binder2, iter_type.type_args.items[0], 0, value_int(0));
+                    }
                 } else if (s->as.for_stmt.binder2 == NULL) {
                     env_define(scope, s->as.for_stmt.binder1, *iter_type.elem, 0, value_int(0));
                 } else {

@@ -266,6 +266,21 @@ native fn ab_to_array<T>(ab: ArrayBuilder<T>) -> [T]
 // The number of elements appended so far.
 native fn ab_len<T>(ab: ArrayBuilder<T>) -> int
 
+// The element at `index`, counting from 0; a runtime error outside `0..ab_len(ab)`.
+//
+// This and `ab_set` are why a loop that needs what it has already appended does not have to call
+// `ab_to_array`, which copies the whole buffer every time -- in a loop, the quadratic cost a builder exists
+// to avoid (`--lint` flags that shape). `for x in ab` reads one the same way, without the indexing.
+native fn ab_get<T>(ab: ArrayBuilder<T>, index: int) -> T
+
+// Replaces the element at `index`; a runtime error outside `0..ab_len(ab)`. Appending is `ab_append`: this
+// only overwrites what is already there.
+native fn ab_set<T>(ab: ArrayBuilder<T>, index: int, value: T)
+
+// Empties the builder, keeping the buffer it has already grown -- for reusing one across rounds of work
+// without paying for the growth again.
+native fn ab_clear<T>(ab: ArrayBuilder<T>)
+
 // ---------------------------------------------------------------- MapBuilder and SetBuilder
 
 // The mutable counterparts of Map and Set, for building one entry by entry. `set` and `insert` on

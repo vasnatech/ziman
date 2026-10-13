@@ -1,0 +1,3 @@
+# One lint, and the half worth pinning is what it offers instead: `ab_get` and `for x in <the builder>` are
+# what F96 added, where the message could only say `ab_len` or "finish it after the loop" before.
+lint 10:9 read it in place with ab_get, ab_len or 'for x in <the builder>'
