@@ -888,12 +888,30 @@ static void split_qualified(const char *dotted, char **qualifier_out, char **res
  * first has been removed again -- it described a workaround that is no longer needed. What is left is the
  * case this pass can still be sure about: the qualifier is neither an imported module nor a local with a
  * callable field, so either a free function was meant or a `use` is missing. */
+/* The parsed prelude, kept for method_call_hint alone: it is the honest answer to "is there such a
+ * function", the same source `--api builtins` prints from and for the same reason main.c records
+ * there -- typecheck.c's BUILTINS_NO_NAMED_ARGS is the subset taking no named arguments, not the
+ * builtins, and an incomplete answer to "what exists" reads as "it does not". NULL while the
+ * prelude itself is being parsed (parser.c reports chained calls during its own parse), and the
+ * hint then falls back to naming the call *form* exactly as it always did. */
+static Module *g_prelude_for_hints = NULL;
+
+static int prelude_has_function(const char *name) {
+    if (g_prelude_for_hints == NULL) return -1;  /* unknown, not absent */
+    for (int i = 0; i < g_prelude_for_hints->functions.count; i++) {
+        FunctionDecl *f = g_prelude_for_hints->functions.items[i];
+        if (f->visibility != VIS_PUBLIC && !f->is_native) continue;
+        if (strcmp(f->name, name) == 0) return 1;
+    }
+    return 0;
+}
+
 /* The free-function form for a member a model reached for with method syntax, written against
  * `qualifier` as the receiver. Factored out of ziman_report_unknown_module_call so the chained-call
  * diagnostic (ziman_report_method_chain_call, added for F50) names the same measured functions --
  * those entries exist because naming the wrong one costs the reader a round, and that is just as
  * true when the receiver is an expression as when it is a variable. */
-static void method_call_hint(const char *member, const char *qualifier, char *hint, size_t cap) {
+static int method_call_hint(const char *member, const char *qualifier, char *hint, size_t cap) {
     if (strcmp(member, "to_string") == 0 || strcmp(member, "toString") == 0 || strcmp(member, "to_str") == 0) {
         snprintf(hint, cap, "str(%s)", qualifier);
     } else if (strcmp(member, "len") == 0 || strcmp(member, "length") == 0 || strcmp(member, "size") == 0) {
@@ -926,7 +944,18 @@ static void method_call_hint(const char *member, const char *qualifier, char *hi
          * actually cost something. An earlier version hedged with "if there is such a function",
          * which read as noise in the common case where the guess is right (`s.trim()`). */
         snprintf(hint, cap, "%s(%s, ...)", member, qualifier);
+        /* F92: the one case where the form is not enough. Until now this named `member(q, ...)`
+         * unconditionally, as "the form, not a claim that such a function exists" -- and the second
+         * instance of round 2 shows what that costs when the claim is read as one: `a.iter()` was
+         * answered with `iter(a, ...)`, there is no `iter`, and that run spent 194 compiler
+         * invocations before concluding `Iter<T>` was "unreachable from source" when
+         * `iter_of_array` exists. So the form is still named when the function is real, and the
+         * absence is named when it is not. The earlier hedge this file removed ("if there is such a
+         * function") was noise because it fired on the common case where the guess is right; this
+         * fires only when the guess is known to be wrong. */
+        return prelude_has_function(member) == 0 ? 0 : 1;
     }
+    return 1;
 }
 
 /* `expr.member(...)` where the receiver is not a plain variable -- a chained method call
@@ -945,7 +974,14 @@ static void method_call_hint(const char *member, const char *qualifier, char *hi
  * fix for that reading too, which makes one sentence serve both. */
 void ziman_report_method_chain_call(const char *member, int line, int col) {
     char hint[160];
-    method_call_hint(member, "v", hint, sizeof hint);
+    if (!method_call_hint(member, "v", hint, sizeof hint)) {
+        ziman_error("syntax", line, col,
+                    "Ziman has no methods, so '.%s(...)' cannot be called on the result of an expression -- a "
+                    "function takes its receiver as an argument instead, but there is no function named '%s': "
+                    "'ziman --api builtins' lists the ones that need no 'use', and 'ziman --api <module>' a "
+                    "module's own",
+                    member, member);
+    }
     ziman_error("syntax", line, col,
                 "Ziman has no methods, so '.%s(...)' cannot be called on the result of an expression -- a "
                 "function takes its receiver as an argument instead: bind the inner expression with "
@@ -957,7 +993,13 @@ void ziman_report_method_chain_call(const char *member, int line, int col) {
 
 void ziman_report_unknown_module_call(const char *qualifier, const char *member, int line, int col) {
     char hint[160];
-    method_call_hint(member, qualifier, hint, sizeof hint);
+    if (!method_call_hint(member, qualifier, hint, sizeof hint)) {
+        ziman_error("module", line, col,
+                    "'%s.%s(...)': '%s' is not an imported module, and Ziman has no methods -- a function takes "
+                    "its receiver as an argument instead, but there is no function named '%s': 'ziman --api "
+                    "builtins' lists the ones that need no 'use' (and if '%s' should be a module, add 'use %s')",
+                    qualifier, member, qualifier, member, qualifier, qualifier);
+    }
     ziman_error("module", line, col,
                 "'%s.%s(...)': '%s' is not an imported module, and Ziman has no methods -- if '%s' is a value, call a function on it instead, e.g. %s "
                 "(if '%s' should be a module, add 'use %s')",
@@ -1791,6 +1833,7 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
     prelude_mod->is_corelib = 1;
     resolve_cross_refs(&ldr, prelude_mod);
     ldr.prelude_mod = prelude_mod;
+    g_prelude_for_hints = prelude_mod;
 
     char *entry_source = read_all(entry_path);
     if (entry_source == NULL) {

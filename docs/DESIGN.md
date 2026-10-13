@@ -44,6 +44,7 @@ them against the code.
 - [R17: `--lint`](#r17---lint)
 - [Two silences the compiler no longer keeps (F85, F86, 2026-10-12)](#two-silences-the-compiler-no-longer-keeps-f85-f86-2026-10-12)
 - [`--api` prints doc comments, because a signature is not a behaviour (F89, 2026-10-12)](#--api-prints-doc-comments-because-a-signature-is-not-a-behaviour-f89-2026-10-12)
+- [The no-methods hint speaks only about functions that exist (F92, 2026-10-12)](#the-no-methods-hint-speaks-only-about-functions-that-exist-f92-2026-10-12)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
 - [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
@@ -3245,6 +3246,33 @@ and the prose comes from the same lexing of the same source, rather than a text 
 disagree with it. **Contiguity is the whole rule:** a `// ---------- section` banner is separated
 from the next declaration by a blank line, which is what keeps it out of that declaration's
 documentation, and `make api-check` asserts both halves of that.
+
+## The no-methods hint speaks only about functions that exist (F92, 2026-10-12)
+
+`p.to_string()` parses as a call into a module named `p`, and the usual reason is that the author
+reached for a method Ziman does not have -- so the diagnostic names the free-function form that does
+work. F28 gave that hint ten hand-written special cases (`to_string`→`str`, `lines`, `join`→
+`collections.join`, `sort`, `keys`, `values`, `reverse`, `sum`, ...) on a rule worth keeping: **a hint
+that names the wrong function is worse than one that names none**, because the reader spends a round
+finding out. Everything else fell back to `member(receiver, ...)` -- the call *form*, with the
+comment "not a claim that such a function exists", because the pass had no scope to look a name up
+in.
+
+**The variance wave showed what that costs when the form is read as a claim.** `a.iter()` was
+answered with `iter(a, ...)`; there is no `iter`; the run spent **194 compiler invocations** and
+concluded `Iter<T>` is "visible in the type system and unreachable from source" -- while
+`iter_of_array` exists, and round 3's `--api builtins` arm found it in one call.
+
+So the pass now has a scope: **the parsed prelude**, kept aside as the hint's own reference. That is
+the same source `--api builtins` prints from, and for the reason recorded there -- it is the only
+honest answer to "does this exist", where `BUILTINS_NO_NAMED_ARGS` is the subset taking no named
+arguments and would report `chars` as absent. When the prelude has the function, the form is named
+exactly as before, which keeps the common `s.trim()` case clean and is why this is **not** the
+blanket "if there is such a function" hedge this diagnostic had already carried and shed as noise.
+When the prelude does not have it, the message says so and points at `--api builtins`. While the
+prelude is itself being parsed the answer is *unknown* rather than *absent*, and the hint falls back
+to the old behaviour. Two fixtures, one per half: dropping the lookup fails the absent-name one and
+leaves the real-name one passing, which is what makes the pair a guard rather than a transcript.
 
 ## What the AI-first goal does and does not justify
 

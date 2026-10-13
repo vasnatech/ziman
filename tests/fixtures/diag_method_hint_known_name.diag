@@ -1,0 +1,5 @@
+# The other half: `trim` is a real prelude function, so the fallback still names the call form and
+# says nothing about absence. Dropping the prelude lookup makes both fixtures report the same
+# message, which is the regression this pair exists to catch.
+module 6:11 call a function on it instead, e.g. trim(s, ...)
+...

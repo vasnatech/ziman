@@ -1,0 +1,10 @@
+// F92, from the most expensive run of F91's variance wave: `a.iter()` was answered with
+// "e.g. iter(a, ...)" and there is no `iter`. That run spent 194 compiler invocations and concluded
+// `Iter<T>` was "unreachable from source", when `iter_of_array` exists. The hint now names the
+// absence when the name is not a prelude function, and still names the call form when it is -- the
+// quiet half below is what keeps this from becoming the hedge this file removed once already.
+fn main() {
+    val a = [1, 2]
+    val b = a.iter()
+    print(len(a))
+}

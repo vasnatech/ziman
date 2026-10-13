@@ -482,11 +482,19 @@ which is stronger evidence than the original instance gave:
 
 And one new, verified defect, from the run that cost the most (`32-iterator-take`, 194 invocations):
 **the no-methods message invents a function that does not exist.** `a.iter()` is answered with "call a
-function on it instead, e.g. `iter(a, ...)`" -- there is no `iter`. The message is not guessing
-blindly either, which is what makes it fixable: for `a.len()` it prints `len(a)`, with the right
-arity, so it already looks the name up and knows when it exists. That run concluded `Iter<T>` is
+function on it instead, e.g. `iter(a, ...)`" -- there is no `iter`. That run concluded `Iter<T>` is
 "visible in the type system and unreachable from source", while `iter_of_array` exists and round 3's
-arm A found it immediately through `--api builtins`. Filed rather than fixed here.
+arm A found it immediately through `--api builtins`.
+
+**One claim in the first write-up of this was wrong, and the fix is better for it.** I wrote that the
+message "already looks the name up", on the evidence that `a.len()` prints `len(a)` with the right
+arity. It does not: `len` is one of ten **hand-written special cases** that F28 added for exactly this
+reason -- naming a function that does not exist costs the reader a round -- and the fallback's own
+comment says the pass "has no scope to look the name up in". So the defect was real and my account of
+the mechanism was not. Fixed in F92 by giving it a scope to look in: the **parsed prelude**, which is
+the source `--api builtins` prints from and, as `main.c` records there, the only honest answer to
+"does this exist" (`BUILTINS_NO_NAMED_ARGS` is the subset taking no named arguments, so it would
+report `chars` as absent).
 
 ## What variance establishes, and what it does not
 

@@ -1,0 +1,7 @@
+// The other half of F92: when the function does exist, the hint still names the call form, which is
+// the common case (`s.trim()`) and the reason this file had already removed a blanket "if there is
+// such a function" hedge. `trim` is a real prelude function, so nothing here should mention absence.
+fn main() {
+    val s = " x "
+    print(s.trim())
+}

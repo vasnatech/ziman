@@ -1,0 +1,5 @@
+# The absence is named, and `--api builtins` pointed at, instead of a call that cannot work.
+# diag_method_hint_names_real_function covers the seven hand-mapped names from F28; this pair covers
+# the *fallback*, which those do not reach.
+module 8:13 there is no function named 'iter'
+...
