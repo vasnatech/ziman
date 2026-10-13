@@ -1947,6 +1947,51 @@ from source.
   `E`s in the same file -- the exact copy-paste-mismatch class this bound exists to
   rule out at compile time, not just tidy up.
 
+- **Interval notation for ranges: `[a..b]`, `(a..b)`, `[a..b)`, `(a..b]`.** Raised 2026-10-12 by
+  Menderes. **Undecided, and may well be declined** -- recorded so that both the option and its price
+  are on the record rather than rediscovered. The idea is that each end's bracket states its own
+  inclusivity, so a reader never has to know a convention: `[` and `]` include the endpoint, `(` and
+  `)` exclude it, and all four combinations are expressible. That is a real argument and the same one
+  that favours Kotlin's `until` over a bare `..`: self-documenting beats diagnosed.
+
+  **What exists, and why this is not urgent.** `a..b` is exclusive of `b` and always has been;
+  `docs/SYNTAX.md` has said so in those words throughout, and F93 put the semantics into three
+  diagnostics -- including the stray-semicolon message that 30 of 50 cold attempts hit, which is the
+  widest-reach sentence in the compiler. `..=` is refused with a message naming the exclusive end.
+  Critically, **the measured failure was confusion, not absence**: across rounds 1-4 and the variance
+  wave, four runs avoided ranges rather than risk an off-by-one, and *not one ever needed an inclusive
+  range*. So `[a..b)` would respell something that works, and `[a..b]` would add a form nobody has yet
+  reached for.
+
+  **What the design pass has to weigh, all of it measured rather than supposed:**
+  - **`[` already means two things** -- array literal and index -- and `[a..b]` collides with a third
+    the language should keep in reserve: `xs[0..2]` is a clean `expected ']', found '..'` today, and
+    is the natural spelling for a slice, which Ziman has only as the function `slice<T>`. Spending
+    `[a..b]` on a range *value* forecloses that.
+  - **`(` already means grouping and an argument list**, so `(a..b)` reads as a parenthesised
+    expression to both a parser and a person.
+  - **`[a..b)` and `(a..b]` do not nest.** Delimiter matching is an invariant the formatter's
+    continuation indent (F72) and the TextMate grammar both rely on, and every editor's bracket
+    matcher assumes it.
+  - **The generation cost is the largest of any syntax change yet proposed.** No cold run has ever
+    written interval notation; agents write `0..n`, and `..=` appeared in 1 of 50 attempts. Ranges sit
+    in the most common construct in the language -- **235 `for ... in a..b` sites** across `lib/`, the
+    examples, the benchmark references, the tests and the reference backend -- so this would make the
+    training reflex fail on essentially every counted loop. Compare the `variadic` keyword decision,
+    whose blast radius is a handful of declarations.
+  - **Migration** is those 235 sites plus the grammar, the formatter, the pinned-message fixtures and
+    `SYNTAX.md`.
+
+  **Cheaper answers if inclusivity turns out to be the real want**, in order of cost: accept `..=`
+  (matches the one measured habit, matches Rust, and F93's message already names the concept, so the
+  change is small), or a word -- `a to b` -- if self-documentation is the goal. Both leave `[` and `(`
+  alone.
+
+  **Reopen on any of:** a run that writes an off-by-one `+ 1` and gets it wrong; a run that reaches for
+  an inclusive end and cannot express it; or slicing landing as `xs[a..b]`, which would settle
+  `[a..b]`'s fate by taking the syntax. Absent one of those, the F93 diagnostics are the cheaper half
+  of this idea and are already shipped.
+
 ## Explicitly out of scope for now (see DESIGN.md "Non-goals")
 
 - Tree-native/structural source of truth — Ziman's source of truth is
