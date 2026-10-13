@@ -22,6 +22,7 @@ Rules. These exist because this is a measurement of what a model produces cold, 
 - Read **no** other file. Do not search the filesystem. Do not look for Ziman source code, documentation, examples, tests, a standard library, or any other task. Do not read anything under any `ziman` directory.
 - Do not run any compiler or interpreter. Do not run a `ziman` binary. Do not use Bash at all.
 - Guess the language from what the task needs. Write the program you believe is correct — no placeholders, no TODOs, no comments hedging about uncertainty, no alternative versions.
+- **Print exactly what the task asks for and nothing else**: no labels, headings, banners or extra lines that the task does not ask for, and no decoration added to a message the task gives you.
 - Write your single best attempt, complete and self-contained, to:
   `<staging>/attempts/round1/<task>.zm`
 - Do not ask questions; no one can answer them.
@@ -52,9 +53,29 @@ Same task, a fresh agent, allowed `ziman --check` and nothing else. Four rules t
 - **Pre-register each task's grading flexibility** before the run, not after a judgement call.
 - **The repository stays closed in round 2 as well.** `--api` is a separate, third condition; mixing
   it in measures the flag rather than the diagnostics.
+- **The same "print exactly what is asked and nothing else" line as round 1.** The grader is byte-exact
+  and the tasks' prose is not always, which is the whole of F85's and F90's grading noise.
 
 ## What a wave is for
 
 The score is not the product. **The habit table and the first-error texts are.** F50 and F51 both
 came out of reading attempt files from a wave that scored 10 of 10 -- a result that on its own says
 "nothing to fix" while three real diagnostic defects sat in the attempts.
+
+## The grading rule lives here, not in fifty prompts (F90)
+
+Both rounds' prompts carry one line: **print exactly what the task asks for and nothing else.** It is
+in the protocol rather than in each task because the grader is byte-exact for every task, so the
+constraint is a property of the measurement and not of any one requirement.
+
+This was learned twice. F85 found five tasks whose `expected.txt` was stricter than their prose and
+pinned those five -- and the sweep behind it was **incomplete in one direction**: it asked "does the
+expected output contain wording the prompt never gave?" and never asked the inverse, "does the prompt
+allow output the expected does not have?". F90 then found two more of exactly that inverse shape, and
+found them only because fixing an unrelated defect unmasked them: `18-money-decimal` says "prints the
+total" where the expected output is the total alone, and in round 2 that ambiguity was hidden behind
+the `${}` bug that made the task fail for a different reason. One line in the protocol closes the
+class that fifty prose edits would only keep chasing.
+
+**Results before and after this line are not comparable on correctness**, which is the same caveat
+F85 earned: the compile rate is unaffected, the correct rate is measured against a stricter brief.

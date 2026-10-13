@@ -70,6 +70,12 @@ docs/reviews/benchmark/run.sh <attempts-dir> [ziman-binary]
 with no attempt counts as **missing** rather than being skipped quietly, so a half-finished run
 cannot score like a complete one.
 
+**The grader is byte-exact, and the tasks' prose is not**, so whoever is being measured has to be
+told that: the run prompt carries one line, "print exactly what the task asks for and nothing else".
+Without it a program that prints `Total: 25.50` for a task asking it to "print the total" scores as
+wrong, which is the instrument's fault and not the model's -- seven tasks across F85 and F90 were
+scored that way before the line existed.
+
 Two numbers come out and they answer different questions. **compiles** is `ziman --check`: did the
 model write Ziman the compiler accepts. **correct** is stdout against `expected.txt`: did it answer
 the question. The earlier waves found these diverge sharply, so neither number means much alone.

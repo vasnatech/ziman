@@ -1,0 +1,5 @@
+# The wording is the point here, so both substrings are asserted: each names a form that was
+# verified to work (`19.99d`, `5n`, and `as` for a float already in hand). `5.0n` is rejected by the
+# lexer, which is why no message suggests it.
+type 6:22 a decimal literal is written with a 'd' suffix, as '19.99d'
+...

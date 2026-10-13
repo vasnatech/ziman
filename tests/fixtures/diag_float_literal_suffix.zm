@@ -1,0 +1,9 @@
+// Round 4 of the 2026-10-12 benchmark hit this asymmetry twice, in two separate runs of
+// 18-money-decimal: `val x: decimal = 19.99` is the natural wrong attempt for that task and got a
+// bare type mismatch, while `= 1` got the suffix spelled out. One agent reported finding `19.99d`
+// only by carrying the suffix over from the int message. Both paths now say it.
+fn main() {
+    val a: decimal = 19.99
+    val b: bigint = 5.0
+    print(1)
+}

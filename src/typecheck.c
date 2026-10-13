@@ -3861,6 +3861,30 @@ static void init_mismatch(const char *name, Type declared, Type actual, int line
      * `1d`, `1b`. Found by the F28 validation run -- the one step in it the compiler did not
      * direct was guessing `1n`, after `bigint(1)` was rejected too (there is no conversion-call
      * form). Worth saying here, because this is the message a reader actually meets. */
+    /* The same courtesy for a `float` where `decimal` or `bigint` is declared, which the int branch
+     * below had and this did not. Round 4 of the 2026-10-12 benchmark found the asymmetry twice, in
+     * two different runs of 18-money-decimal: `val x: decimal = 19.99` is the *natural* wrong
+     * attempt for that task, and it got a bare mismatch, while `= 1` got the suffix spelled out. One
+     * agent said so outright -- it found `19.99d` only by carrying the suffix over from the int
+     * path. Forms named here are the ones verified to work: `19.99d`, `5n`, and `as` for a float
+     * already in hand (`5.0n` is rejected, so it is deliberately not suggested). */
+    if (actual.kind == TY_FLOAT && (declared.kind == TY_DECIMAL || declared.kind == TY_BIGINT)) {
+        if (declared.kind == TY_DECIMAL) {
+            ziman_error("type", line, col,
+                        "cannot initialize '%s' of declared type decimal with a value of type float -- a decimal "
+                        "literal is written with a 'd' suffix, as '19.99d'; to convert a float you already have, "
+                        "write 'as decimal'", name);
+        }
+        /* Guarded rather than left to fall through: ziman_error does not return, so the branch
+         * above already ends the function, and an explicit condition keeps that from being
+         * something the next reader has to work out. */
+        if (declared.kind == TY_BIGINT) {
+            ziman_error("type", line, col,
+                        "cannot initialize '%s' of declared type bigint with a value of type float -- a bigint has no "
+                        "fractional part, so its literal is a whole number with an 'n' suffix, as '5n'; to convert a "
+                        "float you already have, write 'as bigint'", name);
+        }
+    }
     if (actual.kind == TY_INT) {
         const char *suffix = declared.kind == TY_BIGINT ? "n" : (declared.kind == TY_DECIMAL ? "d" : (declared.kind == TY_BYTE ? "b" : NULL));
         if (suffix != NULL) {
