@@ -33,7 +33,7 @@ fn double(n: int) -> int {
     return n * 2
 }
 
-fn variadic_sum<T>(items: T...) -> int {
+fn variadic_sum<T>(items: variadic T) -> int {
     return len(items)
 }
 

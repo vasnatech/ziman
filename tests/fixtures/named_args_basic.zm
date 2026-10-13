@@ -10,7 +10,7 @@ fn identity<T>(value: T) -> T {
     return value
 }
 
-fn labeled_join(prefix: string, pieces: string...) -> string {
+fn labeled_join(prefix: string, pieces: variadic string) -> string {
     return concat(prefix, join(pieces: pieces))
 }
 

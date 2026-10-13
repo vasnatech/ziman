@@ -64,7 +64,8 @@ init = request("initialize", {"processId": None, "rootUri": "file://" + tmp, "ca
 check("initialize advertises capabilities", init["result"]["capabilities"]["definitionProvider"])
 notify("initialized", {})
 
-util_src = 'pub struct Point {\n    x: int\n    y: int\n}\n\npub fn double(n: int) -> int {\n    return n * 2\n}\n'
+util_src = ('pub struct Point {\n    x: int\n    y: int\n}\n\npub fn double(n: int) -> int {\n    return n * 2\n}\n'
+            '\npub fn total(ns: variadic int) -> int {\n    var sum = 0\n    for n in ns { sum = sum + n }\n    return sum\n}\n')
 main_bad = 'use util\n\nfn main() {\n    val a: int = "no"\n    print(util.double(a))\n    print(missing)\n}\n'
 notify("textDocument/didOpen", {"textDocument": {"uri": util_uri, "languageId": "ziman", "version": 1, "text": util_src}})
 diagnostics_for(util_uri)
@@ -73,7 +74,7 @@ d = diagnostics_for(main_uri)
 check("two errors reported at once", len(d) == 2, d)
 check("first error on line 4", d and d[0]["range"]["start"]["line"] == 3, d)
 
-main_ok = 'use util\n\nfn main() {\n    val a = 21\n    print(util.double(a))\n}\n'
+main_ok = 'use util\n\nfn main() {\n    val a = 21\n    print(util.double(a))\n    print(util.total(1, 2))\n}\n'
 notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 2}, "contentChanges": [{"text": main_ok}]})
 check("fixing the buffer clears diagnostics", diagnostics_for(main_uri) == [])
 
@@ -83,9 +84,16 @@ check("go to definition crosses files", r["result"] and r["result"]["uri"] == ut
 r = request("textDocument/hover", {"textDocument": {"uri": main_uri}, "position": {"line": 4, "character": 16}})
 check("hover shows the signature", r["result"] and "fn double(n: int) -> int" in r["result"]["contents"]["value"], r)
 
+# The keyword, not the `...` this rendered until 2026-10-12 (docs/reviews/tasks.md F94). Hover is
+# how the editor answers "what does a caller write here", which for a variadic parameter is the one
+# thing its declared (element) type does not say.
+r = request("textDocument/hover", {"textDocument": {"uri": main_uri}, "position": {"line": 5, "character": 16}})
+check("hover spells a variadic parameter with the keyword",
+      r["result"] and "fn total(ns: variadic int) -> int" in r["result"]["contents"]["value"], r)
+
 r = request("textDocument/documentSymbol", {"textDocument": {"uri": util_uri}})
 names = sorted(s["name"] for s in r["result"])
-check("document symbols", names == ["Point", "double"], names)
+check("document symbols", names == ["Point", "double", "total"], names)
 
 r = request("textDocument/completion", {"textDocument": {"uri": main_uri}, "position": {"line": 4, "character": 15}})
 labels = [i["label"] for i in r["result"]["items"]]

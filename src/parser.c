@@ -447,8 +447,8 @@ static CallArgs parse_call_args(Parser *p, TokenType stop) {
             p->tokens.items[p->pos + 1].type == TOK_DOT) {
             ziman_error("syntax", cur(p)->line, cur(p)->col,
                         "there is no '...' spread in a call, and none is needed: a variadic parameter takes an "
-                        "array directly, so write 'f(args)', not 'f(args...)' ('...' marks a parameter variadic "
-                        "where it is declared, not an argument where it is passed)");
+                        "array directly, so write 'f(args)', not 'f(args...)' (a parameter is marked variadic "
+                        "where it is declared, with the 'variadic' keyword, not at the call)");
         }
         if (is_named) {
             result.names = ziman_xrealloc(result.names, (size_t)result.args.count * sizeof(char *));
@@ -1909,12 +1909,11 @@ static char *param_default_key(const char *param_name, int name_len) {
     return key;
 }
 
-/* A trailing `...` after a parameter's type marks it variadic --
- * lexed as an ordinary `TOK_DOTDOT` (the same token a for-loop range's
- * `..` already produces) immediately followed by a `TOK_DOT`, rather
- * than a dedicated token: no lexer change needed, and the two can
- * never be confused, since a range's `..` only ever appears in a
- * `for x in start..end` header, a position this never overlaps with.
+/* `variadic` before the last parameter's type marks it variadic (`xs:
+ * variadic int`). It was a trailing `...` on the type until 2026-10-12
+ * (docs/DESIGN.md's two variadic entries carry the reversal); both of
+ * that spelling's forms are still recognised here, only to be refused
+ * with the keyword spelled out -- see reject_ellipsis_variadic.
  * Only the last parameter may be variadic -- checked here, not left
  * for typecheck to catch later, since it's a purely syntactic rule
  * (nothing about types or scope is involved). A trailing `= expr`
@@ -1923,6 +1922,24 @@ static char *param_default_key(const char *param_name, int name_len) {
  * parameters, since that's a type-level rule, not a syntactic one),
  * except a variadic parameter, rejected right here since the two can
  * never combine meaningfully. */
+/* `xs: int...` (Ziman's own spelling until 2026-10-12) and `xs: ...int` (Go's,
+ * and what one cold round-1 attempt wrote), both recognised so that either can
+ * be answered with the keyword rather than with `expected ')', found '..'` --
+ * the same reason the `f(args...)` spread is recognised in parse_call_args.
+ * Lexed as a `TOK_DOTDOT` (a for-loop range's `..`) immediately followed by a
+ * `TOK_DOT`, since neither ever appears in a parameter list for any other
+ * reason. Consumes the `...` so the caller can parse the type and name it back
+ * in the message. */
+static int eat_ellipsis(Parser *p) {
+    if (!check(p, TOK_DOTDOT) || p->pos + 1 >= p->tokens.count ||
+        p->tokens.items[p->pos + 1].type != TOK_DOT) {
+        return 0;
+    }
+    advance_tok(p); /* '..' */
+    advance_tok(p); /* '.'  */
+    return 1;
+}
+
 static ParamList parse_params(Parser *p) {
     ParamList params = {0};
     if (!check(p, TOK_RPAREN)) {
@@ -1930,16 +1947,14 @@ static ParamList parse_params(Parser *p) {
             Token *param_name = expect(p, TOK_IDENT, "a parameter name");
             require_lower_start(param_name, "a parameter name");
             expect(p, TOK_COLON, "':'");
+            int ellipsis_prefix = eat_ellipsis(p);
+            int is_variadic = match(p, TOK_VARIADIC);
             Type param_type = parse_type(p);
-            int is_variadic = 0;
-            if (check(p, TOK_DOTDOT)) {
-                int saved_pos = p->pos;
-                advance_tok(p); /* '..' */
-                if (match(p, TOK_DOT)) {
-                    is_variadic = 1;
-                } else {
-                    p->pos = saved_pos; /* not '...' after all -- leave it */
-                }
+            if (ellipsis_prefix || (!is_variadic && eat_ellipsis(p))) {
+                ziman_error("syntax", param_name->line, param_name->col,
+                            "'...' does not mark a parameter variadic -- the keyword does, before the type: "
+                            "'%s: variadic %s'",
+                            dup_token_text(param_name), type_name(param_type));
             }
             Expr *default_expr = NULL;
             char *default_key = NULL;
@@ -1955,7 +1970,7 @@ static ParamList parse_params(Parser *p) {
             skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
             if (is_variadic) {
-                ziman_error("syntax", param.line, param.col, "a variadic parameter ('...') must be the last parameter");
+                ziman_error("syntax", param.line, param.col, "a variadic parameter must be the last parameter");
             }
             skip_newlines(p);
         }

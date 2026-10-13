@@ -1,4 +1,4 @@
-fn bad(a: int..., b: string) -> int {
+fn bad(a: variadic int, b: string) -> int {
     return 0
 }
 

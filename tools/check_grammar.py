@@ -33,6 +33,7 @@ CASES = [
     ("pub fn f() {", "pub", "storage.modifier"),
     ("internal fn f() {", "internal", "storage.modifier"),
     ("native fn f()", "native", "storage.modifier"),
+    ("fn f(xs: variadic int) {", "variadic", "storage.modifier"),
     ("    val x = 1", "val", "storage.modifier.immutable"),
     ("    var y = 2", "var", "storage.modifier.mutable"),
     # attributes, both forms (F75)

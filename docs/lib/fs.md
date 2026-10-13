@@ -267,7 +267,7 @@ pub fn copy_file(from: string, to: string) -> Result<int, FsError>
 ### `path_join`
 
 ```
-pub fn path_join(pieces: string...) -> string
+pub fn path_join(pieces: variadic string) -> string
 ```
 
 Joins path pieces with single slashes: `path_join("a/", "/b", "c.txt")` is "a/b/c.txt". A

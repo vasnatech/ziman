@@ -68,10 +68,10 @@ enum_decl      := "enum" TYPE_IDENT "{" NEWLINE* { variant NEWLINE* } "}"
 variant        := TYPE_IDENT [ "(" type ")" ]     (* zero or one payload;
                     see "Enums" for why never more than one *)
 param_list     := param { "," param }
-param          := IDENT ":" type [ "..." ]
-                    (* the trailing "..." marks a variadic parameter, only
-                       legal on the last param in the list -- see
-                       "Functions" -- "Variadic parameters" below *)
+param          := IDENT ":" [ "variadic" ] type
+                    (* "variadic" marks a variadic parameter, only legal on
+                       the last param in the list -- see "Functions" --
+                       "Variadic parameters" below *)
 type           := "int" | "float" | "bool" | "string" | "[" type "]"
                  | TYPE_IDENT | IDENT "." TYPE_IDENT   (* qualifier.Type *)
                  | "Result" "<" type "," type ">"      (* Result<Ok, Err> *)
@@ -543,7 +543,7 @@ fn main() {
 ### Variadic parameters
 
 ```ziman
-fn sum(nums: int...) -> int {
+fn sum(nums: variadic int) -> int {
     var total = 0
     for n in nums { total = total + n }
     return total
@@ -556,17 +556,19 @@ fn main() {
 }
 ```
 
-- **A trailing `...` on the last parameter's type marks it variadic** — a caller supplies zero
+- **`variadic` before the last parameter's type marks it variadic** — a caller supplies zero
   or more individually-listed arguments of that element type instead of exactly one. Only the
   last parameter may be variadic (it has to absorb everything after it).
-- **Inside the function it's an ordinary array** of the declared element type (`nums: int...`
+- **Inside the function it's an ordinary array** of the declared element type (`nums: variadic int`
   behaves as `nums: [int]`) — the signature shows the element type only, for the caller's sake.
 - **An already-built array works as the sole trailing argument** (`sum(nums)`), decided purely
   by that argument's static type (`int` vs `[int]`, never ambiguous) — only when there's
   exactly one trailing argument; two or more are always individual elements, and there's no
   syntax to spread an array alongside other listed arguments (`sum(1, 2, nums)` doesn't merge).
-- Lexed as an ordinary `..` immediately followed by `.` — no ambiguity with a range, since a
-  range's `..` never appears in a parameter list.
+- **A trailing `...` on the type was the spelling until 2026-10-12**, and both it and Go's
+  `...int` prefix are now syntax errors that name the keyword form instead. `...` means nothing
+  anywhere in Ziman — not at a declaration, and not at a call (`f(args...)`, which a variadic
+  parameter never needed: it takes an array directly).
 
 ### Named arguments
 
@@ -2429,7 +2431,7 @@ a type error.
   stdout. A `float` displays as the shortest decimal text that reads back exactly, always with
   a `.` or `e` (`1.0`, never bare `1`); plain notation from `1e-7` to `1e21`, scientific outside
   that. `format`'s `{}` displays a `float` the same way.
-- `concat(pieces: string...) -> string` — every piece joined with no separator (`""` for zero
+- `concat(pieces: variadic string) -> string` — every piece joined with no separator (`""` for zero
   pieces); no auto-stringify (use `str` first), same anti-implicit-coercion reasoning as `+`.
   `join` adds a separator/prefix/suffix; a `StringBuilder` avoids `concat`'s own O(n) recopy
   when building one piece at a time in a loop (`--lint` flags `x = concat(x, ..)` there).
@@ -2464,7 +2466,7 @@ a type error.
 - `slice<T>(a, start, end) -> [T]` — elements `[start, end)`, same bounds rule as `substring`.
   Does not copy (shares the original's storage, like `substring`); `push`/`insert`/`set` on
   either build a new array, so neither changes under the other.
-- `concat_arrays<T>(parts: [T]...) -> [T]` — one array from many in a single allocation
+- `concat_arrays<T>(parts: variadic [T]) -> [T]` — one array from many in a single allocation
   (`concat_arrays<int>(a, b)` or `concat_arrays<int>(parts: arrays)`; an empty `[]` literal
   can't be inferred as a variadic argument -- pass a typed `val`).
 - `char_at(s, i) -> string` — the one-byte string at `i` (`0 <= i < len(s)`, else runtime error).
@@ -2512,8 +2514,8 @@ a type error.
   found (doesn't equal itself). Not cryptographic, not stable across language versions --
   never persist a hash, use it only within one program run.
 - `abs(x: T) -> T` — `T` is `int`/`float`/`bigint`/`decimal`, not `byte`.
-- `min(items: T...) -> T` / `max(items: T...) -> T` — variadic and `Ord`-bounded like
-  `compare`/`sort`: two-or-more arguments or one array (the `T...` convention); at least one
+- `min(items: variadic T) -> T` / `max(items: variadic T) -> T` — variadic and `Ord`-bounded like
+  `compare`/`sort`: two-or-more arguments or one array (the `variadic T` convention); at least one
   value required (`min()` is a compile error, an empty array a runtime one); every argument the
   same `T`, no implicit mixing.
 - Rounding (`floor`/`ceil`/`round`, `decimal_round`/`_floor`/`_ceil`) and `decimal_pow` live in

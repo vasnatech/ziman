@@ -1,4 +1,4 @@
-fn foo(pieces: string... = "x") -> string {
+fn foo(pieces: variadic string = "x") -> string {
     return ""
 }
 

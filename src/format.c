@@ -126,7 +126,7 @@ static int word_is(const Item *t, const char *w) {
 }
 
 static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while", "for", "in", "break", "continue", "spawn", "defer", "try",
-                                       "switch", "return", "as", "struct", "enum", "with", "pub", "use", "native"};
+                                       "switch", "return", "as", "struct", "enum", "with", "pub", "use", "native", "variadic"};
 
 static int is_keyword(const Item *t) {
     if (t->kind != K_WORD) return 0;
@@ -162,8 +162,6 @@ static int need_space(const Item *p, const Item *c, const Item *pp, int in_use_l
     /* two operator characters written together (`++`, `=-`) stay together, so a
      * formatter never turns one token pair into another */
     if (!orig && is_op_char(p) && is_op_char(c)) return 0;
-    /* `string...` (a variadic type) ends in '.', but what follows it is not a member name */
-    if (is(p, ".") && pp != NULL && is(pp, "..") ) return !is(c, ")") && !is(c, ",");
     /* nothing before these */
     if (is(c, ",") || is(c, ")") || is(c, "]") || is(c, ":") || is(c, ".") || is(c, "..")) return 0;
     if (is(p, "(") || is(p, "[") || is(p, ".") || is(p, "..") || is(p, "#") || is(p, "!")) return 0;

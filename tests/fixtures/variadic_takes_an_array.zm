@@ -1,7 +1,7 @@
 // The other half of F53, and the reason its diagnostic can say "none is needed": a variadic
 // parameter accepts an array, loose arguments, or nothing at all, and forwarding one to another
 // variadic is just passing it along.
-fn total(ns: int...) -> int {
+fn total(ns: variadic int) -> int {
     var sum = 0
     for n in ns {
         sum = sum + n
@@ -9,7 +9,7 @@ fn total(ns: int...) -> int {
     return sum
 }
 
-fn forward(ns: int...) -> int {
+fn forward(ns: variadic int) -> int {
     return total(ns)
 }
 

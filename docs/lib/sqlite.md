@@ -72,7 +72,7 @@ is closed when it is garbage collected, but a file database stays locked until t
 ### `execute`
 
 ```
-pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError>
+pub fn execute(conn: Connection, sql: string, params: variadic SqlValue) -> Result<int, DbError>
 ```
 
 Runs a statement, or a `;`-separated script of them, and returns the rows the last statement
@@ -81,7 +81,7 @@ changed. `params` bind to the `?` placeholders.
 ### `query`
 
 ```
-pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError>
+pub fn query(conn: Connection, sql: string, params: variadic SqlValue) -> Result<[Row], DbError>
 ```
 
 Runs a statement and returns its rows; `params` bind to the `?` placeholders.
@@ -89,7 +89,7 @@ Runs a statement and returns its rows; `params` bind to the `?` placeholders.
 ### `rows`
 
 ```
-pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Iter<Result<Row, DbError>>, DbError>
 ```
 
 Runs a statement and returns its rows lazily, one at a time as a `for` loop asks for them, so a

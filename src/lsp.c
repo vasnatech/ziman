@@ -771,7 +771,7 @@ static char *fn_signature(const FunctionDecl *fn) {
     sb_puts(&b, "(");
     for (int i = 0; i < fn->params.count; i++) {
         if (i > 0) sb_puts(&b, ", ");
-        sb_printf(&b, "%s: %s%s", fn->params.items[i].name, type_text(fn->params.items[i].type), fn->params.items[i].is_variadic ? "..." : "");
+        sb_printf(&b, "%s: %s%s", fn->params.items[i].name, fn->params.items[i].is_variadic ? "variadic " : "", type_text(fn->params.items[i].type));
     }
     sb_puts(&b, ")");
     if (fn->return_type.kind != TY_VOID) sb_printf(&b, " -> %s", type_text(fn->return_type));
@@ -1404,7 +1404,7 @@ static void handle_document_symbol(const JVal *id, const JVal *params) {
 }
 
 static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while", "for", "in", "break", "continue", "spawn", "defer", "try", "switch",
-                                       "return", "true", "false", "unit", "as", "struct", "enum", "with", "pub", "use", "native", "Result", "Channel", "Map", "Set",
+                                       "return", "true", "false", "unit", "as", "struct", "enum", "with", "pub", "use", "native", "variadic", "Result", "Channel", "Map", "Set",
                                        "int", "float", "bool", "string", "bigint", "decimal", "byte", "unit"};
 static const char *const BUILTINS[] = {"print", "printf", "format", "str", "len", "push", "insert", "set", "remove", "contains", "hash", "compare",
                                        "abs", "min", "max", "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "channel_new", "send", "receive",

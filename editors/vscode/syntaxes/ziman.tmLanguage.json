@@ -131,9 +131,9 @@
           "match": "\\b(with)\\b"
         },
         {
-          "comment": "All three visibility levels. `internal` was missing, so one of exactly three was invisible; it is a soft keyword, so `val internal = 1` miscolours it -- the same trade the grammar already accepts for `unit` (docs/reviews/tasks.md F75).",
+          "comment": "All three visibility levels, plus `variadic`, which modifies a parameter's type (`xs: variadic int`) rather than a declaration but belongs to the same family and is a hard keyword, so unlike `internal` it cannot be miscoloured. `internal` was missing, so one of exactly three was invisible; it is a soft keyword, so `val internal = 1` miscolours it -- the same trade the grammar already accepts for `unit` (docs/reviews/tasks.md F75).",
           "name": "storage.modifier.ziman",
-          "match": "\\b(pub|internal|native)\\b"
+          "match": "\\b(pub|internal|native|variadic)\\b"
         },
         {
           "comment": "val and var are separate scopes so a theme can tell them apart. They differ by one character and that character flips mutability, which DESIGN.md's own \"val/var differ by one character\" entry names as a hazard and names colour as the answer; sharing one scope made that impossible. A use site still has no scope -- that needs semantic tokens (docs/reviews/tasks.md F76).",

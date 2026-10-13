@@ -52,7 +52,7 @@ native fn format_dynamic(template: string, args: [string]) -> Result<string, str
 // pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over
 // a loop, a `StringBuilder` (a fresh `concat` on every iteration copies everything so far, same
 // quadratic cost `--lint` already flags for `x = concat(x, ..)`).
-native fn concat(pieces: string...) -> string
+native fn concat(pieces: variadic string) -> string
 
 // The UTF-8 bytes of `s`.
 native fn string_to_bytes(s: string) -> [byte]
@@ -65,7 +65,7 @@ native fn string_to_bytes(s: string) -> [byte]
 native fn bytes_to_string(b: [byte]) -> Result<string, string>
 
 // Any number of byte arrays joined into one, in a single pass.
-fn bytes_concat(parts: [byte]...) -> [byte] {
+fn bytes_concat(parts: variadic [byte]) -> [byte] {
     return concat_arrays<byte>(parts: parts)
 }
 
@@ -154,7 +154,12 @@ native fn to_lower(s: string) -> string
 // the pieces, and `prefix` and `suffix` around the whole; each is optional in a named call:
 // `join(prefix: "[", suffix: "]", separator: ", ", pieces: arr)` is `[a, b, c]`. Written as a
 // native so that joining N strings is O(N), where adding them with `concat` one at a time is not.
-native fn join(prefix: Option<string>, suffix: Option<string>, separator: Option<string>, pieces: string...) -> string
+native fn join(
+    prefix: Option<string>,
+    suffix: Option<string>,
+    separator: Option<string>,
+    pieces: variadic string
+) -> string
 
 // Splits `s` at the FIRST `sep`: Some([before, after]), or None when `sep` is not in `s`. The
 // right tool for `key=value`, `host:port` and similar, where the value may itself contain the
@@ -214,13 +219,13 @@ native fn sb_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -
 
 // Appends each of `pieces`, given one by one or as an array. The builder changes in place and
 // nothing is returned.
-native fn sb_append(sb: StringBuilder, pieces: string...)
+native fn sb_append(sb: StringBuilder, pieces: variadic string)
 
 // Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
 // `sb_append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
 // is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
 // their own.
-native fn sb_append_byte(sb: StringBuilder, b: byte...) -> bool
+native fn sb_append_byte(sb: StringBuilder, b: variadic byte) -> bool
 
 // The text appended so far, as an ordinary string. It is a copy: appending afterwards is fine,
 // and it can be called more than once. (`str(sb)` would print the struct, not the text.)
@@ -241,7 +246,7 @@ struct ArrayBuilder<T> {
 
 // One array from many, in a single allocation: `concat_arrays<int>(a, b, c)` or
 // `concat_arrays<int>(parts: arrays)`. The array counterpart of `join`.
-native fn concat_arrays<T>(parts: [T]...) -> [T]
+native fn concat_arrays<T>(parts: variadic [T]) -> [T]
 
 // The elements of `a` from `start` up to, not including, `end` (`0 <= start <= end <= len(a)`, a
 // runtime error otherwise). It does not copy: arrays are immutable, so the result shares `a`'s
@@ -252,7 +257,7 @@ native fn slice<T>(a: [T], start: int, end: int) -> [T]
 native fn ab_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> ArrayBuilder<T>
 
 // Appends each of `pieces`, given one by one or as an array. The builder changes in place.
-native fn ab_append<T>(ab: ArrayBuilder<T>, pieces: T...)
+native fn ab_append<T>(ab: ArrayBuilder<T>, pieces: variadic T)
 
 // The elements appended so far, as an ordinary array. It is a copy: appending afterwards is
 // fine, and it can be called more than once.

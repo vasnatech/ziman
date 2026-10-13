@@ -147,7 +147,7 @@ forever; `defer datasource.release(...)` is what prevents that.
 ### `execute`
 
 ```
-pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError>
+pub fn execute(conn: Connection, sql: string, params: variadic SqlValue) -> Result<int, DbError>
 ```
 
 Runs a statement (or, for DDL, a `;`-separated script) and returns the
@@ -156,7 +156,7 @@ number of rows the last statement changed.
 ### `query`
 
 ```
-pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError>
+pub fn query(conn: Connection, sql: string, params: variadic SqlValue) -> Result<[Row], DbError>
 ```
 
 Runs a query and returns its rows, each a `db.Row`; `params` are bound to the placeholders
@@ -165,7 +165,7 @@ Runs a query and returns its rows, each a `db.Row`; `params` are bound to the pl
 ### `rows`
 
 ```
-pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError>
+pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Iter<Result<Row, DbError>>, DbError>
 ```
 
 Runs a query and returns its rows lazily, one at a time as a `for` loop asks for them:
@@ -193,7 +193,7 @@ failing to run.
 ### `query_one`
 
 ```
-pub fn query_one(conn: Connection, sql: string, params: SqlValue...) -> Result<Option<Row>, DbError>
+pub fn query_one(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Option<Row>, DbError>
 ```
 
 The common lookup-by-key shape: the first row, or None. It runs `sql` as written and keeps the first

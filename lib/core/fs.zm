@@ -334,7 +334,7 @@ pub fn copy_file(from: string, to: string) -> Result<int, FsError> {
 
 // Joins path pieces with single slashes: `path_join("a/", "/b", "c.txt")` is "a/b/c.txt". A
 // piece that starts with "/" after the first one is treated as relative, not as a new root.
-pub fn path_join(pieces: string...) -> string {
+pub fn path_join(pieces: variadic string) -> string {
     val out = sb_new()
     var first = true
     // Whether what has been appended so far ends in "/", tracked rather than rediscovered. This

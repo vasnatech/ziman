@@ -1,0 +1,17 @@
+// A trailing `...` on the type was Ziman's own spelling for a variadic parameter until 2026-10-12,
+// when it became the `variadic` keyword (docs/DESIGN.md, two entries). Every benchmark attempt on
+// 2026-10-12 that declared one wrote the suffix, and one round-1 attempt wrote Go's prefix form
+// instead, so both are still recognised here -- only to be answered with the keyword spelled out,
+// rather than with `expected ')', found '..'` several characters from the real question. The same
+// reason `f(args...)` is recognised in a call (diag_spread_in_call).
+fn total(ns: int...) -> int {
+    return 0
+}
+
+fn also_total(ns: ...int) -> int {
+    return 0
+}
+
+fn main() {
+    print(total(1, 2))
+}

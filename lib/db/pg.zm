@@ -826,12 +826,12 @@ fn run(conn: Connection, sql: string, params: [SqlValue]) -> Result<QueryResult,
 }
 
 // The number of rows the last statement changed.
-pub fn execute(conn: Connection, sql: string, params: SqlValue...) -> Result<int, DbError> {
+pub fn execute(conn: Connection, sql: string, params: variadic SqlValue) -> Result<int, DbError> {
     return (try run(conn, sql, params)).affected
 }
 
 // Runs a statement and returns its rows.
-pub fn query(conn: Connection, sql: string, params: SqlValue...) -> Result<[Row], DbError> {
+pub fn query(conn: Connection, sql: string, params: variadic SqlValue) -> Result<[Row], DbError> {
     return (try run(conn, sql, params)).rows
 }
 
@@ -847,6 +847,6 @@ pub fn close(conn: Connection) {
 // connection carries no other statement until the cursor is read to the end, left early or closed
 // with `iter_close`: a statement sent meanwhile is an Err. A cursor dropped unfinished is ended when
 // it is garbage collected.
-pub fn rows(conn: Connection, sql: string, params: SqlValue...) -> Result<Iter<Result<Row, DbError>>, DbError> {
+pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Iter<Result<Row, DbError>>, DbError> {
     return open_rows(conn.requests, sql, params)
 }

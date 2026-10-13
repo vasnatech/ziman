@@ -221,7 +221,7 @@ fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
 lives in an auto-imported "prelude" module (`lib/prelude.zm`), each
 an ordinary `native fn` using the same mechanism the `fs` module uses to
 call into C. `join(prefix: Option<string>, suffix: Option<string>,
-separator: Option<string>, pieces: string...) -> string` is also the
+separator: Option<string>, pieces: variadic string) -> string` is also the
 first use of a *variadic parameter* — `join(pieces: "a", "b")`/
 `join(pieces: arr)` (an already-built `[string]`) both work for the
 trailing pieces, and it exists specifically so that joining many

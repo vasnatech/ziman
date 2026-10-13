@@ -164,6 +164,7 @@ static const Keyword KEYWORDS[] = {
     {"byte", TOK_KW_BYTE},
     {"struct", TOK_STRUCT}, {"enum", TOK_ENUM}, {"with", TOK_WITH},
     {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
+    {"variadic", TOK_VARIADIC},
     {"Result", TOK_RESULT}, {"Channel", TOK_CHANNEL}, {"Map", TOK_MAP}, {"Set", TOK_SET},
 };
 
@@ -473,7 +474,10 @@ TokenList lex(const char *source) {
                 if (peek(&lx) == '.') {
                     advance(&lx);
                     /* `a..=b` is the Rust inclusive range, and it is never valid here: `..` may be
-                     * followed by a third `.` (the variadic `xs: int...`) but never by `=`. Saying so
+                     * followed by a third `.` -- not because anything valid is spelled that way any
+                     * more (the variadic `xs: int...` became `xs: variadic int` on 2026-10-12), but
+                     * because parse_params still recognises `...` in order to refuse it by name --
+                     * and never by `=`. Saying so
                      * in the lexer also ends the cascade -- round 1 of the 2026-10-12 benchmark had
                      * `for i in 1..=20` report "expected an expression, found '='" and then a bogus
                      * "expected 'fn'" on the following line, and four later runs avoided ranges

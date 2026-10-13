@@ -3,7 +3,7 @@
 // array, and at the call site a caller can either list elements
 // individually (zero or more) or hand over an already-built array
 // directly (see ast.h's Param comment / typecheck.c's check_call).
-fn count_ints(prefix: string, nums: int...) -> string {
+fn count_ints(prefix: string, nums: variadic int) -> string {
     var total = 0
     for n in nums {
         total = total + n

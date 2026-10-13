@@ -119,7 +119,7 @@ precision (`{:.2}`: the arguments are strings, so there is nothing to round).
 ### `concat`
 
 ```
-native fn concat(pieces: string...) -> string
+native fn concat(pieces: variadic string) -> string
 ```
 
 Every piece, in order, joined with no separator (`concat("a", "b", "c")` is `"abc"`; zero
@@ -150,7 +150,7 @@ same as always. See docs/DESIGN.md's UTF-8 correctness entry.
 ### `bytes_concat`
 
 ```
-fn bytes_concat(parts: [byte]...) -> [byte]
+fn bytes_concat(parts: variadic [byte]) -> [byte]
 ```
 
 Any number of byte arrays joined into one, in a single pass.
@@ -320,7 +320,12 @@ native fn to_lower(s: string) -> string
 ### `join`
 
 ```
-native fn join(prefix: Option<string>, suffix: Option<string>, separator: Option<string>, pieces: string...) -> string
+native fn join(
+    prefix: Option<string>,
+    suffix: Option<string>,
+    separator: Option<string>,
+    pieces: variadic string
+) -> string
 ```
 
 The strings `pieces` joined into one in a single pass, given one by one
@@ -406,7 +411,7 @@ usually all that is written.
 ### `sb_append`
 
 ```
-native fn sb_append(sb: StringBuilder, pieces: string...)
+native fn sb_append(sb: StringBuilder, pieces: variadic string)
 ```
 
 Appends each of `pieces`, given one by one or as an array. The builder changes in place and
@@ -415,7 +420,7 @@ nothing is returned.
 ### `sb_append_byte`
 
 ```
-native fn sb_append_byte(sb: StringBuilder, b: byte...) -> bool
+native fn sb_append_byte(sb: StringBuilder, b: variadic byte) -> bool
 ```
 
 Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
@@ -457,7 +462,7 @@ opaque `handle`, same thread-bound rule.
 ### `concat_arrays`
 
 ```
-native fn concat_arrays<T>(parts: [T]...) -> [T]
+native fn concat_arrays<T>(parts: variadic [T]) -> [T]
 ```
 
 One array from many, in a single allocation: `concat_arrays<int>(a, b, c)` or
@@ -484,7 +489,7 @@ An empty builder; `capacity` and `grow_factor` are as in `sb_new`.
 ### `ab_append`
 
 ```
-native fn ab_append<T>(ab: ArrayBuilder<T>, pieces: T...)
+native fn ab_append<T>(ab: ArrayBuilder<T>, pieces: variadic T)
 ```
 
 Appends each of `pieces`, given one by one or as an array. The builder changes in place.

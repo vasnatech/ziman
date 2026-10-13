@@ -46,6 +46,7 @@ them against the code.
 - [`--api` prints doc comments, because a signature is not a behaviour (F89, 2026-10-12)](#--api-prints-doc-comments-because-a-signature-is-not-a-behaviour-f89-2026-10-12)
 - [The no-methods hint speaks only about functions that exist (F92, 2026-10-12)](#the-no-methods-hint-speaks-only-about-functions-that-exist-f92-2026-10-12)
 - [Three diagnostics now say that `a..b` stops before `b` (F93, 2026-10-12)](#three-diagnostics-now-say-that-ab-stops-before-b-f93-2026-10-12)
+- [The variadic marker is a keyword after all: `xs: variadic int` (F94, 2026-10-12)](#the-variadic-marker-is-a-keyword-after-all-xs-variadic-int-f94-2026-10-12)
 - [What the AI-first goal does and does not justify](#what-the-ai-first-goal-does-and-does-not-justify)
 - [`+` does not join strings (2026-10-10)](#does-not-join-strings-2026-10-10)
 - [Array slices are views](#array-slices-are-views)
@@ -1335,7 +1336,11 @@ them against the code.
   array form still works directly for the runtime-sized case that
   started this — one function serves both, not two.
   **Syntax: `pieces: string...`, suffixed onto the type, not a new
-  keyword or a prefix marker.** Considered against how other languages
+  keyword or a prefix marker.** **Superseded (2026-10-12, F94) by "The
+  variadic marker is a keyword after all" below** -- the suffix was
+  replaced by `pieces: variadic string`, and the reasoning right here is
+  what that entry argues against, having been read back against a
+  measurement rather than against itself. Considered against how other languages
   spell this (Java/Swift suffix the type: `String... args`/`args:
   String...`; Go suffixes the type but before the name: `nums ...int`;
   Python/JS prefix the name: `*args`/`...args`; C#/Kotlin use a keyword:
@@ -3296,6 +3301,73 @@ generalising: when a message names a construct in passing, that is the cheapest 
 compiler to say what the construct means.
 
 `..` followed by a third `.` is still the variadic `xs: int...`; only `..=` is refused.
+**Superseded in part (2026-10-12, F94)**: that spelling is gone -- `..` plus a third `.` is now
+recognised in a parameter list only in order to be refused by name (see the next entry). The `..=`
+rule itself is unchanged.
+
+## The variadic marker is a keyword after all: `xs: variadic int` (F94, 2026-10-12)
+
+**This reverses the syntax half of "Variadic parameters" above, and the entry worth reading first is
+that one**, because its reasoning was explicit and is what came apart. It chose `pieces: string...`
+over a keyword on an AI-generation argument: a keyword "invites a subtly-wrong synonym a model could
+plausibly generate instead (`varargs`, `repeated`)", while `...` "is either present or a syntax
+error, nothing in between". Both halves of that are still true. What was missing is that they were
+never weighed against anything measured -- and the thing to weigh them against is not generation at
+all.
+
+**The decision is readability, and it is the user's.** `pieces: string...` is three characters of
+punctuation doing work a word does better for a human reader, in the one place in a signature a
+reader most needs to know what a caller writes. Ziman's stated order is AI-first, human readability
+second, and this is a case where the second one was the only one with anything to say: nothing in
+the 2026-10-12 benchmark turned on the spelling (one task, `25-variadic-sum`, declares a variadic
+at all), so there was no generation effect to trade away -- only a guess about one.
+
+**`variadic` was chosen over `vararg`, `varargs`, `params` and `vararg`-style abbreviations on two
+grounds, one of them measured.** It is the only candidate that is both absent from the whole corpus
+as an identifier (`variadic_sum`, `collapse_variadic_args` and a dozen comments use it as a *word*,
+none as a name, so making it a hard keyword breaks nothing) and one a model actually wrote: a round-2
+attempt at `25-variadic-sum` gave up on the ellipsis and wrote `xs: variadic int`, unprompted, which
+is also where the position comes from. `rest` (19 binding-position uses) and `args` (22) would break
+working code; `varargs` is free but no run guessed it. The earlier entry's synonym worry is real and
+is answered by picking the longest, least abbreviatable member of the family -- there is no shorter
+form of `variadic` to drift toward the way `vararg` and `varargs` have each other -- not by avoiding
+words altogether.
+
+**The known cost, named rather than discovered later: a cold model will write `int...`.** That is
+what the training data holds (Java/Swift/Kotlin suffix it; no language spells it `variadic`), and a
+future benchmark wave failing on it is this decision's price, not a regression. So the cost is paid
+where it is cheapest to pay -- **both abandoned spellings are still recognised, only to be refused
+with the keyword written out**: `xs: int...` and Go's `xs: ...int` each report "'...' does not mark a
+parameter variadic -- the keyword does, before the type: 'xs: variadic int'", naming the parameter
+and the type the parser just read, so the fix can be copied off the message. Without that the error
+was `expected ')', found '..'`, which is the F53 failure exactly: the token, not the question. Two
+diagnostics for two spellings, pinned by `diag_ellipsis_variadic` with the count as part of the
+assertion, and the guard proved by reintroducing the fault.
+
+**Everywhere a signature is printed now says `variadic`, including the one that never said anything.**
+`ziman --api` printed `concat(pieces: string)` -- the element type with no marker at all, which was a
+silent omission while the marker was punctuation a reader would not miss, and is actively misleading
+once it is a keyword that has to be written to declare one. Round 3 measured `--api` at roughly ten
+times the value of iterating without it, so it is the one surface where a model learns a keyword it
+cannot guess. LSP hover had the same bug in the other direction (it rendered the old `...`), and
+`editors/vscode/syntaxes/ziman.tmLanguage.json` now scopes `variadic` as a `storage.modifier`
+alongside `pub`/`internal`/`native`, with a case in `tools/check_grammar.py`.
+
+**The keyword is six characters wider than the suffix, and exactly one signature noticed.**
+`join(prefix: Option<string>, suffix: Option<string>, separator: Option<string>, pieces: variadic
+string)` crossed the formatter's 120-column limit, so `--fmt` now breaks it one parameter per line --
+the whole visible cost of the extra width across 42 declarations.
+
+**One formatter rule was deleted rather than kept working.** `need_space` had a special case for "a
+`.` whose previous-previous token is `..`" -- `string...` ends in a `.` that is not a member access.
+Nothing valid is spelled that way any more, so the rule went; `make fmt-check` holds both corpora to
+the result.
+
+**Migration: 42 declarations across 23 files**, all of them in this repository (`lib/`, the fifty
+benchmark references, the fixtures) -- the reference backend next door calls variadic functions but
+declares none, so it needed no change, which is itself the measure of how small this blast radius
+is. One commit, because a half-migrated corpus does not compile: the prelude declares seven
+variadics and is built into the binary.
 
 ## What the AI-first goal does and does not justify
 

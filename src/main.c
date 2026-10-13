@@ -425,6 +425,11 @@ static void print_api_module(const char *name, Module *m) {
         for (int p = 0; p < f->params.count; p++) {
             if (p > 0) printf(", ");
             printf("%s: ", f->params.items[p].name);
+            /* The keyword, not just the element type. `--api` printed `pieces: string` for a
+             * variadic `concat` and so said nothing about the one thing a caller cannot guess;
+             * harmless while the marker was a `...` nobody would read off a signature, actively
+             * misleading once it is a keyword that has to be written to declare one. */
+            if (f->params.items[p].is_variadic) printf("variadic ");
             print_type("", f->params.items[p].type);
         }
         printf(")");
@@ -464,6 +469,7 @@ static int run_api(const char *module_name) {
             for (int pi = 0; pi < f->params.count; pi++) {
                 if (pi > 0) printf(", ");
                 printf("%s: ", f->params.items[pi].name);
+                if (f->params.items[pi].is_variadic) printf("variadic ");
                 print_type("", f->params.items[pi].type);
             }
             printf(")");

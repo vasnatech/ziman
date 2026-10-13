@@ -1,4 +1,4 @@
-fn sum(nums: int...) -> int {
+fn sum(nums: variadic int) -> int {
     var total = 0
     for n in nums {
         total = total + n

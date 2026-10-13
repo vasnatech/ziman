@@ -7,7 +7,7 @@
 // check_call's own static, unambiguous decision (recorded on the AST,
 // see ast.h's variadic_tail_is_array_spread) can tell them apart
 // correctly. See docs/DESIGN.md.
-fn concat_rows(rows: [int]...) -> int {
+fn concat_rows(rows: variadic [int]) -> int {
     var total = 0
     for row in rows {
         for x in row {

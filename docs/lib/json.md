@@ -222,7 +222,7 @@ including, without turning this into a general "Json query language."
 ### `json_get_path`
 
 ```
-pub fn json_get_path(j: Json, path: string...) -> Option<Json>
+pub fn json_get_path(j: Json, path: variadic string) -> Option<Json>
 ```
 
 Follows `path` down from `j`: each segment is an object key, or -- when the current

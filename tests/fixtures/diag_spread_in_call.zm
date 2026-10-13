@@ -3,7 +3,7 @@
 // variadic parameter takes an array directly. Found writing the reference backend's first Ziman
 // test, where I believed the old error and wrote the same call out four times to work around a
 // limitation that does not exist. See variadic_takes_an_array for the form that works.
-fn total(ns: int...) -> int {
+fn total(ns: variadic int) -> int {
     var sum = 0
     for n in ns {
         sum = sum + n

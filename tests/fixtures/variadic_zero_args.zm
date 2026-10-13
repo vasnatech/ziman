@@ -2,7 +2,7 @@
 // fixed parameter for a positional `f()` call to satisfy), a positional call with no arguments
 // at all, or a named call that never names it -- none of these are "a missing required
 // argument," which only ever applies to a non-variadic, non-Option<T> parameter.
-fn sum(nums: int...) -> int {
+fn sum(nums: variadic int) -> int {
     var total = 0
     for n in nums {
         total = total + n
@@ -10,7 +10,7 @@ fn sum(nums: int...) -> int {
     return total
 }
 
-fn labeled_sum(label: string, nums: int...) -> string {
+fn labeled_sum(label: string, nums: variadic int) -> string {
     return concat(label, ": ", str(sum(nums)))
 }
 

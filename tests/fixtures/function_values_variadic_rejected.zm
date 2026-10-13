@@ -1,4 +1,4 @@
-fn total(xs: int...) -> int {
+fn total(xs: variadic int) -> int {
     return len(xs)
 }
 

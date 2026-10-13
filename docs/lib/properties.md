@@ -203,7 +203,7 @@ pub fn key(prefix: string, name: string) -> string
 ### `check_unknown`
 
 ```
-pub fn check_unknown(props: Properties, known: string...) -> Result<bool, string>
+pub fn check_unknown(props: Properties, known: variadic string) -> Result<bool, string>
 ```
 
 Fails on a key in the files that isn't in `known` (`profile.active` is
@@ -213,7 +213,7 @@ silently falling back to a default.
 ### `report`
 
 ```
-pub fn report(props: Properties, keys: string...) -> string
+pub fn report(props: Properties, keys: variadic string) -> string
 ```
 
 One line per key in `keys` that has a value: `key=value (source)`,
