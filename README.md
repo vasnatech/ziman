@@ -109,8 +109,9 @@ Builtins available without `use`: `print`, `printf`, `format`, `str`, `len`,
 `push`, `insert`, `set`, `remove`, `contains`, `hash`, `compare`, `abs`,
 `min`, `max`, `ok`, `err`, `unwrap`, the `channel` operations, the string
 functions (`substring`, `split`, `trim`, `index_of`, `replace`,
-`equals_ignore_case`, ...), and the mutable collections (`MutableString`,
-`MutableArray<T>`, `MutableMap<K, V>`, `MutableSet<T>`). Long-form notes on all of it are in
+`equals_ignore_case`, ...), and the mutable types (`Mutable<T>`, one cell, plus the four
+collections `MutableArray<T>`, `MutableMap<K, V>`, `MutableSet<T>` and `MutableString`). Long-form
+notes on all of it are in
 [docs/FEATURE-NOTES.md](docs/FEATURE-NOTES.md).
 
 ## Building and running
