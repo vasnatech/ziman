@@ -1068,7 +1068,8 @@ fn run(
         if Err(e) = next {
             return err(ClientError.BadResponse(concat("bad redirect location: ", e)))
         }
-        val moved_away = unwrap(next).host != current.host || unwrap(next).port != current.port || unwrap(next).secure != current.secure
+        var next_url = unwrap(next)
+        val moved_away = next_url.host != current.host || next_url.port != current.port || next_url.secure != current.secure
         if moved_away {
             val kept = mutable_array_new<Header>()
             for h in hs {
@@ -1077,8 +1078,18 @@ fn run(
                 }
             }
             hs = snapshot(kept)
+        } else if len(next_url.userinfo) == 0 {
+            // Credentials given in the URL (`https://user:pass@host/`) survive a same-host
+            // redirect, which is what the header rule above already does for an `Authorization`
+            // header the caller passed in. They used not to: `resolve_location` rebuilds the URL
+            // from scheme + host:port + path and has nowhere to put `userinfo`, and the request
+            // headers are rebuilt from `current` on every hop -- so a plain `/login` -> `/home` on
+            // the same host arrived unauthenticated, and the caller saw a 401 from a server it had
+            // given a password to. Dropped on a cross-host redirect by the branch above, for the
+            // same reason the header is (D20).
+            next_url = with next_url { userinfo: current.userinfo }
         }
-        current = unwrap(next)
+        current = next_url
         if s == status_see_other || ((s == status_moved_permanently || s == status_found) && m == HttpMethod.Post) {
             m = HttpMethod.Get
             b = Option<[byte]>.None

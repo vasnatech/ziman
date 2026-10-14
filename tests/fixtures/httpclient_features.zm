@@ -175,7 +175,12 @@ fn main() {
     print(client.response_header(gz, "Content-Encoding"))
     print(client.response_header(gz, "Content-Length"))
 
-    // credentials in the URL, and not sent to another host on a redirect
+    // credentials in the URL, and not sent to another host on a redirect.
+    //
+    // The same-host cases below used to disagree with each other: a caller-supplied
+    // `Authorization` header survived the hop and credentials taken from the URL did not, because
+    // `resolve_location` rebuilds the URL without its `userinfo`. The rule is the host, not where
+    // the credentials came from, so both are kept now and both are dropped cross-host (D20).
     print(body_of(client.get(format("http://user:p%40ss@127.0.0.1:{}/auth", port))))
     print(body_of(client.get(format("http://user:p%40ss@127.0.0.1:{}/to-other-host", port))))
     print(body_of(client.get(format("http://user:p%40ss@127.0.0.1:{}/same-host-redirect", port))))
