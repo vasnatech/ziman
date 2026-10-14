@@ -4728,10 +4728,23 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 int is_array_builder = iter_type.kind == TY_STRUCT && iter_type.struct_name != NULL &&
                                        strcmp(iter_type.struct_name, "MutableArray") == 0 &&
                                        iter_type.type_args.count == 1;
+                /* A MutableMap and MutableSet iterate like the Map and Set they are building, for the
+                 * same reason a MutableArray does: reading one back otherwise means `snapshot`, a
+                 * full copy per call. Unlike the array they walk a snapshot of the entries (see the
+                 * interpreter's own branch), so the body may change the handle freely. */
+                int is_mutable_map = iter_type.kind == TY_STRUCT && iter_type.struct_name != NULL &&
+                                     strcmp(iter_type.struct_name, "MutableMap") == 0 && iter_type.type_args.count == 2;
+                int is_mutable_set = iter_type.kind == TY_STRUCT && iter_type.struct_name != NULL &&
+                                     strcmp(iter_type.struct_name, "MutableSet") == 0 && iter_type.type_args.count == 1;
                 if (iter_type.kind != TY_ARRAY && iter_type.kind != TY_MAP && iter_type.kind != TY_SET &&
-                    !is_iter && !is_array_builder) {
+                    !is_iter && !is_array_builder && !is_mutable_map && !is_mutable_set) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
-                                "'for' can only iterate an array, a MutableArray, a map, a set, an Iter or a range ('a..b', which stops before b), found %s", type_name(iter_type));
+                                "'for' can only iterate an array, a map, a set, any of the four mutable collections, an Iter or a range ('a..b', which stops before b), found %s",
+                                type_name(iter_type));
+                }
+                if (is_mutable_set && s->as.for_stmt.binder2 != NULL) {
+                    ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
+                                "a MutableSet has no index or value to bind: write 'for item in s'");
                 }
                 if (is_iter && s->as.for_stmt.binder2 != NULL) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
@@ -4746,6 +4759,15 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                     env_define(scope, s->as.for_stmt.binder1, *iter_type.elem, 0, value_int(0));
                     if (s->as.for_stmt.binder2 != NULL) env_define(scope, s->as.for_stmt.binder2, *iter_type.elem_err, 0, value_int(0));
                 } else if (is_iter) {
+                    env_define(scope, s->as.for_stmt.binder1, iter_type.type_args.items[0], 0, value_int(0));
+                } else if (is_mutable_map) {
+                    /* `for k in m` binds each key; `for k, v in m` each key and its value -- the two
+                     * shapes an immutable Map takes. */
+                    env_define(scope, s->as.for_stmt.binder1, iter_type.type_args.items[0], 0, value_int(0));
+                    if (s->as.for_stmt.binder2 != NULL) {
+                        env_define(scope, s->as.for_stmt.binder2, iter_type.type_args.items[1], 0, value_int(0));
+                    }
+                } else if (is_mutable_set) {
                     env_define(scope, s->as.for_stmt.binder1, iter_type.type_args.items[0], 0, value_int(0));
                 } else if (is_array_builder) {
                     /* `for x in ab` and `for i, x in ab`, the same two shapes an array takes. */

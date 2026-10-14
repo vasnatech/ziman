@@ -1435,6 +1435,18 @@ int ziman_builder_contains(Value v, Value needle) {
     return mapobj_get(mb_get_buf(v)->m, needle, &ignored) != 0;
 }
 
+/* The entries of a MutableMap or MutableSet in insertion order, for the interpreter's own `for`
+ * branch: fresh arrays of `count` keys and, for a map, values. This is a *snapshot by
+ * construction* rather than by choice, which is the difference from MutableArray's live-buffer
+ * walk -- insertion order comes from a per-entry sequence number that `mapobj_entries` has to sort
+ * by, so there is no cursor into the trie that could walk it in order, and a node's slots shift on
+ * insert anyway. Pass NULL for `vals` on a set, whose values are unused. */
+int ziman_mutable_map_entries(Value m, Value **keys, Value **vals) {
+    MutableMapBuf *buf = mb_get_buf(m);
+    mapobj_entries(buf->m, keys, vals);
+    return buf->m->count;
+}
+
 /* `snapshot` on one of the four handles: the same O(n) copy out that `snapshot`,
  * `snapshot`, `snapshot` and `snapshot` have always done, reached by one name instead of
  * four. Nothing new happens here -- it dispatches to those very implementations -- so a builder

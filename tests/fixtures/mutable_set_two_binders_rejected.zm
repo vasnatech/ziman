@@ -1,0 +1,7 @@
+// A set has no index to bind, mutable or not -- the same refusal an immutable Set gives.
+fn main() {
+    val s = mutable_set_new<int>()
+    for i, x in s {
+        print(x)
+    }
+}

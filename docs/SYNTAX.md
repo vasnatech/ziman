@@ -347,6 +347,15 @@ for x in seen { ... }                    // a set has one binder
   builtin `join` is a path join over strings, not this), and `sum(items: [int])` totals them --
   integers only, since `+` traps on overflow so the answer is exact or an error, where a float
   total depends on summation order and `fold` expresses whichever order you want.
+- **Iterating a mutable collection**: `for x in xs` and `for i, x in xs` over a `MutableArray`
+  walk the **live buffer**, re-reading the length each pass, so a body that appends sees its own
+  additions and one that clears ends the loop. `for k in m` / `for k, v in m` over a `MutableMap`
+  and `for x in s` over a `MutableSet` walk a **snapshot of the entries** in insertion order, so
+  the body may change the handle freely without affecting what the loop visits. The difference is
+  not a preference: a hashed handle has no cursor that could visit it in insertion order -- that
+  order lives in a per-entry sequence number the entries have to be sorted by -- and a node's slots
+  shift on insert, so it is a snapshot by construction. A `MutableSet` takes one binder, like a
+  `Set`.
 - **The mutable collections**: `MutableMap<K, V>` (`mutable_map_new`/`_set`/`_get`/`_get_or`/
   `_remove`) and `MutableSet<T>` (`mutable_set_new`/`_add`/`_remove`), the `MutableArray`
   counterparts. Each mutates its own private trie in place (O(n) total instead of copying per

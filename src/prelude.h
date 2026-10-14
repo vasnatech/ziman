@@ -71,4 +71,8 @@ void ziman_builder_clear(Value v);
  * asking, so there is no accessor for it. */
 int ziman_cell_contains(Value c, Value needle);
 
+/* A MutableMap's or MutableSet's entries in insertion order, and how many: what `for k, v in m`
+ * walks. `vals` may be NULL for a set. */
+int ziman_mutable_map_entries(Value m, Value **keys, Value **vals);
+
 #endif

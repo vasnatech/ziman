@@ -2085,6 +2085,34 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 env_pool_release(scope);
                 return no_ctrl();
             }
+            if (iterable.type.kind == TY_STRUCT && iterable.type.struct_name != NULL &&
+                (strcmp(iterable.type.struct_name, "MutableMap") == 0 ||
+                 strcmp(iterable.type.struct_name, "MutableSet") == 0)) {
+                /* A snapshot of the entries, in insertion order -- deliberately unlike MutableArray
+                 * just above, which walks its live buffer. A hashed handle has no cursor that could
+                 * walk it in insertion order (that order lives in a per-entry sequence number the
+                 * entries have to be sorted by) and a node's slots shift on insert, so this is a
+                 * snapshot by construction. The body may therefore change the handle freely without
+                 * affecting what the loop visits. */
+                int is_map = strcmp(iterable.type.struct_name, "MutableMap") == 0;
+                Value *keys, *vals = NULL;
+                int count = ziman_mutable_map_entries(iterable, &keys, is_map ? &vals : NULL);
+                const TypeList *targs = &s->as.for_stmt.iterable->resolved_type.type_args;
+                Type key_type = targs->items[0];
+                Env *scope = env_pool_acquire(env);
+                for (int i = 0; i < count; i++) {
+                    env_reset(scope);
+                    env_define(scope, s->as.for_stmt.binder1, key_type, 0, keys[i]);
+                    if (s->as.for_stmt.binder2 != NULL) {
+                        env_define(scope, s->as.for_stmt.binder2, targs->items[1], 0, vals[i]);
+                    }
+                    ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
+                    if (result.kind == CTRL_RETURN) { env_pool_release(scope); return result; }
+                    if (result.kind == CTRL_BREAK) break;
+                }
+                env_pool_release(scope);
+                return no_ctrl();
+            }
             if (iterable.type.kind == TY_MAP || iterable.type.kind == TY_SET) {
                 /* iterates a snapshot in insertion order, so the body may rebind the collection freely */
                 int is_map = iterable.type.kind == TY_MAP;

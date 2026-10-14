@@ -1,0 +1,51 @@
+// A MutableMap and MutableSet iterate like the Map and Set they are building, so reading one back
+// no longer means `snapshot` -- a full copy per call, which `--lint` flags in a loop.
+//
+// Deliberately *unlike* a MutableArray, which walks its live buffer by index: these walk a snapshot
+// of the entries. A hashed handle has no cursor that could visit it in insertion order -- that
+// order lives in a per-entry sequence number the entries must be sorted by -- and a node's slots
+// shift on insert, so it is a snapshot by construction rather than by choice. The last block is
+// what that buys: the body may change the handle freely without affecting what the loop visits.
+fn main() {
+    val m = mutable_map_new<string, int>()
+    mutable_map_set(m, "b", 2)
+    mutable_map_set(m, "a", 1)
+    mutable_map_set(m, "c", 3)
+
+    // Insertion order, not hash order, and not sorted.
+    for k in m {
+        print(k)
+    }
+    for k, v in m {
+        print(concat(k, "=", str(v)))
+    }
+
+    // Overwriting a key keeps its place, as it does in a Map.
+    mutable_map_set(m, "b", 20)
+    for k, v in m {
+        print(concat(k, ":", str(v)))
+    }
+
+    val s = mutable_set_new<int>()
+    mutable_set_add(s, 7)
+    mutable_set_add(s, 3)
+    mutable_set_add(s, 7)
+    for x in s {
+        print(x)
+    }
+
+    // The body adds three entries; the loop still runs exactly three times.
+    var passes = 0
+    for k in m {
+        mutable_map_set(m, concat(k, "!"), 0)
+        passes = passes + 1
+    }
+    print(passes)
+    print(len(m))
+
+    val empty = mutable_map_new<int, int>()
+    for k, v in empty {
+        print("never")
+    }
+    print("done")
+}
