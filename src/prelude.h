@@ -82,4 +82,13 @@ Value ziman_mutable_array_from(Value source, int source_is_handle);
 Value ziman_mutable_map_from(Value source, int is_set);
 Value ziman_mutable_set_from_array(Value source, int source_is_handle);
 
+/* The operations that take a second collection from either world. `op` for combine is 0 union,
+ * 1 intersect, 2 difference. Each handles self-aliasing, and the three answers differ: appending a
+ * handle to itself doubles it, setting a map from itself is a no-op, and differencing a set with
+ * itself empties it. */
+void ziman_mutable_array_push_all(Value xs, Value source, int source_is_handle);
+void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle);
+void ziman_mutable_set_combine(Value s, Value source, int source_is_handle, int op);
+int ziman_mutable_set_is_subset(Value s, Value source, int source_is_handle);
+
 #endif

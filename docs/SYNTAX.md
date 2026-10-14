@@ -374,6 +374,13 @@ for x in seen { ... }                    // a set has one binder
   `snapshot` copies into an immutable `Map`/`Set` (O(n), the handle stays usable, and later changes
   do not touch the copy). One thread at a time -- every `Mutable*` type belongs to the thread that
   made it.
+- **Taking a second collection**: `mutable_array_push_all(xs, items)`,
+  `mutable_map_set_all(m, values)` and `mutable_set_union`/`_intersect`/`_difference`/`_is_subset`
+  all change (or read) the handle in the first argument, and the **second** takes either world. The
+  three self-aliasing cases get three different answers, each deliberate:
+  `mutable_array_push_all(xs, xs)` **doubles** the array, `mutable_map_set_all(m, m)` is a no-op,
+  and `mutable_set_difference(s, s)` **empties** the set. Union and intersect with yourself are
+  no-ops and `_is_subset(s, s)` is true.
 - **Crossing into the mutable world**: `mutable_array_from(xs)`, `mutable_map_from(m)`,
   `mutable_set_from(s)` and `mutable_set_from_array(xs)` each take **either world** -- the immutable
   value or another handle of the same shape. From a value the handle is independent of it; from a

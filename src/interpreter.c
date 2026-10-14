@@ -1305,6 +1305,20 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "len") == 0) {
                 result = call_len(args[0]);
+            } else if (strcmp(e->as.call.callee, "mutable_array_push_all") == 0) {
+                ziman_mutable_array_push_all(args[0], args[1], args[1].type.kind == TY_STRUCT);
+                result = value_int(0);
+            } else if (strcmp(e->as.call.callee, "mutable_map_set_all") == 0) {
+                ziman_mutable_map_set_all(args[0], args[1], args[1].type.kind == TY_STRUCT);
+                result = value_int(0);
+            } else if (strcmp(e->as.call.callee, "mutable_set_union") == 0 ||
+                       strcmp(e->as.call.callee, "mutable_set_intersect") == 0 ||
+                       strcmp(e->as.call.callee, "mutable_set_difference") == 0) {
+                int op = e->as.call.callee[12] == 'u' ? 0 : e->as.call.callee[12] == 'i' ? 1 : 2;
+                ziman_mutable_set_combine(args[0], args[1], args[1].type.kind == TY_STRUCT, op);
+                result = value_int(0);
+            } else if (strcmp(e->as.call.callee, "mutable_set_is_subset") == 0) {
+                result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type.kind == TY_STRUCT));
             } else if (strcmp(e->as.call.callee, "mutable_array_from") == 0) {
                 result = ziman_mutable_array_from(args[0], args[0].type.kind == TY_STRUCT);
                 result.type = e->resolved_type;

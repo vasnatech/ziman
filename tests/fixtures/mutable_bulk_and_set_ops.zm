@@ -1,0 +1,57 @@
+// The operations that take a second collection from either world: push_all, set_all, and the four
+// set operations. Only the *second* argument takes either world -- the first is always the handle
+// being changed.
+//
+// The second half is the half worth having a fixture for. Self-aliasing gets three different
+// answers across the three types, and each is a decision rather than an accident:
+//
+//   push_all(d, d)      doubles the array -- a reasonable thing to mean, so the source length is
+//                       read once before the first append, or the loop would chase a source
+//                       growing under it
+//   set_all(m, m)       a no-op by definition, every key already mapping to its own value -- and
+//                       the early return is not an optimisation, because without it this would be
+//                       iterating a table it is writing
+//   difference(s, s)    empties the set, which is the one that is NOT a no-op, and walking the
+//                       trie while removing from it is exactly what must not happen
+//
+// union and intersect with yourself are genuine no-ops, and is_subset is trivially true.
+fn main() {
+    val xs = mutable_array_new<int>()
+    mutable_array_push_all(xs, [1, 2])
+    mutable_array_push_all(xs, mutable_array_from([3]))
+    print(snapshot(xs))
+
+    val m = mutable_map_new<string, int>()
+    mutable_map_set_all(m, Map<string, int> { "a": 1 })
+    mutable_map_set_all(m, mutable_map_from(Map<string, int> { "b": 2, "a": 9 }))
+    print(mutable_map_keys(m))
+    print(mutable_map_values(m))
+
+    val s = mutable_set_from_array([1, 2, 3])
+    mutable_set_union(s, Set<int> { 4 })
+    print(mutable_set_items(s))
+    mutable_set_intersect(s, Set<int> { 2, 3, 4, 9 })
+    print(mutable_set_items(s))
+    mutable_set_difference(s, mutable_set_from_array([3]))
+    print(mutable_set_items(s))
+    print(mutable_set_is_subset(s, Set<int> { 2, 4, 7 }))
+    print(mutable_set_is_subset(s, Set<int> { 2 }))
+
+    // the three different self-aliasing answers
+    val d = mutable_array_from([1, 2])
+    mutable_array_push_all(d, d)
+    print(snapshot(d))
+
+    val sm = mutable_map_from(Map<string, int> { "k": 1 })
+    mutable_map_set_all(sm, sm)
+    print(mutable_map_values(sm))
+
+    val ss = mutable_set_from_array([1, 2])
+    mutable_set_union(ss, ss)
+    print(mutable_set_items(ss))
+    mutable_set_intersect(ss, ss)
+    print(mutable_set_items(ss))
+    mutable_set_difference(ss, ss)
+    print(len(ss))
+    print(mutable_set_is_subset(ss, ss))
+}

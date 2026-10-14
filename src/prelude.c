@@ -1543,6 +1543,108 @@ int ziman_builder_contains(Value v, Value needle) {
     return mapobj_get(mb_get_buf(v)->m, needle, &ignored) != 0;
 }
 
+/* One append, so that `push_all` does not repeat the adopt/grow/store dance per element. */
+static void ab_push_one(MutableArrayBuf *buf, Value element) {
+    ab_adopt_pack_kind(buf, element);
+    ab_ensure_capacity(buf, 1);
+    if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)buf->length, element);
+    else buf->items[buf->length] = element;
+    buf->length++;
+}
+
+/* `push_all(xs, xs)` is **not** a no-op -- doubling an array is a perfectly reasonable thing to
+ * mean -- so the source length is read once before the first append. Without that the loop would
+ * chase a source growing under it and never terminate. This is the first of the three different
+ * answers self-aliasing gets across the mutable types; the other two are below. */
+void ziman_mutable_array_push_all(Value xs, Value source, int source_is_handle) {
+    MutableArrayBuf *dst = ab_table_get(ab_handle_of(xs));
+    if (source_is_handle) {
+        const MutableArrayBuf *src = ab_table_get(ab_handle_of(source));
+        size_t n = src->length;
+        for (size_t i = 0; i < n; i++) ab_push_one(dst, ab_element_at(src, i));
+        return;
+    }
+    ArrayObj *src = source.as.arr;
+    for (int i = 0; i < src->count; i++) ab_push_one(dst, array_get(src, i));
+}
+
+/* `set_all(m, m)` is a no-op by definition -- every key already maps to its own value -- and the
+ * early return is not just an optimisation: without it this would be iterating a table it is
+ * writing to. The second of the three aliasing answers. */
+void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle) {
+    MutableMapBuf *dst = mb_get_buf(m);
+    const MapObj *src;
+    if (source_is_handle) {
+        MutableMapBuf *from = mb_get_buf(source);
+        if (from == dst) return;
+        src = from->m;
+    } else {
+        src = source.as.map;
+    }
+    Value *keys, *vals;
+    int n = src->count;
+    mapobj_entries(src, &keys, &vals);
+    for (int i = 0; i < n; i++) mapobj_set_mut(dst->m, keys[i], vals[i], dst->shared);
+}
+
+/* Union, intersect and difference in place. `op` is 0, 1, 2 in that order.
+ *
+ * The third aliasing answer, and the one that is not a no-op: `difference(s, s)` **empties** the
+ * set, and doing that by walking the trie while removing from it is exactly what must not happen --
+ * so it is recognised and turned into a fresh empty trie, the same thing `clear` does. Union and
+ * intersect with yourself are genuine no-ops.
+ *
+ * Intersect and difference remove from the destination, so they walk a snapshot of its own keys
+ * (`mapobj_entries`, which materialises them anyway) rather than the live trie. */
+void ziman_mutable_set_combine(Value s, Value source, int source_is_handle, int op) {
+    MutableMapBuf *dst = mb_get_buf(s);
+    const MapObj *src;
+    if (source_is_handle) {
+        MutableMapBuf *from = mb_get_buf(source);
+        if (from == dst) {
+            if (op == 2) {
+                dst->m = mapobj_mut_new();
+                dst->shared = 0;
+            }
+            return;
+        }
+        src = from->m;
+    } else {
+        src = source.as.map;
+    }
+    if (op == 0) {
+        Value *keys;
+        int n = src->count;
+        mapobj_entries(src, &keys, NULL);
+        for (int i = 0; i < n; i++) mapobj_set_mut(dst->m, keys[i], value_int(0), dst->shared);
+        return;
+    }
+    Value *mine;
+    int n = dst->m->count;
+    mapobj_entries(dst->m, &mine, NULL);
+    for (int i = 0; i < n; i++) {
+        Value ignored;
+        int in_source = mapobj_get(src, mine[i], &ignored);
+        if (op == 1 ? !in_source : in_source) mapobj_remove_mut(dst->m, mine[i]);
+    }
+}
+
+/* Reads only, so no aliasing question: a set is its own subset, which the identity check answers
+ * without walking anything. */
+int ziman_mutable_set_is_subset(Value s, Value source, int source_is_handle) {
+    MutableMapBuf *dst = mb_get_buf(s);
+    const MapObj *src = source_is_handle ? mb_get_buf(source)->m : source.as.map;
+    if (src == dst->m) return 1;
+    Value *mine;
+    int n = dst->m->count;
+    mapobj_entries(dst->m, &mine, NULL);
+    for (int i = 0; i < n; i++) {
+        Value ignored;
+        if (!mapobj_get(src, mine[i], &ignored)) return 0;
+    }
+    return 1;
+}
+
 /* The `from` constructors: a handle holding what the argument holds, taking either world. The
  * typechecker has already established which, so these only have to read it.
  *

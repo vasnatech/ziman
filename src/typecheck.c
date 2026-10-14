@@ -1307,6 +1307,7 @@ static const char *const PURE_BUILTINS[] = {
     "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
     "set_from_array", "set_insert_all", "set_filter",
     "snapshot", "mutable_array_from", "mutable_map_from", "mutable_set_from", "mutable_set_from_array",
+    "mutable_set_is_subset",
     NULL};
 
 static int is_pure_builtin_name(const char *name) {
@@ -1319,7 +1320,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot", "clear", "mutable_array_from", "mutable_map_from", "mutable_set_from", "mutable_set_from_array", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot", "clear", "mutable_array_from", "mutable_map_from", "mutable_set_from", "mutable_set_from_array", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -2307,6 +2308,44 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
         }
         return type_scalar(strcmp(name, "printf") == 0 ? TY_VOID : TY_STRING);
+    }
+
+    if (strcmp(name, "mutable_array_push_all") == 0 || strcmp(name, "mutable_map_set_all") == 0 ||
+        strcmp(name, "mutable_set_union") == 0 || strcmp(name, "mutable_set_intersect") == 0 ||
+        strcmp(name, "mutable_set_difference") == 0 || strcmp(name, "mutable_set_is_subset") == 0) {
+        if (e->as.call.args.count != 2) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly 2 arguments, found %d", name, e->as.call.args.count);
+        }
+        int is_array = strcmp(name, "mutable_array_push_all") == 0;
+        int is_map = strcmp(name, "mutable_map_set_all") == 0;
+        MutableShape shape = is_array ? SHAPE_ARRAY : is_map ? SHAPE_MAP : SHAPE_SET;
+        Expr *target = e->as.call.args.items[0];
+        Type target_type = check_expr(module, env, target);
+        /* The first argument is always the handle -- only the *second* takes either world. */
+        if (target_type.kind != TY_STRUCT || target_type.struct_name == NULL ||
+            strcmp(target_type.struct_name, mutable_handle_name(shape)) != 0) {
+            ziman_error("type", target->line, target->col, "argument 1 of '%s' expects a %s, found %s", name,
+                        mutable_handle_name(shape), type_name(target_type));
+        }
+        Type want = type_scalar(TY_VOID), want_value = type_scalar(TY_VOID);
+        if (!either_world(target_type, shape, &want, &want_value)) {
+            ziman_error("type", target->line, target->col, "'%s' needs %s's element type, which is not known here", name,
+                        mutable_handle_name(shape));
+        }
+        Expr *other = e->as.call.args.items[1];
+        Type other_type = check_expr(module, env, other);
+        Type got = type_scalar(TY_VOID), got_value = type_scalar(TY_VOID);
+        if (!either_world(other_type, shape, &got, &got_value)) {
+            ziman_error("type", other->line, other->col, "argument 2 of '%s' expects %s or %s, found %s", name,
+                        shape == SHAPE_ARRAY ? "an array" : shape == SHAPE_MAP ? "a Map" : "a Set",
+                        mutable_handle_name(shape), type_name(other_type));
+        }
+        if (!type_equals(got, want) || (is_map && !type_equals(got_value, want_value))) {
+            ziman_error("type", other->line, other->col,
+                        "argument 2 of '%s' holds %s where the %s holds %s", name, type_name(got),
+                        mutable_handle_name(shape), type_name(want));
+        }
+        return strcmp(name, "mutable_set_is_subset") == 0 ? type_scalar(TY_BOOL) : type_scalar(TY_VOID);
     }
 
     if (strcmp(name, "mutable_array_from") == 0 || strcmp(name, "mutable_map_from") == 0 ||
@@ -5250,7 +5289,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot", "clear", "mutable_array_from", "mutable_map_from", "mutable_set_from", "mutable_set_from_array"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot", "clear", "mutable_array_from", "mutable_map_from", "mutable_set_from", "mutable_set_from_array", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a
