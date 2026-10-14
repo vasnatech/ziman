@@ -1,0 +1,32 @@
+// A42: the collector runs finalizers inside the allocation that triggered the collection, on the
+// allocating thread. So an abandoned cursor's finalizer fires while that same thread is inside a
+// connection's `c->mu` critical section -- and it used to take that mutex, which is a thread
+// waiting for itself. Reproduced before the fix as a hard hang: three threads in futex_do_wait,
+// zero CPU, with `cursor_finalize` beneath `GC_generic_malloc_many` beneath `cursor_open_raw`.
+//
+// Each round opens a cursor, reads one row and drops it unfinished, leaving a live sqlite3_stmt
+// that no Ziman value names -- which is what the finalizer exists for -- and then allocates hard
+// on the same connection to provoke a collection while its lock is held. The fixture harness runs
+// each fixture under `timeout 5`, so a return of the deadlock is a failure and not a hung suite.
+use datasource
+use db.DbError
+use db.Row
+use db.SqlValue
+
+fn main() {
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val _ = unwrap(datasource.execute(conn, "create table t (a integer, b text)"))
+    var i = 0
+    while i < 200 {
+        val _ = unwrap(datasource.execute(conn, "insert into t values ($1, $2)", SqlValue.Int(i), SqlValue.Text("a payload wide enough to keep the allocator busy")))
+        i = i + 1
+    }
+    var round = 0
+    while round < 1500 {
+        val it = unwrap(datasource.rows(conn, "select a, b from t"))
+        val _ = iter_next<Result<Row, DbError>>(it)
+        val _ = unwrap(datasource.query(conn, "select a, b from t limit 50"))
+        round = round + 1
+    }
+    print(format("{} rows still readable after 1500 abandoned cursors", len(unwrap(datasource.query(conn, "select a from t")))))
+}

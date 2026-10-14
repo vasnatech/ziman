@@ -53,12 +53,17 @@ typedef struct {
  * (close it promptly anyway: a collection may be far off, and a file database stays locked). */
 static HandleSet g_live = HANDLE_SET_INIT;
 
+/* Finalizes the deferred cursors of `c`. Called with `c->mu` held, from every function that takes
+ * it; defined with the cursor code below, where the reason for it is written down. */
+static void pending_drain(DbConn *c);
+
 #ifdef ZIMAN_GC
 static void conn_finalizer(void *obj, void *client_data) {
     (void)client_data;
     DbConn *c = obj;
     if (handleset_remove(&g_live, c)) {
         pthread_mutex_lock(&c->mu);
+        pending_drain(c); /* a deferred cursor's statement, before the database it belongs to goes */
         if (c->db != NULL) sqlite3_close(c->db);
         c->db = NULL;
         pthread_mutex_unlock(&c->mu);
@@ -133,6 +138,7 @@ static Value native_sqlite_close_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     DbConn *c = conn_get(args[0].as.i, line, col);
     pthread_mutex_lock(&c->mu);
+    pending_drain(c); /* a deferred cursor's statement, before the database it belongs to goes */
     sqlite3_close(c->db);
     c->db = NULL;
     pthread_mutex_unlock(&c->mu);
@@ -237,6 +243,7 @@ static Value native_sqlite_execute_raw(Value *args, int argc, int line, int col)
     ArrayObj *params = args[2].as.arr;
 
     pthread_mutex_lock(&c->mu);
+    pending_drain(c);
     int64_t changes = 0;
     int first = 1;
     Value result;
@@ -342,6 +349,7 @@ static Value native_sqlite_query_raw(Value *args, int argc, int line, int col) {
     ArrayObj *params = args[2].as.arr;
 
     pthread_mutex_lock(&c->mu);
+    pending_drain(c);
     Value result;
     sqlite3_stmt *stmt = NULL;
     char *sql = rewrite_placeholders(value_cstr(args[1]));
@@ -384,30 +392,109 @@ done:
  * cursor is an address in the same pointer-as-handle scheme as a connection, and a cursor that is
  * dropped unfinished is finalized when it is collected. It holds its connection, so close cursors
  * before closing the connection. */
-typedef struct {
+typedef struct DbCursor DbCursor;
+struct DbCursor {
     DbConn *conn;
     sqlite3_stmt *stmt;
     int ncols;
     int done;
-} DbCursor;
+    DbCursor *pending_next; /* see g_pending */
+};
 
 static HandleSet g_cursors = HANDLE_SET_INIT;
 
-static void cursor_finalize(DbCursor *cur) {
+/* Cursors whose finalizer could not take their connection's lock, waiting for a caller that holds
+ * it legitimately to finalize their statement (A42).
+ *
+ * The collector runs finalizers inside the allocation that triggered the collection, on whichever
+ * thread was allocating (`src/main.c`'s GC_INIT path). So `cursor_finalizer` fires while that same
+ * thread may be inside a `c->mu` critical section, and taking the mutex there is a thread waiting
+ * for itself. Reproduced: an abandoned cursor's finalizer blocking in `cursor_finalize` beneath
+ * `GC_generic_malloc_many` beneath `native_sqlite_cursor_open_raw`, which holds the lock -- the
+ * `DbCursor` allocation of a *new* cursor collecting an *old* one on the same connection.
+ *
+ * `src/handles.c` solves its own version of this by releasing its lock around the one allocation
+ * it makes. That does not transfer here. In a `make gc` build `src/zgc.h` redirects `malloc`,
+ * `calloc`, `realloc` and `strdup` to the collector, so *every* allocation under `c->mu` is a
+ * collection point -- the placeholder rewrite, each encoded cell, the row vector's growth, the
+ * error string -- and "never allocate while holding c->mu" would be a rule the row-building loop
+ * cannot keep and that every future edit would have to re-prove.
+ *
+ * So the finalizer never blocks instead: it tries the lock, and hands the cursor to this list if
+ * it cannot have it. A finalizer runs inside a collection and may not allocate, so the list is
+ * intrusive through `pending_next` and pushed with a CAS. The head is a file-scope static, which
+ * the collector scans as a root, so a cursor parked here stays alive until it is drained. */
+static DbCursor *g_pending;
+
+static void pending_push(DbCursor *cur) {
+    DbCursor *head = __atomic_load_n(&g_pending, __ATOMIC_RELAXED);
+    do {
+        cur->pending_next = head;
+    } while (!__atomic_compare_exchange_n(&g_pending, &head, cur, 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED));
+}
+
+/* Finalizes every deferred cursor belonging to `c` and puts the others back. Called with `c->mu`
+ * held, and allocation-free, so it is safe anywhere inside a critical section. */
+static void pending_drain(DbConn *c) {
+    if (__atomic_load_n(&g_pending, __ATOMIC_ACQUIRE) == NULL) return;
+    DbCursor *taken = __atomic_exchange_n(&g_pending, NULL, __ATOMIC_ACQ_REL);
+    DbCursor *keep = NULL;
+    while (taken != NULL) {
+        DbCursor *next = taken->pending_next;
+        if (taken->conn == c) {
+            if (taken->stmt != NULL) {
+                sqlite3_finalize(taken->stmt);
+                taken->stmt = NULL;
+            }
+            taken->done = 1;
+        } else {
+            taken->pending_next = keep;
+            keep = taken;
+        }
+        taken = next;
+    }
+    while (keep != NULL) {
+        DbCursor *next = keep->pending_next;
+        pending_push(keep);
+        keep = next;
+    }
+}
+
+/* The statement half, with `cur->conn->mu` already held. */
+static void cursor_finalize_locked(DbCursor *cur) {
     if (cur->stmt != NULL) {
-        pthread_mutex_lock(&cur->conn->mu);
         sqlite3_finalize(cur->stmt);
-        pthread_mutex_unlock(&cur->conn->mu);
         cur->stmt = NULL;
     }
     cur->done = 1;
+}
+
+static void cursor_finalize(DbCursor *cur) {
+    if (cur->stmt == NULL) {
+        cur->done = 1;
+        return;
+    }
+    pthread_mutex_lock(&cur->conn->mu);
+    cursor_finalize_locked(cur);
+    pthread_mutex_unlock(&cur->conn->mu);
 }
 
 #ifdef ZIMAN_GC
 static void cursor_finalizer(void *obj, void *client_data) {
     (void)client_data;
     DbCursor *cur = obj;
-    if (handleset_remove(&g_cursors, cur)) cursor_finalize(cur);
+    if (!handleset_remove(&g_cursors, cur)) return;
+    if (cur->stmt == NULL) {
+        cur->done = 1;
+        return;
+    }
+    /* Never `pthread_mutex_lock` here -- see g_pending. */
+    if (pthread_mutex_trylock(&cur->conn->mu) == 0) {
+        cursor_finalize_locked(cur);
+        pthread_mutex_unlock(&cur->conn->mu);
+    } else {
+        pending_push(cur);
+    }
 }
 #endif
 
@@ -424,6 +511,7 @@ static Value native_sqlite_cursor_open_raw(Value *args, int argc, int line, int 
     DbConn *c = conn_get(args[0].as.i, line, col);
     ArrayObj *params = args[2].as.arr;
     pthread_mutex_lock(&c->mu);
+    pending_drain(c);
     Value result;
     sqlite3_stmt *stmt = NULL;
     char *sql = rewrite_placeholders(value_cstr(args[1]));
@@ -471,6 +559,7 @@ static Value native_sqlite_cursor_next_raw(Value *args, int argc, int line, int 
     if (cur->done || cur->stmt == NULL) return ok_result(arr_type, value_array(arr_type, array_obj_new(NULL, 0)));
     DbConn *c = cur->conn;
     pthread_mutex_lock(&c->mu);
+    pending_drain(c);
     Value result;
     if (c->db == NULL) {
         cur->done = 1;
