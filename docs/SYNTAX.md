@@ -374,6 +374,13 @@ for x in seen { ... }                    // a set has one binder
   `snapshot` copies into an immutable `Map`/`Set` (O(n), the handle stays usable, and later changes
   do not touch the copy). One thread at a time -- every `Mutable*` type belongs to the thread that
   made it.
+- **`MutableString`** is the text one: `mutable_string_new`/`_append`/`_append_byte` build it, and
+  `_get`/`_set`/`_index_of`/`_last_index_of` read and search it in place, so a string being built
+  can be inspected without `snapshot` copying all of it. Byte-indexed like every other string
+  operation, so `_get` answers the one-byte string at an index as `char_at` does, and `_set`
+  replaces exactly one byte -- a longer value is a runtime error rather than a splice, because
+  changing the length is what `_append` is for. `_index_of` takes a `from` and `_last_index_of` does
+  not, mirroring their immutable twins exactly.
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
   building an n-entry map is O(n log n).
