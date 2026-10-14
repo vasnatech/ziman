@@ -357,8 +357,16 @@ for x in seen { ... }                    // a set has one binder
   shift on insert, so it is a snapshot by construction. A `MutableSet` takes one binder, like a
   `Set`.
 - **The mutable collections**: `MutableMap<K, V>` (`mutable_map_new`/`_set`/`_get`/`_get_or`/
-  `_remove`) and `MutableSet<T>` (`mutable_set_new`/`_add`/`_remove`), the `MutableArray`
-  counterparts. Each mutates its own private trie in place (O(n) total instead of copying per
+  `_remove`/`_update`/`_update_all`/`_filter`/`_remove_all`/`_keys`/`_values`) and `MutableSet<T>`
+  (`mutable_set_new`/`_add`/`_add_all`/`_remove`/`_remove_all`/`_filter`/`_items`), the
+  `MutableArray` counterparts. **The single-element mutators report what they did**:
+  `mutable_map_remove` answers the value that was there as an `Option<V>` (the entry is otherwise
+  gone, and recovering it would need a `get` first), while a set's `add` and `remove` answer a
+  `bool`, so a caller can dedupe without a `contains` first. Each `_all` form is variadic and
+  answers whether anything changed; the singular is never variadic, which is what keeps a
+  `MutableSet<[int]>` from being a special case. `_keys` and `_values` return the immutable `Set<K>`
+  and `[V]`, not handles -- a result like that is nearly always consumed by a `for` or returned,
+  so a handle would allocate a thread-bound object per loop for nothing. Each mutates its own private trie in place (O(n) total instead of copying per
   entry) -- use one in a loop adding many entries. Type arguments are written out
   (`mutable_map_set<string, int>(m, "a", 1)`). **The four questions every collection answers have
   no per-type names**: `len(m)`, `contains(m, k)`, `snapshot(m)` and `clear(m)` work on all four

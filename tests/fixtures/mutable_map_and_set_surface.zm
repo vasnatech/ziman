@@ -1,0 +1,47 @@
+// The MutableMap and MutableSet surface, all of it ordinary Ziman over iteration plus the natives
+// that now report what they did: `mutable_map_remove` answers the value that was there (the entry
+// is otherwise gone, and recovering it would need a `get` first) and the set's add and remove
+// answer whether anything changed, so a caller can dedupe without a `contains` first.
+//
+// `update_all` and `filter` are a `for` plus a `set` or a `remove`, which is only safe because
+// iterating a hashed handle walks a snapshot of the entries -- the writes cannot disturb the walk.
+//
+// The pairs matter: every `_all` is called once where something changes and once where nothing
+// does, and every reporting mutator is called twice on the same key so the second answer is the
+// interesting one.
+fn main() {
+    val m = mutable_map_new<string, int>()
+    mutable_map_set(m, "a", 1)
+    mutable_map_set(m, "b", 2)
+    mutable_map_set(m, "c", 3)
+
+    print(mutable_map_update(m, "a", fn(old: Option<int>) -> int { return switch old { Some(n) { n * 10 } None { 0 } } }))
+    print(mutable_map_update(m, "zz", fn(old: Option<int>) -> int { return switch old { Some(n) { n } None { 99 } } }))
+    print(mutable_map_values(m))
+    print(mutable_map_keys(m))
+
+    mutable_map_update_all(m, fn(k: string, v: int) -> int { return v + 1 })
+    print(mutable_map_values(m))
+
+    mutable_map_filter(m, fn(k: string, v: int) -> bool { return v < 50 })
+    print(mutable_map_keys(m))
+
+    print(mutable_map_remove_all(m, "b", "nope"))
+    print(mutable_map_remove_all(m, "nope"))
+    print(mutable_map_keys(m))
+    print(mutable_map_remove(m, "c"))
+    print(mutable_map_remove(m, "c"))
+
+    val s = mutable_set_new<int>()
+    print(mutable_set_add(s, 1))
+    print(mutable_set_add(s, 1))
+    print(mutable_set_add_all(s, 2, 3, 1))
+    print(mutable_set_add_all(s, 1))
+    print(mutable_set_items(s))
+    mutable_set_filter(s, fn(n) { n % 2 == 1 })
+    print(mutable_set_items(s))
+    print(mutable_set_remove(s, 3))
+    print(mutable_set_remove(s, 3))
+    print(mutable_set_remove_all(s, 1, 9))
+    print(len(s))
+}

@@ -1366,11 +1366,18 @@ static Value native_mapb_set(Value *args, int argc, int line, int col) {
     return value_int(0);
 }
 
+/* True when the element was not already there, so a caller can dedupe without a `contains` first.
+ * Skips the store when it is present, which is equivalent -- a set's values are unused and
+ * overwriting a key keeps its place -- and cheaper. */
 static Value native_setb_add(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
+    (void)argc;
+    (void)line;
+    (void)col;
     MutableMapBuf *buf = mb_get_buf(args[0]);
+    Value ignored;
+    if (mapobj_get(buf->m, args[1], &ignored)) return value_bool(0);
     mapobj_set_mut(buf->m, args[1], value_int(0), buf->shared);
-    return value_int(0);
+    return value_bool(1);
 }
 
 static Value native_mapb_get(Value *args, int argc, int line, int col) {
@@ -1382,10 +1389,33 @@ static Value native_mapb_get(Value *args, int argc, int line, int col) {
     return value_enum(option, enum_obj_new("Option", "None", 0, value_int(0)));
 }
 
-static Value native_mb_remove(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
-    mapobj_remove_mut(mb_get_buf(args[0])->m, args[1]);
-    return value_int(0);
+/* A map's remove answers what was there, as `Option<V>`: the entry is otherwise gone and
+ * recovering it would need a `get` first. A set's answers whether it was there at all, since its
+ * values are unused -- which is why these can no longer share one native as they did when both
+ * returned nothing. */
+static Value native_mutable_map_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MutableMapBuf *buf = mb_get_buf(args[0]);
+    Type option = type_enum("Option");
+    Value found;
+    if (!mapobj_get(buf->m, args[1], &found)) {
+        return value_enum(option, enum_obj_new("Option", "None", 0, value_int(0)));
+    }
+    mapobj_remove_mut(buf->m, args[1]);
+    return value_enum(option, enum_obj_new("Option", "Some", 1, found));
+}
+
+static Value native_mutable_set_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MutableMapBuf *buf = mb_get_buf(args[0]);
+    Value ignored;
+    int present = mapobj_get(buf->m, args[1], &ignored);
+    if (present) mapobj_remove_mut(buf->m, args[1]);
+    return value_bool(present);
 }
 
 
@@ -1717,10 +1747,10 @@ void prelude_register(void) {
     native_register("mutable_map_new", native_mapb_new);
     native_register("mutable_map_set", native_mapb_set);
     native_register("mutable_map_get", native_mapb_get);
-    native_register("mutable_map_remove", native_mb_remove);
+    native_register("mutable_map_remove", native_mutable_map_remove);
     native_register("mutable_set_new", native_setb_new);
     native_register("mutable_set_add", native_setb_add);
-    native_register("mutable_set_remove", native_mb_remove);
+    native_register("mutable_set_remove", native_mutable_set_remove);
     native_register("guard_new", native_guard_new);
     native_register("bytes_index_of", native_bytes_index_of);
     native_register("array_map", native_array_map);

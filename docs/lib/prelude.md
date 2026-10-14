@@ -700,7 +700,7 @@ The value of `key`, or None.
 ### `mutable_map_remove`
 
 ```
-native fn mutable_map_remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K)
+native fn mutable_map_remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 ```
 
 Removes `key`; nothing happens when it is absent.
@@ -726,7 +726,7 @@ An empty set builder.
 ### `mutable_set_add`
 
 ```
-native fn mutable_set_add<T: Eq + Hash>(sb: MutableSet<T>, item: T)
+native fn mutable_set_add<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 ```
 
 Adds `item`; nothing happens when it is already there.
@@ -734,10 +734,101 @@ Adds `item`; nothing happens when it is already there.
 ### `mutable_set_remove`
 
 ```
-native fn mutable_set_remove<T: Eq + Hash>(sb: MutableSet<T>, item: T)
+native fn mutable_set_remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 ```
 
 Removes `item`; nothing happens when it is absent.
+
+### `mutable_map_update`
+
+```
+fn mutable_map_update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V
+```
+
+`f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
+lookup where `get` then `set` is two, which is the whole reason this exists where
+`mutable_set`-on-a-cell did not need an equivalent.
+
+### `mutable_map_update_all`
+
+```
+fn mutable_map_update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V)
+```
+
+`f` applied to every value, keys and their order unchanged. Safe to write as a `for` plus a
+`set` because iterating a MutableMap walks a snapshot of the entries, so the writes cannot
+disturb the walk.
+
+### `mutable_map_filter`
+
+```
+fn mutable_map_filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool)
+```
+
+Drops every entry `keep` answers false for, in place -- the counterpart of `map_filter`, which
+returns a new Map instead. Safe for the same snapshot reason as `update_all`.
+
+### `mutable_map_remove_all`
+
+```
+fn mutable_map_remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool
+```
+
+Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
+of what the singular takes, which for a map's `remove` is keys rather than entries.
+
+### `mutable_map_keys`
+
+```
+fn mutable_map_keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K>
+```
+
+The keys as an immutable `Set<K>`, in insertion order -- the same answer `map_keys` gives for a
+Map, and the reason this returns a value rather than a handle: a result like this is nearly
+always consumed by a `for` or returned, so handing back a handle would allocate a thread-bound
+object per loop for nothing.
+
+### `mutable_map_values`
+
+```
+fn mutable_map_values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V]
+```
+
+The values as an array, in the keys' insertion order, as `map_values` gives for a Map.
+
+### `mutable_set_add_all`
+
+```
+fn mutable_set_add_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
+```
+
+Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
+not variadic, which is what keeps a `MutableSet<[int]>` from being a special case -- one element
+or several is never ambiguous when only the `_all` form takes many.
+
+### `mutable_set_remove_all`
+
+```
+fn mutable_set_remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
+```
+
+Drops each of `items`, answering whether any of them was there.
+
+### `mutable_set_filter`
+
+```
+fn mutable_set_filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
+```
+
+Drops every element `keep` answers false for, in place -- the counterpart of `set_filter`.
+
+### `mutable_set_items`
+
+```
+fn mutable_set_items<T: Eq + Hash>(s: MutableSet<T>) -> [T]
+```
+
+The elements as an array, in insertion order, as `set_items` gives for a Set.
 
 ## Iter
 
