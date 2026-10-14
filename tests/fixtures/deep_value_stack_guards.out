@@ -1,0 +1,3 @@
+write refused: stack depth exceeded
+send refused: stack depth exceeded
+shallow still writes: [[[null]]]

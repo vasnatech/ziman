@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "stack.h"
 #include "native_json.h"
 
 #include <errno.h>
@@ -632,6 +633,11 @@ static void put_number(Out *o, Value number) {
 }
 
 static void write_json(Out *o, Value j) {
+    /* Recurses once per level of the tree, so a deeply nested `Json` overflowed the C stack with no
+     * error at all -- a 200,000-deep value written on a spawned thread (`--thread-stack-mb=1`) was a
+     * core dump. The parser has had its own 512-level cap since the start; the *writer* had none,
+     * and a tree built in Ziman rather than parsed never goes near the parser (F125). */
+    ZIMAN_STACK_CHECK();
     const char *variant = j.as.en->variant_name;
     Value payload = j.as.en->payload;
     if (strcmp(variant, "JNull") == 0) out_str(o, "null");

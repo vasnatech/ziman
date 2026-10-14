@@ -1,3 +1,4 @@
+#include "stack.h"
 #include "value_copy.h"
 
 #include <stdlib.h>
@@ -145,6 +146,12 @@ static Value crossing_closure_copy(ClosureObj *clo, Type func_type) {
 }
 
 static Value value_deep_copy_crossing(Value v) {
+    /* In the recursive function, not at `value_copy_send`'s entry: the macro measures the stack
+     * where it is called, so one check at the top passes while shallow and the recursion then runs
+     * past it -- which is exactly what happened when I first put it there, and the 200,000-level
+     * send still dumped core. Sending or receiving a deeply nested value had no guard at all
+     * before this (F125). */
+    ZIMAN_STACK_CHECK();
     switch (v.type.kind) {
         case TY_STRING:
             return crossing_string_copy(v.as.str.ptr, v.as.str.len);
@@ -272,6 +279,7 @@ static Value ordinary_closure_copy(ClosureObj *clo, Type func_type) {
 }
 
 static Value value_copy_ordinary_into(Value v) {
+    ZIMAN_STACK_CHECK(); /* see value_deep_copy_crossing */
     switch (v.type.kind) {
         case TY_STRING:
             return value_string_copy(v.as.str.ptr, v.as.str.len);

@@ -1,0 +1,51 @@
+// F125: three paths recursed once per level of a value with no stack guard, so a deeply nested
+// value was a bare SIGSEGV rather than an error -- `write_json`, and both `value_copy` entry points
+// (the send and the receive side of a channel).
+//
+// A tree this deep cannot be *parsed*: `json`'s parser has had a 512-level cap since the start.
+// It has to be built in Ziman, which is exactly why the writer's missing cap went unnoticed -- the
+// only route to a deep tree never goes through the parser.
+//
+// Each case runs on its own spawned thread with the stack set small by the sibling `.args`, so the
+// guard fires and A2's per-thread boundary turns it into a reportable message instead of ending the
+// program. The main thread's stack is large enough to swallow 200,000 levels, which is the other
+// half of why this survived.
+use json
+use json.Json
+
+fn deep(depth: int) -> Json {
+    var j = Json.JNull
+    for i in 0..depth {
+        j = Json.JArray([j])
+    }
+    return j
+}
+
+fn writes(done: Channel<string>) {
+    val _ = json.json_to_string(deep(200000))
+    send(done, "write: no guard fired")
+}
+
+fn sends(out: Channel<Json>, done: Channel<string>) {
+    send(out, deep(200000))
+    send(done, "send: no guard fired")
+}
+
+fn guarded(message: string) -> string {
+    return if contains(message, "stack depth exceeded") { "refused: stack depth exceeded" } else { message }
+}
+
+fn main() {
+    val done: Channel<string> = channel_new()
+    spawn writes(done) on_error fn(message: string) {
+        send(done, concat("write ", guarded(message)))
+    }
+    print(receive(done))
+    val values: Channel<Json> = channel_new(1)
+    spawn sends(values, done) on_error fn(message: string) {
+        send(done, concat("send ", guarded(message)))
+    }
+    print(receive(done))
+    // Shallow values are untouched.
+    print(format("shallow still writes: {}", json.json_to_string(deep(3))))
+}
