@@ -3806,32 +3806,58 @@ every one of them, and most people's first Ziman function, a type error.
 So the array keeps `push` in both worlds, and `add` survives only where it is namespaced and
 collides with nothing: `mutable_set_add`.
 
-### Before any of this lands
+### The two gates, and what actually happened to them
 
-1. **Does `#[thread_bound]` survive the name?** The `Mutable*` rule covers the documentation half.
-   The cross-thread error wording and the unknown-type hint are still open -- a model will write
-   `MutableMap` before this ships and `MutMap` after, and the suggester has to reach both.
-2. **Do cold models find the builders at all?** The generation benchmark (`docs/reviews/benchmark/`)
-   is the number that justifies the migration. If models already find `ab_new`, the case rests on
-   the read-in-place gap alone, which is smaller.
+1. **Does `#[thread_bound]` survive the name?** Largely discharged by F103/F104, and in the place
+   that turned out to matter most: the old name of every renamed type and function now reports its
+   replacement, and the type message carries the sentence the name itself cannot -- that a handle
+   belongs to the thread that made it and crosses neither a `Channel`, a `spawn`, nor a
+   module-level `val`. That is where a reader meets `Mutable*` for the first time, so it is the
+   right place for it. The cross-thread *runtime* error wording is still untouched.
+2. **Do cold models find the builders at all?** *Never measured, and the migration went ahead
+   anyway.* This entry said that number justified the work, so the honest record is that the work
+   rests on the other argument instead -- the read-in-place gap F96 found, and a name that
+   describes a phase of a computation rather than a type. The benchmark cannot answer the question
+   retroactively now: `docs/reviews/benchmark/run.sh` scores attempts rather than producing them,
+   and the tasks are scored against whatever the language currently is, so a cold run from here
+   measures the new names with nothing to compare against. Anyone wanting the comparison needs a
+   cold wave against `97d7f2e` or earlier.
 
 ### Migration
 
 Measured scope, excluding `lib/prelude.zm` itself: **1,103 call sites** (`ab_` 578, `sb_` 436,
 `mapb_` 83, `setb_` 6) plus 95 type mentions across `ziman` and `health-record-backend-ziman`, with
-docs, fixtures and the C source on top. `MutableString` is 40% of that on its own, which is worth
-weighing against the benchmark number in gate 2 before starting.
+docs, fixtures and the C source on top.
 
 Big bang, no deprecation window. A window is for a language with outside users who cannot be
-edited; here it costs something specific -- while both spellings work, the benchmark in gate 2
-cannot tell whether models reach for the new name, because the old one still passes. The two repos
-cannot land together, since renaming the prelude breaks every call site in the same tree:
+edited, and here it would have cost something specific: while both spellings work, nothing can tell
+whether a model reaches for the new name, because the old one still passes. The two repos could not
+land together, since renaming the prelude breaks every call site in the same tree.
 
-1. **ziman** -- prelude, interpreter, typechecker, its own call sites, fixtures and docs, one
-   commit, gate green.
-2. **ziman** -- promote the three sorts; document the seven `array_*` helpers in SYNTAX.md.
-3. **health-record-backend-ziman** -- the remaining sites, mechanical, once it picks up the new
-   binary. Red in between.
+**What it took, in order** -- F97, then F98-F101, then F103, F104:
+
+1. Promote the three sorts and document the seven `array_*` helpers (F97), which needed none of the
+   rest and had to come first for a reason the rename creates: `mutable_array_sort` is bare, and
+   shipping that while `collections.sort` still needed an import would make the mutable type easier
+   to reach than the immutable one.
+2. The four bare builtins (F98-F101), *before* the rename rather than after. That ordering is what
+   made the rename cheap: the 250 `ab_to_array` sites collapsed into `snapshot`, and the `*_len`
+   sites into `len`, instead of being renamed to a per-type name and then changed again. It also
+   found that the entry's claim about these being an existing dispatch was wrong in both directions
+   (81ca7d6).
+3. The types (F103), then the functions (F104). Eleven functions stopped existing rather than being
+   renamed, because their question is now one of the four bare ones.
+
+**Three things a mechanical pass cannot do**, each of which bit: it rewrote `derive(Json)`'s
+`cb_appendf` format strings without their arguments, which compiled silently because that function
+had no `format(printf)` attribute; it turned the `--lint` tables' four conversion names into four
+copies of `snapshot`, leaving the lint keyed on nothing; and it wrote "an MutableArray" in 31
+messages. None of that was visible without the suite and a reader.
+
+**What was deliberately left alone**: `DESIGN.md`, `ROADMAP.md`, `tasks.md`, the benchmark run logs,
+`FEATURE-NOTES.md` and `MEMORY.md`, which hold 285 occurrences of the old names between them. Those
+are dated records, true of their date, and rewriting them would have falsified the history that
+explains the rename.
 
 ## `Mutable<T>`: the root of the family, and why there is no `MutableInt` (2026-10-13)
 
