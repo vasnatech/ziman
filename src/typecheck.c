@@ -758,17 +758,35 @@ static void lint_builder_read_by_conversion(const Stmt *body) {
     }
     for (int i = 0; i < stmts->count; i++) {
         const Stmt *s = stmts->items[i];
-        if (s->kind != STMT_VAL && s->kind != STMT_VAR) continue;
+        /* Two shapes, not one. `val seen_so_far = snapshot(b)` is the obvious one; `for x in
+         * snapshot(b)` is the one this missed for as long as the lint existed, because it only
+         * ever looked at a declaration's initialiser -- and it is the *more* common way to write
+         * the quadratic, since converting a handle to look through it is exactly what a `for`
+         * wants. Three live instances were sitting in the reference backend unflagged, two of them
+         * a linear membership scan over a full copy per pass. */
+        const Expr *converted = s->kind == STMT_VAL || s->kind == STMT_VAR ? s->as.decl.init
+                                : s->kind == STMT_FOR                     ? s->as.for_stmt.iterable
+                                                                          : NULL;
+        if (converted == NULL) continue;
         const char *conversion = NULL, *builder = NULL;
-        if (!finds_builder_conversion(s->as.decl.init, &conversion, &builder)) continue;
+        if (!finds_builder_conversion(converted, &conversion, &builder)) continue;
         for (int j = i + 1; j < stmts->count; j++) {
             if (statement_reassigns(stmts->items[j], builder)) break;
             const char *readers = readers_for_appending_stmt(stmts->items[j], builder);
             if (readers == NULL) continue;
-            ziman_warning(g_lint_file, s->line, s->col,
-                          "'%s' converts the whole of '%s' on every pass of this loop, and the loop keeps "
-                          "adding to it (quadratic); read it in place with %s",
-                          conversion, builder, readers);
+            if (s->kind == STMT_FOR) {
+                /* All four mutable collections iterate directly as of F111, so the advice for this
+                 * shape is not the reader list -- it is to drop the conversion entirely. */
+                ziman_warning(g_lint_file, s->line, s->col,
+                              "'%s' converts the whole of '%s' on every pass of this loop, and the loop keeps "
+                              "adding to it (quadratic); iterate it directly with 'for ... in %s'",
+                              conversion, builder, builder);
+            } else {
+                ziman_warning(g_lint_file, s->line, s->col,
+                              "'%s' converts the whole of '%s' on every pass of this loop, and the loop keeps "
+                              "adding to it (quadratic); read it in place with %s",
+                              conversion, builder, readers);
+            }
             g_lint_count++;
             break;
         }

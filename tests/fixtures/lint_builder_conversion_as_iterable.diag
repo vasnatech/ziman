@@ -1,0 +1,4 @@
+# Exactly one: the inner `for already in snapshot(seen)` in a loop that appends to `seen`. `tally`
+# is the convert-once-after-the-loop shape and must not be flagged, which is what makes this a test
+# of the rule rather than of the keyword.
+lint 14:9 'snapshot' converts the whole of 'seen' on every pass of this loop, and the loop keeps adding to it (quadratic); iterate it directly with 'for ... in seen'

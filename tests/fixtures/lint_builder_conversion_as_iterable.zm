@@ -1,0 +1,39 @@
+// The shape the lint missed for as long as it existed: `for x in snapshot(b)` inside a loop that
+// keeps appending to `b`. It only ever looked at a *declaration's* initialiser, and converting a
+// handle in order to look through it is exactly what a `for` wants -- so this is arguably the more
+// common way to write the quadratic. Three live instances were sitting unflagged in the reference
+// backend, two of them a linear membership scan over a full copy per pass.
+//
+// The advice is different for this shape, and better: all four mutable collections iterate directly
+// as of F111, so the fix is to drop the conversion rather than to reach for a reader.
+//
+// `tally` below is the harmless shape that must stay unflagged -- convert once, after the loop.
+fn first_duplicate(names: [string]) -> string {
+    val seen = mutable_array_new<string>()
+    for name in names {
+        for already in snapshot(seen) {
+            if already == name {
+                return name
+            }
+        }
+        mutable_array_push(seen, name)
+    }
+    return ""
+}
+
+fn tally(words: [string]) -> int {
+    val counts = mutable_map_new<string, int>()
+    for w in words {
+        mutable_map_set(counts, w, 1)
+    }
+    var n = 0
+    for k, v in snapshot(counts) {
+        n = n + v
+    }
+    return n
+}
+
+fn main() {
+    print(first_duplicate(["a", "b", "a"]))
+    print(tally(["a", "b"]))
+}
