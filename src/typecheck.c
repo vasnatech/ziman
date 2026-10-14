@@ -287,6 +287,12 @@ static int type_supports_equality(Module *module, Type t, int depth) {
              * rather than on the four type names, so it covers a handle written in Ziman as well.
              * A struct *containing* one falls out of the field loop below. */
             if (decl->thread_bound) return 0;
+            /* Bounded here as well as by `depth > MAX_TYPE_CHECK_DEPTH` at the top. The depth cap
+             * does keep this index under the array today -- 64 against 128 -- but that is a bound
+             * held one function away from the write, and the four pushes in this file all relied
+             * on it. Answering "not comparable" at the limit is the same answer the depth cap
+             * already gives (F126). */
+            if (g_eq_check_depth >= MAX_TYPE_CHECK_STACK) return 0;
             g_eq_check_stack[g_eq_check_depth++] = t;
             int ok = 1;
             for (int i = 0; i < decl->fields.count; i++) {
@@ -303,6 +309,7 @@ static int type_supports_equality(Module *module, Type t, int depth) {
             if (type_check_cycle_seen(g_eq_check_stack, g_eq_check_depth, t)) return 1;
             EnumDecl *decl = find_enum(module, t.enum_name);
             if (decl == NULL) return 0;
+            if (g_eq_check_depth >= MAX_TYPE_CHECK_STACK) return 0;
             g_eq_check_stack[g_eq_check_depth++] = t;
             int ok = 1;
             for (int i = 0; i < decl->variants.count; i++) {
@@ -379,6 +386,7 @@ static int type_supports_hashing(Module *module, Type t, int depth) {
              * rather than on the four type names, so it covers a handle written in Ziman as well.
              * A struct *containing* one falls out of the field loop below. */
             if (decl->thread_bound) return 0;
+            if (g_hash_check_depth >= MAX_TYPE_CHECK_STACK) return 0;
             g_hash_check_stack[g_hash_check_depth++] = t;
             int ok = 1;
             for (int i = 0; i < decl->fields.count; i++) {
@@ -398,6 +406,7 @@ static int type_supports_hashing(Module *module, Type t, int depth) {
             if (type_check_cycle_seen(g_hash_check_stack, g_hash_check_depth, t)) return 1;
             EnumDecl *decl = find_enum(module, t.enum_name);
             if (decl == NULL) return 0;
+            if (g_hash_check_depth >= MAX_TYPE_CHECK_STACK) return 0;
             g_hash_check_stack[g_hash_check_depth++] = t;
             int ok = 1;
             for (int i = 0; i < decl->variants.count; i++) {

@@ -1,5 +1,6 @@
 #include "gc_mark.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -135,6 +136,18 @@ static int g_struct_content_marker_count = 0;
 
 void gc_mark_register_struct_content_marker(const char *type_name,
                                              void (*mark_contents)(const Arena *a, StructObj *st)) {
+    /* The ninth registration would write a `type_name` *and a function pointer* past the end of a
+     * file-scope array -- into whatever follows it, which the collector then calls. Three are
+     * registered today and the comment above says so, which is the only thing that was keeping
+     * this in bounds; an argument about today's call sites is not a bound (F126). Startup-only, so
+     * failing hard here is right: there is no sensible way to run with a marker dropped. */
+    if (g_struct_content_marker_count >= GC_MAX_STRUCT_CONTENT_MARKERS) {
+        fprintf(stderr,
+                "ziman: more than %d struct content markers registered ('%s' did not fit) -- raise "
+                "GC_MAX_STRUCT_CONTENT_MARKERS in src/gc_mark.c\n",
+                GC_MAX_STRUCT_CONTENT_MARKERS, type_name);
+        exit(1);
+    }
     g_struct_content_markers[g_struct_content_marker_count].type_name = type_name;
     g_struct_content_markers[g_struct_content_marker_count].mark_contents = mark_contents;
     g_struct_content_marker_count++;
