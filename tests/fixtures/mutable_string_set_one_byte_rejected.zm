@@ -1,0 +1,8 @@
+// `set` replaces one element everywhere else in the language, so it does here too: a longer value
+// would change the length, which `set` nowhere else does. Appending or rebuilding is how you change
+// a MutableString's length.
+fn main() {
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "abc")
+    mutable_string_set(sb, 0, "ab")
+}

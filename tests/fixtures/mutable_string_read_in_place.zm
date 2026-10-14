@@ -1,0 +1,34 @@
+// A MutableString can now be read and searched without `snapshot`, which copies all of it per call
+// -- the same gap F96 closed for MutableArray, for the last of the four.
+//
+// Byte-indexed, like every string operation in the language, so there was no UTF-8 decision left to
+// make here. The second half checks that against the immutable helpers on the snapshot: every
+// answer has to agree, including the overlapping-needle case, where the last `aa` in `aaaa` is at 2
+// rather than 1 -- a forward scan keeping the most recent hit gets that right and a naive
+// backward-from-the-end scan would too, but they disagree for other needles, so it is worth pinning
+// against the twin rather than against my own expectation.
+fn main() {
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "hello world")
+    print(mutable_string_get(sb, 0))
+    print(mutable_string_get(sb, 4))
+    print(mutable_string_index_of(sb, "o", 0))
+    print(mutable_string_last_index_of(sb, "o"))
+    print(mutable_string_index_of(sb, "world", 0))
+    print(mutable_string_index_of(sb, "zzz", 0))
+    print(mutable_string_index_of(sb, "", 0))
+    print(mutable_string_last_index_of(sb, ""))
+    mutable_string_set(sb, 0, "H")
+    print(snapshot(sb))
+    print(len(sb))
+    // agreement with the immutable helpers on the snapshot
+    val s = snapshot(sb)
+    print(index_of(s, "o", 0))
+    print(last_index_of(s, "o"))
+    print(char_at(s, 4))
+    // overlapping needle: last occurrence of "aa" in "aaaa" is at 2
+    val a = mutable_string_new()
+    mutable_string_append(a, "aaaa")
+    print(mutable_string_last_index_of(a, "aa"))
+    print(last_index_of(snapshot(a), "aa"))
+}

@@ -227,6 +227,26 @@ native fn mutable_string_append(sb: MutableString, pieces: variadic string)
 // their own.
 native fn mutable_string_append_byte(sb: MutableString, b: variadic byte) -> bool
 
+// Reading and writing one byte of the buffer, and searching it: what lets a string being built be
+// inspected without `snapshot`, which copies all of it per call. Byte-indexed, like every string
+// operation in the language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so
+// there is no UTF-8 question left to settle here.
+native fn mutable_string_get(sb: MutableString, index: int) -> string
+
+// Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
+// `value` of any other length is a runtime error rather than a splice, because splicing would
+// change the length and `set` nowhere else in the language does that.
+native fn mutable_string_set(sb: MutableString, index: int, value: string)
+
+// The byte index of the first `needle` at or after `from` (`0 <= from <= len(sb)`, a runtime error
+// otherwise), or -1. An empty `needle` is found at `from`. Takes a `from` because the immutable
+// `index_of(s, needle, from)` does -- mirroring the twin matters more than saving an argument.
+native fn mutable_string_index_of(sb: MutableString, needle: string, from: int) -> int
+
+// The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
+// because `last_index_of(s, needle)` has none either.
+native fn mutable_string_last_index_of(sb: MutableString, needle: string) -> int
+
 // ---------------------------------------------------------------- Mutable
 // One cell holding one value: the root the other four mutable types specialise, and the primitive
 // that lets a new mutable shape be written in Ziman instead of added to the language. A ring buffer

@@ -650,6 +650,79 @@ static Value native_sb_append_byte(Value *args, int argc, int line, int col) {
     return value_bool(1);
 }
 
+/* Reading and writing one byte of the buffer, and searching it -- the four a MutableString was
+ * missing, so that a string being built can be inspected without `snapshot`, a full copy per call.
+ *
+ * Byte-indexed, like every string operation in the language: `len` is bytes, `char_at(s, i)` is
+ * "the one-byte string at i", and `char_count` is the separate explicit helper. That is what makes
+ * these cheap and unambiguous rather than needing a UTF-8 decision -- the language settled it for
+ * immutable strings long ago. */
+static Value native_mutable_string_get(Value *args, int argc, int line, int col) {
+    (void)argc;
+    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    int64_t i = args[1].as.i;
+    if (i < 0 || (size_t)i >= buf->length) {
+        ziman_error("runtime", line, col, "get index %lld out of bounds (MutableString length %lld)", (long long)i,
+                    (long long)buf->length);
+    }
+    return value_string_copy(&buf->data[i], 1);
+}
+
+/* Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
+ * `value` of any other length is refused rather than splicing, because splicing would change the
+ * length and `set` nowhere else in the language does that. */
+static Value native_mutable_string_set(Value *args, int argc, int line, int col) {
+    (void)argc;
+    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    int64_t i = args[1].as.i;
+    if (i < 0 || (size_t)i >= buf->length) {
+        ziman_error("runtime", line, col, "set index %lld out of bounds (MutableString length %lld)", (long long)i,
+                    (long long)buf->length);
+    }
+    if (args[2].as.str.len != 1) {
+        ziman_error("runtime", line, col,
+                    "mutable_string_set replaces exactly one byte, and was given %lld (append or rebuild to change the length)",
+                    (long long)args[2].as.str.len);
+    }
+    buf->data[i] = args[2].as.str.ptr[0];
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
+/* Takes a `from` because the immutable `index_of(s, needle, from)` does, and validates it the same
+ * way: mirroring the twin exactly matters more than saving an argument. `last_index_of` has no
+ * `from` for the same reason -- its own twin does not. */
+static Value native_mutable_string_index_of(Value *args, int argc, int line, int col) {
+    (void)argc;
+    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    int64_t from = args[2].as.i;
+    if (from < 0 || (size_t)from > buf->length) {
+        ziman_error("runtime", line, col, "index_of 'from' %lld is outside 0..%lld (the MutableString's length)",
+                    (long long)from, (long long)buf->length);
+    }
+    return value_int(value_str_find(buf->data, buf->length, args[1].as.str.ptr, args[1].as.str.len, (size_t)from));
+}
+
+/* The last occurrence: searched forward, keeping the most recent hit, since value_str_find only
+ * scans one way. An empty needle is found at the length, which is where `last_index_of` on a
+ * string puts it. */
+static Value native_mutable_string_last_index_of(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    size_t needle_len = args[1].as.str.len;
+    if (needle_len == 0) return value_int((int64_t)buf->length);
+    int64_t best = -1;
+    size_t from = 0;
+    while (from + needle_len <= buf->length) {
+        long at = value_str_find(buf->data, buf->length, args[1].as.str.ptr, needle_len, from);
+        if (at < 0) break;
+        best = (int64_t)at;
+        from = (size_t)at + 1;
+    }
+    return value_int(best);
+}
+
 static Value native_sb_to_string(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -1763,6 +1836,10 @@ void prelude_register(void) {
     native_register("char_count", native_char_count);
     native_register("truncate_chars", native_truncate_chars);
     native_register("slice", native_slice);
+    native_register("mutable_string_get", native_mutable_string_get);
+    native_register("mutable_string_set", native_mutable_string_set);
+    native_register("mutable_string_index_of", native_mutable_string_index_of);
+    native_register("mutable_string_last_index_of", native_mutable_string_last_index_of);
     native_register("mutable_string_new", native_sb_new);
     native_register("mutable_string_append", native_sb_append);
     native_register("mutable_string_append_byte", native_sb_append_byte);

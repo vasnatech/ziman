@@ -428,6 +428,46 @@ Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say
 is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
 their own.
 
+### `mutable_string_get`
+
+```
+native fn mutable_string_get(sb: MutableString, index: int) -> string
+```
+
+Reading and writing one byte of the buffer, and searching it: what lets a string being built be
+inspected without `snapshot`, which copies all of it per call. Byte-indexed, like every string
+operation in the language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so
+there is no UTF-8 question left to settle here.
+
+### `mutable_string_set`
+
+```
+native fn mutable_string_set(sb: MutableString, index: int, value: string)
+```
+
+Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
+`value` of any other length is a runtime error rather than a splice, because splicing would
+change the length and `set` nowhere else in the language does that.
+
+### `mutable_string_index_of`
+
+```
+native fn mutable_string_index_of(sb: MutableString, needle: string, from: int) -> int
+```
+
+The byte index of the first `needle` at or after `from` (`0 <= from <= len(sb)`, a runtime error
+otherwise), or -1. An empty `needle` is found at `from`. Takes a `from` because the immutable
+`index_of(s, needle, from)` does -- mirroring the twin matters more than saving an argument.
+
+### `mutable_string_last_index_of`
+
+```
+native fn mutable_string_last_index_of(sb: MutableString, needle: string) -> int
+```
+
+The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
+because `last_index_of(s, needle)` has none either.
+
 ## Mutable
 
 ### `Mutable`
