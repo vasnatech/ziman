@@ -211,7 +211,7 @@ static TypeList parse_type_args(Parser *p) {
  * that position either: dropping the type argument reaches the
  * inference error, which says to "write it explicitly, e.g.
  * 'ab_new<...>(...)'" -- the exact thing the parser was refusing. So an
- * ArrayBuilder of callbacks was inexpressible. (tasks.md F45) A real
+ * MutableArray of callbacks was inexpressible. (tasks.md F45) A real
  * comparison's right-hand side can still coincidentally start with one
  * of these (`x < Point { ... }`, `x < [1, 2, 3]`), but `<`/`>` only
  * type-check between two numeric operands, so a false positive here
@@ -1887,7 +1887,7 @@ static Stmt *parse_statement(Parser *p) {
             if (first->kind == EXPR_INDEX) {
                 ziman_error("syntax", start->line, start->col,
                             "an array element cannot be assigned: arrays are values, not mutable containers -- "
-                            "write 'arr = set(arr, i, value)' (and see ArrayBuilder for building one up in a loop)");
+                            "write 'arr = set(arr, i, value)' (and see MutableArray for building one up in a loop)");
             }
             if (first->kind == EXPR_FIELD_ACCESS) {
                 ziman_error("syntax", start->line, start->col,

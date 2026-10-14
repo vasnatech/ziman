@@ -50,9 +50,9 @@ void gc_mark_value(const Arena *a, Value v);
  * NULL `obj` are both no-ops: there is nothing live there to mark. */
 void gc_mark_object(const Arena *a, const void *obj);
 
-/* The seam a disguised-native-handle struct (ArrayBuilder/MapBuilder/SetBuilder, src/prelude.c)
+/* The seam a disguised-native-handle struct (MutableArray/MutableMap/MutableSet, src/prelude.c)
  * needs to keep its own payload's Values alive across a real collection while it's still being
- * built. A builder's payload (an ArrayBuilderBuf's `items`, a MapBuilderBuf's MapObj) is a plain
+ * built. A builder's payload (a MutableArrayBuf's `items`, a MutableMapBuf's MapObj) is a plain
  * malloc'd/GC_MALLOC'd buffer reachable only through an opaque int64 handle stored in the wrapper
  * struct's own `fields[0]` -- invisible to both root sources this module otherwise relies on (the
  * stack scan sees no pointer shape in an integer; a struct's `fields` walk marks each field by its
@@ -60,7 +60,7 @@ void gc_mark_object(const Arena *a, const void *obj);
  * therefore only as safe as whatever *else* independently references it -- true for the *previous*
  * loop iteration's own local once the loop moves on, which is false the moment nothing else does
  * (found via docs/reviews/tasks.md's F2, the real health-record-backend-ziman app: lib/http/server.zm's
- * `routes<C>` builds an `ArrayBuilder<Pattern>` across ~100+ loop iterations, and once `Pattern`'s
+ * `routes<C>` builds a `MutableArray<Pattern>` across ~100+ loop iterations, and once `Pattern`'s
  * own StructObj wrapper was migrated to gc_heap allocation, a real collection landing mid-loop swept
  * every earlier-appended Pattern still sitting only in the builder's own buffer).
  *

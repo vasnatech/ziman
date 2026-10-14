@@ -93,7 +93,7 @@ fn read_hex(s: string, pos: int, n: int) -> int {
     return v
 }
 
-fn append_utf8(out: StringBuilder, cp: int) {
+fn append_utf8(out: MutableString, cp: int) {
     if cp < 128 {
         sb_append_byte(out, cp as byte)
     } else if cp < 2048 {
@@ -971,7 +971,7 @@ fn pad_of(n: int) -> string {
 
 // Writes the entries of an object at `indent`. `first_prefix` is written before the first
 // entry instead of the indentation (`- ` when the object is a sequence item).
-fn write_map(out: StringBuilder, obj: Json, indent: int, first_prefix: string) {
+fn write_map(out: MutableString, obj: Json, indent: int, first_prefix: string) {
     var first = true
     for key, value in Json.unwrap_JObject(obj) {
         sb_append(out, if first && len(first_prefix) > 0 { first_prefix } else { pad_of(indent) })
@@ -987,7 +987,7 @@ fn write_map(out: StringBuilder, obj: Json, indent: int, first_prefix: string) {
     }
 }
 
-fn write_seq(out: StringBuilder, arr: Json, indent: int) {
+fn write_seq(out: MutableString, arr: Json, indent: int) {
     for item in Json.unwrap_JArray(arr) {
         if Json.is_JObject(item) && !is_empty_container(item) {
             write_map(out, item, indent + 2, concat(pad_of(indent), "- "))
@@ -1002,7 +1002,7 @@ fn write_seq(out: StringBuilder, arr: Json, indent: int) {
     }
 }
 
-fn write_node(out: StringBuilder, j: Json, indent: int) {
+fn write_node(out: MutableString, j: Json, indent: int) {
     if Json.is_JObject(j) {
         write_map(out, j, indent, "")
     } else {

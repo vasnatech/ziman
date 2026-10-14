@@ -290,7 +290,7 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
 - **`push` in a loop costs what you'd expect; `insert`/`set`/`remove` don't.** `arr = push(arr,
   x)` is amortised O(1) (spare room kept, the next `push` on that exact array writes into it
   instead of copying); `insert`/`set`/`remove` always copy the whole array, so replacing every
-  element one `set` at a time is O(n²) -- `ArrayBuilder<T>` (`ab_new`/`ab_append`/`ab_get`/
+  element one `set` at a time is O(n²) -- `MutableArray<T>` (`ab_new`/`ab_append`/`ab_get`/
   `ab_set`/`ab_len`/`ab_clear`/`ab_to_array`) is the right tool for building/editing a large
   array piece by piece. It reads back in place: `len(ab)`, `ab_get` and `for x in ab` cost nothing,
   where `snapshot`/`ab_to_array` copies the whole buffer every call (`--lint` flags that in a
@@ -336,9 +336,9 @@ for x in seen { ... }                    // a set has one binder
   builtin `join` is a path join over strings, not this), and `sum(items: [int])` totals them --
   integers only, since `+` traps on overflow so the answer is exact or an error, where a float
   total depends on summation order and `fold` expresses whichever order you want.
-- **Builders**: `MapBuilder<K, V>` (`mapb_new`/`_set`/`_get`/`_remove`/`_contains`/`_len`/
-  `_to_map`) and `SetBuilder<T>` (`setb_new`/`_add`/`_remove`/`_contains`/`_len`/`_to_set`), the
-  `ArrayBuilder` counterparts. Mutates its own private trie in place (O(n) total instead of
+- **Builders**: `MutableMap<K, V>` (`mapb_new`/`_set`/`_get`/`_remove`/`_contains`/`_len`/
+  `_to_map`) and `MutableSet<T>` (`setb_new`/`_add`/`_remove`/`_contains`/`_len`/`_to_set`), the
+  `MutableArray` counterparts. Mutates its own private trie in place (O(n) total instead of
   copying per entry) -- use in a loop adding many entries. Type arguments written out
   (`mapb_set<string, int>(mb, "a", 1)`); `_to_map`/`_to_set` snapshot into an immutable Map/Set
   (O(n) copy, builder stays usable, later changes don't touch the snapshot). One thread at a time.
@@ -379,7 +379,7 @@ for i in 0..len(arr) { ... }  // index only -- i: int, counting a range
 for i, x in arr { ... }       // index + value together
 ```
 
-- **`for x in ab`** also walks an `ArrayBuilder<T>`, in both shapes an array takes (`for x in ab`
+- **`for x in ab`** also walks a `MutableArray<T>`, in both shapes an array takes (`for x in ab`
   and `for i, x in ab`) -- which is how a builder is read without `ab_to_array`'s copy. It reads
   the live buffer: a body that appends sees its own additions, as it would in the array the
   builder is becoming, and one that calls `ab_clear` ends the loop. Neither can read past the
@@ -1404,8 +1404,8 @@ itself, and whoever wrote the deprecated thing is the one person who does not ne
 still has to name it to accept one, so warning there would be loudest in exactly the code doing the
 migration. All four declaration kinds carry the attribute; there is no kind it is rejected on.
 
-`#[thread_bound]` marks a struct that belongs to the thread that made it (as `StringBuilder`/
-`ArrayBuilder`/`MapBuilder`/`SetBuilder`/`Iter` are). A type containing one is refused as a
+`#[thread_bound]` marks a struct that belongs to the thread that made it (as `MutableString`/
+`MutableArray`/`MutableMap`/`MutableSet`/`Iter` are). A type containing one is refused as a
 `Channel` element, `spawn` argument, or module-level `val` type -- including a lambda that captured
 one, whose type records that fact, so sending or spawning the lambda is refused where it is written
 rather than failing on the receiving thread. Each builder and iterator also remembers its own thread
@@ -2284,8 +2284,8 @@ fn main() {
 }
 ```
 
-- **Builders and iterators stay in their thread.** `StringBuilder`, `ArrayBuilder`,
-  `MapBuilder`, `SetBuilder` and `Iter` are mutable, so each belongs to the thread that made
+- **Builders and iterators stay in their thread.** `MutableString`, `MutableArray`,
+  `MutableMap`, `MutableSet` and `Iter` are mutable, so each belongs to the thread that made
   it: not a `Channel` element, `spawn` argument, or module-level `val` (compile errors), and
   any other cross-thread use is a runtime error. See "Attributes and derive" (`#[thread_bound]`).
 - **`Channel<T>` is a thread-safe queue of one element type**, unified rather than split into
@@ -2333,7 +2333,7 @@ fn main() {
   per-thread slot (like Java's `ThreadLocal`): make the key once as a module-level `val` via
   `thread.local<T>(init: fn() -> T)`, then `thread.get(key)`/`set(key, v)`/`has(key)`/
   `reset(key)` (forgets it, so the next `get` re-runs `init`) per thread. A slot holds an
-  immutable value (`set` to update; keep a `MapBuilder`/`ArrayBuilder` in it for a large mutable
+  immutable value (`set` to update; keep a `MutableMap`/`MutableArray` in it for a large mutable
   cache -- a builder must stay on its own thread, which a thread-local slot guarantees; marked
   `#[thread_key]`, it's the one type allowed to sit at module level). Slots drop when the thread
   ends -- right for per-request scratch space (`server.serve`'s one-thread-per-connection), not
@@ -2444,7 +2444,7 @@ a type error.
   that. `format`'s `{}` displays a `float` the same way.
 - `concat(pieces: variadic string) -> string` — every piece joined with no separator (`""` for zero
   pieces); no auto-stringify (use `str` first), same anti-implicit-coercion reasoning as `+`.
-  `join` adds a separator/prefix/suffix; a `StringBuilder` avoids `concat`'s own O(n) recopy
+  `join` adds a separator/prefix/suffix; a `MutableString` avoids `concat`'s own O(n) recopy
   when building one piece at a time in a loop (`--lint` flags `x = concat(x, ..)` there).
 - `str(x) -> string` — converts `int`/`float`/`bool`/`bigint`/`decimal`/`byte` to display text
   (a `float` the same way `print` does). Rejects an already-`string` argument, and a bare
@@ -2465,16 +2465,16 @@ a type error.
   checks at compile time (malformed template, placeholder/argument count, `{:.N}` on a string)
   becomes an `Err` instead.
 - `len(arr) -> int` / `len(s: string) -> int` — element count, or byte length. Also answers for a
-  `Map`, a `Set`, and any of the four builders (`ArrayBuilder`, `StringBuilder`, `MapBuilder`,
-  `SetBuilder`), so asking a collection its size never needs a per-type name or a conversion. It
+  `Map`, a `Set`, and any of the four builders (`MutableArray`, `MutableString`, `MutableMap`,
+  `MutableSet`), so asking a collection its size never needs a per-type name or a conversion. It
   answers for a *builder*, not for a struct that holds one, which has no length of its own.
 - `clear(b)` — empties a builder and leaves it usable, for reusing one across the passes of an
   outer loop instead of allocating a fresh one each time. Takes a builder only: an empty `Map` or
   array is a value you write down (`Map<K, V> {}`, `[]`), not something you do to one you have. A
   snapshot taken before the clear is undisturbed by it.
 - `snapshot(b)` — a builder's contents copied out as the immutable value it is building: an
-  `ArrayBuilder<T>` gives `[T]`, a `StringBuilder` gives `string`, a `MapBuilder<K, V>` gives
-  `Map<K, V>`, a `SetBuilder<T>` gives `Set<T>`. One name for `ab_to_array`/`sb_to_string`/
+  `MutableArray<T>` gives `[T]`, a `MutableString` gives `string`, a `MutableMap<K, V>` gives
+  `Map<K, V>`, a `MutableSet<T>` gives `Set<T>`. One name for `ab_to_array`/`sb_to_string`/
   `mapb_to_map`/`setb_to_set`, which all still work and do the same thing: an O(n) copy, after
   which the builder stays usable and later changes do not touch the snapshot. Takes a builder
   only -- an array is already a value, so there is nothing to copy out of.
@@ -2530,9 +2530,9 @@ a type error.
 - `contains(s, needle) -> bool` / `contains(arr: [T], x: T) -> bool` — substring test, or
   array membership via `==` (`T` must support `==`, same rule as array `==` itself). Also answers
   for a `Map`/`Set` key and for any of the four builders, each the same question its immutable
-  counterpart answers: a substring of a `StringBuilder`, a key of a `MapBuilder`, an element of a
-  `SetBuilder` or `ArrayBuilder`. The `ArrayBuilder` is the one O(n) case, and the only one where
-  the `==` requirement can fail -- a `MapBuilder` key and a `SetBuilder` element are already
+  counterpart answers: a substring of a `MutableString`, a key of a `MutableMap`, an element of a
+  `MutableSet` or `MutableArray`. The `MutableArray` is the one O(n) case, and the only one where
+  the `==` requirement can fail -- a `MutableMap` key and a `MutableSet` element are already
   bounded `Eq + Hash` by their declarations.
 - `compare(a: T, b: T) -> int` — negative/zero/positive; `T` is any `Ord` type (see "Ordering")
   -- the way to order a struct/enum, where `< > <= >=` (numbers/strings/bytes only) don't reach.

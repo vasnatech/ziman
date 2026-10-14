@@ -91,7 +91,7 @@ fn hex_digit_value(c: string) -> Result<int, string> {
 }
 
 // Assumes n >= 0; the caller handles the sign. Digits are collected least-significant first and
-// read back out into a StringBuilder, since a bigint can have arbitrarily many.
+// read back out into a MutableString, since a bigint can have arbitrarily many.
 fn bigint_magnitude_to_hex(n: bigint) -> string {
     if n == 0n {
         return "0"
@@ -199,7 +199,7 @@ pub fn parse_pattern(pattern: string) -> NumberFormat {
     return NumberFormat { thousands_separator: thousands, decimal_separator: ".", decimal_places: decimal_places }
 }
 
-// Builds left to right into a StringBuilder: a separator goes before digit `i` exactly when the
+// Builds left to right into a MutableString: a separator goes before digit `i` exactly when the
 // digits from `i` to the end form a whole number of groups of three.
 fn insert_thousands(int_part: string, sep: string) -> string {
     if sep == "" {

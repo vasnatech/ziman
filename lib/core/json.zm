@@ -269,7 +269,7 @@ pub fn json_to_pretty_string(j: Json, indent: int) -> string {
     return sb_to_string(out)
 }
 
-fn write_pretty(out: StringBuilder, j: Json, indent: int, level: int) {
+fn write_pretty(out: MutableString, j: Json, indent: int, level: int) {
     val pad = repeat_spaces(indent * (level + 1))
     val close_pad = repeat_spaces(indent * level)
     if JArray(items) = j {

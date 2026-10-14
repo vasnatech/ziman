@@ -1,4 +1,4 @@
-fn worker(sb: StringBuilder) {
+fn worker(sb: MutableString) {
     sb_append(sb, "x")
 }
 

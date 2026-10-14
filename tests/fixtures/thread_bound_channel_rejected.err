@@ -1,1 +1,1 @@
-StringBuilder cannot be sent over a channel
+MutableString cannot be sent over a channel

@@ -64,7 +64,7 @@ pub native fn bigint_bit_length(a: bigint) -> int
 // ---- BitSet: a set of the integers 0..63, backed by one `int` -------------------------
 //
 // A value type, like every other Ziman type -- `bitset_set`/`clear`/`flip` return a new
-// `BitSet` rather than mutating one in place. There is no builder: unlike `ArrayBuilder`'s
+// `BitSet` rather than mutating one in place. There is no builder: unlike `MutableArray`'s
 // backing array, a `BitSet`'s entire state is one scalar, so there is no O(n)-copy cost a
 // builder would save -- `var bs = bitset_new(); bs = bitset_set(bs, 3)` is already exactly as
 // cheap as an in-place mutation would be. Modeled on java.util.BitSet, adapted for that.

@@ -47,7 +47,7 @@ static Env *g_global_env = NULL;
 
 /* Whether two declarations were written in the same source: both in one file, or both in bundled (built-in) modules. A type parameter can only be confused with a
  * struct or enum declared alongside it -- the parser reclassifies parameter names per declaration -- so a user's `struct T` does not collide with the prelude's
- * `ArrayBuilder<T>`, which the user never sees. */
+ * `MutableArray<T>`, which the user never sees. */
 static int same_source(const char *a, const char *b) {
     if (a == NULL || b == NULL) return a == b;
     return strcmp(a, b) == 0;
@@ -74,7 +74,7 @@ static int visited_has(const VisitedDecl *v, const void *decl) {
 static int type_holds_thread_bound(Module *module, Type t, const VisitedDecl *seen) {
     /* This used to bail out at `depth > 12` and answer 0. The cutoff was there to stop a recursive
      * type (`struct Node { kids: [Node] }`) recursing for ever, but it also abandoned perfectly
-     * ordinary deep types and answered "holds no builder" for them -- so a StringBuilder fifteen
+     * ordinary deep types and answered "holds no builder" for them -- so a MutableString fifteen
      * structs deep passed `spawn` statically, which is the one hole the #[thread_bound] story had.
      * Remembering which declarations are already on this path terminates a cycle exactly, with no
      * depth limit and no wrong answers in between; and because a cycle now terminates properly there
@@ -580,13 +580,13 @@ static void lint_quadratic_accumulation(const Stmt *s) {
         if (dot != NULL) callee = dot + 1;
         const Expr *first = v->as.call.args.items[0];
         if (first->kind != EXPR_IDENT || strcmp(first->as.ident_name, name) != 0) return;
-        if (strcmp(callee, "concat") == 0) fix = "a StringBuilder (sb_new, sb_append, sb_to_string)";
-        else if (strcmp(callee, "concat_arrays") == 0) fix = "an ArrayBuilder (ab_new, ab_append, ab_to_array)";
+        if (strcmp(callee, "concat") == 0) fix = "a MutableString (sb_new, sb_append, sb_to_string)";
+        else if (strcmp(callee, "concat_arrays") == 0) fix = "a MutableArray (ab_new, ab_append, ab_to_array)";
         else if (strcmp(callee, "set") == 0 && v->as.call.args.count == 3) {
             /* No builder has random-access assignment, so the advice depends on what the loop is doing;
              * both halves are given rather than guessing which one applies. */
-            fix = "an ArrayBuilder (ab_new, ab_append, ab_to_array) if the loop fills it in order, or a "
-                  "MapBuilder keyed by index if it does not";
+            fix = "a MutableArray (ab_new, ab_append, ab_to_array) if the loop fills it in order, or a "
+                  "MutableMap keyed by index if it does not";
         }
     }
     if (fix == NULL) return;
@@ -625,7 +625,7 @@ static void lint_quadratic_accumulation(const Stmt *s) {
 static const char *builder_reader_for(const char *conversion) {
     if (strcmp(conversion, "mapb_to_map") == 0) return "len, mapb_get, mapb_get_or or mapb_contains";
     if (strcmp(conversion, "ab_to_array") == 0) return "len, ab_get or 'for x in <the builder>'";
-    if (strcmp(conversion, "sb_to_string") == 0) return "len, or a StringBuilder you finish once after the loop";
+    if (strcmp(conversion, "sb_to_string") == 0) return "len, or a MutableString you finish once after the loop";
     if (strcmp(conversion, "setb_to_set") == 0) return "len or setb_contains";
     /* `snapshot` is the one name for all four conversions (F100), so which per-type reader to
      * advise is not knowable from the call -- this pass is syntactic and has no types. The
@@ -1373,6 +1373,26 @@ static int ascii_eq_ignore_case(const char *a, const char *b) {
     return *a == '\0' && *b == '\0';
 }
 
+/* The old name of one of the four builders. Anyone with existing code writes it, and so does any
+ * model trained on the language before the rename, where the generic "unknown struct or enum type"
+ * has nothing at all to offer them. Matched case-insensitively like the other aliases, so
+ * `arraybuilder` lands too. The message is also the one place a reader meets the new name for the
+ * first time, so it is where the thing a `Mutable*` name does not say belongs. */
+static const char *renamed_builder_type(const char *name) {
+    static const struct {
+        const char *was;
+        const char *now;
+    } RENAMED[] = {{"ArrayBuilder", "MutableArray"},
+                   {"StringBuilder", "MutableString"},
+                   {"MapBuilder", "MutableMap"},
+                   {"SetBuilder", "MutableSet"},
+                   {NULL, NULL}};
+    for (size_t k = 0; RENAMED[k].was != NULL; k++) {
+        if (ascii_eq_ignore_case(name, RENAMED[k].was)) return RENAMED[k].now;
+    }
+    return NULL;
+}
+
 static const char *suggest_primitive_type(const char *name) {
     for (size_t k = 0; PRIMITIVE_TYPES[k] != NULL; k++) {
         if (ascii_eq_ignore_case(name, PRIMITIVE_TYPES[k])) return PRIMITIVE_TYPES[k];
@@ -1907,7 +1927,7 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
                     /* Several trailing arguments are always individual element values (`concat_arrays(a, b)`). */
                     unify_type(pattern, actual, &fn->type_params, bindings, bound, arg);
                 } else if (type_fully_bound(pattern, &fn->type_params, bound)) {
-                    /* The element type is already known from an earlier parameter (`ab_append<T>(ab: ArrayBuilder<T>,
+                    /* The element type is already known from an earlier parameter (`ab_append<T>(ab: MutableArray<T>,
                      * pieces: T...)` binds T from `ab`) -- so, unlike the guess below, there is nothing left to infer
                      * from this argument at all. This is what makes `ab_append(out, [x, y])` push the one `[string]`
                      * value `[x, y]` rather than spreading two `string`s into it: the ordinary argument check, run
@@ -1943,8 +1963,8 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
  * such a struct has no length of its own. `len` works on a builder, not on something holding one. */
 static int is_builder_type(Type t) {
     if (t.kind != TY_STRUCT || t.struct_name == NULL) return 0;
-    return strcmp(t.struct_name, "ArrayBuilder") == 0 || strcmp(t.struct_name, "StringBuilder") == 0 ||
-           strcmp(t.struct_name, "MapBuilder") == 0 || strcmp(t.struct_name, "SetBuilder") == 0;
+    return strcmp(t.struct_name, "MutableArray") == 0 || strcmp(t.struct_name, "MutableString") == 0 ||
+           strcmp(t.struct_name, "MutableMap") == 0 || strcmp(t.struct_name, "MutableSet") == 0;
 }
 
 static Type check_call(Module *module, Env *env, Expr *e) {
@@ -2190,7 +2210,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             /* Only a handle can be emptied. An empty Map or array is a value you write down
              * (`Map<K, V> {}`, `[]`), not a thing you do to one you already have. */
             ziman_error("type", arg->line, arg->col,
-                        "'clear' expects a builder -- an ArrayBuilder, StringBuilder, MapBuilder or SetBuilder -- found %s; "
+                        "'clear' expects a builder -- a MutableArray, MutableString, MutableMap or MutableSet -- found %s; "
                         "an immutable collection is emptied by writing an empty one",
                         type_name(arg_type));
         }
@@ -2205,20 +2225,20 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Type arg_type = check_expr(module, env, arg);
         if (!is_builder_type(arg_type)) {
             ziman_error("type", arg->line, arg->col,
-                        "'snapshot' expects a builder -- an ArrayBuilder, StringBuilder, MapBuilder or SetBuilder -- found %s",
+                        "'snapshot' expects a builder -- a MutableArray, MutableString, MutableMap or MutableSet -- found %s",
                         type_name(arg_type));
         }
         /* The one builtin whose result type is a function of its argument's, which `map_keys`
          * already does the same way: each builder answers the immutable type it is building. */
-        if (strcmp(arg_type.struct_name, "StringBuilder") == 0) return type_scalar(TY_STRING);
+        if (strcmp(arg_type.struct_name, "MutableString") == 0) return type_scalar(TY_STRING);
         if (arg_type.type_args.count < 1) {
             ziman_error("type", arg->line, arg->col, "'snapshot' needs %s's element type, which is not known here",
                         arg_type.struct_name);
         }
-        if (strcmp(arg_type.struct_name, "ArrayBuilder") == 0) return type_array(arg_type.type_args.items[0]);
-        if (strcmp(arg_type.struct_name, "SetBuilder") == 0) return type_set(arg_type.type_args.items[0]);
+        if (strcmp(arg_type.struct_name, "MutableArray") == 0) return type_array(arg_type.type_args.items[0]);
+        if (strcmp(arg_type.struct_name, "MutableSet") == 0) return type_set(arg_type.type_args.items[0]);
         if (arg_type.type_args.count < 2) {
-            ziman_error("type", arg->line, arg->col, "'snapshot' needs MapBuilder's value type, which is not known here");
+            ziman_error("type", arg->line, arg->col, "'snapshot' needs MutableMap's value type, which is not known here");
         }
         return type_map(arg_type.type_args.items[0], arg_type.type_args.items[1]);
     }
@@ -2278,15 +2298,15 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         if (is_builder_type(first_type)) {
             /* The question each builder answers is its immutable counterpart's: a substring for a
-             * StringBuilder, a key for a MapBuilder, an element for the other two. The element or
-             * key type is the declaration's first type argument (`ArrayBuilder<T>`,
-             * `MapBuilder<K, V>`, `SetBuilder<T>`); StringBuilder is not generic and takes a
+             * MutableString, a key for a MutableMap, an element for the other two. The element or
+             * key type is the declaration's first type argument (`MutableArray<T>`,
+             * `MutableMap<K, V>`, `MutableSet<T>`); MutableString is not generic and takes a
              * string. */
-            if (strcmp(first_type.struct_name, "StringBuilder") == 0) {
+            if (strcmp(first_type.struct_name, "MutableString") == 0) {
                 Type second_type = check_expr(module, env, second_arg);
                 if (second_type.kind != TY_STRING) {
                     ziman_error("type", second_arg->line, second_arg->col,
-                                "argument 2 of 'contains' expects string (a StringBuilder holds text), found %s",
+                                "argument 2 of 'contains' expects string (a MutableString holds text), found %s",
                                 type_name(second_type));
                 }
                 return type_scalar(TY_BOOL);
@@ -2296,20 +2316,20 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                             first_type.struct_name);
             }
             Type want = first_type.type_args.items[0];
-            int is_array_builder = strcmp(first_type.struct_name, "ArrayBuilder") == 0;
-            /* Only the ArrayBuilder needs this said: a MapBuilder's key and a SetBuilder's element
+            int is_array_builder = strcmp(first_type.struct_name, "MutableArray") == 0;
+            /* Only the MutableArray needs this said: a MutableMap's key and a MutableSet's element
              * are already `Eq + Hash` by their declarations' own bounds, so there is nothing left
              * to check for them. */
             if (is_array_builder && !type_supports_equality(module, want, 0)) {
                 ziman_error("type", first_arg->line, first_arg->col,
-                            "'contains' requires an ArrayBuilder of a comparable ('==') element type, found %s",
+                            "'contains' requires a MutableArray of a comparable ('==') element type, found %s",
                             type_name(first_type));
             }
             Type second_type = check_expr_expecting(module, env, &e->as.call.args.items[1], want);
             if (!type_equals(second_type, want)) {
                 ziman_error("type", second_arg->line, second_arg->col,
                             "argument 2 of 'contains' expects %s (the %s's %s type), found %s", type_name(want),
-                            first_type.struct_name, is_array_builder ? "element" : (strcmp(first_type.struct_name, "MapBuilder") == 0 ? "key" : "element"),
+                            first_type.struct_name, is_array_builder ? "element" : (strcmp(first_type.struct_name, "MutableMap") == 0 ? "key" : "element"),
                             type_name(second_type));
             }
             return type_scalar(TY_BOOL);
@@ -4587,18 +4607,18 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 Type iter_type = check_expr(module, env, s->as.for_stmt.iterable);
                 int is_iter = iter_type.kind == TY_STRUCT && iter_type.struct_name != NULL &&
                               strcmp(iter_type.struct_name, "Iter") == 0 && iter_type.type_args.count == 1;
-                /* An ArrayBuilder iterates like the array it is becoming, which is the point: reading one
+                /* A MutableArray iterates like the array it is becoming, which is the point: reading one
                  * back used to mean ab_to_array, a full copy per call (`--lint` flags that in a loop). The
                  * loop reads the live buffer by index and stops at whatever the length is then, so a body
                  * that appends sees its own additions and one that clears ends the loop -- neither can read
                  * past the end. */
                 int is_array_builder = iter_type.kind == TY_STRUCT && iter_type.struct_name != NULL &&
-                                       strcmp(iter_type.struct_name, "ArrayBuilder") == 0 &&
+                                       strcmp(iter_type.struct_name, "MutableArray") == 0 &&
                                        iter_type.type_args.count == 1;
                 if (iter_type.kind != TY_ARRAY && iter_type.kind != TY_MAP && iter_type.kind != TY_SET &&
                     !is_iter && !is_array_builder) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
-                                "'for' can only iterate an array, an ArrayBuilder, a map, a set, an Iter or a range ('a..b', which stops before b), found %s", type_name(iter_type));
+                                "'for' can only iterate an array, a MutableArray, a map, a set, an Iter or a range ('a..b', which stops before b), found %s", type_name(iter_type));
                 }
                 if (is_iter && s->as.for_stmt.binder2 != NULL) {
                     ziman_error("type", s->as.for_stmt.iterable->line, s->as.for_stmt.iterable->col,
@@ -4789,7 +4809,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                         ziman_error("type", s->as.expr_stmt.expr->line, s->as.expr_stmt.expr->col,
                                     "the %s returned by '%s' is discarded, and '%s' does not modify its argument -- "
                                     "arrays, maps and sets are values, so assign the result back "
-                                    "('arr = %s(arr, ...)'), or build one up with ArrayBuilder/MapBuilder "
+                                    "('arr = %s(arr, ...)'), or build one up with MutableArray/MutableMap "
                                     "('val _ = ...' discards on purpose)",
                                     type_name(t), name, name, name);
                     } else {
@@ -4843,6 +4863,14 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
                 ziman_error("type", line, col,
                             "Ziman has no '%s' type -- a function that returns no value leaves the '->' clause off "
                             "altogether, as 'fn main() { ... }'", t.struct_name);
+            }
+            const char *renamed = renamed_builder_type(t.struct_name);
+            if (renamed != NULL) {
+                ziman_error("type", line, col,
+                            "'%s' is now '%s': the four builders are the mutable collections. Every 'Mutable*' type "
+                            "belongs to the thread that made it, which the name does not say -- it cannot be sent over "
+                            "a Channel, passed to 'spawn', or held in a module-level 'val'",
+                            t.struct_name, renamed);
             }
             const char *primitive = suggest_primitive_type(t.struct_name);
             if (primitive != NULL) {

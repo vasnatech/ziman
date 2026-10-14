@@ -3,5 +3,5 @@
 # could only have given one vague message for all four.
 lint 12:9 'snapshot' converts the whole of 'seen' on every pass of this loop, and the loop keeps adding to it (quadratic); read it in place with len, ab_get or 'for x in <the builder>'
 lint 25:9 read it in place with len, mapb_get, mapb_get_or or mapb_contains
-lint 36:9 read it in place with len, or a StringBuilder you finish once after the loop
+lint 36:9 read it in place with len, or a MutableString you finish once after the loop
 lint 47:9 read it in place with len or setb_contains

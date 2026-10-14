@@ -18,7 +18,7 @@
 /* The SQLite driver behind lib/db/sqlite.zm. Everything crossing the native
  * boundary is a primitive: a connection is an int handle (an index into
  * a table of individually heap-allocated DbConn structs, same pattern
- * StringBuilder uses in prelude.c), SQL is a string, and both bound
+ * MutableString uses in prelude.c), SQL is a string, and both bound
  * parameters and result cells travel as *tagged strings* -- one leading
  * tag character followed by the payload:
  *

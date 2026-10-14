@@ -3489,6 +3489,11 @@ find the type at all -- which is the measurement that gates this work.
 
 ### One prefix per shape, one `mutable_` to cross worlds
 
+*The four type names landed in F103; the function names follow it. So in the commits between,
+`ab_new<int>()` returns a `MutableArray<int>` -- the type renamed first because it is the smaller,
+self-contained half, and because the bare builtins of F98-F101 mean the busiest call sites
+(`ab_to_array`, `ab_len`) collapse into `snapshot` and `len` rather than being renamed twice.*
+
 | shape | value | handle |
 |---|---|---|
 | array | `[T]` · `array_*` | `MutableArray<T>` · `mutable_array_*` |

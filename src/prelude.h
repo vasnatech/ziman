@@ -42,19 +42,19 @@ const char *prelude_source(void);
  * any Ziman program runs, same as native_io_register(). */
 void prelude_register(void);
 
-/* An ArrayBuilder's length, and one of its elements -- what `for x in builder` needs from the interpreter
+/* A MutableArray's length, and one of its elements -- what `for x in builder` needs from the interpreter
  * (see exec_stmt's STMT_FOR). Both take the builder's own thread-ownership check, as every other call on one
  * does, so a builder read from the wrong thread fails there rather than here. */
 int ziman_array_builder_length(Value ab);
 Value ziman_array_builder_at(Value ab, int i);
 
-/* The length of any of the four builders, for the bare `len` builtin: an ArrayBuilder's or
- * StringBuilder's element/byte count, a MapBuilder's entries or a SetBuilder's elements. Only
+/* The length of any of the four builders, for the bare `len` builtin: a MutableArray's or
+ * MutableString's element/byte count, a MutableMap's entries or a MutableSet's elements. Only
  * called once the typechecker has established the argument is one of them. */
 int ziman_builder_length(Value v);
 
-/* Whether a builder holds `needle`: a substring of a StringBuilder, a key of a MapBuilder, an
- * element of a SetBuilder, or -- the one O(n) case -- an element of an ArrayBuilder. Only called
+/* Whether a builder holds `needle`: a substring of a MutableString, a key of a MutableMap, an
+ * element of a MutableSet, or -- the one O(n) case -- an element of a MutableArray. Only called
  * once the typechecker has established the argument types. */
 int ziman_builder_contains(Value v, Value needle);
 

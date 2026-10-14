@@ -21,7 +21,7 @@
  * unrelated SIGSEGV (a `receive`d value's `EnumObj` reading back garbage inside `eval_enum_access`).
  *
  * The content-marker seam `gc_mark_register_struct_content_marker` already provides (used by
- * `ArrayBuilder`/`MapBuilder`/`SetBuilder` for the identical "disguised handle, invisible payload"
+ * `MutableArray`/`MutableMap`/`MutableSet` for the identical "disguised handle, invisible payload"
  * shape) is not enough here: it only runs while the `Guard` *value* itself is still reachable from
  * some other root, but the finalizer's entire reason to exist is to fire *after* the value holding
  * it (a dropped `Connection`) is already unreachable, arbitrarily later, whenever Boehm gets around

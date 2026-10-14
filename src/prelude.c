@@ -33,7 +33,7 @@
 #include "xalloc.h"
 
 /* PRELUDE_SOURCE is one long string literal, now that the prelude has
- * grown enough (StringBuilder among the latest additions) to exceed the
+ * grown enough (MutableString among the latest additions) to exceed the
  * C99-mandated minimum translation limit of 4095 characters -- harmless
  * on every compiler this project targets. Silenced narrowly here, right
  * where the macro is actually expanded, the same way corelib.c already
@@ -488,16 +488,16 @@ static Value native_join(Value *args, int argc, int line, int col) {
     return value_string_view(buf, total, 1);
 }
 
-/* --- StringBuilder -------------------------------------------------
+/* --- MutableString -------------------------------------------------
  * A mutable string-accumulation handle, backed entirely here, native-
  * side -- Ziman code never sees anything but an opaque `handle: int`
- * (see lib/prelude.zm's StringBuilder struct). The handle IS the address of
- * an individually heap-allocated StringBuilderBuf, not an index into a
+ * (see lib/prelude.zm's MutableString struct). The handle IS the address of
+ * an individually heap-allocated MutableStringBuf, not an index into a
  * global table: a table would keep every builder ever made reachable
  * forever (each json_to_string node makes one), which is exactly the kind
  * of leak a collector cannot fix. As a plain int in a Value the address is
  * still visible to the conservative collector, so the buffer lives exactly
- * as long as the StringBuilder value that names it. `magic` catches a
+ * as long as the MutableString value that names it. `magic` catches a
  * forged or stale handle with a clear error instead of a wild read (not
  * airtight -- the docs already say "don't construct one by hand").
  * A builder belongs to the thread that made it (`owner`): every operation
@@ -522,18 +522,18 @@ typedef struct {
     size_t length;
     size_t capacity;
     double grow_factor;
-} StringBuilderBuf;
+} MutableStringBuf;
 
-static int64_t sb_table_register(StringBuilderBuf *buf) {
+static int64_t sb_table_register(MutableStringBuf *buf) {
     buf->magic = SB_MAGIC;
     buf->owner = pthread_self();
     return (int64_t)(intptr_t)buf;
 }
 
-static StringBuilderBuf *sb_table_get(int64_t handle) {
-    StringBuilderBuf *buf = (StringBuilderBuf *)(intptr_t)handle;
-    if (buf == NULL || buf->magic != SB_MAGIC) ziman_error("runtime", 0, 0, "not a valid StringBuilder handle");
-    builder_owner_check(buf->owner, "a StringBuilder");
+static MutableStringBuf *sb_table_get(int64_t handle) {
+    MutableStringBuf *buf = (MutableStringBuf *)(intptr_t)handle;
+    if (buf == NULL || buf->magic != SB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MutableString handle");
+    builder_owner_check(buf->owner, "a MutableString");
     return buf;
 }
 
@@ -566,7 +566,7 @@ static int64_t sb_handle_of(Value sb) {
     return sb.as.st->fields[0].as.i;
 }
 
-static void sb_ensure_capacity(StringBuilderBuf *buf, size_t additional) {
+static void sb_ensure_capacity(MutableStringBuf *buf, size_t additional) {
     size_t needed = buf->length + additional;
     if (needed <= buf->capacity) {
         return;
@@ -592,12 +592,12 @@ static Value native_sb_new(Value *args, int argc, int line, int col) {
         /* A factor at or below 1.0 would never actually grow the buffer
          * -- sb_ensure_capacity's while loop would spin forever. Falls
          * back to the same default sb_new's own signature declares,
-         * rather than erroring, since a StringBuilder is otherwise
+         * rather than erroring, since a MutableString is otherwise
          * perfectly usable with this one parameter simply ignored. */
         grow_factor = 2.0;
     }
 
-    StringBuilderBuf *buf = ziman_xmalloc(sizeof(StringBuilderBuf));
+    MutableStringBuf *buf = ziman_xmalloc(sizeof(MutableStringBuf));
     buf->capacity = (size_t)capacity;
     buf->length = 0;
     buf->grow_factor = grow_factor;
@@ -607,14 +607,14 @@ static Value native_sb_new(Value *args, int argc, int line, int col) {
 
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
-    return value_struct(type_struct("StringBuilder"), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
+    return value_struct(type_struct("MutableString"), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
 }
 
 static Value native_sb_append(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
     ArrayObj *pieces = args[1].as.arr;
     for (int i = 0; i < pieces->count; i++) {
         Value piece = array_get(pieces, i);
@@ -633,7 +633,7 @@ static Value native_sb_append(Value *args, int argc, int line, int col) {
  * false. */
 static Value native_sb_append_byte(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
     ArrayObj *bytes = args[1].as.arr;
     if (bytes->bytes != NULL) {
         if (memchr(bytes->bytes, 0, (size_t)bytes->count) != NULL) return value_bool(0);
@@ -654,7 +654,7 @@ static Value native_sb_to_string(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
     char *out = zalloc_atomic(buf->length + 1);
     memcpy(out, buf->data, buf->length);
     out[buf->length] = '\0';
@@ -665,18 +665,18 @@ static Value native_sb_len(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    StringBuilderBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
     return value_int((int64_t)buf->length);
 }
 
-/* --- ArrayBuilder<T> -------------------------------------------------
- * Identical shape to StringBuilder's own table/handle machinery above,
+/* --- MutableArray<T> -------------------------------------------------
+ * Identical shape to MutableString's own table/handle machinery above,
  * just storing `Value` per slot instead of `char` -- since an ordinary
  * Ziman ArrayObj is already exactly this (a generic, type-erased `Value
  * *items` buffer), the native side needs no per-T dispatch at all: a
  * `Value` copies by plain assignment regardless of what type it holds.
  * The one thing a native function genuinely can't do on its own is
- * stamp the *concrete* T onto a result's own `.type` (ArrayBuilder<T>
+ * stamp the *concrete* T onto a result's own `.type` (MutableArray<T>
  * carries no argument that would reveal it, and NativeFn's signature
  * carries no type-argument information at all) -- every `.type` built
  * below is a placeholder for exactly this reason, immediately
@@ -696,19 +696,19 @@ typedef struct {
      * is one memcpy. */
     PackKind pkind;
     unsigned char *pdata;
-} ArrayBuilderBuf;
+} MutableArrayBuf;
 
-/* Same pointer-as-handle scheme as StringBuilder above, for the same reason. */
-static int64_t ab_table_register(ArrayBuilderBuf *buf) {
+/* Same pointer-as-handle scheme as MutableString above, for the same reason. */
+static int64_t ab_table_register(MutableArrayBuf *buf) {
     buf->magic = AB_MAGIC;
     buf->owner = pthread_self();
     return (int64_t)(intptr_t)buf;
 }
 
-static ArrayBuilderBuf *ab_table_get(int64_t handle) {
-    ArrayBuilderBuf *buf = (ArrayBuilderBuf *)(intptr_t)handle;
-    if (buf == NULL || buf->magic != AB_MAGIC) ziman_error("runtime", 0, 0, "not a valid ArrayBuilder handle");
-    builder_owner_check(buf->owner, "an ArrayBuilder");
+static MutableArrayBuf *ab_table_get(int64_t handle) {
+    MutableArrayBuf *buf = (MutableArrayBuf *)(intptr_t)handle;
+    if (buf == NULL || buf->magic != AB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MutableArray handle");
+    builder_owner_check(buf->owner, "a MutableArray");
     return buf;
 }
 
@@ -718,7 +718,7 @@ static int64_t ab_handle_of(Value ab) {
     return ab.as.st->fields[0].as.i;
 }
 
-static void ab_ensure_capacity(ArrayBuilderBuf *buf, size_t additional) {
+static void ab_ensure_capacity(MutableArrayBuf *buf, size_t additional) {
     size_t needed = buf->length + additional;
     if (needed <= buf->capacity) {
         return;
@@ -745,7 +745,7 @@ static Value native_ab_new(Value *args, int argc, int line, int col) {
         grow_factor = 2.0;
     }
 
-    ArrayBuilderBuf *buf = ziman_xmalloc(sizeof(ArrayBuilderBuf));
+    MutableArrayBuf *buf = ziman_xmalloc(sizeof(MutableArrayBuf));
     buf->capacity = (size_t)capacity;
     buf->length = 0;
     buf->grow_factor = grow_factor;
@@ -757,14 +757,14 @@ static Value native_ab_new(Value *args, int argc, int line, int col) {
 
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
-    return value_struct(type_struct("ArrayBuilder"), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
+    return value_struct(type_struct("MutableArray"), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
 }
 
 static Value native_ab_append(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
     ArrayObj *pieces = args[1].as.arr;
     if (pieces->count == 0) return value_int(0);
     if (buf->pkind == PK_NONE && buf->length == 0) {
@@ -1119,7 +1119,7 @@ static Value native_slice(Value *args, int argc, int line, int col) {
 
 /* One element of a builder, whichever representation it is in -- `array_get`'s shape against the
  * builder's own buffer rather than an ArrayObj. */
-static Value ab_element_at(const ArrayBuilderBuf *buf, size_t i) {
+static Value ab_element_at(const MutableArrayBuf *buf, size_t i) {
     switch (buf->pkind) {
         case PK_BYTE: return value_byte(((unsigned char *)buf->pdata)[i]);
         case PK_BOOL: return value_bool(((unsigned char *)buf->pdata)[i] != 0);
@@ -1132,15 +1132,15 @@ static Value ab_element_at(const ArrayBuilderBuf *buf, size_t i) {
 
 /* Reading and writing a builder in place, so that a loop that needs what it has already appended does not
  * have to call ab_to_array -- which copies the whole buffer every time it is called, and in a loop is the
- * quadratic cost ArrayBuilder exists to avoid (`--lint` already flags that shape; see
- * lint_builder_read_by_conversion). MapBuilder and SetBuilder have had `get`/`contains` from the start; this
+ * quadratic cost MutableArray exists to avoid (`--lint` already flags that shape; see
+ * lint_builder_read_by_conversion). MutableMap and MutableSet have had `get`/`contains` from the start; this
  * is the same thing for the one builder that was append-only. */
 static Value native_ab_get(Value *args, int argc, int line, int col) {
     (void)argc;
-    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
     int64_t i = args[1].as.i;
     if (i < 0 || (size_t)i >= buf->length) {
-        ziman_error("runtime", line, col, "get index %lld out of bounds (ArrayBuilder length %lld)",
+        ziman_error("runtime", line, col, "get index %lld out of bounds (MutableArray length %lld)",
                     (long long)i, (long long)buf->length);
     }
     return ab_element_at(buf, (size_t)i);
@@ -1148,10 +1148,10 @@ static Value native_ab_get(Value *args, int argc, int line, int col) {
 
 static Value native_ab_set(Value *args, int argc, int line, int col) {
     (void)argc;
-    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
     int64_t i = args[1].as.i;
     if (i < 0 || (size_t)i >= buf->length) {
-        ziman_error("runtime", line, col, "set index %lld out of bounds (ArrayBuilder length %lld)",
+        ziman_error("runtime", line, col, "set index %lld out of bounds (MutableArray length %lld)",
                     (long long)i, (long long)buf->length);
     }
     if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)i, args[2]);
@@ -1161,12 +1161,12 @@ static Value native_ab_set(Value *args, int argc, int line, int col) {
 
 /* Empties the builder, keeping the buffer it has already grown: the point is to reuse one across rounds of
  * work without paying for the growth again. The packed kind is kept too, which is safe because the element
- * type cannot change -- a builder is `ArrayBuilder<T>` for one T. */
+ * type cannot change -- a builder is `MutableArray<T>` for one T. */
 static Value native_ab_clear(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
     buf->length = 0;
     return value_int(0); /* void return -- the caller never uses this */
 }
@@ -1185,7 +1185,7 @@ static Value native_ab_to_array(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
     if (buf->pkind != PK_NONE) {
         size_t esz = pack_elem_size(buf->pkind);
         unsigned char *out = zalloc_atomic(esz * buf->length);
@@ -1203,25 +1203,25 @@ static Value native_ab_len(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
     return value_int((int64_t)buf->length);
 }
 
 /* Registered with gc_mark.c (see gc_mark_register_struct_content_marker's own comment) so a real
- * collection landing while an ArrayBuilder is still being appended to doesn't sweep an
+ * collection landing while a MutableArray is still being appended to doesn't sweep an
  * already-appended, gc_heap-migrated element (a string, a struct, an array -- anything but a packed
  * scalar) that no longer has any other live reference once the loop that built it has moved on.
- * `st` is the ArrayBuilder's own wrapper StructObj, not a Value -- its `fields[0]` is the same
+ * `st` is the MutableArray's own wrapper StructObj, not a Value -- its `fields[0]` is the same
  * disguised handle `ab_handle_of` reads off a Value, just reached a different way. */
 static void ab_mark_contents(const Arena *a, StructObj *st) {
-    ArrayBuilderBuf *buf = (ArrayBuilderBuf *)(intptr_t)st->fields[0].as.i;
+    MutableArrayBuf *buf = (MutableArrayBuf *)(intptr_t)st->fields[0].as.i;
     if (buf->pkind != PK_NONE) return; /* packed elements are raw scalar bytes, nothing to mark */
     for (size_t i = 0; i < buf->length; i++) gc_mark_value(a, buf->items[i]);
 }
 
-/* --- MapBuilder<K, V> and SetBuilder<T> -------------------------------------------------
+/* --- MutableMap<K, V> and MutableSet<T> -------------------------------------------------
  * Mutable counterparts of Map and Set, for building one up entry by entry without the
- * persistent map's per-insert node copying. Same pointer-as-handle scheme as ArrayBuilder;
+ * persistent map's per-insert node copying. Same pointer-as-handle scheme as MutableArray;
  * the buffer owns a MapObj nobody else can see and changes it in place (mapobj_set_mut).
  * `to_map` / `to_set` snapshot it (an O(n) copy of the trie's nodes) and the builder stays
  * usable, like ab_to_array. */
@@ -1231,19 +1231,19 @@ typedef struct {
     pthread_t owner;
     MapObj *m;
     int shared; /* a snapshot exists: overwritten leaves must be replaced, not updated */
-} MapBuilderBuf;
+} MutableMapBuf;
 
 static char *MAPBUILDER_FIELD_NAMES[] = {"handle"};
 
-static MapBuilderBuf *mb_get_buf(Value b) {
-    MapBuilderBuf *buf = (MapBuilderBuf *)(intptr_t)b.as.st->fields[0].as.i;
-    if (buf == NULL || buf->magic != MB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MapBuilder/SetBuilder handle");
-    builder_owner_check(buf->owner, "a MapBuilder/SetBuilder");
+static MutableMapBuf *mb_get_buf(Value b) {
+    MutableMapBuf *buf = (MutableMapBuf *)(intptr_t)b.as.st->fields[0].as.i;
+    if (buf == NULL || buf->magic != MB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MutableMap/MutableSet handle");
+    builder_owner_check(buf->owner, "a MutableMap/MutableSet");
     return buf;
 }
 
-/* See ab_mark_contents's own comment -- identical reasoning, for a MapBuilder/SetBuilder's own
- * MapObj instead of an ArrayBuilder's items buffer. `buf->m` is `mapobj_mut_new`'s own MapObj --
+/* See ab_mark_contents's own comment -- identical reasoning, for a MutableMap/MutableSet's own
+ * MapObj instead of a MutableArray's items buffer. `buf->m` is `mapobj_mut_new`'s own MapObj --
  * which, since MapObj migrated to gc_heap allocation (GC_MAP, gc_mark.c), now has a real header that
  * needs its own mark bit set, not just its entries traced: wrapping it in a throwaway TY_MAP Value
  * and calling the already-public gc_mark_value reuses gc_mark_map's own is_gc_heap_object-gated
@@ -1253,7 +1253,7 @@ static MapBuilderBuf *mb_get_buf(Value b) {
  * real collection and was swept -- map_set_builders.zm crashed inside GC_realloc, reallocating a
  * `root` MapNode pointer read back out of a wrapper struct that had already been zeroed. */
 static void mb_mark_contents(const Arena *a, StructObj *st) {
-    MapBuilderBuf *buf = (MapBuilderBuf *)(intptr_t)st->fields[0].as.i;
+    MutableMapBuf *buf = (MutableMapBuf *)(intptr_t)st->fields[0].as.i;
     Value v;
     v.type = type_scalar(TY_MAP);
     v.as.map = buf->m;
@@ -1261,7 +1261,7 @@ static void mb_mark_contents(const Arena *a, StructObj *st) {
 }
 
 static Value mb_new_value(const char *type_name) {
-    MapBuilderBuf *buf = ziman_xmalloc(sizeof(MapBuilderBuf));
+    MutableMapBuf *buf = ziman_xmalloc(sizeof(MutableMapBuf));
     buf->magic = MB_MAGIC;
     buf->owner = pthread_self();
     buf->m = mapobj_mut_new();
@@ -1273,31 +1273,31 @@ static Value mb_new_value(const char *type_name) {
 
 static Value native_mapb_new(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
-    return mb_new_value("MapBuilder");
+    return mb_new_value("MutableMap");
 }
 
 static Value native_setb_new(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
-    return mb_new_value("SetBuilder");
+    return mb_new_value("MutableSet");
 }
 
 static Value native_mapb_set(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    MapBuilderBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mb_get_buf(args[0]);
     mapobj_set_mut(buf->m, args[1], args[2], buf->shared);
     return value_int(0);
 }
 
 static Value native_setb_add(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    MapBuilderBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mb_get_buf(args[0]);
     mapobj_set_mut(buf->m, args[1], value_int(0), buf->shared);
     return value_int(0);
 }
 
 static Value native_mapb_get(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    MapBuilderBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mb_get_buf(args[0]);
     Type option = type_enum("Option");
     Value found;
     if (mapobj_get(buf->m, args[1], &found)) return value_enum(option, enum_obj_new("Option", "Some", 1, found));
@@ -1323,7 +1323,7 @@ static Value native_mb_len(Value *args, int argc, int line, int col) {
 
 static Value native_mb_snapshot(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    MapBuilderBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mb_get_buf(args[0]);
     buf->shared = 1;
     return value_map(type_scalar(TY_VOID), mapobj_snapshot(buf->m));
 }
@@ -1333,33 +1333,33 @@ static Value native_mb_snapshot(Value *args, int argc, int line, int col) {
  * placed here rather than beside it because `mb_get_buf` is defined above this line and not that
  * one. The typechecker has already established that `v` is one of the four, so this only has to
  * pick the table; each accessor takes the handle's own thread-ownership check, so a builder read
- * from the wrong thread fails there rather than here. MapBuilder and SetBuilder share a buffer
+ * from the wrong thread fails there rather than here. MutableMap and MutableSet share a buffer
  * kind, which is why one branch covers both. */
 int ziman_builder_length(Value v) {
     const char *name = v.type.struct_name;
-    if (name != NULL && strcmp(name, "ArrayBuilder") == 0) return (int)ab_table_get(ab_handle_of(v))->length;
-    if (name != NULL && strcmp(name, "StringBuilder") == 0) return (int)sb_table_get(sb_handle_of(v))->length;
+    if (name != NULL && strcmp(name, "MutableArray") == 0) return (int)ab_table_get(ab_handle_of(v))->length;
+    if (name != NULL && strcmp(name, "MutableString") == 0) return (int)sb_table_get(sb_handle_of(v))->length;
     return mb_get_buf(v)->m->count;
 }
 
 /* `contains` on one of the four handles, for the interpreter's own `contains` branch. Answers the
- * same question each immutable counterpart does: a substring for a StringBuilder, a key for a
- * MapBuilder, an element for a SetBuilder, and an O(n) scan for an ArrayBuilder -- which is the
+ * same question each immutable counterpart does: a substring for a MutableString, a key for a
+ * MutableMap, an element for a MutableSet, and an O(n) scan for a MutableArray -- which is the
  * one cost difference worth knowing, the other three being O(1) or a search over bytes.
  * `value_key_equals` rather than `==`, matching call_contains's array branch exactly: `contains`
  * is one builtin and must answer "is this present" the same way whichever container it is given,
  * so a NaN appended to a builder is found just as a NaN in a Set is. */
 int ziman_builder_contains(Value v, Value needle) {
     const char *name = v.type.struct_name;
-    if (name != NULL && strcmp(name, "ArrayBuilder") == 0) {
-        const ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(v));
+    if (name != NULL && strcmp(name, "MutableArray") == 0) {
+        const MutableArrayBuf *buf = ab_table_get(ab_handle_of(v));
         for (size_t i = 0; i < buf->length; i++) {
             if (value_key_equals(ab_element_at(buf, i), needle)) return 1;
         }
         return 0;
     }
-    if (name != NULL && strcmp(name, "StringBuilder") == 0) {
-        const StringBuilderBuf *buf = sb_table_get(sb_handle_of(v));
+    if (name != NULL && strcmp(name, "MutableString") == 0) {
+        const MutableStringBuf *buf = sb_table_get(sb_handle_of(v));
         return value_str_find(buf->data, buf->length, needle.as.str.ptr, needle.as.str.len, 0) >= 0;
     }
     Value ignored;
@@ -1376,13 +1376,13 @@ int ziman_builder_contains(Value v, Value needle) {
  * natives are patched the same way in the interpreter's plain-call path. */
 Value ziman_builder_snapshot(Value v) {
     const char *name = v.type.struct_name;
-    if (name != NULL && strcmp(name, "ArrayBuilder") == 0) return native_ab_to_array(&v, 1, 0, 0);
-    if (name != NULL && strcmp(name, "StringBuilder") == 0) return native_sb_to_string(&v, 1, 0, 0);
+    if (name != NULL && strcmp(name, "MutableArray") == 0) return native_ab_to_array(&v, 1, 0, 0);
+    if (name != NULL && strcmp(name, "MutableString") == 0) return native_sb_to_string(&v, 1, 0, 0);
     return native_mb_snapshot(&v, 1, 0, 0);
 }
 
-/* `clear` on one of the four handles: empty it and leave it usable. An ArrayBuilder or a
- * StringBuilder keeps its buffer and resets the length, which is what native_ab_clear already did.
+/* `clear` on one of the four handles: empty it and leave it usable. A MutableArray or a
+ * MutableString keeps its buffer and resets the length, which is what native_ab_clear already did.
  *
  * The two trie builders take a *fresh* empty trie rather than emptying the old one in place, which
  * is both simpler and what `shared` requires. A snapshot holds its own MapObj over the old nodes
@@ -1393,15 +1393,15 @@ Value ziman_builder_snapshot(Value v) {
  * that safe. Insertion order restarts from zero, which is what an empty builder means. */
 void ziman_builder_clear(Value v) {
     const char *name = v.type.struct_name;
-    if (name != NULL && strcmp(name, "ArrayBuilder") == 0) {
+    if (name != NULL && strcmp(name, "MutableArray") == 0) {
         ab_table_get(ab_handle_of(v))->length = 0;
         return;
     }
-    if (name != NULL && strcmp(name, "StringBuilder") == 0) {
+    if (name != NULL && strcmp(name, "MutableString") == 0) {
         sb_table_get(sb_handle_of(v))->length = 0;
         return;
     }
-    MapBuilderBuf *buf = mb_get_buf(v);
+    MutableMapBuf *buf = mb_get_buf(v);
     buf->m = mapobj_mut_new();
     buf->shared = 0;
 }
@@ -1601,7 +1601,7 @@ void prelude_register(void) {
 
     /* See ab_mark_contents/mb_mark_contents's own comments and gc_mark_register_struct_content_marker's
      * (gc_mark.h) for why these are needed at all. */
-    gc_mark_register_struct_content_marker("ArrayBuilder", ab_mark_contents);
-    gc_mark_register_struct_content_marker("MapBuilder", mb_mark_contents);
-    gc_mark_register_struct_content_marker("SetBuilder", mb_mark_contents);
+    gc_mark_register_struct_content_marker("MutableArray", ab_mark_contents);
+    gc_mark_register_struct_content_marker("MutableMap", mb_mark_contents);
+    gc_mark_register_struct_content_marker("MutableSet", mb_mark_contents);
 }

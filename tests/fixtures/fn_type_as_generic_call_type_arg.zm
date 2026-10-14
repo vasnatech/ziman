@@ -3,7 +3,7 @@
 // lookahead that tells `ident <` apart from a real comparison did not list `fn`, so a function
 // type worked as the *second* type argument of a call and not as the first. There was no
 // workaround in that position: omitting the type argument reaches the inference error, which says
-// to write it explicitly, which was the thing being refused. An ArrayBuilder of callbacks was
+// to write it explicitly, which was the thing being refused. A MutableArray of callbacks was
 // inexpressible.
 fn identity<T>(x: T) -> T {
     return x

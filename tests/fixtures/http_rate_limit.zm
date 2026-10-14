@@ -2,7 +2,7 @@
 // address to key it on when proxies are in front (B10).
 //
 // Why this is in the library and not in an application: Ziman has no mutable state two threads can
-// share. A `MapBuilder` is `#[thread_bound]` on purpose and a lambda cannot mutate what it captures, so
+// share. A `MutableMap` is `#[thread_bound]` on purpose and a lambda cannot mutate what it captures, so
 // a thread-per-connection server cannot count anything across requests without a native handle. An
 // application could not write this.
 //

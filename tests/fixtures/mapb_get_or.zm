@@ -1,4 +1,4 @@
-// `Map` has `map_get_or`; `MapBuilder` had only `mapb_get`, so every counting loop wrote the switch out.
+// `Map` has `map_get_or`; `MutableMap` had only `mapb_get`, so every counting loop wrote the switch out.
 // Added as ordinary Ziman rather than a builtin, because it is exactly that switch and nothing more.
 fn main() {
     val counts = mapb_new<string, int>()

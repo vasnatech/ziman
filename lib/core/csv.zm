@@ -509,7 +509,7 @@ fn quote_cell(s: string) -> string {
     return concat("\"", replace(s, "\"", "\"\""), "\"")
 }
 
-fn write_row(out: StringBuilder, cells: [string], sep: string) {
+fn write_row(out: MutableString, cells: [string], sep: string) {
     var first = true
     for cell in cells {
         if !first {

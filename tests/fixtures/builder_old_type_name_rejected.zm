@@ -1,0 +1,11 @@
+// The old name points at the new one rather than at the generic "unknown struct or enum type",
+// which had nothing to offer anyone with existing code. The message is also where a reader meets
+// `Mutable*` for the first time, so it says the thing the name itself does not: a handle belongs to
+// the thread that made it.
+fn f(x: ArrayBuilder<int>) -> int {
+    return len(x)
+}
+
+fn main() {
+    print(f(ab_new<int>()))
+}

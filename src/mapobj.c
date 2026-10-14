@@ -329,7 +329,7 @@ void mapobj_mark_leaves(const MapObj *m, void (*visit)(const void *leaf, Value k
     walk_leaves(m->root, visit, ctx);
 }
 
-/* ---- in-place mutation, for MapBuilder / SetBuilder ------------------------------------
+/* ---- in-place mutation, for MutableMap / MutableSet ------------------------------------
  * A builder owns a MapObj nobody else can see, so it may change nodes in place: growing a
  * node is a realloc (which frees the old block), not a copy. Leaves are the one thing a
  * snapshot shares with the builder; while `shared` is set an overwrite replaces the leaf

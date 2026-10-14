@@ -211,10 +211,10 @@ fn datetime_part_width(part: DateTimePart) -> int {
 // (and its total width) that format_fields/parse_fields below then
 // work from -- the one place the pattern text itself is ever matched
 // character by character.
-// `parts` is built via ArrayBuilder<DateTimePart> rather than `push` in
+// `parts` is built via MutableArray<DateTimePart> rather than `push` in
 // a loop -- an arbitrarily long/verbose pattern used to mean one
 // leaked, ever-growing array per recognized token (see docs/DESIGN.md's
-// "ArrayBuilder" entry). `literal_buf`, in contrast, is left as plain
+// "MutableArray" entry). `literal_buf`, in contrast, is left as plain
 // `concat` on purpose: it only ever accumulates the handful of literal
 // characters *between* two tokens in a pattern (a "-", a ":", at most a
 // few characters in any realistic pattern), reset back to "" the
@@ -292,7 +292,7 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
     return DateTimeFormat { parts: parts_array, width: width }
 }
 
-// Built on StringBuilder rather than the concat-in-a-loop this
+// Built on MutableString rather than the concat-in-a-loop this
 // originally was -- unlike datetime_format_of (compiled once per
 // distinct pattern and reused), this runs once per *formatted value*,
 // so it's the hotter of the two -- every field in every formatted

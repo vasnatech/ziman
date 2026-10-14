@@ -288,7 +288,7 @@ struct Expr {
          * than re-derived at runtime because runtime has no reliable way
          * to: comparing a value's own `.type.kind == TY_ARRAY` silently
          * gives the wrong answer whenever the variadic element type is
-         * itself an array (`ArrayBuilder<[T]>`'s `ab_append<[T]>`, for
+         * itself an array (`MutableArray<[T]>`'s `ab_append<[T]>`, for
          * instance) -- a single element of type `[T]` also happens to
          * satisfy "is an array", the exact case that exposed this. */
         /* `local_name` is the callee exactly as written when it had no dot -- the
@@ -673,7 +673,7 @@ typedef struct {
      * the calling thread) for every other way it could get to another thread. */
     int thread_bound;
     /* `#[thread_key]`: a value of this type is an immutable key naming a slot that has a different value on every thread (`thread.ThreadLocal<T>`), so it holds nothing
-     * that belongs to a thread even when its type argument is a `#[thread_bound]` type -- a `ThreadLocal<MapBuilder<..>>` may be a module-level `val`. */
+     * that belongs to a thread even when its type argument is a `#[thread_bound]` type -- a `ThreadLocal<MutableMap<..>>` may be a module-level `val`. */
     int thread_key;
     /* `#[deprecated]` / `#[deprecated("use X instead")]`: naming this type from *another* module --
      * a struct literal, an enum access -- is a `--lint` warning, carrying `deprecated_message`

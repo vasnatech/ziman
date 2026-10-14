@@ -1276,7 +1276,7 @@ static void resolve_type_refs(Type *t, CrossRefCtx *ctx, int line, int col) {
      * no-op then, since a bare struct reference inside the prelude that
      * wasn't already found among the prelude's own enums above (`ctx->mod`
      * there being the prelude module itself, in that case) genuinely is a
-     * struct (`StringBuilder`), not a second, redundant place to look. */
+     * struct (`MutableString`), not a second, redundant place to look. */
     if (ctx->ldr->prelude_mod != NULL) {
         for (int i = 0; i < ctx->ldr->prelude_mod->enums.count; i++) {
             if (strcmp(t->struct_name, ctx->ldr->prelude_mod->enums.items[i]->name) == 0) {

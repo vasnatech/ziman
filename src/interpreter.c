@@ -137,7 +137,7 @@ static Env *g_global_env = NULL;
  * one genuinely ambiguous shape (exactly one trailing argument) --
  * NOT re-derived here from `args[fixed_count].type.kind == TY_ARRAY`,
  * which used to be this function's own check and is wrong whenever the
- * variadic element type is itself an array (`ArrayBuilder<[T]>`'s
+ * variadic element type is itself an array (`MutableArray<[T]>`'s
  * `ab_append<[T]>`, for instance: a single element of type `[T]` also
  * satisfies "is an array", so that heuristic silently treated one
  * legitimate element as if it were the whole tail, discarding
@@ -1521,7 +1521,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                  * only the already-evaluated argument Values, never the
                  * call's type arguments -- so a native function whose
                  * *return* type mentions one of its own type parameters
-                 * (ArrayBuilder<T>'s ab_new<T>() -> ArrayBuilder<T>, for
+                 * (MutableArray<T>'s ab_new<T>() -> MutableArray<T>, for
                  * instance) can only ever build a Value tagged with some
                  * placeholder type for the part that depends on T. Fixed
                  * up here instead, the same way channel_new()'s own
@@ -1840,7 +1840,7 @@ void **ziman_global_env_addr(void) {
  * total collection work **quadratic in the size of a growing heap**: the number of collections is
  * heap/64KB, and each one marks everything currently live, so a program that builds one large
  * structure pays O(n) marking O(n/64KB) times. Measured on 25k/50k/100k inserts into a
- * `MapBuilder`: 0.03s, 0.18s, 1.25s -- six to seven times the work for each doubling of the input,
+ * `MutableMap`: 0.03s, 0.18s, 1.25s -- six to seven times the work for each doubling of the input,
  * which is not the map's doing (its insert is a HAMT, O(log32 n)) but the collector's. The same
  * benchmark in CPython runs in 0.06s, and the gap had nothing to do with being a tree-walker.
  *
@@ -2053,7 +2053,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 return no_ctrl();
             }
             if (iterable.type.kind == TY_STRUCT && iterable.type.struct_name != NULL &&
-                strcmp(iterable.type.struct_name, "ArrayBuilder") == 0) {
+                strcmp(iterable.type.struct_name, "MutableArray") == 0) {
                 /* The live buffer, by index, re-reading its length every pass: a body that appends sees its
                  * own additions (as it would in the array this is becoming) and one that clears ends the
                  * loop, and neither can read past the end. Nothing is copied, which is the whole reason a

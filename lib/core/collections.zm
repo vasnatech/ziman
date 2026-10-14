@@ -277,7 +277,7 @@ pub fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
 // The elements grouped by `key`: a map from each key to the elements that have it, in input
 // order, with the keys in the order they first appear.
 pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
-    val builders = mapb_new<K, ArrayBuilder<T>>()
+    val builders = mapb_new<K, MutableArray<T>>()
     for item in items {
         val k = key(item)
         val found = mapb_get(builders, k)

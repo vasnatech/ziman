@@ -22,7 +22,7 @@
  * which is where labels become the canonical string this file stores them under.
  *
  * Why this lives in C at all: a Ziman lambda cannot mutate what it captures, so state shared by
- * the threads of a server has to sit behind a handle, the way StringBuilder and Iter do.
+ * the threads of a server has to sit behind a handle, the way MutableString and Iter do.
  *
  * Three decisions worth knowing before changing anything here.
  *

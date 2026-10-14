@@ -1,1 +1,1 @@
-'snapshot' expects a builder -- an ArrayBuilder, StringBuilder, MapBuilder or SetBuilder -- found [int]
+'snapshot' expects a builder -- a MutableArray, MutableString, MutableMap or MutableSet -- found [int]

@@ -1,7 +1,7 @@
 // Counters, gauges and histograms that the threads of a server share, and a render of them in the
 // Prometheus text format for something to scrape. The numbers live in a native registry
 // (src/native_metrics.c) because state shared across threads has to sit behind a native handle the
-// way `StringBuilder` and `Iter` do. Corrected 2026-10-10 (F40): this used to say the reason was
+// way `MutableString` and `Iter` do. Corrected 2026-10-10 (F40): this used to say the reason was
 // that a Ziman lambda cannot mutate what it captures, which overstates it -- a lambda *can* mutate
 // through a captured builder handle, and a memoising closure works today. The binding reason is
 // narrower and stronger: a builder cannot cross a `spawn` at all (it belongs to the thread that

@@ -1,4 +1,4 @@
-// The ArrayBuilder half of lint_builder_read_by_conversion, which pins the mapb one. Converting a builder
+// The MutableArray half of lint_builder_read_by_conversion, which pins the mapb one. Converting a builder
 // to read it, in a loop that keeps appending, is the quadratic shape the lint exists for -- `ab_to_array`
 // copies the whole buffer every pass. What the message offers changed in F96: before `ab_get` existed, the
 // only advice it could give was `ab_len` or "finish it after the loop", and reading an element in place was

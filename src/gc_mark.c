@@ -10,7 +10,7 @@
 static void gc_mark_into(const Arena *a, Value v);
 
 /* See gc_mark_register_struct_content_marker's own comment (gc_mark.h) for what this is and why it
- * exists. A handful of fixed slots, not a dynamic list: only ArrayBuilder/MapBuilder/SetBuilder ever
+ * exists. A handful of fixed slots, not a dynamic list: only MutableArray/MutableMap/MutableSet ever
  * register one today, and this is filled once at startup, never resized concurrently with a lookup. */
 #define GC_MAX_STRUCT_CONTENT_MARKERS 8
 static struct {

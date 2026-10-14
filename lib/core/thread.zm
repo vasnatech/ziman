@@ -19,7 +19,7 @@
 //
 // A value is immutable, so "editing" the slot is `set` with a new value (`push` on an array is
 // amortised O(1), so a slot holding an array is cheap to grow). For a large mutable cache, keep a
-// `MapBuilder` or `ArrayBuilder` in the slot: a builder must stay on the thread that made it, which a
+// `MutableMap` or `MutableArray` in the slot: a builder must stay on the thread that made it, which a
 // thread's own slot guarantees, and `ThreadLocal` is the one type that may hold one at module level
 // (the key itself is only a number and a function, shared by every thread).
 //

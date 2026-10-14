@@ -1,6 +1,6 @@
 // `contains` answers for a builder too, and each one answers its immutable counterpart's question:
-// a substring for a StringBuilder, a key for a MapBuilder, an element for the other two. The
-// ArrayBuilder is the one O(n) case; the rest are a hash lookup or a byte search.
+// a substring for a MutableString, a key for a MutableMap, an element for the other two. The
+// MutableArray is the one O(n) case; the rest are a hash lookup or a byte search.
 
 fn main() {
     val ab = ab_new<string>()
@@ -14,7 +14,7 @@ fn main() {
     print(contains(ns, 2))
     print(contains(ns, 9))
 
-    // A StringBuilder is asked about text, not about one element, and an empty needle is found
+    // A MutableString is asked about text, not about one element, and an empty needle is found
     // wherever the search starts -- the same rule `contains` on a string already follows.
     val sb = sb_new()
     sb_append(sb, "hello world")

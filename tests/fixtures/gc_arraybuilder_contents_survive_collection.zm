@@ -1,20 +1,20 @@
 use os
 
 // A regression guard for a real bug found by the health-record-backend-ziman app (docs/reviews/
-// tasks.md's F2): ArrayBuilder's own backing buffer (an ArrayBuilderBuf, src/prelude.c) is a plain
+// tasks.md's F2): MutableArray's own backing buffer (a MutableArrayBuf, src/prelude.c) is a plain
 // malloc'd `Value*` array reached only through a disguised int64 handle in the builder's wrapper
 // struct's own `fields[0]` -- invisible to both root sources the mark phase relies on (a bare int
 // carries no pointer shape for the stack scan to find, and a struct's generic field walk marks each
 // field by its own Value.type.kind, which an int has nothing further to trace into). An element
 // appended into a builder was therefore only as safe as whatever else independently referenced it:
 // true for the loop-local variable that built it, for exactly as long as that one loop iteration
-// lasted. `lib/http/server.zm`'s `routes<C>` builds an `ArrayBuilder<Pattern>` across ~100+ route
+// lasted. `lib/http/server.zm`'s `routes<C>` builds a `MutableArray<Pattern>` across ~100+ route
 // entries this same way; once `struct_obj_new` (Pattern's own wrapper) migrated to gc_heap
 // allocation, a real collection landing mid-loop swept every earlier-appended Pattern still sitting
 // only in the builder's buffer, and every request afterward failed with "field 'parts' not found at
 // runtime" -- reading a StructObj slot the collector had already reclaimed and zeroed (or reused).
 // Fixed by teaching the mark phase (gc_mark_register_struct_content_marker, src/gc_mark.c/.h) to
-// trace an ArrayBuilder/MapBuilder/SetBuilder's own buffer whenever its wrapper struct is marked.
+// trace a MutableArray/MutableMap/MutableSet's own buffer whenever its wrapper struct is marked.
 // `os.collect_garbage()` every iteration forces a real cycle deterministically, rather than relying
 // on enough incidental allocation to cross the collection trigger's own threshold.
 struct Pair {

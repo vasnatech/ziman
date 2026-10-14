@@ -37,7 +37,7 @@ void ziman_profile_report(void);
 /* Brackets a garbage collection, so samples taken inside one are reported as collection time
  * instead of being blamed on whichever function happened to allocate.
  *
- * Without this the profiler actively misleads. A 400k-insert MapBuilder loop first reported as
+ * Without this the profiler actively misleads. A 400k-insert MutableMap loop first reported as
  * `build_map` 48.6% / `mapb_set` 51.4%, inviting the reader to go and optimise a `for` loop that
  * does an add and a call. A flat `perf` profile of the same program puts GC_mark_from at 27.8% --
  * the collector, running inside the loop because that is where the allocation was. (All `GC_*`

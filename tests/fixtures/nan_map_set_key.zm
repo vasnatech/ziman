@@ -58,7 +58,7 @@ fn main() {
     val sb = setb_new<float>()
     setb_add<float>(sb, n1)
     setb_add<float>(sb, n2)
-    printf("SetBuilder: len {} contains {}\n", setb_len<float>(sb), setb_contains<float>(sb, n1))
+    printf("MutableSet: len {} contains {}\n", setb_len<float>(sb), setb_contains<float>(sb, n1))
 
     // the split must not leak into `==` at any depth
     printf("eq float/array/struct: {} {} {}\n", n1 == n2, [n1] == [n2], P { x: n1, y: 1 } == P { x: n2, y: 1 })

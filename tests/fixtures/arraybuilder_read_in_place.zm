@@ -1,7 +1,7 @@
-// F96: an ArrayBuilder can be read and written in place, and iterated. Before this it was append-only, so a
+// F96: a MutableArray can be read and written in place, and iterated. Before this it was append-only, so a
 // loop that needed what it had already appended had to call `ab_to_array` -- a full copy per call, which in
 // a loop is the quadratic cost a builder exists to avoid (`--lint` flags that shape, and its message now
-// names `ab_get`). MapBuilder and SetBuilder have had `get`/`contains`/`len` from the start; this is the
+// names `ab_get`). MutableMap and MutableSet have had `get`/`contains`/`len` from the start; this is the
 // same thing for the one builder that did not.
 fn main() {
     val ab = ab_new<int>()

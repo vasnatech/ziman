@@ -2,7 +2,7 @@
 // length of its own, and guessing that it means its one builder field's would be a different
 // function. (The thread-bound *refusals* are transitive -- this is not one of them.)
 struct Holder {
-    slot: ArrayBuilder<int>
+    slot: MutableArray<int>
 }
 
 fn main() {

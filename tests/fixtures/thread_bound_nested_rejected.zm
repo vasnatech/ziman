@@ -1,5 +1,5 @@
 struct Holder {
-    items: [ArrayBuilder<int>]
+    items: [MutableArray<int>]
 }
 
 fn work(h: Holder) {

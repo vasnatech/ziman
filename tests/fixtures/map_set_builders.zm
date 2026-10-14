@@ -1,4 +1,4 @@
-// A MapBuilder/SetBuilder fills in place; to_map/to_set snapshot it (the builder stays
+// A MutableMap/MutableSet fills in place; to_map/to_set snapshot it (the builder stays
 // usable, and later changes do not touch the snapshot).
 fn main() {
     val mb = mapb_new<string, int>()

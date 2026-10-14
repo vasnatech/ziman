@@ -1,4 +1,4 @@
-// A lambda capturing a StringBuilder and handed to `spawn`. This used to type-check and fail on the
+// A lambda capturing a MutableString and handed to `spawn`. This used to type-check and fail on the
 // receiving thread, at the builder's own run-time owner check; since A14 (2026-10-06) the capture is
 // recorded on the lambda's type, so it is refused where it is written instead. The runtime check in
 // src/prelude.c stays as a backstop for any route the type checker cannot see -- what this fixture

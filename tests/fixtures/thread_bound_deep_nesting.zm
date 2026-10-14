@@ -1,12 +1,12 @@
 // `#[thread_bound]` is enforced by walking a type for a builder inside it, and that walk used to
-// give up at depth 12 and answer "holds none" -- so a StringBuilder nested deeper than that passed
+// give up at depth 12 and answer "holds none" -- so a MutableString nested deeper than that passed
 // `spawn` statically, which was the one hole in the story. The depth cutoff existed to stop a
 // recursive type recursing for ever; remembering which declarations are already on the current
 // path terminates a cycle exactly instead, with no limit and no wrong answers below it. This
 // fixture pins all three cases: deeper than the old cutoff, recursive, and mutually recursive with
 // the builder on the far side. Each must be rejected, and none may hang the type checker.
 struct L0 {
-    sb: StringBuilder
+    sb: MutableString
 }
 struct L1 {
     inner: L0
@@ -53,7 +53,7 @@ struct L14 {
 
 // recursive, and genuinely holds one: the cycle must not hide it
 struct Node {
-    sb: StringBuilder
+    sb: MutableString
     kids: [Node]
 }
 
@@ -63,7 +63,7 @@ struct A {
 }
 struct B {
     a: [A]
-    sb: StringBuilder
+    sb: MutableString
 }
 
 // recursive and holding no builder at all: must still be accepted, and must terminate

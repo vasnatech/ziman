@@ -2,7 +2,7 @@ use thread
 
 // A builder is thread-bound, but a ThreadLocal holding one may still be a module-level val: the key is
 // only a number and a function, and each thread makes and keeps its own builder.
-val cache = thread.local<MapBuilder<string, int>>(fn() -> MapBuilder<string, int> {
+val cache = thread.local<MutableMap<string, int>>(fn() -> MutableMap<string, int> {
     return mapb_new<string, int>()
 })
 

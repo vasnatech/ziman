@@ -31,7 +31,7 @@
 #include "xalloc.h"
 
 /* Blocking TCP behind lib/core/net.zm. A connection or listener is an int
- * handle into a table of file descriptors (same pattern as StringBuilder
+ * handle into a table of file descriptors (same pattern as MutableString
  * and the db driver) rather than the raw fd itself, so a Ziman program
  * can't pass an arbitrary number to close(2). Errors reach Ziman as
  * "category|message" strings, split into a NetError enum in net.zm.

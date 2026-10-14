@@ -109,10 +109,10 @@ Scans `pattern` exactly once, building the compiled parts array
 (and its total width) that format_fields/parse_fields below then
 work from -- the one place the pattern text itself is ever matched
 character by character.
-`parts` is built via ArrayBuilder<DateTimePart> rather than `push` in
+`parts` is built via MutableArray<DateTimePart> rather than `push` in
 a loop -- an arbitrarily long/verbose pattern used to mean one
 leaked, ever-growing array per recognized token (see docs/DESIGN.md's
-"ArrayBuilder" entry). `literal_buf`, in contrast, is left as plain
+"MutableArray" entry). `literal_buf`, in contrast, is left as plain
 `concat` on purpose: it only ever accumulates the handful of literal
 characters *between* two tokens in a pattern (a "-", a ":", at most a
 few characters in any realistic pattern), reset back to "" the

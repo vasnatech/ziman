@@ -1,1 +1,1 @@
-'contains' requires an ArrayBuilder of a comparable ('==') element type, found ArrayBuilder<Channel<int>>
+'contains' requires a MutableArray of a comparable ('==') element type, found MutableArray<Channel<int>>

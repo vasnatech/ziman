@@ -231,7 +231,7 @@ static Value native_iter_of_array(Value *args, int argc, int line, int col) {
 }
 
 /* Registered with gc_mark.c (see gc_mark_register_struct_content_marker's own comment, gc_mark.h --
- * the identical seam ArrayBuilder/MapBuilder/SetBuilder already use) so a real collection landing
+ * the identical seam MutableArray/MutableMap/MutableSet already use) so a real collection landing
  * while an Iter is still open doesn't sweep a Value its own native state holds but nothing else
  * references: `FromState.next`/`.close` (the closures `iter_from<T>` was built with) and
  * `ArrayIterState.items` (the array `iter_of_array<T>` is walking) are each referenced *only* by

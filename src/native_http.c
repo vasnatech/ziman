@@ -37,8 +37,8 @@
  * it is over -- and counting it is part of asking, so a caller must not ask twice about one event.
  *
  * In C because an application cannot write it. Ziman has no mutable state two threads can share: a
- * `MapBuilder` is `#[thread_bound]` on purpose, and a lambda cannot mutate what it captures, so shared
- * state has to live behind a handle the way StringBuilder, Iter and the metrics registry do. A server
+ * `MutableMap` is `#[thread_bound]` on purpose, and a lambda cannot mutate what it captures, so shared
+ * state has to live behind a handle the way MutableString, Iter and the metrics registry do. A server
  * that is thread-per-connection therefore cannot count anything across requests without this.
  *
  * Fixed window, not a token bucket, and the difference matters at the edge: a client can send `limit`

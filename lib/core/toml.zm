@@ -78,7 +78,7 @@ fn hex_value(c: string) -> int {
     return index_of(hex_chars, to_lower(c), 0)
 }
 
-fn append_utf8(out: StringBuilder, cp: int) {
+fn append_utf8(out: MutableString, cp: int) {
     if cp < 128 {
         sb_append_byte(out, cp as byte)
     } else if cp < 2048 {
@@ -709,7 +709,7 @@ fn is_table_array(j: Json) -> bool {
     return false
 }
 
-fn write_table(out: StringBuilder, table: Json, path: [string]) -> Result<int, string> {
+fn write_table(out: MutableString, table: Json, path: [string]) -> Result<int, string> {
     val fields = Json.unwrap_JObject(table)
     for key, value in fields {
         if Json.is_JNull(value) || Json.is_JObject(value) || is_table_array(value) {
