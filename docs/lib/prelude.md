@@ -605,6 +605,47 @@ fn mutable_array_reverse<T>(xs: MutableArray<T>)
 
 Reverses the buffer in place -- no copy at all, where `array_reverse(snapshot(xs))` makes two.
 
+### `mutable_array_filter`
+
+```
+native fn mutable_array_filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
+```
+
+Keeps only the elements `keep` answers true for, in place. The one filter in the language that
+allocates nothing: it walks once with a write cursor trailing the read cursor, where
+`array_filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
+reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
+the buffer mid-compaction, the same class of thing as appending during a `for`.
+
+### `mutable_array_sort`
+
+```
+fn mutable_array_sort<T: Ord>(xs: MutableArray<T>)
+```
+
+Sorts the buffer, by the element type's own `compare` ascending or descending, or by a comparator
+of your own. The result lands back in the same buffer, which is the point -- but note the cost:
+these are ordinary Ziman over `array_sort` and a write-back, so each makes **two copies** (the
+snapshot, and the sorted array), where an in-place sort in C would make one. That is a deliberate
+trade: the alternative duplicates the packed/compare sort machinery in C, and the copies are
+dominated by the sort itself. The signatures would not change if it were ever worth doing.
+The write-back is `mutable_array_set` per element rather than `clear` and push, so the buffer
+keeps its capacity and the length never changes. Spelled out in each of the three rather than
+shared, because a helper here would be *public* -- everything in the prelude is -- and
+"overwrite the buffer with this array" is not a function the design asked for.
+
+### `mutable_array_sort_desc`
+
+```
+fn mutable_array_sort_desc<T: Ord>(xs: MutableArray<T>)
+```
+
+### `mutable_array_sort_with`
+
+```
+fn mutable_array_sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
+```
+
 ## MutableMap and MutableSet
 
 ### `MutableMap`

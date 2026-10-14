@@ -866,6 +866,33 @@ static Value native_ab_truncate(Value *args, int argc, int line, int col) {
     return value_int(0); /* void return -- the caller never uses this */
 }
 
+/* Compacts the buffer in place: one walk with a write cursor trailing the read cursor, so the kept
+ * elements end up at the front and the length shrinks. **No allocation at all**, which is the whole
+ * reason this exists rather than `array_filter(snapshot(xs), keep)` -- that makes two copies, and
+ * this is the one filter in the language that makes none.
+ *
+ * `keep` is user code, so it could in principle change the builder while the walk is under way.
+ * That is survivable rather than supported: `buf` points at the stable handle record and its
+ * `items`/`pdata` are re-read through it, so a reallocation inside the predicate cannot leave a
+ * dangling pointer -- but what the rest of the walk then visits is the buffer mid-compaction, which
+ * is the same class of thing as appending during a `for` and is documented the same way. */
+static Value native_ab_filter(Value *args, int argc, int line, int col) {
+    (void)argc;
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    size_t write = 0;
+    for (size_t read = 0; read < buf->length; read++) {
+        Value element = ab_element_at(buf, read);
+        if (!native_call_closure(args[1], &element, 1, line, col).as.b) continue;
+        if (write != read) {
+            if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)write, element);
+            else buf->items[write] = element;
+        }
+        write++;
+    }
+    buf->length = write;
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
 static Value native_string_to_bytes(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     const char *s = args[0].as.str.ptr;
@@ -1700,6 +1727,7 @@ void prelude_register(void) {
     native_register("mutable_new", native_mutable_new);
     native_register("mutable_get", native_mutable_get);
     native_register("mutable_set", native_mutable_set);
+    native_register("mutable_array_filter", native_ab_filter);
     native_register("mutable_array_insert", native_ab_insert);
     native_register("mutable_array_remove", native_ab_remove);
     native_register("mutable_array_truncate", native_ab_truncate);
