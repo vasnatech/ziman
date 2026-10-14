@@ -4,7 +4,7 @@
 # A script rather than a fixture because tests/run_tests.sh runs a .zm file, and this is a command
 # that takes no program at all. The cases are the ones the 2026-10-09 generation benchmark showed
 # cost real time: the names under `fs` (eight candidates brute-forced before `write_text`), the
-# accessor under a map, and whether `collections.sort` needs its type argument spelled out.
+# accessor under a map, and whether `array_sort` needs its type argument spelled out.
 #
 # usage: tests/run_api.sh [ziman-binary]   (default ./ziman)
 set -uo pipefail
@@ -34,8 +34,8 @@ has "fs names write_text"                "fn write_text(" "$fs"
 has "fs names read_text with its Result" "-> Result<string, FsError>" "$fs"
 has "fs declares its error enum"         "enum FsError {" "$fs"
 
-coll=$("$BIN" --api collections 2>&1)
-has "a generic signature carries its type parameter and bound" "fn sort<T: Ord>(items: [T]) -> [T]" "$coll"
+tst=$("$BIN" --api test 2>&1)
+has "a generic signature carries its type parameter and bound" "fn assert_eq<T: Eq>(expected: T, actual: T)" "$tst"
 
 net=$("$BIN" --api net 2>&1)
 has "an enum variant carries its payload type" "Io(string)" "$net"
