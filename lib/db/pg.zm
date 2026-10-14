@@ -666,7 +666,7 @@ fn finish_page(sock: Socket, id: int, names: [string], oids: [int]) -> CursorSte
     }
     val p = unwrap(read)
     if Some(reason) = p.failure {
-        val drained = sync_and_drain(sock)
+        val _ = sync_and_drain(sock)
         if len(p.rows) == 0 {
             return failed_step(reason)
         }

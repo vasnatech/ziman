@@ -2594,7 +2594,7 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
                 net.close(accepted)
                 continue
             }
-            val slot = receive(slots)  // waits here while every slot is in use
+            val _ = receive(slots)  // waits here while every slot is in use
             spawn serve_connection(
                 accepted,
                 handler,
@@ -2618,6 +2618,6 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
         }
     }
     for i in 0..limit {
-        val slot = receive(slots)  // every slot back means every connection is done
+        val _ = receive(slots)  // every slot back means every connection is done
     }
 }

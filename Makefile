@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check check-fast install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
+.PHONY: all check check-fast lint install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
 
 all: $(BIN)
 
@@ -561,6 +561,31 @@ xalloc-check:
 # PTHREAD_MUTEX_INITIALIZER, which is every glibc machine -- so only a check catches it (A45).
 handleset-check:
 	python3 tools/check_handle_sets.py
+
+# `--lint` over every library module. Two things had to be true before this could exist at all,
+# and neither was (docs/reviews/tasks.md F133).
+#
+# `--lint` refused a module with no `main`, so it could only ever be pointed at an entry point.
+# And a module reached through `use` is normally the *bundled* copy, whose declarations carry a
+# NULL `source_file` -- which is exactly the flag the lint uses to tell "your code" from the
+# standard library, so every finding in `lib/` was discarded before it was printed. Pointing
+# ZIMAN_MODULE_PATH at the sources makes them load from disk with real paths, and the findings
+# appear.
+#
+# What that was hiding: the `spawn` rule's own message is "whoever is waiting on that channel
+# waits for ever", which is A47 word for word, and it could not see the two `spawn serve` calls
+# that had it.
+#
+# NOT in `check` yet, deliberately. Three findings remain and all three are quadratic-accumulation
+# warnings on loops that are bounded in practice: `time.zm:280` accumulates the few literal
+# characters between two tokens of a format pattern and says so in a comment that predates this
+# target, and `yaml.zm:698`/`:709` have predicates (`flow_depth`, `quote_open`) that rescan the
+# accumulation every round, so a builder would snapshot per round and cost the same -- making
+# those linear needs the depth and quote state tracked incrementally. Gating needs either those
+# three resolved or a way to record "bounded, and here is why" in the source, the way
+# `xalloc-ok:` does for check_xalloc.py.
+lint: $(BIN)
+	@python3 tools/lint_lib.py
 
 docs-check: lib-manual-check not-yet-check experimental-check syntax-check design-index-check
 

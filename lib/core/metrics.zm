@@ -240,10 +240,10 @@ pub fn record_runtime() {
     // `gauge` answers false only when the registry is full, which is a start-up mistake rather than
     // something to handle per scrape -- and declaring one twice is harmless, so these are declared
     // here instead of making a caller remember to.
-    val _heap = gauge("ziman_gc_heap_bytes", "bytes of heap the collector has mapped")
-    val _coll = gauge("ziman_gc_collections", "collections the collector has run, or -1 where it keeps no count")
-    val _thr = gauge("ziman_threads", "live interpreter threads")
-    val _fds = gauge("ziman_open_descriptors", "open file descriptors")
+    val _ = gauge("ziman_gc_heap_bytes", "bytes of heap the collector has mapped")
+    val _ = gauge("ziman_gc_collections", "collections the collector has run, or -1 where it keeps no count")
+    val _ = gauge("ziman_threads", "live interpreter threads")
+    val _ = gauge("ziman_open_descriptors", "open file descriptors")
     set("ziman_gc_heap_bytes", runtime_heap_bytes_raw() as float)
     set("ziman_gc_collections", runtime_collections_raw() as float)
     set("ziman_threads", os.thread_count() as float)

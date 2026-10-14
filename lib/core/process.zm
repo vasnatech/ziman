@@ -162,7 +162,7 @@ pub fn output(
         Ok(t) { t }
         Err(e) { val _ = fs.remove(path) return err(fs.fs_error_message(e)) }
     }
-    val _removed = fs.remove(path)
+    val _ = fs.remove(path)
     if code != 0 {
         return err(concat("exited ", str(code), ": ", text))
     }

@@ -223,7 +223,7 @@ fn check(
     }
     val header = try decode_part(parts[0], "the header")
     val algorithm = json_require_string_field(header, "alg")
-    if Err(reason) = algorithm {
+    if Err(_) = algorithm {
         return JwtError.Malformed("the header has no 'alg'")
     }
     val expected = switch mac(unwrap(algorithm), key, string_to_bytes(format("{}.{}", parts[0], parts[1]))) {

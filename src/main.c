@@ -227,7 +227,15 @@ static void *run_program(void *raw) {
     /* Enabled before the load, not after: one lint rule lives in the loader (a redundant `as` alias),
      * because a module's `use` list belongs to the loader's per-module AST and is gone by the time the
      * merged Module reaches the type checker. */
-    if (lint) typecheck_enable_lint();
+    if (lint) {
+        typecheck_enable_lint();
+        /* A library module has no `main`, and refusing to lint one meant `--lint` could only ever
+         * be pointed at an entry point -- so no rule in it had ever run over `lib/`. That is not a
+         * small gap: the `spawn` rule's own message is "whoever is waiting on that channel waits
+         * for ever", which is A47 word for word, and it could not see the two `spawn serve` calls
+         * that had it (F133). `--lsp` and `ziman test` already skip the same check. */
+        typecheck_skip_main_check(1);
+    }
     Module *module = load_module_graph(file, NULL);
     typecheck(module);
     if (lint) {

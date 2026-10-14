@@ -226,7 +226,7 @@ pub fn traceparent_parse(value: string) -> Option<TraceParent> {
     // than rejected.
     val sampled_bit = switch byte_from_hex(flags) {
         Ok(b) { (b as int) % 2 == 1 }
-        Err(e) { false }
+        Err(_) { false }
     }
     return Option<TraceParent>.Some(TraceParent { trace_id: trace_id, span_id: span_id, sampled: sampled_bit })
 }

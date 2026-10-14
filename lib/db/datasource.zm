@@ -217,7 +217,7 @@ pub fn query(conn: Connection, sql: string, params: variadic SqlValue) -> Result
 // failing to run.
 pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Iter<Result<Row, DbError>>, DbError> {
     return switch conn {
-        Pool(pool) {
+        Pool(_) {
             val inner = try acquire(conn)
             val opened = rows(inner, sql, params)
             if Err(e) = opened {

@@ -715,12 +715,22 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
         }
         return ok(NodeRes { value: node.value, next: next })
     }
-    // plain: more-indented following lines continue it
+    // plain: more-indented following lines continue it.
+    //
+    // A builder here and not in the two loops above, and the difference is the predicate: this one
+    // reads only `lines[next]`, so the accumulation can stay in a builder and be snapshotted once.
+    // `flow_depth(text)` and `quote_open(text, first)` rescan the whole accumulation every round,
+    // so a builder would have to snapshot per round and cost exactly what the `concat` costs --
+    // making those linear needs the depth and quote state tracked incrementally, which is a
+    // redesign of the scanner rather than a rewrite of the loop (D22, F133).
+    val plain = mutable_string_new()
+    mutable_string_append(plain, text)
     while next < len(lines) && len(content_of(lines[next])) > 0 && lines[next].indent > parent_indent {
-        text = concat(text, " ", content_of(lines[next]))
+        mutable_string_append(plain, " ")
+        mutable_string_append(plain, content_of(lines[next]))
         next = next + 1
     }
-    val value = try plain_scalar(text, no)
+    val value = try plain_scalar(snapshot(plain), no)
     return ok(NodeRes { value: value, next: next })
 }
 

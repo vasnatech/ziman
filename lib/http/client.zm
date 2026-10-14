@@ -531,7 +531,7 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
         if !u.secure {
             return ok(sock)
         }
-        val timeout_set = net.set_timeout(sock, timeout_ms)
+        val _ = net.set_timeout(sock, timeout_ms)
         val target = format("{}:{}", u.host, u.port)
         val request = format(
             "CONNECT {} HTTP/1.1\r\nHost: {}\r\n{}\r\n",
@@ -570,7 +570,7 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
     if !u.secure {
         return ok(direct)
     }
-    val timeout_set = net.set_timeout(direct, timeout_ms)
+    val _ = net.set_timeout(direct, timeout_ms)
     return switch lift<unit>(net.start_tls_with(direct, u.host, net.TlsVerify.Full, ca_file)) {
         Ok(_) { ok(direct) }
         Err(e) { fail_closed(direct, e) }
@@ -727,7 +727,7 @@ fn send_once(
             return err(e)
         }
         val s = unwrap(sock)
-        val timeout_set = net.set_timeout(s, timeout_ms)
+        val _ = net.set_timeout(s, timeout_ms)
         switch exchange(s, method, u, proxy, headers, body, want_compression, reuse) {
             Ok(reply) {
                 if reply.reusable && reuse {

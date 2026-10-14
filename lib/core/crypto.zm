@@ -98,11 +98,15 @@ fn unpadded(text: string) -> string {
 }
 
 fn padded(text: string) -> string {
-    var out = text
+    // At most three '=' are ever needed, so this was never really quadratic -- but the shape is
+    // the one `--lint` flags and the builder says the bound plainly rather than leaving a reader
+    // (or the gate) to work it out.
+    val out = mutable_string_new()
+    mutable_string_append(out, text)
     while len(out) % 4 != 0 {
-        out = concat(out, "=")
+        mutable_string_append(out, "=")
     }
-    return out
+    return snapshot(out)
 }
 
 // An Argon2id hash of `password` in the PHC string format (`$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`, the format

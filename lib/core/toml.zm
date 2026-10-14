@@ -574,7 +574,7 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
             p = after_header
         } else {
             val key = try parse_key_path(text, p)
-            var q = skip_blank(text, key.next)
+            val q = skip_blank(text, key.next)
             if !is_char_at(text, q, "=") {
                 return err(fail(text, q, "expected '=' after a key"))
             }
