@@ -1,0 +1,10 @@
+0 accepted=false
+1 accepted=false
+9 accepted=false
+10 accepted=false
+13 accepted=false
+31 accepted=false
+32 accepted=true
+escaped tab accepted=true
+a string cannot contain a 0 byte, at position 7
+a string cannot contain the raw control byte 0x09 (write it as \u0009), at position 7

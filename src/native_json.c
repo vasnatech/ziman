@@ -113,7 +113,34 @@ static char *parse_string_raw(Parser *ps, size_t *out_len) {
         if (p >= ps->n) { free(out); fail(ps, "unterminated string"); return NULL; }
         char c = s[p];
         if (c == '"') { ps->p = p + 1; out[o] = '\0'; *out_len = o; return out; }
-        if (c != '\\') { out[o++] = c; p++; continue; }
+        if (c != '\\') {
+            /* RFC 8259 forbids an unescaped byte below 0x20 inside a string, and two other places
+             * in this file already agree: the `\u0000` branch below refuses to produce a NUL
+             * because a Ziman `string` cannot hold one, and the encoder writes every byte under
+             * 0x20 as `\u00xx`. Accepting the raw byte here applied that rule on one side only.
+             *
+             * For NUL the result was a `string` the language says cannot exist: `{"p":"a\0b"}`
+             * parsed, and the value reported `len == 3` and `ends_with("b")` while every C
+             * consumer of it -- `execve` argv, sqlite paths, 18 `fs` path arguments, certificate
+             * filenames -- saw `"a"`. Through an HTTP body that is a client storing one value and
+             * the API echoing back another (A44, A49). */
+            if ((unsigned char)c < 0x20) {
+                free(out);
+                /* NUL gets the other message, not the escape advice: `\u0000` is refused too, by
+                 * the branch below, so telling someone to write it that way sends them in a
+                 * circle. A string cannot hold a 0 byte at all. */
+                if (c == '\0') {
+                    fail(ps, "a string cannot contain a 0 byte, at position %zu", p);
+                } else {
+                    fail(ps, "a string cannot contain the raw control byte 0x%02x (write it as \\u%04x), at position %zu",
+                         (unsigned)(unsigned char)c, (unsigned)(unsigned char)c, p);
+                }
+                return NULL;
+            }
+            out[o++] = c;
+            p++;
+            continue;
+        }
         if (p + 1 >= ps->n) { free(out); fail(ps, "unterminated escape sequence"); return NULL; }
         char e = s[p + 1];
         switch (e) {
