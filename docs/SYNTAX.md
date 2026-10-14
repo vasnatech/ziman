@@ -350,6 +350,10 @@ for x in seen { ... }                    // a set has one binder
   builtin `join` is a path join over strings, not this), and `sum(items: [int])` totals them --
   integers only, since `+` traps on overflow so the answer is exact or an error, where a float
   total depends on summation order and `fold` expresses whichever order you want.
+- **No derive converts one**: `#[derive(Json)]`, `Row` and `Properties` all refuse a field whose
+  type is a thread-bound handle, however deeply nested -- inside an `Option`, an array, a type
+  argument. Nothing written out could decode back to the same mutable object, so hand over the
+  finished value and derive that: `snapshot(x)` for a collection, `mutable_get(c)` for a cell.
 - **Printing one**: a handle prints as the value it is building -- `[1, 2, 3]` for a
   `MutableArray`, its text for a `MutableString`, `{a: 1}` for a `MutableMap`, `Mutable(5)` for a
   cell -- not as the one-field struct it is. A handle *inside* another value prints a summary

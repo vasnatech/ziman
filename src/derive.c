@@ -1106,6 +1106,46 @@ static void ensure_named_import(Module *module, const char *path, const char *na
 /* Imports the converters of every standard type found inside `t` (through arrays, Options, maps and type arguments),
  * so a struct with an `Instant` or `Uuid` field derives without the file listing `use time.instant_to_sql` and the
  * rest. A name the module already binds (its own function, or an import it wrote) is left alone. */
+/* Whether `t` is a handle -- a `#[thread_bound]` struct. Two tests, and both are needed: derive
+ * expansion runs *before* the prelude's declarations are merged into the module, so looking up
+ * `MutableArray` here finds nothing (a user's own `#[thread_bound]` struct is already there and
+ * does). The named list covers the built-ins; the lookup covers everything written in Ziman,
+ * including a handle someone defines themselves. */
+static int derive_type_is_handle(Module *module, Type t) {
+    if (t.kind != TY_STRUCT || t.struct_name == NULL) return 0;
+    const char *dot = strrchr(t.struct_name, '.');
+    const char *bare = dot != NULL ? dot + 1 : t.struct_name;
+    static const char *const BUILT_IN_HANDLES[] = {"MutableArray", "MutableMap", "MutableSet", "MutableString",
+                                                   "Mutable",      "Iter",       NULL};
+    for (size_t i = 0; BUILT_IN_HANDLES[i] != NULL; i++) {
+        if (strcmp(bare, BUILT_IN_HANDLES[i]) == 0) return 1;
+    }
+    for (int i = 0; i < module->structs.count; i++) {
+        if (strcmp(module->structs.items[i]->name, bare) == 0) return module->structs.items[i]->thread_bound;
+    }
+    return 0;
+}
+
+/* Serialising a handle is meaningless: whatever is written cannot decode back to the same mutable
+ * object, because the thing that made it mutable is an index into a native table belonging to one
+ * thread. Refused *by name* rather than left to fail incidentally -- which is what used to happen,
+ * with a message that read "call to undefined function 'mutable_array_to_json' ... or write
+ * 'mutable_array_to_json' by hand and import it with 'use'", i.e. an invitation to do the one thing
+ * that cannot work. Recursive, so a handle inside an Option, an array or a type argument is caught
+ * where a field-level check alone would miss it. */
+static void refuse_handle_field(Module *module, const char *target, Type t, int line, int col) {
+    if (derive_type_is_handle(module, t)) {
+        ziman_error("syntax", line, col,
+                    "derive(%s) cannot convert '%s': it is a thread-bound handle, and nothing written out could "
+                    "decode back to the same mutable object. Hand over the finished value and convert that instead "
+                    "-- snapshot(x) for a mutable collection, mutable_get(c) for a Mutable",
+                    target, type_name(t));
+    }
+    if (t.elem != NULL) refuse_handle_field(module, target, *t.elem, line, col);
+    if (t.elem_err != NULL) refuse_handle_field(module, target, *t.elem_err, line, col);
+    for (int i = 0; i < t.type_args.count; i++) refuse_handle_field(module, target, t.type_args.items[i], line, col);
+}
+
 static void import_field_converters(Module *module, const char *suffix, Type t, int line, int col) {
     if (t.kind == TY_STRUCT || t.kind == TY_ENUM) {
         const char *full = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
@@ -1160,6 +1200,11 @@ void generate_derived_functions(Module *module) {
             }
             const char *label = fmt_str("derive(%s) for '%s'", sd->derives[d], sd->name);
             import_for_derive(module, sd->derives[d], sd->line, sd->col);
+            if (is_json || is_row || is_props) {
+                for (int fi = 0; fi < sd->fields.count; fi++) {
+                    refuse_handle_field(module, sd->derives[d], sd->fields.items[fi].type, sd->line, sd->col);
+                }
+            }
             if (is_json || is_row) {
                 for (int fi = 0; fi < sd->fields.count; fi++) {
                     import_field_converters(module, is_json ? "json" : "sql", sd->fields.items[fi].type, sd->line, sd->col);
@@ -1210,6 +1255,7 @@ void generate_derived_functions(Module *module) {
             import_for_derive(module, ed->derives[d], ed->line, ed->col);
             for (int vi = 0; vi < ed->variants.count; vi++) {
                 if (ed->variants.items[vi].has_payload) {
+                    refuse_handle_field(module, "Json", ed->variants.items[vi].payload_type, ed->line, ed->col);
                     import_field_converters(module, "json", ed->variants.items[vi].payload_type, ed->line, ed->col);
                 }
             }

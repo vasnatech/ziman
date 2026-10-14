@@ -1,0 +1,19 @@
+// Serialising a handle is meaningless: whatever is written out cannot decode back to the same
+// mutable object, because what makes it mutable is an index into a native table belonging to one
+// thread. So the derives refuse it by name.
+//
+// They used to fail *incidentally*, with "call to undefined function 'mutable_array_to_json' -- ...
+// or write 'mutable_array_to_json' by hand and import it with 'use'" -- an invitation to do the one
+// thing that cannot work. Writing that function would have made the derive succeed and produce
+// nonsense.
+//
+// Nested on purpose: the field is an `Option<MutableMap<...>>`, which a field-level check would miss
+// and the recursive one catches.
+#[derive(Json)]
+struct Holder {
+    slot: Option<MutableMap<string, int>>
+}
+
+fn main() {
+    print(1)
+}

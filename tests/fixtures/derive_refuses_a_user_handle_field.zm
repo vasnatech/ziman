@@ -1,0 +1,17 @@
+// And a handle written in Ziman, not just the built-in five. Two tests are needed for that, and the
+// comment in derive.c says why: derive expansion runs before the prelude's declarations are merged
+// into the module, so `MutableArray` cannot be looked up there -- while a struct declared in this
+// file already can be.
+#[thread_bound]
+struct MyHandle {
+    slot: int
+}
+
+#[derive(Row)]
+struct Holder {
+    handle: MyHandle
+}
+
+fn main() {
+    print(1)
+}
