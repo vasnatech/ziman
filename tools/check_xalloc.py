@@ -9,9 +9,17 @@ and 3 across 80 reallocs, and the worst of them was `src/lsp.c`'s `sb_grow`: a
 a user keeps open all day (docs/reviews/tasks.md A20).
 
 A bare `malloc` compiles and works, so nothing but a check like this one keeps the next one out.
+
 A file with a genuine reason to handle NULL itself says so with an `xalloc-exempt:` marker comment
-and the reason -- `src/regex.c` is the one that has one, since its buffers are the only ones here
-sized by user input and it can report the failure as a Ziman runtime error instead of exiting.
+and the reason -- `src/regex.c` is the one that has one, since its match buffers are the only ones
+here sized by user input and it can report the failure as a Ziman runtime error instead of exiting.
+
+The marker used to exempt the whole file, and that was too wide: `src/regex.c` had five allocations
+that did not check at all, four of them `p = realloc(p, n)` writing through the NULL on the next
+line -- A20's bug exactly, in the one file this checker could not see (docs/reviews/tasks.md F127).
+So an exempt file is still read, and every allocation in it must carry its own
+`/* xalloc-ok: <reason> */` on the same line. The file-level marker now says only "this file checks
+for itself"; the per-site marker is the claim that this particular site does.
 
 Run directly, or via `make xalloc-check` (and `make check`). Exits 1 listing each file and the
 count; exits 0 otherwise.
@@ -40,8 +48,11 @@ def main():
             continue
         with open(path) as f:
             text = f.read()
-        if "xalloc-exempt:" in text:
-            continue
+        exempt = "xalloc-exempt:" in text
+        if exempt:
+            # Every allocation still has to be accounted for, one site at a time: drop the lines
+            # that claim their own check, and whatever is left is unaccounted for.
+            text = "\n".join(l for l in text.splitlines() if "xalloc-ok:" not in l)
         code = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
         code = re.sub(r"//[^\n]*", "", code)
         code = re.sub(r'"(?:[^"\\]|\\.)*"', '""', code)

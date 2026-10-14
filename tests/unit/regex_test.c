@@ -145,6 +145,32 @@ int main(void) {
         regex_free(re);
     }
 
+    /* The same for `regex_compile`, which had no such coverage and four growth sites that did not
+     * look: `p = realloc(p, n)` loses the old pointer when the allocation fails, and the next line
+     * wrote through NULL. Every allocation the compile makes is failed in turn; each must come back
+     * as a NULL Regex with a message, never a crash and never a half-built pattern (F127).
+     *
+     * The pattern is chosen to reach all four: a character class (class_new, class_add), a named
+     * group (group_names), and enough instructions to grow the program buffer. */
+    {
+        const char *p = "(?<tag>[a-z0-9_]+)(abc|def)*xyz";
+        int wrong = 0, reported = 0;
+        for (int nth = 0; nth < 40; nth++) {
+            char err[256] = {0};
+            fail_after = nth;
+            Regex *re = regex_compile(p, strlen(p), err, sizeof err);
+            fail_after = -1;
+            if (re == NULL) {
+                reported++;
+                if (err[0] == 0) wrong++;   /* a refusal must say something */
+            } else {
+                regex_free(re);
+            }
+        }
+        ok(wrong == 0, "a failed allocation while compiling is always reported with a message");
+        ok(reported > 0, "failing each allocation in turn does refuse the compile at least once");
+    }
+
     /* The work ceiling (A28). The memory budget does not bound time: these patterns all compile,
      * and the expensive one is expensive per input byte rather than large. The counter has to be
      * carried across the scan, because `find_all`'s shape is one search per match position and each

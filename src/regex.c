@@ -88,7 +88,11 @@ typedef enum { I_CHAR, I_ANY, I_CLASS, I_SPLIT, I_JMP, I_SAVE, I_BOL, I_EOL, I_W
 typedef struct { Op op; int x, y; uint32_t cp; } Inst;
 
 typedef struct { uint32_t lo, hi; } Range;
-typedef struct { Range *ranges; int count, cap; int negate; } CharClass;
+/* `oom` is how `class_add` reports a failed growth: it has no parser to fail through and returns
+ * void to fifteen call sites, so it keeps the buffer it already has, drops the range, and raises
+ * this -- which `parse_class` and the two shorthand paths check before the class is used. A dropped
+ * range can never affect a match, because the flag refuses the whole compile (F127). */
+typedef struct { Range *ranges; int count, cap; int negate; int oom; } CharClass;
 
 struct Regex {
     Inst *prog;
@@ -138,11 +142,11 @@ static void fail(Parser *ps, const char *msg) {
 }
 
 static Node *node(Parser *ps, NodeKind k) {
-    Node *n = calloc(1, sizeof(Node));
+    Node *n = calloc(1, sizeof(Node));  /* xalloc-ok: NULL -> fail(ps) on the next line */
     if (n == NULL) { fail(ps, "out of memory"); return NULL; }
     if (ps->n_nodes == ps->cap_nodes) {
         int cap = ps->cap_nodes == 0 ? 64 : ps->cap_nodes * 2;
-        Node **fresh = realloc(ps->nodes, (size_t)cap * sizeof(Node *));
+        Node **fresh = realloc(ps->nodes, (size_t)cap * sizeof(Node *));  /* xalloc-ok: temp, then fail(ps) on the next line */
         if (fresh == NULL) { free(n); fail(ps, "out of memory"); return NULL; }
         ps->nodes = fresh;
         ps->cap_nodes = cap;
@@ -161,17 +165,25 @@ static void free_nodes(Parser *ps) {
     ps->n_nodes = ps->cap_nodes = 0;
 }
 
+/* -1 when the class table cannot grow. `p = realloc(p, n)` here lost the old pointer on failure and
+ * the next line wrote through NULL -- the shape of A20's `sb_grow` bug, which `check_xalloc.py`
+ * exists to catch and could not see because this file is exempt from it wholesale (F127). */
 static int class_new(Parser *ps) {
     Regex *re = ps->re;
-    re->classes = realloc(re->classes, (size_t)(re->n_classes + 1) * sizeof(CharClass));
+    CharClass *fresh = realloc(re->classes, (size_t)(re->n_classes + 1) * sizeof(CharClass));  /* xalloc-ok: temp, then fail(ps) and -1 */
+    if (fresh == NULL) { fail(ps, "out of memory"); return -1; }
+    re->classes = fresh;
     memset(&re->classes[re->n_classes], 0, sizeof(CharClass));
     return re->n_classes++;
 }
 
 static void class_add(CharClass *c, uint32_t lo, uint32_t hi) {
     if (c->count == c->cap) {
-        c->cap = c->cap == 0 ? 8 : c->cap * 2;
-        c->ranges = realloc(c->ranges, (size_t)c->cap * sizeof(Range));
+        int want = c->cap == 0 ? 8 : c->cap * 2;
+        Range *fresh = realloc(c->ranges, (size_t)want * sizeof(Range));  /* xalloc-ok: temp, then c->oom, which parse_class checks */
+        if (fresh == NULL) { c->oom = 1; return; }
+        c->ranges = fresh;
+        c->cap = want;
     }
     c->ranges[c->count].lo = lo;
     c->ranges[c->count].hi = hi;
@@ -376,6 +388,7 @@ static int parse_posix(Parser *ps, int idx) {
 
 static Node *parse_class(Parser *ps) {
     int idx = class_new(ps);
+    if (idx < 0) return NULL;
     CharClass *c = &ps->re->classes[idx];
     if (peek(ps) == '^') { c->negate = 1; ps->pos++; }
     int first = 1;
@@ -425,6 +438,7 @@ static Node *parse_class(Parser *ps) {
         c = &ps->re->classes[idx];
         class_add(c, lo, hi);
     }
+    if (c->oom) { fail(ps, "out of memory"); return NULL; }
     Node *n = node(ps, N_CLASS);
     n->idx = idx;
     return n;
@@ -467,7 +481,11 @@ static Node *parse_atom(Parser *ps) {
                     fail(ps, "bad group name (letters, digits and _, not starting with a digit, then '>')");
                     return NULL;
                 }
-                group_name = malloc(e2 - s + 1);
+                group_name = malloc(e2 - s + 1);  /* xalloc-ok: NULL -> fail(ps) on the next line */
+                /* A fifth site, which the task did not name and the new compile-time OOM test in
+                 * tests/unit/regex_test.c found on its first run: unchecked, and the `memcpy` below
+                 * writes straight through it (F127). */
+                if (group_name == NULL) { fail(ps, "out of memory"); return NULL; }
                 memcpy(group_name, ps->p + s, e2 - s);
                 group_name[e2 - s] = '\0';
                 for (int g = 1; g <= ps->re->n_groups; g++) {
@@ -488,7 +506,9 @@ static Node *parse_atom(Parser *ps) {
         }
         if (group == -2) {
             group = ++ps->re->n_groups;
-            ps->re->group_names = realloc(ps->re->group_names, (size_t)(ps->re->n_groups + 1) * sizeof(char *));
+            char **fresh_names = realloc(ps->re->group_names, (size_t)(ps->re->n_groups + 1) * sizeof(char *));  /* xalloc-ok: temp, then fail(ps) */
+            if (fresh_names == NULL) { free(group_name); fail(ps, "out of memory"); return NULL; }
+            ps->re->group_names = fresh_names;
             ps->re->group_names[group] = group_name;
             ps->re->group_names[0] = NULL;
         }
@@ -513,7 +533,9 @@ static Node *parse_atom(Parser *ps) {
         if (e == 'd' || e == 'w' || e == 's' || e == 'D' || e == 'W' || e == 'S') {
             ps->pos++;
             int idx = class_new(ps);
+            if (idx < 0) return NULL;
             class_add_perl(&ps->re->classes[idx], (char)e);
+            if (ps->re->classes[idx].oom) { fail(ps, "out of memory"); return NULL; }
             Node *n = node(ps, N_CLASS);
             n->idx = idx;
             return n;
@@ -521,7 +543,9 @@ static Node *parse_atom(Parser *ps) {
         if (e == 'p' || e == 'P') {
             ps->pos++;
             int idx = class_new(ps);
+            if (idx < 0) return NULL;
             if (!parse_property(ps, idx, e == 'P')) return NULL;
+            if (ps->re->classes[idx].oom) { fail(ps, "out of memory"); return NULL; }
             Node *n = node(ps, N_CLASS);
             n->idx = idx;
             return n;
@@ -635,8 +659,14 @@ static int emit(Emit *em, Op op, int x, int y, uint32_t cp) {
         return 0;
     }
     if (re->n_inst == em->cap) {
-        em->cap = em->cap == 0 ? 64 : em->cap * 2;
-        re->prog = realloc(re->prog, (size_t)em->cap * sizeof(Inst));
+        int want = em->cap == 0 ? 64 : em->cap * 2;
+        Inst *fresh = realloc(re->prog, (size_t)want * sizeof(Inst));  /* xalloc-ok: temp, then em->failed */
+        if (fresh == NULL) {
+            if (!em->failed) { snprintf(em->err, em->err_size, "out of memory"); em->failed = 1; }
+            return 0;
+        }
+        re->prog = fresh;
+        em->cap = want;
     }
     re->prog[re->n_inst].op = op;
     re->prog[re->n_inst].x = x;
@@ -676,7 +706,7 @@ static void gen(Emit *em, const Node *n) {
              * child on the way back up, which is exactly what `gen(n->a); gen(n->b)` did. */
             int links = 0;
             for (const Node *w = n; w->kind == N_CAT; w = w->a) links++;
-            const Node **rights = malloc((size_t)links * sizeof(*rights));
+            const Node **rights = malloc((size_t)links * sizeof(*rights));  /* xalloc-ok: NULL -> em->failed below */
             if (rights == NULL) {
                 if (!em->failed) { snprintf(em->err, em->err_size, "out of memory compiling the pattern"); em->failed = 1; }
                 return;
@@ -720,7 +750,15 @@ static void gen(Emit *em, const Node *n) {
                 re->prog[split].y = n->greedy ? after : body;
             } else {
                 int opt = n->max - n->min;
-                int *splits = opt > 0 ? malloc((size_t)opt * sizeof(int)) : NULL;
+                int *splits = opt > 0 ? malloc((size_t)opt * sizeof(int)) : NULL;  /* xalloc-ok: NULL with opt > 0 -> em->failed below */
+                /* A sixth unchecked site: `opt > 0` with a failed malloc left this NULL and the
+                 * loop below wrote through it. `opt == 0` is the legitimate NULL and skips the
+                 * loop, which is why the two cases have to be told apart rather than one check
+                 * covering both (F127). */
+                if (opt > 0 && splits == NULL) {
+                    if (!em->failed) { snprintf(em->err, em->err_size, "out of memory"); em->failed = 1; }
+                    return;
+                }
                 for (int i = 0; i < opt && !em->failed; i++) {
                     splits[i] = emit(em, I_SPLIT, 0, 0, 0);
                     if (em->failed) break;
@@ -776,7 +814,13 @@ void regex_free(Regex *re) {
 }
 
 Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size) {
-    Regex *re = calloc(1, sizeof(Regex));
+    Regex *re = calloc(1, sizeof(Regex));  /* xalloc-ok: NULL -> returns with a message */
+    /* A seventh unchecked site, found by narrowing the exemption rather than by the task's list:
+     * everything below dereferences `re` (F127). */
+    if (re == NULL) {
+        snprintf(err, err_size, "out of memory");
+        return NULL;
+    }
     Parser ps;
     memset(&ps, 0, sizeof ps);
     ps.p = (const unsigned char *)pattern;
@@ -1002,19 +1046,19 @@ int regex_search_budgeted(const Regex *re, const char *text, size_t len, size_t 
     vm.allowed = (uint64_t)MATCH_WORK_FLOOR + (uint64_t)len * (uint64_t)MATCH_WORK_PER_BYTE;
     size_t ncap_bytes = (size_t)vm.ncap * sizeof(int);
     size_t capbuf_bytes = (size_t)re->n_inst * ncap_bytes;
-    vm.mark = calloc((size_t)re->n_inst, sizeof(unsigned));
-    vm.work = malloc(((size_t)re->n_inst + 2u) * sizeof(Work));
-    vm.savepool = malloc(capbuf_bytes);
+    vm.mark = calloc((size_t)re->n_inst, sizeof(unsigned));  /* xalloc-ok: checked together with the rest of the matcher's buffers below */
+    vm.work = malloc(((size_t)re->n_inst + 2u) * sizeof(Work));  /* xalloc-ok: checked together with the rest of the matcher's buffers below */
+    vm.savepool = malloc(capbuf_bytes);  /* xalloc-ok: checked together with the rest of the matcher's buffers below */
 
     ThreadList lists[2];
     for (int i = 0; i < 2; i++) {
-        lists[i].t = malloc((size_t)re->n_inst * sizeof(Thread));
-        lists[i].capbuf = malloc(capbuf_bytes);
+        lists[i].t = malloc((size_t)re->n_inst * sizeof(Thread));  /* xalloc-ok: checked together with the rest of the matcher's buffers below */
+        lists[i].capbuf = malloc(capbuf_bytes);  /* xalloc-ok: checked together with the rest of the matcher's buffers below */
         lists[i].n = 0;
         lists[i].gen = 0;
     }
-    int *initial = malloc(ncap_bytes);
-    int *best = malloc(ncap_bytes);
+    int *initial = malloc(ncap_bytes);  /* xalloc-ok: checked together with the rest of the matcher's buffers below */
+    int *best = malloc(ncap_bytes);  /* xalloc-ok: checked together with the rest of the matcher's buffers below */
     if (vm.mark == NULL || vm.work == NULL || vm.savepool == NULL || initial == NULL || best == NULL ||
         lists[0].t == NULL || lists[0].capbuf == NULL || lists[1].t == NULL || lists[1].capbuf == NULL) {
         for (int i = 0; i < 2; i++) { free(lists[i].t); free(lists[i].capbuf); }
