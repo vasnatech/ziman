@@ -2020,6 +2020,51 @@ from source.
   check (F106) all applied to it without a line of new code. The worked actor example named at the
   end of this entry is still not written.*
 
+- **Refactor the `collections` module: seven duplicate spellings, one family split across two
+  namespaces, and one name that can never move.** Raised 2026-10-14 by Menderes, out of asking
+  whether `collections.sort*` should simply be deleted now that `array_sort*` exists.
+
+  **The state.** Seven functions exist under two names: `map`, `filter`, `flat_map`, `reverse`,
+  `sort`, `sort_desc` and `sort_with` are bare `array_*` in `lib/prelude.zm` *and* one-line
+  `collections` wrappers over them (`pub fn sort_with<T>(items, cmp) { return
+  array_sort_with<T>(items, cmp) }`). **167 call sites** across both repositories use the
+  `collections` spelling -- `sort` 72, `map` 55, `sort_with` 13, `sort_desc` 9, `filter` 9,
+  `reverse` 6, `flat_map` 3 -- while the bare ones had zero until F97 documented them. The other
+  24 `collections` functions have no bare counterpart at all.
+
+  **This is the rule working, not a leftover.** F97 promotes a function only when the other side
+  already has one: a `map_*`/`set_*` twin, or a `mutable_*` twin. The three bare sorts are exactly
+  the three with a mutable twin (`mutable_array_sort`/`_desc`/`_with`). So the duplication is the
+  *cost* of the rule rather than an unfinished migration, which is why "just delete the wrappers"
+  is not obviously right.
+
+  **Deleting them splits the sort family.** It has eleven members and three are bare: remove the
+  wrappers and `array_sort(xs)` is bare while `collections.sort_by_keys(xs, ks)`,
+  `sort_indices`, `is_sorted`, `binary_search`, `lower_bound` and `upper_bound` still need the
+  import. A reader then has to remember which sort lives where, which is worse than a duplicate
+  name that always works.
+
+  **Two hard constraints, both found while looking.** `collections.join(items, sep)` can **never**
+  be promoted: the bare `join` is already the *path* join over strings, with different semantics
+  entirely, so "everything becomes bare" is not a reachable end state. And promoting the rest would
+  take `find`, `first`, `last`, `count`, `any`, `all`, `is_sorted` into a flat global namespace
+  where every name added is a name a user can no longer have -- the reason F97 declined to promote
+  more than it had to.
+
+  **So the question is not "remove or keep" but where the sort family lives**, and there is a path
+  that closes it without a decision: the deferred `is_sorted`/`binary_search`/`lower_bound`/
+  `upper_bound` group gets promoted by the existing rule the moment it has mutable twins, and its
+  trigger is a program that sorts a `MutableArray` and then searches it (checked 2026-10-14: has
+  not fired). After that the split is gone and deleting the seven wrappers is tidying rather than a
+  trade. Until then the documented answer stands: write `array_sort_with`, and leave the 167
+  existing call sites alone.
+
+  **What a refactor should also look at while it is in there**, since these are the same question:
+  whether `collections` should be two modules (the array *algorithms* against the handful of
+  map/set helpers like `frequencies`, `index_by` and `group_by` that return collections keyed by
+  something); and whether `order_of`, which is private, wants to be the one public primitive the
+  sort family is written over, the way `sort_positions` already is for the natives.
+
 - **Interval notation for ranges: `[a..b]`, `(a..b)`, `[a..b)`, `(a..b]`.** Raised 2026-10-12 by
   Menderes. **Undecided, and may well be declined** -- recorded so that both the option and its price
   are on the record rather than rediscovered. The idea is that each end's bracket states its own
