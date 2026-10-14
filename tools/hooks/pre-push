@@ -1,0 +1,35 @@
+#!/bin/sh
+# Refuses a push whose HEAD does not pass the gate.
+#
+# This exists because HEAD was pushed red and nothing noticed: the 2026-10-14 C review's first act
+# was to record a baseline `make check`, and it failed -- `tests/run_api.sh` was asking for a module
+# the commit before had deleted (docs/reviews/tasks.md A46, fixed in 07149ff). The gate was
+# complete and correct and simply never ran.
+#
+# **pre-push, not pre-commit**, deliberately. What went wrong was a pushed red HEAD, not a local
+# commit; a commit is a private note and bisecting wants small ones, while a push is what other
+# people and other machines see. Running this per commit would also cost 72 seconds every time,
+# which is how a hook gets uninstalled.
+#
+# It runs `check-fast`, which is the whole gate except the North Star application suite: that one
+# takes over half an hour by itself (49 suites, each starting a real server), and a hook that slow
+# would be bypassed as a matter of routine, which protects nothing. Everything else is 72 seconds
+# measured, and `api-check` -- the 0.08s target that would have caught the actual incident -- is in
+# it. Run `make check` before anything that matters; this is the floor, not the ceiling.
+#
+# To push anyway: `git push --no-verify`. That is a legitimate thing to do (a docs-only branch, a
+# work-in-progress push to a personal remote); it is in the log afterwards either way.
+set -e
+if [ "${ZIMAN_SKIP_PREPUSH:-}" = 1 ]; then
+    echo "pre-push: skipped (ZIMAN_SKIP_PREPUSH=1)" >&2
+    exit 0
+fi
+root=$(git rev-parse --show-toplevel)
+echo "pre-push: make check-fast (the gate without the North Star suite; ~72s)" >&2
+if ! make -C "$root" check-fast; then
+    echo "" >&2
+    echo "pre-push: the gate failed, so this push is refused -- which is the whole point of A46." >&2
+    echo "          Fix it, or push with --no-verify if you have a reason." >&2
+    exit 1
+fi
+echo "pre-push: gate passed. The North Star suite was NOT run; 'make check' includes it." >&2

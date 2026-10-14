@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
+.PHONY: all check check-fast install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
 
 all: $(BIN)
 
@@ -42,7 +42,19 @@ all: $(BIN)
 # Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
 # `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
 # the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
-check: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available northstar-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check handleset-check
+# Everything `check` runs except the North Star application suite. 72 seconds measured, against
+# over half an hour for that one target alone (49 suites, each starting a real server), which is
+# what makes this usable as a pre-push hook -- and `api-check`, the 0.08s target that would have
+# caught the red HEAD of A46, is in here.
+check-fast: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check handleset-check
+
+check: check-fast northstar-if-available
+
+# Points git at tools/hooks, so the hooks are version-controlled instead of living in an
+# uncommitted .git/hooks that a fresh clone does not have (A46).
+install-hooks:
+	git config core.hooksPath tools/hooks
+	@echo "install-hooks: core.hooksPath = tools/hooks (pre-push runs check-fast; --no-verify bypasses it)"
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
