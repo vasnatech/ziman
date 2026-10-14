@@ -124,16 +124,62 @@ pub fn close(conn: Connection) {
     }
 }
 
+// The pooled arms of `execute` and `query`, and `with_transaction` below, all borrow a connection
+// and must give it back on *every* way out -- including a runtime error in the statement or in the
+// caller's `work`, which ends this thread without ending the process whenever the thread is a
+// server request (A2's per-thread boundary, whose defers do run). A plain call after the work is
+// walked straight past by such an unwind, and with the default pool of four the fourth one leaves
+// the application with no database access at all and nothing to show for it: the next request
+// simply never answers.
+//
+// Two things rule out the obvious spellings. `defer settle(conn, inner, result)` cannot work
+// because `defer` evaluates its arguments where it is written, not where it fires, and the result
+// does not exist yet. And `defer release(..)` with a `discard(..)` beside it cannot work because
+// those two are not alternatives that cancel out -- each parks one connection, so doing both parks
+// two for one borrow and the pool grows past its own size.
+//
+// So the outcome goes in a one-value cell that the deferred call reads when it runs. It starts at
+// "replace this connection" and is corrected only once the statement has returned, which is the
+// right way round: an unwind leaves a connection whose state this code cannot inspect, and
+// replacing it is the conservative answer (A48).
+fn settle_cell(conn: Connection, taken: Connection, broken: Mutable<bool>) {
+    if mutable_get(broken) {
+        discard(conn, taken)
+        return
+    }
+    release(conn, taken)
+}
+
+fn is_connection_error<T>(result: Result<T, DbError>) -> bool {
+    if Err(e) = result {
+        return DbError.is_Connection(e)
+    }
+    return false
+}
+
+fn pooled_execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<int, DbError> {
+    val inner = try acquire(conn)
+    val broken = mutable_new(true)
+    defer settle_cell(conn, inner, broken)
+    val result = execute(inner, sql, params)
+    mutable_set(broken, is_connection_error<int>(result))
+    return result
+}
+
+fn pooled_query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+    val inner = try acquire(conn)
+    val broken = mutable_new(true)
+    defer settle_cell(conn, inner, broken)
+    val result = query(inner, sql, params)
+    mutable_set(broken, is_connection_error<[Row]>(result))
+    return result
+}
+
 // Runs a statement (or, for DDL, a `;`-separated script) and returns the
 // number of rows the last statement changed.
 pub fn execute(conn: Connection, sql: string, params: variadic SqlValue) -> Result<int, DbError> {
     return switch conn {
-        Pool(pool) {
-            val inner = try acquire(conn)
-            val result = execute(inner, sql, params)
-            settle<int>(conn, inner, result)
-            result
-        }
+        Pool(_) { pooled_execute(conn, sql, params) }
         Postgres(pg_conn) { pg.execute(pg_conn, sql, params) }
         Mysql(mysql_conn) { mysql.execute(mysql_conn, sql, params) }
         Sqlite(sqlite_conn) { sqlite.execute(sqlite_conn, sql, params) }
@@ -144,12 +190,7 @@ pub fn execute(conn: Connection, sql: string, params: variadic SqlValue) -> Resu
 // (`?` for SQLite and MySQL, `$1`, `$2` for Postgres), never spliced into `sql`.
 pub fn query(conn: Connection, sql: string, params: variadic SqlValue) -> Result<[Row], DbError> {
     return switch conn {
-        Pool(pool) {
-            val inner = try acquire(conn)
-            val result = query(inner, sql, params)
-            settle<[Row]>(conn, inner, result)
-            result
-        }
+        Pool(_) { pooled_query(conn, sql, params) }
         Postgres(pg_conn) { pg.query(pg_conn, sql, params) }
         Mysql(mysql_conn) { mysql.query(mysql_conn, sql, params) }
         Sqlite(sqlite_conn) { sqlite.query(sqlite_conn, sql, params) }
@@ -363,18 +404,6 @@ fn checked(pool: PoolState, entry: IdleConnection) -> Result<Connection, DbError
     return c
 }
 
-// Puts a borrowed connection back after a statement, replacing it first when the statement's
-// error says the connection is gone.
-fn settle<T>(conn: Connection, taken: Connection, result: Result<T, DbError>) {
-    if Err(e) = result {
-        if DbError.is_Connection(e) {
-            discard(conn, taken)
-            return
-        }
-    }
-    release(conn, taken)
-}
-
 // An exclusive connection, for a unit of work that must stay on one (a
 // transaction). Blocks while the pool is exhausted. On a connection that
 // isn't a pool it just returns that connection, and `release` does
@@ -445,8 +474,13 @@ pub fn discard(conn: Connection, taken: Connection) {
 // must not.
 pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, DbError>) -> Result<R, DbError> {
     val tx = try acquire(conn)
+    // See `settle_cell` for why this is a cell and a `defer` rather than a plain `settle(..)`
+    // after the call (A48). `run_transaction`'s own `defer rollback(tx)` has already run by the
+    // time this fires.
+    val broken = mutable_new(true)
+    defer settle_cell(conn, tx, broken)
     val result = run_transaction<R>(tx, work)
-    settle<R>(conn, tx, result)
+    mutable_set(broken, is_connection_error<R>(result))
     return result
 }
 

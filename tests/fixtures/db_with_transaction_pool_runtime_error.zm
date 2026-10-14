@@ -1,0 +1,44 @@
+use datasource
+use db.DbError
+
+// A48: `with_transaction` borrowed a pooled connection and handed it back with a plain call, which
+// a runtime error inside `work` unwinds straight past. A runtime error in a *spawned* thread ends
+// only that thread and runs its defers (A2's per-thread boundary) -- which is exactly what a server
+// request is, so the leak was reachable without the process dying. After as many of them as the
+// pool is wide, the application had no database access at all and nothing to show for it: the next
+// request simply never answered.
+//
+// The pool here holds 2 and four transactions abort by runtime error, which is twice the pool. The
+// final query is the assertion: `acquire` blocks until a connection is parked, so if the borrows
+// leaked this hangs and the harness's own `timeout 5` fails the fixture, and if they come back it
+// answers. No sleep needed -- the blocking is the synchronisation.
+fn boom(tx: datasource.Connection) -> Result<int, DbError> {
+    try datasource.execute(tx, "INSERT INTO t (n) VALUES (1)")
+    val empty: [int] = []
+    return ok(empty[5])
+}
+
+fn aborting(pool: datasource.Connection, done: Channel<int>) {
+    val _ = datasource.with_transaction<int>(pool, boom)
+    send(done, 1)
+}
+
+fn main() {
+    val pool = unwrap(datasource.open_pool("sqlite:/tmp/ziman_fixture_a48.db", 2))
+    unwrap(datasource.execute(pool, "DROP TABLE IF EXISTS t"))
+    unwrap(datasource.execute(pool, "CREATE TABLE t (n INTEGER)"))
+    val done: Channel<int> = channel_new()
+    var started = 0
+    while started < 4 {
+        // The handler is what reports: `boom`'s runtime error means `aborting` never reaches its
+        // own `send`. It runs before the defers, so the connection may still be in flight when
+        // this returns, which the blocking `acquire` below handles.
+        spawn aborting(pool, done) on_error fn(message: string) {
+            send(done, 0)
+        }
+        val _ = receive(done)
+        started = started + 1
+    }
+    print(format("pool still answers after 4 aborted transactions: {}", is_ok(datasource.query(pool, "SELECT n FROM t"))))
+    datasource.close(pool)
+}
