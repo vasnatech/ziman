@@ -13,6 +13,8 @@
 // database and query values are percent-decoded, so a password may contain `@`, `:` or `/` when written
 // as %40, %3A, %2F (a literal `@` in the password also works: the LAST `@` separates userinfo from host).
 
+use net
+use net.net_error_message
 use number.byte_from_hex
 use url
 
@@ -394,6 +396,24 @@ internal fn fail_pending(requests: Channel<Request>, message: string) {
                 Close {}
             }
         }
+    }
+}
+
+// A socket failure as a `DbError`, for the two drivers that speak over one. Both had their own copy
+// of this, identical in meaning and differing only in whether it was written as a `switch` or an
+// `if` -- which is the only one of the four `lift` functions in the library that really was a
+// duplicate (C21).
+//
+// It stays a hand-written conversion rather than becoming `#[from]`, and the reason is worth
+// recording because the task assumed otherwise: `#[from]` wraps the error *value* in a variant
+// whose payload type matches it, so using it here would mean `DbError` growing a variant that
+// carries a `net.NetError`. That flattens nothing -- the point of this function is that a caller of
+// `pg` or `mysql` never has to know `net` exists -- and it would add a fifth variant to every
+// exhaustive `switch` over `DbError` in every program.
+internal fn lift_net<T>(r: Result<T, net.NetError>) -> Result<T, DbError> {
+    return switch r {
+        Ok(v) { ok(v) }
+        Err(e) { err(DbError.Connection(net_error_message(e))) }
     }
 }
 

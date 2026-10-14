@@ -74,7 +74,6 @@ use db.open_rows
 use db.run_request
 use net
 use net.Socket
-use net.net_error_message
 use number.f32_from_bytes
 use number.f64_from_bytes
 use number.f64_to_bytes
@@ -182,13 +181,6 @@ struct MyUrl {
 
 // ---------------------------------------------------------------- helpers
 
-fn lift<T>(r: Result<T, net.NetError>) -> Result<T, DbError> {
-    if Err(e) = r {
-        return err(DbError.Connection(net_error_message(e)))
-    }
-    return unwrap(r)
-}
-
 fn conn_err(message: string) -> DbError {
     return DbError.Connection(message)
 }
@@ -290,7 +282,7 @@ fn send_packet(sock: Socket, seq: int, body: [byte]) -> Result<int, DbError> {
     if len(body) >= 16777215 {
         return err(DbError.Sql("statement or parameters too large for one MySQL packet (16 MiB limit)"))
     }
-    return lift<int>(net.write(sock, bytes_concat(le(len(body), 3), [seq as byte], body)))
+    return db.lift_net<int>(net.write(sock, bytes_concat(le(len(body), 3), [seq as byte], body)))
 }
 
 // One logical packet; a payload of exactly 16 MiB - 1 continues in the next.
@@ -299,11 +291,11 @@ fn read_packet(sock: Socket) -> Result<Packet, DbError> {
     var seq = 0
     var more = true
     while more {
-        val header = try lift<[byte]>(net.read_exact(sock, 4))
+        val header = try db.lift_net<[byte]>(net.read_exact(sock, 4))
         val length = read_le(header, 0, 3)
         seq = header[3] as int
         if length > 0 {
-            val body = try lift<[byte]>(net.read_exact(sock, length))
+            val body = try db.lift_net<[byte]>(net.read_exact(sock, length))
             mutable_array_push(parts, body)
         }
         more = length == 16777215
@@ -522,7 +514,7 @@ fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
             } else {
                 Option<string>.None
             }
-            try lift<unit>(net.start_tls_with(sock, url.host, tls_verify(url.sslmode), root))
+            try db.lift_net<unit>(net.start_tls_with(sock, url.host, tls_verify(url.sslmode), root))
             tls = true
         } else if url.sslmode != "prefer" {
             return err(conn_err(format("the server does not support TLS (sslmode={})", url.sslmode)))
@@ -1288,7 +1280,7 @@ pub struct Connection {
 // Connects, authenticates, and starts the thread that owns the socket.
 pub fn connect(url: string) -> Result<Connection, DbError> {
     val parsed = try parse_url(url)
-    val sock = try lift<Socket>(net.connect(parsed.host, parsed.port))
+    val sock = try db.lift_net<Socket>(net.connect(parsed.host, parsed.port))
     return switch handshake(sock, parsed) {
         Ok(_) {
             val requests: Channel<Request> = channel_new()

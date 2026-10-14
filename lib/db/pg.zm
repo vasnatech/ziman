@@ -76,7 +76,6 @@ use db.open_rows
 use db.run_request
 use net
 use net.Socket
-use net.net_error_message
 use number.byte_from_hex
 use number.bytes_to_hex
 use number.u16_from_bytes
@@ -112,13 +111,6 @@ pub native fn float_to_text(f: float) -> string
 
 // ---------------------------------------------------------------- helpers
 
-fn lift<T>(r: Result<T, net.NetError>) -> Result<T, DbError> {
-    return switch r {
-        Ok(v) { ok(v) }
-        Err(e) { err(DbError.Connection(net_error_message(e))) }
-    }
-}
-
 fn conn_err(message: string) -> DbError {
     return DbError.Connection(message)
 }
@@ -141,13 +133,13 @@ fn cstring_end(b: [byte], start: int) -> int {
 }
 
 fn send_message(sock: Socket, kind: string, body: [byte]) -> Result<int, DbError> {
-    return lift<int>(net.write(sock, bytes_concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)))
+    return db.lift_net<int>(net.write(sock, bytes_concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)))
 }
 
 fn read_message(sock: Socket) -> Result<Message, DbError> {
-    val header = try lift<[byte]>(net.read_exact(sock, 5))
+    val header = try db.lift_net<[byte]>(net.read_exact(sock, 5))
     val length = u32_from_bytes(header, 1)
-    val body = try lift<[byte]>(net.read_exact(sock, length - 4))
+    val body = try db.lift_net<[byte]>(net.read_exact(sock, length - 4))
     return Message { kind: text_of(header, 0, 1), body: body }
 }
 
@@ -339,8 +331,11 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<unit, DbError> {
     if url.sslmode == "disable" {
         return unit
     }
-    try lift<int>(net.write(sock, bytes_concat(u32_to_bytes(startup_header_bytes), u32_to_bytes(ssl_request_code))))
-    val reply = try lift<[byte]>(net.read_exact(sock, 1))
+    try db.lift_net<int>(net.write(
+        sock,
+        bytes_concat(u32_to_bytes(startup_header_bytes), u32_to_bytes(ssl_request_code))
+    ))
+    val reply = try db.lift_net<[byte]>(net.read_exact(sock, 1))
     val answer = text_of(reply, 0, 1)
     if answer == "N" {
         if url.sslmode == "prefer" {
@@ -359,12 +354,12 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<unit, DbError> {
         net.TlsVerify.Off
     }
     val root = if url.sslrootcert != "" { Option<string>.Some(url.sslrootcert) } else { Option<string>.None }
-    return lift<unit>(net.start_tls_with(sock, url.host, verify, root))
+    return db.lift_net<unit>(net.start_tls_with(sock, url.host, verify, root))
 }
 
 fn handshake(sock: Socket, url: PgUrl) -> Result<int, DbError> {
     try negotiate_tls(sock, url)
-    try lift<int>(net.write(sock, startup_message(url)))
+    try db.lift_net<int>(net.write(sock, startup_message(url)))
     val first = try read_message(sock)
     if first.kind == "E" {
         return err(parse_error(first.body))
@@ -566,7 +561,7 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
         frame("E", execute_body),
         frame("S", [])
     )
-    try lift<int>(net.write(sock, batch))
+    try db.lift_net<int>(net.write(sock, batch))
     return collect_result(sock)
 }
 
@@ -646,7 +641,7 @@ fn read_page(sock: Socket, names0: [string], oids0: [int]) -> Result<PageRead, D
 
 // Ends the implicit transaction, which destroys the portal, and reads up to ReadyForQuery.
 fn sync_and_drain(sock: Socket) -> Result<int, DbError> {
-    try lift<int>(net.write(sock, frame("S", [])))
+    try db.lift_net<int>(net.write(sock, frame("S", [])))
     var ready = false
     while !ready {
         val m = try read_message(sock)
@@ -708,7 +703,7 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
         frame("E", bytes_concat(cstring(""), u32_to_bytes(cursor_fetch_rows))),
         frame("H", [])
     )
-    return switch lift<int>(net.write(sock, batch)) {
+    return switch db.lift_net<int>(net.write(sock, batch)) {
         Ok(_) { finish_page(sock, id, [], []) }
         Err(e) { failed_step(e) }
     }
@@ -716,7 +711,7 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
 
 fn continue_cursor(sock: Socket, id: int, names: [string], oids: [int]) -> CursorStep {
     val batch = bytes_concat(frame("E", bytes_concat(cstring(""), u32_to_bytes(cursor_fetch_rows))), frame("H", []))
-    return switch lift<int>(net.write(sock, batch)) {
+    return switch db.lift_net<int>(net.write(sock, batch)) {
         Ok(_) { finish_page(sock, id, names, oids) }
         Err(e) { failed_step(e) }
     }
@@ -810,7 +805,7 @@ pub struct Connection {
 // Connects, authenticates, and starts the thread that owns the socket.
 pub fn connect(url: string) -> Result<Connection, DbError> {
     val parsed = try parse_url(url)
-    val sock = try lift<Socket>(net.connect(parsed.host, parsed.port))
+    val sock = try db.lift_net<Socket>(net.connect(parsed.host, parsed.port))
     val ready = handshake(sock, parsed)
     if Err(e) = ready {
         net.close(sock)
