@@ -1,0 +1,1 @@
+a Mutable has no 'clear': it is always initialised, and emptying it would need exactly the zero value its type may not have. Put something in it with mutable_set instead

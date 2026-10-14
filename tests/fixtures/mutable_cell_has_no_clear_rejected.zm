@@ -1,0 +1,6 @@
+// And no `clear`, for the same reason there is no empty `mutable_new<T>()`: emptying a cell would
+// need exactly the zero value `T` may not have. A cell always holds something, by construction.
+fn main() {
+    val c = mutable_new(1)
+    clear(c)
+}

@@ -1372,6 +1372,78 @@ void ziman_builder_clear(Value v) {
     buf->shared = 0;
 }
 
+/* --- Mutable<T> -------------------------------------------------------------------------
+ * One cell holding one value: the root the other four specialise, and the primitive that makes the
+ * mutable layer open to library code instead of needing a new native collection every time a new
+ * mutable shape is wanted (docs/DESIGN.md, "`Mutable<T>`: the root of the family"). A ring buffer
+ * is a struct over a MutableArray plus two `Mutable<int>`s; an LRU adds a MutableMap; a UI signal
+ * is a cell plus a MutableArray of subscribers. None of those need C.
+ *
+ * Same pointer-as-handle scheme as the other four, and like MutableArray its payload is a `Value`
+ * reachable only through an opaque int64 -- invisible to the stack scan and to a struct's own
+ * field walk -- so it registers a content marker for exactly the reason ab_mark_contents does. */
+enum { CELL_MAGIC = 0x43454c4c };
+
+typedef struct {
+    uint32_t magic;
+    pthread_t owner;
+    Value value;
+} MutableCellBuf;
+
+static char *MUTABLE_FIELD_NAMES[] = {"handle"};
+
+static MutableCellBuf *cell_get_buf(Value c) {
+    MutableCellBuf *buf = (MutableCellBuf *)(intptr_t)c.as.st->fields[0].as.i;
+    if (buf == NULL || buf->magic != CELL_MAGIC) ziman_error("runtime", 0, 0, "not a valid Mutable handle");
+    builder_owner_check(buf->owner, "a Mutable");
+    return buf;
+}
+
+/* Always initialised: there is no empty `mutable_new<T>()`, because `T` may have no zero. A cell
+ * never holds nothing, so nothing has to say what reading an unset one does. */
+static Value native_mutable_new(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MutableCellBuf *buf = ziman_xmalloc(sizeof(MutableCellBuf));
+    buf->magic = CELL_MAGIC;
+    buf->owner = pthread_self();
+    buf->value = args[0];
+    Value *fields = ziman_xmalloc(sizeof(Value));
+    fields[0] = value_int((int64_t)(intptr_t)buf);
+    return value_struct(type_struct("Mutable"), struct_obj_new(MUTABLE_FIELD_NAMES, fields, 1));
+}
+
+static Value native_mutable_get(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return cell_get_buf(args[0])->value;
+}
+
+static Value native_mutable_set(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    cell_get_buf(args[0])->value = args[1];
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
+/* See ab_mark_contents: the one Value a cell holds is reachable only through the handle, so a
+ * collection landing while a cell is the sole reference to it would sweep it. */
+static void cell_mark_contents(const Arena *a, StructObj *st) {
+    MutableCellBuf *buf = (MutableCellBuf *)(intptr_t)st->fields[0].as.i;
+    gc_mark_value(a, buf->value);
+}
+
+/* `len` and `contains` on a cell, for the interpreter's own branches. A cell holds exactly one
+ * value, so its length is 1 and `contains` asks whether that value equals the needle -- the two
+ * bare builtins it answers. It takes neither `clear` (there is no zero to reset to) nor `snapshot`
+ * (crossing out is `mutable_get`, an O(1) read rather than an O(n) copy). */
+int ziman_cell_contains(Value c, Value needle) {
+    return value_key_equals(cell_get_buf(c)->value, needle);
+}
+
 /* --- Guard ------------------------------------------------------------------------------
  * guard_new(channel, message): a value whose only job is to send `message` on `channel` once
  * nothing references the guard any more (the garbage collector runs its finalizer). A database
@@ -1549,6 +1621,9 @@ void prelude_register(void) {
     native_register("mutable_string_new", native_sb_new);
     native_register("mutable_string_append", native_sb_append);
     native_register("mutable_string_append_byte", native_sb_append_byte);
+    native_register("mutable_new", native_mutable_new);
+    native_register("mutable_get", native_mutable_get);
+    native_register("mutable_set", native_mutable_set);
     native_register("mutable_array_new", native_ab_new);
     native_register("mutable_array_push", native_ab_append);
     native_register("mutable_array_get", native_ab_get);
@@ -1559,4 +1634,5 @@ void prelude_register(void) {
     gc_mark_register_struct_content_marker("MutableArray", ab_mark_contents);
     gc_mark_register_struct_content_marker("MutableMap", mb_mark_contents);
     gc_mark_register_struct_content_marker("MutableSet", mb_mark_contents);
+    gc_mark_register_struct_content_marker("Mutable", cell_mark_contents);
 }

@@ -1,0 +1,7 @@
+// The cell is the one mutable type with no `snapshot`, and the message says why rather than listing
+// the four that have one: crossing out of a cell is `mutable_get`, an O(1) read, where `snapshot`
+// names an O(n) copy of a collection.
+fn main() {
+    val c = mutable_new(1)
+    print(snapshot(c))
+}

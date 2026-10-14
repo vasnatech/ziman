@@ -428,6 +428,65 @@ Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say
 is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
 their own.
 
+## Mutable
+
+### `Mutable`
+
+```
+struct Mutable<T> {
+    handle: int
+}
+```
+
+One cell holding one value: the root the other four mutable types specialise, and the primitive
+that lets a new mutable shape be written in Ziman instead of added to the language. A ring buffer
+is a struct over a `MutableArray` plus two `Mutable<int>`s; an LRU adds a `MutableMap`; a UI signal
+is a cell plus a `MutableArray` of subscribers.
+
+Like the other four it belongs to the thread that made it (`#[thread_bound]`), it is neither
+comparable nor hashable, and it is always initialised -- there is no empty `mutable_new<T>()`,
+because `T` may have no zero, so a cell never holds nothing.
+
+It answers two of the four bare builtins and not the other two: `len(c)` is 1 and
+`contains(c, v)` asks whether the value equals `v`, while `clear` has no zero to reset to and
+`snapshot` names an O(n) copy where `mutable_get` is an O(1) read. A cell needs no
+`from`/`snapshot` pair at all: `mutable_new` takes a value and `mutable_get` returns one, so the
+crossing between the two worlds *is* the API.
+
+### `mutable_new`
+
+```
+native fn mutable_new<T>(value: T) -> Mutable<T>
+```
+
+A cell holding `value`.
+
+### `mutable_get`
+
+```
+native fn mutable_get<T>(c: Mutable<T>) -> T
+```
+
+The value in the cell.
+
+### `mutable_set`
+
+```
+native fn mutable_set<T>(c: Mutable<T>, value: T)
+```
+
+Replaces the value in the cell.
+
+### `mutable_update`
+
+```
+fn mutable_update<T>(c: Mutable<T>, f: fn(T) -> T) -> T
+```
+
+`f` applied to the value in the cell, stored back, and returned -- the counter idiom,
+`mutable_update(n, fn(x) { x + 1 })`, and the same shape `mutable_map_update` has. Ordinary
+Ziman over `mutable_get`/`mutable_set`, since there is no lookup for a native to save.
+
 ## MutableArray
 
 ### `MutableArray`

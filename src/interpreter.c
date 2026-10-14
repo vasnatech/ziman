@@ -599,8 +599,12 @@ static Value call_len(Value v) {
     }
     if (v.type.kind == TY_MAP || v.type.kind == TY_SET) return value_int(v.as.map->count);
     /* One of the four builders: a struct over a thread-bound handle, so the length lives in the
-     * handle's own table rather than in the struct (see prelude.h's ziman_builder_length). */
-    if (v.type.kind == TY_STRUCT) return value_int(ziman_builder_length(v));
+     * handle's own table rather than in the struct (see prelude.h's ziman_builder_length). A
+     * `Mutable<T>` cell holds exactly one value, which needs no asking. */
+    if (v.type.kind == TY_STRUCT) {
+        if (v.type.struct_name != NULL && strcmp(v.type.struct_name, "Mutable") == 0) return value_int(1);
+        return value_int(ziman_builder_length(v));
+    }
     return value_int(v.as.arr->count);
 }
 
@@ -612,8 +616,14 @@ static Value call_contains(Value first, Value second) {
         Value ignored;
         return value_bool(mapobj_get(first.as.map, second, &ignored));
     }
-    /* One of the four builders: the contents live behind the handle, not in the struct. */
-    if (first.type.kind == TY_STRUCT) return value_bool(ziman_builder_contains(first, second));
+    /* One of the four builders, or a `Mutable<T>` cell: the contents live behind the handle, not
+     * in the struct. */
+    if (first.type.kind == TY_STRUCT) {
+        if (first.type.struct_name != NULL && strcmp(first.type.struct_name, "Mutable") == 0) {
+            return value_bool(ziman_cell_contains(first, second));
+        }
+        return value_bool(ziman_builder_contains(first, second));
+    }
     ArrayObj *arr = first.as.arr;
     if (arr->bytes != NULL) {
         if (second.type.kind != TY_BYTE) return value_bool(0);

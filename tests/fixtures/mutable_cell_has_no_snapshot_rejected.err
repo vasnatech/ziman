@@ -1,0 +1,1 @@
+a Mutable has no 'snapshot': use mutable_get, which is the same crossing out of the handle. 'snapshot' names an O(n) copy of a collection; reading the one value a cell holds is O(1)

@@ -67,4 +67,8 @@ Value ziman_builder_snapshot(Value v);
  * kinds take a fresh empty trie so that a snapshot taken earlier is undisturbed. */
 void ziman_builder_clear(Value v);
 
+/* Whether a `Mutable<T>` cell holds `needle`, for the bare `contains`. A cell's `len` is 1 without
+ * asking, so there is no accessor for it. */
+int ziman_cell_contains(Value c, Value needle);
+
 #endif

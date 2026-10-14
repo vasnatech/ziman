@@ -2486,8 +2486,20 @@ a type error.
   becomes an `Err` instead.
 - `len(arr) -> int` / `len(s: string) -> int` — element count, or byte length. Also answers for a
   `Map`, a `Set`, and any of the four builders (`MutableArray`, `MutableString`, `MutableMap`,
-  `MutableSet`), so asking a collection its size never needs a per-type name or a conversion. It
-  answers for a *builder*, not for a struct that holds one, which has no length of its own.
+  `MutableSet`), and for a `Mutable<T>` cell, whose length is always 1. So asking a collection its
+  size never needs a per-type name or a conversion. It answers for a *handle*, not for a struct
+  that holds one, which has no length of its own.
+- `mutable_new(v) -> Mutable<T>` / `mutable_get(c) -> T` / `mutable_set(c, v)` /
+  `mutable_update(c, f: fn(T) -> T) -> T` — one cell holding one value: the root the four mutable
+  collections specialise, and what lets a new mutable shape be written in Ziman instead of added to
+  the language (a ring buffer is a struct over a `MutableArray` plus two `Mutable<int>`s). An
+  update returns the new value, so a counter is `mutable_update(n, fn(x) { x + 1 })`. Always
+  initialised -- there is no empty `mutable_new<T>()`, because `T` may have no zero -- and `T` is
+  anything, including another handle. It answers `len(c)` and `contains(c, v)` but **not**
+  `snapshot` or `clear`: crossing out is `mutable_get`, an O(1) read rather than an O(n) copy, and
+  emptying would need exactly the zero its type may not have. So a cell has no `from`/`snapshot`
+  pair at all -- `mutable_new` takes a value and `mutable_get` returns one, which *is* the crossing
+  between the two worlds.
 - `clear(b)` — empties a builder and leaves it usable, for reusing one across the passes of an
   outer loop instead of allocating a fresh one each time. Takes a builder only: an empty `Map` or
   array is a value you write down (`Map<K, V> {}`, `[]`), not something you do to one you have. A
@@ -2551,9 +2563,10 @@ a type error.
   array membership via `==` (`T` must support `==`, same rule as array `==` itself). Also answers
   for a `Map`/`Set` key and for any of the four builders, each the same question its immutable
   counterpart answers: a substring of a `MutableString`, a key of a `MutableMap`, an element of a
-  `MutableSet` or `MutableArray`. The `MutableArray` is the one O(n) case, and the only one where
-  the `==` requirement can fail -- a `MutableMap` key and a `MutableSet` element are already
-  bounded `Eq + Hash` by their declarations.
+  `MutableSet` or `MutableArray` -- and the one value a `Mutable<T>` holds. The `MutableArray` is
+  the one O(n) case, and it and `Mutable<T>` are the only two where the `==` requirement can fail:
+  a `MutableMap` key and a `MutableSet` element are already bounded `Eq + Hash` by their
+  declarations.
 - `compare(a: T, b: T) -> int` — negative/zero/positive; `T` is any `Ord` type (see "Ordering")
   -- the way to order a struct/enum, where `< > <= >=` (numbers/strings/bytes only) don't reach.
 - `hash(x: T) -> int` — `T` is any type supporting `==` with only hashable parts (the six

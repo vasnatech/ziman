@@ -2032,6 +2032,12 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
 /* True for one of the four builder handles itself. Deliberately not type_holds_thread_bound,
  * which answers a different question: that one is true of a user struct with a builder field, and
  * such a struct has no length of its own. `len` works on a builder, not on something holding one. */
+/* The `Mutable<T>` cell, which is deliberately *not* one of the four above: it answers `len` and
+ * `contains` but neither `snapshot` nor `clear`, so the two predicates have to be separate. */
+static int is_mutable_cell_type(Type t) {
+    return t.kind == TY_STRUCT && t.struct_name != NULL && strcmp(t.struct_name, "Mutable") == 0;
+}
+
 static int is_builder_type(Type t) {
     if (t.kind != TY_STRUCT || t.struct_name == NULL) return 0;
     return strcmp(t.struct_name, "MutableArray") == 0 || strcmp(t.struct_name, "MutableString") == 0 ||
@@ -2277,6 +2283,11 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
+        if (is_mutable_cell_type(arg_type)) {
+            ziman_error("type", arg->line, arg->col,
+                        "a Mutable has no 'clear': it is always initialised, and emptying it would need exactly the "
+                        "zero value its type may not have. Put something in it with mutable_set instead");
+        }
         if (!is_builder_type(arg_type)) {
             /* Only a handle can be emptied. An empty Map or array is a value you write down
              * (`Map<K, V> {}`, `[]`), not a thing you do to one you already have. */
@@ -2294,6 +2305,11 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
+        if (is_mutable_cell_type(arg_type)) {
+            ziman_error("type", arg->line, arg->col,
+                        "a Mutable has no 'snapshot': use mutable_get, which is the same crossing out of the handle. "
+                        "'snapshot' names an O(n) copy of a collection; reading the one value a cell holds is O(1)");
+        }
         if (!is_builder_type(arg_type)) {
             ziman_error("type", arg->line, arg->col,
                         "'snapshot' expects a builder -- a MutableArray, MutableString, MutableMap or MutableSet -- found %s",
@@ -2321,9 +2337,9 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
         if (arg_type.kind != TY_ARRAY && arg_type.kind != TY_STRING && arg_type.kind != TY_MAP && arg_type.kind != TY_SET &&
-            !is_builder_type(arg_type)) {
-            ziman_error("type", arg->line, arg->col, "'len' expects an array, string, map, set or builder, found %s",
-                        type_name(arg_type));
+            !is_builder_type(arg_type) && !is_mutable_cell_type(arg_type)) {
+            ziman_error("type", arg->line, arg->col,
+                        "'len' expects an array, string, map, set, builder or Mutable, found %s", type_name(arg_type));
         }
         return type_scalar(TY_INT);
     }
@@ -2364,6 +2380,25 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                 ziman_error("type", second_arg->line, second_arg->col,
                             "argument 2 of 'contains' expects %s (the array's element type), found %s",
                             type_name(elem_type), type_name(second_type));
+            }
+            return type_scalar(TY_BOOL);
+        }
+        if (is_mutable_cell_type(first_type)) {
+            /* A cell holds exactly one value, so `contains` asks whether that value equals the
+             * needle -- the same question, for a collection of one. */
+            if (first_type.type_args.count < 1) {
+                ziman_error("type", first_arg->line, first_arg->col, "'contains' needs Mutable's value type, which is not known here");
+            }
+            Type want = first_type.type_args.items[0];
+            if (!type_supports_equality(module, want, 0)) {
+                ziman_error("type", first_arg->line, first_arg->col,
+                            "'contains' requires a Mutable of a comparable ('==') value type, found %s", type_name(first_type));
+            }
+            Type second_type = check_expr_expecting(module, env, &e->as.call.args.items[1], want);
+            if (!type_equals(second_type, want)) {
+                ziman_error("type", second_arg->line, second_arg->col,
+                            "argument 2 of 'contains' expects %s (the Mutable's value type), found %s", type_name(want),
+                            type_name(second_type));
             }
             return type_scalar(TY_BOOL);
         }

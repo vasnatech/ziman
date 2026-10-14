@@ -1,0 +1,67 @@
+use os
+
+// The same hazard gc_mutable_array_contents_survive_collection guards, for `Mutable<T>`: the one
+// Value a cell holds lives in a malloc'd buffer reached only through a disguised int64 handle in
+// the wrapper struct's `fields[0]`, so neither the stack scan (an int carries no pointer shape) nor
+// a struct's generic field walk (an int has nothing to trace into) can find it. Without
+// `cell_mark_contents` registered, a collection landing while the cell is the sole reference to
+// what it holds sweeps it.
+//
+// Built so the cell really is the sole reference: each pass puts a fresh MutableArray of freshly
+// built Pairs into the cell, dropping the previous one, and nothing else holds either the array or
+// the Pairs in it. `os.collect_garbage()` forces a real cycle rather than waiting for the trigger's
+// own threshold. Proved load-bearing by removing the registration and watching this fail.
+struct Pair {
+    a: [string]
+    b: [bool]
+}
+
+fn build(tag: string) -> Pair {
+    val names = mutable_array_new<string>()
+    val flags = mutable_array_new<bool>()
+    var i = 0
+    while i < 5 {
+        mutable_array_push<string>(names, concat(tag, str(i)))
+        mutable_array_push<bool>(flags, i % 2 == 0)
+        i = i + 1
+    }
+    return Pair { a: snapshot(names), b: snapshot(flags) }
+}
+
+fn fill(tag: string) -> MutableArray<Pair> {
+    val pairs = mutable_array_new<Pair>()
+    var i = 0
+    while i < 4 {
+        mutable_array_push<Pair>(pairs, build(concat(tag, "-", str(i), "-")))
+        i = i + 1
+    }
+    return pairs
+}
+
+fn main() {
+    val cell = mutable_new(fill("t0"))
+    var ok = true
+    var n = 1
+    while n < 40 {
+        val tag = concat("t", str(n))
+        mutable_set(cell, fill(tag))
+        os.collect_garbage()
+        // Read back only through the cell, after the collection.
+        val pairs = snapshot(mutable_get(cell))
+        if len(pairs) != 4 {
+            ok = false
+            print(concat("WRONG LENGTH at ", str(n)))
+        }
+        var i = 0
+        while i < len(pairs) {
+            val want = concat(tag, "-", str(i), "-0")
+            if len(pairs[i].a) != 5 || pairs[i].a[0] != want {
+                ok = false
+                print(concat("MISMATCH at ", str(n), " ", str(i)))
+            }
+            i = i + 1
+        }
+        n = n + 1
+    }
+    print(if ok { "OK" } else { "FAIL" })
+}
