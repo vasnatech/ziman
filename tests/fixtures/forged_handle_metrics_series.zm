@@ -1,0 +1,49 @@
+// Forged `Series` handles, from pure Ziman -- the struct is public and its field is an ordinary int.
+//
+// A handle here is not an address: it is `metric_index * 1024 + series_index`, so what protects it
+// is a bounds check. The check existed and was applied to the wrong value -- the sign test was on
+// the 64-bit handle, and the index was then `(int)(h / 1024)`. 2199023255552 (2^41) divides to
+// 2^31, which does not fit an int, so the conversion produced -2147483648: a negative index that
+// passed a test meant to exclude values that were too *large*, and then indexed `g_metrics`. An
+// 8-byte read-modify-write at an address the caller chose.
+//
+// The values below are the narrowing boundaries, not a random spread: 2^31 and 2^31-1 scaled by
+// 1024 are where the conversion turns positive into negative. Recording is documented never to
+// fail or report, so the correct answer to all of these is to do nothing and carry on.
+use metrics
+
+fn main() {
+    metrics.gauge_add_at(metrics.Series { handle: 0 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 0 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 1 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 1 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 2 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 2 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 1023 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 1023 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 1024 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 1024 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 1025 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 1025 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 2147483647 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 2147483647 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 2147483648 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 2147483648 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 4294967296 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 4294967296 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 1099511627776 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 1099511627776 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 140737488355328 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 140737488355328 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 2199023255552 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 2199023255552 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 4398046511104 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 4398046511104 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: 9223372036854775807 }, 1.0)
+    metrics.set_at(metrics.Series { handle: 9223372036854775807 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: -1 }, 1.0)
+    metrics.set_at(metrics.Series { handle: -1 }, 2.0)
+    metrics.gauge_add_at(metrics.Series { handle: -1024 }, 1.0)
+    metrics.set_at(metrics.Series { handle: -1024 }, 2.0)
+    print("all rejected cleanly")
+}

@@ -1,0 +1,12 @@
+// A forged `Regex` handle, from pure Ziman -- the struct is public and its field is an ordinary int.
+//
+// This used to be validated by reading a magic word out of the address, which answers "is this a
+// compiled pattern?" by dereferencing the very thing whose validity is in question. `handle: 1` was
+// therefore a read at address 1 and a segfault. `src/handles.h` exists to describe this mistake and
+// `src/handles.c` closes with a note about it; the pattern set is what answers now.
+use regex
+
+fn main() {
+    val forged = regex.Regex { handle: 1, groups: 0, pattern: "x", names: [] }
+    print(format("{}", regex.is_match(forged, "x")))
+}

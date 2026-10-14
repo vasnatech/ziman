@@ -9,23 +9,35 @@
 #include "native.h"
 #include <pthread.h>
 
+#include "handles.h"
 #include "regex.h"
 #include "value.h"
 #include "xalloc.h"
 
 /* A compiled pattern is immutable, so it is shared freely between threads and
  * never freed (like every other heap object in the default build); the
- * `handle` Ziman holds is the address of this wrapper, with a magic word so a
- * forged or stale handle is an error, not a crash. */
-enum { REGEX_MAGIC = 0x52454758 };
+ * `handle` Ziman holds is the address of this wrapper.
+ *
+ * Validated by membership in `g_regexes`, not by reading a magic word out of the address. The
+ * magic word was the same mistake `src/handles.h` exists to describe: it answers "is this a
+ * pattern" by dereferencing the thing whose validity is in question, so a forged handle is a
+ * read at an address the caller chose. `regex.Regex { handle: 1, ... }` is ordinary Ziman and
+ * segfaulted the process. `handleset_has` answers from a table of addresses we put there.
+ *
+ * Nothing is ever removed from the set, because a compiled pattern is never freed. That also
+ * means a handle cannot go stale, so this is a membership test and not a liveness one -- unlike
+ * `native_net.c`'s, which needs `handleset_has_then` to close the window before a concurrent
+ * close. Being in the set roots nothing (the slots are unscanned); what keeps a `RegexHandle`
+ * alive is the Ziman `Regex` value holding its address, exactly as `src/handles.c` describes. */
 typedef struct {
-    unsigned magic;
     Regex *re;
 } RegexHandle;
 
+static HandleSet g_regexes = HANDLE_SET_INIT;
+
 static RegexHandle *handle_of(Value v, int line, int col) {
     RegexHandle *h = (RegexHandle *)(intptr_t)v.as.i;
-    if (h == NULL || h->magic != REGEX_MAGIC) ziman_error("runtime", line, col, "regex: not a valid compiled pattern");
+    if (!handleset_has(&g_regexes, h)) ziman_error("runtime", line, col, "regex: not a valid compiled pattern");
     return h;
 }
 
@@ -95,8 +107,8 @@ static Value native_regex_compile_raw(Value *args, int argc, int line, int col) 
     Regex *re = regex_compile(pattern, plen, err, sizeof err);
     if (re == NULL) return value_result(rt, result_obj_new(0, value_string(ziman_xstrdup(err))));
     RegexHandle *h = ziman_xmalloc(sizeof(RegexHandle));
-    h->magic = REGEX_MAGIC;
     h->re = re;
+    handleset_add(&g_regexes, h);
     cache_store(pattern, plen, h);
     return value_result(rt, result_obj_new(1, value_int((int64_t)(intptr_t)h)));
 }

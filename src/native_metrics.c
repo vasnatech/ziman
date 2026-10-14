@@ -278,14 +278,24 @@ static Value native_series(Value *args, int argc, int line, int col) {
     return value_int(-1); /* never declared */
 }
 
+/* A `Series` handle is not an address -- it is `metric_index * 1024 + series_index`, so this
+ * needs a bounds check rather than a `HandleSet`. It had one, applied to the wrong value: the
+ * sign test was on `h`, and the index was then `(int)(h / 1024)`. For `h = 2199023255552` (2^41)
+ * that quotient is 2^31, which does not fit an `int`, and the conversion produced -2147483648 --
+ * a negative index that passed a `>= g_count` test designed only to exclude values that were too
+ * large, and then indexed `g_metrics`. The result was an 8-byte read-modify-write at an address
+ * the caller picked, reachable from `metrics.Series { handle: .. }` in pure Ziman.
+ *
+ * Both indexes stay `long long` all the way through now, so no conversion happens before the
+ * check that makes it safe; `h >= 0` bounds them below and the two `>=` tests bound them above. */
 static Value record_at(Value *args, int op) {
     long long h = args[0].as.i;
     if (h < 0) return value_unit();
-    int mi = (int)(h / 1024);
-    int si = (int)(h % 1024);
-    if (mi >= __atomic_load_n(&g_count, __ATOMIC_ACQUIRE)) return value_unit();
+    long long mi = h / 1024;
+    long long si = h % 1024;
+    if (mi >= (long long)__atomic_load_n(&g_count, __ATOMIC_ACQUIRE)) return value_unit();
     Metric *m = &g_metrics[mi];
-    if (si >= __atomic_load_n(&m->nseries, __ATOMIC_ACQUIRE)) return value_unit();
+    if (si >= (long long)__atomic_load_n(&m->nseries, __ATOMIC_ACQUIRE)) return value_unit();
     Series *s = &m->series[si];
     double v = args[1].as.f;
     if (op == 0) {
