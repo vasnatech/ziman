@@ -291,8 +291,14 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   x)` is amortised O(1) (spare room kept, the next `push` on that exact array writes into it
   instead of copying); `insert`/`set`/`remove` always copy the whole array, so replacing every
   element one `set` at a time is O(n²) -- `MutableArray<T>` (`mutable_array_new`,
-  `mutable_array_push`, `mutable_array_get`, `mutable_array_set`, plus the bare `len`, `contains`,
-  `clear` and `snapshot`) is the right tool for building/editing a large array piece by piece. It
+  `mutable_array_push`, `mutable_array_get`, `mutable_array_set`, `mutable_array_insert`,
+  `mutable_array_remove`, `mutable_array_truncate`, `mutable_array_swap`, `mutable_array_reverse`,
+  plus the bare `len`, `contains`, `clear` and `snapshot`) is the right tool for building/editing a
+  large array piece by piece. `insert` takes `0..len` inclusive, so inserting at the length appends;
+  `remove` answers what it removed, which is why there is no `pop`. Both are O(n), where `push` is
+  amortised O(1) -- a loop of `mutable_array_insert(xs, 0, v)` is quadratic, and that is why there
+  is no `push_front`: the name would read as `push`'s twin and promise a cost it cannot give. Build
+  tail-first and `mutable_array_reverse` once, which copies nothing. It
   reads back in place: `len(xs)`, `mutable_array_get` and `for x in xs` cost nothing, where
   `snapshot` copies the whole buffer every call (`--lint` flags that in a loop). See
   "Builtins" for exact signatures.

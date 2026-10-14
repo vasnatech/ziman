@@ -1,0 +1,7 @@
+// `0..len` inclusive, so only *past* the length is an error -- and the message says so, because
+// "index 2 out of bounds, length 1" alone would read as though appending were disallowed too.
+fn main() {
+    val xs = mutable_array_new<int>()
+    mutable_array_push(xs, 1)
+    mutable_array_insert(xs, 2, 9)
+}

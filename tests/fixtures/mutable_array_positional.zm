@@ -1,0 +1,47 @@
+// The positional operations on a MutableArray: insert, remove, truncate, swap and reverse. Both
+// representations are exercised, because they are the thing most likely to be silently wrong -- a
+// packed buffer shifts with a type-sized stride and a boxed one with sizeof(Value), and getting
+// that wrong corrupts rather than fails. `insert` into a *fresh* builder has to adopt the packed
+// representation the same way an append-first builder does, or an int array would stay boxed for
+// the rest of its life depending on which call came first.
+//
+// No `pop`: the last block is one, because remove answers what it removed.
+fn main() {
+    // packed path: ints
+    val xs = mutable_array_new<int>()
+    mutable_array_push(xs, 1, 2, 3)
+    mutable_array_insert(xs, 1, 9)
+    print(snapshot(xs))
+    mutable_array_insert(xs, len(xs), 7)
+    print(snapshot(xs))
+    print(mutable_array_remove(xs, 0))
+    print(snapshot(xs))
+    mutable_array_truncate(xs, 2)
+    print(snapshot(xs))
+    mutable_array_truncate(xs, 99)
+    print(snapshot(xs))
+    mutable_array_swap(xs, 0, 1)
+    print(snapshot(xs))
+    mutable_array_reverse(xs)
+    print(snapshot(xs))
+
+    // insert into a FRESH builder must still pick the packed representation
+    val fresh = mutable_array_new<int>()
+    mutable_array_insert(fresh, 0, 5)
+    mutable_array_push(fresh, 6)
+    print(snapshot(fresh))
+
+    // boxed path: strings
+    val ws = mutable_array_new<string>()
+    mutable_array_push(ws, "a", "b", "c")
+    mutable_array_insert(ws, 2, "X")
+    print(snapshot(ws))
+    print(mutable_array_remove(ws, 1))
+    print(snapshot(ws))
+    mutable_array_reverse(ws)
+    print(snapshot(ws))
+
+    // pop, which needs no function of its own
+    print(mutable_array_remove(ws, len(ws) - 1))
+    print(snapshot(ws))
+}

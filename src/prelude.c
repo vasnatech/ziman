@@ -753,6 +753,34 @@ static Value native_ab_new(Value *args, int argc, int line, int col) {
     return value_struct(type_struct("MutableArray"), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
 }
 
+/* Picks the packed representation from the first element, when the builder is still empty and has
+ * not already chosen one. Factored out of native_ab_append so that inserting into a *fresh*
+ * builder takes the same decision -- without it, `mutable_array_insert(xs, 0, 1)` on a new builder
+ * would box every int for the rest of its life while an append-first builder packed them. */
+static void ab_adopt_pack_kind(MutableArrayBuf *buf, Value first_element) {
+    if (buf->pkind != PK_NONE || buf->length != 0) return;
+    PackKind first = pack_kind_of_type(first_element.type.kind);
+    if (first == PK_NONE) return;
+    size_t cap = buf->capacity > 0 ? buf->capacity : 16;
+    buf->items = NULL;
+    buf->pdata = zalloc_atomic(cap * pack_elem_size(first));
+    buf->capacity = cap;
+    buf->pkind = first;
+}
+
+/* Shifts `count` elements from `from` to `to`, in whichever representation this builder uses. One
+ * helper because insert and remove differ only in direction, and getting the stride wrong for a
+ * packed buffer would silently corrupt it rather than fail. */
+static void ab_move_elements(MutableArrayBuf *buf, size_t to, size_t from, size_t count) {
+    if (count == 0) return;
+    if (buf->pkind != PK_NONE) {
+        size_t w = pack_elem_size(buf->pkind);
+        memmove((unsigned char *)buf->pdata + to * w, (unsigned char *)buf->pdata + from * w, count * w);
+    } else {
+        memmove(&buf->items[to], &buf->items[from], count * sizeof(Value));
+    }
+}
+
 static Value native_ab_append(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -760,16 +788,7 @@ static Value native_ab_append(Value *args, int argc, int line, int col) {
     MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
     ArrayObj *pieces = args[1].as.arr;
     if (pieces->count == 0) return value_int(0);
-    if (buf->pkind == PK_NONE && buf->length == 0) {
-        PackKind first = pack_kind_of_type(array_get(pieces, 0).type.kind);
-        if (first != PK_NONE) {
-            size_t cap = buf->capacity > 0 ? buf->capacity : 16;
-            buf->items = NULL;
-            buf->pdata = zalloc_atomic(cap * pack_elem_size(first));
-            buf->capacity = cap;
-            buf->pkind = first;
-        }
-    }
+    ab_adopt_pack_kind(buf, array_get(pieces, 0));
     ab_ensure_capacity(buf, (size_t)pieces->count);
     if (buf->pkind != PK_NONE) {
         size_t esz = pack_elem_size(buf->pkind);
@@ -787,6 +806,63 @@ static Value native_ab_append(Value *args, int argc, int line, int col) {
         buf->items[buf->length] = array_get(pieces, i);
         buf->length++;
     }
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
+/* Defined further down with the other element accessors; declared here because `remove` has to
+ * read the element before it shifts over it. */
+static Value ab_element_at(const MutableArrayBuf *buf, size_t i);
+
+/* O(n): everything after the index moves. `0..len` inclusive, exactly the immutable
+ * `insert(arr, i, x)` rule, so inserting at the length appends and "add at the end" needs no second
+ * function. A loop of `insert(xs, 0, v)` is quadratic, which is why there is no `push_front` --
+ * see docs/DESIGN.md. */
+static Value native_ab_insert(Value *args, int argc, int line, int col) {
+    (void)argc;
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    int64_t i = args[1].as.i;
+    if (i < 0 || (size_t)i > buf->length) {
+        ziman_error("runtime", line, col,
+                    "insert index %lld out of bounds (MutableArray length %lld; 0..length is allowed, and inserting at the length appends)",
+                    (long long)i, (long long)buf->length);
+    }
+    ab_adopt_pack_kind(buf, args[2]);
+    ab_ensure_capacity(buf, 1);
+    ab_move_elements(buf, (size_t)i + 1, (size_t)i, buf->length - (size_t)i);
+    if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)i, args[2]);
+    else buf->items[i] = args[2];
+    buf->length++;
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
+/* O(n), and it answers what it removed -- which is why there is no `pop`:
+ * `mutable_array_remove(xs, len(xs) - 1)` is one. The element is otherwise unrecoverable without a
+ * `get` first. */
+static Value native_ab_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    int64_t i = args[1].as.i;
+    if (i < 0 || (size_t)i >= buf->length) {
+        ziman_error("runtime", line, col, "remove index %lld out of bounds (MutableArray length %lld)", (long long)i,
+                    (long long)buf->length);
+    }
+    Value removed = ab_element_at(buf, (size_t)i);
+    ab_move_elements(buf, (size_t)i, (size_t)i + 1, buf->length - (size_t)i - 1);
+    buf->length--;
+    return removed;
+}
+
+/* The only cheap shrink: drops the tail and keeps the buffer. A length at or above the current one
+ * leaves it alone rather than erroring, because "keep at most n" is the useful meaning and there is
+ * no immutable counterpart to disagree with. `clear(xs)` is this with 0. */
+static Value native_ab_truncate(Value *args, int argc, int line, int col) {
+    (void)argc;
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    int64_t n = args[1].as.i;
+    if (n < 0) {
+        ziman_error("runtime", line, col, "truncate length %lld is negative", (long long)n);
+    }
+    if ((size_t)n < buf->length) buf->length = (size_t)n;
     return value_int(0); /* void return -- the caller never uses this */
 }
 
@@ -1624,6 +1700,9 @@ void prelude_register(void) {
     native_register("mutable_new", native_mutable_new);
     native_register("mutable_get", native_mutable_get);
     native_register("mutable_set", native_mutable_set);
+    native_register("mutable_array_insert", native_ab_insert);
+    native_register("mutable_array_remove", native_ab_remove);
+    native_register("mutable_array_truncate", native_ab_truncate);
     native_register("mutable_array_new", native_ab_new);
     native_register("mutable_array_push", native_ab_append);
     native_register("mutable_array_get", native_ab_get);

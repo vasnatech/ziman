@@ -557,6 +557,54 @@ native fn mutable_array_set<T>(ab: MutableArray<T>, index: int, value: T)
 Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `mutable_array_push`: this
 only overwrites what is already there.
 
+### `mutable_array_insert`
+
+```
+native fn mutable_array_insert<T>(xs: MutableArray<T>, index: int, value: T)
+```
+
+Inserts `value` at `index`, moving everything after it along. `index` may be `len(xs)`, which
+appends -- the same rule the immutable `insert(arr, i, x)` follows, so adding at the end needs no
+second function. O(n), where `mutable_array_push` is amortized O(1): a loop of
+`mutable_array_insert(xs, 0, v)` is quadratic, which is why there is no `push_front` -- that name
+would read as `push`'s twin and promise a cost it cannot give. Build tail-first and reverse once.
+
+### `mutable_array_remove`
+
+```
+native fn mutable_array_remove<T>(xs: MutableArray<T>, index: int) -> T
+```
+
+Removes the element at `index` and answers it, moving everything after it back. O(n). There is no
+`pop` because this is one: `mutable_array_remove(xs, len(xs) - 1)`.
+
+### `mutable_array_truncate`
+
+```
+native fn mutable_array_truncate<T>(xs: MutableArray<T>, length: int)
+```
+
+Drops everything past `length`, keeping the buffer -- the only cheap shrink. A `length` at or
+above the current one leaves it alone, since "keep at most n" is the useful meaning. `clear(xs)`
+is this with 0.
+
+### `mutable_array_swap`
+
+```
+fn mutable_array_swap<T>(xs: MutableArray<T>, i: int, j: int)
+```
+
+Exchanges the elements at `i` and `j`. Three calls otherwise, and every in-place algorithm wants
+it; ordinary Ziman, since `mutable_array_get`/`_set` already reach the buffer.
+
+### `mutable_array_reverse`
+
+```
+fn mutable_array_reverse<T>(xs: MutableArray<T>)
+```
+
+Reverses the buffer in place -- no copy at all, where `array_reverse(snapshot(xs))` makes two.
+
 ## MutableMap and MutableSet
 
 ### `MutableMap`
