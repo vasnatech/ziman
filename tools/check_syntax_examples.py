@@ -46,7 +46,7 @@ import subprocess
 import sys
 import tempfile
 
-DOC = "docs/SYNTAX.md"
+DOCS = ["docs/SYNTAX.md", "docs/CHEATSHEET.md"]
 ZIMAN = os.environ.get("ZIMAN", "./ziman")
 
 
@@ -147,52 +147,62 @@ def check(body, mode, tmp):
     return None
 
 
-def main():
-    text = open(DOC).read()
+def check_doc(doc, tmp):
+    """(counts, problems) for one document. `problems` entries are (doc, line, why)."""
+    text = open(doc).read()
     counts = {"module": 0, "fragment": 0, "fails": 0, "ignore": 0, "untagged": 0}
     problems = []
     untagged_ziman = []
-    with tempfile.TemporaryDirectory() as tmp:
-        for line, info, body in blocks(text):
-            words = info.split()
-            if not words or words[0] != "ziman":
-                counts["untagged"] += 1
-                # A block nobody tagged that still looks like Ziman is how this check gets
-                # quietly bypassed, so say so rather than skipping in silence.
-                if re.search(r"^\s*(pub |fn |val |var |use |struct |enum |native |#\[)", body, re.M):
-                    untagged_ziman.append(line)
-                continue
-            rest = info[len("ziman"):].strip()
-            if rest.startswith("ignore"):
-                counts["ignore"] += 1
-                if ":" not in rest or not rest.split(":", 1)[1].strip():
-                    problems.append((line, "tagged `ignore` with no reason after the colon"))
-                continue
-            mode = rest if rest in ("fragment", "fails") else "module"
-            if rest and rest not in ("fragment", "fails"):
-                problems.append((line, f"unknown tag '{rest}' (expected fragment, fails or ignore: <why>)"))
-                continue
-            counts[mode] += 1
-            bad = check(body, mode, tmp)
-            if bad:
-                problems.append((line, bad))
-            # Checked for every compiled block, `fails` included: an example that is meant not to
-            # compile still shows its reader an import list.
-            misordered = use_order(body, tmp)
-            if misordered:
-                problems.append((line, misordered))
+    for line, info, body in blocks(text):
+        words = info.split()
+        if not words or words[0] != "ziman":
+            counts["untagged"] += 1
+            # A block nobody tagged that still looks like Ziman is how this check gets
+            # quietly bypassed, so say so rather than skipping in silence.
+            if re.search(r"^\s*(pub |fn |val |var |use |struct |enum |native |#\[)", body, re.M):
+                untagged_ziman.append(line)
+            continue
+        rest = info[len("ziman"):].strip()
+        if rest.startswith("ignore"):
+            counts["ignore"] += 1
+            if ":" not in rest or not rest.split(":", 1)[1].strip():
+                problems.append((doc, line, "tagged `ignore` with no reason after the colon"))
+            continue
+        mode = rest if rest in ("fragment", "fails") else "module"
+        if rest and rest not in ("fragment", "fails"):
+            problems.append((doc, line, f"unknown tag '{rest}' (expected fragment, fails or ignore: <why>)"))
+            continue
+        counts[mode] += 1
+        bad = check(body, mode, tmp)
+        if bad:
+            problems.append((doc, line, bad))
+        # Checked for every compiled block, `fails` included: an example that is meant not to
+        # compile still shows its reader an import list.
+        misordered = use_order(body, tmp)
+        if misordered:
+            problems.append((doc, line, misordered))
 
-    print(
-        "SYNTAX.md examples: {module} compiled, {fragment} fragments, {fails} expected to fail, "
-        "{ignore} ignored, {untagged} not Ziman".format(**counts)
-    )
     for line in untagged_ziman:
-        problems.append((line, "looks like Ziman but its fence has no `ziman` tag, so nothing compiles it"))
+        problems.append((doc, line, "looks like Ziman but its fence has no `ziman` tag, so nothing compiles it"))
+    return counts, problems
+
+
+def main():
+    problems = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for doc in DOCS:
+            counts, found = check_doc(doc, tmp)
+            problems.extend(found)
+            print(
+                "{doc} examples: {module} compiled, {fragment} fragments, {fails} expected to "
+                "fail, {ignore} ignored, {untagged} not Ziman".format(doc=doc, **counts)
+            )
+
     if not problems:
         return 0
     print()
-    for line, why in sorted(problems):
-        print(f"{DOC}:{line}: {why}")
+    for doc, line, why in sorted(problems):
+        print(f"{doc}:{line}: {why}")
     print(f"\n{len(problems)} block(s) disagree with their tag.")
     return 1
 

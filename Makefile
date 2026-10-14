@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check check-fast lint lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
+.PHONY: all check check-fast lint lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
 
 all: $(BIN)
 
@@ -409,6 +409,13 @@ not-yet-check:
 experimental-check:
 	python3 tools/check_experimental.py
 
+# Fails when README.md, docs/TUTORIAL.md, docs/SYNTAX.md or docs/CHEATSHEET.md names a module that
+# lib/ no longer has, or a function a module no longer exports -- see tools/check_doc_modules.py's
+# own header comment. The generated docs (docs/lib/, docs/CORELIB.md) cannot go stale; these four
+# can, and F138 was one that did, for months, in the first file a newcomer reads.
+doc-module-check:
+	python3 tools/check_doc_modules.py
+
 # ./ziman-allocprofile: the collector build plus a count of every allocation against its source
 # site, dumped to stderr at exit, hottest first. Not a normal build and not fast -- it takes a mutex
 # per allocation -- but it answers "what actually allocates" exactly rather than by sampling, which is
@@ -594,7 +601,7 @@ lint: $(BIN)
 lib-coverage: $(BIN)
 	@python3 tools/lib_coverage.py
 
-docs-check: lib-manual-check not-yet-check experimental-check syntax-check design-index-check
+docs-check: lib-manual-check not-yet-check experimental-check doc-module-check syntax-check design-index-check
 
 clean:
 	rm -f $(BIN) ziman-nogc ziman-allocprofile ziman-asan ziman-ubsan ziman-tsan ziman-vg src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)

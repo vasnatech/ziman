@@ -248,6 +248,7 @@ system-wide, pass its location in `LDFLAGS`.
 
 | | |
 | --- | --- |
+| [docs/CHEATSHEET.md](docs/CHEATSHEET.md) | the twenty things, on one page -- start here, and read it before writing a helper that already exists |
 | [docs/TUTORIAL.md](docs/TUTORIAL.md) | a guided first hour: one small program, built up feature by feature |
 | [docs/SYNTAX.md](docs/SYNTAX.md) | the language reference: grammar and semantic rules |
 | [docs/DESIGN.md](docs/DESIGN.md) | the principles and the reasoning behind each decision |
