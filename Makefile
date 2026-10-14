@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check check-fast lint install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
+.PHONY: all check check-fast lint lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
 
 all: $(BIN)
 
@@ -586,6 +586,13 @@ handleset-check:
 # `xalloc-ok:` does for check_xalloc.py.
 lint: $(BIN)
 	@python3 tools/lint_lib.py
+
+# A line-coverage figure for lib/, merged across the whole fixture suite. Not in `check`: it runs
+# every fixture again under --coverage and takes a few minutes, which is a reporting job rather
+# than a gate. See tools/lib_coverage.py on why `lib/` was invisible to --coverage until now
+# (the same bundled-module blindness as F133's) and why the drivers are reported separately.
+lib-coverage: $(BIN)
+	@python3 tools/lib_coverage.py
 
 docs-check: lib-manual-check not-yet-check experimental-check syntax-check design-index-check
 
