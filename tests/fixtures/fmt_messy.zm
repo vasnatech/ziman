@@ -49,5 +49,5 @@ print(neg[i])
         // nothing else
         }
     }
-    collections.map<int,string>( xs,f )
+    array_map<int,string>( xs,f )
 }

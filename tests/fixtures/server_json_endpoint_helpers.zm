@@ -4,7 +4,7 @@
 //
 // The round trip is the test: a derived `_to_json` through `json_encoder` produces the bytes a
 // client gets, and those bytes back through `json_decoder` produce the value again. The list form
-// is the one worth having -- written out it is a `collections.map` into a `JArray` at every route
+// is the one worth having -- written out it is a `array_map` into a `JArray` at every route
 // that answers a collection.
 use json
 use server

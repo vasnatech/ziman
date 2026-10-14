@@ -5,7 +5,7 @@ fn main() {
     print(compare(nan, 1.0))
     print(compare(1.0, nan))
     print(compare(nan, nan))
-    val sorted = collections.sort<float>([2.0, nan, 1.0, nan, 0.5])
+    val sorted = array_sort<float>([2.0, nan, 1.0, nan, 0.5])
     print(str(sorted[0]) == "0.5")
     print(sorted[1] == 1.0)
     print(sorted[2] == 2.0)

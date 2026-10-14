@@ -2,5 +2,5 @@ use collections
 
 fn main() {
     val r: Result<int, bool> = 1
-    print(len(collections.sort<Result<int, bool>>([r])))
+    print(len(array_sort<Result<int, bool>>([r])))
 }

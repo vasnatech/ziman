@@ -32,26 +32,26 @@ struct Row {
 
 fn main() {
     val scores = [Score { name: "c", points: 50 }, Score { name: "a", points: 10 }, Score { name: "b", points: 30 }, Score { name: "d", points: 10 }]
-    for s in collections.sort<Score>(scores) {
+    for s in array_sort<Score>(scores) {
         print(concat(s.name, str(s.points)))
     }
-    for s in collections.sort_desc<Score>(scores) {
+    for s in array_sort_desc<Score>(scores) {
         print(concat(s.name, str(s.points)))
     }
-    print(collections.is_sorted<Score>(collections.sort<Score>(scores)))
-    val sorted = collections.sort<Score>(scores)
-    print(collections.binary_search<Score>(sorted, Score { name: "?", points: 30 }))
+    print(array_is_sorted<Score>(array_sort<Score>(scores)))
+    val sorted = array_sort<Score>(scores)
+    print(array_binary_search<Score>(sorted, Score { name: "?", points: 30 }))
     // the builtin agrees on the sign, whatever the magnitude
     print(compare(scores[0], scores[1]) > 0)
     print(compare(scores[1], scores[0]) < 0)
     print(compare(scores[1], scores[3]) == 0)
     // a derived compare over fields with large-magnitude results, nested in Option and an array
     val rows = [Row { score: scores[0], grade: Grade { letter: "b" } }, Row { score: scores[1], grade: Grade { letter: "z" } }, Row { score: scores[1], grade: Grade { letter: "a" } }]
-    for r in collections.sort<Row>(rows) {
+    for r in array_sort<Row>(rows) {
         print(concat(r.score.name, r.grade.letter))
     }
     val opts = [Option<Grade>.Some(Grade { letter: "z" }), Option<Grade>.None, Option<Grade>.Some(Grade { letter: "a" })]
-    for o in collections.sort<Option<Grade>>(opts) {
+    for o in array_sort<Option<Grade>>(opts) {
         print(o)
     }
     print(compare([Grade { letter: "a" }], [Grade { letter: "b" }]) < 0)

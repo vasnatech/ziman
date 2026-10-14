@@ -1,5 +1,5 @@
 // Regression test: MutableArray<T> where T is itself an array type
-// (exactly what collections.zm's new_buckets_of_size builds) -- each
+// (exactly what array_zm's new_buckets_of_size builds) -- each
 // individual mutable_array_push call passes exactly one [int] element, the
 // genuinely ambiguous single-trailing-argument shape (see
 // variadic_array_element_type.zm).

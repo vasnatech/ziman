@@ -12,15 +12,15 @@ struct Patient {
 }
 
 fn main() {
-    print(collections.sort<int>([5, 2, 9, 1, 5, 6]))
-    print(collections.sort<string>(["pear", "apple", "fig", "apple"]))
-    print(collections.sort<float>([2.5, 0.5, 1.5]))
-    print(collections.reverse<int>(collections.sort<int>([3, 1, 2])))
+    print(array_sort<int>([5, 2, 9, 1, 5, 6]))
+    print(array_sort<string>(["pear", "apple", "fig", "apple"]))
+    print(array_sort<float>([2.5, 0.5, 1.5]))
+    print(array_reverse<int>(array_sort<int>([3, 1, 2])))
     val empty: [int] = []
-    print(collections.sort<int>(empty))
-    print(collections.sort<int>([7]))
+    print(array_sort<int>(empty))
+    print(array_sort<int>([7]))
     val people = [Person { last: "Lovelace", first: "Ada" }, Person { last: "Babbage", first: "Charles" }, Person { last: "Lovelace", first: "Annabella" }]
-    for p in collections.sort<Person>(people) {
+    for p in array_sort<Person>(people) {
         print(concat(p.last, concat(", ", p.first)))
     }
     // sort by a field via a key array
@@ -29,19 +29,19 @@ fn main() {
     for p in patients {
         ages = push(ages, p.age)
     }
-    for p in collections.sort_by_keys<Patient, int>(patients, ages) {
+    for p in array_sort_by_keys<Patient, int>(patients, ages) {
         print(concat(p.name, str(p.age)))
     }
-    print(collections.is_sorted<int>([1, 2, 2, 3]))
-    print(collections.is_sorted<int>([1, 3, 2]))
-    val s = collections.sort<int>([10, 20, 20, 30, 40])
-    print(collections.binary_search<int>(s, 20))
-    print(collections.binary_search<int>(s, 25))
-    print(collections.binary_search<int>(s, 40))
+    print(array_is_sorted<int>([1, 2, 2, 3]))
+    print(array_is_sorted<int>([1, 3, 2]))
+    val s = array_sort<int>([10, 20, 20, 30, 40])
+    print(array_binary_search<int>(s, 20))
+    print(array_binary_search<int>(s, 25))
+    print(array_binary_search<int>(s, 40))
     // a big one
     var big: [int] = []
     for i in 0..500 {
         big = push(big, (i * 7919) % 1000)
     }
-    print(collections.is_sorted<int>(collections.sort<int>(big)))
+    print(array_is_sorted<int>(array_sort<int>(big)))
 }

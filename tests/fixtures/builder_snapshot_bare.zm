@@ -41,5 +41,5 @@ fn main() {
     // A non-scalar element type comes back with its real type, so this type-checks and sorts.
     val strs = mutable_array_new<string>()
     mutable_array_push(strs, "q", "p")
-    print(collections.sort<string>(snapshot(strs)))
+    print(array_sort<string>(snapshot(strs)))
 }

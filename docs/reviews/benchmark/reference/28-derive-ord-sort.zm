@@ -14,7 +14,7 @@ fn main() {
         Score { points: 10, player: "Bob" },
         Score { points: 70, player: "Eve" }
     ]
-    for s in collections.sort<Score>(scores) {
+    for s in array_sort<Score>(scores) {
         print(s.player)
     }
 }

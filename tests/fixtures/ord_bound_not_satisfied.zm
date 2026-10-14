@@ -6,5 +6,5 @@ struct Plain {
 
 fn main() {
     val xs = [Plain { a: 2 }, Plain { a: 1 }]
-    print(len(collections.sort<Plain>(xs)))
+    print(len(array_sort<Plain>(xs)))
 }

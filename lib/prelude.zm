@@ -589,7 +589,7 @@ struct MapEntry<K, V> {
 }
 
 // The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
-// say, with `collections.sort_by_keys`) or taking the first few. Written with the type arguments:
+// say, with `array_sort_by_keys`) or taking the first few. Written with the type arguments:
 // `map_entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
 fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
     val out = mutable_array_new<MapEntry<K, V>>()
@@ -628,7 +628,7 @@ native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
 // ---------------------------------------------------------------- used by the bundled modules
 
 // These are the natives behind `collections` and the database drivers; call the module functions
-// (`collections.sort`, `collections.map`, `datasource.open`) rather than these.
+// (`array_sort`, `array_map`, `datasource.open`) rather than these.
 
 // True for a packed `[int]`, `[float]` or `[byte]`, or an array of strings; `sort_scalar_order`
 // then returns the positions of `items` in stable sorted order (descending with `descending`)
@@ -649,7 +649,7 @@ native fn permute<T>(items: [T], order: [int]) -> [T]
 native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
 
 // The bare array helpers, callable with no import, beside the bare `map_*` and `set_*` helpers
-// that `Map` and `Set` already have. `collections.map`/`filter`/`flat_map`/`reverse`/`sort`/
+// that `Map` and `Set` already have. `array_map`/`filter`/`flat_map`/`reverse`/`sort`/
 // `sort_desc`/`sort_with` are thin wrappers over these and stay for the call sites that use them;
 // these are the canonical spelling. The first four are native: one allocation for the result
 // instead of a MutableArray's growing buffers.
@@ -686,7 +686,7 @@ fn array_sort_desc<T: Ord>(items: [T]) -> [T] {
 
 // `items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
 // order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
-// `collections.sort_by_keys` covers the single-key case.
+// `array_sort_by_keys` covers the single-key case.
 fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
     return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
 }
@@ -780,14 +780,14 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
 // Every one returns a new array (or a Map, for the last three) and leaves its argument
 // untouched. Type arguments are written out at the call, since Ziman does not infer them.
 
-// collections.zm -- sorting, searching and higher-order helpers for arrays, in ordinary
+// array_zm -- sorting, searching and higher-order helpers for arrays, in ordinary
 // Ziman. `Map<K, V>` and `Set<T>` are built-in types, not part of this module (see
 // docs/SYNTAX.md "Maps and sets"); `Option<T>` lives in lib/prelude.zm and is always
 // available bare.
 //
 // Every function returns a new array and leaves its argument untouched (arrays are
 // immutable). Type arguments are written out at the call, since Ziman does not infer them:
-// `collections.map<int, string>(numbers, label)`. A function argument is a named function or
+// `array_map<int, string>(numbers, label)`. A function argument is a named function or
 // a lambda, and a lambda may use the enclosing function's immutable locals.
 
 // The positions of `keys` in ascending order: the array of indices that, read in order,

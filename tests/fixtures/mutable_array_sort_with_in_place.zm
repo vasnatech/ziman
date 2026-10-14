@@ -1,7 +1,7 @@
 // `mutable_array_sort_with` copies no elements: a merge sort over positions, then the permutation
 // applied by following its cycles. The cycle-following is the part that could be subtly wrong on
 // inputs the obvious cases miss, so this is a differential test rather than a list of expectations
-// -- the in-place result must equal `collections.sort_with` of the same input, for every length
+// -- the in-place result must equal `array_sort_with` of the same input, for every length
 // from 0 to 40, with a stride that produces long cycles rather than a near-sorted order.
 //
 // Then the two degenerate permutation shapes, which a cycle walk gets wrong in opposite ways if the
@@ -35,7 +35,7 @@ fn main() {
         }
         val before = snapshot(xs)
         mutable_array_sort_with(xs, fn(a: int, b: int) -> int { return compare(a, b) })
-        val want = collections.sort_with<int>(before, fn(a: int, b: int) -> int { return compare(a, b) })
+        val want = array_sort_with<int>(before, fn(a: int, b: int) -> int { return compare(a, b) })
         if snapshot(xs) != want {
             mismatches = mismatches + 1
         }
@@ -52,7 +52,7 @@ fn main() {
     }
     val pbefore = snapshot(ps)
     mutable_array_sort_with(ps, fn(a: P, b: P) -> int { return compare(a.key, b.key) })
-    val pwant = collections.sort_with<P>(pbefore, fn(a: P, b: P) -> int { return compare(a.key, b.key) })
+    val pwant = array_sort_with<P>(pbefore, fn(a: P, b: P) -> int { return compare(a.key, b.key) })
     var tags = ""
     for p in ps {
         tags = concat(tags, p.tag, " ")

@@ -12,7 +12,7 @@ fn entry_compare(a: Entry, b: Entry) -> int {
 
 fn main() {
     val entries = [Entry { name: "a", score: 1 }, Entry { name: "b", score: 9 }, Entry { name: "c", score: 5 }]
-    for e in collections.sort<Entry>(entries) {
+    for e in array_sort<Entry>(entries) {
         print(e.name)
     }
 }

@@ -1,5 +1,5 @@
 use collections
 
 fn main() {
-    print(collections.sort_by_keys<string, int>(["a", "b", "c"], [1]))
+    print(array_sort_by_keys<string, int>(["a", "b", "c"], [1]))
 }

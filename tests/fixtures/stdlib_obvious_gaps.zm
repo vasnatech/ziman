@@ -20,11 +20,11 @@ fn main() {
     print(reverse_string(""))
 
     // `sep` goes between, not after.
-    print(collections.join(["2026", "10", "09"], "-"))
-    print(collections.join(["solo"], "-"))
-    print(collections.join([], "-") == "")
+    print(array_join(["2026", "10", "09"], "-"))
+    print(array_join(["solo"], "-"))
+    print(array_join([], "-") == "")
 
-    print(collections.sum([3, 1, 4, 1, 5]))
-    print(collections.sum([]))
-    print(collections.sum([-2, 2]))
+    print(array_sum([3, 1, 4, 1, 5]))
+    print(array_sum([]))
+    print(array_sum([-2, 2]))
 }

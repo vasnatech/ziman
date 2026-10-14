@@ -1,6 +1,6 @@
 // The seven bare array helpers, used with no `use` line at all -- which is the point of them:
 // `Map` and `Set` have had bare `map_*`/`set_*` helpers all along, and arrays were the one
-// collection whose helpers needed an import. `collections.map`/`filter`/`flat_map`/`reverse`/
+// collection whose helpers needed an import. `array_map`/`filter`/`flat_map`/`reverse`/
 // `sort`/`sort_desc`/`sort_with` are wrappers over these and still work; these are canonical.
 
 struct P {

@@ -36,7 +36,7 @@ fn main() {
         text_of(time.instant_to_sql(before)),
         text_of(time.instant_to_sql(tiny))
     ]
-    for t in collections.sort<string>(texts) {
+    for t in array_sort<string>(texts) {
         print(t)
     }
     print(is_ok(time.instant_from_sql(time.instant_to_sql(half))))

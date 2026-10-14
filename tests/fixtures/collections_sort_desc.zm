@@ -6,18 +6,18 @@ struct P {
 }
 
 fn main() {
-    print(collections.sort_desc<int>([3, 1, 2, 3]))
-    print(collections.sort_desc<string>(["b", "c", "a"]))
+    print(array_sort_desc<int>([3, 1, 2, 3]))
+    print(array_sort_desc<string>(["b", "c", "a"]))
     val empty: [int] = []
-    print(collections.sort_desc<int>(empty))
+    print(array_sort_desc<int>(empty))
     // descending is stable: equal keys keep their input order (a before c)
     val people = [P { name: "a", age: 30 }, P { name: "b", age: 71 }, P { name: "c", age: 30 }, P { name: "d", age: 5 }]
     var ages: [int] = []
     for p in people {
         ages = push(ages, p.age)
     }
-    for p in collections.sort_by_keys_desc<P, int>(people, ages) {
+    for p in array_sort_by_keys_desc<P, int>(people, ages) {
         print(concat(p.name, str(p.age)))
     }
-    print(collections.sort_indices_desc<int>([5, 9, 5, 1]))
+    print(array_sort_indices_desc<int>([5, 9, 5, 1]))
 }

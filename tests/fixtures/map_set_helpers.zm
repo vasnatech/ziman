@@ -13,9 +13,9 @@ fn main() {
     print(len(entries))
     print(entries[1].key)
     print(entries[1].value)
-    val values = collections.map<MapEntry<string, int>, int>(entries, fn(e) { e.value })
-    val ranked = collections.sort_by_keys_desc<MapEntry<string, int>, int>(entries, values)
-    print(collections.map<MapEntry<string, int>, string>(ranked, fn(e) { e.key }))
+    val values = array_map<MapEntry<string, int>, int>(entries, fn(e) { e.value })
+    val ranked = array_sort_by_keys_desc<MapEntry<string, int>, int>(entries, values)
+    print(array_map<MapEntry<string, int>, string>(ranked, fn(e) { e.key }))
     print(len(map_entries<string, int>(Map<string, int> {})))
 
     // map_map_values keeps keys and order
@@ -31,12 +31,12 @@ fn main() {
     print(len(set_map<int, int>(Set<int> {}, fn(n) { n })))
 
     // frequencies and index_by
-    print(collections.frequencies<string>(["a", "b", "a", "c", "a", "b"]))
-    print(collections.frequencies<int>([]))
+    print(array_frequencies<string>(["a", "b", "a", "c", "a", "b"]))
+    print(array_frequencies<int>([]))
     val people = [Person { name: "Ada", age: 36 }, Person { name: "Grace", age: 45 }, Person { name: "Ada", age: 29 }]
-    val by_name = collections.index_by<Person, string>(people, fn(p) { p.name })
+    val by_name = array_index_by<Person, string>(people, fn(p) { p.name })
     print(len(by_name))
     print(Option.unwrap_Some(map_get(by_name, "Ada")).age)
     print(map_keys(by_name))
-    print(len(collections.index_by<Person, int>([], fn(p) { p.age })))
+    print(len(array_index_by<Person, int>([], fn(p) { p.age })))
 }

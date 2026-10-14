@@ -49,7 +49,6 @@ val http_1_1 = "HTTP/1.1"
 val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
 
 use clock
-use collections
 use compress
 use http.Header
 use http.HttpMethod
@@ -1337,12 +1336,12 @@ pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O> {
     })
 }
 
-// The list counterpart, which is the one worth having: written out it is a `collections.map` into a
+// The list counterpart, which is the one worth having: written out it is a `array_map` into a
 // `JArray` at every route that answers a collection.
 pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]> {
     val write = to_json
     return encoder<[O]>(mime.application_json(), fn(items: [O]) -> [byte] {
-        return json_to_bytes(Json.JArray(collections.map<O, Json>(items, write)))
+        return json_to_bytes(Json.JArray(array_map<O, Json>(items, write)))
     })
 }
 

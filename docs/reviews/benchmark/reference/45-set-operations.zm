@@ -2,7 +2,7 @@ use collections
 
 fn show(label: string, values: [int]) {
     val parts = mutable_array_new<string>()
-    for v in collections.sort<int>(values) {
+    for v in array_sort<int>(values) {
         mutable_array_push(parts, str(v))
     }
     printf("{}: {}\n", label, join(separator: ", ", pieces: snapshot(parts)))
