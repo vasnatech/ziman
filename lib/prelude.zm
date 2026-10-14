@@ -1032,22 +1032,17 @@ fn array_group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
     return snapshot(groups)
 }
 
-// How many times each distinct element occurs: `array_frequencies<string>(["a", "b", "a"])` is `{a: 2, b: 1}`, keys
-// in the order they first appear.
-// The pieces of `items` with `sep` between them. Written because there was no concise way to do
-// this at all: a cold model reaching for `parts.join("-")` was pointed at the builtin `join`, which
-// is a *path* join over strings and cannot take a list, and then had to write a loop with `format`
+// The pieces of `items` with `sep` between them, under the name a reader reaches for. It exists
+// because `parts.join("-")` has no method syntax here and the obvious search lands on `fs.path_join`
 // (docs/reviews/tasks.md F35). `sep` goes between, not after, so a single element joins to itself
 // and an empty array to the empty string.
+//
+// One line, because `join` already does the work in a single pass. It used to be a hand-written
+// loop that re-copied the whole accumulated string per element -- 18.05s on 40,000 pieces against
+// 0.01s now, for byte-identical output -- kept there by a comment that wrongly denied `join` could
+// take an array (D17).
 fn array_join(items: [string], sep: string) -> string {
-    var out = ""
-    for i in 0..len(items) {
-        if i > 0 {
-            out = concat(out, sep)
-        }
-        out = concat(out, items[i])
-    }
-    return out
+    return join(separator: sep, pieces: items)
 }
 
 // The total of `items`. A left fold with `+`, which is what anyone writes by hand, but `+` on
@@ -1065,6 +1060,12 @@ fn array_sum(items: [int]) -> int {
     return total
 }
 
+// How many times each distinct element occurs: `array_frequencies<string>(["a", "b", "a"])` is
+// `{a: 2, b: 1}`, keys in the order they first appear.
+//
+// This comment was sitting above `array_join` instead, with no blank line between the two blocks,
+// so the generator published it as `array_join`'s documentation and shipped this function with
+// none at all (D21).
 fn array_frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
     val counts = mutable_map_new<T, int>()
     for item in items {

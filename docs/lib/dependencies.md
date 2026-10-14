@@ -71,6 +71,7 @@ flowchart LR
     datasource --> mysql
     datasource --> pg
     datasource --> sqlite
+    db --> net
     db --> number
     db --> url
     fs --> os
@@ -167,7 +168,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
-| `db` | `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
+| `db` | `net`, `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `zone` |
 | `http` | `mime`, `number`, `random`, `url` | `client`, `server` |
 | `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
@@ -179,7 +180,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `mime` | - | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
-| `net` | - | `client`, `mysql`, `pg`, `server` |
+| `net` | - | `client`, `db`, `mysql`, `pg`, `server` |
 | `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
