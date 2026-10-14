@@ -1,0 +1,7 @@
+// The same mistake with call parens, which takes a different path through the loader and so needs
+// its own fixture: the value form above is resolved as a field access, this one as a call (C20).
+use number
+
+fn main() {
+    print(format("{}", number.float_min_positive()))
+}

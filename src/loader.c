@@ -1060,6 +1060,29 @@ static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line
          * choice between `read_text` and `read_bytes` is one a reader can make, while guessing that
          * a suffix exists at all is not. Edit distance is kept as the fallback for an ordinary
          * misspelling. Visible functions only, so a suggestion cannot fail for a second reason. */
+        /* Before guessing at a misspelling: the name may exist in that module and simply not be a
+         * function. `mod.NAME` reaches functions only, so `number.float_min_positive` -- a `pub
+         * val` -- was answered with "module 'number' has no function 'float_min_positive'", which
+         * sends the reader looking for a function that was never the point. The name is right; the
+         * form is wrong, and `use number.float_min_positive` then the bare name is what works. Two
+         * reviews asked for this separately (docs/reviews/tasks.md C20).
+         *
+         * Only vals are checked here. A struct or an enum in this position never reaches the loader
+         * at all -- the parser stops first with "expected '{' or '.' after 'net.Socket'", which
+         * already says what to do -- so a branch for either would be dead code. Checked both forms,
+         * `net.Socket` and `net.Socket(1)`.
+         *
+         * Qualified exactly as `collect_named_imports` does it, so the two lookups agree. */
+        char *qualified_other = qualify_name(u->path, rest);
+        for (int i = 0; i < target->vals.count; i++) {
+            if (strcmp(target->vals.items[i]->name, qualified_other) != 0) continue;
+            if (!visibility_allows(target->vals.items[i]->visibility, ctx->mod, target)) break;
+            ziman_error("module", line, col,
+                        "'%s' in module '%s' is a global val, not a function -- a val is not reachable as "
+                        "'%s.%s'; write `use %s.%s` and then `%s`",
+                        rest, u->path, u->path, rest, u->path, rest, rest);
+        }
+
         const char *prefixed[3];
         int n_prefixed = 0;
         const char *best = NULL;
@@ -1367,13 +1390,31 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
                          * hint is never shown; if it is not, this is the
                          * message the author needs instead of "undefined
                          * variable 'util'". A leading '!' marks it as a hint. */
-                        size_t n = strlen(u->path) + strlen(e->as.field_access.field_name) + 96;
+                        const char *field = e->as.field_access.field_name;
+                        /* What the name actually is, when it is something. `mod.NAME` reaches
+                         * functions only, so a `pub val` was reported as "module has no function",
+                         * which sends the reader hunting for a function that was never there --
+                         * `number.float_min_positive` being the live example. The name is right and
+                         * the form is wrong (C20). Vals only: a struct or enum here is a parser
+                         * error before this runs, with a message that already says what to do. */
+                        int is_val = 0;
+                        for (int i = 0; i < target->vals.count && !found && !is_val; i++) {
+                            if (strcmp(target->vals.items[i]->name, qualified) == 0 &&
+                                visibility_allows(target->vals.items[i]->visibility, ctx->mod, target)) {
+                                is_val = 1;
+                            }
+                        }
+                        size_t n = strlen(u->path) * 2 + strlen(field) * 3 + 160;
                         char *hint = ziman_xmalloc(n);
                         if (is_not_visible) {
-                            snprintf(hint, n, "!function '%s' in module '%s' is %s", e->as.field_access.field_name, u->path,
+                            snprintf(hint, n, "!function '%s' in module '%s' is %s", field, u->path,
                                      visibility_violation_reason(found_vis));
+                        } else if (is_val) {
+                            snprintf(hint, n,
+                                     "!'%s' in module '%s' is a global val, not a function -- write `use %s.%s` and then `%s`",
+                                     field, u->path, u->path, field, field);
                         } else {
-                            snprintf(hint, n, "!module '%s' has no function '%s'", u->path, e->as.field_access.field_name);
+                            snprintf(hint, n, "!module '%s' has no function '%s'", u->path, field);
                         }
                         e->fn_ref_name = hint;
                     }

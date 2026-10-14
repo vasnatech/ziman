@@ -1,0 +1,9 @@
+// `mod.NAME` reaches functions only, so a module-level `pub val` used to be reported as "module
+// 'number' has no function 'float_min_positive'" -- which sends the reader looking for a function
+// that was never the point. The name is right; the form is wrong, and `use number.float_min_positive`
+// followed by the bare name is what works. Two reviews asked for this separately (C20).
+use number
+
+fn main() {
+    print(format("{}", number.float_min_positive))
+}
