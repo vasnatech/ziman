@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "bignum.h"
+#include "handles.h"
 #include "mapobj.h"
 #include "decimal.h"
 #include "error.h"
@@ -497,14 +498,31 @@ static Value native_join(Value *args, int argc, int line, int col) {
  * forever (each json_to_string node makes one), which is exactly the kind
  * of leak a collector cannot fix. As a plain int in a Value the address is
  * still visible to the conservative collector, so the buffer lives exactly
- * as long as the MutableString value that names it. `magic` catches a
- * forged or stale handle with a clear error instead of a wild read (not
- * airtight -- the docs already say "don't construct one by hand").
+ * as long as the MutableString value that names it. A forged or stale handle is caught by
+ * membership in the per-kind `HandleSet` below rather than by a magic word read out of the
+ * caller's own address -- see that comment.
  * A builder belongs to the thread that made it (`owner`): every operation
  * checks the calling thread, so sharing one -- by a channel, a closure, a
  * global -- is a clear runtime error and never a data race (the compiler
  * refuses the obvious ways first: see `#[thread_bound]` in prelude.zm). */
-enum { SB_MAGIC = 0x53424c44 };
+/* A builder's handle is the address of its buffer, and `MutableArray`, `MutableMap`,
+ * `MutableSet`, `MutableString` and `Mutable` are all constructible from Ziman as ordinary struct
+ * literals over an `int` field. So each of these was validated by reading a magic word out of the
+ * address the caller supplied -- the same mistake A40 fixed for `regex`, which `src/handles.h`
+ * exists to describe, and `MutableArray<int> { handle: 1 }` followed by a push segfaulted the
+ * process. All five did.
+ *
+ * One `HandleSet` per kind, so membership proves both that the address is ours and which kind it
+ * is, which is what the magic word was doing for the second half only. The sets are never removed
+ * from: a builder buffer is freed by the collector when nothing names it, and these sets are
+ * unscanned so being in one keeps nothing alive (see src/handles.c). A stale address could in
+ * principle be reused by a later builder of the same kind, which was equally true of the magic word
+ * and is a wrong-object bug rather than memory unsafety -- unlike a forged integer, which this
+ * stops outright (A50). */
+static HandleSet g_string_builders = HANDLE_SET_INIT;
+static HandleSet g_array_builders = HANDLE_SET_INIT;
+static HandleSet g_map_builders = HANDLE_SET_INIT;
+static HandleSet g_cells = HANDLE_SET_INIT;
 
 /* The check every builder operation makes: `what` names the builder type for the message. */
 static void builder_owner_check(pthread_t owner, const char *what) {
@@ -516,7 +534,6 @@ static void builder_owner_check(pthread_t owner, const char *what) {
 }
 
 typedef struct {
-    uint32_t magic;
     pthread_t owner;
     char *data;
     size_t length;
@@ -525,14 +542,14 @@ typedef struct {
 } MutableStringBuf;
 
 static int64_t sb_table_register(MutableStringBuf *buf) {
-    buf->magic = SB_MAGIC;
     buf->owner = pthread_self();
+    handleset_add(&g_string_builders, buf);
     return (int64_t)(intptr_t)buf;
 }
 
 static MutableStringBuf *sb_table_get(int64_t handle) {
     MutableStringBuf *buf = (MutableStringBuf *)(intptr_t)handle;
-    if (buf == NULL || buf->magic != SB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MutableString handle");
+    if (!handleset_has(&g_string_builders, buf)) ziman_error("runtime", 0, 0, "not a valid MutableString handle");
     builder_owner_check(buf->owner, "a MutableString");
     return buf;
 }
@@ -748,9 +765,7 @@ static Value native_sb_to_string(Value *args, int argc, int line, int col) {
  * below is a placeholder for exactly this reason, immediately
  * overwritten with the call's own already-substituted e->resolved_type
  * right after each of these returns (see eval_expr's EXPR_CALL case). */
-enum { AB_MAGIC = 0x41424c44 };
 typedef struct {
-    uint32_t magic;
     pthread_t owner;
     Value *items;
     size_t length;
@@ -766,14 +781,14 @@ typedef struct {
 
 /* Same pointer-as-handle scheme as MutableString above, for the same reason. */
 static int64_t ab_table_register(MutableArrayBuf *buf) {
-    buf->magic = AB_MAGIC;
     buf->owner = pthread_self();
+    handleset_add(&g_array_builders, buf);
     return (int64_t)(intptr_t)buf;
 }
 
 static MutableArrayBuf *ab_table_get(int64_t handle) {
     MutableArrayBuf *buf = (MutableArrayBuf *)(intptr_t)handle;
-    if (buf == NULL || buf->magic != AB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MutableArray handle");
+    if (!handleset_has(&g_array_builders, buf)) ziman_error("runtime", 0, 0, "not a valid MutableArray handle");
     builder_owner_check(buf->owner, "a MutableArray");
     return buf;
 }
@@ -1469,9 +1484,7 @@ static void ab_mark_contents(const Arena *a, StructObj *st) {
  * the buffer owns a MapObj nobody else can see and changes it in place (mapobj_set_mut).
  * `to_map` / `to_set` snapshot it (an O(n) copy of the trie's nodes) and the builder stays
  * usable, like snapshot. */
-enum { MB_MAGIC = 0x4d424c44 };
 typedef struct {
-    uint32_t magic;
     pthread_t owner;
     MapObj *m;
     int shared; /* a snapshot exists: overwritten leaves must be replaced, not updated */
@@ -1481,7 +1494,7 @@ static char *MAPBUILDER_FIELD_NAMES[] = {"handle"};
 
 static MutableMapBuf *mb_get_buf(Value b) {
     MutableMapBuf *buf = (MutableMapBuf *)(intptr_t)b.as.st->fields[0].as.i;
-    if (buf == NULL || buf->magic != MB_MAGIC) ziman_error("runtime", 0, 0, "not a valid MutableMap/MutableSet handle");
+    if (!handleset_has(&g_map_builders, buf)) ziman_error("runtime", 0, 0, "not a valid MutableMap/MutableSet handle");
     builder_owner_check(buf->owner, "a MutableMap/MutableSet");
     return buf;
 }
@@ -1506,8 +1519,8 @@ static void mb_mark_contents(const Arena *a, StructObj *st) {
 
 static Value mb_new_value(const char *type_name) {
     MutableMapBuf *buf = ziman_xmalloc(sizeof(MutableMapBuf));
-    buf->magic = MB_MAGIC;
     buf->owner = pthread_self();
+    handleset_add(&g_map_builders, buf);
     buf->m = mapobj_mut_new();
     buf->shared = 0;
     Value *fields = ziman_xmalloc(sizeof(Value));
@@ -1856,10 +1869,8 @@ void ziman_builder_clear(Value v) {
  * Same pointer-as-handle scheme as the other four, and like MutableArray its payload is a `Value`
  * reachable only through an opaque int64 -- invisible to the stack scan and to a struct's own
  * field walk -- so it registers a content marker for exactly the reason ab_mark_contents does. */
-enum { CELL_MAGIC = 0x43454c4c };
 
 typedef struct {
-    uint32_t magic;
     pthread_t owner;
     Value value;
 } MutableCellBuf;
@@ -1868,7 +1879,7 @@ static char *MUTABLE_FIELD_NAMES[] = {"handle"};
 
 static MutableCellBuf *cell_get_buf(Value c) {
     MutableCellBuf *buf = (MutableCellBuf *)(intptr_t)c.as.st->fields[0].as.i;
-    if (buf == NULL || buf->magic != CELL_MAGIC) ziman_error("runtime", 0, 0, "not a valid Mutable handle");
+    if (!handleset_has(&g_cells, buf)) ziman_error("runtime", 0, 0, "not a valid Mutable handle");
     builder_owner_check(buf->owner, "a Mutable");
     return buf;
 }
@@ -1880,8 +1891,8 @@ static Value native_mutable_new(Value *args, int argc, int line, int col) {
     (void)line;
     (void)col;
     MutableCellBuf *buf = ziman_xmalloc(sizeof(MutableCellBuf));
-    buf->magic = CELL_MAGIC;
     buf->owner = pthread_self();
+    handleset_add(&g_cells, buf);
     buf->value = args[0];
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)buf);

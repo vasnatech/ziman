@@ -1,0 +1,65 @@
+// A50: every builder type is constructible from Ziman as an ordinary struct literal over an `int`
+// field, and each was validated by reading a magic word out of the address the caller supplied --
+// the same mistake A40 fixed for `regex`. `MutableArray<int> { handle: 1 }` followed by a push
+// segfaulted the process, and so did the other four.
+//
+// A40's own note claimed to have closed that class by forging against all five *public structs with
+// an int handle* in `lib/core/*.zm`. These five are builtin types, declared in the prelude rather
+// than in a module, so that census missed them -- which is the review's own point about fixes
+// applied one at a time, made at my expense.
+//
+// One fixture for all five, using A2's per-thread error boundary: each forged use ends its own
+// thread and the `on_error` handler reports the message, so the program survives to try the next.
+fn use_array(done: Channel<string>) {
+    val b = MutableArray<int> { handle: 1 }
+    mutable_array_push(b, 1)
+    send(done, "array: not refused")
+}
+
+fn use_map(done: Channel<string>) {
+    val b = MutableMap<int, int> { handle: 1 }
+    mutable_map_set(b, 1, 2)
+    send(done, "map: not refused")
+}
+
+fn use_set(done: Channel<string>) {
+    val b = MutableSet<int> { handle: 1 }
+    mutable_set_add(b, 1)
+    send(done, "set: not refused")
+}
+
+fn use_string(done: Channel<string>) {
+    val b = MutableString { handle: 1 }
+    mutable_string_append(b, "x")
+    send(done, "string: not refused")
+}
+
+fn use_cell(done: Channel<string>) {
+    val b = Mutable<int> { handle: 1 }
+    mutable_set(b, 1)
+    send(done, "cell: not refused")
+}
+
+fn main() {
+    val done: Channel<string> = channel_new()
+    spawn use_array(done) on_error fn(message: string) {
+        send(done, "array refused")
+    }
+    print(receive(done))
+    spawn use_map(done) on_error fn(message: string) {
+        send(done, "map refused")
+    }
+    print(receive(done))
+    spawn use_set(done) on_error fn(message: string) {
+        send(done, "set refused")
+    }
+    print(receive(done))
+    spawn use_string(done) on_error fn(message: string) {
+        send(done, "string refused")
+    }
+    print(receive(done))
+    spawn use_cell(done) on_error fn(message: string) {
+        send(done, "cell refused")
+    }
+    print(receive(done))
+}
