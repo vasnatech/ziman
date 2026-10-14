@@ -374,6 +374,15 @@ for x in seen { ... }                    // a set has one binder
   `snapshot` copies into an immutable `Map`/`Set` (O(n), the handle stays usable, and later changes
   do not touch the copy). One thread at a time -- every `Mutable*` type belongs to the thread that
   made it.
+- **Crossing into the mutable world**: `mutable_array_from(xs)`, `mutable_map_from(m)`,
+  `mutable_set_from(s)` and `mutable_set_from_array(xs)` each take **either world** -- the immutable
+  value or another handle of the same shape. From a value the handle is independent of it; from a
+  handle it is a clone, which is the reason they accept both: `mutable_map_from(snapshot(m))` would
+  copy twice. For the two hashed shapes `from` also beats `new` plus a loop, because it copies the
+  trie's nodes with the leaves shared rather than hashing and placing every entry again.
+  `mutable_set_from_array` is a separate name rather than another source for `mutable_set_from`
+  because it **deduplicates**, which a reader of `from` would have no reason to expect. Going the
+  other way is `snapshot`.
 - **`MutableString`** is the text one: `mutable_string_new`/`_append`/`_append_byte` build it, and
   `_get`/`_set`/`_index_of`/`_last_index_of` read and search it in place, so a string being built
   can be inspected without `snapshot` copying all of it. Byte-indexed like every other string

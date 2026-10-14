@@ -1305,6 +1305,16 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "len") == 0) {
                 result = call_len(args[0]);
+            } else if (strcmp(e->as.call.callee, "mutable_array_from") == 0) {
+                result = ziman_mutable_array_from(args[0], args[0].type.kind == TY_STRUCT);
+                result.type = e->resolved_type;
+            } else if (strcmp(e->as.call.callee, "mutable_map_from") == 0 ||
+                       strcmp(e->as.call.callee, "mutable_set_from") == 0) {
+                result = ziman_mutable_map_from(args[0], e->as.call.callee[8] == 's');
+                result.type = e->resolved_type;
+            } else if (strcmp(e->as.call.callee, "mutable_set_from_array") == 0) {
+                result = ziman_mutable_set_from_array(args[0], args[0].type.kind == TY_STRUCT);
+                result.type = e->resolved_type;
             } else if (strcmp(e->as.call.callee, "clear") == 0) {
                 ziman_builder_clear(args[0]);
                 result = value_int(0); /* void return, as `send` and the other effects do */

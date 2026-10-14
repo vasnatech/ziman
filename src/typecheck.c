@@ -1306,7 +1306,7 @@ static const char *const PURE_BUILTINS[] = {
     "map_remove_all", "map_from_arrays",
     "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
     "set_from_array", "set_insert_all", "set_filter",
-    "snapshot",
+    "snapshot", "mutable_array_from", "mutable_map_from", "mutable_set_from", "mutable_set_from_array",
     NULL};
 
 static int is_pure_builtin_name(const char *name) {
@@ -1319,7 +1319,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot", "clear", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot", "clear", "mutable_array_from", "mutable_map_from", "mutable_set_from", "mutable_set_from_array", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -2034,6 +2034,38 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
  * such a struct has no length of its own. `len` works on a builder, not on something holding one. */
 /* The `Mutable<T>` cell, which is deliberately *not* one of the four above: it answers `len` and
  * `contains` but neither `snapshot` nor `clear`, so the two predicates have to be separate. */
+/* The value-or-handle parameter the conversion and set-operation builtins take. There is no union
+ * type in the `Type` representation and these do not need one: they are hand-checked builtins,
+ * exactly as their immutable twins (`set_union`, `map_filter`, `set_from_array`, ...) already are
+ * and have always been, so accepting two kinds is two branches here rather than a type-system
+ * feature. Fills `elem`, and `value` for a map shape, and answers whether `t` is either world of
+ * `shape`. */
+typedef enum { SHAPE_ARRAY, SHAPE_MAP, SHAPE_SET } MutableShape;
+
+static const char *mutable_handle_name(MutableShape shape) {
+    return shape == SHAPE_ARRAY ? "MutableArray" : shape == SHAPE_MAP ? "MutableMap" : "MutableSet";
+}
+
+static int either_world(Type t, MutableShape shape, Type *elem, Type *value) {
+    if (t.kind == TY_STRUCT && t.struct_name != NULL && strcmp(t.struct_name, mutable_handle_name(shape)) == 0) {
+        if (t.type_args.count < (shape == SHAPE_MAP ? 2 : 1)) return 0;
+        *elem = t.type_args.items[0];
+        if (shape == SHAPE_MAP) *value = t.type_args.items[1];
+        return 1;
+    }
+    if (shape == SHAPE_ARRAY && t.kind == TY_ARRAY) { *elem = *t.elem; return 1; }
+    if (shape == SHAPE_SET && t.kind == TY_SET) { *elem = *t.elem; return 1; }
+    if (shape == SHAPE_MAP && t.kind == TY_MAP) { *elem = *t.elem; *value = *t.elem_err; return 1; }
+    return 0;
+}
+
+static Type mutable_handle_type(MutableShape shape, Type elem, const Type *value) {
+    Type t = type_struct(mutable_handle_name(shape));
+    type_list_push(&t.type_args, elem);
+    if (value != NULL) type_list_push(&t.type_args, *value);
+    return t;
+}
+
 static int is_mutable_cell_type(Type t) {
     return t.kind == TY_STRUCT && t.struct_name != NULL && strcmp(t.struct_name, "Mutable") == 0;
 }
@@ -2275,6 +2307,34 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
         }
         return type_scalar(strcmp(name, "printf") == 0 ? TY_VOID : TY_STRING);
+    }
+
+    if (strcmp(name, "mutable_array_from") == 0 || strcmp(name, "mutable_map_from") == 0 ||
+        strcmp(name, "mutable_set_from") == 0 || strcmp(name, "mutable_set_from_array") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(module, env, arg);
+        int from_array = strcmp(name, "mutable_set_from_array") == 0;
+        MutableShape source = strcmp(name, "mutable_array_from") == 0 || from_array ? SHAPE_ARRAY
+                              : strcmp(name, "mutable_map_from") == 0              ? SHAPE_MAP
+                                                                                   : SHAPE_SET;
+        Type elem = type_scalar(TY_VOID), value = type_scalar(TY_VOID);
+        if (!either_world(arg_type, source, &elem, &value)) {
+            ziman_error("type", arg->line, arg->col, "'%s' expects %s or %s, found %s", name,
+                        source == SHAPE_ARRAY ? "an array" : source == SHAPE_MAP ? "a Map" : "a Set",
+                        source == SHAPE_ARRAY ? "a MutableArray" : source == SHAPE_MAP ? "a MutableMap" : "a MutableSet",
+                        type_name(arg_type));
+        }
+        MutableShape result = from_array ? SHAPE_SET : source;
+        /* A set's element has to be hashable whichever way it got there; the Map and Set sources
+         * already were, so this only ever fires for `mutable_set_from_array`. */
+        if (result == SHAPE_SET && !type_supports_hashing(module, elem, 0)) {
+            ziman_error("type", arg->line, arg->col,
+                        "'%s' needs an element type that supports '==' and hashing, found %s", name, type_name(elem));
+        }
+        return mutable_handle_type(result, elem, result == SHAPE_MAP ? &value : NULL);
     }
 
     if (strcmp(name, "clear") == 0) {
@@ -5190,7 +5250,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot", "clear"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot", "clear", "mutable_array_from", "mutable_map_from", "mutable_set_from", "mutable_set_from_array"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

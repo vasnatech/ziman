@@ -798,6 +798,23 @@ static void ab_ensure_capacity(MutableArrayBuf *buf, size_t additional) {
     buf->capacity = new_capacity;
 }
 
+/* An empty MutableArray with room for `capacity` elements. Factored out of native_ab_new so that
+ * `mutable_array_from` can size the buffer to its source in one allocation, where `new` plus a
+ * loop of pushes would regrow it as it went. */
+static Value ab_new_value(size_t capacity, double grow_factor) {
+    MutableArrayBuf *buf = ziman_xmalloc(sizeof(MutableArrayBuf));
+    buf->capacity = capacity;
+    buf->length = 0;
+    buf->grow_factor = grow_factor;
+    buf->items = buf->capacity > 0 ? ziman_xmalloc(buf->capacity * sizeof(Value)) : NULL;
+    buf->pdata = NULL;
+    buf->pkind = PK_NONE;
+    int64_t handle = ab_table_register(buf);
+    Value *fields = ziman_xmalloc(sizeof(Value));
+    fields[0] = value_int(handle);
+    return value_struct(type_struct("MutableArray"), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
+}
+
 static Value native_ab_new(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -811,19 +828,7 @@ static Value native_ab_new(Value *args, int argc, int line, int col) {
         grow_factor = 2.0;
     }
 
-    MutableArrayBuf *buf = ziman_xmalloc(sizeof(MutableArrayBuf));
-    buf->capacity = (size_t)capacity;
-    buf->length = 0;
-    buf->grow_factor = grow_factor;
-    buf->items = buf->capacity > 0 ? ziman_xmalloc(buf->capacity * sizeof(Value)) : NULL;
-    buf->pdata = NULL;
-    buf->pkind = PK_NONE;
-
-    int64_t handle = ab_table_register(buf);
-
-    Value *fields = ziman_xmalloc(sizeof(Value));
-    fields[0] = value_int(handle);
-    return value_struct(type_struct("MutableArray"), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
+    return ab_new_value((size_t)capacity, grow_factor);
 }
 
 /* Picks the packed representation from the first element, when the builder is still empty and has
@@ -1538,6 +1543,39 @@ int ziman_builder_contains(Value v, Value needle) {
     return mapobj_get(mb_get_buf(v)->m, needle, &ignored) != 0;
 }
 
+/* The `from` constructors: a handle holding what the argument holds, taking either world. The
+ * typechecker has already established which, so these only have to read it.
+ *
+ * For the two hashed shapes this is where `from` earns its name over `new` plus a loop:
+ * `mapobj_snapshot` copies the trie's *nodes* with the leaves shared, where re-inserting every
+ * entry would hash and place each one again. `shared` is then 1, which is exactly its meaning --
+ * a snapshot of these leaves exists elsewhere, so an overwrite must replace a leaf rather than
+ * update it -- and it is what keeps the source untouched whichever world it came from. */
+Value ziman_mutable_map_from(Value source, int is_set) {
+    Value out = mb_new_value(is_set ? "MutableSet" : "MutableMap");
+    MutableMapBuf *buf = mb_get_buf(out);
+    const MapObj *src = source.type.kind == TY_MAP || source.type.kind == TY_SET ? source.as.map : mb_get_buf(source)->m;
+    buf->m = mapobj_snapshot(src);
+    buf->shared = 1;
+    return out;
+}
+
+/* A set from an array has to insert each element rather than copy a trie, because the array may
+ * repeat one and a set may not -- the deduplication is the whole difference between this and
+ * `mutable_set_from`, and the reason it is a separate name rather than another overload. */
+Value ziman_mutable_set_from_array(Value source, int source_is_handle) {
+    Value out = mb_new_value("MutableSet");
+    MutableMapBuf *buf = mb_get_buf(out);
+    if (source_is_handle) {
+        const MutableArrayBuf *src = ab_table_get(ab_handle_of(source));
+        for (size_t i = 0; i < src->length; i++) mapobj_set_mut(buf->m, ab_element_at(src, i), value_int(0), buf->shared);
+    } else {
+        ArrayObj *src = source.as.arr;
+        for (int i = 0; i < src->count; i++) mapobj_set_mut(buf->m, array_get(src, i), value_int(0), buf->shared);
+    }
+    return out;
+}
+
 /* The entries of a MutableMap or MutableSet in insertion order, for the interpreter's own `for`
  * branch: fresh arrays of `count` keys and, for a map, values. This is a *snapshot by
  * construction* rather than by choice, which is the difference from MutableArray's live-buffer
@@ -1548,6 +1586,34 @@ int ziman_mutable_map_entries(Value m, Value **keys, Value **vals) {
     MutableMapBuf *buf = mb_get_buf(m);
     mapobj_entries(buf->m, keys, vals);
     return buf->m->count;
+}
+
+/* A MutableArray holding a copy of what the argument holds. One allocation and one pass whichever
+ * world the source is, where `new` plus a loop of pushes would regrow the buffer as it went. */
+Value ziman_mutable_array_from(Value source, int source_is_handle) {
+    size_t n = source_is_handle ? ab_table_get(ab_handle_of(source))->length : (size_t)source.as.arr->count;
+    Value out = ab_new_value(n > 0 ? n : 1, 2.0);
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(out));
+    if (source_is_handle) {
+        const MutableArrayBuf *src = ab_table_get(ab_handle_of(source));
+        for (size_t i = 0; i < src->length; i++) {
+            Value element = ab_element_at(src, i);
+            ab_adopt_pack_kind(buf, element);
+            if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)i, element);
+            else buf->items[i] = element;
+            buf->length++;
+        }
+    } else {
+        ArrayObj *src = source.as.arr;
+        for (int i = 0; i < src->count; i++) {
+            Value element = array_get(src, i);
+            ab_adopt_pack_kind(buf, element);
+            if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, i, element);
+            else buf->items[i] = element;
+            buf->length++;
+        }
+    }
+    return out;
 }
 
 /* `snapshot` on one of the four handles: the same O(n) copy out that `snapshot`,

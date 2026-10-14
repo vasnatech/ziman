@@ -75,4 +75,11 @@ int ziman_cell_contains(Value c, Value needle);
  * walks. `vals` may be NULL for a set. */
 int ziman_mutable_map_entries(Value m, Value **keys, Value **vals);
 
+/* The `from` constructors, which take either world: a handle holding what the argument holds. The
+ * typechecker has established which kind `source` is, so `source_is_handle` says so rather than
+ * these guessing from the type again. */
+Value ziman_mutable_array_from(Value source, int source_is_handle);
+Value ziman_mutable_map_from(Value source, int is_set);
+Value ziman_mutable_set_from_array(Value source, int source_is_handle);
+
 #endif
