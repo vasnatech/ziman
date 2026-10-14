@@ -3995,6 +3995,10 @@ never be a stable expectation. So:
 > **A handle prints as its immutable counterpart would, and a *nested* handle prints as a summary
 > -- never an address.**
 
+*Done in F118. The one thing that needed designing rather than writing was how depth reaches the
+renderer: `value_display` recursed without one, and a file-static counter would have been shared
+across threads.*
+
 So a `MutableArray<int>` prints `[1, 2, 3]`, a `MutableMap` prints as its `Map` would, a
 `MutableString` prints its text (which changes what `sb_to_string`'s comment says today about
 `str(sb)` printing the struct), and a cell prints `Mutable(5)`.
@@ -4009,6 +4013,9 @@ output. Immutable values never need any of this, because a value is a tree and c
 This lands with the rename, not after it.
 
 **`#[derive(Json)]` does not refuse a handle field -- it fails incidentally, and invites a fix.**
+*(Fixed in F119, for `Row` and `Properties` as well -- the existing field walk covered `Json` and
+`Row` only. The check needs two tests for "is this a handle", because derive expansion runs before
+the prelude is merged into the module and so cannot look `MutableArray` up at all.)*
 A struct with an `ArrayBuilder` field is rejected with "call to undefined function
 `array_builder_to_json` ... or write `array_builder_to_json` by hand and import it with `use`".
 Write that function and the derive succeeds. Serialising a handle is meaningless, because whatever
