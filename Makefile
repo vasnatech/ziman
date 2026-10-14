@@ -110,6 +110,12 @@ ziman-nogc: $(SRC) $(CORELIB_HEADERS)
 # a `static const char *`, so it's usable as a constant initializer in
 # corelib.c's CORE_MODULES table -- a plain variable can't be (ISO C
 # requires a static initializer to itself be a constant expression). One
+# Every `?` is escaped as `\?` because trigraphs are active under `-std=c11`
+# (they are not under `-std=gnu11`): without it the nine `??x` sequences are
+# rewritten inside the embedded library before the compiler ever sees them, so
+# a Ziman source containing `??!` would arrive as `|`. Verified: `"a??!b"`
+# prints `a|b` under -std=c11 and `a??!b` under -std=gnu11. `\?` is a valid C
+# escape for `?` and breaks the sequence, so nothing else changes (F131).
 # quoted string literal per source line, backslash-newline-continued
 # across physical lines (same shape prelude.c's hand-written
 # PRELUDE_SOURCE uses) rather than one unreadable giant line -- adjacent
@@ -118,7 +124,7 @@ ziman-nogc: $(SRC) $(CORELIB_HEADERS)
 src/%_source.h: %.zm
 	awk -v src="$<" -v macro="$(shell echo $* | tr a-z A-Z)_SOURCE" \
 	    'BEGIN { printf "/* Generated from %s -- do not edit directly. */\n#define %s \\\n", src, macro } \
-	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); printf "    \"%s\\n\" \\\n", $$0 } \
+	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\?/, "\\?"); printf "    \"%s\\n\" \\\n", $$0 } \
 	     END { print "    \"\"" }' $< > $@
 
 %.o: %.c

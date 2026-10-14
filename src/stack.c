@@ -98,8 +98,13 @@ static long env_long(const char *name) {
     return (end != NULL && *end == '\0' && n > 0) ? n : 0;
 }
 
+/* The largest stack (main or spawned) that is accepted or computed. The bundled garbage collector aborts ("Too many retries in GC_allocobj") once a thread's stack is
+ * near 1 GB -- measured: 768 MB works, 900 MB does not -- so a bigger request is refused rather than crashing later. */
+#define MAX_STACK_MB 768
+
 static void refuse_size(const char *what, long mb) {
-    fprintf(stderr, "ziman: %s %ld MB is out of range (1 to 768 MB; a larger stack makes the garbage collector fail)\n", what, mb);
+    fprintf(stderr, "ziman: %s %ld MB is out of range (1 to %d MB; a larger stack makes the garbage collector fail)\n", what, mb,
+            MAX_STACK_MB);
     exit(2);
 }
 
@@ -107,8 +112,8 @@ void ziman_stack_configure(long main_mb, long thread_mb, long threads) {
     g_main_mb = main_mb > 0 ? main_mb : env_long("ZIMAN_STACK_MB");
     g_thread_mb = thread_mb > 0 ? thread_mb : env_long("ZIMAN_THREAD_STACK_MB");
     g_threads = threads > 0 ? threads : env_long("ZIMAN_THREADS");
-    if (g_main_mb > 768) refuse_size("the main stack of", g_main_mb);
-    if (g_thread_mb > 768) refuse_size("the spawned-thread stack of", g_thread_mb);
+    if (g_main_mb > MAX_STACK_MB) refuse_size("the main stack of", g_main_mb);
+    if (g_thread_mb > MAX_STACK_MB) refuse_size("the spawned-thread stack of", g_thread_mb);
     if (g_threads > 1000000) g_threads = 1000000;
 }
 
@@ -162,9 +167,6 @@ static size_t round_up(size_t v, size_t unit) { return (v + unit - 1) / unit * u
 
 #define MB ((int64_t)1 << 20)
 
-/* The largest stack (main or spawned) that is accepted or computed. The bundled garbage collector aborts ("Too many retries in GC_allocobj") once a thread's stack is
- * near 1 GB -- measured: 768 MB works, 900 MB does not -- so a bigger request is refused rather than crashing later. */
-#define MAX_STACK_MB 768
 
 /* An eighth of the usable memory is the budget for thread stacks; the main thread takes a quarter of it (8 to 512 MB) and the rest is shared between the
  * threads the program plans for (1 to 64 MB each). Stacks are reserved address space and only the pages a thread touches are memory, so these are ceilings. */
