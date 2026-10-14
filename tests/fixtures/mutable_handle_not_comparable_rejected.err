@@ -1,0 +1,1 @@
+'MutableArray<int>' is a thread-bound handle and cannot be compared with '=='/'!=': its contents live behind an opaque index, so two handles tell you nothing about what is in them. Compare the snapshots instead ('snapshot(a) == snapshot(b)')

@@ -277,6 +277,16 @@ static int type_supports_equality(Module *module, Type t, int depth) {
             if (type_check_cycle_seen(g_eq_check_stack, g_eq_check_depth, t)) return 1;
             StructDecl *decl = find_struct(module, t.struct_name);
             if (decl == NULL) return 0;
+            /* A `#[thread_bound]` struct is a handle, so the TY_CHANNEL reasoning below applies to
+             * it too: its one field is an opaque index into a native table, and comparing two of
+             * them compares pointer values that mean nothing across runs. Until this was added
+             * that was the *accidental* behaviour -- two empty `MutableArray`s compared unequal,
+             * `hash` of one was stable only within a run, and such a struct was accepted as a
+             * `Map` key -- identity equality wearing value equality's clothes, which is exactly
+             * where a memoisation key or a node comparison goes wrong. Gated on the attribute
+             * rather than on the four type names, so it covers a handle written in Ziman as well.
+             * A struct *containing* one falls out of the field loop below. */
+            if (decl->thread_bound) return 0;
             g_eq_check_stack[g_eq_check_depth++] = t;
             int ok = 1;
             for (int i = 0; i < decl->fields.count; i++) {
@@ -359,6 +369,16 @@ static int type_supports_hashing(Module *module, Type t, int depth) {
             if (type_check_cycle_seen(g_hash_check_stack, g_hash_check_depth, t)) return 1;
             StructDecl *decl = find_struct(module, t.struct_name);
             if (decl == NULL) return 0;
+            /* A `#[thread_bound]` struct is a handle, so the TY_CHANNEL reasoning below applies to
+             * it too: its one field is an opaque index into a native table, and comparing two of
+             * them compares pointer values that mean nothing across runs. Until this was added
+             * that was the *accidental* behaviour -- two empty `MutableArray`s compared unequal,
+             * `hash` of one was stable only within a run, and such a struct was accepted as a
+             * `Map` key -- identity equality wearing value equality's clothes, which is exactly
+             * where a memoisation key or a node comparison goes wrong. Gated on the attribute
+             * rather than on the four type names, so it covers a handle written in Ziman as well.
+             * A struct *containing* one falls out of the field loop below. */
+            if (decl->thread_bound) return 0;
             g_hash_check_stack[g_hash_check_depth++] = t;
             int ok = 1;
             for (int i = 0; i < decl->fields.count; i++) {
@@ -948,6 +968,17 @@ static Type check_binary(Module *module, Env *env, Expr *e) {
                     ziman_error("type", e->line, e->col,
                                 "type parameter '%s' cannot be compared with '=='/'!=' because it has no 'Eq' bound (add '%s: Eq' to require one)",
                                 type_name(lt), type_name(lt));
+                } else if (lt.kind == TY_STRUCT && find_struct(module, lt.struct_name) != NULL &&
+                           find_struct(module, lt.struct_name)->thread_bound) {
+                    /* Without this the message blames "one of its fields", which is a lie: the
+                     * field is an `int` and perfectly comparable. What is not comparable is the
+                     * handle, because that int is an index into a native table and two of them
+                     * say nothing about the contents. */
+                    ziman_error("type", e->line, e->col,
+                                "'%s' is a thread-bound handle and cannot be compared with '=='/'!=': its contents "
+                                "live behind an opaque index, so two handles tell you nothing about what is in them. "
+                                "Compare the snapshots instead ('snapshot(a) == snapshot(b)')",
+                                type_name(lt));
                 } else {
                     ziman_error("type", e->line, e->col,
                                 "struct '%s' cannot be compared with '=='/'!=' because one of its fields is not a comparable type",

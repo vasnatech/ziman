@@ -1415,6 +1415,15 @@ cannot see. Hand over the finished value -- `snapshot(x)` for any of the four, a
 as an array -- not the handle itself. For a struct written in Ziman this attribute gives only the
 compile-time refusals (no native check).
 
+**A thread-bound type is neither comparable nor hashable**, and neither is anything holding one:
+`==` on two handles is a type error, `hash` of one is, and a struct with a handle field is refused
+as a `Map` key or `Set` element. The contents live behind an opaque index into a native table, so
+two handles say nothing about what is in them -- comparing the snapshots (`snapshot(a) ==
+snapshot(b)`) is the thing that was meant. Until 2026-10-13 this was accidentally *allowed*,
+because a handle is a struct whose one field is an `int`: two empty `MutableArray`s compared
+unequal, `hash` of one was stable only within a run, and such a struct keyed a `Map` on a pointer
+value.
+
 **A type named `Mutable*` must be thread-bound**, and the compiler checks it: `Mutable` followed by
 an uppercase letter (or on its own) is a claim of family membership, and a plain value wearing the
 name would make "every `Mutable*` type belongs to the thread that made it" untrue. A `struct`

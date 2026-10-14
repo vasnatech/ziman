@@ -1,0 +1,9 @@
+// A handle's contents live behind an opaque index into a native table, so comparing two of them
+// compares pointer values that mean nothing across runs. This used to be *accidentally* allowed --
+// the struct's one field is an int, so the generic field-by-field rule said yes, and two empty
+// MutableArrays compared unequal. That is identity equality wearing value equality's clothes.
+fn main() {
+    val a = mutable_array_new<int>()
+    val b = mutable_array_new<int>()
+    print(a == b)
+}

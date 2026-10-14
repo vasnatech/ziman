@@ -1,0 +1,6 @@
+// The other half of the same decision: a handle's hash was stable only within a single run, so a
+// struct containing one was accepted as a Map key and keyed on a pointer value -- exactly where a
+// memoisation key or a node comparison goes wrong.
+fn main() {
+    print(hash(mutable_array_new<int>()))
+}

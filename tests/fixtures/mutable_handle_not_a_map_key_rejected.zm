@@ -1,0 +1,11 @@
+// Transitive, and it needs no extra code: once the handle itself is not comparable, the ordinary
+// field-by-field rule carries the refusal out to anything holding one. Here the message is the
+// right one -- `Holder` really does have a field that is not comparable.
+struct Holder {
+    slot: MutableArray<int>
+}
+
+fn main() {
+    val m = Map<Holder, int> {}
+    print(len(m))
+}
