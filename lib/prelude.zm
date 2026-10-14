@@ -769,3 +769,321 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
         None { err(err_supplier()) }
     }
 }
+
+// ---------------------------------------------------------------- array algorithms
+// Promoted from the `collections` module (F120), so that an array's own helpers need no more
+// of an import than a Map's `map_filter` or a Set's `set_union` do -- arrays were the one
+// collection whose library lived behind a `use`. Each is `array_`-prefixed, which is what lets
+// `array_find`, `array_count` and `array_join` exist without taking `find`, `count` or `join`
+// from anyone: the bare `join` is the path join over strings and keeps that meaning.
+//
+// Every one returns a new array (or a Map, for the last three) and leaves its argument
+// untouched. Type arguments are written out at the call, since Ziman does not infer them.
+
+// collections.zm -- sorting, searching and higher-order helpers for arrays, in ordinary
+// Ziman. `Map<K, V>` and `Set<T>` are built-in types, not part of this module (see
+// docs/SYNTAX.md "Maps and sets"); `Option<T>` lives in lib/prelude.zm and is always
+// available bare.
+//
+// Every function returns a new array and leaves its argument untouched (arrays are
+// immutable). Type arguments are written out at the call, since Ziman does not infer them:
+// `collections.map<int, string>(numbers, label)`. A function argument is a named function or
+// a lambda, and a lambda may use the enclosing function's immutable locals.
+
+// The positions of `keys` in ascending order: the array of indices that, read in order,
+// visits `keys` smallest first. Stable: equal keys keep their input order. `sort` and
+// `sort_by_keys` are built on this.
+fn array_sort_indices<K: Ord>(keys: [K]) -> [int] {
+    return array_order_of<K>(keys, false)
+}
+
+// The positions of `keys` in descending order. Also stable: equal keys keep their input
+// order (this is not the ascending result reversed, which would flip ties).
+fn array_sort_indices_desc<K: Ord>(keys: [K]) -> [int] {
+    return array_order_of<K>(keys, true)
+}
+
+// Packed numbers and strings are sorted natively; anything else (a struct, an enum, a bigint)
+// by the merge sort `sort_positions`, calling `compare`.
+fn array_order_of<K: Ord>(keys: [K], descending: bool) -> [int] {
+    if is_sortable_scalars<K>(keys) {
+        return sort_scalar_order<K>(keys, descending)
+    }
+    if descending {
+        return sort_positions(len(keys), fn(a, b) { compare(keys[b], keys[a]) })
+    }
+    return sort_positions(len(keys), fn(a, b) { compare(keys[a], keys[b]) })
+}
+
+// `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a caller sorts by
+// a field or a computed value without a comparator function. The two arrays differing in length
+// is a bug in the caller's own logic (both are always the program's own arrays, never data from
+// outside it), not a recoverable condition -- a fatal error naming both lengths, the same policy
+// every programmer-error case in the library follows now (see docs/DESIGN.md's "Programmer
+// errors are fatal" entry), not a `Result` a caller could forget to check.
+fn array_sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> [T] {
+    if len(items) != len(keys) {
+        val mismatch: Result<[T], string> = err(format("sort_by_keys: {} items but {} keys", len(items), len(keys)))
+        return unwrap(mismatch)
+    }
+    return permute<T>(items, array_sort_indices<K>(keys))
+}
+
+// The descending form of `sort_by_keys`.
+fn array_sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> [T] {
+    if len(items) != len(keys) {
+        val mismatch: Result<[T], string> = err(format(
+            "sort_by_keys_desc: {} items but {} keys",
+            len(items),
+            len(keys)
+        ))
+        return unwrap(mismatch)
+    }
+    return permute<T>(items, array_sort_indices_desc<K>(keys))
+}
+
+// True when no element is greater than the one after it (an empty or one-element array is).
+fn array_is_sorted<T: Ord>(items: [T]) -> bool {
+    for i in 1..len(items) {
+        if compare(items[i - 1], items[i]) > 0 {
+            return false
+        }
+    }
+    return true
+}
+
+// In an already sorted array: the position of the first element that is not less than
+// `target` -- where `target` would be inserted to keep the order, before any equal
+// elements. `len(sorted)` when every element is smaller. O(log n).
+fn array_lower_bound<T: Ord>(sorted: [T], target: T) -> int {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) < 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+// In an already sorted array: the position of the first element greater than `target` --
+// just after any equal elements. `upper_bound - lower_bound` is how many equal `target`.
+fn array_upper_bound<T: Ord>(sorted: [T], target: T) -> int {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) <= 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+// The position of the first element equal to `target` in an already sorted array, or None.
+// O(log n).
+fn array_binary_search<T: Ord>(sorted: [T], target: T) -> Option<int> {
+    val at = array_lower_bound<T>(sorted, target)
+    return if at < len(sorted) && compare(sorted[at], target) == 0 {
+        Option<int>.Some(at)
+    } else {
+        Option<int>.None
+    }
+}
+
+// The first element for which `test` is true, or None.
+fn array_find<T>(items: [T], test: fn(T) -> bool) -> Option<T> {
+    for item in items {
+        if test(item) {
+            return Option<T>.Some(item)
+        }
+    }
+    return Option<T>.None
+}
+
+// The first element, or None for an empty array.
+fn array_first<T>(items: [T]) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[0]) } else { Option<T>.None }
+}
+
+// The last element, or None for an empty array.
+fn array_last<T>(items: [T]) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[len(items) - 1]) } else { Option<T>.None }
+}
+
+// The element whose `key` is smallest (the first such, on a tie), or None for an empty array.
+fn array_min_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) < 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+// The element whose `key` is largest (the first such, on a tie), or None for an empty array.
+fn array_max_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) > 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+// Left to right: `f(f(initial, items[0]), items[1])` and so on.
+fn array_fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A {
+    var acc = initial
+    for item in items {
+        acc = f(acc, item)
+    }
+    return acc
+}
+
+// How many elements `test` is true for.
+fn array_count<T>(items: [T], test: fn(T) -> bool) -> int {
+    var n = 0
+    for item in items {
+        if test(item) {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+// True when `test` holds for at least one element (false for an empty array).
+fn array_any<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if test(item) {
+            return true
+        }
+    }
+    return false
+}
+
+// True when `test` holds for every element (true for an empty array).
+fn array_all<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if !test(item) {
+            return false
+        }
+    }
+    return true
+}
+
+// Calls `f` on every element, in order, for its effect.
+fn array_for_each<T>(items: [T], f: fn(T)) {
+    for item in items {
+        f(item)
+    }
+}
+
+// The distinct elements, each at its first position: `distinct([3, 1, 3, 2, 1])` is `[3, 1, 2]`.
+fn array_distinct<T: Eq + Hash>(items: [T]) -> [T] {
+    val seen = mutable_set_new<T>()
+    val out = mutable_array_new<T>()
+    for item in items {
+        if !contains(seen, item) {
+            mutable_set_add(seen, item)
+            mutable_array_push(out, item)
+        }
+    }
+    return snapshot(out)
+}
+
+// The elements grouped by `key`: a map from each key to the elements that have it, in input
+// order, with the keys in the order they first appear.
+fn array_group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
+    val builders = mutable_map_new<K, MutableArray<T>>()
+    for item in items {
+        val k = key(item)
+        val found = mutable_map_get(builders, k)
+        if Some(b) = found {
+            mutable_array_push(b, item)
+        } else {
+            val started = mutable_array_new<T>(capacity: 4)
+            mutable_array_push(started, item)
+            mutable_map_set(builders, k, started)
+        }
+    }
+    val groups = mutable_map_new<K, [T]>()
+    for k, group in snapshot(builders) {
+        mutable_map_set(groups, k, snapshot(group))
+    }
+    return snapshot(groups)
+}
+
+// How many times each distinct element occurs: `array_frequencies<string>(["a", "b", "a"])` is `{a: 2, b: 1}`, keys
+// in the order they first appear.
+// The pieces of `items` with `sep` between them. Written because there was no concise way to do
+// this at all: a cold model reaching for `parts.join("-")` was pointed at the builtin `join`, which
+// is a *path* join over strings and cannot take a list, and then had to write a loop with `format`
+// (docs/reviews/tasks.md F35). `sep` goes between, not after, so a single element joins to itself
+// and an empty array to the empty string.
+fn array_join(items: [string], sep: string) -> string {
+    var out = ""
+    for i in 0..len(items) {
+        if i > 0 {
+            out = concat(out, sep)
+        }
+        out = concat(out, items[i])
+    }
+    return out
+}
+
+// The total of `items`. A left fold with `+`, which is what anyone writes by hand, but `+` on
+// `int` traps on overflow in this language -- so this either answers the exact total or stops with
+// an error, and never the silently wrong number a wrapping sum would give.
+//
+// Integers only, deliberately: a float total depends on summation order for precision, so the
+// right answer there is a decision (naive, pairwise, Kahan) rather than a default, and `fold`
+// already expresses whichever one a caller wants.
+fn array_sum(items: [int]) -> int {
+    var total = 0
+    for item in items {
+        total = total + item
+    }
+    return total
+}
+
+fn array_frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
+    val counts = mutable_map_new<T, int>()
+    for item in items {
+        val seen = mutable_map_get(counts, item)
+        mutable_map_set(counts, item, switch seen {
+            Some(n) { n + 1 }
+            None { 1 }
+        })
+    }
+    return snapshot(counts)
+}
+
+// The elements keyed by `key`: a map from each key to the element that has it. When two elements share a
+// key the later one wins, like `set` on a map; use `group_by` to keep them all. Keys are in the order they
+// first appear.
+fn array_index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T> {
+    val index = mutable_map_new<K, T>()
+    for item in items {
+        mutable_map_set(index, key(item), item)
+    }
+    return snapshot(index)
+}

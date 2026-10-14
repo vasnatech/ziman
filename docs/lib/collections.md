@@ -1,14 +1,9 @@
 # `collections`
 
-Sorting, searching and higher-order helpers for arrays, in ordinary
-Ziman. `Map<K, V>` and `Set<T>` are built-in types, not part of this module (see
-docs/SYNTAX.md "Maps and sets"); `Option<T>` lives in lib/prelude.zm and is always
-available bare.
-
-Every function returns a new array and leaves its argument untouched (arrays are
-immutable). Type arguments are written out at the call, since Ziman does not infer them:
-`collections.map<int, string>(numbers, label)`. A function argument is a named function or
-a lambda, and a lambda may use the enclosing function's immutable locals.
+The array library, now a thin layer over the bare `array_*` helpers in
+lib/prelude.zm (F120). Each function here forwards to its `array_` counterpart and exists only
+so that the call sites written before the promotion keep working; `array_sort_with(xs, cmp)` is
+the spelling to write. See docs/ROADMAP.md on what remains of this module's refactor.
 
 `use collections` -- or `use collections.Name` to bring one item in bare.
 
@@ -70,8 +65,6 @@ Some(2)
 fig
 {apple: 4 units, fig: 9 units}
 ```
-
-## Sorting
 
 ### `sort_indices`
 
@@ -148,8 +141,6 @@ pub fn is_sorted<T: Ord>(items: [T]) -> bool
 
 True when no element is greater than the one after it (an empty or one-element array is).
 
-## Searching
-
 ### `lower_bound`
 
 ```
@@ -217,8 +208,6 @@ pub fn max_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T>
 ```
 
 The element whose `key` is largest (the first such, on a tie), or None for an empty array.
-
-## Transforming and testing
 
 ### `reverse`
 

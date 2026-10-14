@@ -1172,3 +1172,231 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
 The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
 Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
 formatted message) is skipped entirely on the common Some path.
+
+## Array algorithms
+
+### `array_sort_indices`
+
+```
+fn array_sort_indices<K: Ord>(keys: [K]) -> [int]
+```
+
+The positions of `keys` in ascending order: the array of indices that, read in order,
+visits `keys` smallest first. Stable: equal keys keep their input order. `sort` and
+`sort_by_keys` are built on this.
+
+### `array_sort_indices_desc`
+
+```
+fn array_sort_indices_desc<K: Ord>(keys: [K]) -> [int]
+```
+
+The positions of `keys` in descending order. Also stable: equal keys keep their input
+order (this is not the ascending result reversed, which would flip ties).
+
+### `array_order_of`
+
+```
+fn array_order_of<K: Ord>(keys: [K], descending: bool) -> [int]
+```
+
+Packed numbers and strings are sorted natively; anything else (a struct, an enum, a bigint)
+by the merge sort `sort_positions`, calling `compare`.
+
+### `array_sort_by_keys`
+
+```
+fn array_sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> [T]
+```
+
+`items` ordered by `keys[i]` for each `items[i]` -- the key array is how a caller sorts by
+a field or a computed value without a comparator function. The two arrays differing in length
+is a bug in the caller's own logic (both are always the program's own arrays, never data from
+outside it), not a recoverable condition -- a fatal error naming both lengths, the same policy
+every programmer-error case in the library follows now (see docs/DESIGN.md's "Programmer
+errors are fatal" entry), not a `Result` a caller could forget to check.
+
+### `array_sort_by_keys_desc`
+
+```
+fn array_sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> [T]
+```
+
+The descending form of `sort_by_keys`.
+
+### `array_is_sorted`
+
+```
+fn array_is_sorted<T: Ord>(items: [T]) -> bool
+```
+
+True when no element is greater than the one after it (an empty or one-element array is).
+
+### `array_lower_bound`
+
+```
+fn array_lower_bound<T: Ord>(sorted: [T], target: T) -> int
+```
+
+In an already sorted array: the position of the first element that is not less than
+`target` -- where `target` would be inserted to keep the order, before any equal
+elements. `len(sorted)` when every element is smaller. O(log n).
+
+### `array_upper_bound`
+
+```
+fn array_upper_bound<T: Ord>(sorted: [T], target: T) -> int
+```
+
+In an already sorted array: the position of the first element greater than `target` --
+just after any equal elements. `upper_bound - lower_bound` is how many equal `target`.
+
+### `array_binary_search`
+
+```
+fn array_binary_search<T: Ord>(sorted: [T], target: T) -> Option<int>
+```
+
+The position of the first element equal to `target` in an already sorted array, or None.
+O(log n).
+
+### `array_find`
+
+```
+fn array_find<T>(items: [T], test: fn(T) -> bool) -> Option<T>
+```
+
+The first element for which `test` is true, or None.
+
+### `array_first`
+
+```
+fn array_first<T>(items: [T]) -> Option<T>
+```
+
+The first element, or None for an empty array.
+
+### `array_last`
+
+```
+fn array_last<T>(items: [T]) -> Option<T>
+```
+
+The last element, or None for an empty array.
+
+### `array_min_by`
+
+```
+fn array_min_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T>
+```
+
+The element whose `key` is smallest (the first such, on a tie), or None for an empty array.
+
+### `array_max_by`
+
+```
+fn array_max_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T>
+```
+
+The element whose `key` is largest (the first such, on a tie), or None for an empty array.
+
+### `array_fold`
+
+```
+fn array_fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A
+```
+
+Left to right: `f(f(initial, items[0]), items[1])` and so on.
+
+### `array_count`
+
+```
+fn array_count<T>(items: [T], test: fn(T) -> bool) -> int
+```
+
+How many elements `test` is true for.
+
+### `array_any`
+
+```
+fn array_any<T>(items: [T], test: fn(T) -> bool) -> bool
+```
+
+True when `test` holds for at least one element (false for an empty array).
+
+### `array_all`
+
+```
+fn array_all<T>(items: [T], test: fn(T) -> bool) -> bool
+```
+
+True when `test` holds for every element (true for an empty array).
+
+### `array_for_each`
+
+```
+fn array_for_each<T>(items: [T], f: fn(T))
+```
+
+Calls `f` on every element, in order, for its effect.
+
+### `array_distinct`
+
+```
+fn array_distinct<T: Eq + Hash>(items: [T]) -> [T]
+```
+
+The distinct elements, each at its first position: `distinct([3, 1, 3, 2, 1])` is `[3, 1, 2]`.
+
+### `array_group_by`
+
+```
+fn array_group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]>
+```
+
+The elements grouped by `key`: a map from each key to the elements that have it, in input
+order, with the keys in the order they first appear.
+
+### `array_join`
+
+```
+fn array_join(items: [string], sep: string) -> string
+```
+
+How many times each distinct element occurs: `array_frequencies<string>(["a", "b", "a"])` is `{a: 2, b: 1}`, keys
+in the order they first appear.
+The pieces of `items` with `sep` between them. Written because there was no concise way to do
+this at all: a cold model reaching for `parts.join("-")` was pointed at the builtin `join`, which
+is a *path* join over strings and cannot take a list, and then had to write a loop with `format`
+(docs/reviews/tasks.md F35). `sep` goes between, not after, so a single element joins to itself
+and an empty array to the empty string.
+
+### `array_sum`
+
+```
+fn array_sum(items: [int]) -> int
+```
+
+The total of `items`. A left fold with `+`, which is what anyone writes by hand, but `+` on
+`int` traps on overflow in this language -- so this either answers the exact total or stops with
+an error, and never the silently wrong number a wrapping sum would give.
+
+Integers only, deliberately: a float total depends on summation order for precision, so the
+right answer there is a decision (naive, pairwise, Kahan) rather than a default, and `fold`
+already expresses whichever one a caller wants.
+
+### `array_frequencies`
+
+```
+fn array_frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int>
+```
+
+### `array_index_by`
+
+```
+fn array_index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T>
+```
+
+The elements keyed by `key`: a map from each key to the element that has it. When two elements share a
+key the later one wins, like `set` on a map; use `group_by` to keep them all. Keys are in the order they
+first appear.
