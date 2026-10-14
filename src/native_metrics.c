@@ -352,25 +352,37 @@ typedef struct {
     size_t len, cap;
 } Buf;
 
+/* Measured, then formatted straight into the buffer -- two passes over the arguments rather than
+ * one through a fixed `char tmp[512]`. The scratch buffer version used `vsnprintf`'s return, which
+ * is the length it *would* have written, as the `memcpy` size, so anything longer than 511 bytes
+ * read past the end of a stack array. A 600-byte `help` string over-read it by 113 bytes.
+ *
+ * The visible damage was worse than the over-read and is what makes this more than a hygiene fix:
+ * the bytes copied past `tmp` include the NUL `vsnprintf` wrote at `tmp[511]`, so the finished
+ * buffer ends at the first long line as far as `strlen` is concerned, and the whole rest of the
+ * `/metrics` response -- every other metric, and the long line's own value -- silently vanished.
+ * Measuring first also removes the truncation rather than making it honest: a `help` string has no
+ * length limit, so there is no length to clamp to. */
 static void buf_appendf(Buf *b, const char *fmt, ...) {
-    va_list ap;
+    va_list ap, measure;
     va_start(ap, fmt);
-    char tmp[512];
-    int n = vsnprintf(tmp, sizeof tmp, fmt, ap);
-    va_end(ap);
-    if (n < 0) return;
+    va_copy(measure, ap);
+    int n = vsnprintf(NULL, 0, fmt, measure);
+    va_end(measure);
+    if (n < 0) { va_end(ap); return; }
     size_t need = b->len + (size_t)n + 1;
     if (need > b->cap) {
         size_t cap = b->cap ? b->cap * 2 : 1024;
         while (cap < need) cap *= 2;
         char *grown = ziman_xrealloc(b->data, cap);
-        if (!grown) return;
+        if (!grown) { va_end(ap); return; }
         b->data = grown;
         b->cap = cap;
     }
-    memcpy(b->data + b->len, tmp, (size_t)n);
+    /* Writes the terminating NUL itself, within the `+ 1` that `need` reserved. */
+    vsnprintf(b->data + b->len, (size_t)n + 1, fmt, ap);
+    va_end(ap);
     b->len += (size_t)n;
-    b->data[b->len] = '\0';
 }
 
 /* A whole number is written without a fraction, and anything else in the shortest form that reads

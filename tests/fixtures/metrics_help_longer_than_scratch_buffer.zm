@@ -1,0 +1,20 @@
+// A `help` string longer than the 512-byte scratch buffer `buf_appendf` used to format through.
+// That buffer was filled by `vsnprintf`, whose return is the length it *would* have written, and
+// that return was then the `memcpy` size -- so this line over-read the stack by 113 bytes, and the
+// copied garbage carried the NUL at `tmp[511]` into the buffer, ending the whole response there as
+// far as `strlen` could tell. The counter's own value line and every metric after it vanished.
+//
+// So the assertion is not about the long line itself: it is that everything *after* it survives.
+// The last metric line is checked rather than a line count, so that adding a built-in metric does not
+// break this fixture for an unrelated reason -- what matters is that the response reaches its end.
+use metrics
+
+fn main() {
+    val _ = metrics.counter("long_help_total", "HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH")
+    metrics.increment("long_help_total")
+    val lines = split(metrics.render(), "\n")
+    print(format("help line chars: {}", len(lines[0])))
+    print(format("next: {}", lines[1]))
+    print(format("next: {}", lines[2]))
+    print(format("reaches the last metric: {}", starts_with(lines[len(lines) - 2], "ziman_metrics_dropped_series_total ")))
+}

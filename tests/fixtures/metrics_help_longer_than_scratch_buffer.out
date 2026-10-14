@@ -1,0 +1,4 @@
+help line chars: 623
+next: # TYPE long_help_total counter
+next: long_help_total 1
+reaches the last metric: true
