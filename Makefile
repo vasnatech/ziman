@@ -445,10 +445,24 @@ syntax-check: $(BIN)
 # was failing on main for a while precisely because nothing did.
 # ---------------------------------------------------------------- sanitizers
 #
-# One target per sanitizer: build the plain (no-collector) configuration with it and run the whole
-# fixture suite. That configuration is the one that exercises this project's own collector, which is
-# where most of the C is; for the Boehm configuration add $(GC_FLAGS) and $(GC_LIB) to the line, as
-# the `gc` target does.
+# One target per sanitizer. Each builds **both** configurations -- the plain one and the collector
+# one -- and runs the whole fixture suite against each, because a sanitizer only sees the code the
+# preprocessor left in the translation unit it compiled.
+#
+# Until 2026-10-14 all three built the plain configuration only, and the comment here told you to
+# add $(GC_FLAGS) and $(GC_LIB) by hand for the other one. Nobody did. That is the whole of
+# docs/reviews/tasks.md F123, and the size of the hole is measurable: 218 non-blank lines across 17
+# files sit inside `#ifdef ZIMAN_GC` and were never once compiled by these targets, the largest
+# being gc_boehm_roots.c (47), arena.c (32) and native_sqlite.c (29). Both of the concurrency bugs
+# the last review raised are in there -- A41 in native_net.c and A42's finalizer deadlock in
+# native_sqlite.c -- so "clean under the sanitizers" described a configuration nobody ships and said
+# nothing about the one everybody runs. Beyond the #ifdefs, src/zgc.h redirects malloc/calloc/
+# realloc/strdup to the collector and makes `free` a no-op program-wide, so ASan's allocator
+# interceptors see a different program in the two builds even where the source is identical.
+#
+# The two builds are now one `$(call san_link,...)` apart in the same recipe, so the next person to
+# change one cannot leave the other behind -- exactly the failure mode I2 found three times over
+# (A43, F130, F131: each the untouched sibling of a fix).
 #
 # There was no such target until 2026-10-08, so every review built its own -- and a standing one
 # would have caught A19's data race and A22's undefined memcpy without a review at all
@@ -481,60 +495,77 @@ syntax-check: $(BIN)
 # On its first run `make tsan` found two real races -- one on a socket handle's descriptor and one
 # TSan was right to flag and wrong about (a signal handler writing a `volatile sig_atomic_t`, which
 # the standard permits and a sanitizer cannot see). Both are fixed, A24 in docs/reviews/tasks.md, and
-# all three targets are green on this tree. That is the argument for having them: nothing else here
+# all six builds are green on this tree. That is the argument for having them: nothing else here
 # could have found either.
 #
 # The runtime libraries are packaged separately on some distributions (libasan, libubsan, libtsan on
 # Fedora) and were not installed on the machine these targets were written on, so each recipe passes
 # $(LDFLAGS) through: a runtime unpacked elsewhere can be used without editing this file, and a link
-# that fails for that reason says so instead of printing a wall of ld output.
+# that fails for that reason says so instead of printing a wall of ld output. That path is not
+# hypothetical -- it is how all six builds below were first run here, from an `rpm2cpio` of the
+# Fedora packages into a scratch directory with `libasan.so` symlinked to `libasan.so.8.0.0`:
+#
+#     make asan LDFLAGS="-L/path/to/lib -Wl,-rpath,/path/to/lib"
+#
+# gcc's own libasan_preinit.o ships with the compiler, so the shared objects are the only part
+# `dnf download libasan libubsan libtsan` has to supply, and no root is needed.
 SAN_CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Wpedantic -fno-omit-frame-pointer -pthread
 SAN_LIBS := -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
 # Deliberately without -fwrapv, which the ordinary build carries: with it, signed overflow is
 # defined and UBSan's integer checks have nothing to say. This is the build that found A21.
 UBSAN_CHECKS := -fsanitize=undefined,signed-integer-overflow,float-divide-by-zero,float-cast-overflow,bounds-strict,pointer-overflow,unreachable
 
-asan: $(SRC) $(CORELIB_HEADERS)
-	@$(CC) $(SAN_CFLAGS) -fwrapv -fsanitize=address -DZIMAN_VERSION='"$(ZIMAN_VERSION)-asan"' \
-	    -o ziman-asan $(SRC) $(LDFLAGS) $(SAN_LIBS) 2> .asan-link.log \
-	    || { cat .asan-link.log; rm -f .asan-link.log; \
-	         echo "make asan: that link needs the AddressSanitizer runtime (libasan), which this machine may not have"; \
-	         echo "  install it (Fedora: dnf install libasan), or point at an unpacked copy:"; \
-	         echo "  make asan LDFLAGS=\"-L/path/to/lib -Wl,-rpath,/path/to/lib\""; exit 1; }
-	@rm -f .asan-link.log
-	ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1 \
-	    BIN=./ziman-asan SKIP=stack_depth_deep_recursion_works ./tests/run_tests.sh
-	@if command -v openssl >/dev/null 2>&1; then \
-	    ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1 BIN=./ziman-asan ./tests/run_tls_tests.sh; \
-	else echo "make asan: TLS suite skipped -- openssl is not on PATH"; fi
+# $(call san_link,<target>,<variant suffix>,<-fsanitize flags>,<runtime package>,<extra cflags>,<extra link inputs>)
+# Links ziman-<target><suffix>. The suffix is empty for the plain configuration and `-gc` for the
+# collector one; everything else about the two builds is identical, which is the point.
+define san_link
+@$(CC) $(SAN_CFLAGS) $(5) $(3) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-$(1)$(2)"' \
+    -o ziman-$(1)$(2) $(SRC) $(LDFLAGS) $(6) $(SAN_LIBS) 2> .$(1)$(2)-link.log \
+    || { cat .$(1)$(2)-link.log; rm -f .$(1)$(2)-link.log; \
+         echo "make $(1): that link needs the $(4) runtime, which this machine may not have"; \
+         echo "  install it (Fedora: dnf install $(4)), or point at an unpacked copy:"; \
+         echo "  make $(1) LDFLAGS=\"-L/path/to/lib -Wl,-rpath,/path/to/lib\""; exit 1; }
+@rm -f .$(1)$(2)-link.log
+endef
 
-ubsan: $(SRC) $(CORELIB_HEADERS)
-	@$(CC) $(SAN_CFLAGS) $(UBSAN_CHECKS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-ubsan"' \
-	    -o ziman-ubsan $(SRC) $(LDFLAGS) $(SAN_LIBS) 2> .ubsan-link.log \
-	    || { cat .ubsan-link.log; rm -f .ubsan-link.log; \
-	         echo "make ubsan: that link needs the UndefinedBehaviorSanitizer runtime (libubsan), which this machine may not have"; \
-	         echo "  install it (Fedora: dnf install libubsan), or point at an unpacked copy:"; \
-	         echo "  make ubsan LDFLAGS=\"-L/path/to/lib -Wl,-rpath,/path/to/lib\""; exit 1; }
-	@rm -f .ubsan-link.log
-	UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-	    BIN=./ziman-ubsan ./tests/run_tests.sh
-	@if command -v openssl >/dev/null 2>&1; then \
-	    UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 BIN=./ziman-ubsan ./tests/run_tls_tests.sh; \
-	else echo "make ubsan: TLS suite skipped -- openssl is not on PATH"; fi
+ASAN_OPTS := detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1
+UBSAN_OPTS := print_stacktrace=1:halt_on_error=1
+TSAN_OPTS := halt_on_error=1:history_size=4
 
-tsan: $(SRC) $(CORELIB_HEADERS)
-	@$(CC) $(SAN_CFLAGS) -fwrapv -fsanitize=thread -DZIMAN_VERSION='"$(ZIMAN_VERSION)-tsan"' \
-	    -o ziman-tsan $(SRC) $(LDFLAGS) $(SAN_LIBS) 2> .tsan-link.log \
-	    || { cat .tsan-link.log; rm -f .tsan-link.log; \
-	         echo "make tsan: that link needs the ThreadSanitizer runtime (libtsan), which this machine may not have"; \
-	         echo "  install it (Fedora: dnf install libtsan), or point at an unpacked copy:"; \
-	         echo "  make tsan LDFLAGS=\"-L/path/to/lib -Wl,-rpath,/path/to/lib\""; exit 1; }
-	@rm -f .tsan-link.log
-	TSAN_OPTIONS=halt_on_error=1:history_size=4 \
-	    BIN=./ziman-tsan SKIP=stack_depth_trace_bounded ./tests/run_tests.sh
-	@if command -v openssl >/dev/null 2>&1; then \
-	    TSAN_OPTIONS=halt_on_error=1:history_size=4 BIN=./ziman-tsan ./tests/run_tls_tests.sh; \
-	else echo "make tsan: TLS suite skipped -- openssl is not on PATH"; fi
+asan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
+	$(call san_link,asan,,-fwrapv -fsanitize=address,libasan,,)
+	$(call san_link,asan,-gc,-fwrapv -fsanitize=address,libasan,$(GC_FLAGS),$(GC_LIB))
+	@for bin in ziman-asan ziman-asan-gc; do \
+	    echo "=== $$bin ==="; \
+	    ASAN_OPTIONS=$(ASAN_OPTS) BIN=./$$bin SKIP=stack_depth_deep_recursion_works \
+	        ./tests/run_tests.sh || exit 1; \
+	    if command -v openssl >/dev/null 2>&1; then \
+	        ASAN_OPTIONS=$(ASAN_OPTS) BIN=./$$bin ./tests/run_tls_tests.sh || exit 1; \
+	    else echo "make asan: TLS suite skipped -- openssl is not on PATH"; fi; \
+	done
+
+ubsan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
+	$(call san_link,ubsan,,$(UBSAN_CHECKS),libubsan,,)
+	$(call san_link,ubsan,-gc,$(UBSAN_CHECKS),libubsan,$(GC_FLAGS),$(GC_LIB))
+	@for bin in ziman-ubsan ziman-ubsan-gc; do \
+	    echo "=== $$bin ==="; \
+	    UBSAN_OPTIONS=$(UBSAN_OPTS) BIN=./$$bin ./tests/run_tests.sh || exit 1; \
+	    if command -v openssl >/dev/null 2>&1; then \
+	        UBSAN_OPTIONS=$(UBSAN_OPTS) BIN=./$$bin ./tests/run_tls_tests.sh || exit 1; \
+	    else echo "make ubsan: TLS suite skipped -- openssl is not on PATH"; fi; \
+	done
+
+tsan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
+	$(call san_link,tsan,,-fwrapv -fsanitize=thread,libtsan,,)
+	$(call san_link,tsan,-gc,-fwrapv -fsanitize=thread,libtsan,$(GC_FLAGS),$(GC_LIB))
+	@for bin in ziman-tsan ziman-tsan-gc; do \
+	    echo "=== $$bin ==="; \
+	    TSAN_OPTIONS=$(TSAN_OPTS) BIN=./$$bin SKIP=stack_depth_trace_bounded \
+	        ./tests/run_tests.sh || exit 1; \
+	    if command -v openssl >/dev/null 2>&1; then \
+	        TSAN_OPTIONS=$(TSAN_OPTS) BIN=./$$bin ./tests/run_tls_tests.sh || exit 1; \
+	    else echo "make tsan: TLS suite skipped -- openssl is not on PATH"; fi; \
+	done
 
 sanitizers: asan ubsan tsan
 
@@ -604,4 +635,5 @@ lib-coverage: $(BIN)
 docs-check: lib-manual-check not-yet-check experimental-check doc-module-check syntax-check design-index-check
 
 clean:
-	rm -f $(BIN) ziman-nogc ziman-allocprofile ziman-asan ziman-ubsan ziman-tsan ziman-vg src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
+	rm -f $(BIN) ziman-nogc ziman-allocprofile ziman-asan ziman-ubsan ziman-tsan ziman-vg \
+	    ziman-asan-gc ziman-ubsan-gc ziman-tsan-gc src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)

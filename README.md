@@ -239,10 +239,13 @@ target it calls was previously a command with no occasion that ran it.
 
 The sanitizers are separate for a different reason -- they are slow, not unsupported: `make asan`,
 `make ubsan`, `make tsan` (or `make sanitizers` for all three) rebuild and run the suite under
-Clang's or GCC's instrumentation, `make valgrind` runs a narrow set of fixtures and every C unit
-test under Memcheck with `tools/valgrind.supp` for the conservative stack scanner's deliberate
-reads, and `make analyze` runs GCC's static analyzer. If a sanitizer runtime isn't installed
-system-wide, pass its location in `LDFLAGS`.
+Clang's or GCC's instrumentation. Each builds the binary **twice**, with the collector and without,
+and runs the suite against both: 218 lines across 17 files sit behind `#ifdef ZIMAN_GC`, so a
+single-configuration run leaves the shipped build unexamined. `make valgrind` runs a narrow set
+of fixtures and every C unit test under Memcheck with `tools/valgrind.supp` for the conservative
+stack scanner's deliberate reads, and `make analyze` runs GCC's static analyzer. If a sanitizer
+runtime isn't installed system-wide, pass its location in `LDFLAGS` -- `dnf download libasan`
+and an `rpm2cpio` into a scratch directory is enough, and needs no root.
 
 ## Documentation
 

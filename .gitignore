@@ -4,6 +4,10 @@ ziman-allocprofile
 ziman-asan
 ziman-ubsan
 ziman-tsan
+# the same three with the collector compiled in -- `make asan`/`ubsan`/`tsan` build both
+ziman-asan-gc
+ziman-ubsan-gc
+ziman-tsan-gc
 ziman-vg
 third_party/
 vendor/bdwgc/gc.o
