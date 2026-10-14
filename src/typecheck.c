@@ -627,6 +627,11 @@ static const char *builder_reader_for(const char *conversion) {
     if (strcmp(conversion, "ab_to_array") == 0) return "len, ab_get or 'for x in <the builder>'";
     if (strcmp(conversion, "sb_to_string") == 0) return "len, or a StringBuilder you finish once after the loop";
     if (strcmp(conversion, "setb_to_set") == 0) return "len or setb_contains";
+    /* `snapshot` is the one name for all four conversions (F100), so which per-type reader to
+     * advise is not knowable from the call -- this pass is syntactic and has no types. The
+     * reporting loop resolves it from whichever appender the loop body actually uses and only
+     * falls back to this when none of them is the reason. */
+    if (strcmp(conversion, "snapshot") == 0) return "len, contains or 'for x in <the builder>'";
     return NULL;
 }
 
@@ -720,13 +725,31 @@ static void lint_builder_read_by_conversion(const Stmt *body) {
         if (s->kind != STMT_VAL && s->kind != STMT_VAR) continue;
         const char *conversion = NULL, *builder = NULL;
         if (!finds_builder_conversion(s->as.decl.init, &conversion, &builder)) continue;
+        /* `snapshot` names all four conversions, so the builder's kind comes from the append the
+         * loop does rather than from the call: whichever of the four appenders is used identifies
+         * it, and only one of them can type-check against the same variable anyway. That also
+         * recovers the precise per-type advice, which a single generic message would have lost. */
+        const int is_snapshot = strcmp(conversion, "snapshot") == 0;
+        static const char *const ALL_CONVERSIONS[] = {"ab_to_array", "sb_to_string", "mapb_to_map", "setb_to_set", NULL};
         for (int j = i + 1; j < stmts->count; j++) {
             if (statement_reassigns(stmts->items[j], builder)) break;
-            if (!statement_appends_to(stmts->items[j], appender_for(conversion), builder)) continue;
+            const char *advice = builder_reader_for(conversion);
+            if (is_snapshot) {
+                int matched = 0;
+                for (size_t k = 0; ALL_CONVERSIONS[k] != NULL && !matched; k++) {
+                    if (statement_appends_to(stmts->items[j], appender_for(ALL_CONVERSIONS[k]), builder)) {
+                        advice = builder_reader_for(ALL_CONVERSIONS[k]);
+                        matched = 1;
+                    }
+                }
+                if (!matched) continue;
+            } else if (!statement_appends_to(stmts->items[j], appender_for(conversion), builder)) {
+                continue;
+            }
             ziman_warning(g_lint_file, s->line, s->col,
                           "'%s' converts the whole of '%s' on every pass of this loop, and the loop keeps "
                           "adding to it (quadratic); read it in place with %s",
-                          conversion, builder, builder_reader_for(conversion));
+                          conversion, builder, advice);
             g_lint_count++;
             break;
         }
