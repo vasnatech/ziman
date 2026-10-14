@@ -955,7 +955,7 @@ fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>]
 ```
 
 The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
-say, with `collections.sort_by_keys`) or taking the first few. Written with the type arguments:
+say, with `array_sort_by_keys`) or taking the first few. Written with the type arguments:
 `map_entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
 
 ### `map_map_values`
@@ -1039,7 +1039,7 @@ native fn array_map<T, U>(items: [T], f: fn(T) -> U) -> [U]
 ```
 
 The bare array helpers, callable with no import, beside the bare `map_*` and `set_*` helpers
-that `Map` and `Set` already have. `collections.map`/`filter`/`flat_map`/`reverse`/`sort`/
+that `Map` and `Set` already have. `array_map`/`filter`/`flat_map`/`reverse`/`sort`/
 `sort_desc`/`sort_with` are thin wrappers over these and stay for the call sites that use them;
 these are the canonical spelling. The first four are native: one allocation for the result
 instead of a MutableArray's growing buffers.
@@ -1096,7 +1096,7 @@ fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
 
 `items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
 order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
-`collections.sort_by_keys` covers the single-key case.
+`array_sort_by_keys` covers the single-key case.
 
 ### `Guard`
 

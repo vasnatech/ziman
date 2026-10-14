@@ -537,7 +537,7 @@ static void self_qualify_expr(Expr *e, SelfQualifyCtx *ctx) {
              * pass (b)'s job, same as a struct literal's already-dotted
              * `type_name`. A bare one always either matches one of this
              * module's own enums, matches a named import
-             * (`use collections.Option`), or is genuinely undefined --
+             * (`use json.Json`), or is genuinely undefined --
              * never something pass (b) needs to resolve. `member_name`
              * is never touched, same as a struct field name never is. */
             if (strchr(e->as.enum_access.enum_name, '.') == NULL) {
@@ -927,17 +927,17 @@ static int method_call_hint(const char *member, const char *qualifier, char *hin
     } else if (strcmp(member, "lines") == 0) {
         snprintf(hint, cap, "lines(%s)", qualifier);
     } else if (strcmp(member, "join") == 0) {
-        snprintf(hint, cap, "collections.join(%s, sep) (the builtin 'join' is a path join over strings)", qualifier);
+        snprintf(hint, cap, "array_join(%s, sep) (the builtin 'join' is a path join over strings)", qualifier);
     } else if (strcmp(member, "sort") == 0 || strcmp(member, "sorted") == 0) {
-        snprintf(hint, cap, "collections.sort<T>(%s), after 'use collections'", qualifier);
+        snprintf(hint, cap, "array_sort<T>(%s)", qualifier);
     } else if (strcmp(member, "keys") == 0) {
         snprintf(hint, cap, "map_keys(%s), which answers a Set (set_items turns it into an array)", qualifier);
     } else if (strcmp(member, "values") == 0) {
         snprintf(hint, cap, "map_values(%s)", qualifier);
     } else if (strcmp(member, "reverse") == 0 || strcmp(member, "reversed") == 0) {
-        snprintf(hint, cap, "collections.reverse(%s) for an array, or reverse_string(%s) for text", qualifier, qualifier);
+        snprintf(hint, cap, "array_reverse(%s) for an array, or reverse_string(%s) for text", qualifier, qualifier);
     } else if (strcmp(member, "sum") == 0) {
-        snprintf(hint, cap, "collections.sum(%s) for ints, or collections.fold for anything else", qualifier);
+        snprintf(hint, cap, "array_sum(%s) for ints, or array_fold for anything else", qualifier);
     } else {
         /* The free-function *form*, not a claim that such a function exists -- this pass has no
          * scope to look the name up in, and the measured cases above are where guessing wrong
@@ -1542,7 +1542,7 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, const char *
      * per-name form below has always rejected its own version of this; this is the same rule for the other
      * form, where the consequence of not having it was worse -- a wrong function quietly called. */
     /* --lint: an `as` that binds the name the import would bind anyway. `use controller/admin as admin`
-     * and `use collections.sort as sort` are lines that do nothing -- a whole-module import's qualifier
+     * and `use json.Json as Json` are lines that do nothing -- a whole-module import's qualifier
      * is already the path's last segment, and a per-name import already binds the imported name. There
      * were 16 of the first kind in the reference backend. This lives here rather than with the other
      * lint rules in typecheck.c because a module's `use` list is the loader's: it is already gone from

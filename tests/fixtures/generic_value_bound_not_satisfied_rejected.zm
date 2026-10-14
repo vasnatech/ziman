@@ -1,4 +1,3 @@
-use collections
 
 fn main() {
     val f = array_sort<bool>

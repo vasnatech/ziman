@@ -91,7 +91,6 @@ Bundled with the binary (`use name`); every `pub` signature is in
 
 | Module | What it is |
 | --- | --- |
-| `collections` | sorting, searching, `map`/`filter`/`fold` |
 | `fs`, `os`, `clock`, `random` | files, environment and process, time source, entropy |
 | `time` | `java.time`-shaped dates, times, durations, instants |
 | `uuid`, `number`, `crypto` | UUIDs, number formatting/parsing and binary encodings, SHA-256/HMAC/PBKDF2/base64 |

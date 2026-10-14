@@ -344,8 +344,8 @@ for x in seen { ... }                    // a set has one binder
   gives; an unannotated lambda takes its types *from* the expected type, so it has none to contribute
   and the call needs them written: `map_map_values<K, V, R>(m, f)` applies `f: fn(V) -> R` to every value (keys/order unchanged);
   `set_map<T, U>(s, f)` merges elements mapping to the same value; `map_entries<K, V>(m)` is an
-  array of `MapEntry<K, V> { key, value }` in map order. In `collections`: `frequencies<T>`
-  counts into `Map<T, int>`, `index_by<T, K>(items, key)` builds `Map<K, T>` (later element wins;
+  array of `MapEntry<K, V> { key, value }` in map order. Arrays into maps: `array_frequencies<T>`
+  counts into `Map<T, int>`, `array_index_by<T, K>(items, key)` builds `Map<K, T>` (later element wins;
   `group_by` keeps them all), `join(items: [string], sep)` puts `sep` *between* the pieces (the
   builtin `join` is a path join over strings, not this), and `sum(items: [int])` totals them --
   integers only, since `+` traps on overflow so the answer is exact or an error, where a float
@@ -500,7 +500,6 @@ function that returns nothing). Two things are values of that type: the name of
 a top-level function, and a *lambda*, an anonymous function written in place.
 
 ```ziman
-use collections
 
 fn double(n: int) -> int { return n * 2 }
 fn is_even(n: int) -> bool { return n % 2 == 0 }
@@ -512,7 +511,7 @@ fn apply(f: fn(int) -> int, x: int) -> int {
 fn main() {
     print(apply(double, 21))          // 42
     val keep = is_even                // a val of type fn(int) -> bool
-    val evens = collections.filter<int>([1, 2, 3, 4], keep)
+    val evens = array_filter<int>([1, 2, 3, 4], keep)
 }
 ```
 
@@ -560,7 +559,7 @@ fn main() {
   channels -- so a function value can cross a thread (`spawn f(x)` still names statically).
 - **What they can't do**: be compared/hashed/ordered/serialized (a derive on a struct with a
   function field errors); `print` shows `<function name>`.
-- **In the standard library**: `collections.map`/`filter`/`flat_map`/`fold`/`count`/`any`/`all`/
+- **In the standard library**: `array_map`/`filter`/`flat_map`/`fold`/`count`/`any`/`all`/
   `find`/`first`/`last`/`min_by`/`max_by`/`distinct`/`group_by`/`for_each`/`sort_with`, type
   arguments written at the call. Pass a lambda for anything needing the enclosing scope.
 
@@ -1096,7 +1095,7 @@ fn main() {
   is the standard example (a missing/unreadable file is a `Result`, not a crash).
 - **A bundled *core module*** is ordinary `.zm` source embedded in the `ziman` binary, resolved
   by `use` when no project file by that name exists (docs/CORELIB.md lists every one and every
-  `pub` signature): `collections`, `fs`, `os`, `clock`, `random`, `uuid` (`Uuid`, RFC 4122 v4,
+  `pub` signature): `fs`, `os`, `clock`, `random`, `uuid` (`Uuid`, RFC 4122 v4,
   satisfies `Eq`/`Hash`/`Ord`), `time`, `number`, `crypto`, `json` (`Json` is a recursive enum,
   `JArray([Json])`/`JObject(Map<string, Json>)`; satisfies `Eq`/`Hash` but not `Ord` — no
   `json_compare`, so `compare`/`sort` on `Json` is a type error), `properties`, `log`, `net`,
@@ -1118,7 +1117,7 @@ name), each with a rule the bundled modules follow and new ones should too:
    dispatches on: `<snake_type>_to_json`/`_compare`/`_to_sql`).
 3. **A module defining types names operations after the type** (`uuid_new`,
    `localdate_add_days`) — the type is the noun, so rule 2 applies and the name is safe bare
-   or qualified. Generic combinators on built-in types (`collections.map`/`filter`/`sort`)
+   or qualified. Generic combinators on built-in types (`array_map`/`filter`/`sort`)
    are rule 1.
 4. **Conversions are `<from>_to_<to>`/`<to>_from_<from>`**, parsing is `parse`/`<type>_parse`,
    and a fallible call returns a `Result`, never a `try_` prefix.
@@ -1249,7 +1248,7 @@ fn main() {
   its last listed transition. `zoneid_to_string`/`_from_string` are the bare name; two
   `ZoneId`s of the same zone compare equal.
 - **No `<`/`>` on any of these seven types** -- use `compare`/`Ord` instead: each has a
-  `_compare(a, b) -> int` function, which is what makes it `Ord` (works in `collections.sort`,
+  `_compare(a, b) -> int` function, which is what makes it `Ord` (works in `array_sort`,
   as an `Ord`-bounded type argument). `==`/`!=` come free from structural equality on the
   plain `int`/struct fields. Calendar year is assumed non-negative throughout (no BCE).
 
@@ -1369,13 +1368,12 @@ fn main() {
 ## Ordering (`Ord`, `compare`, sorting)
 
 ```ziman ignore: `people`, `patients` and `ages` stand for the reader's own arrays
-use collections
 
 #[derive(Ord)]
 struct Person { last: string  first: string }
 
-val sorted = collections.sort<Person>(people)               // by last, then first
-val by_age = collections.sort_by_keys<Patient, int>(patients, ages)
+val sorted = array_sort<Person>(people)               // by last, then first
+val by_age = array_sort_by_keys<Patient, int>(patients, ages)
 ```
 
 - **`< > <= >=`** work on `int`/`float`/`bigint`/`decimal`/`byte`/`string` (byte-by-byte then
@@ -1394,7 +1392,7 @@ val by_age = collections.sort_by_keys<Patient, int>(patients, ages)
   itself be `Ord`; a fieldless struct can't derive it. Generic: `#[derive(Ord)] struct Pair<A,
   B>` writes `pair_compare<A: Ord, B: Ord>`, so `Pair<int, string>` is `Ord` but `Pair<int,
   bool>` is rejected.
-- **`collections.sort<T: Ord>(items) -> [T]`** is a stable merge sort (new array). Sort by
+- **`array_sort<T: Ord>(items) -> [T]`** is a stable merge sort (new array). Sort by
   something other than the type's own order with **`sort_by_keys<T, K: Ord>(items, keys) ->
   [T]`** (a fatal error, not `Result`, on mismatched lengths -- a caller's own bug; see
   docs/DESIGN.md's "Programmer errors are fatal") or a comparator function via
@@ -2616,7 +2614,7 @@ a type error.
   *terminates* the last line rather than starting an empty one, so `"a\nb\n"` and `"a\nb"` both
   have two lines. A blank line in the middle is a real line and stays; an empty string has none.
 - `reverse_string(s) -> string` — `s` with its characters in the opposite order, reversing *code
-  points* rather than bytes, so text outside ASCII comes back as text. `collections.reverse` is the
+  points* rather than bytes, so text outside ASCII comes back as text. `array_reverse` is the
   array version. `is_empty(s) -> bool` (`s == ""`);
   `is_blank(s) -> bool` (empty or only whitespace). `to_upper`/`to_lower(s) -> string` — ASCII only.
 - `parse_int`/`parse_float`/`parse_bigint`/`parse_decimal(s) -> Result<_, string>` — parses all
@@ -2659,10 +2657,14 @@ a type error.
   `array_sort<T: Ord>(items)`, `array_sort_desc<T: Ord>(items)` and
   `array_sort_with<T>(items, cmp)`. All return a new array. The sorts are stable in both
   directions, so `array_sort_desc` is not `array_sort` reversed (that would flip ties).
-  `collections.map`/`filter`/`flat_map`/`reverse`/`sort`/`sort_desc`/`sort_with` are thin
-  wrappers over these and still work; these are the canonical spelling. The rest of
-  `collections` — `fold`, `group_by`, `index_by`, `binary_search`, `min_by` and the others —
-  stays behind `use collections`.
+  The rest of the array library is bare too, and needs no import either: `array_fold`,
+  `array_find`, `array_first`, `array_last`, `array_min_by`, `array_max_by`, `array_count`,
+  `array_any`, `array_all`, `array_for_each`, `array_distinct`, `array_join`, `array_sum`,
+  `array_sort_indices`/`_desc`, `array_sort_by_keys`/`_desc`, `array_is_sorted`,
+  `array_lower_bound`, `array_upper_bound`, `array_binary_search`, `array_group_by`,
+  `array_frequencies` and `array_index_by`. There was a `collections` module holding these until
+  2026-10-14; it is gone, and arrays are now the same shape as `Map` and `Set`, whose `map_*` and
+  `set_*` helpers have always been bare.
 - `ok(x) -> Result<T, E>` / `err(e) -> Result<T, E>` — construct a `Result` (only where the
   missing type parameter is inferable from context; see "Result").
 - `is_ok(r) -> bool`; `unwrap(r) -> T` (runtime error if `Err`); `unwrap_err(r) -> E` (runtime

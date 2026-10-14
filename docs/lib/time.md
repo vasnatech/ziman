@@ -4,7 +4,7 @@ Dates, times, durations and instants, modeled on java.time and written in ordina
 Ziman (the only native code is `clock.now_raw`, which reads the system clock).
 
 Seven types, all plain structs with `==`/`!=` and a `_compare` function that makes them `Ord`
-(so `compare` and `collections.sort` work on them):
+(so `compare` and `array_sort` work on them):
 
 
 ```

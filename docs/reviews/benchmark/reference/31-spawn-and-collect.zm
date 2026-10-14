@@ -1,5 +1,3 @@
-use collections
-
 fn square(n: int, out: Channel<int>) {
     send(out, n * n)
 }

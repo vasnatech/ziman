@@ -1,5 +1,3 @@
-use collections
-
 fn show(label: string, values: [int]) {
     val parts = mutable_array_new<string>()
     for v in array_sort<int>(values) {

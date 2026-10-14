@@ -1,4 +1,3 @@
-use collections
 
 fn apply_twice(f: fn(int) -> int, x: int) -> int {
     return f(f(x))

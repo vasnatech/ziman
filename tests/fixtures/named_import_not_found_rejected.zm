@@ -1,4 +1,4 @@
-use collections.NoSuchThing
+use math.NoSuchThing
 
 fn main() {
     print(1)

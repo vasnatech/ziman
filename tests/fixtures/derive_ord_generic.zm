@@ -1,4 +1,3 @@
-use collections
 
 #[derive(Ord)]
 pub struct Pair<A, B> {

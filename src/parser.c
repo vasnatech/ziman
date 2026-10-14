@@ -2430,7 +2430,7 @@ static UseDecl parse_use_decl(Parser *p) {
     u.alias_col = 0;
 
     if (match(p, TOK_DOT)) {
-        /* Per-name import: `use collections.HashMap`. Casing isn't
+        /* Per-name import: `use json.Json`. Casing isn't
          * checked against what the name actually turns out to be (the
          * loader hasn't resolved it yet, and doesn't need to -- the
          * target's own declaration already enforced its casing when it

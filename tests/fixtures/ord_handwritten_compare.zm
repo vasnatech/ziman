@@ -1,4 +1,3 @@
-use collections
 
 // A hand-written <type>_compare is all the Ord bound needs: descending by score.
 struct Entry {

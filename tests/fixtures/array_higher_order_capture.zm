@@ -1,4 +1,3 @@
-use collections
 
 // A lambda uses what it captures where the removed `_ctx` forms threaded an
 // explicit value through.

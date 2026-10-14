@@ -334,7 +334,7 @@ static void print_type(const char *prefix, Type t) {
 }
 
 /* `<T: Ord, K>` -- the bounds matter as much as the names here: the benchmark's runs had to
- * discover by probing that `collections.sort` needs its type argument written out, which a
+ * discover by probing that `array_sort` needs its type argument written out, which a
  * signature without its type parameters cannot tell anyone. */
 static void print_type_params(const TypeParamList *tp) {
     if (tp->count == 0) return;

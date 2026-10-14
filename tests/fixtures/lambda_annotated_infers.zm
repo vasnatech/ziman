@@ -4,7 +4,6 @@
 // inference pass excluded every lambda, annotated or not, because an unannotated one needs to be told
 // what it should be before its parameters have types at all. SYNTAX.md described the narrower rule it
 // was meant to be ("a lambda's result type isn't inferred"), so the behaviour was wider than the promise.
-use collections
 
 fn double(n: int) -> int {
     return n * 2

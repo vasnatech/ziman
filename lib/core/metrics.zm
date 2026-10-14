@@ -27,7 +27,6 @@
 //
 // Labels are a `Map<string, string>`. The key a series is stored under is built here, with the
 // names sorted, so the same labels given in a different order are the same series.
-use collections
 use os
 
 native fn declare_raw(name: string, kind: string, help: string, bounds: string) -> bool

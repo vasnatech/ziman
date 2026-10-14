@@ -1160,7 +1160,7 @@ static Value native_truncate_chars(Value *args, int argc, int line, int col) {
     return string_slice(args[0], 0, pos);
 }
 
-/* ---- sorting scalars natively (collections.sort and friends) -------------------------
+/* ---- sorting scalars natively (array_sort and friends) -------------------------------
  * A packed [int] / [float] / [byte], or an array of strings, is sorted by a stable merge
  * sort over positions, avoiding a per-comparison interpreter call. Anything else (a struct,
  * an enum, bigint, ...) is left to collections' generic sort. */

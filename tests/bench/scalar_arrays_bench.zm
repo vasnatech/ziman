@@ -1,5 +1,4 @@
 // A million-element [int], [float] and [bool]: build with a builder, sum, sort, compare.
-use collections
 
 fn main() {
     val n = 1000000

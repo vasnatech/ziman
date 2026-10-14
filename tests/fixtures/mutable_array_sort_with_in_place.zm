@@ -10,7 +10,6 @@
 //
 // Stability is checked on the boxed path with genuine ties -- twelve elements over three keys, so
 // each key's four tags must come out in input order (0 3 6 9, not 9 6 3 0).
-use collections
 
 struct P {
     key: int

@@ -1857,8 +1857,8 @@ static int type_mentions_any(Type t, TypeParamList *params) {
  * infer" error, for an argument that may not even matter to inference). */
 /* Whether a lambda's own type is knowable without being told what it should be: every parameter has a
  * written type and the return type is written too. Such a lambda is exactly as informative to inference
- * as a named function, which already works -- `collections.map(xs, double)` infers while
- * `collections.map(xs, fn(n: int) -> int { return n * 2 })` did not, for no reason the writer of the
+ * as a named function, which already works -- `array_map(xs, double)` infers while
+ * `array_map(xs, fn(n: int) -> int { return n * 2 })` did not, for no reason the writer of the
  * second could see. docs/SYNTAX.md said the exclusion applied to a lambda's *result type* not being
  * inferred, which is the unannotated case, so the behaviour was also wider than the promise. */
 static int lambda_is_fully_annotated(const Expr *e) {

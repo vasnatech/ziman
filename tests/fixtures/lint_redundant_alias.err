@@ -1,3 +1,0 @@
-tests/fixtures/lint_redundant_alias.zm:6:20: warning: 'as collections' binds the name this import would bind anyway; drop it
-tests/fixtures/lint_redundant_alias.zm:7:24: warning: 'as parse_json' binds the name this import would bind anyway; drop it
-tests/fixtures/lint_redundant_alias.zm:9:23: warning: 'as LocalDate' binds the name this import would bind anyway; drop it

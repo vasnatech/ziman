@@ -1,6 +1,0 @@
-use collections.Option
-
-fn main() {
-    val a = Option<int>.Some(5)
-    print(Option.unwrap_Some(a))
-}

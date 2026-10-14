@@ -7,7 +7,6 @@
  * see src/<name>_source.h. Add a new core module by adding its name to
  * the Makefile's CORELIB_MODULES list, #include-ing the header it
  * generates here, and adding one line to CORE_MODULES below. */
-#include "collections_source.h"
 #include "url_source.h"
 #include "fs_source.h"
 #include "log_source.h"
@@ -60,7 +59,6 @@ typedef struct {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Woverlength-strings"
 static const CoreModule CORE_MODULES[] = {
-    {"collections", COLLECTIONS_SOURCE},
     {"url", URL_SOURCE},
     {"fs", FS_SOURCE},
     {"log", LOG_SOURCE},

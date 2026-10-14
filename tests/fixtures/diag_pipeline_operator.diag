@@ -1,2 +1,2 @@
 # On the `|>` itself, on its own line in the pipeline.
-lexical 8:9 there is no '|>' pipeline operator in Ziman
+lexical 7:9 there is no '|>' pipeline operator in Ziman

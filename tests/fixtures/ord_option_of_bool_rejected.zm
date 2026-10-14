@@ -1,4 +1,3 @@
-use collections
 
 fn main() {
     val xs = [Option<bool>.None]

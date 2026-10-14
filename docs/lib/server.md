@@ -609,7 +609,7 @@ pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O>
 pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]>
 ```
 
-The list counterpart, which is the one worth having: written out it is a `collections.map` into a
+The list counterpart, which is the one worth having: written out it is a `array_map` into a
 `JArray` at every route that answers a collection.
 
 ### `text_encoder`

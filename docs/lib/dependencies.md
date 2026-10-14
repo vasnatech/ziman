@@ -10,7 +10,6 @@ flowchart LR
     subgraph group_core["core"]
         bits["bits"]
         clock["clock"]
-        collections["collections"]
         compress["compress"]
         crypto["crypto"]
         csv["csv"]
@@ -89,9 +88,7 @@ flowchart LR
     log --> json
     log --> number
     log --> os
-    metrics --> collections
     metrics --> os
-    migrate --> collections
     migrate --> crypto
     migrate --> datasource
     migrate --> db
@@ -116,7 +113,6 @@ flowchart LR
     properties --> fs
     properties --> os
     server --> clock
-    server --> collections
     server --> compress
     server --> http
     server --> json
@@ -153,7 +149,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `collections`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
+| 0 | `bits`, `clock`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
 | 1 | `crypto`, `json`, `os`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `toml`, `yaml` |
 | 3 | `csv`, `log`, `mysql`, `pg`, `process`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
@@ -167,7 +163,6 @@ otherwise: everything on a layer depends only on lower layers.
 | `bits` | - | - |
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `server`, `time`, `uuid` |
-| `collections` | - | `metrics`, `migrate`, `server` |
 | `compress` | - | `client`, `server` |
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
@@ -179,8 +174,8 @@ otherwise: everything on a layer depends only on lower layers.
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `json`, `number`, `os` | - |
 | `math` | - | - |
-| `metrics` | `collections`, `os` | `server` |
-| `migrate` | `collections`, `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
+| `metrics` | `os` | `server` |
+| `migrate` | `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
 | `mime` | - | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
@@ -193,7 +188,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `properties` | `fs`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |
-| `server` | `clock`, `collections`, `compress`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
+| `server` | `clock`, `compress`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
 | `test` | - | - |
 | `thread` | - | - |

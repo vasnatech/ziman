@@ -559,8 +559,8 @@ TokenList lex(const char *source) {
                 if (peek(&lx) == '>') {
                     ziman_error("lexical", line, col,
                                 "there is no '|>' pipeline operator in Ziman -- nest the calls, as "
-                                "'collections.sum(collections.map(evens, triple))', or give each step its own "
-                                "'val', as 'val evens = collections.filter(xs, is_even)'");
+                                "'array_sum(array_map(evens, triple))', or give each step its own "
+                                "'val', as 'val evens = array_filter(xs, is_even)'");
                 }
                 if (line_opens_type_decl(&lx, start)) {
                     ziman_error("lexical", line, col,

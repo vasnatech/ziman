@@ -3,7 +3,6 @@
 // an `[T]`, a `string`, a `Map<K, V>` or a `Set<T>`. Nothing about the copy changes, which is
 // the half worth pinning: the builder stays usable and a later change does not touch a snapshot
 // already taken.
-use collections
 
 fn main() {
     val ab = mutable_array_new<int>()

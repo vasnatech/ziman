@@ -2,7 +2,7 @@
 #define ZIMAN_CORELIB_H
 
 /* Bundled core modules -- ordinary Ziman source, one file per module
- * under lib/core/ (currently collections.zm and fs.zm), embedded
+ * under lib/core/ (fs.zm, json.zm and the rest), embedded
  * directly into the ziman binary at build time (see the Makefile's rule
  * generating src/<name>_source.h from each lib/core/<name>.zm), so
  * `use collections`/`use fs` work from any project with no local copy
@@ -10,10 +10,10 @@
  *
  * Unlike the prelude (prelude.h), a core module is NOT merged into every
  * program: it's only parsed and loaded when a program actually `use`s
- * it, and a whole-module `use` stays qualified (`collections.HashMap`,
+ * it, and a whole-module `use` stays qualified (`fs.read_text`,
  * never a bare `HashMap`) exactly like any other module -- this is a
  * stdlib, not language-level machinery. (A bare name is still possible
- * via a per-name import, `use collections.HashMap` -- see loader.c's
+ * via a per-name import, `use fs.read_text` -- see loader.c's
  * resolve_named_imports -- but that's a separate, general mechanism,
  * not something core modules get for free.) See loader.c's load_module:
  * a project-relative file of the same name always wins if one exists,

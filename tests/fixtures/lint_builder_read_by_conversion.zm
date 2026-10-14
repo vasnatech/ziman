@@ -8,7 +8,6 @@
 //
 // So this fixture's `.diag` expecting exactly one diagnostic is the whole point: a rule that fired
 // on the other three would be noise and would be turned off.
-use collections
 
 // WARNS: convert, read, keep growing -- `mutable_map_get_or` reads it in place.
 fn counted(words: [string]) -> int {

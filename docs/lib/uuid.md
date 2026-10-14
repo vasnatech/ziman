@@ -5,7 +5,7 @@ text form.
 
 A `Uuid` is 16 bytes. It satisfies `Eq`, `Hash` and `Ord` (structurally, and byte-wise for
 order), so it works as a struct field, a `Map` key or a `Set` element and sorts with
-`collections.sort<Uuid>`. Its text is the lowercase 8-4-4-4-12 dashed form; text is read case
+`array_sort<Uuid>`. Its text is the lowercase 8-4-4-4-12 dashed form; text is read case
 insensitively but must have exactly that shape (no braces, no missing dashes). It has
 `_to_json` / `_from_json` and `_to_sql` / `_from_sql` functions, so `#[derive(Json)]` and
 `#[derive(Row)]` handle a `Uuid` field: a JSON string, and a TEXT column.
@@ -140,4 +140,4 @@ pub fn uuid_compare(a: Uuid, b: Uuid) -> int
 ```
 
 Byte-wise order (the order of the canonical text), negative, zero or positive; what makes
-`Uuid` satisfy `Ord`, so it works with `collections.sort<Uuid>` and `compare`.
+`Uuid` satisfy `Ord`, so it works with `array_sort<Uuid>` and `compare`.

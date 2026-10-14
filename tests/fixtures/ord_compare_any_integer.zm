@@ -1,4 +1,3 @@
-use collections
 
 // compare functions may return ANY integer: only the sign counts.
 struct Score {

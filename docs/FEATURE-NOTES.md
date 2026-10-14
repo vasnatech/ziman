@@ -53,7 +53,7 @@ uses, and real OS-thread concurrency via `spawn` and a thread-safe
 of mutable state, everyone else reaches it by message — rather than
 shared memory and locks).
 
-## Generics, bounds and `collections`
+## Generics, bounds and the array library
 
 `struct`, `enum`, and top-level `fn` can all take type parameters
 (`struct Box<T> { value: T }`), with explicit type arguments required
@@ -62,13 +62,14 @@ no inference, since `Value` is runtime-type-erased and nothing is ever
 monomorphized. A type parameter can be bounded with `Eq`, `Hash` and/or `Ord`
 (`<K: Eq + Hash>`) to use `==`/`hash()`/`compare()` on it inside a generic
 body (`hash` is structural, so a `Uuid`, an enum or a struct of hashable
-fields works as a `Map` key) (`collections.sort<T: Ord>` is a stable merge sort, and
+fields works as a `Map` key) (`array_sort<T: Ord>` is a stable merge sort, and
 `#[derive(Ord)]` writes a struct's or enum's order); these are the only
 three bounds Ziman has — there's no general
 trait/interface system (see docs/DESIGN.md's Generics entry for why,
-and what's deliberately left undecided). A small `collections` module
-built on this (`lib/core/collections.zm`) provides sorting, searching and the
-higher-order array helpers. (`Map<K, V>` and `Set<T>` were `HashMap`/`HashSet`
+and what's deliberately left undecided). The array library is built on
+this -- `array_sort`, `array_fold`, `array_group_by` and the rest, bare in
+`lib/prelude.zm` since 2026-10-14, where they were a `collections` module
+needing a `use` before that. (`Map<K, V>` and `Set<T>` were `HashMap`/`HashSet`
 there, bucket arrays with O(bucket_count) writes; they are now built-in types on
 a persistent hash trie -- see docs/SYNTAX.md "Maps and sets".)
 (`Option<T>` used to live here too — see the prelude paragraph below for
@@ -76,14 +77,14 @@ where it moved and why. `Box<T>` also used to live here — removed
 outright, not moved, since nothing ever actually used it beyond being
 the first generic struct ever written; `struct Box<T> { value: T }`
 above is illustrative syntax anyone can still write, just not a
-`collections` export anymore.)
+library export anymore.)
 
 ## Bundled core modules: `random`, `uuid`, `clock`, `time`
 
 It's also one of the *bundled core modules* (22 now) (alongside `fs`, mentioned
 above, plus `random`/`uuid`/`clock`/`time`/`json`/`number`/`datasource`/`db`/`net`/`crypto`/`pg`/`http` below): each one's source is
-embedded into the `ziman` binary at build time, so `use collections`/
-`use fs` work from any project with no local copy needed — a
+embedded into the `ziman` binary at build time, so `use fs`/
+`use json` work from any project with no local copy needed — a
 project-relative file of the same name still wins if one exists, but
 this is the fallback that means one usually doesn't have to. `random`
 is one native function, `random_bytes(n: int) -> [byte]`, reading real
@@ -96,7 +97,7 @@ has to parse), version/variant bits set with plain
 integer arithmetic rather than bitwise operators (Ziman has none).
 `Uuid` satisfies `Eq`, `Hash` (a structural hash, like `==`) and `Ord`
 (`uuid_compare`), so it works as a struct field, a `HashMap` key and in
-`collections.sort`. `clock` is one more native function, `now_raw() ->
+`array_sort`. `clock` is one more native function, `now_raw() ->
 [int]`, reading the system clock — Ziman's other source of genuine
 non-determinism. `time` is pure Ziman on top of it: seven `java.time`-
 shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`,
@@ -116,7 +117,7 @@ start and reused for the process's whole lifetime. None of the nine new scalar/s
 across `byte`/`uuid`/`time` (`byte`, `Uuid`, and the `time` module's
 seven) got `<`/`>` — every one instead gets an explicit `_compare(a, b)
 -> int` (written when Ziman had no Ord bound; that function is now what
-makes each of them `Ord`, so `compare` and `collections.sort` work on them).
+makes each of them `Ord`, so `compare` and `array_sort` work on them).
 
 ## `json` and `#[derive(Json)]`
 
@@ -305,7 +306,7 @@ missing capability first: `native fn` couldn't take type parameters at
 all before this (a parser gap, not a deliberate restriction — the type
 checker's own generic-instantiation logic never special-cased native
 functions once the syntax was accepted). Unlike every other bundled
-module (`collections`, `fs`, ...), `lib/prelude.zm` is never
+module (`fs`, `json`, ...), `lib/prelude.zm` is never
 reachable through `use` at all — everything it declares is already
 unqualified everywhere, so
 there'd be nothing to gain and a redundant path to create. See
