@@ -4543,7 +4543,10 @@ with the options Ziman needs (`ALL_INTERIOR_POINTERS`, `GC_THREADS`, parallel
 marking). Building needs a C compiler and `ar`, nothing else.
 
 **Measurements** (`tests/bench/server_load.sh`, sample backend, 100 requests per
-phase, in-memory SQLite; 16 cores):
+phase, in-memory SQLite; 16 cores). The script's `post`/`list` phases measured
+`/patients` when these runs were taken and measure `/api/me/allergies` now (see
+its repair below), so the shape holds but the absolute numbers are not
+reproducible verbatim:
 
 | build | RSS after health / post / list | list p50 / p99 |
 | --- | --- | --- |
@@ -6348,7 +6351,7 @@ Building a five-workload comparison against CPython 3.14 -- the honest version o
 | 200k inserts + 200k lookups | 26.76s | **0.81s** (33x) |
 | build-60k-and-drop, 12 rounds | 3.47s | **0.45s** (7.7x) |
 
-**What it costs, measured rather than assumed, because collecting less often is a memory trade.** Peak RSS on the monotonically-growing 200k map: 98.9MB to 125.7MB, +27%. On the grow-then-drop cycle -- a long-running server's actual shape -- 55.2MB to 58.8MB, a small constant rather than a ratchet, because the threshold derives from *reserved-at-last-collect*, which shrinks when `gc_heap_sweep` reclaims whole blocks, so the trigger tightens again as soon as the heap does. On steady-state string churn (4M `format` calls) peak RSS is unchanged at ~41MB. The README's claim that the sample backend stays around 40MB under load is therefore intact; `tests/bench/server_load.sh`, which would have measured that directly, turns out not to run in this environment at all -- its server dies at startup -- and fails identically on the pre-change binary, so it is a pre-existing breakage and its own small task.
+**What it costs, measured rather than assumed, because collecting less often is a memory trade.** Peak RSS on the monotonically-growing 200k map: 98.9MB to 125.7MB, +27%. On the grow-then-drop cycle -- a long-running server's actual shape -- 55.2MB to 58.8MB, a small constant rather than a ratchet, because the threshold derives from *reserved-at-last-collect*, which shrinks when `gc_heap_sweep` reclaims whole blocks, so the trigger tightens again as soon as the heap does. On steady-state string churn (4M `format` calls) peak RSS is unchanged at ~41MB. The README's claim that the sample backend stays around 40MB under load is therefore intact; `tests/bench/server_load.sh`, which would have measured that directly, turns out not to run in this environment at all -- its server dies at startup -- and fails identically on the pre-change binary, so it is a pre-existing breakage and its own small task. **Fixed 2026-10-14**: it launched `server.zm`, a path the backend has not had since its entry point became `src/main/ziman/serve.zm`, and it neither checked a status nor failed on one, so three phases of `curl` round trips to a closed port printed as sub-millisecond latencies and exited 0. It now boots the server the way the Python suites do, measures the authenticated allergy endpoints, and exits non-zero on the first bad status.
 
 **Verified.** `./tests/run_tests.sh` 840/840 on both builds; every `gc_*` unit test (these are the ones that would notice a collection that stops happening, and `test-gc-heap` drives real collect/sweep cycles directly); `make test-pg` 11/11; `make test-mysql` 6/6; the real app's suite in full; `make fmt-check` and `make docs-check` clean. `tests/bench/server_concurrency.sh`, three interleaved paired rounds, is flat to about 1-2% better (c=1 629 against 639 req/s, c=8 984 against 993) -- that backend builds nothing large and long-lived per request, so it was never paying the quadratic.
 
