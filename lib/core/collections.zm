@@ -38,18 +38,12 @@ fn order_of<K: Ord>(keys: [K], descending: bool) -> [int] {
 // `items` in ascending order of their own `compare`. `compare` orders any number, string or
 // byte, and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one).
 pub fn sort<T: Ord>(items: [T]) -> [T] {
-    if is_sortable_scalars<T>(items) {
-        return sort_scalars<T>(items, false)
-    }
-    return permute<T>(items, sort_indices<T>(items))
+    return array_sort<T>(items)
 }
 
 // `items` in descending order of their own `compare` (stable).
 pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
-    if is_sortable_scalars<T>(items) {
-        return sort_scalars<T>(items, true)
-    }
-    return permute<T>(items, sort_indices_desc<T>(items))
+    return array_sort_desc<T>(items)
 }
 
 // `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a caller sorts by
@@ -83,7 +77,7 @@ pub fn sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> [T] {
 // an order that is neither the type's own nor a single key -- a two-field ordering, say.
 // Stable. `sort_by_keys` covers the single-key case.
 pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
-    return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
+    return array_sort_with<T>(items, cmp)
 }
 
 // True when no element is greater than the one after it (an empty or one-element array is).

@@ -3684,7 +3684,7 @@ hide that. A function is promoted to the prelude only when it has a counterpart 
 
 ### What this changes outside the three types
 
-**`array_sort`, `array_sort_desc` and `array_sort_with` get promoted** to the prelude, so the
+**`array_sort`, `array_sort_desc` and `array_sort_with` are promoted** to the prelude (**done, F97**), so the
 immutable side is no harder to reach than the mutable one. Otherwise `mutable_array_sort(xs)` would
 be bare while `collections.sort(xs)` needs an import, which in a value-semantics-first language is
 a nudge in exactly the wrong direction -- and it is the rename that creates it. The sorting natives
@@ -3692,11 +3692,14 @@ a nudge in exactly the wrong direction -- and it is the rename that creates it. 
 three thin exports. `collections.sort` and friends stay as the wrappers they already are; 113 call
 sites do not move.
 
-**The four that are already bare get documented.** `array_map`, `array_filter`, `array_flat_map`
+**The four that were already bare are documented** (also F97). `array_map`, `array_filter`, `array_flat_map`
 and `array_reverse` are natives in `lib/prelude.zm` today with *zero* call sites outside the four
 `collections` wrappers that delegate to them -- promoted in fact, invisible in practice, because
 SYNTAX.md lists the bare `map_*` and `set_*` helpers and never mentions them. All seven belong in
 that list.
+
+Both landed ahead of the rename, because neither needs any of it: see F97 in
+docs/reviews/tasks.md.
 
 **`Mutable*` types are thread-bound, as a rule.** One-directional: every `Mutable*` type is
 `#[thread_bound]`, but not every thread-bound type is named `Mutable*` -- `Iter` is not, and after

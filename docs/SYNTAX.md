@@ -2534,6 +2534,16 @@ a type error.
 - `set(arr, i, x) -> [T]` / `remove(arr, i) -> [T]` — element at `i` replaced/removed
   (`[0, len(arr))`, else runtime error). `insert`/`set`/`remove`/`concat_arrays` always copy.
   No "pop" -- indexing already covers peeking.
+- **Array helpers, callable with no import** — the counterparts of the bare `map_*`/`set_*`
+  helpers that `Map` and `Set` already have: `array_map<T, U>(items, f)`,
+  `array_filter<T>(items, keep)`, `array_flat_map<T, U>(items, f)`, `array_reverse<T>(items)`,
+  `array_sort<T: Ord>(items)`, `array_sort_desc<T: Ord>(items)` and
+  `array_sort_with<T>(items, cmp)`. All return a new array. The sorts are stable in both
+  directions, so `array_sort_desc` is not `array_sort` reversed (that would flip ties).
+  `collections.map`/`filter`/`flat_map`/`reverse`/`sort`/`sort_desc`/`sort_with` are thin
+  wrappers over these and still work; these are the canonical spelling. The rest of
+  `collections` — `fold`, `group_by`, `index_by`, `binary_search`, `min_by` and the others —
+  stays behind `use collections`.
 - `ok(x) -> Result<T, E>` / `err(e) -> Result<T, E>` — construct a `Result` (only where the
   missing type parameter is inferable from context; see "Result").
 - `is_ok(r) -> bool`; `unwrap(r) -> T` (runtime error if `Err`); `unwrap_err(r) -> E` (runtime

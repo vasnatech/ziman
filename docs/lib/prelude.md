@@ -844,8 +844,11 @@ two positions): a stable merge sort in two reused buffers.
 native fn array_map<T, U>(items: [T], f: fn(T) -> U) -> [U]
 ```
 
-The natives behind `collections.map`, `filter`, `flat_map` and `reverse`: one allocation for
-the result instead of an ArrayBuilder's growing buffers.
+The bare array helpers, callable with no import, beside the bare `map_*` and `set_*` helpers
+that `Map` and `Set` already have. `collections.map`/`filter`/`flat_map`/`reverse`/`sort`/
+`sort_desc`/`sort_with` are thin wrappers over these and stay for the call sites that use them;
+these are the canonical spelling. The first four are native: one allocation for the result
+instead of an ArrayBuilder's growing buffers.
 
 ### `array_filter`
 
@@ -870,6 +873,36 @@ native fn array_reverse<T>(items: [T]) -> [T]
 ```
 
 See `array_map`.
+
+### `array_sort`
+
+```
+fn array_sort<T: Ord>(items: [T]) -> [T]
+```
+
+`items` in ascending order of their own `compare`, which orders any number, string or byte,
+and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one). Stable:
+equal elements keep their input order. Packed numbers and strings sort natively; anything else
+goes through the merge sort in `sort_positions`.
+
+### `array_sort_desc`
+
+```
+fn array_sort_desc<T: Ord>(items: [T]) -> [T]
+```
+
+`items` in descending order of their own `compare`. Also stable, so this is not `array_sort`'s
+result reversed -- that would flip ties.
+
+### `array_sort_with`
+
+```
+fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
+```
+
+`items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
+order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
+`collections.sort_by_keys` covers the single-key case.
 
 ### `Guard`
 
