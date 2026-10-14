@@ -24,16 +24,16 @@ void env_reset(Env *env) {
     env->count = 0;
 }
 
-int env_define(Env *env, const char *name, Type type, int is_mutable, Value value) {
+EnvDefineResult env_define(Env *env, const char *name, Type type, int is_mutable, Value value) {
     /* `_` is a true discard, not a binding: it never actually goes into `env` (so it never collides with an
      * earlier `_`, and never needs freeing), and reading it back later is the ordinary "use of undefined
      * variable '_'" every other never-declared name gets -- exactly right, since a discarded value has nothing
      * left to read. This is the one place in the whole type checker that treats the name `_` specially: no
      * parser or check_* code needs its own case for it -- a `val`/`var`, a parameter, a loop binder, and a
      * switch or `if` payload binder all go through here. */
-    if (strcmp(name, "_") == 0) return 1;
+    if (strcmp(name, "_") == 0) return ENV_DISCARDED;
     for (int i = 0; i < env->count; i++) {
-        if (strcmp(env->items[i].name, name) == 0) return 0;
+        if (strcmp(env->items[i].name, name) == 0) return ENV_REDECLARED;
     }
     if (env->count == env->capacity) {
         env->capacity = env->capacity == 0 ? 8 : env->capacity * 2;
@@ -46,7 +46,7 @@ int env_define(Env *env, const char *name, Type type, int is_mutable, Value valu
     env->items[env->count].type = type;
     env->items[env->count].value = value;
     env->count++;
-    return 1;
+    return ENV_DEFINED;
 }
 
 static void record_capture(Env *boundary, const Binding *b) {

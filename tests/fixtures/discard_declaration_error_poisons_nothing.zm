@@ -1,0 +1,17 @@
+// `val _ = <an expression that does not check>` used to segfault the compiler. The error recovery
+// marks a failed declaration poisoned, to suppress the follow-on "undefined variable" errors from
+// later uses of the name it failed to bind -- and `_` binds nothing, so it wrote `items[-1]`.
+//
+// Both diagnostics below must appear. The second is the one that matters: with a binding already
+// in this scope the old code wrote the poison marker onto *that* binding instead of crashing, and
+// a poisoned binding's errors are suppressed, so `takes(keep)` passing an int where a string goes
+// was silently swallowed. That is the half with no crash to notice it.
+fn takes(s: string) -> int {
+    return len(s)
+}
+
+fn main() {
+    val keep = 1
+    val _ = nope
+    print(format("{}", takes(keep)))
+}

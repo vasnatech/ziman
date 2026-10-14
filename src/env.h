@@ -70,9 +70,22 @@ void env_free(Env *env); /* frees just this scope's binding array, not values/pa
  * (that list is the type checker's; see the `Env` doc comment above). */
 void env_reset(Env *env);
 
-/* Defines a new binding in `env`'s own scope. Returns 0 and leaves env
- * unchanged if `name` is already bound in this exact scope (redeclaration). */
-int env_define(Env *env, const char *name, Type type, int is_mutable, Value value);
+/* What `env_define` did. The two non-failure answers are distinct because they differ in a way
+ * that has segfaulted the compiler twice: `ENV_DEFINED` leaves a binding as the last element of
+ * `env->items`, and `ENV_DISCARDED` leaves `env` completely untouched, so `items[count - 1]` is
+ * someone else's binding (or, in a fresh scope, out of bounds) and `env_lookup` answers NULL.
+ * A caller that only asks "did this work" may still test the result for truth, since both
+ * answers are non-zero; a caller that then wants to reach the binding it just made must ask
+ * for `ENV_DEFINED` specifically. */
+typedef enum {
+    ENV_REDECLARED = 0, /* already bound in this exact scope; `env` unchanged */
+    ENV_DEFINED = 1,    /* bound, and it is `env->items[env->count - 1]` */
+    ENV_DISCARDED = 2   /* `name` is `_`, the true discard: nothing bound, nothing to look up */
+} EnvDefineResult;
+
+/* Defines a new binding in `env`'s own scope. See `EnvDefineResult`: the answer is not a
+ * boolean, because succeeding without binding anything is one of the things this can do. */
+EnvDefineResult env_define(Env *env, const char *name, Type type, int is_mutable, Value value);
 
 /* Searches this scope and its parents. Returns NULL if not found. */
 Binding *env_lookup(Env *env, const char *name);

@@ -4015,8 +4015,14 @@ static void poison_declaration(Env *scope, const Stmt *s) {
     for (int i = 0; i < scope->count; i++) {
         if (strcmp(scope->items[i].name, name) == 0) return; /* it got defined before the error */
     }
-    env_define(scope, name, type_scalar(TY_VOID), 0, value_int(0));
-    scope->items[scope->count - 1].poisoned = 1;
+    /* `ENV_DEFINED`, not merely non-zero: `val _ = <error>` discards, binding nothing, and this
+     * used to write `items[-1]` and segfault `--check` and `--lsp` on a two-line program. There is
+     * also nothing a poisoned `_` could do for us -- the marker exists to suppress the follow-on
+     * "undefined variable" errors from later uses of a name whose declaration failed, and `_` has
+     * no later uses by construction. */
+    if (env_define(scope, name, type_scalar(TY_VOID), 0, value_int(0)) == ENV_DEFINED) {
+        scope->items[scope->count - 1].poisoned = 1;
+    }
 }
 
 /* Checks one statement, recovering from an error in it. */
@@ -4677,23 +4683,21 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             Type declared = check_initializer(module, env, &s->as.decl.init, s->as.decl.has_declared_type,
                                               s->as.decl.declared_type, s->as.decl.name, fn_return_type);
             int is_mutable = s->kind == STMT_VAR;
-            if (!env_define(env, s->as.decl.name, declared, is_mutable, value_int(0))) {
+            EnvDefineResult declared_as = env_define(env, s->as.decl.name, declared, is_mutable, value_int(0));
+            if (declared_as == ENV_REDECLARED) {
                 ziman_error("type", s->line, s->col, "'%s' is already declared in this scope", s->as.decl.name);
             }
-            if (g_lint_active) {
-                /* Every declaration, not only a `var`: an unread one is dead weight whichever keyword
-                 * declared it, and the two findings share this table.
-                 *
-                 * `_` is skipped because `env_define` never binds it at all -- it is a true discard, the
-                 * one name the whole type checker special-cases, so `env_lookup` answers NULL and
-                 * `val _ = f()` is already the way to say "deliberately unread". Widening this from
-                 * `var` to every declaration is what first found that out, by segfaulting on it. */
-                Binding *declared_binding =
-                    strcmp(s->as.decl.name, "_") == 0 ? NULL : env_lookup(env, s->as.decl.name);
-                if (declared_binding != NULL) {
-                    declared_binding->lint_id =
-                        lint_register_var(s->as.decl.name, s->line, s->col, is_mutable);
-                }
+            /* Every declaration, not only a `var`: an unread one is dead weight whichever keyword
+             * declared it, and the two findings share this table.
+             *
+             * `ENV_DEFINED` excludes `_`, which binds nothing -- it is a true discard, and
+             * `val _ = f()` is already the way to say "deliberately unread". This used to ask
+             * `strcmp(name, "_")` here instead, which is the same question asked in the wrong
+             * place: the answer belongs to `env_define`, and asking it locally left the
+             * identical NULL dereference standing in the value-block case below. */
+            if (g_lint_active && declared_as == ENV_DEFINED) {
+                env_lookup(env, s->as.decl.name)->lint_id =
+                    lint_register_var(s->as.decl.name, s->line, s->col, is_mutable);
             }
             break;
         }
@@ -4756,10 +4760,12 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             }
             if (target == STMT_VAL || target == STMT_VAR) {
                 Type result = ctx.has_expected ? ctx.expected : ctx.first;
-                if (!env_define(env, s->as.value_block.name, result, target == STMT_VAR, value_int(0))) {
+                EnvDefineResult bound_as =
+                    env_define(env, s->as.value_block.name, result, target == STMT_VAR, value_int(0));
+                if (bound_as == ENV_REDECLARED) {
                     ziman_error("type", s->line, s->col, "'%s' is already declared in this scope", s->as.value_block.name);
                 }
-                if (target == STMT_VAR && g_lint_active) {
+                if (target == STMT_VAR && g_lint_active && bound_as == ENV_DEFINED) {
                     env_lookup(env, s->as.value_block.name)->lint_id =
                         lint_register_var(s->as.value_block.name, s->line, s->col, 1);
                 }

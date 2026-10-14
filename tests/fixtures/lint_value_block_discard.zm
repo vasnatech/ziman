@@ -1,0 +1,14 @@
+// The same hole as `discard_declaration_error_poisons_nothing`, one statement kind along, and live
+// until 2026-10-14: a value-block `var` registers itself in `--lint`'s unread-variable table by
+// looking its own binding back up, and `_` has none, so this segfaulted on a NULL dereference.
+// `--lint` is required to reach it, which is why no `--check` fixture had found it. Both targets
+// are here because only the `var` one registered -- the `val` one has to stay quiet either way.
+fn pick(flag: bool) -> int {
+    var _ = if flag { 1 } else { 2 }
+    val _ = if flag { 3 } else { 4 }
+    return 5
+}
+
+fn main() {
+    print(format("{}", pick(true)))
+}
