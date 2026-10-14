@@ -342,8 +342,9 @@ for x in seen { ... }                    // a set has one binder
   copying per entry) -- use in a loop adding many entries. Type arguments written out
   (`mapb_set<string, int>(mb, "a", 1)`); `_to_map`/`_to_set` snapshot into an immutable Map/Set
   (O(n) copy, builder stays usable, later changes don't touch the snapshot). One thread at a time.
-  `len(mb)`, `contains(mb, k)` and `snapshot(mb)` work on any builder and are the same answers as
-  `_len`/`_contains`/`_to_map`.
+  `len(mb)`, `contains(mb, k)`, `snapshot(mb)` and `clear(mb)` work on any builder; the first three
+  are the same answers as `_len`/`_contains`/`_to_map`, and `clear` is the one the trie builders
+  did not have before.
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
   building an n-entry map is O(n log n).
@@ -2467,6 +2468,10 @@ a type error.
   `Map`, a `Set`, and any of the four builders (`ArrayBuilder`, `StringBuilder`, `MapBuilder`,
   `SetBuilder`), so asking a collection its size never needs a per-type name or a conversion. It
   answers for a *builder*, not for a struct that holds one, which has no length of its own.
+- `clear(b)` — empties a builder and leaves it usable, for reusing one across the passes of an
+  outer loop instead of allocating a fresh one each time. Takes a builder only: an empty `Map` or
+  array is a value you write down (`Map<K, V> {}`, `[]`), not something you do to one you have. A
+  snapshot taken before the clear is undisturbed by it.
 - `snapshot(b)` — a builder's contents copied out as the immutable value it is building: an
   `ArrayBuilder<T>` gives `[T]`, a `StringBuilder` gives `string`, a `MapBuilder<K, V>` gives
   `Map<K, V>`, a `SetBuilder<T>` gives `Set<T>`. One name for `ab_to_array`/`sb_to_string`/

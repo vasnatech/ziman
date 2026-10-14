@@ -1295,6 +1295,9 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "len") == 0) {
                 result = call_len(args[0]);
+            } else if (strcmp(e->as.call.callee, "clear") == 0) {
+                ziman_builder_clear(args[0]);
+                result = value_int(0); /* void return, as `send` and the other effects do */
             } else if (strcmp(e->as.call.callee, "snapshot") == 0) {
                 result = ziman_builder_snapshot(args[0]);
                 /* The natives behind it tag their result TY_VOID or a placeholder element type, so

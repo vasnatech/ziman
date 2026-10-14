@@ -1,0 +1,49 @@
+// `clear` empties a builder and leaves it usable. The half worth pinning is the two trie builders:
+// a snapshot taken *before* the clear must be undisturbed by it and by everything after it, which
+// is why clearing takes a fresh empty trie rather than emptying the old one in place -- the
+// snapshot still holds the old nodes, with the leaves shared.
+
+fn main() {
+    val ab = ab_new<int>()
+    ab_append(ab, 1, 2, 3)
+    clear(ab)
+    print(len(ab))
+    ab_append(ab, 9)
+    print(snapshot(ab))
+
+    val sb = sb_new()
+    sb_append(sb, "hello")
+    clear(sb)
+    print(len(sb))
+    sb_append(sb, "new")
+    print(snapshot(sb))
+
+    val mb = mapb_new<string, int>()
+    mapb_set(mb, "a", 1)
+    mapb_set(mb, "b", 2)
+    val before = snapshot(mb)
+    clear(mb)
+    print(len(mb))
+    print(before)
+    print(mapb_get(mb, "a"))
+    mapb_set(mb, "z", 26)
+    print(snapshot(mb))
+    print(before)
+
+    // Insertion order restarts from zero, and overwriting still updates in place rather than
+    // replacing -- which is the `shared` flag going back to 0 with the fresh trie. `z` was
+    // inserted first and keeps its place when overwritten.
+    mapb_set(mb, "y", 25)
+    mapb_set(mb, "z", 99)
+    print(snapshot(mb))
+
+    val st = setb_new<int>()
+    setb_add(st, 1)
+    setb_add(st, 2)
+    val set_before = snapshot(st)
+    clear(st)
+    print(len(st))
+    print(set_before)
+    setb_add(st, 7)
+    print(snapshot(st))
+}

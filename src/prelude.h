@@ -63,4 +63,8 @@ int ziman_builder_contains(Value v, Value needle);
  * resolved type, as the per-type natives behind it already require. */
 Value ziman_builder_snapshot(Value v);
 
+/* Empties a builder in place, leaving it usable: the buffer kinds reset their length, the two trie
+ * kinds take a fresh empty trie so that a snapshot taken earlier is undisturbed. */
+void ziman_builder_clear(Value v);
+
 #endif

@@ -1,0 +1,5 @@
+// Only a handle can be emptied. An empty Map is a value you write down, not something you do to a
+// Map you already have -- which is what the message says, because the fix is to write the literal.
+fn main() {
+    clear(Map<string, int> { "a": 1 })
+}

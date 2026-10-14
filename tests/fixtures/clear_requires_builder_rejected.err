@@ -1,0 +1,1 @@
+'clear' expects a builder -- an ArrayBuilder, StringBuilder, MapBuilder or SetBuilder -- found Map<string, int>; an immutable collection is emptied by writing an empty one

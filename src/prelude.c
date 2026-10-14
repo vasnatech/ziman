@@ -1381,6 +1381,31 @@ Value ziman_builder_snapshot(Value v) {
     return native_mb_snapshot(&v, 1, 0, 0);
 }
 
+/* `clear` on one of the four handles: empty it and leave it usable. An ArrayBuilder or a
+ * StringBuilder keeps its buffer and resets the length, which is what native_ab_clear already did.
+ *
+ * The two trie builders take a *fresh* empty trie rather than emptying the old one in place, which
+ * is both simpler and what `shared` requires. A snapshot holds its own MapObj over the old nodes
+ * with the leaves shared, so dropping our root leaves it untouched and the collector keeps
+ * whatever the snapshot still reaches. The new trie then shares nothing with anything, so `shared`
+ * goes back to 0 and a later overwrite may update a leaf in place again instead of replacing it.
+ * `mapobj_mut_new` allocates each time rather than handing back a singleton, which is what makes
+ * that safe. Insertion order restarts from zero, which is what an empty builder means. */
+void ziman_builder_clear(Value v) {
+    const char *name = v.type.struct_name;
+    if (name != NULL && strcmp(name, "ArrayBuilder") == 0) {
+        ab_table_get(ab_handle_of(v))->length = 0;
+        return;
+    }
+    if (name != NULL && strcmp(name, "StringBuilder") == 0) {
+        sb_table_get(sb_handle_of(v))->length = 0;
+        return;
+    }
+    MapBuilderBuf *buf = mb_get_buf(v);
+    buf->m = mapobj_mut_new();
+    buf->shared = 0;
+}
+
 /* --- Guard ------------------------------------------------------------------------------
  * guard_new(channel, message): a value whose only job is to send `message` on `channel` once
  * nothing references the guard any more (the garbage collector runs its finalizer). A database
