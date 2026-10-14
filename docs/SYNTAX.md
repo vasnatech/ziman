@@ -350,6 +350,12 @@ for x in seen { ... }                    // a set has one binder
   builtin `join` is a path join over strings, not this), and `sum(items: [int])` totals them --
   integers only, since `+` traps on overflow so the answer is exact or an error, where a float
   total depends on summation order and `fold` expresses whichever order you want.
+- **Printing one**: a handle prints as the value it is building -- `[1, 2, 3]` for a
+  `MutableArray`, its text for a `MutableString`, `{a: 1}` for a `MutableMap`, `Mutable(5)` for a
+  cell -- not as the one-field struct it is. A handle *inside* another value prints a summary
+  instead (`MutableArray(3 items)`, `MutableMap(2 entries)`), which is what makes a cycle
+  unfollowable: a struct holding a `MutableArray` of itself prints its fields and stops at the
+  handle. An immutable value never needs this, because a value is a tree.
 - **Iterating a mutable collection**: `for x in xs` and `for i, x in xs` over a `MutableArray`
   walk the **live buffer**, re-reading the length each pass, so a body that appends sees its own
   additions and one that clears ends the loop. `for k in m` / `for k, v in m` over a `MutableMap`

@@ -342,6 +342,13 @@ int value_key_equals(Value a, Value b);
  * the caller. */
 char *value_display(Value v);
 
+/* A handle type's own renderer, so that it prints as the value it is building rather than as the
+ * one-int struct it is. `nested` is set when it sits inside another value, where it must render a
+ * summary -- that is what keeps a cycle unfollowable. See the registry in value.c.
+ * `value_display_nested` is what a renderer calls for its contents. */
+void value_register_handle_display(const char *type_name, char *(*render)(Value v, int nested));
+char *value_display_nested(Value v);
+
 /* The shortest decimal text that reads back as the same double, in plain notation for
  * magnitudes from 1e-7 up to 1e21 and in scientific notation (1.5e+300) outside that;
  * "nan"/"inf"/"-inf" for the non-finite values. Shared by value_display's TY_FLOAT case

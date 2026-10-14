@@ -1,0 +1,59 @@
+// A handle prints as the value it is building, not as the one-int struct it is. Until this landed
+// they printed `MutableArray { handle: 139806342961664 }` -- a raw address, unreproducible across
+// runs, which is the same defect removed from `==` and `hash`, and which no expected output could
+// ever have pinned. (Nothing anywhere did: the whole fixture suite passed unchanged.)
+//
+// The half worth the fixture is nesting. A handle inside another value renders a summary instead of
+// its contents, and that is what makes a *cycle* unfollowable rather than merely unlikely: the
+// middle block builds a genuinely self-referential Node -- its children array contains the node
+// itself -- and prints it twice. Both terminate, because the handle field stops at
+// `MutableArray(1 item)`. Printing the array directly follows one level into the node and stops at
+// the node's own handle, so that terminates too.
+//
+// A cell follows one level whether nested or not, which stays bounded for the same reason: the last
+// line is a cell holding an array, and the array summarises.
+struct Node {
+    name: string
+    children: MutableArray<Node>
+}
+
+fn main() {
+    val xs = mutable_array_new<int>()
+    mutable_array_push(xs, 1, 2, 3)
+    print(xs)
+
+
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "hello")
+    print(sb)
+
+    val m = mutable_map_new<string, int>()
+    mutable_map_set(m, "a", 1)
+    mutable_map_set(m, "b", 2)
+    print(m)
+
+    val s = mutable_set_new<int>()
+    mutable_set_add(s, 7)
+    print(s)
+
+    print(mutable_new(5))
+    print(mutable_new("text"))
+
+    // nested: a handle inside another value summarises
+    val holder = Node { name: "a", children: mutable_array_new<Node>() }
+    print(holder)
+    mutable_array_push(holder.children, holder)
+    print("cycle built")
+    print(holder)
+    print(holder.children)
+
+    // one item vs many, and empty
+    val one = mutable_array_new<Node>()
+    mutable_array_push(one, Node { name: "c", children: mutable_array_new<Node>() })
+    val n2 = Node { name: "b", children: one }
+    print(n2)
+    print(mutable_array_new<int>())
+
+    // a cell holding a handle follows one level, then stops
+    print(mutable_new(xs))
+}

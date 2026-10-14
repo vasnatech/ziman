@@ -1,0 +1,13 @@
+[1, 2, 3]
+hello
+{a: 1, b: 2}
+{7}
+Mutable(5)
+Mutable(text)
+Node { name: a, children: MutableArray(0 items) }
+cycle built
+Node { name: a, children: MutableArray(1 item) }
+[Node { name: a, children: MutableArray(1 item) }]
+Node { name: b, children: MutableArray(1 item) }
+[]
+Mutable(MutableArray(3 items))

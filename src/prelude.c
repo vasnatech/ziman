@@ -1895,6 +1895,63 @@ int ziman_cell_contains(Value c, Value needle) {
     return value_key_equals(cell_get_buf(c)->value, needle);
 }
 
+/* --- How a handle prints -----------------------------------------------------------------
+ * As the value it is building, not as the one-int struct it is: a MutableArray prints `[1, 2, 3]`,
+ * a MutableString its text, a cell `Mutable(5)`. Until this was registered they printed
+ * `MutableArray { handle: 139806342961664 }` -- a raw address, unreproducible across runs, which is
+ * the same defect F107 removed from `==` and `hash` and which no output carrying it could ever be a
+ * stable expectation for.
+ *
+ * `nested` means the handle is inside another value being printed, and then it renders a summary.
+ * That is what keeps a cycle unfollowable: a struct holding a MutableArray of itself prints its
+ * fields, and the handle field stops at `MutableArray(1 item)`. Contents go through
+ * `value_display_nested`, so a handle *within* the contents summarises too. */
+static char *handle_summary(const char *type_name, long long n, const char *unit) {
+    char *out = zalloc_atomic(64 + strlen(type_name));
+    snprintf(out, 64 + strlen(type_name), "%s(%lld %s%s)", type_name, n, unit, n == 1 ? "" : "s");
+    return out;
+}
+
+static char *ab_display(Value v, int nested) {
+    const MutableArrayBuf *buf = ab_table_get(ab_handle_of(v));
+    if (nested) return handle_summary("MutableArray", (long long)buf->length, "item");
+    Value arr = native_ab_to_array(&v, 1, 0, 0);
+    arr.type = v.type.type_args.count > 0 ? type_array(v.type.type_args.items[0]) : type_array(type_scalar(TY_VOID));
+    return value_display_nested(arr);
+}
+
+static char *mb_display(Value v, int nested) {
+    int is_set = v.type.struct_name != NULL && strcmp(v.type.struct_name, "MutableSet") == 0;
+    const MutableMapBuf *buf = mb_get_buf(v);
+    if (nested) {
+        return handle_summary(is_set ? "MutableSet" : "MutableMap", (long long)buf->m->count, is_set ? "item" : "entry");
+    }
+    Value snap = native_mb_snapshot(&v, 1, 0, 0);
+    if (v.type.type_args.count > (is_set ? 0 : 1)) {
+        snap.type = is_set ? type_set(v.type.type_args.items[0])
+                           : type_map(v.type.type_args.items[0], v.type.type_args.items[1]);
+    }
+    return value_display_nested(snap);
+}
+
+static char *sb_display(Value v, int nested) {
+    const MutableStringBuf *buf = sb_table_get(sb_handle_of(v));
+    if (nested) return handle_summary("MutableString", (long long)buf->length, "byte");
+    return value_display_nested(native_sb_to_string(&v, 1, 0, 0));
+}
+
+/* A cell follows one level into its value whether nested or not: that stays bounded precisely
+ * because a handle reached from inside it summarises, so `Mutable<Node>` prints the node's fields
+ * and stops at the node's own array. */
+static char *cell_display(Value v, int nested) {
+    (void)nested;
+    char *inner = value_display_nested(cell_get_buf(v)->value);
+    size_t n = strlen(inner) + 16;
+    char *out = zalloc_atomic(n);
+    snprintf(out, n, "Mutable(%s)", inner);
+    return out;
+}
+
 /* --- Guard ------------------------------------------------------------------------------
  * guard_new(channel, message): a value whose only job is to send `message` on `channel` once
  * nothing references the guard any more (the garbage collector runs its finalizer). A database
@@ -2095,4 +2152,9 @@ void prelude_register(void) {
     gc_mark_register_struct_content_marker("MutableMap", mb_mark_contents);
     gc_mark_register_struct_content_marker("MutableSet", mb_mark_contents);
     gc_mark_register_struct_content_marker("Mutable", cell_mark_contents);
+    value_register_handle_display("MutableArray", ab_display);
+    value_register_handle_display("MutableMap", mb_display);
+    value_register_handle_display("MutableSet", mb_display);
+    value_register_handle_display("MutableString", sb_display);
+    value_register_handle_display("Mutable", cell_display);
 }

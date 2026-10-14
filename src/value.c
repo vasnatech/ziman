@@ -753,7 +753,59 @@ char *float_shortest_text(double d) {
     return ziman_xstrdup(out);
 }
 
+/* The seam a disguised-native-handle struct needs in order to print as the value it is building
+ * rather than as `MutableArray { handle: 139806342961664 }`. That address is unreproducible across
+ * runs -- the same defect removed from `==` and `hash` -- so no output carrying it can ever be a
+ * stable expectation, and nothing anywhere depended on it.
+ *
+ * `nested` is set when the handle sits inside another value being printed, and then it renders a
+ * summary instead of its contents. That is what makes a cycle unconstructible: a struct holding a
+ * MutableArray of itself prints its nodes, and each node's handle field stops at a summary. Values
+ * never need this, because a value is a tree.
+ *
+ * Registered rather than hardcoded for the same reason gc_mark's content markers are: the handle
+ * types and their tables live in prelude.c, which this module knows nothing about. */
+typedef struct {
+    const char *type_name;
+    char *(*render)(Value v, int nested);
+} HandleDisplay;
+
+enum { MAX_HANDLE_DISPLAYS = 8 };
+static HandleDisplay g_handle_displays[MAX_HANDLE_DISPLAYS];
+static int g_handle_display_count;
+
+void value_register_handle_display(const char *type_name, char *(*render)(Value v, int nested)) {
+    if (g_handle_display_count >= MAX_HANDLE_DISPLAYS) return;
+    g_handle_displays[g_handle_display_count].type_name = type_name;
+    g_handle_displays[g_handle_display_count].render = render;
+    g_handle_display_count++;
+}
+
+static char *(*handle_display_for(const char *type_name))(Value, int) {
+    if (type_name == NULL) return NULL;
+    for (int i = 0; i < g_handle_display_count; i++) {
+        if (strcmp(g_handle_displays[i].type_name, type_name) == 0) return g_handle_displays[i].render;
+    }
+    return NULL;
+}
+
+static char *display_at(Value v, int depth);
+
+static char *display_at_nested(Value v) {
+    return display_at(v, 1);
+}
+
 char *value_display(Value v) {
+    return display_at(v, 0);
+}
+
+/* What a registered renderer calls for the handle's own contents: depth 1, so any handle reached
+ * from inside it summarises. */
+char *value_display_nested(Value v) {
+    return display_at(v, 1);
+}
+
+static char *display_at(Value v, int depth) {
     ZIMAN_STACK_CHECK();
     char buf[64];
     switch (v.type.kind) {
@@ -810,7 +862,7 @@ char *value_display(Value v) {
                     out[len++] = ',';
                     out[len++] = ' ';
                 }
-                char *piece = value_display(array_get(arr, i));
+                char *piece = display_at_nested(array_get(arr, i));
                 size_t piece_len = strlen(piece);
                 while (len + piece_len + 2 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                 memcpy(out + len, piece, piece_len);
@@ -823,6 +875,8 @@ char *value_display(Value v) {
             return out;
         }
         case TY_STRUCT: {
+            char *(*render)(Value, int) = handle_display_for(v.type.struct_name);
+            if (render != NULL) return render(v, depth > 0);
             StructObj *st = v.as.st;
             const char *type_display_name = v.type.struct_name;
             size_t cap = 32, len = 0;
@@ -841,7 +895,7 @@ char *value_display(Value v) {
                     out[len++] = ' ';
                 }
                 const char *field_name = st->field_names[i];
-                char *piece = value_display(st->fields[i]);
+                char *piece = display_at_nested(st->fields[i]);
                 size_t field_len = strlen(field_name), piece_len = strlen(piece);
                 while (len + field_len + piece_len + 4 > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                 memcpy(out + len, field_name, field_len);
@@ -860,7 +914,7 @@ char *value_display(Value v) {
         }
         case TY_RESULT: {
             const char *tag = v.as.res->is_ok ? "Ok" : "Err";
-            char *inner = value_display(v.as.res->value);
+            char *inner = display_at_nested(v.as.res->value);
             size_t len = strlen(tag) + 1 + strlen(inner) + 1 + 1;
             char *out = zalloc_atomic(len);
             snprintf(out, len, "%s(%s)", tag, inner);
@@ -870,7 +924,7 @@ char *value_display(Value v) {
         case TY_ENUM: {
             EnumObj *en = v.as.en;
             if (!en->has_payload) return ziman_xstrdup(en->variant_name);
-            char *inner = value_display(en->payload);
+            char *inner = display_at_nested(en->payload);
             size_t len = strlen(en->variant_name) + 1 + strlen(inner) + 1 + 1;
             char *out = zalloc_atomic(len);
             snprintf(out, len, "%s(%s)", en->variant_name, inner);
@@ -886,8 +940,8 @@ char *value_display(Value v) {
             char *out = zalloc_atomic(cap);
             out[len++] = '{';
             for (int i = 0; i < v.as.map->count; i++) {
-                char *k = value_display(keys[i]);
-                char *val = is_map ? value_display(vals[i]) : NULL;
+                char *k = display_at_nested(keys[i]);
+                char *val = is_map ? display_at_nested(vals[i]) : NULL;
                 size_t need = strlen(k) + (val != NULL ? strlen(val) : 0) + 8;
                 while (len + need > cap) { cap *= 2; out = ziman_xrealloc(out, cap); }
                 if (i > 0) { out[len++] = ','; out[len++] = ' '; }
