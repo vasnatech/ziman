@@ -467,9 +467,14 @@ The parts of a `multipart/form-data` request body, up to `multipart_max_parts` o
 none, it ran out before the closing `--boundary--`, a part had no blank line after its headers or no
 `name` in its `Content-Disposition`, or there were more parts than the limit.
 
-The whole body is already in memory -- `read_request` caps it at `ServeOptions.max_body_bytes`, 1 MiB by
-default -- so this is one pass over bytes and streams nothing. Raise that cap before expecting large
-uploads, and remember it applies to the encoded body, boundaries included.
+The whole body is already in memory -- `read_request` caps it at this module's `max_body_bytes`,
+a fixed 1 MiB -- so this is one pass over bytes and streams nothing. The cap applies to the
+encoded body, boundaries included.
+
+The cap is **not** configurable today: it is this module's constant, not a `ServeOptions` field,
+which is what these two comments used to say it was -- published advice to raise something a
+caller has no way to reach (D21). Making it a field is D22, and changes either `read_request`'s
+public signature or `Session`'s shape, which is why it is not done here.
 
 What it handles, because a real client sends it: a preamble before the first boundary and an epilogue
 after the last (RFC 2046 says to ignore both); parts with no `Content-Type`; empty parts; header and
