@@ -1,0 +1,37 @@
+// A43: the mark phase used to recurse once per level of the value graph, so it overflowed the C
+// stack *inside a collection* -- where no guard can help, because A1's stack-depth limit protects
+// the parser, the checker and the interpreter, and none of them is on the stack when the collector
+// runs. The failure was a bare SIGSEGV with no error at all.
+//
+// A spawned thread rather than the main one, and `--thread-stack-mb=1` in the sibling .args: the
+// main thread's stack swallows millions of levels, which is why this went unnoticed. 300,000 links
+// core-dumped here at both 1 MB and 4 MB before the fix.
+//
+// The `while` loop after the chain is what forces a collection with the chain still live, so the
+// marker has to walk all 300,000 of them.
+struct Node {
+    next: Option<Node>
+    tag: int
+}
+
+fn worker(depth: int, done: Channel<int>) {
+    var head: Option<Node> = Option<Node>.None
+    var i = 0
+    while i < depth {
+        head = Option<Node>.Some(Node { next: head, tag: i })
+        i = i + 1
+    }
+    var churn = 0
+    var junk: [int] = []
+    while churn < 3000 {
+        junk = [churn, churn + 1, churn + 2]
+        churn = churn + 1
+    }
+    send(done, switch head { Some(n) { n.tag } None { -1 } })
+}
+
+fn main() {
+    val done: Channel<int> = channel_new(1)
+    spawn worker(300000, done)
+    print(format("deepest link survived a collection: {}", receive(done)))
+}

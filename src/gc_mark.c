@@ -6,8 +6,122 @@
 #include "gc_lookup.h"
 #include "gc_object.h"
 #include "mapobj.h"
+#include "xalloc.h"
 
 static void gc_mark_into(const Arena *a, Value v);
+static void mark_trace(const Arena *a, Value v);
+
+/* The explicit mark stack that replaces the C stack (A43).
+ *
+ * This phase used to be mutual recursion -- gc_mark_into dispatching to gc_mark_enum, which called
+ * gc_mark_into on its payload -- so its depth was the depth of the value graph, and it overflowed
+ * the C stack *inside a collection*, where no guard is possible: A1's stack-depth limit protects
+ * the parser, the checker and the interpreter, and none of those is on the stack when the collector
+ * runs. The result was a bare SIGSEGV. Reproduced at 300,000 links of `struct Node { next:
+ * Option<Node> }` on a spawned thread (`--thread-stack-mb=1` and `=4`, core dumped both times),
+ * with gc_mark_enum -> gc_mark_struct -> gc_mark_into repeating to the stack bottom. The main
+ * thread's much larger stack takes millions of links, which is why this had not been seen.
+ *
+ * Depth-first with an explicit stack, so a *chain* of any length now costs O(1) entries: a link is
+ * popped, marked, and its single child pushed in its place. Only breadth costs memory -- a wide
+ * boxed array pushes all of its elements -- which is the normal trade of every iterative marker.
+ *
+ * Per-thread, because each thread collects its own heap (gc_thread_heap.c) and two of them can be
+ * marking at once. `GC_MALLOC_UNCOLLECTABLE` rather than plain malloc for the same reason
+ * gc_heap_create gives: a ZIMAN_GC build's own zgc.h redirects malloc to collectable GC_MALLOC, and
+ * this codebase's established finding is that Boehm does not reliably scan thread-local storage, so
+ * a collectable buffer reachable only from a `__thread` pointer could be reclaimed under the thread
+ * still marking with it. It is never freed, deliberately: it is reused by every later collection on
+ * this thread, which also keeps growth -- the one allocation this phase makes -- rare. */
+#define GC_MARK_STACK_INITIAL 256
+
+/* One entry: either a Value still to be traced, or a *cursor* over a container's slots.
+ *
+ * The cursor is what keeps this from trading one resource problem for another. A container that
+ * pushed all of its children at once would make the stack as big as the widest array in the heap:
+ * measured at 543 MB -> 825 MB peak RSS on a two-million-element `[Cell]`, a 52% ratchet on
+ * exactly the shape a program holds a lot of. Pushing one cursor instead makes the stack O(nesting
+ * depth) -- that same array costs a single slot, and the 2M-element measurement comes back level
+ * with the recursive marker. */
+typedef struct {
+    const Value *slots; /* non-NULL: trace slots[next .. count). NULL: trace `v`. */
+    int count;
+    int next;
+    Value v;
+} MarkItem;
+
+static __thread MarkItem *t_mark_stack;
+static __thread size_t t_mark_count;
+static __thread size_t t_mark_capacity;
+static __thread int t_mark_draining;
+
+static void mark_stack_grow(void) {
+    size_t want = t_mark_capacity == 0 ? GC_MARK_STACK_INITIAL : t_mark_capacity * 2;
+#ifdef ZIMAN_GC
+    MarkItem *fresh = ziman_xcheck(GC_MALLOC_UNCOLLECTABLE(sizeof(MarkItem) * want));
+#else
+    MarkItem *fresh = ziman_xmalloc(sizeof(MarkItem) * want);
+#endif
+    if (t_mark_stack != NULL) {
+        memcpy(fresh, t_mark_stack, sizeof(MarkItem) * t_mark_count);
+#ifdef ZIMAN_GC
+        GC_FREE(t_mark_stack);
+#else
+        free(t_mark_stack);
+#endif
+    }
+    t_mark_stack = fresh;
+    t_mark_capacity = want;
+}
+
+/* A run of adjacent Values -- a boxed array's elements, a struct's fields, a closure's captures.
+ * Nothing moves during a mark, so holding the pointer across the drain is safe.
+ *
+ * A short run is pushed element by element and a long one as a cursor, because the two costs pull
+ * in opposite directions and both were measured. Cursors everywhere cost a branch and a reread of
+ * the top entry per element, which showed up as 8% on an allocation-heavy benchmark -- most runs
+ * are a struct's two or three fields, where a cursor is pure overhead. Elements everywhere makes
+ * the stack as wide as the widest array in the heap, which was +282 MB of peak RSS on a
+ * two-million-element `[Cell]`. Sixteen keeps the struct and small-array cases on the cheap path
+ * while every run big enough for its size to matter takes one slot. */
+#define GC_MARK_INLINE_SLOTS 16
+
+static void mark_push_slots(const Arena *a, const Value *slots, int count) {
+    if (slots == NULL || count <= 0) return;
+    if (count <= GC_MARK_INLINE_SLOTS) {
+        for (int i = 0; i < count; i++) gc_mark_into(a, slots[i]);
+        return;
+    }
+    if (t_mark_count == t_mark_capacity) mark_stack_grow();
+    t_mark_stack[t_mark_count].slots = slots;
+    t_mark_stack[t_mark_count].count = count;
+    t_mark_stack[t_mark_count].next = 0;
+    t_mark_count++;
+}
+
+/* Drains the stack. Entered only from the outermost gc_mark_value/gc_mark_object, so a registered
+ * struct-content marker calling back into this file pushes onto the same stack rather than starting
+ * a second drain -- which is what keeps the whole phase one level deep however the graph is shaped. */
+static void mark_drain(const Arena *a) {
+    if (t_mark_draining) return;
+    t_mark_draining = 1;
+    while (t_mark_count > 0) {
+        MarkItem *top = &t_mark_stack[t_mark_count - 1];
+        if (top->slots == NULL) {
+            Value v = top->v;
+            t_mark_count--;
+            mark_trace(a, v);
+        } else if (top->next >= top->count) {
+            t_mark_count--;
+        } else {
+            /* Read the element and advance the cursor *before* gc_mark_into, which may grow the
+             * stack and leave `top` dangling. */
+            Value v = top->slots[top->next++];
+            gc_mark_into(a, v);
+        }
+    }
+    t_mark_draining = 0;
+}
 
 /* See gc_mark_register_struct_content_marker's own comment (gc_mark.h) for what this is and why it
  * exists. A handful of fixed slots, not a dynamic list: only MutableArray/MutableMap/MutableSet ever
@@ -115,9 +229,7 @@ static void gc_mark_array(const Arena *a, ArrayObj *arr) {
     mark_interior_capable(a, arr->floats);
     /* Packed elements (bytes/bools/ints/floats) are scalars -- nothing further to trace into them,
      * so only a boxed array's own elements need walking, each by its own Value.type.kind. */
-    if (arr->boxed_items != NULL) {
-        for (int i = 0; i < arr->count; i++) gc_mark_into(a, array_get(arr, i));
-    }
+    mark_push_slots(a, arr->boxed_items, arr->count);
 }
 
 static void gc_mark_struct(const Arena *a, StructObj *st) {
@@ -133,7 +245,7 @@ static void gc_mark_struct(const Arena *a, StructObj *st) {
      * well, since mark_interior_capable resolves an exact-start pointer to itself with no extra
      * cost beyond the lookup call itself). */
     mark_interior_capable(a, st->fields);
-    for (int i = 0; i < st->count; i++) gc_mark_into(a, st->fields[i]);
+    mark_push_slots(a, st->fields, st->count);
 }
 
 static void gc_mark_result(const Arena *a, ResultObj *res) {
@@ -163,7 +275,7 @@ static void gc_mark_closure(const Arena *a, ClosureObj *clo) {
     }
     /* fn is a FunctionDecl* -- permanent AST, nothing to mark. */
     mark_interior_capable(a, clo->captured);
-    for (int i = 0; i < clo->ncaptured; i++) gc_mark_into(a, clo->captured[i]);
+    mark_push_slots(a, clo->captured, clo->ncaptured);
 }
 
 /* mapobj_mark_leaves's own callback (mapobj.h): marks one Leaf's own header (if it has one -- see
@@ -192,6 +304,9 @@ static void gc_mark_map(const Arena *a, MapObj *m) {
     mapobj_mark_leaves(m, mark_leaf, (void *)a);
 }
 
+/* Every call that used to recurse into a child now lands here, and this only ever *pushes* -- the
+ * name is kept because all seven of its callers mean the same thing by it as before. A kind with no
+ * children is finished on the spot rather than taking a slot. */
 static void gc_mark_into(const Arena *a, Value v) {
     switch (v.type.kind) {
         case TY_STRING:
@@ -214,6 +329,31 @@ static void gc_mark_into(const Arena *a, Value v) {
             gc_mark_bignum_digits(a, v.as.dec->unscaled);
             return;
         case TY_ARRAY:
+        case TY_STRUCT:
+        case TY_RESULT:
+        case TY_ENUM:
+        case TY_FUNC:
+        case TY_MAP:
+        case TY_SET:
+            break; /* has children: traced from the stack, so the depth is the stack's, not the C one's */
+        case TY_CHANNEL:
+            /* Never traced into -- see this file's own header comment. */
+            return;
+        default:
+            /* int, float, bool, byte, unit: embedded in the Value itself, nothing to mark. */
+            return;
+    }
+    if (t_mark_count == t_mark_capacity) mark_stack_grow();
+    t_mark_stack[t_mark_count].slots = NULL;
+    t_mark_stack[t_mark_count].v = v;
+    t_mark_count++;
+}
+
+/* One popped Value: marks what it names and pushes its children. Only the kinds gc_mark_into
+ * pushes can arrive here. */
+static void mark_trace(const Arena *a, Value v) {
+    switch (v.type.kind) {
+        case TY_ARRAY:
             gc_mark_array(a, v.as.arr);
             return;
         case TY_STRUCT:
@@ -233,20 +373,24 @@ static void gc_mark_into(const Arena *a, Value v) {
         case TY_SET:
             gc_mark_map(a, v.as.map);
             return;
-        case TY_CHANNEL:
-            /* Never traced into -- see this file's own header comment. */
-            return;
         default:
-            /* int, float, bool, byte, unit: embedded in the Value itself, nothing to mark. */
             return;
     }
 }
 
 void gc_mark_value(const Arena *a, Value v) {
     gc_mark_into(a, v);
+    mark_drain(a);
 }
 
+static void mark_object_shallow(const Arena *a, const void *obj);
+
 void gc_mark_object(const Arena *a, const void *obj) {
+    mark_object_shallow(a, obj);
+    mark_drain(a);
+}
+
+static void mark_object_shallow(const Arena *a, const void *obj) {
     if (obj == NULL) return;
     switch (gc_kind_of(obj)) {
         case GC_ATOMIC:
@@ -259,8 +403,7 @@ void gc_mark_object(const Arena *a, const void *obj) {
             if (gc_is_marked(obj)) return;
             gc_set_marked((void *)obj, 1);
             size_t count = gc_size_of(obj) / sizeof(Value);
-            const Value *items = (const Value *)obj;
-            for (size_t i = 0; i < count; i++) gc_mark_into(a, items[i]);
+            mark_push_slots(a, (const Value *)obj, (int)count);
             return;
         }
         case GC_ARRAY:
