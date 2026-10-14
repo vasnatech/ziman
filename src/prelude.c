@@ -859,7 +859,30 @@ static void ab_move_elements(MutableArrayBuf *buf, size_t to, size_t from, size_
     }
 }
 
-static Value native_ab_append(Value *args, int argc, int line, int col) {
+/* The one-element `mutable_array_push(b, x)`, which is how almost every call is written. The
+ * general path collapses the variadic tail into a one-element array first: three allocations per
+ * call, two of them from a collector's heap, and for a *reference* element type that temporary is a
+ * scanned allocation, so its cost compounds with the size of the live buffer rather than staying
+ * per-call. Measured at 2,000,000 pushes of a string: 4.80s one at a time against 0.22s in batches
+ * of a thousand -- the same elements, the same final memory, 22x the time -- while the same loop
+ * with `int` elements is linear, because an int builder's storage is packed and unscanned. This
+ * appends the Value itself and allocates nothing (D18).
+ *
+ * `interpreter.c`'s call_function picks it by comparing the resolved native pointer, which is why
+ * `ziman_ab_append` is no longer static. */
+void ziman_mutable_array_push_one(Value ab, Value element) {
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(ab));
+    ab_adopt_pack_kind(buf, element);
+    ab_ensure_capacity(buf, 1);
+    if (buf->pkind != PK_NONE) {
+        pack_store(buf->pkind, buf->pdata, (int)buf->length, element);
+    } else {
+        buf->items[buf->length] = element;
+    }
+    buf->length++;
+}
+
+Value ziman_ab_append(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -2142,7 +2165,7 @@ void prelude_register(void) {
     native_register("mutable_array_remove", native_ab_remove);
     native_register("mutable_array_truncate", native_ab_truncate);
     native_register("mutable_array_new", native_ab_new);
-    native_register("mutable_array_push", native_ab_append);
+    native_register("mutable_array_push", ziman_ab_append);
     native_register("mutable_array_get", native_ab_get);
     native_register("mutable_array_set", native_ab_set);
 

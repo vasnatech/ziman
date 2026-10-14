@@ -400,6 +400,17 @@ static void run_defers(Module *module, Env *env) {
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
     ZIMAN_STACK_CHECK();
     ziman_push_frame(fn->name, fn->source_file, call_line, call_col);
+    /* `mutable_array_push(b, x)` with exactly one element, before the variadic collapse allocates a
+     * temporary array to carry it -- see ziman_mutable_array_push_one for what that cost is and how
+     * it was measured (D18). Picked by comparing the already-cached native pointer rather than by
+     * name, so every other call pays two integer tests and a relaxed load. On the very first call
+     * the pointer is not resolved yet and this falls through to the general path, once. */
+    if (fn->is_native && raw_argc == 2 && !tail_is_array_spread &&
+        (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED) == ziman_ab_append) {
+        ziman_mutable_array_push_one(raw_args[0], raw_args[1]);
+        ziman_pop_frame();
+        return value_int(0);
+    }
     int argc;
     Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);
     if (fn->is_native) {
