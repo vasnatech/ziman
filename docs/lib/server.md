@@ -131,6 +131,14 @@ pub struct Session {
     timeout_ms: int
     head_timeout_ms: int
     fresh: bool
+    // The largest request body `read_request` will accept, or 0 for this module's 1 MiB default.
+    // `serve` fills it from `ServeOptions.max_body_bytes`; the `open_session*` constructors leave it
+    // 0, so a caller reading requests off its own socket keeps the default until it says otherwise.
+    //
+    // It is here rather than only on `ServeOptions` because `read_request(session)` is the public
+    // entry point and the North Star backend calls it directly -- a limit the server knows has to
+    // reach it somehow, and widening that signature would break every such caller (D21, D22).
+    max_body_bytes: int
 }
 ```
 
@@ -1086,6 +1094,10 @@ pub struct ServeOptions {
     header_timeout_ms: int
     max_connections: int
     log_requests: bool
+    // The largest request body to accept, or 0 for the library's 1 MiB default. A body over it is
+    // refused with 413 before the handler is reached, and the limit applies to what arrives on the
+    // wire -- the encoded body, `multipart` boundaries included.
+    max_body_bytes: int
     // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
     // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
     // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.

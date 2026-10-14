@@ -270,12 +270,6 @@ fn write_lenenc(v: int) -> [byte] {
     ) } else { bytes_concat([lenenc_8_bytes as byte], le(v, 8)) }
 }
 
-// The position just after a length-encoded string starting at `pos`.
-fn skip_lenenc_string(b: [byte], pos: int) -> int {
-    val l = read_lenenc(b, pos)
-    return l.next + l.value
-}
-
 // --------------------------------------------------------------- packets
 
 fn send_packet(sock: Socket, seq: int, body: [byte]) -> Result<int, DbError> {
@@ -333,14 +327,6 @@ fn parse_error(body: [byte]) -> DbError {
     } else {
         DbError.Sql(message)
     }
-}
-
-fn expect_ok(sock: Socket) -> Result<int, DbError> {
-    val p = try read_packet(sock)
-    if is_err_packet(p.body) {
-        return err(parse_error(p.body))
-    }
-    return 0
 }
 
 // ------------------------------------------------------------ URL parsing

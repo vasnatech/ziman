@@ -132,6 +132,14 @@ pub struct Session {
     timeout_ms: int
     head_timeout_ms: int
     fresh: bool
+    // The largest request body `read_request` will accept, or 0 for this module's 1 MiB default.
+    // `serve` fills it from `ServeOptions.max_body_bytes`; the `open_session*` constructors leave it
+    // 0, so a caller reading requests off its own socket keeps the default until it says otherwise.
+    //
+    // It is here rather than only on `ServeOptions` because `read_request(session)` is the public
+    // entry point and the North Star backend calls it directly -- a limit the server knows has to
+    // reach it somehow, and widening that signature would break every such caller (D21, D22).
+    max_body_bytes: int
 }
 
 // One request read from a connection, with the session to read the next one from.
@@ -179,7 +187,7 @@ fn find_head_end(buf: [byte]) -> int {
 // A new connection's read state: the socket and nothing buffered yet. Reads are bounded only by
 // the socket's own timeout, one read at a time.
 pub fn open_session(sock: Socket) -> Session {
-    return Session { sock: sock, buffer: [], timeout_ms: 0, head_timeout_ms: 0, fresh: false }
+    return Session { sock: sock, buffer: [], timeout_ms: 0, head_timeout_ms: 0, fresh: false, max_body_bytes: 0 }
 }
 
 // Like `open_session`, and the whole of each request (head and body, from its first byte) must
@@ -188,7 +196,14 @@ pub fn open_session(sock: Socket) -> Session {
 // its sessions this way with `idle_timeout_ms`.
 #[deprecated("use open_session_with_timeouts, which also bounds the request head")]
 pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session {
-    return Session { sock: sock, buffer: [], timeout_ms: timeout_ms, head_timeout_ms: 0, fresh: false }
+    return Session {
+        sock: sock,
+        buffer: [],
+        timeout_ms: timeout_ms,
+        head_timeout_ms: 0,
+        fresh: false,
+        max_body_bytes: 0
+    }
 }
 
 // Like `open_session_with_timeout`, and the head of each request -- from its first byte to the blank line that ends it -- must also arrive within
@@ -196,7 +211,14 @@ pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session {
 // `head_timeout_ms`, which is then also how long the first byte may take; once the first request is read, the socket goes back to `timeout_ms`, the wait
 // between requests of a keep-alive connection. `serve` opens its sessions this way with `ServeOptions.header_timeout_ms`.
 pub fn open_session_with_timeouts(sock: Socket, timeout_ms: int, head_timeout_ms: int) -> Session {
-    return Session { sock: sock, buffer: [], timeout_ms: timeout_ms, head_timeout_ms: head_timeout_ms, fresh: true }
+    return Session {
+        sock: sock,
+        buffer: [],
+        timeout_ms: timeout_ms,
+        head_timeout_ms: head_timeout_ms,
+        fresh: true,
+        max_body_bytes: 0
+    }
 }
 
 // ------------------------------------------------------------- reading
@@ -255,8 +277,8 @@ fn fill(sock: Socket, buf: [byte], limit_ms: int, started: int) -> Result<[byte]
 
 // Decodes a chunked body (RFC 7230 section 4.1): `size-in-hex [;extension] CRLF data CRLF`
 // repeated, a `0` chunk, optional trailer lines (skipped), and a final blank line. `start` holds
-// what was already read past the request head. The decoded body is limited to `max_body_bytes`.
-fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Result<ChunkedBody, HttpError> {
+// what was already read past the request head. The decoded body is limited to `cap`.
+fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: int) -> Result<ChunkedBody, HttpError> {
     var buf = start
     val body = mutable_array_new<byte>()
     var total = 0
@@ -302,7 +324,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Res
             return ChunkedBody { body: snapshot(body), rest: slice<byte>(buf, 2, len(buf)) }
         }
         total = total + n
-        if total > max_body_bytes {
+        if total > cap {
             return err(HttpError.BodyTooLarge)
         }
         while len(buf) < n + 2 {
@@ -324,6 +346,9 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Res
 // `error_response` maps one to the HTTP response to send before closing.
 pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     val sock = session.sock
+    // 0 means "the library's default", so a session built by one of the `open_session*`
+    // constructors keeps the 1 MiB cap and `serve` can override it from its options (D22).
+    val body_cap = if session.max_body_bytes > 0 { session.max_body_bytes } else { max_body_bytes }
     val limit_ms = session.timeout_ms
     val head_limit_ms = if session.head_timeout_ms > 0 && (limit_ms <= 0 || session.head_timeout_ms < limit_ms) {
         session.head_timeout_ms
@@ -440,7 +465,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         if Some(expect_chunked) = expect_chunked && equals_ignore_case(expect_chunked, "100-continue") {
             try lift<int>(net.write_text(sock, continue_response))
         }
-        val decoded = try read_chunked(sock, slice<byte>(buf, head_end, len(buf)), limit_ms, started)
+        val decoded = try read_chunked(sock, slice<byte>(buf, head_end, len(buf)), limit_ms, started, body_cap)
         try restore_timeout(sock, limit_ms, true)
         val chunked_request = Request {
             method: method_parse(method_text),
@@ -459,7 +484,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
                 buffer: decoded.rest,
                 timeout_ms: limit_ms,
                 head_timeout_ms: session.head_timeout_ms,
-                fresh: false
+                fresh: false,
+                max_body_bytes: session.max_body_bytes
             }
         }
     }
@@ -477,7 +503,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             Err(_) { return err(HttpError.BadRequest("invalid Content-Length")) }
         }
     }
-    if content_length > max_body_bytes {
+    if content_length > body_cap {
         return err(HttpError.BodyTooLarge)
     }
 
@@ -487,11 +513,18 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         if Some(expect) = expect && equals_ignore_case(expect, "100-continue") {
             try lift<int>(net.write_text(sock, continue_response))
         }
-        while len(rest) < content_length {
-            val more = try read_within(sock, content_length - len(rest), limit_ms, started)
+        // `bytes_concat` in this loop re-copied everything read so far on every chunk, which is
+        // quadratic in the body size: a 1 MiB body arriving in 4 KiB reads is about 128 MiB of
+        // copying. A byte builder appends into packed storage, so each chunk is one memcpy and the
+        // body is copied once at the end (D22).
+        val acc = mutable_array_new<byte>()
+        mutable_array_push_all(acc, rest)
+        while len(acc) < content_length {
+            val more = try read_within(sock, content_length - len(acc), limit_ms, started)
             lowered = true
-            rest = bytes_concat(rest, more)
+            mutable_array_push_all(acc, more)
         }
+        rest = snapshot(acc)
     }
     try restore_timeout(sock, limit_ms, lowered || session.fresh)
     val body = slice<byte>(rest, 0, content_length)
@@ -514,7 +547,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             buffer: leftover,
             timeout_ms: limit_ms,
             head_timeout_ms: session.head_timeout_ms,
-            fresh: false
+            fresh: false,
+            max_body_bytes: session.max_body_bytes
         }
     }
 }
@@ -2310,6 +2344,10 @@ pub struct ServeOptions {
     header_timeout_ms: int
     max_connections: int
     log_requests: bool
+    // The largest request body to accept, or 0 for the library's 1 MiB default. A body over it is
+    // refused with 413 before the handler is reached, and the limit applies to what arrives on the
+    // wire -- the encoded body, `multipart` boundaries included.
+    max_body_bytes: int
     // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
     // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
     // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.
@@ -2405,7 +2443,8 @@ fn serve_connection(
     on_request: Option<fn(RequestLog)>,
     meter: bool,
     client_key: string,
-    slots: Channel<int>
+    slots: Channel<int>,
+    body_cap: int
 ) {
     defer send(slots, 1)  // the slot is returned on every way out
     defer net.close(sock)
@@ -2423,8 +2462,8 @@ fn serve_connection(
     // the gauge went up and straight back down and read 0 while connections were plainly open.
     defer connection_closed(meter)
     val head_ms = if header_timeout_ms > 0 && header_timeout_ms < idle_timeout_ms { header_timeout_ms } else { idle_timeout_ms }
-    unwrap(net.set_timeout(sock, head_ms))                                    // a client that never speaks can't hold this thread for long
-    var session = open_session_with_timeouts(sock, idle_timeout_ms, head_ms)  // nor one that drips a request in
+    unwrap(net.set_timeout(sock, head_ms))                                                                      // a client that never speaks can't hold this thread for long
+    var session = with open_session_with_timeouts(sock, idle_timeout_ms, head_ms) { max_body_bytes: body_cap }  // nor one that drips a request in
     var open = true
     while open {
         val next = read_request(session)
@@ -2511,6 +2550,7 @@ pub fn serve_options() -> ServeOptions {
         header_timeout_ms: 10000,
         max_connections: 64,
         log_requests: false,
+        max_body_bytes: 0,
         compress_responses: false,
         fault: Option<fn(int, string) -> Response>.None,
         on_request: Option<fn(RequestLog)>.None,
@@ -2566,7 +2606,8 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
                 options.on_request,
                 options.metrics,
                 client_key,
-                slots
+                slots,
+                options.max_body_bytes
             ) on_error fn(
                 message: string
             ) {

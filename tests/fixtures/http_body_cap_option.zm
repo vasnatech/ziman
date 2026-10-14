@@ -1,0 +1,36 @@
+// D22: the 1 MiB body cap was a module constant with no way to change it, while two published doc
+// comments told readers to raise `ServeOptions.max_body_bytes` -- a field that did not exist (D21).
+// It exists now, and 0 still means the library's 1 MiB default, so a caller that reads requests off
+// its own socket with `open_session` keeps the old behaviour.
+use client
+use http
+use http.HttpMethod
+use net
+use server
+
+fn handler(r: http.Request) -> http.Response {
+    return server.text_response(200, format("got {} bytes", len(r.body)))
+}
+
+fn send_bytes(port: int, n: int) -> int {
+    val b = mutable_string_new()
+    for i in 0..n {
+        mutable_string_append(b, "x")
+    }
+    return switch client.request(method: HttpMethod.Post, url: format("http://127.0.0.1:{}/", port), body: string_to_bytes(snapshot(b))) {
+        Ok(resp) { resp.status }
+        Err(_) { 0 - 1 }
+    }
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn server.serve(l, handler, with server.serve_options() { max_body_bytes: 64 }) on_error fn(message: string) {
+        print(concat("server: ", message))
+    }
+    print(format("4 bytes: {}", send_bytes(port, 4)))
+    print(format("64 bytes: {}", send_bytes(port, 64)))
+    print(format("65 bytes: {}", send_bytes(port, 65)))
+    net.close_listener(l)
+}

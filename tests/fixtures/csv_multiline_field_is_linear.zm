@@ -1,0 +1,26 @@
+// D22: a multi-line quoted CSV field was rebuilt with `concat` once per continuation line, copying
+// the whole field each time -- quadratic in its own length. A 40,000-line field took 85.68s and
+// takes 0.13s now. This fixture uses 4,000 lines so it stays well inside the harness's `timeout 5`
+// while still being far past the point where the old code became unusable (it took about 1s there).
+use csv
+use fs
+use json
+
+fn main() {
+    val b = mutable_string_new()
+    mutable_string_append(b, "a,b\n\"start")
+    for i in 0..4000 {
+        mutable_string_append(b, "\ncontinuation line of a quoted field")
+    }
+    mutable_string_append(b, "\",z\n")
+    val path = "/tmp/ziman_fixture_csv_multiline.csv"
+    unwrap(fs.write_text(path, snapshot(b)))
+    var rows = 0
+    var field_chars = 0
+    for r in unwrap(csv.records(path)) {
+        rows = rows + 1
+        field_chars = field_chars + len(json.json_to_string(unwrap(r)))
+    }
+    print(format("rows={} field_chars={}", rows, field_chars))
+    val _ = fs.remove(path)
+}

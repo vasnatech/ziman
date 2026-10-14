@@ -669,17 +669,20 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
         mutable_string_append(out, all[k])
         k = k + 1
     }
-    var text = snapshot(out)
+    // Appended to the builder and snapshotted once, rather than snapshotting first and then
+    // `concat`-ing a newline at a time: the `keep` loop runs once per trailing blank line and each
+    // pass re-copied the whole block scalar (D22).
     if count > 0 {
         if chomp == "clip" {
-            text = concat(text, "\n")
+            mutable_string_append(out, "\n")
         } else if chomp == "keep" {
-            text = concat(text, "\n")
+            mutable_string_append(out, "\n")
             for t in 0..(len(all) - count) {
-                text = concat(text, "\n")
+                mutable_string_append(out, "\n")
             }
         }
     }
+    val text = snapshot(out)
     return ok(NodeRes { value: Json.JString(text), next: if chomp == "keep" { i } else { last_used } })
 }
 

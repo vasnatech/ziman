@@ -300,7 +300,11 @@ fn read_record(
     cell: Channel<int>,
     sep: string
 ) -> Option<Result<RecordText, string>> {
-    var text = ""
+    // A builder, not a `var text` rebuilt with `concat` per continuation line: that copied the whole
+    // field on every line, so a long multi-line quoted value was quadratic in its own length. The
+    // accumulated text is only ever *read* at the two places this loop finishes, and `quotes` is
+    // counted per line rather than derived from it, so one `snapshot` at each exit is enough (D22).
+    val acc = mutable_string_new()
     var started = false
     var start_line = 0
     var quotes = 0
@@ -313,7 +317,7 @@ fn read_record(
             send(cell, number - 1)
             done = true
             if started {
-                result = Option<Result<RecordText, string>>.Some(unclosed_record(text, start_line, sep))
+                result = Option<Result<RecordText, string>>.Some(unclosed_record(snapshot(acc), start_line, sep))
             }
         } else if Some(line_result) = item {
             send(cell, number)
@@ -326,16 +330,16 @@ fn read_record(
                     continue
                 }
                 if started {
-                    text = concat(text, "\n", line)
+                    mutable_string_append(acc, "\n")
                 } else {
                     started = true
                     start_line = number
-                    text = line
                 }
+                mutable_string_append(acc, line)
                 quotes = quotes + quote_count(line)
                 if quotes % 2 == 0 {
                     done = true
-                    val record: Result<RecordText, string> = RecordText { text: text, line: start_line }
+                    val record: Result<RecordText, string> = RecordText { text: snapshot(acc), line: start_line }
                     result = Option<Result<RecordText, string>>.Some(record)
                 }
             }
