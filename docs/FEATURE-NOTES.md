@@ -274,30 +274,33 @@ expression into such a statement (see docs/DESIGN.md's "try" entries).
 It was first a postfix `expr?`, replaced by `try` (2026-09) so that the
 early exit is written where it is hard to miss.
 
-## `StringBuilder` and `ArrayBuilder<T>`
+## `MutableString` and `MutableArray<T>`
 
 The prelude isn't native-only, though: `Option<T>` (plus
 one helper, `option_unwrap_or`) lives there too, as ordinary Ziman
 source — an enum, not a hardcoded primitive like `Result<T, E>` is —
 merged bare into every program the same way the entry file's own
-top-level names are. So does `StringBuilder` — a general fix for the
+top-level names are. So does `MutableString` — a general fix for the
 O(N²)-allocation, O(N)-leaked-garbage pattern of building a string via
 repeated `concat` in a loop (`uuid_to_string` used to be exactly this,
-and now isn't — see docs/DESIGN.md's "StringBuilder" entry). It's a
-plain, one-field struct (`StringBuilder { handle: int }`), not a new
-built-in type the way `Channel<T>` is: the `handle` is an opaque index
-into a native-side table of real, growable buffers (`sb_new`/
-`sb_append`/`sb_append_byte`/`sb_to_string`/`sb_len`), so appending never copies
-everything accumulated so far the way `concat` or `push` in a loop
-does. `sb_new(capacity: Option<int> = 20, grow_factor: Option<float> =
-2.0)` leans on `Option<T>` parameter omission for its own ergonomics:
-the common case, `sb_new()`, tunes neither. `ArrayBuilder<T>` is the
+and now isn't — see docs/DESIGN.md's "StringBuilder" entry, which the
+2026-10-13 rename supersedes in part). It's a plain, one-field struct
+(`MutableString { handle: int }`), not a new built-in type the way
+`Channel<T>` is: the `handle` is an opaque index into a native-side table
+of real, growable buffers (`mutable_string_new`/`mutable_string_append`/
+`mutable_string_append_byte`, plus the bare `len` and `snapshot` that every
+mutable collection answers), so appending never copies everything
+accumulated so far the way `concat` or `push` in a loop
+does. `mutable_string_new(capacity: Option<int> = 20, grow_factor:
+Option<float> = 2.0)` leans on `Option<T>` parameter omission for its own
+ergonomics: the common case, `mutable_string_new()`, tunes neither.
+`MutableArray<T>` is the
 same fix for `push` in a loop (`hashmap_keys`/`hashmap_values`/
 `hashset_items` all used to be exactly this, and now aren't) — `push`
 copies the whole existing array on every call for the same reason
 `concat` copies the whole string, so it's the identical
-`ab_new`/`ab_append`/`ab_to_array`/`ab_len` shape, generic this time
-(`struct ArrayBuilder<T> { handle: int }`). Needed one small, genuinely
+`mutable_array_new`/`mutable_array_push`/`snapshot`/`len` shape, generic
+this time (`struct MutableArray<T> { handle: int }`). Needed one small, genuinely
 missing capability first: `native fn` couldn't take type parameters at
 all before this (a parser gap, not a deliberate restriction — the type
 checker's own generic-instantiation logic never special-cased native

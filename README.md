@@ -109,8 +109,8 @@ Builtins available without `use`: `print`, `printf`, `format`, `str`, `len`,
 `push`, `insert`, `set`, `remove`, `contains`, `hash`, `compare`, `abs`,
 `min`, `max`, `ok`, `err`, `unwrap`, the `channel` operations, the string
 functions (`substring`, `split`, `trim`, `index_of`, `replace`,
-`equals_ignore_case`, ...), and the builders (`StringBuilder`,
-`ArrayBuilder<T>`). Long-form notes on all of it are in
+`equals_ignore_case`, ...), and the mutable collections (`MutableString`,
+`MutableArray<T>`, `MutableMap<K, V>`, `MutableSet<T>`). Long-form notes on all of it are in
 [docs/FEATURE-NOTES.md](docs/FEATURE-NOTES.md).
 
 ## Building and running
@@ -142,7 +142,7 @@ instead of running it (today: a declaration nothing ever reads, a redundant `as`
 the import would bind anyway, a `spawn` with no `on_error` that is handed a Channel -- if it fails, whoever
 waits on that channel waits for ever -- a `var` that is never reassigned, and `x = concat(x, ..)` /
 `x = concat_arrays(x, ..)` / `x = set(x, i, ..)` in a loop, which copies all of `x` on every pass -- use a
-StringBuilder or ArrayBuilder; `x = push(x, ..)` is deliberately *not* reported, since appending to an array
+a MutableString or MutableArray; `x = push(x, ..)` is deliberately *not* reported, since appending to an array
 nothing else holds extends it in place -- `var` and
 `val` differ by one letter, so it is the typo that silently makes something
 mutable) as `file:line:col: warning: ...`, or JSON with `"severity":"warning"`,
@@ -163,7 +163,7 @@ first (`self%  samples  function`) -- CPU-time sampling at 1kHz off the frame st
 already keeps for error traces, so it costs nothing measurable and needs no instrumentation. The
 figure is *self* time, the function's own statements rather than its callees, which is the one that
 answers "what do I make faster"; core-library and native functions appear too, so a program whose
-time really goes into `mapb_set` is told so. Time spent collecting garbage gets its own row instead
+time really goes into `mutable_map_set` is told so. Time spent collecting garbage gets its own row instead
 of being blamed on whichever function happened to allocate, and the report goes to stderr so the
 program's own stdout is unchanged; `--locals` adds each stack frame's variables and their values
 under it when a runtime error prints a trace (`xs: [int] = [1, 2, 3]`), innermost block first --
