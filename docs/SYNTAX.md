@@ -1411,9 +1411,19 @@ migration. All four declaration kinds carry the attribute; there is no kind it i
 one, whose type records that fact, so sending or spawning the lambda is refused where it is written
 rather than failing on the receiving thread. Each builder and iterator also remembers its own thread
 and a use from another is a runtime error, which stays as a backstop for anything the type checker
-cannot see. Hand over the finished value (`snapshot`,
-`snapshot`, `snapshot`, an iterator's items as an array), not the builder/iterator. For
-a struct written in Ziman this attribute gives only the compile-time refusals (no native check).
+cannot see. Hand over the finished value -- `snapshot(x)` for any of the four, an iterator's items
+as an array -- not the handle itself. For a struct written in Ziman this attribute gives only the
+compile-time refusals (no native check).
+
+**A type named `Mutable*` must be thread-bound**, and the compiler checks it: `Mutable` followed by
+an uppercase letter (or on its own) is a claim of family membership, and a plain value wearing the
+name would make "every `Mutable*` type belongs to the thread that made it" untrue. A `struct`
+satisfies it with the attribute *or* by holding something that has it, so
+`struct MutableRingBuffer { buf: MutableArray<int>, head: int }` needs no annotation -- the error
+fires only on a `Mutable*` name with nothing mutable inside. An `enum` carries no `#[thread_bound]`
+of its own, so its only way to satisfy the rule is a thread-bound variant payload. `MutablesRegistry`
+is not caught, which is why the check reads the character after the prefix. The converse does not
+hold: a thread-bound type need not be named `Mutable*`, or `Iter` would have to be renamed.
 
 ```ziman
 use json.Json

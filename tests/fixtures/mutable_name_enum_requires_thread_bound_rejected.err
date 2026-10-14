@@ -1,0 +1,1 @@
+a type named 'MutableState' must be thread-bound: hold a thread-bound payload, or rename it. Every 'Mutable*' type belongs to the thread that made it, and an enum cannot carry #[thread_bound] of its own

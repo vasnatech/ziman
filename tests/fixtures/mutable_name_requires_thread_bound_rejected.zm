@@ -1,0 +1,10 @@
+// "Every `Mutable*` type belongs to the thread that made it" is worth stating as a rule only if a
+// plain value cannot wear the name and falsify it. That is not a style matter, which is what
+// separates this from R16's naming convention: a documented guarantee would simply be untrue.
+struct MutableCache {
+    entries: int
+}
+
+fn main() {
+    print(MutableCache { entries: 0 }.entries)
+}

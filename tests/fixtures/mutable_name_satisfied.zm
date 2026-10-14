@@ -1,0 +1,33 @@
+// The three ways the rule is satisfied, and the one name it deliberately does not catch. The check
+// costs legitimate uses nothing: a struct that holds a handle is already thread-bound transitively,
+// so the library types this design exists to enable need no annotation at all.
+struct MutableRingBuffer {
+    buf: MutableArray<int>
+    head: int
+}
+
+#[thread_bound]
+struct MutableTicket {
+    n: int
+}
+
+enum MutableSlot {
+    Empty
+    Filled(MutableArray<int>)
+}
+
+// `Mutable` followed by a lowercase letter is not the family -- which is why the check looks at the
+// next character rather than just the prefix.
+struct MutablesRegistry {
+    count: int
+}
+
+fn main() {
+    val r = MutableRingBuffer { buf: mutable_array_new<int>(), head: 0 }
+    mutable_array_push(r.buf, 7, 8)
+    print(len(r.buf))
+    print(MutableTicket { n: 3 }.n)
+    print(MutablesRegistry { count: 2 }.count)
+    val slot = MutableSlot.Filled(mutable_array_new<int>())
+    print(switch slot { Empty { 0 } Filled(xs) { len(xs) } })
+}

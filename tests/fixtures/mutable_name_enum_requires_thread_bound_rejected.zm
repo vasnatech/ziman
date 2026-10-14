@@ -1,0 +1,12 @@
+// The same rule reaches enums, or the guarantee has a hole an enum can be driven through. An enum
+// carries no `#[thread_bound]` of its own, so its only way to satisfy the rule is a variant
+// payload that is thread-bound -- which is how the existing refusals already reach through an
+// `Option<T>`.
+enum MutableState {
+    Idle
+    Busy(int)
+}
+
+fn main() {
+    print(1)
+}

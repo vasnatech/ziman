@@ -1,0 +1,1 @@
+a type named 'MutableCache' must be thread-bound: add #[thread_bound], or rename it. Every 'Mutable*' type belongs to the thread that made it, and a plain value wearing the name would make that untrue

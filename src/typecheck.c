@@ -128,6 +128,15 @@ static int type_holds_thread_bound(Module *module, Type t, const VisitedDecl *se
 }
 
 /* The message for a thread-bound type where it may not go: `what` says where ("sent over a channel"). */
+/* True for a name that claims membership of the `Mutable*` family: `Mutable` followed by an
+ * uppercase letter, or `Mutable` on its own. Looking at the next character rather than just the
+ * prefix is what keeps `MutablesRegistry` out of it. */
+static int name_claims_mutable(const char *name) {
+    if (strncmp(name, "Mutable", 7) != 0) return 0;
+    char next = name[7];
+    return next == '\0' || (next >= 'A' && next <= 'Z');
+}
+
 static void reject_thread_bound(Module *module, Type t, const char *what, int line, int col) {
     if (type_holds_thread_bound(module, t, NULL)) {
         ziman_error("type", line, col,
@@ -5144,6 +5153,30 @@ void typecheck(Module *module) {
             Param *field = &sd->fields.items[f];
             check_type_well_formed(module, field->type, field->line, field->col);
         }
+        /* A type named `Mutable*` has to actually be thread-bound. "Every `Mutable*` type belongs
+         * to the thread that made it" (docs/DESIGN.md, "The builders become mutable collections")
+         * is worth stating as a rule only if a plain value cannot wear the name and falsify it --
+         * which is not a style matter but a documented guarantee going untrue, and is the line
+         * between this and R16's naming convention.
+         *
+         * Satisfied by the attribute *or* by holding something that has it, which is why it costs
+         * legitimate uses nothing: `struct MutableRingBuffer { buf: MutableArray<int>, head: ... }`
+         * is already thread-bound transitively and needs no annotation. The error only fires on a
+         * `Mutable*` name with nothing mutable inside. Checked here rather than with the
+         * name-uniqueness pass above, because the field types have to be well-formed first. */
+        if (!sd->thread_bound && name_claims_mutable(sd->name)) {
+            int holds = 0;
+            for (int f = 0; f < sd->fields.count && !holds; f++) {
+                if (type_holds_thread_bound(module, sd->fields.items[f].type, NULL)) holds = 1;
+            }
+            if (!holds) {
+                ziman_error("type", sd->line, sd->col,
+                            "a type named '%s' must be thread-bound: add #[thread_bound], or rename it. Every "
+                            "'Mutable*' type belongs to the thread that made it, and a plain value wearing the name "
+                            "would make that untrue",
+                            sd->name);
+            }
+        }
         current_decl_type_params = NULL;
     }
 
@@ -5216,6 +5249,26 @@ void typecheck(Module *module) {
                                     other->name, fv->name, type_name(fv->payload_type));
                     }
                 }
+            }
+        }
+        /* The same rule the structs take, and an enum needs it too or the guarantee has a hole an
+         * enum can be driven through. An `EnumDecl` carries no `#[thread_bound]` of its own, so the
+         * only way one satisfies the rule is by holding something that is -- a variant payload --
+         * which is exactly how the existing refusals already reach through an `Option<T>`. */
+        if (name_claims_mutable(ed->name)) {
+            int holds = 0;
+            for (int v = 0; v < ed->variants.count && !holds; v++) {
+                if (ed->variants.items[v].has_payload &&
+                    type_holds_thread_bound(module, ed->variants.items[v].payload_type, NULL)) {
+                    holds = 1;
+                }
+            }
+            if (!holds) {
+                ziman_error("type", ed->line, ed->col,
+                            "a type named '%s' must be thread-bound: hold a thread-bound payload, or rename it. "
+                            "Every 'Mutable*' type belongs to the thread that made it, and an enum cannot carry "
+                            "#[thread_bound] of its own",
+                            ed->name);
             }
         }
         current_decl_type_params = NULL;
