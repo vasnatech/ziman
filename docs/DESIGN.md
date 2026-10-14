@@ -3555,11 +3555,19 @@ Every mutable collection also answers four bare builtins -- `len`, `contains`, `
 call-site count decided the shape: crossing back out is roughly 371 sites (`ab_to_array` 250,
 `sb_to_string` 90, `mapb_to_map` 26, `setb_to_set` the rest), second only to the appends and ahead
 of everything else combined, so the verbosity of `mutable_array_snapshot` would land precisely on
-the operation typed most. It is also the first builtin whose **return type is computed from its
-argument type** rather than fixed -- `MutableArray<T>` to `[T]`, `MutableMap<K,V>` to `Map<K,V>`,
-`MutableSet<T>` to `Set<T>`, `MutableString` to `string` -- which is new typechecker work, of the
-same kind the hardcoded generic-type table already is. No per-type aliases alongside it: one
-spelling, the `collections.sort` lesson.
+the operation typed most. Its return type is computed from its argument type -- `MutableArray<T>`
+to `[T]`, `MutableMap<K,V>` to `Map<K,V>`, `MutableSet<T>` to `Set<T>`, `MutableString` to `string`
+-- which is also not new machinery: `map_keys` already derives `Set<K>` from a `Map<K,V>` argument
+the same way. No per-type aliases alongside it: one spelling, the `collections.sort` lesson.
+
+**What that leaves is more work than it sounds, in the other direction.** `len` and `contains` do
+**not** accept the builders today -- `len` takes `TY_ARRAY`/`TY_STRING`/`TY_MAP`/`TY_SET` and
+nothing else, which is why `ab_len`, `sb_len`, `mapb_len` and `setb_len` exist as separate
+functions -- and **`clear` is not a builtin at all**, appearing nowhere in `typecheck.c`,
+`interpreter.c` or `prelude.c`. So the bare four means extending two builtins and creating two,
+rather than joining a dispatch that was already there. The pattern itself is established: `for`
+over an `ArrayBuilder` (F96) already matches a `TY_STRUCT` by `struct_name`, which is exactly what
+a handle is.
 
 ```
 MutableArray<T>
@@ -3646,10 +3654,18 @@ passes through. This rule is also why there is no `mutable_set_map`: it would ha
 
 **2. Reading functions accept either world.** `mutable_map_set_all`, both `from` constructors per
 type, and `mutable_set_union`/`_intersect`/`_difference`/`_is_subset` take the value *or* the
-handle. This is the dispatch `len`, `contains` and `clear` already do inside the native, and it is
-what keeps the conversion matrix from being thirty functions; it also makes clone free, since
-`mutable_map_from(other)` on a handle is a copy. The cost is error messages: a function accepting
-two types has to name both when handed a third.
+handle. That keeps the conversion matrix from being thirty functions, and it makes clone free,
+since `mutable_map_from(other)` on a handle is a copy. The cost is error messages: a function
+accepting two types has to name both when handed a third.
+
+**It needs no new notation**, which is worth stating because the `Set<T> | MutableSet<T>` spelling
+above looks like it does. The immutable twins of these nine are *already* hand-checked builtins --
+`set_union`, `set_intersect`, `set_difference`, `set_is_subset`, `set_from_array`, `set_insert_all`,
+`set_filter`, `map_filter`, `map_merge`, `map_remove_all` and `map_from_arrays` are all in
+`typecheck.c`'s builtin list and **none of them is declared in `lib/prelude.zm`** -- so accepting
+two kinds is two branches in `check_call`, not a type-system feature. A union type in the `Type`
+representation would be a far bigger change than these nine functions justify, and a language that
+refuses general bounds should not acquire general unions for them.
 
 **3. A fused conversion earns a name only when composition costs an extra full copy.**
 `mutable_set_from_array(xs)` is one pass where `mutable_set_from(set_from_array(xs))` is two, so it
