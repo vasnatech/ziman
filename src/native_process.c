@@ -61,7 +61,11 @@ typedef struct Child {
     pthread_mutex_t mu;
 } Child;
 
-static HandleSet g_live;
+/* `HANDLE_SET_INIT`, like the five other HandleSets in the tree. Without it the 64 shard mutexes
+ * are zero-initialised static storage rather than `PTHREAD_MUTEX_INITIALIZER`, and POSIX does not
+ * say what locking such a mutex does -- this worked only because glibc's initialiser happens to be
+ * all-zero for a default mutex, which is an implementation detail and not a promise (A45). */
+static HandleSet g_live = HANDLE_SET_INIT;
 
 static Type string_type(void) { return type_scalar(TY_STRING); }
 

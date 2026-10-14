@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze
+.PHONY: all check unit-tests clean fmt-check fmt-check-backend docs-check experimental-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
 
 all: $(BIN)
 
@@ -42,7 +42,7 @@ all: $(BIN)
 # Deliberately excluded, since each needs something the repo cannot provide: `test-pg` and
 # `test-mysql` (a container runtime and a database image), `test-tls` (the `openssl` binary), and
 # the benchmarks under tests/bench (`ab`, and a checkout of the sample backend next door).
-check: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available northstar-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check
+check: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available northstar-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check handleset-check
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
 # well under a second, so there is no reason to ever run them selectively.
@@ -538,6 +538,11 @@ libc-free-check:
 
 xalloc-check:
 	python3 tools/check_xalloc.py
+
+# A HandleSet without HANDLE_SET_INIT cannot fail a test on a machine whose libc zero-fills
+# PTHREAD_MUTEX_INITIALIZER, which is every glibc machine -- so only a check catches it (A45).
+handleset-check:
+	python3 tools/check_handle_sets.py
 
 docs-check: lib-manual-check not-yet-check experimental-check syntax-check design-index-check
 
