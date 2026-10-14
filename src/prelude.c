@@ -944,6 +944,71 @@ static Value native_ab_truncate(Value *args, int argc, int line, int col) {
     return value_int(0); /* void return -- the caller never uses this */
 }
 
+/* Sorts the buffer in place with **no copy of the elements at all**: a merge sort over positions,
+ * then the permutation applied by following its cycles. What it allocates is two int64 order
+ * buffers and an n-byte "placed" map -- 17 bytes per element against the 80 a boxed `Value` costs,
+ * twice, which is what the snapshot-sort-write-back version paid.
+ *
+ * The comparator is called on the *elements*, not on positions as `sort_positions` does, because
+ * the caller's `cmp` has the element type's signature. Stability comes from the same `< 0` test the
+ * other merge sorts here use: equal elements keep the left run's order.
+ *
+ * Why only `sort_with` and not `sort`/`sort_desc`: those two can use `order_at`'s native comparison
+ * for a packed int/float/byte buffer, with no interpreter call per comparison, which is worth more
+ * than the copies it costs. Telling "the type's own order, possibly reversed" from "an arbitrary
+ * comparator" needs a direction, and the public signature of `sort_with` has nowhere to put one. */
+static void ab_permute_in_place(MutableArrayBuf *buf, const int64_t *order, size_t n) {
+    unsigned char *placed = zalloc_atomic(n > 0 ? n : 1);
+    for (size_t i = 0; i < n; i++) placed[i] = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (placed[i]) continue;
+        /* Walk this cycle, carrying the element displaced at its start until it lands. Nothing is
+         * read after it has been overwritten: the write is always to `j` and the next read is from
+         * `src`, which has not been written yet. */
+        Value carried = ab_element_at(buf, i);
+        size_t j = i;
+        for (;;) {
+            size_t src = (size_t)order[j];
+            placed[j] = 1;
+            Value landing = src == i ? carried : ab_element_at(buf, src);
+            if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)j, landing);
+            else buf->items[j] = landing;
+            if (src == i) break;
+            j = src;
+        }
+    }
+}
+
+static Value native_ab_sort_with(Value *args, int argc, int line, int col) {
+    (void)argc;
+    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    size_t n = buf->length;
+    if (n < 2) return value_int(0);
+    int64_t *order = zalloc_atomic(n * sizeof(int64_t));
+    int64_t *tmp = zalloc_atomic(n * sizeof(int64_t));
+    for (size_t i = 0; i < n; i++) order[i] = (int64_t)i;
+    for (size_t width = 1; width < n; width *= 2) {
+        size_t k = 0;
+        for (size_t lo = 0; lo < n; lo += 2 * width) {
+            size_t mid = lo + width < n ? lo + width : n;
+            size_t hi = lo + 2 * width < n ? lo + 2 * width : n;
+            size_t i = lo, j = mid;
+            while (i < mid && j < hi) {
+                Value pair[2] = {ab_element_at(buf, (size_t)order[j]), ab_element_at(buf, (size_t)order[i])};
+                if (native_call_closure(args[1], pair, 2, line, col).as.i < 0) tmp[k++] = order[j++];
+                else tmp[k++] = order[i++];
+            }
+            while (i < mid) tmp[k++] = order[i++];
+            while (j < hi) tmp[k++] = order[j++];
+        }
+        int64_t *swap = order;
+        order = tmp;
+        tmp = swap;
+    }
+    ab_permute_in_place(buf, order, n);
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
 /* Compacts the buffer in place: one walk with a write cursor trailing the read cursor, so the kept
  * elements end up at the front and the length shrinks. **No allocation at all**, which is the whole
  * reason this exists rather than `array_filter(snapshot(xs), keep)` -- that makes two copies, and
@@ -2015,6 +2080,7 @@ void prelude_register(void) {
     native_register("mutable_get", native_mutable_get);
     native_register("mutable_set", native_mutable_set);
     native_register("mutable_array_filter", native_ab_filter);
+    native_register("mutable_array_sort_with", native_ab_sort_with);
     native_register("mutable_array_insert", native_ab_insert);
     native_register("mutable_array_remove", native_ab_remove);
     native_register("mutable_array_truncate", native_ab_truncate);

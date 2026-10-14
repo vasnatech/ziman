@@ -301,9 +301,12 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   is no `push_front`: the name would read as `push`'s twin and promise a cost it cannot give. Build
   tail-first and `mutable_array_reverse` once, which copies nothing. `mutable_array_filter` keeps
   what its predicate accepts, in place and **allocating nothing** -- the only filter in the language
-  that doesn't; the three sorts land their result back in the same buffer but do make two copies
-  getting there (the snapshot, and the sorted array), which the prelude says plainly rather than
-  implying in-place means free. It
+  that doesn't. `mutable_array_sort_with` copies no elements either (a merge sort over positions,
+  then the permutation applied by following its cycles), while `mutable_array_sort`/`_desc` do make
+  two copies -- and that is the cheaper option rather than a compromise, because for a packed
+  `[int]`, `[float]` or `[byte]` buffer those two compare *natively*, with no interpreter call per
+  comparison, which is worth far more than two memcpys. A comparator of your own always went
+  through the interpreter, so `sort_with` had no such trade to make. It
   reads back in place: `len(xs)`, `mutable_array_get` and `for x in xs` cost nothing, where
   `snapshot` copies the whole buffer every call (`--lint` flags that in a loop). See
   "Builtins" for exact signatures.

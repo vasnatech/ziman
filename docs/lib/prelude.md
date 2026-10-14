@@ -663,16 +663,15 @@ the buffer mid-compaction, the same class of thing as appending during a `for`.
 fn mutable_array_sort<T: Ord>(xs: MutableArray<T>)
 ```
 
-Sorts the buffer, by the element type's own `compare` ascending or descending, or by a comparator
-of your own. The result lands back in the same buffer, which is the point -- but note the cost:
-these are ordinary Ziman over `array_sort` and a write-back, so each makes **two copies** (the
-snapshot, and the sorted array), where an in-place sort in C would make one. That is a deliberate
-trade: the alternative duplicates the packed/compare sort machinery in C, and the copies are
-dominated by the sort itself. The signatures would not change if it were ever worth doing.
+Sorts the buffer by the element type's own `compare`, ascending or descending. These two make
+two copies -- the snapshot, and the sorted array -- and that is the cheaper option rather than a
+compromise: for a packed `[int]`, `[float]` or `[byte]` buffer, `array_sort` compares *natively*,
+with no interpreter call per comparison, which is worth far more than the two memcpys it costs.
+`mutable_array_sort_with` below has no such option and so is genuinely in place.
 The write-back is `mutable_array_set` per element rather than `clear` and push, so the buffer
-keeps its capacity and the length never changes. Spelled out in each of the three rather than
-shared, because a helper here would be *public* -- everything in the prelude is -- and
-"overwrite the buffer with this array" is not a function the design asked for.
+keeps its capacity and the length never changes. Spelled out in both rather than shared, because
+a helper here would be *public* -- everything in the prelude is -- and "overwrite the buffer with
+this array" is not a function the design asked for.
 
 ### `mutable_array_sort_desc`
 
@@ -683,8 +682,15 @@ fn mutable_array_sort_desc<T: Ord>(xs: MutableArray<T>)
 ### `mutable_array_sort_with`
 
 ```
-fn mutable_array_sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
+native fn mutable_array_sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
 ```
+
+Sorts the buffer by `cmp`, **copying no elements at all**: a merge sort over positions, then the
+permutation applied by following its cycles. It allocates two int64 order buffers and an n-byte
+map -- 17 bytes per element, against the 80 a boxed element costs, twice, through a snapshot. A
+comparator of your own always went through the interpreter per comparison, so unlike `sort` and
+`sort_desc` there is no native comparison here to trade those copies for. Stable: equal elements
+keep their input order.
 
 ## MutableMap and MutableSet
 

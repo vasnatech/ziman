@@ -1,0 +1,73 @@
+// `mutable_array_sort_with` copies no elements: a merge sort over positions, then the permutation
+// applied by following its cycles. The cycle-following is the part that could be subtly wrong on
+// inputs the obvious cases miss, so this is a differential test rather than a list of expectations
+// -- the in-place result must equal `collections.sort_with` of the same input, for every length
+// from 0 to 40, with a stride that produces long cycles rather than a near-sorted order.
+//
+// Then the two degenerate permutation shapes, which a cycle walk gets wrong in opposite ways if the
+// "already placed" bookkeeping is off: a reversed array is one long cycle, and an already-sorted
+// one is all fixed points.
+//
+// Stability is checked on the boxed path with genuine ties -- twelve elements over three keys, so
+// each key's four tags must come out in input order (0 3 6 9, not 9 6 3 0).
+use collections
+
+struct P {
+    key: int
+    tag: string
+}
+
+fn p_compare(a: P, b: P) -> int {
+    return compare(a.key, b.key)
+}
+
+fn main() {
+    // Differential: in-place sort must equal the immutable sort of the same input, for every
+    // length up to 40 and a pseudo-random order that produces long permutation cycles.
+    var n = 0
+    var mismatches = 0
+    while n <= 40 {
+        val xs = mutable_array_new<int>()
+        var i = 0
+        while i < n {
+            mutable_array_push(xs, (i * 37 + 11) % 101)
+            i = i + 1
+        }
+        val before = snapshot(xs)
+        mutable_array_sort_with(xs, fn(a: int, b: int) -> int { return compare(a, b) })
+        val want = collections.sort_with<int>(before, fn(a: int, b: int) -> int { return compare(a, b) })
+        if snapshot(xs) != want {
+            mismatches = mismatches + 1
+        }
+        n = n + 1
+    }
+    print(concat("int lengths 0..40 mismatches: ", str(mismatches)))
+
+    // Boxed elements, and stability with genuine ties.
+    val ps = mutable_array_new<P>()
+    var j = 0
+    while j < 12 {
+        mutable_array_push(ps, P { key: j % 3, tag: str(j) })
+        j = j + 1
+    }
+    val pbefore = snapshot(ps)
+    mutable_array_sort_with(ps, fn(a: P, b: P) -> int { return compare(a.key, b.key) })
+    val pwant = collections.sort_with<P>(pbefore, fn(a: P, b: P) -> int { return compare(a.key, b.key) })
+    var tags = ""
+    for p in ps {
+        tags = concat(tags, p.tag, " ")
+    }
+    print(trim(tags))
+    print(snapshot(ps) == pwant)
+
+    // Reverse order is one long cycle; already-sorted is all fixed points.
+    val rev = mutable_array_from([5, 4, 3, 2, 1])
+    mutable_array_sort_with(rev, fn(a: int, b: int) -> int { return compare(a, b) })
+    print(snapshot(rev))
+    val done = mutable_array_from([1, 2, 3])
+    mutable_array_sort_with(done, fn(a: int, b: int) -> int { return compare(a, b) })
+    print(snapshot(done))
+    val one = mutable_array_from([7])
+    mutable_array_sort_with(one, fn(a: int, b: int) -> int { return compare(a, b) })
+    print(snapshot(one))
+}
