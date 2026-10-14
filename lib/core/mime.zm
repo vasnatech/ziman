@@ -171,17 +171,17 @@ fn bad(text: string, why: string) -> string {
 // the position just after it, as `[value, position]`.
 fn read_value(text: string, pos: int) -> Result<[string], string> {
     if is_char_at(text, pos, "\"") {
-        val out = sb_new()
+        val out = mutable_string_new()
         var p = pos + 1
         while p < len(text) {
             val c = char_at(text, p)
             if c == "\\" && p + 1 < len(text) {
-                sb_append(out, char_at(text, p + 1))
+                mutable_string_append(out, char_at(text, p + 1))
                 p = p + 2
             } else if c == "\"" {
-                return ok([sb_to_string(out), str(p + 1)])
+                return ok([snapshot(out), str(p + 1)])
             } else {
-                sb_append(out, c)
+                mutable_string_append(out, c)
                 p = p + 1
             }
         }
@@ -212,7 +212,7 @@ pub fn parse(text: string) -> Result<MediaType, string> {
     if type == "*" && subtype != "*" {
         return err(bad(text, "'*/subtype' is not a media range"))
     }
-    val params = mapb_new<string, string>()
+    val params = mutable_map_new<string, string>()
     var pos = head_end
     while pos < len(s) {
         // s[pos] is ';'
@@ -233,13 +233,13 @@ pub fn parse(text: string) -> Result<MediaType, string> {
                 return err(bad(text, format("'{}' is not a valid parameter name", name)))
             }
             val read = try read_value(s, eq + 1)
-            if !mapb_contains(params, name) {
-                mapb_set(params, name, read[0])
+            if !contains(params, name) {
+                mutable_map_set(params, name, read[0])
             }
             pos = unwrap(parse_int(read[1]))
         }
     }
-    return MediaType { type: type, subtype: subtype, params: mapb_to_map(params) }
+    return MediaType { type: type, subtype: subtype, params: snapshot(params) }
 }
 
 // ---------------------------------------------------------------- writing and reading
@@ -258,12 +258,12 @@ fn quote_if_needed(value: string) -> string {
 
 // The text form: `text/html; charset=utf-8`. A parameter value that is not a token is written quoted.
 pub fn to_string(m: MediaType) -> string {
-    val out = sb_new()
-    sb_append(out, essence(m))
+    val out = mutable_string_new()
+    mutable_string_append(out, essence(m))
     for name, value in m.params {
-        sb_append(out, "; ", name, "=", quote_if_needed(value))
+        mutable_string_append(out, "; ", name, "=", quote_if_needed(value))
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 // The value of parameter `name` (lower case), or None.

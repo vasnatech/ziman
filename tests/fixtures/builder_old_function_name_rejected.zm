@@ -1,0 +1,7 @@
+// The old function names point at the new ones. Half of them became a bare builtin rather than a
+// prefixed name, which no edit-distance suggester could find -- `ab_to_array` to `snapshot` is not
+// a near miss -- so the mapping is spelled out rather than guessed.
+fn main() {
+    val xs = mutable_array_new<int>()
+    print(ab_to_array(xs))
+}

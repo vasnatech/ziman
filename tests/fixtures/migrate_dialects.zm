@@ -16,11 +16,11 @@ fn names(r: Result<[migrate.Migration], DbError>) -> string {
 }
 
 fn collect_names(items: [migrate.Migration]) -> [string] {
-    val out = ab_new<string>()
+    val out = mutable_array_new<string>()
     for m in items {
-        ab_append<string>(out, m.file)
+        mutable_array_push<string>(out, m.file)
     }
-    return ab_to_array<string>(out)
+    return snapshot(out)
 }
 
 fn main() {

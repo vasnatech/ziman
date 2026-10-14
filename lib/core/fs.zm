@@ -335,10 +335,10 @@ pub fn copy_file(from: string, to: string) -> Result<int, FsError> {
 // Joins path pieces with single slashes: `path_join("a/", "/b", "c.txt")` is "a/b/c.txt". A
 // piece that starts with "/" after the first one is treated as relative, not as a new root.
 pub fn path_join(pieces: variadic string) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     var first = true
     // Whether what has been appended so far ends in "/", tracked rather than rediscovered. This
-    // used to call `sb_to_string(out)` on every piece purely to look at its last character, which
+    // used to call `snapshot(out)` on every piece purely to look at its last character, which
     // copies the whole accumulated path each time: measurably superlinear past a few thousand
     // pieces (0.02s, 0.04s, 0.09s, 0.35s at 2,000 to 16,000), and the shape `--lint` now reports
     // (docs/reviews/tasks.md F84). A real path has a handful of pieces, so this was never a
@@ -349,18 +349,18 @@ pub fn path_join(pieces: variadic string) -> string {
             continue
         }
         val appended = if first {
-            sb_append(out, piece)
+            mutable_string_append(out, piece)
             first = false
             piece
         } else {
             val right = if is_char_at(piece, 0, "/") { substring(piece, 1, len(piece)) } else { piece }
-            sb_append(out, if ends_with_slash { "" } else { "/" }, right)
+            mutable_string_append(out, if ends_with_slash { "" } else { "/" }, right)
             right
         }
         // An empty `right` leaves the separator as the last character, which is itself a "/".
         ends_with_slash = if len(appended) == 0 { !first } else { is_char_at(appended, len(appended) - 1, "/") }
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 // The last segment of a path: `file_name("a/b/c.txt")` is "c.txt". A trailing slash is ignored.

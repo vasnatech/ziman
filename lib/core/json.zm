@@ -237,23 +237,23 @@ pub fn json_require_bool_field(j: Json, key: string) -> Result<bool, string> {
 // An object as a Map, each value decoded by `decode`: `json_to_map<int>(j, int_from_json)`.
 pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string> {
     if JObject(fields) = j {
-        val out = mapb_new<string, V>()
+        val out = mutable_map_new<string, V>()
         for key, value in fields {
             val item = try decode(value)
-            mapb_set(out, key, item)
+            mutable_map_set(out, key, item)
         }
-        return ok(mapb_to_map(out))
+        return ok(snapshot(out))
     }
     return err("expected an object")
 }
 
 // The other direction: a Map as a JSON object, each value encoded by `encode`.
 pub fn json_from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json {
-    val out = mapb_new<string, Json>()
+    val out = mutable_map_new<string, Json>()
     for key, value in m {
-        mapb_set(out, key, encode(value))
+        mutable_map_set(out, key, encode(value))
     }
-    return Json.JObject(mapb_to_map(out))
+    return Json.JObject(snapshot(out))
 }
 
 // A JSON object of strings as a Map<string, string>.
@@ -264,9 +264,9 @@ pub fn json_to_string_map(j: Json) -> Result<Map<string, string>, string> {
 // Indented output: `indent` spaces per level, one array element or object field per
 // line; an empty array or object stays `[]` / `{}`.
 pub fn json_to_pretty_string(j: Json, indent: int) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     write_pretty(out, j, indent, 0)
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 fn write_pretty(out: MutableString, j: Json, indent: int, level: int) {
@@ -274,43 +274,43 @@ fn write_pretty(out: MutableString, j: Json, indent: int, level: int) {
     val close_pad = repeat_spaces(indent * level)
     if JArray(items) = j {
         if len(items) == 0 {
-            sb_append(out, "[]")
+            mutable_string_append(out, "[]")
             return
         }
-        sb_append(out, "[\n")
+        mutable_string_append(out, "[\n")
         var i = 0
         while i < len(items) {
-            sb_append(out, pad)
+            mutable_string_append(out, pad)
             write_pretty(out, items[i], indent, level + 1)
-            sb_append(out, if i + 1 < len(items) { ",\n" } else { "\n" })
+            mutable_string_append(out, if i + 1 < len(items) { ",\n" } else { "\n" })
             i = i + 1
         }
-        sb_append(out, close_pad, "]")
+        mutable_string_append(out, close_pad, "]")
     } else if JObject(fields) = j {
         if len(fields) == 0 {
-            sb_append(out, "{}")
+            mutable_string_append(out, "{}")
             return
         }
-        sb_append(out, "{\n")
+        mutable_string_append(out, "{\n")
         var n = 0
         for key, value in fields {
             n = n + 1
-            sb_append(out, pad, json_to_string(Json.JString(key)), ": ")
+            mutable_string_append(out, pad, json_to_string(Json.JString(key)), ": ")
             write_pretty(out, value, indent, level + 1)
-            sb_append(out, if n < len(fields) { ",\n" } else { "\n" })
+            mutable_string_append(out, if n < len(fields) { ",\n" } else { "\n" })
         }
-        sb_append(out, close_pad, "}")
+        mutable_string_append(out, close_pad, "}")
     } else {
-        sb_append(out, json_to_string(j))
+        mutable_string_append(out, json_to_string(j))
     }
 }
 
 fn repeat_spaces(n: int) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     for i in 0..n {
-        sb_append(out, " ")
+        mutable_string_append(out, " ")
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 // Identity wrappers, named to match #[derive(Json)]'s own <type>_to_json/

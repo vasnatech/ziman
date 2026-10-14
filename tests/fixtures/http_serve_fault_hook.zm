@@ -24,11 +24,11 @@ fn render(status: int, message: string) -> http.Response {
 
 // No string-repeat in the prelude, and a header over the 16 KiB limit is the point of the 431 case.
 fn padding(n: int) -> string {
-    val sb = sb_new()
+    val sb = mutable_string_new()
     for i in 0..n {
-        sb_append(sb, "p")
+        mutable_string_append(sb, "p")
     }
-    return sb_to_string(sb)
+    return snapshot(sb)
 }
 
 fn handler(req: http.Request) -> http.Response {

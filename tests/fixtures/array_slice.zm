@@ -1,9 +1,9 @@
 fn tail_of(n: int) -> [int] {
-    val big = ab_new<int>()
+    val big = mutable_array_new<int>()
     for i in 0..n {
-        ab_append<int>(big, i)
+        mutable_array_push<int>(big, i)
     }
-    return slice<int>(ab_to_array<int>(big), n - 3, n)
+    return slice<int>(snapshot(big), n - 3, n)
 }
 
 fn main() {
@@ -31,15 +31,15 @@ fn main() {
 
     // a slice outlives the array it came from (matters under the GC build)
     val t = tail_of(1000)
-    val junk = ab_new<string>()
+    val junk = mutable_array_new<string>()
     for i in 0..2000 {
-        ab_append<string>(junk, format("junk {}", i))
+        mutable_array_push<string>(junk, format("junk {}", i))
     }
     print(t)
 
     // appending a slice to a builder
-    val ab = ab_new<int>()
-    ab_append<int>(ab: ab, pieces: slice<int>(a, 0, 2))
-    ab_append<int>(ab: ab, pieces: slice<int>(a, 4, 5))
-    print(ab_to_array<int>(ab))
+    val ab = mutable_array_new<int>()
+    mutable_array_push<int>(ab: ab, pieces: slice<int>(a, 0, 2))
+    mutable_array_push<int>(ab: ab, pieces: slice<int>(a, 4, 5))
+    print(snapshot(ab))
 }

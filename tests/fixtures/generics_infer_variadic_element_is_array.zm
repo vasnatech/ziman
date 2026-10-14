@@ -1,12 +1,12 @@
 fn main() {
-    val out = ab_new<[string]>()
-    ab_append(out, ["a", "b"])
-    ab_append(out, ["c"])
-    print(ab_to_array(out))
+    val out = mutable_array_new<[string]>()
+    mutable_array_push(out, ["a", "b"])
+    mutable_array_push(out, ["c"])
+    print(snapshot(out))
 
-    val letters = ab_new<string>()
-    ab_append(letters, "x", "y")
-    print(ab_to_array(letters))
+    val letters = mutable_array_new<string>()
+    mutable_array_push(letters, "x", "y")
+    print(snapshot(letters))
 
     print(concat_arrays([1, 2], [3, 4]))
 }

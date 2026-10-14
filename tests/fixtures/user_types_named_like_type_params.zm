@@ -12,14 +12,14 @@ enum V {
 }
 
 fn main() {
-    val items = ab_new<T>()
-    ab_append<T>(items, T { x: 1 })
-    ab_append<T>(items, T { x: 2 })
-    val all = ab_to_array<T>(items)
+    val items = mutable_array_new<T>()
+    mutable_array_push<T>(items, T { x: 1 })
+    mutable_array_push<T>(items, T { x: 2 })
+    val all = snapshot(items)
     print(len(all))
-    val m = mapb_new<string, K>()
-    mapb_set<string, K>(m, "a", K { n: "k" })
-    print(len(mapb_to_map<string, K>(m)))
+    val m = mutable_map_new<string, K>()
+    mutable_map_set<string, K>(m, "a", K { n: "k" })
+    print(len(snapshot(m)))
     val o = Option<V>.Some(V.Big)
     print(is_Some(o))
     val arr = push<T>(all, T { x: 3 })

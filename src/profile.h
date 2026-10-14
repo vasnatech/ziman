@@ -19,7 +19,7 @@
  * that answers "which function do I make faster", which is what a profiler is for; an inclusive
  * figure would need the handler to walk the whole stack per sample, and is deliberately left out
  * until something needs it. Native and core-library functions push frames like any other, so a
- * program whose time really goes into `mapb_set` or `read_text` is told so rather than being shown
+ * program whose time really goes into `mutable_map_set` or `read_text` is told so rather than being shown
  * only its own names. Samples taken while no Ziman function is running at all -- startup, the type
  * checker, a collection that happens to be in progress -- are counted separately rather than
  * silently blamed on whatever ran last. */
@@ -38,12 +38,12 @@ void ziman_profile_report(void);
  * instead of being blamed on whichever function happened to allocate.
  *
  * Without this the profiler actively misleads. A 400k-insert MutableMap loop first reported as
- * `build_map` 48.6% / `mapb_set` 51.4%, inviting the reader to go and optimise a `for` loop that
+ * `build_map` 48.6% / `mutable_map_set` 51.4%, inviting the reader to go and optimise a `for` loop that
  * does an add and a call. A flat `perf` profile of the same program puts GC_mark_from at 27.8% --
  * the collector, running inside the loop because that is where the allocation was. (All `GC_*`
  * symbols together come to 47.3%, but that is not the figure to use: it includes GC_malloc_kind and
- * GC_build_fl, which are the allocator doing work on `mapb_set`'s behalf and belong to it.) With
- * the bracket the same program reports `mapb_set` 48.4%, `build_map` 29.5%, and a collection row at
+ * GC_build_fl, which are the allocator doing work on `mutable_map_set`'s behalf and belong to it.) With
+ * the bracket the same program reports `mutable_map_set` 48.4%, `build_map` 29.5%, and a collection row at
  * 22.1%. What confirms the split is real rather than moved around: giving Boehm a heap large enough
  * that it never collects makes the collection row vanish while `build_map`'s absolute sample count
  * barely moves (56 against 60), so its remaining share is genuinely its own loop, argument

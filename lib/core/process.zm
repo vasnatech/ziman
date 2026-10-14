@@ -64,13 +64,13 @@ pub fn start(
     err_path: Option<string> = None,
     cwd: Option<string> = None
 ) -> Result<Process, string> {
-    val pairs = ab_new<string>()
+    val pairs = mutable_array_new<string>()
     if Some(given) = vars {
         for v in given {
-            ab_append(pairs, concat(v.name, "=", v.value))
+            mutable_array_push(pairs, concat(v.name, "=", v.value))
         }
     }
-    val handle = try start_raw(program, args, ab_to_array(pairs), or_blank(out_path), or_blank(err_path), or_blank(cwd))
+    val handle = try start_raw(program, args, snapshot(pairs), or_blank(out_path), or_blank(err_path), or_blank(cwd))
     return ok(Process { handle: handle })
 }
 

@@ -15,11 +15,11 @@ fn p_compare(a: P, b: P) -> int {
 }
 
 fn tags(ps: [P]) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     for p in ps {
-        sb_append(out, str(p.key), p.tag, " ")
+        mutable_string_append(out, str(p.key), p.tag, " ")
     }
-    return trim(sb_to_string(out))
+    return trim(snapshot(out))
 }
 
 fn main() {

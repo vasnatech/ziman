@@ -163,22 +163,22 @@ pub fn bitset_length(bs: BitSet) -> int {
 
 // "{0, 3, 5}" -- the indices in order, java.util.BitSet's own `toString()` shape.
 pub fn bitset_to_string(bs: BitSet) -> string {
-    val sb = sb_new()
-    sb_append(sb, "{")
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "{")
     var first = true
     var i = 0
     while i <= 63 {
         if bitset_get(bs, i) {
             if !first {
-                sb_append(sb, ", ")
+                mutable_string_append(sb, ", ")
             }
-            sb_append(sb, str(i))
+            mutable_string_append(sb, str(i))
             first = false
         }
         i = i + 1
     }
-    sb_append(sb, "}")
-    return sb_to_string(sb)
+    mutable_string_append(sb, "}")
+    return snapshot(sb)
 }
 
 // ---- BigBitSet: an unbounded set of non-negative integers, backed by one `bigint` -----
@@ -279,22 +279,22 @@ pub fn big_bitset_length(bs: BigBitSet) -> int {
 // that would recompute `1n << i` from scratch for every i, which for a high member is
 // O(length log length) bignum multiplications instead of this loop's O(length) single-bit shifts.
 pub fn big_bitset_to_string(bs: BigBitSet) -> string {
-    val sb = sb_new()
-    sb_append(sb, "{")
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "{")
     var first = true
     var i = 0
     var remaining = bs.bits
     while remaining != 0n {
         if bigint_and(remaining, 1n) != 0n {
             if !first {
-                sb_append(sb, ", ")
+                mutable_string_append(sb, ", ")
             }
-            sb_append(sb, str(i))
+            mutable_string_append(sb, str(i))
             first = false
         }
         remaining = bigint_shift_right(remaining, 1)
         i = i + 1
     }
-    sb_append(sb, "}")
-    return sb_to_string(sb)
+    mutable_string_append(sb, "}")
+    return snapshot(sb)
 }

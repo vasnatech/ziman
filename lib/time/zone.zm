@@ -377,33 +377,33 @@ fn parse_block(data: [byte], hdr: int, wide: bool) -> Result<Block, string> {
     if next > len(data) || typecnt < 1 {
         return err("time zone file is truncated or has no local time types")
     }
-    val utoffs = ab_new<int>()
-    val dsts = ab_new<bool>()
-    val names = ab_new<string>()
+    val utoffs = mutable_array_new<int>()
+    val dsts = mutable_array_new<bool>()
+    val names = mutable_array_new<string>()
     for i in 0..typecnt {
         val at = body + timecnt * tsize + timecnt + i * 6
-        ab_append(utoffs, i32_from_bytes(data, at))
-        ab_append(dsts, data[at + 4] != 0b)
-        ab_append(names, c_string(data, chars_at + (data[at + 5] as int), chars_at + charcnt))
+        mutable_array_push(utoffs, i32_from_bytes(data, at))
+        mutable_array_push(dsts, data[at + 4] != 0b)
+        mutable_array_push(names, c_string(data, chars_at + (data[at + 5] as int), chars_at + charcnt))
     }
-    val transitions = ab_new<int>()
-    val type_of = ab_new<int>()
+    val transitions = mutable_array_new<int>()
+    val type_of = mutable_array_new<int>()
     for i in 0..timecnt {
         val t = if wide { i64_from_bytes(data, body + i * 8) } else { i32_from_bytes(data, body + i * 4) }
         val index = data[body + timecnt * tsize + i] as int
         if index >= typecnt {
             return err("time zone file refers to a missing local time type")
         }
-        ab_append(transitions, t)
-        ab_append(type_of, index)
+        mutable_array_push(transitions, t)
+        mutable_array_push(type_of, index)
     }
     return ok(Block {
         rules: ZoneRules {
-            transitions: ab_to_array(transitions),
-            type_of: ab_to_array(type_of),
-            utoffs: ab_to_array(utoffs),
-            dsts: ab_to_array(dsts),
-            names: ab_to_array(names),
+            transitions: snapshot(transitions),
+            type_of: snapshot(type_of),
+            utoffs: snapshot(utoffs),
+            dsts: snapshot(dsts),
+            names: snapshot(names),
             has_rule: false,
             rule: no_rule
         },

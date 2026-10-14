@@ -2,11 +2,11 @@ use crypto
 use number
 
 fn main() {
-    val parts = ab_new<byte>()
+    val parts = mutable_array_new<byte>()
     for i in 0..100000 {
-        ab_append<byte>(parts, string_to_bytes("aaaaaaaaaa"))
+        mutable_array_push<byte>(parts, string_to_bytes("aaaaaaaaaa"))
     }
-    val big = ab_to_array<byte>(parts)
+    val big = snapshot(parts)
     print(number.bytes_to_hex(crypto.sha512(string_to_bytes("abc"))))
     print(number.bytes_to_hex(crypto.sha512(string_to_bytes(""))))
     print(number.bytes_to_hex(crypto.hmac_sha512(string_to_bytes("key"),

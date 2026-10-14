@@ -1,11 +1,11 @@
 use collections
 
 fn show(label: string, values: [int]) {
-    val parts = ab_new<string>()
+    val parts = mutable_array_new<string>()
     for v in collections.sort<int>(values) {
-        ab_append(parts, str(v))
+        mutable_array_push(parts, str(v))
     }
-    printf("{}: {}\n", label, join(separator: ", ", pieces: ab_to_array(parts)))
+    printf("{}: {}\n", label, join(separator: ", ", pieces: snapshot(parts)))
 }
 
 fn main() {
@@ -13,16 +13,16 @@ fn main() {
     val second = [4, 5, 6, 7]
     val in_second = Set<int> { 4, 5, 6, 7 }
     val in_first = Set<int> { 1, 2, 3, 4, 5 }
-    val both = ab_new<int>()
-    val only_first = ab_new<int>()
-    val only_second = ab_new<int>()
+    val both = mutable_array_new<int>()
+    val only_first = mutable_array_new<int>()
+    val only_second = mutable_array_new<int>()
     for v in first {
-        if contains(in_second, v) { ab_append(both, v) } else { ab_append(only_first, v) }
+        if contains(in_second, v) { mutable_array_push(both, v) } else { mutable_array_push(only_first, v) }
     }
     for v in second {
-        if !contains(in_first, v) { ab_append(only_second, v) }
+        if !contains(in_first, v) { mutable_array_push(only_second, v) }
     }
-    show("both", ab_to_array(both))
-    show("only first", ab_to_array(only_first))
-    show("only second", ab_to_array(only_second))
+    show("both", snapshot(both))
+    show("only first", snapshot(only_first))
+    show("only second", snapshot(only_second))
 }

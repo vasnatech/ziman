@@ -50,12 +50,12 @@ fn main() {
     }
 
     // Four connections held open, sending nothing.
-    val held = ab_new<net.Socket>()
+    val held = mutable_array_new<net.Socket>()
     var opened = 0
     for i in 0..4 {
         val c = net.connect("127.0.0.1", port)
         if is_ok(c) {
-            ab_append(held, unwrap(c))
+            mutable_array_push(held, unwrap(c))
             opened = opened + 1
         }
     }
@@ -64,7 +64,7 @@ fn main() {
     printf("the server counts for 127.0.0.1: {}\n", server.open_connections_of("127.0.0.1"))
 
     var answered = 0
-    for c in ab_to_array(held) {
+    for c in snapshot(held) {
         unwrap(net.set_timeout(c, 300))
         val _ = net.write_text(c, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
         val r = net.read_text(c, 64)

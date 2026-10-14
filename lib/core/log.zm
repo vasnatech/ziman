@@ -149,22 +149,22 @@ pub fn enabled(l: Logger, level: Level) -> bool {
 // would corrupt every non-English log line to guard against nothing -- a terminal acts on C0 controls and
 // DEL, not on text.
 fn single_line(message: string) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     for b in string_to_bytes(message) {
         val c = b as int
         if c == 10 {
-            sb_append(out, "\\n")
+            mutable_string_append(out, "\\n")
         } else if c == 13 {
-            sb_append(out, "\\r")
+            mutable_string_append(out, "\\r")
         } else if c == 9 {
-            sb_append(out, "\\t")
+            mutable_string_append(out, "\\t")
         } else if c < 32 || c == 127 {
-            sb_append(out, "\\x", byte_to_hex(b))
+            mutable_string_append(out, "\\x", byte_to_hex(b))
         } else {
-            sb_append_byte(out, b)
+            mutable_string_append_byte(out, b)
         }
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 // Moves `<path>.<n>` to `<path>.<n + 1>` for the kept files, oldest first, and `path` to `<path>.1`; the file past the last kept one is deleted. With
@@ -216,25 +216,25 @@ fn rotate_if_full(path: string, max_bytes: int, keep: int) {
 // `JString` quotes, escapes, and substitutes U+FFFD for an invalid sequence -- so a log line
 // carrying bytes from a user is still a document something else can read.
 fn json_line(l: Logger, level: Level, message: string) -> string {
-    val out = sb_new()
-    sb_append(out, "{")
+    val out = mutable_string_new()
+    mutable_string_append(out, "{")
     if l.timestamps {
-        sb_append(out, "\"time\":", json_to_string(Json.JString(now_iso())), ",")
+        mutable_string_append(out, "\"time\":", json_to_string(Json.JString(now_iso())), ",")
     }
     // `level_name` pads to five characters so the text format's columns line up ("INFO "), and the
     // prefix carries its own trailing space for the same reason -- both are presentation, and both
     // would arrive in a log index as part of the value. Trimmed here, and the level lowercased,
     // which is what every JSON log schema uses.
-    sb_append(out, "\"level\":", json_to_string(Json.JString(to_lower(trim(level_name(level))))))
+    mutable_string_append(out, "\"level\":", json_to_string(Json.JString(to_lower(trim(level_name(level))))))
     val component = trim(l.prefix)
     if len(component) > 0 {
-        sb_append(out, ",\"prefix\":", json_to_string(Json.JString(component)))
+        mutable_string_append(out, ",\"prefix\":", json_to_string(Json.JString(component)))
     }
     if len(l.request_id) > 0 {
-        sb_append(out, ",\"request_id\":", json_to_string(Json.JString(l.request_id)))
+        mutable_string_append(out, ",\"request_id\":", json_to_string(Json.JString(l.request_id)))
     }
-    sb_append(out, ",\"message\":", json_to_string(Json.JString(message)), "}\n")
-    return sb_to_string(out)
+    mutable_string_append(out, ",\"message\":", json_to_string(Json.JString(message)), "}\n")
+    return snapshot(out)
 }
 
 pub fn write(l: Logger, level: Level, message: string) {

@@ -9,13 +9,13 @@ fn main() {
     for n in [2, 3, 4] {
         spawn square(n, results)
     }
-    val got = ab_new<int>()
+    val got = mutable_array_new<int>()
     var i = 0
     while i < 3 {
-        ab_append(got, receive(results))
+        mutable_array_push(got, receive(results))
         i = i + 1
     }
-    for v in collections.sort<int>(ab_to_array(got)) {
+    for v in collections.sort<int>(snapshot(got)) {
         print(v)
     }
 }

@@ -1,5 +1,9 @@
+// A generic native's explicit type argument has to agree with what its argument actually is.
+// This used to be written against the conversion out of a builder (`ab_to_array<string>` on a
+// MutableArray<int>); that is now the bare `snapshot`, and a *builtin* ignores type arguments
+// altogether -- `len<string>([1, 2])` has always been accepted too -- so the property moved to
+// the functions that are still declared generics.
 fn main() {
-    val ab = ab_new<int>()
-    val arr = ab_to_array<string>(ab)
-    print(arr)
+    val ab = mutable_array_new<int>()
+    mutable_array_push<string>(ab, "x")
 }

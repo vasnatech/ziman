@@ -138,7 +138,7 @@ static Env *g_global_env = NULL;
  * NOT re-derived here from `args[fixed_count].type.kind == TY_ARRAY`,
  * which used to be this function's own check and is wrong whenever the
  * variadic element type is itself an array (`MutableArray<[T]>`'s
- * `ab_append<[T]>`, for instance: a single element of type `[T]` also
+ * `mutable_array_push<[T]>`, for instance: a single element of type `[T]` also
  * satisfies "is an array", so that heuristic silently treated one
  * legitimate element as if it were the whole tail, discarding
  * everything else appended before or after it in the same call -- the
@@ -1521,7 +1521,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                  * only the already-evaluated argument Values, never the
                  * call's type arguments -- so a native function whose
                  * *return* type mentions one of its own type parameters
-                 * (MutableArray<T>'s ab_new<T>() -> MutableArray<T>, for
+                 * (MutableArray<T>'s mutable_array_new<T>() -> MutableArray<T>, for
                  * instance) can only ever build a Value tagged with some
                  * placeholder type for the part that depends on T. Fixed
                  * up here instead, the same way channel_new()'s own
@@ -2057,7 +2057,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 /* The live buffer, by index, re-reading its length every pass: a body that appends sees its
                  * own additions (as it would in the array this is becoming) and one that clears ends the
                  * loop, and neither can read past the end. Nothing is copied, which is the whole reason a
-                 * builder is iterable at all -- ab_to_array copies all of it, per call. */
+                 * builder is iterable at all -- snapshot copies all of it, per call. */
                 Type elem_type = s->as.for_stmt.iterable->resolved_type.type_args.items[0];
                 Env *scope = env_pool_acquire(env);
                 for (int i = 0; i < ziman_array_builder_length(iterable); i++) {
@@ -2245,7 +2245,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
  * could. Runs after init_param_defaults (see that function's own
  * comment for why) -- a global val's own initializer calling a function
  * that relies on one of its own omitted, defaulted parameters
- * (`datetime_format_of` calling `ab_new<T>()`, say) needs that default
+ * (`datetime_format_of` calling `mutable_array_new<T>()`, say) needs that default
  * to already exist; not the other way around. */
 static void init_global_vals(Module *module) {
     for (int i = 0; i < module->vals.count; i++) {
@@ -2274,7 +2274,7 @@ static void init_global_vals(Module *module) {
  * env_lookup, dereferenced) surfaced the instant a global val's own
  * initializer called a function relying on one of its own omitted
  * parameter defaults: `pub val iso_date_format =
- * datetime_format_of("yyyy-MM-dd")` calls `ab_new<T>()` internally with
+ * datetime_format_of("yyyy-MM-dd")` calls `mutable_array_new<T>()` internally with
  * both parameters omitted, and if init_global_vals ran first, that
  * default_key wouldn't exist in g_global_env yet when this exact call
  * needed it. A default expression could, in principle, also reference

@@ -33,16 +33,16 @@ fn main() {
     print(option_unwrap_or<[string]>(found, ["", ""]))
 
     // Builders assemble a result without copying it on every step.
-    val sb = sb_new()
+    val sb = mutable_string_new()
     for i in 0..5 {
-        sb_append(sb, str(i), ",")
+        mutable_string_append(sb, str(i), ",")
     }
-    print(sb_to_string(sb))
-    val ab = ab_new<int>()
+    print(snapshot(sb))
+    val ab = mutable_array_new<int>()
     for i in 0..5 {
-        ab_append<int>(ab, i * i)
+        mutable_array_push<int>(ab, i * i)
     }
-    print(ab_to_array<int>(ab))
+    print(snapshot(ab))
 }
 ```
 
@@ -393,57 +393,40 @@ struct MutableString {
 A mutable buffer for assembling a string piece by piece. Adding to a string with `concat` in
 a loop copies the whole string each time and leaves the old copies as garbage; appending to a
 MutableString is amortized O(1). `handle` is an opaque reference to the native buffer: do not
-build or edit one directly, only through `sb_new` and the `sb_*` functions. It belongs to the
+build or edit one directly, only through `mutable_string_new` and the `sb_*` functions. It belongs to the
 thread that made it (`#[thread_bound]`): it cannot be a `Channel`'s element, a `spawn` argument or a
 module-level `val`, and using one from another thread (through a closure, say) is a runtime error.
 Hand the finished string over, not the builder.
 
-### `sb_new`
+### `mutable_string_new`
 
 ```
-native fn sb_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableString
+native fn mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableString
 ```
 
 An empty builder. `capacity` is the bytes to reserve up front and `grow_factor` the multiple
-its capacity grows by when an append would overflow it; both are optional, so `sb_new()` is
+its capacity grows by when an append would overflow it; both are optional, so `mutable_string_new()` is
 usually all that is written.
 
-### `sb_append`
+### `mutable_string_append`
 
 ```
-native fn sb_append(sb: MutableString, pieces: variadic string)
+native fn mutable_string_append(sb: MutableString, pieces: variadic string)
 ```
 
 Appends each of `pieces`, given one by one or as an array. The builder changes in place and
 nothing is returned.
 
-### `sb_append_byte`
+### `mutable_string_append_byte`
 
 ```
-native fn sb_append_byte(sb: MutableString, b: variadic byte) -> bool
+native fn mutable_string_append_byte(sb: MutableString, b: variadic byte) -> bool
 ```
 
 Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
-`sb_append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
+`mutable_string_append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
 is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
 their own.
-
-### `sb_to_string`
-
-```
-native fn sb_to_string(sb: MutableString) -> string
-```
-
-The text appended so far, as an ordinary string. It is a copy: appending afterwards is fine,
-and it can be called more than once. (`str(sb)` would print the struct, not the text.)
-
-### `sb_len`
-
-```
-native fn sb_len(sb: MutableString) -> int
-```
-
-The number of bytes appended so far, without building the string.
 
 ## MutableArray
 
@@ -478,68 +461,42 @@ The elements of `a` from `start` up to, not including, `end` (`0 <= start <= end
 runtime error otherwise). It does not copy: arrays are immutable, so the result shares `a`'s
 storage, like `substring`. That makes it free to build and keeps the whole of `a` alive.
 
-### `ab_new`
+### `mutable_array_new`
 
 ```
-native fn ab_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableArray<T>
+native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableArray<T>
 ```
 
-An empty builder; `capacity` and `grow_factor` are as in `sb_new`.
+An empty builder; `capacity` and `grow_factor` are as in `mutable_string_new`.
 
-### `ab_append`
+### `mutable_array_push`
 
 ```
-native fn ab_append<T>(ab: MutableArray<T>, pieces: variadic T)
+native fn mutable_array_push<T>(ab: MutableArray<T>, pieces: variadic T)
 ```
 
 Appends each of `pieces`, given one by one or as an array. The builder changes in place.
 
-### `ab_to_array`
+### `mutable_array_get`
 
 ```
-native fn ab_to_array<T>(ab: MutableArray<T>) -> [T]
+native fn mutable_array_get<T>(ab: MutableArray<T>, index: int) -> T
 ```
 
-The elements appended so far, as an ordinary array. It is a copy: appending afterwards is
-fine, and it can be called more than once.
+The element at `index`, counting from 0; a runtime error outside `0..len(ab)`.
 
-### `ab_len`
-
-```
-native fn ab_len<T>(ab: MutableArray<T>) -> int
-```
-
-The number of elements appended so far.
-
-### `ab_get`
-
-```
-native fn ab_get<T>(ab: MutableArray<T>, index: int) -> T
-```
-
-The element at `index`, counting from 0; a runtime error outside `0..ab_len(ab)`.
-
-This and `ab_set` are why a loop that needs what it has already appended does not have to call
-`ab_to_array`, which copies the whole buffer every time -- in a loop, the quadratic cost a builder exists
+This and `mutable_array_set` are why a loop that needs what it has already appended does not have to call
+`snapshot`, which copies the whole buffer every time -- in a loop, the quadratic cost a builder exists
 to avoid (`--lint` flags that shape). `for x in ab` reads one the same way, without the indexing.
 
-### `ab_set`
+### `mutable_array_set`
 
 ```
-native fn ab_set<T>(ab: MutableArray<T>, index: int, value: T)
+native fn mutable_array_set<T>(ab: MutableArray<T>, index: int, value: T)
 ```
 
-Replaces the element at `index`; a runtime error outside `0..ab_len(ab)`. Appending is `ab_append`: this
+Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `mutable_array_push`: this
 only overwrites what is already there.
-
-### `ab_clear`
-
-```
-native fn ab_clear<T>(ab: MutableArray<T>)
-```
-
-Empties the builder, keeping the buffer it has already grown -- for reusing one across rounds of work
-without paying for the growth again.
 
 ## MutableMap and MutableSet
 
@@ -553,7 +510,7 @@ struct MutableMap<K: Eq + Hash, V> {
 
 The mutable counterparts of Map and Set, for building one entry by entry. `set` and `insert` on
 a Map copy a few nodes each time; a builder changes its own private structure in place, so
-adding n entries allocates O(n) in all, not O(n) per entry. `mapb_to_map` and `setb_to_set`
+adding n entries allocates O(n) in all, not O(n) per entry. `snapshot` and `snapshot`
 snapshot what has been added so far into an ordinary Map or Set, and the builder stays usable.
 Keys keep the order they were first added, and follow the same rule as a Map's (`Eq + Hash`).
 Thread-bound like the other builders.
@@ -568,119 +525,71 @@ struct MutableSet<T: Eq + Hash> {
 
 A mutable set under construction; see MutableMap.
 
-### `mapb_new`
+### `mutable_map_new`
 
 ```
-native fn mapb_new<K: Eq + Hash, V>() -> MutableMap<K, V>
+native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
 ```
 
 An empty map builder.
 
-### `mapb_set`
+### `mutable_map_set`
 
 ```
-native fn mapb_set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
+native fn mutable_map_set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
 ```
 
 Adds `key`, or replaces its value while keeping its position.
 
-### `mapb_get`
+### `mutable_map_get`
 
 ```
-native fn mapb_get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+native fn mutable_map_get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 ```
 
 The value of `key`, or None.
 
-### `mapb_remove`
+### `mutable_map_remove`
 
 ```
-native fn mapb_remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K)
+native fn mutable_map_remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K)
 ```
 
 Removes `key`; nothing happens when it is absent.
 
-### `mapb_contains`
+### `mutable_map_get_or`
 
 ```
-native fn mapb_contains<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> bool
-```
-
-True when `key` has been added.
-
-### `mapb_len`
-
-```
-native fn mapb_len<K: Eq + Hash, V>(mb: MutableMap<K, V>) -> int
-```
-
-The number of keys.
-
-### `mapb_to_map`
-
-```
-native fn mapb_to_map<K: Eq + Hash, V>(mb: MutableMap<K, V>) -> Map<K, V>
-```
-
-The entries added so far, as an ordinary Map.
-
-### `mapb_get_or`
-
-```
-fn mapb_get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
+fn mutable_map_get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
 ```
 
 The value stored under `key`, or `default_value` when there is none -- `map_get_or` for a builder.
 Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
-loop (`mapb_set(counts, k, mapb_get_or(counts, k, 0) + 1)`) reads as one line instead of four.
+loop (`mutable_map_set(counts, k, mutable_map_get_or(counts, k, 0) + 1)`) reads as one line instead of four.
 
-### `setb_new`
+### `mutable_set_new`
 
 ```
-native fn setb_new<T: Eq + Hash>() -> MutableSet<T>
+native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 ```
 
 An empty set builder.
 
-### `setb_add`
+### `mutable_set_add`
 
 ```
-native fn setb_add<T: Eq + Hash>(sb: MutableSet<T>, item: T)
+native fn mutable_set_add<T: Eq + Hash>(sb: MutableSet<T>, item: T)
 ```
 
 Adds `item`; nothing happens when it is already there.
 
-### `setb_remove`
+### `mutable_set_remove`
 
 ```
-native fn setb_remove<T: Eq + Hash>(sb: MutableSet<T>, item: T)
+native fn mutable_set_remove<T: Eq + Hash>(sb: MutableSet<T>, item: T)
 ```
 
 Removes `item`; nothing happens when it is absent.
-
-### `setb_contains`
-
-```
-native fn setb_contains<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
-```
-
-True when `item` has been added.
-
-### `setb_len`
-
-```
-native fn setb_len<T: Eq + Hash>(sb: MutableSet<T>) -> int
-```
-
-The number of items.
-
-### `setb_to_set`
-
-```
-native fn setb_to_set<T: Eq + Hash>(sb: MutableSet<T>) -> Set<T>
-```
-
-The items added so far, as an ordinary Set.
 
 ## Iter
 

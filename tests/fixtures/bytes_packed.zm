@@ -1,11 +1,11 @@
 use crypto
 
 fn tail_bytes(n: int) -> [byte] {
-    val ab = ab_new<byte>()
+    val ab = mutable_array_new<byte>()
     for i in 0..n {
-        ab_append<byte>(ab, (i % 251) as byte)
+        mutable_array_push<byte>(ab, (i % 251) as byte)
     }
-    return slice<byte>(ab_to_array<byte>(ab), n - 4, n)
+    return slice<byte>(snapshot(ab), n - 4, n)
 }
 
 fn main() {
@@ -55,11 +55,11 @@ fn main() {
     print(is_ok(bytes_to_string([104b, 0b, 105b])))
 
     // a byte builder, appended to in several shapes
-    val ab = ab_new<byte>()
-    ab_append<byte>(ab, 1b, 2b)
-    ab_append<byte>(ab: ab, pieces: slice<byte>(a, 2, 5))
-    print(ab_to_array<byte>(ab))
-    print(ab_len<byte>(ab))
+    val ab = mutable_array_new<byte>()
+    mutable_array_push<byte>(ab, 1b, 2b)
+    mutable_array_push<byte>(ab: ab, pieces: slice<byte>(a, 2, 5))
+    print(snapshot(ab))
+    print(len(ab))
 
     // crypto works on packed input and produces a comparable result
     print(crypto.base64_encode(string_to_bytes("abc")))
@@ -68,9 +68,9 @@ fn main() {
 
     // a slice outlives the array it was cut from (matters under the GC build)
     val t = tail_bytes(2000)
-    val junk = ab_new<string>()
+    val junk = mutable_array_new<string>()
     for i in 0..3000 {
-        ab_append<string>(junk, format("junk {}", i))
+        mutable_array_push<string>(junk, format("junk {}", i))
     }
     print(t)
 }

@@ -6,5 +6,5 @@ struct Holder {
 }
 
 fn main() {
-    print(len(Holder { slot: ab_new<int>() }))
+    print(len(Holder { slot: mutable_array_new<int>() }))
 }

@@ -1,52 +1,52 @@
 // F100 gave all four conversions one name, which silently opened a hole in this lint: it keyed on
-// `ab_to_array`/`sb_to_string`/`mapb_to_map`/`setb_to_set`, so the same quadratic loop spelled
+// `snapshot`/`snapshot`/`snapshot`/`snapshot`, so the same quadratic loop spelled
 // `snapshot` went unwarned. The fix has to recover the builder's kind from somewhere, since this
 // pass is syntactic and has no types -- it takes it from whichever of the four appenders the loop
 // body uses, which is also what keeps the advice per-type instead of one vague message for all.
 // All four kinds below, one each.
 
 fn running_max(values: [int]) -> int {
-    val seen = ab_new<int>()
+    val seen = mutable_array_new<int>()
     var best = 0
     for v in values {
         val so_far = snapshot(seen)
         if len(so_far) > 0 && so_far[0] > best {
             best = so_far[0]
         }
-        ab_append(seen, v)
+        mutable_array_push(seen, v)
     }
     return best
 }
 
 fn tally(words: [string]) -> int {
-    val counts = mapb_new<string, int>()
+    val counts = mutable_map_new<string, int>()
     var seen = 0
     for w in words {
         val so_far = snapshot(counts)
         seen = seen + len(so_far)
-        mapb_set(counts, w, 1)
+        mutable_map_set(counts, w, 1)
     }
     return seen
 }
 
 fn join_all(parts: [string]) -> int {
-    val out = sb_new()
+    val out = mutable_string_new()
     var n = 0
     for p in parts {
         val so_far = snapshot(out)
         n = n + len(so_far)
-        sb_append(out, p)
+        mutable_string_append(out, p)
     }
     return n
 }
 
 fn uniq(ns: [int]) -> int {
-    val seen = setb_new<int>()
+    val seen = mutable_set_new<int>()
     var n = 0
     for v in ns {
         val so_far = snapshot(seen)
         n = n + len(so_far)
-        setb_add(seen, v)
+        mutable_set_add(seen, v)
     }
     return n
 }

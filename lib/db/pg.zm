@@ -399,18 +399,18 @@ struct RowDesc {
 
 fn parse_row_description(body: [byte]) -> RowDesc {
     val count = u16_from_bytes(body, 0)
-    val names = ab_new<string>()
-    val oids = ab_new<int>()
+    val names = mutable_array_new<string>()
+    val oids = mutable_array_new<int>()
     var pos = 2
     var i = 0
     while i < count {
         val end = cstring_end(body, pos)
-        ab_append(names, text_of(body, pos, end))
-        ab_append(oids, u32_from_bytes(body, end + 1 + 6))
+        mutable_array_push(names, text_of(body, pos, end))
+        mutable_array_push(oids, u32_from_bytes(body, end + 1 + 6))
         pos = end + 1 + 18
         i = i + 1
     }
-    return RowDesc { names: ab_to_array(names), oids: ab_to_array(oids) }
+    return RowDesc { names: snapshot(names), oids: snapshot(oids) }
 }
 
 // Text-format values, interpreted by the column's type OID: 16 bool,
@@ -422,17 +422,17 @@ fn decode_value(oid: int, raw: [byte]) -> Result<SqlValue, DbError> {
         if !starts_with(hex, "\\x") {
             return err(DbError.Sql("bytea value is not in hex format"))
         }
-        val out = ab_new<byte>()
+        val out = mutable_array_new<byte>()
         var i = 2
         while i + 2 <= len(hex) {
             val b = byte_from_hex(substring(hex, i, i + 2))
             if !is_ok(b) {
                 return err(DbError.Sql("bad bytea hex digits"))
             }
-            ab_append(out, unwrap(b))
+            mutable_array_push(out, unwrap(b))
             i = i + 2
         }
-        return SqlValue.Bytes(ab_to_array(out))
+        return SqlValue.Bytes(snapshot(out))
     }
     val text = text_of(raw, 0, len(raw))
     if oid == 16 {
@@ -456,22 +456,22 @@ fn decode_value(oid: int, raw: [byte]) -> Result<SqlValue, DbError> {
 
 fn parse_data_row(body: [byte], oids: [int]) -> Result<[SqlValue], DbError> {
     val count = u16_from_bytes(body, 0)
-    val values = ab_new<SqlValue>()
+    val values = mutable_array_new<SqlValue>()
     var pos = 2
     var i = 0
     while i < count {
         val length = u32_from_bytes(body, pos)
         pos = pos + 4
         if length == 4294967295 {
-            ab_append(values, SqlValue.Null)
+            mutable_array_push(values, SqlValue.Null)
         } else {
             val v = try decode_value(oids[i], slice<byte>(body, pos, pos + length))
-            ab_append(values, v)
+            mutable_array_push(values, v)
             pos = pos + length
         }
         i = i + 1
     }
-    return ab_to_array(values)
+    return snapshot(values)
 }
 
 // "INSERT 0 5" / "UPDATE 3" / "SELECT 2" -> the trailing count; 0 for a
@@ -486,7 +486,7 @@ fn affected_rows(tag: string) -> int {
 // stop the read -- the server always finishes with 'Z' -- so the
 // connection stays in step for the next request.
 fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
-    val rows = ab_new<Row>()
+    val rows = mutable_array_new<Row>()
     var names: [string] = []
     var oids: [int] = []
     var affected = 0
@@ -502,7 +502,7 @@ fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
             oids = desc.oids
         } else if m.kind == "D" {
             switch parse_data_row(m.body, oids) {
-                Ok(v) { ab_append(rows, Row { columns: names, values: v }) }
+                Ok(v) { mutable_array_push(rows, Row { columns: names, values: v }) }
                 Err(e) {
                     if !Option.is_Some(failure) {
                         failure = Option<DbError>.Some(e)
@@ -520,7 +520,7 @@ fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
     if Some(f) = failure {
         return err(f)
     }
-    return QueryResult { rows: ab_to_array(rows), affected: affected }
+    return QueryResult { rows: snapshot(rows), affected: affected }
 }
 
 // ---------------------------------------------------------------- queries
@@ -545,16 +545,16 @@ fn encode_param(v: SqlValue) -> [byte] {
 }
 
 fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
-    val encoded = ab_new<[byte]>()
+    val encoded = mutable_array_new<[byte]>()
     for p in params {
-        ab_append(encoded, encode_param(p))
+        mutable_array_push(encoded, encode_param(p))
     }
     val bind_body = bytes_concat(
         cstring(""),
         cstring(""),
         u16_to_bytes(0),
         u16_to_bytes(len(params)),
-        concat_arrays<byte>(parts: ab_to_array(encoded)),
+        concat_arrays<byte>(parts: snapshot(encoded)),
         u16_to_bytes(0)
     )
     val describe_body = bytes_concat(string_to_bytes("P"), cstring(""))
@@ -610,7 +610,7 @@ struct PageRead {
 // Reads until the server has sent a page: DataRows, then PortalSuspended (more to come),
 // CommandComplete (the end) or ErrorResponse.
 fn read_page(sock: Socket, names0: [string], oids0: [int]) -> Result<PageRead, DbError> {
-    val rows = ab_new<Row>()
+    val rows = mutable_array_new<Row>()
     var names = names0
     var oids = oids0
     var suspended = false
@@ -624,7 +624,7 @@ fn read_page(sock: Socket, names0: [string], oids0: [int]) -> Result<PageRead, D
             oids = desc.oids
         } else if m.kind == "D" {
             switch parse_data_row(m.body, oids) {
-                Ok(v) { ab_append(rows, Row { columns: names, values: v }) }
+                Ok(v) { mutable_array_push(rows, Row { columns: names, values: v }) }
                 Err(e) {
                     if !Option.is_Some(failure) {
                         failure = Option<DbError>.Some(e)
@@ -641,7 +641,7 @@ fn read_page(sock: Socket, names0: [string], oids0: [int]) -> Result<PageRead, D
             done = true
         }
     }
-    return PageRead { rows: ab_to_array(rows), names: names, oids: oids, suspended: suspended, failure: failure }
+    return PageRead { rows: snapshot(rows), names: names, oids: oids, suspended: suspended, failure: failure }
 }
 
 // Ends the implicit transaction, which destroys the portal, and reads up to ReadyForQuery.
@@ -689,16 +689,16 @@ fn finish_page(sock: Socket, id: int, names: [string], oids: [int]) -> CursorSte
 }
 
 fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> CursorStep {
-    val encoded = ab_new<[byte]>()
+    val encoded = mutable_array_new<[byte]>()
     for p in params {
-        ab_append(encoded, encode_param(p))
+        mutable_array_push(encoded, encode_param(p))
     }
     val bind_body = bytes_concat(
         cstring(""),
         cstring(""),
         u16_to_bytes(0),
         u16_to_bytes(len(params)),
-        concat_arrays<byte>(parts: ab_to_array(encoded)),
+        concat_arrays<byte>(parts: snapshot(encoded)),
         u16_to_bytes(0)
     )
     val batch = bytes_concat(

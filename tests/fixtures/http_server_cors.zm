@@ -26,9 +26,9 @@ fn req_of(method: http.HttpMethod, headers: [http.Header]) -> http.Request {
     }
 }
 fn show(label: string, r: http.Response) {
-    val out = ab_new<string>()
-    for h in r.headers { ab_append(out, concat(h.name, "=", h.value)) }
-    printf("{}: {} [{}]\n", label, r.status, join(separator: ", ", pieces: ab_to_array(out)))
+    val out = mutable_array_new<string>()
+    for h in r.headers { mutable_array_push(out, concat(h.name, "=", h.value)) }
+    printf("{}: {} [{}]\n", label, r.status, join(separator: ", ", pieces: snapshot(out)))
 }
 fn main() {
     val policy = server.cors_policy(["https://app.example"])

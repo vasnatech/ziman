@@ -21,12 +21,12 @@ use number.byte_to_hex
 // `+` is a literal plus. An Err for a truncated or malformed escape, or one that would put a NUL byte in a
 // string (which Ziman strings cannot hold).
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> {
-    val out = sb_new()
+    val out = mutable_string_new()
     var run = 0
     var i = 0
     while i < len(s) {
         if is_char_at(s, i, "%") {
-            sb_append(out, substring(s, run, i))
+            mutable_string_append(out, substring(s, run, i))
             if i + 3 > len(s) {
                 return err("truncated %-escape")
             }
@@ -34,38 +34,38 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
             if Err(_) = b {
                 return err("bad %-escape")
             }
-            if !sb_append_byte(out, unwrap(b)) {
+            if !mutable_string_append_byte(out, unwrap(b)) {
                 return err("decodes to text containing a NUL byte")
             }
             i = i + 3
             run = i
         } else if plus_is_space && is_char_at(s, i, "+") {
-            sb_append(out, substring(s, run, i), " ")
+            mutable_string_append(out, substring(s, run, i), " ")
             i = i + 1
             run = i
         } else {
             i = i + 1
         }
     }
-    sb_append(out, substring(s, run, len(s)))
-    return ok(sb_to_string(out))
+    mutable_string_append(out, substring(s, run, len(s)))
+    return ok(snapshot(out))
 }
 
 // The inverse of `percent_decode`: every byte except the unreserved characters (letters, digits,
 // `-` `_` `.` `~`) as `%XX` (uppercase hex). With `plus_for_space` a space is written `+` (form and query
 // encoding) instead of `%20`.
 pub fn percent_encode(s: string, plus_for_space: bool) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     for b in string_to_bytes(s) {
         val c = b as int
         val unreserved = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 45 || c == 95 || c == 46 || c == 126
         if unreserved {
-            sb_append_byte(out, b)
+            mutable_string_append_byte(out, b)
         } else if c == 32 && plus_for_space {
-            sb_append(out, "+")
+            mutable_string_append(out, "+")
         } else {
-            sb_append(out, "%", to_upper(byte_to_hex(b)))
+            mutable_string_append(out, "%", to_upper(byte_to_hex(b)))
         }
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }

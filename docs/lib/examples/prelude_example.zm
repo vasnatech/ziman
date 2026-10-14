@@ -15,14 +15,14 @@ fn main() {
     print(option_unwrap_or<[string]>(found, ["", ""]))
 
     // Builders assemble a result without copying it on every step.
-    val sb = sb_new()
+    val sb = mutable_string_new()
     for i in 0..5 {
-        sb_append(sb, str(i), ",")
+        mutable_string_append(sb, str(i), ",")
     }
-    print(sb_to_string(sb))
-    val ab = ab_new<int>()
+    print(snapshot(sb))
+    val ab = mutable_array_new<int>()
     for i in 0..5 {
-        ab_append<int>(ab, i * i)
+        mutable_array_push<int>(ab, i * i)
     }
-    print(ab_to_array<int>(ab))
+    print(snapshot(ab))
 }

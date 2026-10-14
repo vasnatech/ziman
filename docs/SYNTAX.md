@@ -290,11 +290,11 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
 - **`push` in a loop costs what you'd expect; `insert`/`set`/`remove` don't.** `arr = push(arr,
   x)` is amortised O(1) (spare room kept, the next `push` on that exact array writes into it
   instead of copying); `insert`/`set`/`remove` always copy the whole array, so replacing every
-  element one `set` at a time is O(n²) -- `MutableArray<T>` (`ab_new`/`ab_append`/`ab_get`/
-  `ab_set`/`ab_len`/`ab_clear`/`ab_to_array`) is the right tool for building/editing a large
-  array piece by piece. It reads back in place: `len(ab)`, `ab_get` and `for x in ab` cost nothing,
-  where `snapshot`/`ab_to_array` copies the whole buffer every call (`--lint` flags that in a
-  loop). See
+  element one `set` at a time is O(n²) -- `MutableArray<T>` (`mutable_array_new`,
+  `mutable_array_push`, `mutable_array_get`, `mutable_array_set`, plus the bare `len`, `contains`,
+  `clear` and `snapshot`) is the right tool for building/editing a large array piece by piece. It
+  reads back in place: `len(xs)`, `mutable_array_get` and `for x in xs` cost nothing, where
+  `snapshot` copies the whole buffer every call (`--lint` flags that in a loop). See
   "Builtins" for exact signatures.
 
 ## Maps and sets
@@ -336,15 +336,16 @@ for x in seen { ... }                    // a set has one binder
   builtin `join` is a path join over strings, not this), and `sum(items: [int])` totals them --
   integers only, since `+` traps on overflow so the answer is exact or an error, where a float
   total depends on summation order and `fold` expresses whichever order you want.
-- **Builders**: `MutableMap<K, V>` (`mapb_new`/`_set`/`_get`/`_remove`/`_contains`/`_len`/
-  `_to_map`) and `MutableSet<T>` (`setb_new`/`_add`/`_remove`/`_contains`/`_len`/`_to_set`), the
-  `MutableArray` counterparts. Mutates its own private trie in place (O(n) total instead of
-  copying per entry) -- use in a loop adding many entries. Type arguments written out
-  (`mapb_set<string, int>(mb, "a", 1)`); `_to_map`/`_to_set` snapshot into an immutable Map/Set
-  (O(n) copy, builder stays usable, later changes don't touch the snapshot). One thread at a time.
-  `len(mb)`, `contains(mb, k)`, `snapshot(mb)` and `clear(mb)` work on any builder; the first three
-  are the same answers as `_len`/`_contains`/`_to_map`, and `clear` is the one the trie builders
-  did not have before.
+- **The mutable collections**: `MutableMap<K, V>` (`mutable_map_new`/`_set`/`_get`/`_get_or`/
+  `_remove`) and `MutableSet<T>` (`mutable_set_new`/`_add`/`_remove`), the `MutableArray`
+  counterparts. Each mutates its own private trie in place (O(n) total instead of copying per
+  entry) -- use one in a loop adding many entries. Type arguments are written out
+  (`mutable_map_set<string, int>(m, "a", 1)`). **The four questions every collection answers have
+  no per-type names**: `len(m)`, `contains(m, k)`, `snapshot(m)` and `clear(m)` work on all four
+  mutable types, where there used to be `mapb_len`, `setb_contains`, `mapb_to_map` and the rest.
+  `snapshot` copies into an immutable `Map`/`Set` (O(n), the handle stays usable, and later changes
+  do not touch the copy). One thread at a time -- every `Mutable*` type belongs to the thread that
+  made it.
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
   building an n-entry map is O(n log n).
@@ -380,9 +381,9 @@ for i, x in arr { ... }       // index + value together
 ```
 
 - **`for x in ab`** also walks a `MutableArray<T>`, in both shapes an array takes (`for x in ab`
-  and `for i, x in ab`) -- which is how a builder is read without `ab_to_array`'s copy. It reads
+  and `for i, x in ab`) -- which is how a builder is read without `snapshot`'s copy. It reads
   the live buffer: a body that appends sees its own additions, as it would in the array the
-  builder is becoming, and one that calls `ab_clear` ends the loop. Neither can read past the
+  builder is becoming, and one that calls `clear` ends the loop. Neither can read past the
   end, since the length is read again on every pass.
 - **`for x in iter`** also walks an `Iter<T>` (a lazy source like `fs.lines(path)`), one binder,
   no index. Nothing is read ahead (the source can exceed memory); `break`/`return`/`try` inside
@@ -1410,8 +1411,8 @@ migration. All four declaration kinds carry the attribute; there is no kind it i
 one, whose type records that fact, so sending or spawning the lambda is refused where it is written
 rather than failing on the receiving thread. Each builder and iterator also remembers its own thread
 and a use from another is a runtime error, which stays as a backstop for anything the type checker
-cannot see. Hand over the finished value (`sb_to_string`,
-`ab_to_array`, `mapb_to_map`, an iterator's items as an array), not the builder/iterator. For
+cannot see. Hand over the finished value (`snapshot`,
+`snapshot`, `snapshot`, an iterator's items as an array), not the builder/iterator. For
 a struct written in Ziman this attribute gives only the compile-time refusals (no native check).
 
 ```ziman
@@ -2474,8 +2475,8 @@ a type error.
   snapshot taken before the clear is undisturbed by it.
 - `snapshot(b)` — a builder's contents copied out as the immutable value it is building: an
   `MutableArray<T>` gives `[T]`, a `MutableString` gives `string`, a `MutableMap<K, V>` gives
-  `Map<K, V>`, a `MutableSet<T>` gives `Set<T>`. One name for `ab_to_array`/`sb_to_string`/
-  `mapb_to_map`/`setb_to_set`, which all still work and do the same thing: an O(n) copy, after
+  `Map<K, V>`, a `MutableSet<T>` gives `Set<T>`. One name for `snapshot`/`snapshot`/
+  `snapshot`/`snapshot`, which all still work and do the same thing: an O(n) copy, after
   which the builder stays usable and later changes do not touch the snapshot. Takes a builder
   only -- an array is already a value, so there is nothing to copy out of.
 - `substring(s, start, end) -> string` — `[start, end)`, `0 <= start <= end <= len(s)` else a

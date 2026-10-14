@@ -222,59 +222,59 @@ fn datetime_part_width(part: DateTimePart) -> int {
 // gain from a builder, the same reasoning `pad_left` above and
 // `int_to_hex`'s zero-padding loop are exempted from converting too.
 pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
-    val parts = ab_new<DateTimePart>()
+    val parts = mutable_array_new<DateTimePart>()
     var literal_buf = ""
     var i = 0
     val plen = len(pattern)
     while i < plen {
         if matches_token(pattern, i, "yyyy") {
             if literal_buf != "" {
-                ab_append(parts, DateTimePart.Literal(literal_buf))
+                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append(parts, DateTimePart.Year)
+            mutable_array_push(parts, DateTimePart.Year)
             i = i + 4
         } else if matches_token(pattern, i, "MM") {
             if literal_buf != "" {
-                ab_append(parts, DateTimePart.Literal(literal_buf))
+                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append(parts, DateTimePart.Month)
+            mutable_array_push(parts, DateTimePart.Month)
             i = i + 2
         } else if matches_token(pattern, i, "dd") {
             if literal_buf != "" {
-                ab_append(parts, DateTimePart.Literal(literal_buf))
+                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append(parts, DateTimePart.Day)
+            mutable_array_push(parts, DateTimePart.Day)
             i = i + 2
         } else if matches_token(pattern, i, "HH") {
             if literal_buf != "" {
-                ab_append(parts, DateTimePart.Literal(literal_buf))
+                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append(parts, DateTimePart.Hour)
+            mutable_array_push(parts, DateTimePart.Hour)
             i = i + 2
         } else if matches_token(pattern, i, "mm") {
             if literal_buf != "" {
-                ab_append(parts, DateTimePart.Literal(literal_buf))
+                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append(parts, DateTimePart.Minute)
+            mutable_array_push(parts, DateTimePart.Minute)
             i = i + 2
         } else if matches_token(pattern, i, "ss") {
             if literal_buf != "" {
-                ab_append(parts, DateTimePart.Literal(literal_buf))
+                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append(parts, DateTimePart.Second)
+            mutable_array_push(parts, DateTimePart.Second)
             i = i + 2
         } else if matches_token(pattern, i, "SSSSSSSSS") {
             if literal_buf != "" {
-                ab_append(parts, DateTimePart.Literal(literal_buf))
+                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            ab_append(parts, DateTimePart.Nano)
+            mutable_array_push(parts, DateTimePart.Nano)
             i = i + 9
         } else {
             literal_buf = concat(literal_buf, char_at(pattern, i))
@@ -282,9 +282,9 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
         }
     }
     if literal_buf != "" {
-        ab_append(parts, DateTimePart.Literal(literal_buf))
+        mutable_array_push(parts, DateTimePart.Literal(literal_buf))
     }
-    val parts_array = ab_to_array(parts)
+    val parts_array = snapshot(parts)
     var width = 0
     for part in parts_array {
         width = width + datetime_part_width(part)
@@ -319,9 +319,9 @@ fn format_fields(
     nano: int,
     fmt: DateTimeFormat
 ) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     for part in fmt.parts {
-        sb_append(out, switch part {
+        mutable_string_append(out, switch part {
             Year { format_year(year) }
             Month { pad_left(month, 2) }
             Day { pad_left(day, 2) }
@@ -332,7 +332,7 @@ fn format_fields(
             Literal(s) { s }
         })
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 struct ParsedFields {

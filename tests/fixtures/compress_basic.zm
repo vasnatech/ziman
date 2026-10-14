@@ -25,11 +25,11 @@ fn main() {
     print(unwrap_err(compress.decompress(gz, 5)))
     print(is_ok(compress.decompress(gz, -1)))
     // a large, highly compressible input shrinks a lot and comes back exactly; the limit protects
-    val parts = ab_new<byte>()
+    val parts = mutable_array_new<byte>()
     for i in 0..30000 {
-        ab_append<byte>(parts, string_to_bytes("abc"))
+        mutable_array_push<byte>(parts, string_to_bytes("abc"))
     }
-    val big = ab_to_array<byte>(parts)
+    val big = snapshot(parts)
     val packed = compress.gzip(big)
     print(len(packed) < 1000)
     print(unwrap(compress.gunzip(packed, 100000)) == big)

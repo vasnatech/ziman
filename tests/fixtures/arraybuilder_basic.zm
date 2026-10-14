@@ -1,13 +1,13 @@
 fn main() {
     // Everything defaulted -- the fully-omitted call this feature (and
     // Option<T> parameter omission before it) exists to make possible.
-    val ab = ab_new<int>()
-    print(ab_len<int>(ab))
-    ab_append<int>(ab, 1, 2, 3)
-    ab_append<int>(ab, 4)
-    val arr = ab_to_array<int>(ab)
+    val ab = mutable_array_new<int>()
+    print(len(ab))
+    mutable_array_push<int>(ab, 1, 2, 3)
+    mutable_array_push<int>(ab, 4)
+    val arr = snapshot(ab)
     print(arr)
-    print(ab_len<int>(ab))
+    print(len(ab))
     print(len(arr))
 
     // Iterating the resulting array exercises the runtime type fixup
@@ -22,34 +22,34 @@ fn main() {
 
     // Custom capacity/grow_factor, a non-int element type, forcing many
     // reallocations.
-    val ab2 = ab_new<string>(capacity: 2, grow_factor: 1.5)
+    val ab2 = mutable_array_new<string>(capacity: 2, grow_factor: 1.5)
     var i = 0
     while i < 20 {
-        ab_append<string>(ab2, str(i))
+        mutable_array_push<string>(ab2, str(i))
         i = i + 1
     }
-    print(ab_len<string>(ab2))
-    val strs = ab_to_array<string>(ab2)
+    print(len(ab2))
+    val strs = snapshot(ab2)
     print(len(strs))
     print(strs[0])
     print(strs[19])
 
     // Appending an already-built array (variadic spread).
-    val ab3 = ab_new<int>()
+    val ab3 = mutable_array_new<int>()
     val pieces = [10, 20, 30]
-    ab_append<int>(ab3, pieces)
-    print(ab_to_array<int>(ab3))
+    mutable_array_push<int>(ab3, pieces)
+    print(snapshot(ab3))
 
     // Two independent builders never interfere with each other.
-    val ab4 = ab_new<int>()
-    val ab5 = ab_new<int>()
-    ab_append<int>(ab4, 1)
-    ab_append<int>(ab5, 2)
-    print(ab_to_array<int>(ab4))
-    print(ab_to_array<int>(ab5))
+    val ab4 = mutable_array_new<int>()
+    val ab5 = mutable_array_new<int>()
+    mutable_array_push<int>(ab4, 1)
+    mutable_array_push<int>(ab5, 2)
+    print(snapshot(ab4))
+    print(snapshot(ab5))
 
     // Fully positional.
-    val ab6 = ab_new<int>(5, 3.0)
-    ab_append<int>(ab6, 99)
-    print(ab_to_array<int>(ab6))
+    val ab6 = mutable_array_new<int>(5, 3.0)
+    mutable_array_push<int>(ab6, 99)
+    print(snapshot(ab6))
 }

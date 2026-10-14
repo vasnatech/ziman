@@ -96,21 +96,21 @@ fn bigint_magnitude_to_hex(n: bigint) -> string {
     if n == 0n {
         return "0"
     }
-    val digits = ab_new<string>()
+    val digits = mutable_array_new<string>()
     var remaining = n
     while remaining > 0n {
         val digit_val = (remaining % 16n) as int
-        ab_append(digits, hex_digits[digit_val])
+        mutable_array_push(digits, hex_digits[digit_val])
         remaining = remaining / 16n
     }
-    val reversed = ab_to_array(digits)
-    val out = sb_new()
+    val reversed = snapshot(digits)
+    val out = mutable_string_new()
     var i = len(reversed) - 1
     while i >= 0 {
-        sb_append(out, reversed[i])
+        mutable_string_append(out, reversed[i])
         i = i - 1
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 // Lowercase hex of `n`, sign-prefixed for a negative one: `bigint_to_hex(-255n)` is "-ff".
@@ -215,31 +215,31 @@ fn insert_thousands(int_part: string, sep: string) -> string {
     if n <= 3 {
         return concat(sign, digits)
     }
-    val out = sb_new()
-    sb_append(out, sign)
+    val out = mutable_string_new()
+    mutable_string_append(out, sign)
     var i = 0
     while i < n {
         if i > 0 && (n - i) % 3 == 0 {
-            sb_append(out, sep)
+            mutable_string_append(out, sep)
         }
-        sb_append(out, char_at(digits, i))
+        mutable_string_append(out, char_at(digits, i))
         i = i + 1
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 fn adjust_decimal_places(frac: string, places: int) -> string {
     if len(frac) >= places {
         return substring(frac, 0, places)
     }
-    val out = sb_new()
-    sb_append(out, frac)
+    val out = mutable_string_new()
+    mutable_string_append(out, frac)
     var i = len(frac)
     while i < places {
-        sb_append(out, "0")
+        mutable_string_append(out, "0")
         i = i + 1
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 // `s`, the plain text of a number, written according to `fmt`: `format_number("1234567.5",

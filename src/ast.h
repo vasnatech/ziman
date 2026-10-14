@@ -288,7 +288,7 @@ struct Expr {
          * than re-derived at runtime because runtime has no reliable way
          * to: comparing a value's own `.type.kind == TY_ARRAY` silently
          * gives the wrong answer whenever the variadic element type is
-         * itself an array (`MutableArray<[T]>`'s `ab_append<[T]>`, for
+         * itself an array (`MutableArray<[T]>`'s `mutable_array_push<[T]>`, for
          * instance) -- a single element of type `[T]` also happens to
          * satisfy "is an array", the exact case that exposed this. */
         /* `local_name` is the callee exactly as written when it had no dot -- the

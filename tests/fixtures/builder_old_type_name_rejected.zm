@@ -7,5 +7,5 @@ fn f(x: ArrayBuilder<int>) -> int {
 }
 
 fn main() {
-    print(f(ab_new<int>()))
+    print(f(mutable_array_new<int>()))
 }

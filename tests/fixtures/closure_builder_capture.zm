@@ -6,23 +6,23 @@
 // The thing that would actually be unsafe -- two threads mutating one builder -- is a compile
 // error, and has its own fixture in diag_lambda_builder_crosses_thread.
 fn main() {
-    val cache = mapb_new<int, int>()
+    val cache = mutable_map_new<int, int>()
     val square = fn(n: int) -> int {
-        if mapb_contains(cache, n) {
-            return mapb_get_or(cache, n, 0)
+        if contains(cache, n) {
+            return mutable_map_get_or(cache, n, 0)
         }
         val computed = n * n
-        mapb_set(cache, n, computed)
+        mutable_map_set(cache, n, computed)
         return computed
     }
     print(square(7))
     print(square(7))
-    print(mapb_len(cache))
+    print(len(cache))
 
     // and the accumulate case, which `fold` covers without any capture at all
-    val b = mapb_new<string, int>()
-    val bump = fn(k: string) { mapb_set(b, k, 1) }
+    val b = mutable_map_new<string, int>()
+    val bump = fn(k: string) { mutable_map_set(b, k, 1) }
     bump("a")
     bump("b")
-    print(mapb_len(b))
+    print(len(b))
 }

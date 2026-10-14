@@ -298,15 +298,15 @@ fn audiences_of(value: Json) -> [string] {
     if JString(text) = value {
         return [text]
     }
-    val names = ab_new<string>()
+    val names = mutable_array_new<string>()
     if JArray(items) = value {
         for item in items {
             if JString(text) = item {
-                ab_append(names, text)
+                mutable_array_push(names, text)
             }
         }
     }
-    return ab_to_array(names)
+    return snapshot(names)
 }
 
 // The `sub` claim, when it is a string.

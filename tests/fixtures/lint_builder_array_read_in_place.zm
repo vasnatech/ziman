@@ -1,17 +1,17 @@
 // The MutableArray half of lint_builder_read_by_conversion, which pins the mapb one. Converting a builder
-// to read it, in a loop that keeps appending, is the quadratic shape the lint exists for -- `ab_to_array`
-// copies the whole buffer every pass. What the message offers changed in F96: before `ab_get` existed, the
-// only advice it could give was `ab_len` or "finish it after the loop", and reading an element in place was
+// to read it, in a loop that keeps appending, is the quadratic shape the lint exists for -- `snapshot`
+// copies the whole buffer every pass. What the message offers changed in F96: before `mutable_array_get` existed, the
+// only advice it could give was `len` or "finish it after the loop", and reading an element in place was
 // not possible at all.
 fn running_max(values: [int]) -> int {
-    val seen = ab_new<int>()
+    val seen = mutable_array_new<int>()
     var best = 0
     for v in values {
-        val so_far = ab_to_array(seen)
+        val so_far = snapshot(seen)
         if len(so_far) > 0 && so_far[0] > best {
             best = so_far[0]
         }
-        ab_append(seen, v)
+        mutable_array_push(seen, v)
     }
     return best
 }

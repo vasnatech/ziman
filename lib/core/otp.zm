@@ -20,7 +20,7 @@ val base32_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
 // `data` as base32 (RFC 4648) without `=` padding.
 pub fn base32_encode(data: [byte]) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     var buffer = 0
     var bits = 0
     for b in data {
@@ -32,7 +32,7 @@ pub fn base32_encode(data: [byte]) -> string {
                 divisor = divisor * 2
             }
             val index = buffer / divisor
-            sb_append(out, char_at(base32_alphabet, index))
+            mutable_string_append(out, char_at(base32_alphabet, index))
             buffer = buffer - index * divisor
             bits = bits - 5
         }
@@ -42,15 +42,15 @@ pub fn base32_encode(data: [byte]) -> string {
         for _ in 0..(5 - bits) {
             shift = shift * 2
         }
-        sb_append(out, char_at(base32_alphabet, buffer * shift))
+        mutable_string_append(out, char_at(base32_alphabet, buffer * shift))
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 // base32 text as bytes: upper or lower case, with or without `=` padding, spaces and dashes ignored (as people write a secret down). An Err
 // for any other character.
 pub fn base32_decode(text: string) -> Result<[byte], string> {
-    val out = ab_new<byte>()
+    val out = mutable_array_new<byte>()
     var buffer = 0
     var bits = 0
     for i in 0..len(text) {
@@ -70,17 +70,17 @@ pub fn base32_decode(text: string) -> Result<[byte], string> {
                 divisor = divisor * 2
             }
             val value = buffer / divisor
-            ab_append(out, value as byte)
+            mutable_array_push(out, value as byte)
             buffer = buffer - value * divisor
             bits = bits - 8
         }
     }
-    return ab_to_array(out)
+    return snapshot(out)
 }
 
 // The counter as the 8 big-endian bytes HOTP signs.
 fn counter_bytes(counter: int) -> [byte] {
-    val out = ab_new<byte>()
+    val out = mutable_array_new<byte>()
     var digits: [int] = []
     var rest = counter
     for _ in 0..8 {
@@ -88,9 +88,9 @@ fn counter_bytes(counter: int) -> [byte] {
         rest = rest / 256
     }
     for i in 0..8 {
-        ab_append(out, digits[7 - i] as byte)
+        mutable_array_push(out, digits[7 - i] as byte)
     }
-    return ab_to_array(out)
+    return snapshot(out)
 }
 
 // The HOTP value (RFC 4226) for `counter`, `digits` (6 to 9) long with leading zeros: HMAC-SHA-1, then the "dynamic truncation".
@@ -103,12 +103,12 @@ pub fn hotp(key: [byte], counter: int, digits: int) -> string {
         modulus = modulus * 10
     }
     val text = str(number % modulus)
-    val padding = sb_new()
+    val padding = mutable_string_new()
     for _ in 0..(digits - len(text)) {
-        sb_append(padding, "0")
+        mutable_string_append(padding, "0")
     }
-    sb_append(padding, text)
-    return sb_to_string(padding)
+    mutable_string_append(padding, text)
+    return snapshot(padding)
 }
 
 // The six-digit code an authenticator app shows at `unix_seconds` (30-second steps from the epoch).
@@ -142,17 +142,17 @@ pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> 
 
 // `text` percent-encoded for a URI component: letters, digits and `-_.~` stay, every other byte becomes `%XX`.
 fn uri_encode(text: string) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     val hex = "0123456789ABCDEF"
     for b in string_to_bytes(text) {
         val v = b as int
         if (v >= 48 && v <= 57) || (v >= 65 && v <= 90) || (v >= 97 && v <= 122) || v == 45 || v == 95 || v == 46 || v == 126 {
-            sb_append_byte(out, b)
+            mutable_string_append_byte(out, b)
         } else {
-            sb_append(out, "%", char_at(hex, v / 16), char_at(hex, v % 16))
+            mutable_string_append(out, "%", char_at(hex, v / 16), char_at(hex, v % 16))
         }
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 // The `otpauth://` address an authenticator app takes as a QR code to add the account: `issuer` (the name of your service) and

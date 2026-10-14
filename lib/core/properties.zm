@@ -73,20 +73,20 @@ pub fn lookup(props: Properties, key: string) -> Option<Entry> {
 // Resolves `${name}` / `${name:default}` in `value`; `seen` holds the
 // names being expanded, to catch cycles.
 fn resolve(props: Properties, value: string, source: string, seen: [string]) -> Result<string, string> {
-    val sb = sb_new()
+    val sb = mutable_string_new()
     var p = 0
     var done = false
     while !done {
         val start = index_of(value, "${", p)
         if start < 0 {
-            sb_append(sb, substring(value, p, len(value)))
+            mutable_string_append(sb, substring(value, p, len(value)))
             done = true
         } else {
             val end = index_of(value, "}", start + 2)
             if end < 0 {
                 return err(format("{}: unterminated placeholder in '{}'", source, value))
             }
-            sb_append(sb, substring(value, p, start))
+            mutable_string_append(sb, substring(value, p, start))
             val inner = substring(value, start + 2, end)
             val colon = index_of(inner, ":", 0)
             val name = if colon >= 0 { substring(inner, 0, colon) } else { inner }
@@ -97,11 +97,11 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
             val env = os.getenv(name)
             if Some(r) = referenced {
                 val expanded = try resolve(props, r.value, r.source, push(seen, name))
-                sb_append(sb, expanded)
+                mutable_string_append(sb, expanded)
             } else if Some(v) = env {
-                sb_append(sb, v)
+                mutable_string_append(sb, v)
             } else if colon >= 0 {
-                sb_append(sb, substring(inner, colon + 1, len(inner)))
+                mutable_string_append(sb, substring(inner, colon + 1, len(inner)))
             } else {
                 return err(format(
                     "{}: placeholder '{}' is neither a property nor an environment variable and has no default",
@@ -112,22 +112,22 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
             p = end + 1
         }
     }
-    return ok(sb_to_string(sb))
+    return ok(snapshot(sb))
 }
 
 fn resolve_all(props: Properties) -> Result<Properties, string> {
-    val out = ab_new<Entry>()
+    val out = mutable_array_new<Entry>()
     for i in 0..len(props.entries) {
         val e = props.entries[i]
         val value = try resolve(props, e.value, e.source, [e.key])
-        ab_append(out, Entry { key: e.key, value: value, source: e.source })
+        mutable_array_push(out, Entry { key: e.key, value: value, source: e.source })
     }
-    return ok(Properties { entries: ab_to_array(out), profile: props.profile })
+    return ok(Properties { entries: snapshot(out), profile: props.profile })
 }
 
 fn parse_raw(text: string, source: string) -> Result<Properties, string> {
     val lines = split(text, "\n")
-    val found = ab_new<Entry>()
+    val found = mutable_array_new<Entry>()
     for i in 0..len(lines) {
         val line = trim(lines[i])
         val where = format("{}:{}", source, i + 1)
@@ -152,12 +152,12 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
         if contains(key, " ") || contains(key, "\t") {
             return err(format("{}: key '{}' contains whitespace", where, key))
         }
-        ab_append(found, Entry { key: key, value: trim(substring(line, eq + 1, len(line))), source: where })
+        mutable_array_push(found, Entry { key: key, value: trim(substring(line, eq + 1, len(line))), source: where })
     }
-    val entries = ab_to_array(found)
-    val first_seen = mapb_new<string, string>()
+    val entries = snapshot(found)
+    val first_seen = mutable_map_new<string, string>()
     for e in entries {
-        val earlier = mapb_get(first_seen, e.key)
+        val earlier = mutable_map_get(first_seen, e.key)
         if Some(first) = earlier {
             return err(format(
                 "{}: duplicate key '{}' (first defined at {})",
@@ -166,7 +166,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
                 first
             ))
         }
-        mapb_set(first_seen, e.key, e.source)
+        mutable_map_set(first_seen, e.key, e.source)
     }
     return ok(Properties { entries: entries, profile: "" })
 }
@@ -193,16 +193,16 @@ fn read_source(file: string) -> Result<string, string> {
 
 // `over` wins on a key present in both.
 fn merge(base: Properties, over: Properties, profile: string) -> Properties {
-    val out = ab_new<Entry>()
+    val out = mutable_array_new<Entry>()
     for i in 0..len(over.entries) {
-        ab_append(out, over.entries[i])
+        mutable_array_push(out, over.entries[i])
     }
     for i in 0..len(base.entries) {
         if !Option.is_Some(find_file_entry(over.entries, base.entries[i].key)) {
-            ab_append(out, base.entries[i])
+            mutable_array_push(out, base.entries[i])
         }
     }
-    return Properties { entries: ab_to_array(out), profile: profile }
+    return Properties { entries: snapshot(out), profile: profile }
 }
 
 // Reads `<name>.properties` from the working directory (an Err if it is missing), then
@@ -313,21 +313,21 @@ pub fn key(prefix: string, name: string) -> string {
 // The edit distance between two strings (single-character inserts, deletes and substitutions),
 // for "did you mean" hints.
 fn distance(a: string, b: string) -> int {
-    val first_row = ab_new<int>()
+    val first_row = mutable_array_new<int>()
     for j in 0..len(b) + 1 {
-        ab_append(first_row, j)
+        mutable_array_push(first_row, j)
     }
-    var prev = ab_to_array(first_row)
+    var prev = snapshot(first_row)
     for i in 0..len(a) {
-        val row = ab_new<int>()
-        ab_append(row, i + 1)
+        val row = mutable_array_new<int>()
+        mutable_array_push(row, i + 1)
         var left = i + 1
         for j in 0..len(b) {
             val cost = if is_char_at(a, i, char_at(b, j)) { 0 } else { 1 }
             left = min(min(left + 1, prev[j + 1] + 1), prev[j] + cost)
-            ab_append(row, left)
+            mutable_array_push(row, left)
         }
-        prev = ab_to_array(row)
+        prev = snapshot(row)
     }
     return prev[len(b)]
 }
@@ -391,18 +391,18 @@ fn mask_value(value: string) -> string {
 // One line per key in `keys` that has a value: `key=value (source)`,
 // with secrets masked. Meant to be printed at startup.
 pub fn report(props: Properties, keys: variadic string) -> string {
-    val sb = sb_new()
+    val sb = mutable_string_new()
     if len(props.profile) == 0 {
-        sb_append(sb, "active profile: (none)\n")
+        mutable_string_append(sb, "active profile: (none)\n")
     } else {
-        sb_append(sb, format("active profile: {}\n", props.profile))
+        mutable_string_append(sb, format("active profile: {}\n", props.profile))
     }
     for i in 0..len(keys) {
         val found = lookup(props, keys[i])
         if Some(e) = found {
             val shown = if is_secret_key(e.key) { "****" } else { mask_value(e.value) }
-            sb_append(sb, format("{}={} ({})\n", e.key, shown, e.source))
+            mutable_string_append(sb, format("{}={} ({})\n", e.key, shown, e.source))
         }
     }
-    return sb_to_string(sb)
+    return snapshot(sb)
 }

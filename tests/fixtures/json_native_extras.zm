@@ -2,14 +2,14 @@ use json
 use json.Json
 
 fn depth(n: int) -> string {
-    val sb = sb_new()
+    val sb = mutable_string_new()
     for i in 0..n {
-        sb_append(sb, "[")
+        mutable_string_append(sb, "[")
     }
     for i in 0..n {
-        sb_append(sb, "]")
+        mutable_string_append(sb, "]")
     }
-    return sb_to_string(sb)
+    return snapshot(sb)
 }
 
 fn main() {
@@ -38,16 +38,16 @@ fn main() {
         }
 
     // a big document round-trips
-    val sb = sb_new()
-    sb_append(sb, "[")
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "[")
     for i in 0..3000 {
         if i > 0 {
-            sb_append(sb, ",")
+            mutable_string_append(sb, ",")
         }
-        sb_append(sb, "{\"id\":", str(i), ",\"name\":\"n", str(i), "\",\"tags\":[true,null,1.5]}")
+        mutable_string_append(sb, "{\"id\":", str(i), ",\"name\":\"n", str(i), "\",\"tags\":[true,null,1.5]}")
     }
-    sb_append(sb, "]")
-    val text = sb_to_string(sb)
+    mutable_string_append(sb, "]")
+    val text = snapshot(sb)
     val parsed = unwrap(json.parse_json(text))
     print(json.json_to_string(parsed) == text)
     print(len(Json.unwrap_JArray(parsed)))

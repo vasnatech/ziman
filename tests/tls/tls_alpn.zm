@@ -28,13 +28,13 @@ fn kind(e: NetError) -> string {
 
 // A protocol name of `n` bytes, for the length check below.
 fn name_of_length(n: int) -> string {
-    val sb = sb_new()
+    val sb = mutable_string_new()
     var i = 0
     while i < n {
-        sb_append(sb, "x")
+        mutable_string_append(sb, "x")
         i = i + 1
     }
-    return sb_to_string(sb)
+    return snapshot(sb)
 }
 
 fn named(p: Option<string>) -> string {

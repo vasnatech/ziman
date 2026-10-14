@@ -34,11 +34,11 @@ fn show_exact(text: string) {
 }
 
 fn digits(n: int) -> string {
-    val sb = sb_new()
+    val sb = mutable_string_new()
     for i in 0..n {
-        sb_append(sb, "7")
+        mutable_string_append(sb, "7")
     }
-    return sb_to_string(sb)
+    return snapshot(sb)
 }
 
 fn main() {

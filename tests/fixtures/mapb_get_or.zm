@@ -1,18 +1,18 @@
-// `Map` has `map_get_or`; `MutableMap` had only `mapb_get`, so every counting loop wrote the switch out.
+// `Map` has `map_get_or`; `MutableMap` had only `mutable_map_get`, so every counting loop wrote the switch out.
 // Added as ordinary Ziman rather than a builtin, because it is exactly that switch and nothing more.
 fn main() {
-    val counts = mapb_new<string, int>()
+    val counts = mutable_map_new<string, int>()
     for w in ["a", "b", "a", "c", "a"] {
-        mapb_set<string, int>(counts, w, mapb_get_or(counts, w, 0) + 1)
+        mutable_map_set<string, int>(counts, w, mutable_map_get_or(counts, w, 0) + 1)
     }
-    print(mapb_get_or(counts, "a", 0))
-    print(mapb_get_or(counts, "b", 0))
-    print(mapb_get_or(counts, "missing", -1))
-    print(mapb_len<string, int>(counts))
+    print(mutable_map_get_or(counts, "a", 0))
+    print(mutable_map_get_or(counts, "b", 0))
+    print(mutable_map_get_or(counts, "missing", -1))
+    print(len(counts))
 
     // the type arguments are inferred from the builder, as for any generic function
-    val flags = mapb_new<int, bool>()
-    mapb_set<int, bool>(flags, 1, true)
-    print(mapb_get_or(flags, 1, false))
-    print(mapb_get_or(flags, 2, false))
+    val flags = mutable_map_new<int, bool>()
+    mutable_map_set<int, bool>(flags, 1, true)
+    print(mutable_map_get_or(flags, 1, false))
+    print(mutable_map_get_or(flags, 2, false))
 }

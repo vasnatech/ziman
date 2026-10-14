@@ -4,13 +4,13 @@ fn main() {
     val cols = len(m[0])
     var c = 0
     while c < cols {
-        val out = ab_new<string>()
+        val out = mutable_array_new<string>()
         var r = 0
         while r < rows {
-            ab_append(out, str(m[r][c]))
+            mutable_array_push(out, str(m[r][c]))
             r = r + 1
         }
-        print(join(separator: " ", pieces: ab_to_array(out)))
+        print(join(separator: " ", pieces: snapshot(out)))
         c = c + 1
     }
 }

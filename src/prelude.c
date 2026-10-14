@@ -591,7 +591,7 @@ static Value native_sb_new(Value *args, int argc, int line, int col) {
     if (grow_factor <= 1.0) {
         /* A factor at or below 1.0 would never actually grow the buffer
          * -- sb_ensure_capacity's while loop would spin forever. Falls
-         * back to the same default sb_new's own signature declares,
+         * back to the same default mutable_string_new's own signature declares,
          * rather than erroring, since a MutableString is otherwise
          * perfectly usable with this one parameter simply ignored. */
         grow_factor = 2.0;
@@ -627,7 +627,7 @@ static Value native_sb_append(Value *args, int argc, int line, int col) {
     return value_int(0); /* void return -- the caller never uses this */
 }
 
-/* sb_append_byte(sb, bytes...) -> bool: raw bytes, so text can be assembled
+/* mutable_string_append_byte(sb, bytes...) -> bool: raw bytes, so text can be assembled
  * from decoded bytes without a [byte] in between. A string can't hold a 0
  * byte, so if any of them is 0b nothing at all is appended and the result is
  * false. */
@@ -661,13 +661,6 @@ static Value native_sb_to_string(Value *args, int argc, int line, int col) {
     return value_string(out);
 }
 
-static Value native_sb_len(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
-    return value_int((int64_t)buf->length);
-}
 
 /* --- MutableArray<T> -------------------------------------------------
  * Identical shape to MutableString's own table/handle machinery above,
@@ -692,7 +685,7 @@ typedef struct {
     double grow_factor;
     /* Packed mode: once the first appended element is a byte, bool, int or float,
      * elements are kept as raw values in `pdata` (with `items` unused), so an
-     * array of them under construction doesn't cost a Value each and ab_to_array
+     * array of them under construction doesn't cost a Value each and snapshot
      * is one memcpy. */
     PackKind pkind;
     unsigned char *pdata;
@@ -1131,7 +1124,7 @@ static Value ab_element_at(const MutableArrayBuf *buf, size_t i) {
 }
 
 /* Reading and writing a builder in place, so that a loop that needs what it has already appended does not
- * have to call ab_to_array -- which copies the whole buffer every time it is called, and in a loop is the
+ * have to call snapshot -- which copies the whole buffer every time it is called, and in a loop is the
  * quadratic cost MutableArray exists to avoid (`--lint` already flags that shape; see
  * lint_builder_read_by_conversion). MutableMap and MutableSet have had `get`/`contains` from the start; this
  * is the same thing for the one builder that was append-only. */
@@ -1159,17 +1152,6 @@ static Value native_ab_set(Value *args, int argc, int line, int col) {
     return value_int(0); /* void return -- the caller never uses this */
 }
 
-/* Empties the builder, keeping the buffer it has already grown: the point is to reuse one across rounds of
- * work without paying for the growth again. The packed kind is kept too, which is safe because the element
- * type cannot change -- a builder is `MutableArray<T>` for one T. */
-static Value native_ab_clear(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
-    buf->length = 0;
-    return value_int(0); /* void return -- the caller never uses this */
-}
 
 /* What the interpreter's `for x in builder` needs: the two of these are the whole of its access, and they
  * take the same ownership check every other builder call takes (ab_table_get). */
@@ -1199,13 +1181,6 @@ static Value native_ab_to_array(Value *args, int argc, int line, int col) {
     return value_array(type_scalar(TY_VOID), array_obj_new(items, (int)buf->length));
 }
 
-static Value native_ab_len(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
-    return value_int((int64_t)buf->length);
-}
 
 /* Registered with gc_mark.c (see gc_mark_register_struct_content_marker's own comment) so a real
  * collection landing while a MutableArray is still being appended to doesn't sweep an
@@ -1224,7 +1199,7 @@ static void ab_mark_contents(const Arena *a, StructObj *st) {
  * persistent map's per-insert node copying. Same pointer-as-handle scheme as MutableArray;
  * the buffer owns a MapObj nobody else can see and changes it in place (mapobj_set_mut).
  * `to_map` / `to_set` snapshot it (an O(n) copy of the trie's nodes) and the builder stays
- * usable, like ab_to_array. */
+ * usable, like snapshot. */
 enum { MB_MAGIC = 0x4d424c44 };
 typedef struct {
     uint32_t magic;
@@ -1310,16 +1285,7 @@ static Value native_mb_remove(Value *args, int argc, int line, int col) {
     return value_int(0);
 }
 
-static Value native_mb_contains(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
-    Value ignored;
-    return value_bool(mapobj_get(mb_get_buf(args[0])->m, args[1], &ignored));
-}
 
-static Value native_mb_len(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
-    return value_int(mb_get_buf(args[0])->m->count);
-}
 
 static Value native_mb_snapshot(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
@@ -1366,8 +1332,8 @@ int ziman_builder_contains(Value v, Value needle) {
     return mapobj_get(mb_get_buf(v)->m, needle, &ignored) != 0;
 }
 
-/* `snapshot` on one of the four handles: the same O(n) copy out that `ab_to_array`,
- * `mapb_to_map`, `setb_to_set` and `sb_to_string` have always done, reached by one name instead of
+/* `snapshot` on one of the four handles: the same O(n) copy out that `snapshot`,
+ * `snapshot`, `snapshot` and `snapshot` have always done, reached by one name instead of
  * four. Nothing new happens here -- it dispatches to those very implementations -- so a builder
  * stays usable afterwards and a later change does not touch the copy, exactly as before.
  *
@@ -1561,19 +1527,13 @@ void prelude_register(void) {
     native_register("sort_scalars", native_sort_scalars);
     native_register("permute", native_permute);
     native_register("sort_positions", native_sort_positions);
-    native_register("mapb_new", native_mapb_new);
-    native_register("mapb_set", native_mapb_set);
-    native_register("mapb_get", native_mapb_get);
-    native_register("mapb_remove", native_mb_remove);
-    native_register("mapb_contains", native_mb_contains);
-    native_register("mapb_len", native_mb_len);
-    native_register("mapb_to_map", native_mb_snapshot);
-    native_register("setb_new", native_setb_new);
-    native_register("setb_add", native_setb_add);
-    native_register("setb_remove", native_mb_remove);
-    native_register("setb_contains", native_mb_contains);
-    native_register("setb_len", native_mb_len);
-    native_register("setb_to_set", native_mb_snapshot);
+    native_register("mutable_map_new", native_mapb_new);
+    native_register("mutable_map_set", native_mapb_set);
+    native_register("mutable_map_get", native_mapb_get);
+    native_register("mutable_map_remove", native_mb_remove);
+    native_register("mutable_set_new", native_setb_new);
+    native_register("mutable_set_add", native_setb_add);
+    native_register("mutable_set_remove", native_mb_remove);
     native_register("guard_new", native_guard_new);
     native_register("bytes_index_of", native_bytes_index_of);
     native_register("array_map", native_array_map);
@@ -1586,18 +1546,13 @@ void prelude_register(void) {
     native_register("char_count", native_char_count);
     native_register("truncate_chars", native_truncate_chars);
     native_register("slice", native_slice);
-    native_register("sb_new", native_sb_new);
-    native_register("sb_append", native_sb_append);
-    native_register("sb_append_byte", native_sb_append_byte);
-    native_register("sb_to_string", native_sb_to_string);
-    native_register("sb_len", native_sb_len);
-    native_register("ab_new", native_ab_new);
-    native_register("ab_append", native_ab_append);
-    native_register("ab_get", native_ab_get);
-    native_register("ab_set", native_ab_set);
-    native_register("ab_clear", native_ab_clear);
-    native_register("ab_to_array", native_ab_to_array);
-    native_register("ab_len", native_ab_len);
+    native_register("mutable_string_new", native_sb_new);
+    native_register("mutable_string_append", native_sb_append);
+    native_register("mutable_string_append_byte", native_sb_append_byte);
+    native_register("mutable_array_new", native_ab_new);
+    native_register("mutable_array_push", native_ab_append);
+    native_register("mutable_array_get", native_ab_get);
+    native_register("mutable_array_set", native_ab_set);
 
     /* See ab_mark_contents/mb_mark_contents's own comments and gc_mark_register_struct_content_marker's
      * (gc_mark.h) for why these are needed at all. */

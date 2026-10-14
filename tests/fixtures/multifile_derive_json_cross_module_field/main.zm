@@ -5,7 +5,7 @@ use json.json_require_field
 
 // A struct field type from another module -- both a plain reference
 // (thing) and an array of it (things, the case that needs
-// ab_new<inner.Inner>() and exposed the generic-call qualified-type-arg
+// mutable_array_new<inner.Inner>() and exposed the generic-call qualified-type-arg
 // parser bug -- see multifile_generic_call_qualified_type_arg).
 #[derive(Json)]
 pub struct Outer {

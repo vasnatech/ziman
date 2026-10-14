@@ -259,7 +259,7 @@ fn fill(sock: Socket, buf: [byte], limit_ms: int, started: int) -> Result<[byte]
 // what was already read past the request head. The decoded body is limited to `max_body_bytes`.
 fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Result<ChunkedBody, HttpError> {
     var buf = start
-    val body = ab_new<byte>()
+    val body = mutable_array_new<byte>()
     var total = 0
     while true {
         var eol = bytes_index_of(buf, crlf, 0)
@@ -300,7 +300,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Res
                     trailer_end = bytes_index_of(buf, crlf, 0)
                 }
             }
-            return ChunkedBody { body: ab_to_array(body), rest: slice<byte>(buf, 2, len(buf)) }
+            return ChunkedBody { body: snapshot(body), rest: slice<byte>(buf, 2, len(buf)) }
         }
         total = total + n
         if total > max_body_bytes {
@@ -313,7 +313,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int) -> Res
         if buf[n] != 13b || buf[n + 1] != 10b {
             return err(HttpError.BadRequest("a chunk is not followed by CRLF"))
         }
-        ab_append(body, slice<byte>(buf, 0, n))
+        mutable_array_push(body, slice<byte>(buf, 0, n))
         buf = slice<byte>(buf, n + 2, len(buf))
     }
     return err(HttpError.BadRequest("unreachable"))
@@ -379,14 +379,14 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         return err(HttpError.BadRequest("malformed request target"))
     }
 
-    val headers = ab_new<Header>()
+    val headers = mutable_array_new<Header>()
     var i = first + 1
     while i < len(lines) {
         val h = try parse_header_line(lines[i])
-        ab_append(headers, h)
+        mutable_array_push(headers, h)
         i = i + 1
     }
-    val header_list = ab_to_array(headers)
+    val header_list = snapshot(headers)
 
     // What a proxy in front might read differently from this server is what request smuggling uses:
     // so a request that says the same thing twice, or two different things, is refused outright.
@@ -578,31 +578,31 @@ pub fn text_response(status: int, body: string) -> Response {
 // `text` as a JSON string literal, quotes included: `"` and `\` and the control characters escaped, every
 // other byte (UTF-8 included) as it is. Written here so the server needs nothing but its own error replies.
 fn json_quoted(text: string) -> string {
-    val out = sb_new()
-    sb_append(out, "\"")
+    val out = mutable_string_new()
+    mutable_string_append(out, "\"")
     for b in string_to_bytes(text) {
         if b == 34b {
-            sb_append(out, "\\\"")
+            mutable_string_append(out, "\\\"")
         } else if b == 92b {
-            sb_append(out, "\\\\")
+            mutable_string_append(out, "\\\\")
         } else if b == 10b {
-            sb_append(out, "\\n")
+            mutable_string_append(out, "\\n")
         } else if b == 13b {
-            sb_append(out, "\\r")
+            mutable_string_append(out, "\\r")
         } else if b == 9b {
-            sb_append(out, "\\t")
+            mutable_string_append(out, "\\t")
         } else if b == 8b {
-            sb_append(out, "\\b")
+            mutable_string_append(out, "\\b")
         } else if b == 12b {
-            sb_append(out, "\\f")
+            mutable_string_append(out, "\\f")
         } else if (b as int) < 32 {
-            sb_append(out, "\\u00", byte_to_hex(b))
+            mutable_string_append(out, "\\u00", byte_to_hex(b))
         } else {
-            sb_append_byte(out, b)
+            mutable_string_append_byte(out, b)
         }
     }
-    sb_append(out, "\"")
-    return sb_to_string(out)
+    mutable_string_append(out, "\"")
+    return snapshot(out)
 }
 
 fn error_body(status: int, message: string) -> string {
@@ -708,8 +708,8 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
             keep = false
         }
     }
-    val sb = sb_new()
-    sb_append(sb, format("HTTP/1.1 {} {}\r\n", resp.status, reason(resp.status)))
+    val sb = mutable_string_new()
+    mutable_string_append(sb, format("HTTP/1.1 {} {}\r\n", resp.status, reason(resp.status)))
     var has_date = false
     var has_nosniff = false
     for h in resp.headers {
@@ -723,23 +723,23 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
         // Content-Length and Connection are always written below from resp.body and keep, so a
         // caller-supplied one here would just be a duplicate.
         if lname != "content-length" && lname != "connection" {
-            sb_append(sb, h.name, ": ", h.value, "\r\n")
+            mutable_string_append(sb, h.name, ": ", h.value, "\r\n")
         }
     }
     if !has_date {
-        sb_append(sb, "Date: ", clock.now_http_date(), "\r\n")
+        mutable_string_append(sb, "Date: ", clock.now_http_date(), "\r\n")
     }
     if !has_nosniff {
-        sb_append(sb, "X-Content-Type-Options: nosniff\r\n")
+        mutable_string_append(sb, "X-Content-Type-Options: nosniff\r\n")
     }
-    sb_append(sb, format("Content-Length: {}\r\n", len(resp.body)))
+    mutable_string_append(sb, format("Content-Length: {}\r\n", len(resp.body)))
     if keep {
-        sb_append(sb, "Connection: keep-alive\r\n")
+        mutable_string_append(sb, "Connection: keep-alive\r\n")
     } else {
-        sb_append(sb, "Connection: close\r\n")
+        mutable_string_append(sb, "Connection: close\r\n")
     }
-    sb_append(sb, "\r\n")
-    val head = string_to_bytes(sb_to_string(sb))
+    mutable_string_append(sb, "\r\n")
+    val head = string_to_bytes(snapshot(sb))
     val sent = if HttpMethod.is_Head(req.method) { head } else { bytes_concat(head, resp.body) }
     try lift<int>(net.write(sock, sent))
     return keep
@@ -876,18 +876,18 @@ fn segments_of(path: string) -> [string] {
 }
 
 fn compile_pattern(pattern: string) -> Pattern {
-    val parts = ab_new<string>()
-    val is_param = ab_new<bool>()
+    val parts = mutable_array_new<string>()
+    val is_param = mutable_array_new<bool>()
     for segment in segments_of(pattern) {
         if len(segment) >= 3 && starts_with(segment, "{") && ends_with(segment, "}") {
-            ab_append(parts, substring(segment, 1, len(segment) - 1))
-            ab_append(is_param, true)
+            mutable_array_push(parts, substring(segment, 1, len(segment) - 1))
+            mutable_array_push(is_param, true)
         } else {
-            ab_append(parts, segment)
-            ab_append(is_param, false)
+            mutable_array_push(parts, segment)
+            mutable_array_push(is_param, false)
         }
     }
-    return Pattern { parts: ab_to_array(parts), is_param: ab_to_array(is_param) }
+    return Pattern { parts: snapshot(parts), is_param: snapshot(is_param) }
 }
 
 // Whether the split path `got` has this pattern's shape: as many segments, every literal equal, every
@@ -916,21 +916,21 @@ fn capture(p: Pattern, got: [string]) -> Option<Params> {
     if !shape_matches(p, got) {
         return Option<Params>.None
     }
-    val names = ab_new<string>()
-    val values = ab_new<string>()
+    val names = mutable_array_new<string>()
+    val values = mutable_array_new<string>()
     var i = 0
     while i < len(got) {
         if p.is_param[i] {
             if Ok(decoded) = percent_decode(got[i], false) {
-                ab_append(names, p.parts[i])
-                ab_append(values, decoded)
+                mutable_array_push(names, p.parts[i])
+                mutable_array_push(values, decoded)
             } else {
                 return Option<Params>.None
             }
         }
         i = i + 1
     }
-    return Option<Params>.Some(Params { names: ab_to_array(names), values: ab_to_array(values) })
+    return Option<Params>.Some(Params { names: snapshot(names), values: snapshot(values) })
 }
 
 // `Some(params)` if the request's method is `method` and its path matches
@@ -962,14 +962,14 @@ pub fn param(p: Params, name: string) -> string {
 // "METHOD /pattern": if the path matches some route under a *different*
 // method the answer is 405 with an Allow header, otherwise 404.
 pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Response {
-    val allowed = ab_new<string>()
+    val allowed = mutable_array_new<string>()
     for r in routes {
         val parts = split(r, " ")
         if len(parts) == 2 && Option.is_Some(path_params(parts[1], req.path)) {
-            ab_append(allowed, parts[0])
+            mutable_array_push(allowed, parts[0])
         }
     }
-    val methods = ab_to_array(allowed)
+    val methods = snapshot(allowed)
     return if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
 }
 
@@ -1084,16 +1084,16 @@ fn disposition_param(line: string, key: string) -> Option<string> {
         var value = ""
         if i < n && char_at(line, i) == "\"" {
             i = i + 1
-            val out = sb_new()
+            val out = mutable_string_new()
             while i < n && char_at(line, i) != "\"" {
                 if char_at(line, i) == "\\" && i + 1 < n {
                     i = i + 1
                 }
-                sb_append(out, char_at(line, i))
+                mutable_string_append(out, char_at(line, i))
                 i = i + 1
             }
             i = i + 1
-            value = sb_to_string(out)
+            value = snapshot(out)
         } else {
             var end = i
             while end < n && char_at(line, end) != ";" {
@@ -1176,7 +1176,7 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
     val delim = string_to_bytes(concat("\r\n--", boundary))
     val close = string_to_bytes("--")
     val line_end = string_to_bytes("\r\n")
-    val out = ab_new<Part>()
+    val out = mutable_array_new<Part>()
     var at = bytes_index_of(body, delim, 0)
     if at < 0 {
         return err(HttpError.BadRequest("the multipart body contains no boundary"))
@@ -1185,23 +1185,23 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
         var from = at + len(delim)
         // `--boundary--` ends the body. Anything after it is an epilogue, which RFC 2046 says to ignore.
         if from + 2 <= len(body) && slice<byte>(body, from, from + 2) == close {
-            return ok(ab_to_array(out))
+            return ok(snapshot(out))
         }
         val next = bytes_index_of(body, delim, from)
         if next < 0 {
             return err(HttpError.BadRequest("the multipart body ends without a closing boundary"))
         }
-        if ab_len(out) >= max_parts {
+        if len(out) >= max_parts {
             return err(HttpError.BadRequest(concat("a multipart body of more than ", str(max_parts), " parts")))
         }
         // The CRLF that ends the boundary line is not part of the part's headers.
         if from + 2 <= len(body) && slice<byte>(body, from, from + 2) == line_end {
             from = from + 2
         }
-        ab_append(out, try part_of(slice<byte>(body, from, next)))
+        mutable_array_push(out, try part_of(slice<byte>(body, from, next)))
         at = next
     }
-    return ok(ab_to_array(out))
+    return ok(snapshot(out))
 }
 
 // The first part with that field name, since a form may repeat one.
@@ -1385,19 +1385,19 @@ fn select_decoder<I>(decoders: [Decoder<I>], req: Request) -> Option<Decoder<I>>
 }
 
 fn consumed_types<I>(decoders: [Decoder<I>]) -> string {
-    val names = ab_new<string>()
+    val names = mutable_array_new<string>()
     for r in decoders {
-        ab_append(names, mime.essence(r.media))
+        mutable_array_push(names, mime.essence(r.media))
     }
-    return join(separator: " or ", pieces: ab_to_array(names))
+    return join(separator: " or ", pieces: snapshot(names))
 }
 
 fn produced_types<O>(encoders: [Encoder<O>]) -> string {
-    val names = ab_new<string>()
+    val names = mutable_array_new<string>()
     for w in encoders {
-        ab_append(names, mime.essence(w.media))
+        mutable_array_push(names, mime.essence(w.media))
     }
-    return join(separator: ", ", pieces: ab_to_array(names))
+    return join(separator: ", ", pieces: snapshot(names))
 }
 
 // The answer for `result`: written with `encoder` when there is one, or an empty body when the endpoint has no encoders
@@ -1846,18 +1846,18 @@ pub fn forwarded_for(req: Request, trusted_hops: int) -> Option<string> {
     if trusted_hops < 1 {
         return req.peer
     }
-    val hops = ab_new<string>()
+    val hops = mutable_array_new<string>()
     for h in req.headers {
         if equals_ignore_case(h.name, "X-Forwarded-For") {
             for part in split(h.value, ",") {
                 val trimmed = trim(part)
                 if trimmed != "" {
-                    ab_append(hops, trimmed)
+                    mutable_array_push(hops, trimmed)
                 }
             }
         }
     }
-    val list = ab_to_array(hops)
+    val list = snapshot(hops)
     // The transport peer is the last hop of all: it is the proxy that actually connected here, and it
     // never appears in the header it wrote.
     val index = len(list) - trusted_hops
@@ -1969,33 +1969,33 @@ fn method_key(m: HttpMethod, length: int) -> string {
 // is what `dispatch` tries them in: the first endpoint that matches wins, so a `/items/{id}` listed before
 // `/items/new` answers for `/items/new`.
 fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
-    val patterns = ab_new<Pattern>()
-    val methods = mapb_new<string, [int]>()
-    val lengths = mapb_new<int, [int]>()
+    val patterns = mutable_array_new<Pattern>()
+    val methods = mutable_map_new<string, [int]>()
+    val lengths = mutable_map_new<int, [int]>()
     val none: [int] = []
     var i = 0
     for e in endpoints {
         val p = compile_pattern(e.pattern)
-        ab_append(patterns, p)
+        mutable_array_push(patterns, p)
         val key = method_key(e.method, len(p.parts))
-        mapb_set(
+        mutable_map_set(
             methods,
             key,
-            push(option_unwrap_or<[int]>(mapb_get(methods, key), none), i)
+            push(option_unwrap_or<[int]>(mutable_map_get(methods, key), none), i)
         )
-        mapb_set(
+        mutable_map_set(
             lengths,
             len(p.parts),
-            push(option_unwrap_or<[int]>(mapb_get(lengths, len(p.parts)), none), i)
+            push(option_unwrap_or<[int]>(mutable_map_get(lengths, len(p.parts)), none), i)
         )
         i = i + 1
     }
     return Routes<C> {
         meter: meter,
         endpoints: endpoints,
-        patterns: ab_to_array(patterns),
-        by_method: mapb_to_map(methods),
-        by_length: mapb_to_map(lengths)
+        patterns: snapshot(patterns),
+        by_method: snapshot(methods),
+        by_length: snapshot(lengths)
     }
 }
 
@@ -2227,13 +2227,13 @@ fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, stri
             }
         }
     }
-    val allowed = ab_new<string>()
+    val allowed = mutable_array_new<string>()
     var serves_get = false
     var serves_head = false
     for i in map_get_or(table.by_length, len(got), none) {
         if Option.is_Some(capture(table.patterns[i], got)) {
             val m = table.endpoints[i].method
-            ab_append(allowed, method_name(m))
+            mutable_array_push(allowed, method_name(m))
             if HttpMethod.is_Get(m) { serves_get = true }
             if HttpMethod.is_Head(m) { serves_head = true }
         }
@@ -2241,9 +2241,9 @@ fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, stri
     // `Allow` has to name HEAD when the path serves GET, because the fallback above means it really is allowed;
     // listing only GET would tell a client the opposite of what the server does.
     if serves_get && !serves_head {
-        ab_append(allowed, "HEAD")
+        mutable_array_push(allowed, "HEAD")
     }
-    val methods = ab_to_array(allowed)
+    val methods = snapshot(allowed)
     val unmatched = if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
     val message = if unmatched.status == status_method_not_allowed { "method not allowed" } else { "not found" }
     val reply = fault(unmatched.status, message)

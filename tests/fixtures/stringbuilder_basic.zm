@@ -1,49 +1,49 @@
 fn main() {
     // Everything defaulted -- the fully-omitted call this feature exists
-    // to make possible (`sb_new()` alone, no named or positional args at
+    // to make possible (`mutable_string_new()` alone, no named or positional args at
     // all, is ambiguous between "positional zero-arg" and "named,
     // everything omitted" -- treated as the latter).
-    val sb = sb_new()
-    print(sb_len(sb))
-    sb_append(sb, "Hello")
-    sb_append(sb, ", ", "world", "!")
-    print(sb_to_string(sb))
-    print(sb_len(sb))
+    val sb = mutable_string_new()
+    print(len(sb))
+    mutable_string_append(sb, "Hello")
+    mutable_string_append(sb, ", ", "world", "!")
+    print(snapshot(sb))
+    print(len(sb))
 
     // Custom capacity/grow_factor, named, forcing many reallocations.
-    val sb2 = sb_new(capacity: 4, grow_factor: 1.5)
+    val sb2 = mutable_string_new(capacity: 4, grow_factor: 1.5)
     var i = 0
     while i < 50 {
-        sb_append(sb2, "x")
+        mutable_string_append(sb2, "x")
         i = i + 1
     }
-    print(sb_len(sb2))
-    print(len(sb_to_string(sb2)))
+    print(len(sb2))
+    print(len(snapshot(sb2)))
 
     // Fully positional, both args given explicitly.
-    val sb3 = sb_new(10, 3.0)
-    sb_append(sb3, "hi")
-    print(sb_to_string(sb3))
+    val sb3 = mutable_string_new(10, 3.0)
+    mutable_string_append(sb3, "hi")
+    print(snapshot(sb3))
 
     // Appending an already-built array (variadic spread).
-    val sb4 = sb_new()
+    val sb4 = mutable_string_new()
     val pieces = ["a", "b", "c"]
-    sb_append(sb4, pieces)
-    print(sb_to_string(sb4))
+    mutable_string_append(sb4, pieces)
+    print(snapshot(sb4))
 
-    // sb_to_string is a snapshot, not a one-time "finish" -- calling it
+    // snapshot is a snapshot, not a one-time "finish" -- calling it
     // more than once, and continuing to append in between, both work.
-    val sb5 = sb_new()
-    sb_append(sb5, "one")
-    print(sb_to_string(sb5))
-    sb_append(sb5, "-two")
-    print(sb_to_string(sb5))
+    val sb5 = mutable_string_new()
+    mutable_string_append(sb5, "one")
+    print(snapshot(sb5))
+    mutable_string_append(sb5, "-two")
+    print(snapshot(sb5))
 
     // Two independent builders never interfere with each other.
-    val sb6 = sb_new()
-    val sb7 = sb_new()
-    sb_append(sb6, "A")
-    sb_append(sb7, "B")
-    print(sb_to_string(sb6))
-    print(sb_to_string(sb7))
+    val sb6 = mutable_string_new()
+    val sb7 = mutable_string_new()
+    mutable_string_append(sb6, "A")
+    mutable_string_append(sb7, "B")
+    print(snapshot(sb6))
+    print(snapshot(sb7))
 }

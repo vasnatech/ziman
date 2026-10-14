@@ -79,9 +79,9 @@ fn plain_worker(x: Plain, d: Channel<int>) { send(d, 1) }
 
 fn main() {
     val d: Channel<int> = channel_new()
-    val deep = L14 { inner: L13 { inner: L12 { inner: L11 { inner: L10 { inner: L9 { inner: L8 { inner: L7 { inner: L6 { inner: L5 { inner: L4 { inner: L3 { inner: L2 { inner: L1 { inner: L0 { sb: sb_new() } } } } } } } } } } } } } } }
+    val deep = L14 { inner: L13 { inner: L12 { inner: L11 { inner: L10 { inner: L9 { inner: L8 { inner: L7 { inner: L6 { inner: L5 { inner: L4 { inner: L3 { inner: L2 { inner: L1 { inner: L0 { sb: mutable_string_new() } } } } } } } } } } } } } } }
     spawn deep_worker(deep, d)
-    spawn node_worker(Node { sb: sb_new(), kids: [] }, d)
+    spawn node_worker(Node { sb: mutable_string_new(), kids: [] }, d)
     spawn a_worker(A { b: [] }, d)
     spawn plain_worker(Plain { label: "ok", kids: [] }, d)
     print(receive(d))

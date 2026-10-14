@@ -20,18 +20,18 @@ fn run_server(listener: net.Listener) {
 fn ask(port: int, path: string) -> string {
     val sock = unwrap(net.connect("127.0.0.1", port))
     val _ = net.write_text(sock, format("GET {} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", path))
-    val out = sb_new()
+    val out = mutable_string_new()
     var more = true
     while more {
         val chunk = net.read_text(sock, 4096)
         if is_ok(chunk) && len(unwrap(chunk)) > 0 {
-            sb_append(out, unwrap(chunk))
+            mutable_string_append(out, unwrap(chunk))
         } else {
             more = false
         }
     }
     net.close(sock)
-    val text = sb_to_string(out)
+    val text = snapshot(out)
     return substring(text, 0, index_of(text, "\r\n", 0))
 }
 

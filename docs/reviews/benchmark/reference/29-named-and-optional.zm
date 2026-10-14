@@ -3,12 +3,12 @@ fn label(text: string, width: Option<int>) -> string {
         Some(w) { w }
         None { len(text) }
     }
-    val sb = sb_new()
-    sb_append(sb, text)
-    while sb_len(sb) < target {
-        sb_append(sb, ".")
+    val sb = mutable_string_new()
+    mutable_string_append(sb, text)
+    while len(sb) < target {
+        mutable_string_append(sb, ".")
     }
-    return sb_to_string(sb)
+    return snapshot(sb)
 }
 
 fn main() {

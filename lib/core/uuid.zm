@@ -54,14 +54,14 @@ pub fn uuid_new() -> Uuid {
 pub fn uuid_new_v7() -> Uuid {
     val now = now_raw()
     val millis = now[0] * 1000 + now[1] / 1000000
-    val time_bytes = ab_new<byte>()
+    val time_bytes = mutable_array_new<byte>()
     var shift = 1099511627776
     for i in 0..6 {
-        ab_append(time_bytes, (millis / shift % 256) as byte)
+        mutable_array_push(time_bytes, (millis / shift % 256) as byte)
         shift = shift / 256
     }
     val rest = random_bytes(10)
-    return stamp(concat_arrays<byte>(ab_to_array(time_bytes), rest), uuid_version_7_bits)
+    return stamp(concat_arrays<byte>(snapshot(time_bytes), rest), uuid_version_7_bits)
 }
 
 // The all-zero UUID, `00000000-0000-0000-0000-000000000000`: "no id".

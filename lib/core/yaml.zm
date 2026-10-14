@@ -95,13 +95,18 @@ fn read_hex(s: string, pos: int, n: int) -> int {
 
 fn append_utf8(out: MutableString, cp: int) {
     if cp < 128 {
-        sb_append_byte(out, cp as byte)
+        mutable_string_append_byte(out, cp as byte)
     } else if cp < 2048 {
-        sb_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
+        mutable_string_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
     } else if cp < 65536 {
-        sb_append_byte(out, (224 + cp / 4096) as byte, (128 + cp / 64 % 64) as byte, (128 + cp % 64) as byte)
+        mutable_string_append_byte(
+            out,
+            (224 + cp / 4096) as byte,
+            (128 + cp / 64 % 64) as byte,
+            (128 + cp % 64) as byte
+        )
     } else {
-        sb_append_byte(
+        mutable_string_append_byte(
             out,
             (240 + cp / 262144) as byte,
             (128 + cp / 4096 % 64) as byte,
@@ -117,7 +122,7 @@ fn append_utf8(out: MutableString, cp: int) {
 // the lines `-` (at the dash's indent) and `a: 1` (at the indent of `a`). The extra pieces
 // share the original raw text and are marked `cont`.
 fn tokenize(text: string) -> Result<[Line], string> {
-    val out = ab_new<Line>()
+    val out = mutable_array_new<Line>()
     var no = 0
     for raw_line in split(text, "\n") {
         no = no + 1
@@ -138,7 +143,7 @@ fn tokenize(text: string) -> Result<[Line], string> {
         var cont = false
         var cur = indent
         while body == "-" || starts_with(body, "- ") {
-            ab_append(out, Line { no: no, indent: cur, base: base, body: "-", raw: raw, cont: cont })
+            mutable_array_push(out, Line { no: no, indent: cur, base: base, body: "-", raw: raw, cont: cont })
             cont = true
             var skip = 1
             while is_char_at(body, skip, " ") {
@@ -147,12 +152,12 @@ fn tokenize(text: string) -> Result<[Line], string> {
             cur = cur + skip
             body = substring(body, skip, len(body))
         }
-        ab_append(
+        mutable_array_push(
             out,
             Line { no: no, indent: cur, base: if cont { base } else { cur }, body: body, raw: raw, cont: cont }
         )
     }
-    return ok(ab_to_array(out))
+    return ok(snapshot(out))
 }
 
 // The body without a trailing `# comment` (a `#` at the start or after a space, outside quotes), trimmed.
@@ -311,27 +316,27 @@ fn plain_scalar(t: string, no: int) -> Result<Json, string> {
 
 // A double-quoted scalar starting at the quote in `s[pos]`; the text and the index after the closing quote.
 fn read_double(s: string, pos: int, no: int) -> Result<Scalar, string> {
-    val out = sb_new()
+    val out = mutable_string_new()
     var p = pos + 1
     while p < len(s) {
         val c = char_at(s, p)
         if c == "\"" {
-            return ok(Scalar { value: Json.JString(sb_to_string(out)), next: p + 1 })
+            return ok(Scalar { value: Json.JString(snapshot(out)), next: p + 1 })
         }
         if c == "\\" {
             val e = char_at(s, p + 1)
             if e == "n" {
-                sb_append(out, "\n")
+                mutable_string_append(out, "\n")
             } else if e == "t" {
-                sb_append(out, "\t")
+                mutable_string_append(out, "\t")
             } else if e == "r" {
-                sb_append(out, "\r")
+                mutable_string_append(out, "\r")
             } else if e == "b" {
-                sb_append_byte(out, 8b)
+                mutable_string_append_byte(out, 8b)
             } else if e == "f" {
-                sb_append_byte(out, 12b)
+                mutable_string_append_byte(out, 12b)
             } else if e == "\"" || e == "\\" || e == "/" || e == " " {
-                sb_append(out, e)
+                mutable_string_append(out, e)
             } else if e == "x" || e == "u" || e == "U" {
                 val digits = if e == "x" { 2 } else if e == "u" { 4 } else { 8 }
                 val cp = read_hex(s, p + 2, digits)
@@ -346,7 +351,7 @@ fn read_double(s: string, pos: int, no: int) -> Result<Scalar, string> {
             }
             p = p + 2
         } else {
-            sb_append(out, c)
+            mutable_string_append(out, c)
             p = p + 1
         }
     }
@@ -354,19 +359,19 @@ fn read_double(s: string, pos: int, no: int) -> Result<Scalar, string> {
 }
 
 fn read_single(s: string, pos: int, no: int) -> Result<Scalar, string> {
-    val out = sb_new()
+    val out = mutable_string_new()
     var p = pos + 1
     while p < len(s) {
         val c = char_at(s, p)
         if c == "'" {
             if is_char_at(s, p + 1, "'") {
-                sb_append(out, "'")
+                mutable_string_append(out, "'")
                 p = p + 2
             } else {
-                return ok(Scalar { value: Json.JString(sb_to_string(out)), next: p + 1 })
+                return ok(Scalar { value: Json.JString(snapshot(out)), next: p + 1 })
             }
         } else {
-            sb_append(out, c)
+            mutable_string_append(out, c)
             p = p + 1
         }
     }
@@ -421,17 +426,17 @@ fn flow_node(s: string, pos: int, no: int) -> Result<Scalar, string> {
 }
 
 fn flow_seq(s: string, pos: int, no: int) -> Result<Scalar, string> {
-    val items = ab_new<Json>()
+    val items = mutable_array_new<Json>()
     var p = skip_sp(s, pos + 1)
     while true {
         if p >= len(s) {
             return err(fail(no, "unterminated '['"))
         }
         if is_char_at(s, p, "]") {
-            return ok(Scalar { value: Json.JArray(ab_to_array(items)), next: p + 1 })
+            return ok(Scalar { value: Json.JArray(snapshot(items)), next: p + 1 })
         }
         val item = try flow_node(s, p, no)
-        ab_append(items, item.value)
+        mutable_array_push(items, item.value)
         p = skip_sp(s, item.next)
         if is_char_at(s, p, ",") {
             p = skip_sp(s, p + 1)
@@ -446,14 +451,14 @@ fn flow_seq(s: string, pos: int, no: int) -> Result<Scalar, string> {
 }
 
 fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
-    val fields = mapb_new<string, Json>()
+    val fields = mutable_map_new<string, Json>()
     var p = skip_sp(s, pos + 1)
     while true {
         if p >= len(s) {
             return err(fail(no, "unterminated '{'"))
         }
         if is_char_at(s, p, "}") {
-            return ok(Scalar { value: Json.JObject(mapb_to_map(fields)), next: p + 1 })
+            return ok(Scalar { value: Json.JObject(snapshot(fields)), next: p + 1 })
         }
         val key = try flow_scalar(s, p, true, no)
         // A flow mapping's key becomes its scanned source text verbatim (not its typed value)
@@ -465,7 +470,7 @@ fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
             p,
             key.next
         )) }
-        if mapb_contains(fields, key_text) {
+        if contains(fields, key_text) {
             return err(fail(no, format("duplicate key '{}'", key_text)))
         }
         p = skip_sp(s, key.next)
@@ -475,7 +480,7 @@ fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
             value = item.value
             p = skip_sp(s, item.next)
         }
-        mapb_set(fields, key_text, value)
+        mutable_map_set(fields, key_text, value)
         if is_char_at(s, p, ",") {
             p = skip_sp(s, p + 1)
         } else if !is_char_at(s, p, "}") {
@@ -595,7 +600,7 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
         }
     }
     val literal = char_at(header, 0) == "|"
-    val body_lines = ab_new<string>()
+    val body_lines = mutable_array_new<string>()
     var indent = -1
     var i = j + 1
     var last_used = j
@@ -615,7 +620,7 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
         if !blank && ln.indent < indent {
             return err(fail(ln.no, "bad indentation in a block scalar"))
         }
-        ab_append(
+        mutable_array_push(
             body_lines,
             if blank { (if indent >= 0 && len(ln.raw) > indent { substring(
                 ln.raw,
@@ -632,30 +637,30 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
             last_used = i
         }
     }
-    val all = ab_to_array(body_lines)
+    val all = snapshot(body_lines)
     // trailing blank lines belong to the chomping, not the text
     var count = len(all)
     while count > 0 && len(all[count - 1]) == 0 {
         count = count - 1
     }
-    val out = sb_new()
+    val out = mutable_string_new()
     var k = 0
     while k < count {
         if k > 0 {
             if literal {
-                sb_append(out, "\n")
+                mutable_string_append(out, "\n")
             } else if len(all[k]) == 0 {
-                sb_append(out, "\n")
+                mutable_string_append(out, "\n")
             } else if len(all[k - 1]) == 0 {
                 // a blank line already produced its own newline
             } else {
-                sb_append(out, " ")
+                mutable_string_append(out, " ")
             }
         }
-        sb_append(out, all[k])
+        mutable_string_append(out, all[k])
         k = k + 1
     }
-    var text = sb_to_string(out)
+    var text = snapshot(out)
     if count > 0 {
         if chomp == "clip" {
             text = concat(text, "\n")
@@ -730,7 +735,7 @@ fn parse_node(lines: [Line], i: int, min_indent: int) -> Result<NodeRes, string>
 }
 
 fn parse_seq(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
-    val items = ab_new<Json>()
+    val items = mutable_array_new<Json>()
     var j = i
     while true {
         j = next_sig(lines, j)
@@ -739,22 +744,22 @@ fn parse_seq(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
         }
         val nxt = next_sig(lines, j + 1)
         if nxt >= len(lines) || lines[nxt].indent <= ind {
-            ab_append(items, Json.JNull)
+            mutable_array_push(items, Json.JNull)
             j = j + 1
         } else {
             val item = try parse_node(lines, j + 1, ind + 1)
-            ab_append(items, item.value)
+            mutable_array_push(items, item.value)
             j = item.next
         }
     }
     if j < len(lines) && lines[j].indent > ind && len(content_of(lines[j])) > 0 {
         return err(fail(lines[j].no, "unexpected indentation"))
     }
-    return ok(NodeRes { value: Json.JArray(ab_to_array(items)), next: j })
+    return ok(NodeRes { value: Json.JArray(snapshot(items)), next: j })
 }
 
 fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
-    val fields = mapb_new<string, Json>()
+    val fields = mutable_map_new<string, Json>()
     var j = i
     while true {
         j = next_sig(lines, j)
@@ -773,7 +778,7 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
             Some(e) { e }
             None { return err(fail(ln.no, "expected 'key: value'")) }
         }
-        if mapb_contains(fields, entry.key) {
+        if contains(fields, entry.key) {
             return err(fail(ln.no, format("duplicate key '{}'", entry.key)))
         }
         var value = Json.JNull
@@ -798,10 +803,10 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
             value = node.value
             after = node.next
         }
-        mapb_set(fields, entry.key, value)
+        mutable_map_set(fields, entry.key, value)
         j = after
     }
-    return ok(NodeRes { value: Json.JObject(mapb_to_map(fields)), next: j })
+    return ok(NodeRes { value: Json.JObject(snapshot(fields)), next: j })
 }
 
 // Parses a YAML document (the subset described above) into a `Json` tree; an empty document is
@@ -810,12 +815,12 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
 // indentation), so nothing is silently misread.
 pub fn parse_yaml(text: string) -> Result<Json, string> {
     val all = try tokenize(text)
-    val kept = ab_new<Line>()
+    val kept = mutable_array_new<Line>()
     var seen_start = false
     for ln in all {
         val c = content_of(ln)
         if !ln.cont && (c == "---" || starts_with(c, "--- ")) {
-            if seen_start || ab_len(kept) > 0 {
+            if seen_start || len(kept) > 0 {
                 return err(fail(ln.no, "multiple documents are not supported"))
             }
             if c != "---" {
@@ -827,10 +832,10 @@ pub fn parse_yaml(text: string) -> Result<Json, string> {
         } else if !ln.cont && starts_with(c, "%") && ln.indent == 0 {
             return err(fail(ln.no, "directives are not supported"))
         } else {
-            ab_append(kept, ln)
+            mutable_array_push(kept, ln)
         }
     }
-    val lines = ab_to_array(kept)
+    val lines = snapshot(kept)
     if next_sig(lines, 0) >= len(lines) {
         return ok(Json.JNull)
     }
@@ -845,36 +850,36 @@ pub fn parse_yaml(text: string) -> Result<Json, string> {
 // ------------------------------------------------------------------ writing
 
 fn quote_double(s: string) -> string {
-    val out = sb_new()
-    sb_append(out, "\"")
+    val out = mutable_string_new()
+    mutable_string_append(out, "\"")
     var i = 0
     while i < len(s) {
         val c = char_at(s, i)
         if c == "\"" {
-            sb_append(out, "\\\"")
+            mutable_string_append(out, "\\\"")
         } else if c == "\\" {
-            sb_append(out, "\\\\")
+            mutable_string_append(out, "\\\\")
         } else if c == "\n" {
-            sb_append(out, "\\n")
+            mutable_string_append(out, "\\n")
         } else if c == "\t" {
-            sb_append(out, "\\t")
+            mutable_string_append(out, "\\t")
         } else if c == "\r" {
-            sb_append(out, "\\r")
+            mutable_string_append(out, "\\r")
         } else if compare(c, " ") < 0 {
             val code = string_to_bytes(c)[0] as int
-            sb_append(
+            mutable_string_append(
                 out,
                 "\\x",
                 substring(hex_chars, code / 16, code / 16 + 1),
                 substring(hex_chars, code % 16, code % 16 + 1)
             )
         } else {
-            sb_append(out, c)
+            mutable_string_append(out, c)
         }
         i = i + 1
     }
-    sb_append(out, "\"")
-    return sb_to_string(out)
+    mutable_string_append(out, "\"")
+    return snapshot(out)
 }
 
 // A string as YAML text: plain when it reads back as the same string, else double-quoted.
@@ -962,11 +967,11 @@ fn empty_text(j: Json) -> string {
 }
 
 fn pad_of(n: int) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     for i in 0..n {
-        sb_append(out, " ")
+        mutable_string_append(out, " ")
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 // Writes the entries of an object at `indent`. `first_prefix` is written before the first
@@ -974,15 +979,15 @@ fn pad_of(n: int) -> string {
 fn write_map(out: MutableString, obj: Json, indent: int, first_prefix: string) {
     var first = true
     for key, value in Json.unwrap_JObject(obj) {
-        sb_append(out, if first && len(first_prefix) > 0 { first_prefix } else { pad_of(indent) })
+        mutable_string_append(out, if first && len(first_prefix) > 0 { first_prefix } else { pad_of(indent) })
         first = false
         if is_container(value) && !is_empty_container(value) {
-            sb_append(out, key_text(key), ":\n")
+            mutable_string_append(out, key_text(key), ":\n")
             write_node(out, value, indent + 2)
         } else if is_container(value) {
-            sb_append(out, key_text(key), ": ", empty_text(value), "\n")
+            mutable_string_append(out, key_text(key), ": ", empty_text(value), "\n")
         } else {
-            sb_append(out, key_text(key), ": ", scalar_text(value), "\n")
+            mutable_string_append(out, key_text(key), ": ", scalar_text(value), "\n")
         }
     }
 }
@@ -992,12 +997,12 @@ fn write_seq(out: MutableString, arr: Json, indent: int) {
         if Json.is_JObject(item) && !is_empty_container(item) {
             write_map(out, item, indent + 2, concat(pad_of(indent), "- "))
         } else if is_container(item) && !is_empty_container(item) {
-            sb_append(out, pad_of(indent), "-\n")
+            mutable_string_append(out, pad_of(indent), "-\n")
             write_node(out, item, indent + 2)
         } else if is_container(item) {
-            sb_append(out, pad_of(indent), "- ", empty_text(item), "\n")
+            mutable_string_append(out, pad_of(indent), "- ", empty_text(item), "\n")
         } else {
-            sb_append(out, pad_of(indent), "- ", scalar_text(item), "\n")
+            mutable_string_append(out, pad_of(indent), "- ", scalar_text(item), "\n")
         }
     }
 }
@@ -1016,9 +1021,9 @@ fn write_node(out: MutableString, j: Json, indent: int) {
 // precision and keep a `.0`. Reading the output back gives the same tree.
 pub fn yaml_to_string(j: Json) -> string {
     if is_container(j) && !is_empty_container(j) {
-        val out = sb_new()
+        val out = mutable_string_new()
         write_node(out, j, 0)
-        return sb_to_string(out)
+        return snapshot(out)
     }
     if is_container(j) {
         return concat(empty_text(j), "\n")

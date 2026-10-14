@@ -1,16 +1,16 @@
 // Regression test: MutableArray<T> where T is itself an array type
 // (exactly what collections.zm's new_buckets_of_size builds) -- each
-// individual ab_append call passes exactly one [int] element, the
+// individual mutable_array_push call passes exactly one [int] element, the
 // genuinely ambiguous single-trailing-argument shape (see
 // variadic_array_element_type.zm).
 fn main() {
-    val ab = ab_new<[int]>()
+    val ab = mutable_array_new<[int]>()
     val empty: [int] = []
     var i = 0
     while i < 5 {
-        ab_append<[int]>(ab, empty)
+        mutable_array_push<[int]>(ab, empty)
         i = i + 1
     }
-    print(ab_len<[int]>(ab))
-    print(len(ab_to_array<[int]>(ab)))
+    print(len(ab))
+    print(len(snapshot(ab)))
 }

@@ -75,11 +75,11 @@ pub fn gauge(name: string, help: string) -> bool {
 // order (seconds, not milliseconds, by Prometheus convention). At most 16; `+Inf` is added by the
 // render and must not be given here.
 pub fn histogram(name: string, help: string, buckets: [float]) -> bool {
-    val parts = ab_new<string>()
+    val parts = mutable_array_new<string>()
     for b in buckets {
-        ab_append(parts, str(b))
+        mutable_array_push(parts, str(b))
     }
-    return declare_raw(name, "histogram", help, join(separator: ",", pieces: ab_to_array(parts)))
+    return declare_raw(name, "histogram", help, join(separator: ",", pieces: snapshot(parts)))
 }
 
 // A label value goes inside double quotes in the rendered line, so the three characters that
@@ -96,11 +96,11 @@ fn labels_key(labels: Map<string, string>) -> string {
         return no_labels
     }
     val names = collections.sort<string>(set_items(map_keys(labels)))
-    val parts = ab_new<string>()
+    val parts = mutable_array_new<string>()
     for name in names {
-        ab_append(parts, concat(name, "=\"", escape(map_get_or(labels, name, "")), "\""))
+        mutable_array_push(parts, concat(name, "=\"", escape(map_get_or(labels, name, "")), "\""))
     }
-    return join(separator: ",", pieces: ab_to_array(parts))
+    return join(separator: ",", pieces: snapshot(parts))
 }
 
 // Adds 1 to a counter with no labels.

@@ -11,11 +11,11 @@ fn identity<T>(x: T) -> T {
 
 fn main() {
     // first type argument of a generic call: the case that used to fail
-    val b = ab_new<fn(int) -> int>()
-    ab_append(b, fn(a: int) -> int { a + 1 })
-    ab_append(b, fn(a: int) -> int { a * 2 })
+    val b = mutable_array_new<fn(int) -> int>()
+    mutable_array_push(b, fn(a: int) -> int { a + 1 })
+    mutable_array_push(b, fn(a: int) -> int { a * 2 })
     var acc = 20
-    for f in ab_to_array(b) {
+    for f in snapshot(b) {
         acc = f(acc)
     }
     print(acc)
@@ -25,9 +25,9 @@ fn main() {
     print(g(41))
 
     // second type argument: worked before, still works
-    val m = mapb_new<string, fn(int) -> int>()
-    mapb_set(m, "triple", fn(a: int) -> int { a * 3 })
-    val handlers = mapb_to_map(m)
+    val m = mutable_map_new<string, fn(int) -> int>()
+    mutable_map_set(m, "triple", fn(a: int) -> int { a * 3 })
+    val handlers = snapshot(m)
     switch map_get(handlers, "triple") {
         Some(triple) { print(triple(14)) }
         None { print("missing") }

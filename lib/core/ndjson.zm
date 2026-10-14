@@ -15,7 +15,7 @@ native fn records_raw(path: string, sample: Json, number_sample: Number) -> Resu
 // Every non-blank line as a JSON value, in order. A line that is not valid JSON is an
 // error naming its (1-based) line number. A trailing CR (CRLF files) is ignored.
 pub fn parse_ndjson(text: string) -> Result<[Json], string> {
-    val items = ab_new<Json>()
+    val items = mutable_array_new<Json>()
     var line_no = 0
     for raw in split(text, "\n") {
         line_no = line_no + 1
@@ -27,9 +27,9 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
         if Err(e) = parsed {
             return err(format("line {}: {}", line_no, e))
         }
-        ab_append(items, unwrap(parsed))
+        mutable_array_push(items, unwrap(parsed))
     }
-    return ok(ab_to_array(items))
+    return ok(snapshot(items))
 }
 
 // The JSON values of a newline-delimited file, read lazily as a `for` loop asks for them, so a log
@@ -44,9 +44,9 @@ pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string> {
 
 // One compact JSON value per line, each line ended by "\n" (so the text ends with a newline).
 pub fn ndjson_to_string(items: [Json]) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     for item in items {
-        sb_append(out, json_to_string(item), "\n")
+        mutable_string_append(out, json_to_string(item), "\n")
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }

@@ -30,20 +30,20 @@ fn accepting(encoding: string) -> http.Request {
 }
 
 fn show(label: string, r: http.Response) {
-    val out = ab_new<string>()
+    val out = mutable_array_new<string>()
     for h in r.headers {
-        ab_append(out, concat(h.name, "=", h.value))
+        mutable_array_push(out, concat(h.name, "=", h.value))
     }
-    printf("{}: {} bytes [{}]\n", label, len(r.body), join(separator: ", ", pieces: ab_to_array(out)))
+    printf("{}: {} bytes [{}]\n", label, len(r.body), join(separator: ", ", pieces: snapshot(out)))
 }
 
 fn main() {
     // A kilobyte of repeating text, which gzip reduces hard.
-    val sb = sb_new()
+    val sb = mutable_string_new()
     for i in 0..200 {
-        sb_append(sb, "compress me please ")
+        mutable_string_append(sb, "compress me please ")
     }
-    val big = server.response(200, string_to_bytes(sb_to_string(sb)))
+    val big = server.response(200, string_to_bytes(snapshot(sb)))
     printf("original: {} bytes\n", len(big.body))
 
     show("gzip offered", server.compressed(accepting("gzip, deflate"), big, 1024))

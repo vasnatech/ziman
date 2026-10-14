@@ -33,7 +33,10 @@ static void cb_init(CodeBuf *cb) {
     cb->len = 0;
 }
 
-static void cb_appendf(CodeBuf *cb, const char *fmt, ...) {
+/* The format attribute is not decoration: dropping a `<%s>` from one of these format strings while
+ * leaving its argument behind produced code that passed a *type name* where a variable belonged,
+ * and compiled silently. gcc checks the count and the types now. */
+__attribute__((format(printf, 2, 3))) static void cb_appendf(CodeBuf *cb, const char *fmt, ...) {
     for (;;) {
         va_list ap;
         va_start(ap, fmt);
@@ -346,12 +349,12 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             char *item = gen_tmp(tmp, "item");
             char *item_json = gen_tmp(tmp, "item_json");
             char *ab = gen_tmp(tmp, "ab");
-            cb_appendf(cb, "    val %s = ab_new<Json>()\n", ab);
+            cb_appendf(cb, "    val %s = mutable_array_new<Json>()\n", ab);
             cb_appendf(cb, "    for %s in %s {\n", item, src_expr);
             emit_to_json(*t.elem, item, item_json, cb, tmp, line, col);
-            cb_appendf(cb, "    ab_append<Json>(%s, %s)\n", ab, item_json);
+            cb_appendf(cb, "    mutable_array_push<Json>(%s, %s)\n", ab, item_json);
             cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = Json.JArray(ab_to_array<Json>(%s))\n", dst_var, ab);
+            cb_appendf(cb, "    val %s = Json.JArray(snapshot(%s))\n", dst_var, ab);
             return;
         }
         case TY_MAP: {
@@ -360,24 +363,24 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             char *v = gen_tmp(tmp, "entry");
             char *v_json = gen_tmp(tmp, "entry_json");
             char *acc = gen_tmp(tmp, "fields");
-            cb_appendf(cb, "    val %s = mapb_new<string, Json>()\n", acc);
+            cb_appendf(cb, "    val %s = mutable_map_new<string, Json>()\n", acc);
             cb_appendf(cb, "    for %s, %s in %s {\n", k, v, src_expr);
             emit_to_json(*t.elem_err, v, v_json, cb, tmp, line, col);
-            cb_appendf(cb, "    mapb_set<string, Json>(%s, %s, %s)\n", acc, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
+            cb_appendf(cb, "    mutable_map_set<string, Json>(%s, %s, %s)\n", acc, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
             cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = Json.JObject(mapb_to_map<string, Json>(%s))\n", dst_var, acc);
+            cb_appendf(cb, "    val %s = Json.JObject(snapshot(%s))\n", dst_var, acc);
             return;
         }
         case TY_SET: {
             char *item = gen_tmp(tmp, "item");
             char *item_json = gen_tmp(tmp, "item_json");
             char *ab = gen_tmp(tmp, "ab");
-            cb_appendf(cb, "    val %s = ab_new<Json>()\n", ab);
+            cb_appendf(cb, "    val %s = mutable_array_new<Json>()\n", ab);
             cb_appendf(cb, "    for %s in %s {\n", item, src_expr);
             emit_to_json(*t.elem, item, item_json, cb, tmp, line, col);
-            cb_appendf(cb, "    ab_append<Json>(%s, %s)\n", ab, item_json);
+            cb_appendf(cb, "    mutable_array_push<Json>(%s, %s)\n", ab, item_json);
             cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = Json.JArray(ab_to_array<Json>(%s))\n", dst_var, ab);
+            cb_appendf(cb, "    val %s = Json.JArray(snapshot(%s))\n", dst_var, ab);
             return;
         }
         case TY_STRUCT:
@@ -451,12 +454,12 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             char *item_val = gen_tmp(tmp, "item_val");
             char *elem_type_name = type_name(*t.elem);
             emit_type_check(cb, fmt_str("Json.is_JArray(%s)", src_expr), field_ctx, "expected an array");
-            cb_appendf(cb, "    val %s = ab_new<%s>()\n", ab, elem_type_name);
+            cb_appendf(cb, "    val %s = mutable_array_new<%s>()\n", ab, elem_type_name);
             cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
             emit_from_json(*t.elem, item, item_val, cb, tmp, line, col, NULL);
-            cb_appendf(cb, "    ab_append<%s>(%s, %s)\n", elem_type_name, ab, item_val);
+            cb_appendf(cb, "    mutable_array_push<%s>(%s, %s)\n", elem_type_name, ab, item_val);
             cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = ab_to_array<%s>(%s)\n", dst_var, elem_type_name, ab);
+            cb_appendf(cb, "    val %s = snapshot(%s)\n", dst_var, ab);
             return;
         }
         case TY_MAP: {
@@ -469,17 +472,17 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             char *kt = type_name(*t.elem);
             char *vt = type_name(*t.elem_err);
             emit_type_check(cb, fmt_str("Json.is_JObject(%s)", src_expr), field_ctx, "expected an object");
-            cb_appendf(cb, "    val %s = mapb_new<%s, %s>()\n", bld, kt, vt);
+            cb_appendf(cb, "    val %s = mutable_map_new<%s, %s>()\n", bld, kt, vt);
             cb_appendf(cb, "    for %s, %s in Json.unwrap_JObject(%s) {\n", k, v, src_expr);
             emit_from_json(*t.elem_err, v, entry, cb, tmp, line, col, NULL);
             if (t.elem->kind == TY_INT) {
                 cb_appendf(cb, "    val %s = try parse_int(%s)\n", key_n, k);
-                cb_appendf(cb, "    mapb_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, key_n, entry);
+                cb_appendf(cb, "    mutable_map_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, key_n, entry);
             } else {
-                cb_appendf(cb, "    mapb_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, k, entry);
+                cb_appendf(cb, "    mutable_map_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, k, entry);
             }
             cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = mapb_to_map<%s, %s>(%s)\n", dst_var, kt, vt, bld);
+            cb_appendf(cb, "    val %s = snapshot(%s)\n", dst_var, bld);
             return;
         }
         case TY_SET: {
@@ -488,12 +491,12 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             char *bld = gen_tmp(tmp, "builder");
             char *et = type_name(*t.elem);
             emit_type_check(cb, fmt_str("Json.is_JArray(%s)", src_expr), field_ctx, "expected an array");
-            cb_appendf(cb, "    val %s = setb_new<%s>()\n", bld, et);
+            cb_appendf(cb, "    val %s = mutable_set_new<%s>()\n", bld, et);
             cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
             emit_from_json(*t.elem, item, item_val, cb, tmp, line, col, NULL);
-            cb_appendf(cb, "    setb_add<%s>(%s, %s)\n", et, bld, item_val);
+            cb_appendf(cb, "    mutable_set_add<%s>(%s, %s)\n", et, bld, item_val);
             cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = setb_to_set<%s>(%s)\n", dst_var, et, bld);
+            cb_appendf(cb, "    val %s = snapshot(%s)\n", dst_var, bld);
             return;
         }
         case TY_STRUCT:
@@ -631,7 +634,7 @@ static char *generate_struct_from_json(StructDecl *sd) {
                type_param_decl_text(&sd->type_params, ""), converter_params_text(&sd->type_params, 0),
                decl_type_text(sd->name, &sd->type_params));
     cb_appendf(&cb, "    if !Json.is_JObject(j) { return err([\"expected a JSON object for %s\"]) }\n", sd->name);
-    cb_appendf(&cb, "    val problems = ab_new<string>()\n");
+    cb_appendf(&cb, "    val problems = mutable_array_new<string>()\n");
     tmp = 0;
     for (int i = 0; i < sd->fields.count; i++) {
         Param *f = &sd->fields.items[i];
@@ -660,10 +663,10 @@ static char *generate_struct_from_json(StructDecl *sd) {
         cb_appendf(&cb, "    return ok(%s)\n", dst);
         cb_appendf(&cb, "    }\n");
         cb_appendf(&cb, "    val got_%s = get_%s()\n", f->name, f->name);
-        cb_appendf(&cb, "    if Err(problem_%s) = got_%s { ab_append(problems, concat(\"%s: \", problem_%s)) }\n",
+        cb_appendf(&cb, "    if Err(problem_%s) = got_%s { mutable_array_push(problems, concat(\"%s: \", problem_%s)) }\n",
                    f->name, f->name, camel, f->name);
     }
-    cb_appendf(&cb, "    if ab_len(problems) > 0 { return err(ab_to_array(problems)) }\n");
+    cb_appendf(&cb, "    if len(problems) > 0 { return err(snapshot(problems)) }\n");
     cb_appendf(&cb, "    return ok(%s {\n", decl_type_text(sd->name, &sd->type_params));
     for (int i = 0; i < sd->fields.count; i++) {
         Param *f = &sd->fields.items[i];
@@ -882,16 +885,16 @@ static char *generate_struct_to_params(StructDecl *sd) {
     cb_init(&cb);
     char *fn_name = pascal_to_snake(sd->name);
     cb_appendf(&cb, "pub fn %s_to_params(v: %s) -> [SqlValue] {\n", fn_name, sd->name);
-    cb_appendf(&cb, "    val __derive_params = ab_new<SqlValue>()\n");
+    cb_appendf(&cb, "    val __derive_params = mutable_array_new<SqlValue>()\n");
     int tmp = 0;
     for (int i = 0; i < sd->fields.count; i++) {
         Param *f = &sd->fields.items[i];
         char *src = fmt_str("v.%s", f->name);
         char *dst = fmt_str("field_%s_sql", f->name);
         emit_to_sql(f->type, src, dst, &cb, &tmp, f->line, f->col);
-        cb_appendf(&cb, "    ab_append<SqlValue>(__derive_params, %s)\n", dst);
+        cb_appendf(&cb, "    mutable_array_push<SqlValue>(__derive_params, %s)\n", dst);
     }
-    cb_appendf(&cb, "    return ab_to_array<SqlValue>(__derive_params)\n");
+    cb_appendf(&cb, "    return snapshot(__derive_params)\n");
     cb_appendf(&cb, "}\n\n");
     return cb.data;
 }

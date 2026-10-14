@@ -1,8 +1,8 @@
 fn worker(sb: MutableString) {
-    sb_append(sb, "x")
+    mutable_string_append(sb, "x")
 }
 
 fn main() {
-    val sb = sb_new()
+    val sb = mutable_string_new()
     spawn worker(sb)
 }

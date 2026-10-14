@@ -1,6 +1,6 @@
 use models
 
-// Regression test: `ab_new<models.Point>()` -- a generic call whose
+// Regression test: `mutable_array_new<models.Point>()` -- a generic call whose
 // explicit type argument is a *qualified* (cross-module) type
 // reference -- used to be misparsed, since next_looks_like_generic_call
 // only recognized an uppercase identifier or a primitive keyword right
@@ -8,10 +8,10 @@ use models
 // #[derive(Json)]-generated code needing exactly this shape for an
 // array field whose element type lives in another module.
 fn main() {
-    val ab = ab_new<models.Point>()
-    ab_append<models.Point>(ab, models.Point { x: 1 })
-    ab_append<models.Point>(ab, models.Point { x: 2 })
-    val arr = ab_to_array<models.Point>(ab)
+    val ab = mutable_array_new<models.Point>()
+    mutable_array_push<models.Point>(ab, models.Point { x: 1 })
+    mutable_array_push<models.Point>(ab, models.Point { x: 2 })
+    val arr = snapshot(ab)
     print(len(arr))
     print(arr[0].x)
     print(arr[1].x)

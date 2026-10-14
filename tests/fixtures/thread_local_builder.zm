@@ -3,32 +3,32 @@ use thread
 // A builder is thread-bound, but a ThreadLocal holding one may still be a module-level val: the key is
 // only a number and a function, and each thread makes and keeps its own builder.
 val cache = thread.local<MutableMap<string, int>>(fn() -> MutableMap<string, int> {
-    return mapb_new<string, int>()
+    return mutable_map_new<string, int>()
 })
 
 fn worker(out: Channel<int>) {
     val mine = thread.get(cache)
-    mapb_set(mine, "w", 1)
-    mapb_set(mine, "x", 2)
-    send(out, mapb_len(mine))
+    mutable_map_set(mine, "w", 1)
+    mutable_map_set(mine, "x", 2)
+    send(out, len(mine))
 }
 
 fn main() {
     val mine = thread.get(cache)
-    mapb_set(mine, "m", 1)
+    mutable_map_set(mine, "m", 1)
 
     val out: Channel<int> = channel_new()
     spawn worker(out)
     print(receive(out))
-    print(mapb_len(thread.get(cache)))
+    print(len(thread.get(cache)))
 
     // What a thread keeps in its slot survives a lot of allocation (and so collections).
     var junk = 0
     for i in 0..200000 {
         junk = junk + len(str(i))
     }
-    mapb_set(thread.get(cache), "later", 3)
-    print(mapb_len(thread.get(cache)))
+    mutable_map_set(thread.get(cache), "later", 3)
+    print(len(thread.get(cache)))
     print(junk > 0)
-    print(mapb_to_map(thread.get(cache)))
+    print(snapshot(thread.get(cache)))
 }

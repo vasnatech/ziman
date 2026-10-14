@@ -1,11 +1,11 @@
 fn work(id: int, out: Channel<string>) {
-    val sb = sb_new()
+    val sb = mutable_string_new()
     for i in 0..3 {
-        sb_append(sb, str(id), ":", str(i), " ")
+        mutable_string_append(sb, str(id), ":", str(i), " ")
     }
-    val ab = ab_new<int>()
-    ab_append<int>(ab, id)
-    send(out, sb_to_string(sb))
+    val ab = mutable_array_new<int>()
+    mutable_array_push<int>(ab, id)
+    send(out, snapshot(sb))
 }
 
 fn main() {
@@ -18,7 +18,7 @@ fn main() {
         total = total + len(receive(out))
     }
     print(total)
-    val sb = sb_new()
-    sb_append(sb, "main ok")
-    print(sb_to_string(sb))
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "main ok")
+    print(snapshot(sb))
 }

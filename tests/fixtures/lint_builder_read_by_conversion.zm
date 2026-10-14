@@ -10,43 +10,43 @@
 // on the other three would be noise and would be turned off.
 use collections
 
-// WARNS: convert, read, keep growing -- `mapb_get_or` reads it in place.
+// WARNS: convert, read, keep growing -- `mutable_map_get_or` reads it in place.
 fn counted(words: [string]) -> int {
-    val counts = mapb_new<string, int>()
+    val counts = mutable_map_new<string, int>()
     for w in words {
-        val seen = mapb_to_map(counts)
-        mapb_set(counts, w, switch map_get(seen, w) { Some(n) { n + 1 } None { 1 } })
+        val seen = snapshot(counts)
+        mutable_map_set(counts, w, switch map_get(seen, w) { Some(n) { n + 1 } None { 1 } })
     }
-    return mapb_len(counts)
+    return len(counts)
 }
 
 // Silent: converts one batch and then replaces the builder, so each conversion is one batch's
 // worth and the whole loop is linear. This is `csv.zm`'s and `migrate.zm`'s shape.
 fn batched(items: [string]) -> [string] {
-    val out = ab_new<string>()
-    var batch = ab_new<string>()
+    val out = mutable_array_new<string>()
+    var batch = mutable_array_new<string>()
     for item in items {
         if item == "|" {
-            val done = ab_to_array(batch)
-            ab_append(out, join(separator: "+", pieces: done))
-            batch = ab_new<string>()
+            val done = snapshot(batch)
+            mutable_array_push(out, join(separator: "+", pieces: done))
+            batch = mutable_array_new<string>()
         } else {
-            ab_append(batch, item)
+            mutable_array_push(batch, item)
         }
     }
-    return ab_to_array(out)
+    return snapshot(out)
 }
 
 // Silent: the conversion is on the way out of the loop, so it runs once however long the loop is.
 fn first_pair(items: [string]) -> [string] {
-    val out = ab_new<string>()
+    val out = mutable_array_new<string>()
     for item in items {
-        ab_append(out, item)
-        if ab_len(out) == 2 {
-            return ab_to_array(out)
+        mutable_array_push(out, item)
+        if len(out) == 2 {
+            return snapshot(out)
         }
     }
-    return ab_to_array(out)
+    return snapshot(out)
 }
 
 // Silent, and this is the case the reassignment check exists for: convert, replace the builder,
@@ -55,22 +55,22 @@ fn first_pair(items: [string]) -> [string] {
 // Without that check this would warn, which is why it is a case here and not only a condition in
 // the code.
 fn rolling(items: [string]) -> string {
-    var sb = sb_new()
+    var sb = mutable_string_new()
     for item in items {
-        val snapshot = sb_to_string(sb)
-        sb = sb_new()
-        sb_append(sb, snapshot, item)
+        val snapshot = snapshot(sb)
+        sb = mutable_string_new()
+        mutable_string_append(sb, snapshot, item)
     }
-    return sb_to_string(sb)
+    return snapshot(sb)
 }
 
 // Silent: the builder is finished after the loop, which is what a builder is for.
 fn all_of(items: [string]) -> string {
-    val sb = sb_new()
+    val sb = mutable_string_new()
     for item in items {
-        sb_append(sb, item, ";")
+        mutable_string_append(sb, item, ";")
     }
-    return sb_to_string(sb)
+    return snapshot(sb)
 }
 
 fn main() {

@@ -48,22 +48,22 @@ fn encode_param(v: SqlValue) -> string {
         Text(s) { concat("T", s) }
         Bool(b) { if b { "b1" } else { "b0" } }
         Bytes(bytes) {
-            val hex = sb_new()
-            sb_append(hex, "B")
+            val hex = mutable_string_new()
+            mutable_string_append(hex, "B")
             for by in bytes {
-                sb_append(hex, byte_to_hex(by))
+                mutable_string_append(hex, byte_to_hex(by))
             }
-            sb_to_string(hex)
+            snapshot(hex)
         }
     }
 }
 
 fn encode_params(params: [SqlValue]) -> [string] {
-    val out = ab_new<string>()
+    val out = mutable_array_new<string>()
     for p in params {
-        ab_append(out, encode_param(p))
+        mutable_array_push(out, encode_param(p))
     }
-    return ab_to_array(out)
+    return snapshot(out)
 }
 
 fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
@@ -90,15 +90,15 @@ fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
         return SqlValue.Float(unwrap(f))
     }
     if tag == "B" {
-        val bytes = ab_new<byte>()
+        val bytes = mutable_array_new<byte>()
         for i in 0..len(payload) / 2 {
             val b = byte_from_hex(substring(payload, 2 * i, 2 * i + 2))
             if Err(_) = b {
                 return err(DbError.Sql(concat("bad hex from driver: ", payload)))
             }
-            ab_append(bytes, unwrap(b))
+            mutable_array_push(bytes, unwrap(b))
         }
-        return SqlValue.Bytes(ab_to_array(bytes))
+        return SqlValue.Bytes(snapshot(bytes))
     }
     return err(DbError.Sql(concat("unknown cell tag from driver: ", tag)))
 }
@@ -140,32 +140,32 @@ pub fn query(conn: Connection, sql: string, params: variadic SqlValue) -> Result
     }
     val flat = unwrap(r)
     val ncols = unwrap(parse_int(flat[0]))
-    val columns = ab_new<string>()
+    val columns = mutable_array_new<string>()
     for c in 0..ncols {
-        ab_append(columns, flat[1 + c])
+        mutable_array_push(columns, flat[1 + c])
     }
-    val names = ab_to_array(columns)
-    val rows = ab_new<Row>()
+    val names = snapshot(columns)
+    val rows = mutable_array_new<Row>()
     var pos = 1 + ncols
     while pos < len(flat) {
-        val values = ab_new<SqlValue>()
+        val values = mutable_array_new<SqlValue>()
         for k in 0..ncols {
             val cell = try decode_cell(flat[pos + k])
-            ab_append(values, cell)
+            mutable_array_push(values, cell)
         }
-        ab_append(rows, Row { columns: names, values: ab_to_array(values) })
+        mutable_array_push(rows, Row { columns: names, values: snapshot(values) })
         pos = pos + ncols
     }
-    return ab_to_array(rows)
+    return snapshot(rows)
 }
 
 fn row_from_cells(names: [string], cells: [string]) -> Result<Row, DbError> {
-    val values = ab_new<SqlValue>()
+    val values = mutable_array_new<SqlValue>()
     for cell in cells {
         val v = try decode_cell(cell)
-        ab_append(values, v)
+        mutable_array_push(values, v)
     }
-    return Row { columns: names, values: ab_to_array(values) }
+    return Row { columns: names, values: snapshot(values) }
 }
 
 fn next_row(cursor: int, names: [string]) -> Option<Result<Row, DbError>> {

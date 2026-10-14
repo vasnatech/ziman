@@ -1,7 +1,7 @@
-// The bounds are the builder's own length, not its capacity: `ab_new` grows a buffer of 20 by default, and
+// The bounds are the builder's own length, not its capacity: `mutable_array_new` grows a buffer of 20 by default, and
 // reading element 0 of an empty builder would otherwise hand back whatever that buffer happens to hold.
 fn main() {
-    val ab = ab_new<int>()
-    ab_append(ab, 1, 2)
-    print(ab_get(ab, 2))
+    val ab = mutable_array_new<int>()
+    mutable_array_push(ab, 1, 2)
+    print(mutable_array_get(ab, 2))
 }

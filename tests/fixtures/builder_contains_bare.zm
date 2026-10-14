@@ -3,39 +3,39 @@
 // MutableArray is the one O(n) case; the rest are a hash lookup or a byte search.
 
 fn main() {
-    val ab = ab_new<string>()
-    ab_append(ab, "pear", "fig")
+    val ab = mutable_array_new<string>()
+    mutable_array_push(ab, "pear", "fig")
     print(contains(ab, "fig"))
     print(contains(ab, "apple"))
 
     // Packed mode -- the first appended element decides it -- is the same answer.
-    val ns = ab_new<int>()
-    ab_append(ns, 1, 2, 3)
+    val ns = mutable_array_new<int>()
+    mutable_array_push(ns, 1, 2, 3)
     print(contains(ns, 2))
     print(contains(ns, 9))
 
     // A MutableString is asked about text, not about one element, and an empty needle is found
     // wherever the search starts -- the same rule `contains` on a string already follows.
-    val sb = sb_new()
-    sb_append(sb, "hello world")
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "hello world")
     print(contains(sb, "o w"))
     print(contains(sb, "xyz"))
     print(contains(sb, ""))
 
-    val mb = mapb_new<string, int>()
-    mapb_set(mb, "a", 1)
+    val mb = mutable_map_new<string, int>()
+    mutable_map_set(mb, "a", 1)
     print(contains(mb, "a"))
     print(contains(mb, "b"))
-    print(mapb_contains(mb, "a"))
+    print(contains(mb, "a"))
 
-    val st = setb_new<int>()
-    setb_add(st, 7)
+    val st = mutable_set_new<int>()
+    mutable_set_add(st, 7)
     print(contains(st, 7))
     print(contains(st, 8))
-    print(setb_contains(st, 7))
+    print(contains(st, 7))
 
     // Live, like every other read on a builder.
     print(contains(ab, "plum"))
-    ab_append(ab, "plum")
+    mutable_array_push(ab, "plum")
     print(contains(ab, "plum"))
 }

@@ -129,13 +129,13 @@ fn post_secret(ctx: Ctx, caller: Caller, item: Item) -> Result<Item, string> {
 
 // A binary media type goes through decoder/encoder directly, over the bytes: the body reversed, NUL bytes and all.
 fn reverse_bytes(data: [byte]) -> Result<[byte], string> {
-    val out = ab_new<byte>()
+    val out = mutable_array_new<byte>()
     var i = len(data) - 1
     while i >= 0 {
-        ab_append<byte>(out, data[i])
+        mutable_array_push<byte>(out, data[i])
         i = i - 1
     }
-    return ab_to_array<byte>(out)
+    return snapshot(out)
 }
 
 fn echo_binary(ctx: Ctx, data: [byte]) -> Result<[byte], string> {

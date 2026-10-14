@@ -162,11 +162,11 @@ pub struct TraceParent {
 pub val traceparent_header_name = "traceparent"
 
 fn hex_of(n: int) -> string {
-    val out = sb_new()
+    val out = mutable_string_new()
     for b in random_bytes(n) {
-        sb_append(out, byte_to_hex(b))
+        mutable_string_append(out, byte_to_hex(b))
     }
-    return sb_to_string(out)
+    return snapshot(out)
 }
 
 fn all_hex(s: string, want_len: int) -> bool {
@@ -297,19 +297,19 @@ pub struct CookiePair {
 // should not cost a request its session. Values are returned exactly as sent -- a server that
 // percent-encoded them is the one that knows to decode them (`url.percent_decode`).
 pub fn request_cookies(req: Request) -> [CookiePair] {
-    val out = ab_new<CookiePair>()
+    val out = mutable_array_new<CookiePair>()
     if Some(raw) = header(req, "Cookie") {
         for piece in split(raw, ";") {
             val pair = trim(piece)
             if Some(parts) = split_once(pair, "=") {
                 val name = trim(parts[0])
                 if name != "" {
-                    ab_append(out, CookiePair { name: name, value: trim(parts[1]) })
+                    mutable_array_push(out, CookiePair { name: name, value: trim(parts[1]) })
                 }
             }
         }
     }
-    return ab_to_array(out)
+    return snapshot(out)
 }
 
 // The value of the cookie called `name`, or None. The first wins when a client sends the name twice, which
@@ -355,27 +355,27 @@ pub fn session_cookie(name: string, value: string) -> SetCookie {
 
 // `c` as a `Set-Cookie` header, ready to add to a response's headers.
 pub fn set_cookie_header(c: SetCookie) -> Header {
-    val out = sb_new()
-    sb_append(out, c.name, "=", c.value)
+    val out = mutable_string_new()
+    mutable_string_append(out, c.name, "=", c.value)
     if c.path != "" {
-        sb_append(out, "; Path=", c.path)
+        mutable_string_append(out, "; Path=", c.path)
     }
     if c.domain != "" {
-        sb_append(out, "; Domain=", c.domain)
+        mutable_string_append(out, "; Domain=", c.domain)
     }
     if c.max_age_seconds >= 0 {
-        sb_append(out, "; Max-Age=", str(c.max_age_seconds))
+        mutable_string_append(out, "; Max-Age=", str(c.max_age_seconds))
     }
     if c.same_site != "" {
-        sb_append(out, "; SameSite=", c.same_site)
+        mutable_string_append(out, "; SameSite=", c.same_site)
     }
     if c.secure {
-        sb_append(out, "; Secure")
+        mutable_string_append(out, "; Secure")
     }
     if c.http_only {
-        sb_append(out, "; HttpOnly")
+        mutable_string_append(out, "; HttpOnly")
     }
-    return Header { name: "Set-Cookie", value: sb_to_string(out) }
+    return Header { name: "Set-Cookie", value: snapshot(out) }
 }
 
 // The header that deletes `name`: the same path and domain it was set with, an empty value and `Max-Age=0`.

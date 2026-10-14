@@ -131,7 +131,7 @@ static int type_holds_thread_bound(Module *module, Type t, const VisitedDecl *se
 static void reject_thread_bound(Module *module, Type t, const char *what, int line, int col) {
     if (type_holds_thread_bound(module, t, NULL)) {
         ziman_error("type", line, col,
-                    "%s cannot be %s: it belongs to the thread that made it, as a builder or an iterator does (send the finished value instead -- sb_to_string, ab_to_array, mapb_to_map, the items as an array)",
+                    "%s cannot be %s: it belongs to the thread that made it, as a builder or an iterator does (send the finished value instead -- snapshot, snapshot, snapshot, the items as an array)",
                     type_name(t), what);
     }
 }
@@ -580,12 +580,12 @@ static void lint_quadratic_accumulation(const Stmt *s) {
         if (dot != NULL) callee = dot + 1;
         const Expr *first = v->as.call.args.items[0];
         if (first->kind != EXPR_IDENT || strcmp(first->as.ident_name, name) != 0) return;
-        if (strcmp(callee, "concat") == 0) fix = "a MutableString (sb_new, sb_append, sb_to_string)";
-        else if (strcmp(callee, "concat_arrays") == 0) fix = "a MutableArray (ab_new, ab_append, ab_to_array)";
+        if (strcmp(callee, "concat") == 0) fix = "a MutableString (mutable_string_new, mutable_string_append, snapshot)";
+        else if (strcmp(callee, "concat_arrays") == 0) fix = "a MutableArray (mutable_array_new, mutable_array_push, snapshot)";
         else if (strcmp(callee, "set") == 0 && v->as.call.args.count == 3) {
             /* No builder has random-access assignment, so the advice depends on what the loop is doing;
              * both halves are given rather than guessing which one applies. */
-            fix = "a MutableArray (ab_new, ab_append, ab_to_array) if the loop fills it in order, or a "
+            fix = "a MutableArray (mutable_array_new, mutable_array_push, snapshot) if the loop fills it in order, or a "
                   "MutableMap keyed by index if it does not";
         }
     }
@@ -598,17 +598,17 @@ static void lint_quadratic_accumulation(const Stmt *s) {
 
 /* --lint: reading a builder by converting it, inside a loop that keeps adding to it.
  *
- * `val seen = mapb_to_map(counts)` in a loop whose next statement does `mapb_set(counts, ..)`
- * materialises the whole map on every pass, when `mapb_get`/`mapb_get_or`/`mapb_contains`/
- * `mapb_len` read a builder in place. That is what a builder is for. The same goes for
- * `ab_to_array` against `ab_len`, and `sb_to_string` against `sb_len`.
+ * `val seen = snapshot(counts)` in a loop whose next statement does `mutable_map_set(counts, ..)`
+ * materialises the whole map on every pass, when `mutable_map_get`/`mutable_map_get_or`/`contains`/
+ * `len` read a builder in place. That is what a builder is for. The same goes for
+ * `snapshot` against `len`, and `snapshot` against `len`.
  *
  * `lint_quadratic_accumulation` above cannot see this: it matches a variable rebuilt *from
  * itself* (`x = concat(x, ..)`), and this shape has no self-reference.
  *
  * **The obvious predicate is unusable, which is why this one is narrow.** "A builder conversion
  * inside a loop" gives 14 hits across lib/, the reference backend and the benchmark, and 13 are
- * correct code: a conversion on the way out of a loop (`return ok(ab_to_array(out))`) runs once,
+ * correct code: a conversion on the way out of a loop (`return ok(snapshot(out))`) runs once,
  * and a convert-then-reset (`csv.zm`'s `cells`, `migrate.zm`'s `current`) converts one batch and
  * replaces the builder, which is linear overall. A rule that noisy gets switched off.
  *
@@ -622,26 +622,25 @@ static void lint_quadratic_accumulation(const Stmt *s) {
  * Found one live instance when it was written: `lib/core/fs.zm`'s `path_join` converted the whole
  * accumulated path on every piece to look at its last character. Measurably superlinear --
  * 0.02s, 0.04s, 0.09s, 0.35s at 2,000 to 16,000 pieces (docs/reviews/tasks.md F84). */
-static const char *builder_reader_for(const char *conversion) {
-    if (strcmp(conversion, "mapb_to_map") == 0) return "len, mapb_get, mapb_get_or or mapb_contains";
-    if (strcmp(conversion, "ab_to_array") == 0) return "len, ab_get or 'for x in <the builder>'";
-    if (strcmp(conversion, "sb_to_string") == 0) return "len, or a MutableString you finish once after the loop";
-    if (strcmp(conversion, "setb_to_set") == 0) return "len or setb_contains";
-    /* `snapshot` is the one name for all four conversions (F100), so which per-type reader to
-     * advise is not knowable from the call -- this pass is syntactic and has no types. The
-     * reporting loop resolves it from whichever appender the loop body actually uses and only
-     * falls back to this when none of them is the reason. */
-    if (strcmp(conversion, "snapshot") == 0) return "len, contains or 'for x in <the builder>'";
-    return NULL;
-}
 
-static const char *appender_for(const char *conversion) {
-    if (strcmp(conversion, "mapb_to_map") == 0) return "mapb_set";
-    if (strcmp(conversion, "ab_to_array") == 0) return "ab_append";
-    if (strcmp(conversion, "sb_to_string") == 0) return "sb_append";
-    if (strcmp(conversion, "setb_to_set") == 0) return "setb_add";
-    return NULL;
-}
+/* The lint pairs the one conversion out of a builder -- `snapshot` since F100 -- with the append
+ * that makes repeating it quadratic. There used to be four conversion names, so the builder's kind
+ * could be read straight off the call; with one name it comes from whichever appender the loop body
+ * uses instead. That is precise rather than a guess, because only one of the four can type-check
+ * against the same variable, and it is what keeps the advice per-type where a single generic
+ * message would have been the easy answer and a worse one. */
+typedef struct {
+    const char *appender;
+    const char *readers;
+} BuilderKindAdvice;
+
+static const BuilderKindAdvice BUILDER_KINDS[] = {
+    {"mutable_array_push", "len, mutable_array_get or 'for x in <the builder>'"},
+    {"mutable_string_append", "len, or a MutableString you finish once after the loop"},
+    {"mutable_map_set", "len, contains, mutable_map_get or mutable_map_get_or"},
+    {"mutable_set_add", "len or contains"},
+    {NULL, NULL}};
+
 
 /* The bare name of a call's callee, without a module qualifier. */
 static const char *callee_tail(const Expr *e) {
@@ -658,7 +657,7 @@ static int finds_builder_conversion(const Expr *e, const char **found, const cha
     if (e == NULL) return 0;
     if (e->kind == EXPR_CALL) {
         const char *name = callee_tail(e);
-        if (name != NULL && builder_reader_for(name) != NULL && e->as.call.args.count == 1) {
+        if (name != NULL && strcmp(name, "snapshot") == 0 && e->as.call.args.count == 1) {
             const Expr *arg = e->as.call.args.items[0];
             if (arg->kind == EXPR_IDENT) {
                 *found = name;
@@ -681,6 +680,14 @@ static int statement_appends_to(const Stmt *s, const char *appender, const char 
     if (name == NULL || strcmp(name, appender) != 0 || e->as.call.args.count < 1) return 0;
     const Expr *first = e->as.call.args.items[0];
     return first->kind == EXPR_IDENT && strcmp(first->as.ident_name, builder) == 0;
+}
+
+/* The advice for whichever kind `stmt` appends to `builder` with, or NULL when it appends nothing. */
+static const char *readers_for_appending_stmt(const Stmt *stmt, const char *builder) {
+    for (size_t k = 0; BUILDER_KINDS[k].appender != NULL; k++) {
+        if (statement_appends_to(stmt, BUILDER_KINDS[k].appender, builder)) return BUILDER_KINDS[k].readers;
+    }
+    return NULL;
 }
 
 /* Whether `s` assigns to `builder`, which resets it and ends the run. */
@@ -725,31 +732,14 @@ static void lint_builder_read_by_conversion(const Stmt *body) {
         if (s->kind != STMT_VAL && s->kind != STMT_VAR) continue;
         const char *conversion = NULL, *builder = NULL;
         if (!finds_builder_conversion(s->as.decl.init, &conversion, &builder)) continue;
-        /* `snapshot` names all four conversions, so the builder's kind comes from the append the
-         * loop does rather than from the call: whichever of the four appenders is used identifies
-         * it, and only one of them can type-check against the same variable anyway. That also
-         * recovers the precise per-type advice, which a single generic message would have lost. */
-        const int is_snapshot = strcmp(conversion, "snapshot") == 0;
-        static const char *const ALL_CONVERSIONS[] = {"ab_to_array", "sb_to_string", "mapb_to_map", "setb_to_set", NULL};
         for (int j = i + 1; j < stmts->count; j++) {
             if (statement_reassigns(stmts->items[j], builder)) break;
-            const char *advice = builder_reader_for(conversion);
-            if (is_snapshot) {
-                int matched = 0;
-                for (size_t k = 0; ALL_CONVERSIONS[k] != NULL && !matched; k++) {
-                    if (statement_appends_to(stmts->items[j], appender_for(ALL_CONVERSIONS[k]), builder)) {
-                        advice = builder_reader_for(ALL_CONVERSIONS[k]);
-                        matched = 1;
-                    }
-                }
-                if (!matched) continue;
-            } else if (!statement_appends_to(stmts->items[j], appender_for(conversion), builder)) {
-                continue;
-            }
+            const char *readers = readers_for_appending_stmt(stmts->items[j], builder);
+            if (readers == NULL) continue;
             ziman_warning(g_lint_file, s->line, s->col,
                           "'%s' converts the whole of '%s' on every pass of this loop, and the loop keeps "
                           "adding to it (quadratic); read it in place with %s",
-                          conversion, builder, advice);
+                          conversion, builder, readers);
             g_lint_count++;
             break;
         }
@@ -1378,6 +1368,47 @@ static int ascii_eq_ignore_case(const char *a, const char *b) {
  * has nothing at all to offer them. Matched case-insensitively like the other aliases, so
  * `arraybuilder` lands too. The message is also the one place a reader meets the new name for the
  * first time, so it is where the thing a `Mutable*` name does not say belongs. */
+/* The old name of a builder function. Half of them became a bare builtin rather than a prefixed
+ * name, which no edit-distance suggester could ever find -- `ab_to_array` to `snapshot` is not a
+ * near miss -- so the mapping is spelled out. Exact-match only: these are function names, where a
+ * case-insensitive guess would be reaching. */
+static const char *renamed_builder_fn(const char *name) {
+    static const struct {
+        const char *was;
+        const char *now;
+    } RENAMED[] = {{"ab_new", "mutable_array_new"},
+                   {"ab_append", "mutable_array_push"},
+                   {"ab_get", "mutable_array_get"},
+                   {"ab_set", "mutable_array_set"},
+                   {"ab_to_array", "snapshot"},
+                   {"ab_len", "len"},
+                   {"ab_clear", "clear"},
+                   {"sb_new", "mutable_string_new"},
+                   {"sb_append", "mutable_string_append"},
+                   {"sb_append_byte", "mutable_string_append_byte"},
+                   {"sb_to_string", "snapshot"},
+                   {"sb_len", "len"},
+                   {"mapb_new", "mutable_map_new"},
+                   {"mapb_set", "mutable_map_set"},
+                   {"mapb_get", "mutable_map_get"},
+                   {"mapb_get_or", "mutable_map_get_or"},
+                   {"mapb_remove", "mutable_map_remove"},
+                   {"mapb_contains", "contains"},
+                   {"mapb_len", "len"},
+                   {"mapb_to_map", "snapshot"},
+                   {"setb_new", "mutable_set_new"},
+                   {"setb_add", "mutable_set_add"},
+                   {"setb_remove", "mutable_set_remove"},
+                   {"setb_contains", "contains"},
+                   {"setb_len", "len"},
+                   {"setb_to_set", "snapshot"},
+                   {NULL, NULL}};
+    for (size_t k = 0; RENAMED[k].was != NULL; k++) {
+        if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;
+    }
+    return NULL;
+}
+
 static const char *renamed_builder_type(const char *name) {
     static const struct {
         const char *was;
@@ -1476,7 +1507,7 @@ static const char *matching_generic_type(const char *name) {
  * Note Result's constructors are the lowercase functions `ok`/`err`; `Ok`/`Err` are the names of
  * its variants in a `switch` arm, which is a different position. (tasks.md F47) */
 static const char *generic_type_construction(const char *canonical) {
-    if (strcmp(canonical, "Map") == 0) return "write one as 'Map<string, int> { \"key\": value }', or build one with 'mapb_new<string, int>()'";
+    if (strcmp(canonical, "Map") == 0) return "write one as 'Map<string, int> { \"key\": value }', or build one with 'mutable_map_new<string, int>()'";
     if (strcmp(canonical, "Set") == 0) return "write one as 'Set<int> { 1, 2 }'";
     if (strcmp(canonical, "Option") == 0) return "construct one as 'Option<int>.Some(4)' or 'Option<int>.None'";
     if (strcmp(canonical, "Result") == 0) return "construct one with the functions 'ok(value)' and 'err(problem)' ('Ok(v)'/'Err(e)' are its variant names in a 'switch' arm, not constructors)";
@@ -1508,7 +1539,7 @@ static const char *generic_type_construction(const char *canonical) {
  * everything omitted" from its syntax alone -- and unlike a *partial*
  * positional call (`f(1)` when `f` needs two, which must stay exactly
  * as strict as ever), there's nothing here that omission could get
- * wrong. Treating it as the latter is what makes `sb_new()` -- a
+ * wrong. Treating it as the latter is what makes `mutable_string_new()` -- a
  * function whose every parameter is Option<T> -- callable at all; it's
  * a no-op for a function with zero parameters (the fill loop below
  * never runs) and still correctly rejects any non-Option parameter
@@ -1927,9 +1958,9 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
                     /* Several trailing arguments are always individual element values (`concat_arrays(a, b)`). */
                     unify_type(pattern, actual, &fn->type_params, bindings, bound, arg);
                 } else if (type_fully_bound(pattern, &fn->type_params, bound)) {
-                    /* The element type is already known from an earlier parameter (`ab_append<T>(ab: MutableArray<T>,
+                    /* The element type is already known from an earlier parameter (`mutable_array_push<T>(ab: MutableArray<T>,
                      * pieces: T...)` binds T from `ab`) -- so, unlike the guess below, there is nothing left to infer
-                     * from this argument at all. This is what makes `ab_append(out, [x, y])` push the one `[string]`
+                     * from this argument at all. This is what makes `mutable_array_push(out, [x, y])` push the one `[string]`
                      * value `[x, y]` rather than spreading two `string`s into it: the ordinary argument check, run
                      * once every type argument is known, applies call_function's own real spread-vs-individual test
                      * against the now-fully-substituted element type and reports a mismatch if `actual` fits neither. */
@@ -2630,7 +2661,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         /* The value's own type, as well as the channel's declared element type (checked once where
          * the Channel type is validated). They differ for exactly one thing: a lambda that captured a
          * builder has Type.func_captures_thread_bound set, which `Channel<fn() -> string>` as written
-         * by the programmer cannot. Without this, `send(ch, fn() { sb_append(sb, "x") })` type-checked
+         * by the programmer cannot. Without this, `send(ch, fn() { mutable_string_append(sb, "x") })` type-checked
          * and failed on the receiving thread instead. */
         reject_thread_bound(module, val_type, "sent over a channel", val_arg->line, val_arg->col);
         return type_scalar(TY_VOID);
@@ -2769,6 +2800,13 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                             "use 'contains(m, key)' to test for one, or 'map_get(m, key)' (an Option<V>) "
                             "to look up the value at the same time", name);
             }
+        }
+        const char *renamed_fn = renamed_builder_fn(name);
+        if (renamed_fn != NULL) {
+            ziman_error("type", e->line, e->col,
+                        "'%s' is now '%s': the builders are the mutable collections, and the four questions every "
+                        "collection answers -- len, contains, snapshot, clear -- lost their per-type names",
+                        name, renamed_fn);
         }
         const char *suggestion = suggest_function_name(module, name);
         if (suggestion != NULL) {
@@ -4328,7 +4366,7 @@ static Type check_lambda_expecting(Module *module, Env *env, Expr *e, const Type
     lam->self_ncaptured = ncaptured;
     e->lambda_checked = 1;
     /* Recorded on the type, not just checked here, because the lambda and the `spawn`/`send` that
-     * rejects it are usually far apart: `val f = fn() { sb_append(sb, "x") }` then `send(ch, f)`
+     * rejects it are usually far apart: `val f = fn() { mutable_string_append(sb, "x") }` then `send(ch, f)`
      * three lines later. The type is what travels between the two. Captures are the only source --
      * a named function's value type carries 0, as does a lambda that captured nothing thread-bound.
      * A capture that is itself such a lambda is covered by its own flag. */
@@ -4608,7 +4646,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 int is_iter = iter_type.kind == TY_STRUCT && iter_type.struct_name != NULL &&
                               strcmp(iter_type.struct_name, "Iter") == 0 && iter_type.type_args.count == 1;
                 /* A MutableArray iterates like the array it is becoming, which is the point: reading one
-                 * back used to mean ab_to_array, a full copy per call (`--lint` flags that in a loop). The
+                 * back used to mean snapshot, a full copy per call (`--lint` flags that in a loop). The
                  * loop reads the live buffer by index and stops at whatever the length is then, so a body
                  * that appends sees its own additions and one that clears ends the loop -- neither can read
                  * past the end. */

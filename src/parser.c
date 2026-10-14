@@ -203,14 +203,14 @@ static TypeList parse_type_args(Parser *p) {
  * lambda is never a numeric operand, so `x < fn(...)` is not a real
  * comparison in any program that type-checks. Its absence made a
  * function type parse everywhere *except* as the first type argument of
- * a generic call -- `mapb_new<string, fn(int) -> int>()` worked (the
+ * a generic call -- `mutable_map_new<string, fn(int) -> int>()` worked (the
  * `string` got the lookahead over the line and `parse_type` handled the
- * rest), while `ab_new<fn(int) -> int>()` did not, and failed as
+ * rest), while `mutable_array_new<fn(int) -> int>()` did not, and failed as
  * `expected a parameter name, found 'int'` from the lambda parser
  * several tokens away from the real problem. There was no workaround in
  * that position either: dropping the type argument reaches the
  * inference error, which says to "write it explicitly, e.g.
- * 'ab_new<...>(...)'" -- the exact thing the parser was refusing. So an
+ * 'mutable_array_new<...>(...)'" -- the exact thing the parser was refusing. So an
  * MutableArray of callbacks was inexpressible. (tasks.md F45) A real
  * comparison's right-hand side can still coincidentally start with one
  * of these (`x < Point { ... }`, `x < [1, 2, 3]`), but `<`/`>` only
@@ -219,7 +219,7 @@ static TypeList parse_type_args(Parser *p) {
  *
  * A lowercase identifier right after `<` needs one more look before
  * giving up on it: `qualifier.TypeName` (a cross-module type reference,
- * e.g. `ab_new<repository.Patient>()`) also starts with a lowercase
+ * e.g. `mutable_array_new<repository.Patient>()`) also starts with a lowercase
  * ident. Unlike a bare lowercase ident, this is *not* genuinely
  * ambiguous with a real comparison -- `x < y.z` is only ever a real
  * field access (`z` lowercase) since a struct field name can never
@@ -228,7 +228,7 @@ static TypeList parse_type_args(Parser *p) {
  * for '.' then an uppercase ident two tokens further is a safe,
  * unambiguous test, not another heuristic. Found missing when
  * `#[derive(Json)]`-generated code first needed
- * `ab_new<some_module.SomeType>()` for a struct field whose element
+ * `mutable_array_new<some_module.SomeType>()` for a struct field whose element
  * type lives in another module -- nothing before that had ever written
  * a generic call with a qualified type argument. */
 static int next_looks_like_generic_call(Parser *p) {

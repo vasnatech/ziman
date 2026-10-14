@@ -3,19 +3,19 @@ use collections
 fn main() {
     val teachers = ["Ada", "Alan"]
     val subjects = [["maths", "logic"], ["logic", "crypto"]]
-    val inverted = mapb_new<string, [string]>()
+    val inverted = mutable_map_new<string, [string]>()
     var i = 0
     while i < len(teachers) {
         for s in subjects[i] {
-            val so_far: [string] = switch mapb_get<string, [string]>(inverted, s) {
+            val so_far: [string] = switch mutable_map_get<string, [string]>(inverted, s) {
                 Some(xs) { xs }
                 None { [] }
             }
-            mapb_set(inverted, s, push(so_far, teachers[i]))
+            mutable_map_set(inverted, s, push(so_far, teachers[i]))
         }
         i = i + 1
     }
-    val m = mapb_to_map(inverted)
+    val m = snapshot(inverted)
     for s in collections.sort<string>(set_items(map_keys(m))) {
         val who: [string] = switch map_get(m, s) {
             Some(xs) { xs }

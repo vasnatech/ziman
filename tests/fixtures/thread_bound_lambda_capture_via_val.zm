@@ -11,11 +11,11 @@ fn doubler(h: fn(int) -> int, d: Channel<int>) {
 }
 
 fn main() {
-    val sb = sb_new()
-    sb_append(sb, "owned by main")
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "owned by main")
 
     // allowed: the capture never leaves this thread
-    val local = fn() -> string { sb_to_string(sb) }
+    val local = fn() -> string { snapshot(sb) }
     print(local())
 
     // allowed: captures nothing thread-bound
@@ -25,7 +25,7 @@ fn main() {
     print(receive(ints))
 
     // rejected: the builder would cross with the lambda, three lines from where it was captured
-    val crossing = fn() -> string { sb_to_string(sb) }
+    val crossing = fn() -> string { snapshot(sb) }
     val strs: Channel<string> = channel_new()
     spawn runner(crossing, strs)
     print(receive(strs))

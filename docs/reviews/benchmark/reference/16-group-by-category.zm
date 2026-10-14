@@ -13,15 +13,15 @@ fn main() {
         Product { name: "leek", category: "veg" },
         Product { name: "cherry", category: "fruit" }
     ]
-    val groups = mapb_new<string, [string]>()
+    val groups = mutable_map_new<string, [string]>()
     for p in products {
-        val so_far: [string] = switch mapb_get<string, [string]>(groups, p.category) {
+        val so_far: [string] = switch mutable_map_get<string, [string]>(groups, p.category) {
             Some(xs) { xs }
             None { [] }
         }
-        mapb_set(groups, p.category, push(so_far, p.name))
+        mutable_map_set(groups, p.category, push(so_far, p.name))
     }
-    val m = mapb_to_map(groups)
+    val m = snapshot(groups)
     for cat in collections.sort<string>(set_items(map_keys(m))) {
         val names: [string] = switch map_get(m, cat) {
             Some(xs) { xs }

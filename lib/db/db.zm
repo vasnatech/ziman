@@ -221,7 +221,7 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
         path_and_query = parts[1]
     }
     var database = path_and_query
-    val params = ab_new<UrlParam>()
+    val params = mutable_array_new<UrlParam>()
     val q = split_once(path_and_query, "?")
     if Some(parts) = q {
         database = parts[0]
@@ -229,7 +229,7 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
             val kv = split_once(pair, "=")
             if Some(kv) = kv {
                 val value = try percent_decode(kv[1])
-                ab_append(params, UrlParam { name: kv[0], value: value })
+                mutable_array_push(params, UrlParam { name: kv[0], value: value })
             }
         }
     }
@@ -279,7 +279,7 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
         host: host,
         port: port,
         database: db_name,
-        params: ab_to_array(params)
+        params: snapshot(params)
     }
 }
 

@@ -2,25 +2,25 @@ use db
 use http
 
 fn main() {
-    val sb = sb_new()
-    print(sb_append_byte(sb, 104b))
-    print(sb_append_byte(sb, 0b))
-    print(sb_append_byte(sb, 105b))
-    print(sb_to_string(sb))
-    print(sb_len(sb))
+    val sb = mutable_string_new()
+    print(mutable_string_append_byte(sb, 104b))
+    print(mutable_string_append_byte(sb, 0b))
+    print(mutable_string_append_byte(sb, 105b))
+    print(snapshot(sb))
+    print(len(sb))
 
     // a multi-byte UTF-8 character assembled from two raw bytes
-    val u = sb_new()
-    sb_append_byte(u, 195b)
-    sb_append_byte(u, 169b)
-    print(sb_to_string(u))
+    val u = mutable_string_new()
+    mutable_string_append_byte(u, 195b)
+    mutable_string_append_byte(u, 169b)
+    print(snapshot(u))
 
     // several at once; a 0b anywhere appends nothing
-    val m = sb_new()
-    print(sb_append_byte(m, 104b, 105b))
-    print(sb_append_byte(m, 33b, 0b, 33b))
-    print(sb_append_byte(sb: m, b: [111b, 107b]))
-    print(sb_to_string(m))
+    val m = mutable_string_new()
+    print(mutable_string_append_byte(m, 104b, 105b))
+    print(mutable_string_append_byte(m, 33b, 0b, 33b))
+    print(mutable_string_append_byte(sb: m, b: [111b, 107b]))
+    print(snapshot(m))
 
     print(unwrap(http.percent_decode("caf%C3%A9 au+lait%21", true)))
     print(unwrap(http.percent_decode("x%2By+z", false)))

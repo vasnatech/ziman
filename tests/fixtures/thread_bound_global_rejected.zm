@@ -1,4 +1,4 @@
-val shared = sb_new()
+val shared = mutable_string_new()
 
 fn main() {
     print(1)

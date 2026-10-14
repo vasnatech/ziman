@@ -3,34 +3,34 @@
 // functions still work and must agree, which is what the pairs below check.
 
 fn main() {
-    val ab = ab_new<int>()
-    ab_append(ab, 1, 2, 3)
+    val ab = mutable_array_new<int>()
+    mutable_array_push(ab, 1, 2, 3)
     print(len(ab))
-    print(ab_len(ab))
+    print(len(ab))
 
-    val sb = sb_new()
-    sb_append(sb, "hello")
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "hello")
     print(len(sb))
-    print(sb_len(sb))
+    print(len(sb))
 
-    val mb = mapb_new<string, int>()
-    mapb_set(mb, "a", 1)
-    mapb_set(mb, "b", 2)
+    val mb = mutable_map_new<string, int>()
+    mutable_map_set(mb, "a", 1)
+    mutable_map_set(mb, "b", 2)
     print(len(mb))
-    print(mapb_len(mb))
+    print(len(mb))
 
-    val st = setb_new<int>()
-    setb_add(st, 7)
-    setb_add(st, 7)
+    val st = mutable_set_new<int>()
+    mutable_set_add(st, 7)
+    mutable_set_add(st, 7)
     print(len(st))
-    print(setb_len(st))
+    print(len(st))
 
     // Live, like every other read on a builder: an append and a clear both show up.
-    ab_append(ab, 4)
+    mutable_array_push(ab, 4)
     print(len(ab))
-    ab_clear(ab)
+    clear(ab)
     print(len(ab))
 
-    val empty = sb_new()
+    val empty = mutable_string_new()
     print(len(empty))
 }

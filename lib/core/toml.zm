@@ -80,13 +80,18 @@ fn hex_value(c: string) -> int {
 
 fn append_utf8(out: MutableString, cp: int) {
     if cp < 128 {
-        sb_append_byte(out, cp as byte)
+        mutable_string_append_byte(out, cp as byte)
     } else if cp < 2048 {
-        sb_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
+        mutable_string_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
     } else if cp < 65536 {
-        sb_append_byte(out, (224 + cp / 4096) as byte, (128 + cp / 64 % 64) as byte, (128 + cp % 64) as byte)
+        mutable_string_append_byte(
+            out,
+            (224 + cp / 4096) as byte,
+            (128 + cp / 64 % 64) as byte,
+            (128 + cp % 64) as byte
+        )
     } else {
-        sb_append_byte(
+        mutable_string_append_byte(
             out,
             (240 + cp / 262144) as byte,
             (128 + cp / 4096 % 64) as byte,
@@ -160,19 +165,19 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             p = p + 1
         }
     }
-    val out = sb_new()
+    val out = mutable_string_new()
     while p < len(s) {
         val c = char_at(s, p)
         if multi && c == "\"" && is_char_at(s, p + 1, "\"") && is_char_at(s, p + 2, "\"") {
             var end = p + 3
             while end < len(s) && end < p + 5 && is_char_at(s, end, "\"") {
-                sb_append(out, "\"")
+                mutable_string_append(out, "\"")
                 end = end + 1
             }
-            return ok(PStr { text: sb_to_string(out), next: end })
+            return ok(PStr { text: snapshot(out), next: end })
         }
         if !multi && c == "\"" {
-            return ok(PStr { text: sb_to_string(out), next: p + 1 })
+            return ok(PStr { text: snapshot(out), next: p + 1 })
         }
         if !multi && (c == "\n" || c == "\r") {
             return err(fail(s, p, "a basic string cannot span lines (use \"\"\" for that)"))
@@ -183,19 +188,19 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             }
             val e = char_at(s, p + 1)
             if e == "n" {
-                sb_append(out, "\n")
+                mutable_string_append(out, "\n")
             } else if e == "t" {
-                sb_append(out, "\t")
+                mutable_string_append(out, "\t")
             } else if e == "r" {
-                sb_append(out, "\r")
+                mutable_string_append(out, "\r")
             } else if e == "b" {
-                sb_append_byte(out, 8b)
+                mutable_string_append_byte(out, 8b)
             } else if e == "f" {
-                sb_append_byte(out, 12b)
+                mutable_string_append_byte(out, 12b)
             } else if e == "\"" {
-                sb_append(out, "\"")
+                mutable_string_append(out, "\"")
             } else if e == "\\" {
-                sb_append(out, "\\")
+                mutable_string_append(out, "\\")
             } else if e == "u" || e == "U" {
                 val digits = if e == "u" { 4 } else { 8 }
                 val cp = read_hex(s, p + 2, digits)
@@ -222,7 +227,7 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             }
             p = p + 2
         } else {
-            sb_append(out, c)
+            mutable_string_append(out, c)
             p = p + 1
         }
     }
@@ -276,16 +281,16 @@ fn parse_key_part(s: string, pos: int) -> Result<PStr, string> {
 
 // `a.b."c d"` -- dotted key, whitespace allowed around the dots.
 fn parse_key_path(s: string, pos: int) -> Result<PPath, string> {
-    val parts = ab_new<string>()
+    val parts = mutable_array_new<string>()
     var p = skip_blank(s, pos)
     while true {
         val part = try parse_key_part(s, p)
-        ab_append(parts, part.text)
+        mutable_array_push(parts, part.text)
         p = skip_blank(s, part.next)
         if is_char_at(s, p, ".") {
             p = skip_blank(s, p + 1)
         } else {
-            return ok(PPath { path: ab_to_array(parts), next: p })
+            return ok(PPath { path: snapshot(parts), next: p })
         }
     }
     // The `while true` above only ever exits via a `return`; this line is dead and exists
@@ -392,17 +397,17 @@ fn parse_scalar_token(s: string, pos: int) -> Result<Parsed, string> {
 }
 
 fn parse_array_value(s: string, pos: int) -> Result<Parsed, string> {
-    val items = ab_new<Json>()
+    val items = mutable_array_new<Json>()
     var p = skip_all(s, pos + 1)
     while true {
         if p >= len(s) {
             return err(fail(s, pos, "unterminated array"))
         }
         if is_char_at(s, p, "]") {
-            return ok(Parsed { value: Json.JArray(ab_to_array(items)), next: p + 1 })
+            return ok(Parsed { value: Json.JArray(snapshot(items)), next: p + 1 })
         }
         val item = try parse_value(s, p)
-        ab_append(items, item.value)
+        mutable_array_push(items, item.value)
         p = skip_all(s, item.next)
         if is_char_at(s, p, ",") {
             p = skip_all(s, p + 1)
@@ -590,36 +595,36 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
 // ------------------------------------------------------------------ writing
 
 fn quote_basic(s: string) -> string {
-    val out = sb_new()
-    sb_append(out, "\"")
+    val out = mutable_string_new()
+    mutable_string_append(out, "\"")
     var i = 0
     while i < len(s) {
         val c = char_at(s, i)
         if c == "\"" {
-            sb_append(out, "\\\"")
+            mutable_string_append(out, "\\\"")
         } else if c == "\\" {
-            sb_append(out, "\\\\")
+            mutable_string_append(out, "\\\\")
         } else if c == "\n" {
-            sb_append(out, "\\n")
+            mutable_string_append(out, "\\n")
         } else if c == "\t" {
-            sb_append(out, "\\t")
+            mutable_string_append(out, "\\t")
         } else if c == "\r" {
-            sb_append(out, "\\r")
+            mutable_string_append(out, "\\r")
         } else if compare(c, " ") < 0 {
             val code = string_to_bytes(c)[0] as int
-            sb_append(
+            mutable_string_append(
                 out,
                 "\\u00",
                 substring(hex_chars, code / 16, code / 16 + 1),
                 substring(hex_chars, code % 16, code % 16 + 1)
             )
         } else {
-            sb_append(out, c)
+            mutable_string_append(out, c)
         }
         i = i + 1
     }
-    sb_append(out, "\"")
-    return sb_to_string(out)
+    mutable_string_append(out, "\"")
+    return snapshot(out)
 }
 
 fn key_text(k: string) -> string {
@@ -635,11 +640,11 @@ fn key_text(k: string) -> string {
 }
 
 fn path_text(path: [string]) -> string {
-    val parts = ab_new<string>()
+    val parts = mutable_array_new<string>()
     for k in path {
-        ab_append(parts, key_text(k))
+        mutable_array_push(parts, key_text(k))
     }
-    return join(separator: ".", pieces: ab_to_array(parts))
+    return join(separator: ".", pieces: snapshot(parts))
 }
 
 fn float_text(f: float) -> string {
@@ -669,26 +674,26 @@ fn inline_value(j: Json) -> Result<string, string> {
         JNumber(n) { ok(number_text(n)) }
         JString(s) { ok(quote_basic(s)) }
         JArray(items) {
-            val parts = ab_new<string>()
+            val parts = mutable_array_new<string>()
             for item in items {
                 val text = try inline_value(item)
-                ab_append(parts, text)
+                mutable_array_push(parts, text)
             }
-            ok(concat("[", join(separator: ", ", pieces: ab_to_array(parts)), "]"))
+            ok(concat("[", join(separator: ", ", pieces: snapshot(parts)), "]"))
         }
         JObject(fields) {
-            val parts = ab_new<string>()
+            val parts = mutable_array_new<string>()
             for key, value in fields {
                 if Json.is_JNull(value) {
                     continue
                 }
                 val text = try inline_value(value)
-                ab_append(parts, concat(key_text(key), " = ", text))
+                mutable_array_push(parts, concat(key_text(key), " = ", text))
             }
-            if ab_len(parts) == 0 {
+            if len(parts) == 0 {
                 ok("{}")
             } else {
-                ok(concat("{ ", join(separator: ", ", pieces: ab_to_array(parts)), " }"))
+                ok(concat("{ ", join(separator: ", ", pieces: snapshot(parts)), " }"))
             }
         }
     }
@@ -716,16 +721,16 @@ fn write_table(out: MutableString, table: Json, path: [string]) -> Result<int, s
             continue
         }
         val text = try inline_value(value)
-        sb_append(out, key_text(key), " = ", text, "\n")
+        mutable_string_append(out, key_text(key), " = ", text, "\n")
     }
     for key, value in fields {
         val sub_path = concat_arrays<string>(path, [key])
         if Json.is_JObject(value) {
-            sb_append(out, "\n[", path_text(sub_path), "]\n")
+            mutable_string_append(out, "\n[", path_text(sub_path), "]\n")
             try write_table(out, value, sub_path)
         } else if is_table_array(value) {
             for item in Json.unwrap_JArray(value) {
-                sb_append(out, "\n[[", path_text(sub_path), "]]\n")
+                mutable_string_append(out, "\n[[", path_text(sub_path), "]]\n")
                 try write_table(out, item, sub_path)
             }
         }
@@ -741,8 +746,8 @@ pub fn toml_to_string(j: Json) -> Result<string, string> {
     if !Json.is_JObject(j) {
         return err("a TOML document must be an object")
     }
-    val out = sb_new()
+    val out = mutable_string_new()
     try write_table(out, j, [])
-    val text = sb_to_string(out)
+    val text = snapshot(out)
     return ok(if starts_with(text, "\n") { substring(text, 1, len(text)) } else { text })
 }
