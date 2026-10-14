@@ -2013,6 +2013,13 @@ from source.
   docs/DESIGN.md, "`Mutable<T>`: the root of the family, and why there is no `MutableInt`" and "The
   builders become mutable collections".*
 
+  *Update 2026-10-14: built, F108. So "do it when a real program asks" below was not the test it
+  ended up taking -- the whole mutable-collection rename (F103/F104) made `Mutable<T>` the root of a
+  family rather than a fifth member of one, and at that point it cost three natives and one ordinary
+  Ziman function, because `#[thread_bound]`, the non-comparability (F107) and the `Mutable*` naming
+  check (F106) all applied to it without a line of new code. The worked actor example named at the
+  end of this entry is still not written.*
+
 - **Interval notation for ranges: `[a..b]`, `(a..b)`, `[a..b)`, `(a..b]`.** Raised 2026-10-12 by
   Menderes. **Undecided, and may well be declined** -- recorded so that both the option and its price
   are on the record rather than rediscovered. The idea is that each end's bracket states its own
