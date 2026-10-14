@@ -887,7 +887,9 @@ static Value native_net_negotiated_protocol_raw(Value *args, int argc, int line,
         out[0] = '\0';
     }
     handle_unuse(h);
-    return ok_result(str_type, value_string(out));
+    /* `value_string` borrows; `out` is about to go out of scope. See `peer_certificate_raw` below
+     * for what that costs when the optimiser reuses the frame. */
+    return ok_result(str_type, value_string(ziman_xstrdup(out)));
 }
 
 /* peer_certificate_raw(handle) -> Result<string, string>: the one-line subject name of the
@@ -917,7 +919,13 @@ static Value native_net_peer_certificate_raw(Value *args, int argc, int line, in
     if (cert == NULL) return ok_result(str_type, value_string(""));
     char subject[512];
     const char *name = X509_NAME_oneline(X509_get_subject_name(cert), subject, (int)sizeof subject);
-    Value out = ok_result(str_type, value_string(name == NULL ? "" : subject));
+    /* `ziman_xstrdup`, because `value_string` borrows its pointer rather than copying it and
+     * `subject` is a stack array that dies on the next line. This read as harmless for as long as
+     * the frame happened to survive being read back: on `ziman-nogc` at -O2 it returned "" for
+     * every certificate, 3 of 3 runs, which is the value an application authorizes a caller on --
+     * so a named client arrives as anonymous. 29 of this file's 31 `value_string` calls already
+     * pass owned or static memory; this and the ALPN one above were the two that did not. */
+    Value out = ok_result(str_type, value_string(name == NULL ? ziman_xstrdup("") : ziman_xstrdup(subject)));
     X509_free(cert);
     return out;
 }

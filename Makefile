@@ -212,9 +212,15 @@ preflight: $(BIN)
 northstar-both: $(BIN)
 	@set -e; app=$${ZIMAN_NORTHSTAR:-../health-record/health-record-backend-ziman}; 	if [ ! -x "$$app/src/test/other/run-all.sh" ]; then 	    echo "northstar-both: no North Star checkout at $$app (set ZIMAN_NORTHSTAR)"; exit 1; 	fi; 	cd "$$app/src/test/other" && ZIMAN=$(abspath $(BIN)) ./run-all.sh --both
 
-tls-if-available: $(BIN)
+# Both builds, because the TLS suite ran only against $(BIN) and that is exactly how A39 survived:
+# two `value_string` calls handed a borrowed pointer to a stack array, which the default build
+# happened to read back intact and `ziman-nogc` at -O2 did not -- `peer_certificate_subject`
+# returned "" for every certificate there, 3 of 3 runs, while the gate stayed green. The whole
+# suite takes under a second, so running it twice is the cheapest of the three gaps of this shape
+# this file has now grown a fix for (see B7's --postgres job and E21's --fmt --check).
+tls-if-available: $(BIN) ziman-nogc
 	@if command -v openssl >/dev/null 2>&1; then \
-	    ./tests/run_tls_tests.sh; \
+	    ./tests/run_tls_tests.sh && BIN=./ziman-nogc ./tests/run_tls_tests.sh; \
 	else \
 	    echo "tls-if-available: skipped -- openssl is not on PATH, so the TLS suite cannot run"; \
 	fi
