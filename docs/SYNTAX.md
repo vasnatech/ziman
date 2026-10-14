@@ -341,7 +341,7 @@ for x in seen { ... }                    // a set has one binder
   copying per entry) -- use in a loop adding many entries. Type arguments written out
   (`mapb_set<string, int>(mb, "a", 1)`); `_to_map`/`_to_set` snapshot into an immutable Map/Set
   (O(n) copy, builder stays usable, later changes don't touch the snapshot). One thread at a time.
-  `len(mb)` works on any builder and is the same answer as `_len`.
+  `len(mb)` and `contains(mb, k)` work on any builder and are the same answers as `_len`/`_contains`.
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
   building an n-entry map is O(n log n).
@@ -2515,7 +2515,12 @@ a type error.
   optional `-` and digits (a float also a point/exponent; `parse_float` reads `nan`/`inf`/`-inf`,
   not hex or `Infinity`/`NaN`). All four agree.
 - `contains(s, needle) -> bool` / `contains(arr: [T], x: T) -> bool` — substring test, or
-  array membership via `==` (`T` must support `==`, same rule as array `==` itself).
+  array membership via `==` (`T` must support `==`, same rule as array `==` itself). Also answers
+  for a `Map`/`Set` key and for any of the four builders, each the same question its immutable
+  counterpart answers: a substring of a `StringBuilder`, a key of a `MapBuilder`, an element of a
+  `SetBuilder` or `ArrayBuilder`. The `ArrayBuilder` is the one O(n) case, and the only one where
+  the `==` requirement can fail -- a `MapBuilder` key and a `SetBuilder` element are already
+  bounded `Eq + Hash` by their declarations.
 - `compare(a: T, b: T) -> int` — negative/zero/positive; `T` is any `Ord` type (see "Ordering")
   -- the way to order a struct/enum, where `< > <= >=` (numbers/strings/bytes only) don't reach.
 - `hash(x: T) -> int` — `T` is any type supporting `==` with only hashable parts (the six

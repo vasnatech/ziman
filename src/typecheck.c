@@ -2209,7 +2209,45 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
             return type_scalar(TY_BOOL);
         }
-        ziman_error("type", first_arg->line, first_arg->col, "'contains' expects a string, array, map or set as its first argument, found %s", type_name(first_type));
+        if (is_builder_type(first_type)) {
+            /* The question each builder answers is its immutable counterpart's: a substring for a
+             * StringBuilder, a key for a MapBuilder, an element for the other two. The element or
+             * key type is the declaration's first type argument (`ArrayBuilder<T>`,
+             * `MapBuilder<K, V>`, `SetBuilder<T>`); StringBuilder is not generic and takes a
+             * string. */
+            if (strcmp(first_type.struct_name, "StringBuilder") == 0) {
+                Type second_type = check_expr(module, env, second_arg);
+                if (second_type.kind != TY_STRING) {
+                    ziman_error("type", second_arg->line, second_arg->col,
+                                "argument 2 of 'contains' expects string (a StringBuilder holds text), found %s",
+                                type_name(second_type));
+                }
+                return type_scalar(TY_BOOL);
+            }
+            if (first_type.type_args.count < 1) {
+                ziman_error("type", first_arg->line, first_arg->col, "'contains' needs %s's element type, which is not known here",
+                            first_type.struct_name);
+            }
+            Type want = first_type.type_args.items[0];
+            int is_array_builder = strcmp(first_type.struct_name, "ArrayBuilder") == 0;
+            /* Only the ArrayBuilder needs this said: a MapBuilder's key and a SetBuilder's element
+             * are already `Eq + Hash` by their declarations' own bounds, so there is nothing left
+             * to check for them. */
+            if (is_array_builder && !type_supports_equality(module, want, 0)) {
+                ziman_error("type", first_arg->line, first_arg->col,
+                            "'contains' requires an ArrayBuilder of a comparable ('==') element type, found %s",
+                            type_name(first_type));
+            }
+            Type second_type = check_expr_expecting(module, env, &e->as.call.args.items[1], want);
+            if (!type_equals(second_type, want)) {
+                ziman_error("type", second_arg->line, second_arg->col,
+                            "argument 2 of 'contains' expects %s (the %s's %s type), found %s", type_name(want),
+                            first_type.struct_name, is_array_builder ? "element" : (strcmp(first_type.struct_name, "MapBuilder") == 0 ? "key" : "element"),
+                            type_name(second_type));
+            }
+            return type_scalar(TY_BOOL);
+        }
+        ziman_error("type", first_arg->line, first_arg->col, "'contains' expects a string, array, map, set or builder as its first argument, found %s", type_name(first_type));
     }
 
     if (strcmp(name, "compare") == 0) {

@@ -1,0 +1,8 @@
+// The same requirement `contains` already makes of an array: the element type has to support `==`,
+// or "is this present" has no answer. A MapBuilder's key and a SetBuilder's element need no such
+// check -- their declarations are already bounded `Eq + Hash` -- so the ArrayBuilder is the only
+// one of the four this can fail for.
+fn main() {
+    val ab = ab_new<Channel<int>>()
+    print(contains(ab, channel_new<int>()))
+}

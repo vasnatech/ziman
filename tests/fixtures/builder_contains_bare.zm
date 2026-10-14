@@ -1,0 +1,41 @@
+// `contains` answers for a builder too, and each one answers its immutable counterpart's question:
+// a substring for a StringBuilder, a key for a MapBuilder, an element for the other two. The
+// ArrayBuilder is the one O(n) case; the rest are a hash lookup or a byte search.
+
+fn main() {
+    val ab = ab_new<string>()
+    ab_append(ab, "pear", "fig")
+    print(contains(ab, "fig"))
+    print(contains(ab, "apple"))
+
+    // Packed mode -- the first appended element decides it -- is the same answer.
+    val ns = ab_new<int>()
+    ab_append(ns, 1, 2, 3)
+    print(contains(ns, 2))
+    print(contains(ns, 9))
+
+    // A StringBuilder is asked about text, not about one element, and an empty needle is found
+    // wherever the search starts -- the same rule `contains` on a string already follows.
+    val sb = sb_new()
+    sb_append(sb, "hello world")
+    print(contains(sb, "o w"))
+    print(contains(sb, "xyz"))
+    print(contains(sb, ""))
+
+    val mb = mapb_new<string, int>()
+    mapb_set(mb, "a", 1)
+    print(contains(mb, "a"))
+    print(contains(mb, "b"))
+    print(mapb_contains(mb, "a"))
+
+    val st = setb_new<int>()
+    setb_add(st, 7)
+    print(contains(st, 7))
+    print(contains(st, 8))
+    print(setb_contains(st, 7))
+
+    // Live, like every other read on a builder.
+    print(contains(ab, "plum"))
+    ab_append(ab, "plum")
+    print(contains(ab, "plum"))
+}

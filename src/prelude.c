@@ -1342,6 +1342,30 @@ int ziman_builder_length(Value v) {
     return mb_get_buf(v)->m->count;
 }
 
+/* `contains` on one of the four handles, for the interpreter's own `contains` branch. Answers the
+ * same question each immutable counterpart does: a substring for a StringBuilder, a key for a
+ * MapBuilder, an element for a SetBuilder, and an O(n) scan for an ArrayBuilder -- which is the
+ * one cost difference worth knowing, the other three being O(1) or a search over bytes.
+ * `value_key_equals` rather than `==`, matching call_contains's array branch exactly: `contains`
+ * is one builtin and must answer "is this present" the same way whichever container it is given,
+ * so a NaN appended to a builder is found just as a NaN in a Set is. */
+int ziman_builder_contains(Value v, Value needle) {
+    const char *name = v.type.struct_name;
+    if (name != NULL && strcmp(name, "ArrayBuilder") == 0) {
+        const ArrayBuilderBuf *buf = ab_table_get(ab_handle_of(v));
+        for (size_t i = 0; i < buf->length; i++) {
+            if (value_key_equals(ab_element_at(buf, i), needle)) return 1;
+        }
+        return 0;
+    }
+    if (name != NULL && strcmp(name, "StringBuilder") == 0) {
+        const StringBuilderBuf *buf = sb_table_get(sb_handle_of(v));
+        return value_str_find(buf->data, buf->length, needle.as.str.ptr, needle.as.str.len, 0) >= 0;
+    }
+    Value ignored;
+    return mapobj_get(mb_get_buf(v)->m, needle, &ignored) != 0;
+}
+
 /* --- Guard ------------------------------------------------------------------------------
  * guard_new(channel, message): a value whose only job is to send `message` on `channel` once
  * nothing references the guard any more (the garbage collector runs its finalizer). A database

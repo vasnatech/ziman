@@ -53,4 +53,9 @@ Value ziman_array_builder_at(Value ab, int i);
  * called once the typechecker has established the argument is one of them. */
 int ziman_builder_length(Value v);
 
+/* Whether a builder holds `needle`: a substring of a StringBuilder, a key of a MapBuilder, an
+ * element of a SetBuilder, or -- the one O(n) case -- an element of an ArrayBuilder. Only called
+ * once the typechecker has established the argument types. */
+int ziman_builder_contains(Value v, Value needle);
+
 #endif

@@ -612,6 +612,8 @@ static Value call_contains(Value first, Value second) {
         Value ignored;
         return value_bool(mapobj_get(first.as.map, second, &ignored));
     }
+    /* One of the four builders: the contents live behind the handle, not in the struct. */
+    if (first.type.kind == TY_STRUCT) return value_bool(ziman_builder_contains(first, second));
     ArrayObj *arr = first.as.arr;
     if (arr->bytes != NULL) {
         if (second.type.kind != TY_BYTE) return value_bool(0);
