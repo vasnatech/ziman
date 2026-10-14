@@ -271,14 +271,24 @@ void *ziman_frame_env_at(int i) {
 }
 
 void ziman_call_stack_release(void) {
-#ifdef ZIMAN_GC
-    if (t_frames != NULL) GC_FREE(t_frames);
-#else
-    free(t_frames);
-#endif
+    /* Cleared before the free, never after -- the same ordering `frames_grow` was given in A23, in
+     * the sibling that kept the old one (F127's neighbour, F128).
+     *
+     * Freeing first leaves a window in which `t_frames` is a dangling pointer and `t_frame_count`
+     * still says how many frames are in it. Two readers can land there: `--profile`'s SIGPROF
+     * handler, which reads the top frame on this very thread and can interrupt between the two
+     * statements, and the collector's root scan, which is handed both addresses by
+     * `ziman_frames_root_addrs` and would walk `t_frame_count` entries of freed memory. Taking the
+     * pointer into a local and publishing the empty state first closes both. */
+    ZimanFrame *old = t_frames;
     t_frames = NULL;
     t_frame_count = 0;
     t_frame_capacity = 0;
+#ifdef ZIMAN_GC
+    if (old != NULL) GC_FREE(old);
+#else
+    free(old);
+#endif
 }
 
 ZimanFramesRootAddrs ziman_frames_root_addrs(void) {
