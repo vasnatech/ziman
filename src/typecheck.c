@@ -16,9 +16,76 @@
 #include "token.h"
 #include "xalloc.h"
 
+/* A name index over `module->functions`, because the linear scan this replaced was the whole of a
+ * measured O(n^2): checking a file of n declarations took 0.01/0.03/0.09/0.34s at 2,000/4,000/
+ * 8,000/16,000, roughly quadrupling each time the count doubled (F130).
+ *
+ * One module is cached at a time, which is all this needs: the checker works through a module's
+ * declarations together, so the hit rate is effectively 100% and switching modules is rare.
+ *
+ * Grown *incrementally* rather than rebuilt. `find_function` is called while the module is still
+ * being filled, so rebuilding whenever the count changed would be quadratic again by another
+ * route; instead the entries added since last time are inserted and nothing else moves.
+ *
+ * Insert keeps the FIRST declaration of a name, because that is what the scan returned and a
+ * duplicate name is reported elsewhere -- changing which one wins would change which site the
+ * duplicate is blamed on. */
+typedef struct {
+    const char *name;
+    FunctionDecl *fn;
+} FnIndexSlot;
+
+static Module *g_fn_index_module = NULL;
+static int g_fn_index_filled = 0;
+static FnIndexSlot *g_fn_index = NULL;
+static size_t g_fn_index_cap = 0;
+
+static size_t fn_name_hash(const char *s) {
+    size_t h = 1469598103934665603u; /* FNV-1a */
+    for (const unsigned char *p = (const unsigned char *)s; *p != '\0'; p++) {
+        h ^= *p;
+        h *= 1099511628211u;
+    }
+    return h;
+}
+
+static void fn_index_put(FunctionDecl *fn) {
+    size_t at = fn_name_hash(fn->name) & (g_fn_index_cap - 1);
+    while (g_fn_index[at].name != NULL) {
+        if (strcmp(g_fn_index[at].name, fn->name) == 0) return; /* first declaration wins */
+        at = (at + 1) & (g_fn_index_cap - 1);
+    }
+    g_fn_index[at].name = fn->name;
+    g_fn_index[at].fn = fn;
+}
+
+static void fn_index_rebuild(Module *module) {
+    size_t want = 64;
+    while (want < (size_t)module->functions.count * 2u + 2u) want *= 2;
+    if (want > g_fn_index_cap) {
+        g_fn_index = ziman_xrealloc(g_fn_index, want * sizeof(FnIndexSlot));
+        g_fn_index_cap = want;
+    }
+    memset(g_fn_index, 0, g_fn_index_cap * sizeof(FnIndexSlot));
+    g_fn_index_module = module;
+    g_fn_index_filled = 0;
+}
+
 static FunctionDecl *find_function(Module *module, const char *name) {
-    for (int i = 0; i < module->functions.count; i++) {
-        if (strcmp(module->functions.items[i]->name, name) == 0) return module->functions.items[i];
+    if (module == NULL) return NULL;
+    /* A rebuild when the module changes or has shrunk, and when the table would pass half full --
+     * open addressing degrades badly beyond that, and the load factor is what keeps the lookup O(1). */
+    if (g_fn_index_module != module || g_fn_index_filled > module->functions.count ||
+        (size_t)module->functions.count * 2u + 2u > g_fn_index_cap) {
+        fn_index_rebuild(module);
+    }
+    for (; g_fn_index_filled < module->functions.count; g_fn_index_filled++) {
+        fn_index_put(module->functions.items[g_fn_index_filled]);
+    }
+    size_t at = fn_name_hash(name) & (g_fn_index_cap - 1);
+    while (g_fn_index[at].name != NULL) {
+        if (strcmp(g_fn_index[at].name, name) == 0) return g_fn_index[at].fn;
+        at = (at + 1) & (g_fn_index_cap - 1);
     }
     return NULL;
 }
@@ -5505,11 +5572,14 @@ void typecheck(Module *module) {
                 ziman_error("type", fn->line, fn->col, "'%s' is a builtin function and cannot be redefined", fn->name);
             }
         }
-        for (int j = i + 1; j < module->functions.count; j++) {
-            if (strcmp(fn->name, module->functions.items[j]->name) == 0) {
-                ziman_error("type", module->functions.items[j]->line, module->functions.items[j]->col,
-                            "function '%s' is already defined", fn->name);
-            }
+        /* The duplicate check, through the name index rather than as an inner loop over every
+         * later declaration. That inner loop was the whole of the measured O(n^2): n^2/2 strcmps,
+         * which is about two billion of them at 64,000 declarations and the 9.36s this took.
+         * `find_function` returns the *first* declaration of a name, so a function that is not the
+         * one the index gives back is a later duplicate -- reported at its own position, which is
+         * where the inner loop reported it too (F130). */
+        if (find_function(module, fn->name) != fn) {
+            ziman_error("type", fn->line, fn->col, "function '%s' is already defined", fn->name);
         }
         /* Same reasoning as the struct/enum type-parameter checks above. */
         for (int tp = 0; tp < fn->type_params.count; tp++) {
