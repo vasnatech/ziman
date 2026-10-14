@@ -482,7 +482,10 @@ static Value native_reset(Value *args, int argc, int line, int col) {
         Metric *m = &g_metrics[i];
         pthread_mutex_lock(&m->mu);
         for (int j = 0; j < m->nseries; j++) free(m->series[j].labels);
-        m->nseries = 0;
+        /* An atomic store, because `record_at` reads this field with an acquire load and without
+         * `m->mu` -- holding the mutex here does not make a plain store safe against a reader that
+         * never takes it (F132). */
+        __atomic_store_n(&m->nseries, 0, __ATOMIC_RELEASE);
         m->dropped = 0;
         pthread_mutex_unlock(&m->mu);
         pthread_mutex_destroy(&m->mu);

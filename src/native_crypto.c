@@ -260,7 +260,11 @@ static Value native_bcrypt(Value *args, int argc, int line, int col) {
     char *hash = crypt_r(password, setting, data);
     Value out = (hash != NULL && hash[0] == '$') ? string_result_ok(hash) : string_result_err("bcrypt: hashing failed");
     OPENSSL_cleanse(data, sizeof *data);
-    OPENSSL_cleanse(password, strlen(password));
+    /* The copied length, not `strlen`: `copy_cstring` copied `args[0].as.str.len` bytes, and a
+     * secret containing a NUL would leave its tail in the heap if the wipe stopped at the first
+     * one. Wrong on principle whatever the reachability, and A49 only closed the JSON route in
+     * (F132). */
+    OPENSSL_cleanse(password, (size_t)args[0].as.str.len);
     free(data);
     free(password);
     return out;
@@ -281,7 +285,7 @@ static Value native_bcrypt_verify(Value *args, int argc, int line, int col) {
         OPENSSL_cleanse(data, sizeof *data);
         free(data);
     }
-    OPENSSL_cleanse(password, strlen(password));
+    OPENSSL_cleanse(password, (size_t)args[0].as.str.len); /* see native_bcrypt */
     free(password);
     free(hash);
     return value_bool(ok);

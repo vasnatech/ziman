@@ -156,13 +156,17 @@ static int hexval(char ch) {
 /* Binds one tagged-string parameter (1-based index). Returns SQLite's rc,
  * or -1 for a malformed tag/payload (a bug in sqlite.zm's own encoder, not a
  * user-facing condition). */
-static int bind_param(sqlite3_stmt *stmt, int index, const char *p) {
+/* `len` is the tagged string's own byte length, so a value containing a NUL binds whole. The
+ * text case used to pass -1 and let SQLite measure to the first NUL, which stored a truncated
+ * value -- the parameter arrives here as a `const char *` from `value_cstr`, and the length was
+ * simply dropped on the way (F132). */
+static int bind_param(sqlite3_stmt *stmt, int index, const char *p, size_t len) {
     switch (p[0]) {
         case 'N': return sqlite3_bind_null(stmt, index);
         case 'I': return sqlite3_bind_int64(stmt, index, strtoll(p + 1, NULL, 10));
         case 'b': return sqlite3_bind_int64(stmt, index, p[1] == '1' ? 1 : 0);
         case 'F': return sqlite3_bind_double(stmt, index, strtod(p + 1, NULL));
-        case 'T': return sqlite3_bind_text(stmt, index, p + 1, -1, SQLITE_TRANSIENT);
+        case 'T': return sqlite3_bind_text(stmt, index, p + 1, len > 0 ? (int)(len - 1) : 0, SQLITE_TRANSIENT);
         case 'B': {
             size_t hex_len = strlen(p + 1);
             if (hex_len % 2 != 0) return -1;
@@ -185,7 +189,8 @@ static int bind_all(sqlite3_stmt *stmt, ArrayObj *params) {
     int expected = sqlite3_bind_parameter_count(stmt);
     if (expected != params->count) return -2;
     for (int i = 0; i < params->count; i++) {
-        int rc = bind_param(stmt, i + 1, value_cstr(array_get(params, i)));
+        Value param = array_get(params, i);
+        int rc = bind_param(stmt, i + 1, value_cstr(param), (size_t)param.as.str.len);
         if (rc != SQLITE_OK) return rc == -1 ? -1 : rc;
     }
     return SQLITE_OK;

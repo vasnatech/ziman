@@ -898,7 +898,12 @@ static Value native_net_negotiated_protocol_raw(Value *args, int argc, int line,
     Type str_type = type_scalar(TY_STRING);
     NetHandle *h = require_handle(args[0].as.i, "negotiated_protocol", line, col);
     if (!handle_acquire(h)) return err_result(str_type, "closed", "connection closed");
+    /* Under `tls_mu`, like every other reader of this field: `install_ssl` publishes the pointer
+     * under that lock, so a plain load here races it. Holding a reference stops the SSL being
+     * *freed*, which is a different guarantee from seeing a consistent pointer (F132). */
+    pthread_mutex_lock(&h->tls_mu);
     SSL *ssl = h->ssl;
+    pthread_mutex_unlock(&h->tls_mu);
     const unsigned char *name = NULL;
     unsigned int len = 0;
     if (ssl != NULL) SSL_get0_alpn_selected(ssl, &name, &len);
@@ -928,7 +933,9 @@ static Value native_net_peer_certificate_raw(Value *args, int argc, int line, in
     Type str_type = type_scalar(TY_STRING);
     NetHandle *h = require_handle(args[0].as.i, "peer_certificate", line, col);
     if (!handle_acquire(h)) return err_result(str_type, "closed", "connection closed");
+    pthread_mutex_lock(&h->tls_mu); /* see negotiated_protocol above */
     SSL *ssl = h->ssl;
+    pthread_mutex_unlock(&h->tls_mu);
     if (ssl == NULL) {
         handle_unuse(h);
         return ok_result(str_type, value_string(""));

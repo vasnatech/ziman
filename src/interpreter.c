@@ -5,6 +5,7 @@
 #include "native_thread.h"
 #include "stack.h"
 
+#include <limits.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -1497,8 +1498,17 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "channel_new") == 0) {
                 int limit = 0;
                 if (argc > 0) {
+                    /* Both ends checked before the narrowing, not after. `(int)args[0].as.i` for a
+                     * capacity of 2^32 is 0, and for 2^31 it is negative -- neither of which the
+                     * `< 1` test above could see, because it ran on the 64-bit value. The same
+                     * shape as the metrics handle in A40 (F132). */
                     if (args[0].as.i < 1) {
                         ziman_error("runtime", e->line, e->col, "channel_new: capacity must be at least 1, found %lld", (long long)args[0].as.i);
+                    }
+                    if (args[0].as.i > INT_MAX) {
+                        ziman_error("runtime", e->line, e->col,
+                                    "channel_new: capacity must be at most %d, found %lld", INT_MAX,
+                                    (long long)args[0].as.i);
                     }
                     limit = (int)args[0].as.i;
                 }
