@@ -237,6 +237,7 @@ static void *run_program(void *raw) {
     }
     if (check_only) {
         if (json) printf("{\"ok\":true}\n");
+        ziman_gc_unregister_thread_roots();
         return NULL;
     }
     /* Enabled before the program runs and reported after it, so the report covers the whole run
@@ -264,6 +265,16 @@ static void *run_program(void *raw) {
         exit(uncovered == 0 ? 0 : 1);
     }
 
+    /* Both exits unregister, so `g_roots` does not keep a node pointing at this thread's TLS after
+     * it is joined -- the pairing `interpreter.c` already has for a spawned thread, and that
+     * `run_program` was missing (F129).
+     *
+     * The practical reach is small today and worth saying so rather than overstating it: the only
+     * caller is `ziman_run_on_big_stack` from `main`, which returns 0 immediately afterwards, so
+     * nothing allocates or collects in the window. `run_tests_program` cannot leave one at all,
+     * because every path out of it is an `exit`. What this closes is the trap for the next caller
+     * that does work after the join. */
+    ziman_gc_unregister_thread_roots();
     return NULL;
 }
 
