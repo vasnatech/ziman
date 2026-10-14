@@ -1,0 +1,5 @@
+// `snapshot` crosses out of the mutable world, so there is nothing for it to do to a value that
+// is already one -- an array is not a builder, and the message names what it does take.
+fn main() {
+    print(snapshot([1, 2]))
+}

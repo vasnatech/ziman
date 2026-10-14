@@ -1295,6 +1295,12 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "len") == 0) {
                 result = call_len(args[0]);
+            } else if (strcmp(e->as.call.callee, "snapshot") == 0) {
+                result = ziman_builder_snapshot(args[0]);
+                /* The natives behind it tag their result TY_VOID or a placeholder element type, so
+                 * the call's own resolved type is what makes it an `[int]` rather than an array of
+                 * nothing -- the same patch the plain-call path applies to any generic native. */
+                result.type = e->resolved_type;
             } else if (strcmp(e->as.call.callee, "push") == 0) {
                 result = call_push(e->resolved_type, args[0], args[1]);
             } else if ((strcmp(e->as.call.callee, "set") == 0 || strcmp(e->as.call.callee, "insert") == 0) &&

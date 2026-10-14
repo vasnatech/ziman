@@ -1366,6 +1366,21 @@ int ziman_builder_contains(Value v, Value needle) {
     return mapobj_get(mb_get_buf(v)->m, needle, &ignored) != 0;
 }
 
+/* `snapshot` on one of the four handles: the same O(n) copy out that `ab_to_array`,
+ * `mapb_to_map`, `setb_to_set` and `sb_to_string` have always done, reached by one name instead of
+ * four. Nothing new happens here -- it dispatches to those very implementations -- so a builder
+ * stays usable afterwards and a later change does not touch the copy, exactly as before.
+ *
+ * The result's own type is left for the caller to set from the call's resolved type, which is what
+ * these natives already require: native_mb_snapshot returns a map tagged TY_VOID and the generic
+ * natives are patched the same way in the interpreter's plain-call path. */
+Value ziman_builder_snapshot(Value v) {
+    const char *name = v.type.struct_name;
+    if (name != NULL && strcmp(name, "ArrayBuilder") == 0) return native_ab_to_array(&v, 1, 0, 0);
+    if (name != NULL && strcmp(name, "StringBuilder") == 0) return native_sb_to_string(&v, 1, 0, 0);
+    return native_mb_snapshot(&v, 1, 0, 0);
+}
+
 /* --- Guard ------------------------------------------------------------------------------
  * guard_new(channel, message): a value whose only job is to send `message` on `channel` once
  * nothing references the guard any more (the garbage collector runs its finalizer). A database

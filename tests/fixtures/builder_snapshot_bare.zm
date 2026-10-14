@@ -1,0 +1,45 @@
+// `snapshot` is one name for the four conversions out of a builder -- `ab_to_array`,
+// `sb_to_string`, `mapb_to_map`, `setb_to_set` -- and the result type follows the argument's:
+// an `[T]`, a `string`, a `Map<K, V>` or a `Set<T>`. Nothing about the copy changes, which is
+// the half worth pinning: the builder stays usable and a later change does not touch a snapshot
+// already taken.
+use collections
+
+fn main() {
+    val ab = ab_new<int>()
+    ab_append(ab, 3, 1, 2)
+    val xs = snapshot(ab)
+    print(xs)
+    print(ab_to_array(ab))
+    // A real `[int]`, not an array of nothing: indexing, arithmetic and `len` all work on it.
+    print(len(xs))
+    print(xs[0] + xs[1])
+
+    val sb = sb_new()
+    sb_append(sb, "hel", "lo")
+    print(snapshot(sb))
+    print(concat(snapshot(sb), "!"))
+
+    val mb = mapb_new<string, int>()
+    mapb_set(mb, "a", 1)
+    mapb_set(mb, "b", 2)
+    val m = snapshot(mb)
+    print(m)
+    print(map_get(m, "a"))
+    print(map_keys(m))
+
+    val st = setb_new<string>()
+    setb_add(st, "x")
+    print(snapshot(st))
+    print(contains(snapshot(st), "x"))
+
+    // The snapshot does not move when the builder changes afterwards.
+    ab_append(ab, 99)
+    print(xs)
+    print(snapshot(ab))
+
+    // A non-scalar element type comes back with its real type, so this type-checks and sorts.
+    val strs = ab_new<string>()
+    ab_append(strs, "q", "p")
+    print(collections.sort<string>(snapshot(strs)))
+}

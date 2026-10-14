@@ -293,7 +293,8 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   element one `set` at a time is O(n²) -- `ArrayBuilder<T>` (`ab_new`/`ab_append`/`ab_get`/
   `ab_set`/`ab_len`/`ab_clear`/`ab_to_array`) is the right tool for building/editing a large
   array piece by piece. It reads back in place: `len(ab)`, `ab_get` and `for x in ab` cost nothing,
-  where `ab_to_array` copies the whole buffer every call (`--lint` flags that in a loop). See
+  where `snapshot`/`ab_to_array` copies the whole buffer every call (`--lint` flags that in a
+  loop). See
   "Builtins" for exact signatures.
 
 ## Maps and sets
@@ -341,7 +342,8 @@ for x in seen { ... }                    // a set has one binder
   copying per entry) -- use in a loop adding many entries. Type arguments written out
   (`mapb_set<string, int>(mb, "a", 1)`); `_to_map`/`_to_set` snapshot into an immutable Map/Set
   (O(n) copy, builder stays usable, later changes don't touch the snapshot). One thread at a time.
-  `len(mb)` and `contains(mb, k)` work on any builder and are the same answers as `_len`/`_contains`.
+  `len(mb)`, `contains(mb, k)` and `snapshot(mb)` work on any builder and are the same answers as
+  `_len`/`_contains`/`_to_map`.
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
   building an n-entry map is O(n log n).
@@ -2465,6 +2467,12 @@ a type error.
   `Map`, a `Set`, and any of the four builders (`ArrayBuilder`, `StringBuilder`, `MapBuilder`,
   `SetBuilder`), so asking a collection its size never needs a per-type name or a conversion. It
   answers for a *builder*, not for a struct that holds one, which has no length of its own.
+- `snapshot(b)` — a builder's contents copied out as the immutable value it is building: an
+  `ArrayBuilder<T>` gives `[T]`, a `StringBuilder` gives `string`, a `MapBuilder<K, V>` gives
+  `Map<K, V>`, a `SetBuilder<T>` gives `Set<T>`. One name for `ab_to_array`/`sb_to_string`/
+  `mapb_to_map`/`setb_to_set`, which all still work and do the same thing: an O(n) copy, after
+  which the builder stays usable and later changes do not touch the snapshot. Takes a builder
+  only -- an array is already a value, so there is nothing to copy out of.
 - `substring(s, start, end) -> string` — `[start, end)`, `0 <= start <= end <= len(s)` else a
   runtime error. Does not copy -- a string is a pointer+length over immutable bytes, so this
   (and `trim`/`char_at`/`split`'s pieces) is a view, free to make, `len` O(1); it keeps the

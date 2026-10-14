@@ -1253,6 +1253,7 @@ static const char *const PURE_BUILTINS[] = {
     "map_remove_all", "map_from_arrays",
     "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
     "set_from_array", "set_insert_all", "set_filter",
+    "snapshot",
     NULL};
 
 static int is_pure_builtin_name(const char *name) {
@@ -1265,7 +1266,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -2154,6 +2155,32 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
         }
         return type_scalar(strcmp(name, "printf") == 0 ? TY_VOID : TY_STRING);
+    }
+
+    if (strcmp(name, "snapshot") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'snapshot' takes exactly 1 argument, found %d", e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(module, env, arg);
+        if (!is_builder_type(arg_type)) {
+            ziman_error("type", arg->line, arg->col,
+                        "'snapshot' expects a builder -- an ArrayBuilder, StringBuilder, MapBuilder or SetBuilder -- found %s",
+                        type_name(arg_type));
+        }
+        /* The one builtin whose result type is a function of its argument's, which `map_keys`
+         * already does the same way: each builder answers the immutable type it is building. */
+        if (strcmp(arg_type.struct_name, "StringBuilder") == 0) return type_scalar(TY_STRING);
+        if (arg_type.type_args.count < 1) {
+            ziman_error("type", arg->line, arg->col, "'snapshot' needs %s's element type, which is not known here",
+                        arg_type.struct_name);
+        }
+        if (strcmp(arg_type.struct_name, "ArrayBuilder") == 0) return type_array(arg_type.type_args.items[0]);
+        if (strcmp(arg_type.struct_name, "SetBuilder") == 0) return type_set(arg_type.type_args.items[0]);
+        if (arg_type.type_args.count < 2) {
+            ziman_error("type", arg->line, arg->col, "'snapshot' needs MapBuilder's value type, which is not known here");
+        }
+        return type_map(arg_type.type_args.items[0], arg_type.type_args.items[1]);
     }
 
     if (strcmp(name, "len") == 0) {
@@ -4960,7 +4987,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "set_from_array", "set_insert_all", "set_filter", "snapshot"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

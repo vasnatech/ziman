@@ -58,4 +58,9 @@ int ziman_builder_length(Value v);
  * once the typechecker has established the argument types. */
 int ziman_builder_contains(Value v, Value needle);
 
+/* A builder's contents copied out as the immutable value it corresponds to: an `[T]`, a
+ * `Map<K, V>`, a `Set<T>` or a `string`. The caller sets the result's type from the call's
+ * resolved type, as the per-type natives behind it already require. */
+Value ziman_builder_snapshot(Value v);
+
 #endif
