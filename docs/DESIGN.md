@@ -1584,7 +1584,12 @@ them against the code.
   that `join` takes more than one parameter.
 - **`StringBuilder` -- a general, write-once fix for the whole class of
   problem `join`'s own motivation (see "Variadic parameters" above) was
-  only ever a partial answer to.** Prompted directly by
+  only ever a partial answer to.** *Superseded in part by "The builders
+  become mutable collections" (2026-10-13): the type is renamed
+  `MutableString` and gains a read surface. Two things this entry already
+  recorded are what that decision rests on -- that `sb_to_string` is a
+  snapshot rather than a one-time finish, and that printing
+  `StringBuilder { handle: N }` is "actively wrong".* Prompted directly by
   `uuid_to_string`: still a concat-in-a-loop (~20 calls per UUID, each
   abandoning its own intermediate string -- see the memory-reclamation
   entry on why that never gets reclaimed), a real, repeated cost given
@@ -3489,11 +3494,30 @@ find the type at all -- which is the measurement that gates this work.
 | array | `[T]` · `array_*` | `MutableArray<T>` · `mutable_array_*` |
 | map | `Map<K, V>` · `map_*` | `MutableMap<K, V>` · `mutable_map_*` |
 | set | `Set<T>` · `set_*` | `MutableSet<T>` · `mutable_set_*` |
+| string | `string` · bare helpers | `MutableString` · `mutable_string_*` |
 
-`StringBuilder` keeps its name: it is a real builder, append-only and frozen once, with a prior in
-every other language, and nothing about it wants to be read back in place.
+**`StringBuilder` becomes `MutableString`, and two of the three reasons for keeping its name do not
+survive checking.** "Frozen once" is simply wrong: `sb_to_string`'s own doc comment says *"It is a
+copy: appending afterwards is fine, and it can be called more than once"* -- the same
+snapshot-not-freeze semantics as the other three. "Nothing wants to be read back in place" is the
+claim that was true of `ArrayBuilder` right up until F96 found `ab_to_array`-just-to-get-a-length
+through the backend, so it is an untested assumption rather than an argument.
 
-The long spelling is deliberate. `MutArr` is shorter across 667 call sites, but a model that reads
+What makes the rename cheap is that Ziman's strings are **byte-indexed** already: `len(s)` is bytes,
+`char_at(s, i)` is "the one-byte string at `i`", and `char_count` is the separate explicit helper.
+The UTF-8 ambiguity that usually makes a mutable string hard was settled for immutable strings long
+ago, so `len`, `mutable_string_get` and `mutable_string_set` all mean bytes, consistently.
+
+The honest counterweight: this is the **one rename in the set that loses prior art rather than
+gaining guessability**. `StringBuilder` is Java, C# and Go, and a cold model writes it correctly
+today; every other rename traded an unguessable name for a guessable one, and this trades a
+guessable name for a consistent one. Consistency wins because a model with `MutableArray`,
+`MutableMap` and `MutableSet` in front of it extends the pattern -- the same argument as the long
+spelling below -- but it is the weakest case of the four. It also drops the thread-bound rule to a
+single exception, `Iter`, which is a cursor rather than a container and keeps its name because
+nothing better exists.
+
+The long spelling is deliberate. `MutArr` is shorter across 1,200 call sites, but a model that reads
 `MutableArray` in a signature writes `mutable_array_push`, and an abbreviation has to be guessed
 twice -- once per half. Guessability is the whole point of the exercise, so it wins over typing.
 
@@ -3501,7 +3525,10 @@ twice -- once per half. Guessability is the whole point of the exercise, so it w
 an array's tail -- `push(arr, x)` on a value, `mutable_array_push(xs, x)` on a handle. `insert`
 puts a thing at a position, shifting what follows (`insert(arr, i, x)`, `mutable_array_insert`).
 `set` replaces at a key or index (`set(arr, i, x)`, `set(map, k, v)`, `mutable_array_set`,
-`mutable_map_set`). `add` hands a thing to a set and lets it decide (`mutable_set_add`).
+`mutable_map_set`). `add` hands a thing to a set and lets it decide (`mutable_set_add`). `append`
+concatenates onto the end of a text buffer (`mutable_string_append`, `mutable_string_append_byte`)
+and is used by nothing else -- a fifth verb, taken deliberately, because text genuinely reads as
+appended and `sb_append` is what it has always been called.
 
 The one divergence is that set: immutably it is `insert(s, x)`, mutably it is `mutable_set_add`.
 That is deliberate -- `insert` should mean *positional*, and on a hash set it cannot; the immutable
@@ -3515,9 +3542,24 @@ variadic, which is what keeps `MutableArray<[int]>` from being a special case:
 `mutable_array_push(xs, [1, 2])` appends exactly one element, because the only variadic forms are
 the `_all` ones.
 
+**That restriction applies only to the generic containers.** It exists because of type ambiguity --
+one element or two? -- which needs the element type to be a *type parameter*. `MutableString`'s
+pieces are concretely `string` and `byte`, and a `byte` can never be an array of bytes, so no
+ambiguity is constructible: it keeps variadic `mutable_string_append` and
+`mutable_string_append_byte`, and needs no `_all` forms at all.
+
 ### The surface
 
-Every `Mutable*` type also answers the bare builtins `len`, `contains` and `clear`.
+Every mutable collection also answers four bare builtins -- `len`, `contains`, `clear` and
+`snapshot`. **`snapshot` is bare rather than per-type**, which is the one place in this design the
+call-site count decided the shape: crossing back out is roughly 371 sites (`ab_to_array` 250,
+`sb_to_string` 90, `mapb_to_map` 26, `setb_to_set` the rest), second only to the appends and ahead
+of everything else combined, so the verbosity of `mutable_array_snapshot` would land precisely on
+the operation typed most. It is also the first builtin whose **return type is computed from its
+argument type** rather than fixed -- `MutableArray<T>` to `[T]`, `MutableMap<K,V>` to `Map<K,V>`,
+`MutableSet<T>` to `Set<T>`, `MutableString` to `string` -- which is new typechecker work, of the
+same kind the hardcoded generic-type table already is. No per-type aliases alongside it: one
+spelling, the `collections.sort` lesson.
 
 ```
 MutableArray<T>
@@ -3536,8 +3578,7 @@ MutableArray<T>
   mutable_array_sort<T: Ord>(xs)
   mutable_array_sort_desc<T: Ord>(xs)
   mutable_array_sort_with<T>(xs, cmp: fn(T, T) -> int)
-  mutable_array_snapshot<T>(xs) -> [T]
-  len(xs)   contains(xs, v)   clear(xs)
+  len(xs)   contains(xs, v)   clear(xs)   snapshot(xs) -> [T]
   for x in xs    for i, x in xs
 
 MutableMap<K: Eq + Hash, V>
@@ -3554,8 +3595,7 @@ MutableMap<K: Eq + Hash, V>
   mutable_map_remove_all<K, V>(m, keys: variadic K) -> bool
   mutable_map_keys<K, V>(m) -> Set<K>
   mutable_map_values<K, V>(m) -> [V]
-  mutable_map_snapshot<K, V>(m) -> Map<K, V>
-  len(m)   contains(m, key)   clear(m)
+  len(m)   contains(m, key)   clear(m)   snapshot(m) -> Map<K, V>
   for k in m    for k, v in m
 
 MutableSet<T: Eq + Hash>
@@ -3572,10 +3612,22 @@ MutableSet<T: Eq + Hash>
   mutable_set_difference<T>(s, other: Set<T> | MutableSet<T>)
   mutable_set_is_subset<T>(s, other: Set<T> | MutableSet<T>) -> bool
   mutable_set_items<T>(s) -> [T]
-  mutable_set_snapshot<T>(s) -> Set<T>
-  len(s)   contains(s, x)   clear(s)
+  len(s)   contains(s, x)   clear(s)   snapshot(s) -> Set<T>
   for x in s
+
+MutableString                                      #[thread_bound]
+  mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0)
+  mutable_string_append(s, pieces: variadic string)
+  mutable_string_append_byte(s, bytes: variadic byte)
+  mutable_string_get(s, index) -> string            the one-byte string, as char_at
+  mutable_string_set(s, index, value)
+  mutable_string_index_of(s, needle) -> int
+  mutable_string_last_index_of(s, needle) -> int
+  len(s)   contains(s, sub)   clear(s)   snapshot(s) -> string
 ```
+
+There is no `mutable_string_from`, and it would add nothing: `mutable_string_append(b, s)` already
+*is* the from-a-string case, in one call.
 
 `contains` is O(1) on a map and a set and **O(n) on a `MutableArray`** -- one bare name over two
 cost classes, which the documentation has to carry because the call site cannot.
@@ -3604,10 +3656,23 @@ two types has to name both when handed a third.
 exists. `mutable_array_from_set` does not: it is `mutable_array_from(set_items(s))` at one extra
 copy and nothing asks for it. Nor does `mutable_map_from_arrays`.
 
+For the two hash types `from` saves something different from a copy: it can duplicate the trie's
+nodes with leaves shared, exactly as `mapobj_snapshot` does in the other direction, instead of
+hashing and inserting every entry one at a time. Relatedly, **neither `mutable_map_new` nor
+`mutable_set_new` takes a capacity hint** where `mutable_array_new` and `mutable_string_new` do: a
+bitmap-compressed trie has no single capacity to reserve -- it grows node by node -- while a buffer
+has exactly one. The four constructors stay asymmetric for that reason rather than by accident.
+
 **4. Hashed handles iterate a snapshot; indexed handles iterate live.** `for x in xs` over a
 `MutableArray` re-reads the length each pass and sees appends made inside the loop (F96). A map and
-a set cannot -- a rehash leaves no stable index to re-read -- so they walk a snapshot of their keys
-in insertion order. The consequence for arrays is that sorting or reversing during a `for` reorders
+a set cannot, and the reason is not what it first looks like. `Map` and `Set` are a **persistent
+32-way hash array mapped trie** (`src/mapobj.h`, `BITS 5`, bitmap-compressed nodes) -- there is no
+table, no load factor and no rehash anywhere in it, because a key's path is fixed by its hash
+forever. What forces a snapshot is insertion order: each entry carries the sequence number it was
+first inserted with, and `mapobj_entries` sorts by it into fresh arrays, so iterating a
+`MutableMap` in insertion order **materialises the entries by construction** rather than by choice.
+Secondarily, a node's `slots` array shifts on insert via `realloc`, so there would be no stable
+cursor position either. So they walk a snapshot of their keys in insertion order. The consequence for arrays is that sorting or reversing during a `for` reorders
 what the loop has not reached, the same class as appending during iteration, and belongs in the
 same sentence of the docs.
 
@@ -3634,8 +3699,8 @@ SYNTAX.md lists the bare `map_*` and `set_*` helpers and never mentions them. Al
 that list.
 
 **`Mutable*` types are thread-bound, as a rule.** One-directional: every `Mutable*` type is
-`#[thread_bound]`, but not every thread-bound type is named `Mutable*` -- `StringBuilder` and
-`Iter` are not. Stating it once beats repeating it in three doc comments, but the cross-thread
+`#[thread_bound]`, but not every thread-bound type is named `Mutable*` -- `Iter` is not, and after
+`MutableString` it is the only one. Stating it once beats repeating it in three doc comments, but the cross-thread
 error still has to say it at the point of failure, because the name does not. `ArrayBuilder` at
 least implied a local scratch object; `MutableArray` implies nothing, which is the lie F96's entry
 warned about and the reason the first gate below exists.
@@ -3653,7 +3718,8 @@ handle is *already* thread-bound transitively: `struct MutableRingBuffer { buf: 
 head: Mutable<int> }` passes with no annotation, and the error fires only on a `Mutable*` name with
 nothing mutable inside. The matcher triggers on `Mutable` followed by an uppercase letter or the
 end of the name, so `MutablesRegistry` is not caught by accident. Not the converse: a thread-bound
-type need not be named `Mutable*`, or `StringBuilder` and `Iter` would both have to be renamed.
+type need not be named `Mutable*`, or `Iter` would have to be renamed and no better name exists for
+a cursor.
 
 The four built-in names need no such check -- a builtin type name is already unavailable, though by
 two different routes and one bad message: `struct Map` is a syntax error naming a reserved word,
@@ -3727,9 +3793,10 @@ collides with nothing: `mutable_set_add`.
 
 ### Migration
 
-Measured scope, excluding `lib/prelude.zm` itself: **667 call sites** (`ab_` 578, `mapb_` 83,
-`setb_` 6) plus 65 type mentions across `ziman` and `health-record-backend-ziman`, with docs,
-fixtures and the C source on top.
+Measured scope, excluding `lib/prelude.zm` itself: **1,103 call sites** (`ab_` 578, `sb_` 436,
+`mapb_` 83, `setb_` 6) plus 95 type mentions across `ziman` and `health-record-backend-ziman`, with
+docs, fixtures and the C source on top. `MutableString` is 40% of that on its own, which is worth
+weighing against the benchmark number in gate 2 before starting.
 
 Big bang, no deprecation window. A window is for a language with outside users who cannot be
 edited; here it costs something specific -- while both spellings work, the benchmark in gate 2
@@ -3763,20 +3830,21 @@ type each time a new mutable shape is wanted.
 ### Why `Mutable<T>` rather than `Cell<T>`
 
 The entry above makes "every `Mutable*` type is thread-bound" a rule, and notes it is
-one-directional because `StringBuilder` and `Iter` are thread-bound without the name. `Cell` would
-have made a third unnamed one, and a rule with a growing exception list stops being worth reading.
+one-directional because `Iter` is thread-bound without the name. `Cell` would have made a second
+unnamed one, and a rule with a growing exception list stops being worth reading.
 
-`Mutable<T>` is not an exception. It is the **root the other three are specialisations of**:
+`Mutable<T>` is not an exception. It is the **root the other four are specialisations of**:
 
 ```
 Mutable<T>            a mutable anything
 MutableArray<T>       a mutable array
 MutableMap<K, V>      a mutable map
 MutableSet<T>         a mutable set
+MutableString         a mutable string
 ```
 
 `Mutable` stops being a prefix and becomes a word with a meaning, which is worth more than
-matching Rust's and OCaml's spelling: a model that has seen the other three writes `Mutable<int>`
+matching Rust's and OCaml's spelling: a model that has seen the other four writes `Mutable<int>`
 without being told, where `Cell<int>` has to be imported from another language's idiom. And it
 costs almost nothing to type, because there is no shape word to carry --
 `mutable_set(n, mutable_get(n) + 1)` against `cell_set(n, cell_get(n) + 1)`.
@@ -3799,6 +3867,15 @@ Mutable<T>                                   #[thread_bound]
   mutable_set<T>(c, value)
   mutable_update<T>(c, f: fn(T) -> T) -> T   the new value, as mutable_map_update
 ```
+
+**A cell takes two of the four bare builtins and not the other two.** `len(c)` is 1 and
+`contains(c, v)` is "equals the value" (which needs `T: Eq`, checked at the call since `Mutable<T>`
+itself is unbounded). `clear(c)` is **not defined**, and that is the same decision as there being no
+empty `mutable_new<T>()`: it would need exactly the zero value `T` may not have, and a cell always
+holding something is the property worth keeping. `snapshot(c)` is not defined either, because a
+cell crosses out through `mutable_get` -- `snapshot` names an O(n) copy and this is an O(1) read, so
+they should not share a name. The line for the docs: a cell supports exactly the bare verbs that
+need nothing it does not have.
 
 **There is no `from`/`snapshot` pair**, which every other mutable type needs. A handle and a value
 are different shapes for an array, a map and a set, so each needs two world-crossings; a cell's
@@ -3865,13 +3942,21 @@ carrying it is unstable by construction -- and nothing depends on it: no file un
 `docs/` contains a printed handle address, which is what you would expect of a value that could
 never be a stable expectation. So:
 
-> **A handle prints as a summary -- its type and its size -- never an address, and never by
-> following into another handle.**
+> **A handle prints as its immutable counterpart would, and a *nested* handle prints as a summary
+> -- never an address.**
 
-`MutableArray(3 items)`, `MutableMap(2 entries)`, `Mutable(5)`. The cell follows one level into its
-value, which stays bounded precisely because a nested handle stops at a summary: a
-`Mutable<Node>` prints the node's fields and summarises its array. No recursion, no address,
-reproducible output. This lands with the rename, not after it.
+So a `MutableArray<int>` prints `[1, 2, 3]`, a `MutableMap` prints as its `Map` would, a
+`MutableString` prints its text (which changes what `sb_to_string`'s comment says today about
+`str(sb)` printing the struct), and a cell prints `Mutable(5)`.
+
+Following the contents is what makes a cycle reachable, and summarising a *nested* handle is what
+makes it unconstructible: a `MutableArray<Node>` prints its nodes, and each node's own handle field
+prints as `MutableArray(2 items)` and stops. That matches the immutable output everywhere the data
+is actually tree-shaped, which is nearly everywhere, and needs no new machinery -- where a faithful
+seen-set printing `<cycle>` on revisit would be the upgrade if someone later wants real graph
+output. Immutable values never need any of this, because a value is a tree and cannot cycle.
+
+This lands with the rename, not after it.
 
 **`#[derive(Json)]` does not refuse a handle field -- it fails incidentally, and invites a fix.**
 A struct with an `ArrayBuilder` field is rejected with "call to undefined function
