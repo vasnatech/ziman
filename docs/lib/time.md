@@ -170,8 +170,16 @@ pub struct LocalDate {
 }
 ```
 
-A calendar date with no time or zone: a proleptic Gregorian `year` (0 or later), `month` (1-12)
-and `day`. Build one with `localdate_of`, which checks the fields.
+A calendar date with no time or zone: a proleptic Gregorian `year`, `month` (1-12) and `day`.
+Build one with `localdate_of`, which checks the fields.
+
+The year is **signed**, and negative years are a supported case rather than an accident: 44 BC is
+`-0044`, `localdate_add_days` walks back past year 1 into it (the fixture
+`time_year_range_roundtrip` pins `-0044-03-15` round-tripping and an 800,000-day subtraction
+landing on `-2190-09-05`), `format_year` writes a sign outside 0-9999, and
+`localdate_from_string` reads a signed year of 4 to 9 digits. This comment used to say "0 or
+later", which is what led the 2026-10-14 review to report accepting BCE years as a bug (D19):
+the code was right and the sentence describing it was not.
 
 ### `localdate_of`
 

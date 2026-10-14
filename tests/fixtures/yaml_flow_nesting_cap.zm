@@ -1,0 +1,32 @@
+// `flow_node` and `flow_seq`/`flow_map` recurse into each other, and nothing stopped them: 100,000
+// open brackets aborted the process with "Too many retries in GC_allocobj" and a core dump, because
+// each level also allocates a builder handle. The cap matches `json`'s own documented 512 (D19).
+use yaml
+
+fn nest(depth: int) -> string {
+    val b = mutable_string_new()
+    mutable_string_append(b, "a: ")
+    for i in 0..depth {
+        mutable_string_append(b, "[")
+    }
+    for i in 0..depth {
+        mutable_string_append(b, "]")
+    }
+    return snapshot(b)
+}
+
+fn outcome(depth: int) -> string {
+    return switch yaml.parse_yaml(nest(depth)) {
+        Ok(_) { "parsed" }
+        Err(e) { e }
+    }
+}
+
+fn main() {
+    print(format("depth 1: {}", outcome(1)))
+    print(format("depth 500: {}", outcome(500)))
+    print(format("depth 5000: {}", outcome(5000)))
+    print(format("depth 100000: {}", outcome(100000)))
+    // Ordinary nesting is untouched.
+    print(format("ordinary: {}", switch yaml.parse_yaml("a: {b: [1, 2, {c: 3}]}") { Ok(_) { "parsed" } Err(e) { e } }))
+}

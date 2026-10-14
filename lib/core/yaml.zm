@@ -411,21 +411,30 @@ fn flow_scalar(s: string, pos: int, is_key: bool, no: int) -> Result<Scalar, str
     return ok(Scalar { value: value, next: p })
 }
 
-fn flow_node(s: string, pos: int, no: int) -> Result<Scalar, string> {
+// The nesting cap on flow collections, matching `json`'s own documented 512 (src/native_json.c).
+// `flow_node` and `flow_seq`/`flow_map` recurse into each other with nothing to stop them, so a
+// document of 100,000 open brackets aborted the process -- "Too many retries in GC_allocobj" and a
+// core dump, because each level also allocates a builder handle (D19).
+val max_flow_depth = 512
+
+fn flow_node(s: string, pos: int, no: int, depth: int) -> Result<Scalar, string> {
+    if depth > max_flow_depth {
+        return err(format("line {}: flow collections nested deeper than {}", no, max_flow_depth))
+    }
     val p = skip_sp(s, pos)
     if p >= len(s) {
         return err(fail(no, "unexpected end of a flow collection"))
     }
     if is_char_at(s, p, "[") {
-        return flow_seq(s, p, no)
+        return flow_seq(s, p, no, depth)
     }
     if is_char_at(s, p, "{") {
-        return flow_map(s, p, no)
+        return flow_map(s, p, no, depth)
     }
     return flow_scalar(s, p, false, no)
 }
 
-fn flow_seq(s: string, pos: int, no: int) -> Result<Scalar, string> {
+fn flow_seq(s: string, pos: int, no: int, depth: int) -> Result<Scalar, string> {
     val items = mutable_array_new<Json>()
     var p = skip_sp(s, pos + 1)
     while true {
@@ -435,7 +444,7 @@ fn flow_seq(s: string, pos: int, no: int) -> Result<Scalar, string> {
         if is_char_at(s, p, "]") {
             return ok(Scalar { value: Json.JArray(snapshot(items)), next: p + 1 })
         }
-        val item = try flow_node(s, p, no)
+        val item = try flow_node(s, p, no, depth + 1)
         mutable_array_push(items, item.value)
         p = skip_sp(s, item.next)
         if is_char_at(s, p, ",") {
@@ -450,7 +459,7 @@ fn flow_seq(s: string, pos: int, no: int) -> Result<Scalar, string> {
     return err("unreachable")
 }
 
-fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
+fn flow_map(s: string, pos: int, no: int, depth: int) -> Result<Scalar, string> {
     val fields = mutable_map_new<string, Json>()
     var p = skip_sp(s, pos + 1)
     while true {
@@ -476,7 +485,7 @@ fn flow_map(s: string, pos: int, no: int) -> Result<Scalar, string> {
         p = skip_sp(s, key.next)
         var value = Json.JNull
         if is_char_at(s, p, ":") {
-            val item = try flow_node(s, skip_sp(s, p + 1), no)
+            val item = try flow_node(s, skip_sp(s, p + 1), no, depth + 1)
             value = item.value
             p = skip_sp(s, item.next)
         }
@@ -686,7 +695,7 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
             text = concat(text, " ", content_of(lines[next]))
             next = next + 1
         }
-        val node = try flow_node(text, 0, no)
+        val node = try flow_node(text, 0, no, 0)
         if skip_sp(text, node.next) < len(text) {
             return err(fail(no, "unexpected text after a flow collection"))
         }

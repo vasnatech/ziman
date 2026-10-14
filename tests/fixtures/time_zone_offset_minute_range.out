@@ -1,0 +1,10 @@
+Z -> Z
++00:00 -> Z
++05:30 -> +05:30
+-05:30 -> -05:30
++18:00 -> +18:00
+-18:00 -> -18:00
++05:59 -> +05:59
++05:60 -> invalid zone offset '+05:60': minutes must be 00-59
++05:99 -> invalid zone offset '+05:99': minutes must be 00-59
++19:00 -> invalid zone offset '+19:00': hours must be 00-18

@@ -1,0 +1,5 @@
+depth 1: parsed
+depth 500: parsed
+depth 5000: line 1: flow collections nested deeper than 512
+depth 100000: line 1: flow collections nested deeper than 512
+ordinary: parsed
