@@ -210,18 +210,28 @@ static void install_ssl(NetHandle *h, SSL *ssl) {
 }
 
 static void release_handle(NetHandle *h) {
+    /* All three OpenSSL objects under `tls_mu`, which every TLS read and write also holds: a thread
+     * inside SSL_read therefore finishes before any of them is freed, and one arriving afterwards
+     * finds NULL and is told the socket is closed. The shutdown goes here too -- its callers used
+     * to read `h->ssl` plainly to decide whether to send a close_notify, which was the same race
+     * one line earlier.
+     *
+     * `server_ctx` and `alpn` used to be freed above this lock, with a plain check-then-act, and
+     * that made `handle_retire`'s claim that this function is idempotent false for exactly those
+     * two fields (A41). Two threads legitimately reach here -- the closer having seen `refs == 0`
+     * and the last user having seen `closing`, which that comment says out loud -- so both could
+     * read a non-NULL `server_ctx` and both call `SSL_CTX_free`. An SSL_CTX has its own allocator,
+     * so the collector build's no-op `free` does not absorb a double free of one.
+     *
+     * The order inside the lock is unchanged and load-bearing: the SSL_CTX holds the ALPN callback
+     * that reads `alpn`, so the context goes first. */
+    pthread_mutex_lock(&h->tls_mu);
     if (h->server_ctx != NULL) {
         SSL_CTX_free(h->server_ctx);
         h->server_ctx = NULL;
     }
-    /* After the SSL_CTX, which is what holds the callback that reads this. */
     alpn_free(h->alpn);
     h->alpn = NULL;
-    /* Under `tls_mu`, which every TLS read and write also holds: a thread inside SSL_read therefore
-     * finishes before the object is freed, and one arriving afterwards finds NULL and is told the
-     * socket is closed. The shutdown goes here too -- its callers used to read `h->ssl` plainly to
-     * decide whether to send a close_notify, which was the same race one line earlier. */
-    pthread_mutex_lock(&h->tls_mu);
     SSL *ssl = h->ssl;
     h->ssl = NULL;
     if (ssl != NULL) {
@@ -313,13 +323,25 @@ static int handle_acquire(NetHandle *h) {
 /* Releases the handle for good once the last user is gone and a close is waiting. Safe to reach
  * from both sides of the race -- the closer, having seen `refs == 0`, and the last user, having
  * seen `closing` -- because release_handle is idempotent by construction: it takes the descriptor
- * with an atomic exchange (A24) and the SSL under `tls_mu` with a NULL check (A32), so whichever
- * arrives second does nothing. */
+ * with an atomic exchange (A24) and all three OpenSSL objects under `tls_mu` with NULL checks
+ * (A32, A41), so whichever arrives second does nothing.
+ *
+ * Why the handshake below is SEQ_CST and not acquire/release, which is a different question from
+ * the one above and the reason A41 names it. Both threads store their own flag and then read the
+ * other's -- the closer stores `closing` then reads `refs`, the last user decrements `refs` then
+ * reads `closing` -- which is Dekker's shape. Sequential consistency does *not* stop both of them
+ * proceeding: that interleaving is allowed under any ordering, it is what "safe to reach from both
+ * sides" means, and idempotency is its only defence. What SEQ_CST rules out is **neither** of them
+ * proceeding, which leaks the handle and its descriptor for the life of the process. With
+ * acquire/release a weakly-ordered machine may let the closer read a stale non-zero `refs` while
+ * the last user reads a stale zero `closing`, and nobody closes anything. x86 happens to be safe
+ * here, because the decrement is a locked RMW and therefore a full barrier, which is why this has
+ * never been seen; it is not a property to rest on. */
 static void release_handle(NetHandle *h);
 
 static void handle_unuse(NetHandle *h) {
-    if (__atomic_sub_fetch(&h->refs, 1, __ATOMIC_ACQ_REL) == 0 &&
-        __atomic_load_n(&h->closing, __ATOMIC_ACQUIRE)) {
+    if (__atomic_sub_fetch(&h->refs, 1, __ATOMIC_SEQ_CST) == 0 &&
+        __atomic_load_n(&h->closing, __ATOMIC_SEQ_CST)) {
         release_handle(h);
     }
 }
@@ -328,8 +350,9 @@ static void handle_unuse(NetHandle *h) {
  * it if nobody is using it right now. 1 if this caller was the one that removed it. */
 static int handle_retire(NetHandle *h) {
     if (h == NULL || !handleset_remove(&g_live, h)) return 0;
-    __atomic_store_n(&h->closing, 1, __ATOMIC_RELEASE);
-    if (__atomic_load_n(&h->refs, __ATOMIC_ACQUIRE) == 0) release_handle(h);
+    /* SEQ_CST on both, paired with handle_unuse's -- see the note above it. */
+    __atomic_store_n(&h->closing, 1, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&h->refs, __ATOMIC_SEQ_CST) == 0) release_handle(h);
     return 1;
 }
 
