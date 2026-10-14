@@ -8,10 +8,19 @@
 //
 //     val applied = try migrate.run(conn, "migrations")
 //
-// SQL that has to differ by engine (`ALTER TABLE ... ADD CONSTRAINT`, which SQLite lacks; a native `UUID` or `TIMESTAMPTZ`; a key length on MySQL) goes in
-// a subdirectory named for the engine, `migrations/postgres/`, `migrations/sqlite/` or `migrations/mysql/`. `run` applies the files of the directory and of the
-// subdirectory of the engine the connection is on, as one list: each version is in the shared directory or in the engine's, never both, so every engine's
-// database has 1, 2, 3, ... and a version whose SQL differs has one file in each engine's directory.
+// SQL that has to differ by engine comes in two sizes, and they have different answers.
+//
+// A whole migration that differs -- `ALTER TABLE ... ADD CONSTRAINT`, which SQLite lacks, or a data conversion one
+// engine needs and another does not -- goes in a subdirectory named for the engine, `migrations/postgres/`,
+// `migrations/sqlite/` or `migrations/mysql/`. `run` applies the files of the directory and of the subdirectory of
+// the engine the connection is on, as one list: each version is in the shared directory or in the engine's, never
+// both, so every engine's database has 1, 2, 3, ... and a version whose SQL differs has one file per engine.
+//
+// A migration that differs only in a *column type* -- a key that is `uuid` on PostgreSQL and `TEXT` on SQLite --
+// does not need two files. Write `{{uuid}}` and `load_for` substitutes the engine's spelling; see "engine type
+// tokens" below. Two files for one column type is how a schema drifts, and the drift is not hypothetical: the
+// health-record backend kept nine such pairs, 342 duplicated lines, and the duplication caused a two-commit
+// PostgreSQL outage before anything ran both engines.
 //
 // `run` keeps a table, `schema_migrations`, with a row per applied migration: its version, name, a checksum of its
 // text and when it ran. Each start it:
@@ -74,6 +83,137 @@ pub fn migration(version: int, name: string, sql: string) -> Migration {
         sql: sql,
         checksum: checksum(sql)
     }
+}
+
+// ---------------------------------------------------------------- engine type tokens
+
+// Two engines often want the same table and disagree about one column type -- a key is `uuid` on PostgreSQL and
+// `TEXT` on SQLite, and PostgreSQL will not create a foreign key between the two. Writing the whole file twice for
+// that is how a schema drifts: the health-record backend had nine such pairs, 342 lines of DDL maintained in
+// duplicate, and the duplication had already caused a two-commit PostgreSQL outage.
+//
+// So a shared migration may write a token, and `load_for` substitutes the engine's spelling before anything reads
+// the SQL:
+//
+//     CREATE TABLE audit_events (
+//         id {{uuid}} PRIMARY KEY,
+//         actor_id {{uuid}} NOT NULL REFERENCES users(id),
+//         ...
+//
+// This is deliberately not a template language. There are no expressions, no conditionals and no way to add a
+// token from outside this file: a migration either differs in a column type, which a token covers, or it differs in
+// its statements, which is what the `postgres/`, `sqlite/` and `mysql/` subdirectories are for. An unknown
+// `{{...}}` is an error naming the file, never text passed through to the database, so a typo fails at startup
+// rather than creating a column called `{{uudi}}`.
+//
+// **The checksum is of the substituted SQL, not of the template.** It has to be: the checksum's job is to notice
+// when the SQL a database actually ran stops matching the SQL the program now has, and a template whose token
+// table changed meaning would otherwise slip past. The consequence is worth stating plainly -- collapsing an
+// already-applied pair of files into one token file changes that migration's checksum, and `run` refuses a
+// database whose stored checksum moved. That is the correct refusal; it just means the collapse belongs in the
+// same change as a fresh database, or needs the stored checksums updated deliberately.
+pub struct TypeToken {
+    token: string
+    sqlite: string
+    postgres: string
+    mysql: string
+}
+
+// Every token, and what each engine gets. `CHAR(36)` rather than MySQL's `BINARY(16)`: the text form is what the
+// other two store, and a migration that moves to the packed form can be written when something needs it.
+pub val type_tokens = [
+    TypeToken { token: "{{uuid}}", sqlite: "TEXT", postgres: "uuid", mysql: "CHAR(36)" }
+]
+
+fn spelling(t: TypeToken, dialect: string) -> Option<string> {
+    if dialect == "sqlite" {
+        return Some(t.sqlite)
+    } else if dialect == "postgres" {
+        return Some(t.postgres)
+    } else if dialect == "mysql" {
+        return Some(t.mysql)
+    }
+    return None
+}
+
+// `sql` with every `{{token}}` replaced by `dialect`'s spelling. An Err if a `{{...}}` is left over -- an unknown
+// token, or a known one on an engine this file has no spelling for -- naming `file` so the message says where.
+pub fn substitute(sql: string, dialect: string, file: string) -> Result<string, DbError> {
+    var out = sql
+    for t in type_tokens {
+        if contains(out, t.token) {
+            val replacement = switch spelling(t, dialect) {
+                Some(s) { s }
+                None { return err(problem(format(
+                    "{} uses {} and there is no spelling of it for '{}'",
+                    file,
+                    t.token,
+                    dialect
+                ))) }
+            }
+            out = replace(out, t.token, replacement)
+        }
+    }
+    // Only a `{{name}}` left over is a typo. The check is deliberately this narrow: PostgreSQL writes a
+    // two-dimensional array literal as '{{1,2},{3,4}}', so a bare "does it contain {{" would refuse valid SQL.
+    // A literal that is *exactly* one lowercase word, '{{a}}', is still refused -- the message says why, and
+    // writing it as '{{"a"}}' is the way past.
+    if Some(name) = leftover_token(out) {
+        return err(problem(format(
+            "{} uses an unknown token {} (the tokens are in migrate.zm's type_tokens)",
+            file,
+            name
+        )))
+    }
+    return ok(out)
+}
+
+// The first `{{name}}` in `sql`, where `name` is a lowercase identifier, or None.
+fn leftover_token(sql: string) -> Option<string> {
+    var from = index_of(sql, "{{", 0)
+    while from >= 0 {
+        val close = index_of(sql, "}}", from)
+        if close < 0 {
+            return None
+        }
+        val inner = substring(sql, from + 2, close)
+        if len(inner) > 0 && is_token_name(inner) {
+            return Some(substring(sql, from, close + 2))
+        }
+        from = index_of(sql, "{{", from + 2)
+    }
+    return None
+}
+
+fn is_token_name(s: string) -> bool {
+    for i in 0..len(s) {
+        val c = substring(s, i, i + 1)
+        val ok_char = (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c == "_"
+        if !ok_char {
+            return false
+        }
+    }
+    return true
+}
+
+// `m` with its SQL substituted for `dialect` and its checksum worked out over the substituted text. A migration
+// with no token is returned untouched, so its checksum is the file's and nothing that predates tokens moves.
+fn for_dialect(m: Migration, dialect: string) -> Result<Migration, DbError> {
+    if !contains(m.sql, "{{") {
+        return ok(m)
+    }
+    val sql = try substitute(m.sql, dialect, m.file)
+    return ok(with m { sql: sql, checksum: checksum(sql) })
+}
+
+// Every migration of `list`, substituted for `dialect`. Applied to the dialect subdirectories too, not only the
+// shared one: a token there is pointless rather than wrong, and one rule is easier to hold than two.
+fn substituted(list: [Migration], dialect: string) -> Result<[Migration], DbError> {
+    val out = mutable_array_new<Migration>()
+    for m in list {
+        mutable_array_push(out, try for_dialect(m, dialect))
+    }
+    return ok(snapshot(out))
 }
 
 // ---------------------------------------------------------------- splitting a file into statements
@@ -177,6 +317,10 @@ fn read_migration(dir: string, file: string) -> Result<Migration, DbError> {
 
 // The migrations in `dir`, in version order. An Err for an unreadable directory, a `.sql` file with a bad name, or
 // versions that repeat or skip.
+//
+// The SQL comes back as written, with any `{{token}}` still in it, because a directory has no engine of its own --
+// `load_for` is what substitutes, and its checksums are the ones a database stores. Use this to list or inspect
+// the files; use `load_for` to get what will actually run.
 pub fn load(dir: string) -> Result<[Migration], DbError> {
     val names = switch fs.list_dir(dir) {
         Ok(listed) { listed }
@@ -199,12 +343,12 @@ pub fn load(dir: string) -> Result<[Migration], DbError> {
 // database must be 1, 2, 3, ... whichever engine it is, so each dialect directory holds its own file for a version the shared directory leaves out. A
 // missing dialect directory is no migrations of its own.
 pub fn load_for(dir: string, dialect: string) -> Result<[Migration], DbError> {
-    val shared = try load(dir)
+    val shared = try substituted(try load(dir), dialect)
     val own = fs.path_join(dir, dialect)
     if !fs.is_dir(own) {
         return shared
     }
-    val specific = try load(own)
+    val specific = try substituted(try load(own), dialect)
     for m in specific {
         for other in shared {
             if other.version == m.version {

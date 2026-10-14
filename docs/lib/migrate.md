@@ -13,10 +13,19 @@ ignored; a `.sql` file that does not fit the name is an error, so a typo cannot 
 val applied = try migrate.run(conn, "migrations")
 ```
 
-SQL that has to differ by engine (`ALTER TABLE ... ADD CONSTRAINT`, which SQLite lacks; a native `UUID` or `TIMESTAMPTZ`; a key length on MySQL) goes in
-a subdirectory named for the engine, `migrations/postgres/`, `migrations/sqlite/` or `migrations/mysql/`. `run` applies the files of the directory and of the
-subdirectory of the engine the connection is on, as one list: each version is in the shared directory or in the engine's, never both, so every engine's
-database has 1, 2, 3, ... and a version whose SQL differs has one file in each engine's directory.
+SQL that has to differ by engine comes in two sizes, and they have different answers.
+
+A whole migration that differs -- `ALTER TABLE ... ADD CONSTRAINT`, which SQLite lacks, or a data conversion one
+engine needs and another does not -- goes in a subdirectory named for the engine, `migrations/postgres/`,
+`migrations/sqlite/` or `migrations/mysql/`. `run` applies the files of the directory and of the subdirectory of
+the engine the connection is on, as one list: each version is in the shared directory or in the engine's, never
+both, so every engine's database has 1, 2, 3, ... and a version whose SQL differs has one file per engine.
+
+A migration that differs only in a *column type* -- a key that is `uuid` on PostgreSQL and `TEXT` on SQLite --
+does not need two files. Write `{{uuid}}` and `load_for` substitutes the engine's spelling; see "engine type
+tokens" below. Two files for one column type is how a schema drifts, and the drift is not hypothetical: the
+health-record backend kept nine such pairs, 342 duplicated lines, and the duplication caused a two-commit
+PostgreSQL outage before anything ran both engines.
 
 `run` keeps a table, `schema_migrations`, with a row per applied migration: its version, name, a checksum of its
 text and when it ran. Each start it:
@@ -72,6 +81,66 @@ pub fn migration(version: int, name: string, sql: string) -> Migration
 A migration made from its parts, with its checksum worked out: for migrations that are written in the program
 rather than read from a directory.
 
+## Engine type tokens
+
+### `TypeToken`
+
+```
+pub struct TypeToken {
+    token: string
+    sqlite: string
+    postgres: string
+    mysql: string
+}
+```
+
+Two engines often want the same table and disagree about one column type -- a key is `uuid` on PostgreSQL and
+`TEXT` on SQLite, and PostgreSQL will not create a foreign key between the two. Writing the whole file twice for
+that is how a schema drifts: the health-record backend had nine such pairs, 342 lines of DDL maintained in
+duplicate, and the duplication had already caused a two-commit PostgreSQL outage.
+
+So a shared migration may write a token, and `load_for` substitutes the engine's spelling before anything reads
+the SQL:
+
+
+```
+CREATE TABLE audit_events (
+    id {{uuid}} PRIMARY KEY,
+    actor_id {{uuid}} NOT NULL REFERENCES users(id),
+    ...
+```
+
+This is deliberately not a template language. There are no expressions, no conditionals and no way to add a
+token from outside this file: a migration either differs in a column type, which a token covers, or it differs in
+its statements, which is what the `postgres/`, `sqlite/` and `mysql/` subdirectories are for. An unknown
+`{{...}}` is an error naming the file, never text passed through to the database, so a typo fails at startup
+rather than creating a column called `{{uudi}}`.
+
+**The checksum is of the substituted SQL, not of the template.** It has to be: the checksum's job is to notice
+when the SQL a database actually ran stops matching the SQL the program now has, and a template whose token
+table changed meaning would otherwise slip past. The consequence is worth stating plainly -- collapsing an
+already-applied pair of files into one token file changes that migration's checksum, and `run` refuses a
+database whose stored checksum moved. That is the correct refusal; it just means the collapse belongs in the
+same change as a fresh database, or needs the stored checksums updated deliberately.
+
+### `type_tokens`
+
+```
+pub val type_tokens = [
+```
+
+Every token, and what each engine gets. `CHAR(36)` rather than MySQL's `BINARY(16)`: the text form is what the
+other two store, and a migration that moves to the packed form can be written when something needs it.
+
+### `substitute`
+
+```
+pub fn substitute(sql: string, dialect: string, file: string) -> Result<string, DbError>
+```
+
+`sql` with every `{{token}}` replaced by `dialect`'s spelling. An Err if a `{{...}}` is left over -- an unknown
+token, or a known one on an engine this file has no spelling for -- naming `file` so the message says where.
+
 ## Splitting a file into statements
 
 ### `split_statements`
@@ -92,6 +161,10 @@ pub fn load(dir: string) -> Result<[Migration], DbError>
 
 The migrations in `dir`, in version order. An Err for an unreadable directory, a `.sql` file with a bad name, or
 versions that repeat or skip.
+
+The SQL comes back as written, with any `{{token}}` still in it, because a directory has no engine of its own --
+`load_for` is what substitutes, and its checksums are the ones a database stores. Use this to list or inspect
+the files; use `load_for` to get what will actually run.
 
 ### `load_for`
 

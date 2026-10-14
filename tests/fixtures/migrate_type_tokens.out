@@ -1,0 +1,13 @@
+CREATE TABLE people (id {{uuid}} PRIMARY KEY, name TEXT)
+CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT)
+CREATE TABLE people (id uuid PRIMARY KEY, name TEXT)
+CREATE TABLE people (id CHAR(36) PRIMARY KEY, name TEXT)
+CREATE TABLE notes (id uuid PRIMARY KEY, person_id uuid NOT NULL REFERENCES people(id))
+true
+true
+database error: migration: V003__typo.sql uses an unknown token {{uudi}} (the tokens are in migrate.zm's type_tokens)
+database error: migration: V009__x.sql uses {{uuid}} and there is no spelling of it for 'oracle'
+INSERT INTO g (cells) VALUES ('{{1,2},{3,4}}')
+x TEXT , '{{1,2}}'
+2
+1

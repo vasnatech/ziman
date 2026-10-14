@@ -1,0 +1,100 @@
+// E26: a shared migration may write `{{uuid}}` and `load_for` substitutes the engine's spelling, so a table that
+// differs between engines only in a key type needs one file rather than one per engine.
+use datasource
+use db
+use db.DbError
+use db.db_error_message
+use fs
+use migrate
+
+fn put(path: string, text: string) {
+    unwrap(fs.write_text(path, text))
+}
+
+fn sql_of(r: Result<[migrate.Migration], DbError>, version: int) -> string {
+    return switch r {
+        Ok(items) {
+            var found = "(no such version)"
+            for m in items {
+                if m.version == version {
+                    found = m.sql
+                }
+            }
+            found
+        }
+        Err(e) { db_error_message(e) }
+    }
+}
+
+fn checksum_of(r: Result<[migrate.Migration], DbError>, version: int) -> string {
+    return switch r {
+        Ok(items) {
+            var found = "(none)"
+            for m in items {
+                if m.version == version {
+                    found = m.checksum
+                }
+            }
+            found
+        }
+        Err(e) { db_error_message(e) }
+    }
+}
+
+fn main() {
+    val dir = "/tmp/ziman_migrate_type_tokens"
+    if fs.exists(dir) {
+        for name in unwrap(fs.list_dir(dir)) {
+            unwrap(fs.remove(fs.path_join(dir, name)))
+        }
+    } else {
+        unwrap(fs.make_dirs(dir))
+    }
+    put(
+        fs.path_join(dir, "V001__people.sql"),
+        "CREATE TABLE people (id {{uuid}} PRIMARY KEY, name TEXT)"
+    )
+    put(
+        fs.path_join(dir, "V002__notes.sql"),
+        "CREATE TABLE notes (id {{uuid}} PRIMARY KEY, person_id {{uuid}} NOT NULL REFERENCES people(id))"
+    )
+
+    // `load` is the file as written -- no engine, no substitution.
+    print(sql_of(migrate.load(dir), 1))
+    // `load_for` is what will actually run.
+    print(sql_of(migrate.load_for(dir, "sqlite"), 1))
+    print(sql_of(migrate.load_for(dir, "postgres"), 1))
+    print(sql_of(migrate.load_for(dir, "mysql"), 1))
+    // every occurrence, not just the first
+    print(sql_of(migrate.load_for(dir, "postgres"), 2))
+
+    // The checksum is of the substituted SQL, so the two engines store different ones for the same file -- which
+    // is the point: it records what that database actually ran.
+    val sqlite_sum = checksum_of(migrate.load_for(dir, "sqlite"), 1)
+    val postgres_sum = checksum_of(migrate.load_for(dir, "postgres"), 1)
+    print(sqlite_sum != postgres_sum)
+    print(sqlite_sum == migrate.checksum("CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT)"))
+
+    // A token nobody knows is an error naming the file, not a column called `{{uudi}}`.
+    put(fs.path_join(dir, "V003__typo.sql"), "CREATE TABLE t (id {{uudi}} PRIMARY KEY)")
+    print(sql_of(migrate.load_for(dir, "sqlite"), 3))
+    // and on an engine with no spelling for a token it does know
+    print(db_error_message(unwrap_err(migrate.substitute("id {{uuid}}", "oracle", "V009__x.sql"))))
+    unwrap(fs.remove(fs.path_join(dir, "V003__typo.sql")))
+
+    // A PostgreSQL two-dimensional array literal is written '{{1,2},{3,4}}', so the leftover check has to be
+    // narrower than "contains {{" or it would refuse valid SQL. It is: only a `{{name}}` counts.
+    print(unwrap(migrate.substitute("INSERT INTO g (cells) VALUES ('{{1,2},{3,4}}')", "postgres", "V009__x.sql")))
+    print(unwrap(migrate.substitute("x {{uuid}} , '{{1,2}}'", "sqlite", "V009__x.sql")))
+
+    // End to end: the same two files build the schema on SQLite.
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+    print(unwrap(migrate.run(conn, dir)))
+    val no_args: [db.SqlValue] = []
+    unwrap(datasource.execute(
+        conn,
+        "INSERT INTO people (id, name) VALUES ('a0000000-0000-0000-0000-000000000001', 'Ada')",
+        no_args
+    ))
+    print(len(unwrap(datasource.query(conn, "SELECT id FROM people"))))
+}
