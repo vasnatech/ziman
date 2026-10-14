@@ -1,3 +1,4 @@
-# One lint, and the half worth pinning is what it offers instead: `ab_get` and `for x in <the builder>` are
-# what F96 added, where the message could only say `ab_len` or "finish it after the loop" before.
-lint 10:9 read it in place with ab_get, ab_len or 'for x in <the builder>'
+# One lint, and the half worth pinning is what it offers instead: `len` and `for x in <the builder>`
+# are the two that need no per-type name at all, which is why `len` now comes first -- it is the
+# same question `ab_len` answered and the answer every other collection already gave.
+lint 10:9 read it in place with len, ab_get or 'for x in <the builder>'

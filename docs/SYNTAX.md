@@ -292,7 +292,7 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   instead of copying); `insert`/`set`/`remove` always copy the whole array, so replacing every
   element one `set` at a time is O(n²) -- `ArrayBuilder<T>` (`ab_new`/`ab_append`/`ab_get`/
   `ab_set`/`ab_len`/`ab_clear`/`ab_to_array`) is the right tool for building/editing a large
-  array piece by piece. It reads back in place: `ab_get`/`ab_len` and `for x in ab` cost nothing,
+  array piece by piece. It reads back in place: `len(ab)`, `ab_get` and `for x in ab` cost nothing,
   where `ab_to_array` copies the whole buffer every call (`--lint` flags that in a loop). See
   "Builtins" for exact signatures.
 
@@ -341,6 +341,7 @@ for x in seen { ... }                    // a set has one binder
   copying per entry) -- use in a loop adding many entries. Type arguments written out
   (`mapb_set<string, int>(mb, "a", 1)`); `_to_map`/`_to_set` snapshot into an immutable Map/Set
   (O(n) copy, builder stays usable, later changes don't touch the snapshot). One thread at a time.
+  `len(mb)` works on any builder and is the same answer as `_len`.
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
   building an n-entry map is O(n log n).
@@ -2460,7 +2461,10 @@ a type error.
   template that's a runtime *value* (a message catalog), string arguments only; what `format`
   checks at compile time (malformed template, placeholder/argument count, `{:.N}` on a string)
   becomes an `Err` instead.
-- `len(arr) -> int` / `len(s: string) -> int` — element count, or byte length.
+- `len(arr) -> int` / `len(s: string) -> int` — element count, or byte length. Also answers for a
+  `Map`, a `Set`, and any of the four builders (`ArrayBuilder`, `StringBuilder`, `MapBuilder`,
+  `SetBuilder`), so asking a collection its size never needs a per-type name or a conversion. It
+  answers for a *builder*, not for a struct that holds one, which has no length of its own.
 - `substring(s, start, end) -> string` — `[start, end)`, `0 <= start <= end <= len(s)` else a
   runtime error. Does not copy -- a string is a pointer+length over immutable bytes, so this
   (and `trim`/`char_at`/`split`'s pieces) is a view, free to make, `len` O(1); it keeps the

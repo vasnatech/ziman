@@ -1328,6 +1328,20 @@ static Value native_mb_snapshot(Value *args, int argc, int line, int col) {
     return value_map(type_scalar(TY_VOID), mapobj_snapshot(buf->m));
 }
 
+/* `len` on one of the four `#[thread_bound]` handles, for the interpreter's own `len` branch --
+ * the same shape as ziman_array_builder_length above, which `for x in ab` (F96) already uses, and
+ * placed here rather than beside it because `mb_get_buf` is defined above this line and not that
+ * one. The typechecker has already established that `v` is one of the four, so this only has to
+ * pick the table; each accessor takes the handle's own thread-ownership check, so a builder read
+ * from the wrong thread fails there rather than here. MapBuilder and SetBuilder share a buffer
+ * kind, which is why one branch covers both. */
+int ziman_builder_length(Value v) {
+    const char *name = v.type.struct_name;
+    if (name != NULL && strcmp(name, "ArrayBuilder") == 0) return (int)ab_table_get(ab_handle_of(v))->length;
+    if (name != NULL && strcmp(name, "StringBuilder") == 0) return (int)sb_table_get(sb_handle_of(v))->length;
+    return mb_get_buf(v)->m->count;
+}
+
 /* --- Guard ------------------------------------------------------------------------------
  * guard_new(channel, message): a value whose only job is to send `message` on `channel` once
  * nothing references the guard any more (the garbage collector runs its finalizer). A database

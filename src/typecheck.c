@@ -623,10 +623,10 @@ static void lint_quadratic_accumulation(const Stmt *s) {
  * accumulated path on every piece to look at its last character. Measurably superlinear --
  * 0.02s, 0.04s, 0.09s, 0.35s at 2,000 to 16,000 pieces (docs/reviews/tasks.md F84). */
 static const char *builder_reader_for(const char *conversion) {
-    if (strcmp(conversion, "mapb_to_map") == 0) return "mapb_get, mapb_get_or, mapb_contains or mapb_len";
-    if (strcmp(conversion, "ab_to_array") == 0) return "ab_get, ab_len or 'for x in <the builder>'";
-    if (strcmp(conversion, "sb_to_string") == 0) return "sb_len, or a StringBuilder you finish once after the loop";
-    if (strcmp(conversion, "setb_to_set") == 0) return "setb_contains or setb_len";
+    if (strcmp(conversion, "mapb_to_map") == 0) return "len, mapb_get, mapb_get_or or mapb_contains";
+    if (strcmp(conversion, "ab_to_array") == 0) return "len, ab_get or 'for x in <the builder>'";
+    if (strcmp(conversion, "sb_to_string") == 0) return "len, or a StringBuilder you finish once after the loop";
+    if (strcmp(conversion, "setb_to_set") == 0) return "len or setb_contains";
     return NULL;
 }
 
@@ -1914,6 +1914,15 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
     return out;
 }
 
+/* True for one of the four builder handles itself. Deliberately not type_holds_thread_bound,
+ * which answers a different question: that one is true of a user struct with a builder field, and
+ * such a struct has no length of its own. `len` works on a builder, not on something holding one. */
+static int is_builder_type(Type t) {
+    if (t.kind != TY_STRUCT || t.struct_name == NULL) return 0;
+    return strcmp(t.struct_name, "ArrayBuilder") == 0 || strcmp(t.struct_name, "StringBuilder") == 0 ||
+           strcmp(t.struct_name, "MapBuilder") == 0 || strcmp(t.struct_name, "SetBuilder") == 0;
+}
+
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
 
@@ -2153,8 +2162,10 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_ARRAY && arg_type.kind != TY_STRING && arg_type.kind != TY_MAP && arg_type.kind != TY_SET) {
-            ziman_error("type", arg->line, arg->col, "'len' expects an array, string, map or set, found %s", type_name(arg_type));
+        if (arg_type.kind != TY_ARRAY && arg_type.kind != TY_STRING && arg_type.kind != TY_MAP && arg_type.kind != TY_SET &&
+            !is_builder_type(arg_type)) {
+            ziman_error("type", arg->line, arg->col, "'len' expects an array, string, map, set or builder, found %s",
+                        type_name(arg_type));
         }
         return type_scalar(TY_INT);
     }

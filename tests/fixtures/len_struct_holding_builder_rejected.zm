@@ -1,0 +1,10 @@
+// `len` answers for a builder itself, not for a struct that happens to hold one: a `Holder` has no
+// length of its own, and guessing that it means its one builder field's would be a different
+// function. (The thread-bound *refusals* are transitive -- this is not one of them.)
+struct Holder {
+    slot: ArrayBuilder<int>
+}
+
+fn main() {
+    print(len(Holder { slot: ab_new<int>() }))
+}

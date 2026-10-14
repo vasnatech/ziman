@@ -48,4 +48,9 @@ void prelude_register(void);
 int ziman_array_builder_length(Value ab);
 Value ziman_array_builder_at(Value ab, int i);
 
+/* The length of any of the four builders, for the bare `len` builtin: an ArrayBuilder's or
+ * StringBuilder's element/byte count, a MapBuilder's entries or a SetBuilder's elements. Only
+ * called once the typechecker has established the argument is one of them. */
+int ziman_builder_length(Value v);
+
 #endif

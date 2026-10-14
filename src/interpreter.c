@@ -598,6 +598,9 @@ static Value call_len(Value v) {
         return value_int((int64_t)v.as.str.len);
     }
     if (v.type.kind == TY_MAP || v.type.kind == TY_SET) return value_int(v.as.map->count);
+    /* One of the four builders: a struct over a thread-bound handle, so the length lives in the
+     * handle's own table rather than in the struct (see prelude.h's ziman_builder_length). */
+    if (v.type.kind == TY_STRUCT) return value_int(ziman_builder_length(v));
     return value_int(v.as.arr->count);
 }
 
