@@ -1292,7 +1292,15 @@ pub fn connect(url: string) -> Result<Connection, DbError> {
     return switch handshake(sock, parsed) {
         Ok(_) {
             val requests: Channel<Request> = channel_new()
-            spawn serve(sock, requests)
+            // `on_error`, because without it a runtime error in `serve` ends only that thread and every
+            // caller blocked on its own reply channel waits for ever. The deadlock detector cannot
+            // rescue them: it fires only when *every* live thread is blocked on a channel, and in a
+            // server the other threads are legitimately blocked on sockets. So one driver fault took
+            // out the request threads one at a time, silently (A47). `fail_pending` answers everything
+            // already queued with a connection error; `db.reply_timeout_millis` covers the rest.
+            spawn serve(sock, requests) on_error fn(message: string) {
+                db.fail_pending(requests, message)
+            }
             Connection { requests: requests, guard: guard_new(requests, Request.Close) }
         }
         Err(e) {

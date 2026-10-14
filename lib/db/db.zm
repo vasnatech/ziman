@@ -344,11 +344,67 @@ internal enum Request {
     Close
 }
 
+// How long a caller waits for its owning thread's answer before deciding the thread is gone.
+//
+// **Not a statement timeout.** It is a liveness backstop, and ten minutes is chosen to be longer
+// than any statement this library is meant to carry, so that it never cuts a slow query short. The
+// hang it exists for is narrow: a driver's `serve` thread dies of a runtime error, its `on_error`
+// handler answers every request already queued (see `fail_pending`), and a request sent in the
+// window between those two events has nobody left to answer it. Before this, that caller waited
+// for ever -- and the deadlock detector could not save it, because it only fires when *every* live
+// thread is blocked on a channel, and in a server the other threads are legitimately blocked on
+// sockets (A47). A statement timeout is a real feature and belongs on `ServeOptions`-style
+// configuration, not here.
+internal val reply_timeout_millis = 600000
+
+// The error a caller gets when its owning thread never answered.
+internal fn owner_gone<T>() -> Result<T, DbError> {
+    return err(DbError.Connection(concat(
+        "the connection's owning thread stopped answering (no reply in ",
+        format("{}", reply_timeout_millis / 1000),
+        "s); the connection is no longer usable"
+    )))
+}
+
+// Answers every request still queued on `requests` with a connection error, so a caller blocked on
+// its own reply channel is woken rather than waiting for a thread that has already died. Called
+// from the `on_error` handler of each driver's `spawn serve`, which runs on the dying thread while
+// its resources are still open.
+//
+// `try_receive`, not `receive`: this must not block, because anything still arriving is the caller
+// side racing the close, and `run_request`'s own timeout is what covers that window.
+internal fn fail_pending(requests: Channel<Request>, message: string) {
+    val reason = concat("the connection's owning thread failed: ", message)
+    while channel_len(requests) > 0 {
+        if Some(req) = try_receive(requests) {
+            switch req {
+                Run(r) {
+                    val answer: Result<QueryResult, DbError> = err(DbError.Connection(reason))
+                    send(r.reply_to, answer)
+                }
+                OpenCursor(r) {
+                    val answer: Result<Page, DbError> = err(DbError.Connection(reason))
+                    send(r.reply_to, answer)
+                }
+                FetchCursor(r) {
+                    val answer: Result<Page, DbError> = err(DbError.Connection(reason))
+                    send(r.reply_to, answer)
+                }
+                EndCursor(r) { send(r.reply_to, 0) }
+                Close {}
+            }
+        }
+    }
+}
+
 // Sends a statement to the connection's owning thread and waits for its answer.
 internal fn run_request(requests: Channel<Request>, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     val reply_to: Channel<Result<QueryResult, DbError>> = channel_new()
     send(requests, Request.Run(RunRequest { sql: sql, params: params, reply_to: reply_to }))
-    return receive(reply_to)
+    return switch receive_timeout(reply_to, reply_timeout_millis) {
+        Some(answer) { answer }
+        None { owner_gone<QueryResult>() }
+    }
 }
 
 // What a cursor iterator keeps: the channel to the owning thread and a guard that ends the cursor if the
@@ -370,7 +426,9 @@ fn end_cursor(handle: CursorHandle, buffer: Channel<Option<Row>>) {
     }
     val reply: Channel<int> = channel_new()
     send(handle.requests, Request.EndCursor(EndRequest { cursor: handle.cursor, reply_to: reply }))
-    receive(reply)
+    // Timed like every other wait here (A47). This one has nothing to report: it is cleanup, and a
+    // connection whose owning thread has gone has no cursor left to end.
+    val _ = receive_timeout(reply, reply_timeout_millis)
 }
 
 fn buffer_page(buffer: Channel<Option<Row>>, page: Page) {
@@ -396,7 +454,10 @@ fn next_item(handle: CursorHandle, buffer: Channel<Option<Row>>) -> Option<Resul
     }
     val reply: Channel<Result<Page, DbError>> = channel_new()
     send(handle.requests, Request.FetchCursor(FetchRequest { cursor: handle.cursor, reply_to: reply }))
-    val page = receive(reply)
+    val page = switch receive_timeout(reply, reply_timeout_millis) {
+        Some(answer) { answer }
+        None { owner_gone<Page>() }
+    }
     if Err(e) = page {
         send(buffer, Option<Row>.None)
         val failure: Result<Row, DbError> = e
@@ -418,7 +479,10 @@ pub fn open_rows(
 ) -> Result<Iter<Result<Row, DbError>>, DbError> {
     val reply: Channel<Result<Page, DbError>> = channel_new()
     send(requests, Request.OpenCursor(OpenRequest { sql: sql, params: params, reply_to: reply }))
-    val first = try receive(reply)
+    val first = try switch receive_timeout(reply, reply_timeout_millis) {
+        Some(answer) { answer }
+        None { owner_gone<Page>() }
+    }
     val ender: Channel<int> = channel_new()
     val handle = CursorHandle {
         cursor: first.cursor,
