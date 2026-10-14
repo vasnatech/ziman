@@ -126,7 +126,6 @@ static Token *expect(Parser *p, TokenType type, const char *what) {
     if (check(p, type)) return advance_tok(p);
     report_habit_token_pair(p, what);
     ziman_error("syntax", cur(p)->line, cur(p)->col, "expected %s, found %s", what, token_type_name(cur(p)->type));
-    return NULL; /* unreachable */
 }
 
 static char *dup_token_text(Token *t) {
@@ -376,7 +375,6 @@ static Type parse_type(Parser *p) {
         return ty;
     }
     ziman_error("syntax", cur(p)->line, cur(p)->col, "expected a type, found %s", token_type_name(cur(p)->type));
-    return type_scalar(TY_VOID); /* unreachable */
 }
 
 static Expr *parse_expr(Parser *p);
@@ -995,7 +993,6 @@ static Expr *parse_primary(Parser *p) {
                     "cannot say what an empty one holds)");
     }
     ziman_error("syntax", t->line, t->col, "expected an expression, found %s", token_type_name(t->type));
-    return NULL; /* unreachable */
 }
 
 /* `primary` followed by any number of `[index]`/`.field` suffixes, e.g.

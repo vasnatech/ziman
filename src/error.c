@@ -112,7 +112,7 @@ static void jump_to_recovery(void) {
     longjmp(*g_recovery[depth - 1], 1);
 }
 
-void ziman_abort_quietly(void) {
+_Noreturn void ziman_abort_quietly(void) {
     if (g_recovery_depth > 0) jump_to_recovery();
     exit(1);
 }
@@ -407,7 +407,7 @@ void ziman_thread_boundary_enter(ThreadBoundary *b) {
 
 void ziman_thread_boundary_leave(void) { t_boundary = NULL; }
 
-void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
+_Noreturn void ziman_error(const char *phase, int line, int col, const char *fmt, ...) {
     va_list args, copy;
     va_start(args, fmt);
     va_copy(copy, args);

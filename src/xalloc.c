@@ -18,7 +18,7 @@ char *ziman_alloc_strdup(const char *file, int line, const char *s);
 /* Reported with write(2) and not fprintf: stdio buffers, and the one thing known about the process
  * at this point is that it could not get memory. Exits 1, the same code every other fatal error
  * here uses (see error.c). */
-static void die_oom(const char *what, size_t n, const char *file, int line) {
+static _Noreturn void die_oom(const char *what, size_t n, const char *file, int line) {
     char msg[256];
     /* `n` of 0 means the size is not known here -- ziman_xcheck_at wraps an allocator that was
      * already called, so it has the result and not the request. */
@@ -36,7 +36,7 @@ static void die_oom(const char *what, size_t n, const char *file, int line) {
 
 /* An array whose own size does not fit a size_t: not an allocation failure but an impossible
  * request, so it says so rather than reporting a wrapped byte count. */
-static void die_overflow(size_t count, size_t size, const char *file, int line) {
+static _Noreturn void die_overflow(size_t count, size_t size, const char *file, int line) {
     char msg[256];
     int k = snprintf(msg, sizeof msg,
                      "ziman: refusing an array of %zu elements of %zu bytes at %s:%d: the size overflows\n",

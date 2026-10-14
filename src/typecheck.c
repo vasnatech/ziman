@@ -3964,7 +3964,6 @@ static Type check_try_unwrap(Module *module, Env *env, Expr *e, Type fn_return_t
     }
     ziman_error("type", inner->line, inner->col,
                 "'try' can only be used on an Option<T> or Result<T, E> value, found %s", type_name(inner_type));
-    return type_scalar(TY_VOID); /* unreachable */
 }
 
 /* Runs `block`'s statements directly in `scope` (no further scope nesting) --
@@ -4225,7 +4224,11 @@ static void check_switch(Module *module, Env *env, Stmt *s, Type fn_return_type,
 }
 
 /* A wrong-typed initializer. `name` is NULL for an arm's yielded value. */
-static void init_mismatch(const char *name, Type declared, Type actual, int line, int col) {
+/* `_Noreturn`: every path out of this ends in `ziman_error`. Saying so is what lets the compiler
+ * see that `check_initializer`'s `declared` is set on every reachable path -- clang reported it as
+ * "used uninitialized whenever 'if' condition is false" precisely because it could not tell that
+ * the `else` branch never comes back (F124). gcc never warned, so this was clang-only. */
+static _Noreturn void init_mismatch(const char *name, Type declared, Type actual, int line, int col) {
     if (name == NULL) {
         ziman_error("type", line, col, "an arm of this 'if'/'switch' has type %s but %s is expected here", type_name(actual), type_name(declared));
     }

@@ -412,12 +412,10 @@ static void print_api_module(const char *name, Module *m) {
         }
         printf("}\n");
     }
-    int printed_fns = 0;
     for (int i = 0; i < m->functions.count; i++) {
         FunctionDecl *f = m->functions.items[i];
         if (f->visibility != VIS_PUBLIC) continue;
         printf("\n");
-        printed_fns = 1;
         print_doc_comment(f->line);
         printf("fn %s", f->name);
         print_type_params(&f->type_params);

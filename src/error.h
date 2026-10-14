@@ -8,7 +8,12 @@
  * human-readable line to stderr and exits(1) -- structured/machine-parseable
  * diagnostics are deferred (see docs/DESIGN.md).
  */
-void ziman_error(const char *phase, int line, int col, const char *fmt, ...);
+/* `_Noreturn` because it never does: it either exits, or longjmps to a thread boundary or a
+ * recovery point. Saying so lets the compiler stop warning about the code after a call to it, and
+ * -- the reason this was worth doing -- lets it see that a `return` written purely to satisfy
+ * "every path returns a value" is unreachable, so those can go instead of being initialised to
+ * something meaningless (F124). */
+_Noreturn void ziman_error(const char *phase, int line, int col, const char *fmt, ...);
 
 /* --- a runtime error that ends one thread, not the program ---------------------
  * A `spawn`ed thread arms a boundary before it runs: while one is armed on the calling thread, a *runtime* error is not printed and does not exit -- it is stored as
@@ -36,7 +41,7 @@ void ziman_recovery_push(jmp_buf *jb);
 void ziman_recovery_pop(void);
 /* Jump to the innermost recovery point without printing anything (used to skip a
  * statement that depends on one that already failed). */
-void ziman_abort_quietly(void);
+_Noreturn void ziman_abort_quietly(void);
 int ziman_error_count(void);
 /* If any error was recorded: prints "ziman: N errors" (when more than one) and
  * exits 1. Call after a phase that may have recovered. */

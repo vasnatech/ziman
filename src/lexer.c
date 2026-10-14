@@ -312,7 +312,6 @@ static void lex_string(Lexer *lx) {
                 case '\\': out = '\\'; break;
                 default:
                     ziman_error("lexical", lx->line, lx->col, "unknown escape sequence '\\%c'", esc);
-                    return; /* unreachable */
             }
             advance(lx);
         } else {
