@@ -777,6 +777,11 @@ typedef struct {
      * is one memcpy. */
     PackKind pkind;
     unsigned char *pdata;
+    /* A capacity asked for but not yet allocated. Nothing can be allocated at `new` time,
+     * because which of the two representations to allocate is decided by the first element --
+     * so reserving eagerly meant allocating `capacity * sizeof(Value)` of boxed storage and,
+     * for a packed element type, throwing all of it away unused on that first push. */
+    size_t reserved;
 } MutableArrayBuf;
 
 /* Same pointer-as-handle scheme as MutableString above, for the same reason. */
@@ -804,7 +809,7 @@ static void ab_ensure_capacity(MutableArrayBuf *buf, size_t additional) {
     if (needed <= buf->capacity) {
         return;
     }
-    size_t new_capacity = buf->capacity > 0 ? buf->capacity : 1;
+    size_t new_capacity = buf->capacity > 0 ? buf->capacity : (buf->reserved > 0 ? buf->reserved : 1);
     while (new_capacity < needed) {
         new_capacity = (size_t)((double)new_capacity * buf->grow_factor) + 1;
     }
@@ -818,10 +823,11 @@ static void ab_ensure_capacity(MutableArrayBuf *buf, size_t additional) {
  * loop of pushes would regrow it as it went. */
 static Value ab_new_value(size_t capacity, double grow_factor) {
     MutableArrayBuf *buf = ziman_xmalloc(sizeof(MutableArrayBuf));
-    buf->capacity = capacity;
     buf->length = 0;
     buf->grow_factor = grow_factor;
-    buf->items = buf->capacity > 0 ? ziman_xmalloc(buf->capacity * sizeof(Value)) : NULL;
+    buf->capacity = 0;
+    buf->reserved = capacity;
+    buf->items = NULL;
     buf->pdata = NULL;
     buf->pkind = PK_NONE;
     int64_t handle = ab_table_register(buf);
@@ -854,7 +860,7 @@ static void ab_adopt_pack_kind(MutableArrayBuf *buf, Value first_element) {
     if (buf->pkind != PK_NONE || buf->length != 0) return;
     PackKind first = pack_kind_of_type(first_element.type.kind);
     if (first == PK_NONE) return;
-    size_t cap = buf->capacity > 0 ? buf->capacity : 16;
+    size_t cap = buf->capacity > 0 ? buf->capacity : (buf->reserved > 0 ? buf->reserved : 16);
     buf->items = NULL;
     buf->pdata = zalloc_atomic(cap * pack_elem_size(first));
     buf->capacity = cap;
@@ -1797,6 +1803,15 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
     size_t n = source_is_handle ? ab_table_get(ab_handle_of(source))->length : (size_t)source.as.arr->count;
     Value out = ab_new_value(n > 0 ? n : 1, 2.0);
     MutableArrayBuf *buf = ab_table_get(ab_handle_of(out));
+    /* The buffer is reserved, not allocated, until the first element says which representation
+     * to use -- and the loops below write straight into it rather than going through
+     * ab_push_one, so the one allocation this function promises has to be asked for here. */
+    if (n > 0) {
+        Value first = source_is_handle ? ab_element_at(ab_table_get(ab_handle_of(source)), 0)
+                                       : array_get(source.as.arr, 0);
+        ab_adopt_pack_kind(buf, first);
+        ab_ensure_capacity(buf, n);
+    }
     if (source_is_handle) {
         const MutableArrayBuf *src = ab_table_get(ab_handle_of(source));
         for (size_t i = 0; i < src->length; i++) {

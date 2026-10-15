@@ -1,0 +1,75 @@
+// A capacity is reserved, not allocated, until the first element decides which of the two
+// representations the buffer takes. Allocating against it at `new` time meant allocating
+// `capacity * sizeof(Value)` of boxed storage and then, for a packed element type, dropping the
+// whole thing unused on that first push -- so a presized builder of ints paid for a multi-megabyte
+// array it never wrote to. 2000 allocations of a 50,000 capacity with ten elements pushed into each
+// went from 1065 ms to 42 ms.
+//
+// Nothing observable may change, which is what this pins: both representations, both the
+// `mutable_array_from` path that writes into the buffer directly without going through a push, and
+// the capacities that used to be the allocation size.
+
+struct P {
+    key: int
+}
+
+fn main() {
+    // packed: the representation chosen on first push, with a capacity far past what is used
+    val ints = mutable_array_new<int>(capacity: 100000)
+    var i = 0
+    while i < 5 {
+        mutable_array_push(ints, i * 2)
+        i = i + 1
+    }
+    print(snapshot(ints))
+    print(len(ints))
+
+    // boxed: a type that never packs, same oversized capacity
+    val structs = mutable_array_new<P>(capacity: 100000)
+    mutable_array_push(structs, P { key: 7 })
+    mutable_array_push(structs, P { key: 8 })
+    print(snapshot(structs))
+
+    // a capacity of zero, and one smaller than the push count, both still grow correctly
+    val zero = mutable_array_new<int>(capacity: 0)
+    var j = 0
+    while j < 40 {
+        mutable_array_push(zero, j)
+        j = j + 1
+    }
+    print(len(zero))
+    print(snapshot(zero)[39])
+
+    val tiny = mutable_array_new<string>(capacity: 1)
+    mutable_array_push(tiny, "a")
+    mutable_array_push(tiny, "b")
+    mutable_array_push(tiny, "c")
+    print(snapshot(tiny))
+
+    // mutable_array_from writes into the buffer directly rather than through a push, so it has to
+    // ask for the allocation itself -- both representations, and the empty case
+    val from_packed = mutable_array_from([1, 2, 3])
+    print(snapshot(from_packed))
+    val from_boxed = mutable_array_from(["x", "y"])
+    print(snapshot(from_boxed))
+    val from_handle = mutable_array_from(from_packed)
+    mutable_array_push(from_handle, 4)
+    print(snapshot(from_handle))
+    val empty: [int] = []
+    val from_empty = mutable_array_from(empty)
+    print(len(from_empty))
+    mutable_array_push(from_empty, 9)
+    print(snapshot(from_empty))
+
+    // clear keeps the buffer and the representation; refilling after it still works
+    clear(ints)
+    print(len(ints))
+    mutable_array_push(ints, 99)
+    print(snapshot(ints))
+
+    // insert into a fresh presized builder takes the pack decision too
+    val inserted = mutable_array_new<int>(capacity: 5000)
+    mutable_array_insert(inserted, 0, 11)
+    mutable_array_insert(inserted, 0, 10)
+    print(snapshot(inserted))
+}
