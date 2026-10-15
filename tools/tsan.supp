@@ -1,0 +1,31 @@
+# Boehm's stop-the-world mark phase, which ThreadSanitizer cannot see as synchronisation.
+#
+# `push_other_roots` (src/gc_boehm_roots.c) is the hook Boehm calls to push the root sources it
+# cannot find on its own: every scanned arena's blocks, the global env, and each registered
+# thread's frame and interpreter ranges. Its own comment states the invariant it relies on -- it
+# "runs on whichever thread is doing the collecting, with every other thread already stopped" --
+# and that is what makes reading another thread's structures there safe without a lock.
+#
+# TSan does not know that. Boehm suspends threads with signals (`GC_suspend_handler`), which
+# establishes no happens-before edge TSan can observe, so the marker's read of a thread's frame
+# stack and that thread's own `ziman_push_frame`/`ziman_pop_frame` write look unordered to it and
+# get reported as a race. Observed as exactly that pair, on `spawn_defer_gc_stress`:
+#
+#     Write at ziman_push_frame       src/error.c:240   by thread T4
+#     Read  at ziman_frames_root_ranges src/error.c:304 by thread T8
+#             <- push_other_roots <- GC_mark_some
+#
+# Two things say it is this and not a real race. It appears only in the `-gc` configuration --
+# `ziman-tsan`, the same fixtures without Boehm, is clean -- and nothing here enables incremental
+# or generational collection (there is no `GC_enable_incremental` call anywhere), so marking is
+# never concurrent with a mutator. `GC_set_markers_count(2)` makes the *markers* parallel with
+# each other, still inside the stop-the-world.
+#
+# Keyed on `push_other_roots` rather than on the error.c functions on the other side of the
+# report, for the same reason valgrind.supp keys on `gc_scan_stack_roots`: it is the one frame
+# every such context shares, and it is the frame whose contract explains why the access is safe.
+# The cost of that choice, stated plainly: a genuine race inside anything `push_other_roots`
+# calls would also be hidden. The stop-the-world invariant covers all of it, which is what makes
+# the suppression principled rather than convenient -- but it is the reason to keep this entry
+# narrow and to not add more.
+race:push_other_roots

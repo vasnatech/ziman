@@ -202,7 +202,15 @@ endef
 
 ASAN_OPTS := detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1
 UBSAN_OPTS := print_stacktrace=1:halt_on_error=1
-TSAN_OPTS := halt_on_error=1:history_size=4
+# `suppressions` covers one known-safe pattern Boehm's stop-the-world marking creates and TSan
+# cannot see as synchronisation -- tools/tsan.supp says which and why. Without it, every run
+# with the collector reports the same race on `spawn_defer_gc_stress`.
+# What a fixture gets under a sanitizer before the harness calls it a deadlock. The suite's own
+# default is five seconds, which is right for an ordinary build and too tight for an
+# instrumented one -- see tests/run_tests.sh's own comment on TIMEOUT.
+SAN_TIMEOUT := 30
+
+TSAN_OPTS := halt_on_error=1:history_size=4:suppressions=tools/tsan.supp
 
 clean:
 	rm -f $(BIN) ziman-nogc ziman-allocprofile ziman-asan ziman-ubsan ziman-tsan ziman-vg \
