@@ -1531,3 +1531,93 @@ faster code, and the reverse is also true -- the indirection that makes the stru
 a fifth of the runtime while the deduplication that looked like the clever part was worth nothing.
 Interning remains reasonable for a long-running process that should not churn a `Type` per value for
 days, and should be judged on that rather than on speed.
+
+### Measured: the conservative arena root push is the only shape that fits, and handles are not the pin
+
+Went looking for the cheapest thing that could move the "a gc_heap object pays BOTH collectors" cost
+that killed the migration strategy two entries ago, and found first that this page's own framing of
+what pins that cost was wrong, and then that the cheap fix cannot be built at all. Nothing landed;
+the branch is `spike/precise-roots` and the findings are the deliverable.
+
+**The native-handle trick is not what pins the conservative scan.** `arena.h`'s own comment on
+`arena_create_scanned`, `gc_heap.c:62` and this page all name it as the reason the arena is handed
+to Boehm as a root range, and the previous entry made "dispose of the handle-retention constraint"
+the gate on everything else. It is a real reason and it is the smaller one. The push is doing a
+second job nothing had written down: **keeping alive every Boehm-heap object that is reachable only
+through a gc_heap object.** The migration was deliberately left partial, and the boundary is full of
+cross-heap pointers -- `StructObj.fields` ("not yet migrated, deliberately", `value.c:308`),
+`ArrayObj.boxed_items` and the packed buffers ("stays on the ordinary allocator"), `MapObj.root`'s
+whole `MapNode` chain ("never gc_heap-migrated in the first place"), and every `ClosureObj`,
+`BigNum`, `Decimal` and `ChannelObj` reachable through the `Value`s in them. A `StructObj` in the
+arena is the *only* path to its own fields array; Ziman's `gc_mark_struct` traces it, and Boehm never
+consults Ziman's mark -- which is precisely the "two different, disjoint notions of what is
+reachable" `gc_boehm_roots.h` was written to fix. Take the push away and Boehm frees live field
+arrays. So the cost comes from the heap being *mixed*, not from handles, and fixing handle retention
+would leave it exactly where it is. Worth knowing before pricing that work: it is small in C (10
+`HandleSet`s, 13 boxing and ~20 unboxing sites) and a language break outside it (**46
+`handle: int` declarations in `lib/`** -- 13 public struct fields across `Socket`, `Listener`,
+`Connection`, `Cursor`, `Iter`, `StringBuilder`, `MutableArray`, `MapBuilder`, `Cell`, `Child`,
+`Regex`, `Metric`, plus 33 `native fn` parameters and 36 `.handle` reads).
+
+**The cheap fix was to make the push precise instead, and it fails three independent ways.** Walk
+each block's `gc_object` headers and push only the kinds that can hold a pointer -- everything but
+`GC_ATOMIC` (leaf allocations by definition) and `GC_FREE` (already zeroed by the sweep) -- coalesced
+into runs. Correct by construction, no retention change, contained to `gc_boehm_roots.c` plus two
+accessors on `arena.c`'s scanned-arena list. Measured with `ZIMAN_GC_ROOT_STATS=1`, which leaves
+today's push in place and only reports what each would scan:
+
+| workload | arena pushed per run | precise would push | saving | push ranges per collection |
+| --- | --- | --- | --- | --- |
+| `decimal_churn` (300k live structs, 12 Boehm collections) | 268.1 MB | 254.9 MB | **4.9%** | 83,218 |
+| `structs_live` | 46.6 MB | 37.3 MB | 20.1% | 58,586 |
+| `map_live` | 15.9 MB | 13.4 MB | 15.7% | 15,557 |
+| `strings_live` | 0.9 MB | 0.5 MB | 42.3% | 8 |
+
+1. **The saving is anti-correlated with the cost, and that is structural, not incidental.** The push
+   can only skip what is dead or atomic, and an arena that is mostly dead or atomic is an arena that
+   was cheap to scan in the first place. On the one workload with a genuinely large live arena,
+   95.1% of the bytes are live, pushable objects: there is nothing to skip. The 42% saving appears
+   only where the whole arena is under a megabyte.
+2. **The walk costs more than it saves.** Finding those 4.9% means visiting 3,445,428 objects per
+   run, timed at 30.81 ms inside the push, against a conservative push that is a handful of
+   `GC_push_all` calls. Even with the scan itself free it is a wash.
+3. **The shape is incompatible with Boehm's mark stack, which is why "it is slower" undersells it --
+   it does not finish.** `GC_push_all` pushes one mark-stack entry per range, and Boehm's stack holds
+   4096 (`INITIAL_MARK_STACK_SIZE`, `vendor/bdwgc/mark.c:126`). 58k-83k ranges overflow it 14-20x
+   over, the overflow recovery re-marks from the roots, and the re-mark overflows again:
+   `GC_PRINT_STATS=1` prints "Mark stack overflow; current size: 4096 entries" without end and the
+   process spins at 98% CPU indefinitely. A workload with 8 ranges runs fine; the hang tracks the
+   range count exactly. Coalescing cannot fix it either -- a run breaks wherever a dead or atomic
+   object sits and those are scattered through every block, so fewer ranges means pushing the dead
+   objects too, which is the conservative push again.
+
+Rebuilt the collector with a 128x mark stack (8 MB) purely to get a number past the hang, so the
+conclusion rests on a measurement rather than on a livelock. Five interleaved rounds, same binary,
+only the push differing:
+
+    decimal_churn   0.49-0.52s -> 0.53-0.57s   (~8% slower)
+    structs_live    0.33-0.42s -> 0.35-0.43s   (slower to noise)
+    map_live        0.33-0.37s -> 0.32-0.41s   (noise)
+    strings_live    0.35-0.39s -> 0.34-0.36s   (noise)
+
+**So the conservative whole-range push is not a lazy choice that a precise one improves on; it is the
+only shape that fits the collector it feeds.** One or two mark-stack entries per block against tens
+of thousands, in exchange for 4.9% of the bytes on the workload where the bytes are actually large.
+
+**Two corrections to things said earlier on this page, both found by measuring rather than by
+reading.** The claim that a precise push would stop Boehm conservatively scanning "every string's
+bytes" in the arena was simply wrong: the allocation profiler reports **no `atomic` objects in the
+gc_heap at all** on any of these workloads -- the live kinds are `enum`, `struct`, `array`,
+`map_leaf` and `map`, and `concat`'s strings land on Boehm's heap, not in the arena. And the arena
+push runs far less often than this page's framing implies, because it is on *Boehm's* collection
+path, not Ziman's: `strings_live` does 75 Ziman collections against 3 Boehm ones, `map_live` 11
+against 1. Even eliminating the push outright touches a handful of events per run.
+
+**What this leaves.** The fork is unchanged and now has one less option in it: either finish the
+migration so the arena is self-contained and can stop being a Boehm root (a big-bang change whose
+payoff cannot be measured incrementally, which is exactly the commitment this project has avoided
+making), or retire the gc_heap and accept Boehm plus tuning. There is no cheap third path through the
+root push. Noted for whoever opens that fork: `tests/bench/gcheap/` on the spike branch holds the
+four workloads written for this, and they are the only benchmarks in the tree that put a large *live*
+set in the per-thread heap -- every existing one leaves it nearly empty (`scalar_arrays_bench`: 384
+bytes in 4 objects), which is why none of them can see this cost at all.
