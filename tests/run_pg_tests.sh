@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the Postgres driver tests in tests/pg/ against a throwaway
+# Runs the Postgres driver tests in tests/integration/pg/ against a throwaway
 # Postgres server in a container (docker or podman). Not part of `make
 # test`: it needs a container runtime and a `postgres:17` image, so the
 # ordinary suite stays hermetic. Usage: `make test-pg`.
@@ -27,7 +27,7 @@ if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
     exit 1
 fi
 
-cleanup() { "$RUNTIME" rm -f "$NAME" >/dev/null 2>&1; rm -rf tests/pg/.url tests/pg/.certs; }
+cleanup() { "$RUNTIME" rm -f "$NAME" >/dev/null 2>&1; rm -rf tests/integration/pg/.url tests/integration/pg/.certs; }
 trap cleanup EXIT
 
 "$RUNTIME" run -d --name "$NAME" -e POSTGRES_USER=ziman -e POSTGRES_PASSWORD=secret \
@@ -45,26 +45,26 @@ psqlx -c "SELECT pg_reload_conf();" >/dev/null
 
 # TLS: a self-signed server certificate (its own CA), enabled with a config reload.
 command -v openssl >/dev/null || { echo "openssl is required for the TLS tests" >&2; exit 1; }
-mkdir -p tests/pg/.certs
+mkdir -p tests/integration/pg/.certs
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj "/CN=localhost" \
-    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -keyout tests/pg/.certs/server.key -out tests/pg/.certs/server.crt 2>/dev/null
-"$RUNTIME" cp tests/pg/.certs/server.crt "$NAME:/tmp/server.crt"
-"$RUNTIME" cp tests/pg/.certs/server.key "$NAME:/tmp/server.key"
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" -keyout tests/integration/pg/.certs/server.key -out tests/integration/pg/.certs/server.crt 2>/dev/null
+"$RUNTIME" cp tests/integration/pg/.certs/server.crt "$NAME:/tmp/server.crt"
+"$RUNTIME" cp tests/integration/pg/.certs/server.key "$NAME:/tmp/server.key"
 "$RUNTIME" exec -u root "$NAME" bash -c "install -o postgres -g postgres -m 644 /tmp/server.crt /var/lib/postgresql/ssl.crt && install -o postgres -g postgres -m 600 /tmp/server.key /var/lib/postgresql/ssl.key"
 psqlx -c "ALTER SYSTEM SET ssl = on;" -c "ALTER SYSTEM SET ssl_cert_file = '/var/lib/postgresql/ssl.crt';" \
       -c "ALTER SYSTEM SET ssl_key_file = '/var/lib/postgresql/ssl.key';" -c "SELECT pg_reload_conf();" >/dev/null
 sleep 1
 
-echo "postgres://ziman:secret@127.0.0.1:$PORT/zimandb" > tests/pg/.url
+echo "postgres://ziman:secret@127.0.0.1:$PORT/zimandb" > tests/integration/pg/.url
 
 pass=0; fail=0
-for zm in tests/pg/*.zm; do
+for zm in tests/integration/pg/*.zm; do
     name=$(basename "$zm" .zm)
     actual=$(timeout 60 "$BIN" "$zm" 2>&1)
-    if [ "$actual" = "$(cat tests/pg/$name.out)" ]; then
+    if [ "$actual" = "$(cat tests/integration/pg/$name.out)" ]; then
         echo "PASS $name"; pass=$((pass + 1))
     else
-        echo "FAIL $name"; diff <(echo "$actual") tests/pg/$name.out | sed 's/^/  /'; fail=$((fail + 1))
+        echo "FAIL $name"; diff <(echo "$actual") tests/integration/pg/$name.out | sed 's/^/  /'; fail=$((fail + 1))
     fi
 done
 echo "----"

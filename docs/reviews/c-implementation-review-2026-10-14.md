@@ -1055,7 +1055,7 @@ cannot have one.
 $ timeout 900 python3 -I fuzz.py ./ziman 4000 1
 summary: {} of 4000
 ```
-85% mutated from `tests/fixtures/*.zm` (bit flips, splices, 400× token repetition, 2000-byte tails,
+85% mutated from `tests/lang/*.zm` (bit flips, splices, 400× token repetition, 2000-byte tails,
 NULs, invalid UTF-8), 15% pure random, 5s timeout each, flagging any `rc < 0`, `rc > 2` or timeout.
 Zero. *Why it matters:* the lexer and parser are not the weak point; semantically valid programs are.
 

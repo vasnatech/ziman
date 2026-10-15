@@ -1,0 +1,1 @@
+ziman: lexical error at 2:19 in tests/lang/hint_c_style_for.zm: unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' (which stops before n) and 'while cond'

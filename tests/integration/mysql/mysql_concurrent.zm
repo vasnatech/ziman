@@ -1,0 +1,48 @@
+use datasource
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
+use fs
+
+// Ten threads share one connection and each insert 20 rows. The owner
+// thread serialises the wire protocol, so nothing interleaves.
+fn worker(conn: datasource.Connection, base: int, done: Channel<int>) {
+    var i = 0
+    var ok = 0
+    while i < 20 {
+        if is_ok(datasource.execute(
+            conn,
+            "INSERT INTO my_c (id, who) VALUES ($1, $2)",
+            SqlValue.Int(base + i),
+            SqlValue.Int(base)
+        )) {
+            ok = ok + 1
+        }
+        i = i + 1
+    }
+    send(done, ok)
+}
+
+fn main() {
+    val hp = trim(unwrap(fs.read_text("tests/integration/mysql/.hostport")))
+    val conn = unwrap(datasource.open(format("mysql://nat_user:natpw@{}/zimandb", hp)))
+    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS my_c"))
+    unwrap(datasource.execute(conn, "CREATE TABLE my_c (id INT PRIMARY KEY, who INT NOT NULL)"))
+    val done: Channel<int> = channel_new()
+    var t = 0
+    while t < 10 {
+        spawn worker(conn, t * 1000, done)
+        t = t + 1
+    }
+    var total = 0
+    var i = 0
+    while i < 10 {
+        total = total + receive(done)
+        i = i + 1
+    }
+    print(total)
+    val rows = unwrap(datasource.query(conn, "SELECT COUNT(*) AS n FROM my_c"))
+    print(unwrap(sql_as_int(unwrap(row_get(rows[0], "n")))))
+    unwrap(datasource.execute(conn, "DROP TABLE my_c"))
+    datasource.close(conn)
+}

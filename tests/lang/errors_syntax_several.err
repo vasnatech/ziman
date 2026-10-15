@@ -1,0 +1,17 @@
+ziman: syntax error at 3:1 in tests/lang/errors_syntax_several.zm: expected an expression, found '}'
+  |
+3 | }
+  | ^
+ziman: syntax error at 5:13 in tests/lang/errors_syntax_several.zm: expected ')', found '->'
+  |
+5 | fn b(x: int -> int {
+  |             ^
+ziman: syntax error at 10:7 in tests/lang/errors_syntax_several.zm: expected ':', found 'int'
+   |
+10 |     x int
+   |       ^
+ziman: syntax error at 16:1 in tests/lang/errors_syntax_several.zm: expected ')', found '}'
+   |
+16 | }
+   | ^
+ziman: 4 errors

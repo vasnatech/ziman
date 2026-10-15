@@ -1,0 +1,9 @@
+ziman: type error at 2:18 in tests/lang/errors_sorted_by_position.zm: cannot initialize 'x' of declared type int with a value of type string
+  |
+2 |     val x: int = "bad in b"
+  |                  ^
+ziman: type error at 6:18 in tests/lang/errors_sorted_by_position.zm: cannot initialize 'y' of declared type int with a value of type string
+  |
+6 |     val y: int = "bad in a"
+  |                  ^
+ziman: 2 errors

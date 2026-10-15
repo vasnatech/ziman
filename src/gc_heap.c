@@ -191,7 +191,7 @@ size_t gc_heap_sweep(GcHeap *h) {
              * trick) sitting in an already-dead object's payload would otherwise still look like a
              * live reference to Boehm's own conservative scan for as long as this slot goes
              * unreused -- keeping the underlying resource open well past the point nothing in the
-             * program can still reach it (found via tests/fixtures/net_dropped_socket_reclaimed.zm
+             * program can still reach it (found via tests/lang/net_dropped_socket_reclaimed.zm
              * failing once struct_obj_new -- net.Socket's own wrapper -- first migrated here). */
             memset(slot, 0, gc_size_of(obj));
             gc_set_kind(slot, GC_FREE);

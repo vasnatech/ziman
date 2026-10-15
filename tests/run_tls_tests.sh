@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the TLS client tests in tests/tls/ against local `openssl s_server`
+# Runs the TLS client tests in tests/integration/tls/ against local `openssl s_server`
 # instances with freshly generated self-signed certificates. Not part of
 # `make test` (it needs the `openssl` binary and free ports 55443/55444).
 # Usage: `make test-tls`.
@@ -12,7 +12,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 BIN=${BIN:-./ziman}
-CERTS=tests/tls/.certs
+CERTS=tests/integration/tls/.certs
 if ! command -v openssl >/dev/null; then echo "SKIP: no openssl binary"; exit 0; fi
 for port in 55443 55444; do
     if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
@@ -39,13 +39,13 @@ for port in 55443 55444; do
 done
 
 pass=0; fail=0
-for zm in tests/tls/*.zm; do
+for zm in tests/integration/tls/*.zm; do
     name=$(basename "$zm" .zm)
     actual=$(timeout 60 "$BIN" "$zm" 2>&1)
-    if [ "$actual" = "$(cat tests/tls/$name.out)" ]; then
+    if [ "$actual" = "$(cat tests/integration/tls/$name.out)" ]; then
         echo "PASS $name"; pass=$((pass + 1))
     else
-        echo "FAIL $name"; diff <(echo "$actual") tests/tls/$name.out | sed 's/^/  /'; fail=$((fail + 1))
+        echo "FAIL $name"; diff <(echo "$actual") tests/integration/tls/$name.out | sed 's/^/  /'; fail=$((fail + 1))
     fi
 done
 echo "----"

@@ -1,0 +1,3 @@
+tests/lang/lint_quadratic_accumulation.zm:16:9: warning: 's' is rebuilt from a copy of itself on every pass of this loop (quadratic); collect the pieces in a MutableString (mutable_string_new, mutable_string_append, snapshot)
+tests/lang/lint_quadratic_accumulation.zm:18:9: warning: 'a' is rebuilt from a copy of itself on every pass of this loop (quadratic); collect the pieces in a MutableArray (mutable_array_new, mutable_array_push, snapshot)
+tests/lang/lint_quadratic_accumulation.zm:19:9: warning: 'fixed' is rebuilt from a copy of itself on every pass of this loop (quadratic); collect the pieces in a MutableArray (mutable_array_new, mutable_array_push, snapshot) if the loop fills it in order, or a MutableMap keyed by index if it does not

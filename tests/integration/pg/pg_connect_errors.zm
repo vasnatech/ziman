@@ -1,0 +1,32 @@
+use datasource
+use db.DbError
+use db.db_error_message
+use fs
+
+fn show(r: Result<datasource.Connection, DbError>) {
+    print(is_ok(r))
+    print(db_error_message(unwrap_err(r)))
+}
+
+fn main() {
+    val url = trim(unwrap(fs.read_text("tests/integration/pg/.url")))
+    // wrong password (SQLSTATE 28P01)
+    show(datasource.open("postgres://ziman:wrong@127.0.0.1:55432/zimandb"))
+    // unknown user, unknown database
+    show(datasource.open("postgres://nobody:secret@127.0.0.1:55432/zimandb"))
+    show(datasource.open("postgres://ziman:secret@127.0.0.1:55432/no_such_db"))
+    // nothing listening
+    show(datasource.open("postgres://ziman:secret@127.0.0.1:1/zimandb"))
+    // unsupported sslmode values are refused, not guessed at
+    show(datasource.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=allow"))
+    show(datasource.open("postgres://ziman:secret@127.0.0.1:55432/zimandb?sslmode=bogus"))
+    // malformed URLs
+    show(datasource.open("postgres://@127.0.0.1/db"))
+    show(datasource.open("postgres://u:p@127.0.0.1:notaport/db"))
+    // percent-encoded credentials decode ("s%65cret" == "secret")
+    val ok = datasource.open("postgres://ziman:s%65cret@127.0.0.1:55432/zimandb?sslmode=disable")
+    print(is_ok(ok))
+    if is_ok(ok) {
+        datasource.close(unwrap(ok))
+    }
+}

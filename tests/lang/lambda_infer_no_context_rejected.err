@@ -1,0 +1,4 @@
+ziman: type error at 2:16 in tests/lang/lambda_infer_no_context_rejected.zm: cannot infer the type of parameter 'x' -- write it (`x: T`), or use the lambda where a function type is expected (an argument, a `val` with a declared type, a return value)
+  |
+2 |     val f = fn(x) { x }
+  |                ^

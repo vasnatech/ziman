@@ -151,7 +151,7 @@ since none of their gaps are an edit-distance-close name -- they need a wrapper-
 a cross-module qualified name, and an unrelated vocabulary guess, respectively, none of which a
 name suggestion, however good, can supply.
 
-Test fixtures added: `tests/fixtures/diag_let_keyword`, `diag_map_as_function`,
+Test fixtures added: `tests/lang/diag_let_keyword`, `diag_map_as_function`,
 `diag_undefined_function_suggestion` (all `.err`-checked, `make test`: 789 passed, 0 failed).
 
 ## Second follow-up: a misleading suggestion, and word_count_map's real second gap
@@ -182,7 +182,7 @@ own strategy happens to look at first. That is a property of the 5-attempt proto
 particular model's error-fixing strategy, not something a diagnostic wording can fix -- confirmed
 the honest way, by re-testing, rather than assumed.
 
-Test fixture added: `tests/fixtures/diag_map_membership` (`make test`: 790 passed, 0 failed).
+Test fixture added: `tests/lang/diag_map_membership` (`make test`: 790 passed, 0 failed).
 
 ## What this does and does not establish
 

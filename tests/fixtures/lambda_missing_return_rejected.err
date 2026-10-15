@@ -1,1 +1,0 @@
-ziman: type error at 2:33 in tests/fixtures/lambda_missing_return_rejected.zm: returned void but function is declared to return int

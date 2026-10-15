@@ -423,7 +423,7 @@ static Value channel_finalize_received(ChannelMsg m) {
 /* ---- deadlock detection ----
  *
  * A spawned thread that dies before it sends used to leave its reader blocked in `receive` for ever,
- * with no output and no exit: tests/fixtures/error_stack_trace_spawned_thread.zm relies on the
+ * with no output and no exit: tests/lang/error_stack_trace_spawned_thread.zm relies on the
  * harness timeout for exactly that reason and says so in its own comment, and a scratch program from
  * the 2026-10-05 review was still hung 55 minutes later. The thread's error had already been printed,
  * so the information was there -- the program simply never ended.

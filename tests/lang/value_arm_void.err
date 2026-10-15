@@ -1,0 +1,13 @@
+ziman: type error at 2:5 in tests/lang/value_arm_void.zm: no arm of this 'if'/'switch' produces a value (every arm leaves)
+  |
+2 |     val a = if true { print(1) } else { print(2) }
+  |     ^
+ziman: type error at 2:23 in tests/lang/value_arm_void.zm: cannot use a void value to initialize a variable
+  |
+2 |     val a = if true { print(1) } else { print(2) }
+  |                       ^
+ziman: type error at 2:41 in tests/lang/value_arm_void.zm: cannot use a void value to initialize a variable
+  |
+2 |     val a = if true { print(1) } else { print(2) }
+  |                                         ^
+ziman: 3 errors

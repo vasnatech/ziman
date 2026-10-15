@@ -360,7 +360,7 @@ today's allocators, only what crossing costs).
 **Phase 2, first increment done (2026-09-29): a standalone arena allocator, not yet wired into
 anything.** `src/arena.c`/`.h` -- `mmap`-backed, bump-allocated, `arena_destroy` releases every
 block in one shot. Nothing in the interpreter calls it yet; landed with its own test
-(`tests/unit/arena_test.c`, `make test-arena`) before the much larger, riskier step of routing the
+(`tests/c/arena_test.c`, `make test-arena`) before the much larger, riskier step of routing the
 interpreter's own allocation sites through it, which is still ahead. See docs/DESIGN.md's "A
 standalone arena allocator, landed inert before anything calls it" entry for what it caught (two
 real bugs the test found before this went anywhere near the interpreter) and why it has to use
@@ -383,7 +383,7 @@ The design section above now has a permanent subsection on why ("A constraint fo
 Phase 2, binding on every future arena, not just the outbound one") -- `arena_create_scanned`
 (`src/arena.c`) is the fix, and every arena this design creates from here on needs to use it, not
 just the outbound one. Verified directly, not just that the test suite went green again: a minimal
-reproduction (`tests/fixtures/thread_crossing_native_handle.zm`) confirmed to fail with the exact
+reproduction (`tests/lang/thread_crossing_native_handle.zm`) confirmed to fail with the exact
 original error when temporarily reverted, and pass once reverted back.
 
 **Sequencing decision (2026-09-30): skip Phase 2's remaining allocation-site rewiring, go straight
@@ -419,7 +419,7 @@ remain design-only. Tracked as the concurrency half of F2 (docs/reviews/tasks.md
 `.h` -- a thin layer on top of `arena.c`, giving every allocation a small header (`kind`, `size`,
 `marked`) that the eventual mark/copy phases will read from a bare pointer found by a stack scan or
 an already-in-progress trace. Nothing calls it yet; landed with its own test
-(`tests/unit/gc_object_test.c`, `make test-gc-object`), same discipline `arena.c` itself was built
+(`tests/c/gc_object_test.c`, `make test-gc-object`), same discipline `arena.c` itself was built
 with. See docs/DESIGN.md's "Object headers, the foundation Phase 3's mark/copy phases will need"
 entry for the seven-kind `GcKind` design and why `GC_VALUES` is its own kind rather than folded
 into `GC_ARRAY`. The actual mark phase (walking a `Value` graph precisely by `type.kind`, using
@@ -444,7 +444,7 @@ re-litigated per case. A packed array's own raw buffers never actually need this
 practice, because `gc_copy_array` reads every element through `array_get` (which already resolves a
 view's own offset) and always rebuilds the copy boxed, the same simplification `value_copy.c`
 already made. See docs/DESIGN.md's "The copy/relocate primitive" entry for the full reasoning and
-the standalone test's 35 checks (`tests/unit/gc_copy_test.c`, `make test-gc-copy`), including the
+the standalone test's 35 checks (`tests/c/gc_copy_test.c`, `make test-gc-copy`), including the
 interior-pointer ambiguity exercised directly (a string and a same-start-address, shorter view of it
 both copy to their own correct content) and sharing preservation verified directly (a struct/array
 reachable from two places dedups to the same copied object, not two). Still not wired into anything
@@ -477,7 +477,7 @@ finds the one whose span contains the candidate. `arena_block_content` has to sk
 that embeds the `Arena` struct itself past its own reserved bytes -- identified by a property already
 true of the existing code (exactly one block ever has `next == NULL`), not a new invariant added for
 this. See DESIGN.md's "Resolving a bare stack word back to an object" entry for the full reasoning
-and the standalone test's 18 checks (`tests/unit/gc_lookup_test.c`, `make test-gc-lookup`), including
+and the standalone test's 18 checks (`tests/c/gc_lookup_test.c`, `make test-gc-lookup`), including
 exact and interior matches, addresses that must resolve to nothing, alignment-padding correctness,
 and walking across multiple `mmap`'d blocks. Still ahead: the actual stack scan (using `stack.c`'s
 existing bounds computation to find the candidate words in the first place), the collection trigger,
@@ -503,7 +503,7 @@ that as "uninitialised value used," the same interaction Boehm's own collector h
 Verified this is the *only* thing found, not cover for something worse, by re-running with
 `--undef-value-errors=no` (every other check -- invalid reads/writes, leaks -- still on): zero errors.
 See DESIGN.md's "The actual conservative stack scan" entry for the full reasoning and the standalone
-test's 6 checks (`tests/unit/gc_scan_test.c`, `make test-gc-scan`), run five times deliberately (stack
+test's 6 checks (`tests/c/gc_scan_test.c`, `make test-gc-scan`), run five times deliberately (stack
 contents vary run to run) rather than trusted once, including the interior-pointer-as-root case
 `gc_lookup.c` exists for.
 
@@ -549,7 +549,7 @@ effective payload of `sizeof(void *)` before computing a size class, so even the
 has room for its own link once something in it is freed.
 
 See DESIGN.md's "Phase 3 switches from copying to mark-sweep" entry for the full reasoning and the
-standalone test's 17 checks (`tests/unit/gc_heap_test.c`, `make test-gc-heap`, using `gc_set_marked`
+standalone test's 17 checks (`tests/c/gc_heap_test.c`, `make test-gc-heap`, using `gc_set_marked`
 directly to simulate a mark phase that doesn't exist yet -- the same discipline every earlier layer
 here was proven with first), all passing; `valgrind` clean; full suite (829 fixtures) unchanged on
 both builds.
@@ -576,7 +576,7 @@ benchmark, not prematurely optimized on suspicion alone -- the same discipline t
 used throughout (profile first, tune second).
 
 See DESIGN.md's "The mark phase" entry for the full reasoning, the standalone test's 18 checks
-(`tests/unit/gc_mark_test.c`, `make test-gc-mark`, including the interior-pointer case and a shared-
+(`tests/c/gc_mark_test.c`, `make test-gc-mark`, including the interior-pointer case and a shared-
 substructure termination case) all passing, `valgrind` clean, full suite (829 fixtures) unchanged on
 both builds.
 
@@ -631,7 +631,7 @@ once globals are ever routed through a `GcHeap` (Phase 4/5, still design-only). 
 itself is not yet updated to call this.
 
 See DESIGN.md's "The second root source" entry for the full reasoning and the standalone test's 7
-checks (`tests/unit/gc_env_roots_test.c`, `make test-gc-env-roots`), all passing, `valgrind` clean,
+checks (`tests/c/gc_env_roots_test.c`, `make test-gc-env-roots`), all passing, `valgrind` clean,
 full suite (829 fixtures) unchanged on both builds.
 
 **`error.c`'s frame tracking now carries each call's own `Env*` (2026-09-30).** `ZimanFrame` gains a
@@ -699,7 +699,7 @@ exist -- a fixture surviving a real, triggered collection will be the implicit e
 same way `admin_test.py` was for the native-handle bug.
 
 See DESIGN.md's "The interpreter's own root sources, aggregated" entry; standalone test 6 checks
-(`tests/unit/gc_interp_roots_test.c`, `make test-gc-interp-roots`) all passing, `valgrind` fully clean
+(`tests/c/gc_interp_roots_test.c`, `make test-gc-interp-roots`) all passing, `valgrind` fully clean
 (this test's `type_scalar`-only `Value`s allocate nothing, unlike every other real-`Value` test here),
 full suite (829 fixtures) unchanged on both builds.
 
@@ -736,7 +736,7 @@ cost on top of the one already flagged for interior-pointer-capable buffers.
 
 **Verified as a real fix**: the minimal repro (`Opts{flag:false}` through `spawn`) reproduces `true`
 with the guards reverted, `false` restored, five runs each way. A permanent regression fixture,
-`tests/fixtures/gc_collect_preserves_thread_crossed_value.zm` (a `spawn`ed worker reading 3,000 lines
+`tests/lang/gc_collect_preserves_thread_crossed_value.zm` (a `spawn`ed worker reading 3,000 lines
 via `fs.lines` to reliably cross the trigger threshold before checking its own received struct), does
 the identical before/after discrimination -- the same discipline `thread_crossing_native_handle.zm`
 already established for the earlier native-handle bug. Full suite 830/830 on both builds (829 plus this
@@ -1240,7 +1240,7 @@ Results: decimal loop **1.18s -> 0.37s (3.2x)**, RSS flat; Boehm allocation 42% 
 `mag_mul_limb` now 45.8%, i.e. the arithmetic itself is on top where it belongs.
 
 Verified with a real differential test, which this kind of change earns: both binaries kept, and
-`tests/fixtures/bignum_mul_divmod_wide.zm` (238 lines of bigint/decimal mul, div and rem up to ~90
+`tests/lang/bignum_mul_divmod_wide.zm` (238 lines of bigint/decimal mul, div and rem up to ~90
 digits, 40 divisor sizes) gave **byte-identical output from the pre- and post-change binaries** --
 that output is what the `.out` now locks in. Plus suite **835/835 both builds**, test-bignum,
 test-decimal, nine gc_* tests, test-pg 11/11, test-mysql 6/6 (both drivers decode numerics through

@@ -1,1 +1,0 @@
-ziman: type error at 3:36 in tests/fixtures/lambda_arity_mismatch_rejected.zm: this lambda takes 2 parameter(s) but a function taking 1 is expected here (fn(int) -> int)

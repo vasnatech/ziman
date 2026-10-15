@@ -1,1 +1,0 @@
-ziman: type error at 2:34 in tests/fixtures/value_arms_type_mismatch.zm: the arms of an 'if'/'switch' used as a value must all have the same type: found int and string

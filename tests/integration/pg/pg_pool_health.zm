@@ -1,0 +1,54 @@
+use clock
+use datasource
+use db
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
+use fs
+
+fn pid_of(conn: datasource.Connection) -> Result<int, db.DbError> {
+    val rows = try datasource.query(conn, "SELECT pg_backend_pid() AS pid")
+    return unwrap(sql_as_int(unwrap(row_get(rows[0], "pid"))))
+}
+
+fn main() {
+    val url = trim(unwrap(fs.read_text("tests/integration/pg/.url")))
+    val admin = unwrap(datasource.open(url))
+
+    // idle past the limit: the dead connection is found by a test query and replaced before it is lent out,
+    // so the first statement after the outage succeeds
+    val pool = unwrap(datasource.open_pool_with(url, 1, 1))
+    val first = unwrap(pid_of(pool))
+    unwrap(datasource.query(admin, "SELECT pg_terminate_backend($1)", SqlValue.Int(first)))
+    clock.sleep_millis(1300)
+    val second = pid_of(pool)
+    print(is_ok(second))
+    print(unwrap(second) != first)
+    datasource.close(pool)
+
+    // not idle long enough to be tested: the first statement after the outage fails, the next works
+    val eager = unwrap(datasource.open_pool_with(url, 1, 3600))
+    val a = unwrap(pid_of(eager))
+    unwrap(datasource.query(admin, "SELECT pg_terminate_backend($1)", SqlValue.Int(a)))
+    clock.sleep_millis(300)
+    print(is_ok(pid_of(eager)))
+    print(unwrap(pid_of(eager)) != a)
+    datasource.close(eager)
+
+    // testing turned off behaves the same way
+    val off = unwrap(datasource.open_pool_with(url, 1, 0))
+    val b = unwrap(pid_of(off))
+    unwrap(datasource.query(admin, "SELECT pg_terminate_backend($1)", SqlValue.Int(b)))
+    clock.sleep_millis(1300)
+    print(is_ok(pid_of(off)))
+    print(is_ok(pid_of(off)))
+    datasource.close(off)
+
+    // a healthy idle connection is kept
+    val keep = unwrap(datasource.open_pool_with(url, 1, 1))
+    val c = unwrap(pid_of(keep))
+    clock.sleep_millis(1300)
+    print(unwrap(pid_of(keep)) == c)
+    datasource.close(keep)
+    datasource.close(admin)
+}

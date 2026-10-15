@@ -1,1 +1,0 @@
-ziman: type error at 2:12 in tests/fixtures/hint_length_field.zm: string has no field 'length' -- use len(x) for its length

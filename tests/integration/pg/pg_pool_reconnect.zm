@@ -1,0 +1,63 @@
+use datasource
+use db.DbError
+use db.Row
+use db.SqlValue
+use db.db_error_message
+use db.row_get
+use db.sql_as_int
+use fs
+
+fn pid_of(conn: datasource.Connection) -> int {
+    val rows = unwrap(datasource.query(conn, "SELECT pg_backend_pid() AS pid"))
+    return unwrap(sql_as_int(unwrap(row_get(rows[0], "pid"))))
+}
+
+fn main() {
+    val url = trim(unwrap(fs.read_text("tests/integration/pg/.url")))
+    val admin = unwrap(datasource.open(url))
+    val pool = unwrap(datasource.open_pool(url, 1))
+
+    val first = pid_of(pool)
+    print(pid_of(pool) == first)
+
+    // the server drops the pool's only connection: one statement fails, the next one works on a new backend
+    unwrap(datasource.query(admin, "SELECT pg_terminate_backend($1)", SqlValue.Int(first)))
+    val broken = datasource.query(pool, "SELECT 1")
+    print(is_ok(broken))
+    val second = pid_of(pool)
+    print(second != first)
+    print(pid_of(pool) == second)
+
+    // the same for a connection taken with acquire and given back with discard
+    val tx = unwrap(datasource.acquire(pool))
+    unwrap(datasource.query(admin, "SELECT pg_terminate_backend($1)", SqlValue.Int(second)))
+    print(is_ok(datasource.query(tx, "SELECT 1")))
+    datasource.discard(pool, tx)
+    val third = pid_of(pool)
+    print(third != second)
+
+    // a transaction that dies with its connection replaces it too
+    val moved = datasource.with_transaction<int>(pool, fn(t: datasource.Connection) -> Result<int, DbError> {
+        unwrap(datasource.query(admin, "SELECT pg_terminate_backend($1)", SqlValue.Int(third)))
+        val r = datasource.query(t, "SELECT 1")
+        if !is_ok(r) {
+            return err(unwrap_err(r))
+        }
+        return ok(1)
+    })
+    print(is_ok(moved))
+    print(pid_of(pool) != third)
+
+    // acquire_timeout: the only connection is out, so waiting gives up
+    val held = unwrap(datasource.acquire(pool))
+    val late = datasource.acquire_timeout(pool, 60)
+    print(is_ok(late))
+    print(db_error_message(unwrap_err(late)))
+    datasource.release(pool, held)
+    val ok_now = datasource.acquire_timeout(pool, 60)
+    print(is_ok(ok_now))
+    datasource.release(pool, unwrap(ok_now))
+
+    datasource.close(pool)
+    datasource.close(admin)
+}

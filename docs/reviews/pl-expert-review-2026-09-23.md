@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-23
 **Reviewer:** external PL/compiler audit, first exposure to the language
-**Scope:** `README.md`, `docs/{SYNTAX,DESIGN,ROADMAP,CORELIB}.md`, `src/*.c|h`, `lib/core/*.zm`, `lib/db/*.zm`, `tests/fixtures/`, and `health-record-backend-ziman` as a real-usage sample
+**Scope:** `README.md`, `docs/{SYNTAX,DESIGN,ROADMAP,CORELIB}.md`, `src/*.c|h`, `lib/core/*.zm`, `lib/db/*.zm`, `tests/lang/`, and `health-record-backend-ziman` as a real-usage sample
 **Method:** read the docs, then checked them against the source, then ran the interpreter against ~25 hand-written probes and load-tested the showcase backend. Every claim below that says "measured" or "verified" was executed, not inferred.
 
 ---

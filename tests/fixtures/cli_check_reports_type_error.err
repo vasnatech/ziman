@@ -1,1 +1,0 @@
-ziman: type error at 3:18 in tests/fixtures/cli_check_reports_type_error.zm: cannot initialize 'x' of declared type int with a value of type string

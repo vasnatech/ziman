@@ -1,0 +1,1 @@
+ziman: syntax error at 2:5 in tests/lang/derive_row_generic_rejected.zm: derive(Row) does not support a generic struct ('Box') -- only Json and Ord do

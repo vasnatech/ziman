@@ -2424,7 +2424,7 @@ void interpret(Module *module) {
  * raised) is also a failure, its message the same value_display every other
  * fatal-error message already uses. Prints "PASS <label>" or
  * "FAIL <label>  message" (deliberately no elapsed time -- this project's
- * own tests/fixtures harness checks stdout byte-for-byte, and a duration
+ * own tests/lang harness checks stdout byte-for-byte, and a duration
  * would make every fixture for this feature flaky) and returns 1 on
  * failure, 0 on pass. */
 static int run_one_test(Module *module, FunctionDecl *fn, Value *args, int argc, const char *label) {

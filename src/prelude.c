@@ -101,7 +101,7 @@ static Value native_parse_float(Value *args, int argc, int line, int col) {
      * On *underflow* the result is the correctly-rounded subnormal, which is an ordinary double --
      * and rejecting those meant parse_float could not read back what str had just written.
      * `str(5e-324)` is "5e-324" and parse_float refused it, breaking the round-trip agreement the
-     * docs promise; tests/fixtures/number_limits.out has been printing that very value all along. In
+     * docs promise; tests/lang/number_limits.out has been printing that very value all along. In
      * a server it turned a legitimate client number into a 500.
      *
      * A value too small for even a subnormal (1e-400) rounds to 0.0 and is accepted: that is the same

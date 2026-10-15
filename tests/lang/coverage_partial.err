@@ -1,0 +1,2 @@
+tests/lang/coverage_partial.zm: 3/5 lines (60%)
+  not run: 3 9

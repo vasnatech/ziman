@@ -1,4 +1,0 @@
-ziman: type error at 6:13 in tests/fixtures/generic_value_needs_type_args_rejected.zm: 'identity' is generic: write its type arguments where you use it as a value, e.g. identity<int>
-  |
-6 |     val f = identity
-  |             ^

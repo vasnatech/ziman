@@ -14,7 +14,7 @@ You are a senior language-tooling architect: someone who has designed a formatte
 
 - `./ziman --fmt file.zm` prints the file formatted. This is **the oracle**. What it prints *is* Ziman's format.
 - `src/format.c` (about 740 lines) is the implementation.
-- `make fmt-check` runs `./ziman --fmt --check` over every `.zm` file under `lib`, `docs/lib/examples`, `tests/pg`, `tests/mysql`, `tests/tls`, `tests/shutdown` and `tests/bench` — and it is part of `make check`, which gates every commit. So the format is not advice; it is enforced on the whole library.
+- `make fmt-check` runs `./ziman --fmt --check` over every `.zm` file under `lib`, `docs/lib/examples`, `tests/integration/pg`, `tests/integration/mysql`, `tests/integration/tls`, `tests/integration/shutdown` and `tests/bench` — and it is part of `make check`, which gates every commit. So the format is not advice; it is enforced on the whole library.
 
 **Ziman also already has a syntax grammar**: `editors/vscode/syntaxes/ziman.tmLanguage.json`, a TextMate grammar naming roughly 32 scopes, alongside `editors/vscode/language-configuration.json`, `editors/vscode/snippets/` and `editors/vscode/showcase.zm`. That is prior art. Document and justify it before proposing a change to it.
 

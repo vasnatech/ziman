@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the MySQL driver tests in tests/mysql/ against a throwaway MySQL 8.0
+# Runs the MySQL driver tests in tests/integration/mysql/ against a throwaway MySQL 8.0
 # server in a container (docker or podman). Not part of `make test`: it needs
 # a container runtime and a `mysql:8.0` image, so the ordinary suite stays
 # hermetic. Usage: `make test-mysql`.
@@ -27,7 +27,7 @@ if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
     exit 1
 fi
 
-cleanup() { "$RUNTIME" rm -f "$NAME" >/dev/null 2>&1; rm -f tests/mysql/.hostport; }
+cleanup() { "$RUNTIME" rm -f "$NAME" >/dev/null 2>&1; rm -f tests/integration/mysql/.hostport; }
 trap cleanup EXIT
 
 "$RUNTIME" run -d --name "$NAME" -e MYSQL_ROOT_PASSWORD=secret -e MYSQL_DATABASE=zimandb \
@@ -51,19 +51,19 @@ mysqlx -e "CREATE USER 'nat_user'@'%' IDENTIFIED WITH mysql_native_password BY '
            CREATE USER 'sha2_user'@'%' IDENTIFIED WITH caching_sha2_password BY 'sha2pw';
            GRANT ALL ON zimandb.* TO 'nat_user'@'%', 'sha2_user'@'%';" >/dev/null
 
-echo "127.0.0.1:$PORT" > tests/mysql/.hostport
+echo "127.0.0.1:$PORT" > tests/integration/mysql/.hostport
 
 pass=0; fail=0
 # mysql_auth first: it relies on sha2_user's login not being cached yet.
-for zm in tests/mysql/mysql_auth.zm $(ls tests/mysql/*.zm | grep -v mysql_auth.zm); do
+for zm in tests/integration/mysql/mysql_auth.zm $(ls tests/integration/mysql/*.zm | grep -v mysql_auth.zm); do
     name=$(basename "$zm" .zm)
     actual=$(timeout 90 "$BIN" "$zm" 2>&1)
     # UPDATE=1 rewrites the expected output from this (fresh-server) run.
-    [ -n "${UPDATE:-}" ] && echo "$actual" > "tests/mysql/$name.out"
-    if [ "$actual" = "$(cat tests/mysql/$name.out)" ]; then
+    [ -n "${UPDATE:-}" ] && echo "$actual" > "tests/integration/mysql/$name.out"
+    if [ "$actual" = "$(cat tests/integration/mysql/$name.out)" ]; then
         echo "PASS $name"; pass=$((pass + 1))
     else
-        echo "FAIL $name"; diff <(echo "$actual") tests/mysql/$name.out | sed 's/^/  /'; fail=$((fail + 1))
+        echo "FAIL $name"; diff <(echo "$actual") tests/integration/mysql/$name.out | sed 's/^/  /'; fail=$((fail + 1))
     fi
 done
 echo "----"

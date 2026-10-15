@@ -1,0 +1,54 @@
+use clock
+use net
+
+// One thread inside a TLS read while another closes that same connection. The project's other TLS
+// tests never make this interleaving, which is why `release_handle` freeing the `SSL` out from
+// under `io_read`'s plain read of `h->ssl` went unseen: a use-after-free on an OpenSSL object, not
+// on a descriptor number (docs/reviews/tasks.md A32). Under TSan this program reported three races
+// before the fix, in three runs out of three, and none after.
+//
+// The output is deliberately a classification rather than the messages themselves: the two channel
+// sends race with each other, and the reader's error text comes from whichever OpenSSL is
+// installed. What is being tested is that both threads finish and neither crashes.
+fn reader(s: net.Socket, done: Channel<string>) {
+    val r = net.read_text(s, 16)
+    if Ok(text) = r { send(done, "reader: read") } else { send(done, "reader: error") }
+}
+
+fn serve_one(l: net.Listener, done: Channel<string>) {
+    val c = net.accept(l)
+    if Ok(s) = c {
+        spawn reader(s, done)
+        clock.sleep_millis(120)  // the reader is inside SSL_read by now
+        net.close(s)             // and this used to free the SSL under it
+        send(done, "closer: done")
+    } else {
+        send(done, "closer: accept failed")
+    }
+}
+
+fn main() {
+    val l = unwrap(net.listen_tls(
+        "127.0.0.1",
+        0,
+        "tests/integration/tls/.certs/a.pem",
+        "tests/integration/tls/.certs/a.key"
+    ))
+    val port = net.listener_port(l)
+    val done: Channel<string> = channel_new()
+    spawn serve_one(l, done)
+    clock.sleep_millis(60)
+    val c = unwrap(net.connect("127.0.0.1", port))
+    val up = net.start_tls_with(c, "127.0.0.1", net.TlsVerify.Off, Option<string>.None)
+    print(concat("client handshake ok: ", str(is_ok(up))))
+    clock.sleep_millis(400)  // never send anything, so the server's reader stays blocked
+    var saw_reader = false
+    var saw_closer = false
+    for i in 0..2 {
+        val m = receive(done)
+        if starts_with(m, "reader:") { saw_reader = true }
+        if m == "closer: done" { saw_closer = true }
+    }
+    print(concat("reader finished: ", str(saw_reader)))
+    print(concat("closer finished: ", str(saw_closer)))
+}

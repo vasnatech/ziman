@@ -1,4 +1,0 @@
-ziman: type error at 3:20 in tests/fixtures/lambda_assign_captured_val_rejected.zm: cannot assign to 'k' because it was declared with 'val' (use 'var' to make it mutable)
-  |
-3 |     val f = fn() { k = 2 }
-  |                    ^

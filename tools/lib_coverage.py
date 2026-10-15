@@ -88,7 +88,7 @@ def main():
         print("  %-28s %5d/%-5d %3d%%" % (rel, h, t, round(100 * h / t) if t else 0))
     print("lib_coverage.py: %d/%d lines (%d%%) across %d modules, from %d fixture runs"
           % (hit, total, round(100 * hit / total), len(per_file), ran))
-    # The two database drivers are not reachable from `tests/fixtures/` at all -- they need a live
+    # The two database drivers are not reachable from `tests/lang/` at all -- they need a live
     # server, and their suites are `tests/run_pg_tests.sh` and `run_mysql_tests.sh`. Reporting one
     # number that silently includes a thousand lines nothing here could ever execute would make the
     # figure look worse than the suite is, and would hide movement in everything else.

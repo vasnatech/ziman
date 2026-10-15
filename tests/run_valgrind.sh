@@ -55,8 +55,8 @@ check() {
 
 for name in error_stack_trace error_stack_trace_recursive stack_depth_trace_bounded; do
     args=()
-    [ -f "tests/fixtures/$name.args" ] && read -r -a args < "tests/fixtures/$name.args"
-    check "$name" noleaks "$BIN" "${args[@]}" "tests/fixtures/$name.zm"
+    [ -f "tests/lang/$name.args" ] && read -r -a args < "tests/lang/$name.args"
+    check "$name" noleaks "$BIN" "${args[@]}" "tests/lang/$name.zm"
 done
 
 # Leak-checked, because every one of them is clean and their subjects have explicit lifetimes --

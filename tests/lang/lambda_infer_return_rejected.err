@@ -1,0 +1,4 @@
+ziman: type error at 2:13 in tests/lang/lambda_infer_return_rejected.zm: cannot infer the return type of a lambda that uses 'return' -- write `-> T` after the parameters
+  |
+2 |     val f = fn(x: int) { return x }
+  |             ^

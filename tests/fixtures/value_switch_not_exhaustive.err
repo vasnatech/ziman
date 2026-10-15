@@ -1,1 +1,0 @@
-ziman: type error at 4:13 in tests/fixtures/value_switch_not_exhaustive.zm: this 'switch' over E is not exhaustive: missing B (add an arm for each variant; there is no default arm on purpose, so a new variant is a compile error here)

@@ -75,7 +75,7 @@ fi
 echo "ok   run ($(printf '%s\n' "$out" | wc -l) lines of output)"
 
 # The application's own behavioural suite, which is a far stronger test of this language than
-# anything in tests/fixtures: 20 suites, ~1,000 checks, over the real HTTP API -- auth, MFA,
+# anything in tests/lang: 20 suites, ~1,000 checks, over the real HTTP API -- auth, MFA,
 # throttling, CORS, audit, migrations, log rotation and the resource CRUD across 65 routes. It
 # existed for some time with nothing in this repository running it, which is how nine diagnostic
 # changes on 2026-10-09 could have shipped without once exercising the application they were for.

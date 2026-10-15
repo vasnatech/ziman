@@ -1,6 +1,0 @@
-use fs
-
-fn main() {
-    print(fs.resolve("tests/fixtures/resource_path_a/shared.properties"))
-    print(fs.resolve("does/not/exist"))
-}

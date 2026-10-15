@@ -10,7 +10,7 @@
  * (bulk-freeing everything it ever allocated) when the thread ends. Known incomplete on its own,
  * exactly as MEMORY.md says: a long-lived thread's garbage isn't reclaimed until the thread exits,
  * which Phase 3's mark-sweep collector is what actually fixes. This module is inert until something
- * calls it -- landed standalone, with its own test (tests/unit/arena_test.c), before the much larger
+ * calls it -- landed standalone, with its own test (tests/c/arena_test.c), before the much larger
  * and riskier step of routing the interpreter's own allocation sites through it.
  *
  * Deliberately built on `mmap`/`munmap`, never `malloc`/`free`: this file is compiled into both the

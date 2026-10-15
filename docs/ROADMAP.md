@@ -688,7 +688,7 @@ from source.
   exhaust 5 attempts on a two-discovery task depending which error its own strategy looks at
   first. `enum_shape_area`, `filter_double` and `json_roundtrip` remain outside this fix's reach on
   purpose (a wrapper-struct convention, a cross-module qualified name, and an unrelated vocabulary
-  guess -- none an edit-distance-close name). Fixtures: `tests/fixtures/diag_let_keyword`,
+  guess -- none an edit-distance-close name). Fixtures: `tests/lang/diag_let_keyword`,
   `diag_map_as_function`, `diag_undefined_function_suggestion`, `diag_map_membership`.
 - **`#[deprecated]` and `#[experimental]` as interpreted attributes, not just
   prose.** ~~`#[deprecated]` on a *function*~~ Done 2026-10-05, in the shape this entry's own
@@ -1399,7 +1399,7 @@ from source.
   `hashset_remove`). `HashMap`/`HashSet` use real bucket-array storage
   (separate chaining, `hash(key) % bucket_count`), verified against both
   a small demo (`examples/collections/main.zm`, also
-  `tests/fixtures/multifile_collections`) and a 50-entry stress fixture
+  `tests/lang/multifile_collections`) and a 50-entry stress fixture
   (`multifile_collections_stress`) confirming collisions within a
   bucket chain correctly. Bucket count was originally fixed at creation
   (16, no resizing/rehashing) — later given real load-factor-triggered
@@ -1499,7 +1499,7 @@ from source.
   published exact value for `bigint`; scale-aligned arithmetic,
   half-up-away-from-zero division/round rounding both directions, and
   a 30-plus-digit multiply/divide round-trip for `decimal`) independent
-  of the language-level tests/fixtures harness.
+  of the language-level tests/lang harness.
 - ~~**`byte` — a fifth scalar type, motivated by wanting to represent
   raw octets (a UUID's bytes) without overloading `[int]` for it.**~~
   Implemented (docs/SYNTAX.md "Numbers", docs/DESIGN.md's "byte" entry):

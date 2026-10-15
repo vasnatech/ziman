@@ -54,7 +54,7 @@ Ok(cup x2)
 Err(name: expected a string)
 ```
 
-This program is `tests/fixtures/readme_example.zm`, run by the test suite, so it stays true. More examples are the other fixtures in `tests/fixtures/`.
+This program is `tests/lang/readme_example.zm`, run by the test suite, so it stays true. More examples are the other fixtures in `tests/lang/`.
 
 ## The language at a glance
 
@@ -209,6 +209,29 @@ runs the suite against it. `tests/bench/server_load.sh` measures memory and
 request latency on the sample backend. The collector's `GC_MARKERS` (default 2
 here) and its other environment variables apply.
 
+## Repository layout
+
+Two languages live here, and the tree says which is which. `src/` is C and nothing else --
+the interpreter, 61 `.c` files. `lib/` is Ziman and nothing else -- the standard library, compiled
+*into* the binary as generated headers, which is why there is no runtime to install and no path to
+set. Build output goes to `build/`, never beside a source.
+
+| | |
+| --- | --- |
+| `src/` | the interpreter, in C |
+| `lib/` | the standard library, in Ziman (`core/`, `db/`, `http/`, `time/`, `prelude.zm`) |
+| `tests/c/` | standalone C unit tests of the C internals |
+| `tests/lang/` | the language itself: Ziman programs and their expected output |
+| `tests/stdlib/` | `#[test]` units for the bundled modules |
+| `tests/integration/` | suites needing a database, OpenSSL or a signal (`pg/`, `mysql/`, `tls/`, `shutdown/`, `lsp/`) |
+| `tests/bench/` | benchmarks |
+| `tools/` | the generators and the source-level checks, in Python and shell |
+| `make/` | `c.mk` builds and checks the C, `ziman.mk` runs Ziman, `docs.mk` generates and checks the docs |
+
+The worked examples in `docs/lib/examples/` look like stray test code and are not: the manual
+generator includes them in the page and the suite runs them, which is how the documentation stays
+true.
+
 ## Testing
 
 ```sh
@@ -216,7 +239,7 @@ make check
 ```
 
 Everything that needs nothing but this repo and a C toolchain: every fixture in
-`tests/fixtures/` on both builds (`make test`, `make test-nogc` — see `tests/run_tests.sh`), the
+`tests/lang/` on both builds (`make test`, `make test-nogc` — see `tests/run_tests.sh`), the
 standalone C unit tests (`make unit-tests`), the TLS suite when `openssl` is on the machine
 (`make tls-if-available`, skipped with a note when it is not), the North Star application when a
 checkout of it is beside this one (`make northstar-if-available` — both its entry points

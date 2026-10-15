@@ -1,0 +1,1 @@
+ziman: type error at 4:13 in tests/lang/lambda_compare_rejected.zm: function values (fn(int) -> int) cannot be compared with '=='/'!=' -- compare a name or an id you keep alongside the function instead

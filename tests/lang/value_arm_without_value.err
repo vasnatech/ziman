@@ -1,0 +1,1 @@
+ziman: type error at 3:13 in tests/lang/value_arm_without_value.zm: every arm of an 'if'/'switch' used as a value must end with a value expression (or return/break/continue)

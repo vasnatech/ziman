@@ -1,0 +1,3 @@
+ziman: runtime error at 2:14: division by zero
+    at helper::boom (tests/lang/error_stack_trace_multifile/helper.zm:4:11)
+    at main (tests/lang/error_stack_trace_multifile/main.zm:3:1)

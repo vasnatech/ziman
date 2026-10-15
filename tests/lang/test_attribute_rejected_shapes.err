@@ -1,0 +1,17 @@
+ziman: type error at 4:1 in tests/lang/test_attribute_rejected_shapes.zm: #[test] function 'test_with_param' must take no parameters (use #[test(cases: ...)] for one)
+  |
+4 | fn test_with_param(x: int) {
+  | ^
+ziman: type error at 9:1 in tests/lang/test_attribute_rejected_shapes.zm: #[test] function 'test_bad_return' must return nothing or 'Result<unit, E>', not 'int'
+  |
+9 | fn test_bad_return() -> int {
+  | ^
+ziman: type error at 14:1 in tests/lang/test_attribute_rejected_shapes.zm: #[test(cases: nonexistent)]: no val or zero-parameter function named 'nonexistent' in this file
+   |
+14 | fn test_missing_cases(x: int) {
+   | ^
+ziman: type error at 21:1 in tests/lang/test_attribute_rejected_shapes.zm: #[test(cases: wrong_type_cases)]: 'wrong_type_cases' is '[int]', not '[string]'
+   |
+21 | fn test_wrong_case_type(x: string) {
+   | ^
+ziman: 4 errors

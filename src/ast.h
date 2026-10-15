@@ -596,7 +596,7 @@ typedef struct {
      * Memoised because `native_lookup` is a linear scan with a `strcmp` per entry over every
      * registered native, and there are 247 of them: resolving on every call cost an average of 205
      * string comparisons per native call, measured at 1,964,293 of them in a single run of
-     * tests/fixtures/yaml_basic.zm, which `perf` put at a fifth of all CPU time (`__strcmp_avx2`
+     * tests/lang/yaml_basic.zm, which `perf` put at a fifth of all CPU time (`__strcmp_avx2`
      * plus `native_lookup`, docs/DESIGN.md). A `FunctionDecl` lives as long as the program and its
      * name never changes, so one resolution per declaration is all that was ever needed. */
     void (*native_impl)(void);

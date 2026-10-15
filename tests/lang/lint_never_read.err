@@ -1,0 +1,3 @@
+tests/lang/lint_never_read.zm:14:5: warning: 'val never' is never read; remove it (or name it '_' to discard on purpose)
+tests/lang/lint_never_read.zm:15:5: warning: 'var unread' is never read; remove it (or name it '_' to discard on purpose)
+tests/lang/lint_never_read.zm:39:8: warning: 'val ignored' is never read; remove it (or name it '_' to discard on purpose)

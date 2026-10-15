@@ -1,1 +1,0 @@
-ziman: type error at 3:47 in tests/fixtures/lambda_body_type_mismatch_rejected.zm: returned int but function is declared to return string

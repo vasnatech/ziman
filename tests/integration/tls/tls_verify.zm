@@ -1,0 +1,50 @@
+use net
+use net.NetError
+use net.TlsVerify
+use net.net_error_message
+
+// Server A (127.0.0.1:55443) has a self-signed certificate valid for
+// localhost and 127.0.0.1; server B (127.0.0.1:55444) has a different
+// self-signed certificate, valid only for other.example.test. Each is its
+// own CA. Prints ok/fail plus, for a failure, which reason OpenSSL gave.
+fn get(s: net.Socket) -> string {
+    unwrap(net.write(s, bytes_concat(string_to_bytes("GET / HTTP/1.0"), [13b, 10b, 13b, 10b])))
+    return substring(unwrap(net.read_text(s, 200)), 0, 15)
+}
+
+fn reason(msg: string) -> string {
+    if contains(msg, "self-signed") {
+        return "untrusted certificate"
+    }
+    if contains(msg, "mismatch") {
+        return "host name mismatch"
+    }
+    if contains(msg, "cannot load trusted certificates") {
+        return "bad CA file"
+    }
+    return msg
+}
+
+fn attempt(label: string, host: string, port: int, verify: TlsVerify, ca: Option<string>) {
+    val r = net.connect_tls_with(host, port, verify, ca)
+    if is_ok(r) {
+        printf("{}: ok ({})\n", label, get(unwrap(r)))
+        net.close(unwrap(r))
+    } else {
+        printf("{}: FAIL {}\n", label, reason(net_error_message(unwrap_err(r))))
+    }
+}
+
+fn main() {
+    val ca_a = Option<string>.Some("tests/integration/tls/.certs/a.pem")
+    val ca_b = Option<string>.Some("tests/integration/tls/.certs/b.pem")
+    attempt("full, right CA, IP SAN", "127.0.0.1", 55443, TlsVerify.Full, ca_a)
+    attempt("full, right CA, DNS SAN", "localhost", 55443, TlsVerify.Full, ca_a)
+    attempt("full, system CAs", "127.0.0.1", 55443, TlsVerify.Full, Option<string>.None)
+    attempt("full, wrong CA", "127.0.0.1", 55443, TlsVerify.Full, ca_b)
+    attempt("full, host mismatch", "127.0.0.1", 55444, TlsVerify.Full, ca_b)
+    attempt("chain, host mismatch", "127.0.0.1", 55444, TlsVerify.Chain, ca_b)
+    attempt("off, no CA", "127.0.0.1", 55443, TlsVerify.Off, Option<string>.None)
+    attempt("bad CA file", "127.0.0.1", 55443, TlsVerify.Full, Option<string>.Some("/nonexistent.pem"))
+    print(is_ok(net.connect_tls("127.0.0.1", 55443)))
+}

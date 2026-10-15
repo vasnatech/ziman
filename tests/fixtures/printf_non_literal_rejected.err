@@ -1,1 +1,0 @@
-ziman: type error at 2:9 in tests/fixtures/printf_non_literal_rejected.zm: 'printf' requires its first argument to be a string literal, not a computed value

@@ -1,0 +1,25 @@
+ziman: type error at 2:14 in tests/lang/errors_several_functions.zm: '+' doesn't join strings (found int and string) -- use concat(a, b), or format("{}{}", a, b) for several pieces; convert a number with str(n)
+  |
+2 |     return a + "x"
+  |              ^
+ziman: type error at 7:12 in tests/lang/errors_several_functions.zm: returned int but function is declared to return string
+  |
+7 |     return n
+  |            ^
+ziman: type error at 11:18 in tests/lang/errors_several_functions.zm: cannot initialize 'x' of declared type int with a value of type string
+   |
+11 |     val x: int = "text"
+   |                  ^
+ziman: type error at 13:13 in tests/lang/errors_several_functions.zm: use of undefined variable 'undefined_name'
+   |
+13 |     val y = undefined_name + 1
+   |             ^
+ziman: type error at 17:9 in tests/lang/errors_several_functions.zm: cannot assign a value of type string to 'z' (declared as int)
+   |
+17 |     z = "s"
+   |         ^
+ziman: type error at 18:8 in tests/lang/errors_several_functions.zm: 'if' condition must be bool, found int
+   |
+18 |     if z {
+   |        ^
+ziman: 6 errors

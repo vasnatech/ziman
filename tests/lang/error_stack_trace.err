@@ -1,0 +1,4 @@
+ziman: runtime error at 2:14: division by zero
+    at innermost (tests/lang/error_stack_trace.zm:6:12)
+    at middle (tests/lang/error_stack_trace.zm:10:11)
+    at main (tests/lang/error_stack_trace.zm:9:1)

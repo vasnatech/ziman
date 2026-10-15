@@ -1,0 +1,1 @@
+tests/lang/lint_spawn_without_on_error.zm:18:5: warning: 'spawn worker' has no 'on_error' and is given a Channel: if it fails, whoever is waiting on that channel waits for ever

@@ -12,14 +12,20 @@ ziman-vg
 third_party/
 vendor/bdwgc/gc.o
 vendor/bdwgc/libgc.a
-src/*.o
+# Every build artefact now lands under build/ (objects, .d files and the generated *_source.h
+# headers); the bare *.o/*.d stay for the C unit tests, which build straight into /tmp but may be
+# compiled by hand beside their source.
+build/
 *.o
-src/*.d
 *.d
+# Kept after the 2026-10-14 move of generated headers into build/: a tree built before it still has
+# these beside the sources, and `#include "json_source.h"` is a quoted include, so the compiler
+# would prefer the stale copy next to corelib.c over the fresh one in build/. `make clean` deletes
+# them; this keeps them from showing up as untracked until someone does.
 src/*_source.h
-tests/pg/.url
-tests/tls/.certs/
-tests/pg/.certs/
+tests/integration/pg/.url
+tests/integration/tls/.certs/
+tests/integration/pg/.certs/
 editors/vscode/node_modules/
 
 # Log files the sample backend writes, relative to wherever it is run from

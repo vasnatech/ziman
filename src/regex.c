@@ -483,7 +483,7 @@ static Node *parse_atom(Parser *ps) {
                 }
                 group_name = malloc(e2 - s + 1);  /* xalloc-ok: NULL -> fail(ps) on the next line */
                 /* A fifth site, which the task did not name and the new compile-time OOM test in
-                 * tests/unit/regex_test.c found on its first run: unchecked, and the `memcpy` below
+                 * tests/c/regex_test.c found on its first run: unchecked, and the `memcpy` below
                  * writes straight through it (F127). */
                 if (group_name == NULL) { fail(ps, "out of memory"); return NULL; }
                 memcpy(group_name, ps->p + s, e2 - s);

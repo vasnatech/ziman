@@ -1,0 +1,63 @@
+use datasource
+use db.SqlValue
+use db.db_error_message
+use db.row_get
+use db.sql_as_int
+use fs
+
+fn writer(pool: datasource.Connection, base: int, done: Channel<int>) {
+    var ok = 0
+    for i in 0..25 {
+        if is_ok(datasource.execute(
+            pool,
+            "INSERT INTO my_p (id, who) VALUES ($1, $2)",
+            SqlValue.Int(base + i),
+            SqlValue.Int(base)
+        )) {
+            ok = ok + 1
+        }
+    }
+    send(done, ok)
+}
+
+fn main() {
+    val hp = trim(unwrap(fs.read_text("tests/integration/mysql/.hostport")))
+    val pool = unwrap(datasource.open_pool(format("mysql://nat_user:natpw@{}/zimandb", hp), 3))
+    unwrap(datasource.execute(pool, "DROP TABLE IF EXISTS my_p"))
+    unwrap(datasource.execute(pool, "CREATE TABLE my_p (id INT PRIMARY KEY, who INT NOT NULL) ENGINE=InnoDB"))
+
+    // eight threads borrow from a pool of three
+    val done: Channel<int> = channel_new()
+    for t in 0..8 {
+        spawn writer(pool, t * 1000, done)
+    }
+    var total = 0
+    for t in 0..8 {
+        total = total + receive(done)
+    }
+    print(total)
+    print(unwrap(sql_as_int(unwrap(row_get(
+        unwrap(datasource.query(pool, "SELECT COUNT(*) AS n FROM my_p"))[0],
+        "n"
+    )))))
+
+    // a transaction on one borrowed connection commits or rolls back as a unit
+    val tx = unwrap(datasource.acquire(pool))
+    unwrap(datasource.begin(tx))
+    unwrap(datasource.execute(tx, "INSERT INTO my_p (id, who) VALUES (900000, 1)"))
+    unwrap(datasource.rollback(tx))
+    datasource.release(pool, tx)
+    print(len(unwrap(datasource.query(pool, "SELECT * FROM my_p WHERE id = 900000"))))
+    val tx2 = unwrap(datasource.acquire(pool))
+    unwrap(datasource.begin(tx2))
+    unwrap(datasource.execute(tx2, "INSERT INTO my_p (id, who) VALUES (900000, 1)"))
+    unwrap(datasource.commit(tx2))
+    datasource.release(pool, tx2)
+    print(len(unwrap(datasource.query(pool, "SELECT * FROM my_p WHERE id = 900000"))))
+
+    // a transaction needs an exclusive connection
+    print(db_error_message(unwrap_err(datasource.begin(pool))))
+
+    unwrap(datasource.execute(pool, "DROP TABLE my_p"))
+    datasource.close(pool)
+}

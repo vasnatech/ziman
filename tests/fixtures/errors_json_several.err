@@ -1,2 +1,0 @@
-{"severity":"error","phase":"type","file":"tests/fixtures/errors_json_several.zm","line":1,"col":26,"context":null,"message":"returned string but function is declared to return int"}
-{"severity":"error","phase":"type","file":"tests/fixtures/errors_json_several.zm","line":2,"col":26,"context":null,"message":"returned string but function is declared to return int"}

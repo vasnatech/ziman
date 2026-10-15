@@ -10,7 +10,7 @@ BIN=${BIN:-./ziman}
 check_signal() {
     local sig="$1" out
     out=$(mktemp)
-    "$BIN" tests/shutdown/accept_loop.zm > "$out" 2>&1 &
+    "$BIN" tests/integration/shutdown/accept_loop.zm > "$out" 2>&1 &
     local pid=$!
     for _ in $(seq 1 50); do grep -q listening "$out" 2>/dev/null && break; sleep 0.1; done
     kill "-$sig" "$pid" 2>/dev/null
@@ -32,7 +32,7 @@ check_signal() {
 check_serve() {
     local out
     out=$(mktemp)
-    "$BIN" tests/shutdown/serve.zm > "$out" 2>&1 &
+    "$BIN" tests/integration/shutdown/serve.zm > "$out" 2>&1 &
     local pid=$!
     for _ in $(seq 1 50); do grep -q "^listening" "$out" 2>/dev/null && break; sleep 0.1; done
     local port

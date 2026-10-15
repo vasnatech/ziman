@@ -137,7 +137,7 @@ lines in `zgc.h`.
 return value_int(args[0].as.i << args[1].as.i);
 ```
 
-UBSan without `-fwrapv` reports it, from `tests/fixtures/bitset.zm` and from a four-line repro:
+UBSan without `-fwrapv` reports it, from `tests/lang/bitset.zm` and from a four-line repro:
 
 ```
 $ ./ziman-ubsan-nowrapv shl63.zm

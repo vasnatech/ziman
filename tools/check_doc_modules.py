@@ -43,6 +43,16 @@ ALLOW = {
     ("docs/SYNTAX.md", "server.port"),
 }
 
+# A span whose right-hand side is a file extension is a filename, not a call: `prelude.zm`,
+# `arena.c`, `tasks.md`. This matters only when the left-hand side is also a real module name --
+# `prelude.zm` is the case that found this -- because every other filename is skipped already by
+# not naming a module. Checked against the whole corpus: 113 distinct non-module left-hand names
+# appear in these docs and they are overwhelmingly filenames.
+FILE_EXTENSIONS = {
+    "zm", "c", "h", "py", "sh", "md", "json", "toml", "yaml", "yml", "sql", "txt", "mk",
+    "out", "args", "err", "env", "properties", "lock", "log", "o", "d", "a", "so",
+}
+
 SPAN = re.compile(r"`([^`\n]+)`")
 QUAL = re.compile(r"^([a-z][a-z0-9_]*)\.([a-z_][a-z0-9_]*)")
 USE = re.compile(r"^\s*use\s+([a-z][a-z0-9_/]*)")
@@ -120,6 +130,8 @@ def main():
                     continue
                 mod, member = m.group(1), m.group(2)
                 if (rel, span.strip()) in ALLOW:
+                    continue
+                if member in FILE_EXTENSIONS and span.strip() == f"{mod}.{member}":
                     continue
                 if retired and mod in retired:
                     problems.append(

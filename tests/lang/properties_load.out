@@ -1,0 +1,11 @@
+9090
+false
+sqlite::memory:
+4
+active profile: dev
+server.port=9090 (tests/lang/props_conf/application-dev.properties:1)
+server.extra=yes (tests/lang/props_conf/application-dev.properties:2)
+datasource.url=sqlite::memory: (tests/lang/props_conf/application.properties:4)
+datasource.pool-size=4 (tests/lang/props_conf/application.properties:5)
+
+Err(cannot read 'tests/lang/props_conf/missing.properties': No such file or directory)

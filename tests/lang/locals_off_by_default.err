@@ -1,0 +1,2 @@
+    at boom (tests/lang/locals_off_by_default.zm:10:11)
+    at main (tests/lang/locals_off_by_default.zm:9:1)

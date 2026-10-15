@@ -1,0 +1,29 @@
+use client
+use http
+use http.HttpMethod
+
+// `openssl s_server -www` on 127.0.0.1:55443 answers GET with an HTTP/1.0 status page and closes.
+fn main() {
+    val ok = client.request(
+        method: HttpMethod.Get,
+        url: "https://127.0.0.1:55443/",
+        ca_file: "tests/integration/tls/.certs/a.pem"
+    )
+    if is_ok(ok) {
+        print(unwrap(ok).status)
+        print(contains(unwrap(bytes_to_string(unwrap(ok).body)), "s_server"))
+    } else {
+        print(error_message(unwrap_err(ok)))
+    }
+
+    val untrusted = client.get("https://127.0.0.1:55443/")
+    print(is_ok(untrusted))
+    print(contains(error_message(unwrap_err(untrusted)), "TLS error"))
+
+    val mismatch = client.request(
+        method: HttpMethod.Get,
+        url: "https://127.0.0.1:55444/",
+        ca_file: "tests/integration/tls/.certs/b.pem"
+    )
+    print(is_ok(mismatch))
+}

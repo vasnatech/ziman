@@ -45,7 +45,7 @@ language's error messages are what carries a model to a working program, so a ta
 looking at the diagnostics would be marking its own homework -- it would measure the messages that
 already exist, and the 2026-09-28 report's own finding (that a diagnostic naming an exact fix is
 what let a model self-correct) is exactly the kind of result that would be manufactured by it. None
-of the 40 was picked from an error message, a `tests/fixtures/diag_*` case, or a known habit
+of the 40 was picked from an error message, a `tests/lang/diag_*` case, or a known habit
 collision.
 
 **The line drawn instead.** Tasks were chosen from what ordinary small programs *do* -- strings,
